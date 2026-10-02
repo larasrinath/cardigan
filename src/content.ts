@@ -1,6 +1,6 @@
 import { analyseApp } from "./analyse.js";
 import { describeProbe, greetFrames, runInCore, watchCore, watchProbes, type CoreHandle, type FrameProbe } from "./bridge.js";
-import { mountOnce } from "./panel.js";
+import { MODEL_EXPORT_PANEL, mountOnce } from "./panel.js";
 import { RestError } from "./rest.js";
 
 /** The page the user sees. On an app page, "Analyse app" exports its pages. On a Model Building page, "Export model"
@@ -30,10 +30,7 @@ if (window.top === window) {
   watchProbes(window, probe => { probes.set(`${probe.host}${probe.path}`, probe); });
   mountOnce({
     id: "model-export-shell",
-    launchLabel: "Export model",
-    title: "Model export",
-    description: "Exports this model's Model settings (line items, modules, lists, actions, time ranges, versions and source models) and the model calendar as CSV files. It only reads.",
-    startLabel: "Export model",
+    ...MODEL_EXPORT_PANEL,
     subject: () => MODEL_PATH.exec(location.pathname)?.[1],
     run: async (model, progress) => {
       // The model's own frame (the classic client inside this page) does the reading; wait for it to check in.

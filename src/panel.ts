@@ -21,6 +21,15 @@ export interface PanelOptions {
   describeError?(error: unknown): string | undefined;
 }
 
+/** What the model export's panel says, on the Model Building page (content.ts) and on the classic model page opened on
+ * its own (model-content.ts). Each mounts it under its own `id`. */
+export const MODEL_EXPORT_PANEL: Pick<PanelOptions, "launchLabel" | "title" | "description" | "startLabel"> = {
+  launchLabel: "Export model",
+  title: "Model export",
+  description: "Exports this model's Model settings (line items, modules, lists, actions, time ranges, versions and source models) and the model calendar as CSV files. It only reads.",
+  startLabel: "Export model",
+};
+
 const MAX_LOG_LINES = 3000;
 const STYLE = `
   :host { all: initial; }
