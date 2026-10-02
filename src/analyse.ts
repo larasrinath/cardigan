@@ -1,6 +1,6 @@
 import { describePageCards } from "../../../src/domains/ux-designer/card-details.js";
 import { nameCardDetails } from "../../../src/domains/ux-designer/card-naming.js";
-import type { UxPageCardDetails } from "../../../src/domains/ux-designer/card-types.js";
+import type { UxEntityRef, UxPageCardDetails } from "../../../src/domains/ux-designer/card-types.js";
 import type { UxPageType } from "../../../src/domains/ux-designer/definition-types.js";
 import {
   addActions, addLineItems, addLists, addModuleDimensions, addModuleViews, addSelections, applicableModuleIds, emptyCatalog, resolveFromCatalog,
@@ -139,6 +139,40 @@ export function addDerivedContextSelectors(details: UxPageCardDetails, catalog: 
   return details;
 }
 
+/** Import, export and process names. A model in another data centre is served from its own host: the page's host
+ * answered the first live run with a redirect, which a same-origin read refuses (a network error). `modelHost` is the
+ * host the model data service settled on, when it connected. */
+async function readActionNames(scope: ModelScope, refs: readonly UxEntityRef[], modelHost: string | undefined, catalog: ModelCatalog,
+  progress: Progress): Promise<{ notes: string[]; failedActionTypes: string[] }> {
+  const { workspaceId: ws, modelId: model } = scope;
+  const notes: string[] = [];
+  const failedActionTypes: string[] = [];
+  const actionTypes = new Set(refs.filter(ref => ref.kind === "action").map(ref => ref.actionType));
+  for (const [type, key] of [["IMPORT", "imports"], ["EXPORT", "exports"], ["PROCESS", "processes"]] as const) {
+    if (!actionTypes.has(type)) continue;
+    const path = `/a/collaboration-actions-service/workspaces/${ws}/models/${model}/${key}`;
+    const hosts = [...new Set([location.host, ...(modelHost ? [modelHost] : [])])];
+    let problem: string | undefined;
+    for (const host of hosts) {
+      try {
+        const before = catalog.actions.size;
+        addActions(catalog, key, await getJson(path, { host }));
+        progress.log(`${scope.modelName}: ${catalog.actions.size - before} ${key} named (from ${host})`);
+        problem = undefined;
+        break;
+      } catch (error) {
+        progress.log(`${scope.modelName}: ${key} from ${host} answered ${message(error)}`);
+        problem ??= message(error);
+      }
+    }
+    if (problem) {
+      failedActionTypes.push(type);
+      notes.push(`${scope.modelName}: could not read the model's ${key} (${problem}); their buttons show the card label.`);
+    }
+  }
+  return { notes, failedActionTypes };
+}
+
 /** Names for one model. Like Page Builder, it asks for the data straight away and lets the service load the model: a
  * model that is not open reports status UNKNOWN until a data request loads it (observed live, 28 Sep 2026), so the
  * status is watched and logged, never waited for. A connection-level error such as REDIRECTION_REQUIRED fails every
@@ -148,7 +182,6 @@ export async function loadCatalog(scope: ModelScope, pages: readonly UxPageCardD
   const { workspaceId: ws, modelId: model } = scope;
   const catalog = emptyCatalog();
   const notes: string[] = [];
-  const failedActionTypes: string[] = [];
   for (const [guid, pageName] of pageNames) catalog.pages.set(guid, pageName);
   const refs = pages.flatMap(page => page.references);
   if (!SCOPE_ID.test(ws) || !SCOPE_ID.test(model)) {
@@ -292,34 +325,11 @@ export async function loadCatalog(scope: ModelScope, pages: readonly UxPageCardD
     notes.push(`${scope.modelName}: names from the model data service were not available (${message(error)}); IDs are shown instead.`);
   }
 
-  // Import, export and process names. A model in another data centre is served from its own host: the page's host
-  // answered the first live run with a redirect, which a same-origin read refuses (a network error).
-  const actionTypes = new Set(refs.filter(ref => ref.kind === "action").map(ref => ref.actionType));
-  for (const [type, key] of [["IMPORT", "imports"], ["EXPORT", "exports"], ["PROCESS", "processes"]] as const) {
-    if (!actionTypes.has(type)) continue;
-    const path = `/a/collaboration-actions-service/workspaces/${ws}/models/${model}/${key}`;
-    const hosts = [...new Set([location.host, ...(modelHost ? [modelHost] : [])])];
-    let problem: string | undefined;
-    for (const host of hosts) {
-      try {
-        const before = catalog.actions.size;
-        addActions(catalog, key, await getJson(path, { host }));
-        progress.log(`${scope.modelName}: ${catalog.actions.size - before} ${key} named (from ${host})`);
-        problem = undefined;
-        break;
-      } catch (error) {
-        progress.log(`${scope.modelName}: ${key} from ${host} answered ${message(error)}`);
-        problem ??= message(error);
-      }
-    }
-    if (problem) {
-      failedActionTypes.push(type);
-      notes.push(`${scope.modelName}: could not read the model's ${key} (${problem}); their buttons show the card label.`);
-    }
-  }
+  const actions = await readActionNames(scope, refs, modelHost, catalog, progress);
+  notes.push(...actions.notes);
   progress.log(`${scope.modelName}: ${catalog.modules.size} modules, ${catalog.views.size} saved views, ${catalog.dimensions.size} dimensions, `
     + `${catalog.lineItems.size} line items (${catalog.lineItemModules.size} modules read), ${catalog.actions.size} actions`);
-  return { catalog, notes, failedActionTypes };
+  return { catalog, notes, failedActionTypes: actions.failedActionTypes };
 }
 
 /** File names in the model export's style (asked for by the user, 28 Sep 2026); App Details.csv comes first. */
