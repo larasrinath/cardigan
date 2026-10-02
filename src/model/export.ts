@@ -1,5 +1,6 @@
 import { DETAILS_HEADERS, diagnosticRows, exportRows, type DetailRow } from "../details.js";
 import type { Log, Progress, TaskResult } from "../panel.js";
+import { fileSafe } from "../util.js";
 import { toCsv, zipStore } from "../zip.js";
 import { actionKind, mergeImports, missingActionColumns, type ActionKind } from "./actions.js";
 import { CALENDAR_HEADERS, calendarRows } from "./calendar.js";
@@ -24,10 +25,6 @@ const HOW_TO_READ: readonly [detail: string, value: string][] = [
 ];
 
 const text = (value: unknown): string | undefined => (typeof value === "string" && value ? value : undefined);
-
-function fileSafe(value: string): string {
-  return value.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 80) || "model";
-}
 
 export async function exportModel(progress: Progress, diagnostics: () => string): Promise<TaskResult> {
   const log: Log = progress.log;
@@ -139,5 +136,5 @@ export async function exportModel(progress: Progress, diagnostics: () => string)
   ];
   files.unshift({ name: "Model Details.csv", data: encoder.encode(toCsv(DETAILS_HEADERS, details)) });
   const date = new Date().toISOString().slice(0, 10);
-  return { zip: zipStore(files), fileName: `${fileSafe(model)} - Model Export - ${date}.zip`, summary: [...summary, ...notes] };
+  return { zip: zipStore(files), fileName: `${fileSafe(model, "model")} - Model Export - ${date}.zip`, summary: [...summary, ...notes] };
 }
