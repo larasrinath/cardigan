@@ -10,12 +10,12 @@ import { DETAILS_HEADERS, diagnosticRows, exportRows, type DetailRow } from "./d
 import { buildReport, HEADERS, LINE_ITEMS, NONE, PAGE_TYPE, type PageInput, type Report, type TabName } from "./report.js";
 import { getJson, RestError } from "./rest.js";
 import { StompConnection, StompError, type Log } from "./stomp.js";
+import { ANAPLAN_HOST, fileSafe, SCOPE_ID } from "./util.js";
 import { toCsv, zipStore } from "./zip.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Obj = Record<string, any>;
 const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const SCOPE_ID = /^[0-9A-Za-z]{32}$/;
 const ENTITY_ID = /^[1-9]\d{0,17}$/;
 const DEFINITION = "/a/springboard-definition-service/";
 const PAGE_TYPES: UxPageType[] = ["BOARD", "GRID-PAGE", "REPORT"];
@@ -76,7 +76,7 @@ async function withSocket<T>(customerId: string, log: Log, work: (connection: St
       }, log);
       return await work(connection, host);
     } catch (error) {
-      if (attempt === 0 && error instanceof StompError && error.code === "REDIRECTION_REQUIRED" && error.fqdn && /^[a-z0-9.-]+\.anaplan\.com$/i.test(error.fqdn)) {
+      if (attempt === 0 && error instanceof StompError && error.code === "REDIRECTION_REQUIRED" && error.fqdn && ANAPLAN_HOST.test(error.fqdn)) {
         log(`redirected to ${error.fqdn}`);
         host = error.fqdn;
         continue;
@@ -339,10 +339,6 @@ const HOW_TO_READ: readonly [detail: string, value: string][] = [
   ["Long IDs", "IDs of 12 or more digits are written as text so Excel shows every digit; the formula bar shows them as =\"…\"."],
 ];
 
-function fileSafe(value: string): string {
-  return value.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 80) || "app";
-}
-
 export async function analyseApp(appGuid: string, progress: Progress, diagnostics: () => string): Promise<AnalysisResult> {
   if (!GUID.test(appGuid)) throw new Error("Open an app first: the address has no app ID.");
   progress.status("Reading the app…");
@@ -453,7 +449,7 @@ export async function analyseApp(appGuid: string, progress: Progress, diagnostic
   ];
   const date = new Date().toISOString().slice(0, 10);
   return {
-    report, zip: zipStore(files), fileName: `${fileSafe(appName)} - App Export - ${date}.zip`,
+    report, zip: zipStore(files), fileName: `${fileSafe(appName, "app")} - App Export - ${date}.zip`,
     summary: [`${analysed} of ${inputs.length} pages analysed, ${cards} cards.`, ...summary],
   };
 }
