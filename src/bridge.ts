@@ -1,3 +1,4 @@
+import { stampLine } from "./details.js";
 import type { Progress, TaskResult } from "./panel.js";
 import { SCOPE_ID } from "./util.js";
 
@@ -125,7 +126,7 @@ export function serveCore(self: MessageTarget, top: Endpoint, modelId: () => str
     const reply = (message: Message, transfer: Transferable[] = []) => top.postMessage({ protocol: PROTOCOL, nonce: data.nonce, ...message }, origin, transfer);
     const lines: string[] = [];
     // Stamped like the panel's own log, so Model Details.csv gives every diagnostic line its time.
-    const stamp = (text: string) => lines.push(`${new Date().toISOString().slice(11, 19)} ${text}`);
+    const stamp = (text: string) => lines.push(stampLine(text));
     const progress: Progress = {
       status: text => { stamp(text); reply({ type: "status", text }); },
       log: line => { stamp(line); reply({ type: "log", text: line }); },

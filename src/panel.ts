@@ -1,3 +1,4 @@
+import { stampLine } from "./details.js";
 import { VERSION } from "./version.js";
 
 /** The floating button and progress panel shared by the app page analysis and the model export. Nothing runs until the
@@ -118,7 +119,7 @@ export class ToolPanel {
   }
 
   private log = (line: string): void => {
-    this.lines.push(`${new Date().toISOString().slice(11, 19)} ${line}`);
+    this.lines.push(stampLine(line));
     if (this.lines.length > MAX_LOG_LINES) this.lines.splice(0, this.lines.length - MAX_LOG_LINES);
     this.logView.textContent = this.lines.slice(-40).join("\n");
     this.logView.scrollTop = this.logView.scrollHeight;
