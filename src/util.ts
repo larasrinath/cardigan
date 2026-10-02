@@ -3,7 +3,8 @@
 
 /** An Anaplan host name. A cross-host read, a socket redirect and a socket close reason are all checked against it. */
 export const ANAPLAN_HOST = /^[a-z0-9.-]+\.anaplan\.com$/i;
-/** A workspace or model ID. */
+/** A workspace or model ID as the analyzer has always accepted it in page paths and messages: 32 letters or digits. This is
+ * looser than SAM's own 32-hexadecimal ANAPLAN_ID (src/access/anaplan-id.ts) and is kept as it was. */
 export const SCOPE_ID = /^[0-9A-Za-z]{32}$/;
 
 // Page definitions, socket payloads and described cards are JSON of no fixed shape; fields are read defensively.
