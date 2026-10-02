@@ -7,9 +7,10 @@ import {
   unresolvedFilterItems, viewLayoutFromMetadata, type ModelCatalog,
 } from "./catalog.js";
 import { DETAILS_HEADERS, diagnosticRows, exportRows, type DetailRow } from "./details.js";
-import { buildReport, HEADERS, LINE_ITEMS, NONE, PAGE_TYPE, type PageInput, type Report, type TabName } from "./report.js";
+import type { Log, Progress, TaskResult } from "./panel.js";
+import { buildReport, HEADERS, LINE_ITEMS, NONE, PAGE_TYPE, type PageInput, type TabName } from "./report.js";
 import { getJson, RestError } from "./rest.js";
-import { StompConnection, StompError, type Log } from "./stomp.js";
+import { StompConnection, StompError } from "./stomp.js";
 import { ANAPLAN_HOST, fileSafe, SCOPE_ID } from "./util.js";
 import { toCsv, zipStore } from "./zip.js";
 
@@ -25,9 +26,6 @@ const MAX_EXTRA_MODULES = 60;
 /** A model that is not open loads on the first data request, which can take minutes. */
 const LOAD_MS = 300_000;
 const LINE_ITEMS_MS = 120_000;
-
-export interface Progress { status(text: string): void; log: Log }
-export interface AnalysisResult { report: Report; zip: Uint8Array<ArrayBuffer>; fileName: string; summary: string[] }
 
 const list = (value: unknown): Obj[] => (Array.isArray(value) ? value.filter(item => item && typeof item === "object") : []);
 const text = (value: unknown): string | undefined => (typeof value === "string" && value ? value : undefined);
@@ -339,7 +337,7 @@ const HOW_TO_READ: readonly [detail: string, value: string][] = [
   ["Long IDs", "IDs of 12 or more digits are written as text so Excel shows every digit; the formula bar shows them as =\"…\"."],
 ];
 
-export async function analyseApp(appGuid: string, progress: Progress, diagnostics: () => string): Promise<AnalysisResult> {
+export async function analyseApp(appGuid: string, progress: Progress, diagnostics: () => string): Promise<TaskResult> {
   if (!GUID.test(appGuid)) throw new Error("Open an app first: the address has no app ID.");
   progress.status("Reading the app…");
   const app = (await getJson(`${DEFINITION}apps/${appGuid}?includeUnpublished=true&includeReportPages=true`, { apiVersion: "2" })) as Obj;
@@ -449,7 +447,7 @@ export async function analyseApp(appGuid: string, progress: Progress, diagnostic
   ];
   const date = new Date().toISOString().slice(0, 10);
   return {
-    report, zip: zipStore(files), fileName: `${fileSafe(appName, "app")} - App Export - ${date}.zip`,
+    zip: zipStore(files), fileName: `${fileSafe(appName, "app")} - App Export - ${date}.zip`,
     summary: [`${analysed} of ${inputs.length} pages analysed, ${cards} cards.`, ...summary],
   };
 }

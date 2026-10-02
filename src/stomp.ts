@@ -1,3 +1,4 @@
+import type { Log } from "./panel.js";
 import { ANAPLAN_HOST } from "./util.js";
 
 /** A minimal STOMP client for Page Builder's widget data socket (traced in the designer bundle, 27 Sep 2026: CONNECT
@@ -5,7 +6,6 @@ import { ANAPLAN_HOST } from "./util.js";
  * data writes, so this client can only subscribe: any other command or action type is refused before it is sent. */
 
 export interface StompFrame { command: string; headers: Record<string, string>; body: string }
-export type Log = (line: string) => void;
 
 const CLIENT_COMMANDS = new Set(["CONNECT", "SUBSCRIBE", "UNSUBSCRIBE", "SEND", "DISCONNECT"]);
 /** Each subscription sends its options once, as Page Builder's first revision (eight digits, zero-padded). */
