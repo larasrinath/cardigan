@@ -1,11 +1,9 @@
 import type { UxPageCardDetails } from "../../../src/domains/ux-designer/card-types.js";
+import { list, type Obj } from "./util.js";
 
 /** The analyser's seven tables, in the format agreed on the template (27 Sep 2026). Input is the named card description
  * SAM's describe_ux_page_cards also returns; everything here is presentation. */
 
-// Described cards are bounded JSON projections; optional sections are read defensively.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Obj = Record<string, any>;
 export type Cell = string | number;
 export interface Table { headers: string[]; rows: Cell[][] }
 export type Report = Record<TabName, Table>;
@@ -70,7 +68,6 @@ const VIEW_TYPE: Record<string, string> = { customView: "Custom view", savedView
 const VIEW_ORDER = ["Custom view", "Saved view", "Combined grid"];
 const IN_MODEL = "Set in the model (saved view)";
 
-const list = (value: unknown): Obj[] => (Array.isArray(value) ? value.filter(item => item && typeof item === "object") : []);
 const capitalize = (text: string) => text.charAt(0).toUpperCase() + text.slice(1).toLowerCase();
 const unique = <T>(values: T[]): T[] => [...new Set(values)];
 
