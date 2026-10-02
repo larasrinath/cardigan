@@ -114,6 +114,41 @@ const arrays = (levels: number) => { let nested: unknown = []; for (let i = 0; i
 const wrap = (inner: unknown, levels: number) => { let nested = inner; for (let i = 0; i < levels; i++) nested = { child: nested }; return nested; };
 /** A page whose list ends with `last` as the 150,001st value: the page and the list are the first two. */
 const lastOverBound = (last: unknown) => ({ list: [...new Array(149_998).fill(0), last] });
+const zeros = (length: number) => new Array(length).fill(0);
+const keyed = (length: number) => Object.fromEntries(Array.from({ length }, (_, index) => [`k${index}`, 0]));
+/** Pages of 150,000 values plus `over`, which no single list or object holds. */
+const spreadValues = (over: number): unknown[] => [
+  // The page, two lists or objects, and 149,997 values in them.
+  { first: zeros(75_000), second: zeros(74_997 + over) },
+  { first: keyed(75_000), second: keyed(74_997 + over) },
+  { first: zeros(75_000), second: keyed(74_997 + over) },
+  // The page, 30 nested objects, a list of 100,000 values at level 31, and a later list of 49,967.
+  { deep: wrap(zeros(100_000), 30), later: zeros(49_967 + over) },
+  // The page, a list of 49,999 objects with two values each, and a last list.
+  { cards: Array.from({ length: 49_999 }, () => ({ row: 0, column: 0 })), last: zeros(over) },
+];
+/** Pages of 8,000,000 string characters plus `over`, which no single list or object holds or which lie well below the
+ * page; an unsafe key follows the strings. */
+const spreadStrings = (over: number): unknown[] => {
+  const [million, half, rest, whole] = [1_000_000, 4_000_000, 4_000_000 + over, 8_000_000 + over].map(length => "x".repeat(length));
+  return [
+    { first: { text: half }, second: { text: rest }, extra: unsafeKey() },
+    { first: [half], second: [rest], extra: unsafeKey() },
+    { first: { text: half }, second: [rest], extra: unsafeKey() },
+    { first: half, second: { text: rest }, extra: unsafeKey() },
+    { first: [half], second: rest, extra: unsafeKey() },
+    // One string three levels down, as real pages hold their text (widgets.<id>.text), and at level 40.
+    { widgets: { card: { text: whole } }, extra: unsafeKey() },
+    { widgets: { card: { texts: [whole] } }, extra: unsafeKey() },
+    { nested: wrap(whole, 39), extra: unsafeKey() },
+    { nested: wrap([whole], 38), extra: unsafeKey() },
+    // Eight strings on five levels.
+    { title: million, rows: [million, { text: million, notes: [million] }], widgets: { card: { text: million, tabs: [[million]] } },
+      footer: [million, "x".repeat(1_000_000 + over)], extra: unsafeKey() },
+  ];
+};
+/** `value` two and three levels below the page, and at level 40, the deepest the traversal allows. */
+const below = (value: unknown): unknown[] => [{ outer: { inner: value } }, { rows: [[value]] }, { nested: wrap(value, 39) }, { nested: wrap([value], 38) }];
 // Written out here, not imported: a type dropped from the shared list must fail a test.
 const NATIVE_CARD_TYPES = ["TEXT", "TABLE", "CARD", "COMBOCHART", "IMAGE", "FIELD", "ACTION", "MAP", "PRESENTATION_TABLE", "SHAPE", "HIERARCHY", "NETWORK", "WEB_XL"];
 const referenceKeys = (result: UxPageCardDetails) => result.references.map(item => `${item.kind}:${item.id}:${item.moduleId ?? ""}`);
@@ -705,6 +740,34 @@ describe("UX card details, tolerant read of native pages", () => {
     expect(result.pageContext.unrecognised).toEqual(["first", "second"].flatMap(key => list.map((value, index) => ({ path: `${key}[${index}]`, valueType: "number", value }))));
   });
 
+  it("counts values over the whole page, not within one list or object", () => {
+    // A copy within the bound goes on to the identity check.
+    for (const page of spreadValues(0)) errorText(() => describePageCards("BOARD", page), "UNSUPPORTED_DEFINITION", NO_IDENTITY);
+    for (const page of spreadValues(1)) errorText(() => describePageCards("BOARD", page), "DEFINITION_TOO_LARGE", TRAVERSAL_BOUND);
+  });
+
+  it("counts string characters over the whole page, at every level", () => {
+    // The count stops the copy before it reaches the unsafe key.
+    for (const page of spreadStrings(1)) errorText(() => describePageCards("BOARD", page), "DEFINITION_TOO_LARGE", CHARACTER_BOUND);
+    // Exactly 8,000,000 characters are within the count.
+    for (const page of spreadStrings(0)) errorText(() => describePageCards("BOARD", page), "UNSUPPORTED_DEFINITION", UNSAFE_KEY);
+  });
+
+  it("checks prototypes, numbers and keys at every level, not only near the page", () => {
+    for (const instance of [new Date(0), new Map(), new (class Page {})()]) {
+      for (const page of below(instance)) errorText(() => describePageCards("BOARD", page), "UNSUPPORTED_DEFINITION", "Unexpected object prototype.");
+    }
+    // JSON.parse reads -1e999 as -Infinity.
+    for (const invalid of [JSON.parse("-1e999"), Number.NaN]) {
+      for (const page of below(invalid)) errorText(() => describePageCards("BOARD", page), "UNSUPPORTED_DEFINITION", "Page definitions must contain only JSON values.");
+    }
+    for (const page of below(JSON.parse('{"__proto__":1}'))) errorText(() => describePageCards("BOARD", page), "UNSUPPORTED_DEFINITION", UNSAFE_KEY);
+    // The same places take a plain object, an object without a prototype and a number.
+    for (const value of [{}, Object.create(null), -0.5]) {
+      for (const page of below(value)) errorText(() => describePageCards("BOARD", page), "UNSUPPORTED_DEFINITION", NO_IDENTITY);
+    }
+  });
+
   it("treats unsafe keys inside embedded JSON as malformed rather than throwing", () => {
     const chart = { ...common(guid(131), "COMBOCHART", ""), chartConfig: '{"chartType":"bar","__proto__":{"polluted":true}}' };
     const result = describePageCards("BOARD", boardOf(chart));
@@ -735,6 +798,25 @@ describe("UX card details, tolerant read of native pages", () => {
     expect(chartWith(arrays(40)).warnings).toEqual(malformed);
     expect(chartWith([chain(38)]).warnings).toEqual([]);
     expect(chartWith([chain(39)]).warnings).toEqual(malformed);
+  });
+
+  it("rejects unsafe keys at every level of embedded JSON", () => {
+    const chartWith = (extra: Obj) => describePageCards("BOARD", boardOf({ ...common(guid(131), "COMBOCHART", ""), chartConfig: JSON.stringify({ chartType: "bar", ...extra }) }));
+    // One level down, inside lists, and at level 39: the config is level 0 and the key's value level 40, the deepest allowed.
+    const places = (inner: unknown): Obj[] => [{ nested: inner }, { points: [inner] }, { points: [[{ style: inner }]] }, { deep: wrap(inner, 38) }];
+    for (const key of ["__proto__", "prototype", "constructor"]) {
+      for (const config of places(JSON.parse(`{"${key}":1}`))) {
+        const result = chartWith(config);
+        expect(card(result, guid(131)).chart).toBeUndefined();
+        expect(result.warnings).toEqual([`Card ${guid(131)}: chartConfig is not a valid JSON object.`]);
+      }
+    }
+    // The same places with an ordinary key are read.
+    for (const config of places({ proto: 1 })) {
+      const result = chartWith(config);
+      expect(card(result, guid(131)).chart).toEqual({ chartType: "bar" });
+      expect(result.warnings).toEqual([]);
+    }
   });
 });
 
