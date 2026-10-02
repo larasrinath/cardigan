@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { describeProbe, PROTOCOL, runInCore, serveCore, watchCore, watchProbes, type CoreHandle, type Endpoint, type FrameProbe } from "./bridge.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { describeProbe, probeFrame, PROTOCOL, runInCore, serveCore, watchCore, watchProbes, type CoreHandle, type Endpoint, type FrameProbe } from "./bridge.js";
 import type { Progress, TaskResult } from "./panel.js";
 
 /** Two windows that talk like browser windows: posting to a window as another window holds it delivers a cloned message
@@ -35,6 +35,8 @@ const collect = () => {
 };
 
 describe("Model export bridge between the Model Building page and the model's core frame", () => {
+  afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
+
   it("shows the core frame to the page, runs the export there and brings the zip back", async () => {
     const shell = new FakeWindow("https://us1a.app.anaplan.com");
     const core = new FakeWindow("https://eu2a.app.anaplan.com");
@@ -122,6 +124,50 @@ describe("Model export bridge between the Model Building page and the model's co
     await new Promise(resolve => setTimeout(resolve, 30));
     expect(announcements).toBe(seen);
     await expect(runInCore(shell, found!, collect().progress)).rejects.toThrow("This model page has no REMOTE_MODEL axis.");
+    stop();
+  });
+
+  it("accepts a core frame only when it names a 32-character model ID", async () => {
+    const shell = new FakeWindow("https://us1a.app.anaplan.com");
+    const core = new FakeWindow("https://eu2a.app.anaplan.com");
+    const found: string[] = [];
+    watchCore(shell, handle => { found.push(handle.modelId); });
+    for (const modelId of [MODEL.slice(1), `${MODEL}0`, MODEL.replace("F", "-"), "", 42, undefined, MODEL.toLowerCase()]) {
+      shell.seenBy(core).postMessage({ protocol: PROTOCOL, type: "core-ready", modelId }, "*");
+    }
+    await settle();
+    expect(found).toEqual([MODEL.toLowerCase()]);
+  });
+
+  it("reports a frame's model and workspace as shapes, never as values", () => {
+    const page: Record<string, unknown> = { require: () => undefined, modelId: MODEL, workspaceId: "0123456789abcdef" };
+    page.top = page;
+    vi.stubGlobal("window", page);
+    vi.stubGlobal("location", { host: "eu2a.app.anaplan.com", pathname: `/a/modeling/customers/0123456789abcdef0123456789abcdef/models/${MODEL}/modules` });
+    expect(probeFrame()).toEqual({ host: "eu2a.app.anaplan.com", path: "/a/modeling/customers/<id>/models/<id>/modules", top: true,
+      loader: "function", model: "id", workspace: "text(16)" });
+    vi.stubGlobal("window", { top: page, modelId: 7 });
+    expect(probeFrame()).toMatchObject({ top: false, loader: "undefined", model: "number", workspace: "undefined" });
+  });
+
+  it("stamps every status and log line of the core frame's diagnostics with its time", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(Date.UTC(2026, 8, 28, 1, 59, 9)));
+    const shell = new FakeWindow("https://us1a.app.anaplan.com");
+    const core = new FakeWindow("https://eu2a.app.anaplan.com");
+    let found: CoreHandle | undefined;
+    watchCore(shell, handle => { found = handle; });
+    let diagnostic = "";
+    const stop = serveCore(core, shell.seenBy(core), () => MODEL, async (progress, diagnostics) => {
+      progress.status("Reading Line Items…");
+      vi.setSystemTime(new Date(Date.UTC(2026, 8, 28, 13, 0, 59, 999)));
+      progress.log("Line Items: 3 rows × 2 columns");
+      diagnostic = diagnostics();
+      return { zip: new Uint8Array(), fileName: "x", summary: [] };
+    }, 5);
+    await settle();
+    await runInCore(shell, found!, collect().progress);
+    expect(diagnostic).toBe("01:59:09 Reading Line Items…\r\n13:00:59 Line Items: 3 rows × 2 columns");
     stop();
   });
 });
