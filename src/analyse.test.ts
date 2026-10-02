@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { UxPageCardDetails } from "../../../src/domains/ux-designer/card-types.js";
 import { analyseApp, loadCatalog } from "./analyse.js";
+import { NOT_SCOPE_IDS, OTHER_HOSTS, SCOPE_IDS } from "./guards.test-support.js";
 import { decodeFrames, type StompFrame } from "./stomp.js";
 
 // Synthetic IDs only. The flow replays the first live run (28 Sep 2026): the model status stays UNKNOWN, and the first
@@ -142,7 +143,7 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
   });
 
   it("does not follow a redirect to a host outside anaplan.com", async () => {
-    for (const fqdn of ["model.app.anaplan.com.example.net", "example.net", "anaplan.com", "model.app.anaplan.com:8443", "model.app.anaplan.com/a"]) {
+    for (const fqdn of ["model.app.anaplan.com.example.net", "example.net", "anaplan.com", "model.app.anaplan.com:8443", "model.app.anaplan.com/a", ...OTHER_HOSTS]) {
       ScriptedSocket.sockets = [];
       vi.mocked(globalThis.fetch).mockClear();
       ScriptedSocket.reply = (socket, frame) => {
@@ -151,7 +152,7 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
       };
       const { log, result } = run();
       const { notes, failedActionTypes } = await result;
-      expect(ScriptedSocket.sockets.map(socket => socket.host)).toEqual([FIRST]);
+      expect(ScriptedSocket.sockets.map(socket => socket.host), fqdn).toEqual([FIRST]);
       expect(notes).toEqual(["Synthetic model: names from the model data service were not available (REDIRECTION_REQUIRED); IDs are shown instead."]);
       expect(log.filter(line => line.startsWith("redirected to"))).toEqual([]);
       // The action names are then read from the page's own host only.
@@ -160,15 +161,54 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     }
   });
 
+  it("follows one redirect only: a second one is reported like any other failure", async () => {
+    ScriptedSocket.reply = (socket, frame) => {
+      if (frame.command === "CONNECT") socket.serve("CONNECTED\nversion:1.2\nserver:test\n\n\0");
+      else if (frame.command === "SEND" && frame.headers.destination === `core://${WS}:${MODEL}`) {
+        socket.serve(`ERROR\n\n${JSON.stringify({ error: "REDIRECTION_REQUIRED", fqdn: socket.host === FIRST ? MODEL_HOST : "third.app.anaplan.com" })}\0`);
+      }
+    };
+    const { log, result } = run();
+    const { catalog, notes, failedActionTypes } = await result;
+    expect(ScriptedSocket.sockets.map(socket => socket.host)).toEqual([FIRST, MODEL_HOST]);
+    expect(log.filter(line => line.startsWith("redirected to"))).toEqual([`redirected to ${MODEL_HOST}`]);
+    expect(notes).toEqual(["Synthetic model: names from the model data service were not available (REDIRECTION_REQUIRED); IDs are shown instead."]);
+    expect(failedActionTypes).toEqual([]);
+    expect(catalog.actions.get("112000000901")).toBe("Import demand");
+  });
+
   it("looks nothing up when the workspace or model ID is not a 32-character ID", async () => {
-    for (const ids of [{ workspaceId: WS.slice(1) }, { workspaceId: `${WS}0` }, { modelId: MODEL.replace("F", "-") }, { modelId: "" }]) {
+    for (const ids of [{ workspaceId: WS.slice(1) }, { workspaceId: `${WS}0` }, { modelId: MODEL.replace("F", "-") }, { modelId: "" },
+      ...NOT_SCOPE_IDS.flatMap(id => [{ workspaceId: id }, { modelId: id }])]) {
       const { catalog, notes, failedActionTypes } = await run(pages, { ...scope, ...ids }).result;
-      expect(notes).toEqual(["Synthetic model: unexpected workspace or model ID; names were not looked up."]);
+      expect(notes, JSON.stringify(ids)).toEqual(["Synthetic model: unexpected workspace or model ID; names were not looked up."]);
       expect(failedActionTypes).toEqual(["IMPORT", "EXPORT", "PROCESS"]);
       expect(catalog.pages.get("page-guid")).toBe("Inventory policy");
     }
     expect(ScriptedSocket.sockets).toEqual([]);
     expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it("looks names up under any workspace and model ID of 32 letters or digits", async () => {
+    for (const [index, workspaceId] of SCOPE_IDS.entries()) {
+      const modelId = SCOPE_IDS[(index + 1) % SCOPE_IDS.length];
+      ScriptedSocket.sockets = [];
+      vi.mocked(globalThis.fetch).mockClear();
+      ScriptedSocket.reply = (socket, frame) => {
+        if (frame.command === "CONNECT") { socket.serve("CONNECTED\nversion:1.2\nserver:test\n\n\0"); return; }
+        if (frame.command !== "SEND") return;
+        const { destination, id } = frame.headers;
+        if (destination === `core:/${workspaceId}:${modelId}/moduleViews`) socket.serve(update(id, { data: [{ id: Number(MODULE), name: "Demand", views: [] }], dimensions: {} }));
+        if (destination === `core://${workspaceId}:${modelId}/lists`) socket.serve(update(id, { data: [{ id: "101000000901", name: "Product" }] }));
+        if (destination === `core://${workspaceId}:${modelId}/modules/${MODULE}/lineItems`) socket.serve(update(id, { data: [{ lineItemId: "1901000000001", lineItemLabel: "Volume" }] }));
+      };
+      const { catalog, notes, failedActionTypes } = await run(pages, { ...scope, workspaceId, modelId }).result;
+      expect([notes, failedActionTypes], workspaceId).toEqual([[], []]);
+      expect([catalog.modules.get(MODULE), catalog.dimensions.get("101000000901"), catalog.lineItems.get("1901000000001")], workspaceId)
+        .toEqual(["Demand", "Product", { name: "Volume", moduleId: MODULE }]);
+      expect(vi.mocked(globalThis.fetch).mock.calls.map(([url]) => url))
+        .toEqual([`https://${FIRST}/a/collaboration-actions-service/workspaces/${workspaceId}/models/${modelId}/imports`]);
+    }
   });
 
   it("reads imports, exports and processes in that order, the page's host before the model's, after the socket's notes", async () => {
@@ -230,6 +270,18 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     expect((await analyse("???")).fileName).toBe("app - App Export - 2026-09-28.zip");
     expect((await analyse(undefined)).fileName).toBe("App - App Export - 2026-09-28.zip");
     expect((await analyse("a".repeat(100))).fileName).toBe(`${"a".repeat(80)} - App Export - 2026-09-28.zip`);
+    // Every character Windows refuses in a file name, and control characters, become one space; anything else stays.
+    expect((await analyse('a\\b/c:d*e?f"g<h>i|j\u0000k\u0001l\u001fm')).fileName).toBe("a b c d e f g h i j k l m - App Export - 2026-09-28.zip");
+    expect((await analyse("Plan #1 (R&D) - 50%+ [a] {b} ~ 'c' = d; e, f! @g $h ^i")).fileName).toBe("Plan #1 (R&D) - 50%+ [a] {b} ~ 'c' = d; e, f! @g $h ^i - App Export - 2026-09-28.zip");
+    // Any run of white space is one space, and the ends are trimmed before the name is cut to 80 characters, not after.
+    expect((await analyse(" \u00a0Plan\u00a0\u2003 2026\n")).fileName).toBe("Plan 2026 - App Export - 2026-09-28.zip");
+    expect((await analyse(`${"a".repeat(79)} b`)).fileName).toBe(`${"a".repeat(79)}  - App Export - 2026-09-28.zip`);
+    // A name that is empty or not text is no name.
+    for (const name of ["", 42, null, ["Plan"], { name: "Plan" }]) expect((await analyse(name)).fileName, JSON.stringify(name)).toBe("App - App Export - 2026-09-28.zip");
+    // Page and category entries that are not objects are skipped.
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ name: "Plan", pages: [null, 7, "x", true, []], categories: [null, 7, "x", true, []] }), { status: 200 })));
+    const odd = await analyseApp(APP, { status: () => undefined, log: () => undefined }, () => "");
+    expect([odd.fileName, odd.summary]).toEqual(["Plan - App Export - 2026-09-28.zip", ["0 of 0 pages analysed, 0 cards."]]);
     await expect(analyseApp("not-an-app-id", { status: () => undefined, log: () => undefined }, () => "")).rejects.toThrow("Open an app first: the address has no app ID.");
   });
 });

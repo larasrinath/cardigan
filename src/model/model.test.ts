@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { NOT_SCOPE_IDS, SCOPE_IDS } from "../guards.test-support.js";
 import { toCsv } from "../zip.js";
 import { actionKind, mergeImports, missingActionColumns } from "./actions.js";
 import { CALENDAR_HEADERS, CALENDAR_PROPERTIES, calendarKind, calendarRows } from "./calendar.js";
@@ -164,6 +165,15 @@ describe("Model export: Model settings grids to tables", () => {
       { require: () => undefined, modelId: MODEL.replace("F", "-"), workspaceId: WS }, { require: () => undefined, modelId: MODEL, workspaceId: WS.replace("0", "_") }]) {
       expect(on(page)).toBeUndefined();
     }
+
+    // 32 letters or digits, hexadecimal or not; no character that could change a path or a destination.
+    for (const [index, modelId] of SCOPE_IDS.entries()) {
+      expect(on({ require: () => undefined, modelId, workspaceId: SCOPE_IDS[(index + 1) % SCOPE_IDS.length] })).toBe(modelId);
+    }
+    for (const id of NOT_SCOPE_IDS) {
+      expect(on({ require: () => undefined, modelId: id, workspaceId: WS }), JSON.stringify(id)).toBeUndefined();
+      expect(on({ require: () => undefined, modelId: MODEL, workspaceId: id }), JSON.stringify(id)).toBeUndefined();
+    }
   });
 
   it("names the zip after the model, without characters a file name cannot hold", async () => {
@@ -201,5 +211,13 @@ describe("Model export: Model settings grids to tables", () => {
     expect((await run("???")).fileName).toBe("model - Model Export - 2026-09-28.zip");
     expect((await run(undefined)).fileName).toBe(`${MODEL} - Model Export - 2026-09-28.zip`);
     expect((await run("m".repeat(100))).fileName).toBe(`${"m".repeat(80)} - Model Export - 2026-09-28.zip`);
+    // Every character Windows refuses in a file name, and control characters, become one space; anything else stays.
+    expect((await run('a\\b/c:d*e?f"g<h>i|j\u0000k\u0001l\u001fm')).fileName).toBe("a b c d e f g h i j k l m - Model Export - 2026-09-28.zip");
+    expect((await run("Plan #1 (R&D) - 50%+ [a] {b} ~ 'c' = d; e, f! @g $h ^i")).fileName).toBe("Plan #1 (R&D) - 50%+ [a] {b} ~ 'c' = d; e, f! @g $h ^i - Model Export - 2026-09-28.zip");
+    // Any run of white space is one space, and the ends are trimmed before the name is cut to 80 characters, not after.
+    expect((await run(" \u00a0Plan\u00a0\u2003 2026\n")).fileName).toBe("Plan 2026 - Model Export - 2026-09-28.zip");
+    expect((await run(`${"m".repeat(79)} b`)).fileName).toBe(`${"m".repeat(79)}  - Model Export - 2026-09-28.zip`);
+    // A name that is empty or not text is no name: the model's ID stands in.
+    for (const name of ["", 42, null, ["Plan"], { name: "Plan" }]) expect((await run(name)).fileName, JSON.stringify(name)).toBe(`${MODEL} - Model Export - 2026-09-28.zip`);
   });
 });

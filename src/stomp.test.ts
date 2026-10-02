@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { ANAPLAN_HOSTS, OTHER_HOSTS } from "./guards.test-support.js";
 import { assertReadOnly, decodeFrames, encodeFrame, StompConnection, StompError } from "./stomp.js";
 
 type Listener = (event: { data?: unknown; code?: number; reason?: string }) => void;
@@ -129,23 +130,24 @@ describe("Page analyzer socket client", () => {
 
   it("reads a close whose reason is an Anaplan host as a redirect there, and any other close as a closed connection", async () => {
     vi.stubGlobal("WebSocket", FakeSocket);
-    for (const host of ["eu2a.app.anaplan.com", "EU2A.APP.ANAPLAN.COM"]) {
+    for (const host of ANAPLAN_HOSTS) {
       const [connection, socket] = await connected();
       const pending = connection.subscribe("core://ws:model/lists");
       socket.close(1012, host);
       const error = await pending.catch((reason: unknown) => reason);
-      expect(error).toBeInstanceOf(StompError);
-      expect(error).toMatchObject({ message: `Redirected to ${host}.`, code: "REDIRECTION_REQUIRED", fqdn: host });
+      expect(error, host).toBeInstanceOf(StompError);
+      expect(error, host).toMatchObject({ message: `Redirected to ${host}.`, code: "REDIRECTION_REQUIRED", fqdn: host });
       expect(connection.failed).toBe(error);
     }
 
-    for (const reason of ["eu2a.app.anaplan.com.example.net", "example.net", "anaplan.com", "eu2a.app.anaplan.com:8443", "eu2a.app.anaplan.com\n", "going away"]) {
+    for (const reason of [...OTHER_HOSTS, "going away"]) {
       const [connection, socket] = await connected();
       const pending = connection.subscribe("core://ws:model/lists");
       socket.close(1006, reason);
       const error = await pending.catch((thrown: unknown) => thrown);
-      expect(error).toBeInstanceOf(StompError);
-      expect(error).toMatchObject({ message: `Connection closed (code 1006, ${reason}).`, code: "CLOSE_1006", fqdn: undefined });
+      expect(error, reason).toBeInstanceOf(StompError);
+      expect(error, reason).toMatchObject({ message: `Connection closed (code 1006, ${reason}).`, code: "CLOSE_1006", fqdn: undefined });
+      expect(connection.failed, reason).toBe(error);
     }
 
     const opening = StompConnection.open("wss://host.example/ws", {}, log);

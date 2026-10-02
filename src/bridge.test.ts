@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { describeProbe, probeFrame, PROTOCOL, runInCore, serveCore, watchCore, watchProbes, type CoreHandle, type Endpoint, type FrameProbe } from "./bridge.js";
+import { NOT_SCOPE_IDS, SCOPE_IDS } from "./guards.test-support.js";
 import type { Progress, TaskResult } from "./panel.js";
 
 /** Two windows that talk like browser windows: posting to a window as another window holds it delivers a cloned message
@@ -137,6 +138,12 @@ describe("Model export bridge between the Model Building page and the model's co
     }
     await settle();
     expect(found).toEqual([MODEL.toLowerCase()]);
+
+    // 32 letters or digits, hexadecimal or not; no character that could change a path or a destination.
+    found.length = 0;
+    for (const modelId of [...NOT_SCOPE_IDS, ...SCOPE_IDS]) shell.seenBy(core).postMessage({ protocol: PROTOCOL, type: "core-ready", modelId }, "*");
+    await settle();
+    expect(found).toEqual(SCOPE_IDS);
   });
 
   it("reports a frame's model and workspace as shapes, never as values", () => {
@@ -148,6 +155,15 @@ describe("Model export bridge between the Model Building page and the model's co
       loader: "function", model: "id", workspace: "text(16)" });
     vi.stubGlobal("window", { top: page, modelId: 7 });
     expect(probeFrame()).toMatchObject({ top: false, loader: "undefined", model: "number", workspace: "undefined" });
+
+    for (const [index, id] of SCOPE_IDS.entries()) {
+      vi.stubGlobal("window", { modelId: id, workspaceId: SCOPE_IDS[(index + 1) % SCOPE_IDS.length] });
+      expect(probeFrame(), id).toMatchObject({ model: "id", workspace: "id" });
+    }
+    for (const id of NOT_SCOPE_IDS) {
+      vi.stubGlobal("window", { modelId: id, workspaceId: id });
+      expect(probeFrame(), JSON.stringify(id)).toMatchObject({ model: `text(${id.length})`, workspace: `text(${id.length})` });
+    }
   });
 
   it("stamps every status and log line of the core frame's diagnostics with its time", async () => {
