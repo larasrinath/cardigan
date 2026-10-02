@@ -255,6 +255,25 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     expect(log.at(-1)).toBe(totals);
   });
 
+  it("asks a host once when the model is served from the page's own host", async () => {
+    // No redirect: the socket settles on the page's host, so that host is both the page's and the model's.
+    ScriptedSocket.reply = (socket, frame) => {
+      if (frame.command === "CONNECT") socket.serve("CONNECTED\nversion:1.2\nserver:test\n\n\0");
+      else if (frame.command === "SEND" && frame.headers.destination !== `core://${WS}:${MODEL}`) socket.serve(update(frame.headers.id, { data: [] }));
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 500 })));
+    const { log, result } = run();
+    const { notes, failedActionTypes } = await result;
+
+    expect(ScriptedSocket.sockets.map(socket => socket.host)).toEqual([FIRST]);
+    // A read that fails is not sent to the same host a second time, and is logged once.
+    expect(vi.mocked(globalThis.fetch).mock.calls.map(([url]) => url))
+      .toEqual([`https://${FIRST}/a/collaboration-actions-service/workspaces/${WS}/models/${MODEL}/imports`]);
+    expect(log.filter(line => line.includes(" answered "))).toEqual([`Synthetic model: imports from ${FIRST} answered HTTP_ERROR (HTTP 500)`]);
+    expect(notes).toEqual(["Synthetic model: could not read the model's imports (HTTP_ERROR (HTTP 500)); their buttons show the card label."]);
+    expect(failedActionTypes).toEqual(["IMPORT"]);
+  });
+
   it("names the zip after the app, without characters a file name cannot hold", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date(Date.UTC(2026, 8, 28, 1, 59, 9)));
