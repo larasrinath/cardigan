@@ -97,6 +97,17 @@ const ref = (kind: UxEntityRef["kind"], id: string, extra: Partial<UxEntityRef> 
 const errorCode = (fn: () => unknown, code: string) => {
   try { fn(); throw new Error("Expected a definition error"); } catch (error) { expect(error).toBeInstanceOf(UxDefinitionError); expect((error as UxDefinitionError).code).toBe(code); }
 };
+const errorText = (fn: () => unknown, code: string, message: string) => {
+  try { fn(); throw new Error("Expected a definition error"); } catch (error) { expect(error).toBeInstanceOf(UxDefinitionError); expect(error).toMatchObject({ code, message }); }
+};
+// The bounded copy's wording reaches MCP errors and the page analyzer's export.
+const TRAVERSAL_BOUND = "Page definition exceeds SAM's bounded JSON traversal.";
+const CHARACTER_BOUND = "Page definition exceeds SAM's 8 MB character bound.";
+const UNSAFE_KEY = "Unsafe object key in page definition.";
+const NO_IDENTITY = "pageGuid must be a nonempty string.";
+const unsafeKey = (key = "__proto__") => JSON.parse(`{"${key}":{"polluted":true}}`);
+/** An empty object wrapped in `levels` parent objects. */
+const chain = (levels: number) => { let nested: unknown = {}; for (let i = 0; i < levels; i++) nested = { child: nested }; return nested; };
 const referenceKeys = (result: UxPageCardDetails) => result.references.map(item => `${item.kind}:${item.id}:${item.moduleId ?? ""}`);
 /** Every UxEntityRef-shaped object nested anywhere in the cards/page context. */
 const nestedRefs = (value: unknown): UxEntityRef[] => {
@@ -532,12 +543,72 @@ describe("UX card details, tolerant read of native pages", () => {
     expect(({} as Record<string, unknown>).polluted).toBeUndefined();
   });
 
+  it("words each bounded-copy rejection and accepts shared and null-prototype objects", () => {
+    for (const key of ["__proto__", "prototype", "constructor"]) {
+      errorText(() => describePageCards("BOARD", { ...board(), extra: unsafeKey(key) }), "UNSUPPORTED_DEFINITION", UNSAFE_KEY);
+    }
+    for (const root of [null, "page", [board()], 42]) errorText(() => describePageCards("BOARD", root), "UNSUPPORTED_DEFINITION", "Page definition must be an object.");
+    const cyclic = board(); cyclic.self = cyclic;
+    errorText(() => describePageCards("BOARD", cyclic), "UNSUPPORTED_DEFINITION", "Cyclic page definition.");
+    for (const invalid of [Number.NaN, Number.POSITIVE_INFINITY, undefined, 1n, () => 1]) {
+      errorText(() => describePageCards("BOARD", { ...board(), invalid }), "UNSUPPORTED_DEFINITION", "Page definitions must contain only JSON values.");
+    }
+    errorText(() => describePageCards("BOARD", undefined), "UNSUPPORTED_DEFINITION", "Page definitions must contain only JSON values.");
+    for (const instance of [new Date(0), new Map(), new (class Page {})()]) {
+      errorText(() => describePageCards("BOARD", { ...board(), instance }), "UNSUPPORTED_DEFINITION", "Unexpected object prototype.");
+    }
+    // The same object in two places is not a cycle.
+    const shared = { enabled: true };
+    const result = describePageCards("BOARD", Object.assign(Object.create(null), board(), { first: shared, second: shared }));
+    expect(result.cards).toHaveLength(7);
+    expect(result.pageContext.unrecognised).toEqual([{ path: "first.enabled", valueType: "boolean", value: true }, { path: "second.enabled", valueType: "boolean", value: true }]);
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
+
+  it("bounds the copy at 40 nested levels and 150,000 values", () => {
+    // The page is level 0 and `nested` level 1.
+    expect(describePageCards("BOARD", { ...board(), nested: chain(39) }).cards).toHaveLength(7);
+    errorText(() => describePageCards("BOARD", { ...board(), nested: chain(40) }), "DEFINITION_TOO_LARGE", TRAVERSAL_BOUND);
+    // The page and the list are two values. A copy within the bound goes on to the identity check.
+    errorText(() => describePageCards("BOARD", { list: new Array(149_998).fill(0) }), "UNSUPPORTED_DEFINITION", NO_IDENTITY);
+    errorText(() => describePageCards("BOARD", { list: new Array(149_999).fill(0) }), "DEFINITION_TOO_LARGE", TRAVERSAL_BOUND);
+  });
+
+  it("stops at 8,000,000 string characters during the copy, before a later fault, and bounds the serialized size", () => {
+    errorText(() => describePageCards("BOARD", { ...board(), big: "x".repeat(8_000_001) }), "DEFINITION_TOO_LARGE", CHARACTER_BOUND);
+    // Strings are counted as they are copied, so an oversized string wins over an unsafe key that follows it.
+    errorText(() => describePageCards("BOARD", { big: "x".repeat(8_000_001), extra: unsafeKey() }), "DEFINITION_TOO_LARGE", CHARACTER_BOUND);
+    errorText(() => describePageCards("BOARD", { first: "x".repeat(4_000_000), second: "x".repeat(4_000_001), extra: unsafeKey() }), "DEFINITION_TOO_LARGE", CHARACTER_BOUND);
+    errorText(() => describePageCards("BOARD", { big: "x".repeat(8_000_000), extra: unsafeKey() }), "UNSUPPORTED_DEFINITION", UNSAFE_KEY);
+    // Escaping doubles these characters only when serialized: the copy completes and the final bound applies.
+    errorText(() => describePageCards("BOARD", { quotes: '"'.repeat(4_500_000), extra: unsafeKey() }), "UNSUPPORTED_DEFINITION", UNSAFE_KEY);
+    errorText(() => describePageCards("BOARD", { quotes: '"'.repeat(4_500_000) }), "DEFINITION_TOO_LARGE", CHARACTER_BOUND);
+    // {"big":"..."} serializes to the string's length plus 10.
+    errorText(() => describePageCards("BOARD", { big: "x".repeat(7_999_990) }), "UNSUPPORTED_DEFINITION", NO_IDENTITY);
+    errorText(() => describePageCards("BOARD", { big: "x".repeat(7_999_991) }), "DEFINITION_TOO_LARGE", CHARACTER_BOUND);
+  });
+
   it("treats unsafe keys inside embedded JSON as malformed rather than throwing", () => {
     const chart = { ...common(guid(131), "COMBOCHART", ""), chartConfig: '{"chartType":"bar","__proto__":{"polluted":true}}' };
     const result = describePageCards("BOARD", boardOf(chart));
     expect(card(result, guid(131)).chart).toBeUndefined();
     expect(result.warnings).toEqual([`Card ${guid(131)}: chartConfig is not a valid JSON object.`]);
     expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
+
+  it("applies the copy's key, nesting and value bounds to embedded JSON", () => {
+    const chartWith = (chartConfig: string) => describePageCards("BOARD", boardOf({ ...common(guid(131), "COMBOCHART", ""), chartConfig }));
+    const malformed = [`Card ${guid(131)}: chartConfig is not a valid JSON object.`];
+    for (const key of ["prototype", "constructor"]) expect(chartWith(`{"chartType":"bar","${key}":{}}`).warnings).toEqual(malformed);
+    // The config is level 0 and `deep` level 1.
+    const nested = chartWith(JSON.stringify({ chartType: "bar", deep: chain(39) }));
+    expect(card(nested, guid(131)).chart).toEqual({ chartType: "bar" });
+    expect(nested.warnings).toEqual([]);
+    expect(chartWith(JSON.stringify({ chartType: "bar", deep: chain(40) })).warnings).toEqual(malformed);
+    // The config, its chart type and the series list are three values.
+    const series = (length: number) => JSON.stringify({ chartType: "bar", series: new Array(length).fill(0) });
+    expect(chartWith(series(149_997)).warnings).toEqual([]);
+    expect(chartWith(series(149_998)).warnings).toEqual(malformed);
   });
 });
 
