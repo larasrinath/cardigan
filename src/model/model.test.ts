@@ -1,9 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { NOT_SCOPE_IDS, SCOPE_IDS } from "../guards.test-support.js";
 import { toCsv } from "../zip.js";
 import { actionKind, mergeImports, missingActionColumns } from "./actions.js";
 import { CALENDAR_HEADERS, CALENDAR_PROPERTIES, calendarKind, calendarRows } from "./calendar.js";
+import { exportModel } from "./export.js";
 import { cellText, gridTable, labelEntries, plainText, windowRows, type CellSource, type Grid } from "./grid.js";
-import { assertRead, readGrid, type Native } from "./native.js";
+import { assertRead, modelOnPage, readGrid, type Native } from "./native.js";
 
 // Synthetic IDs and names only. Entity type = ID / 1e9 (102 module, 118 process, 4 property), as the classic client encodes it.
 
@@ -17,6 +19,8 @@ class FakePage implements CellSource {
 }
 
 describe("Model export: Model settings grids to tables", () => {
+  afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
+
   it("reads label pages with optional qualifiers, and cell text as the grid shows it", () => {
     const labels = labelEntries({ start: 0, count: 3, entityLongIds: [[102000000001, 1901000000001, 1901000000002], [-1, 102000000001, -1]],
       labels: [["Demand", "Volume &amp; mix", "Price"], [null, "Demand", null]] });
@@ -150,5 +154,70 @@ describe("Model export: Model settings grids to tables", () => {
       expect(() => assertRead({ requestType: "VIEW_REQUEST_SET", ...unsafe })).toThrow("Refusing to send anything but a read.");
     }
     expect(() => assertRead({ requestType: "VIEW_REQUEST_SET", submissions: [], systemActions: [] })).not.toThrow();
+  });
+
+  it("finds the open model only on a page with the classic client's loader and 32-character model and workspace IDs", () => {
+    const [WS, MODEL] = ["0123456789abcdef0123456789abcdef", "FEDCBA9876543210FEDCBA9876543210"];
+    const on = (page: Record<string, unknown>) => { vi.stubGlobal("window", page); return modelOnPage(); };
+    expect(on({ require: () => undefined, modelId: MODEL, workspaceId: WS })).toBe(MODEL);
+    for (const page of [{ modelId: MODEL, workspaceId: WS }, { require: () => undefined, modelId: MODEL }, { require: () => undefined, workspaceId: WS },
+      { require: () => undefined, modelId: MODEL.slice(1), workspaceId: WS }, { require: () => undefined, modelId: MODEL, workspaceId: `${WS}0` },
+      { require: () => undefined, modelId: MODEL.replace("F", "-"), workspaceId: WS }, { require: () => undefined, modelId: MODEL, workspaceId: WS.replace("0", "_") }]) {
+      expect(on(page)).toBeUndefined();
+    }
+
+    // 32 letters or digits, hexadecimal or not; no character that could change a path or a destination.
+    for (const [index, modelId] of SCOPE_IDS.entries()) {
+      expect(on({ require: () => undefined, modelId, workspaceId: SCOPE_IDS[(index + 1) % SCOPE_IDS.length] })).toBe(modelId);
+    }
+    for (const id of NOT_SCOPE_IDS) {
+      expect(on({ require: () => undefined, modelId: id, workspaceId: WS }), JSON.stringify(id)).toBeUndefined();
+      expect(on({ require: () => undefined, modelId: MODEL, workspaceId: id }), JSON.stringify(id)).toBeUndefined();
+    }
+  });
+
+  it("names the zip after the model, without characters a file name cannot hold", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(Date.UTC(2026, 8, 28, 1, 59, 9)));
+    const [WS, MODEL] = ["0123456789abcdef0123456789abcdef", "FEDCBA9876543210FEDCBA9876543210"];
+    // A model page whose client knows only the Versions grid: every other file is reported as not exported.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const page = (modelName: unknown): any => {
+      const cache = { getModelName: () => modelName, getWorkspaceInfo: () => ({ name: "Workspace one" }), getAllCurrenciesLabelPage: () => undefined };
+      const aggregator = { isDirty: () => false, post: (_request: unknown, _flag: boolean, ok: (response: unknown) => boolean) => {
+        queueMicrotask(() => ok({ result: { viewRequestResults: [{ rowCount: 1, columnCount: 1,
+          rowLabelPages: [{ start: 0, count: 1, entityLongIds: [[107000000001]], labels: [["Actual"]] }],
+          columnLabelPages: [{ start: 0, count: 1, entityLongIds: [[4000000301]], labels: [["Is Actual"]] }],
+          dataPages: [{ startRow: 0, rows: [["true"]] }] }] } }));
+        return true;
+      } };
+      const helper = { getAxesForViewDefinition: (rows: string[], columns: string[]) => ({ rowAxis: rows[0], columnAxis: columns[0] }) };
+      const constants = { SYSTEM_AXIS_IDENTIFIER_VERSION_ALL_IDENTIFIER: "VERSIONS", SYSTEM_AXIS_IDENTIFIER_VERSION_PROPERTY_IDENTIFIER: "VERSION PROPERTIES" };
+      class RequestGenerator { getRequest() { return { requestType: "VIEW_REQUEST_SET", submissions: [], systemActions: [] }; } }
+      class DataPage extends FakePage { constructor({ page: data }: any) { super(data); } }
+      return { workspaceId: WS, modelId: MODEL,
+        require: (_modules: string[], loaded: (...modules: unknown[]) => void) => loaded(cache, aggregator, helper, {}, constants, RequestGenerator, DataPage, {}) };
+    };
+    const run = (modelName: unknown) => {
+      vi.stubGlobal("window", page(modelName));
+      vi.stubGlobal("location", { host: "eu2a.app.anaplan.com", pathname: "/core-webapp/anaplan/framework.jsp" });
+      return exportModel({ status: () => undefined, log: () => undefined }, () => "01:59:09 model-export vdev");
+    };
+    const result = await run('Demand: "Plan" /\t2026');
+    expect(result.fileName).toBe("Demand Plan 2026 - Model Export - 2026-09-28.zip");
+    expect(result.summary[0]).toBe("Versions: 1 rows");
+    expect(result.summary).toContain("Line Items: not exported (This model page has no MODULE_WITH_LINE_ITEM axis.).");
+    expect(Array.from(result.zip.slice(0, 2))).toEqual([0x50, 0x4b]);
+    expect((await run("???")).fileName).toBe("model - Model Export - 2026-09-28.zip");
+    expect((await run(undefined)).fileName).toBe(`${MODEL} - Model Export - 2026-09-28.zip`);
+    expect((await run("m".repeat(100))).fileName).toBe(`${"m".repeat(80)} - Model Export - 2026-09-28.zip`);
+    // Every character Windows refuses in a file name, and control characters, become one space; anything else stays.
+    expect((await run('a\\b/c:d*e?f"g<h>i|j\u0000k\u0001l\u001fm')).fileName).toBe("a b c d e f g h i j k l m - Model Export - 2026-09-28.zip");
+    expect((await run("Plan #1 (R&D) - 50%+ [a] {b} ~ 'c' = d; e, f! @g $h ^i")).fileName).toBe("Plan #1 (R&D) - 50%+ [a] {b} ~ 'c' = d; e, f! @g $h ^i - Model Export - 2026-09-28.zip");
+    // Any run of white space is one space, and the ends are trimmed before the name is cut to 80 characters, not after.
+    expect((await run(" \u00a0Plan\u00a0\u2003 2026\n")).fileName).toBe("Plan 2026 - Model Export - 2026-09-28.zip");
+    expect((await run(`${"m".repeat(79)} b`)).fileName).toBe(`${"m".repeat(79)}  - Model Export - 2026-09-28.zip`);
+    // A name that is empty or not text is no name: the model's ID stands in.
+    for (const name of ["", 42, null, ["Plan"], { name: "Plan" }]) expect((await run(name)).fileName, JSON.stringify(name)).toBe(`${MODEL} - Model Export - 2026-09-28.zip`);
   });
 });

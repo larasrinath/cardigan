@@ -1,4 +1,5 @@
 import type { Log } from "../panel.js";
+import { SCOPE_ID, sleep } from "../util.js";
 import { labelEntries, windowRows, type Grid } from "./grid.js";
 
 /** Reads Model settings grids through the classic model building client, the way its own settings tabs do: a
@@ -26,8 +27,8 @@ const READ_TIMEOUT_MS = 180_000;
 /** The classic model building page exposes its AMD loader and the open model on window. */
 export function modelOnPage(): string | undefined {
   const w = window as Any;
-  return typeof w.require === "function" && typeof w.modelId === "string" && /^[0-9A-Za-z]{32}$/.test(w.modelId)
-    && typeof w.workspaceId === "string" && /^[0-9A-Za-z]{32}$/.test(w.workspaceId) ? w.modelId : undefined;
+  return typeof w.require === "function" && typeof w.modelId === "string" && SCOPE_ID.test(w.modelId)
+    && typeof w.workspaceId === "string" && SCOPE_ID.test(w.workspaceId) ? w.modelId : undefined;
 }
 
 export function loadNative(timeoutMs = 30_000): Promise<Native> {
@@ -47,8 +48,6 @@ export function axis(native: Native, name: string): string {
   if (typeof value !== "string") throw new Error(`This model page has no ${name} axis.`);
   return value;
 }
-
-const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 /** Wait while the page has its own requests in flight (for example the user's pending edits). */
 async function waitIdle(native: Native): Promise<void> {
