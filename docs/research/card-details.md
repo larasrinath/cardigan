@@ -209,7 +209,7 @@ Charts expose `scatterBubble.withConditionalFormatting`, `gantt.withBarCF` and `
 | --- | --- | --- |
 | `CARD` (KPI) | Module plus line item: a `LINE_ITEM` source. Not present in these bundles; see definitions.md (`fQt`, `dQt`, `ble`). | Traced earlier (designer) |
 | `FIELD` | `fields: [{moduleId, lineItemId, label}]`, matching its sources. From definitions.md; SAM's `bindings.ts` enforces it. | Traced earlier (designer) |
-| `COMBOCHART` | The card `dataSourceId` and source, plus a serialized `chartConfig` JSON string. The string storage comes from SAM's implementation (`definition-editor.ts`, around line 310), which rests on earlier designer tracing; these bundles show only the settings keys. | SAM implementation (designer-traced); keys traced |
+| `COMBOCHART` | The card `dataSourceId` and source, plus a serialized `chartConfig` JSON string. The string storage comes from SAM's implementation (`definition-editor.ts`, around line 283), which rests on earlier designer tracing; these bundles show only the settings keys. | SAM implementation (designer-traced); keys traced |
 | `MAP`, `PRESENTATION_TABLE` | Named only as Page details widget labels (modeling 2035501). `PRESENTATION_TABLE` is also a grid theme (app-shell 1212022), which suggests a grid-backed card. | Binding unknown; inferred |
 | `SHAPE`, `HIERARCHY`, `NETWORK`, `WEB_XL` | No card code in these bundles. `WEB_XL` hits are `/xlweb` routes; `HIERARCHY` hits are entity constants. | Unknown |
 

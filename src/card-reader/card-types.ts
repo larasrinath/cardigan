@@ -30,7 +30,7 @@ export interface UxCardDetail {
   type: string;
   title?: string;
   description?: string;
-  placement: Record<string, unknown>;
+  placement: UxCardPlacement;
   hasSavedWidgetReference: boolean;
   /** Only when the card names a model other than the page's; names still resolve against the page model. */
   modelId?: string;
@@ -80,8 +80,13 @@ export interface UxCardSource {
 export type UxViewLayout = Record<"rows" | "columns" | "pages", { id: string; name: string }[]>;
 
 /** Native LEAF rule. `selectedItems` keeps ID-like items in native order as `unknown` references (the filter
- * line item plus its filter context; kinds are left to name resolution). Other items stay raw in `otherItems`. */
-export interface UxFilterCondition { operator: string; values: unknown[]; selectedItems: UxEntityRef[]; otherItems?: unknown[]; identifier?: UxEntityRef | string; axisKey?: unknown }
+ * line item plus its filter context; kinds are left to name resolution). Other items stay raw in `otherItems`.
+ * Name resolution (card-naming.ts) adds `filterLineItem` and `filterContext` once it knows every selected item's kind:
+ * a dimension in the context means the page's current selection. */
+export interface UxFilterCondition {
+  operator: string; values: unknown[]; selectedItems: UxEntityRef[]; otherItems?: unknown[]; identifier?: UxEntityRef | string; axisKey?: unknown;
+  filterLineItem?: UxEntityRef; filterContext?: ({ dimension: UxEntityRef; selection: "current" } | { item: UxEntityRef })[];
+}
 /** Native BRANCH node; conditions and groups each keep native order. `match` is the Page Builder label
  * ("Show items that match: All/Any") for the native AND/OR operator. */
 export interface UxFilterDetail { operator: string; match?: "all" | "any"; conditions: UxFilterCondition[]; groups: UxFilterDetail[] }
@@ -147,7 +152,7 @@ export interface UxPageCardDetails {
   customerId: string;
   workspaceId: string;
   modelId: string;
-  pageContext: Record<string, unknown>;
+  pageContext: UxPageContext;
   cards: UxCardDetail[];
   /** Deduplicated by kind, ID and owning module. */
   references: UxEntityRef[];
