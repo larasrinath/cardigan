@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ANAPLAN_HOSTS, OTHER_HOSTS } from "./guards.test-support.js";
 import { getJson, RestError } from "./rest.js";
 
 // Synthetic hosts and IDs only.
@@ -16,13 +17,18 @@ describe("Page analyzer REST reads", () => {
   const calls = () => vi.mocked(globalThis.fetch).mock.calls as unknown as [string, RequestInit][];
 
   it("refuses a host outside anaplan.com before anything is sent", async () => {
-    for (const host of ["example.net", "anaplan.com", "eu2a.app.anaplan.com.example.net", "eu2a.app.anaplan.com:8443", "eu2a.app.anaplan.com/a",
-      "user@eu2a.app.anaplan.com", "eu2a.app.anaplan.com\n"]) {
+    for (const host of OTHER_HOSTS) {
       const error = await getJson(PATH, { host }).catch((thrown: unknown) => thrown);
-      expect(error).toBeInstanceOf(RestError);
-      expect(error).toMatchObject({ code: "INVALID_PATH", message: "INVALID_PATH", status: undefined });
+      expect(error, host).toBeInstanceOf(RestError);
+      expect(error, host).toMatchObject({ code: "INVALID_PATH", message: "INVALID_PATH", status: undefined });
     }
     expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it("reads from any host under anaplan.com, addressed exactly as given", async () => {
+    for (const host of ANAPLAN_HOSTS) await expect(getJson(PATH, { host }), host).resolves.toEqual({ imports: [] });
+    expect(calls().map(([url]) => url)).toEqual(ANAPLAN_HOSTS.map(host => `https://${host}${PATH}`));
+    for (const [, init] of calls()) expect(init).toMatchObject({ method: "GET", mode: "cors", credentials: "include", redirect: "error" });
   });
 
   it("reads from another Anaplan host as a cross-origin GET without the XSRF token", async () => {
