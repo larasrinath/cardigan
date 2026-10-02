@@ -1,3 +1,4 @@
+import { stampLine } from "./details.js";
 import { VERSION } from "./version.js";
 
 /** The floating button and progress panel shared by the app page analysis and the model export. Nothing runs until the
@@ -20,6 +21,15 @@ export interface PanelOptions {
   /** A friendlier message for known failures. */
   describeError?(error: unknown): string | undefined;
 }
+
+/** What the model export's panel says, on the Model Building page (content.ts) and on the classic model page opened on
+ * its own (model-content.ts). Each mounts it under its own `id`. */
+export const MODEL_EXPORT_PANEL: Pick<PanelOptions, "launchLabel" | "title" | "description" | "startLabel"> = {
+  launchLabel: "Export model",
+  title: "Model export",
+  description: "Exports this model's Model settings (line items, modules, lists, actions, time ranges, versions and source models) and the model calendar as CSV files. It only reads.",
+  startLabel: "Export model",
+};
 
 const MAX_LOG_LINES = 3000;
 const STYLE = `
@@ -109,7 +119,7 @@ export class ToolPanel {
   }
 
   private log = (line: string): void => {
-    this.lines.push(`${new Date().toISOString().slice(11, 19)} ${line}`);
+    this.lines.push(stampLine(line));
     if (this.lines.length > MAX_LOG_LINES) this.lines.splice(0, this.lines.length - MAX_LOG_LINES);
     this.logView.textContent = this.lines.slice(-40).join("\n");
     this.logView.scrollTop = this.logView.scrollHeight;

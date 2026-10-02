@@ -1,21 +1,20 @@
 import { describePageCards } from "../../../src/domains/ux-designer/card-details.js";
 import { nameCardDetails } from "../../../src/domains/ux-designer/card-naming.js";
-import type { UxPageCardDetails } from "../../../src/domains/ux-designer/card-types.js";
+import type { UxEntityRef, UxPageCardDetails } from "../../../src/domains/ux-designer/card-types.js";
 import type { UxPageType } from "../../../src/domains/ux-designer/definition-types.js";
 import {
   addActions, addLineItems, addLists, addModuleDimensions, addModuleViews, addSelections, applicableModuleIds, emptyCatalog, resolveFromCatalog,
   unresolvedFilterItems, viewLayoutFromMetadata, type ModelCatalog,
 } from "./catalog.js";
 import { DETAILS_HEADERS, diagnosticRows, exportRows, type DetailRow } from "./details.js";
-import { buildReport, HEADERS, LINE_ITEMS, NONE, PAGE_TYPE, type PageInput, type Report, type TabName } from "./report.js";
+import type { Log, Progress, TaskResult } from "./panel.js";
+import { buildReport, HEADERS, LINE_ITEMS, NONE, PAGE_TYPE, type PageInput, type TabName } from "./report.js";
 import { getJson, RestError } from "./rest.js";
-import { StompConnection, StompError, type Log } from "./stomp.js";
+import { StompConnection, StompError } from "./stomp.js";
+import { ANAPLAN_HOST, fileSafe, list, message, SCOPE_ID, text, type Obj } from "./util.js";
 import { toCsv, zipStore } from "./zip.js";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Obj = Record<string, any>;
 const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const SCOPE_ID = /^[0-9A-Za-z]{32}$/;
 const ENTITY_ID = /^[1-9]\d{0,17}$/;
 const DEFINITION = "/a/springboard-definition-service/";
 const PAGE_TYPES: UxPageType[] = ["BOARD", "GRID-PAGE", "REPORT"];
@@ -25,13 +24,6 @@ const MAX_EXTRA_MODULES = 60;
 /** A model that is not open loads on the first data request, which can take minutes. */
 const LOAD_MS = 300_000;
 const LINE_ITEMS_MS = 120_000;
-
-export interface Progress { status(text: string): void; log: Log }
-export interface AnalysisResult { report: Report; zip: Uint8Array<ArrayBuffer>; fileName: string; summary: string[] }
-
-const list = (value: unknown): Obj[] => (Array.isArray(value) ? value.filter(item => item && typeof item === "object") : []);
-const text = (value: unknown): string | undefined => (typeof value === "string" && value ? value : undefined);
-const message = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
 function declaredType(entry: Obj): UxPageType | undefined {
   const raw = String(entry.pageType ?? entry.type ?? "").toUpperCase();
@@ -76,7 +68,7 @@ async function withSocket<T>(customerId: string, log: Log, work: (connection: St
       }, log);
       return await work(connection, host);
     } catch (error) {
-      if (attempt === 0 && error instanceof StompError && error.code === "REDIRECTION_REQUIRED" && error.fqdn && /^[a-z0-9.-]+\.anaplan\.com$/i.test(error.fqdn)) {
+      if (attempt === 0 && error instanceof StompError && error.code === "REDIRECTION_REQUIRED" && error.fqdn && ANAPLAN_HOST.test(error.fqdn)) {
         log(`redirected to ${error.fqdn}`);
         host = error.fqdn;
         continue;
@@ -141,6 +133,40 @@ export function addDerivedContextSelectors(details: UxPageCardDetails, catalog: 
   return details;
 }
 
+/** Import, export and process names. A model in another data centre is served from its own host: the page's host
+ * answered the first live run with a redirect, which a same-origin read refuses (a network error). `modelHost` is the
+ * host the model data service settled on, when it connected. */
+async function readActionNames(scope: ModelScope, refs: readonly UxEntityRef[], modelHost: string | undefined, catalog: ModelCatalog,
+  progress: Progress): Promise<{ notes: string[]; failedActionTypes: string[] }> {
+  const { workspaceId: ws, modelId: model } = scope;
+  const notes: string[] = [];
+  const failedActionTypes: string[] = [];
+  const actionTypes = new Set(refs.filter(ref => ref.kind === "action").map(ref => ref.actionType));
+  for (const [type, key] of [["IMPORT", "imports"], ["EXPORT", "exports"], ["PROCESS", "processes"]] as const) {
+    if (!actionTypes.has(type)) continue;
+    const path = `/a/collaboration-actions-service/workspaces/${ws}/models/${model}/${key}`;
+    const hosts = [...new Set([location.host, ...(modelHost ? [modelHost] : [])])];
+    let problem: string | undefined;
+    for (const host of hosts) {
+      try {
+        const before = catalog.actions.size;
+        addActions(catalog, key, await getJson(path, { host }));
+        progress.log(`${scope.modelName}: ${catalog.actions.size - before} ${key} named (from ${host})`);
+        problem = undefined;
+        break;
+      } catch (error) {
+        progress.log(`${scope.modelName}: ${key} from ${host} answered ${message(error)}`);
+        problem ??= message(error);
+      }
+    }
+    if (problem) {
+      failedActionTypes.push(type);
+      notes.push(`${scope.modelName}: could not read the model's ${key} (${problem}); their buttons show the card label.`);
+    }
+  }
+  return { notes, failedActionTypes };
+}
+
 /** Names for one model. Like Page Builder, it asks for the data straight away and lets the service load the model: a
  * model that is not open reports status UNKNOWN until a data request loads it (observed live, 28 Sep 2026), so the
  * status is watched and logged, never waited for. A connection-level error such as REDIRECTION_REQUIRED fails every
@@ -150,7 +176,6 @@ export async function loadCatalog(scope: ModelScope, pages: readonly UxPageCardD
   const { workspaceId: ws, modelId: model } = scope;
   const catalog = emptyCatalog();
   const notes: string[] = [];
-  const failedActionTypes: string[] = [];
   for (const [guid, pageName] of pageNames) catalog.pages.set(guid, pageName);
   const refs = pages.flatMap(page => page.references);
   if (!SCOPE_ID.test(ws) || !SCOPE_ID.test(model)) {
@@ -294,34 +319,11 @@ export async function loadCatalog(scope: ModelScope, pages: readonly UxPageCardD
     notes.push(`${scope.modelName}: names from the model data service were not available (${message(error)}); IDs are shown instead.`);
   }
 
-  // Import, export and process names. A model in another data centre is served from its own host: the page's host
-  // answered the first live run with a redirect, which a same-origin read refuses (a network error).
-  const actionTypes = new Set(refs.filter(ref => ref.kind === "action").map(ref => ref.actionType));
-  for (const [type, key] of [["IMPORT", "imports"], ["EXPORT", "exports"], ["PROCESS", "processes"]] as const) {
-    if (!actionTypes.has(type)) continue;
-    const path = `/a/collaboration-actions-service/workspaces/${ws}/models/${model}/${key}`;
-    const hosts = [...new Set([location.host, ...(modelHost ? [modelHost] : [])])];
-    let problem: string | undefined;
-    for (const host of hosts) {
-      try {
-        const before = catalog.actions.size;
-        addActions(catalog, key, await getJson(path, { host }));
-        progress.log(`${scope.modelName}: ${catalog.actions.size - before} ${key} named (from ${host})`);
-        problem = undefined;
-        break;
-      } catch (error) {
-        progress.log(`${scope.modelName}: ${key} from ${host} answered ${message(error)}`);
-        problem ??= message(error);
-      }
-    }
-    if (problem) {
-      failedActionTypes.push(type);
-      notes.push(`${scope.modelName}: could not read the model's ${key} (${problem}); their buttons show the card label.`);
-    }
-  }
+  const actions = await readActionNames(scope, refs, modelHost, catalog, progress);
+  notes.push(...actions.notes);
   progress.log(`${scope.modelName}: ${catalog.modules.size} modules, ${catalog.views.size} saved views, ${catalog.dimensions.size} dimensions, `
     + `${catalog.lineItems.size} line items (${catalog.lineItemModules.size} modules read), ${catalog.actions.size} actions`);
-  return { catalog, notes, failedActionTypes };
+  return { catalog, notes, failedActionTypes: actions.failedActionTypes };
 }
 
 /** File names in the model export's style (asked for by the user, 28 Sep 2026); App Details.csv comes first. */
@@ -339,11 +341,7 @@ const HOW_TO_READ: readonly [detail: string, value: string][] = [
   ["Long IDs", "IDs of 12 or more digits are written as text so Excel shows every digit; the formula bar shows them as =\"…\"."],
 ];
 
-function fileSafe(value: string): string {
-  return value.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 80) || "app";
-}
-
-export async function analyseApp(appGuid: string, progress: Progress, diagnostics: () => string): Promise<AnalysisResult> {
+export async function analyseApp(appGuid: string, progress: Progress, diagnostics: () => string): Promise<TaskResult> {
   if (!GUID.test(appGuid)) throw new Error("Open an app first: the address has no app ID.");
   progress.status("Reading the app…");
   const app = (await getJson(`${DEFINITION}apps/${appGuid}?includeUnpublished=true&includeReportPages=true`, { apiVersion: "2" })) as Obj;
@@ -453,7 +451,7 @@ export async function analyseApp(appGuid: string, progress: Progress, diagnostic
   ];
   const date = new Date().toISOString().slice(0, 10);
   return {
-    report, zip: zipStore(files), fileName: `${fileSafe(appName)} - App Export - ${date}.zip`,
+    zip: zipStore(files), fileName: `${fileSafe(appName, "app")} - App Export - ${date}.zip`,
     summary: [`${analysed} of ${inputs.length} pages analysed, ${cards} cards.`, ...summary],
   };
 }

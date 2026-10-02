@@ -1,3 +1,4 @@
+import { copyDocument, isObject, MAX_DEPTH, MAX_NODES, NATIVE_CARD_TYPES, UNSAFE_KEYS } from "./definition-json.js";
 import { UxDefinitionError, type UxPageType } from "./definition-types.js";
 import type {
   UxActionButtonDetail, UxAxisDetail, UxAxisDimension, UxCardDetail, UxCardPlacement, UxCardSource, UxChartDetail, UxConditionalFormatRule,
@@ -26,9 +27,7 @@ const ENTITY_ID = /^[1-9]\d{9,15}$/;
 const SENSITIVE = /token|secret|password|credential/i;
 const REDACTED = "[redacted]";
 const LINE_ITEMS_DIMENSION = "20000000012";
-const UNSAFE_KEYS = new Set(["__proto__", "prototype", "constructor"]);
 const IDENTITY = ["pageGuid", "appGuid", "name", "customerId", "workspaceId", "modelId"] as const;
-const CARD_TYPES = new Set(["TEXT", "TABLE", "CARD", "COMBOCHART", "IMAGE", "FIELD", "ACTION", "MAP", "PRESENTATION_TABLE", "SHAPE", "HIERARCHY", "NETWORK", "WEB_XL"]);
 const LAYOUT_TYPES = new Set(["BOARD", "BOARD_CONTENT", "BOARD_SECTION", "BOARD_ROW", "BOARD_COLUMN", "BOARD_COLUMN_SPACER", "BOARD_COLUMN_WIDGET_SPACER",
   "INSIGHT_PANEL", "GRIDPAGE", "REPORT", "SLIDE", "LINKED_SLIDE"]);
 const PAGE_KEYS = new Set<string>([...IDENTITY, "widgets", "layout", "rows", "contextOptions", "widgetGuids", "modelCount", "modelInfo", "modelInfos",
@@ -69,7 +68,6 @@ const REF_KEYS = new Map<string, UxEntityKind>([["moduleId", "module"], ["lineIt
   ["listItemId", "listItem"], ["viewId", "view"], ["savedViewId", "view"], ["actionId", "action"]]);
 
 function fail(code: string, message: string): never { throw new UxDefinitionError(code, message); }
-const isObject = (value: unknown): value is Obj => value !== null && typeof value === "object" && !Array.isArray(value);
 const text = (value: unknown): string | undefined => typeof value === "string" && value.length > 0 ? value : undefined;
 const num = (value: unknown): number | undefined => typeof value === "number" && Number.isFinite(value) ? value : undefined;
 const bool = (value: unknown): boolean | undefined => typeof value === "boolean" ? value : undefined;
@@ -88,39 +86,6 @@ const idOf = (value: unknown): string | undefined => {
 const isModuleId = (id: string): boolean => Math.floor(Number(id) / 1e9) === 102;
 const listed = (ids: string[]): string => `${ids.slice(0, 3).map(id => cap(id, 40)).join(", ")}${ids.length > 3 ? ` (+${ids.length - 3} more)` : ""}`;
 
-/** Same bounds as the authoring copy: reject prototype keys, cycles and non-JSON values; bound size and depth. */
-function copyDocument(native: unknown): Obj {
-  let count = 0;
-  let chars = 0;
-  const ancestors = new Set<object>();
-  const visit = (value: unknown, depth: number): unknown => {
-    if (++count > 150_000 || depth > 40) fail("DEFINITION_TOO_LARGE", "Page definition exceeds SAM's bounded JSON traversal.");
-    if (typeof value === "string") {
-      if ((chars += value.length) > 8_000_000) fail("DEFINITION_TOO_LARGE", "Page definition exceeds SAM's 8 MB character bound.");
-      return value;
-    }
-    if (value === null || typeof value === "boolean") return value;
-    if (typeof value === "number" && Number.isFinite(value)) return value;
-    if (typeof value !== "object") return fail("UNSUPPORTED_DEFINITION", "Page definitions must contain only JSON values.");
-    if (ancestors.has(value)) fail("UNSUPPORTED_DEFINITION", "Cyclic page definition.");
-    ancestors.add(value);
-    let result: unknown;
-    if (Array.isArray(value)) result = value.map(item => visit(item, depth + 1));
-    else {
-      if (![Object.prototype, null].includes(Object.getPrototypeOf(value))) fail("UNSUPPORTED_DEFINITION", "Unexpected object prototype.");
-      const entries = Object.entries(value);
-      if (entries.some(([key]) => UNSAFE_KEYS.has(key))) fail("UNSUPPORTED_DEFINITION", "Unsafe object key in page definition.");
-      result = Object.fromEntries(entries.map(([key, item]) => [key, visit(item, depth + 1)]));
-    }
-    ancestors.delete(value);
-    return result;
-  };
-  const doc = visit(native, 0);
-  if (!isObject(doc)) fail("UNSUPPORTED_DEFINITION", "Page definition must be an object.");
-  if (JSON.stringify(doc).length > 8_000_000) fail("DEFINITION_TOO_LARGE", "Page definition exceeds SAM's 8 MB character bound.");
-  return doc;
-}
-
 /** Embedded JSON strings (chartConfig, text, actions, customizations...) get the same key/depth rules, but are reported, never thrown. */
 function parseEmbedded(value: string): { ok: boolean; value?: unknown } {
   let parsed: unknown;
@@ -128,7 +93,7 @@ function parseEmbedded(value: string): { ok: boolean; value?: unknown } {
   let count = 0;
   // JSON.parse keeps "__proto__" as an ordinary own key, so check it like the document copy does.
   const safe = (item: unknown, depth: number): boolean => {
-    if (++count > 150_000 || depth > 40) return false;
+    if (++count > MAX_NODES || depth > MAX_DEPTH) return false;
     if (Array.isArray(item)) return item.every(child => safe(child, depth + 1));
     return !isObject(item) || Object.entries(item).every(([key, child]) => !UNSAFE_KEYS.has(key) && safe(child, depth + 1));
   };
@@ -305,7 +270,7 @@ function placeCards(pageType: UxPageType, page: Obj, entries: CardEntry[], out: 
       else primary.set(entry.id, found);
       return;
     }
-    if (CARD_TYPES.has(type)) { missing.push(id ?? "(no id)"); return; }
+    if (NATIVE_CARD_TYPES.has(type)) { missing.push(id ?? "(no id)"); return; }
     let next = where;
     if (type === "BOARD_SECTION") next = { ...where, sectionId: id };
     else if (type === "BOARD_ROW") next = { ...where, rowId: id, rowIndex: index, rowHeight: num(node.height) };
@@ -1110,7 +1075,7 @@ function describeCard({ id, card, wrapper }: CardEntry, placement: UxCardPlaceme
  * Throws UxDefinitionError only for unsafe/unbounded JSON, a non-object root or missing page identity.
  */
 export function describePageCards(pageType: UxPageType, native: unknown): UxPageCardDetails {
-  const page = copyDocument(native);
+  const page = copyDocument(native, { boundStringsEarly: true });
   const [pageGuid, appGuid, name, customerId, workspaceId, modelId] = IDENTITY.map(key => identity(page, key));
   const out = new Collector();
   const entries = cardEntries(pageType, page, out);

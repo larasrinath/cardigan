@@ -1,3 +1,5 @@
+import { ANAPLAN_HOST } from "./util.js";
+
 /** GET-only JSON reads on the page's own origin, sent the way the Anaplan web client sends them (same headers and
  * XSRF cookie echo as SAM's UX browser program). Only the two services the analyser reads are allowed. */
 
@@ -21,8 +23,6 @@ function xsrfToken(): string | undefined {
     return undefined;
   }
 }
-
-const ANAPLAN_HOST = /^[a-z0-9.-]+\.anaplan\.com$/i;
 
 /** `host` sends the read to the Anaplan host a model lives on (a model in another data centre is served there, as Page
  * Builder does); otherwise the page's own origin is used. */

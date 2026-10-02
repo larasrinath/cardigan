@@ -1,4 +1,5 @@
 import { entityKey, type UxEntityRef, type UxResolvedNames, type UxViewLayout } from "../../../src/domains/ux-designer/card-types.js";
+import { list, text, type Obj } from "./util.js";
 
 /** Names for one model, gathered the way Page Builder gets them: modules, saved views, dimension labels, lists and line
  * items from the widget data socket, and import/export/process names from the actions service. */
@@ -28,12 +29,8 @@ export function emptyCatalog(): ModelCatalog {
     lineItemModules: new Set(), unreadableModules: new Set(), moduleListLoaded: false, moduleDimensions: new Map(), listItems: new Map(), viewLayouts: new Map() };
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Obj = Record<string, any>;
-const list = (value: unknown): Obj[] => (Array.isArray(value) ? value.filter(item => item && typeof item === "object") : []);
 const idText = (value: unknown): string | undefined =>
   (typeof value === "string" && value) || (typeof value === "number" && Number.isSafeInteger(value) ? String(value) : undefined);
-const text = (value: unknown): string | undefined => (typeof value === "string" && value ? value : undefined);
 
 /** `core:/{ws}:{model}/moduleViews`: `data[] = {id, name, views[] = {viewId, viewName, default}}`, `dimensions = {id: {label}}`. */
 export function addModuleViews(catalog: ModelCatalog, json: unknown): void {

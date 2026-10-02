@@ -1,9 +1,11 @@
+import type { Log } from "./panel.js";
+import { ANAPLAN_HOST } from "./util.js";
+
 /** A minimal STOMP client for Page Builder's widget data socket (traced in the designer bundle, 27 Sep 2026: CONNECT
  * headers, SUBSCRIBE plus an `update-subscription` SEND, MESSAGE frames typed by `message-type`). The same socket carries
  * data writes, so this client can only subscribe: any other command or action type is refused before it is sent. */
 
 export interface StompFrame { command: string; headers: Record<string, string>; body: string }
-export type Log = (line: string) => void;
 
 const CLIENT_COMMANDS = new Set(["CONNECT", "SUBSCRIBE", "UNSUBSCRIBE", "SEND", "DISCONNECT"]);
 /** Each subscription sends its options once, as Page Builder's first revision (eight digits, zero-padded). */
@@ -138,7 +140,7 @@ export class StompConnection {
       socket.addEventListener("close", event => {
         log(`socket closed code=${event.code}${event.reason ? ` reason=${event.reason}` : ""}`);
         // Page Builder also treats a close whose reason is a host name as "reconnect there".
-        const fqdn = /^[a-z0-9.-]+\.anaplan\.com$/i.test(event.reason) ? event.reason : undefined;
+        const fqdn = ANAPLAN_HOST.test(event.reason) ? event.reason : undefined;
         const error = fqdn ? new StompError(`Redirected to ${fqdn}.`, "REDIRECTION_REQUIRED", fqdn)
           : new StompError(`Connection closed (code ${event.code}${event.reason ? `, ${event.reason}` : ""}).`, `CLOSE_${event.code}`);
         connection.fail(error);

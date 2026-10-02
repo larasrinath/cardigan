@@ -1,7 +1,8 @@
 import { analyseApp } from "./analyse.js";
 import { describeProbe, greetFrames, runInCore, watchCore, watchProbes, type CoreHandle, type FrameProbe } from "./bridge.js";
-import { mountOnce } from "./panel.js";
+import { MODEL_EXPORT_PANEL, mountOnce } from "./panel.js";
 import { RestError } from "./rest.js";
+import { sleep } from "./util.js";
 
 /** The page the user sees. On an app page, "Analyse app" exports its pages. On a Model Building page, "Export model"
  * exports the model's settings through the model's core frame (see bridge.ts). Everything is read-only, using the
@@ -10,7 +11,6 @@ import { RestError } from "./rest.js";
 const APP_PATH = /\/apps\/app\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:[/?#]|$)/i;
 const MODEL_PATH = /\/a\/modeling(?:-ui)?\/.*\/models\/([0-9A-Za-z]{32})(?:[/?#]|$)/;
 const WAIT_FOR_CORE_MS = 20_000;
-const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 if (window.top === window) {
   mountOnce({
@@ -30,10 +30,7 @@ if (window.top === window) {
   watchProbes(window, probe => { probes.set(`${probe.host}${probe.path}`, probe); });
   mountOnce({
     id: "model-export-shell",
-    launchLabel: "Export model",
-    title: "Model export",
-    description: "Exports this model's Model settings (line items, modules, lists, actions, time ranges, versions and source models) and the model calendar as CSV files. It only reads.",
-    startLabel: "Export model",
+    ...MODEL_EXPORT_PANEL,
     subject: () => MODEL_PATH.exec(location.pathname)?.[1],
     run: async (model, progress) => {
       // The model's own frame (the classic client inside this page) does the reading; wait for it to check in.

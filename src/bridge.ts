@@ -1,4 +1,6 @@
+import { stampLine } from "./details.js";
 import type { Progress, TaskResult } from "./panel.js";
+import { SCOPE_ID } from "./util.js";
 
 /** The Model Building page (`/a/modeling/…/models/{id}`) is a shell; the classic model client runs in a core frame inside it,
  * often on another data centre's host (SAM's Model Builder evaluates only in that core frame). The export must read there,
@@ -8,7 +10,6 @@ import type { Progress, TaskResult } from "./panel.js";
 
 export const PROTOCOL = "sam-model-export";
 export const ANAPLAN_ORIGIN = /^https:\/\/[a-z0-9.-]+\.anaplan\.com$/i;
-const MODEL_ID = /^[0-9A-Za-z]{32}$/;
 
 export interface Endpoint { postMessage(message: unknown, targetOrigin: string, transfer?: Transferable[]): void }
 export interface MessageTarget {
@@ -29,7 +30,7 @@ const ours = (event: MessageEvent): Message | undefined => {
 export function watchCore(self: MessageTarget, onCore: (core: CoreHandle) => void): void {
   self.addEventListener("message", event => {
     const data = ours(event);
-    if (data?.type !== "core-ready" || typeof data.modelId !== "string" || !MODEL_ID.test(data.modelId) || !event.source) return;
+    if (data?.type !== "core-ready" || typeof data.modelId !== "string" || !SCOPE_ID.test(data.modelId) || !event.source) return;
     const source = event.source as unknown as Endpoint;
     source.postMessage({ protocol: PROTOCOL, type: "ack" }, event.origin);
     onCore({ source, origin: event.origin, modelId: data.modelId });
@@ -71,7 +72,7 @@ export interface FrameProbe { host: string; path: string; top: boolean; loader: 
 export function probeFrame(): FrameProbe {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const w = window as any;
-  const shape = (value: unknown) => (typeof value === "string" ? (MODEL_ID.test(value) ? "id" : `text(${value.length})`) : typeof value);
+  const shape = (value: unknown) => (typeof value === "string" ? (SCOPE_ID.test(value) ? "id" : `text(${value.length})`) : typeof value);
   return { host: location.host, path: location.pathname.replace(/[0-9A-Fa-f]{32}/g, "<id>").slice(0, 120), top: window.top === window,
     loader: typeof w.require, model: shape(w.modelId), workspace: shape(w.workspaceId) };
 }
@@ -125,7 +126,7 @@ export function serveCore(self: MessageTarget, top: Endpoint, modelId: () => str
     const reply = (message: Message, transfer: Transferable[] = []) => top.postMessage({ protocol: PROTOCOL, nonce: data.nonce, ...message }, origin, transfer);
     const lines: string[] = [];
     // Stamped like the panel's own log, so Model Details.csv gives every diagnostic line its time.
-    const stamp = (text: string) => lines.push(`${new Date().toISOString().slice(11, 19)} ${text}`);
+    const stamp = (text: string) => lines.push(stampLine(text));
     const progress: Progress = {
       status: text => { stamp(text); reply({ type: "status", text }); },
       log: line => { stamp(line); reply({ type: "log", text: line }); },
