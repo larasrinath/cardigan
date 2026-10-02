@@ -108,6 +108,10 @@ const NO_IDENTITY = "pageGuid must be a nonempty string.";
 const unsafeKey = (key = "__proto__") => JSON.parse(`{"${key}":{"polluted":true}}`);
 /** An empty object wrapped in `levels` parent objects. */
 const chain = (levels: number) => { let nested: unknown = {}; for (let i = 0; i < levels; i++) nested = { child: nested }; return nested; };
+/** An empty array wrapped in `levels` parent arrays. */
+const arrays = (levels: number) => { let nested: unknown = []; for (let i = 0; i < levels; i++) nested = [nested]; return nested; };
+// Written out here, not imported: a type dropped from the shared list must fail a test.
+const NATIVE_CARD_TYPES = ["TEXT", "TABLE", "CARD", "COMBOCHART", "IMAGE", "FIELD", "ACTION", "MAP", "PRESENTATION_TABLE", "SHAPE", "HIERARCHY", "NETWORK", "WEB_XL"];
 const referenceKeys = (result: UxPageCardDetails) => result.references.map(item => `${item.kind}:${item.id}:${item.moduleId ?? ""}`);
 /** Every UxEntityRef-shaped object nested anywhere in the cards/page context. */
 const nestedRefs = (value: unknown): UxEntityRef[] => {
@@ -387,6 +391,21 @@ describe("UX card details, tolerant read of native pages", () => {
     expect(JSON.stringify(result)).not.toContain(TOKEN);
   });
 
+  const lone = (type: string) => describePageCards("BOARD", { ...pageIdentity(), widgets: {}, layout: boardLayout([fullRow(3000, { type, id: guid(3003) })]) });
+
+  it.each(NATIVE_CARD_TYPES)("reports a %s layout node without a widget as a missing card", type => {
+    const result = lone(type);
+    expect(result.cards).toEqual([]);
+    expect(result.warnings).toEqual([`1 layout card(s) have no widget definition: ${guid(3003)}.`]);
+  });
+
+  it("reads a layout node of any other type as structure, matching card types exactly", () => {
+    for (const type of ["WEBXL", "Table", "text", "GANTT"]) {
+      expect(lone(type).warnings).toEqual([`Unrecognised layout node types (traversed where they have areas): ${type}.`]);
+    }
+    expect(lone("BOARD_COLUMN_WIDGET_SPACER").warnings).toEqual([]);
+  });
+
   it("caps unrecognised entries per card with a note", () => {
     const noisy = { ...textCard(guid(810)), future: Array.from({ length: 70 }, (_, index) => index + 1) };
     const result = describePageCards("BOARD", boardOf(noisy));
@@ -574,6 +593,30 @@ describe("UX card details, tolerant read of native pages", () => {
     errorText(() => describePageCards("BOARD", { list: new Array(149_999).fill(0) }), "DEFINITION_TOO_LARGE", TRAVERSAL_BOUND);
   });
 
+  it("counts strings, nulls and booleans as values and each array as a nested level", () => {
+    for (const fill of ["", "text", null, true, false]) {
+      errorText(() => describePageCards("BOARD", { list: new Array(149_998).fill(fill) }), "UNSUPPORTED_DEFINITION", NO_IDENTITY);
+      errorText(() => describePageCards("BOARD", { list: new Array(149_999).fill(fill) }), "DEFINITION_TOO_LARGE", TRAVERSAL_BOUND);
+    }
+    // The page is level 0 and `nested` level 1, as for objects.
+    errorText(() => describePageCards("BOARD", { nested: arrays(39) }), "UNSUPPORTED_DEFINITION", NO_IDENTITY);
+    errorText(() => describePageCards("BOARD", { nested: arrays(40) }), "DEFINITION_TOO_LARGE", TRAVERSAL_BOUND);
+    errorText(() => describePageCards("BOARD", { nested: [chain(38)] }), "UNSUPPORTED_DEFINITION", NO_IDENTITY);
+    errorText(() => describePageCards("BOARD", { nested: [chain(39)] }), "DEFINITION_TOO_LARGE", TRAVERSAL_BOUND);
+  });
+
+  it("checks an object's prototype before its keys, and the root's type before the serialized size", () => {
+    // A class instance with an own `prototype` key has both faults.
+    const instance = Object.assign(new (class Page {})(), { prototype: 1 });
+    errorText(() => describePageCards("BOARD", { ...board(), instance }), "UNSUPPORTED_DEFINITION", "Unexpected object prototype.");
+    // 4,500,000 quotes are within the character count during the copy and over 8,000,000 characters once serialized.
+    errorText(() => describePageCards("BOARD", ['"'.repeat(4_500_000)]), "UNSUPPORTED_DEFINITION", "Page definition must be an object.");
+    errorText(() => describePageCards("BOARD", '"'.repeat(4_500_000)), "UNSUPPORTED_DEFINITION", "Page definition must be an object.");
+    // Strings are counted during the copy, so an oversized string stops it before the root's type is checked.
+    errorText(() => describePageCards("BOARD", "x".repeat(8_000_001)), "DEFINITION_TOO_LARGE", CHARACTER_BOUND);
+    errorText(() => describePageCards("BOARD", ["x".repeat(8_000_001)]), "DEFINITION_TOO_LARGE", CHARACTER_BOUND);
+  });
+
   it("stops at 8,000,000 string characters during the copy, before a later fault, and bounds the serialized size", () => {
     errorText(() => describePageCards("BOARD", { ...board(), big: "x".repeat(8_000_001) }), "DEFINITION_TOO_LARGE", CHARACTER_BOUND);
     // Strings are counted as they are copied, so an oversized string wins over an unsafe key that follows it.
@@ -609,6 +652,15 @@ describe("UX card details, tolerant read of native pages", () => {
     const series = (length: number) => JSON.stringify({ chartType: "bar", series: new Array(length).fill(0) });
     expect(chartWith(series(149_997)).warnings).toEqual([]);
     expect(chartWith(series(149_998)).warnings).toEqual(malformed);
+  });
+
+  it("counts each array in embedded JSON as a nested level", () => {
+    const chartWith = (deep: unknown) => describePageCards("BOARD", boardOf({ ...common(guid(131), "COMBOCHART", ""), chartConfig: JSON.stringify({ chartType: "bar", deep }) }));
+    const malformed = [`Card ${guid(131)}: chartConfig is not a valid JSON object.`];
+    expect(chartWith(arrays(39)).warnings).toEqual([]);
+    expect(chartWith(arrays(40)).warnings).toEqual(malformed);
+    expect(chartWith([chain(38)]).warnings).toEqual([]);
+    expect(chartWith([chain(39)]).warnings).toEqual(malformed);
   });
 });
 
