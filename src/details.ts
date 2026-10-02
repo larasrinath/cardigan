@@ -14,6 +14,9 @@ export function exportRows(host: string, now = new Date()): DetailRow[] {
   ];
 }
 
+/** A diagnostic log line with the time (UTC) it was written, as `diagnosticRows` reads it back. */
+export const stampLine = (line: string): string => `${new Date().toISOString().slice(11, 19)} ${line}`;
+
 /** The diagnostic log, as Copy diagnostic log gives it, one row per line with the time (UTC) the panel stamped on it. */
 export function diagnosticRows(log: string): DetailRow[] {
   return log.split(/\r?\n/).filter(line => line.trim()).map(line => {
