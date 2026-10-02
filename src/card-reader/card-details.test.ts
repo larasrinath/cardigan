@@ -110,6 +110,10 @@ const unsafeKey = (key = "__proto__") => JSON.parse(`{"${key}":{"polluted":true}
 const chain = (levels: number) => { let nested: unknown = {}; for (let i = 0; i < levels; i++) nested = { child: nested }; return nested; };
 /** An empty array wrapped in `levels` parent arrays. */
 const arrays = (levels: number) => { let nested: unknown = []; for (let i = 0; i < levels; i++) nested = [nested]; return nested; };
+/** `inner` wrapped in `levels` parent objects. */
+const wrap = (inner: unknown, levels: number) => { let nested = inner; for (let i = 0; i < levels; i++) nested = { child: nested }; return nested; };
+/** A page whose list ends with `last` as the 150,001st value: the page and the list are the first two. */
+const lastOverBound = (last: unknown) => ({ list: [...new Array(149_998).fill(0), last] });
 // Written out here, not imported: a type dropped from the shared list must fail a test.
 const NATIVE_CARD_TYPES = ["TEXT", "TABLE", "CARD", "COMBOCHART", "IMAGE", "FIELD", "ACTION", "MAP", "PRESENTATION_TABLE", "SHAPE", "HIERARCHY", "NETWORK", "WEB_XL"];
 const referenceKeys = (result: UxPageCardDetails) => result.references.map(item => `${item.kind}:${item.id}:${item.moduleId ?? ""}`);
@@ -629,6 +633,76 @@ describe("UX card details, tolerant read of native pages", () => {
     // {"big":"..."} serializes to the string's length plus 10.
     errorText(() => describePageCards("BOARD", { big: "x".repeat(7_999_990) }), "UNSUPPORTED_DEFINITION", NO_IDENTITY);
     errorText(() => describePageCards("BOARD", { big: "x".repeat(7_999_991) }), "DEFINITION_TOO_LARGE", CHARACTER_BOUND);
+  });
+
+  it("checks all of an object's keys before copying any of its values", () => {
+    // The object at level 40 has an unsafe key after a child that would be level 41.
+    errorText(() => describePageCards("BOARD", { nested: wrap(JSON.parse('{"deeper":{},"__proto__":{}}'), 39) }), "UNSUPPORTED_DEFINITION", UNSAFE_KEY);
+    // An unsafe key beside an oversized string wins, although strings are counted during the copy.
+    errorText(() => describePageCards("BOARD", JSON.parse(`{"big":"${"x".repeat(8_000_001)}","constructor":1}`)), "UNSUPPORTED_DEFINITION", UNSAFE_KEY);
+    // The unsafe key may be the first of several, also on the page itself.
+    errorText(() => describePageCards("BOARD", JSON.parse('{"__proto__":1,"safe":{}}')), "UNSUPPORTED_DEFINITION", UNSAFE_KEY);
+    // An object without a prototype is checked like a plain one.
+    errorText(() => describePageCards("BOARD", { extra: Object.assign(Object.create(null), { constructor: 1 }) }), "UNSUPPORTED_DEFINITION", UNSAFE_KEY);
+  });
+
+  it("matches unsafe keys exactly, in the page and in embedded JSON", () => {
+    // None of these is an unsafe key, so the copy goes on to the identity check and the chart is read.
+    const similar = { Prototype: 1, CONSTRUCTOR: 2, __proto: 3, proto__: 4, constructors: 5, " prototype": 6, "__proto__ ": 7 };
+    errorText(() => describePageCards("BOARD", similar), "UNSUPPORTED_DEFINITION", NO_IDENTITY);
+    const result = describePageCards("BOARD", boardOf({ ...common(guid(131), "COMBOCHART", ""), chartConfig: JSON.stringify({ chartType: "bar", ...similar }) }));
+    expect(card(result, guid(131)).chart).toEqual({ chartType: "bar" });
+    expect(result.warnings).toEqual([]);
+  });
+
+  it("applies the traversal bound to a value before any other check of that value", () => {
+    // The 150,001st value is an object with an unsafe key, or a string that crosses 8,000,000 characters.
+    errorText(() => describePageCards("BOARD", lastOverBound(JSON.parse('{"__proto__":1}'))), "DEFINITION_TOO_LARGE", TRAVERSAL_BOUND);
+    errorText(() => describePageCards("BOARD", lastOverBound("x".repeat(8_000_001))), "DEFINITION_TOO_LARGE", TRAVERSAL_BOUND);
+    // The same two values at level 41.
+    errorText(() => describePageCards("BOARD", { nested: wrap(JSON.parse('{"__proto__":1}'), 40) }), "DEFINITION_TOO_LARGE", TRAVERSAL_BOUND);
+    errorText(() => describePageCards("BOARD", { nested: wrap("x".repeat(8_000_001), 40) }), "DEFINITION_TOO_LARGE", TRAVERSAL_BOUND);
+    // Values that parsed JSON cannot contain: a non-JSON value, a non-plain prototype and the page itself.
+    errorText(() => describePageCards("BOARD", lastOverBound(undefined)), "DEFINITION_TOO_LARGE", TRAVERSAL_BOUND);
+    errorText(() => describePageCards("BOARD", lastOverBound(new Date(0))), "DEFINITION_TOO_LARGE", TRAVERSAL_BOUND);
+    const page: Obj = {}; page.list = [...new Array(149_998).fill(0), page];
+    errorText(() => describePageCards("BOARD", page), "DEFINITION_TOO_LARGE", TRAVERSAL_BOUND);
+  });
+
+  it("applies both traversal bounds to every kind of value", () => {
+    // Level 40 is within the bound and level 41 is not, for a value without children too.
+    for (const leaf of [0, "text", null, true]) {
+      errorText(() => describePageCards("BOARD", { nested: wrap(leaf, 39) }), "UNSUPPORTED_DEFINITION", NO_IDENTITY);
+      errorText(() => describePageCards("BOARD", { nested: wrap(leaf, 40) }), "DEFINITION_TOO_LARGE", TRAVERSAL_BOUND);
+    }
+    // An empty object or list as the 150,001st value.
+    for (const last of [{}, []]) errorText(() => describePageCards("BOARD", lastOverBound(last)), "DEFINITION_TOO_LARGE", TRAVERSAL_BOUND);
+  });
+
+  it("reports the first fault in document order", () => {
+    // JSON.parse reads -1e999 as -Infinity, which is not a JSON value.
+    const NOT_JSON = "Page definitions must contain only JSON values.";
+    // Keys are read in the order they are written, not sorted.
+    errorText(() => describePageCards("BOARD", JSON.parse('{"widgets":{"__proto__":1},"layout":-1e999}')), "UNSUPPORTED_DEFINITION", UNSAFE_KEY);
+    errorText(() => describePageCards("BOARD", JSON.parse('{"widgets":-1e999,"layout":{"__proto__":1}}')), "UNSUPPORTED_DEFINITION", NOT_JSON);
+    errorText(() => describePageCards("BOARD", JSON.parse('{"list":[{"__proto__":1},-1e999]}')), "UNSUPPORTED_DEFINITION", UNSAFE_KEY);
+    errorText(() => describePageCards("BOARD", JSON.parse('{"list":[-1e999,{"__proto__":1}]}')), "UNSUPPORTED_DEFINITION", NOT_JSON);
+    // An unsafe key before an oversized string wins: strings are counted only as the copy reaches them.
+    errorText(() => describePageCards("BOARD", { extra: unsafeKey(), big: "x".repeat(8_000_001) }), "UNSUPPORTED_DEFINITION", UNSAFE_KEY);
+  });
+
+  it("checks the page's own prototype and reports a list that contains itself as a cycle", () => {
+    errorText(() => describePageCards("BOARD", new Date(0)), "UNSUPPORTED_DEFINITION", "Unexpected object prototype.");
+    const loop: unknown[] = []; loop.push(loop);
+    errorText(() => describePageCards("BOARD", { loop }), "UNSUPPORTED_DEFINITION", "Cyclic page definition.");
+  });
+
+  it("accepts fractions and negative numbers, and a list used twice", () => {
+    // The same list in two places is not a cycle.
+    const list = [0.5, -1, -2.75, 1e300, -1e-300];
+    const result = describePageCards("BOARD", { ...board(), first: list, second: list });
+    expect(result.cards).toHaveLength(7);
+    expect(result.pageContext.unrecognised).toEqual(["first", "second"].flatMap(key => list.map((value, index) => ({ path: `${key}[${index}]`, valueType: "number", value }))));
   });
 
   it("treats unsafe keys inside embedded JSON as malformed rather than throwing", () => {
