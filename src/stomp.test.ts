@@ -27,8 +27,8 @@ class FakeSocket {
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));
 const log = () => undefined;
 
-async function connected(): Promise<[StompConnection, FakeSocket]> {
-  const opening = StompConnection.open("wss://host.example/ws", { "anaplan-customer": "customer-1" }, log);
+async function connected(onLog: (line: string) => void = log): Promise<[StompConnection, FakeSocket]> {
+  const opening = StompConnection.open("wss://host.example/ws", { "anaplan-customer": "customer-1" }, onLog);
   await flush();
   FakeSocket.last!.serve("CONNECTED\nversion:1.2\nserver:test\n\n\0");
   return [await opening, FakeSocket.last!];
@@ -130,29 +130,35 @@ describe("Page analyzer socket client", () => {
 
   it("reads a close whose reason is an Anaplan host as a redirect there, and any other close as a closed connection", async () => {
     vi.stubGlobal("WebSocket", FakeSocket);
+    // Every close is written to the diagnostic log with its code, and with its reason when it has one.
+    const lines: string[] = [];
+    const closes = () => lines.splice(0).filter(line => line.startsWith("socket closed"));
     for (const host of ANAPLAN_HOSTS) {
-      const [connection, socket] = await connected();
+      const [connection, socket] = await connected(line => { lines.push(line); });
       const pending = connection.subscribe("core://ws:model/lists");
       socket.close(1012, host);
       const error = await pending.catch((reason: unknown) => reason);
       expect(error, host).toBeInstanceOf(StompError);
       expect(error, host).toMatchObject({ message: `Redirected to ${host}.`, code: "REDIRECTION_REQUIRED", fqdn: host });
       expect(connection.failed).toBe(error);
+      expect(closes(), host).toEqual([`socket closed code=1012 reason=${host}`]);
     }
 
     for (const reason of [...OTHER_HOSTS, "going away"]) {
-      const [connection, socket] = await connected();
+      const [connection, socket] = await connected(line => { lines.push(line); });
       const pending = connection.subscribe("core://ws:model/lists");
       socket.close(1006, reason);
       const error = await pending.catch((thrown: unknown) => thrown);
       expect(error, reason).toBeInstanceOf(StompError);
       expect(error, reason).toMatchObject({ message: `Connection closed (code 1006, ${reason}).`, code: "CLOSE_1006", fqdn: undefined });
       expect(connection.failed, reason).toBe(error);
+      expect(closes(), reason).toEqual([`socket closed code=1006 reason=${reason}`]);
     }
 
-    const opening = StompConnection.open("wss://host.example/ws", {}, log);
+    const opening = StompConnection.open("wss://host.example/ws", {}, line => { lines.push(line); });
     await flush();
     FakeSocket.last!.close(1008);
     await expect(opening).rejects.toMatchObject({ message: "Connection closed (code 1008).", code: "CLOSE_1008", fqdn: undefined });
+    expect(closes()).toEqual(["socket closed code=1008"]);
   });
 });
