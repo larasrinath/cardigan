@@ -2,6 +2,7 @@ import { analyseApp } from "./analyse.js";
 import { describeProbe, greetFrames, runInCore, watchCore, watchProbes, type CoreHandle, type FrameProbe } from "./bridge.js";
 import { MODEL_EXPORT_PANEL, mountOnce } from "./panel.js";
 import { RestError } from "./rest.js";
+import { sleep } from "./util.js";
 
 /** The page the user sees. On an app page, "Analyse app" exports its pages. On a Model Building page, "Export model"
  * exports the model's settings through the model's core frame (see bridge.ts). Everything is read-only, using the
@@ -10,7 +11,6 @@ import { RestError } from "./rest.js";
 const APP_PATH = /\/apps\/app\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:[/?#]|$)/i;
 const MODEL_PATH = /\/a\/modeling(?:-ui)?\/.*\/models\/([0-9A-Za-z]{32})(?:[/?#]|$)/;
 const WAIT_FOR_CORE_MS = 20_000;
-const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 if (window.top === window) {
   mountOnce({

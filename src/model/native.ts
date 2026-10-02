@@ -1,5 +1,5 @@
 import type { Log } from "../panel.js";
-import { SCOPE_ID } from "../util.js";
+import { SCOPE_ID, sleep } from "../util.js";
 import { labelEntries, windowRows, type Grid } from "./grid.js";
 
 /** Reads Model settings grids through the classic model building client, the way its own settings tabs do: a
@@ -48,8 +48,6 @@ export function axis(native: Native, name: string): string {
   if (typeof value !== "string") throw new Error(`This model page has no ${name} axis.`);
   return value;
 }
-
-const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 /** Wait while the page has its own requests in flight (for example the user's pending edits). */
 async function waitIdle(native: Native): Promise<void> {

@@ -1,6 +1,6 @@
 import { DETAILS_HEADERS, diagnosticRows, exportRows, type DetailRow } from "../details.js";
 import type { Log, Progress, TaskResult } from "../panel.js";
-import { fileSafe } from "../util.js";
+import { fileSafe, message, text } from "../util.js";
 import { toCsv, zipStore } from "../zip.js";
 import { actionKind, mergeImports, missingActionColumns, type ActionKind } from "./actions.js";
 import { CALENDAR_HEADERS, calendarRows } from "./calendar.js";
@@ -14,7 +14,6 @@ import { axis, loadNative, readGrid, typeIndex } from "./native.js";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
-const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 const HOW_TO_READ: readonly [detail: string, value: string][] = [
   ["Layout", "Each file is laid out as Anaplan's own export of the same Model settings grid: an unlabelled first column, then the grid's columns, with each cell's underlying value."],
   ["Line Items", "Each module's row sits above its line items."],
@@ -23,8 +22,6 @@ const HOW_TO_READ: readonly [detail: string, value: string][] = [
   ["Import Data Sources", "Each data source, with the imports that use it."],
   ["Model Calendar", "Follows the assessment template. Settings that do not apply to this calendar type are blank; Model size (GB) and Captured by are left for you to fill in."],
 ];
-
-const text = (value: unknown): string | undefined => (typeof value === "string" && value ? value : undefined);
 
 export async function exportModel(progress: Progress, diagnostics: () => string): Promise<TaskResult> {
   const log: Log = progress.log;

@@ -11,11 +11,9 @@ import type { Log, Progress, TaskResult } from "./panel.js";
 import { buildReport, HEADERS, LINE_ITEMS, NONE, PAGE_TYPE, type PageInput, type TabName } from "./report.js";
 import { getJson, RestError } from "./rest.js";
 import { StompConnection, StompError } from "./stomp.js";
-import { ANAPLAN_HOST, fileSafe, SCOPE_ID } from "./util.js";
+import { ANAPLAN_HOST, fileSafe, list, message, SCOPE_ID, text, type Obj } from "./util.js";
 import { toCsv, zipStore } from "./zip.js";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Obj = Record<string, any>;
 const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ENTITY_ID = /^[1-9]\d{0,17}$/;
 const DEFINITION = "/a/springboard-definition-service/";
@@ -26,10 +24,6 @@ const MAX_EXTRA_MODULES = 60;
 /** A model that is not open loads on the first data request, which can take minutes. */
 const LOAD_MS = 300_000;
 const LINE_ITEMS_MS = 120_000;
-
-const list = (value: unknown): Obj[] => (Array.isArray(value) ? value.filter(item => item && typeof item === "object") : []);
-const text = (value: unknown): string | undefined => (typeof value === "string" && value ? value : undefined);
-const message = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
 function declaredType(entry: Obj): UxPageType | undefined {
   const raw = String(entry.pageType ?? entry.type ?? "").toUpperCase();
