@@ -1,24 +1,46 @@
-# Anaplan Analyzer (Chrome extension)
+# Cardigan: the Anaplan Analyzer Chrome extension
 
-Adds an **Analyse app** button to Anaplan apps. It reads every page in the app and downloads a zip of CSV files that list, per page and card:
+Cardigan is the source of the **Anaplan Analyzer** Chrome extension. It exports what an Anaplan app's pages and a model's settings contain, as CSV files you can search, filter and compare.
 
-- the model
-- the modules, saved views and line items
-- rows, columns and pages
-- filters
-- conditional formatting
-- actions
+- **Analyse app**, on an Anaplan app: reads every page in the app and downloads a zip of CSV files that list, per page and card:
+  - the model
+  - the modules, saved views and line items
+  - rows, columns and pages
+  - filters
+  - conditional formatting
+  - actions
+- **Export model**, on a model in Model Building: downloads one CSV per Model settings grid (see [Model export](#model-export)).
 
-It uses the same card reader as SAM's `describe_ux_page_cards` tool ([`card-details.ts`](../../src/domains/ux-designer/card-details.ts) and [`card-naming.ts`](../../src/domains/ux-designer/card-naming.ts)), bundled into the extension.
+It only reads, using your signed-in browser session, and nothing leaves the browser except those reads to Anaplan. It is not affiliated with or endorsed by Anaplan; see [NOTICE.md](NOTICE.md).
 
-## Install (load unpacked)
+The page analysis uses the same card reader as SAM's `describe_ux_page_cards` tool ([`card-details.ts`](src/card-reader/card-details.ts) and [`card-naming.ts`](src/card-reader/card-naming.ts)), bundled into the extension. See [Relationship to SAM](#relationship-to-sam).
 
-1. Build the bundle from the repository root: `npm run build:page-analyzer`. This writes `dist/content.js`, which is git-ignored, so rebuild after pulling changes.
-2. In Chrome, open `chrome://extensions`, turn on **Developer mode**, choose **Load unpacked** and select this `extension/page-analyzer` folder.
-3. Open an app in Anaplan (`https://<region>.app.anaplan.com/a/apps/app/<app id>…`) while signed in.
-4. Click **Analyse app** (bottom right), wait for the progress panel to finish, then click **Download CSVs (.zip)**.
+## Install
+
+### From a release zip
+
+1. Download `cardigan-<version>.zip` from a release, and check its SHA-256 against the one published with it (`shasum -a 256 cardigan-<version>.zip`).
+2. Unzip it into a folder you keep: Chrome loads the extension from that folder.
+3. In Chrome, open `chrome://extensions`, turn on **Developer mode**, choose **Load unpacked** and select the unzipped folder (the one with `manifest.json`).
+
+To update, unzip the new release over the same folder and click the reload icon on the extension's card in `chrome://extensions`.
+
+### From source
+
+1. Install the pinned tools: `npm ci` (Node 20.19+, 22.12+ or 24+).
+2. Build: `npm run build`. This type-checks the sources and writes `dist/content.js` and `dist/model-export.js`, which are git-ignored, so rebuild after pulling changes.
+3. In Chrome, open `chrome://extensions`, turn on **Developer mode**, choose **Load unpacked** and select the repository root (the folder with `manifest.json`).
 
 After a rebuild, click the reload icon on the extension's card in `chrome://extensions`, then refresh the Anaplan tab.
+
+### Use it
+
+1. Open an app in Anaplan while signed in: `https://<region>.app.anaplan.com/a/apps/app/<app id>…` (in Australia, `https://au1a.app2.anaplan.com/…`).
+2. Click **Analyse app** (bottom right), wait for the progress panel to finish, then click **Download CSVs (.zip)**.
+
+### Australia
+
+Anaplan's au1 region (Australia) serves the app at `au1a.app2.anaplan.com`; every other region uses `*.app.anaplan.com`. The extension runs on both (`https://*.app.anaplan.com/*` and `https://*.app2.anaplan.com/*`), and its host checks accept any host under `anaplan.com` and nothing else. Tests in `src/regions.test.ts` pin both.
 
 ## What it reads
 
@@ -66,7 +88,7 @@ How to read the files:
 
 - **Context selectors** match Page Builder's **Pivot data** panel:
   - For a custom view or combined grid, every dimension of the section's module that is on neither rows nor columns is a context selector, whether or not the page saved settings for it. Selectors the page saved show their settings, for example "(hidden, synced to page)".
-  - For a saved view, they are the view's pages, read from the same grid metadata Page Builder receives. This part is new; if it fails, the diagnostic log shows what the service sent.
+  - For a saved view, they are the view's pages, read from the same grid metadata Page Builder receives. If this read fails, the diagnostic log shows what the service sent.
 - **Show/hide:** shown and hidden items and hierarchy levels come from the page. Item names are looked up the way Page Builder's show/hide list does.
 
 ## Limits
@@ -75,6 +97,7 @@ How to read the files:
 - A saved view's own filters, sorts and show/hide live in the model and are not listed.
 - Filter-context items show their IDs.
 - Buttons whose import, export or process is not found in the model keep their card label. **Name from** says which source was used.
+- Anaplan can change the internal services the extension reads without notice; see [NOTICE.md](NOTICE.md).
 
 ## Model export
 
@@ -132,9 +155,55 @@ Click **Copy diagnostic log** in the panel, or see the **Diagnostics** rows at t
 
 It contains no cookies, tokens or cell values. Send it back with a note of what you expected.
 
+If no button appears, check that the extension is on in `chrome://extensions`, that it was reloaded after a rebuild or update, and that the tab was refreshed afterwards.
+
 ## Development
 
-- Sources are in `src/`.
-- Run the tests with `npx vitest run extension/page-analyzer`; they also run in `npm test`.
-- `npm run build:page-analyzer` type-checks the sources and bundles them.
-- Bump `version` in `manifest.json` with every rebuild. The panel title and the details file show it, so each build and its output can be told apart.
+`npm ci` installs the exact versions of TypeScript, Vitest and esbuild in `package-lock.json`.
+
+| Command | What it does |
+| --- | --- |
+| `npm run typecheck` | Type-checks `src/` (`tsc -p tsconfig.json`). |
+| `npm test` | Runs the extension's unit tests in `src/`, the card reader's included (Vitest). |
+| `npm run test:scripts` | Runs the Node scripts' own tests in `scripts/` (packaging, icons, card reader check). |
+| `npm run build` | Type-checks, then bundles `src/` into `dist/content.js` and `dist/model-export.js` (`scripts/build.mjs`). |
+| `npm run check` | All of the above. GitHub Actions runs it on every push and pull request. |
+| `npm run icons` | Redraws `icons/*.png` from `scripts/icons.mjs`. |
+| `npm run package` | Builds, then writes the release zip (see [Releasing](#releasing)). |
+| `npm run check:card-reader` | Compares the card reader with SAM's copy (see [Relationship to SAM](#relationship-to-sam)). |
+
+Layout:
+
+- `src/content.ts`: the app page analysis and the Model Building page's button (isolated world), bundled into `dist/content.js`.
+- `src/model-content.ts`: the model export's reading side, in the page's main world, bundled into `dist/model-export.js`.
+- `src/card-reader/`: the card reader shared with SAM.
+- `scripts/`: build, packaging, icons and the card reader check.
+- `docs/research/`: research notes on the page definition formats the card reader follows.
+
+Bump `version` in both `manifest.json` and `package.json` whenever the bundles change. The panel title and the details files show it, so each build and its output can be told apart, and the packager refuses a mismatch between the two files.
+
+## Releasing
+
+1. Bump `version` in `manifest.json` and `package.json`, and add the release to [CHANGELOG.md](CHANGELOG.md).
+2. Check the card reader against SAM: `npm run check:card-reader -- <path to anaplan-sam>` (default `../anaplan-sam`). It must report the five files identical.
+3. Run `npm run check`.
+4. Run `npm run package`. It builds, then writes `release/cardigan-<version>.zip` and prints its SHA-256.
+5. Publish the zip with its SHA-256 as the release's download.
+
+The zip holds only `manifest.json`, `dist/content.js`, `dist/model-export.js` and the icons, never sources, tests, docs or `node_modules`. Its entries are sorted, stored uncompressed and carry fixed times, so the same files give the same bytes, and the same SHA-256, on every run. The packager refuses to run when a bundle is missing or older than the sources it is built from.
+
+## Relationship to SAM
+
+Cardigan began as `extension/page-analyzer` inside SAM (anaplan-sam), versions 0.5.2 to 0.5.4, and moved here with its history. SAM's `describe_ux_page_cards` MCP tool and this extension use the same card reader. Each repository keeps its own copy:
+
+| Here | In SAM |
+| --- | --- |
+| `src/card-reader/` | `src/domains/ux-designer/` |
+
+The five source files `card-details.ts`, `card-naming.ts`, `card-types.ts`, `definition-json.ts` and `definition-types.ts` must stay byte-for-byte identical. Change them the same way in both repositories, and run `npm run check:card-reader` before every release: it names each file that differs and fails on drift, and it is skipped when no SAM checkout is present (as in CI). The reader's tests here (`card-details.test.ts`, `definition-json.test.ts`) are copies of SAM's and may differ from them.
+
+Some source comments mention SAM where the analyzer follows SAM's behaviour, for example the order in which SAM's name resolver looks up filter items. The research notes in `docs/research/` were written in SAM; their companion notes live in SAM's repository.
+
+## Licence
+
+[MIT](LICENSE). See [NOTICE.md](NOTICE.md).
