@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { UxPageCardDetails } from "../../../src/domains/ux-designer/card-types.js";
 import { analyseApp, loadCatalog } from "./analyse.js";
-import { NOT_SCOPE_IDS, OTHER_HOSTS, SCOPE_IDS } from "./guards.test-support.js";
+import { ANAPLAN_HOSTS, NOT_SCOPE_IDS, OTHER_HOSTS, SCOPE_IDS } from "./guards.test-support.js";
 import { decodeFrames, type StompFrame } from "./stomp.js";
 
 // Synthetic IDs only. The flow replays the first live run (28 Sep 2026): the model status stays UNKNOWN, and the first
@@ -207,6 +207,36 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     expect(notes).toEqual(["Synthetic model: names from the model data service were not available (REDIRECTION_REQUIRED); IDs are shown instead."]);
     expect(failedActionTypes).toEqual([]);
     expect(catalog.actions.get("112000000901")).toBe("Import demand");
+  });
+
+  it("follows a redirect to any Anaplan host", async () => {
+    for (const host of ANAPLAN_HOSTS) {
+      ScriptedSocket.sockets = [];
+      ScriptedSocket.reply = (socket, frame) => {
+        if (frame.command === "CONNECT") socket.serve(CONNECTED);
+        else if (frame.command === "SEND" && frame.headers.destination === at("") && socket === ScriptedSocket.sockets[0]) {
+          socket.serve(`ERROR\n\n${JSON.stringify({ error: "REDIRECTION_REQUIRED", fqdn: host })}\0`);
+        } else if (frame.command === "SEND") socket.serve(update(frame.headers.id, { data: [] }));
+      };
+      const { log, result } = run();
+      const { notes } = await result;
+      expect(notes, host).toEqual([]);
+      expect(log.filter(line => line.startsWith("redirected to")), host).toEqual([`redirected to ${host}`]);
+      // The URL keeps the host as the redirect named it; URL.host would lower-case it.
+      expect(ScriptedSocket.sockets.map(socket => socket.url.split("/a/")[0]), host).toEqual([`wss://${FIRST}`, `wss://${host}`]);
+    }
+  });
+
+  it("follows only a REDIRECTION_REQUIRED error, not another error that names an Anaplan host", async () => {
+    ScriptedSocket.reply = (socket, frame) => {
+      if (frame.command === "CONNECT") socket.serve(CONNECTED);
+      else if (frame.command === "SEND" && frame.headers.destination === at("")) socket.serve(`ERROR\n\n${JSON.stringify({ error: "MODEL_UNAVAILABLE", fqdn: MODEL_HOST })}\0`);
+    };
+    const { log, result } = run();
+    const { notes } = await result;
+    expect(ScriptedSocket.sockets.map(socket => socket.host)).toEqual([FIRST]);
+    expect(log.filter(line => line.startsWith("redirected to"))).toEqual([]);
+    expect(notes).toEqual(["Synthetic model: names from the model data service were not available (MODEL_UNAVAILABLE); IDs are shown instead."]);
   });
 
   it("looks nothing up when the workspace or model ID is not a 32-character ID", async () => {
