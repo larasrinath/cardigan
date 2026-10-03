@@ -157,6 +157,15 @@ describe("Model export: Model settings grids to tables", () => {
     const fourDigit: [string, string][] = [["Timescale", "true"]];
     expect([value(weeks("FY2079", fourDigit), "Current Fiscal Year"), value(weeks("FY78", fourDigit), "Current Fiscal Year")])
       .toEqual(["FY2079: 1 Jan 2079 - 30 Dec 2079", "FY2078: 26 Dec 2077 - 31 Dec 2078"]);
+    // Nearest to the end of December, a year can start in December and end in January: FY25 ends on 3 Jan 2026 (nearer than
+    // 27 Dec 2025) and starts after 28 Dec 2024 (nearer than 4 Jan 2025); FY26 then starts on 4 Jan 2026.
+    const nearest: [string, string][] = [["End of Fiscal Year is", "Nearest End of Month"]];
+    expect([value(weeks("FY25", nearest), "Current Fiscal Year"), value(weeks("FY26", nearest), "Current Fiscal Year")])
+      .toEqual(["FY25: 29 Dec 2024 - 3 Jan 2026", "FY26: 4 Jan 2026 - 2 Jan 2027"]);
+    // 13 4-week periods is a week calendar too; the choices can also arrive as their labels instead of true and false.
+    expect(value(weeks("FY24", [["Calendar Type", "Weeks: 13 4-week Periods"]]), "Current Fiscal Year")).toBe("FY24: 31 Dec 2023 - 28 Dec 2024");
+    expect(value(weeks("FY24", [["Fiscal Year Label is aligned with", "Start Week of the Fiscal Year"], ...june]), "Current Fiscal Year")).toBe("FY24: 26 Jun 2024 - 24 Jun 2025");
+    expect(value(weeks("FY2079", [["Timescale", "4-digit format"]]), "Current Fiscal Year")).toBe("FY2079: 1 Jan 2079 - 30 Dec 2079");
     // Month calendars: the year runs from the first of the start month; the label follows its end, or its start.
     const months = (entries: [string, string][]) => rows([["Calendar Type", "Calendar Months/Quarters/Years"], ["Fiscal Year Label", "FY"], ...entries]);
     const january = months([["Fiscal Year Starts", "1"], ["Timescale", "false"], ["Fiscal Year Label is aligned with", "false"], ["Current Fiscal Year", "FY23"]]);
@@ -175,6 +184,13 @@ describe("Model export: Model settings grids to tables", () => {
     expect(value(weeks("FY24", [["End of Fiscal Year - day", "9"]]), "End of Fiscal Year - day")).toBe("9");
     const thirteen = weeks("FY24", [["End of Fiscal Year - month", "13"]]);
     expect([value(thirteen, "End of Fiscal Year - month"), value(thirteen, "Current Fiscal Year")]).toEqual(["13", "FY24"]);
+    // The stored value also stays for a day out of range, an end type that is neither last nor nearest, and no calendar type.
+    expect(value(weeks("FY24", [["End of Fiscal Year - day", "9"]]), "Current Fiscal Year")).toBe("FY24");
+    expect(value(weeks("FY24", [["End of Fiscal Year is", "First in Month"]]), "Current Fiscal Year")).toBe("FY24");
+    expect(value(rows([["End of Fiscal Year is", "Last in Month"], ["End of Fiscal Year - day", "7"], ["End of Fiscal Year - month", "12"], ["Fiscal Year Label", "FY"],
+      ["Current Fiscal Year", "FY24"]]), "Current Fiscal Year")).toBe("FY24");
+    // Weeks: General has no current fiscal year: the row is blank whatever is stored.
+    expect(value(weeks("FY24", [["Calendar Type", "Weeks: General"]]), "Current Fiscal Year")).toBe("");
   });
 
   it("names the line items a Ratio summary divides, from the grid's own row IDs", () => {
