@@ -1,9 +1,9 @@
 import { RESULTS_PAGE, TAB_PARAM } from "./protocol.js";
 
-/** The service worker behind the toolbar icon. A click opens the results page in a new tab right after the clicked one,
- * with that tab's ID in the address; the page then asks the tab's content script for the analysis (protocol.ts). The worker
- * keeps no state, so Chrome can stop it between clicks, and it needs no permission: opening a tab takes none, and it never
- * reads the clicked tab's address or content. */
+/** The service worker behind the toolbar icon. A click opens the results page in a new tab right after the clicked one, in
+ * the same window, with that tab's ID in the address; the page then asks the tab's content script for the analysis
+ * (protocol.ts). The worker keeps no state, so Chrome can stop it between clicks, and it needs no permission: opening a
+ * tab takes none, and it never reads the clicked tab's address or content. */
 
 /** chrome.tabs.TAB_ID_NONE: the ID Chrome gives a tab that is not a browser tab, such as a DevTools window. */
 const TAB_ID_NONE = -1;
@@ -14,11 +14,14 @@ export interface ClickApi {
   tabs: Pick<typeof chrome.tabs, "create">;
 }
 
-/** Opens the results page for `tab`: right after it, and with it as the opener. A tab without an ID gets none. */
+/** Opens the results page for `tab`: right after it in its window, and with it as the opener. A tab without an ID gets none. */
 export async function openResults(api: ClickApi, tab: chrome.tabs.Tab): Promise<void> {
   if (tab.id === undefined || tab.id === TAB_ID_NONE) return;
-  await api.tabs.create({ url: `${api.runtime.getURL(RESULTS_PAGE)}?${TAB_PARAM}=${tab.id}`, index: tab.index + 1, openerTabId: tab.id });
+  await api.tabs.create({ url: `${api.runtime.getURL(RESULTS_PAGE)}?${TAB_PARAM}=${tab.id}`, index: tab.index + 1, openerTabId: tab.id,
+    ...(tab.windowId === undefined ? {} : { windowId: tab.windowId }) });
 }
 
-// Registered as the worker starts, which is what lets Chrome wake a stopped worker for a click.
-chrome.action.onClicked.addListener(tab => { void openResults(chrome, tab); });
+// Registered as the worker starts, which is what lets Chrome wake a stopped worker for a click. A tab Chrome does not open
+// (the clicked tab or its window has just closed) is the end of that click: there is nothing left to open it for, and
+// the reason goes to the worker's console.
+chrome.action.onClicked.addListener(tab => { openResults(chrome, tab).catch(error => console.warn("Cardigan could not open the results page:", error)); });
