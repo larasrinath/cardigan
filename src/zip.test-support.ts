@@ -19,7 +19,7 @@ export function unzipText(zip: Uint8Array): Map<string, string> {
 
 /** A CSV as toCsv writes it (optional byte order mark, CRLF rows, quoted cells with doubled quotes), as rows of cells. */
 export function parseCsv(text: string): string[][] {
-  const body = text.replace(/^﻿/, "");
+  const body = text.replace(/^\ufeff/, "");
   const rows: string[][] = [];
   let row: string[] = [];
   let cell = "";
