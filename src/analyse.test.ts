@@ -422,6 +422,36 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     }
   });
 
+  it("stops a later read that is still waiting when the model closes, and handles the stop by that phase's own rule", async () => {
+    const closed = "the model is closed";
+    const ended = `Synthetic model: names from the model data service were not available (${closed}); IDs are shown instead.`;
+    const viewLayout = (id: string) => metadata(id, { rows: [{ dimensionId: LIST, label: "Product" }], cols: [] });
+    // Module dimensions and the filtered dimension's modules log the stop as they log a refused read and go on, so the work
+    // ends at the next read that waits on the socket (there is none after the modules search); item names and saved views
+    // end it at once.
+    for (const [waiting, notes, last, logged] of [
+      [at("/dimensions"), [`Synthetic model: module dimensions were not available (${closed}); context selectors show only those saved on the page.`, ended],
+        at(`/modules/${MODULE}/dimensions/${LIST}`), [`module dimensions: ${closed}`]],
+      [at(`/modules/${MODULE}/dimensions/${LIST}`), [ended], at(`/modules/${MODULE}/dimensions/${LIST}`), []],
+      [at(`/views/${VIEW}`), [ended], at(`/views/${VIEW}`), []],
+      [at("/applicableModules"), [], at("/applicableModules"), [`modules for dimension ${LIST}: ${closed}`]],
+    ] as const) {
+      ScriptedSocket.sockets = [];
+      let status = "";
+      // The waiting read is never answered: the model status subscription reports the model closed instead.
+      serveModel({ [at("")]: id => { status = id; return update(id, { status: "UNKNOWN" }); }, [at(`/views/${VIEW}`)]: viewLayout,
+        [waiting]: () => update(status, { status: "CLOSED" }) });
+      const started = Date.now();
+      const { log, result } = run(withGrid({ kind: "view", id: VIEW }));
+      const done = await result;
+      expect(Date.now() - started, waiting).toBeLessThan(5_000);
+      expect(done.notes, waiting).toEqual(notes);
+      expect(destinations().at(-1), waiting).toBe(last);
+      expect(log.slice(log.indexOf("model status CLOSED")).filter(line => /^(model status|module dimensions|modules for)/.test(line)), waiting)
+        .toEqual(["model status CLOSED", ...logged]);
+    }
+  });
+
   it("does not look for filter line items once the shown modules' line items name every filter condition", async () => {
     serveModel({ [at(`/modules/${MODULE}/lineItems`)]: id => update(id, { data: [{ lineItemId: FILTER_ITEM, lineItemLabel: "Include?" }] }) });
     const { statuses, result } = run(withGrid());
@@ -433,6 +463,14 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
       at(`/modules/${MODULE}/dimensions/${LIST}`)]);
     expect(statuses).toEqual(["Reading names in Synthetic model…", "Reading line items in Synthetic model…", "Reading module dimensions in Synthetic model…",
       "Reading item names in Synthetic model…"]);
+  });
+
+  it("adds no saved view note when every saved view's layout was read", async () => {
+    const layout = (id: string) => metadata(id, { rows: [{ dimensionId: LIST, label: "Product" }], cols: [] });
+    serveModel({ [at(`/views/${VIEW}`)]: layout, [at(`/views/${VIEW_2}`)]: layout });
+    const { catalog, notes } = await run(withGrid({ kind: "view", id: VIEW }, { kind: "view", id: VIEW_2 })).result;
+    expect(notes).toEqual([]);
+    expect([...catalog.viewLayouts.keys()]).toEqual([VIEW, VIEW_2]);
   });
 
   it("looks for filter line items in the filtered dimension's modules not yet read, four at a time, until found or 60 were read", async () => {
