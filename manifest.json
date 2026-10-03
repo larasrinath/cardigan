@@ -4,6 +4,12 @@
   "version": "0.5.4",
   "minimum_chrome_version": "111",
   "description": "Exports an Anaplan app's pages (cards, modules, filters, formatting, actions) and a model's Model settings as CSV files.",
+  "icons": {
+    "16": "icons/16.png",
+    "32": "icons/32.png",
+    "48": "icons/48.png",
+    "128": "icons/128.png"
+  },
   "content_scripts": [
     {
       "matches": ["https://*.app.anaplan.com/*", "https://*.app2.anaplan.com/*"],
