@@ -9,7 +9,7 @@ export type DetailRow = [section: string, detail: string, value: string | number
 export function exportRows(host: string, now = new Date()): DetailRow[] {
   return [
     ["Export", "Exported on", `${now.toISOString().slice(0, 16).replace("T", " ")} UTC`],
-    ["Export", "Exported with", `Anaplan Analyzer ${VERSION}`],
+    ["Export", "Exported with", `Cardigan ${VERSION}`],
     ["Export", "Anaplan host", host],
   ];
 }

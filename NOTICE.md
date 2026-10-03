@@ -1,6 +1,6 @@
 # Notice
 
-Cardigan (the **Anaplan Analyzer** Chrome extension) is an independent project. It is **not affiliated with, endorsed by or supported by Anaplan, Inc.** "Anaplan" is used only to say which service the extension reads.
+Cardigan (a Chrome extension, called Anaplan Analyzer up to version 0.6.0) is an independent project. It is **not affiliated with, endorsed by or supported by Anaplan, Inc.** "Anaplan" is used only to say which service the extension reads.
 
 - **Internal services.** The extension reads Anaplan's internal page services: the page and app definition service, Page Builder's model data socket, the actions service, and the classic Model Building client inside the page. These are not public, documented APIs. Anaplan can change them without notice, and the extension can then stop working or export incomplete results.
 - **Read-only by construction.** REST reads are GET-only and limited to the services it reads. The socket client refuses to send anything except subscribe, unsubscribe and `update-subscription` frames. The model export checks that every request carries no changes before sending it. Tests pin each of these rules.

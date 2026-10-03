@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.1 (3 October 2026)
+
+- **Renamed to Cardigan.** Chrome now lists the extension as **Cardigan** instead of Anaplan Analyzer. The bundles' banner and the **Exported with** row of `App Details.csv` and `Model Details.csv` say Cardigan too. Nothing else changes: the same reads, files and columns.
+
 ## 0.6.0 (3 October 2026)
 
 The first release as a standalone project, Cardigan, moved out of SAM (anaplan-sam) with its history. The extension's name stays **Anaplan Analyzer**.

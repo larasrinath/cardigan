@@ -1,6 +1,6 @@
-# Cardigan: the Anaplan Analyzer Chrome extension
+# Cardigan: a Chrome extension for analysing Anaplan apps and models
 
-Cardigan is the source of the **Anaplan Analyzer** Chrome extension. It exports what an Anaplan app's pages and a model's settings contain, as CSV files you can search, filter and compare.
+Cardigan is a Chrome extension, called Anaplan Analyzer up to version 0.6.0. It exports what an Anaplan app's pages and a model's settings contain, as CSV files you can search, filter and compare.
 
 - **Analyse app**, on an Anaplan app: reads every page in the app and downloads a zip of CSV files that list, per page and card:
   - the model
