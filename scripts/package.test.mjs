@@ -270,6 +270,10 @@ test('refuses a manifest that names a file outside dist/*.js and icons/*.png, or
   assert.throws(() => runtimeFiles({ ...base, web_accessible_resources: [] }), /"web_accessible_resources" is not known/);
   assert.throws(() => runtimeFiles({ ...base, options_page: 'options.html' }), /"options_page" is not known/);
   assert.throws(() => runtimeFiles({ ...base, side_panel: { default_path: 'panel.html' } }), /"side_panel" is not known/);
+  // Cardigan asks for no permission, so a manifest that asks for one is not packaged either.
+  for (const key of ['permissions', 'host_permissions', 'optional_permissions', 'optional_host_permissions']) {
+    assert.throws(() => runtimeFiles({ ...base, [key]: ['tabs'] }), new RegExp(`manifest\\.json: "${key}" is not known to the packager`), key);
+  }
   assert.throws(() => runtimeFiles({ ...base, content_scripts: [{ ...base.content_scripts[0], css: ['x.css'] }] }), /content_scripts "css" is not known/);
 });
 
