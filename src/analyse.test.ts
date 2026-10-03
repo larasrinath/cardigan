@@ -1,9 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { UxPageCardDetails } from "./card-reader/card-types.js";
 import { analyseApp, loadCatalog } from "./analyse.js";
+import { APP_ZIP_0_6_1, ZIPPED_AT } from "./golden-0.6.1.test-support.js";
 import { ANAPLAN_HOSTS, NOT_SCOPE_IDS, OTHER_HOSTS, SCOPE_IDS } from "./guards.test-support.js";
+import * as report from "./report.js";
+import { resultZip } from "./result-zip.js";
 import { decodeFrames, type StompFrame } from "./stomp.js";
-import { parseCsv, unzipText } from "./zip.test-support.js";
+import { toCsv } from "./zip.js";
+import { parseCsv, sameBytes, unzipText } from "./zip.test-support.js";
 
 // Synthetic IDs only. The flow replays the first live run (28 Sep 2026): the model status stays UNKNOWN, and the first
 // host answers REDIRECTION_REQUIRED naming the host the model lives on.
@@ -94,7 +98,7 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ imports: [{ id: "112000000901", name: "Import demand" }] }),
       { status: 200, headers: { "content-type": "application/json" } })));
   });
-  afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
+  afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); vi.restoreAllMocks(); });
 
   it("follows the redirect and reads names without waiting for a READY status", async () => {
     ScriptedSocket.reply = (socket, frame) => {
@@ -530,7 +534,7 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
       .toEqual(["apps", "boards", "grid-pages", "reports"]);
     expect(result.summary).toEqual(["0 of 1 pages analysed; 1 unpublished, not analysed, 0 cards."]);
 
-    const files = unzipText(result.zip);
+    const files = unzipText(resultZip(result));
     const details = parseCsv(files.get("App Details.csv") ?? "");
     expect(details.find(row => row[1] === "Pages analysed")).toEqual(["App", "Pages analysed", "0 of 1 (published versions); 1 unpublished, not analysed"]);
     expect(details.filter(row => row[0] === "Notes" && row[1] !== "Names")).toEqual([["Notes", "Draft", "Not published"], ["Notes", "Restricted", "Not analysed: no access"]]);
@@ -538,6 +542,28 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     const [page, state] = [headers.indexOf("Page"), headers.indexOf("Publish state")];
     expect(rows.map(row => [row[page], row[state]])).toEqual([["Draft", "Not published"], ["Restricted", "Not analysed: no access"]]);
     expect(rows.filter(row => row[state] === "Not published")).toHaveLength(1);
+  });
+
+  it("returns only text and finite numbers as cells, whatever the report holds, without changing the CSV", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(Date.UTC(2026, 8, 28, 1, 59, 9)));
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ name: "Plan", pages: [] }), { status: 200 })));
+    // The report reads described cards of no fixed shape: a cell could be left as anything.
+    const odd = [["Board", undefined, null, NaN], [true, { id: 7 }, -Infinity, 12]];
+    const tables = report.buildReport([]);
+    vi.spyOn(report, "buildReport").mockReturnValue({ ...tables, Cards: { headers: ["Page", "Card #", "Card title", "Card type"], rows: odd as never } });
+    const result = await analyseApp("01234567-89ab-cdef-0123-456789abcdef", { status: () => undefined, log: () => undefined }, () => "");
+    const cards = result.tables.find(table => table.file === "Cards.csv")!;
+    expect(cards.rows).toEqual([["Board", "", "", "NaN"], ["true", "[object Object]", "-Infinity", 12]]);
+    // The file is what the report's own rows give, and is the same after the trip to the results page as JSON.
+    const written = '\ufeffPage,Card #,Card title,Card type\r\nBoard,,,NaN\r\ntrue,[object Object],\'-Infinity,12\r\n';
+    expect(toCsv(cards.headers, odd)).toBe(written);
+    // (Reading a file back as text drops its byte order mark.)
+    expect(unzipText(resultZip(result)).get("Cards.csv")).toBe(written.slice(1));
+    expect(unzipText(resultZip(JSON.parse(JSON.stringify(result)) as typeof result)).get("Cards.csv")).toBe(written.slice(1));
+    // The headers are the result's own copy of the report's.
+    expect(result.tables[1].headers).toEqual(report.HEADERS.Pages);
+    expect(result.tables[1].headers).not.toBe(report.HEADERS.Pages);
   });
 
   it("names the zip after the app, without characters a file name cannot hold", async () => {
@@ -549,24 +575,122 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
       return analyseApp(APP, { status: () => undefined, log: () => undefined }, () => "01:59:09 page-analyzer vdev");
     };
     const result = await analyse('Supply: "Plan" /\t2026');
-    expect(result.fileName).toBe("Supply Plan 2026 - App Export - 2026-09-28.zip");
+    expect(result.zipName).toBe("Supply Plan 2026 - App Export - 2026-09-28.zip");
     expect(result.summary).toEqual(["0 of 0 pages analysed, 0 cards."]);
-    expect(Array.from(result.zip.slice(0, 2))).toEqual([0x50, 0x4b]);
-    expect((await analyse("???")).fileName).toBe("app - App Export - 2026-09-28.zip");
-    expect((await analyse(undefined)).fileName).toBe("App - App Export - 2026-09-28.zip");
-    expect((await analyse("a".repeat(100))).fileName).toBe(`${"a".repeat(80)} - App Export - 2026-09-28.zip`);
+    expect(Array.from(resultZip(result).slice(0, 2))).toEqual([0x50, 0x4b]);
+    expect((await analyse("???")).zipName).toBe("app - App Export - 2026-09-28.zip");
+    expect((await analyse(undefined)).zipName).toBe("App - App Export - 2026-09-28.zip");
+    expect((await analyse("a".repeat(100))).zipName).toBe(`${"a".repeat(80)} - App Export - 2026-09-28.zip`);
     // Every character Windows refuses in a file name, and control characters, become one space; anything else stays.
-    expect((await analyse('a\\b/c:d*e?f"g<h>i|j\u0000k\u0001l\u001fm')).fileName).toBe("a b c d e f g h i j k l m - App Export - 2026-09-28.zip");
-    expect((await analyse("Plan #1 (R&D) - 50%+ [a] {b} ~ 'c' = d; e, f! @g $h ^i")).fileName).toBe("Plan #1 (R&D) - 50%+ [a] {b} ~ 'c' = d; e, f! @g $h ^i - App Export - 2026-09-28.zip");
+    expect((await analyse('a\\b/c:d*e?f"g<h>i|j\u0000k\u0001l\u001fm')).zipName).toBe("a b c d e f g h i j k l m - App Export - 2026-09-28.zip");
+    expect((await analyse("Plan #1 (R&D) - 50%+ [a] {b} ~ 'c' = d; e, f! @g $h ^i")).zipName).toBe("Plan #1 (R&D) - 50%+ [a] {b} ~ 'c' = d; e, f! @g $h ^i - App Export - 2026-09-28.zip");
     // Any run of white space is one space, and the ends are trimmed before the name is cut to 80 characters, not after.
-    expect((await analyse(" \u00a0Plan\u00a0\u2003 2026\n")).fileName).toBe("Plan 2026 - App Export - 2026-09-28.zip");
-    expect((await analyse(`${"a".repeat(79)} b`)).fileName).toBe(`${"a".repeat(79)}  - App Export - 2026-09-28.zip`);
+    expect((await analyse(" \u00a0Plan\u00a0\u2003 2026\n")).zipName).toBe("Plan 2026 - App Export - 2026-09-28.zip");
+    expect((await analyse(`${"a".repeat(79)} b`)).zipName).toBe(`${"a".repeat(79)}  - App Export - 2026-09-28.zip`);
     // A name that is empty or not text is no name.
-    for (const name of ["", 42, null, ["Plan"], { name: "Plan" }]) expect((await analyse(name)).fileName, JSON.stringify(name)).toBe("App - App Export - 2026-09-28.zip");
+    for (const name of ["", 42, null, ["Plan"], { name: "Plan" }]) expect((await analyse(name)).zipName, JSON.stringify(name)).toBe("App - App Export - 2026-09-28.zip");
     // Page and category entries that are not objects are skipped.
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ name: "Plan", pages: [null, 7, "x", true, []], categories: [null, 7, "x", true, []] }), { status: 200 })));
     const odd = await analyseApp(APP, { status: () => undefined, log: () => undefined }, () => "");
-    expect([odd.fileName, odd.summary]).toEqual(["Plan - App Export - 2026-09-28.zip", ["0 of 0 pages analysed, 0 cards."]]);
+    expect([odd.zipName, odd.summary]).toEqual(["Plan - App Export - 2026-09-28.zip", ["0 of 0 pages analysed, 0 cards."]]);
     await expect(analyseApp("not-an-app-id", { status: () => undefined, log: () => undefined }, () => "")).rejects.toThrow("Open an app first: the address has no app ID.");
   });
+
+  it("writes the zip 0.6.1 wrote for the same app, byte for byte, and returns each file as a table", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(Date.UTC(2026, 8, 28, 12, 30, 10)));
+    const result = await analyseGoldenApp();
+    const zip = resultZip(result, ZIPPED_AT);
+    // File by file first, so a difference shows as text; then every byte of the zip.
+    expect(unzipText(zip)).toEqual(unzipText(APP_ZIP_0_6_1));
+    expect(sameBytes(zip, APP_ZIP_0_6_1)).toBe(true);
+
+    expect([result.kind, result.name, result.id, result.zipName]).toEqual(["app", "Planning: app", GOLDEN_APP, "Planning app - App Export - 2026-09-28.zip"]);
+    expect(result.summary).toEqual(["1 of 1 pages analysed; 1 unpublished, not analysed, 3 cards."]);
+    expect(result.tables.map(table => [table.file, table.label, table.guard, table.details, table.rows.length])).toEqual([
+      ["App Details.csv", "App Details", true, true, 28], ["Pages.csv", "Pages", true, undefined, 2], ["Cards.csv", "Cards", true, undefined, 3],
+      ["Grid Sections.csv", "Grid Sections", true, undefined, 1], ["Filters.csv", "Filters", true, undefined, 1],
+      ["Conditional Formatting.csv", "Conditional Formatting", true, undefined, 1], ["Action Buttons.csv", "Action Buttons", true, undefined, 2],
+      ["Where Used.csv", "Where Used", true, undefined, 10]]);
+    // A cell is the value itself: the CSV's guard against formulas and its 12-digit IDs as text are added when it is written.
+    const cards = result.tables[2];
+    const cell = (row: number, header: string) => cards.rows[row][cards.headers.indexOf(header)];
+    expect([cell(2, "Card #"), cell(2, "Card title"), cell(2, "Text content"), cell(1, "Source IDs")])
+      .toEqual([3, "+ Notes", '=SUM(1) is text here, not a formula.\nSecond line, with a "quote".', MODULE]);
+    // Plain data: the tables are the same after the trip to the results page as JSON, and so is the zip.
+    const received = JSON.parse(JSON.stringify(result)) as typeof result;
+    expect(received).toEqual(result);
+    expect(sameBytes(resultZip(received, ZIPPED_AT), APP_ZIP_0_6_1)).toBe(true);
+  });
 });
+
+// One app read end to end, as the 0.6.1 zip in zip-0.6.1.test-support.ts was made: a published board with an action card, a
+// custom view (a row filter, two hidden items and a formatting rule) and a text card whose text looks like a formula, and a
+// page that was never published. Names come from the socket and the actions service.
+const GOLDEN_APP = "01234567-89ab-cdef-0123-456789abcdef";
+const guid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+type Any = Record<string, any>;
+const common = (n: number, type: string): Any => ({ type, customerId: "customer-1", defaultTitle: "", description: "", pageLinkType: "title", pageType: "NONE",
+  contextOptions: [], clientGuid: guid(n), widgetGuid: guid(n + 100), version: 1, widgetActions: [], isTargetPagePublished: false, showCommenting: true,
+  showMaximize: true, showBackground: true, validVersions: [1], widgetStyles: { titleColor: null, titleColorTheme: null, contextColor: null,
+    contextColorTheme: null, contextPlacement: "BOTTOM", backgroundOptions: { backgroundColor: "#FFFFFF" } } });
+const dim = (id: string, extra: Any = {}) => ({ id, levels: [], sorts: [], totalsPosition: "AFTER", shows: [], hides: [], reorder: [], ...extra });
+const axis = (dimensions: unknown[], nodes: unknown[] = []) => ({ dimensions, filters: { rootNode: { type: "BRANCH", operator: "AND", nodes } }, raggedShows: [], raggedHides: [] });
+const button = (id: string, type: string, name: string, extra: Any = {}) => ({ id, type, name, style: null, runAutomatically: null, actionDriverId: null,
+  destinationListId: null, disableCancelButton: false, actionToken: "fake-token-value", description: null, ...extra });
+const goldenButtons = [button("112000000901", "IMPORT", "Reload plan"), button("118000000901", "PROCESS", "Run nightly", { runAutomatically: false, disableCancelButton: true })];
+const goldenCards: Any[] = [
+  { ...common(1, "ACTION"), actionWidgetStyle: { layoutType: "BUTTON" }, actions: JSON.stringify(goldenButtons), actionButtons: goldenButtons,
+    widgetDataSources: [{ widgetGuid: guid(101), dataSourceId: "", subEntityId: "", dataSourceType: "CLASSIC", axisDescriptionQuery: null, viewDescription: null }] },
+  { ...common(2, "TABLE"), defaultTitle: "Demand by product", branchSync: "[]", defaultColumnWidth: "", defaultColumnLabelHeight: "", gridColumnWidths: [],
+    lineItemWidthOverrides: [], isReadOnly: true, pivotEnabled: true, customizations: "", lineItemConfigs: "", csvExportEnabled: true, allowFiltering: true,
+    allowSorting: true, styleConfig: JSON.stringify({ themeId: "Base" }), showListFunctions: false, allowCopyAcross: true, allowCopyDown: true, allowCellHistory: true,
+    allowExpandOrCollapseRows: false, allowChartCreation: true, allowZeroSuppression: true, timeDimensionWidthOverrides: {},
+    widgetDataSources: [{ widgetGuid: guid(102), subEntityId: "", viewDescription: null, dataSourceId: guid(900), dataSourceType: "MULTI_AXIS_DESCRIPTION",
+      axisDescriptionQuery: { id: guid(900), version: 1, regions: { SINGLE: { moduleId: MODULE,
+        rows: axis([dim(LIST, { hides: [NORTH, SOUTH] })], [{ type: "LEAF", rule: { selectedItems: [LIST_2, FILTER_ITEM], operator: "NOT_EQUALS", values: ["0"], identifier: "", axisKey: null } }]),
+        columns: axis([dim("20000000003", { levels: ["LEAF"] })]) } },
+        conditionalFormattingRules: [{ targetIdentifier: LINE_ITEM, sourceIdentifier: LINE_ITEM, type: "BG_COLOR", targetRegionId: null,
+          pegs: [{ value: -10, color: "#F5A5B1" }, { value: 100000, color: "#627786" }], targetRegionCoordinates: null, valuesRegionCoordinates: null }] } }] },
+  { ...common(3, "TEXT"), defaultTitle: "+ Notes", text: "=SUM(1) is text here, not a formula.\nSecond line, with a \"quote\"." },
+];
+const goldenBoard: Any = {
+  pageGuid: guid(1000), categoryGuid: guid(1001), appGuid: GOLDEN_APP, customerId: "customer-1", name: "Demand board", workspaceId: WS, modelId: MODEL, rows: [],
+  contextOptions: [], isMyPage: false, modelStatus: "UNLOCKED", modelInfo: { modelName: "Model one", workspaceName: "Workspace one" },
+  modelInfos: [{ workspaceId: WS, modelId: MODEL }], modelCount: 1, currentDraftVersionGuid: guid(1003), currentPublishedVersionGuid: guid(1003),
+  publishedAt: 1_790_000_000_000, updatedAt: 1_790_000_000_000, isAlm: false, categoryUpdatedAt: null, restrictions: [],
+  layout: { id: guid(1100), type: "BOARD", version: 2, syncScroll: [], syncBrowser: false, defaultContext: [], contextFilterOrder: [], commentSummary: true,
+    commenting: true, openInsightsPanelByDefault: true, areas: { main: [{ type: "BOARD_CONTENT", id: guid(1101), areas: { sections: [{ type: "BOARD_SECTION", id: guid(1102),
+      areas: { rows: goldenCards.map((card, index) => ({ id: guid(1200 + index * 10), type: "BOARD_ROW", height: 240, padding: "small", areas: { columns: [
+        { type: "BOARD_COLUMN", id: guid(1201 + index * 10), columnStart: 0, columnEnd: 12, areas: { cards: [{ type: card.type, id: card.clientGuid, height: 240 }] } }] } })) } }] } }],
+      sidepanel: [], expanded: [] } },
+  widgets: Object.fromEntries(goldenCards.map(card => [card.clientGuid, card])),
+};
+
+/** Runs the analysis of that app against a scripted definition service, model data socket and actions service. */
+async function analyseGoldenApp() {
+  const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+  const app = { name: "Planning: app", categories: [{ guid: guid(1001), name: "Demand" }], pages: [
+    { guid: guid(1000), name: "Demand board", pageType: "BOARD", categoryGuid: guid(1001), hasPublishedVersion: true },
+    { guid: guid(2000), name: "Draft page", pageType: "BOARD", categoryGuid: guid(1001), hasPublishedVersion: false }] };
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+    const path = new URL(url).pathname;
+    if (path.endsWith(`/apps/${GOLDEN_APP}`)) return json(app);
+    if (path.endsWith(`/boards/${guid(1000)}`)) return json(goldenBoard);
+    if (path.endsWith("/imports")) return json({ imports: [{ id: "112000000901", name: "Import demand" }] });
+    if (path.endsWith("/processes")) return json({ processes: [{ id: "118000000999", name: "Another process" }] });
+    return new Response("{}", { status: 404 });
+  }));
+  serveModel({
+    [at("")]: id => update(id, { status: "READY" }),
+    [MODULE_VIEWS]: id => update(id, { data: [{ id: Number(MODULE), name: "Demand", views: [] }], dimensions: { "20000000003": { label: "Time" } } }),
+    [at("/lists")]: id => update(id, { data: [{ id: LIST, name: "Product" }, { id: LIST_2, name: "Territory" }] }),
+    [at(`/modules/${MODULE}/lineItems`)]: id => update(id, { data: [{ lineItemId: LINE_ITEM, lineItemLabel: "Volume" }] }),
+    [at("/dimensions")]: id => update(id, { modules: { [MODULE]: { dimensions: [{ id: LIST, label: "Product" }, { id: LIST_2, label: "Territory" }, { id: "20000000003", label: "Time" }] } } }),
+    [at(`/modules/${MODULE}/dimensions/${LIST}`)]: id => update(id, { data: [{ itemId: NORTH, label: "North" }, { itemId: SOUTH, label: "South" }] }),
+    [at("/applicableModules")]: id => update(id, { data: [{ id: Number(MODULE), label: "Demand" }, { id: Number(candidate(2)), label: "Filter flags" }] }),
+    [at(`/modules/${candidate(2)}/lineItems`)]: id => update(id, { data: [{ lineItemId: FILTER_ITEM, lineItemLabel: "Include?" }] }),
+  });
+  return analyseApp(GOLDEN_APP, { status: () => undefined, log: () => undefined },
+    () => "12:30:10 page-analyzer vdev: app on first.app.anaplan.com\r\n12:30:10 Reading the app…\r\nunstamped line");
+}

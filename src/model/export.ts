@@ -1,8 +1,8 @@
 import { DETAILS_HEADERS, diagnosticRows, exportRows, type DetailRow } from "../details.js";
-import type { TaskResult } from "../panel.js";
 import type { Log, Progress } from "../progress.js";
+import { plainRows } from "../result-plain.js";
+import type { AnalysisResult, ResultTable } from "../result-types.js";
 import { fileSafe, message, text } from "../util.js";
-import { toCsv, zipStore } from "../zip.js";
 import { actionKind, mergeImports, missingActionColumns, type ActionKind } from "./actions.js";
 import { CALENDAR_HEADERS, calendarRows } from "./calendar.js";
 import { gridTable, type Grid, type GridRow, type Table } from "./grid.js";
@@ -25,7 +25,8 @@ const HOW_TO_READ: readonly [detail: string, value: string][] = [
   ["Model Calendar", "Follows the assessment template. Months and days are their names, and Current Fiscal Year is shown with its dates, as the Model Calendar tab shows it. Settings that do not apply to this calendar type are blank; Model size (GB) and Captured by are left for you to fill in."],
 ];
 
-export async function exportModel(progress: Progress, diagnostics: () => string): Promise<TaskResult> {
+/** The model's settings as the zip's files: Model Details.csv, then one file per grid that could be read. */
+export async function exportModel(progress: Progress, diagnostics: () => string): Promise<AnalysisResult> {
   const log: Log = progress.log;
   progress.status("Loading the model page's client…");
   const native = await loadNative();
@@ -34,14 +35,14 @@ export async function exportModel(progress: Progress, diagnostics: () => string)
   const workspace = text(workspaceInfo.name) ?? text(workspaceInfo.workspaceName) ?? text((window as Any).workspaceName) ?? "";
   log(`model ${model}${workspace ? ` in ${workspace}` : ""}; page ${location.pathname}`);
 
-  const files: { name: string; data: Uint8Array }[] = [];
+  const tables: ResultTable[] = [];
   const summary: string[] = [];
   const notes: string[] = [];
   const fileRows: DetailRow[] = [];
   const noteRows: DetailRow[] = [];
-  const encoder = new TextEncoder();
   const add = (file: string, table: Table, detail?: string) => {
-    files.push({ name: `${file}.csv`, data: encoder.encode(toCsv(table.headers, table.rows, false)) });
+    // No guard: a grid's values are written exactly as Anaplan's own export writes them (zip.ts `toCsv`).
+    tables.push({ file: `${file}.csv`, label: file, headers: [...table.headers], rows: plainRows(table.rows), guard: false });
     const rows = `${table.rows.length} rows${detail ? ` (${detail})` : ""}`;
     summary.push(`${file}: ${rows}`);
     fileRows.push(["Files", `${file}.csv`, rows]);
@@ -121,7 +122,7 @@ export async function exportModel(progress: Progress, diagnostics: () => string)
     add("Model Calendar", { headers: CALENDAR_HEADERS, rows: calendarRows({ workspace, model, capturedOn: new Date().toISOString().slice(0, 10), values, showsYearToDate }) });
   });
 
-  if (!files.length) throw new Error(notes.join(" ") || "Nothing could be read from this model page.");
+  if (!tables.length) throw new Error(notes.join(" ") || "Nothing could be read from this model page.");
   const details: DetailRow[] = [
     ["Model", "Model", model],
     ["Model", "Workspace", workspace || "—"],
@@ -133,7 +134,8 @@ export async function exportModel(progress: Progress, diagnostics: () => string)
     ...HOW_TO_READ.map(([detail, value]): DetailRow => ["How to read", detail, value]),
     ...diagnosticRows(diagnostics()),
   ];
-  files.unshift({ name: "Model Details.csv", data: encoder.encode(toCsv(DETAILS_HEADERS, details)) });
+  tables.unshift({ file: "Model Details.csv", label: "Model Details", headers: [...DETAILS_HEADERS], rows: plainRows(details), guard: true, details: true });
   const date = new Date().toISOString().slice(0, 10);
-  return { zip: zipStore(files), fileName: `${fileSafe(model, "model")} - Model Export - ${date}.zip`, summary: [...summary, ...notes] };
+  return { kind: "model", name: model, id: native.modelId, zipName: `${fileSafe(model, "model")} - Model Export - ${date}.zip`, tables,
+    summary: [...summary, ...notes] };
 }

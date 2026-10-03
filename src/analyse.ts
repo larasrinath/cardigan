@@ -7,13 +7,13 @@ import {
   unresolvedFilterItems, viewLayoutFromMetadata, type ModelCatalog,
 } from "./catalog.js";
 import { DETAILS_HEADERS, diagnosticRows, exportRows, type DetailRow } from "./details.js";
-import type { TaskResult } from "./panel.js";
 import type { Log, Progress } from "./progress.js";
 import { buildReport, HEADERS, LINE_ITEMS, NONE, PAGE_TYPE, type PageInput, type TabName } from "./report.js";
+import { plainRows } from "./result-plain.js";
+import type { AnalysisResult, ResultTable } from "./result-types.js";
 import { getJson, RestError } from "./rest.js";
 import { StompConnection, StompError } from "./stomp.js";
 import { ANAPLAN_HOST, fileSafe, list, message, SCOPE_ID, text, type Obj } from "./util.js";
-import { toCsv, zipStore } from "./zip.js";
 
 const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ENTITY_ID = /^[1-9]\d{0,17}$/;
@@ -380,7 +380,8 @@ const HOW_TO_READ: readonly [detail: string, value: string][] = [
   ["Long IDs", "IDs of 12 or more digits are written as text so Excel shows every digit; the formula bar shows them as =\"…\"."],
 ];
 
-export async function analyseApp(appGuid: string, progress: Progress, diagnostics: () => string): Promise<TaskResult> {
+/** The app's pages as the zip's files: App Details.csv, then the seven tables. */
+export async function analyseApp(appGuid: string, progress: Progress, diagnostics: () => string): Promise<AnalysisResult> {
   if (!GUID.test(appGuid)) throw new Error("Open an app first: the address has no app ID.");
   progress.status("Reading the app…");
   const app = (await getJson(`${DEFINITION}apps/${appGuid}?includeUnpublished=true&includeReportPages=true`, { apiVersion: "2" })) as Obj;
@@ -457,7 +458,6 @@ export async function analyseApp(appGuid: string, progress: Progress, diagnostic
 
   progress.status("Building the report…");
   const report = buildReport(inputs);
-  const encoder = new TextEncoder();
   const analysed = inputs.filter(input => input.details).length;
   // An unpublished page has no published version to read, so it is counted apart: "93 of 93", not "93 of 96".
   const unpublished = inputs.filter(input => input.state === "Not published").length;
@@ -488,13 +488,16 @@ export async function analyseApp(appGuid: string, progress: Progress, diagnostic
     ...HOW_TO_READ.map(([detail, value]): DetailRow => ["How to read", detail, value]),
     ...diagnosticRows(diagnostics()),
   ];
-  const files = [
-    { name: DETAILS_FILE, data: encoder.encode(toCsv(DETAILS_HEADERS, details)) },
-    ...tabs.map(tab => ({ name: TAB_FILES[tab], data: encoder.encode(toCsv(report[tab].headers, report[tab].rows)) })),
+  // Every file guards formula-like cells, as the page analysis always has (zip.ts `toCsv`).
+  const table = (file: string, headers: readonly string[], rows: readonly (readonly unknown[])[]): ResultTable =>
+    ({ file, label: file.replace(/\.csv$/, ""), headers: [...headers], rows: plainRows(rows), guard: true });
+  const tables: ResultTable[] = [
+    { ...table(DETAILS_FILE, DETAILS_HEADERS, details), details: true },
+    ...tabs.map(tab => table(TAB_FILES[tab], report[tab].headers, report[tab].rows)),
   ];
   const date = new Date().toISOString().slice(0, 10);
   return {
-    zip: zipStore(files), fileName: `${fileSafe(appName, "app")} - App Export - ${date}.zip`,
+    kind: "app", name: appName, id: appGuid, zipName: `${fileSafe(appName, "app")} - App Export - ${date}.zip`, tables,
     summary: [`${analysed} of ${published} pages analysed${skipped}, ${cards} cards.`, ...summary],
   };
 }

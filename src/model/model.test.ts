@@ -1,10 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { MODEL_ZIP_0_6_1, ZIPPED_AT } from "../golden-0.6.1.test-support.js";
 import { NOT_SCOPE_IDS, SCOPE_IDS } from "../guards.test-support.js";
+import { resultZip } from "../result-zip.js";
 import { toCsv } from "../zip.js";
-import { parseCsv, unzipText } from "../zip.test-support.js";
+import { parseCsv, sameBytes, unzipText } from "../zip.test-support.js";
 import { actionKind, mergeImports, missingActionColumns } from "./actions.js";
 import { CALENDAR_HEADERS, CALENDAR_PROPERTIES, calendarKind, calendarRows } from "./calendar.js";
 import { exportModel } from "./export.js";
+import * as grids from "./grid.js";
 import { cellText, gridTable, labelEntries, plainText, windowRows, type CellSource, type Grid } from "./grid.js";
 import { lineItemsTable } from "./lineitems.js";
 import { assertRead, modelOnPage, readGrid, type Native } from "./native.js";
@@ -21,7 +24,7 @@ class FakePage implements CellSource {
 }
 
 describe("Model export: Model settings grids to tables", () => {
-  afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
+  afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); vi.restoreAllMocks(); });
 
   it("reads label pages with optional qualifiers, and cell text as the grid shows it", () => {
     const labels = labelEntries({ start: 0, count: 3, entityLongIds: [[102000000001, 1901000000001, 1901000000002], [-1, 102000000001, -1]],
@@ -297,21 +300,21 @@ describe("Model export: Model settings grids to tables", () => {
       return exportModel({ status: () => undefined, log: () => undefined }, () => "01:59:09 model-export vdev");
     };
     const result = await run('Demand: "Plan" /\t2026');
-    expect(result.fileName).toBe("Demand Plan 2026 - Model Export - 2026-09-28.zip");
+    expect(result.zipName).toBe("Demand Plan 2026 - Model Export - 2026-09-28.zip");
     expect(result.summary[0]).toBe("Versions: 1 rows");
     expect(result.summary).toContain("Line Items: not exported (This model page has no MODULE_WITH_LINE_ITEM axis.).");
-    expect(Array.from(result.zip.slice(0, 2))).toEqual([0x50, 0x4b]);
-    expect((await run("???")).fileName).toBe("model - Model Export - 2026-09-28.zip");
-    expect((await run(undefined)).fileName).toBe(`${MODEL} - Model Export - 2026-09-28.zip`);
-    expect((await run("m".repeat(100))).fileName).toBe(`${"m".repeat(80)} - Model Export - 2026-09-28.zip`);
+    expect(Array.from(resultZip(result).slice(0, 2))).toEqual([0x50, 0x4b]);
+    expect((await run("???")).zipName).toBe("model - Model Export - 2026-09-28.zip");
+    expect((await run(undefined)).zipName).toBe(`${MODEL} - Model Export - 2026-09-28.zip`);
+    expect((await run("m".repeat(100))).zipName).toBe(`${"m".repeat(80)} - Model Export - 2026-09-28.zip`);
     // Every character Windows refuses in a file name, and control characters, become one space; anything else stays.
-    expect((await run('a\\b/c:d*e?f"g<h>i|j\u0000k\u0001l\u001fm')).fileName).toBe("a b c d e f g h i j k l m - Model Export - 2026-09-28.zip");
-    expect((await run("Plan #1 (R&D) - 50%+ [a] {b} ~ 'c' = d; e, f! @g $h ^i")).fileName).toBe("Plan #1 (R&D) - 50%+ [a] {b} ~ 'c' = d; e, f! @g $h ^i - Model Export - 2026-09-28.zip");
+    expect((await run('a\\b/c:d*e?f"g<h>i|j\u0000k\u0001l\u001fm')).zipName).toBe("a b c d e f g h i j k l m - Model Export - 2026-09-28.zip");
+    expect((await run("Plan #1 (R&D) - 50%+ [a] {b} ~ 'c' = d; e, f! @g $h ^i")).zipName).toBe("Plan #1 (R&D) - 50%+ [a] {b} ~ 'c' = d; e, f! @g $h ^i - Model Export - 2026-09-28.zip");
     // Any run of white space is one space, and the ends are trimmed before the name is cut to 80 characters, not after.
-    expect((await run(" \u00a0Plan\u00a0\u2003 2026\n")).fileName).toBe("Plan 2026 - Model Export - 2026-09-28.zip");
-    expect((await run(`${"m".repeat(79)} b`)).fileName).toBe(`${"m".repeat(79)}  - Model Export - 2026-09-28.zip`);
+    expect((await run(" \u00a0Plan\u00a0\u2003 2026\n")).zipName).toBe("Plan 2026 - Model Export - 2026-09-28.zip");
+    expect((await run(`${"m".repeat(79)} b`)).zipName).toBe(`${"m".repeat(79)}  - Model Export - 2026-09-28.zip`);
     // A name that is empty or not text is no name: the model's ID stands in.
-    for (const name of ["", 42, null, ["Plan"], { name: "Plan" }]) expect((await run(name)).fileName, JSON.stringify(name)).toBe(`${MODEL} - Model Export - 2026-09-28.zip`);
+    for (const name of ["", 42, null, ["Plan"], { name: "Plan" }]) expect((await run(name)).zipName, JSON.stringify(name)).toBe(`${MODEL} - Model Export - 2026-09-28.zip`);
   });
 
   it("exports the Line Items grid with the ratio columns, naming each operand by its line item, not its module", async () => {
@@ -348,9 +351,132 @@ describe("Model export: Model settings grids to tables", () => {
     const result = await exportModel({ status: () => undefined, log: () => undefined }, () => "");
     expect(result.summary[0]).toBe("Line Items: 4 rows");
     expect(new Set(axes.map(pair => pair.join(" × ")))).toEqual(new Set(["LINE ITEMS × LINE ITEM PROPERTIES"]));
-    const [headers, ...table] = parseCsv(unzipText(result.zip).get("Line Items.csv") ?? "");
+    const [headers, ...table] = parseCsv(unzipText(resultZip(result)).get("Line Items.csv") ?? "");
     expect(headers).toEqual(["", "Formula", "Summary", "Ratio Numerator", "Ratio Denominator"]);
     expect(table).toEqual([["Profitability", "", "", "", ""], ["Profit", "", '{"summaryMethod":"SUM"}', "", ""],
       ["Revenue", "", '{"summaryMethod":"SUM"}', "", ""], ["Margin %", "Profit / Revenue", ratio, "Profit", "Revenue"]]);
   });
+
+  it("returns only text and finite numbers as cells, whatever a grid holds, without changing the CSV", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(Date.UTC(2026, 8, 28, 12, 30, 10)));
+    const odd = [["Actual", undefined, null, NaN], [true, { id: 7 }, -Infinity, 12]];
+    vi.spyOn(grids, "gridTable").mockReturnValue({ headers: ["", "A", "B", "C"], rows: odd as never });
+    const result = await exportGoldenModel();
+    const versions = result.tables.find(table => table.file === "Versions.csv")!;
+    expect(versions.rows).toEqual([["Actual", "", "", "NaN"], ["true", "[object Object]", "-Infinity", 12]]);
+    // The file is what the grid's own rows give, unguarded, and is the same after the trip to the results page as JSON.
+    const written = "\ufeff,A,B,C\r\nActual,,,NaN\r\ntrue,[object Object],-Infinity,12\r\n";
+    expect(toCsv(versions.headers, odd, false)).toBe(written);
+    // (Reading a file back as text drops its byte order mark.)
+    expect(unzipText(resultZip(result)).get("Versions.csv")).toBe(written.slice(1));
+    expect(unzipText(resultZip(JSON.parse(JSON.stringify(result)) as typeof result)).get("Versions.csv")).toBe(written.slice(1));
+  });
+
+  it("writes the zip 0.6.1 wrote for the same model, byte for byte, and returns each file as a table", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(Date.UTC(2026, 8, 28, 12, 30, 10)));
+    const result = await exportGoldenModel();
+    const zip = resultZip(result, ZIPPED_AT);
+    // File by file first, so a difference shows as text; then every byte of the zip.
+    expect(unzipText(zip)).toEqual(unzipText(MODEL_ZIP_0_6_1));
+    expect(sameBytes(zip, MODEL_ZIP_0_6_1)).toBe(true);
+
+    expect([result.kind, result.name, result.id, result.zipName])
+      .toEqual(["model", "Demand: plan", "FEDCBA9876543210FEDCBA9876543210", "Demand plan - Model Export - 2026-09-28.zip"]);
+    expect(result.summary).toEqual(["Line Items: 4 rows", "Modules: 2 rows", "General Lists: 2 rows", "Processes: 1 rows",
+      "Imports: 3 rows (2 matched in the Actions list)", "Import Data Sources: 1 rows", "Exports: 1 rows", "Other Actions: 1 rows", "Time Ranges: 1 rows",
+      "Versions: 2 rows", "Model Calendar: 31 rows", "Source Models: not exported (This model page has no REMOTE_MODEL axis.)."]);
+    // Only Model Details.csv guards formula-like cells: a grid is written exactly as Anaplan's own export writes it.
+    expect(result.tables.map(table => [table.file, table.label, table.guard, table.details, table.rows.length])).toEqual([
+      ["Model Details.csv", "Model Details", true, true, 27], ["Line Items.csv", "Line Items", false, undefined, 4], ["Modules.csv", "Modules", false, undefined, 2],
+      ["General Lists.csv", "General Lists", false, undefined, 2], ["Processes.csv", "Processes", false, undefined, 1], ["Imports.csv", "Imports", false, undefined, 3],
+      ["Import Data Sources.csv", "Import Data Sources", false, undefined, 1], ["Exports.csv", "Exports", false, undefined, 1],
+      ["Other Actions.csv", "Other Actions", false, undefined, 1], ["Time Ranges.csv", "Time Ranges", false, undefined, 1], ["Versions.csv", "Versions", false, undefined, 2],
+      ["Model Calendar.csv", "Model Calendar", false, undefined, 31]]);
+    expect(result.tables[1].headers).toEqual(["", "Formula", "Summary", "Notes", "Ratio Numerator", "Ratio Denominator"]);
+    expect(result.tables[1].rows[1]).toEqual(["Profit", "=Revenue - Cost", '{"summaryMethod":"SUM"}', "First line\nSecond line", "", ""]);
+    // Plain data: the tables are the same after the trip to the results page as JSON, and so is the zip.
+    const received = JSON.parse(JSON.stringify(result)) as typeof result;
+    expect(received).toEqual(result);
+    expect(sameBytes(resultZip(received, ZIPPED_AT), MODEL_ZIP_0_6_1)).toBe(true);
+  });
 });
+
+// One model exported end to end, as the 0.6.1 zip in zip-0.6.1.test-support.ts was made: every Model settings grid the
+// export reads, with the values a CSV has to quote (commas, quotes, line breaks) and text that looks like a formula, an
+// import the Imports tab does not list, and one grid the page's client does not have (Source Models).
+interface FakeGrid { columns: string[]; rows: { ids: number[]; labels: (string | null)[]; cells: string[] }[] }
+const row = (id: number, label: string, ...cells: string[]) => ({ ids: [id], labels: [label], cells });
+const ACTION_COLUMNS = ["Action", "Start Date and Time (UTC)", "Most recent duration (ms)", "Notes", "Used in Processes", "Used in Dashboards"];
+const GOLDEN_RATIO = JSON.stringify({ summaryMethod: "RATIO", timeSummaryMethod: "RATIO", ratioNumeratorIdentifier: "_1901000000001_", ratioDenominatorIdentifier: "_1901000000002_" });
+const GOLDEN_GRIDS: Record<string, FakeGrid> = {
+  "LINE ITEMS × LINE ITEM PROPERTIES": { columns: ["Formula", "Summary", "Notes"], rows: [
+    { ids: [102000000001, -1], labels: ["Profitability", null], cells: ["", "", ""] },
+    { ids: [1901000000001, 102000000001], labels: ["Profit", "Profitability"], cells: ["=Revenue - Cost", '{"summaryMethod":"SUM"}', "First line\nSecond line"] },
+    { ids: [1901000000002, 102000000001], labels: ["Revenue", "Profitability"], cells: ["IF Units > 0 THEN Units * Price ELSE 0", '{"summaryMethod":"SUM"}', 'Says "gross", before tax'] },
+    { ids: [1901000000003, 102000000001], labels: ["Margin %", "Profitability"], cells: ["Profit / Revenue", GOLDEN_RATIO, "-1+1"] }] },
+  "MODULES × MODULE PROPERTIES": { columns: ["Applies To", "Cell Count"], rows: [row(102000000001, "Profitability", "Products, Time", "2252068"), row(102000000002, "-- MODEL ADMIN", "-", "12")] },
+  "LISTS × LIST PROPERTIES": { columns: ["Top Level Item", "Production Data"], rows: [row(101000000001, "Products", "All Products", "true"), row(101000000002, "+ Regions", "", "false")] },
+  "ACTIONS × ACTION PROPERTIES": { columns: ACTION_COLUMNS, rows: [
+    row(31000000001, "Processes", "", "", "", "", "", ""),
+    row(118000000001, "Nightly load", "", "2026-03-12 23:19:56", "582", "Runs at 2am", "", "Admin"),
+    row(31000000002, "Imports", "", "", "", "", "", ""),
+    row(112000000002, "Prices from prices.csv", "Import into Prices", "2026-03-12 23:19:56", "582", "", "Nightly load", ""),
+    row(112000000001, "1.1 Load regions", "Import into Regions", "", "", "From the hub", "Nightly load, Weekly load", ""),
+    row(112000000003, "Old import", "Import into Old", "", "", "", "", ""),
+    row(31000000003, "Exports", "", "", "", "", "", ""),
+    row(116000000001, "Send plan", '{"exportType":"GRID_CURRENT_PAGE"}', "", "", "", "", "Review"),
+    row(31000000004, "Other Actions", "", "", "", "", "", ""),
+    row(117000000001, "Delete old items", '{"actionType":"DELETE_BY_SELECTION"}', "", "", "", "Nightly load", "")] },
+  "IMPORTS × IMPORT PROPERTIES": { columns: ["Source Label", "Source Object", "Source Type", "Target Object", "Target Type", "Production Data"], rows: [
+    row(112000000001, "1.1 Load regions", "Hub / Regions", "Hub / 'LIST - Regions'.Export", "SAVED VIEW", "Regions", "LIST", "false"),
+    row(112000000002, "Prices from prices.csv", "prices.csv", "-", "FILE", "Prices", "MODULE", "false")] },
+  "DATA SOURCES × DATA SOURCE PROPERTIES": { columns: ["Type", "Used in Imports"], rows: [row(113000000001, "prices.csv", "FILE", "Prices from prices.csv")] },
+  "TIME RANGES × TIME RANGE PROPERTIES": { columns: ["Start Period", "End Period"], rows: [row(123000000001, "FY24-FY25", "FY24", "FY25")] },
+  "VERSIONS × VERSION PROPERTIES": { columns: ["Is Actual", "Switchover"], rows: [row(107000000001, "Actual", "true", ""), row(107000000002, "Forecast", "false", "@Current Period")] },
+  "CALENDAR × EMPTY": { columns: [""], rows: [row(CALENDAR_PROPERTIES["Calendar Type"], "Calendar Type", "Weeks: 4-4-5, 4-5-4 or 5-4-4"),
+    row(CALENDAR_PROPERTIES["End of Fiscal Year is"], "End of Fiscal Year is", "Last in Month"), row(CALENDAR_PROPERTIES["End of Fiscal Year - day"], "Day", "7"),
+    row(CALENDAR_PROPERTIES["End of Fiscal Year - month"], "Month", "12"), row(CALENDAR_PROPERTIES["Fiscal Year Label"], "Fiscal Year Label", "FY"),
+    row(CALENDAR_PROPERTIES.Timescale, "Timescale", "false"), row(CALENDAR_PROPERTIES["Fiscal Year Label is aligned with"], "Aligned with", "false"),
+    row(CALENDAR_PROPERTIES["Current Fiscal Year"], "Current Fiscal Year", "FY24"), row(CALENDAR_PROPERTIES["Number of Past Years"], "Past Years", "1"),
+    row(CALENDAR_PROPERTIES["Include Quarter Totals"], "Quarter Totals", "true")] },
+};
+const GOLDEN_AXES: Record<string, string> = { MODULE_WITH_LINE_ITEM: "LINE ITEMS", LINE_ITEM_PROPERTY: "LINE ITEM PROPERTIES", MODULE_ALL: "MODULES", HIERARCHY: "LISTS",
+  ACTION_WITH_HEADING: "ACTIONS", IMPORT_ALL: "IMPORTS", IMPORT_DEFINITION_PROPERTY: "IMPORT PROPERTIES", IMPORT_DATA_SOURCE: "DATA SOURCES",
+  IMPORT_DATA_SOURCE_DETAILS_PROPERTY: "DATA SOURCE PROPERTIES", TIME_RANGE: "TIME RANGES", TIME_RANGE_PROPERTY: "TIME RANGE PROPERTIES", VERSION_ALL: "VERSIONS",
+  VERSION_PROPERTY: "VERSION PROPERTIES", TIMESCALE_PROPERTY: "CALENDAR", EMPTY_1_0: "EMPTY" };
+
+/** Runs the model export against a page whose classic client serves those grids, a few rows at a time. */
+async function exportGoldenModel() {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const aggregator = { isDirty: () => false, post: (request: any, _flag: boolean, ok: (response: unknown) => boolean) => {
+    const { viewDefinition, pageRequests: [{ startRow, rowCount }] } = request.params;
+    const grid = GOLDEN_GRIDS[`${viewDefinition.rowAxis} × ${viewDefinition.columnAxis}`];
+    const slice = grid.rows.slice(startRow, startRow + rowCount);
+    const dimensions = Math.max(...grid.rows.map(entry => entry.ids.length));
+    queueMicrotask(() => ok({ result: { viewRequestResults: [{ rowCount: grid.rows.length, columnCount: grid.columns.length,
+      rowLabelPages: [{ start: startRow, count: slice.length, entityLongIds: Array.from({ length: dimensions }, (_, d) => slice.map(entry => entry.ids[d] ?? -1)),
+        labels: Array.from({ length: dimensions }, (_, d) => slice.map(entry => entry.labels[d] ?? null)) }],
+      columnLabelPages: [{ start: 0, count: grid.columns.length, entityLongIds: [grid.columns.map((_, index) => 4000000001 + index)], labels: [grid.columns] }],
+      dataPages: [{ startRow, rows: slice.map(entry => entry.cells) }] }] } }));
+    return true;
+  } };
+  const cache = { getModelName: () => "Demand: plan", getWorkspaceInfo: () => ({ name: "Workspace one" }), getAllCurrenciesLabelPage: () => undefined,
+    getActionInfo: (id: number) => (Math.floor(id / 1e9) === 31 ? null : { id }), getTimescaleInfo: () => ({ calendarTypeEntityIndex: 3 }),
+    getApplicationPropertyEnabledOrNotSet: () => true };
+  const helper = { getAxesForViewDefinition: (rowAxes: string[], columnAxes: string[]) => ({ rowAxis: rowAxes[0], columnAxis: columnAxes[0] }) };
+  const constants = { ...Object.fromEntries(Object.entries(GOLDEN_AXES).map(([name, value]) => [`SYSTEM_AXIS_IDENTIFIER_${name}_IDENTIFIER`, value])),
+    CALENDAR_TYPE_WEEKS_GENERAL_ENTITY_INDEX: 1, CALENDAR_TYPE_THIRTEEN_FOUR_WEEK_PERIODS_ENTITY_INDEX: 2, FEATURE_FLAGS: { TIME_SUMMARY: "timeSummary" } };
+  const axisHelper = { getModuleSystemAxisIdentifier: () => "MODULE PROPERTIES", getHierarchySystemAxisIdentifier: () => "LIST PROPERTIES",
+    getActionSystemAxisIdentifier: () => "ACTION PROPERTIES" };
+  class RequestGenerator { getRequest(params: unknown) { return { requestType: "VIEW_REQUEST_SET", submissions: [], systemActions: [], params }; } }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  class DataPage extends FakePage { constructor({ page }: any) { super(page); } }
+  vi.stubGlobal("window", { workspaceId: "0123456789abcdef0123456789abcdef", modelId: "FEDCBA9876543210FEDCBA9876543210",
+    require: (_modules: string[], loaded: (...modules: unknown[]) => void) =>
+      loaded(cache, aggregator, helper, { getEntityTypeIndex: (id: number) => Math.floor(id / 1e9) }, constants, RequestGenerator, DataPage, axisHelper) });
+  vi.stubGlobal("location", { host: "eu2a.app.anaplan.com", pathname: "/core-webapp/anaplan/framework.jsp" });
+  return exportModel({ status: () => undefined, log: () => undefined },
+    () => "12:30:10 Loading the model page's client…\r\n12:30:10 Line Items: 4 rows × 3 columns; columns: Formula | Summary | Notes");
+}
