@@ -1,36 +1,47 @@
 import { analyseApp } from "./analyse.js";
 import { exportInCore, watchCore, watchProbes, type CoreHandle, type FrameProbe } from "./bridge.js";
-import { asDownload, MODEL_EXPORT_PANEL, mountOnce } from "./panel.js";
+import type { Subject } from "./protocol.js";
 import { RestError } from "./rest.js";
+import { serveTab } from "./tab-port.js";
 
-/** The page the user sees. On an app page, "Analyse app" exports its pages. On a Model Building page, "Export model"
- * exports the model's settings through the model's core frame (see bridge.ts). Everything is read-only, using the
- * signed-in browser session; the result is a local download. */
+/** The page the user sees: the top window of an Anaplan tab, in the isolated world. It puts nothing on the page and reads
+ * nothing from Anaplan until the results page, opened by the toolbar icon, connects and asks it to run (tab-port.ts). Then,
+ * on an app page, it analyses the app's pages; on a Model Building page, it exports the model's settings through the
+ * model's core frame (bridge.ts). Everything is read-only, using the signed-in browser session. */
 
 const APP_PATH = /\/apps\/app\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:[/?#]|$)/i;
 const MODEL_PATH = /\/a\/modeling(?:-ui)?\/.*\/models\/([0-9A-Za-z]{32})(?:[/?#]|$)/;
 
-if (window.top === window) {
-  mountOnce({
-    id: "page-analyzer",
-    launchLabel: "Analyse app",
-    title: "Page analyzer",
-    description: "Exports every page in this app (cards, modules, line items, filters, conditional formatting and actions) as CSV files. It only reads.",
-    startLabel: "Export pages",
-    subject: () => APP_PATH.exec(location.pathname)?.[1],
-    run: (appGuid, progress, diagnostics) => analyseApp(appGuid, progress, diagnostics).then(asDownload),
-    describeError: error => (error instanceof RestError && error.code === "SIGNED_OUT" ? "You're signed out of Anaplan. Sign in and try again." : undefined),
-  });
+/** Content scripts can be injected more than once: only the first in a document answers the results page. The mark is on
+ * this script's own view of the window (the isolated world), which the page cannot see. */
+const page = window as unknown as { cardiganServing?: true };
 
-  let core: CoreHandle | undefined;
+if (window.top === window && !page.cardiganServing) {
+  page.cardiganServing = true;
+  /** The model's holder as it announced itself: a core frame inside this page, or this window itself. */
+  let frame: CoreHandle | undefined;
+  let own: CoreHandle | undefined;
   const probes = new Map<string, FrameProbe>();
-  watchCore(window, found => { core = found; });
+  watchCore(window, found => { if (found.source === (window as unknown)) own = found; else frame = found; });
   watchProbes(window, probe => { probes.set(`${probe.host}${probe.path}`, probe); });
-  mountOnce({
-    id: "model-export-shell",
-    ...MODEL_EXPORT_PANEL,
-    subject: () => MODEL_PATH.exec(location.pathname)?.[1],
-    // The model's own frame (the classic client inside this page) does the reading (bridge.ts).
-    run: (model, progress) => exportInCore(window, () => core, () => probes.values(), model, progress).then(asDownload),
+
+  /** An app or a model, by the page's address. The classic model page opened on its own names no model in its address: it
+   * is a model page once the main-world script in this same window has announced the model it holds. */
+  const subject = (): Subject => {
+    const app = APP_PATH.exec(location.pathname)?.[1];
+    if (app) return { kind: "app", id: app };
+    const model = MODEL_PATH.exec(location.pathname)?.[1] ?? own?.modelId;
+    return model ? { kind: "model", id: model } : { kind: "none" };
+  };
+  /** A Model Building page's model is read in its core frame; the classic page's, in this window. */
+  const core = () => (MODEL_PATH.test(location.pathname) ? frame : own);
+
+  serveTab(chrome.runtime, {
+    host: location.host,
+    subject,
+    run: (seen, progress, diagnostics, signal) => (seen.kind === "app"
+      ? analyseApp(seen.id, progress, diagnostics, signal)
+      : exportInCore(window, core, () => probes.values(), seen.id, progress, signal)),
+    signedOut: error => error instanceof RestError && error.code === "SIGNED_OUT",
   });
 }
