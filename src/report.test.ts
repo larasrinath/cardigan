@@ -87,12 +87,13 @@ function report() {
 const column_ = (tab: TabName, header: string) => HEADERS[tab].indexOf(header);
 const rowsOf = (tab: TabName, ...headers: string[]) => report()[tab].rows.map(row => headers.map(header => row[column_(tab, header)]));
 
-// A second board with the other card kinds: a KPI with an indicator and flat formatting, two fields, an image bound to a
-// line item, a text card whose title links to the first board, a sorted grid, a module's default view and more buttons. The
-// KPI is placed right of the field card in the same row, so it is numbered after it.
+// A second board with the other card kinds: a KPI with an indicator, flat formatting and a title link, two fields, an image
+// bound to a line item, a text card whose title links to the first board, a sorted grid, a module's default view and more
+// buttons. The KPI is placed right of the field card in the same row, so it is numbered after it.
 const kpi = { ...common(11, "CARD"), defaultTitle: "Total volume", textStyle: "LARGE", numberScale: "THOUSANDS", showSparkline: true,
   config: { iconIndicatorType: "THRESHOLD", thresholdIndicatorConfig: { icons: [{ iconId: "ARROW_UP" }, { iconId: "FLAG_RED" }, { iconId: "ARROW_UP" }] } },
   cfSourceIdentifier: LI(1), cfTargetIdentifier: LI(2), cfMinValue: "0", cfMinColor: "#FFFFFF", cfMaxValue: 1500.5, cfMaxColor: "#627786",
+  pageIdentifier: guid(1000), pageType: "BOARD", isTargetPagePublished: true,
   widgetDataSources: [{ widgetGuid: guid(111), dataSourceId: MODULE, subEntityId: LI(2), dataSourceType: "LINE_ITEM", axisDescriptionQuery: null, viewDescription: null }] };
 const fieldCard = { ...common(12, "FIELD"), defaultTitle: "Plan inputs",
   fields: [{ moduleId: MODULE, lineItemId: LI(1), label: "Show?" }, { moduleId: MODULE_2, lineItemId: LI(8), label: "Factor" }] };
@@ -224,6 +225,9 @@ describe("Page analyzer report, from a native page to the agreed CSV tables", ()
     const cards = result.Cards.rows;
     expect(cards[0][HEADERS.Cards.indexOf("Rows")]).toBe("Product (levels: top level, lowest level, Territory, 101000000999)");
     expect(cards[0][HEADERS.Cards.indexOf("Columns")]).toBe("Time (lowest level only)");
+    const section = result["Grid sections"].rows[0];
+    expect([section[HEADERS["Grid sections"].indexOf("Rows")], section[HEADERS["Grid sections"].indexOf("Columns")]])
+      .toEqual(["Product (levels: top level, lowest level, Territory, 101000000999)", "Time (lowest level only)"]);
     expect(result.Actions.rows[0].slice(4, 6)).toEqual(["—", "Card label (model lookup failed)"]);
   });
 
@@ -268,7 +272,7 @@ describe("Page analyzer report, from a native page to the agreed CSV tables", ()
       ["Synthetic KPI board", 1, "Plan inputs", "Field", "—", "—", "—", "Show?; Factor", "—", "—", "—", "—", "—", "—", "—", "—", "—", guid(12), "—"],
       ["Synthetic KPI board", 2, "Total volume", "KPI", "—", "Demand", "—", "Volume", "—", "—", "—", "—", "—",
         "CARD_LEVEL colour on Volume (values from Show?): 0 → #FFFFFF; 1,500.5 → #627786 | KPI indicator (threshold): 3 icons (arrow up, flag red); no threshold values set",
-        "—", "—", "text LARGE · scale THOUSANDS · sparkline on", guid(11), MODULE],
+        "Title links to board Synthetic demand board", "—", "text LARGE · scale THOUSANDS · sparkline on", guid(11), MODULE],
       ["Synthetic KPI board", 3, "—", "Image", "—", "Factors", "—", "Territory demand (image)", "—", "—", "—", "—", "—", "—", "—", "—", "—", guid(13), MODULE_2],
       ["Synthetic KPI board", 4, "—", "Text", "—", "—", "—", "—", "—", "—", "—", "—", "—", "—", "Title links to board Synthetic demand board",
         "Review the plan before Friday.", "—", guid(14), "—"],
@@ -347,6 +351,7 @@ describe("Page analyzer report, from a native page to the agreed CSV tables", ()
       ["Line item", "Volume", "Demand", "Synthetic KPI board", 2, "KPI value", LI(2)],
       ["Line item", "Volume", "Demand", "Synthetic KPI board", 2, "Formatting", LI(2)],
       ["Line item", "Show?", "Demand", "Synthetic KPI board", 2, "Formatting values", LI(1)],
+      ["Page", "Synthetic demand board", "—", "Synthetic KPI board", 2, "Link target", guid(1000)],
       ["Module", "Factors", "—", "Synthetic KPI board", 3, "Data source", MODULE_2],
       ["Line item", "Territory demand", "Factors", "Synthetic KPI board", 3, "Image", LI(9)],
       ["Page", "Synthetic demand board", "—", "Synthetic KPI board", 4, "Link target", guid(1000)],
