@@ -7,7 +7,7 @@ describe("App Details.csv and Model Details.csv", () => {
 
   it("says when, with which build and from which host the export was made", () => {
     expect(exportRows("us1a.app.anaplan.com", new Date(Date.UTC(2026, 8, 28, 1, 59, 9)))).toEqual([
-      ["Export", "Exported on", "2026-09-28 01:59 UTC"], ["Export", "Exported with", "Anaplan Analyzer dev"], ["Export", "Anaplan host", "us1a.app.anaplan.com"]]);
+      ["Export", "Exported on", "2026-09-28 01:59 UTC"], ["Export", "Exported with", "Cardigan dev"], ["Export", "Anaplan host", "us1a.app.anaplan.com"]]);
   });
 
   it("keeps the diagnostic log, one row per line with the panel's time stamp", () => {
