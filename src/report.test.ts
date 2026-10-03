@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { describePageCards } from "../../../src/domains/ux-designer/card-details.js";
-import { nameCardDetails } from "../../../src/domains/ux-designer/card-naming.js";
+import { describePageCards } from "./card-reader/card-details.js";
+import { nameCardDetails } from "./card-reader/card-naming.js";
 import { addDerivedContextSelectors, gridNeeds } from "./analyse.js";
 import { addActions, addLineItems, addLists, addModuleDimensions, addModuleViews, addSelections, emptyCatalog, resolveFromCatalog } from "./catalog.js";
 import { buildReport, HEADERS, type PageInput, type TabName } from "./report.js";

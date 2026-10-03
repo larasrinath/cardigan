@@ -1,0 +1,23 @@
+{
+  "name": "cardigan",
+  "version": "0.6.0",
+  "private": true,
+  "description": "Anaplan Analyzer: a Chrome extension that exports an Anaplan app's pages and a model's Model settings as CSV files",
+  "author": "Lara Srinath",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": "^20.19.0 || ^22.12.0 || >=24.0.0"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "build": "npm run typecheck && node scripts/build.mjs",
+    "check": "npm run typecheck && npm test && npm run build"
+  },
+  "devDependencies": {
+    "esbuild": "0.27.3",
+    "typescript": "5.9.3",
+    "vitest": "4.0.18"
+  }
+}

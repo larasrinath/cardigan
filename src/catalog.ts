@@ -1,4 +1,4 @@
-import { entityKey, type UxEntityRef, type UxResolvedNames, type UxViewLayout } from "../../../src/domains/ux-designer/card-types.js";
+import { entityKey, type UxEntityRef, type UxResolvedNames, type UxViewLayout } from "./card-reader/card-types.js";
 import { list, text, type Obj } from "./util.js";
 
 /** Names for one model, gathered the way Page Builder gets them: modules, saved views, dimension labels, lists and line
