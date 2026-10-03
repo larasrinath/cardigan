@@ -1,5 +1,6 @@
 import { stampLine } from "./details.js";
-import type { Progress, TaskResult } from "./panel.js";
+import type { TaskResult } from "./panel.js";
+import type { Progress } from "./progress.js";
 import { SCOPE_ID } from "./util.js";
 
 /** The Model Building page (`/a/modeling/…/models/{id}`) is a shell; the classic model client runs in a core frame inside it,

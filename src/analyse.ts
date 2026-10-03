@@ -7,7 +7,8 @@ import {
   unresolvedFilterItems, viewLayoutFromMetadata, type ModelCatalog,
 } from "./catalog.js";
 import { DETAILS_HEADERS, diagnosticRows, exportRows, type DetailRow } from "./details.js";
-import type { Log, Progress, TaskResult } from "./panel.js";
+import type { TaskResult } from "./panel.js";
+import type { Log, Progress } from "./progress.js";
 import { buildReport, HEADERS, LINE_ITEMS, NONE, PAGE_TYPE, type PageInput, type TabName } from "./report.js";
 import { getJson, RestError } from "./rest.js";
 import { StompConnection, StompError } from "./stomp.js";

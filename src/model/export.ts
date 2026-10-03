@@ -1,5 +1,6 @@
 import { DETAILS_HEADERS, diagnosticRows, exportRows, type DetailRow } from "../details.js";
-import type { Log, Progress, TaskResult } from "../panel.js";
+import type { TaskResult } from "../panel.js";
+import type { Log, Progress } from "../progress.js";
 import { fileSafe, message, text } from "../util.js";
 import { toCsv, zipStore } from "../zip.js";
 import { actionKind, mergeImports, missingActionColumns, type ActionKind } from "./actions.js";
