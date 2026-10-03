@@ -1,8 +1,8 @@
 // Packages the built extension as release/cardigan-<version>.zip and prints its SHA-256.
 // The zip holds only the files Chrome loads: manifest.json, the bundles it names under dist/, the icons it names under
-// icons/, and the results page with its stylesheet and its bundle. Entries are sorted, carry fixed timestamps and attributes
-// and are stored uncompressed, so the same files give the same bytes on every run, machine and Node version. Offline: it
-// never uploads or publishes anything.
+// icons/, and the results page with its stylesheet and its bundle; a page that loads any other file is refused. Entries are
+// sorted, carry fixed timestamps and attributes and are stored uncompressed, so the same files give the same bytes on every
+// run, machine and Node version. Offline: it never uploads or publishes anything.
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -24,6 +24,13 @@ const RUNTIME_PATH = /^(?:dist\/[A-Za-z0-9][A-Za-z0-9._-]*\.js|icons\/[A-Za-z0-9
 /** The results page, its stylesheet and its bundle. The manifest names none of them: the service worker opens the page by
  * name (RESULTS_PAGE in src/protocol.ts), and the page loads the other two. */
 const PAGE_FILES = ['results.html', 'results.css', 'dist/results.js'];
+const [PAGE, PAGE_STYLES, PAGE_BUNDLE] = PAGE_FILES;
+/** A start tag with its attributes, and one attribute with its value: in either quotes, or bare. */
+const TAG = /<([a-z][a-z0-9-]*)((?:[^>"']|"[^"]*"|'[^']*')*)>/gi;
+const ATTRIBUTE = /([^\s"'=<>/]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/g;
+/** url(…) and @import "…", wherever styles are written: the stylesheet, a <style> block or a style attribute. A longer name
+ * that ends in url, such as createObjectURL(…), is not one. */
+const STYLE_LOAD = /(?<![\w-])url\(\s*(?:"([^"]*)"|'([^']*)'|([^"'()\s]*))\s*\)|@import\s+(?:"([^"]*)"|'([^']*)')/gi;
 /** Inputs of the bundles: if any is newer than a bundle, the bundle is stale. Tests are not bundled. */
 const BUILD_INPUTS = ['manifest.json', 'package-lock.json', 'scripts/build.mjs'];
 const NOT_BUNDLED = /\.test(?:-support)?\.ts$/;
@@ -92,6 +99,37 @@ export function staleBundles(dir, files) {
   });
 }
 
+/** Whether an address makes Chrome load a file: not when it is empty, a place in the page itself (#…) or inline data. */
+const loadsFile = address => address !== '' && !/^(?:#|data:)/i.test(address);
+
+/** What a page's markup loads: every src, and the href of every <link>. A link the user follows (<a href>) loads nothing. */
+function markupLoads(html) {
+  const found = [];
+  for (const [, tag, attributes] of html.matchAll(TAG)) {
+    for (const [, name, double, single, bare] of attributes.matchAll(ATTRIBUTE)) {
+      if (name.toLowerCase() === 'src' || (name.toLowerCase() === 'href' && tag.toLowerCase() === 'link')) found.push(double ?? single ?? bare);
+    }
+  }
+  return found.filter(loadsFile);
+}
+
+/** What styles load: every url() and @import. */
+function styleLoads(styles) {
+  return [...styles.matchAll(STYLE_LOAD)].map(match => match.slice(1).find(address => address !== undefined)).filter(loadsFile);
+}
+
+/** What keeps the results page out of a package, given its text, its stylesheet's and the packaged `files`. Every file the
+ * two load must be packaged, under the name it is packaged by, so that nothing the page needs is left out and nothing comes
+ * from the network. And the page must load its own stylesheet and bundle, so that neither is packaged unused. */
+export function pageProblems(page, styles, files) {
+  const loads = { [PAGE]: [...markupLoads(page), ...styleLoads(page)], [PAGE_STYLES]: styleLoads(styles) };
+  return [
+    ...Object.entries(loads).flatMap(([name, loaded]) => [...new Set(loaded)].filter(file => !files.includes(file))
+      .map(file => `${name} loads ${JSON.stringify(file)}, which is not packaged`)),
+    ...[PAGE_STYLES, PAGE_BUNDLE].filter(file => !loads[PAGE].includes(file)).map(file => `${PAGE} does not load ${file}`),
+  ];
+}
+
 /** A zip of `[{ name, data }]` in the given order: stored entries with fixed timestamps and attributes. */
 export function createZip(entries) {
   const locals = [];
@@ -157,6 +195,9 @@ export function packageExtension({ dir = ROOT, outDir = path.join(dir, 'release'
     if (!lstatSync(full).isFile()) throw new Error(`Cannot package: ${name} is not a regular file`);
     return { name, data: readFileSync(full) };
   });
+  const text = name => entries.find(entry => entry.name === name).data.toString('utf8');
+  const problems = pageProblems(text(PAGE), text(PAGE_STYLES), files);
+  if (problems.length) throw new Error(`Cannot package:\n${problems.join('\n')}`);
   const zip = createZip(entries);
   mkdirSync(outDir, { recursive: true });
   const file = path.join(outDir, `cardigan-${manifest.version}.zip`);
