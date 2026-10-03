@@ -1,9 +1,9 @@
-import { RESULTS_PAGE, TAB_PARAM } from "./protocol.js";
+import { OPENED_PARAM, RESULTS_PAGE, TAB_PARAM } from "./protocol.js";
 
 /** The service worker behind the toolbar icon. A click opens the results page in a new tab right after the clicked one, in
- * the same window, with that tab's ID in the address; the page then asks the tab's content script for the analysis
- * (protocol.ts). The worker keeps no state, so Chrome can stop it between clicks, and it needs no permission: opening a
- * tab takes none, and it never reads the clicked tab's address or content. */
+ * the same window, with that tab's ID and the time of the click in the address; the page then asks the tab's content script
+ * for the analysis (protocol.ts). The worker keeps no state, so Chrome can stop it between clicks, and it needs no
+ * permission: opening a tab takes none, and it never reads the clicked tab's address or content. */
 
 /** chrome.tabs.TAB_ID_NONE: the ID Chrome gives a tab that is not a browser tab, such as a DevTools window. */
 const TAB_ID_NONE = -1;
@@ -14,10 +14,12 @@ export interface ClickApi {
   tabs: Pick<typeof chrome.tabs, "create">;
 }
 
-/** Opens the results page for `tab`: right after it in its window, and with it as the opener. A tab without an ID gets none. */
+/** Opens the results page for `tab`: right after it in its window, and with it as the opener. The address names the tab and
+ * says when the icon was clicked, by which the page knows that the icon has just opened it (protocol.ts `OPENED_PARAM`).
+ * A tab without an ID gets none. */
 export async function openResults(api: ClickApi, tab: chrome.tabs.Tab): Promise<void> {
   if (tab.id === undefined || tab.id === TAB_ID_NONE) return;
-  await api.tabs.create({ url: `${api.runtime.getURL(RESULTS_PAGE)}?${TAB_PARAM}=${tab.id}`, index: tab.index + 1, openerTabId: tab.id,
+  await api.tabs.create({ url: `${api.runtime.getURL(RESULTS_PAGE)}?${TAB_PARAM}=${tab.id}&${OPENED_PARAM}=${Date.now()}`, index: tab.index + 1, openerTabId: tab.id,
     ...(tab.windowId === undefined ? {} : { windowId: tab.windowId }) });
 }
 

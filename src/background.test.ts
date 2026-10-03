@@ -1,8 +1,10 @@
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { RESULTS_PAGE, TAB_PARAM } from "./protocol.js";
+import { FRESH_MS, OPENED_PARAM, RESULTS_PAGE, TAB_PARAM } from "./protocol.js";
 
 const EXTENSION = "chrome-extension://abcdefghijklmnopabcdefghijklmnop";
+/** When the icon is clicked, as Date.now() gives it. */
+const CLICKED = Date.UTC(2026, 8, 28, 1, 59, 9);
 
 interface Manifest { icons: Record<string, string>; action: { default_title: string; default_icon: Record<string, string> }; background: { service_worker: string } }
 const manifest = JSON.parse(readFileSync(new URL("../manifest.json", import.meta.url), "utf8")) as Manifest;
@@ -29,10 +31,12 @@ describe("Toolbar icon's service worker", () => {
 
   beforeEach(() => {
     vi.resetModules();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(CLICKED);
     browser = new FakeChrome();
     vi.stubGlobal("chrome", browser);
   });
-  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+  afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); vi.restoreAllMocks(); });
 
   it("is named in the manifest, behind a toolbar icon that has a title, the extension's icons and no popup", () => {
     // A popup would take the click: Chrome tells the worker only about a click on an icon that has none.
@@ -44,20 +48,27 @@ describe("Toolbar icon's service worker", () => {
     expect(manifest.background).toEqual({ service_worker: "dist/background.js" });
   });
 
-  it("opens the results page right after the clicked tab, in its window, with the tab's ID in the address and the tab as its opener", async () => {
+  it("opens the results page right after the clicked tab, in its window, with the tab as its opener and its ID and the time of the click in the address", async () => {
     const { openResults } = await import("./background.js");
     // Through the API it is given, not the global one.
     const api = new FakeChrome("chrome-extension://ponmlkjihgfedcbaponmlkjihgfedcba");
     await openResults(api, { id: 412, index: 3, windowId: 28 });
-    expect(api.created).toStrictEqual([{ url: "chrome-extension://ponmlkjihgfedcbaponmlkjihgfedcba/results.html?tab=412", index: 4, openerTabId: 412, windowId: 28 }]);
+    expect(api.created).toStrictEqual([{ url: `chrome-extension://ponmlkjihgfedcbaponmlkjihgfedcba/results.html?tab=412&opened=${CLICKED}`, index: 4, openerTabId: 412, windowId: 28 }]);
     expect(browser.created).toEqual([]);
-    // The address is the protocol's: the page named there, and the tab's ID where the page reads it.
+    // The address is the protocol's: the page named there, the tab's ID and when the icon was clicked, each where the page reads it.
     const address = new URL((api.created[0] as { url: string }).url);
-    expect([address.pathname, address.search, address.searchParams.get(TAB_PARAM)]).toEqual([`/${RESULTS_PAGE}`, "?tab=412", "412"]);
+    expect([address.pathname, address.search, address.searchParams.get(TAB_PARAM), address.searchParams.get(OPENED_PARAM)])
+      .toEqual([`/${RESULTS_PAGE}`, "?tab=412&opened=1790560749000", "412", "1790560749000"]);
+    // By that the page knows the icon has just opened it: a number it reads back, less than FRESH_MS old.
+    expect(Date.now() - Number(address.searchParams.get(OPENED_PARAM))).toBeLessThan(FRESH_MS);
 
     // Chrome places the tab itself when the clicked tab names no window: none is passed, not even an empty one.
     await openResults(api, { id: 413, index: 0 });
-    expect(api.created[1]).toStrictEqual({ url: "chrome-extension://ponmlkjihgfedcbaponmlkjihgfedcba/results.html?tab=413", index: 1, openerTabId: 413 });
+    expect(api.created[1]).toStrictEqual({ url: `chrome-extension://ponmlkjihgfedcbaponmlkjihgfedcba/results.html?tab=413&opened=${CLICKED}`, index: 1, openerTabId: 413 });
+    // Each click carries its own time.
+    vi.setSystemTime(CLICKED + 61_000);
+    await openResults(api, { id: 412, index: 3, windowId: 28 });
+    expect((api.created[2] as { url: string }).url).toBe(`chrome-extension://ponmlkjihgfedcbaponmlkjihgfedcba/results.html?tab=412&opened=${CLICKED + 61_000}`);
   });
 
   it("opens nothing for a tab without an ID", async () => {
@@ -76,8 +87,8 @@ describe("Toolbar icon's service worker", () => {
     click({ index: 1, windowId: 2 });
     click({ id: 9, index: 5, windowId: 3 });
     expect(browser.created).toEqual([
-      { url: `${EXTENSION}/results.html?tab=7`, index: 1, openerTabId: 7, windowId: 2 },
-      { url: `${EXTENSION}/results.html?tab=9`, index: 6, openerTabId: 9, windowId: 3 },
+      { url: `${EXTENSION}/results.html?tab=7&opened=${CLICKED}`, index: 1, openerTabId: 7, windowId: 2 },
+      { url: `${EXTENSION}/results.html?tab=9&opened=${CLICKED}`, index: 6, openerTabId: 9, windowId: 3 },
     ]);
   });
 
