@@ -143,6 +143,8 @@ describe("Model export: Model settings grids to tables", () => {
     expect(value(weeks("FY24", [start]), "Current Fiscal Year")).toBe("FY24: 31 Dec 2023 - 28 Dec 2024");
     expect([value(weeks("FY24", [start, ...june]), "Current Fiscal Year"), value(weeks("FY24", june), "Current Fiscal Year")])
       .toEqual(["FY24: 26 Jun 2024 - 24 Jun 2025", "FY24: 28 Jun 2023 - 25 Jun 2024"]);
+    // The label day is a full week after the start: the year starting on 26 Dec 2021 is FY22 because 2 Jan 2022 is in 2022.
+    expect(value(weeks("FY22", [start]), "Current Fiscal Year")).toBe("FY22: 26 Dec 2021 - 31 Dec 2022");
     // With 4-digit labels Anaplan stores a year from 2079 on with four digits (FY2079) and an earlier one with two (FY78).
     const fourDigit: [string, string][] = [["Timescale", "true"]];
     expect([value(weeks("FY2079", fourDigit), "Current Fiscal Year"), value(weeks("FY78", fourDigit), "Current Fiscal Year")])
