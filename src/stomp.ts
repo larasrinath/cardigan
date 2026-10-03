@@ -1,4 +1,4 @@
-import type { Log } from "./panel.js";
+import type { Log } from "./progress.js";
 import { ANAPLAN_HOST } from "./util.js";
 
 /** A minimal STOMP client for Page Builder's widget data socket (traced in the designer bundle, 27 Sep 2026: CONNECT

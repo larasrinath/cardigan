@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { describeProbe, probeFrame, PROTOCOL, runInCore, serveCore, watchCore, watchProbes, type CoreHandle, type Endpoint, type FrameProbe } from "./bridge.js";
 import { NOT_SCOPE_IDS, SCOPE_IDS } from "./guards.test-support.js";
-import type { Progress, TaskResult } from "./panel.js";
+import type { TaskResult } from "./panel.js";
+import type { Progress } from "./progress.js";
 
 /** Two windows that talk like browser windows: posting to a window as another window holds it delivers a cloned message
  * there, from that other window's origin, with `source` set to the sender as the receiver holds it. */

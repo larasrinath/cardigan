@@ -1,11 +1,10 @@
 import { stampLine } from "./details.js";
+import type { Progress } from "./progress.js";
 import { VERSION } from "./version.js";
 
 /** The floating button and progress panel shared by the app page analysis and the model export. Nothing runs until the
  * user clicks the start button; the result is a local download. */
 
-export type Log = (line: string) => void;
-export interface Progress { status(text: string): void; log: Log }
 export interface TaskResult { zip: Uint8Array<ArrayBuffer>; fileName: string; summary: string[] }
 
 export interface PanelOptions {

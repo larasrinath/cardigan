@@ -1,4 +1,4 @@
-import type { Log } from "../panel.js";
+import type { Log } from "../progress.js";
 import { SCOPE_ID, sleep } from "../util.js";
 import { labelEntries, windowRows, type Grid } from "./grid.js";
 
