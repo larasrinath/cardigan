@@ -2,14 +2,17 @@
  * Every place that applies a guard is tested against these same lists, so loosening a pattern, or a place that stops
  * using it, fails a test. Synthetic hosts and IDs only. */
 
-/** Hosts a cross-host read, a socket redirect and a socket close reason accept. */
-export const ANAPLAN_HOSTS = ["eu2a.app.anaplan.com", "EU2A.APP.ANAPLAN.COM", "us-1a.app.anaplan.com", "x.anaplan.com"];
+/** Hosts a cross-host read, a socket redirect and a socket close reason accept. Australia (au1) serves the app on
+ * au1a.app2.anaplan.com; every other region uses *.app.anaplan.com. */
+export const ANAPLAN_HOSTS = ["eu2a.app.anaplan.com", "EU2A.APP.ANAPLAN.COM", "us-1a.app.anaplan.com", "x.anaplan.com", "au1a.app2.anaplan.com"];
 
 /** Hosts they refuse. */
 export const OTHER_HOSTS = [
   // Another domain: unrelated, Anaplan's own without a label, Anaplan's as a prefix, or a lookalike.
   "example.net", "anaplan.com", ".anaplan.com", "eu2a.app.anaplan.com.example.net", "eu2a.app.anaplan.com.", "eu2a.app.anaplan.community",
   "evil-anaplan.com", "eu2a.appxanaplan.com", "eu2a.app.anaplanxcom",
+  // The same for Australia's app2 host.
+  "au1a.app2.anaplan.com.evil.example", "app2anaplan.com", "au1a.app2anaplan.com", "au1a.app2.anaplan.com.", "au1a.app2.anaplan.co",
   // A character that ends the host in a URL, so that the request would go to whatever stands before it.
   "eu2a.app.anaplan.com:8443", "eu2a.app.anaplan.com/a", "user@eu2a.app.anaplan.com", "a:b.anaplan.com", "example.net/.anaplan.com",
   "example.net?.anaplan.com", "example.net#.anaplan.com", "example.net\\.anaplan.com", "example.net%2f.anaplan.com", "[example.net].anaplan.com",

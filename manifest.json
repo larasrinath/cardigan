@@ -6,12 +6,12 @@
   "description": "Exports an Anaplan app's pages (cards, modules, filters, formatting, actions) and a model's Model settings as CSV files.",
   "content_scripts": [
     {
-      "matches": ["https://*.app.anaplan.com/*"],
+      "matches": ["https://*.app.anaplan.com/*", "https://*.app2.anaplan.com/*"],
       "js": ["dist/content.js"],
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://*.app.anaplan.com/*"],
+      "matches": ["https://*.app.anaplan.com/*", "https://*.app2.anaplan.com/*"],
       "js": ["dist/model-export.js"],
       "world": "MAIN",
       "all_frames": true,
