@@ -55,10 +55,12 @@ async function readPublished(guid: string, declared: UxPageType | undefined, log
   return { state: problem ? `Not analysed: ${problem}` : "Not published" };
 }
 
-/** `work` gets the host that finally served the model, after any redirect. */
-async function withSocket<T>(customerId: string, log: Log, work: (connection: StompConnection, host: string) => Promise<T>): Promise<T> {
+/** `work` gets the host that finally served the model, after any redirect. A run that `signal` has stopped opens no socket,
+ * and one stopped while its socket connects closes it again before `work`: nothing is subscribed to for a stopped run. */
+async function withSocket<T>(customerId: string, log: Log, signal: AbortSignal | undefined, work: (connection: StompConnection, host: string) => Promise<T>): Promise<T> {
   let host = location.host;
   for (let attempt = 0; attempt < 2; attempt++) {
+    signal?.throwIfAborted();
     const session = crypto.randomUUID();
     const url = `wss://${host}/a/springboard-widget-data-service/ws?tracePath=springboard-ui&clientVersion=page-analyzer&clientSessionId=${session}`;
     let connection: StompConnection | undefined;
@@ -67,6 +69,7 @@ async function withSocket<T>(customerId: string, log: Log, work: (connection: St
         "enabled-features": "", "accept-language": navigator.language || "en", "close-mode": "error-frame", "page-visible": "true",
         ...(customerId ? { "anaplan-customer": customerId } : {}),
       }, log);
+      signal?.throwIfAborted();
       return await work(connection, host);
     } catch (error) {
       if (attempt === 0 && error instanceof StompError && error.code === "REDIRECTION_REQUIRED" && error.fqdn && ANAPLAN_HOST.test(error.fqdn)) {
@@ -290,7 +293,8 @@ async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCar
  * model that is not open reports status UNKNOWN until a data request loads it (observed live, 28 Sep 2026), so the
  * status is watched and logged, never waited for. A connection-level error such as REDIRECTION_REQUIRED fails every
  * subscription and is rethrown, so withSocket reconnects to the host it names. When `signal` asks the run to stop, the
- * socket work ends at once, as it does for a closed model, and the stop is rethrown instead of noted. */
+ * socket work ends at once, as it does for a closed model, and the stop is rethrown instead of noted. A run that was
+ * stopped before its socket had connected asks the model for nothing at all: subscribing can make the service load it. */
 export async function loadCatalog(scope: ModelScope, pages: readonly UxPageCardDetails[], pageNames: ReadonlyMap<string, string>,
   progress: Progress, signal?: AbortSignal): Promise<{ catalog: ModelCatalog; notes: string[]; failedActionTypes: string[] }> {
   const { workspaceId: ws, modelId: model } = scope;
@@ -311,7 +315,7 @@ export async function loadCatalog(scope: ModelScope, pages: readonly UxPageCardD
   }
 
   try {
-    await withSocket(scope.customerId, progress.log, async (connection, host) => {
+    await withSocket(scope.customerId, progress.log, signal, async (connection, host) => {
       modelHost = host;
       let status = "not reported yet";
       let stop: (error: Error) => void = () => undefined;
@@ -319,7 +323,6 @@ export async function loadCatalog(scope: ModelScope, pages: readonly UxPageCardD
       stopped.catch(() => undefined);
       const halt = () => stop(new StompError("stopped"));
       signal?.addEventListener("abort", halt, { once: true });
-      if (signal?.aborted) halt();
       connection.subscribe(`core://${ws}:${model}`, {
         accept: "widget/model", body: {}, timeoutMs: 30 * 60_000,
         until: data => {
