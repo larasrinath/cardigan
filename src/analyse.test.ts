@@ -481,20 +481,65 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
       expect(log.filter(line => /imports|stopped/.test(line)), waiting).toEqual([]);
     }
 
-    // Stopped while the socket was still connecting: closed again without waiting for a name that never comes.
-    ScriptedSocket.sockets = [];
-    serveModel({ [MODULE_VIEWS]: () => "", [at("/lists")]: () => "" });
-    const stopping = new AbortController();
-    stopping.abort(stopped);
-    const started = Date.now();
-    await expect(run(pages, scope, stopping.signal).result).rejects.toBe(stopped);
-    expect(Date.now() - started).toBeLessThan(2_000);
-    expect(ScriptedSocket.sockets.map(socket => socket.readyState)).toEqual([3]);
-    expect(globalThis.fetch).not.toHaveBeenCalled();
     // Without a stop the same run reads its names and the import's name, as before.
     ScriptedSocket.sockets = [];
     serveModel();
     expect((await run(pages, scope, new AbortController().signal).result).catalog.actions.get("112000000901")).toBe("Import demand");
+  });
+
+  it("opens no socket for a run that was stopped already, and subscribes to nothing when it is stopped while the socket connects", async () => {
+    const stopped = new Error("Stopped: the results page was closed.");
+    /** Every frame sent on each socket: its command and, for a subscription or its data request, what it asks the model for. */
+    const frames = () => ScriptedSocket.sockets.map(socket => socket.frames.map(({ command, headers: { destination } }) =>
+      (destination === undefined ? command : `${command} ${destination.replace(/^core:\/+[^/]*/, "") || "status"}`)));
+    /** The run's end, and then long enough for anything it left behind to be sent. */
+    const ended = async (signal: AbortSignal) => {
+      const started = Date.now();
+      await expect(run(pages, scope, signal).result).rejects.toBe(stopped);
+      expect(Date.now() - started).toBeLessThan(2_000);
+      await new Promise(resolve => setTimeout(resolve, 20));
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+    };
+
+    // Stopped before the names are asked for: subscribing can make Anaplan load the model, so not even a socket is opened.
+    serveModel();
+    const before = new AbortController();
+    before.abort(stopped);
+    await ended(before.signal);
+    expect(ScriptedSocket.sockets).toEqual([]);
+
+    // Stopped while the socket connects: it is closed again as soon as it has connected, with nothing subscribed.
+    const connecting = new AbortController();
+    ScriptedSocket.reply = (socket, frame) => {
+      if (frame.command === "CONNECT") { connecting.abort(stopped); socket.serve(CONNECTED); } else if (frame.command === "SEND") socket.serve(update(frame.headers.id, { data: [] }));
+    };
+    await ended(connecting.signal);
+    expect(frames()).toEqual([["CONNECT", "DISCONNECT"]]);
+    expect(ScriptedSocket.sockets.map(socket => socket.readyState)).toEqual([3]);
+
+    // Stopped as the first host answers with a redirect: the redirect is not followed, so the model's own host hears nothing.
+    ScriptedSocket.sockets = [];
+    const redirected = new AbortController();
+    ScriptedSocket.reply = (socket, frame) => {
+      if (frame.command === "CONNECT") socket.serve(CONNECTED);
+      else if (frame.command === "SEND" && frame.headers.destination === at("")) {
+        redirected.abort(stopped);
+        socket.serve(`ERROR\n\n${JSON.stringify({ error: "REDIRECTION_REQUIRED", fqdn: MODEL_HOST })}\0`);
+      }
+    };
+    await ended(redirected.signal);
+    expect(ScriptedSocket.sockets.map(socket => socket.host)).toEqual([FIRST]);
+
+    // Stopped while the socket to the model's own host connects, after the redirect: that one subscribes to nothing either.
+    ScriptedSocket.sockets = [];
+    const reconnecting = new AbortController();
+    ScriptedSocket.reply = (socket, frame) => {
+      if (frame.command === "CONNECT") { if (socket.host === MODEL_HOST) reconnecting.abort(stopped); socket.serve(CONNECTED); }
+      else if (frame.command === "SEND" && frame.headers.destination === at("")) socket.serve(`ERROR\n\n${JSON.stringify({ error: "REDIRECTION_REQUIRED", fqdn: MODEL_HOST })}\0`);
+    };
+    await ended(reconnecting.signal);
+    expect(frames()).toEqual([["CONNECT", "SUBSCRIBE status", "SEND status", "SUBSCRIBE /moduleViews", "SEND /moduleViews", "SUBSCRIBE /lists", "SEND /lists"],
+      ["CONNECT", "DISCONNECT"]]);
   });
 
   it("reads no further page, and no names, once the run is stopped", async () => {
