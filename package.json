@@ -1,6 +1,6 @@
 {
   "name": "cardigan",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "private": true,
   "description": "Cardigan: a Chrome extension that exports an Anaplan app's pages and a model's Model settings as CSV files",
   "author": "Lara Srinath",
