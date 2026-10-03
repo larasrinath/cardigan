@@ -23,7 +23,7 @@ const watch = setInterval(() => {
         run: (_model, progress, diagnostics) => exportModel(progress, diagnostics).then(asDownload),
       });
     } else if (window.top) {
-      serveCore(window, window.top, modelOnPage, (progress, diagnostics) => exportModel(progress, diagnostics).then(asDownload));
+      serveCore(window, window.top, modelOnPage, exportModel);
     }
   } else if (Date.now() - started > 10 * 60_000) {
     clearInterval(watch);
