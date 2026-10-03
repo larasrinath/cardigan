@@ -20,6 +20,12 @@ describe("Anaplan regions, Australia's app2 host included", () => {
     ]);
   });
 
+  it("asks for no permissions and no host permissions, required or optional", () => {
+    // That is permissions, host_permissions, optional_permissions and optional_host_permissions. The toolbar icon's click,
+    // the tab it opens and the port to a tab's content script need none of them.
+    expect(Object.keys(manifest).filter(key => key.endsWith("permissions"))).toEqual([]);
+  });
+
   it("takes Australia's host as an Anaplan host, and its origin as an Anaplan origin in the model export bridge", () => {
     expect(ANAPLAN_HOSTS).toContain(AUSTRALIA);
     expect(ANAPLAN_HOST.test(AUSTRALIA)).toBe(true);
