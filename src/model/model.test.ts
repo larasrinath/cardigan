@@ -5,6 +5,7 @@ import { actionKind, mergeImports, missingActionColumns } from "./actions.js";
 import { CALENDAR_HEADERS, CALENDAR_PROPERTIES, calendarKind, calendarRows } from "./calendar.js";
 import { exportModel } from "./export.js";
 import { cellText, gridTable, labelEntries, plainText, windowRows, type CellSource, type Grid } from "./grid.js";
+import { lineItemsTable } from "./lineitems.js";
 import { assertRead, modelOnPage, readGrid, type Native } from "./native.js";
 
 // Synthetic IDs and names only. Entity type = ID / 1e9 (102 module, 118 process, 4 property), as the classic client encodes it.
@@ -114,6 +115,50 @@ describe("Model export: Model settings grids to tables", () => {
     expect([months.find(row => row[1] === "Fiscal Year Starts")?.[2], months.find(row => row[1] === "End of Fiscal Year - day")?.[2]]).toEqual(["Apr", ""]);
     expect(rows[5]).toEqual(["Model Calendar", "Calendar Type", "Weeks: 4-4-5, 4-5-4 or 5-4-4",
       "Calendar Months/Quarters/Years | Weeks: 4-4-5, 4-5-4 or 5-4-4 | Weeks: 13 4-week Periods | Weeks: General", "All", "Decides which of the rows below apply; leave the others blank."]);
+  });
+
+  it("writes days and months by name when the grid gives Anaplan's stored IDs, and the current fiscal year with its dates", () => {
+    const rows = (entries: [string, string][]) => calendarRows({ workspace: "", model: "", capturedOn: "",
+      values: new Map(entries.map(([setting, value]) => [CALENDAR_PROPERTIES[setting], value] as [number, string])) });
+    const value = (table: string[][], setting: string) => table.find(row => row[1] === setting)?.[2];
+    // A 4-4-5 calendar ending on the last Saturday of December, as the settings grid returns it: stored IDs, not labels.
+    const weeks = (current: string, extra: [string, string][] = []) => rows([["Calendar Type", "Weeks: 4-4-5, 4-5-4 or 5-4-4"],
+      ["End of Fiscal Year is", "Last in Month"], ["End of Fiscal Year - day", "7"], ["End of Fiscal Year - month", "12"], ["Fiscal Year Label", "FY"],
+      ["Timescale", "false"], ["Fiscal Year Label is aligned with", "false"], ["Current Fiscal Year", current], ...extra]);
+    expect([value(weeks("FY24"), "End of Fiscal Year - day"), value(weeks("FY24"), "End of Fiscal Year - month")]).toEqual(["Sat", "Dec"]);
+    // The template's own example, worked out from the stored "FY24" the way the Model Calendar tab works it out.
+    expect(value(weeks("FY24"), "Current Fiscal Year")).toBe("FY24: 31 Dec 2023 - 28 Dec 2024");
+    expect(value(weeks("FY20"), "Current Fiscal Year")).toBe("FY20: 29 Dec 2019 - 26 Dec 2020");
+    // The Saturday nearest the end of December: 1 Jan 2022 is nearer than 25 Dec 2021, so FY22 starts on 2 Jan.
+    expect(value(weeks("FY22", [["End of Fiscal Year is", "Nearest End of Month"]]), "Current Fiscal Year")).toBe("FY22: 2 Jan 2022 - 31 Dec 2022");
+    // Day 1 is Sunday: the last Sunday of December 2023 is the 31st, so FY24 starts on 1 Jan 2024.
+    const sunday = weeks("FY24", [["End of Fiscal Year - day", "1"]]);
+    expect([value(sunday, "End of Fiscal Year - day"), value(sunday, "Current Fiscal Year")]).toEqual(["Sun", "FY24: 1 Jan 2024 - 29 Dec 2024"]);
+    // Month calendars: the year runs from the first of the start month; the label follows its end, or its start.
+    const months = (entries: [string, string][]) => rows([["Calendar Type", "Calendar Months/Quarters/Years"], ["Fiscal Year Label", "FY"], ...entries]);
+    const january = months([["Fiscal Year Starts", "1"], ["Timescale", "false"], ["Fiscal Year Label is aligned with", "false"], ["Current Fiscal Year", "FY23"]]);
+    expect([value(january, "Fiscal Year Starts"), value(january, "Current Fiscal Year")]).toEqual(["Jan", "FY23: 1 Jan 2023 - 31 Dec 2023"]);
+    const april = months([["Fiscal Year Starts", "4"], ["Timescale", "true"], ["Fiscal Year Label is aligned with", "true"], ["Current Fiscal Year", "FY24"]]);
+    expect(value(april, "Current Fiscal Year")).toBe("FY2024: 1 Apr 2024 - 31 Mar 2025");
+    // Without the settings the dates depend on, the stored value stays as it is; an ID out of range is written as given.
+    expect(value(months([["Current Fiscal Year", "FY23"]]), "Current Fiscal Year")).toBe("FY23");
+    expect(value(weeks("FY24", [["End of Fiscal Year - day", "9"]]), "End of Fiscal Year - day")).toBe("9");
+  });
+
+  it("names the line items a Ratio summary divides, from the grid's own row IDs", () => {
+    const ratio = JSON.stringify({ summaryMethod: "RATIO", timeSummaryMethod: "SUM", ratioNumeratorIdentifier: "_1901000000002_",
+      ratioDenominatorIdentifier: "_1901000000003_" });
+    const grid: Grid = { columns: [{ ids: [4000000010], labels: ["Summary"] }, { ids: [4000000011], labels: ["Module Name"] }], rows: [
+      { ids: [102000000001], labels: ["Margin"], cells: ["", ""] },
+      { ids: [1901000000001], labels: ["Margin %"], cells: [ratio, "Margin"] },
+      { ids: [1901000000002], labels: ["Profit"], cells: ['{"summaryMethod":"SUM","ratioNumeratorIdentifier":""}', "Margin"] },
+      { ids: [1901000000003], labels: ["Revenue"], cells: ["not json", "Margin"] }] };
+    const table = lineItemsTable(grid);
+    expect(table.headers).toEqual(["", "Summary", "Module Name", "Ratio Numerator", "Ratio Denominator"]);
+    expect(table.rows.map(row => row.slice(-2))).toEqual([["", ""], ["Profit", "Revenue"], ["", ""], ["", ""]]);
+    // Anaplan's own columns are untouched; an ID the grid does not hold stays blank rather than guessed.
+    expect(table.rows[1].slice(0, 3)).toEqual(["Margin %", ratio, "Margin"]);
+    expect(lineItemsTable({ ...grid, rows: grid.rows.slice(1, 2) }).rows[0].slice(-2)).toEqual(["", ""]);
   });
 
   it("reads a large grid in row pages through the page's client, sending reads only", async () => {
