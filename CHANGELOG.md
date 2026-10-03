@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.7.0 (3 October 2026)
+
+The results now open on a page of their own, and nothing is added to Anaplan's pages.
+
+- **Toolbar icon instead of buttons.** The floating **Analyse app** and **Export model** buttons and their panel are gone. Open an Anaplan app, or a model in Model Building, then click the Cardigan icon in Chrome's toolbar. A results page opens in a new tab, right after the Anaplan tab, and runs the analysis by itself. Nothing is read from Anaplan until then.
+- **Results page.** It shows each step while the analysis runs, then an overview, one table per file, and the details of the export with the diagnostic log. A table can be searched and sorted, shown 25, 50 or 100 rows at a time, and its columns chosen. In an app's tables, some columns can also be filtered, a page's name shows that page's cards, and a card opens with its grid sections, filters, formatting and buttons. A model export uses the same page. **Download all (.zip)** saves the zip, and **Download this table (.csv)** saves the one file on screen. **Model map** is listed as coming in a later version.
+- **Stopping and running again.** Closing the results page stops the analysis in the Anaplan tab. **Run again**, or reloading the results page, analyses the tab again.
+- **After updating.** Reload the extension in `chrome://extensions`, then refresh the Anaplan tab. Otherwise the results page says "Cardigan cannot reach that tab."
+- **What stays the same.** What is read, and the zip: its name, its CSV files, their columns and, for the same input, their bytes. Tests compare them with two zips written by 0.6.1. The extension still asks for no permissions: the manifest only gains the toolbar icon and a background service worker. The classic model page opened on its own is still exported.
+- **The first line of the diagnostic log.** It names the build, what is read and the host. Apart from the version number in **Exported with**, it is the one line of the files that changes:
+  - An app: it was `page-analyzer v0.6.1: <app id> on <host>` and is now `Cardigan 0.7.0: app <app id> on <host>`. It is the first **Diagnostics** row of `App Details.csv`.
+  - A model in Model Building: the results page shows `Cardigan 0.7.0: model <model id> on <host>` while the export runs, where the panel's log began `model-export-shell v0.6.1: <model id> on <host>`. `Model Details.csv` does not change: it holds the log of the model's own frame, which never had this line.
+  - The classic model page opened on its own: 0.6.1 began the Diagnostics rows of `Model Details.csv` with `model-export v0.6.1: <model id> on <host>`. 0.7.0 does not write that row.
+- **Build and packaging.** `npm run build` writes four bundles: `dist/background.js` and `dist/results.js` are new. The release zip holds eleven files: `manifest.json`, the four bundles, the four icons, `results.html` and `results.css`.
+
 ## 0.6.1 (3 October 2026)
 
 - **Renamed to Cardigan.** Chrome now lists the extension as **Cardigan** instead of Anaplan Analyzer. The bundles' banner and the **Exported with** row of `App Details.csv` and `Model Details.csv` say Cardigan too. Nothing else changes: the same reads, files and columns.
