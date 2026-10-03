@@ -132,9 +132,17 @@ describe("Model export: Model settings grids to tables", () => {
     expect(value(weeks("FY20"), "Current Fiscal Year")).toBe("FY20: 29 Dec 2019 - 26 Dec 2020");
     // The Saturday nearest the end of December: 1 Jan 2022 is nearer than 25 Dec 2021, so FY22 starts on 2 Jan.
     expect(value(weeks("FY22", [["End of Fiscal Year is", "Nearest End of Month"]]), "Current Fiscal Year")).toBe("FY22: 2 Jan 2022 - 31 Dec 2022");
+    // The nearest Saturday can also fall in the next month: FY21 ends on 1 Jan 2022, not on 25 Dec 2021.
+    expect(value(weeks("FY21", [["End of Fiscal Year is", "Nearest End of Month"]]), "Current Fiscal Year")).toBe("FY21: 3 Jan 2021 - 1 Jan 2022");
     // Day 1 is Sunday: the last Sunday of December 2023 is the 31st, so FY24 starts on 1 Jan 2024.
     const sunday = weeks("FY24", [["End of Fiscal Year - day", "1"]]);
     expect([value(sunday, "End of Fiscal Year - day"), value(sunday, "Current Fiscal Year")]).toEqual(["Sun", "FY24: 1 Jan 2024 - 29 Dec 2024"]);
+    // Days 2 to 6 are Monday to Friday: the year ends on the last such day of December.
+    expect([2, 3, 4, 5, 6].map(day => value(weeks("FY24", [["End of Fiscal Year - day", String(day)]]), "Current Fiscal Year"))).toEqual([
+      "FY24: 26 Dec 2023 - 30 Dec 2024", "FY24: 27 Dec 2023 - 31 Dec 2024", "FY24: 28 Dec 2023 - 25 Dec 2024", "FY24: 29 Dec 2023 - 26 Dec 2024",
+      "FY24: 30 Dec 2023 - 27 Dec 2024"]);
+    // The dates take the model's own year label; the stored ID still starts with FY.
+    expect(value(weeks("FY24", [["Fiscal Year Label", "CY"]]), "Current Fiscal Year")).toBe("CY24: 31 Dec 2023 - 28 Dec 2024");
     // Aligned with the start week, a year takes the label of the day a week after it starts: the year starting on 31 Dec 2023
     // is still FY24, not the one starting on 29 Dec 2024. Ending on the last Tuesday of June, the alignment moves the label.
     // Dates here worked out independently with Python's datetime and with the archived FiscalYearForWeeksHelper.
@@ -155,8 +163,15 @@ describe("Model export: Model settings grids to tables", () => {
     expect([value(january, "Fiscal Year Starts"), value(january, "Current Fiscal Year")]).toEqual(["Jan", "FY23: 1 Jan 2023 - 31 Dec 2023"]);
     const april = months([["Fiscal Year Starts", "4"], ["Timescale", "true"], ["Fiscal Year Label is aligned with", "true"], ["Current Fiscal Year", "FY24"]]);
     expect(value(april, "Current Fiscal Year")).toBe("FY2024: 1 Apr 2024 - 31 Mar 2025");
+    // Aligned with the end, a year starting in March takes the label of the year it ends in (here through a leap day).
+    const march = months([["Fiscal Year Starts", "3"], ["Timescale", "false"], ["Fiscal Year Label is aligned with", "false"], ["Current Fiscal Year", "FY24"]]);
+    expect(value(march, "Current Fiscal Year")).toBe("FY24: 1 Mar 2023 - 29 Feb 2024");
+    // Without the alignment and Timescale settings the tab's own defaults apply: aligned with the end, 2-digit years.
+    expect(value(months([["Fiscal Year Starts", "4"], ["Current Fiscal Year", "FY24"]]), "Current Fiscal Year")).toBe("FY24: 1 Apr 2023 - 31 Mar 2024");
     // Without the settings the dates depend on, the stored value stays as it is; an ID out of range is written as given.
     expect(value(months([["Current Fiscal Year", "FY23"]]), "Current Fiscal Year")).toBe("FY23");
+    expect(value(rows([["Calendar Type", "Weeks: 4-4-5, 4-5-4 or 5-4-4"], ["End of Fiscal Year is", "Last in Month"], ["End of Fiscal Year - day", "7"],
+      ["End of Fiscal Year - month", "12"], ["Current Fiscal Year", "FY24"]]), "Current Fiscal Year")).toBe("FY24"); // no Fiscal Year Label
     expect(value(weeks("FY24", [["End of Fiscal Year - day", "9"]]), "End of Fiscal Year - day")).toBe("9");
     const thirteen = weeks("FY24", [["End of Fiscal Year - month", "13"]]);
     expect([value(thirteen, "End of Fiscal Year - month"), value(thirteen, "Current Fiscal Year")]).toEqual(["13", "FY24"]);
