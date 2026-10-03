@@ -458,6 +458,10 @@ export async function analyseApp(appGuid: string, progress: Progress, diagnostic
   const report = buildReport(inputs);
   const encoder = new TextEncoder();
   const analysed = inputs.filter(input => input.details).length;
+  // An unpublished page has no published version to read, so it is counted apart: "93 of 93", not "93 of 96".
+  const unpublished = inputs.filter(input => input.state === "Not published").length;
+  const published = inputs.length - unpublished;
+  const skipped = unpublished ? `; ${unpublished} unpublished, not analysed` : "";
   const cards = report.Cards.rows.length;
   const tabs = Object.keys(HEADERS) as TabName[];
   const pageTypes = new Map<string, number>();
@@ -473,7 +477,7 @@ export async function analyseApp(appGuid: string, progress: Progress, diagnostic
     ["App", "App ID", appGuid],
     ["App", "Categories", categoryNames.join("; ") || NONE],
     ["App", "Pages", `${entries.length} (${[...pageTypes].map(([label, count]) => `${count} ${label}${count === 1 ? "" : "s"}`).join(", ")})`],
-    ["App", "Pages analysed", `${analysed} of ${inputs.length} (published versions)`],
+    ["App", "Pages analysed", `${analysed} of ${published} (published versions)${skipped}`],
     ["App", "Cards", cards],
     ["App", "Models", modelsUsed.join("; ") || NONE],
     ...exportRows(location.host),
@@ -490,6 +494,6 @@ export async function analyseApp(appGuid: string, progress: Progress, diagnostic
   const date = new Date().toISOString().slice(0, 10);
   return {
     zip: zipStore(files), fileName: `${fileSafe(appName, "app")} - App Export - ${date}.zip`,
-    summary: [`${analysed} of ${inputs.length} pages analysed, ${cards} cards.`, ...summary],
+    summary: [`${analysed} of ${published} pages analysed${skipped}, ${cards} cards.`, ...summary],
   };
 }

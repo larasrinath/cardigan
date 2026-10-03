@@ -507,6 +507,15 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     }
   });
 
+  it("counts pages with no published version apart, so an app read in full says it was", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(Date.UTC(2026, 8, 28, 1, 59, 9)));
+    const pages = [{ guid: "11111111-2222-3333-4444-555555555555", name: "Draft", pageType: "BOARD", hasPublishedVersion: false }];
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ name: "Plan", pages }), { status: 200 })));
+    const result = await analyseApp("01234567-89ab-cdef-0123-456789abcdef", { status: () => undefined, log: () => undefined }, () => "");
+    expect(result.summary).toEqual(["0 of 0 pages analysed; 1 unpublished, not analysed, 0 cards."]);
+  });
+
   it("names the zip after the app, without characters a file name cannot hold", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date(Date.UTC(2026, 8, 28, 1, 59, 9)));

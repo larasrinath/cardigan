@@ -5,6 +5,7 @@ import { toCsv, zipStore } from "../zip.js";
 import { actionKind, mergeImports, missingActionColumns, type ActionKind } from "./actions.js";
 import { CALENDAR_HEADERS, calendarRows } from "./calendar.js";
 import { gridTable, type Grid, type GridRow, type Table } from "./grid.js";
+import { lineItemsTable } from "./lineitems.js";
 import { axis, loadNative, readGrid, typeIndex } from "./native.js";
 
 /** One CSV per Model settings grid, laid out as Anaplan's own export of that grid (compared with exports from Model
@@ -16,11 +17,11 @@ import { axis, loadNative, readGrid, typeIndex } from "./native.js";
 type Any = any;
 const HOW_TO_READ: readonly [detail: string, value: string][] = [
   ["Layout", "Each file is laid out as Anaplan's own export of the same Model settings grid: an unlabelled first column, then the grid's columns, with each cell's underlying value."],
-  ["Line Items", "Each module's row sits above its line items."],
+  ["Line Items", "Each module's row sits above its line items. Ratio Numerator and Ratio Denominator, after Anaplan's own columns, name the line items a Ratio summary divides: the Summary JSON gives only their IDs."],
   ["Processes, Exports and Other Actions", "The Actions list split at its headings, in its own columns: definition, last run (start time and duration), notes, the processes that use each action and the dashboards it appears on."],
   ["Imports", "The Imports tab (source and target), then each import's columns from the Actions list (last run, duration, notes, Used in Processes, Used in Dashboards), matched on the import's ID. The Actions list's \"Import into …\" text is left out: Target Object and Target Type say the same."],
   ["Import Data Sources", "Each data source, with the imports that use it."],
-  ["Model Calendar", "Follows the assessment template. Settings that do not apply to this calendar type are blank; Model size (GB) and Captured by are left for you to fill in."],
+  ["Model Calendar", "Follows the assessment template. Months and days are their names, and Current Fiscal Year is shown with its dates, as the Model Calendar tab shows it. Settings that do not apply to this calendar type are blank; Model size (GB) and Captured by are left for you to fill in."],
 ];
 
 export async function exportModel(progress: Progress, diagnostics: () => string): Promise<TaskResult> {
@@ -64,7 +65,7 @@ export async function exportModel(progress: Progress, diagnostics: () => string)
   const grid = (file: string, rows: string, columns: string) => readGrid(native, rows, columns, file, log);
   const plain = (file: string, rows: () => string, columns: () => string) => step(file, async () => add(file, gridTable(await grid(file, rows(), columns()))));
 
-  await plain("Line Items", () => axis(native, "MODULE_WITH_LINE_ITEM"), () => axis(native, "LINE_ITEM_PROPERTY"));
+  await step("Line Items", async () => add("Line Items", lineItemsTable(await grid("Line Items", axis(native, "MODULE_WITH_LINE_ITEM"), axis(native, "LINE_ITEM_PROPERTY")))));
   await plain("Modules", () => axis(native, "MODULE_ALL"), () => native.axisHelper.getModuleSystemAxisIdentifier());
   await plain("General Lists", () => axis(native, "HIERARCHY"), () => native.axisHelper.getHierarchySystemAxisIdentifier());
   // The Actions list, split at its headings (Processes, Imports, Exports, Other Actions); no combined Actions file.
