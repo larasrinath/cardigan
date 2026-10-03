@@ -3,15 +3,18 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 
-// Bundles the extension's two content scripts, including the card reader (src/card-reader), into classic scripts that
-// Chrome loads unpacked. Unminified so the loaded code stays reviewable.
+// Bundles the extension's scripts (two content scripts, the service worker and the results page's script), including the
+// card reader (src/card-reader), into classic scripts that Chrome loads unpacked. Unminified so the loaded code stays
+// reviewable.
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // The panel shows the manifest version, so a reload can be confirmed on the page.
 const { version } = JSON.parse(readFileSync(path.join(root, 'manifest.json'), 'utf8'));
 
 // content.js: the app page analysis (isolated world). model-export.js: the model export, which runs in the classic model
-// building page's main world to read its Model settings grids through the page's own client.
-for (const [entry, outfile] of [['content.ts', 'content.js'], ['model-content.ts', 'model-export.js']]) {
+// building page's main world to read its Model settings grids through the page's own client. background.js: the service
+// worker behind the toolbar icon. results.js: the results page's script, which results.html loads as a classic script.
+const BUNDLES = [['content.ts', 'content.js'], ['model-content.ts', 'model-export.js'], ['background.ts', 'background.js'], ['results/main.ts', 'results.js']];
+for (const [entry, outfile] of BUNDLES) {
   await build({
     absWorkingDir: root,
     entryPoints: [path.join(root, 'src', entry)],
