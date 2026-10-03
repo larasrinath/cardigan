@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cardigan</title>
+<!--
+  Cardigan results page: the extension page the toolbar icon opens next to an Anaplan tab.
+  The markup and results.css are the design's (design/results-page.html); the script is src/results, built into
+  dist/results.js. Nothing here is loaded from outside the extension, and no script or handler is written inline.
+-->
+<link rel="icon" href="icons/32.png">
+<link rel="stylesheet" href="results.css">
+</head>
+<body>
+<a class="skip" href="#view">Skip to results</a>
+
+<header class="hd">
+  <button id="navToggle" class="icon-btn nav-toggle" aria-label="Open table navigation" aria-expanded="false">
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2 4h12M2 8h12M2 12h12"/></svg>
+  </button>
+  <div class="brand">
+    <svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true">
+      <rect x="1" y="1" width="24" height="24" rx="6" fill="var(--ink)"/>
+      <path d="M7.5 6.5v13M13 6.5l-3 3.2 3 3.3-3 3.3M18.5 6.5v13" stroke="var(--ink-text)" stroke-width="1.7" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <span class="brand-name">Cardigan<span class="ver" id="version"></span></span>
+  </div>
+  <div class="meta" id="hdMeta"></div>
+  <div class="hd-actions">
+    <button class="btn" id="runAgain" title="Analyse the Anaplan tab again">
+      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14.4 3.3v3.5h-3.5"/><path d="M12.95 9.75a5.25 5.25 0 1 1-1.24-5.46l2.7 2.54"/></svg>
+      Run again
+    </button>
+    <button id="themeToggle" class="icon-btn" aria-label="Switch colour theme" title="Switch colour theme"></button>
+    <button class="btn primary" id="dlAll">
+      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v8m0 0 3-3M8 10 5 7M2.5 13.5h11"/></svg>
+      Download all (.zip)
+    </button>
+    <button class="btn" id="dlCsv">
+      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v8m0 0 3-3M8 10 5 7M2.5 13.5h11"/></svg>
+      Download this table (.csv)
+    </button>
+  </div>
+</header>
+
+<div class="banners" id="banners"></div>
+
+<div class="shell">
+  <nav class="sidenav" id="sidenav" aria-label="Result tables">
+    <h2>Results</h2>
+    <div id="navList"></div>
+  </nav>
+  <main id="main">
+    <div class="crumbs" id="crumbs" aria-label="Breadcrumb"></div>
+    <div id="view" tabindex="-1"></div>
+  </main>
+</div>
+
+<div class="scrim" id="scrim" hidden></div>
+<aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="drawerTitle" hidden>
+  <div class="drawer-hd">
+    <div style="flex:1;min-width:0">
+      <h2 id="drawerTitle"></h2>
+      <div class="d-sub" id="drawerSub"></div>
+    </div>
+    <button class="icon-btn" id="drawerClose" aria-label="Close details panel">
+      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 3l10 10M13 3 3 13"/></svg>
+    </button>
+  </div>
+  <div class="drawer-bd" id="drawerBody"></div>
+</aside>
+
+<div class="popover" id="popover" role="dialog" hidden></div>
+<div class="toast" id="toast" role="status"></div>
+<p class="sr-only" aria-live="polite" id="live"></p>
+
+<script src="dist/results.js"></script>
+</body>
+</html>
