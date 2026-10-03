@@ -1,7 +1,11 @@
+import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RESULTS_PAGE, TAB_PARAM } from "./protocol.js";
 
 const EXTENSION = "chrome-extension://abcdefghijklmnopabcdefghijklmnop";
+
+interface Manifest { icons: Record<string, string>; action: { default_title: string; default_icon: Record<string, string> }; background: { service_worker: string } }
+const manifest = JSON.parse(readFileSync(new URL("../manifest.json", import.meta.url), "utf8")) as Manifest;
 
 /** Just enough of `chrome` for the worker: it keeps the click listeners registered with it and the tabs it is asked for. */
 class FakeChrome {
@@ -23,6 +27,16 @@ describe("Toolbar icon's service worker", () => {
     vi.stubGlobal("chrome", browser);
   });
   afterEach(() => { vi.unstubAllGlobals(); });
+
+  it("is named in the manifest, behind a toolbar icon that has a title, the extension's icons and no popup", () => {
+    // A popup would take the click: Chrome tells the worker only about a click on an icon that has none.
+    expect(manifest.action).toEqual({
+      default_title: "Cardigan: analyse this Anaplan app or model",
+      default_icon: { 16: "icons/16.png", 32: "icons/32.png", 48: "icons/48.png", 128: "icons/128.png" },
+    });
+    expect(manifest.action.default_icon).toEqual(manifest.icons);
+    expect(manifest.background).toEqual({ service_worker: "dist/background.js" });
+  });
 
   it("opens the results page right after the clicked tab, with the tab's ID in the address and the tab as its opener", async () => {
     const { openResults } = await import("./background.js");

@@ -1,7 +1,8 @@
 // Packages the built extension as release/cardigan-<version>.zip and prints its SHA-256.
-// The zip holds only the files Chrome loads: manifest.json, the bundles it names under dist/ and the icons it names under
-// icons/. Entries are sorted, carry fixed timestamps and attributes and are stored uncompressed, so the same files give the
-// same bytes on every run, machine and Node version. Offline: it never uploads or publishes anything.
+// The zip holds only the files Chrome loads: manifest.json, the bundles it names under dist/, the icons it names under
+// icons/, and the results page with its stylesheet and its bundle. Entries are sorted, carry fixed timestamps and attributes
+// and are stored uncompressed, so the same files give the same bytes on every run, machine and Node version. Offline: it
+// never uploads or publishes anything.
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -10,12 +11,19 @@ import zlib from 'node:zlib';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-/** Manifest keys the packager understands. A key that could name another file (background, action, web_accessible_resources…)
- * fails packaging until the packager learns it, so a runtime file can never be left out silently. */
-const KNOWN_KEYS = new Set(['manifest_version', 'name', 'version', 'minimum_chrome_version', 'description', 'icons', 'content_scripts']);
+/** Manifest keys the packager understands. A key that could name another file (web_accessible_resources, options_page,
+ * side_panel…) fails packaging until the packager learns it, so a runtime file can never be left out silently. A permission
+ * key fails it too: Cardigan asks for none. */
+const KNOWN_KEYS = new Set(['manifest_version', 'name', 'version', 'minimum_chrome_version', 'description', 'icons', 'action', 'background', 'content_scripts']);
 const KNOWN_SCRIPT_KEYS = new Set(['matches', 'js', 'run_at', 'world', 'all_frames']);
-/** The only places a packaged file may come from: built bundles and icons. Never src, tests, docs or node_modules. */
+/** The toolbar icon has a title and icons. A default_popup would name a page, and would take the click from the service worker. */
+const KNOWN_ACTION_KEYS = new Set(['default_title', 'default_icon']);
+const KNOWN_BACKGROUND_KEYS = new Set(['service_worker']);
+/** The only places a file the manifest names may come from: built bundles and icons. Never src, tests, docs or node_modules. */
 const RUNTIME_PATH = /^(?:dist\/[A-Za-z0-9][A-Za-z0-9._-]*\.js|icons\/[A-Za-z0-9][A-Za-z0-9._-]*\.png)$/;
+/** The results page, its stylesheet and its bundle. The manifest names none of them: the service worker opens the page by
+ * name (RESULTS_PAGE in src/protocol.ts), and the page loads the other two. */
+const PAGE_FILES = ['results.html', 'results.css', 'dist/results.js'];
 /** Inputs of the bundles: if any is newer than a bundle, the bundle is stale. Tests are not bundled. */
 const BUILD_INPUTS = ['manifest.json', 'package-lock.json', 'scripts/build.mjs'];
 const NOT_BUNDLED = /\.test(?:-support)?\.ts$/;
@@ -32,20 +40,30 @@ const EXTERNAL_ATTRS = (0o100644 << 16) >>> 0;
 const byName = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 const readJson = (dir, name) => JSON.parse(readFileSync(path.join(dir, name), 'utf8'));
 
-/** The files the manifest makes Chrome load, plus the manifest itself, as sorted posix paths. */
+/** The files Chrome loads, as sorted posix paths: the manifest itself, the files it names and the results page's files. */
 export function runtimeFiles(manifest) {
   const problems = [];
-  for (const key of Object.keys(manifest)) if (!KNOWN_KEYS.has(key)) problems.push(`manifest.json: "${key}" is not known to the packager`);
+  const checkKeys = (section, known, where) => {
+    for (const key of Object.keys(section)) if (!known.has(key)) problems.push(`manifest.json: ${where}"${key}" is not known to the packager`);
+  };
   const scripts = Array.isArray(manifest.content_scripts) ? manifest.content_scripts : [];
-  for (const script of scripts) {
-    for (const key of Object.keys(script)) if (!KNOWN_SCRIPT_KEYS.has(key)) problems.push(`manifest.json: content_scripts "${key}" is not known to the packager`);
-  }
-  const named = [...scripts.flatMap(script => script.js ?? []), ...Object.values(manifest.icons ?? {})];
+  const [action, background] = [manifest.action ?? {}, manifest.background ?? {}];
+  checkKeys(manifest, KNOWN_KEYS, '');
+  for (const script of scripts) checkKeys(script, KNOWN_SCRIPT_KEYS, 'content_scripts ');
+  checkKeys(action, KNOWN_ACTION_KEYS, 'action ');
+  checkKeys(background, KNOWN_BACKGROUND_KEYS, 'background ');
+  const named = [
+    ...scripts.flatMap(script => script.js ?? []),
+    ...Object.values(manifest.icons ?? {}),
+    // The toolbar icon: one file, or one per size.
+    ...(typeof action.default_icon === 'string' ? [action.default_icon] : Object.values(action.default_icon ?? {})),
+    ...(background.service_worker === undefined ? [] : [background.service_worker]),
+  ];
   for (const file of named) {
     if (typeof file !== 'string' || !RUNTIME_PATH.test(file)) problems.push(`manifest.json: ${JSON.stringify(file)} is not a dist/*.js bundle or an icons/*.png icon`);
   }
   if (problems.length) throw new Error(`Cannot package:\n${problems.join('\n')}`);
-  return [...new Set(['manifest.json', ...named])].sort(byName);
+  return [...new Set(['manifest.json', ...named, ...PAGE_FILES])].sort(byName);
 }
 
 function sourceFiles(dir) {
