@@ -49,8 +49,40 @@ const scope = { customerId: "customer-1", workspaceId: WS, modelId: MODEL, model
 
 function run(over = pages, on = scope) {
   const log: string[] = [];
-  return { log, result: loadCatalog(on, over, new Map([["page-guid", "Inventory policy"]]), { status: () => undefined, log: line => { log.push(line); } }) };
+  const statuses: string[] = [];
+  return { log, statuses, result: loadCatalog(on, over, new Map([["page-guid", "Inventory policy"]]),
+    { status: line => { statuses.push(line); }, log: line => { log.push(line); } }) };
 }
+
+// The read phases after names and line items: module dimensions, item names, saved view layouts and filter line items.
+const [LIST, LIST_2, VIEW, VIEW_2, MODULE_3] = ["101000000901", "101000000902", "130000000901", "130000000902", "102000000903"];
+const [NORTH, SOUTH, LINE_ITEM, FILTER_ITEM] = ["201000000001", "201000000002", "1901000000001", "1903000000001"];
+const candidate = (n: number) => String(102000001000 + n);
+const at = (path: string) => `core://${WS}:${MODEL}${path}`;
+const MODULE_VIEWS = `core:/${WS}:${MODEL}/moduleViews`;
+const CONNECTED = "CONNECTED\nversion:1.2\nserver:test\n\n\0";
+const rejected = (id: string, error: string) => `MESSAGE\nsubscription:${id}\nmessage-type:error\n\n${JSON.stringify({ error })}\0`;
+const metadata = (id: string, body: unknown) => `MESSAGE\nsubscription:${id}\nmessage-type:metadata\n\n${JSON.stringify(body)}\0`;
+const SERVICE_DOWN = `ERROR\n\n${JSON.stringify({ error: "SERVICE_DOWN" })}\0`;
+const UNAVAILABLE = "Synthetic model: names from the model data service were not available (SERVICE_DOWN); IDs are shown instead.";
+/** A described grid card: Product rows with two hidden items, filtered on a line item that no card shows, and Time columns. */
+const gridCard = { id: "card-1", type: "TABLE", grid: { regions: [{ region: "SINGLE", module: { kind: "module", id: MODULE },
+  rows: { dimensions: [{ dimension: { kind: "dimension", id: LIST }, hides: [{ kind: "listItem", id: NORTH }, { kind: "listItem", id: SOUTH }] }],
+    filter: { operator: "AND", match: "all", conditions: [{ operator: "EQUALS", values: ["true"], selectedItems: [{ kind: "unknown", id: FILTER_ITEM }] }], groups: [] } },
+  columns: { dimensions: [{ dimension: { kind: "dimension", id: "20000000003" } }] } }] } };
+const withGrid = (...references: unknown[]) => [{ cards: [gridCard], references: [{ kind: "module", id: MODULE }, ...references] }] as unknown as UxPageCardDetails[];
+
+/** One host's model data service: each SEND is answered by its destination, or with no data. */
+function serveModel(answers: Record<string, (id: string) => string> = {}) {
+  ScriptedSocket.reply = (socket, frame) => {
+    if (frame.command === "CONNECT") { socket.serve(CONNECTED); return; }
+    if (frame.command !== "SEND") return;
+    const { destination, id } = frame.headers;
+    socket.serve(answers[destination]?.(id) ?? update(id, { data: [] }));
+  };
+}
+const sent = (command: string) => ScriptedSocket.sockets.flatMap(socket => socket.frames).filter(frame => frame.command === command);
+const destinations = () => sent("SEND").map(frame => frame.headers.destination);
 
 describe("Page analyzer name loading against the live socket behaviour", () => {
   beforeEach(() => {
@@ -272,6 +304,113 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     expect(log.filter(line => line.includes(" answered "))).toEqual([`Synthetic model: imports from ${FIRST} answered HTTP_ERROR (HTTP 500)`]);
     expect(notes).toEqual(["Synthetic model: could not read the model's imports (HTTP_ERROR (HTTP 500)); their buttons show the card label."]);
     expect(failedActionTypes).toEqual(["IMPORT"]);
+  });
+
+  it("reads module dimensions, item names, saved view layouts and filter line items, in that order, after the names", async () => {
+    serveModel({
+      [at("")]: id => update(id, { status: "UNKNOWN" }),
+      [MODULE_VIEWS]: id => update(id, { data: [{ id: Number(MODULE), name: "Demand", views: [] }], dimensions: {} }),
+      [at("/lists")]: id => update(id, { data: [{ id: LIST, name: "Product" }] }),
+      [at(`/modules/${MODULE}/lineItems`)]: id => update(id, { data: [{ lineItemId: LINE_ITEM, lineItemLabel: "Volume" }] }),
+      [at("/dimensions")]: id => update(id, { modules: { [MODULE]: { dimensions: [{ id: LIST, label: "Product" }, { id: LIST_2, label: "Territory" }] } } }),
+      [at(`/modules/${MODULE}/dimensions/${LIST}`)]: id => update(id, { data: [{ itemId: NORTH, label: "North" }] }),
+      [at(`/views/${VIEW}`)]: id => metadata(id, { rows: [{ dimensionId: LIST, label: "Product" }], cols: [],
+        contextFilters: [{ parent: LIST_2, label: "Territory", contextFilterType: "LIST" }] }),
+      [at(`/views/${VIEW_2}`)]: id => metadata(id, { columnWidths: [] }),
+      [at("/applicableModules")]: id => update(id, { data: [{ id: Number(MODULE), label: "Demand" }, { id: Number(candidate(1)), label: "Plan settings" },
+        { id: Number(candidate(2)), label: "Filter flags" }] }),
+      [at(`/modules/${candidate(2)}/lineItems`)]: id => update(id, { data: [{ lineItemId: FILTER_ITEM, lineItemLabel: "Include?" }] }),
+    });
+    const { log, statuses, result } = run(withGrid({ kind: "view", id: VIEW }, { kind: "view", id: VIEW_2 }));
+    const { catalog, notes, failedActionTypes } = await result;
+
+    expect([notes, failedActionTypes]).toEqual([["Synthetic model: 1 of 2 saved views' rows, columns and context selectors could not be read."], []]);
+    const viewBody = { transforms: [], expandCollapseTransforms: [], clientQueryOptions: { useCellIdTemplate: false, canHandleDedupedAuxData: false, canHandleNullColumnWidths: false } };
+    expect(sent("SEND").map(frame => [frame.headers.destination, JSON.parse(frame.body)])).toEqual([
+      [at(""), {}], [MODULE_VIEWS, {}], [at("/lists"), {}], [at(`/modules/${MODULE}/lineItems`), {}], [at("/dimensions"), { moduleIds: [MODULE] }],
+      [at(`/modules/${MODULE}/dimensions/${LIST}`), { itemIds: [NORTH, SOUTH], filter: "" }], [at(`/views/${VIEW}`), viewBody], [at(`/views/${VIEW_2}`), viewBody],
+      [at("/applicableModules"), { dimensions: [101000000901] }], [at(`/modules/${candidate(1)}/lineItems`), {}], [at(`/modules/${candidate(2)}/lineItems`), {}]]);
+    expect(sent("SUBSCRIBE").filter(frame => frame.headers.accept).map(frame => [frame.headers.destination, frame.headers.accept])).toEqual([
+      [at(""), "widget/model"], [at(`/modules/${MODULE}/dimensions/${LIST}`), "widget/selection"], [at(`/views/${VIEW}`), "widget/grid"], [at(`/views/${VIEW_2}`), "widget/grid"]]);
+    expect(statuses).toEqual(["Reading names in Synthetic model…", "Reading line items in Synthetic model…", "Reading module dimensions in Synthetic model…",
+      "Reading item names in Synthetic model…", "Reading saved view layouts in Synthetic model…", "Finding filter line items in Synthetic model…"]);
+    expect(log.filter(line => /^(dimensions of|module dimensions|items of|view |modules for|line items of)/.test(line))).toEqual(["dimensions of 1 of 1 modules",
+      `items of dimension ${LIST} in module ${MODULE}: 1 of 2 named`, `view ${VIEW}: metadata {rows, cols, contextFilters}`, `view ${VIEW_2}: metadata {columnWidths}`,
+      `view ${VIEW_2}: metadata without rows, columns or pages`]);
+    expect(log.at(-1)).toBe("Synthetic model: 3 modules, 0 saved views, 2 dimensions, 2 line items (3 modules read), 0 actions");
+
+    expect(catalog.moduleDimensions).toEqual(new Map([[MODULE, [{ id: LIST, name: "Product" }, { id: LIST_2, name: "Territory" }]]]));
+    expect(catalog.listItems).toEqual(new Map([[NORTH, "North"]]));
+    expect(catalog.viewLayouts).toEqual(new Map([[VIEW, { rows: [{ id: LIST, name: "Product" }], columns: [], pages: [{ id: LIST_2, name: "Territory" }] }]]));
+    expect(catalog.modules).toEqual(new Map([[MODULE, "Demand"], [candidate(1), "Plan settings"], [candidate(2), "Filter flags"]]));
+    expect(catalog.lineItems.get(FILTER_ITEM)).toEqual({ name: "Include?", moduleId: candidate(2) });
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it("logs a phase whose read the service refuses, adds a note where the report shows less, and goes on", async () => {
+    serveModel({
+      [at("/dimensions")]: id => rejected(id, "DIMENSIONS_UNAVAILABLE"),
+      [at(`/modules/${MODULE}/dimensions/${LIST}`)]: id => rejected(id, "ITEMS_UNAVAILABLE"),
+      [at(`/views/${VIEW}`)]: id => rejected(id, "VIEW_UNAVAILABLE"),
+      [at("/applicableModules")]: id => rejected(id, "MODULES_UNAVAILABLE"),
+    });
+    const { log, statuses, result } = run(withGrid({ kind: "view", id: VIEW }));
+    const { notes } = await result;
+
+    expect(notes).toEqual([
+      "Synthetic model: module dimensions were not available (DIMENSIONS_UNAVAILABLE); context selectors show only those saved on the page.",
+      "Synthetic model: 1 of 1 saved views' rows, columns and context selectors could not be read."]);
+    expect(log.filter(line => /^(dimensions of|module dimensions|items of|view |modules for)/.test(line))).toEqual(["module dimensions: DIMENSIONS_UNAVAILABLE",
+      `items of dimension ${LIST} in module ${MODULE}: ITEMS_UNAVAILABLE`, `view ${VIEW}: VIEW_UNAVAILABLE`, `modules for dimension ${LIST}: MODULES_UNAVAILABLE`]);
+    expect(destinations().slice(4)).toEqual([at("/dimensions"), at(`/modules/${MODULE}/dimensions/${LIST}`), at(`/views/${VIEW}`), at("/applicableModules")]);
+    expect(statuses.at(-1)).toBe("Finding filter line items in Synthetic model…");
+  });
+
+  it("ends the socket work at once when the connection fails while reading module dimensions or the filtered dimension's modules", async () => {
+    for (const failing of [at("/dimensions"), at("/applicableModules")]) {
+      ScriptedSocket.sockets = [];
+      serveModel({ [failing]: () => SERVICE_DOWN });
+      const { log, result } = run(withGrid());
+      const { notes, failedActionTypes } = await result;
+      expect([notes, failedActionTypes], failing).toEqual([[UNAVAILABLE], []]);
+      expect(destinations().at(-1), failing).toBe(failing);
+      expect(log.filter(line => line.startsWith("module dimensions") || line.startsWith("modules for")), failing).toEqual([]);
+    }
+  });
+
+  it("logs a connection failure while reading item names or a saved view, then ends the socket work", async () => {
+    for (const [failing, line] of [[at(`/modules/${MODULE}/dimensions/${LIST}`), `items of dimension ${LIST} in module ${MODULE}: SERVICE_DOWN`],
+      [at(`/views/${VIEW}`), `view ${VIEW}: SERVICE_DOWN`]]) {
+      ScriptedSocket.sockets = [];
+      serveModel({ [failing]: () => SERVICE_DOWN });
+      const { log, result } = run(withGrid({ kind: "view", id: VIEW }));
+      const { notes } = await result;
+      // No note that the saved view could not be read: the failed connection is reported instead.
+      expect(notes, failing).toEqual([UNAVAILABLE]);
+      expect(destinations().at(-1), failing).toBe(failing);
+      expect(log, failing).toContain(line);
+    }
+  });
+
+  it("looks for filter line items in the filtered dimension's modules not yet read, four at a time, until found or 60 were read", async () => {
+    for (const [count, found, read, notes] of [[6, 2, 4, []], [60, 0, 60, []],
+      [61, 0, 60, ["Synthetic model: some filter line items were not found in the first 60 candidate modules."]]] as const) {
+      ScriptedSocket.sockets = [];
+      const candidates = Array.from({ length: count }, (_, index) => candidate(index + 1));
+      serveModel({
+        // A module that was read already, or could not be read, is not a candidate.
+        [at(`/modules/${MODULE_3}/lineItems`)]: id => rejected(id, "LINE_ITEMS_UNAVAILABLE"),
+        [at("/applicableModules")]: id => update(id, { data: [MODULE, MODULE_3, ...candidates].map(module => ({ id: module, label: `Module ${module}` })) }),
+        ...(found ? { [at(`/modules/${candidate(found)}/lineItems`)]: (id: string) => update(id, { data: [{ lineItemId: FILTER_ITEM, lineItemLabel: "Include?" }] }) } : {}),
+      });
+      const { log, result } = run(withGrid({ kind: "module", id: MODULE_3 }));
+      const done = await result;
+      expect(done.notes, String(count)).toEqual(notes);
+      expect(destinations().filter(destination => destination.endsWith("/lineItems")), String(count))
+        .toEqual([MODULE, MODULE_3, ...candidates.slice(0, read)].map(module => at(`/modules/${module}/lineItems`)));
+      expect(log).toContain(`line items of module ${MODULE_3}: LINE_ITEMS_UNAVAILABLE`);
+      expect(done.catalog.lineItems.has(FILTER_ITEM)).toBe(!!found);
+    }
   });
 
   it("names the zip after the app, without characters a file name cannot hold", async () => {
