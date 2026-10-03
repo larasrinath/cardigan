@@ -11,6 +11,7 @@ import { VERSION } from "./version.js";
  * and finally the result in pieces (pieces.ts), or the error that stopped the run.
  * - One run at a time. A second results page of the same tab that asks while a run is going follows that run.
  * - A run's "done" or "error" is its last message: whatever the run still reports afterwards is sent to nobody.
+ * - A page that a piece of the result cannot be sent to is told that the run failed, in place of the rest and of "done".
  * - When the last page following a run goes away, the run is stopped: nothing more is read for a page nobody is looking at.
  * - Only this extension's results page is answered: its own ID as the sender, and the port's name. */
 
@@ -33,6 +34,8 @@ export const SIGNED_OUT = "You're signed out of Anaplan. Sign in and try again."
 export const NOTHING_TO_ANALYSE = "This tab is not showing an Anaplan app or a model. Open an app, or a model in Model Building, and run again.";
 export const BUSY = "This tab is still busy with an earlier run of something else. Run again when it has finished.";
 const STOPPING = "Stopping the previous run…";
+/** What a page is told when a piece of the result could not be sent to it; why follows. */
+const UNSENT = "The result could not be sent to the results page";
 /** The reason a run is stopped with. */
 const NOBODY_LISTENING = "Stopped: the results page was closed.";
 /** As many lines of the diagnostic log as a run keeps; the oldest go first. */
@@ -50,6 +53,17 @@ export function serveTab(runtime: Pick<typeof chrome.runtime, "id" | "onConnect"
 
   /** A port can close between two messages; its disconnect listener does the tidying. */
   const send = (port: Port, sent: TabMessage) => { try { port.postMessage(sent); } catch { /* closed */ } };
+
+  /** The result to one page, in pieces. If one of them cannot be sent, the page gets none of the rest and no "done": it is
+   * told that the run failed instead, and why, so that it never takes a result that lacks rows for the whole. (A port that
+   * has closed takes that message no more than the piece.) */
+  const deliver = (port: Port, result: AnalysisResult) => {
+    try {
+      for (const sent of resultMessages(result)) port.postMessage(sent);
+    } catch (error) {
+      send(port, { type: "error", message: `${UNSENT}: ${message(error)}` });
+    }
+  };
 
   const start = (ports: Set<Port>) => {
     const subject = tab.subject();
@@ -74,7 +88,7 @@ export function serveTab(runtime: Pick<typeof chrome.runtime, "id" | "onConnect"
       try {
         const result = await tab.run(subject, progress, () => current.lines.join("\r\n"), current.stop.signal);
         // A stopped run has no page left to tell, however it ends: a page that asks while it is ending waits for the next.
-        for (const sent of resultMessages(result)) tell(sent);
+        for (const port of current.ports) deliver(port, result);
       } catch (error) {
         log(`stopped: ${message(error)}`);
         tell(tab.signedOut(error) ? { type: "error", message: SIGNED_OUT, code: "SIGNED_OUT" } : { type: "error", message: message(error) });

@@ -245,6 +245,31 @@ describe("The Anaplan tab's end of the port to the results page", () => {
     expect(watching.types().slice(-4)).toEqual(["result", "rows", "rows", "done"]);
   });
 
+  it("tells a page the run failed when a piece of the result cannot be sent to it, instead of done for a result that lacks rows", async () => {
+    const { runs, open } = tab();
+    const [page, other] = [open(), open()];
+    page.say({ type: "run" });
+    other.say({ type: "run" });
+    // The page's port does not take the second table's rows, although it is open; the other page's port takes everything.
+    page.refuses = message => message.type === "rows" && message.table === 1;
+    runs[0].finish(result());
+    await settle();
+    const unsent = { type: "error", message: "The result could not be sent to the results page: Message length exceeded maximum allowed length." };
+    // No further piece and no done: what the page holds is not taken for a result.
+    expect(page.take().slice(2)).toEqual([...RESULT_MESSAGES.slice(0, 2), unsent]);
+    expect(other.take().slice(2)).toEqual(RESULT_MESSAGES);
+
+    // The same whichever piece it is: the result itself, a table's first rows, or done. The run is over each time.
+    for (const [refused, sent] of [["result", 0], ["rows", 1], ["done", 3]] as const) {
+      page.refuses = message => message.type === refused;
+      page.say({ type: "run" });
+      runs.at(-1)!.finish(result());
+      await settle();
+      expect(page.take().slice(1), refused).toEqual([...RESULT_MESSAGES.slice(0, sent), unsent]);
+    }
+    expect(runs).toHaveLength(4);
+  });
+
   it("starts the next run only once a stopped run has ended, for the page that asked meanwhile", async () => {
     const { runs, open } = tab();
     const first = open();
