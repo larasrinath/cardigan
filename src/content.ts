@@ -1,6 +1,6 @@
 import { analyseApp } from "./analyse.js";
 import { describeProbe, greetFrames, runInCore, watchCore, watchProbes, type CoreHandle, type FrameProbe } from "./bridge.js";
-import { MODEL_EXPORT_PANEL, mountOnce } from "./panel.js";
+import { asDownload, MODEL_EXPORT_PANEL, mountOnce } from "./panel.js";
 import { RestError } from "./rest.js";
 import { sleep } from "./util.js";
 
@@ -20,7 +20,7 @@ if (window.top === window) {
     description: "Exports every page in this app (cards, modules, line items, filters, conditional formatting and actions) as CSV files. It only reads.",
     startLabel: "Export pages",
     subject: () => APP_PATH.exec(location.pathname)?.[1],
-    run: (appGuid, progress, diagnostics) => analyseApp(appGuid, progress, diagnostics),
+    run: (appGuid, progress, diagnostics) => analyseApp(appGuid, progress, diagnostics).then(asDownload),
     describeError: error => (error instanceof RestError && error.code === "SIGNED_OUT" ? "You're signed out of Anaplan. Sign in and try again." : undefined),
   });
 

@@ -1,11 +1,16 @@
 import { stampLine } from "./details.js";
 import type { Progress } from "./progress.js";
+import type { AnalysisResult } from "./result-types.js";
+import { resultZip } from "./result-zip.js";
 import { VERSION } from "./version.js";
 
 /** The floating button and progress panel shared by the app page analysis and the model export. Nothing runs until the
  * user clicks the start button; the result is a local download. */
 
 export interface TaskResult { zip: Uint8Array<ArrayBuffer>; fileName: string; summary: string[] }
+
+/** What the panel downloads for a run's result: the zip of its files, under the name the download has always had. */
+export const asDownload = (result: AnalysisResult): TaskResult => ({ zip: resultZip(result), fileName: result.zipName, summary: result.summary });
 
 export interface PanelOptions {
   /** Distinguishes the two tools on one page and in the page's DOM. */

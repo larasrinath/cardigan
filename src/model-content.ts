@@ -1,7 +1,7 @@
 import { reportFrame, serveCore } from "./bridge.js";
 import { exportModel } from "./model/export.js";
 import { modelOnPage } from "./model/native.js";
-import { MODEL_EXPORT_PANEL, mountOnce } from "./panel.js";
+import { asDownload, MODEL_EXPORT_PANEL, mountOnce } from "./panel.js";
 
 /** The model export's reading side. It runs in the page's main world in every Anaplan frame, because the Model settings
  * grids are read through the page's own classic client, and stays inert anywhere without an open classic model.
@@ -20,10 +20,10 @@ const watch = setInterval(() => {
         id: "model-export",
         ...MODEL_EXPORT_PANEL,
         subject: () => modelOnPage(),
-        run: (_model, progress, diagnostics) => exportModel(progress, diagnostics),
+        run: (_model, progress, diagnostics) => exportModel(progress, diagnostics).then(asDownload),
       });
     } else if (window.top) {
-      serveCore(window, window.top, modelOnPage, exportModel);
+      serveCore(window, window.top, modelOnPage, (progress, diagnostics) => exportModel(progress, diagnostics).then(asDownload));
     }
   } else if (Date.now() - started > 10 * 60_000) {
     clearInterval(watch);
