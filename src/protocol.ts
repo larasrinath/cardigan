@@ -5,12 +5,19 @@ import type { AnalysisResult, Cell } from "./result-types.js";
  * - The page opens one long-lived port to that tab's content script: chrome.tabs.connect(tabId, { name: PORT_NAME }).
  * - The content script answers only its own extension (port.sender.id === chrome.runtime.id) and only this port name.
  * - Nothing is read from Anaplan until the page sends "run".
+ * - The page sends "run" by itself only when the icon has just opened it (OPENED_PARAM, FRESH_MS). A results page that is
+ *   reloaded, restored from history or reopened later asks nothing until the user clicks Run again: by then its tab ID
+ *   may belong to another tab.
  * Every message is plain JSON. */
 
 export const PORT_NAME = "cardigan-results";
 /** The results page: chrome.runtime.getURL(RESULTS_PAGE) + "?" + TAB_PARAM + "=" + the Anaplan tab's ID. */
 export const RESULTS_PAGE = "results.html";
 export const TAB_PARAM = "tab";
+/** Also in the address: when the icon was clicked, as Date.now(). The page starts the analysis by itself only when that is
+ * less than FRESH_MS ago, and then removes the parameter from its address, so a reload does not start another. */
+export const OPENED_PARAM = "opened";
+export const FRESH_MS = 60_000;
 
 /** What the Anaplan tab shows: an app, a model, or neither. */
 export type Subject = { kind: "app" | "model"; id: string } | { kind: "none" };
