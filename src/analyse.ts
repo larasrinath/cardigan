@@ -168,11 +168,13 @@ async function readActionNames(scope: ModelScope, refs: readonly UxEntityRef[], 
   return { notes, failedActionTypes };
 }
 
-/** What loadCatalog's socket reads share. `settle` ends every step that waits on the socket: a failed connection is rethrown. */
+/** What loadCatalog's socket reads share. `settle` ends every step that waits on the socket: a failed connection is rethrown.
+ * `halted` is true once the run was asked to stop: a step that logs a refused read and goes on ends instead. */
 interface SocketReads {
   scope: ModelScope;
   connection: StompConnection;
   settle: <T>(work: Promise<T>) => Promise<T>;
+  halted: () => boolean;
   catalog: ModelCatalog;
   notes: string[];
   progress: Progress;
@@ -192,7 +194,7 @@ async function readLineItems(reads: SocketReads, moduleId: string): Promise<void
 
 /** Context selectors: each section's module dimensions, the list Page Builder's grid section settings read. */
 async function readModuleDimensions(reads: SocketReads, modules: ReadonlySet<string>): Promise<void> {
-  const { scope, connection, settle, catalog, notes, progress } = reads;
+  const { scope, connection, settle, halted, catalog, notes, progress } = reads;
   const { workspaceId: ws, modelId: model } = scope;
   if (modules.size) {
     progress.status(`Reading module dimensions in ${scope.modelName}…`);
@@ -201,7 +203,7 @@ async function readModuleDimensions(reads: SocketReads, modules: ReadonlySet<str
         { body: { moduleIds: [...modules] }, timeoutMs: LOAD_MS })));
       progress.log(`dimensions of ${read.length} of ${modules.size} modules`);
     } catch (error) {
-      if (connection.failed) throw error;
+      if (connection.failed || halted()) throw error;
       progress.log(`module dimensions: ${message(error)}`);
       notes.push(`${scope.modelName}: module dimensions were not available (${message(error)}); context selectors show only those saved on the page.`);
     }
@@ -256,7 +258,7 @@ async function readViewLayouts(reads: SocketReads, refs: readonly UxEntityRef[])
 
 /** Filters can use a line item from a module no card shows: look through modules that have the filtered dimension. */
 async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCardDetails[]): Promise<void> {
-  const { scope, connection, settle, catalog, notes, progress } = reads;
+  const { scope, connection, settle, halted, catalog, notes, progress } = reads;
   const { workspaceId: ws, modelId: model } = scope;
   const { itemIds, axisDimensionIds } = unresolvedFilterItems(pages.flatMap(page => page.cards), catalog);
   if (!itemIds.size) return;
@@ -269,7 +271,7 @@ async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCar
         if (ENTITY_ID.test(id) && !catalog.lineItemModules.has(id) && !catalog.unreadableModules.has(id)) candidates.add(id);
       }
     } catch (error) {
-      if (connection.failed) throw error;
+      if (connection.failed || halted()) throw error;
       progress.log(`modules for dimension ${dimensionId}: ${message(error)}`);
     }
   }
@@ -287,9 +289,10 @@ async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCar
 /** Names for one model. Like Page Builder, it asks for the data straight away and lets the service load the model: a
  * model that is not open reports status UNKNOWN until a data request loads it (observed live, 28 Sep 2026), so the
  * status is watched and logged, never waited for. A connection-level error such as REDIRECTION_REQUIRED fails every
- * subscription and is rethrown, so withSocket reconnects to the host it names. */
+ * subscription and is rethrown, so withSocket reconnects to the host it names. When `signal` asks the run to stop, the
+ * socket work ends at once, as it does for a closed model, and the stop is rethrown instead of noted. */
 export async function loadCatalog(scope: ModelScope, pages: readonly UxPageCardDetails[], pageNames: ReadonlyMap<string, string>,
-  progress: Progress): Promise<{ catalog: ModelCatalog; notes: string[]; failedActionTypes: string[] }> {
+  progress: Progress, signal?: AbortSignal): Promise<{ catalog: ModelCatalog; notes: string[]; failedActionTypes: string[] }> {
   const { workspaceId: ws, modelId: model } = scope;
   const catalog = emptyCatalog();
   const notes: string[] = [];
@@ -314,6 +317,9 @@ export async function loadCatalog(scope: ModelScope, pages: readonly UxPageCardD
       let stop: (error: Error) => void = () => undefined;
       const stopped = new Promise<never>((_, reject) => { stop = reject; });
       stopped.catch(() => undefined);
+      const halt = () => stop(new StompError("stopped"));
+      signal?.addEventListener("abort", halt, { once: true });
+      if (signal?.aborted) halt();
       connection.subscribe(`core://${ws}:${model}`, {
         accept: "widget/model", body: {}, timeoutMs: 30 * 60_000,
         until: data => {
@@ -329,7 +335,7 @@ export async function loadCatalog(scope: ModelScope, pages: readonly UxPageCardD
         if (connection.failed) throw connection.failed;
         return result;
       };
-      const reads: SocketReads = { scope, connection, settle, catalog, notes, progress };
+      const reads: SocketReads = { scope, connection, settle, halted: () => signal?.aborted === true, catalog, notes, progress };
       const started = Date.now();
       const waiting = setInterval(() => progress.status(`Reading names in ${scope.modelName}: ${Math.round((Date.now() - started) / 1000)} s, `
         + `model status ${status}. A model that is not open can take a few minutes to load…`), 5_000);
@@ -352,11 +358,13 @@ export async function loadCatalog(scope: ModelScope, pages: readonly UxPageCardD
         await findFilterLineItems(reads, pages);
       } finally {
         clearInterval(waiting);
+        signal?.removeEventListener("abort", halt);
       }
     });
   } catch (error) {
     notes.push(`${scope.modelName}: names from the model data service were not available (${message(error)}); IDs are shown instead.`);
   }
+  signal?.throwIfAborted();
 
   const actions = await readActionNames(scope, refs, modelHost, catalog, progress);
   notes.push(...actions.notes);
@@ -380,8 +388,9 @@ const HOW_TO_READ: readonly [detail: string, value: string][] = [
   ["Long IDs", "IDs of 12 or more digits are written as text so Excel shows every digit; the formula bar shows them as =\"…\"."],
 ];
 
-/** The app's pages as the zip's files: App Details.csv, then the seven tables. */
-export async function analyseApp(appGuid: string, progress: Progress, diagnostics: () => string): Promise<AnalysisResult> {
+/** The app's pages as the zip's files: App Details.csv, then the seven tables. `signal` stops the run before the next page
+ * or model is read (the results page that asked for it went away): the run then rejects with the signal's reason. */
+export async function analyseApp(appGuid: string, progress: Progress, diagnostics: () => string, signal?: AbortSignal): Promise<AnalysisResult> {
   if (!GUID.test(appGuid)) throw new Error("Open an app first: the address has no app ID.");
   progress.status("Reading the app…");
   const app = (await getJson(`${DEFINITION}apps/${appGuid}?includeUnpublished=true&includeReportPages=true`, { apiVersion: "2" })) as Obj;
@@ -400,6 +409,7 @@ export async function analyseApp(appGuid: string, progress: Progress, diagnostic
   const inputs: PageInput[] = [];
   const described = new Map<PageInput, UxPageCardDetails>();
   for (const [index, entry] of entries.entries()) {
+    signal?.throwIfAborted();
     const pageName = pageNames.get(entry.guid) ?? entry.guid;
     progress.status(`Reading page ${index + 1} of ${entries.length}: ${pageName}`);
     const read = entry.hasPublishedVersion === false ? { state: "Not published" } : await readPublished(entry.guid, declaredType(entry), progress.log);
@@ -446,7 +456,8 @@ export async function analyseApp(appGuid: string, progress: Progress, diagnostic
     models.set(key, group);
   }
   for (const { scope, inputs: group } of models.values()) {
-    const { catalog, notes, failedActionTypes } = await loadCatalog(scope, group.map(input => described.get(input)!), pageNames, progress);
+    signal?.throwIfAborted();
+    const { catalog, notes, failedActionTypes } = await loadCatalog(scope, group.map(input => described.get(input)!), pageNames, progress, signal);
     summary.push(...notes);
     for (const input of group) {
       const details = described.get(input)!;

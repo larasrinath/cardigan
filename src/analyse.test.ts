@@ -52,11 +52,11 @@ const update = (id: string, body: unknown) => `MESSAGE\nsubscription:${id}\nmess
 const pages = [{ cards: [], references: [{ kind: "module", id: MODULE }, { kind: "action", id: "112000000901", actionType: "IMPORT" }] }] as unknown as UxPageCardDetails[];
 const scope = { customerId: "customer-1", workspaceId: WS, modelId: MODEL, modelName: "Synthetic model" };
 
-function run(over = pages, on = scope) {
+function run(over = pages, on = scope, signal?: AbortSignal) {
   const log: string[] = [];
   const statuses: string[] = [];
   return { log, statuses, result: loadCatalog(on, over, new Map([["page-guid", "Inventory policy"]]),
-    { status: line => { statuses.push(line); }, log: line => { log.push(line); } }) };
+    { status: line => { statuses.push(line); }, log: line => { log.push(line); } }, signal) };
 }
 
 // The read phases after names and line items: module dimensions, item names, saved view layouts and filter line items.
@@ -455,6 +455,79 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
       expect(log.slice(log.indexOf("model status CLOSED")).filter(line => /^(model status|module dimensions|modules for)/.test(line)), waiting)
         .toEqual(["model status CLOSED", ...logged]);
     }
+  });
+
+  it("ends the socket work at once when the run is stopped, closes the socket and reads no action names", async () => {
+    const stopped = new Error("Stopped: the results page was closed.");
+    // The read that is waiting is never answered: the run is stopped while it waits, in each phase in turn. Module and list
+    // names are asked for together, so the lists are the last read sent when the module names are the one that waits.
+    for (const [waiting, last] of [[MODULE_VIEWS, at("/lists")], ...[at(`/modules/${MODULE}/lineItems`), at("/dimensions"), at(`/modules/${MODULE}/dimensions/${LIST}`),
+      at(`/views/${VIEW}`), at("/applicableModules")].map(destination => [destination, destination])]) {
+      ScriptedSocket.sockets = [];
+      vi.mocked(globalThis.fetch).mockClear();
+      const stopping = new AbortController();
+      // A saved view's layout arrives as metadata; the read that waits is the one that stops the run.
+      serveModel({ [at(`/views/${VIEW}`)]: id => metadata(id, { rows: [{ dimensionId: LIST, label: "Product" }], cols: [] }),
+        [waiting]: () => { stopping.abort(stopped); return ""; } });
+      const started = Date.now();
+      const { log, result } = run(withGrid({ kind: "view", id: VIEW }, { kind: "action", id: "112000000901", actionType: "IMPORT" }), scope, stopping.signal);
+      // The stop itself, not a note that names were not available.
+      await expect(result, waiting).rejects.toBe(stopped);
+      expect(Date.now() - started, waiting).toBeLessThan(5_000);
+      expect(destinations().at(-1), waiting).toBe(last);
+      expect(sent("DISCONNECT"), waiting).toHaveLength(1);
+      expect(ScriptedSocket.sockets.map(socket => socket.readyState), waiting).toEqual([3]);
+      expect(globalThis.fetch, waiting).not.toHaveBeenCalled();
+      expect(log.filter(line => /imports|stopped/.test(line)), waiting).toEqual([]);
+    }
+
+    // Stopped while the socket was still connecting: closed again without waiting for a name that never comes.
+    ScriptedSocket.sockets = [];
+    serveModel({ [MODULE_VIEWS]: () => "", [at("/lists")]: () => "" });
+    const stopping = new AbortController();
+    stopping.abort(stopped);
+    const started = Date.now();
+    await expect(run(pages, scope, stopping.signal).result).rejects.toBe(stopped);
+    expect(Date.now() - started).toBeLessThan(2_000);
+    expect(ScriptedSocket.sockets.map(socket => socket.readyState)).toEqual([3]);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+    // Without a stop the same run reads its names and the import's name, as before.
+    ScriptedSocket.sockets = [];
+    serveModel();
+    expect((await run(pages, scope, new AbortController().signal).result).catalog.actions.get("112000000901")).toBe("Import demand");
+  });
+
+  it("reads no further page, and no names, once the run is stopped", async () => {
+    const stopped = new Error("Stopped: the results page was closed.");
+    const page = (n: number) => ({ guid: `11111111-2222-3333-4444-55555555555${n}`, name: `Page ${n}`, pageType: "BOARD", hasPublishedVersion: true });
+    const stopping = new AbortController();
+    // The app record answers; page 1 is not found on any route, and the run is stopped while it is being read.
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      const path = new URL(url).pathname;
+      if (path.includes("/apps/")) return new Response(JSON.stringify({ name: "Plan", pages: [page(1), page(2), page(3)] }), { status: 200 });
+      if (path.endsWith("/boards/11111111-2222-3333-4444-555555555551")) stopping.abort(stopped);
+      return new Response("{}", { status: 404 });
+    }));
+    const statuses: string[] = [];
+    await expect(analyseApp("01234567-89ab-cdef-0123-456789abcdef", { status: text => { statuses.push(text); }, log: () => undefined }, () => "", stopping.signal))
+      .rejects.toBe(stopped);
+    expect(vi.mocked(globalThis.fetch).mock.calls.map(([url]) => new URL(url as string).pathname.split("/").slice(3).join("/"))).toEqual([
+      "apps/01234567-89ab-cdef-0123-456789abcdef", "boards/11111111-2222-3333-4444-555555555551", "grid-pages/11111111-2222-3333-4444-555555555551",
+      "reports/11111111-2222-3333-4444-555555555551"]);
+    expect(statuses).toEqual(["Reading the app…", "Reading page 1 of 3: Page 1"]);
+    expect(ScriptedSocket.sockets).toEqual([]);
+
+    // Stopped after its last page: the model's names are not read either.
+    const late = new AbortController();
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      const path = new URL(url).pathname;
+      if (path.includes("/apps/")) return new Response(JSON.stringify({ name: "Plan", pages: [{ ...page(1), guid: guid(1000) }] }), { status: 200 });
+      late.abort(stopped);
+      return new Response(JSON.stringify(goldenBoard), { status: 200 });
+    }));
+    await expect(analyseApp("01234567-89ab-cdef-0123-456789abcdef", { status: () => undefined, log: () => undefined }, () => "", late.signal)).rejects.toBe(stopped);
+    expect(vi.mocked(globalThis.fetch).mock.calls).toHaveLength(2);
+    expect(ScriptedSocket.sockets).toEqual([]);
   });
 
   it("does not look for filter line items once the shown modules' line items name every filter condition", async () => {
