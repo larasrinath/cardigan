@@ -1,6 +1,9 @@
 /** Reads back what the analyzer writes, so a test can check a file inside an export rather than only the panel summary.
  * Tests only. */
 
+/** True when two files are the same, byte for byte. */
+export const sameBytes = (a: Uint8Array, b: Uint8Array): boolean => a.byteLength === b.byteLength && a.every((byte, index) => byte === b[index]);
+
 /** Each file in a stored (uncompressed) zip as zipStore writes it, by name, as text. */
 export function unzipText(zip: Uint8Array): Map<string, string> {
   const view = new DataView(zip.buffer, zip.byteOffset, zip.byteLength);
