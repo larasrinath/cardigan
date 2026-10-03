@@ -465,6 +465,19 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
       "Reading item names in Synthetic model…"]);
   });
 
+  it("reads no item names, and shows no status for them, when no grid shows or hides an item", async () => {
+    const region = gridCard.grid.regions[0];
+    const card = { ...gridCard, grid: { regions: [{ ...region, rows: { ...region.rows, dimensions: [{ dimension: { kind: "dimension", id: LIST } }] } }] } };
+    serveModel();
+    const { statuses, result } = run([{ cards: [card], references: [{ kind: "module", id: MODULE }] }] as unknown as UxPageCardDetails[]);
+    const { notes } = await result;
+
+    expect(notes).toEqual([]);
+    expect(destinations()).toEqual([at(""), MODULE_VIEWS, at("/lists"), at(`/modules/${MODULE}/lineItems`), at("/dimensions"), at("/applicableModules")]);
+    expect(statuses).toEqual(["Reading names in Synthetic model…", "Reading line items in Synthetic model…", "Reading module dimensions in Synthetic model…",
+      "Finding filter line items in Synthetic model…"]);
+  });
+
   it("adds no saved view note when every saved view's layout was read", async () => {
     const layout = (id: string) => metadata(id, { rows: [{ dimensionId: LIST, label: "Product" }], cols: [] });
     serveModel({ [at(`/views/${VIEW}`)]: layout, [at(`/views/${VIEW_2}`)]: layout });
