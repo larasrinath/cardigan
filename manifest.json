@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Anaplan Analyzer",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "minimum_chrome_version": "111",
   "description": "Exports an Anaplan app's pages (cards, modules, filters, formatting, actions) and a model's Model settings as CSV files.",
   "content_scripts": [
