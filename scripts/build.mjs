@@ -7,7 +7,7 @@ import { build } from 'esbuild';
 // card reader (src/card-reader), into classic scripts that Chrome loads unpacked. Unminified so the loaded code stays
 // reviewable.
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-// The panel shows the manifest version, so a reload can be confirmed on the page.
+// The results page shows the manifest version in its header, so a reload can be confirmed there.
 const { version } = JSON.parse(readFileSync(path.join(root, 'manifest.json'), 'utf8'));
 
 // content.js: the app page analysis (isolated world). model-export.js: the model export, which runs in the classic model
