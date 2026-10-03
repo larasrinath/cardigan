@@ -142,7 +142,7 @@ How it reads:
 - The script stays inert on any page without an open classic model.
 - Reads are paged, so large models are read in parts.
 - Every request is checked to carry no changes before it is sent, and the page's own model cache is left untouched.
-- In the calendar file, list choices use the template's own words (Sat, Dec, Last). The settings grid can return the IDs Anaplan stores rather than labels: months 1-12, and the day the fiscal year ends on 1-7 counted from Sunday, as the Model Calendar tab's own selects number them (FiscalYearMonthSelect and FiscalYearDayInWeekSelect index CLDR's month and day abbreviations). **Current Fiscal Year** is written as the tab shows it, with its dates (FY24: 31 Dec 2023 - 28 Dec 2024): the model stores only FY24, and the dates are worked out the way the tab's FiscalYearHelper and FiscalYearForWeeksHelper do. Settings the template's **Applies to** excludes for this calendar type are blank. **Model size (GB)** and **Captured by** are left blank for you to fill in, and **Captured on** is the export date.
+- In the calendar file, list choices use the template's own words (Sat, Dec, Last). The settings grid can return the IDs Anaplan stores rather than labels: months 1-12, and the day the fiscal year ends on 1-7 counted from Sunday, as the Model Calendar tab's own selects number them (FiscalYearMonthSelect and FiscalYearDayInWeekSelect index CLDR's month and day abbreviations). **Current Fiscal Year** is written as the tab shows it, with its dates (FY24: 31 Dec 2023 - 28 Dec 2024): the model stores only FY24, and the dates are worked out the way the tab's FiscalYearHelper and FiscalYearForWeeksHelper do. The stored value is written as it is when the calendar type, the year label, the start month (month calendars) or the end type, day or month (week calendars) is missing or not recognised. A missing alignment or Timescale setting counts as aligned with the end week and 2-digit, as on the tab. Settings the template's **Applies to** excludes for this calendar type are blank. **Model size (GB)** and **Captured by** are left blank for you to fill in, and **Captured on** is the export date.
 
 ## If names show as IDs or the analysis stops
 
@@ -194,7 +194,7 @@ The zip holds only `manifest.json`, `dist/content.js`, `dist/model-export.js` an
 
 ## Relationship to SAM
 
-Cardigan began as `extension/page-analyzer` inside SAM (anaplan-sam), versions 0.5.2 to 0.5.4, and moved here with its history. SAM's `describe_ux_page_cards` MCP tool and this extension use the same card reader. Each repository keeps its own copy:
+Cardigan began as `extension/page-analyzer` inside SAM (anaplan-sam), versions 0.5.2 to 0.5.5, and moved here with its history. SAM's `describe_ux_page_cards` MCP tool and this extension use the same card reader. Each repository keeps its own copy:
 
 | Here | In SAM |
 | --- | --- |
