@@ -18,9 +18,9 @@ declare namespace chrome {
     const onConnect: { addListener(listener: (port: Port) => void): void };
   }
   namespace tabs {
-    interface Tab { id?: number; index: number }
+    interface Tab { id?: number; index: number; windowId?: number }
     function connect(tabId: number, info?: { name?: string }): runtime.Port;
-    function create(properties: { url: string; index?: number; openerTabId?: number; active?: boolean }): Promise<Tab>;
+    function create(properties: { url: string; index?: number; windowId?: number; openerTabId?: number; active?: boolean }): Promise<Tab>;
   }
   namespace action {
     const onClicked: { addListener(listener: (tab: tabs.Tab) => void): void };
