@@ -422,6 +422,19 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     }
   });
 
+  it("does not look for filter line items once the shown modules' line items name every filter condition", async () => {
+    serveModel({ [at(`/modules/${MODULE}/lineItems`)]: id => update(id, { data: [{ lineItemId: FILTER_ITEM, lineItemLabel: "Include?" }] }) });
+    const { statuses, result } = run(withGrid());
+    const { catalog, notes } = await result;
+
+    expect(notes).toEqual([]);
+    expect(catalog.lineItems.get(FILTER_ITEM)).toEqual({ name: "Include?", moduleId: MODULE });
+    expect(destinations()).toEqual([at(""), MODULE_VIEWS, at("/lists"), at(`/modules/${MODULE}/lineItems`), at("/dimensions"),
+      at(`/modules/${MODULE}/dimensions/${LIST}`)]);
+    expect(statuses).toEqual(["Reading names in Synthetic model…", "Reading line items in Synthetic model…", "Reading module dimensions in Synthetic model…",
+      "Reading item names in Synthetic model…"]);
+  });
+
   it("looks for filter line items in the filtered dimension's modules not yet read, four at a time, until found or 60 were read", async () => {
     for (const [count, found, read, notes] of [[6, 2, 4, []], [60, 0, 60, []],
       [61, 0, 60, ["Synthetic model: some filter line items were not found in the first 60 candidate modules."]]] as const) {
