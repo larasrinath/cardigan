@@ -8,7 +8,7 @@ The first release as a standalone project, Cardigan, moved out of SAM (anaplan-s
 - **Australia.** Both content scripts now also run on `https://*.app2.anaplan.com/*`, where Anaplan's au1 region serves the app (`au1a.app2.anaplan.com`). The host checks already accepted that host; tests now pin it and its lookalikes.
 - **Icons.** 16, 32, 48 and 128 px icons, drawn by `scripts/icons.mjs` (`npm run icons`).
 - **Packaging.** `npm run package` writes `release/cardigan-<version>.zip` with only the runtime files and prints its SHA-256. The zip is deterministic: the same files give the same bytes on every run.
-- The bundles' code is that of 0.5.5, the last version inside SAM; only the version and the banner differ.
+- The bundles' code is that of 0.5.5, the last version inside SAM; only the version, the banner and the source paths in comments differ.
 
 ## 0.5.2 to 0.5.5 (1 to 3 October 2026), inside SAM
 
