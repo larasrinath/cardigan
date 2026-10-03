@@ -1,4 +1,4 @@
-/** Reads back what the analyzer writes, so a test can check a file inside an export rather than only the panel summary.
+/** Reads back what the analyzer writes, so a test can check a file inside an export rather than only the summary.
  * Tests only. */
 
 /** True when two files are the same, byte for byte. */
