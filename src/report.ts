@@ -307,6 +307,117 @@ function publishedDate(value: number | string | undefined): string {
   return Number.isNaN(date.getTime()) ? NONE : date.toISOString().slice(0, 10);
 }
 
+/** Adds a Where used row; the first use of an object by a card in a role wins, so the order of the calls is the row order. */
+type Use = (objType: string, obj: string, module: string, page: string, card: number, role: string, objId: string) => void;
+
+/** Filters: once per native axis, so a rows filter shared by combined-grid sections is listed once. Returns the Cards row's
+ * text for each condition. */
+function filterRows(page: string, order: number, card: Obj, regions: Obj[], rows: Record<TabName, Cell[][]>, use: Use): string[] {
+  const combined = regions.length > 1;
+  const filterTexts: string[] = [];
+  for (const axis of regions.length ? (["rows", "columns"] as const) : []) {
+    for (const orders of axisGroups(regions, axis)) {
+      const axisDetail: Obj = regions[orders[0] - 1][axis] ?? {};
+      const section = orders.join(", ") + (orders.length > 1 ? ` (shared ${axis})` : "");
+      const where = combined ? `${capitalize(axis)} (${sectionsText(orders)})` : capitalize(axis);
+      const filtered = list(axisDetail.dimensions).map(entry => name(entry.dimension)).join(", ");
+      // The grid (module) the filter narrows; sections sharing an axis share its filter.
+      const filteredModule = unique(orders.map(o => name(regions[o - 1].module))).join("; ");
+      for (const [group, match, condition] of conditions(axisDetail.filter)) {
+        const parts = conditionParts(condition);
+        filterTexts.push(`${where}, match ${match.toLowerCase()}: ${conditionText(parts)}`);
+        rows.Filters.push([page, order, section, filteredModule, capitalize(axis), filtered, group, match, parts.lineItem, parts.module,
+          parts.operator, parts.value, parts.context, card.id, parts.lineItemId]);
+        use("Line item", parts.lineItem, parts.module, page, order, "Filter", parts.lineItemId);
+        for (const context of list(condition.filterContext)) {
+          if (context.dimension) use("Dimension", name(context.dimension), NONE, page, order, "Filter context", context.dimension.id);
+        }
+      }
+    }
+  }
+  return filterTexts;
+}
+
+/** Conditional formatting (grid rules and the KPI indicator). Returns the Cards row's text for each rule. */
+function formattingRows(page: string, order: number, card: Obj, regions: Obj[], sources: Obj[], rows: Record<TabName, Cell[][]>, use: Use): string[] {
+  const combined = regions.length > 1;
+  const cfTexts: string[] = [];
+  for (const rule of list(card.conditionalFormatting)) {
+    const style = cfStyle(rule);
+    const target: Obj | undefined = rule.target;
+    const source: Obj | undefined = rule.source;
+    const section = ruleSection(rule, regions);
+    const valuesFrom = name(target) === name(source) ? "" : ` (values from ${name(source)})`;
+    const styleText = style.toLowerCase().includes("colour") ? style : `${style} colour`;
+    cfTexts.push((combined ? `Section ${section}: ` : "") + `${styleText} on ${name(target)}${valuesFrom}: ${cfRuleText(rule)}`);
+    const formattedModule = name(regions[Number(section) - 1]?.module ?? (regions.length ? undefined : sources[0]?.module));
+    rows.Formatting.push([page, order, section, formattedModule, style, name(target), name(source), cfRuleText(rule), card.id, target?.id ?? NONE]);
+    use("Line item", name(target), target?.moduleName ?? NONE, page, order, "Formatting", target?.id ?? NONE);
+    if (name(target) !== name(source)) use("Line item", name(source), source?.moduleName ?? NONE, page, order, "Formatting values", source?.id ?? NONE);
+  }
+  const indicator: Obj | undefined = card.kpi?.indicator;
+  if (indicator) {
+    const icons = list(indicator.threshold?.icons);
+    const iconNames = unique(icons.map(icon => String(icon.iconId ?? "").replace(/_/g, " ").toLowerCase())).sort();
+    const type = String(indicator.type ?? "").toLowerCase();
+    const text = `${icons.length} icons (${iconNames.join(", ")}); no threshold values set`;
+    cfTexts.push(`KPI indicator (${type}): ${text}`);
+    const kpiModule = card.kpi.module ?? card.kpi.lineItem?.moduleName ?? sources[0]?.module;
+    rows.Formatting.push([page, order, NONE, typeof kpiModule === "string" ? kpiModule : name(kpiModule), `KPI indicator – ${type} icons`, "KPI value",
+      name(card.kpi.lineItem), text, card.id, card.kpi.lineItem?.id ?? NONE]);
+  }
+  return cfTexts;
+}
+
+/** Actions and links. Returns the Cards row's text for each button and for a title link. */
+function actionRows(page: string, order: number, card: Obj, failedActionTypes: readonly string[] | undefined, rows: Record<TabName, Cell[][]>,
+  use: Use): string[] {
+  const actionTexts: string[] = [];
+  for (const button of list(card.actions)) {
+    const action: Obj = button.action ?? {};
+    const nativeType = String(action.actionType ?? "");
+    const actionType = ACTION_TYPE[nativeType] ?? (nativeType || NONE);
+    const modelAction = MODEL_ACTIONS.has(nativeType);
+    const nameFrom = !modelAction ? "Card label (not a model object)" : action.name ? "Model"
+      : failedActionTypes?.includes(nativeType) ? "Card label (model lookup failed)" : "Card label (not found in the model)";
+    const modelName = nameFrom === "Model" ? String(action.name) : NONE;
+    const label = typeof button.name === "string" ? button.name : NONE;
+    actionTexts.push(`${actionType}: ${label}`);
+    const runs = modelAction ? (button.runAutomatically === true ? "Yes" : button.runAutomatically === false ? "No (asks first)" : "Yes (default)") : "n/a";
+    const cancel = nativeType === "PROCESS" ? (button.disableCancelButton ? "Cancel disabled" : "Cancel allowed") : "n/a";
+    rows.Actions.push([page, order, label, actionType, modelName, nameFrom, runs, cancel, card.id, action.id ?? NONE]);
+    use(actionType, modelName === NONE ? label : modelName, NONE, page, order, "Action button", action.id ?? NONE);
+  }
+  if (card.navigation?.page) {
+    const nav: Obj = card.navigation;
+    actionTexts.push(`Title links to ${(PAGE_TYPE[nav.pageType] ?? "page").toLowerCase()} ${name(nav.page)}`);
+    use("Page", name(nav.page), NONE, page, order, "Link target", nav.page.id);
+  }
+  return actionTexts;
+}
+
+/** Grid sections: one row per section of every grid and chart, or one row for a saved view the card only selects. */
+function sectionRows(page: string, order: number, card: Obj, regions: Obj[], viewLabel: string, selectedView: Obj | undefined, viewText: string,
+  names: ReadonlyMap<string, string> | undefined, rows: Record<TabName, Cell[][]>): void {
+  regions.forEach((region, index) => {
+    const section = index + 1;
+    const shared = (axis: Axis) => (axisGroups(regions, axis).find(group => group.includes(section)) ?? []).filter(other => other !== section);
+    const rules = list(card.conditionalFormatting).filter(rule => ruleSection(rule, regions) === String(section));
+    rows["Grid sections"].push([page, order, viewLabel, section, arrangement(regions, section), name(region.module), NONE,
+      axisDims(region, "rows", names), axisDims(region, "columns", names), regionPages(region), regionLineItems(region),
+      filterSummary(region, "rows", shared("rows")), filterSummary(region, "columns", shared("columns")),
+      [...axisExtras(region, "rows"), ...axisExtras(region, "columns")].join("; ") || NONE,
+      rules.length ? `${plural(rules.length, "rule")} (${unique(rules.map(cfStyle)).join(", ")})` : NONE,
+      card.id, region.region, region.module?.id ?? NONE]);
+  });
+  if (selectedView && !regions.length) {
+    const layout: Obj | undefined = selectedView.viewLayout;
+    rows["Grid sections"].push([page, order, viewLabel, 1, NONE, name(selectedView.module), viewText,
+      layoutDims(layout, "rows"), layoutDims(layout, "columns"), savedViewSelectors(card, layout).join("; ") || NONE, layoutLineItems(layout),
+      IN_MODEL, IN_MODEL, IN_MODEL, NONE, card.id, NONE, selectedView.module?.id ?? NONE]);
+  }
+}
+
 export function buildReport(pages: readonly PageInput[]): Report {
   const rows: Record<TabName, Cell[][]> = { Pages: [], Cards: [], "Grid sections": [], Filters: [], Formatting: [], Actions: [], "Where used": [] };
   const used = new Set<string>();
@@ -416,99 +527,12 @@ export function buildReport(pages: readonly PageInput[]): Report {
         pagesDims.push(...list(card.contextSelectors).map(selectorLabel));
       }
 
-      // Filters: once per native axis, so a rows filter shared by combined-grid sections is listed once
-      const filterTexts: string[] = [];
-      for (const axis of regions.length ? (["rows", "columns"] as const) : []) {
-        for (const orders of axisGroups(regions, axis)) {
-          const axisDetail: Obj = regions[orders[0] - 1][axis] ?? {};
-          const section = orders.join(", ") + (orders.length > 1 ? ` (shared ${axis})` : "");
-          const where = combined ? `${capitalize(axis)} (${sectionsText(orders)})` : capitalize(axis);
-          const filtered = list(axisDetail.dimensions).map(entry => name(entry.dimension)).join(", ");
-          // The grid (module) the filter narrows; sections sharing an axis share its filter.
-          const filteredModule = unique(orders.map(o => name(regions[o - 1].module))).join("; ");
-          for (const [group, match, condition] of conditions(axisDetail.filter)) {
-            const parts = conditionParts(condition);
-            filterTexts.push(`${where}, match ${match.toLowerCase()}: ${conditionText(parts)}`);
-            rows.Filters.push([page, order, section, filteredModule, capitalize(axis), filtered, group, match, parts.lineItem, parts.module,
-              parts.operator, parts.value, parts.context, card.id, parts.lineItemId]);
-            use("Line item", parts.lineItem, parts.module, page, order, "Filter", parts.lineItemId);
-            for (const context of list(condition.filterContext)) {
-              if (context.dimension) use("Dimension", name(context.dimension), NONE, page, order, "Filter context", context.dimension.id);
-            }
-          }
-        }
-      }
+      const filterTexts = filterRows(page, order, card, regions, rows, use);
       if (selectedView) filterTexts.push(IN_MODEL);
-
-      // Conditional formatting (grid rules and the KPI indicator)
-      const cfTexts: string[] = [];
-      for (const rule of list(card.conditionalFormatting)) {
-        const style = cfStyle(rule);
-        const target: Obj | undefined = rule.target;
-        const source: Obj | undefined = rule.source;
-        const section = ruleSection(rule, regions);
-        const valuesFrom = name(target) === name(source) ? "" : ` (values from ${name(source)})`;
-        const styleText = style.toLowerCase().includes("colour") ? style : `${style} colour`;
-        cfTexts.push((combined ? `Section ${section}: ` : "") + `${styleText} on ${name(target)}${valuesFrom}: ${cfRuleText(rule)}`);
-        const formattedModule = name(regions[Number(section) - 1]?.module ?? (regions.length ? undefined : sources[0]?.module));
-        rows.Formatting.push([page, order, section, formattedModule, style, name(target), name(source), cfRuleText(rule), card.id, target?.id ?? NONE]);
-        use("Line item", name(target), target?.moduleName ?? NONE, page, order, "Formatting", target?.id ?? NONE);
-        if (name(target) !== name(source)) use("Line item", name(source), source?.moduleName ?? NONE, page, order, "Formatting values", source?.id ?? NONE);
-      }
-      const indicator: Obj | undefined = card.kpi?.indicator;
-      if (indicator) {
-        const icons = list(indicator.threshold?.icons);
-        const iconNames = unique(icons.map(icon => String(icon.iconId ?? "").replace(/_/g, " ").toLowerCase())).sort();
-        const type = String(indicator.type ?? "").toLowerCase();
-        const text = `${icons.length} icons (${iconNames.join(", ")}); no threshold values set`;
-        cfTexts.push(`KPI indicator (${type}): ${text}`);
-        const kpiModule = card.kpi.module ?? card.kpi.lineItem?.moduleName ?? sources[0]?.module;
-        rows.Formatting.push([page, order, NONE, typeof kpiModule === "string" ? kpiModule : name(kpiModule), `KPI indicator – ${type} icons`, "KPI value",
-          name(card.kpi.lineItem), text, card.id, card.kpi.lineItem?.id ?? NONE]);
-      }
-
-      // Actions and links
-      const actionTexts: string[] = [];
-      for (const button of list(card.actions)) {
-        const action: Obj = button.action ?? {};
-        const nativeType = String(action.actionType ?? "");
-        const actionType = ACTION_TYPE[nativeType] ?? (nativeType || NONE);
-        const modelAction = MODEL_ACTIONS.has(nativeType);
-        const nameFrom = !modelAction ? "Card label (not a model object)" : action.name ? "Model"
-          : input.failedActionTypes?.includes(nativeType) ? "Card label (model lookup failed)" : "Card label (not found in the model)";
-        const modelName = nameFrom === "Model" ? String(action.name) : NONE;
-        const label = typeof button.name === "string" ? button.name : NONE;
-        actionTexts.push(`${actionType}: ${label}`);
-        const runs = modelAction ? (button.runAutomatically === true ? "Yes" : button.runAutomatically === false ? "No (asks first)" : "Yes (default)") : "n/a";
-        const cancel = nativeType === "PROCESS" ? (button.disableCancelButton ? "Cancel disabled" : "Cancel allowed") : "n/a";
-        rows.Actions.push([page, order, label, actionType, modelName, nameFrom, runs, cancel, card.id, action.id ?? NONE]);
-        use(actionType, modelName === NONE ? label : modelName, NONE, page, order, "Action button", action.id ?? NONE);
-      }
-      if (card.navigation?.page) {
-        const nav: Obj = card.navigation;
-        actionTexts.push(`Title links to ${(PAGE_TYPE[nav.pageType] ?? "page").toLowerCase()} ${name(nav.page)}`);
-        use("Page", name(nav.page), NONE, page, order, "Link target", nav.page.id);
-      }
+      const cfTexts = formattingRows(page, order, card, regions, sources, rows, use);
+      const actionTexts = actionRows(page, order, card, input.failedActionTypes, rows, use);
       const text: string | undefined = card.text?.plainText;
-
-      // Grid sections: one row per section of every grid and chart
-      regions.forEach((region, index) => {
-        const section = index + 1;
-        const shared = (axis: Axis) => (axisGroups(regions, axis).find(group => group.includes(section)) ?? []).filter(other => other !== section);
-        const rules = list(card.conditionalFormatting).filter(rule => ruleSection(rule, regions) === String(section));
-        rows["Grid sections"].push([page, order, viewLabel, section, arrangement(regions, section), name(region.module), NONE,
-          axisDims(region, "rows", input.dimensionNames), axisDims(region, "columns", input.dimensionNames), regionPages(region), regionLineItems(region),
-          filterSummary(region, "rows", shared("rows")), filterSummary(region, "columns", shared("columns")),
-          [...axisExtras(region, "rows"), ...axisExtras(region, "columns")].join("; ") || NONE,
-          rules.length ? `${plural(rules.length, "rule")} (${unique(rules.map(cfStyle)).join(", ")})` : NONE,
-          card.id, region.region, region.module?.id ?? NONE]);
-      });
-      if (selectedView && !regions.length) {
-        const layout: Obj | undefined = selectedView.viewLayout;
-        rows["Grid sections"].push([page, order, viewLabel, 1, NONE, name(selectedView.module), viewText,
-          layoutDims(layout, "rows"), layoutDims(layout, "columns"), savedViewSelectors(card, layout).join("; ") || NONE, layoutLineItems(layout),
-          IN_MODEL, IN_MODEL, IN_MODEL, NONE, card.id, NONE, selectedView.module?.id ?? NONE]);
-      }
+      sectionRows(page, order, card, regions, viewLabel, selectedView, viewText, input.dimensionNames, rows);
 
       const join = combined ? " | " : "; ";
       rows.Cards.push([page, order, title, kind, viewLabel, moduleText || NONE, viewText,

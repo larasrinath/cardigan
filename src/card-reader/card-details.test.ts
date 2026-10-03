@@ -445,6 +445,13 @@ describe("UX card details, tolerant read of native pages", () => {
     expect(lone("BOARD_COLUMN_WIDGET_SPACER").warnings).toEqual([]);
   });
 
+  it("reports a card-type layout node without a widget as missing even when it has areas, and does not read inside it", () => {
+    const holder = { type: "TABLE", id: guid(3003), areas: { cards: [{ type: "TEXT", id: guid(106) }] } };
+    const result = describePageCards("BOARD", { ...pageIdentity(), widgets: { [guid(106)]: textCard() }, layout: boardLayout([fullRow(3000, holder)]) });
+    expect(card(result, guid(106)).placement).toEqual({ kind: "unplaced" });
+    expect(result.warnings).toEqual([`1 card(s) are not placed in the layout: ${guid(106)}.`, `1 layout card(s) have no widget definition: ${guid(3003)}.`]);
+  });
+
   it("caps unrecognised entries per card with a note", () => {
     const noisy = { ...textCard(guid(810)), future: Array.from({ length: 70 }, (_, index) => index + 1) };
     const result = describePageCards("BOARD", boardOf(noisy));
@@ -751,6 +758,20 @@ describe("UX card details, tolerant read of native pages", () => {
     for (const page of spreadStrings(1)) errorText(() => describePageCards("BOARD", page), "DEFINITION_TOO_LARGE", CHARACTER_BOUND);
     // Exactly 8,000,000 characters are within the count.
     for (const page of spreadStrings(0)) errorText(() => describePageCards("BOARD", page), "UNSUPPORTED_DEFINITION", UNSAFE_KEY);
+  });
+
+  it("counts short strings too", () => {
+    // 100 characters each, far from the bound alone.
+    const rows = (count: number) => new Array(count).fill("x".repeat(100));
+    errorText(() => describePageCards("BOARD", { rows: rows(80_001), extra: unsafeKey() }), "DEFINITION_TOO_LARGE", CHARACTER_BOUND);
+    errorText(() => describePageCards("BOARD", { rows: rows(80_000), extra: unsafeKey() }), "UNSUPPORTED_DEFINITION", UNSAFE_KEY);
+  });
+
+  it("counts characters, not UTF-8 bytes, during the copy and in the serialized size", () => {
+    // 2,700,000 characters that take 8,100,000 bytes in UTF-8.
+    const euros = "€".repeat(2_700_000);
+    errorText(() => describePageCards("BOARD", { text: euros, extra: unsafeKey() }), "UNSUPPORTED_DEFINITION", UNSAFE_KEY);
+    errorText(() => describePageCards("BOARD", { text: euros }), "UNSUPPORTED_DEFINITION", NO_IDENTITY);
   });
 
   it("checks prototypes, numbers and keys at every level, not only near the page", () => {

@@ -167,6 +167,122 @@ async function readActionNames(scope: ModelScope, refs: readonly UxEntityRef[], 
   return { notes, failedActionTypes };
 }
 
+/** What loadCatalog's socket reads share. `settle` ends every step that waits on the socket: a failed connection is rethrown. */
+interface SocketReads {
+  scope: ModelScope;
+  connection: StompConnection;
+  settle: <T>(work: Promise<T>) => Promise<T>;
+  catalog: ModelCatalog;
+  notes: string[];
+  progress: Progress;
+}
+
+/** A module whose line items cannot be read is remembered, so the search for filter line items does not ask again. */
+async function readLineItems(reads: SocketReads, moduleId: string): Promise<void> {
+  const { scope, connection, catalog, progress } = reads;
+  const { workspaceId: ws, modelId: model } = scope;
+  try {
+    addLineItems(catalog, moduleId, await connection.subscribe(`core://${ws}:${model}/modules/${moduleId}/lineItems`, { body: {}, timeoutMs: LINE_ITEMS_MS }));
+  } catch (error) {
+    catalog.unreadableModules.add(moduleId);
+    progress.log(`line items of module ${moduleId}: ${message(error)}`);
+  }
+}
+
+/** Context selectors: each section's module dimensions, the list Page Builder's grid section settings read. */
+async function readModuleDimensions(reads: SocketReads, modules: ReadonlySet<string>): Promise<void> {
+  const { scope, connection, settle, catalog, notes, progress } = reads;
+  const { workspaceId: ws, modelId: model } = scope;
+  if (modules.size) {
+    progress.status(`Reading module dimensions in ${scope.modelName}…`);
+    try {
+      const read = addModuleDimensions(catalog, await settle(connection.subscribe(`core://${ws}:${model}/dimensions`,
+        { body: { moduleIds: [...modules] }, timeoutMs: LOAD_MS })));
+      progress.log(`dimensions of ${read.length} of ${modules.size} modules`);
+    } catch (error) {
+      if (connection.failed) throw error;
+      progress.log(`module dimensions: ${message(error)}`);
+      notes.push(`${scope.modelName}: module dimensions were not available (${message(error)}); context selectors show only those saved on the page.`);
+    }
+  }
+}
+
+/** Names of shown and hidden items, as Page Builder's show/hide chips read them. */
+async function readItemNames(reads: SocketReads, items: readonly { moduleId: string; dimensionId: string; itemIds: string[] }[]): Promise<void> {
+  const { scope, connection, settle, catalog, progress } = reads;
+  const { workspaceId: ws, modelId: model } = scope;
+  if (items.length) {
+    progress.status(`Reading item names in ${scope.modelName}…`);
+    await settle(inBatches(items, 4, async ({ moduleId, dimensionId, itemIds }) => {
+      try {
+        const named = addSelections(catalog, await connection.subscribe(`core://${ws}:${model}/modules/${moduleId}/dimensions/${dimensionId}`,
+          { accept: "widget/selection", body: { itemIds, filter: "" }, timeoutMs: LINE_ITEMS_MS }));
+        progress.log(`items of dimension ${dimensionId} in module ${moduleId}: ${named} of ${itemIds.length} named`);
+      } catch (error) {
+        progress.log(`items of dimension ${dimensionId} in module ${moduleId}: ${message(error)}`);
+      }
+    }));
+  }
+}
+
+/** Saved views: rows, columns and context selectors from the metadata Page Builder's grid receives (exploratory: the message
+ * types and top-level keys are logged so a live run shows what the service sends). */
+async function readViewLayouts(reads: SocketReads, refs: readonly UxEntityRef[]): Promise<void> {
+  const { scope, connection, settle, catalog, notes, progress } = reads;
+  const { workspaceId: ws, modelId: model } = scope;
+  const viewIds = [...new Set(refs.filter(ref => ref.kind === "view").map(ref => entityId(ref.id)).filter((id): id is string => !!id))];
+  if (viewIds.length) {
+    progress.status(`Reading saved view layouts in ${scope.modelName}…`);
+    await settle(inBatches(viewIds, 4, async viewId => {
+      try {
+        const metadata = await connection.subscribe(`core://${ws}:${model}/views/${viewId}`, {
+          accept: "widget/grid", messageType: "metadata", timeoutMs: 60_000,
+          body: { transforms: [], expandCollapseTransforms: [], clientQueryOptions: { useCellIdTemplate: false, canHandleDedupedAuxData: false, canHandleNullColumnWidths: false } },
+          onMessage: (type, keys) => progress.log(`view ${viewId}: ${type} {${keys.join(", ")}}`),
+        });
+        const layout = viewLayoutFromMetadata(metadata);
+        if (layout) catalog.viewLayouts.set(viewId, layout);
+        else progress.log(`view ${viewId}: metadata without rows, columns or pages`);
+      } catch (error) {
+        progress.log(`view ${viewId}: ${message(error)}`);
+      }
+    }));
+    if (catalog.viewLayouts.size < viewIds.length) {
+      notes.push(`${scope.modelName}: ${viewIds.length - catalog.viewLayouts.size} of ${viewIds.length} saved views' rows, columns and context selectors could not be read.`);
+    }
+  }
+}
+
+/** Filters can use a line item from a module no card shows: look through modules that have the filtered dimension. */
+async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCardDetails[]): Promise<void> {
+  const { scope, connection, settle, catalog, notes, progress } = reads;
+  const { workspaceId: ws, modelId: model } = scope;
+  const { itemIds, axisDimensionIds } = unresolvedFilterItems(pages.flatMap(page => page.cards), catalog);
+  if (!itemIds.size) return;
+  const candidates = new Set<string>();
+  for (const dimensionId of axisDimensionIds) {
+    if (!ENTITY_ID.test(dimensionId)) continue;
+    try {
+      const json = await settle(connection.subscribe(`core://${ws}:${model}/applicableModules`, { body: { dimensions: [Number(dimensionId)] } }));
+      for (const id of applicableModuleIds(catalog, json)) {
+        if (ENTITY_ID.test(id) && !catalog.lineItemModules.has(id) && !catalog.unreadableModules.has(id)) candidates.add(id);
+      }
+    } catch (error) {
+      if (connection.failed) throw error;
+      progress.log(`modules for dimension ${dimensionId}: ${message(error)}`);
+    }
+  }
+  const extra = [...candidates];
+  progress.status(`Finding filter line items in ${scope.modelName}…`);
+  for (let i = 0; i < Math.min(extra.length, MAX_EXTRA_MODULES); i += 4) {
+    await settle(inBatches(extra.slice(i, Math.min(i + 4, MAX_EXTRA_MODULES)), 4, moduleId => readLineItems(reads, moduleId)));
+    if ([...itemIds].every(id => catalog.lineItems.has(id))) break;
+  }
+  if (extra.length > MAX_EXTRA_MODULES && ![...itemIds].every(id => catalog.lineItems.has(id))) {
+    notes.push(`${scope.modelName}: some filter line items were not found in the first ${MAX_EXTRA_MODULES} candidate modules.`);
+  }
+}
+
 /** Names for one model. Like Page Builder, it asks for the data straight away and lets the service load the model: a
  * model that is not open reports status UNKNOWN until a data request loads it (observed live, 28 Sep 2026), so the
  * status is watched and logged, never waited for. A connection-level error such as REDIRECTION_REQUIRED fails every
@@ -189,14 +305,6 @@ export async function loadCatalog(scope: ModelScope, pages: readonly UxPageCardD
     if (ref.kind === "module" && ENTITY_ID.test(ref.id)) moduleIds.add(ref.id);
     if (ref.moduleId && ENTITY_ID.test(ref.moduleId)) moduleIds.add(ref.moduleId);
   }
-  const readLineItems = async (connection: StompConnection, moduleId: string) => {
-    try {
-      addLineItems(catalog, moduleId, await connection.subscribe(`core://${ws}:${model}/modules/${moduleId}/lineItems`, { body: {}, timeoutMs: LINE_ITEMS_MS }));
-    } catch (error) {
-      catalog.unreadableModules.add(moduleId);
-      progress.log(`line items of module ${moduleId}: ${message(error)}`);
-    }
-  };
 
   try {
     await withSocket(scope.customerId, progress.log, async (connection, host) => {
@@ -220,6 +328,7 @@ export async function loadCatalog(scope: ModelScope, pages: readonly UxPageCardD
         if (connection.failed) throw connection.failed;
         return result;
       };
+      const reads: SocketReads = { scope, connection, settle, catalog, notes, progress };
       const started = Date.now();
       const waiting = setInterval(() => progress.status(`Reading names in ${scope.modelName}: ${Math.round((Date.now() - started) / 1000)} s, `
         + `model status ${status}. A model that is not open can take a few minutes to load…`), 5_000);
@@ -233,84 +342,13 @@ export async function loadCatalog(scope: ModelScope, pages: readonly UxPageCardD
         if (views.status === "fulfilled") addModuleViews(catalog, views.value); else notes.push(`${scope.modelName}: module and saved view names were not available (${message(views.reason)}).`);
         if (lists.status === "fulfilled") addLists(catalog, lists.value); else notes.push(`${scope.modelName}: list names were not available (${message(lists.reason)}).`);
         progress.status(`Reading line items in ${scope.modelName}…`);
-        await settle(inBatches([...moduleIds], 4, moduleId => readLineItems(connection, moduleId)));
+        await settle(inBatches([...moduleIds], 4, moduleId => readLineItems(reads, moduleId)));
 
-        // Context selectors: each section's module dimensions, the list Page Builder's grid section settings read.
         const needs = gridNeeds(pages);
-        if (needs.modules.size) {
-          progress.status(`Reading module dimensions in ${scope.modelName}…`);
-          try {
-            const read = addModuleDimensions(catalog, await settle(connection.subscribe(`core://${ws}:${model}/dimensions`,
-              { body: { moduleIds: [...needs.modules] }, timeoutMs: LOAD_MS })));
-            progress.log(`dimensions of ${read.length} of ${needs.modules.size} modules`);
-          } catch (error) {
-            if (connection.failed) throw error;
-            progress.log(`module dimensions: ${message(error)}`);
-            notes.push(`${scope.modelName}: module dimensions were not available (${message(error)}); context selectors show only those saved on the page.`);
-          }
-        }
-        // Names of shown and hidden items, as Page Builder's show/hide chips read them.
-        if (needs.items.length) {
-          progress.status(`Reading item names in ${scope.modelName}…`);
-          await settle(inBatches(needs.items, 4, async ({ moduleId, dimensionId, itemIds }) => {
-            try {
-              const named = addSelections(catalog, await connection.subscribe(`core://${ws}:${model}/modules/${moduleId}/dimensions/${dimensionId}`,
-                { accept: "widget/selection", body: { itemIds, filter: "" }, timeoutMs: LINE_ITEMS_MS }));
-              progress.log(`items of dimension ${dimensionId} in module ${moduleId}: ${named} of ${itemIds.length} named`);
-            } catch (error) {
-              progress.log(`items of dimension ${dimensionId} in module ${moduleId}: ${message(error)}`);
-            }
-          }));
-        }
-        // Saved views: rows, columns and context selectors from the metadata Page Builder's grid receives (exploratory:
-        // the message types and top-level keys are logged so a live run shows what the service sends).
-        const viewIds = [...new Set(refs.filter(ref => ref.kind === "view").map(ref => entityId(ref.id)).filter((id): id is string => !!id))];
-        if (viewIds.length) {
-          progress.status(`Reading saved view layouts in ${scope.modelName}…`);
-          await settle(inBatches(viewIds, 4, async viewId => {
-            try {
-              const metadata = await connection.subscribe(`core://${ws}:${model}/views/${viewId}`, {
-                accept: "widget/grid", messageType: "metadata", timeoutMs: 60_000,
-                body: { transforms: [], expandCollapseTransforms: [], clientQueryOptions: { useCellIdTemplate: false, canHandleDedupedAuxData: false, canHandleNullColumnWidths: false } },
-                onMessage: (type, keys) => progress.log(`view ${viewId}: ${type} {${keys.join(", ")}}`),
-              });
-              const layout = viewLayoutFromMetadata(metadata);
-              if (layout) catalog.viewLayouts.set(viewId, layout);
-              else progress.log(`view ${viewId}: metadata without rows, columns or pages`);
-            } catch (error) {
-              progress.log(`view ${viewId}: ${message(error)}`);
-            }
-          }));
-          if (catalog.viewLayouts.size < viewIds.length) {
-            notes.push(`${scope.modelName}: ${viewIds.length - catalog.viewLayouts.size} of ${viewIds.length} saved views' rows, columns and context selectors could not be read.`);
-          }
-        }
-
-        // Filters can use a line item from a module no card shows: look through modules that have the filtered dimension.
-        const { itemIds, axisDimensionIds } = unresolvedFilterItems(pages.flatMap(page => page.cards), catalog);
-        if (!itemIds.size) return;
-        const candidates = new Set<string>();
-        for (const dimensionId of axisDimensionIds) {
-          if (!ENTITY_ID.test(dimensionId)) continue;
-          try {
-            const json = await settle(connection.subscribe(`core://${ws}:${model}/applicableModules`, { body: { dimensions: [Number(dimensionId)] } }));
-            for (const id of applicableModuleIds(catalog, json)) {
-              if (ENTITY_ID.test(id) && !catalog.lineItemModules.has(id) && !catalog.unreadableModules.has(id)) candidates.add(id);
-            }
-          } catch (error) {
-            if (connection.failed) throw error;
-            progress.log(`modules for dimension ${dimensionId}: ${message(error)}`);
-          }
-        }
-        const extra = [...candidates];
-        progress.status(`Finding filter line items in ${scope.modelName}…`);
-        for (let i = 0; i < Math.min(extra.length, MAX_EXTRA_MODULES); i += 4) {
-          await settle(inBatches(extra.slice(i, Math.min(i + 4, MAX_EXTRA_MODULES)), 4, moduleId => readLineItems(connection, moduleId)));
-          if ([...itemIds].every(id => catalog.lineItems.has(id))) break;
-        }
-        if (extra.length > MAX_EXTRA_MODULES && ![...itemIds].every(id => catalog.lineItems.has(id))) {
-          notes.push(`${scope.modelName}: some filter line items were not found in the first ${MAX_EXTRA_MODULES} candidate modules.`);
-        }
+        await readModuleDimensions(reads, needs.modules);
+        await readItemNames(reads, needs.items);
+        await readViewLayouts(reads, refs);
+        await findFilterLineItems(reads, pages);
       } finally {
         clearInterval(waiting);
       }
