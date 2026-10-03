@@ -1,17 +1,19 @@
 # Cardigan: a Chrome extension for analysing Anaplan apps and models
 
-Cardigan is a Chrome extension, called Anaplan Analyzer up to version 0.6.0. It exports what an Anaplan app's pages and a model's settings contain, as CSV files you can search, filter and compare.
+Cardigan is a Chrome extension, called Anaplan Analyzer up to version 0.6.0. It reads what an Anaplan app's pages or a model's settings contain, shows it on a results page you can search and sort, and exports it as CSV files.
 
-- **Analyse app**, on an Anaplan app: reads every page in the app and downloads a zip of CSV files that list, per page and card:
+Open an Anaplan app or model, then click the Cardigan icon in Chrome's toolbar. A results page opens in a new tab and analyses what the Anaplan tab shows:
+
+- **An app**: it reads every page in the app and lists, per page and card:
   - the model
   - the modules, saved views and line items
   - rows, columns and pages
   - filters
   - conditional formatting
   - actions
-- **Export model**, on a model in Model Building: downloads one CSV per Model settings grid (see [Model export](#model-export)).
+- **A model in Model Building**: it reads the model's settings, one table per Model settings grid (see [Model export](#model-export)).
 
-It only reads, using your signed-in browser session, and nothing leaves the browser except those reads to Anaplan. It is not affiliated with or endorsed by Anaplan; see [NOTICE.md](NOTICE.md).
+Cardigan adds nothing to Anaplan's pages, and nothing is read from Anaplan until you click the icon. It only reads, using your signed-in browser session, and nothing leaves the browser except those reads to Anaplan. It is not affiliated with or endorsed by Anaplan; see [NOTICE.md](NOTICE.md).
 
 The page analysis uses the same card reader as SAM's `describe_ux_page_cards` tool ([`card-details.ts`](src/card-reader/card-details.ts) and [`card-naming.ts`](src/card-reader/card-naming.ts)), bundled into the extension. See [Relationship to SAM](#relationship-to-sam).
 
@@ -23,20 +25,35 @@ The page analysis uses the same card reader as SAM's `describe_ux_page_cards` to
 2. Unzip it into a folder you keep: Chrome loads the extension from that folder.
 3. In Chrome, open `chrome://extensions`, turn on **Developer mode**, choose **Load unpacked** and select the unzipped folder (the one with `manifest.json`).
 
-To update, unzip the new release over the same folder and click the reload icon on the extension's card in `chrome://extensions`.
+To update, unzip the new release over the same folder, click the reload icon on the extension's card in `chrome://extensions`, then refresh the Anaplan tab.
 
 ### From source
 
 1. Install the pinned tools: `npm ci` (Node 20.19+, 22.12+ or 24+).
-2. Build: `npm run build`. This type-checks the sources and writes `dist/content.js` and `dist/model-export.js`, which are git-ignored, so rebuild after pulling changes.
+2. Build: `npm run build`. This type-checks the sources and writes the four bundles in `dist/` (`content.js`, `model-export.js`, `background.js` and `results.js`), which are git-ignored, so rebuild after pulling changes.
 3. In Chrome, open `chrome://extensions`, turn on **Developer mode**, choose **Load unpacked** and select the repository root (the folder with `manifest.json`).
 
 After a rebuild, click the reload icon on the extension's card in `chrome://extensions`, then refresh the Anaplan tab.
 
 ### Use it
 
-1. Open an app in Anaplan while signed in: `https://<region>.app.anaplan.com/a/apps/app/<app id>…` (in Australia, `https://au1a.app2.anaplan.com/…`).
-2. Click **Analyse app** (bottom right), wait for the progress panel to finish, then click **Download CSVs (.zip)**.
+1. Open an app in Anaplan while signed in: `https://<region>.app.anaplan.com/a/apps/app/<app id>…` (in Australia, `https://au1a.app2.anaplan.com/…`). For a model, see [Model export](#model-export).
+2. Click the Cardigan icon in Chrome's toolbar. The results page opens in a new tab, right after the Anaplan tab, and starts the analysis by itself.
+3. The page shows each step as it reads. Keep the Anaplan tab open until it finishes.
+4. Read the results on the page, or save them: **Download all (.zip)** saves every file, and **Download this table (.csv)** saves the table on screen.
+
+The results page shows:
+
+- **Overview**: how many rows each table has. For an app, also its cards by type and the models its pages use.
+- **One table per file**, except the Details file. Search all its columns, click a column's name to sort by it, choose 25, 50 or 100 rows per page, and pick the columns to show under **Columns**. Click a row to see it in full. For an app, some columns also have a filter, a page's name shows that page's cards, and in **Cards** a card's number or title opens the card with its grid sections, filters, formatting and buttons.
+- **Details**: the Details file (`App Details.csv` or `Model Details.csv`) under its sections, with the diagnostic log under **Diagnostics**. From here, **Download this table (.csv)** saves the Details file.
+- **Model map**: listed as coming in a later version.
+
+**Run again** analyses the Anaplan tab again, and so does reloading the results page. Closing the results page stops the analysis.
+
+If the page says **Not connected** ("Cardigan cannot reach that tab."), the tab did not answer. That is a tab that is not an Anaplan page, or an Anaplan tab that has not been refreshed since the extension was installed, updated or reloaded. Refresh the Anaplan tab, then click the Cardigan icon again.
+
+If it says **Nothing to analyse**, the tab is an Anaplan page that is not an app or a model. Open one there, give it a moment to load, then choose **Run again**.
 
 ### Australia
 
@@ -101,17 +118,17 @@ How to read the files:
 
 ## Model export
 
-Open a model in **Model Building** (`…/a/modeling/…/models/<model id>/…`). Once the model has loaded, an **Export model** button appears bottom right. Click it, then **Export model** in the panel, then **Download CSVs (.zip)**.
+Open a model in **Model Building** (`…/a/modeling/…/models/<model id>/…`). Once the model has loaded, click the Cardigan icon. The results page opens and exports the model, and **Download all (.zip)** saves the files.
 
 The Model Building page is a shell. The model itself runs in a hidden "core" frame, which is often on the host of the data centre the model lives in, and the export reads there:
 - The frame announces itself to the page.
-- The page's button asks the frame to export.
-- The frame sends progress and the finished zip back through window messages.
+- When the results page asks for the export, the page asks the frame.
+- The frame sends progress and the finished files back to the page through window messages, and the page passes them on to the results page.
 
-Each side accepts messages only from the other window and only from Anaplan hosts. The classic model page opened on its own (`…/core-webapp-…/anaplan/framework.jsp`) shows the button directly.
+Each side accepts messages only from the other window and only from Anaplan hosts. The classic model page opened on its own (`…/core-webapp-…/anaplan/framework.jsp`) works too, without a frame: its model is read in the page's own window, once the model has loaded.
 
 The zip, `<model> - Model Export - <date>.zip`, has one CSV per Model settings grid, laid out as Anaplan's own export of that grid:
-- The first column has no header.
+- The first column has no header. The results page shows it as **Name**.
 - Every grid row is kept, with module rows above their line items. The Actions list is split at its headings instead of exported whole.
 - Each cell holds its underlying value: format and summary definitions as JSON, cell counts without separators, `true`/`false` and ISO dates.
 
@@ -146,7 +163,7 @@ How it reads:
 
 ## If names show as IDs or the analysis stops
 
-Click **Copy diagnostic log** in the panel, or see the **Diagnostics** rows at the end of `App Details.csv` (`Model Details.csv` for a model export). They list:
+The diagnostic log is on the results page. Open **Details**, then **Diagnostics**, and click **Copy diagnostic log**. While an analysis runs, and when it stops without a result, the log is under the message instead, with the same button. After a result, its lines are also the **Diagnostics** rows at the end of `App Details.csv` (`Model Details.csv` for a model export). They list:
 
 - request paths and HTTP statuses
 - socket frame commands and destinations
@@ -155,7 +172,7 @@ Click **Copy diagnostic log** in the panel, or see the **Diagnostics** rows at t
 
 It contains no cookies, tokens or cell values. Send it back with a note of what you expected.
 
-If no button appears, check that the extension is on in `chrome://extensions`, that it was reloaded after a rebuild or update, and that the tab was refreshed afterwards.
+If the results page says **Not connected** or **Nothing to analyse**, see [Use it](#use-it).
 
 ## Development
 
@@ -166,7 +183,7 @@ If no button appears, check that the extension is on in `chrome://extensions`, t
 | `npm run typecheck` | Type-checks `src/` (`tsc -p tsconfig.json`). |
 | `npm test` | Runs the extension's unit tests in `src/`, the card reader's included (Vitest). |
 | `npm run test:scripts` | Runs the Node scripts' own tests in `scripts/` (packaging, icons, card reader check). |
-| `npm run build` | Type-checks, then bundles `src/` into `dist/content.js` and `dist/model-export.js` (`scripts/build.mjs`). |
+| `npm run build` | Type-checks, then builds the four bundles in `dist/` from `src/` (`scripts/build.mjs`). |
 | `npm run check` | All of the above. GitHub Actions runs it on every push and pull request. |
 | `npm run icons` | Redraws `icons/*.png` from `scripts/icons.mjs`. |
 | `npm run package` | Builds, then writes the release zip (see [Releasing](#releasing)). |
@@ -174,23 +191,37 @@ If no button appears, check that the extension is on in `chrome://extensions`, t
 
 Layout:
 
-- `src/content.ts`: the app page analysis and the Model Building page's button (isolated world), bundled into `dist/content.js`.
-- `src/model-content.ts`: the model export's reading side, in the page's main world, bundled into `dist/model-export.js`.
+- `manifest.json`: the toolbar icon, the service worker and the two content scripts. It asks for no permissions.
+- `src/background.ts`: the service worker, bundled into `dist/background.js`. A click on the toolbar icon opens the results page next to the clicked tab.
+- `results.html`, `results.css` and `src/results/`: the results page. Its script is bundled into `dist/results.js`:
+  - `main.ts`: puts the page together and acts on what you click.
+  - `connection.ts`: talks to the Anaplan tab, and holds what the page says in each state.
+  - `table-engine.ts`: search, filters, sorting and paging.
+  - `columns.ts`: how each column is shown.
+  - `result-view.ts`: the overview, the details, the notes and the diagnostic log, read out of a result.
+  - `markup.ts`: writes the page's HTML, with every value from a result escaped.
+  - `page-ids.ts`: the elements of `results.html` that the script looks up.
+- `src/content.ts`: the script in the Anaplan tab (isolated world), bundled into `dist/content.js`. It says whether the tab shows an app or a model. When the results page asks, it runs the app analysis (`analyse.ts`) or has the model's frame export the model (`bridge.ts`).
+- `src/tab-port.ts`: the Anaplan tab's end of the connection to the results page: one run at a time, its progress and its result, and stopping when the page is closed. `src/protocol.ts` lists the messages, and `src/progress.ts` says how a run reports its steps.
+- `src/result-types.ts`: a result, which is the zip's files as tables. `src/result-zip.ts` writes the CSV files and the zip from them. `src/result-plain.ts` keeps a result to plain data, and `src/pieces.ts` cuts it into the pieces it is sent in.
+- `src/model-content.ts`: the model export's reading side, in the page's main world, bundled into `dist/model-export.js`. The export itself is in `src/model/`.
+- `src/chrome.d.ts`: the few Chrome extension functions used, declared here so no typings package is needed.
 - `src/card-reader/`: the card reader shared with SAM.
+- `design/results-page.html`: the design the results page was made from. It is a reference: nothing loads it and it is not packaged.
 - `scripts/`: build, packaging, icons and the card reader check.
 - `docs/research/`: research notes on the page definition formats the card reader follows.
 
-Bump `version` in both `manifest.json` and `package.json` whenever the bundles change. The panel title and the details files show it, so each build and its output can be told apart, and the packager refuses a mismatch between the two files.
+Bump `version` in `manifest.json`, `package.json` and the two `version` fields at the top of `package-lock.json` whenever the bundles change. The results page and the details files show it, so each build and its output can be told apart, and the packager refuses a mismatch between `manifest.json` and `package.json`.
 
 ## Releasing
 
-1. Bump `version` in `manifest.json` and `package.json`, and add the release to [CHANGELOG.md](CHANGELOG.md).
+1. Bump `version` in `manifest.json`, `package.json` and `package-lock.json`, and add the release to [CHANGELOG.md](CHANGELOG.md).
 2. Check the card reader against SAM: `npm run check:card-reader -- <path to anaplan-sam>` (default `../anaplan-sam`). It must report the five files identical.
 3. Run `npm run check`.
 4. Run `npm run package`. It builds, then writes `release/cardigan-<version>.zip` and prints its SHA-256.
 5. Publish the zip with its SHA-256 as the release's download.
 
-The zip holds only `manifest.json`, `dist/content.js`, `dist/model-export.js` and the icons, never sources, tests, docs or `node_modules`. Its entries are sorted, stored uncompressed and carry fixed times, so the same files give the same bytes, and the same SHA-256, on every run. The packager refuses to run when a bundle is missing or older than the sources it is built from.
+The zip holds eleven files: `manifest.json`, the four bundles in `dist/`, the four icons, `results.html` and `results.css`. It never holds sources, tests, docs or `node_modules`. Its entries are sorted, stored uncompressed and carry fixed times, so the same files give the same bytes, and the same SHA-256, on every run. The packager refuses to run when a bundle is missing or older than the sources it is built from, or when the results page loads a file that is not in the zip.
 
 ## Relationship to SAM
 
