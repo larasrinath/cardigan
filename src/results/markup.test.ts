@@ -1,0 +1,294 @@
+import { describe, expect, it } from "vitest";
+import { DETAILS_HEADERS } from "../details.js";
+import { HEADERS } from "../report.js";
+import type { AnalysisResult, Cell, ResultTable } from "../result-types.js";
+import { cardsOf, columnsOf, rowKeys, type Column } from "./columns.js";
+import {
+  bannersHtml, cardDrawerHtml, cardDrawerSubHtml, cellHtml, colChooserHtml, colFilterHtml, crumbsHtml, detailsHtml, esc, headerMetaHtml, idPill,
+  MOON_ICON, navHtml, overviewHtml, pagerHtml, rowDrawerHtml, runHtml, SUN_ICON, tableHtml, type Links, type TableView,
+} from "./markup.js";
+import { decode, readMarkup, shownValues, structure } from "./markup.test-support.js";
+import { analysedOf, cardSections, detailSections, detailsOf, diagnosticLog, overviewOf, resultNotes } from "./result-view.js";
+import { pageOf, selectRows, valueCounts } from "./table-engine.js";
+
+/** What an Anaplan user can type into a card title, a text card, a name or a formula. */
+const IMG = "<img src=x onerror=alert(1)>";
+const QUOTED = "Bob's \"<b>Q4</b>\" plan";
+const SCRIPT = "<script>alert(document.cookie)</script>";
+const BREAK_OUT = "\" onmouseover=\"alert(1)\" data-act=\"";
+const BREAK_OUT_SINGLE = "' onfocus='alert(1)' autofocus x='";
+const ENTITY = "&lt;b&gt; &amp;amp; &quot;";
+const CLOSERS = "</td></tr></table></div><iframe src=//evil.example></iframe><!-- ";
+const HOSTILE = [IMG, QUOTED, SCRIPT, BREAK_OUT, BREAK_OUT_SINGLE, ENTITY, CLOSERS];
+
+/** Texts for one build of a piece of markup: the hostile ones in turn, or a harmless word in their place. */
+type Texts = (index: number) => string;
+const hostile: Texts = index => HOSTILE[index % HOSTILE.length];
+const harmless: Texts = index => `word ${index}`;
+
+/** The attributes that may hold a value from a result: a tooltip, a label for screen readers, the search box and an ID to copy. */
+const VALUE_ATTRIBUTES = new Set(["title", "aria-label", "value", "data-copy"]);
+
+/** Builds a piece of markup twice, with hostile and with harmless texts in the same places, and checks that the data
+ * changed nothing but text: the same elements with the same attributes, every hostile text shown exactly as typed, and
+ * none of it in an attribute that is more than a text. `used` is how many different texts the markup takes. */
+function expectInert(build: (text: Texts) => string, used: number): void {
+  const html = build(hostile);
+  expect(structure(html)).toEqual(structure(build(harmless)));
+  const shown = shownValues(html);
+  for (let index = 0; index < used; index++) expect(shown.filter(value => value.includes(hostile(index))), `text ${index} is shown as typed`).not.toEqual([]);
+  for (const tag of readMarkup(html).tags) {
+    for (const [name, value] of tag.attributes) {
+      if (value !== undefined && HOSTILE.some(text => decode(value).includes(text))) expect(VALUE_ATTRIBUTES, `${tag.name} ${name}`).toContain(name);
+    }
+  }
+}
+
+const LINKS: Links = { page: true, card: true };
+const NO_LINKS: Links = { page: false, card: false };
+const column = (index: number, label: string, kind: Column["kind"] = "text", extra: Partial<Column> = {}): Column =>
+  ({ index, label, kind, num: false, filter: false, hidden: false, ...extra });
+const KINDS: Column["kind"][] = ["text", "id", "tag", "page", "card"];
+const tagNames = (html: string) => [...new Set(readMarkup(html).tags.map(tag => tag.name))].sort();
+const attributeNames = (html: string) => [...new Set(readMarkup(html).tags.flatMap(tag => [...tag.attributes.keys()]))].sort();
+
+/** A table view as the page builds it for a table, with nothing chosen. */
+function viewOf(table: ResultTable, links: Links, overrides: Partial<TableView> = {}): TableView {
+  const page = pageOf(selectRows(table.rows, { search: "", filters: new Map() }), 0, 50);
+  return { label: table.label, columns: columnsOf(table), rows: page.rows, page: page.page, pages: page.pages, pageSize: 50, from: page.from, to: page.to,
+    total: page.total, all: table.rows.length, search: "", sort: undefined, filtered: new Set(), context: undefined, links, ...overrides };
+}
+
+describe("The results page's escaping", () => {
+  it("escapes the five characters that can end a text or a quoted attribute, and nothing else", () => {
+    expect(esc("<a href=\"x\" title='y'>&</a>")).toBe("&lt;a href=&quot;x&quot; title=&#39;y&#39;&gt;&amp;&lt;/a&gt;");
+    expect(esc("&lt;")).toBe("&amp;lt;");
+    expect([esc("plain text, 100% – ok"), esc(12), esc(0), esc(""), esc(undefined), esc(null)]).toEqual(["plain text, 100% – ok", "12", "0", "", "", ""]);
+    for (const text of HOSTILE) {
+      expect(esc(text)).not.toMatch(/[<>"']/);
+      expect(decode(esc(text))).toBe(text);
+    }
+  });
+
+  it("shows a card title that holds an img tag with an onerror attribute as its text, in the table and in the drawer", () => {
+    const cards: ResultTable = { file: "Cards.csv", label: "Cards", headers: HEADERS.Cards, guard: true,
+      rows: [HEADERS.Cards.map(header => (header === "Card title" ? IMG : header === "Card #" ? 1 : header === "Card ID" ? "card-a" : "Overview"))] };
+    for (const html of [tableHtml(viewOf(cards, LINKS)), rowDrawerHtml(columnsOf(cards), cards.rows[0], LINKS), cardDrawerHtml(columnsOf(cards), cards.rows[0], LINKS, [])]) {
+      expect(html).not.toContain("<img");
+      expect(html).toContain("&lt;img src=x onerror=alert(1)&gt;");
+      expect(tagNames(html)).not.toContain("img");
+      expect(attributeNames(html).filter(name => /^on/i.test(name))).toEqual([]);
+      // The title is a link to the card's details, and its text is what was typed.
+      expect(html).toContain("<button type=\"button\" class=\"link\" data-act=\"card\" title=\"Open card details\">&lt;img src=x onerror=alert(1)&gt;</button>");
+    }
+  });
+
+  it("shows a name that holds quotes and angle brackets as its text: the app, a file, a page, a model", () => {
+    const pieces = [
+      headerMetaHtml({ name: QUOTED, kind: "App", host: QUOTED, exportedOn: QUOTED }),
+      navHtml([{ id: "overview", label: "Overview" }, { id: "1", label: QUOTED, count: 2 }], "1"),
+      crumbsHtml(QUOTED, QUOTED),
+      overviewHtml({ tiles: [{ label: QUOTED, count: 1 }], cardTypes: [[QUOTED, 1]], models: [{ model: QUOTED, workspace: QUOTED, modelId: QUOTED }] }),
+      tableHtml(viewOf({ file: "Pages.csv", label: QUOTED, headers: ["Page", QUOTED], rows: [[QUOTED, QUOTED]], guard: true }, LINKS, { search: QUOTED, context: QUOTED })),
+      cardDrawerSubHtml(QUOTED, QUOTED, QUOTED),
+    ];
+    for (const html of pieces) {
+      expect(html).not.toContain("<b>");
+      expect(html).not.toContain(QUOTED);
+      expect(html).toContain("Bob&#39;s &quot;&lt;b&gt;Q4&lt;/b&gt;&quot; plan");
+      expect(tagNames(html)).not.toContain("b");
+      expect(shownValues(html).some(value => value.includes(QUOTED))).toBe(true);
+    }
+    // In an attribute the name stays inside its quotes: the page link's tooltip is the whole name and nothing follows it.
+    const link = readMarkup(cellHtml(column(0, "Page", "page"), [QUOTED], LINKS)).tags[0];
+    expect([...link.attributes.keys()]).toEqual(["type", "class", "data-act", "title"]);
+    expect(decode(link.attributes.get("title") ?? "")).toBe(`Show cards on ${QUOTED}`);
+  });
+
+  it("shows a cell that holds a script tag as its text, whatever its column: text, ID, tag or link", () => {
+    for (const kind of KINDS) {
+      for (const links of [LINKS, NO_LINKS]) {
+        const html = cellHtml(column(0, "Any", kind), [SCRIPT], links);
+        expect(html, kind).not.toContain("<script");
+        expect(html, kind).toContain("&lt;script&gt;alert(document.cookie)&lt;/script&gt;");
+        expect(tagNames(html), kind).not.toContain("script");
+        expect(readMarkup(html).texts.map(decode), kind).toEqual([SCRIPT]);
+      }
+    }
+    // An ID is copied from an attribute: the attribute holds the whole ID, as typed, and ends where it should.
+    const pill = readMarkup(idPill(SCRIPT)).tags[0];
+    expect([...pill.attributes.keys()]).toEqual(["type", "class", "data-copy", "title", "aria-label"]);
+    expect(decode(pill.attributes.get("data-copy") ?? "")).toBe(SCRIPT);
+    expect(detailsHtml([{ section: SCRIPT, rows: [[SCRIPT, SCRIPT]] }], [SCRIPT])).not.toContain("<script");
+    expect(bannersHtml([SCRIPT], [SCRIPT])).not.toContain("<script");
+  });
+
+  it("lets no text change a cell's markup, in any kind of column", () => {
+    for (const kind of KINDS) {
+      for (const links of [LINKS, NO_LINKS]) {
+        for (let index = 0; index < HOSTILE.length; index++) expectInert(text => cellHtml(column(0, "Any", kind), [text(index)], links), 0);
+      }
+    }
+    for (let index = 0; index < HOSTILE.length; index++) expectInert(text => idPill(text(index)), 0);
+    for (const text of HOSTILE) expect(shownValues(cellHtml(column(0, "Any"), [text], LINKS))).toContain(text);
+  });
+
+  it("lets no text change the header, the banners, the navigation or the breadcrumb", () => {
+    expectInert(text => headerMetaHtml({ name: text(0), kind: text(1), host: text(2), exportedOn: text(3) }), 4);
+    expectInert(text => bannersHtml([text(0), text(1), text(2)], [text(3), text(4), text(5), text(6)]), 7);
+    expectInert(text => navHtml([{ id: "overview", label: text(0) }, { id: "1", label: text(1), count: 3 }, { id: "details", label: text(2) }], "details"), 3);
+    expectInert(text => crumbsHtml(text(0), text(1)), 2);
+    expectInert(text => crumbsHtml(text(2), undefined), 0);
+  });
+
+  it("lets no text change the overview or the details view", () => {
+    expectInert(text => overviewHtml({
+      tiles: [{ label: text(0), count: 3 }, { label: text(1), count: 1 }], cardTypes: [[text(2), 4], [text(3), 1]],
+      models: [{ model: text(4), workspace: text(5), modelId: text(6) }, { model: text(7), workspace: text(8), modelId: text(9) }],
+    }), 7);
+    expectInert(text => detailsHtml([{ section: text(0), rows: [[text(1), text(2)], [text(3), text(4)]] }, { section: text(5), rows: [[text(6), text(7)]] }], [text(8), text(9), text(10)]), 7);
+  });
+
+  it("lets no text change a table: its name, its headers, its cells, the search box, the page a jump keeps", () => {
+    const table = (text: Texts): ResultTable => ({
+      file: "Anything.csv", label: text(0), headers: [text(1), text(2), text(3), text(4), text(5)], guard: true,
+      rows: [[text(6), text(0), text(1), text(2), text(3)], [text(4), text(5), text(6), text(0), text(1)]],
+    });
+    const kinds = (source: ResultTable): Column[] => columnsOf(source).map((entry, index) => ({ ...entry, kind: KINDS[index], filter: index % 2 === 0, num: index === 1 }));
+    expectInert(text => tableHtml(viewOf(table(text), LINKS, { columns: kinds(table(text)), search: text(2), context: text(3), sort: { column: 1, dir: "asc" }, filtered: new Set([0]) })), 7);
+    // A table with no rows, and one whose search finds nothing.
+    expectInert(text => tableHtml(viewOf({ ...table(text), rows: [] }, NO_LINKS)), 6);
+    expectInert(text => tableHtml(viewOf(table(text), LINKS, { rows: [], total: 0, from: 0, to: 0, search: text(2), context: text(3), filtered: new Set([1]) })), 6);
+  });
+
+  it("lets no text change the column filter, the column chooser or the drawer", () => {
+    expectInert(text => colFilterHtml(column(0, text(0), "text", { filter: true }), [[text(1), 3], [text(2), 1], [text(3), 1]], new Set([text(1), text(3)])), 4);
+    expectInert(text => colFilterHtml(column(0, text(0)), [[text(1), 3]], undefined), 2);
+    expectInert(text => colChooserHtml([column(0, text(0)), column(1, text(1), "id", { hidden: true }), column(2, text(2))], new Set([1])), 3);
+    const columns = (text: Texts) => KINDS.map((kind, index) => column(index, text(index), kind));
+    const row = (text: Texts): Cell[] => KINDS.map((_, index) => text(index + 2));
+    expectInert(text => rowDrawerHtml(columns(text), row(text), LINKS), 7);
+    expectInert(text => cardDrawerSubHtml(text(0), text(1), text(2)), 3);
+    expectInert(text => cardDrawerHtml(columns(text), row(text), LINKS, [
+      { title: text(0), none: text(1), headings: [text(2), text(3)], rows: [[text(4), text(5)], [text(6), text(0)]] },
+      { title: text(1), none: text(2), headings: [text(3)], rows: [] },
+    ]), 7);
+  });
+
+  it("writes only numbers the page counted itself into the pager and into what a click reads", () => {
+    const html = pagerHtml(3, 12, 600, 50);
+    expect(readMarkup(html).tags.filter(tag => tag.attributes.has("data-page")).map(tag => tag.attributes.get("data-page"))).toEqual(["2", "0", "2", "3", "4", "11", "4"]);
+    expect(pagerHtml(0, 1, 0, 50)).toBe("");
+    const filter = readMarkup(colFilterHtml(column(4, "Card type"), [[SCRIPT, 1], [IMG, 2]], undefined)).tags.filter(tag => tag.name === "input");
+    expect(filter.map(tag => tag.attributes.get("data-fval"))).toEqual(["0", "1"]);
+  });
+
+  it("holds no text of its own in the view of a run: the page sets each part as plain text", () => {
+    const { tags, texts } = readMarkup(runHtml());
+    expect(tags.flatMap(tag => (tag.attributes.has("id") ? [tag.attributes.get("id")] : []))).toEqual(["runTitle", "runStatus", "runHint", "runLog", "diagLog"]);
+    expect(texts.map(text => text.trim()).filter(text => text !== "")).toEqual(["Diagnostics", "Copy diagnostic log"]);
+  });
+});
+
+describe("A result whose every text is hostile, through every view of the page", () => {
+  let next = 0;
+  const text = (): string => HOSTILE[next++ % HOSTILE.length];
+  const appTable = (file: string, headers: string[], rows: number): ResultTable => ({
+    file, label: file.replace(/\.csv$/, ""), headers, guard: true,
+    // Every cell is hostile, except what ties a row to its card and page, which the drawer looks up.
+    rows: Array.from({ length: rows }, () => headers.map(header => (header === "Page" ? QUOTED : header === "Card ID" ? SCRIPT : text()))),
+  });
+  const result: AnalysisResult = {
+    kind: "app", name: IMG, id: SCRIPT, zipName: `${QUOTED}.zip`, summary: [text(), text()],
+    tables: [
+      { file: "App Details.csv", label: "App Details", headers: DETAILS_HEADERS, guard: true, details: true,
+        rows: [["App", text(), text()], ["Export", "Anaplan host", text()], ["Export", "Exported on", text()], ["Notes", text(), text()], [text(), text(), text()],
+          ["Diagnostics", "14:02:05", text()], ["Diagnostics", "", text()]] },
+      appTable("Pages.csv", HEADERS.Pages, 2),
+      appTable("Cards.csv", HEADERS.Cards, 3),
+      appTable("Grid Sections.csv", HEADERS["Grid sections"], 2),
+      appTable("Filters.csv", HEADERS.Filters, 2),
+      appTable("Conditional Formatting.csv", HEADERS.Formatting, 1),
+      appTable("Action Buttons.csv", HEADERS.Actions, 0),
+      appTable("Where Used.csv", HEADERS["Where used"], 2),
+      { file: SCRIPT, label: IMG, headers: ["", IMG, QUOTED], rows: [[SCRIPT, BREAK_OUT, BREAK_OUT_SINGLE], [CLOSERS, ENTITY, ""]], guard: false },
+    ],
+  };
+
+  /** Every piece of markup the page writes for the result, as main.ts puts it together. */
+  function everyView(): string[] {
+    const details = detailsOf(result);
+    const cards = cardsOf(result);
+    const notes = resultNotes(result);
+    const tables = result.tables.filter(table => table !== details);
+    const linksOf = (table: ResultTable): Links => {
+      const keys = rowKeys(table);
+      return { page: cards !== undefined && keys.page !== undefined, card: cards !== undefined && keys.page !== undefined && keys.cardId !== undefined };
+    };
+    const pieces = [
+      headerMetaHtml(analysedOf(result)),
+      bannersHtml(notes.summary, notes.notes),
+      navHtml([{ id: "overview", label: "Overview" }, ...tables.map((table, index) => ({ id: String(index + 1), label: table.label, count: table.rows.length })), { id: "details", label: "Details" }], "overview"),
+      overviewHtml(overviewOf(result)),
+      detailsHtml(detailSections(details), diagnosticLog(details)),
+    ];
+    for (const table of tables) {
+      const columns = columnsOf(table);
+      const links = linksOf(table);
+      pieces.push(crumbsHtml(table.label, QUOTED));
+      pieces.push(tableHtml(viewOf(table, links, { search: SCRIPT, context: QUOTED })));
+      pieces.push(tableHtml(viewOf(table, links, { columns: columns.filter(entry => !entry.hidden) })));
+      pieces.push(colChooserHtml(columns, new Set()));
+      for (const entry of columns.filter(candidate => candidate.filter)) pieces.push(colFilterHtml(entry, valueCounts(table.rows, entry.index), undefined));
+      for (const row of table.rows) pieces.push(rowDrawerHtml(columns, row, links));
+    }
+    if (cards) {
+      for (const row of cards.table.rows) {
+        pieces.push(cardDrawerSubHtml(String(row[cards.page]), IMG, String(row[cards.cardId])));
+        pieces.push(cardDrawerHtml(columnsOf(cards.table), row, linksOf(cards.table), cardSections(result, String(row[cards.page]), String(row[cards.cardId]))));
+      }
+    }
+    return pieces;
+  }
+
+  it("is made of the design's own elements and attributes only", () => {
+    const html = everyView().join("\n");
+    const elements = new Set(["button", "circle", "dd", "details", "div", "dl", "dt", "em", "h1", "h3", "input", "kbd", "label", "option", "p", "path", "pre", "rect",
+      "section", "select", "span", "strong", "summary", "svg", "table", "tbody", "td", "th", "thead", "tr"]);
+    const attributes = /^(aria-[a-z]+|data-(act|nav|copy|sort|colfilter|col|fval|page|popact)|class|type|title|style|id|hidden|open|disabled|checked|selected|value|placeholder|tabindex|role|scope|width|height|viewBox|fill|stroke|stroke-width|stroke-linecap|stroke-linejoin|d|cx|cy|r|x|y|rx)$/;
+    expect(tagNames(html).filter(name => !elements.has(name))).toEqual([]);
+    expect(attributeNames(html).filter(name => !attributes.test(name))).toEqual([]);
+    // The table, the drawer and the popovers are all there: this is the whole page, not a corner of it.
+    expect(["table", "input", "dl", "pre", "select", "svg"].filter(name => !tagNames(html).includes(name))).toEqual([]);
+  });
+
+  it("keeps every text out of the attributes that are more than a text: classes, styles, IDs and what a click reads", () => {
+    const styles = new Set<string>();
+    for (const html of everyView()) {
+      for (const tag of readMarkup(html).tags) {
+        for (const [name, value] of tag.attributes) {
+          if (value === undefined) continue;
+          if (HOSTILE.some(entry => decode(value).includes(entry))) expect(VALUE_ATTRIBUTES, `${tag.name} ${name}="${value}"`).toContain(name);
+          if (name === "style") styles.add(value.replace(/\d+%/, "N%"));
+          if (name === "class") expect(value, "a class").toMatch(/^[a-z0-9 -]*$/);
+          if (/^data-(sort|colfilter|col|fval|page)$/.test(name)) expect(value, name).toMatch(/^-?\d+$/);
+          if (name === "data-act") expect(["page", "card", "reset", "clear-search", "clear-context", "copy-diag"]).toContain(value);
+          if (name === "data-nav") expect(value).toMatch(/^(overview|details|map|\d+)$/);
+          if (name === "id") expect(value).toMatch(/^[A-Za-z]+$/);
+        }
+      }
+    }
+    // Every style on the page is one of the design's own; the only part that varies is a bar's width, a number.
+    expect([...styles].sort()).toEqual(["display:block;width:N%", "font-family:var(--mono);font-size:11px", "font-size:12px;color:var(--text-3);margin:4px 0 0",
+      "margin-left:auto", "overflow:hidden;text-overflow:ellipsis"]);
+  });
+
+  it("shows each hostile text as it was typed, somewhere on the page", () => {
+    const shown = everyView().flatMap(shownValues);
+    for (const entry of HOSTILE) expect(shown.some(value => value.includes(entry)), entry).toBe(true);
+  });
+
+  it("has static icons that hold nothing but their drawing", () => {
+    for (const icon of [SUN_ICON, MOON_ICON]) expect(tagNames(icon).filter(name => !["svg", "path", "circle"].includes(name))).toEqual([]);
+  });
+});
