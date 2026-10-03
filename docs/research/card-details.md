@@ -1,6 +1,8 @@
 # UX card details: sources, grid queries and card settings
 
-Research date: September 27, 2026. [Definitions](definitions.md) | [Contracts](contracts.md) | [Coverage register](../../tool-catalog/ux-designer-coverage.json)
+Research date: September 27, 2026. [Definitions (SAM)](https://github.com/larasrinath/anaplan-sam/blob/main/docs/research/ux-designer/definitions.md) | [Contracts (SAM)](https://github.com/larasrinath/anaplan-sam/blob/main/docs/research/ux-designer/contracts.md) | [Coverage register (SAM)](https://github.com/larasrinath/anaplan-sam/blob/main/docs/tool-catalog/ux-designer-coverage.json)
+
+> **Copied from SAM.** This note was written in SAM (anaplan-sam, `docs/research/ux-designer/`), whose card reader Cardigan shares in [`src/card-reader/`](../../src/card-reader/). Its companion notes, SAM's source files and the archive paths below (`docs/plans/…`, `.sam/…`, Git-ignored) are in SAM's repository, not here.
 
 > **Superseded in part:** [Page Builder card formats](card-formats-designer.md) traces the designer bundles of the same date. Its findings replace sections 3 (conditional-formatting types: `BG_COLOR`, `FONT`, `SLOT` = Border, `MORSE`), 5 (KPI formatting and indicators) and 7 (action button types), and refine section 4 (saved-view grids).
 
@@ -15,7 +17,7 @@ This note supports a read-only tool that describes each card on a board, workshe
 | `docs/plans/model-building-sources/translations.en.js` | [Modeling UI strings](https://us1a.app.anaplan.com/a/modeling-ui/assets/translations.en-D6blp6aW.js) | `5ec3c07a7c6187363238bbb0487d1464def848b9c4256514c039d7c5de61457c` | English labels for Page details |
 | `.sam/ux-pages/hc18-board.json` (Git-ignored) | One board read back by SAM | — | Observed shapes only |
 
-Both `vendor.js` archives were searched and contain none of these contracts. The Page Builder designer bundles (`designer.js`, `report.js` in [definitions.md](definitions.md)) are **not present in this working tree**. Designer-only behaviour is therefore unknown here unless definitions.md already traced it.
+Both `vendor.js` archives were searched and contain none of these contracts. The Page Builder designer bundles (`designer.js`, `report.js` in [definitions.md](https://github.com/larasrinath/anaplan-sam/blob/main/docs/research/ux-designer/definitions.md)) were **not present in SAM's working tree**. Designer-only behaviour is therefore unknown here unless definitions.md already traced it.
 
 **Offsets** are zero-based UTF-16 indices (`source.slice(offset)`), as in definitions.md. These archives contain non-ASCII text, so `grep -bo` byte offsets are larger. Every offset below was recomputed from a unique substring. Minified names apply only to these snapshots. The shared library appears in both bundles; app-shell offsets are primary.
 
@@ -325,7 +327,7 @@ GET /a/springboard-definition-service/customer/{customerId}/model/{modelId}/page
 
 With `pdi`, the tab is labelled "Dependencies" and warns: "You won't see modules that are used in action cards, as a filter or from other models" (translations 18401). The capture's filter line item is exactly this case.
 
-**SAM:** the UX transport accepts paths matching `^/a/springboard-(definition|clone|report-export)-service/` and `apiVersion` `"1"` or `"2"`, defaulting to `"1"` (`src/domains/ux-designer/program.ts`, lines 28–29 and 42). The route is therefore inside the allowed family, and both versions are permitted. Per [contracts.md](contracts.md), do not assume the v1 and v2 responses have the same shape. The summary is a cross-check, not a replacement for parsing cards.
+**SAM:** the UX transport accepts paths matching `^/a/springboard-(definition|clone|report-export)-service/` and `apiVersion` `"1"` or `"2"`, defaulting to `"1"` (`src/domains/ux-designer/program.ts`, lines 28–29 and 42). The route is therefore inside the allowed family, and both versions are permitted. Per [contracts.md](https://github.com/larasrinath/anaplan-sam/blob/main/docs/research/ux-designer/contracts.md), do not assume the v1 and v2 responses have the same shape. The summary is a cross-check, not a replacement for parsing cards.
 
 ## 11. Worksheet and report placement
 
