@@ -1,0 +1,1503 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cardigan — Demo - Assortment Planning</title>
+<!--
+  Cardigan results page (design deliverable).
+  Self-contained: inline CSS + vanilla JS, no external fonts/scripts/CDNs/images,
+  suitable for a Chrome extension page under a strict content security policy.
+  All fictional sample data lives in one JSON object (SAMPLE) at the top of the script.
+-->
+<style>
+/* ---------- tokens ---------- */
+:root{
+  --bg:#faf9f5; --panel:#ffffff; --panel-2:#f3f1ea; --panel-3:#eceade;
+  --border:#e5e4df; --border-strong:#d4d2c8;
+  --text:#191919; --text-2:#5b584f; --text-3:#76726a;
+  --ink:#262625; --ink-text:#faf9f5;
+  --accent:#2b5bd7; --accent-soft:#e9eefb; --accent-ink:#1f46b4;
+  --danger:#b3261e; --danger-soft:#f8e7e4;
+  --warn:#8a5a00;  --warn-soft:#faf0d7;
+  --ok:#1e7b47;    --ok-soft:#e7f2ea;
+  --ring:#2b5bd7;
+  --shadow:0 10px 30px rgba(25,25,25,.16);
+  --mono:ui-monospace,"SF Mono","Cascadia Mono","Roboto Mono",Consolas,"Liberation Mono",monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --r-xs:4px; --r-sm:8px; --r-md:12px;
+}
+:root[data-theme="dark"]{
+  --bg:#141413; --panel:#1d1d1b; --panel-2:#242422; --panel-3:#2c2c29;
+  --border:#2f2f2b; --border-strong:#40403a;
+  --text:#faf9f5; --text-2:#aaa69c; --text-3:#827d72;
+  --ink:#faf9f5; --ink-text:#191919;
+  --accent:#8fa8f2; --accent-soft:#283049; --accent-ink:#b9c8f8;
+  --danger:#e07a70; --danger-soft:#3b2522;
+  --warn:#d9a83f;  --warn-soft:#3a311c;
+  --ok:#71c08f;    --ok-soft:#20332a;
+  --ring:#8fa8f2;
+  --shadow:0 12px 32px rgba(0,0,0,.5);
+}
+/* ---------- base ---------- */
+*{box-sizing:border-box}
+[hidden]{display:none !important}
+html,body{margin:0;padding:0}
+body{
+  background:var(--bg); color:var(--text);
+  font:13px/1.45 var(--sans);
+  -webkit-font-smoothing:antialiased;
+}
+h1,h2,h3{font-weight:600;margin:0}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+input,select{font:inherit;color:inherit}
+:focus{outline:none}
+:focus-visible{outline:2px solid var(--ring);outline-offset:2px;border-radius:var(--r-xs)}
+.sr-only{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+.skip{position:absolute;left:12px;top:-48px;z-index:100;background:var(--ink);color:var(--ink-text);padding:8px 14px;border-radius:999px;text-decoration:none;transition:top .15s}
+.skip:focus-visible{top:12px}
+::placeholder{color:var(--text-3)}
+
+/* ---------- header ---------- */
+.hd{
+  position:sticky;top:0;z-index:40;display:flex;align-items:center;gap:16px;
+  padding:10px 20px;background:var(--panel);border-bottom:1px solid var(--border);
+}
+.brand{display:flex;align-items:center;gap:10px;flex:none}
+.brand svg{display:block}
+.brand-name{font-size:15px;font-weight:650;letter-spacing:.01em}
+.ver{font-family:var(--mono);font-size:11px;color:var(--text-2);background:var(--panel-2);border:1px solid var(--border);border-radius:999px;padding:1px 8px;margin-left:8px;vertical-align:2px}
+.meta{min-width:0;flex:1}
+.meta-app{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.meta-sub{color:var(--text-2);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.meta-sub .dotsep{margin:0 6px;color:var(--text-3)}
+.hd-actions{display:flex;align-items:center;gap:8px;flex:none}
+.preview-lab{font-size:12px;color:var(--text-3)}
+.select{
+  background:var(--panel-2);border:1px solid var(--border-strong);border-radius:999px;
+  padding:5px 10px;font-size:12px;color:var(--text);
+}
+.btn{
+  display:inline-flex;align-items:center;gap:7px;border-radius:999px;
+  border:1px solid var(--border-strong);background:var(--panel);color:var(--text);
+  padding:6px 14px;font-size:12.5px;font-weight:550;transition:background .15s,border-color .15s;
+}
+.btn:hover{background:var(--panel-2)}
+.btn.primary{background:var(--ink);color:var(--ink-text);border-color:var(--ink)}
+.btn.primary:hover{opacity:.9;background:var(--ink)}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.btn.sm{padding:4px 11px;font-size:12px}
+.btn svg{flex:none}
+.icon-btn{
+  display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;
+  border-radius:999px;border:1px solid var(--border-strong);background:var(--panel);color:var(--text-2);
+  transition:background .15s;
+}
+.icon-btn:hover{background:var(--panel-2);color:var(--text)}
+.nav-toggle{display:none}
+
+/* ---------- banners ---------- */
+.banners{padding:12px 20px 0;display:grid;gap:8px;max-width:1600px;margin:0 auto}
+.banner{
+  display:flex;gap:10px;align-items:flex-start;border-radius:var(--r-sm);
+  padding:10px 14px;font-size:12.5px;border:1px solid;
+}
+.banner svg{flex:none;margin-top:1px}
+.banner.warn{background:var(--warn-soft);border-color:color-mix(in srgb,var(--warn) 35%,transparent);color:var(--text)}
+.banner.warn svg{color:var(--warn)}
+.banner.note{background:var(--panel-2);border-color:var(--border);color:var(--text-2)}
+.banner strong{font-weight:600}
+.banner code{font-family:var(--mono);font-size:11.5px}
+
+/* ---------- shell / nav ---------- */
+.shell{display:flex;gap:20px;max-width:1600px;margin:0 auto;padding:12px 20px 32px;align-items:flex-start}
+.sidenav{
+  width:224px;flex:none;position:sticky;top:68px;max-height:calc(100vh - 84px);overflow:auto;
+  background:var(--panel);border:1px solid var(--border);border-radius:var(--r-md);padding:8px;
+}
+.sidenav h2{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text-3);padding:8px 10px 6px}
+.nav-item{
+  display:flex;align-items:center;gap:8px;width:100%;text-align:left;
+  padding:7px 10px;border-radius:var(--r-sm);font-size:13px;color:var(--text);
+  transition:background .12s;
+}
+.nav-item:hover{background:var(--panel-2)}
+.nav-item[aria-current="page"]{background:var(--accent-soft);color:var(--accent-ink);font-weight:600}
+.nav-item .cnt{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--text-3);background:var(--panel-2);border-radius:999px;padding:1px 7px}
+.nav-item[aria-current="page"] .cnt{background:transparent;color:var(--accent-ink)}
+.nav-item.disabled{opacity:.5;cursor:not-allowed}
+.nav-item.disabled:hover{background:none}
+.nav-item .soon{font-size:10.5px;color:var(--text-3);border:1px dashed var(--border-strong);border-radius:999px;padding:0 6px;margin-left:auto}
+
+main{flex:1;min-width:0}
+.crumbs{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:2px 0 10px;font-size:12.5px;color:var(--text-2)}
+.crumbs button{color:var(--accent);text-decoration:none;border-radius:var(--r-xs)}
+.crumbs button:hover{text-decoration:underline}
+.crumbs .sep{color:var(--text-3)}
+.crumbs .ctx{
+  display:inline-flex;align-items:center;gap:6px;background:var(--accent-soft);color:var(--accent-ink);
+  border-radius:999px;padding:2px 6px 2px 10px;font-size:12px;font-weight:550;
+}
+.crumbs .ctx button{display:inline-flex;color:inherit;border-radius:999px;padding:1px}
+.view-title{font-size:17px;font-weight:650;margin:0 0 12px}
+
+/* ---------- toolbar ---------- */
+.toolbar{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap}
+.search-wrap{
+  display:flex;align-items:center;gap:7px;background:var(--panel);border:1px solid var(--border-strong);
+  border-radius:999px;padding:0 8px 0 12px;height:32px;min-width:280px;color:var(--text-3);
+}
+.search-wrap:focus-within{border-color:var(--ring);box-shadow:0 0 0 2px color-mix(in srgb,var(--ring) 30%,transparent)}
+.search-wrap input{border:0;background:none;flex:1;min-width:80px;color:var(--text);font-size:12.5px}
+.search-wrap input:focus-visible{outline:none}
+.search-wrap kbd{
+  font-family:var(--mono);font-size:10.5px;color:var(--text-3);border:1px solid var(--border);
+  border-bottom-width:2px;border-radius:4px;padding:0 5px;background:var(--panel-2);
+}
+.search-clear{display:none;color:var(--text-3);border-radius:999px;padding:2px}
+.search-clear:hover{color:var(--text)}
+.search-wrap.has-value .search-clear{display:inline-flex}
+.rowcount{margin-left:auto;font-size:12px;color:var(--text-2);font-variant-numeric:tabular-nums}
+
+/* ---------- table ---------- */
+.table-wrap{
+  position:relative;overflow:auto;max-height:calc(100vh - 268px);min-height:220px;
+  background:var(--panel);border:1px solid var(--border);border-radius:var(--r-md);
+}
+table{border-collapse:separate;border-spacing:0;width:max-content;min-width:100%;font-size:12.5px}
+thead th{
+  position:sticky;top:0;z-index:3;background:var(--panel-2);color:var(--text-2);
+  font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;text-align:left;
+  border-bottom:1px solid var(--border-strong);padding:0;white-space:nowrap;
+}
+.th-in{display:flex;align-items:center;gap:2px;padding:8px 10px}
+.th-sort{display:inline-flex;align-items:center;gap:5px;color:inherit;font:inherit;text-transform:inherit;letter-spacing:inherit;border-radius:var(--r-xs);padding:1px 2px}
+.th-sort:hover{color:var(--text)}
+.th-sort .dir{color:var(--accent);font-size:9px;width:9px}
+.th-filter{display:inline-flex;padding:3px;border-radius:999px;color:var(--text-3)}
+.th-filter:hover{color:var(--text);background:var(--panel-3)}
+.th-filter.active{color:var(--accent)}
+.th-filter .fdot{position:absolute}
+th.num .th-in,td.num{justify-content:flex-end;text-align:right}
+tbody td{
+  padding:7px 10px;border-bottom:1px solid var(--border);vertical-align:top;
+  max-width:340px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+tbody tr:hover{background:var(--panel-2)}
+tbody tr:last-child td{border-bottom:0}
+td.num{font-variant-numeric:tabular-nums}
+.cell-t{display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom}
+.link{color:var(--accent);border-radius:var(--r-xs);text-align:left;max-width:100%;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom}
+.link:hover{text-decoration:underline}
+.dash{color:var(--text-3)}
+.scroll-fade{
+  position:sticky;bottom:0;left:0;right:0;height:26px;pointer-events:none;
+  background:linear-gradient(to bottom,transparent,var(--panel));opacity:1;transition:opacity .2s;
+}
+.table-wrap.at-end .scroll-fade,.table-wrap.no-scroll .scroll-fade{opacity:0}
+
+/* pills, chips, badges, tags */
+.id-pill{
+  font-family:var(--mono);font-size:11px;background:var(--panel-2);border:1px solid var(--border-strong);
+  border-radius:5px;padding:1px 6px;color:var(--text-2);cursor:copy;max-width:180px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:1px;transition:border-color .12s,color .12s;
+}
+.id-pill:hover{border-color:var(--accent);color:var(--accent)}
+.nr-hint{font-size:10.5px;color:var(--text-3);margin-left:5px;font-style:italic}
+.chips{display:flex;flex-wrap:wrap;gap:4px;white-space:normal}
+.chip{
+  display:inline-flex;align-items:center;gap:5px;background:var(--panel-2);border:1px solid var(--border);
+  border-radius:999px;padding:1px 9px;font-size:11.5px;color:var(--text-2);max-width:300px;
+}
+.chip .cell-t{color:inherit}
+.chip .sw{width:10px;height:10px;border-radius:3px;border:1px solid rgba(0,0,0,.18);flex:none}
+.badge{
+  display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:1px 9px;
+  font-size:11px;font-weight:600;white-space:nowrap;
+}
+.badge.gone{background:var(--danger-soft);color:var(--danger);margin-left:5px}
+.badge.pub{background:var(--ok-soft);color:var(--ok)}
+.badge.unpub{background:var(--warn-soft);color:var(--warn)}
+.badge .bdot{width:6px;height:6px;border-radius:999px;background:currentColor}
+.tag{
+  display:inline-block;background:var(--panel-2);border:1px solid var(--border);border-radius:var(--r-xs);
+  padding:1px 7px;font-size:11.5px;color:var(--text-2);
+}
+
+/* pagination */
+.pager{display:flex;align-items:center;gap:10px;margin-top:10px;font-size:12px;color:var(--text-2);flex-wrap:wrap}
+.pager .pages{display:flex;gap:4px;align-items:center}
+.pg-btn{min-width:28px;height:28px;border-radius:999px;border:1px solid var(--border-strong);background:var(--panel);padding:0 8px;font-variant-numeric:tabular-nums}
+.pg-btn:hover:not([disabled]){background:var(--panel-2)}
+.pg-btn[aria-current="true"]{background:var(--ink);color:var(--ink-text);border-color:var(--ink);font-weight:600}
+.pg-btn[disabled]{opacity:.4;cursor:default}
+.pager select{border:1px solid var(--border-strong);background:var(--panel);border-radius:999px;padding:3px 8px;font-size:12px}
+
+/* empty states */
+.empty{padding:56px 20px;text-align:center;color:var(--text-2)}
+.empty .e-title{font-size:14px;font-weight:600;color:var(--text);margin-bottom:6px}
+.empty .e-sub{font-size:12.5px;margin-bottom:14px}
+.empty svg{color:var(--text-3);margin-bottom:10px}
+
+/* ---------- overview ---------- */
+.ov-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(158px,1fr));gap:12px;margin-bottom:16px}
+.stat{background:var(--panel);border:1px solid var(--border);border-radius:var(--r-md);padding:12px 14px}
+.stat .s-lab{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--text-3)}
+.stat .s-num{font-size:26px;font-weight:650;font-variant-numeric:tabular-nums;margin-top:4px;line-height:1.1}
+.stat .s-sub{font-size:11.5px;color:var(--text-2);margin-top:4px}
+.ov-cols{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
+.panel{background:var(--panel);border:1px solid var(--border);border-radius:var(--r-md);padding:14px 16px}
+.panel h3{font-size:13px;margin-bottom:10px}
+.typebars{display:grid;gap:6px}
+.typebar{display:grid;grid-template-columns:92px 1fr 34px;gap:10px;align-items:center;font-size:12px}
+.typebar .tb-track{height:7px;background:var(--panel-2);border-radius:999px;overflow:hidden}
+.typebar .tb-fill{height:100%;background:var(--accent);border-radius:999px;opacity:.75}
+.typebar .tb-n{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
+.model-row{display:grid;gap:4px;padding:8px 0;border-bottom:1px solid var(--border)}
+.model-row:last-child{border-bottom:0}
+.model-row .m-name{font-weight:600;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.model-row .m-sub{font-size:12px;color:var(--text-2);display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.warn-list{display:grid;gap:8px;margin:0;padding:0;list-style:none}
+.warn-list li{display:flex;gap:9px;align-items:flex-start;font-size:12.5px}
+.wdot{width:8px;height:8px;border-radius:999px;flex:none;margin-top:5px}
+.wdot.err{background:var(--danger)}
+.wdot.wr{background:var(--warn)}
+.warn-list .wl-ink{color:var(--text)}
+.warn-list code{font-family:var(--mono);font-size:11.5px;background:var(--panel-2);border-radius:4px;padding:0 4px}
+
+/* ---------- details view ---------- */
+.dl{display:grid;grid-template-columns:220px 1fr;gap:0;background:var(--panel);border:1px solid var(--border);border-radius:var(--r-md);overflow:hidden;margin-bottom:14px}
+.dl dt{padding:9px 16px;font-size:12px;color:var(--text-2);border-bottom:1px solid var(--border);background:var(--panel-2)}
+.dl dd{padding:9px 16px;margin:0;border-bottom:1px solid var(--border);font-size:12.5px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.dl dt:last-of-type,.dl dd:last-of-type{border-bottom:0}
+.diag{background:var(--panel);border:1px solid var(--border);border-radius:var(--r-md)}
+.diag summary{
+  cursor:pointer;padding:12px 16px;font-weight:600;font-size:13px;list-style:none;display:flex;align-items:center;gap:8px;
+}
+.diag summary::-webkit-details-marker{display:none}
+.diag summary .car{transition:transform .15s;color:var(--text-3)}
+.diag[open] summary .car{transform:rotate(90deg)}
+.diag-body{border-top:1px solid var(--border);padding:12px 16px}
+.diag pre{
+  font-family:var(--mono);font-size:11.5px;line-height:1.6;background:var(--panel-2);
+  border:1px solid var(--border);border-radius:var(--r-sm);padding:12px;overflow:auto;max-height:340px;margin:0 0 10px;
+  color:var(--text-2);white-space:pre-wrap;word-break:break-word;
+}
+
+/* ---------- drawer ---------- */
+.scrim{position:fixed;inset:0;background:rgba(16,15,12,.44);z-index:60;opacity:0;transition:opacity .18s}
+.scrim.show{opacity:1}
+.drawer{
+  position:fixed;top:0;right:0;height:100dvh;width:min(540px,94vw);z-index:70;
+  background:var(--panel);border-left:1px solid var(--border-strong);box-shadow:var(--shadow);
+  transform:translateX(102%);transition:transform .2s cubic-bezier(.4,0,.2,1);display:flex;flex-direction:column;
+}
+.drawer.show{transform:translateX(0)}
+.drawer-hd{display:flex;align-items:flex-start;gap:10px;padding:14px 16px;border-bottom:1px solid var(--border)}
+.drawer-hd h2{font-size:14.5px;flex:1;word-break:break-word}
+.drawer-hd .d-sub{font-size:12px;color:var(--text-2);margin-top:3px}
+.drawer-bd{overflow:auto;padding:14px 16px;flex:1}
+.d-sec{margin-bottom:20px}
+.d-sec h3{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--text-3);margin-bottom:8px}
+.d-dl{display:grid;grid-template-columns:150px 1fr;gap:0;border:1px solid var(--border);border-radius:var(--r-sm);overflow:hidden}
+.d-dl dt{padding:7px 12px;font-size:11.5px;color:var(--text-2);background:var(--panel-2);border-bottom:1px solid var(--border)}
+.d-dl dd{padding:7px 12px;margin:0;font-size:12.5px;border-bottom:1px solid var(--border);white-space:normal;word-break:break-word}
+.d-dl dt:last-of-type,.d-dl dd:last-of-type{border-bottom:0}
+.mini{width:100%;border:1px solid var(--border);border-radius:var(--r-sm);border-collapse:separate;border-spacing:0;font-size:12px;overflow:hidden}
+.mini th{background:var(--panel-2);color:var(--text-2);font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;text-align:left;padding:6px 10px;border-bottom:1px solid var(--border-strong);white-space:nowrap}
+.mini td{padding:6px 10px;border-bottom:1px solid var(--border);vertical-align:top;white-space:normal;word-break:break-word}
+.mini tr:last-child td{border-bottom:0}
+.grp-page{font-size:12.5px;font-weight:600;margin:12px 0 6px}
+.usage-list{margin:0;padding:0 0 0 2px;list-style:none;display:grid;gap:6px}
+.usage-list li{display:flex;gap:8px;align-items:baseline;font-size:12.5px}
+.usage-list .u-as{color:var(--text-2);font-size:11.5px}
+
+/* ---------- popover ---------- */
+.popover{
+  position:fixed;z-index:80;background:var(--panel);border:1px solid var(--border-strong);
+  border-radius:var(--r-md);box-shadow:var(--shadow);width:260px;max-height:340px;display:flex;flex-direction:column;
+}
+.pop-hd{padding:10px 12px 6px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--text-3);display:flex;justify-content:space-between;gap:8px;align-items:center}
+.pop-hd button{font-size:11px;color:var(--accent)}
+.pop-bd{overflow:auto;padding:2px 6px 8px}
+.pop-opt{display:flex;gap:8px;align-items:center;padding:5px 8px;border-radius:var(--r-xs);font-size:12.5px;cursor:pointer;user-select:none}
+.pop-opt:hover{background:var(--panel-2)}
+.pop-opt input{accent-color:var(--accent);flex:none}
+.pop-opt .po-cnt{margin-left:auto;font-size:11px;color:var(--text-3);font-variant-numeric:tabular-nums}
+.pop-empty{padding:10px;font-size:12px;color:var(--text-3)}
+
+/* ---------- toast ---------- */
+.toast{
+  position:fixed;left:50%;bottom:26px;transform:translate(-50%,16px);z-index:90;
+  background:var(--ink);color:var(--ink-text);border-radius:999px;padding:8px 16px;font-size:12.5px;
+  opacity:0;pointer-events:none;transition:opacity .18s,transform .18s;max-width:80vw;
+}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+
+/* ---------- responsive ---------- */
+@media (max-width:1120px){
+  .nav-toggle{display:inline-flex}
+  .sidenav{
+    position:fixed;left:0;top:0;height:100dvh;max-height:none;width:264px;z-index:70;border-radius:0;
+    transform:translateX(-104%);transition:transform .2s cubic-bezier(.4,0,.2,1);border:0;border-right:1px solid var(--border-strong);
+    box-shadow:var(--shadow);
+  }
+  .sidenav.open{transform:translateX(0)}
+  .preview-lab{display:none}
+  .hd{gap:10px;padding:10px 14px}
+  .shell{padding:12px 14px 28px}
+  .ov-cols{grid-template-columns:1fr}
+  .meta-app{max-width:34vw}
+}
+@media (max-width:1120px){ .table-wrap{max-height:calc(100vh - 300px)} }
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{transition:none !important;animation:none !important}
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#view">Skip to results</a>
+
+<header class="hd">
+  <button id="navToggle" class="icon-btn nav-toggle" aria-label="Open table navigation" aria-expanded="false">
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2 4h12M2 8h12M2 12h12"/></svg>
+  </button>
+  <div class="brand">
+    <svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true">
+      <rect x="1" y="1" width="24" height="24" rx="6" fill="var(--ink)"/>
+      <path d="M7.5 6.5v13M13 6.5l-3 3.2 3 3.3-3 3.3M18.5 6.5v13" stroke="var(--ink-text)" stroke-width="1.7" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <span class="brand-name">Cardigan<span class="ver">v0.9.3</span></span>
+  </div>
+  <div class="meta" id="hdMeta"></div>
+  <div class="hd-actions">
+    <label class="preview-lab" for="previewState">Preview state</label>
+    <select id="previewState" class="select" title="Demo control — preview how the page renders in different analysis states">
+      <option value="normal">Normal (names read)</option>
+      <option value="closed">Closed model (IDs only)</option>
+      <option value="nofilters">Empty table (no filters)</option>
+    </select>
+    <button id="themeToggle" class="icon-btn" aria-label="Switch colour theme" title="Switch colour theme"></button>
+    <button class="btn primary" id="dlAll">
+      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v8m0 0 3-3M8 10 5 7M2.5 13.5h11"/></svg>
+      Download all (.zip)
+    </button>
+    <button class="btn" id="dlCsv">
+      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v8m0 0 3-3M8 10 5 7M2.5 13.5h11"/></svg>
+      Download this table (.csv)
+    </button>
+  </div>
+</header>
+
+<div class="banners" id="banners"></div>
+
+<div class="shell">
+  <nav class="sidenav" id="sidenav" aria-label="Result tables">
+    <h2>Results</h2>
+    <div id="navList"></div>
+  </nav>
+  <main id="main">
+    <div class="crumbs" id="crumbs" aria-label="Breadcrumb"></div>
+    <div id="view" tabindex="-1"></div>
+  </main>
+</div>
+
+<div class="scrim" id="scrim" hidden></div>
+<aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="drawerTitle" hidden>
+  <div class="drawer-hd">
+    <div style="flex:1;min-width:0">
+      <h2 id="drawerTitle"></h2>
+      <div class="d-sub" id="drawerSub"></div>
+    </div>
+    <button class="icon-btn" id="drawerClose" aria-label="Close details panel">
+      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 3l10 10M13 3 3 13"/></svg>
+    </button>
+  </div>
+  <div class="drawer-bd" id="drawerBody"></div>
+</aside>
+
+<div class="popover" id="popover" role="dialog" hidden></div>
+<div class="toast" id="toast" role="status"></div>
+<p class="sr-only" aria-live="polite" id="live"></p>
+
+<script>
+'use strict';
+/* =========================================================================
+   SAMPLE DATA — one fictional export of the app "Demo - Assortment Planning".
+   In the real extension this object is produced by the analyser and injected
+   before this script runs. Shape notes:
+     {n, id, nr?, gone?} = a model object. n = name (null if not read),
+       nr = name not read, gone = referenced but no longer in the model.
+     {t, c} = a colour stop (label, hex).
+   ========================================================================= */
+const SAMPLE = {
+  meta: {
+    product: 'Cardigan',
+    version: '0.9.3',
+    exportTime: '2026-09-28 13:41 UTC',
+    duration: '12.4 s',
+    readMode: 'Model open — names read',
+    readModeClosed: 'Model closed — IDs only',
+    app: { name: 'Demo - Assortment Planning', id: 'APP-8F3C1A02' },
+    models: [
+      { name: 'FP&A - Retail Planning', id: 'MDL-51D2B7', workspace: 'Acme Retail - Production',
+        workspaceId: 'WS-77AC10', host: 'eu-west-1.planning.example' }
+    ],
+    notPublished: ['9999 - Legacy Archive']
+  },
+
+  pages: [
+    {app:'Demo - Assortment Planning',cat:'Assortment',page:'1000 - Assortment Overview',ptype:'Board',pub:'Published',model:'FP&A - Retail Planning',ws:'Acme Retail - Production',tot:8,grid:1,chart:2,gcv:2,kpi:2,field:0,act:1,txt:1,lastPub:'2026-09-12 09:14',pageId:'PG-1001A2',appId:'APP-8F3C1A02',modelId:'MDL-51D2B7'},
+    {app:'Demo - Assortment Planning',cat:'Assortment',page:'1100 - Seasonal Buy Plan',ptype:'Board',pub:'Published',model:'FP&A - Retail Planning',ws:'Acme Retail - Production',tot:6,grid:1,chart:1,gcv:0,kpi:2,field:1,act:0,txt:1,lastPub:'2026-09-12 09:14',pageId:'PG-1100B7',appId:'APP-8F3C1A02',modelId:'MDL-51D2B7'},
+    {app:'Demo - Assortment Planning',cat:'Stores',page:'2000 - Store Planning',ptype:'Worksheet',pub:'Published',model:'FP&A - Retail Planning',ws:'Acme Retail - Production',tot:5,grid:1,chart:1,gcv:0,kpi:0,field:1,act:1,txt:1,lastPub:'2026-08-30 16:02',pageId:'PG-2000C3',appId:'APP-8F3C1A02',modelId:'MDL-51D2B7'},
+    {app:'Demo - Assortment Planning',cat:'Stores',page:'2010 - Store Grade Review',ptype:'Worksheet',pub:'Published',model:'FP&A - Retail Planning',ws:'Acme Retail - Production',tot:6,grid:1,chart:1,gcv:0,kpi:1,field:1,act:1,txt:1,lastPub:'2026-09-21 11:47',pageId:'PG-2010D9',appId:'APP-8F3C1A02',modelId:'MDL-51D2B7'},
+    {app:'Demo - Assortment Planning',cat:'Products',page:'3000 - Product Maintenance',ptype:'Board',pub:'Published',model:'FP&A - Retail Planning',ws:'Acme Retail - Production',tot:6,grid:1,chart:1,gcv:0,kpi:1,field:1,act:1,txt:1,lastPub:'2026-09-05 14:20',pageId:'PG-3000E1',appId:'APP-8F3C1A02',modelId:'MDL-51D2B7'},
+    {app:'Demo - Assortment Planning',cat:'Products',page:'3100 - New Product Intake',ptype:'Worksheet',pub:'Published',model:'FP&A - Retail Planning',ws:'Acme Retail - Production',tot:5,grid:1,chart:0,gcv:0,kpi:1,field:1,act:1,txt:1,lastPub:'2026-09-18 10:33',pageId:'PG-3100F6',appId:'APP-8F3C1A02',modelId:'MDL-51D2B7'},
+    {app:'Demo - Assortment Planning',cat:'Admin',page:'9000 - Admin & Actions',ptype:'Board',pub:'Published',model:'FP&A - Retail Planning',ws:'Acme Retail - Production',tot:5,grid:1,chart:0,gcv:0,kpi:2,field:0,act:1,txt:1,lastPub:'2026-07-22 08:58',pageId:'PG-9000G8',appId:'APP-8F3C1A02',modelId:'MDL-51D2B7'},
+    {app:'Demo - Assortment Planning',cat:'Legacy',page:'9999 - Legacy Archive',ptype:'Board',pub:'Not published',model:'FP&A - Retail Planning',ws:'Acme Retail - Production',tot:null,grid:null,chart:null,gcv:null,kpi:null,field:null,act:null,txt:null,lastPub:'2025-11-02 10:31',pageId:'PG-9999Z0',appId:'APP-8F3C1A02',modelId:'MDL-51D2B7'}
+  ],
+
+  cards: [
+    {page:'1000 - Assortment Overview',n:1,title:'Assortment plan by cluster',type:'Grid',view:'Main grid',mods:[{n:'AP02 Assortment Plan',id:'MOD-A02'}],sv:{n:'SV-AP02 Cluster Plan',id:'SV-C01'},lis:[{n:'Units',id:'LI-U01'},{n:'Sales Value',id:'LI-S01'},{n:'Margin %',id:'LI-M01'},{n:'Weeks of Cover',id:'LI-W01'}],rows:'Clusters',cols:'Time (months, FY26)',ctx:['Season','Version'],filt:['Clusters: Sales Value ≥ 10,000 AND Margin % not blank'],sorts:'Sales Value descending; 3 cluster items hidden',cf:'1 rule — colour scale on Margin %',btns:[],text:'',settings:'Row density: compact; page selectors synced; totals shown',id:'CRD-1001',src:['MOD-A02','SV-C01']},
+    {page:'1000 - Assortment Overview',n:2,title:'Sales value by season',type:'Chart',view:'Line',mods:[{n:'AP02 Assortment Plan',id:'MOD-A02'}],sv:null,lis:[{n:'Sales Value',id:'LI-S01'}],rows:'Time (months)',cols:'—',ctx:['Season','Version','Clusters'],filt:[],sorts:'',cf:'',btns:[],text:'',settings:'Series: FY25 actual vs FY26 plan; legend bottom',id:'CRD-1002',src:['MOD-A02']},
+    {page:'1000 - Assortment Overview',n:3,title:'Margin % by cluster',type:'Chart',view:'Bar',mods:[{n:'AP02 Assortment Plan',id:'MOD-A02'}],sv:null,lis:[{n:'Margin %',id:'LI-M01'},{n:null,id:'LI-77E2B0',nr:1}],rows:'Clusters',cols:'—',ctx:['Season','Version'],filt:[],sorts:'Margin % descending',cf:'',btns:[],text:'',settings:'Data labels on; axis 0–60%',id:'CRD-1003',src:['MOD-A02','LI-77E2B0']},
+    {page:'1000 - Assortment Overview',n:4,title:'Total sales value',type:'KPI',view:'KPI',mods:[{n:'AP02 Assortment Plan',id:'MOD-A02'}],sv:null,lis:[{n:'Sales Value',id:'LI-S01'}],rows:'—',cols:'—',ctx:['Season','Version'],filt:[],sorts:'',cf:'',btns:[],text:'',settings:'Comparison: vs FY25 actual; scale: millions',id:'CRD-1004',src:['MOD-A02']},
+    {page:'1000 - Assortment Overview',n:5,title:'Average margin %',type:'KPI',view:'KPI',mods:[{n:'AP02 Assortment Plan',id:'MOD-A02'}],sv:null,lis:[{n:'Margin %',id:'LI-M01'}],rows:'—',cols:'—',ctx:['Season','Version'],filt:[],sorts:'',cf:'',btns:[],text:'',settings:'Comparison: vs target 42%',id:'CRD-1005',src:['MOD-A02']},
+    {page:'1000 - Assortment Overview',n:6,title:'Buy vs forecast',type:'Grid & chart',view:'Grid & chart',mods:[{n:'AP04 Buy Plan',id:'MOD-A04'},{n:'AP01 Demand Forecast',id:'MOD-A01'}],sv:null,lis:[{n:'Buy Units',id:'LI-B01'},{n:'Forecast Units',id:'LI-F01'}],rows:'Clusters',cols:'Time (months, FY26)',ctx:['Season'],filt:['Clusters: Buy Value > 0'],sorts:'',cf:'',btns:[],text:'',settings:'2 views: grid + column chart; linked selection',id:'CRD-1006',src:['MOD-A04','MOD-A01']},
+    {page:'1000 - Assortment Overview',n:7,title:'Plan actions',type:'Action',view:'Actions',mods:[],sv:null,lis:[],rows:'—',cols:'—',ctx:[],filt:[],sorts:'',cf:'',btns:['Refresh plan (process P1 Refresh Plan)','Export buy plan (export EXP Buy Plan CSV)'],text:'',settings:'Buttons stacked; confirmation on run',id:'CRD-1007',src:['ACT-P1','ACT-E1']},
+    {page:'1000 - Assortment Overview',n:8,title:'How to use this page',type:'Text',view:'Rich text',mods:[],sv:null,lis:[],rows:'—',cols:'—',ctx:[],filt:[],sorts:'',cf:'',btns:[],text:'Start by picking a season and version in the page selectors. The main grid shows the assortment plan aggregated to cluster level; use the charts to sanity-check the sales curve and margin mix before running Refresh plan. Figures are in local currency, thousands unless stated.',settings:'Heading 2 + body; no image',id:'CRD-1008',src:[]},
+
+    {page:'1100 - Seasonal Buy Plan',n:1,title:'Buy plan by product',type:'Grid',view:'Main grid',mods:[{n:'AP04 Buy Plan',id:'MOD-A04'}],sv:{n:'SV-LEG Wholesale View',id:'SV-L01',gone:1},lis:[{n:'Buy Units',id:'LI-B01'},{n:'Buy Value',id:'LI-B02'},{n:'Weeks of Cover',id:'LI-W01'}],rows:'Products',cols:'Time (months, FY26)',ctx:['Season','Clusters'],filt:['Time: Buy Units > 0','Products: Status ≠ Discontinued'],sorts:'Buy Value descending',cf:'1 rule — colour scale on Buy Value',btns:[],text:'',settings:'Row density: standard; product images off',id:'CRD-1101',src:['MOD-A04','SV-L01']},
+    {page:'1100 - Seasonal Buy Plan',n:2,title:'Buy value by month',type:'Chart',view:'Column',mods:[{n:'AP04 Buy Plan',id:'MOD-A04'}],sv:null,lis:[{n:'Buy Value',id:'LI-B02'}],rows:'Time (months)',cols:'—',ctx:['Season','Clusters'],filt:[],sorts:'',cf:'',btns:[],text:'',settings:'Stacked by cluster',id:'CRD-1102',src:['MOD-A04']},
+    {page:'1100 - Seasonal Buy Plan',n:3,title:'Total buy units',type:'KPI',view:'KPI',mods:[{n:'AP04 Buy Plan',id:'MOD-A04'}],sv:null,lis:[{n:'Buy Units',id:'LI-B01'}],rows:'—',cols:'—',ctx:['Season'],filt:[],sorts:'',cf:'',btns:[],text:'',settings:'Comparison: vs forecast units',id:'CRD-1103',src:['MOD-A04']},
+    {page:'1100 - Seasonal Buy Plan',n:4,title:'Open-to-buy remaining',type:'KPI',view:'KPI',mods:[{n:'AP04 Buy Plan',id:'MOD-A04'}],sv:null,lis:[{n:null,id:'LI-9A04C1',nr:1}],rows:'—',cols:'—',ctx:['Season','Clusters'],filt:[],sorts:'',cf:'',btns:[],text:'',settings:'Prefix: €; red when negative',id:'CRD-1104',src:['MOD-A04','LI-9A04C1']},
+    {page:'1100 - Seasonal Buy Plan',n:5,title:'Product quick fields',type:'Field',view:'Fields',mods:[{n:'SYS02 Product Details',id:'MOD-S02'}],sv:null,lis:[{n:'Status',id:'LI-ST1'},{n:null,id:'LI-77E2B0',nr:1}],rows:'—',cols:'—',ctx:['Products'],filt:[],sorts:'',cf:'',btns:[],text:'',settings:'4 fields, read-only',id:'CRD-1105',src:['MOD-S02']},
+    {page:'1100 - Seasonal Buy Plan',n:6,title:'Buying calendar notes',type:'Text',view:'Rich text',mods:[],sv:null,lis:[],rows:'—',cols:'—',ctx:[],filt:[],sorts:'',cf:'',btns:[],text:'SS26 buy locks on 15 Oct. Late adds go through the intake worksheet (3100) and must be graded before the buy plan refreshes.',settings:'Body text only',id:'CRD-1106',src:[]},
+
+    {page:'2000 - Store Planning',n:1,title:'Store plan grid',type:'Grid',view:'Main grid',mods:[{n:'AP02 Assortment Plan',id:'MOD-A02'}],sv:null,lis:[{n:'Units',id:'LI-U01'},{n:'Sales Value',id:'LI-S01'},{n:'Store Count',id:'LI-C01'}],rows:'Stores',cols:'Line items',ctx:['Season','Clusters'],filt:['Stores: Sales Value > 5,000'],sorts:'',cf:'1 rule — Units below 4 weeks of cover',btns:[],text:'',settings:'Worksheet main grid; 200 rows per page',id:'CRD-2001',src:['MOD-A02']},
+    {page:'2000 - Store Planning',n:2,title:'Store details',type:'Field',view:'Fields',mods:[{n:'SYS03 Store Details',id:'MOD-S03'}],sv:null,lis:[{n:'Grade',id:'LI-G01'},{n:'Target Grade',id:'LI-G02'}],rows:'—',cols:'—',ctx:['Stores'],filt:[],sorts:'',cf:'',btns:[],text:'',settings:'6 fields; edit opens store form',id:'CRD-2002',src:['MOD-S03']},
+    {page:'2000 - Store Planning',n:3,title:'Store count by cluster',type:'Chart',view:'Doughnut',mods:[{n:'SYS03 Store Details',id:'MOD-S03'}],sv:null,lis:[{n:'Store Count',id:'LI-C01'}],rows:'Clusters',cols:'—',ctx:[],filt:[],sorts:'',cf:'',btns:[],text:'',settings:'Centre label: total stores',id:'CRD-2003',src:['MOD-S03']},
+    {page:'2000 - Store Planning',n:4,title:'Store actions',type:'Action',view:'Actions',mods:[],sv:null,lis:[],rows:'—',cols:'—',ctx:[],filt:[],sorts:'',cf:'',btns:['Import store master (import IMP Store Master)','Open grade review (page link)'],text:'',settings:'Buttons inline',id:'CRD-2004',src:['ACT-I1']},
+    {page:'2000 - Store Planning',n:5,title:'Worksheet guidance',type:'Text',view:'Rich text',mods:[],sv:null,lis:[],rows:'—',cols:'—',ctx:[],filt:[],sorts:'',cf:'',btns:[],text:'Review store-level units against the cluster plan. Stores highlighted amber are below four weeks of cover.',settings:'Body text only',id:'CRD-2005',src:[]},
+
+    {page:'2010 - Store Grade Review',n:1,title:'Grade review grid',type:'Grid',view:'Main grid',mods:[{n:'AP03 Store Grading',id:'MOD-A03'}],sv:{n:'SV-AP03 Grade Review',id:'SV-G01'},lis:[{n:'Grade',id:'LI-G01'},{n:'Target Grade',id:'LI-G02'},{n:'Grade Score',id:'LI-G03'},{n:'Sales Value',id:'LI-S01'}],rows:'Stores',cols:'Line items',ctx:['Season'],filt:['Stores: G1 (Sales Value > 10,000 AND (Margin % < 20% OR Grade = C) AND Weeks of Cover 4–12)'],sorts:'Grade Score descending',cf:'2 rules — scale on Grade Score; flag Grade ≠ Target Grade',btns:[],text:'',settings:'Worksheet main grid; nested filter groups (2)',id:'CRD-2011',src:['MOD-A03','SV-G01']},
+    {page:'2010 - Store Grade Review',n:2,title:'Grade distribution',type:'Chart',view:'Bar',mods:[{n:'AP03 Store Grading',id:'MOD-A03'}],sv:null,lis:[{n:'Store Count',id:'LI-C01'}],rows:'Grades',cols:'—',ctx:['Season'],filt:[],sorts:'',cf:'',btns:[],text:'',settings:'Horizontal bars, A→C order',id:'CRD-2012',src:['MOD-A03']},
+    {page:'2010 - Store Grade Review',n:3,title:'Stores re-graded',type:'KPI',view:'KPI',mods:[{n:'AP03 Store Grading',id:'MOD-A03'}],sv:null,lis:[{n:'Store Count',id:'LI-C01'}],rows:'—',cols:'—',ctx:['Season'],filt:[],sorts:'',cf:'',btns:[],text:'',settings:'Comparison: vs last run',id:'CRD-2013',src:['MOD-A03']},
+    {page:'2010 - Store Grade Review',n:4,title:'Selected store',type:'Field',view:'Fields',mods:[{n:'SYS03 Store Details',id:'MOD-S03'}],sv:null,lis:[{n:'Grade',id:'LI-G01'}],rows:'—',cols:'—',ctx:['Stores'],filt:[],sorts:'',cf:'',btns:[],text:'',settings:'3 fields, read-only',id:'CRD-2014',src:['MOD-S03']},
+    {page:'2010 - Store Grade Review',n:5,title:'Grading actions',type:'Action',view:'Actions',mods:[],sv:null,lis:[],rows:'—',cols:'—',ctx:[],filt:[],sorts:'',cf:'',btns:['Recalculate grades (process P2 Recalculate Grades)','Refresh plan (process P1 Refresh Plan)'],text:'',settings:'Buttons stacked',id:'CRD-2015',src:['ACT-P2','ACT-P1']},
+    {page:'2010 - Store Grade Review',n:6,title:'Grading policy',type:'Text',view:'Rich text',mods:[],sv:null,lis:[],rows:'—',cols:'—',ctx:[],filt:[],sorts:'',cf:'',btns:[],text:'Grade A stores carry the full assortment; grade B the core range; grade C essentials only. Overrides need merch-director sign-off and are logged to SYS09 Admin Log.',settings:'Body + bullet list',id:'CRD-2016',src:[]},
+
+    {page:'3000 - Product Maintenance',n:1,title:'Product master grid',type:'Grid',view:'Main grid',mods:[{n:'DAT01 Product Master',id:'MOD-D01'}],sv:{n:'SV-D01 Active Products',id:'SV-D01'},lis:[{n:'Status',id:'LI-ST1'},{n:'Units',id:'LI-U01'}],rows:'Products',cols:'Line items',ctx:['Clusters'],filt:['Products: Status = Active'],sorts:'',cf:'',btns:[],text:'',settings:'Row density: standard',id:'CRD-3001',src:['MOD-D01','SV-D01']},
+    {page:'3000 - Product Maintenance',n:2,title:'Products by status',type:'Chart',view:'Doughnut',mods:[{n:'DAT01 Product Master',id:'MOD-D01'}],sv:null,lis:[{n:'Store Count',id:'LI-C01'}],rows:'Status',cols:'—',ctx:[],filt:[],sorts:'',cf:'',btns:[],text:'',settings:'Partial read — series colours unavailable',id:'CRD-3002',src:['MOD-D01']},
+    {page:'3000 - Product Maintenance',n:3,title:'Active products',type:'KPI',view:'KPI',mods:[{n:'DAT01 Product Master',id:'MOD-D01'}],sv:null,lis:[{n:'Store Count',id:'LI-C01'}],rows:'—',cols:'—',ctx:[],filt:[],sorts:'',cf:'',btns:[],text:'',settings:'No comparison',id:'CRD-3003',src:['MOD-D01']},
+    {page:'3000 - Product Maintenance',n:4,title:'Product attributes',type:'Field',view:'Fields',mods:[{n:'SYS02 Product Details',id:'MOD-S02'}],sv:null,lis:[{n:'Status',id:'LI-ST1'}],rows:'—',cols:'—',ctx:['Products'],filt:[],sorts:'',cf:'',btns:[],text:'',settings:'8 fields; editable',id:'CRD-3004',src:['MOD-S02']},
+    {page:'3000 - Product Maintenance',n:5,title:'Product actions',type:'Action',view:'Actions',mods:[],sv:null,lis:[],rows:'—',cols:'—',ctx:[],filt:[],sorts:'',cf:'',btns:['Import product master (import IMP Product Master)'],text:'',settings:'Runs on page open too',id:'CRD-3005',src:['ACT-I2']},
+    {page:'3000 - Product Maintenance',n:6,title:'Maintenance rules',type:'Text',view:'Rich text',mods:[],sv:null,lis:[],rows:'—',cols:'—',ctx:[],filt:[],sorts:'',cf:'',btns:[],text:'Never delete products with history — set Status to Discontinued instead. New products arrive via 3100 - New Product Intake.',settings:'Body + bullet list',id:'CRD-3006',src:[]},
+
+    {page:'3100 - New Product Intake',n:1,title:'Intake grid',type:'Grid',view:'Main grid',mods:[{n:'DAT01 Product Master',id:'MOD-D01'}],sv:null,lis:[{n:'Status',id:'LI-ST1'},{n:'Buy Units',id:'LI-B01'}],rows:'Products',cols:'Line items',ctx:['Season'],filt:['Products: Status = Draft'],sorts:'',cf:'1 rule — Draft rows highlighted',btns:[],text:'',settings:'Worksheet main grid; add items enabled',id:'CRD-3101',src:['MOD-D01']},
+    {page:'3100 - New Product Intake',n:2,title:'New product fields',type:'Field',view:'Fields',mods:[{n:'SYS02 Product Details',id:'MOD-S02'}],sv:null,lis:[{n:'Status',id:'LI-ST1'}],rows:'—',cols:'—',ctx:['Products'],filt:[],sorts:'',cf:'',btns:[],text:'',settings:'6 fields; editable',id:'CRD-3102',src:['MOD-S02']},
+    {page:'3100 - New Product Intake',n:3,title:'Intake actions',type:'Action',view:'Actions',mods:[],sv:null,lis:[],rows:'—',cols:'—',ctx:[],filt:[],sorts:'',cf:'',btns:['Create products (action Create Products from Intake)','Open product maintenance (page link)'],text:'',settings:'Buttons inline',id:'CRD-3103',src:['ACT-A3']},
+    {page:'3100 - New Product Intake',n:4,title:'Intake checklist',type:'Text',view:'Rich text',mods:[],sv:null,lis:[],rows:'—',cols:'—',ctx:[],filt:[],sorts:'',cf:'',btns:[],text:'1. Add draft products. 2. Fill required attributes. 3. Run Create products. 4. Confirm they appear in 3000 - Product Maintenance.',settings:'Numbered list',id:'CRD-3104',src:[]},
+    {page:'3100 - New Product Intake',n:5,title:'Products pending',type:'KPI',view:'KPI',mods:[{n:'DAT01 Product Master',id:'MOD-D01'}],sv:null,lis:[{n:'Store Count',id:'LI-C01'}],rows:'—',cols:'—',ctx:['Season'],filt:[],sorts:'',cf:'',btns:[],text:'',settings:'Filtered to Status = Draft',id:'CRD-3105',src:['MOD-D01']},
+
+    {page:'9000 - Admin & Actions',n:1,title:'Model actions',type:'Action',view:'Actions',mods:[],sv:null,lis:[],rows:'—',cols:'—',ctx:[],filt:[],sorts:'',cf:'',btns:['Refresh plan (process P1 Refresh Plan)','Refresh (legacy) (process A2 Old Refresh)'],text:'',settings:'Buttons stacked',id:'CRD-9001',src:['ACT-P1','ACT-A2']},
+    {page:'9000 - Admin & Actions',n:2,title:'Last refresh',type:'KPI',view:'KPI',mods:[{n:'SYS09 Admin Log',id:'MOD-S09'}],sv:null,lis:[{n:'Run Status',id:'LI-R01'}],rows:'—',cols:'—',ctx:[],filt:[],sorts:'',cf:'',btns:[],text:'',settings:'Shows timestamp of last P1 run',id:'CRD-9002',src:['MOD-S09']},
+    {page:'9000 - Admin & Actions',n:3,title:'Model size',type:'KPI',view:'KPI',mods:[{n:'SYS09 Admin Log',id:'MOD-S09'}],sv:null,lis:[{n:null,id:'LI-9A04C1',nr:1}],rows:'—',cols:'—',ctx:[],filt:[],sorts:'',cf:'',btns:[],text:'',settings:'GB, one decimal',id:'CRD-9003',src:['MOD-S09','LI-9A04C1']},
+    {page:'9000 - Admin & Actions',n:4,title:'Refresh log',type:'Grid',view:'Grid',mods:[{n:'SYS09 Admin Log',id:'MOD-S09'}],sv:null,lis:[{n:'Run Status',id:'LI-R01'}],rows:'Time',cols:'Line items',ctx:[],filt:['Time: Run Status = Failed'],sorts:'Run time descending',cf:'',btns:[],text:'',settings:'Read-only grid',id:'CRD-9004',src:['MOD-S09']},
+    {page:'9000 - Admin & Actions',n:5,title:'Admin notes',type:'Text',view:'Rich text',mods:[],sv:null,lis:[],rows:'—',cols:'—',ctx:[],filt:[],sorts:'',cf:'',btns:[],text:'Run Refresh plan after any master-data import. The legacy refresh button is kept for rollback only and will be removed next release.',settings:'Body text only',id:'CRD-9005',src:[]}
+  ]
+};
+Object.assign(SAMPLE, {
+
+  gridSections: [
+    {page:'1000 - Assortment Overview',n:1,view:'Grid',sec:1,layout:'Pivot — line items on columns',mod:{n:'AP02 Assortment Plan',id:'MOD-A02'},sv:{n:'SV-AP02 Cluster Plan',id:'SV-C01'},rows:'Clusters',cols:'Time (months, FY26)',ctx:['Season','Version'],lis:[{n:'Units',id:'LI-U01'},{n:'Sales Value',id:'LI-S01'},{n:'Margin %',id:'LI-M01'},{n:'Weeks of Cover',id:'LI-W01'}],rf:'Clusters: Sales Value ≥ 10,000 AND Margin % not blank',cf2:'—',sh:'Sales Value descending; 3 cluster items hidden',cfmt:'Colour scale on Margin %',cardId:'CRD-1001',secId:'SEC-1001-A',modId:'MOD-A02'},
+    {page:'1000 - Assortment Overview',n:1,view:'Grid',sec:2,layout:'Flat list',mod:{n:'AP01 Demand Forecast',id:'MOD-A01'},sv:null,rows:'Line items',cols:'Clusters',ctx:['Season'],lis:[{n:'Forecast Units',id:'LI-F01'}],rf:'—',cf2:'—',sh:'',cfmt:'',cardId:'CRD-1001',secId:'SEC-1001-B',modId:'MOD-A01'},
+    {page:'1000 - Assortment Overview',n:6,view:'Grid',sec:1,layout:'Pivot — line items on columns',mod:{n:'AP04 Buy Plan',id:'MOD-A04'},sv:null,rows:'Clusters',cols:'Time (months, FY26)',ctx:['Season'],lis:[{n:'Buy Units',id:'LI-B01'},{n:'Forecast Units',id:'LI-F01'}],rf:'Clusters: Buy Value > 0',cf2:'—',sh:'',cfmt:'',cardId:'CRD-1006',secId:'SEC-1006-A',modId:'MOD-A04'},
+    {page:'1100 - Seasonal Buy Plan',n:1,view:'Grid',sec:1,layout:'Pivot — line items on columns',mod:{n:'AP04 Buy Plan',id:'MOD-A04'},sv:{n:'SV-LEG Wholesale View',id:'SV-L01',gone:1},rows:'Products',cols:'Time (months, FY26)',ctx:['Season','Clusters'],lis:[{n:'Buy Units',id:'LI-B01'},{n:'Buy Value',id:'LI-B02'},{n:'Weeks of Cover',id:'LI-W01'}],rf:'Products: Status ≠ Discontinued',cf2:'Time: Buy Units > 0',sh:'Buy Value descending',cfmt:'Colour scale on Buy Value',cardId:'CRD-1101',secId:'SEC-1101-A',modId:'MOD-A04'},
+    {page:'2000 - Store Planning',n:1,view:'Grid',sec:1,layout:'Pivot — line items on rows',mod:{n:'AP02 Assortment Plan',id:'MOD-A02'},sv:null,rows:'Stores',cols:'Line items',ctx:['Season','Clusters'],lis:[{n:'Units',id:'LI-U01'},{n:'Sales Value',id:'LI-S01'},{n:'Store Count',id:'LI-C01'}],rf:'Stores: Sales Value > 5,000',cf2:'—',sh:'',cfmt:'Single colour on Units (WoC < 4)',cardId:'CRD-2001',secId:'SEC-2001-A',modId:'MOD-A02'},
+    {page:'2000 - Store Planning',n:1,view:'Grid',sec:2,layout:'Flat list',mod:{n:'DAT02 Store Master',id:'MOD-D02'},sv:null,rows:'Stores',cols:'Line items',ctx:['Clusters'],lis:[{n:'Store Count',id:'LI-C01'}],rf:'—',cf2:'—',sh:'',cfmt:'',cardId:'CRD-2001',secId:'SEC-2001-B',modId:'MOD-D02'},
+    {page:'2010 - Store Grade Review',n:1,view:'Grid',sec:1,layout:'Pivot — line items on rows',mod:{n:'AP03 Store Grading',id:'MOD-A03'},sv:{n:'SV-AP03 Grade Review',id:'SV-G01'},rows:'Stores',cols:'Line items',ctx:['Season'],lis:[{n:'Grade',id:'LI-G01'},{n:'Target Grade',id:'LI-G02'},{n:'Grade Score',id:'LI-G03'},{n:'Sales Value',id:'LI-S01'}],rf:'Stores: G1 — Sales Value > 10,000 AND (Margin % < 20% OR Grade = C) AND Weeks of Cover between 4 and 12',cf2:'—',sh:'Grade Score descending',cfmt:'Colour scale on Grade Score; single colour on Grade',cardId:'CRD-2011',secId:'SEC-2011-A',modId:'MOD-A03'},
+    {page:'2010 - Store Grade Review',n:1,view:'Grid',sec:2,layout:'Flat list',mod:{n:'AP03 Store Grading',id:'MOD-A03'},sv:null,rows:'Stores',cols:'Line items',ctx:['Season'],lis:[{n:'Grade Score',id:'LI-G03'}],rf:'—',cf2:'—',sh:'',cfmt:'',cardId:'CRD-2011',secId:'SEC-2011-B',modId:'MOD-A03'},
+    {page:'3000 - Product Maintenance',n:1,view:'Grid',sec:1,layout:'Pivot — line items on rows',mod:{n:'DAT01 Product Master',id:'MOD-D01'},sv:{n:'SV-D01 Active Products',id:'SV-D01'},rows:'Products',cols:'Line items',ctx:['Clusters'],lis:[{n:'Status',id:'LI-ST1'},{n:'Units',id:'LI-U01'}],rf:'Products: Status = Active',cf2:'—',sh:'',cfmt:'',cardId:'CRD-3001',secId:'SEC-3001-A',modId:'MOD-D01'},
+    {page:'3100 - New Product Intake',n:1,view:'Grid',sec:1,layout:'Pivot — line items on rows',mod:{n:'DAT01 Product Master',id:'MOD-D01'},sv:null,rows:'Products',cols:'Line items',ctx:['Season'],lis:[{n:'Status',id:'LI-ST1'},{n:'Buy Units',id:'LI-B01'}],rf:'Products: Status = Draft',cf2:'—',sh:'',cfmt:'Border + fill on Status',cardId:'CRD-3101',secId:'SEC-3101-A',modId:'MOD-D01'},
+    {page:'9000 - Admin & Actions',n:4,view:'Grid',sec:1,layout:'Flat list',mod:{n:'SYS09 Admin Log',id:'MOD-S09'},sv:null,rows:'Time',cols:'Line items',ctx:[],lis:[{n:'Run Status',id:'LI-R01'}],rf:'Time: Run Status = Failed',cf2:'—',sh:'Run time descending',cfmt:'',cardId:'CRD-9004',secId:'SEC-9004-A',modId:'MOD-S09'}
+  ],
+
+  filters: [
+    {page:'1000 - Assortment Overview',n:1,sec:1,mod:{n:'AP02 Assortment Plan',id:'MOD-A02'},on:'Rows',dim:'Clusters',grp:'G1',match:'All (AND)',li:{n:'Sales Value',id:'LI-S01'},limod:{n:'AP02 Assortment Plan',id:'MOD-A02'},op:'is greater than or equal to',val:'10,000',ctxt:'Top level (G1)',cardId:'CRD-1001',liId:'LI-S01'},
+    {page:'1000 - Assortment Overview',n:1,sec:1,mod:{n:'AP02 Assortment Plan',id:'MOD-A02'},on:'Rows',dim:'Clusters',grp:'G1',match:'All (AND)',li:{n:'Margin %',id:'LI-M01'},limod:{n:'AP02 Assortment Plan',id:'MOD-A02'},op:'is not blank',val:'',ctxt:'Top level (G1)',cardId:'CRD-1001',liId:'LI-M01'},
+    {page:'1000 - Assortment Overview',n:6,sec:1,mod:{n:'AP04 Buy Plan',id:'MOD-A04'},on:'Rows',dim:'Clusters',grp:'G1',match:'All (AND)',li:{n:'Buy Value',id:'LI-B02'},limod:{n:'AP04 Buy Plan',id:'MOD-A04'},op:'is greater than',val:'0',ctxt:'Top level (G1)',cardId:'CRD-1006',liId:'LI-B02'},
+    {page:'1100 - Seasonal Buy Plan',n:1,sec:1,mod:{n:'AP04 Buy Plan',id:'MOD-A04'},on:'Columns',dim:'Time',grp:'G1',match:'All (AND)',li:{n:'Buy Units',id:'LI-B01'},limod:{n:'AP04 Buy Plan',id:'MOD-A04'},op:'is greater than',val:'0',ctxt:'Top level (G1)',cardId:'CRD-1101',liId:'LI-B01'},
+    {page:'1100 - Seasonal Buy Plan',n:1,sec:1,mod:{n:'AP04 Buy Plan',id:'MOD-A04'},on:'Rows',dim:'Products',grp:'G1',match:'All (AND)',li:{n:'Status',id:'LI-ST1'},limod:{n:'SYS02 Product Details',id:'MOD-S02'},op:'is not equal to',val:'Discontinued',ctxt:'Top level (G1)',cardId:'CRD-1101',liId:'LI-ST1'},
+    {page:'2000 - Store Planning',n:1,sec:1,mod:{n:'AP02 Assortment Plan',id:'MOD-A02'},on:'Rows',dim:'Stores',grp:'G1',match:'All (AND)',li:{n:'Sales Value',id:'LI-S01'},limod:{n:'AP02 Assortment Plan',id:'MOD-A02'},op:'is greater than',val:'5,000',ctxt:'Top level (G1)',cardId:'CRD-2001',liId:'LI-S01'},
+    {page:'2010 - Store Grade Review',n:1,sec:1,mod:{n:'AP03 Store Grading',id:'MOD-A03'},on:'Rows',dim:'Stores',grp:'G1',match:'All (AND)',li:{n:'Sales Value',id:'LI-S01'},limod:{n:'AP02 Assortment Plan',id:'MOD-A02'},op:'is greater than',val:'10,000',ctxt:'Top level (G1)',cardId:'CRD-2011',liId:'LI-S01'},
+    {page:'2010 - Store Grade Review',n:1,sec:1,mod:{n:'AP03 Store Grading',id:'MOD-A03'},on:'Rows',dim:'Stores',grp:'G2',match:'Any (OR)',li:{n:'Margin %',id:'LI-M01'},limod:{n:'AP02 Assortment Plan',id:'MOD-A02'},op:'is less than',val:'20%',ctxt:'Nested in G1 (group G2)',cardId:'CRD-2011',liId:'LI-M01'},
+    {page:'2010 - Store Grade Review',n:1,sec:1,mod:{n:'AP03 Store Grading',id:'MOD-A03'},on:'Rows',dim:'Stores',grp:'G2',match:'Any (OR)',li:{n:'Grade',id:'LI-G01'},limod:{n:'AP03 Store Grading',id:'MOD-A03'},op:'is equal to',val:'C',ctxt:'Nested in G1 (group G2)',cardId:'CRD-2011',liId:'LI-G01'},
+    {page:'2010 - Store Grade Review',n:1,sec:1,mod:{n:'AP03 Store Grading',id:'MOD-A03'},on:'Rows',dim:'Stores',grp:'G1',match:'All (AND)',li:{n:'Weeks of Cover',id:'LI-W01'},limod:{n:'AP02 Assortment Plan',id:'MOD-A02'},op:'is between',val:'4 and 12',ctxt:'Top level (G1)',cardId:'CRD-2011',liId:'LI-W01'},
+    {page:'3000 - Product Maintenance',n:1,sec:1,mod:{n:'DAT01 Product Master',id:'MOD-D01'},on:'Rows',dim:'Products',grp:'G1',match:'All (AND)',li:{n:'Status',id:'LI-ST1'},limod:{n:'SYS02 Product Details',id:'MOD-S02'},op:'is equal to',val:'Active',ctxt:'Top level (G1)',cardId:'CRD-3001',liId:'LI-ST1'},
+    {page:'3000 - Product Maintenance',n:1,sec:1,mod:{n:'DAT01 Product Master',id:'MOD-D01'},on:'Context selector',dim:'Clusters',grp:'—',match:'—',li:{n:'Status',id:'LI-ST1'},limod:{n:'SYS02 Product Details',id:'MOD-S02'},op:'is equal to',val:'Active',ctxt:'—',cardId:'CRD-3001',liId:'LI-ST1'},
+    {page:'3100 - New Product Intake',n:1,sec:1,mod:{n:'DAT01 Product Master',id:'MOD-D01'},on:'Rows',dim:'Products',grp:'G1',match:'All (AND)',li:{n:'Status',id:'LI-ST1'},limod:{n:'SYS02 Product Details',id:'MOD-S02'},op:'is equal to',val:'Draft',ctxt:'Top level (G1)',cardId:'CRD-3101',liId:'LI-ST1'},
+    {page:'9000 - Admin & Actions',n:4,sec:1,mod:{n:'SYS09 Admin Log',id:'MOD-S09'},on:'Rows',dim:'Time',grp:'G1',match:'All (AND)',li:{n:'Run Status',id:'LI-R01'},limod:{n:'SYS09 Admin Log',id:'MOD-S09'},op:'is equal to',val:'Failed',ctxt:'Top level (G1)',cardId:'CRD-9004',liId:'LI-R01'}
+  ],
+
+  condFmt: [
+    {page:'1000 - Assortment Overview',n:1,sec:1,mod:{n:'AP02 Assortment Plan',id:'MOD-A02'},style:'Colour scale',li:{n:'Margin %',id:'LI-M01'},by:'Self (Margin %)',stops:[{t:'0% · min',c:'#d73027'},{t:'50% · mid',c:'#fee08b'},{t:'100% · max',c:'#1a9850'}],cardId:'CRD-1001',liId:'LI-M01'},
+    {page:'1000 - Assortment Overview',n:1,sec:1,mod:{n:'AP02 Assortment Plan',id:'MOD-A02'},style:'Single colour',li:{n:'Sales Value',id:'LI-S01'},by:'Another line item: Forecast Units',stops:[{t:'Below forecast',c:'#dce8f9'}],cardId:'CRD-1001',liId:'LI-S01'},
+    {page:'2010 - Store Grade Review',n:1,sec:1,mod:{n:'AP03 Store Grading',id:'MOD-A03'},style:'Colour scale',li:{n:'Grade Score',id:'LI-G03'},by:'Self (Grade Score)',stops:[{t:'0 · min',c:'#d73027'},{t:'50 · mid',c:'#fee08b'},{t:'100 · max',c:'#1a9850'}],cardId:'CRD-2011',liId:'LI-G03'},
+    {page:'2010 - Store Grade Review',n:1,sec:1,mod:{n:'AP03 Store Grading',id:'MOD-A03'},style:'Single colour',li:{n:'Grade',id:'LI-G01'},by:'Another line item: Target Grade',stops:[{t:'≠ target grade',c:'#f4c7c3'}],cardId:'CRD-2011',liId:'LI-G01'},
+    {page:'1100 - Seasonal Buy Plan',n:1,sec:1,mod:{n:'AP04 Buy Plan',id:'MOD-A04'},style:'Colour scale',li:{n:'Buy Value',id:'LI-B02'},by:'Self (Buy Value)',stops:[{t:'Min',c:'#f7fbff'},{t:'Mid',c:'#9ec3e8'},{t:'Max',c:'#2166ac'}],cardId:'CRD-1101',liId:'LI-B02'},
+    {page:'2000 - Store Planning',n:1,sec:1,mod:{n:'AP02 Assortment Plan',id:'MOD-A02'},style:'Single colour',li:{n:'Units',id:'LI-U01'},by:'Another line item: Weeks of Cover',stops:[{t:'< 4 weeks of cover',c:'#fde2c5'}],cardId:'CRD-2001',liId:'LI-U01'},
+    {page:'3100 - New Product Intake',n:1,sec:1,mod:{n:'DAT01 Product Master',id:'MOD-D01'},style:'Border + fill',li:{n:'Status',id:'LI-ST1'},by:'Self (Status)',stops:[{t:'= Draft',c:'#fff3bf'}],cardId:'CRD-3101',liId:'LI-ST1'}
+  ],
+
+  actionButtons: [
+    {page:'1000 - Assortment Overview',n:7,label:'Refresh plan',atype:'Process',aname:{n:'P1 Refresh Plan',id:'ACT-P1'},nsrc:'Action name',auto:'No',cancel:'Shown',cardId:'CRD-1007',actId:'ACT-P1'},
+    {page:'1000 - Assortment Overview',n:7,label:'Export buy plan',atype:'Export',aname:{n:'EXP Buy Plan CSV',id:'ACT-E1'},nsrc:'Custom label',auto:'No',cancel:'Hidden',cardId:'CRD-1007',actId:'ACT-E1'},
+    {page:'2000 - Store Planning',n:4,label:'Import store master',atype:'Import',aname:{n:'IMP Store Master',id:'ACT-I1'},nsrc:'Action name',auto:'No',cancel:'Shown',cardId:'CRD-2004',actId:'ACT-I1'},
+    {page:'2000 - Store Planning',n:4,label:'Open grade review',atype:'Open page',aname:null,nsrc:'—',auto:'No',cancel:'—',cardId:'CRD-2004',actId:'—'},
+    {page:'2010 - Store Grade Review',n:5,label:'Recalculate grades',atype:'Process',aname:{n:'P2 Recalculate Grades',id:'ACT-P2'},nsrc:'Action name',auto:'No',cancel:'Shown',cardId:'CRD-2015',actId:'ACT-P2'},
+    {page:'2010 - Store Grade Review',n:5,label:'Refresh plan',atype:'Process',aname:{n:'P1 Refresh Plan',id:'ACT-P1'},nsrc:'Action name',auto:'No',cancel:'Shown',cardId:'CRD-2015',actId:'ACT-P1'},
+    {page:'3000 - Product Maintenance',n:5,label:'Import product master',atype:'Import',aname:{n:'IMP Product Master',id:'ACT-I2'},nsrc:'Action name',auto:'On page open',cancel:'Shown',cardId:'CRD-3005',actId:'ACT-I2'},
+    {page:'3100 - New Product Intake',n:3,label:'Create products',atype:'Action',aname:{n:'Create Products from Intake',id:'ACT-A3'},nsrc:'Custom label',auto:'No',cancel:'Hidden',cardId:'CRD-3103',actId:'ACT-A3'},
+    {page:'3100 - New Product Intake',n:3,label:'Open product maintenance',atype:'Open page',aname:null,nsrc:'—',auto:'No',cancel:'—',cardId:'CRD-3103',actId:'—'},
+    {page:'9000 - Admin & Actions',n:1,label:'Refresh plan',atype:'Process',aname:{n:'P1 Refresh Plan',id:'ACT-P1'},nsrc:'Action name',auto:'No',cancel:'Shown',cardId:'CRD-9001',actId:'ACT-P1'},
+    {page:'9000 - Admin & Actions',n:1,label:'Refresh (legacy)',atype:'Process',aname:{n:'A2 Old Refresh',id:'ACT-A2',gone:1},nsrc:'Custom label',auto:'No',cancel:'Shown',cardId:'CRD-9001',actId:'ACT-A2'}
+  ],
+
+  whereUsed: [
+    {otype:'Line item',obj:{n:'Sales Value',id:'LI-S01'},omod:{n:'AP02 Assortment Plan',id:'MOD-A02'},page:'1000 - Assortment Overview',n:1,usedAs:'Grid rows',oid:'LI-S01'},
+    {otype:'Line item',obj:{n:'Sales Value',id:'LI-S01'},omod:{n:'AP02 Assortment Plan',id:'MOD-A02'},page:'1000 - Assortment Overview',n:4,usedAs:'KPI value',oid:'LI-S01'},
+    {otype:'Line item',obj:{n:'Sales Value',id:'LI-S01'},omod:{n:'AP02 Assortment Plan',id:'MOD-A02'},page:'2010 - Store Grade Review',n:1,usedAs:'Filter condition',oid:'LI-S01'},
+    {otype:'Line item',obj:{n:'Margin %',id:'LI-M01'},omod:{n:'AP02 Assortment Plan',id:'MOD-A02'},page:'1000 - Assortment Overview',n:1,usedAs:'Colour rule',oid:'LI-M01'},
+    {otype:'Line item',obj:{n:'Margin %',id:'LI-M01'},omod:{n:'AP02 Assortment Plan',id:'MOD-A02'},page:'1000 - Assortment Overview',n:3,usedAs:'Chart series',oid:'LI-M01'},
+    {otype:'Line item',obj:{n:'Units',id:'LI-U01'},omod:{n:'AP02 Assortment Plan',id:'MOD-A02'},page:'1100 - Seasonal Buy Plan',n:3,usedAs:'KPI value',oid:'LI-U01'},
+    {otype:'Line item',obj:{n:'Grade',id:'LI-G01'},omod:{n:'AP03 Store Grading',id:'MOD-A03'},page:'2010 - Store Grade Review',n:1,usedAs:'Grid rows',oid:'LI-G01'},
+    {otype:'Line item',obj:{n:null,id:'LI-77E2B0',nr:1},omod:{n:'AP01 Demand Forecast',id:'MOD-A01'},page:'1000 - Assortment Overview',n:3,usedAs:'Chart series',oid:'LI-77E2B0'},
+    {otype:'List',obj:{n:'Clusters',id:'LST-C1'},omod:null,page:'1000 - Assortment Overview',n:1,usedAs:'Context selector',oid:'LST-C1'},
+    {otype:'List',obj:{n:'Stores',id:'LST-S1'},omod:null,page:'2010 - Store Grade Review',n:1,usedAs:'Filter dimension',oid:'LST-S1'},
+    {otype:'List',obj:{n:'Products',id:'LST-P1'},omod:null,page:'3100 - New Product Intake',n:1,usedAs:'Grid rows',oid:'LST-P1'},
+    {otype:'List',obj:{n:'Grades',id:'LST-G1'},omod:null,page:'2010 - Store Grade Review',n:2,usedAs:'Chart breakdown',oid:'LST-G1'},
+    {otype:'Saved view',obj:{n:'SV-AP02 Cluster Plan',id:'SV-C01'},omod:{n:'AP02 Assortment Plan',id:'MOD-A02'},page:'1000 - Assortment Overview',n:1,usedAs:'Card source',oid:'SV-C01'},
+    {otype:'Saved view',obj:{n:'SV-LEG Wholesale View',id:'SV-L01',gone:1},omod:{n:'AP04 Buy Plan',id:'MOD-A04'},page:'1100 - Seasonal Buy Plan',n:1,usedAs:'Card source',oid:'SV-L01'},
+    {otype:'Module',obj:{n:'AP02 Assortment Plan',id:'MOD-A02'},omod:null,page:'2000 - Store Planning',n:1,usedAs:'Card source',oid:'MOD-A02'},
+    {otype:'Action',obj:{n:'P1 Refresh Plan',id:'ACT-P1'},omod:null,page:'1000 - Assortment Overview',n:7,usedAs:'Button action',oid:'ACT-P1'},
+    {otype:'Action',obj:{n:'P1 Refresh Plan',id:'ACT-P1'},omod:null,page:'2010 - Store Grade Review',n:5,usedAs:'Button action',oid:'ACT-P1'},
+    {otype:'Action',obj:{n:'P1 Refresh Plan',id:'ACT-P1'},omod:null,page:'9000 - Admin & Actions',n:1,usedAs:'Button action',oid:'ACT-P1'},
+    {otype:'Action',obj:{n:'A2 Old Refresh',id:'ACT-A2',gone:1},omod:null,page:'9000 - Admin & Actions',n:1,usedAs:'Button action',oid:'ACT-A2'}
+  ],
+
+  warnings: [
+    {lvl:'err', html:'Saved view <code>SV-LEG Wholesale View</code> is used as the source of card 1100/1 (Buy plan by product) but no longer exists in the model.'},
+    {lvl:'err', html:'Action <code>A2 Old Refresh</code> is run by the button “Refresh (legacy)” on card 9000/1 but no longer exists in the model.'},
+    {lvl:'wr',  html:'Card 3000/2 (Products by status): chart series colours could not be read — showing partial details.'},
+    {lvl:'wr',  html:'2 line-item names could not be read; their IDs are shown instead (LI-77E2B0, LI-9A04C1).'}
+  ],
+
+  diagnostics:
+`[2026-09-28T13:41:02Z] cardigan 0.9.3 — analysis started
+[2026-09-28T13:41:02Z] app "Demo - Assortment Planning" (APP-8F3C1A02); 8 pages discovered
+[2026-09-28T13:41:02Z] model "FP&A - Retail Planning" (MDL-51D2B7), workspace "Acme Retail - Production" (WS-77AC10)
+[2026-09-28T13:41:02Z] data-centre host: eu-west-1.planning.example
+[2026-09-28T13:41:03Z] page 1000 "Assortment Overview": 8 cards read (grid 1, chart 2, grid+chart 1, kpi 2, action 1, text 1)
+[2026-09-28T13:41:04Z] page 1100 "Seasonal Buy Plan": 6 cards read
+[2026-09-28T13:41:04Z] WARN saved view SV-L01 ("SV-LEG Wholesale View") referenced by card 1100/1 not found in model — flagged "not in the model"
+[2026-09-28T13:41:05Z] page 2000 "Store Planning": 5 cards read
+[2026-09-28T13:41:06Z] page 2010 "Store Grade Review": 6 cards read; nested filter groups resolved (G1 > G2)
+[2026-09-28T13:41:07Z] page 3000 "Product Maintenance": 6 cards read
+[2026-09-28T13:41:07Z] WARN card 3000/2: chart series colours unavailable (card configuration partially readable)
+[2026-09-28T13:41:08Z] page 3100 "New Product Intake": 5 cards read
+[2026-09-28T13:41:09Z] page 9000 "Admin & Actions": 5 cards read
+[2026-09-28T13:41:09Z] WARN action ACT-A2 ("A2 Old Refresh") referenced by card 9000/1 not found in model — flagged "not in the model"
+[2026-09-28T13:41:09Z] page 9999 "Legacy Archive": not published — skipped
+[2026-09-28T13:41:10Z] WARN line item LI-77E2B0: name not readable (module AP01 open in another session) — ID retained
+[2026-09-28T13:41:10Z] WARN line item LI-9A04C1: name not readable — ID retained
+[2026-09-28T13:41:12Z] where-used index built: 19 object usages across 7 pages
+[2026-09-28T13:41:14Z] analysis finished in 12.4s — 41 cards, 11 grid sections, 14 filter conditions, 7 formatting rules, 11 action buttons`
+});
+/* ================= table definitions (exact export column names) =========
+   t: text | num | page | card | object | id | idlist | chips | named |
+      tag | pub | stops      f: has a per-column filter    h: hidden by default */
+const TABLES = {
+  pages: { label:'Pages', empty:'No pages in this app', hasPage:false, cols:[
+    {k:'app',l:'App'},{k:'cat',l:'Category',f:1},{k:'page',l:'Page',t:'page'},
+    {k:'ptype',l:'Page type',f:1,t:'tag'},{k:'pub',l:'Publish state',f:1,t:'pub'},
+    {k:'model',l:'Model',f:1},{k:'ws',l:'Workspace'},
+    {k:'tot',l:'Total cards',t:'num'},{k:'grid',l:'Grid cards',t:'num'},{k:'chart',l:'Chart cards',t:'num'},
+    {k:'gcv',l:'Grid & chart views',t:'num'},{k:'kpi',l:'KPI cards',t:'num'},{k:'field',l:'Field cards',t:'num'},
+    {k:'act',l:'Action cards',t:'num'},{k:'txt',l:'Text & image cards',t:'num'},
+    {k:'lastPub',l:'Last published'},
+    {k:'pageId',l:'Page ID',t:'id',h:1},{k:'appId',l:'App ID',t:'id',h:1},{k:'modelId',l:'Model ID',t:'id',h:1}
+  ]},
+  cards: { label:'Cards', empty:'No cards in this app', hasPage:true, cols:[
+    {k:'page',l:'Page',t:'page',f:1},{k:'n',l:'Card #',t:'card',num:1},
+    {k:'title',l:'Card title',t:'card'},{k:'type',l:'Card type',t:'tag',f:1},{k:'view',l:'View type',t:'tag',f:1},
+    {k:'mods',l:'Source module(s)',t:'chips'},{k:'sv',l:'Saved view',t:'named'},
+    {k:'lis',l:'Line items shown',t:'chips'},
+    {k:'rows',l:'Rows'},{k:'cols',l:'Columns'},{k:'ctx',l:'Context selectors',t:'chips'},
+    {k:'filt',l:'Filters',t:'chips'},{k:'sorts',l:'Sorts & hidden items'},
+    {k:'cf',l:'Conditional formatting'},{k:'btns',l:'Buttons & links',t:'chips'},
+    {k:'text',l:'Text content'},{k:'settings',l:'Card settings'},
+    {k:'id',l:'Card ID',t:'id',h:1},{k:'src',l:'Source IDs',t:'idlist',h:1}
+  ]},
+  gridSections: { label:'Grid Sections', empty:'No grid sections in this app', hasPage:true, cols:[
+    {k:'page',l:'Page',t:'page',f:1},{k:'n',l:'Card #',t:'card',num:1},{k:'view',l:'View type',t:'tag',f:1},
+    {k:'sec',l:'Section #',num:1},{k:'layout',l:'Section layout',f:1},
+    {k:'mod',l:'Source module',t:'named'},{k:'sv',l:'Saved view',t:'named'},
+    {k:'rows',l:'Rows'},{k:'cols',l:'Columns'},{k:'ctx',l:'Context selectors',t:'chips'},
+    {k:'lis',l:'Line items shown',t:'chips'},
+    {k:'rf',l:'Row filter'},{k:'cf2',l:'Column filter'},{k:'sh',l:'Sorts & hidden items'},
+    {k:'cfmt',l:'Conditional formatting'},
+    {k:'cardId',l:'Card ID',t:'id'},{k:'secId',l:'Section ID',t:'id',h:1},{k:'modId',l:'Module ID',t:'id',h:1}
+  ]},
+  filters: { label:'Filters', empty:'No filters in this app', hasPage:true, cols:[
+    {k:'page',l:'Page',t:'page',f:1},{k:'n',l:'Card #',t:'card',num:1},{k:'sec',l:'Section #',num:1},
+    {k:'mod',l:'Filtered module',t:'named'},{k:'on',l:'Filter on',t:'tag',f:1},{k:'dim',l:'Filtered dimension',f:1},
+    {k:'grp',l:'Condition group'},{k:'match',l:'Show items that match',t:'tag',f:1},
+    {k:'li',l:'Condition line item',t:'named'},{k:'limod',l:"Condition line item's module",t:'named'},
+    {k:'op',l:'Operator',f:1},{k:'val',l:'Value'},{k:'ctxt',l:'Condition context'},
+    {k:'cardId',l:'Card ID',t:'id'},{k:'liId',l:'Line item ID',t:'id',h:1}
+  ]},
+  condFmt: { label:'Conditional Formatting', empty:'No conditional formatting in this app', hasPage:true, cols:[
+    {k:'page',l:'Page',t:'page',f:1},{k:'n',l:'Card #',t:'card',num:1},{k:'sec',l:'Section #',num:1},
+    {k:'mod',l:'Formatted module',t:'named'},{k:'style',l:'Format style',t:'tag',f:1},
+    {k:'li',l:'Formatted line item',t:'named'},{k:'by',l:'Colour driven by'},
+    {k:'stops',l:'Colour stops',t:'stops'},
+    {k:'cardId',l:'Card ID',t:'id'},{k:'liId',l:'Line item ID',t:'id',h:1}
+  ]},
+  actionButtons: { label:'Action Buttons', empty:'No action buttons in this app', hasPage:true, cols:[
+    {k:'page',l:'Page',t:'page',f:1},{k:'n',l:'Card #',t:'card',num:1},{k:'label',l:'Button label'},
+    {k:'atype',l:'Action type',t:'tag',f:1},{k:'aname',l:'Model action name',t:'named'},
+    {k:'nsrc',l:'Name source',f:1},{k:'auto',l:'Runs automatically',f:1},{k:'cancel',l:'Cancel button',f:1},
+    {k:'cardId',l:'Card ID',t:'id'},{k:'actId',l:'Action ID',t:'id',h:1}
+  ]},
+  whereUsed: { label:'Where Used', empty:'Nothing is tracked in Where Used', hasPage:true, cols:[
+    {k:'otype',l:'Object type',t:'tag',f:1},{k:'obj',l:'Object name',t:'object'},
+    {k:'omod',l:"Object's module",t:'named'},{k:'page',l:'Page',t:'page',f:1},
+    {k:'n',l:'Card #',t:'card',num:1},{k:'usedAs',l:'Used as',f:1},
+    {k:'oid',l:'Object ID',t:'id',h:1}
+  ]}
+};
+const NAV_ORDER = ['pages','cards','gridSections','filters','condFmt','actionButtons','whereUsed'];
+
+/* ================= utilities ================= */
+const $  = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c =>
+  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+function valText(v){
+  if (v == null || v === '') return '';
+  if (Array.isArray(v)) return v.map(valText).join(' ');
+  if (typeof v === 'object'){
+    if ('t' in v) return v.t;
+    return ((v.n || '') + ' ' + (v.id || '')).trim();
+  }
+  return String(v);
+}
+function numVal(v){ return (typeof v === 'number') ? v : NaN; }
+
+let toastTimer = null;
+function toast(msg){
+  const t = $('#toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastTimer); toastTimer = setTimeout(()=>t.classList.remove('show'), 2200);
+}
+function announce(msg){ $('#live').textContent = msg; }
+
+async function copyText(txt){
+  try { await navigator.clipboard.writeText(txt); toast('Copied ' + txt); }
+  catch(e){
+    const ta = document.createElement('textarea');
+    ta.value = txt; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); toast('Copied ' + txt); }
+    catch(err){ toast('Copy failed'); }
+    ta.remove();
+  }
+}
+function downloadFile(name, text, mime){
+  const blob = new Blob([text], {type: mime || 'text/csv;charset=utf-8'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 4000);
+}
+/* ================= state ================= */
+const state = {
+  view: 'overview',                 // 'overview' | table id | 'details'
+  preview: 'normal',                // 'normal' | 'closed' | 'nofilters'
+  search: '',
+  colFilters: {},                   // tid -> {colKey: Set(values)}
+  hidden: {},                       // tid -> Set(colKey)
+  sort: {},                         // tid -> {k, dir}
+  page: {},                         // tid -> page index
+  pageSize: 50,
+  context: null,                    // {k:'page', v, label}
+  lastFocus: null
+};
+function hiddenSet(tid){
+  if (!state.hidden[tid]){
+    state.hidden[tid] = new Set(TABLES[tid].cols.filter(c=>c.h).map(c=>c.k));
+  }
+  return state.hidden[tid];
+}
+const isClosed = () => state.preview === 'closed';
+
+/* ================= cell renderers ================= */
+function idPill(id){
+  if (id == null || id === '' || id === '—') return '<span class="dash">—</span>';
+  const s = String(id);
+  return `<button type="button" class="id-pill" data-copy="${esc(s)}" title="Copy ${esc(s)}" aria-label="Copy ID ${esc(s)}">${esc(s)}</button>`;
+}
+function namedHtml(v){
+  if (v == null || v === '' || v === '—') return '<span class="dash">—</span>';
+  if (typeof v !== 'object') return `<span class="cell-t" title="${esc(v)}">${esc(v)}</span>`;
+  let out = '';
+  if (isClosed() || v.nr || !v.n){
+    out += idPill(v.id) + '<span class="nr-hint">name not read</span>';
+  } else {
+    out += `<span class="cell-t" title="${esc(v.n)}">${esc(v.n)}</span>`;
+  }
+  if (v.gone) out += '<span class="badge gone">not in the model</span>';
+  return out;
+}
+function chipsHtml(arr){
+  if (!arr || !arr.length) return '<span class="dash">—</span>';
+  return '<span class="chips">' + arr.map(c=>{
+    if (c && typeof c === 'object' && ('n' in c || 'id' in c))
+      return `<span class="chip">${namedHtml(c)}</span>`;
+    if (c && typeof c === 'object' && 't' in c)
+      return `<span class="chip"><i class="sw" style="background:${esc(c.c)}"></i>${esc(c.t)}</span>`;
+    return `<span class="chip"><span class="cell-t" title="${esc(c)}">${esc(c)}</span></span>`;
+  }).join('') + '</span>';
+}
+function pubHtml(v){
+  const cls = v === 'Published' ? 'pub' : 'unpub';
+  return `<span class="badge ${cls}"><span class="bdot"></span>${esc(v)}</span>`;
+}
+function cellHtml(tid, col, row){
+  const v = row[col.k];
+  switch (col.t){
+    case 'num': {
+      const n = numVal(v);
+      return isNaN(n) ? '<span class="dash">—</span>' : String(n);
+    }
+    case 'page':
+      if (!v) return '<span class="dash">—</span>';
+      return `<button type="button" class="link" data-act="page" data-val="${esc(v)}" title="Show cards on ${esc(v)}">${esc(v)}</button>`;
+    case 'card': {
+      const label = col.k === 'n' ? '#' + row.n : (v || '(untitled card)');
+      return `<button type="button" class="link" data-act="card" data-page="${esc(row.page)}" data-n="${row.n}" title="Open card details">${esc(label)}</button>`;
+    }
+    case 'object': {
+      const o = v;
+      const label = (o && o.n) ? o.n : (o ? o.id : '—');
+      let out = `<button type="button" class="link" data-act="object" data-oid="${esc(o.oid || o.id)}" data-oname="${esc(label)}" title="List every page and card that uses this object">${esc(label)}</button>`;
+      if (o && o.nr) out = idPill(o.id) + '<span class="nr-hint">name not read</span> ' +
+        `<button type="button" class="link" data-act="object" data-oid="${esc(o.oid || o.id)}" data-oname="${esc(o.id)}">usages</button>`;
+      if (o && o.gone) out += '<span class="badge gone">not in the model</span>';
+      return out;
+    }
+    case 'id': return idPill(v);
+    case 'idlist':
+      if (!v || !v.length) return '<span class="dash">—</span>';
+      return '<span class="chips">' + v.map(idPill).join('') + '</span>';
+    case 'chips': return chipsHtml(v);
+    case 'named': return namedHtml(v);
+    case 'stops': return chipsHtml(v);
+    case 'pub': return pubHtml(v);
+    case 'tag':
+      if (!v) return '<span class="dash">—</span>';
+      return `<span class="tag">${esc(v)}</span>`;
+    default: {
+      if (v == null || v === '') return '<span class="dash">—</span>';
+      return `<span class="cell-t" title="${esc(v)}">${esc(v)}</span>`;
+    }
+  }
+}
+
+/* ================= header / banners / theme ================= */
+function renderHeaderMeta(){
+  const m = SAMPLE.meta, mod = m.models[0];
+  $('#hdMeta').innerHTML =
+    `<div class="meta-app">${esc(m.app.name)}</div>
+     <div class="meta-sub">${esc(mod.name)}<span class="dotsep">·</span>${esc(mod.workspace)}<span class="dotsep">·</span><span style="font-family:var(--mono);font-size:11px">${esc(mod.host)}</span><span class="dotsep">·</span>Exported ${esc(m.exportTime)}</div>`;
+}
+function renderBanners(){
+  const b = [];
+  if (isClosed()){
+    b.push(`<div class="banner warn" role="alert">
+      <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1.8 15 14H1L8 1.8Z"/><path d="M8 6.2v3.4M8 11.8v.2"/></svg>
+      <div><strong>The model was closed when the analysis ran,</strong> so module and line-item names could not be read; IDs are shown instead. Open the model and run the analysis again.</div>
+    </div>`);
+  }
+  const np = SAMPLE.meta.notPublished;
+  b.push(`<div class="banner note">
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="8" cy="8" r="6.4"/><path d="M8 7.4v3.4M8 5v.2"/></svg>
+    <div>${np.length} page${np.length>1?'s were':' was'} not published and so ${np.length>1?'were':'was'} not analysed: <code>${esc(np.join('</code>, <code>'))}</code></div>
+  </div>`);
+  $('#banners').innerHTML = b.join('');
+}
+const SUN = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="3.2"/><path d="M8 1.5v1.8M8 12.7v1.8M1.5 8h1.8M12.7 8h1.8M3.4 3.4l1.3 1.3M11.3 11.3l1.3 1.3M12.6 3.4l-1.3 1.3M4.7 11.3l-1.3 1.3"/></svg>';
+const MOON = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 9.5A5.8 5.8 0 0 1 6.5 2.5 5.8 5.8 0 1 0 13.5 9.5Z"/></svg>';
+function currentTheme(){
+  let stored = null;
+  try { stored = localStorage.getItem('cardigan-theme'); } catch(e){}
+  if (stored === 'dark' || stored === 'light') return stored;
+  return (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+}
+function applyTheme(t){
+  document.documentElement.dataset.theme = t;
+  $('#themeToggle').innerHTML = t === 'dark' ? SUN : MOON;
+  $('#themeToggle').title = t === 'dark' ? 'Switch to light theme' : 'Switch to dark theme';
+}
+function toggleTheme(){
+  const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+  try { localStorage.setItem('cardigan-theme', next); } catch(e){}
+  applyTheme(next);
+}
+/* ================= data access (respecting preview state) ================= */
+function tableRows(tid){
+  if (tid === 'filters' && state.preview === 'nofilters') return [];
+  return SAMPLE[tid] || [];
+}
+function countFor(tid){ return tableRows(tid).length; }
+
+/* ================= navigation ================= */
+function renderNav(){
+  const items = [];
+  items.push(navItem('overview', 'Overview', null));
+  NAV_ORDER.forEach(tid => items.push(navItem(tid, TABLES[tid].label, countFor(tid))));
+  items.push(navItem('details', 'Details', null));
+  items.push(`<button type="button" class="nav-item disabled" aria-disabled="true" title="Model map is not available in this version">
+    <span>Model map</span><span class="soon">coming soon</span></button>`);
+  $('#navList').innerHTML = items.join('');
+}
+function navItem(id, label, count){
+  const cur = state.view === id ? ' aria-current="page"' : '';
+  const cnt = count == null ? '' : `<span class="cnt">${count}</span>`;
+  return `<button type="button" class="nav-item" data-nav="${id}"${cur}><span>${esc(label)}</span>${cnt}</button>`;
+}
+
+/* ================= breadcrumbs ================= */
+function renderCrumbs(){
+  const c = [];
+  const label = state.view === 'overview' ? 'Overview'
+    : state.view === 'details' ? 'Details' : TABLES[state.view].label;
+  if (state.view === 'overview'){
+    c.push('<span aria-current="page"><strong>Overview</strong></span>');
+  } else {
+    c.push('<button type="button" data-nav="overview">Overview</button>');
+    c.push('<span class="sep" aria-hidden="true">/</span>');
+    c.push(`<span aria-current="page"><strong>${esc(label)}</strong></span>`);
+    if (state.context){
+      c.push('<span class="sep" aria-hidden="true">/</span>');
+      c.push(`<span class="ctx">${esc(state.context.label)}: ${esc(state.context.v)}
+        <button type="button" data-act="clear-context" aria-label="Clear page filter">
+          <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 3l10 10M13 3 3 13"/></svg>
+        </button></span>`);
+    }
+  }
+  $('#crumbs').innerHTML = c.join('');
+}
+
+/* ================= overview ================= */
+function renderOverview(){
+  const cards = SAMPLE.cards, byType = {};
+  cards.forEach(c => byType[c.type] = (byType[c.type] || 0) + 1);
+  const m = SAMPLE.meta;
+  const stats = [
+    ['Pages', SAMPLE.pages.length, `${SAMPLE.pages.length - m.notPublished.length} analysed · ${m.notPublished.length} not published`],
+    ['Cards', cards.length, Object.entries(byType).map(([k,v])=>`${k} ${v}`).slice(0,3).join(' · ') + ' …'],
+    ['Grid sections', countFor('gridSections'), 'across grid & grid+chart cards'],
+    ['Filters', countFor('filters'), state.preview === 'nofilters' ? 'none in this state' : 'incl. 1 nested group (G1 › G2)'],
+    ['Formatting rules', countFor('condFmt'), 'colour scales & single colour'],
+    ['Action buttons', countFor('actionButtons'), 'processes, imports, exports, links'],
+    ['Where Used', countFor('whereUsed'), 'objects tracked across pages']
+  ];
+  const typeOrder = ['Grid','Chart','KPI','Field','Action','Text','Grid & chart'];
+  const maxT = Math.max(...Object.values(byType));
+  $('#view').innerHTML = `
+    <h1 class="view-title">Overview</h1>
+    <div class="ov-grid">
+      ${stats.map(([l,n,s])=>`<div class="stat"><div class="s-lab">${esc(l)}</div><div class="s-num">${n}</div><div class="s-sub">${esc(s)}</div></div>`).join('')}
+    </div>
+    <div class="ov-cols">
+      <section class="panel" aria-labelledby="ovt"><h3 id="ovt">Cards by type</h3>
+        <div class="typebars">
+          ${typeOrder.filter(t=>byType[t]).map(t=>`
+            <div class="typebar"><span>${esc(t)}</span>
+              <span class="tb-track"><span class="tb-fill" style="display:block;width:${Math.round(byType[t]/maxT*100)}%"></span></span>
+              <span class="tb-n">${byType[t]}</span></div>`).join('')}
+        </div>
+      </section>
+      <section class="panel" aria-labelledby="ovm"><h3 id="ovm">Models &amp; data-centre hosts</h3>
+        ${m.models.map(mod=>`
+          <div class="model-row">
+            <div class="m-name">${esc(mod.name)} ${idPill(mod.id)}</div>
+            <div class="m-sub">Workspace: ${esc(mod.workspace)} ${idPill(mod.workspaceId)}
+              <span style="color:var(--text-3)">·</span> Host: <span style="font-family:var(--mono);font-size:11.5px">${esc(mod.host)}</span></div>
+          </div>`).join('')}
+      </section>
+    </div>
+    <section class="panel" aria-labelledby="ovw" style="margin-bottom:12px"><h3 id="ovw">Warnings</h3>
+      <ul class="warn-list">
+        ${SAMPLE.warnings.map(w=>`<li><span class="wdot ${w.lvl}" aria-hidden="true"></span><span class="wl-ink">${w.html}</span></li>`).join('')}
+      </ul>
+    </section>`;
+}
+
+/* ================= details ================= */
+function renderDetails(){
+  const m = SAMPLE.meta, mod = m.models[0];
+  const rows = [
+    ['Product', `${esc(m.product)} <span class="ver">v${esc(m.version)}</span>`],
+    ['Export time', esc(m.exportTime)],
+    ['Analysis duration', esc(m.duration)],
+    ['Model read mode', esc(isClosed() ? m.readModeClosed : m.readMode)],
+    ['App', `${esc(m.app.name)} ${idPill(m.app.id)}`],
+    ['Model', `${esc(mod.name)} ${idPill(mod.id)}`],
+    ['Workspace', `${esc(mod.workspace)} ${idPill(mod.workspaceId)}`],
+    ['Data-centre host', `<span style="font-family:var(--mono);font-size:11.5px">${esc(mod.host)}</span>`],
+    ['Pages analysed', String(SAMPLE.pages.length - m.notPublished.length)],
+    ['Pages skipped (not published)', esc(m.notPublished.join(', '))],
+    ['Cards analysed', String(SAMPLE.cards.length)],
+    ['Grid sections', String(countFor('gridSections'))],
+    ['Filter conditions', String(countFor('filters'))],
+    ['Formatting rules', String(countFor('condFmt'))],
+    ['Action buttons', String(countFor('actionButtons'))]
+  ];
+  $('#view').innerHTML = `
+    <h1 class="view-title">Details</h1>
+    <dl class="dl">${rows.map(([k,v])=>`<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>
+    <details class="diag">
+      <summary><svg class="car" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3l6 5-6 5"/></svg>Diagnostics</summary>
+      <div class="diag-body">
+        <pre id="diagLog" tabindex="0">${esc(SAMPLE.diagnostics)}</pre>
+        <button type="button" class="btn sm" data-act="copy-diag">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5.5" y="5.5" width="8" height="8" rx="2"/><path d="M10.5 5.5v-2a2 2 0 0 0-2-2h-5a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h2"/></svg>
+          Copy diagnostic log</button>
+      </div>
+    </details>`;
+}
+/* ================= table engine =================
+   Pagination (not virtualisation) keeps ~3,000-row tables fast: only the
+   current page of <tr> nodes is ever in the DOM. */
+function filteredRows(tid){
+  const T = TABLES[tid];
+  let rows = tableRows(tid).slice();
+  if (state.context && T.hasPage) rows = rows.filter(r => r.page === state.context.v);
+  const q = state.search.trim().toLowerCase();
+  if (q) rows = rows.filter(r => T.cols.some(c => valText(r[c.k]).toLowerCase().includes(q)));
+  const cf = state.colFilters[tid] || {};
+  for (const k in cf){
+    const set = cf[k];
+    if (set && set.size) rows = rows.filter(r => set.has(valText(r[k])));
+  }
+  const s = state.sort[tid];
+  if (s){
+    const col = T.cols.find(c=>c.k===s.k);
+    rows.sort((a,b)=>{
+      const an = numVal(a[s.k]), bn = numVal(b[s.k]);
+      let cmp;
+      if (!isNaN(an) && !isNaN(bn)) cmp = an - bn;
+      else cmp = valText(a[s.k]).toLowerCase().localeCompare(valText(b[s.k]).toLowerCase());
+      if (cmp === 0 && col && col.k !== 'n' && 'n' in a) cmp = a.n - b.n;
+      return s.dir === 'desc' ? -cmp : cmp;
+    });
+  }
+  return rows;
+}
+function activeFilterCount(tid){
+  const cf = state.colFilters[tid] || {};
+  return Object.values(cf).reduce((n,set)=> n + (set && set.size ? 1 : 0), 0);
+}
+function isModified(tid){
+  return state.search.trim() !== '' || activeFilterCount(tid) > 0 || !!state.sort[tid] || !!state.context;
+}
+
+function renderTable(tid){
+  const T = TABLES[tid];
+  const all = filteredRows(tid);
+  const total = all.length;
+  const ps = state.pageSize;
+  const pages = Math.max(1, Math.ceil(total / ps));
+  let p = Math.min(state.page[tid] || 0, pages - 1);
+  state.page[tid] = p;
+  const slice = all.slice(p*ps, p*ps + ps);
+  currentSlice = slice;
+  const hid = hiddenSet(tid);
+  const cols = T.cols.filter(c => !hid.has(c.k));
+  const srt = state.sort[tid] || {};
+
+  const thead = '<tr>' + cols.map(c=>{
+    const dir = srt.k === c.k ? srt.dir : null;
+    const aria = dir ? (dir === 'asc' ? 'ascending' : 'descending') : 'none';
+    const arrow = dir ? `<span class="dir" aria-hidden="true">${dir === 'asc' ? '▲' : '▼'}</span>` : '<span class="dir" aria-hidden="true"></span>';
+    const fBtn = c.f ? `<button type="button" class="th-filter ${ (state.colFilters[tid]||{})[c.k]?.size ? 'active':'' }"
+        data-colfilter="${esc(c.k)}" aria-label="Filter by ${esc(c.l)}" aria-haspopup="dialog" title="Filter by ${esc(c.l)}">
+        <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M2 3h12l-4.6 5.2v4.3L6.6 14V8.2L2 3Z"/></svg></button>` : '';
+    return `<th scope="col" class="${c.t==='num'||c.num?'num':''}" aria-sort="${aria}">
+      <div class="th-in"><button type="button" class="th-sort" data-sort="${esc(c.k)}">${esc(c.l)}${arrow}</button>${fBtn}</div></th>`;
+  }).join('') + '</tr>';
+
+  let body = '', emptyHtml = '';
+  if (tableRows(tid).length === 0){
+    emptyHtml = `<div class="empty">
+      <svg width="30" height="30" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><path d="M2 3h12l-4.6 5.2v4.3L6.6 14V8.2L2 3Z"/></svg>
+      <div class="e-title">${esc(T.empty)}</div>
+      <div class="e-sub">When the app has ${esc(T.label.toLowerCase())}, they will appear here after the next analysis.</div>
+      </div>`;
+  } else if (total === 0){
+    emptyHtml = `<div class="empty">
+      <svg width="30" height="30" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><circle cx="7" cy="7" r="4.6"/><path d="M10.6 10.6 14 14"/></svg>
+      <div class="e-title">No results</div>
+      <div class="e-sub">Nothing in ${esc(T.label)} matches the current ${state.search.trim() ? 'search' : ''}${state.search.trim() && activeFilterCount(tid) ? ' and ' : ''}${activeFilterCount(tid) ? 'column filters' : ''}${state.context ? (state.search.trim()||activeFilterCount(tid) ? ' and ' : '') + 'page selection' : ''}.</div>
+      <button type="button" class="btn sm" data-act="reset">Clear search &amp; filters</button>
+      </div>`;
+  } else {
+    body = slice.map(r=>'<tr>' + cols.map(c=>
+      `<td class="${c.t==='num'||c.num?'num':''}">${cellHtml(tid,c,r)}</td>`).join('') + '</tr>').join('');
+  }
+
+  const from = total === 0 ? 0 : p*ps + 1, to = Math.min(total, (p+1)*ps);
+  $('#view').innerHTML = `
+    <h1 class="view-title">${esc(T.label)}</h1>
+    <div class="toolbar">
+      <div class="search-wrap ${state.search ? 'has-value' : ''}">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="7" cy="7" r="4.6"/><path d="M10.6 10.6 14 14"/></svg>
+        <input id="tblSearch" type="search" value="${esc(state.search)}" placeholder="Search all columns…" aria-label="Search ${esc(T.label)}">
+        <button type="button" class="search-clear" data-act="clear-search" aria-label="Clear search">
+          <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 3l10 10M13 3 3 13"/></svg></button>
+        <kbd title="Press / to focus search">/</kbd>
+      </div>
+      <button type="button" class="btn sm" id="colBtn" aria-haspopup="dialog">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"/></svg>
+        Columns</button>
+      <button type="button" class="btn sm" data-act="reset" ${isModified(tid) ? '' : 'hidden'}>Reset</button>
+      <span class="rowcount" id="rowCount"></span>
+    </div>
+    <div class="table-wrap" id="tableWrap" tabindex="0" role="region" aria-label="${esc(T.label)} table">
+      <table><thead>${thead}</thead><tbody>${body}</tbody></table>
+      ${emptyHtml}
+      <div class="scroll-fade" aria-hidden="true"></div>
+    </div>
+    <div class="pager" id="pager"></div>`;
+
+  $('#rowCount').textContent = `${from}–${to} of ${total} rows` +
+    (total !== tableRows(tid).length ? ` (filtered from ${tableRows(tid).length})` : '');
+  renderPager(tid, p, pages, total);
+  const wrap = $('#tableWrap');
+  const updFade = ()=>{
+    wrap.classList.toggle('at-end', wrap.scrollTop + wrap.clientHeight >= wrap.scrollHeight - 6);
+    wrap.classList.toggle('no-scroll', wrap.scrollHeight <= wrap.clientHeight + 2);
+  };
+  wrap.addEventListener('scroll', updFade); updFade();
+  const si = $('#tblSearch'); si.selectionStart = si.selectionEnd = si.value.length;
+  announce(`${T.label}: ${total} rows${state.context ? ', filtered to ' + state.context.v : ''}`);
+}
+
+function renderPager(tid, p, pages, total){
+  if (total === 0){ $('#pager').innerHTML = ''; return; }
+  const nums = [];
+  const push = i => nums.push(`<button type="button" class="pg-btn" data-page="${i}" ${i===p?'aria-current="true"':''} aria-label="Page ${i+1}">${i+1}</button>`);
+  if (pages <= 7){ for (let i=0;i<pages;i++) push(i); }
+  else {
+    push(0);
+    const lo = Math.max(1, p-1), hi = Math.min(pages-2, p+1);
+    if (lo > 1) nums.push('<span aria-hidden="true">…</span>');
+    for (let i=lo;i<=hi;i++) push(i);
+    if (hi < pages-2) nums.push('<span aria-hidden="true">…</span>');
+    push(pages-1);
+  }
+  $('#pager').innerHTML = `
+    <button type="button" class="pg-btn" data-page="${p-1}" ${p===0?'disabled':''} aria-label="Previous page">‹</button>
+    <span class="pages">${nums.join('')}</span>
+    <button type="button" class="pg-btn" data-page="${p+1}" ${p>=pages-1?'disabled':''} aria-label="Next page">›</button>
+    <span style="margin-left:auto">Rows per page
+      <select id="pageSize" aria-label="Rows per page">
+        ${[25,50,100].map(n=>`<option value="${n}" ${n===state.pageSize?'selected':''}>${n}</option>`).join('')}
+      </select></span>`;
+}
+
+/* ================= popovers (column filter / column chooser) ================= */
+let popAnchor = null;
+function closePopover(){
+  const p = $('#popover');
+  if (!p.hidden){ p.hidden = true; p.innerHTML=''; }
+  if (popAnchor){ popAnchor = null; }
+}
+function openPopover(anchor, html){
+  const p = $('#popover');
+  p.innerHTML = html; p.hidden = false; popAnchor = anchor;
+  const r = anchor.getBoundingClientRect();
+  const pw = 260;
+  let x = Math.min(r.left, window.innerWidth - pw - 12);
+  let y = r.bottom + 6;
+  p.style.left = Math.max(8, x) + 'px';
+  p.style.top = '0px'; p.style.visibility = 'hidden';
+  requestAnimationFrame(()=>{
+    const ph = Math.min(p.offsetHeight, 340);
+    if (y + ph > window.innerHeight - 10) y = Math.max(10, r.top - ph - 6);
+    p.style.top = y + 'px'; p.style.visibility = 'visible';
+    const first = p.querySelector('input,button'); if (first) first.focus();
+  });
+}
+function openColFilter(tid, key, anchor){
+  const T = TABLES[tid];
+  const col = T.cols.find(c=>c.k===key);
+  const counts = new Map();
+  tableRows(tid).forEach(r=>{ const v = valText(r[key]); counts.set(v,(counts.get(v)||0)+1); });
+  const vals = [...counts.keys()].sort((a,b)=>a.localeCompare(b));
+  if (!state.colFilters[tid]) state.colFilters[tid] = {};
+  const sel = state.colFilters[tid][key];
+  const checked = v => (!sel || !sel.size || sel.has(v)) ? 'checked' : '';
+  openPopover(anchor, `
+    <div class="pop-hd"><span>Filter: ${esc(col.l)}</span><button type="button" data-popact="all">Show all</button></div>
+    <div class="pop-bd">
+      ${vals.length ? vals.map(v=>`
+        <label class="pop-opt"><input type="checkbox" data-fval="${esc(v)}" ${checked(v)}>
+        <span style="overflow:hidden;text-overflow:ellipsis">${v === '' ? '<em>(blank)</em>' : esc(v)}</span>
+        <span class="po-cnt">${counts.get(v)}</span></label>`).join('')
+      : '<div class="pop-empty">No values</div>'}
+    </div>`);
+  $('#popover').querySelectorAll('input[data-fval]').forEach(inp=>{
+    inp.addEventListener('change', ()=>{
+      if (!state.colFilters[tid][key]) state.colFilters[tid][key] = new Set(vals);
+      const set = state.colFilters[tid][key];
+      if (inp.checked) set.add(inp.dataset.fval); else set.delete(inp.dataset.fval);
+      if (set.size === vals.length) set.clear();
+      state.page[tid] = 0; renderTable(tid);
+    });
+  });
+  $('#popover').querySelector('[data-popact="all"]').addEventListener('click', ()=>{
+    state.colFilters[tid][key] = new Set(); state.page[tid] = 0;
+    closePopover(); renderTable(tid);
+  });
+}
+function openColChooser(tid, anchor){
+  const T = TABLES[tid], hid = hiddenSet(tid);
+  openPopover(anchor, `
+    <div class="pop-hd"><span>Show / hide columns</span><button type="button" data-popact="defaults">Defaults</button></div>
+    <div class="pop-bd">
+      ${T.cols.map(c=>`
+        <label class="pop-opt"><input type="checkbox" data-col="${esc(c.k)}" ${hid.has(c.k)?'':'checked'}>
+        <span>${esc(c.l)}</span>${c.h?'<span class="po-cnt">ID</span>':''}</label>`).join('')}
+    </div>`);
+  $('#popover').querySelectorAll('input[data-col]').forEach(inp=>{
+    inp.addEventListener('change', ()=>{
+      if (inp.checked) hid.delete(inp.dataset.col); else hid.add(inp.dataset.col);
+      renderTable(tid);
+    });
+  });
+  $('#popover').querySelector('[data-popact="defaults"]').addEventListener('click', ()=>{
+    state.hidden[tid] = new Set(T.cols.filter(c=>c.h).map(c=>c.k));
+    closePopover(); renderTable(tid);
+  });
+}
+/* ================= drawer ================= */
+let currentSlice = [];
+function openDrawer(title, sub, bodyHtml, opener){
+  state.lastFocus = opener || document.activeElement;
+  $('#drawerTitle').textContent = title;
+  $('#drawerSub').innerHTML = sub || '';
+  $('#drawerBody').innerHTML = bodyHtml;
+  const d = $('#drawer'), s = $('#scrim');
+  d.hidden = false; s.hidden = false;
+  requestAnimationFrame(()=>{ d.classList.add('show'); s.classList.add('show'); });
+  $('#drawerClose').focus();
+  $('#drawerBody').scrollTop = 0;
+}
+function closeDrawer(){
+  const d = $('#drawer'), s = $('#scrim');
+  d.classList.remove('show'); s.classList.remove('show');
+  $('#sidenav').classList.remove('open');
+  $('#navToggle').setAttribute('aria-expanded','false');
+  setTimeout(()=>{ if(!d.classList.contains('show')){ d.hidden = true; s.hidden = true; } }, 210);
+  if (state.lastFocus && document.contains(state.lastFocus)) state.lastFocus.focus();
+  state.lastFocus = null;
+}
+function rowTitle(tid, r){
+  switch (tid){
+    case 'pages': return r.page;
+    case 'cards': return `Card ${r.n} — ${r.title || '(untitled)'}`;
+    case 'gridSections': return `Card ${r.n}, section ${r.sec}`;
+    case 'filters': return `Filter — card ${r.n}, section ${r.sec}`;
+    case 'condFmt': return `Formatting — card ${r.n}, section ${r.sec}`;
+    case 'actionButtons': return `Button “${r.label}”`;
+    case 'whereUsed': return r.obj && r.obj.n ? r.obj.n : (r.obj ? r.obj.id : 'Object usage');
+    default: return 'Row';
+  }
+}
+function openRowDrawer(tid, row, opener){
+  const T = TABLES[tid];
+  const body = `<div class="d-sec"><h3>All columns</h3>
+    <dl class="d-dl">${T.cols.map(c=>`<dt>${esc(c.l)}</dt><dd>${cellHtml(tid,c,row)}</dd>`).join('')}</dl></div>`;
+  openDrawer(rowTitle(tid,row), esc(TABLES[tid].label), body, opener);
+}
+function cardByRef(page, n){ return SAMPLE.cards.find(c=>c.page===page && c.n===Number(n)); }
+function openCardDrawer(page, n, opener){
+  const card = cardByRef(page, n);
+  if (!card){ toast('Card not found in this export'); return; }
+  const secs = SAMPLE.gridSections.filter(g=>g.page===page && g.n===card.n);
+  const flts = SAMPLE.filters.filter(f=>f.page===page && f.n===card.n);
+  const cfs  = SAMPLE.condFmt.filter(f=>f.page===page && f.n===card.n);
+  const btns = SAMPLE.actionButtons.filter(b=>b.page===page && b.n===card.n);
+  const T = TABLES.cards;
+  const secEmpty = (label, arr) => arr.length ? '' : `<p style="font-size:12px;color:var(--text-3);margin:4px 0 0">No ${label} on this card.</p>`;
+  const body = `
+    <div class="d-sec"><h3>Card details</h3>
+      <dl class="d-dl">${T.cols.map(c=>`<dt>${esc(c.l)}</dt><dd>${cellHtml('cards',c,card)}</dd>`).join('')}</dl></div>
+    <div class="d-sec"><h3>Grid sections (${secs.length})</h3>
+      ${secs.length ? `<table class="mini"><thead><tr><th>#</th><th>Layout</th><th>Source module</th><th>Saved view</th><th>Line items shown</th><th>Row filter</th><th>Formatting</th></tr></thead>
+        <tbody>${secs.map(g=>`<tr><td>${g.sec}</td><td>${esc(g.layout)}</td><td>${namedHtml(g.mod)}</td><td>${namedHtml(g.sv)}</td><td>${chipsHtml(g.lis)}</td><td>${esc(g.rf||'—')}</td><td>${esc(g.cfmt||'—')}</td></tr>`).join('')}</tbody></table>` : ''}
+      ${secEmpty('grid sections', secs)}</div>
+    <div class="d-sec"><h3>Filters (${flts.length})</h3>
+      ${flts.length ? `<table class="mini"><thead><tr><th>Sec</th><th>Filter on</th><th>Dimension</th><th>Group</th><th>Condition</th><th>Context</th></tr></thead>
+        <tbody>${flts.map(f=>`<tr><td>${f.sec}</td><td>${esc(f.on)}</td><td>${esc(f.dim)}</td><td>${esc(f.grp)} · ${esc(f.match)}</td>
+          <td>${namedHtml(f.li)} ${esc(f.op)} ${esc(f.val)}</td><td>${esc(f.ctxt)}</td></tr>`).join('')}</tbody></table>` : ''}
+      ${secEmpty('filters', flts)}</div>
+    <div class="d-sec"><h3>Conditional formatting (${cfs.length})</h3>
+      ${cfs.length ? `<table class="mini"><thead><tr><th>Sec</th><th>Style</th><th>Line item</th><th>Driven by</th><th>Colour stops</th></tr></thead>
+        <tbody>${cfs.map(f=>`<tr><td>${f.sec}</td><td>${esc(f.style)}</td><td>${namedHtml(f.li)}</td><td>${esc(f.by)}</td><td>${chipsHtml(f.stops)}</td></tr>`).join('')}</tbody></table>` : ''}
+      ${secEmpty('formatting rules', cfs)}</div>
+    <div class="d-sec"><h3>Buttons &amp; links (${btns.length})</h3>
+      ${btns.length ? `<table class="mini"><thead><tr><th>Label</th><th>Action type</th><th>Model action</th><th>Runs auto</th><th>Cancel</th></tr></thead>
+        <tbody>${btns.map(b=>`<tr><td>${esc(b.label)}</td><td>${esc(b.atype)}</td><td>${namedHtml(b.aname)}</td><td>${esc(b.auto)}</td><td>${esc(b.cancel)}</td></tr>`).join('')}</tbody></table>` : ''}
+      ${secEmpty('buttons', btns)}</div>`;
+  openDrawer(`Card ${card.n} — ${card.title || '(untitled)'}`,
+    `<button type="button" class="link" data-act="page" data-val="${esc(page)}">${esc(page)}</button> · ${esc(card.type)} · ${idPill(card.id)}`,
+    body, opener);
+}
+function openObjectDrawer(oid, opener){
+  const rows = SAMPLE.whereUsed.filter(r=>r.oid===oid);
+  if (!rows.length){ toast('No usages found for ' + oid); return; }
+  const first = rows[0];
+  const name = first.obj && first.obj.n ? first.obj.n : oid;
+  const pages = {};
+  rows.forEach(r=>{ (pages[r.page] = pages[r.page] || []).push(r); });
+  const gone = first.obj && first.obj.gone;
+  const body = `
+    <div class="d-sec"><h3>Object</h3>
+      <dl class="d-dl">
+        <dt>Object type</dt><dd><span class="tag">${esc(first.otype)}</span></dd>
+        <dt>Object name</dt><dd>${namedHtml(first.obj)}</dd>
+        <dt>Object's module</dt><dd>${namedHtml(first.omod)}</dd>
+        <dt>Object ID</dt><dd>${idPill(oid)}</dd>
+      </dl></div>
+    <div class="d-sec"><h3>Used by ${rows.length} card${rows.length>1?'s':''} on ${Object.keys(pages).length} page${Object.keys(pages).length>1?'s':''}</h3>
+      ${Object.entries(pages).map(([pg, list])=>`
+        <div class="grp-page"><button type="button" class="link" data-act="page" data-val="${esc(pg)}">${esc(pg)}</button></div>
+        <ul class="usage-list">
+          ${list.map(r=>{
+            const c = cardByRef(r.page, r.n);
+            return `<li><button type="button" class="link" data-act="card" data-page="${esc(r.page)}" data-n="${r.n}">Card ${r.n}${c ? ' — ' + esc(c.title) : ''}</button>
+              <span class="u-as">used as: ${esc(r.usedAs)}</span></li>`;
+          }).join('')}
+        </ul>`).join('')}
+    </div>`;
+  openDrawer(name, `${esc(first.otype)} · ${idPill(oid)}${gone ? ' <span class="badge gone">not in the model</span>' : ''}`, body, opener);
+}
+
+/* ================= CSV export ================= */
+function csvCell(v){
+  let s;
+  if (Array.isArray(v)) s = v.map(csvCell).join('; ');
+  else if (v && typeof v === 'object'){
+    if ('t' in v) s = `${v.t} (${v.c})`;
+    else s = (v.n || v.id || '') + (v.gone ? ' [not in the model]' : '');
+  } else s = (v == null ? '' : String(v));
+  return /[",\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
+}
+function tableCsv(tid){
+  const T = TABLES[tid];
+  const lines = [T.cols.map(c=>csvCell(c.l)).join(',')];
+  filteredRows(tid).forEach(r=>lines.push(T.cols.map(c=>csvCell(r[c.k])).join(',')));
+  return lines.join('\r\n');
+}
+function downloadThis(){
+  const d = new Date().toISOString().slice(0,10);
+  if (TABLES[state.view]){
+    downloadFile(`cardigan-${state.view}-${d}.csv`, tableCsv(state.view));
+    toast(`Downloaded ${TABLES[state.view].label} as CSV`);
+  } else if (state.view === 'overview'){
+    const m = SAMPLE.meta;
+    const lines = ['Metric,Value',
+      csvCell('Pages')+','+SAMPLE.pages.length,
+      csvCell('Cards')+','+SAMPLE.cards.length,
+      csvCell('Grid sections')+','+countFor('gridSections'),
+      csvCell('Filters')+','+countFor('filters'),
+      csvCell('Formatting rules')+','+countFor('condFmt'),
+      csvCell('Action buttons')+','+countFor('actionButtons'),
+      csvCell('Where Used objects')+','+countFor('whereUsed'),
+      csvCell('Export time')+','+csvCell(m.exportTime)];
+    downloadFile(`cardigan-overview-${d}.csv`, lines.join('\r\n'));
+    toast('Downloaded overview summary as CSV');
+  } else {
+    const m = SAMPLE.meta, mod = m.models[0];
+    const lines = ['Field,Value',
+      'Product,'+csvCell(m.product+' v'+m.version),
+      'Export time,'+csvCell(m.exportTime),
+      'App,'+csvCell(m.app.name+' ('+m.app.id+')'),
+      'Model,'+csvCell(mod.name+' ('+mod.id+')'),
+      'Workspace,'+csvCell(mod.workspace+' ('+mod.workspaceId+')'),
+      'Host,'+csvCell(mod.host)];
+    downloadFile(`cardigan-details-${d}.csv`, lines.join('\r\n'));
+    toast('Downloaded export details as CSV');
+  }
+}
+
+/* ================= view switching ================= */
+function navTo(id){
+  closePopover();
+  state.view = id;
+  state.search = '';
+  if (!state._keepContext) state.context = null;
+  state._keepContext = false;
+  renderAll();
+  $('#view').focus({preventScroll:true});
+  $('#sidenav').classList.remove('open');
+  $('#navToggle').setAttribute('aria-expanded','false');
+  $('#scrim').classList.remove('show');
+  setTimeout(()=>{ if(!$('#drawer').classList.contains('show') && !$('#sidenav').classList.contains('open')) $('#scrim').hidden = true; },210);
+  window.scrollTo({top:0});
+}
+function gotoPage(pageName){
+  state._keepContext = true;
+  navTo('cards');
+  state.context = {k:'page', v:pageName, label:'Page'};
+  renderAll();
+  closeDrawer();
+}
+function renderAll(){
+  renderNav(); renderCrumbs();
+  if (state.view === 'overview') renderOverview();
+  else if (state.view === 'details') renderDetails();
+  else renderTable(state.view);
+}
+
+/* ================= global events ================= */
+document.addEventListener('click', e=>{
+  const pop = $('#popover');
+  const inPop = pop.contains(e.target);
+  const anchorish = e.target.closest('[data-colfilter], #colBtn');
+  if (!pop.hidden && !inPop && !anchorish) closePopover();
+
+  const copyBtn = e.target.closest('[data-copy]');
+  if (copyBtn){ e.stopPropagation(); copyText(copyBtn.dataset.copy); return; }
+
+  const act = e.target.closest('[data-act]');
+  if (act){
+    const a = act.dataset.act;
+    if (a === 'page'){ gotoPage(act.dataset.val); return; }
+    if (a === 'card'){ openCardDrawer(act.dataset.page, act.dataset.n, act); return; }
+    if (a === 'object'){ openObjectDrawer(act.dataset.oid, act); return; }
+    if (a === 'clear-context'){ state.context = null; state.page[state.view] = 0; renderAll(); return; }
+    if (a === 'reset'){
+      state.search=''; state.colFilters[state.view]={}; delete state.sort[state.view];
+      state.context=null; state.page[state.view]=0; renderAll(); return;
+    }
+    if (a === 'clear-search'){ state.search=''; state.page[state.view]=0; renderTable(state.view); $('#tblSearch').focus(); return; }
+    if (a === 'copy-diag'){ copyText(SAMPLE.diagnostics); return; }
+  }
+
+  const nav = e.target.closest('[data-nav]');
+  if (nav && !nav.classList.contains('disabled')){ navTo(nav.dataset.nav); return; }
+  if (nav && nav.classList.contains('disabled')){ toast('Model map is coming in a future version'); return; }
+
+  const sortBtn = e.target.closest('[data-sort]');
+  if (sortBtn && TABLES[state.view]){
+    const k = sortBtn.dataset.sort;
+    const cur = state.sort[state.view];
+    if (!cur || cur.k !== k) state.sort[state.view] = {k, dir:'asc'};
+    else if (cur.dir === 'asc') state.sort[state.view] = {k, dir:'desc'};
+    else delete state.sort[state.view];
+    renderTable(state.view); return;
+  }
+
+  const cfBtn = e.target.closest('[data-colfilter]');
+  if (cfBtn && TABLES[state.view]){
+    if (!pop.hidden && popAnchor === cfBtn){ closePopover(); return; }
+    openColFilter(state.view, cfBtn.dataset.colfilter, cfBtn); return;
+  }
+  if (e.target.closest('#colBtn')){
+    const btn = e.target.closest('#colBtn');
+    if (!pop.hidden && popAnchor === btn){ closePopover(); return; }
+    openColChooser(state.view, btn); return;
+  }
+
+  const pg = e.target.closest('.pg-btn[data-page]');
+  if (pg && !pg.disabled && TABLES[state.view]){
+    state.page[state.view] = parseInt(pg.dataset.page, 10);
+    renderTable(state.view);
+    $('#tableWrap').scrollTop = 0; return;
+  }
+
+  const tr = e.target.closest('#tableWrap tbody tr');
+  if (tr && !e.target.closest('button, a, input, label, select')){
+    const idx = [...tr.parentNode.children].indexOf(tr);
+    const row = currentSlice[idx];
+    if (row) openRowDrawer(state.view, row, tr);
+  }
+});
+document.addEventListener('input', e=>{
+  if (e.target.id === 'tblSearch'){
+    state.search = e.target.value; state.page[state.view] = 0;
+    renderTable(state.view);
+    const si = $('#tblSearch'); if (si) si.focus();
+  }
+});
+document.addEventListener('change', e=>{
+  if (e.target.id === 'pageSize'){
+    state.pageSize = parseInt(e.target.value, 10); state.page[state.view] = 0;
+    renderTable(state.view);
+  }
+});
+document.addEventListener('keydown', e=>{
+  if (e.key === 'Escape'){
+    if (!$('#popover').hidden){ closePopover(); return; }
+    if ($('#drawer').classList.contains('show')){ closeDrawer(); return; }
+    if ($('#sidenav').classList.contains('open')){
+      $('#sidenav').classList.remove('open');
+      $('#scrim').classList.remove('show'); $('#scrim').hidden = true;
+      $('#navToggle').setAttribute('aria-expanded','false'); $('#navToggle').focus();
+    }
+    return;
+  }
+  if (e.key === '/' && TABLES[state.view] && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)){
+    e.preventDefault(); const si = $('#tblSearch'); if (si) si.focus();
+  }
+});
+$('#drawerClose').addEventListener('click', closeDrawer);
+$('#scrim').addEventListener('click', closeDrawer);
+$('#navToggle').addEventListener('click', ()=>{
+  const open = $('#sidenav').classList.toggle('open');
+  $('#navToggle').setAttribute('aria-expanded', String(open));
+  const s = $('#scrim');
+  if (open){ s.hidden = false; requestAnimationFrame(()=>s.classList.add('show')); }
+  else { s.classList.remove('show'); setTimeout(()=>{ s.hidden = true; }, 210); }
+});
+$('#themeToggle').addEventListener('click', toggleTheme);
+$('#dlAll').addEventListener('click', ()=>{
+  toast('Demo preview — in the extension this packages every table into one .zip download.');
+});
+$('#dlCsv').addEventListener('click', downloadThis);
+$('#previewState').addEventListener('change', e=>{
+  state.preview = e.target.value;
+  state.colFilters = {}; state.sort = {}; state.page = {}; state.context = null; state.search = '';
+  renderBanners(); renderAll();
+  announce('Preview state: ' + e.target.selectedOptions[0].textContent);
+});
+if (window.matchMedia){
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e=>{
+    let stored = null; try { stored = localStorage.getItem('cardigan-theme'); } catch(err){}
+    if (!stored) applyTheme(e.matches ? 'dark' : 'light');
+  });
+}
+
+/* ================= init ================= */
+applyTheme(currentTheme());
+renderHeaderMeta();
+renderBanners();
+renderAll();
+</script>
+</body>
+</html>
