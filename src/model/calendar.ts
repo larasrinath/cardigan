@@ -71,10 +71,27 @@ function applies(appliesTo: string, kind: Kind | undefined): boolean {
 }
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+/** Anaplan stores the fiscal year's month as 1-12 and the day its year ends on as 1-7 counted from Sunday: the Model Calendar
+ * tab's FiscalYearMonthSelect and FiscalYearDayInWeekSelect (Time2/Forms/Widgets) give each choice the ID index + 1 into
+ * CLDR's month and day abbreviations, which start with January and Sunday. The settings grid returns those IDs. */
+const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-/** A value in the template's own words. Month and day names are shortened from Anaplan's labels, never guessed from an
- * index; true/false become the template's choices. */
+/** The 1-12 month a setting holds: its stored ID, or a label such as "December". */
+function monthNumber(text: string): number | undefined {
+  if (/^\d+$/.test(text)) return Number(text) >= 1 && Number(text) <= 12 ? Number(text) : undefined;
+  const index = MONTHS.findIndex(month => text.toLowerCase().startsWith(month.toLowerCase()));
+  return index >= 0 ? index + 1 : undefined;
+}
+
+/** The 1-7 day (Sunday first) a setting holds: its stored ID, or a label such as "Saturday". */
+function dayNumber(text: string): number | undefined {
+  if (/^\d+$/.test(text)) return Number(text) >= 1 && Number(text) <= 7 ? Number(text) : undefined;
+  const index = DAYS.findIndex(day => text.toLowerCase().startsWith(day.toLowerCase()));
+  return index >= 0 ? index + 1 : undefined;
+}
+
+/** A value in the template's own words: months and days as their names, whether the grid gave the stored ID or a label;
+ * true/false as the template's choices. */
 function templateValue(setting: string, value: string): string {
   const text = value.trim();
   if (/^(true|false)$/i.test(text)) {
@@ -83,10 +100,127 @@ function templateValue(setting: string, value: string): string {
     if (setting === "Fiscal Year Label is aligned with") return on ? "Start Week of the Fiscal Year" : "End Week of the Fiscal Year";
     return on ? "Yes" : "No";
   }
-  if (setting === "Fiscal Year Starts" || setting === "End of Fiscal Year - month") return MONTHS.find(month => text.toLowerCase().startsWith(month.toLowerCase())) ?? text;
-  if (setting === "End of Fiscal Year - day") return DAYS.find(day => text.toLowerCase().startsWith(day.toLowerCase())) ?? text;
+  if (setting === "Fiscal Year Starts" || setting === "End of Fiscal Year - month") {
+    const month = monthNumber(text);
+    return month ? MONTHS[month - 1] : text;
+  }
+  if (setting === "End of Fiscal Year - day") {
+    const day = dayNumber(text);
+    return day ? DAYS[day - 1] : text;
+  }
   if (setting === "End of Fiscal Year is") return /^last/i.test(text) ? "Last" : /^nearest/i.test(text) ? "Nearest" : text;
   return text;
+}
+
+// --------------------------------------------------------------------------- the current fiscal year, as the tab shows it
+// The model stores the current fiscal year as its ID ("FY24"); the Model Calendar tab shows it with its dates ("FY24: 31 Dec
+// 2023 - 28 Dec 2024"), which it works out from the calendar settings. These follow the tab's own helpers, line for line:
+// anaplan/utils/FiscalYearHelper (month calendars) and anaplan/utils/FiscalYearForWeeksHelper (week calendars).
+
+interface FiscalYear { value: string; label: string }
+
+/** Days to step back from a date's weekday to the fiscal year's end day, by that day's 1-7 ID (FiscalYearForWeeksHelper). */
+const DAYS_OFFSET: Record<number, number> = { 2: 6, 3: 5, 4: 4, 5: 3, 6: 2, 7: 1, 1: 0 };
+const CUT_OFF_YEAR_FOR_2_DIGIT_FORMAT = 2079;
+
+function lastDayIn(day: number, date: Date): number {
+  return date.getDate() - (date.getDay() + DAYS_OFFSET[day]) % 7;
+}
+
+function firstDayInMonth(offset: number, month: number, year: number): Date {
+  const flipped = 0 - (offset - 7);
+  return new Date(year, month, 1 + (flipped - new Date(year, month, 1).getDay() + 7) % 7);
+}
+
+function weekEndDate(last: boolean, day: number, reference: Date): Date {
+  let end = new Date(reference);
+  const lastDay = lastDayIn(day, end);
+  if (last) {
+    end.setDate(lastDay);
+  } else {
+    const firstInNextMonth = firstDayInMonth(DAYS_OFFSET[day], end.getMonth() + 1, end.getFullYear());
+    if (firstInNextMonth.getDate() < end.getDate() - lastDay) end = firstInNextMonth;
+    else end.setDate(lastDay);
+  }
+  return end;
+}
+
+function weekStartDate(last: boolean, day: number, reference: Date): Date {
+  let start = new Date(reference);
+  let lastDay = start.getDate() - (start.getDay() + DAYS_OFFSET[day]) % 7;
+  if (last) {
+    lastDay += 1; // a year should not start on the day the last one ended
+    start.setDate(lastDay);
+  } else {
+    const firstInMonth = firstDayInMonth(DAYS_OFFSET[day], start.getMonth() + 1, start.getFullYear());
+    if (firstInMonth.getDate() < start.getDate() - lastDay) start = firstInMonth;
+    else start.setDate(lastDay);
+    start.setDate(start.getDate() + 1);
+  }
+  return start;
+}
+
+function fiscalYear(start: Date, end: Date, labelYear: number, yearLabel: string, fourDigit: boolean): FiscalYear {
+  const full = String(labelYear);
+  const value = `FY${fourDigit && labelYear >= CUT_OFF_YEAR_FOR_2_DIGIT_FORMAT ? full : full.substring(2)}`;
+  const fy = `${yearLabel}${fourDigit ? full : full.substring(2)}`;
+  const date = (d: Date) => `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+  return { value, label: `${fy}: ${date(start)} - ${date(end)}` };
+}
+
+/** FiscalYearHelper.generateParams: a month calendar's year starting in `year`. */
+function monthsYear(year: number, month: number, fromStart: boolean, yearLabel: string, fourDigit: boolean): FiscalYear {
+  const start = new Date(year, month - 1, 1);
+  const end = new Date(year + 1, month - 1, 0);
+  return fiscalYear(start, end, fromStart ? start.getFullYear() : end.getFullYear(), yearLabel, fourDigit);
+}
+
+/** FiscalYearForWeeksHelper._generateParams: a week calendar's year ending in `year` + 1. */
+function weeksYear(year: number, month: number, last: boolean, day: number, fromStart: boolean, yearLabel: string, fourDigit: boolean): FiscalYear {
+  const reference = new Date(year + 1, month, 0);
+  const start = weekStartDate(last, day, new Date(year, month, 0));
+  const end = weekEndDate(last, day, reference);
+  let labelYear: number;
+  if (fromStart) {
+    const firstWeek = new Date(start);
+    firstWeek.setDate(start.getDate() + 7);
+    labelYear = firstWeek.getFullYear();
+  } else {
+    const lastWeek = new Date(reference);
+    lastWeek.setDate(lastDayIn(day, lastWeek));
+    labelYear = lastWeek.getFullYear();
+  }
+  return fiscalYear(start, end, labelYear, yearLabel, fourDigit);
+}
+
+/** The current fiscal year as the Model Calendar tab shows it, with its dates; the stored value as it is when the settings
+ * it depends on are missing, or it already carries its dates. */
+export function currentFiscalYearLabel(values: ReadonlyMap<number, string>): string {
+  const get = (setting: string) => (values.get(CALENDAR_PROPERTIES[setting]) ?? "").trim();
+  const stored = get("Current Fiscal Year");
+  const id = /^FY(\d{2}|\d{4})$/i.exec(stored);
+  const yearLabel = values.get(CALENDAR_PROPERTIES["Fiscal Year Label"]);
+  const kind = calendarKind(get("Calendar Type"));
+  if (!id || yearLabel === undefined || !kind || kind === "Weeks General") return stored;
+  const base = id[1].length === 2 ? 2000 + Number(id[1]) : Number(id[1]);
+  const fromStart = /^true$/i.test(get("Fiscal Year Label is aligned with")) || /^start/i.test(get("Fiscal Year Label is aligned with"));
+  const fourDigit = /^true$/i.test(get("Timescale")) || /^4/.test(get("Timescale"));
+  let make: ((year: number) => FiscalYear) | undefined;
+  if (kind === "Months") {
+    const month = monthNumber(get("Fiscal Year Starts"));
+    if (month) make = year => monthsYear(year, month, fromStart, yearLabel.trim(), fourDigit);
+  } else {
+    const month = monthNumber(get("End of Fiscal Year - month"));
+    const day = dayNumber(get("End of Fiscal Year - day"));
+    const type = get("End of Fiscal Year is");
+    if (month && day && /^(last|nearest)/i.test(type)) make = year => weeksYear(year, month, /^last/i.test(type), day, fromStart, yearLabel.trim(), fourDigit);
+  }
+  if (!make) return stored;
+  for (let year = base - 2; year <= base + 1; year++) {
+    const candidate = make(year);
+    if (candidate.value.toUpperCase() === stored.toUpperCase()) return candidate.label;
+  }
+  return stored;
 }
 
 export interface CalendarInput {
@@ -104,7 +238,8 @@ export function calendarRows(input: CalendarInput): string[][] {
   const kind = calendarKind(input.values.get(CALENDAR_PROPERTIES["Calendar Type"]) ?? "");
   return TEMPLATE.map(([section, setting, allowed, appliesTo, notes]) => {
     const property = CALENDAR_PROPERTIES[setting];
-    let value = section === "Model" ? model[setting] ?? "" : property !== undefined ? templateValue(setting, input.values.get(property) ?? "") : "";
+    let value = section === "Model" ? model[setting] ?? "" : setting === "Current Fiscal Year" ? currentFiscalYearLabel(input.values)
+      : property !== undefined ? templateValue(setting, input.values.get(property) ?? "") : "";
     if (section !== "Model" && !applies(appliesTo, kind)) value = "";
     if (input.showsYearToDate === false && (setting === "Include Year To Date" || setting === "Include Year To Go")) value = "";
     return [section, setting, value, allowed, appliesTo, notes];

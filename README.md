@@ -93,7 +93,7 @@ How to read the files:
 
 ## Limits
 
-- Only published versions are read. Pages that were never published are listed as "Not published".
+- Only published versions are read. Pages that were never published are listed as "Not published" and counted apart: **Pages analysed** reads "93 of 93 (published versions); 3 unpublished, not analysed", so an app whose published pages were all read says so.
 - A saved view's own filters, sorts and show/hide live in the model and are not listed.
 - Filter-context items show their IDs.
 - Buttons whose import, export or process is not found in the model keep their card label. **Name from** says which source was used.
@@ -124,7 +124,7 @@ The zip, `<model> - Model Export - <date>.zip`, has one CSV per Model settings g
 
 | File | Model settings grid |
 | --- | --- |
-| `Line Items.csv` | Modules → Line Items, all modules |
+| `Line Items.csv` | Modules → Line Items, all modules. Two columns follow Anaplan's own: **Ratio Numerator** and **Ratio Denominator** name the line items a Ratio summary divides (the Summary cell gives only their IDs) |
 | `Modules.csv` | Modules → Modules |
 | `General Lists.csv` | General Lists |
 | `Processes.csv` | Actions → Actions, the rows under the **Processes** heading: definition, last run (start time and duration), notes, the processes that use each action (**Used in Processes**) and the dashboards it appears on |
@@ -142,7 +142,7 @@ How it reads:
 - The script stays inert on any page without an open classic model.
 - Reads are paged, so large models are read in parts.
 - Every request is checked to carry no changes before it is sent, and the page's own model cache is left untouched.
-- In the calendar file, list choices use Anaplan's labels in the template's own words (Sat, Dec, Last), and settings the template's **Applies to** excludes for this calendar type are blank. **Model size (GB)** and **Captured by** are left blank for you to fill in, and **Captured on** is the export date.
+- In the calendar file, list choices use the template's own words (Sat, Dec, Last). The settings grid can return the IDs Anaplan stores rather than labels: months 1-12, and the day the fiscal year ends on 1-7 counted from Sunday, as the Model Calendar tab's own selects number them (FiscalYearMonthSelect and FiscalYearDayInWeekSelect index CLDR's month and day abbreviations). **Current Fiscal Year** is written as the tab shows it, with its dates (FY24: 31 Dec 2023 - 28 Dec 2024): the model stores only FY24, and the dates are worked out the way the tab's FiscalYearHelper and FiscalYearForWeeksHelper do. The stored value is written as it is when the calendar type, the year label, the start month (month calendars) or the end type, day or month (week calendars) is missing or not recognised; when the stored value is not an ID such as FY24 or FY2079 (for example, it already carries its dates); or when no year of the calendar has that ID. A missing alignment or Timescale setting counts as aligned with the end week and 2-digit, as on the tab. For **Weeks: General** the row is blank, as the template does not apply it to that calendar type. Settings the template's **Applies to** excludes for this calendar type are blank. **Model size (GB)** and **Captured by** are left blank for you to fill in, and **Captured on** is the export date.
 
 ## If names show as IDs or the analysis stops
 
@@ -194,7 +194,7 @@ The zip holds only `manifest.json`, `dist/content.js`, `dist/model-export.js` an
 
 ## Relationship to SAM
 
-Cardigan began as `extension/page-analyzer` inside SAM (anaplan-sam), versions 0.5.2 to 0.5.4, and moved here with its history. SAM's `describe_ux_page_cards` MCP tool and this extension use the same card reader. Each repository keeps its own copy:
+Cardigan began as `extension/page-analyzer` inside SAM (anaplan-sam), versions 0.5.2 to 0.5.5, and moved here with its history. SAM's `describe_ux_page_cards` MCP tool and this extension use the same card reader. Each repository keeps its own copy:
 
 | Here | In SAM |
 | --- | --- |
