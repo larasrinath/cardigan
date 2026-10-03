@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { plainCell, plainResult, plainRows } from "./result-plain.js";
+import { plainCell, plainResult, plainRows, textOf } from "./result-plain.js";
 import type { AnalysisResult } from "./result-types.js";
 import { toCsv } from "./zip.js";
 
@@ -13,6 +13,21 @@ describe("A result as plain data", () => {
     expect(ODD.map(row => row.map(plainCell))).toEqual([["", "", "NaN", "Infinity", "-Infinity"], ["true", "false", 0, -0, 1e21],
       ["[object Object]", "a,b", "10", 102000000086, "=SUM(1)"], ["-1+1", "line\nbreak", 'say "hi", ok', "", " "]]);
     expect(plainRows([["a", 1], []])).toEqual([["a", 1], []]);
+  });
+
+  it("has a text for every value, and a cell for every place in a row", () => {
+    // String cannot convert an object whose own toString and valueOf are not functions, and JSON can hold one.
+    const textless = JSON.parse('{"toString":1,"valueOf":1}') as unknown;
+    expect(() => String(textless)).toThrow(TypeError);
+    expect([textOf(textless), textOf({ id: 7 }), textOf(null), textOf(undefined), textOf(7), textOf("")]).toEqual(["[object Object]", "[object Object]", "null", "undefined", "7", ""]);
+    expect([plainCell(textless), plainCell(Symbol("x")), plainCell(Object.create(null))]).toEqual(["[object Object]", "Symbol(x)", "[object Object]"]);
+    // A hole in a row is a cell that is not there: toCsv writes nothing for it, and so does the row sent on as JSON.
+    const row: unknown[] = ["a"];
+    row[2] = "c";
+    const plain = plainRows([row, [textless]]);
+    expect(plain).toEqual([["a", "", "c"], ["[object Object]"]]);
+    expect(1 in plain[0]).toBe(true);
+    expect(toCsv(["A", "B", "C"], JSON.parse(JSON.stringify(plain.slice(0, 1))) as unknown[][])).toBe(toCsv(["A", "B", "C"], [row]));
   });
 
   it("does not change the CSV, guarded or not, and neither does the trip to the results page as JSON", () => {
@@ -63,6 +78,31 @@ describe("A result as plain data", () => {
       { ...result, tables: [{ ...result.tables[1], headers: undefined }] }, { ...result, tables: [{ ...result.tables[1], rows: [["a"], "b"] }] },
       { ...result, tables: [{ ...result.tables[1], rows: { length: 1 } }] }]) {
       expect(plainResult(value), JSON.stringify(value)).toBeUndefined();
+    }
+  });
+
+  it("never throws: a missing row makes it no result, and whatever else a list holds is read as a value that is not there or made text", () => {
+    // As it arrives from another window: a structured clone keeps a hole in a list, and an object's own toString.
+    const sparse = (...values: unknown[]) => { const list: unknown[] = []; values.forEach((value, index) => { list[index * 2 + 1] = value; }); return list; };
+    const table = result.tables[1];
+    expect(plainResult(structuredClone({ ...result, tables: [{ ...table, rows: sparse(["Demand board", 1]) }] }))).toBeUndefined();
+    expect(plainResult(structuredClone({ ...result, tables: sparse(table) }))).toBeUndefined();
+
+    const textless = { toString: 1, valueOf: 1 };
+    const read = plainResult(structuredClone({ ...result, summary: sparse(textless), tables: [{ ...table, headers: sparse(textless, "Card #"), rows: [sparse(textless, 1)] }] }));
+    expect(read).toEqual({ ...result, summary: ["undefined", "[object Object]"],
+      tables: [{ ...table, headers: ["undefined", "[object Object]", "undefined", "Card #"], rows: [["", "[object Object]", "", 1]] }] });
+    // What is kept is plain: the same after the trip to the results page as JSON.
+    expect(JSON.parse(JSON.stringify(read))).toEqual(read);
+
+    // A value that cannot even be read is no result.
+    const revoked = Proxy.revocable({}, {});
+    revoked.revoke();
+    const unreadable = { ...result, get tables(): never { throw new Error("not readable"); } };
+    for (const value of [revoked.proxy, unreadable, { ...result, tables: [revoked.proxy] }, { ...result, tables: [{ ...table, rows: [revoked.proxy] }] }]) {
+      let outcome: unknown = "thrown";
+      expect(() => { outcome = plainResult(value); }).not.toThrow();
+      expect(outcome).toBeUndefined();
     }
   });
 });

@@ -172,6 +172,8 @@ describe("Model export bridge between the Model Building page and the model's co
       return run;
     };
     const table = exported().tables[1];
+    /** A list whose first entry is a hole, which a message between windows keeps. */
+    const missing = (value: unknown) => { const list: unknown[] = []; list[1] = value; return list; };
     for (const [why, result] of [
       ["no result", undefined], ["a zip, as 0.6.1 sent", { zip: new ArrayBuffer(4), fileName: "x.zip", summary: [] }], ["text", "result"], ["null", null],
       ["an app's result", { ...exported(), kind: "app" }], ["no kind", { ...exported(), kind: undefined }], ["no name", { ...exported(), name: 7 }],
@@ -187,7 +189,8 @@ describe("Model export bridge between the Model Building page and the model's co
       ["headers that are no list", { ...exported(), tables: [{ ...table, headers: "Formula" }] }],
       ["rows that are no list", { ...exported(), tables: [{ ...table, rows: "Revenue" }] }],
       ["a row that is no list", { ...exported(), tables: [{ ...table, rows: [["Revenue", ""], "Units"] }] }],
-      ["a table that is nothing", { ...exported(), tables: [null] }],
+      ["a row that is missing", { ...exported(), tables: [{ ...table, rows: missing(["Units", ""]) }] }],
+      ["a table that is nothing", { ...exported(), tables: [null] }], ["a table that is missing", { ...exported(), tables: missing(table) }],
     ] as const) {
       await expect(answers(result), why).rejects.toThrow(UNREADABLE);
     }
@@ -197,6 +200,32 @@ describe("Model export bridge between the Model Building page and the model's co
     const kept = await answers(odd);
     expect(kept).toEqual(exported([["Revenue", ""], ["", "NaN"], ["true", 12]]));
     expect(JSON.stringify(kept)).not.toContain("dropped");
+  });
+
+  it("is never left waiting by a message it cannot make text of: an object without a usable toString is written as any object is", async () => {
+    const textless = { toString: 1, valueOf: 1 };
+    const asking = () => {
+      const shell = new FakeWindow(SHELL);
+      const asked: { nonce: string }[] = [];
+      const source: Endpoint = { postMessage: message => { asked.push(message as { nonce: string }); } };
+      const { lines, progress } = collect();
+      // Half a second without a readable answer would be the frame "not answering": no run here takes that long.
+      const run = runInCore(shell, { source, origin: CORE, modelId: MODEL }, progress, 500);
+      const hears = (message: Record<string, unknown>) => shell.receive({ protocol: PROTOCOL, nonce: asked[0].nonce, ...message }, CORE, source);
+      return { run, hears, lines };
+    };
+    // In a step, a log line, a cell, a header and a summary line.
+    const { run, hears, lines } = asking();
+    hears({ type: "status", text: textless });
+    hears({ type: "log", text: textless });
+    hears({ type: "done", result: { ...exported(), summary: [textless], tables: [{ ...exported().tables[1], headers: ["", textless], rows: [["Revenue", textless]] }] } });
+    await expect(run).resolves.toEqual({ ...exported(), summary: ["[object Object]"],
+      tables: [{ ...exported().tables[1], headers: ["", "[object Object]"], rows: [["Revenue", "[object Object]"]] }] });
+    expect(lines).toEqual(["status: [object Object]", "log: [object Object]"]);
+    // In the reason an export failed.
+    const failed = asking();
+    failed.hears({ type: "error", message: textless });
+    await expect(failed.run).rejects.toThrow("[object Object]");
   });
 
   it("checks in again when the page greets it, and reports what each frame sees", async () => {

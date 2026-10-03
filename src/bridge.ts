@@ -1,6 +1,6 @@
 import { stampLine } from "./details.js";
 import type { Progress } from "./progress.js";
-import { plainResult } from "./result-plain.js";
+import { plainResult, textOf } from "./result-plain.js";
 import type { AnalysisResult } from "./result-types.js";
 import { SCOPE_ID, sleep } from "./util.js";
 
@@ -66,9 +66,10 @@ export function runInCore(self: MessageTarget, core: CoreHandle, progress: Progr
       const data = ours(event);
       if (!data || event.source !== (core.source as unknown) || event.origin !== core.origin || data.nonce !== nonce) return;
       idle();
-      if (data.type === "status") progress.status(String(data.text));
-      else if (data.type === "log") progress.log(String(data.text));
-      else if (data.type === "error") finish({ error: new Error(String(data.message)) });
+      // Nothing here may throw, or the run would be left waiting for the idle time: textOf has a text for every value.
+      if (data.type === "status") progress.status(textOf(data.text));
+      else if (data.type === "log") progress.log(textOf(data.text));
+      else if (data.type === "error") finish({ error: new Error(textOf(data.message)) });
       else if (data.type === "done") {
         const result = plainResult(data.result);
         finish(result?.kind === "model" ? { result } : { error: new Error("The model frame sent a result this page cannot read.") });
