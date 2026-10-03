@@ -1,8 +1,10 @@
 # UX card formats from the Page Builder designers
 
-Research date: September 27, 2026. [Definitions](definitions.md) | [Card details](card-details.md) | [Contracts](contracts.md)
+Research date: September 27, 2026. [Definitions (SAM)](https://github.com/larasrinath/anaplan-sam/blob/main/docs/research/ux-designer/definitions.md) | [Card details](card-details.md) | [Contracts (SAM)](https://github.com/larasrinath/anaplan-sam/blob/main/docs/research/ux-designer/contracts.md)
 
-This note settles three shapes that [card details](card-details.md) could not trace, because the designer bundles were missing from the working tree:
+> **Copied from SAM.** This note was written in SAM (anaplan-sam, `docs/research/ux-designer/`), whose card reader Cardigan shares in [`src/card-reader/`](../../src/card-reader/). Its companion notes, SAM's source files and the archive paths below (`docs/plans/…`, `.sam/…`, Git-ignored) are in SAM's repository, not here.
+
+This note settles three shapes that [card details](card-details.md) could not trace, because the designer bundles were missing from SAM's working tree:
 
 - the conditional-formatting rules that grid and KPI cards store;
 - action-card buttons and card-level `widgetActions`;
@@ -14,7 +16,7 @@ It downloaded the public designer assets without authentication and read them as
 
 ## Sources
 
-Unauthenticated GET requests were made on September 27, 2026, with no cookies or credentials. The files are archived in the Git-ignored `docs/plans/ux-designer-sources/`, and `manifest.json` records each file's URL, byte count, SHA-256 and retrieval time.
+Unauthenticated GET requests were made on September 27, 2026, with no cookies or credentials. The files are archived in SAM's Git-ignored `docs/plans/ux-designer-sources/`, and `manifest.json` records each file's URL, byte count, SHA-256 and retrieval time.
 
 | Archive | Public source | Bytes | SHA-256 | Retrieved (UTC) |
 | --- | --- | ---: | --- | --- |
@@ -26,7 +28,7 @@ Unauthenticated GET requests were made on September 27, 2026, with no cookies or
 | `report-translations.en.js` | [Report English strings](https://us1a.app.anaplan.com/a/report-report-page/assets/translations.en-B2TOmf_V.js) | 759,207 | `ac33b02bea6aee68306fb024a976d19b30233eb8f186ba9985305a071d4a8e65` | 22:51:38 |
 | `designer-vendor.js` | [Designer vendor chunk](https://us1a.app.anaplan.com/a/springboard-ui/assets/vendor-BDE573yj.js) | 11,955,216 | `28df0d24f4d4168c1268f744f7de321b415613cb6dae9e8c4fbc023467f9cf11` | 23:04:11 |
 
-**Snapshot.** The designer hashes have rotated since the September 16 snapshot in [definitions.md](definitions.md) (`index-DVgePbpw.js`, `index-DfID3-t3.js`). That note's offsets and symbol names describe files that are no longer archived. Here, offsets are zero-based UTF-16 indices (`source.slice(offset)`). Each was recomputed from a unique substring, and each applies to this snapshot only. `designer.js` offsets are primary. Report equivalents are listed where they were checked; everything else was traced in `designer.js` only. The vendor chunk was searched and contains none of the field names discussed here.
+**Snapshot.** The designer hashes have rotated since the September 16 snapshot in [definitions.md](https://github.com/larasrinath/anaplan-sam/blob/main/docs/research/ux-designer/definitions.md) (`index-DVgePbpw.js`, `index-DfID3-t3.js`). That note's offsets and symbol names describe files that are no longer archived. Here, offsets are zero-based UTF-16 indices (`source.slice(offset)`). Each was recomputed from a unique substring, and each applies to this snapshot only. `designer.js` offsets are primary. Report equivalents are listed where they were checked; everything else was traced in `designer.js` only. The vendor chunk was searched and contains none of the field names discussed here.
 
 **Evidence levels.** **Traced**: read in the cited bundle code. **Observed (relayed)**: seen in a Git-ignored capture that the lead reviewed; no values are reproduced here. **Inferred**: consistent with the evidence but not established. **Unknown**: no evidence.
 
