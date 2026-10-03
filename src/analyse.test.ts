@@ -3,9 +3,12 @@ import type { UxPageCardDetails } from "./card-reader/card-types.js";
 import { analyseApp, loadCatalog } from "./analyse.js";
 import { APP_ZIP_0_6_1, ZIPPED_AT } from "./golden-0.6.1.test-support.js";
 import { ANAPLAN_HOSTS, NOT_SCOPE_IDS, OTHER_HOSTS, SCOPE_IDS } from "./guards.test-support.js";
+import { assemble } from "./pieces.test-support.js";
 import * as report from "./report.js";
 import { resultZip } from "./result-zip.js";
 import { decodeFrames, type StompFrame } from "./stomp.js";
+import { serveTab } from "./tab-port.js";
+import { EXTENSION, FakePort } from "./tab-port.test-support.js";
 import { toCsv } from "./zip.js";
 import { parseCsv, sameBytes, unzipText } from "./zip.test-support.js";
 
@@ -740,6 +743,31 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     expect(received).toEqual(result);
     expect(sameBytes(resultZip(received, ZIPPED_AT), APP_ZIP_0_6_1)).toBe(true);
   });
+
+  it("ends with done when the same app is analysed for a results page, although the socket's closing is logged after it", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(Date.UTC(2026, 8, 28, 12, 30, 10)));
+    serveGoldenApp();
+    // The content script's end of the port, around the analysis; every line the analysis logs is also kept here.
+    const logged: string[] = [];
+    let connect: (port: chrome.runtime.Port) => void = () => undefined;
+    serveTab({ id: EXTENSION, onConnect: { addListener: listener => { connect = listener; } } }, { host: FIRST, subject: () => ({ kind: "app", id: GOLDEN_APP }),
+      run: (seen, progress, diagnostics, signal) => analyseApp(seen.id, { status: progress.status, log: line => { logged.push(line); progress.log(line); } }, diagnostics, signal),
+      signedOut: () => false });
+    const page = new FakePort();
+    connect(page as unknown as chrome.runtime.Port);
+    page.say({ type: "run" });
+    await vi.waitFor(() => expect(page.types()).toContain("done"));
+    // The socket's close event fires after the result has gone out; the analysis logs it then, to nobody.
+    await vi.waitFor(() => expect(logged.at(-1)).toBe("socket closed code=1000"));
+    expect(page.types().slice(-3)).toEqual(["rows", "rows", "done"]);
+    expect(page.received.map(message => (message.type === "log" ? message.text : ""))).not.toContain("12:30:10 socket closed code=1000");
+    // What arrived is the whole result: the same zip, and its Diagnostics rows are the log up to the report.
+    const result = assemble(page.received);
+    expect(unzipText(resultZip(result, ZIPPED_AT)).get("Cards.csv")).toBe(unzipText(APP_ZIP_0_6_1).get("Cards.csv"));
+    const diagnostics = result.tables[0].rows.filter(row => row[0] === "Diagnostics").map(row => row[2]);
+    expect([diagnostics[0], diagnostics.at(-1)]).toEqual([`Cardigan dev: app ${GOLDEN_APP} on ${FIRST}`, "Building the report…"]);
+  });
 });
 
 // One app read end to end, as the 0.6.1 zip in zip-0.6.1.test-support.ts was made: a published board with an action card, a
@@ -785,8 +813,8 @@ const goldenBoard: Any = {
   widgets: Object.fromEntries(goldenCards.map(card => [card.clientGuid, card])),
 };
 
-/** Runs the analysis of that app against a scripted definition service, model data socket and actions service. */
-async function analyseGoldenApp() {
+/** That app's definition service, model data socket and actions service, scripted. */
+function serveGoldenApp() {
   const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
   const app = { name: "Planning: app", categories: [{ guid: guid(1001), name: "Demand" }], pages: [
     { guid: guid(1000), name: "Demand board", pageType: "BOARD", categoryGuid: guid(1001), hasPublishedVersion: true },
@@ -809,6 +837,11 @@ async function analyseGoldenApp() {
     [at("/applicableModules")]: id => update(id, { data: [{ id: Number(MODULE), label: "Demand" }, { id: Number(candidate(2)), label: "Filter flags" }] }),
     [at(`/modules/${candidate(2)}/lineItems`)]: id => update(id, { data: [{ lineItemId: FILTER_ITEM, lineItemLabel: "Include?" }] }),
   });
+}
+
+/** Runs the analysis of that app against them, with the diagnostic log 0.6.1 was given. */
+async function analyseGoldenApp() {
+  serveGoldenApp();
   return analyseApp(GOLDEN_APP, { status: () => undefined, log: () => undefined },
     () => "12:30:10 page-analyzer vdev: app on first.app.anaplan.com\r\n12:30:10 Reading the app…\r\nunstamped line");
 }

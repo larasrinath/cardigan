@@ -10,6 +10,7 @@ import { VERSION } from "./version.js";
  * tab shows and reads nothing until the page sends "run". It then reports each step and each line of the diagnostic log,
  * and finally the result in pieces (pieces.ts), or the error that stopped the run.
  * - One run at a time. A second results page of the same tab that asks while a run is going follows that run.
+ * - A run's "done" or "error" is its last message: whatever the run still reports afterwards is sent to nobody.
  * - When the last page following a run goes away, the run is stopped: nothing more is read for a page nobody is looking at.
  * - Only this extension's results page is answered: its own ID as the sender, and the port's name. */
 
@@ -57,7 +58,10 @@ export function serveTab(runtime: Pick<typeof chrome.runtime, "id" | "onConnect"
       return;
     }
     const current: Run = run = { subject, ports, stop: new AbortController(), lines: [] };
-    const tell = (sent: TabMessage) => { for (const port of current.ports) send(port, sent); };
+    /** True once the run's "done" or "error" has gone out. What the run still reports after that is sent to nobody: a
+     * socket logs its closing when the close event fires, and by then the same ports may be following the next run. */
+    let over = false;
+    const tell = (sent: TabMessage) => { if (!over) for (const port of current.ports) send(port, sent); };
     const log = (line: string) => {
       const stamped = stampLine(line);
       current.lines.push(stamped);
@@ -66,20 +70,26 @@ export function serveTab(runtime: Pick<typeof chrome.runtime, "id" | "onConnect"
     };
     const progress: Progress = { status: text => { current.status = text; tell({ type: "status", text }); log(text); }, log };
     log(`Cardigan ${VERSION}: ${subject.kind} ${subject.id} on ${tab.host}`);
-    new Promise<AnalysisResult>(resolve => resolve(tab.run(subject, progress, () => current.lines.join("\r\n"), current.stop.signal)))
-      // A stopped run has no page left to tell, however it ends: a page that asks while it is ending waits for the next.
-      .then(result => { for (const sent of resultMessages(result)) tell(sent); })
-      .catch(error => {
+    const perform = async () => {
+      try {
+        const result = await tab.run(subject, progress, () => current.lines.join("\r\n"), current.stop.signal);
+        // A stopped run has no page left to tell, however it ends: a page that asks while it is ending waits for the next.
+        for (const sent of resultMessages(result)) tell(sent);
+      } catch (error) {
         log(`stopped: ${message(error)}`);
         tell(tab.signedOut(error) ? { type: "error", message: SIGNED_OUT, code: "SIGNED_OUT" } : { type: "error", message: message(error) });
-      })
-      .finally(() => {
+      } finally {
+        // In the same turn as the last message, so that nothing the run still reports can follow it.
+        over = true;
         run = undefined;
-        if (!waiting.size) return;
-        const next = new Set(waiting);
-        waiting.clear();
-        start(next);
-      });
+        if (waiting.size) {
+          const next = new Set(waiting);
+          waiting.clear();
+          start(next);
+        }
+      }
+    };
+    void perform();
   };
 
   const ask = (port: Port) => {
