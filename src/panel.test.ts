@@ -139,6 +139,6 @@ describe("Analyzer entry points", () => {
     await import("./model-content.js");
     vi.advanceTimersByTime(1000);
     expect(mounted().launch).toEqual([]);
-    expect(posted).toContainEqual({ protocol: "sam-model-export", type: "core-ready", modelId: MODEL });
+    expect(posted).toContainEqual({ protocol: "cardigan-model-export", type: "core-ready", modelId: MODEL });
   });
 });
