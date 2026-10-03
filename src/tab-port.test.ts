@@ -155,6 +155,45 @@ describe("The Anaplan tab's end of the port to the results page", () => {
     expect(other.types().filter(type => type === "error")).toHaveLength(2);
   });
 
+  it("sends nothing for a run after its done or its error, whatever the run still reports, and none of it in the next run", async () => {
+    const { runs, open } = tab();
+    const page = open();
+    page.say({ type: "run" });
+    runs[0].finish(result());
+    await settle();
+    expect(page.take().at(-1)).toEqual({ type: "done" });
+    // The socket to the last model closes after the result has gone out, and stomp.ts logs it when it does.
+    runs[0].progress.log("socket closed code=1000");
+    runs[0].progress.status("Reading names in Model one…");
+    expect(page.received).toEqual([]);
+
+    // Run again on the same port: what the earlier run still reports is no part of this run, which has its own log.
+    page.say({ type: "run" });
+    runs[0].progress.log("socket closed code=1000");
+    runs[1].progress.log("app: 2 pages");
+    runs[0].progress.status("Reading names in Model one…");
+    expect(page.take()).toEqual([{ type: "log", text: HEADER }, { type: "log", text: "01:59:09 app: 2 pages" }]);
+    expect(runs[1].diagnostics()).toBe(`${HEADER}\r\n01:59:09 app: 2 pages`);
+
+    // The same after an error: the line that says why the run stopped is its last.
+    runs[1].fail(new Error("The model frame stopped answering."));
+    await settle();
+    expect(page.take()).toEqual([{ type: "log", text: "01:59:09 stopped: The model frame stopped answering." }, { type: "error", message: "The model frame stopped answering." }]);
+    runs[1].progress.status("Reading Versions…");
+    runs[1].progress.log("Versions: 2 rows");
+    expect(page.received).toEqual([]);
+
+    // A second page that followed the run is told nothing more either.
+    const [first, second] = [open(), open()];
+    first.say({ type: "run" });
+    second.say({ type: "run" });
+    runs[2].finish(result());
+    await settle();
+    expect([first.take().at(-1), second.take().at(-1)]).toEqual([{ type: "done" }, { type: "done" }]);
+    runs[2].progress.log("socket closed code=1000");
+    expect([first.received, second.received]).toEqual([[], []]);
+  });
+
   it("says so when the tab shows neither an app nor a model, and analyses what it shows at the time it is asked", async () => {
     const { runs, state, open } = tab({ kind: "none" });
     const page = open();
