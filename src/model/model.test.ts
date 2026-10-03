@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { NOT_SCOPE_IDS, SCOPE_IDS } from "../guards.test-support.js";
 import { toCsv } from "../zip.js";
+import { parseCsv, unzipText } from "../zip.test-support.js";
 import { actionKind, mergeImports, missingActionColumns } from "./actions.js";
 import { CALENDAR_HEADERS, CALENDAR_PROPERTIES, calendarKind, calendarRows } from "./calendar.js";
 import { exportModel } from "./export.js";
@@ -134,6 +135,18 @@ describe("Model export: Model settings grids to tables", () => {
     // Day 1 is Sunday: the last Sunday of December 2023 is the 31st, so FY24 starts on 1 Jan 2024.
     const sunday = weeks("FY24", [["End of Fiscal Year - day", "1"]]);
     expect([value(sunday, "End of Fiscal Year - day"), value(sunday, "Current Fiscal Year")]).toEqual(["Sun", "FY24: 1 Jan 2024 - 29 Dec 2024"]);
+    // Aligned with the start week, a year takes the label of the day a week after it starts: the year starting on 31 Dec 2023
+    // is still FY24, not the one starting on 29 Dec 2024. Ending on the last Tuesday of June, the alignment moves the label.
+    // Dates here worked out independently with Python's datetime and with the archived FiscalYearForWeeksHelper.
+    const start: [string, string] = ["Fiscal Year Label is aligned with", "true"];
+    const june: [string, string][] = [["End of Fiscal Year - day", "3"], ["End of Fiscal Year - month", "6"]];
+    expect(value(weeks("FY24", [start]), "Current Fiscal Year")).toBe("FY24: 31 Dec 2023 - 28 Dec 2024");
+    expect([value(weeks("FY24", [start, ...june]), "Current Fiscal Year"), value(weeks("FY24", june), "Current Fiscal Year")])
+      .toEqual(["FY24: 26 Jun 2024 - 24 Jun 2025", "FY24: 28 Jun 2023 - 25 Jun 2024"]);
+    // With 4-digit labels Anaplan stores a year from 2079 on with four digits (FY2079) and an earlier one with two (FY78).
+    const fourDigit: [string, string][] = [["Timescale", "true"]];
+    expect([value(weeks("FY2079", fourDigit), "Current Fiscal Year"), value(weeks("FY78", fourDigit), "Current Fiscal Year")])
+      .toEqual(["FY2079: 1 Jan 2079 - 30 Dec 2079", "FY2078: 26 Dec 2077 - 31 Dec 2078"]);
     // Month calendars: the year runs from the first of the start month; the label follows its end, or its start.
     const months = (entries: [string, string][]) => rows([["Calendar Type", "Calendar Months/Quarters/Years"], ["Fiscal Year Label", "FY"], ...entries]);
     const january = months([["Fiscal Year Starts", "1"], ["Timescale", "false"], ["Fiscal Year Label is aligned with", "false"], ["Current Fiscal Year", "FY23"]]);
@@ -143,6 +156,8 @@ describe("Model export: Model settings grids to tables", () => {
     // Without the settings the dates depend on, the stored value stays as it is; an ID out of range is written as given.
     expect(value(months([["Current Fiscal Year", "FY23"]]), "Current Fiscal Year")).toBe("FY23");
     expect(value(weeks("FY24", [["End of Fiscal Year - day", "9"]]), "End of Fiscal Year - day")).toBe("9");
+    const thirteen = weeks("FY24", [["End of Fiscal Year - month", "13"]]);
+    expect([value(thirteen, "End of Fiscal Year - month"), value(thirteen, "Current Fiscal Year")]).toEqual(["13", "FY24"]);
   });
 
   it("names the line items a Ratio summary divides, from the grid's own row IDs", () => {
@@ -264,5 +279,45 @@ describe("Model export: Model settings grids to tables", () => {
     expect((await run(`${"m".repeat(79)} b`)).fileName).toBe(`${"m".repeat(79)}  - Model Export - 2026-09-28.zip`);
     // A name that is empty or not text is no name: the model's ID stands in.
     for (const name of ["", 42, null, ["Plan"], { name: "Plan" }]) expect((await run(name)).fileName, JSON.stringify(name)).toBe(`${MODEL} - Model Export - 2026-09-28.zip`);
+  });
+
+  it("exports the Line Items grid with the ratio columns, naming each operand by its line item, not its module", async () => {
+    const ratio = JSON.stringify({ summaryMethod: "RATIO", timeSummaryMethod: "RATIO", ratioNumeratorIdentifier: "_1901000000001_",
+      ratioDenominatorIdentifier: "_1901000000002_" });
+    // As the MODULE_WITH_LINE_ITEM axis returns them: each line item's row also carries its module (-1 on the module's own row),
+    // and Summary is not the first column.
+    const columns = [{ id: 4000000009, label: "Formula" }, { id: 4000000010, label: "Summary" }];
+    const rows = [{ ids: [102000000001, -1], labels: ["Profitability", null], cells: ["", ""] },
+      { ids: [1901000000001, 102000000001], labels: ["Profit", "Profitability"], cells: ["", '{"summaryMethod":"SUM"}'] },
+      { ids: [1901000000002, 102000000001], labels: ["Revenue", "Profitability"], cells: ["", '{"summaryMethod":"SUM"}'] },
+      { ids: [1901000000003, 102000000001], labels: ["Margin %", "Profitability"], cells: ["Profit / Revenue", ratio] }];
+    const axes: string[][] = [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const aggregator = { isDirty: () => false, post: (request: any, _flag: boolean, ok: (response: unknown) => boolean) => {
+      const { viewDefinition, pageRequests: [{ startRow, rowCount }] } = request.params;
+      axes.push([viewDefinition.rowAxis, viewDefinition.columnAxis]);
+      const slice = rows.slice(startRow, startRow + rowCount);
+      queueMicrotask(() => ok({ result: { viewRequestResults: [{ rowCount: rows.length, columnCount: columns.length,
+        rowLabelPages: [{ start: startRow, count: slice.length, entityLongIds: [0, 1].map(d => slice.map(row => row.ids[d])), labels: [0, 1].map(d => slice.map(row => row.labels[d])) }],
+        columnLabelPages: [{ start: 0, count: columns.length, entityLongIds: [columns.map(column => column.id)], labels: [columns.map(column => column.label)] }],
+        dataPages: [{ startRow, rows: slice.map(row => row.cells) }] }] } }));
+      return true;
+    } };
+    const cache = { getModelName: () => "Plan", getWorkspaceInfo: () => ({ name: "Workspace one" }), getAllCurrenciesLabelPage: () => undefined };
+    const helper = { getAxesForViewDefinition: (rowAxes: string[], columnAxes: string[]) => ({ rowAxis: rowAxes[0], columnAxis: columnAxes[0] }) };
+    const constants = { SYSTEM_AXIS_IDENTIFIER_MODULE_WITH_LINE_ITEM_IDENTIFIER: "LINE ITEMS", SYSTEM_AXIS_IDENTIFIER_LINE_ITEM_PROPERTY_IDENTIFIER: "LINE ITEM PROPERTIES" };
+    class RequestGenerator { getRequest(params: unknown) { return { requestType: "VIEW_REQUEST_SET", submissions: [], systemActions: [], params }; } }
+    class DataPage extends FakePage { constructor({ page }: any) { super(page); } }
+    vi.stubGlobal("window", { workspaceId: "0123456789abcdef0123456789abcdef", modelId: "FEDCBA9876543210FEDCBA9876543210",
+      require: (_modules: string[], loaded: (...modules: unknown[]) => void) => loaded(cache, aggregator, helper, {}, constants, RequestGenerator, DataPage, {}) });
+    vi.stubGlobal("location", { host: "eu2a.app.anaplan.com", pathname: "/core-webapp/anaplan/framework.jsp" });
+
+    const result = await exportModel({ status: () => undefined, log: () => undefined }, () => "");
+    expect(result.summary[0]).toBe("Line Items: 4 rows");
+    expect(new Set(axes.map(pair => pair.join(" × ")))).toEqual(new Set(["LINE ITEMS × LINE ITEM PROPERTIES"]));
+    const [headers, ...table] = parseCsv(unzipText(result.zip).get("Line Items.csv") ?? "");
+    expect(headers).toEqual(["", "Formula", "Summary", "Ratio Numerator", "Ratio Denominator"]);
+    expect(table).toEqual([["Profitability", "", "", "", ""], ["Profit", "", '{"summaryMethod":"SUM"}', "", ""],
+      ["Revenue", "", '{"summaryMethod":"SUM"}', "", ""], ["Margin %", "Profit / Revenue", ratio, "Profit", "Revenue"]]);
   });
 });

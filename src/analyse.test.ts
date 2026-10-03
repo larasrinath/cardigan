@@ -3,6 +3,7 @@ import type { UxPageCardDetails } from "./card-reader/card-types.js";
 import { analyseApp, loadCatalog } from "./analyse.js";
 import { ANAPLAN_HOSTS, NOT_SCOPE_IDS, OTHER_HOSTS, SCOPE_IDS } from "./guards.test-support.js";
 import { decodeFrames, type StompFrame } from "./stomp.js";
+import { parseCsv, unzipText } from "./zip.test-support.js";
 
 // Synthetic IDs only. The flow replays the first live run (28 Sep 2026): the model status stays UNKNOWN, and the first
 // host answers REDIRECTION_REQUIRED naming the host the model lives on.
@@ -514,6 +515,29 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ name: "Plan", pages }), { status: 200 })));
     const result = await analyseApp("01234567-89ab-cdef-0123-456789abcdef", { status: () => undefined, log: () => undefined }, () => "");
     expect(result.summary).toEqual(["0 of 0 pages analysed; 1 unpublished, not analysed, 0 cards."]);
+  });
+
+  it("counts a published page it could not read as published, so the export does not claim every published page was read", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(Date.UTC(2026, 8, 28, 1, 59, 9)));
+    const pages = [{ guid: "11111111-2222-3333-4444-555555555555", name: "Draft", pageType: "BOARD", hasPublishedVersion: false },
+      { guid: "66666666-7777-8888-9999-aaaaaaaaaaaa", name: "Restricted", pageType: "BOARD", hasPublishedVersion: true }];
+    // The app record answers; every route to the published page answers 403.
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => new URL(url).pathname.includes("/apps/")
+      ? new Response(JSON.stringify({ name: "Plan", pages }), { status: 200 }) : new Response("{}", { status: 403 })));
+    const result = await analyseApp("01234567-89ab-cdef-0123-456789abcdef", { status: () => undefined, log: () => undefined }, () => "");
+    expect(vi.mocked(globalThis.fetch).mock.calls.map(([url]) => new URL(url as string).pathname.split("/")[3]))
+      .toEqual(["apps", "boards", "grid-pages", "reports"]);
+    expect(result.summary).toEqual(["0 of 1 pages analysed; 1 unpublished, not analysed, 0 cards."]);
+
+    const files = unzipText(result.zip);
+    const details = parseCsv(files.get("App Details.csv") ?? "");
+    expect(details.find(row => row[1] === "Pages analysed")).toEqual(["App", "Pages analysed", "0 of 1 (published versions); 1 unpublished, not analysed"]);
+    expect(details.filter(row => row[0] === "Notes" && row[1] !== "Names")).toEqual([["Notes", "Draft", "Not published"], ["Notes", "Restricted", "Not analysed: no access"]]);
+    const [headers, ...rows] = parseCsv(files.get("Pages.csv") ?? "");
+    const [page, state] = [headers.indexOf("Page"), headers.indexOf("Publish state")];
+    expect(rows.map(row => [row[page], row[state]])).toEqual([["Draft", "Not published"], ["Restricted", "Not analysed: no access"]]);
+    expect(rows.filter(row => row[state] === "Not published")).toHaveLength(1);
   });
 
   it("names the zip after the app, without characters a file name cannot hold", async () => {
