@@ -5,7 +5,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symli
 import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
-import { packageExtension, ROOT, runtimeFiles } from './package.mjs';
+import { packageExtension, pageProblems, ROOT, runtimeFiles } from './package.mjs';
 
 // Hermetic: packages a temporary copy of the repository's manifest and icons with stand-in bundles and a stand-in results
 // page. It needs no build, never writes into the repository and never uses the network.
@@ -16,9 +16,14 @@ const EARLIER = new Date('2025-12-31T00:00:00Z');
 const SOURCES_AT = new Date('2026-01-01T00:00:00Z');
 const BUILT_AT = new Date('2026-01-02T00:00:00Z');
 const LATER = new Date('2026-01-03T00:00:00Z');
-/** A stand-in results page: it loads its stylesheet and its bundle. */
-const PAGE = '<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n<title>Cardigan</title>\n<link rel="stylesheet" href="results.css">\n</head>\n'
-  + '<body>\n<main id="results"></main>\n<script src="dist/results.js"></script>\n</body>\n</html>\n';
+/** A stand-in results page and stylesheet. They load only packaged files (the stylesheet, the bundle and icons); a link to
+ * follow, a place in the page and inline data load no file. */
+const PAGE = '<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n<title>Cardigan</title>\n<link rel="icon" href="icons/32.png">\n'
+  + '<link rel="stylesheet" href="results.css">\n</head>\n<body>\n<h1><img src="icons/48.png" alt=""> Cardigan</h1>\n'
+  + '<p><a href="https://help.anaplan.com/">Anaplan help</a> <a href="#results">Results</a></p>\n<main id="results"></main>\n'
+  + '<script src="dist/results.js"></script>\n</body>\n</html>\n';
+const STYLES = 'body { margin: 0; background: url("icons/128.png") no-repeat; }\n'
+  + '.mark { mask: url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\'/%3E"); fill: url(#shade); }\n';
 
 function withTemp(run) {
   const dir = mkdtempSync(TEMP_PREFIX);
@@ -56,7 +61,7 @@ function fixture(dir) {
   for (const [name, text] of Object.entries(never)) { write(repo, name, text); touch(repo, name, SOURCES_AT); }
   for (const name of ['manifest.json', 'package.json']) touch(repo, name, SOURCES_AT);
   write(repo, 'results.html', PAGE);
-  write(repo, 'results.css', 'body { margin: 0; }\n');
+  write(repo, 'results.css', STYLES);
   write(repo, 'dist/content.js', '// content bundle\n(() => {})();\n');
   write(repo, 'dist/model-export.js', '// model export bundle\n(() => {})();\n');
   write(repo, 'dist/background.js', '// service worker bundle\n(() => {})();\n');
@@ -160,6 +165,68 @@ test('refuses to package when the results page or its stylesheet is missing', ()
   assert.doesNotThrow(() => packageExtension({ dir: repo, outDir: path.join(dir, 'out') }));
 }));
 
+test('refuses a results page that loads a file outside the package, or does not load its own stylesheet and bundle', () => withTemp(dir => {
+  const repo = fixture(dir);
+  /** Packaging with `name` changed stops with exactly these problems. `name` is then put back. */
+  const refused = (name, change, ...problems) => {
+    const kept = readFileSync(path.join(repo, name), 'utf8');
+    write(repo, name, change(kept));
+    assert.throws(() => packageExtension({ dir: repo, outDir: path.join(dir, 'out') }), { message: `Cannot package:\n${problems.join('\n')}` });
+    write(repo, name, kept);
+  };
+  // A file that is on disk but not in the package, and files that are only on the network.
+  refused('results.html', page => page.replace('</body>', '<script src="dist/stray.js"></script>\n</body>'), 'results.html loads "dist/stray.js", which is not packaged');
+  refused('results.html', page => page.replace('</head>', '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter">\n</head>'),
+    'results.html loads "https://fonts.googleapis.com/css2?family=Inter", which is not packaged');
+  refused('results.css', styles => `@import "theme.css";\n${styles}@font-face { font-family: Inter; src: url(https://fonts.gstatic.com/inter.woff2); }\n`,
+    'results.css loads "theme.css", which is not packaged', 'results.css loads "https://fonts.gstatic.com/inter.woff2", which is not packaged');
+  // A packaged file under another spelling is not the packaged file.
+  refused('results.html', page => page.replace('href="results.css"', 'href="./results.css"').replace('src="dist/results.js"', 'src="/dist/results.js?v=1"'),
+    'results.html loads "./results.css", which is not packaged', 'results.html loads "/dist/results.js?v=1", which is not packaged',
+    'results.html does not load results.css', 'results.html does not load dist/results.js');
+  // A page without its bundle, or without its stylesheet.
+  refused('results.html', page => page.replace('<script src="dist/results.js"></script>\n', ''), 'results.html does not load dist/results.js');
+  refused('results.html', page => page.replace('<link rel="stylesheet" href="results.css">\n', ''), 'results.html does not load results.css');
+  assert.equal(existsSync(path.join(dir, 'out')), false, 'nothing written');
+  assert.doesNotThrow(() => packageExtension({ dir: repo, outDir: path.join(dir, 'out') }));
+}));
+
+test('finds what a page and its styles load however it is written, and nothing in a link to follow, a place in the page or inline data', () => {
+  const own = '<link rel="stylesheet" href="results.css"><script src="dist/results.js"></script>';
+  /** The addresses refused in a page that also loads its own two files, and in its styles. */
+  const refused = (page, styles = '') => pageProblems(`${own}${page}`, styles, RUNTIME)
+    .map(problem => /^results\.(?:html|css) loads "(.*)", which is not packaged$/.exec(problem)?.[1] ?? problem);
+  assert.deepEqual(pageProblems(own, '', RUNTIME), []);
+  assert.deepEqual(pageProblems(PAGE, STYLES, RUNTIME), []);
+  for (const [page, addresses] of [
+    ['<script defer src=\'other.js\'></script>', ['other.js']],
+    ['<SCRIPT SRC=other.js></SCRIPT>', ['other.js']],
+    ['<script\n  src = "other.js"\n></script>', ['other.js']],
+    ['<LINK HREF="other.css" REL="stylesheet" />', ['other.css']],
+    ['<img alt="a > b" src="logo.png"><iframe src="https://example.com/"></iframe>', ['logo.png', 'https://example.com/']],
+    ['<img src="logo.png"><img src="logo.png">', ['logo.png']],
+    ['<p style="background: url(tile.png)">x</p><style>@import "more.css"; a { background: url(\'b.png\') }</style>', ['tile.png', 'more.css', 'b.png']],
+    // The page is not parsed as HTML: a tag inside a comment counts too.
+    ['<!-- <script src="old.js"></script> -->', ['old.js']],
+    // Packaged files.
+    ['<img src="icons/16.png"><link rel="icon" href="icons/128.png">', []],
+    // Nothing to load: links to follow, places in the page, an empty address, inline data, and text that only looks like an attribute.
+    ['<a href="https://help.anaplan.com/">Help</a><a href="other.html">Other</a><a href="#top">Top</a><svg><use href="#mark"/></svg>', []],
+    ['<img src="" alt=""><img src="data:image/png;base64,AAAA"><img data-src="lazy.png">', []],
+    ['<input disabled value="src=no.js"><a title="x src=\'no.js\'">t</a><p>if a <b and c> d then src="no.js"</p>', []],
+    ['<p>URL.createObjectURL(blob), then URL.revokeObjectURL(a.href)</p>', []],
+  ]) assert.deepEqual(refused(page), addresses, page);
+  for (const [styles, addresses] of [
+    ['@import url(extra.css); @IMPORT URL("more.css"); @import \'last.css\' screen;', ['extra.css', 'more.css', 'last.css']],
+    ['a { background: image-set(url( "a.png" ) 1x, url(b.png) 2x); }', ['a.png', 'b.png']],
+    ['a{background:url(c.png)}b{background:#fff URL(d.png),url(e.png)}', ['c.png', 'd.png', 'e.png']],
+    ['@font-face { src: local("Inter"), url(fonts/inter.woff2) format("woff2"); }', ['fonts/inter.woff2']],
+    ['a { background: url(icons/16.png); }', []],
+    ['a { mask: url(data:image/svg+xml,%3Csvg%3E%3C/svg%3E); fill: url(#shade); background: url(); }', []],
+    ['a { background: url("data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\'><path fill=\'url(%23g)\'/></svg>"); }', []],
+  ]) assert.deepEqual(refused('', styles), addresses, styles);
+});
+
 test('refuses to package a bundle older than a source it is built from, but not one older than a test', () => withTemp(dir => {
   const repo = fixture(dir);
   for (const name of ['src/card-reader/card-details.ts', 'src/background.ts', 'src/results/main.ts', 'manifest.json', 'scripts/build.mjs', 'package-lock.json']) {
@@ -235,3 +302,9 @@ test('the repository\'s package.json and manifest.json carry the same version', 
   assert.match(manifest.version, /^\d+\.\d+\.\d+$/);
   assert.equal(pkg.version, manifest.version);
 });
+
+test('the repository\'s results page loads only packaged files, its own stylesheet and bundle among them',
+  { skip: !existsSync(path.join(ROOT, 'results.html')) && 'results.html is not in this checkout' }, () => {
+    const read = name => readFileSync(path.join(ROOT, name), 'utf8');
+    assert.deepEqual(pageProblems(read('results.html'), read('results.css'), runtimeFiles(JSON.parse(read('manifest.json')))), []);
+  });
