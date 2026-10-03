@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { UxPageCardDetails } from "../../../src/domains/ux-designer/card-types.js";
+import type { UxPageCardDetails } from "./card-reader/card-types.js";
 import { analyseApp, loadCatalog } from "./analyse.js";
 import { ANAPLAN_HOSTS, NOT_SCOPE_IDS, OTHER_HOSTS, SCOPE_IDS } from "./guards.test-support.js";
 import { decodeFrames, type StompFrame } from "./stomp.js";

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { UxEntityRef } from "../../../src/domains/ux-designer/card-types.js";
+import type { UxEntityRef } from "./card-reader/card-types.js";
 import {
   addActions, addLineItems, addLists, addModuleDimensions, addModuleViews, addSelections, applicableModuleIds, emptyCatalog, resolveFromCatalog,
   unresolvedFilterItems, viewLayoutFromMetadata,

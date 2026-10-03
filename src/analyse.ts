@@ -1,7 +1,7 @@
-import { describePageCards } from "../../../src/domains/ux-designer/card-details.js";
-import { nameCardDetails } from "../../../src/domains/ux-designer/card-naming.js";
-import type { UxEntityRef, UxPageCardDetails } from "../../../src/domains/ux-designer/card-types.js";
-import type { UxPageType } from "../../../src/domains/ux-designer/definition-types.js";
+import { describePageCards } from "./card-reader/card-details.js";
+import { nameCardDetails } from "./card-reader/card-naming.js";
+import type { UxEntityRef, UxPageCardDetails } from "./card-reader/card-types.js";
+import type { UxPageType } from "./card-reader/definition-types.js";
 import {
   addActions, addLineItems, addLists, addModuleDimensions, addModuleViews, addSelections, applicableModuleIds, emptyCatalog, resolveFromCatalog,
   unresolvedFilterItems, viewLayoutFromMetadata, type ModelCatalog,

@@ -1,4 +1,4 @@
-import type { UxPageCardDetails } from "../../../src/domains/ux-designer/card-types.js";
+import type { UxPageCardDetails } from "./card-reader/card-types.js";
 import { list, type Obj } from "./util.js";
 
 /** The analyser's seven tables, in the format agreed on the template (27 Sep 2026). Input is the named card description
