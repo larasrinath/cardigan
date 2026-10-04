@@ -10,7 +10,7 @@ describe("App Details.csv and Model Details.csv", () => {
       ["Export", "Exported on", "2026-09-28 01:59 UTC"], ["Export", "Exported with", "Cardigan dev"], ["Export", "Anaplan host", "us1a.app.anaplan.com"]]);
   });
 
-  it("keeps the diagnostic log, one row per line with the panel's time stamp", () => {
+  it("keeps the diagnostic log, one row per line with its time stamp", () => {
     const rows = diagnosticRows("01:59:09 app-analysis v0.5.0: app on us1a.app.anaplan.com\r\n01:59:10 GET /a/springboard-definition-service/apps 200\r\n\r\nplain line");
     expect(rows).toEqual([["Diagnostics", "01:59:09", "app-analysis v0.5.0: app on us1a.app.anaplan.com"],
       ["Diagnostics", "01:59:10", "GET /a/springboard-definition-service/apps 200"], ["Diagnostics", "", "plain line"]]);

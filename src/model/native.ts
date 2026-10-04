@@ -1,4 +1,4 @@
-import type { Log } from "../panel.js";
+import { Failure, REFRESH, SEND_LOG, type Log, type Stop } from "../progress.js";
 import { SCOPE_ID, sleep } from "../util.js";
 import { labelEntries, windowRows, type Grid } from "./grid.js";
 
@@ -22,7 +22,13 @@ const MODULES = ["anaplan/data/ModelContentCache", "anaplan/data/Aggregator", "a
 /** Cells requested per read, so large models are read in pages. */
 const CELLS_PER_READ = 40_000;
 const MAX_ROWS = 250_000;
+/** How long a read waits for the model's answer. With the wait for the page to be idle before it (`waitIdle`), that is less
+ * than the time the page waits for a frame that sends nothing (bridge.ts `runInCore`), so a read the model never answers
+ * ends as a failed read, not as a frame that has gone. */
 const READ_TIMEOUT_MS = 180_000;
+/** What the user is told when the page's client cannot be used (progress.ts `Failure`). */
+const NOT_OPEN = "The model has not finished opening in the Anaplan tab. Wait until it shows, then choose Run again.";
+const NO_CLIENT = `Cardigan could not read this model page. ${REFRESH} ${SEND_LOG}`;
 
 /** The classic model building page exposes its AMD loader and the open model on window. */
 export function modelOnPage(): string | undefined {
@@ -34,11 +40,11 @@ export function modelOnPage(): string | undefined {
 export function loadNative(timeoutMs = 30_000): Promise<Native> {
   const w = window as Any;
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("The model page's client did not load.")), timeoutMs);
+    const timer = setTimeout(() => reject(new Failure(NOT_OPEN, `the model page's client did not load in ${timeoutMs / 1000} s`)), timeoutMs);
     w.require(MODULES, (cache: Any, aggregator: Any, helper: Any, ids: Any, constants: Any, RequestGenerator: Any, DataPage: Any, axisHelper: Any) => {
       clearTimeout(timer);
       resolve({ cache, aggregator, helper, ids, constants, RequestGenerator, DataPage, axisHelper, workspaceId: w.workspaceId, modelId: w.modelId });
-    }, () => { clearTimeout(timer); reject(new Error("The model page's client modules are not available.")); });
+    }, () => { clearTimeout(timer); reject(new Failure(NO_CLIENT, "the model page's client modules are not available")); });
   });
 }
 
@@ -114,9 +120,12 @@ function selectorLabel(view: Any, page: Any, index: number): string | undefined 
   return at >= 0 && typeof labels[at] === "string" ? labels[at] as string : undefined;
 }
 
-/** Reads a whole grid in row pages; column labels come from the first read. `selectorLabels` shows list choices by label. */
+/** Reads a whole grid in row pages; column labels come from the first read. `selectorLabels` shows list choices by label.
+ * `stop` is asked before each page: an export that was asked to stop reads no further one. Asking is also how the model's
+ * frame tells the page that waits for it that the export is still going (bridge.ts `serveCore`): nothing else is
+ * reported between two pages, so it has to be asked before every one. */
 export async function readGrid(native: Native, rows: string, columns: string, name: string, log: Log, cellsPerRead = CELLS_PER_READ,
-  selectorLabels = false): Promise<Grid> {
+  selectorLabels = false, stop?: Stop): Promise<Grid> {
   const viewDefinition = { type: "MODEL_DEFINITION", staticContextIdentifiers: [], ...native.helper.getAxesForViewDefinition([rows], [columns]) };
   const first = await readWindow(native, viewDefinition, 0, 1, selectorLabels);
   const rowCount = Number(first.rowCount) || 0;
@@ -128,6 +137,7 @@ export async function readGrid(native: Native, rows: string, columns: string, na
   const perRead = Math.max(1, Math.floor(cellsPerRead / Math.max(1, columnCount)));
   const currencies = native.cache.getAllCurrenciesLabelPage?.();
   for (let start = 0; start < rowCount; start += perRead) {
+    stop?.throwIfAborted();
     const count = Math.min(perRead, rowCount - start);
     const view = start === 0 && count === 1 ? first : await readWindow(native, viewDefinition, start, count, selectorLabels);
     const pages = (Array.isArray(view.dataPages) ? view.dataPages : []).map((page: Any) => {

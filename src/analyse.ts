@@ -3,16 +3,17 @@ import { nameCardDetails } from "./card-reader/card-naming.js";
 import type { UxEntityRef, UxPageCardDetails } from "./card-reader/card-types.js";
 import type { UxPageType } from "./card-reader/definition-types.js";
 import {
-  addActions, addLineItems, addLists, addModuleDimensions, addModuleViews, addSelections, applicableModuleIds, emptyCatalog, resolveFromCatalog,
-  unresolvedFilterItems, viewLayoutFromMetadata, type ModelCatalog,
+  addActions, addLineItems, addLists, addModuleDimensions, addModuleViews, addSelections, applicableModuleIds, describeFormat, emptyCatalog, entityType,
+  filterItemNeeds, nameFilterValues, resolveFromCatalog, selectionShape, unnamedFilterRules, unresolvedFilterItems, viewLayoutFromMetadata, type ModelCatalog,
 } from "./catalog.js";
 import { DETAILS_HEADERS, diagnosticRows, exportRows, type DetailRow } from "./details.js";
-import type { Log, Progress, TaskResult } from "./panel.js";
+import { Failure, REFRESH, SEND_LOG, type Log, type Progress } from "./progress.js";
 import { buildReport, HEADERS, LINE_ITEMS, NONE, PAGE_TYPE, type PageInput, type TabName } from "./report.js";
+import { plainRows } from "./result-plain.js";
+import type { AnalysisResult, ResultTable } from "./result-types.js";
 import { getJson, RestError } from "./rest.js";
-import { StompConnection, StompError } from "./stomp.js";
+import { StompConnection, StompError, type SubscribeOptions } from "./stomp.js";
 import { ANAPLAN_HOST, fileSafe, list, message, SCOPE_ID, text, type Obj } from "./util.js";
-import { toCsv, zipStore } from "./zip.js";
 
 const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ENTITY_ID = /^[1-9]\d{0,17}$/;
@@ -24,6 +25,15 @@ const MAX_EXTRA_MODULES = 60;
 /** A model that is not open loads on the first data request, which can take minutes. */
 const LOAD_MS = 300_000;
 const LINE_ITEMS_MS = 120_000;
+/** Naming the items of filter rules is tried in several places in turn, so a read that goes unanswered is given up sooner. */
+const FILTER_ITEM_READ_MS = 10_000;
+/** As long as naming the items of filter rules may take in one model, all its reads together: the names are a help to the
+ * reader, and nobody should wait minutes for them. It leaves room for two reads that go unanswered and a third. */
+const FILTER_ITEMS_BUDGET_MS = 30_000;
+/** As many reads as naming the items of filter rules may take in one model. */
+const MAX_FILTER_ITEM_READS = 40;
+/** As many of the IDs, or of the rules, that were left unnamed as the log lists. */
+const MAX_LOGGED = 30;
 
 function declaredType(entry: Obj): UxPageType | undefined {
   const raw = String(entry.pageType ?? entry.type ?? "").toUpperCase();
@@ -54,10 +64,13 @@ async function readPublished(guid: string, declared: UxPageType | undefined, log
   return { state: problem ? `Not analysed: ${problem}` : "Not published" };
 }
 
-/** `work` gets the host that finally served the model, after any redirect. */
-async function withSocket<T>(customerId: string, log: Log, work: (connection: StompConnection, host: string) => Promise<T>): Promise<T> {
+/** `work` gets the host that finally served the model, after any redirect. A run that `signal` has stopped opens no socket,
+ * and one stopped while its socket connects closes it at once, without waiting for the service to answer: nothing is
+ * subscribed to for a stopped run. */
+async function withSocket<T>(customerId: string, log: Log, signal: AbortSignal | undefined, work: (connection: StompConnection, host: string) => Promise<T>): Promise<T> {
   let host = location.host;
   for (let attempt = 0; attempt < 2; attempt++) {
+    signal?.throwIfAborted();
     const session = crypto.randomUUID();
     const url = `wss://${host}/a/springboard-widget-data-service/ws?tracePath=springboard-ui&clientVersion=page-analyzer&clientSessionId=${session}`;
     let connection: StompConnection | undefined;
@@ -65,7 +78,8 @@ async function withSocket<T>(customerId: string, log: Log, work: (connection: St
       connection = await StompConnection.open(url, {
         "enabled-features": "", "accept-language": navigator.language || "en", "close-mode": "error-frame", "page-visible": "true",
         ...(customerId ? { "anaplan-customer": customerId } : {}),
-      }, log);
+      }, log, signal);
+      signal?.throwIfAborted();
       return await work(connection, host);
     } catch (error) {
       if (attempt === 0 && error instanceof StompError && error.code === "REDIRECTION_REQUIRED" && error.fqdn && ANAPLAN_HOST.test(error.fqdn)) {
@@ -135,9 +149,10 @@ export function addDerivedContextSelectors(details: UxPageCardDetails, catalog: 
 
 /** Import, export and process names. A model in another data centre is served from its own host: the page's host
  * answered the first live run with a redirect, which a same-origin read refuses (a network error). `modelHost` is the
- * host the model data service settled on, when it connected. */
+ * host the model data service settled on, when it connected. A run that `signal` has stopped reads no further list: the
+ * stop is rethrown. */
 async function readActionNames(scope: ModelScope, refs: readonly UxEntityRef[], modelHost: string | undefined, catalog: ModelCatalog,
-  progress: Progress): Promise<{ notes: string[]; failedActionTypes: string[] }> {
+  progress: Progress, signal?: AbortSignal): Promise<{ notes: string[]; failedActionTypes: string[] }> {
   const { workspaceId: ws, modelId: model } = scope;
   const notes: string[] = [];
   const failedActionTypes: string[] = [];
@@ -148,6 +163,7 @@ async function readActionNames(scope: ModelScope, refs: readonly UxEntityRef[], 
     const hosts = [...new Set([location.host, ...(modelHost ? [modelHost] : [])])];
     let problem: string | undefined;
     for (const host of hosts) {
+      signal?.throwIfAborted();
       try {
         const before = catalog.actions.size;
         addActions(catalog, key, await getJson(path, { host }));
@@ -167,11 +183,15 @@ async function readActionNames(scope: ModelScope, refs: readonly UxEntityRef[], 
   return { notes, failedActionTypes };
 }
 
-/** What loadCatalog's socket reads share. `settle` ends every step that waits on the socket: a failed connection is rethrown. */
+/** What loadCatalog's socket reads share. `settle` ends every step that waits on the socket: a failed connection is rethrown.
+ * `halted` is true once the run was asked to stop: a step that logs a refused read and goes on ends instead. `ended` is true
+ * once the socket work was ended for any reason, a model that is closed or gone included. */
 interface SocketReads {
   scope: ModelScope;
   connection: StompConnection;
   settle: <T>(work: Promise<T>) => Promise<T>;
+  halted: () => boolean;
+  ended: () => boolean;
   catalog: ModelCatalog;
   notes: string[];
   progress: Progress;
@@ -191,7 +211,7 @@ async function readLineItems(reads: SocketReads, moduleId: string): Promise<void
 
 /** Context selectors: each section's module dimensions, the list Page Builder's grid section settings read. */
 async function readModuleDimensions(reads: SocketReads, modules: ReadonlySet<string>): Promise<void> {
-  const { scope, connection, settle, catalog, notes, progress } = reads;
+  const { scope, connection, settle, halted, catalog, notes, progress } = reads;
   const { workspaceId: ws, modelId: model } = scope;
   if (modules.size) {
     progress.status(`Reading module dimensions in ${scope.modelName}…`);
@@ -200,7 +220,7 @@ async function readModuleDimensions(reads: SocketReads, modules: ReadonlySet<str
         { body: { moduleIds: [...modules] }, timeoutMs: LOAD_MS })));
       progress.log(`dimensions of ${read.length} of ${modules.size} modules`);
     } catch (error) {
-      if (connection.failed) throw error;
+      if (connection.failed || halted()) throw error;
       progress.log(`module dimensions: ${message(error)}`);
       notes.push(`${scope.modelName}: module dimensions were not available (${message(error)}); context selectors show only those saved on the page.`);
     }
@@ -216,7 +236,7 @@ async function readItemNames(reads: SocketReads, items: readonly { moduleId: str
     await settle(inBatches(items, 4, async ({ moduleId, dimensionId, itemIds }) => {
       try {
         const named = addSelections(catalog, await connection.subscribe(`core://${ws}:${model}/modules/${moduleId}/dimensions/${dimensionId}`,
-          { accept: "widget/selection", body: { itemIds, filter: "" }, timeoutMs: LINE_ITEMS_MS }));
+          { accept: "widget/selection", body: { itemIds, filter: "" }, timeoutMs: LINE_ITEMS_MS }), { moduleId, dimensionId });
         progress.log(`items of dimension ${dimensionId} in module ${moduleId}: ${named} of ${itemIds.length} named`);
       } catch (error) {
         progress.log(`items of dimension ${dimensionId} in module ${moduleId}: ${message(error)}`);
@@ -255,9 +275,10 @@ async function readViewLayouts(reads: SocketReads, refs: readonly UxEntityRef[])
 
 /** Filters can use a line item from a module no card shows: look through modules that have the filtered dimension. */
 async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCardDetails[]): Promise<void> {
-  const { scope, connection, settle, catalog, notes, progress } = reads;
+  const { scope, connection, settle, halted, catalog, notes, progress } = reads;
   const { workspaceId: ws, modelId: model } = scope;
-  const { itemIds, axisDimensionIds } = unresolvedFilterItems(pages.flatMap(page => page.cards), catalog);
+  const cards = pages.flatMap(page => page.cards);
+  const { itemIds, axisDimensionIds } = unresolvedFilterItems(cards, catalog);
   if (!itemIds.size) return;
   const candidates = new Set<string>();
   for (const dimensionId of axisDimensionIds) {
@@ -268,27 +289,173 @@ async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCar
         if (ENTITY_ID.test(id) && !catalog.lineItemModules.has(id) && !catalog.unreadableModules.has(id)) candidates.add(id);
       }
     } catch (error) {
-      if (connection.failed) throw error;
+      if (connection.failed || halted()) throw error;
       progress.log(`modules for dimension ${dimensionId}: ${message(error)}`);
     }
   }
   const extra = [...candidates];
   progress.status(`Finding filter line items in ${scope.modelName}…`);
+  // Until every rule has its line item: what a rule then still holds unnamed is its context, which no module lists.
+  const missing = () => unresolvedFilterItems(cards, catalog).itemIds.size;
+  let read = 0;
   for (let i = 0; i < Math.min(extra.length, MAX_EXTRA_MODULES); i += 4) {
-    await settle(inBatches(extra.slice(i, Math.min(i + 4, MAX_EXTRA_MODULES)), 4, moduleId => readLineItems(reads, moduleId)));
-    if ([...itemIds].every(id => catalog.lineItems.has(id))) break;
+    const batch = extra.slice(i, Math.min(i + 4, MAX_EXTRA_MODULES));
+    await settle(inBatches(batch, 4, moduleId => readLineItems(reads, moduleId)));
+    read += batch.length;
+    if (!missing()) break;
   }
-  if (extra.length > MAX_EXTRA_MODULES && ![...itemIds].every(id => catalog.lineItems.has(id))) {
+  // How far the search went, for the reader of a live run's log: a rule whose line item it did not find keeps its IDs.
+  progress.log(`filter line items: ${itemIds.size} looked for in ${read} of ${extra.length} modules that have the filtered dimensions, ${missing()} not found`);
+  if (extra.length > MAX_EXTRA_MODULES && missing()) {
     notes.push(`${scope.modelName}: some filter line items were not found in the first ${MAX_EXTRA_MODULES} candidate modules.`);
+  }
+}
+
+/** Names of the items in filter rules, which are stored as IDs: an item a rule's context is fixed to, and an item a line
+ * item that is formatted as a list is compared with. Both are read as Page Builder reads the labels of items, from a
+ * module that has the item's dimension (the read `readItemNames` makes for shown and hidden items):
+ * - A context item is an item of one of the dimensions of the rule's line item's module. Those are asked in turn.
+ * - A compared item is an item of the list the line item is formatted as, which the line items listing names. It is asked
+ *   of a module that has that list as a dimension: one whose dimensions are known, or one the model names for the list.
+ *   When the listing does not say the list, the dimensions of the line item's own module are asked.
+ * Where an item of the same entity type was named before, that module and dimension are asked first. Nothing is asked
+ * twice, at most MAX_FILTER_ITEM_READS reads are made, and after two reads that went unanswered no more are made. All of
+ * them together take FILTER_ITEMS_BUDGET_MS at most, from the first: when that time is up no further read is made, and
+ * the one that is waiting is given up. An item no read names keeps its ID, and so does a value of a line item the listing
+ * does not say is formatted as a list or a time period: nothing is asked about that one. The log says what was asked and
+ * how much of it was named, in IDs only, and when the time ran out, how much was left unasked.
+ * `asked` are the modules whose dimensions were asked for with the grids'. */
+async function readFilterItemNames(reads: SocketReads, pages: readonly UxPageCardDetails[], asked: ReadonlySet<string>): Promise<void> {
+  const { scope, connection, settle, ended, catalog, progress } = reads;
+  const { workspaceId: ws, modelId: model } = scope;
+  const needs = filterItemNeeds(pages.flatMap(page => page.cards), catalog);
+  for (const { lineItemId, values } of needs.unsaid) {
+    progress.log(`${describeFormat(lineItemId, catalog)}; ${values} of its values look like IDs and are not asked for: it is not said to be formatted as a list`);
+  }
+  let left = MAX_FILTER_ITEM_READS;
+  let unanswered = 0;
+  /** When the time for these reads is up, once the first of them is made; and whether it stopped one. */
+  let until = Infinity;
+  let timeUp = false;
+  /** The items a read asked for, answered or not. */
+  const sent = new Set<string>();
+  const unnamed = (itemIds: readonly string[]) => itemIds.filter(id => !catalog.listItems.has(id));
+  /** One read, when there are reads and time left: the first shows the step and starts the time. A read waits for its
+   * answer no longer than the time that is left. What it throws is logged, unless the socket work has ended.
+   * `itemIds` are the items it asks for. */
+  const read = async (what: string, destination: string, options: SubscribeOptions, done: (json: unknown) => string, itemIds: readonly string[] = []): Promise<void> => {
+    if (left <= 0 || unanswered >= 2) return;
+    if (left === MAX_FILTER_ITEM_READS) {
+      progress.status(`Reading filter item names in ${scope.modelName}…`);
+      until = Date.now() + FILTER_ITEMS_BUDGET_MS;
+    }
+    const time = until - Date.now();
+    if (time <= 0) { timeUp = true; return; }
+    left--;
+    itemIds.forEach(id => sent.add(id));
+    try {
+      progress.log(`${what}${done(await settle(connection.subscribe(destination, { ...options, timeoutMs: Math.min(FILTER_ITEM_READ_MS, time) })))}`);
+    } catch (error) {
+      if (connection.failed || ended()) throw error;
+      // Given up because the time for all of them was up, a read is not one that went unanswered for as long as a read may.
+      const waited = error instanceof StompError && error.code === "TIMEOUT";
+      if (waited && Date.now() >= until) timeUp = true; else if (waited) unanswered++;
+      progress.log(`${what}: ${message(error)}`);
+    }
+  };
+  const dimensionsOf = (moduleId: string) => (catalog.moduleDimensions.get(moduleId) ?? []).map(dimension => dimension.id).filter(id => id !== LINE_ITEMS);
+  const tried = new Map<string, Set<string>>();
+  /** The items a place was not asked for, or not to the end, because the time was up: no read names them after that. */
+  const cutShort = new Set<string>();
+  /** Asks one module's dimension for the names of those of the items that are still unnamed and were not asked of it before.
+   * A dimension whose ID is no ID (the listings are the service's own text) is not asked. */
+  const ask = async (kind: string, moduleId: string, dimensionId: string, itemIds: readonly string[]): Promise<void> => {
+    const before = tried.get(`${moduleId}|${dimensionId}`) ?? new Set<string>();
+    const asking = unnamed(itemIds).filter(id => !before.has(id));
+    if (!asking.length || !ENTITY_ID.test(dimensionId)) return;
+    tried.set(`${moduleId}|${dimensionId}`, new Set([...before, ...asking]));
+    await read(`${kind}: ${asking.length} asked of dimension ${dimensionId} in module ${moduleId}`, `core://${ws}:${model}/modules/${moduleId}/dimensions/${dimensionId}`,
+      { accept: "widget/selection", body: { itemIds: asking, filter: "" } }, json => {
+        addSelections(catalog, json, { moduleId, dimensionId });
+        return `, ${asking.length - unnamed(asking).length} named (answer: ${selectionShape(json)})`;
+      }, asking);
+    if (timeUp) asking.forEach(id => cutShort.add(id));
+  };
+  /** First of all, where an item of the same entity type was named before. */
+  const askKnownSources = async (kind: string, itemIds: readonly string[]): Promise<void> => {
+    for (const id of itemIds) {
+      const source = catalog.itemSources.get(entityType(id));
+      if (source) await ask(kind, source.moduleId, source.dimensionId, itemIds.filter(other => entityType(other) === entityType(id)));
+    }
+  };
+
+  // The dimensions of the line items' modules: read with the grids' for a module a grid shows, otherwise here.
+  const modules = [...new Set([...needs.context, ...needs.values.filter(group => !group.listId)].map(group => group.moduleId))]
+    .filter(moduleId => ENTITY_ID.test(moduleId) && !catalog.moduleDimensions.has(moduleId) && !asked.has(moduleId));
+  if (modules.length) {
+    await read(`dimensions of ${modules.length} modules of filter line items`, `core://${ws}:${model}/dimensions`, { body: { moduleIds: modules } },
+      json => `: ${addModuleDimensions(catalog, json).length} read`);
+  }
+
+  const CONTEXT = "filter context items";
+  for (const { moduleId, itemIds, unlikely } of needs.context) {
+    await askKnownSources(CONTEXT, itemIds);
+    const dimensions = dimensionsOf(moduleId);
+    if (!dimensions.length && unnamed(itemIds).length) progress.log(`${CONTEXT}: ${unnamed(itemIds).length} of module ${moduleId} not asked: its dimensions are not known`);
+    for (const dimensionId of [...dimensions.filter(id => !unlikely.includes(id)), ...dimensions.filter(id => unlikely.includes(id))]) {
+      await ask(CONTEXT, moduleId, dimensionId, itemIds);
+    }
+  }
+
+  const VALUES = "filter values";
+  /** Modules that have a list as a dimension, two at most: those whose dimensions are known, otherwise those the model
+   * names for the list, otherwise the line item's own all the same. */
+  const modulesWith = new Map<string, string[]>();
+  const modulesOf = async (listId: string, own: string): Promise<string[]> => {
+    const has = (moduleId: string) => ENTITY_ID.test(moduleId) && dimensionsOf(moduleId).includes(listId);
+    let found = modulesWith.get(listId) ?? [...catalog.moduleDimensions.keys()].filter(has).slice(0, 2);
+    if (!found.length && ENTITY_ID.test(listId)) {
+      await read(`modules with dimension ${listId}`, `core://${ws}:${model}/applicableModules`, { body: { dimensions: [Number(listId)] } }, json => {
+        found = applicableModuleIds(catalog, json).filter(id => ENTITY_ID.test(id)).slice(0, 2);
+        return `: ${found.length ? found.join(", ") : "none"}`;
+      });
+    }
+    if (!found.length) found = [own];
+    modulesWith.set(listId, found);
+    return found;
+  };
+  for (const { lineItemId, moduleId, listId, itemIds } of needs.values) {
+    progress.log(describeFormat(lineItemId, catalog));
+    await askKnownSources(VALUES, itemIds);
+    if (!unnamed(itemIds).length) continue;
+    if (listId) for (const candidate of await modulesOf(listId, moduleId)) await ask(VALUES, candidate, listId, itemIds);
+    else for (const dimensionId of dimensionsOf(moduleId)) await ask(VALUES, moduleId, dimensionId, itemIds);
+  }
+
+  for (const [kind, groups] of [[CONTEXT, needs.context], [VALUES, needs.values]] as const) {
+    const itemIds = [...new Set(groups.flatMap(group => group.itemIds))];
+    const rest = unnamed(itemIds);
+    const listed = rest.slice(0, MAX_LOGGED).join(", ") + (rest.length > MAX_LOGGED ? ` and ${rest.length - MAX_LOGGED} more` : "");
+    if (itemIds.length) progress.log(`${kind}: ${itemIds.length - rest.length} of ${itemIds.length} named${rest.length ? `; left as IDs: ${listed}` : ""}`);
+  }
+  if (left <= 0) progress.log(`filter item names: no more than ${MAX_FILTER_ITEM_READS} reads are made`);
+  if (unanswered >= 2) progress.log("filter item names: two reads went unanswered, no more were made");
+  if (timeUp) {
+    const items = [...new Set([...needs.context, ...needs.values].flatMap(group => group.itemIds))];
+    progress.log(`filter item names: the ${FILTER_ITEMS_BUDGET_MS / 1000} seconds allowed for them ran out after ${MAX_FILTER_ITEM_READS - left} reads: `
+      + `${sent.size} items asked for, ${items.length - unnamed(items).length} named, the asking of ${cutShort.size} not finished`);
   }
 }
 
 /** Names for one model. Like Page Builder, it asks for the data straight away and lets the service load the model: a
  * model that is not open reports status UNKNOWN until a data request loads it (observed live, 28 Sep 2026), so the
  * status is watched and logged, never waited for. A connection-level error such as REDIRECTION_REQUIRED fails every
- * subscription and is rethrown, so withSocket reconnects to the host it names. */
+ * subscription and is rethrown, so withSocket reconnects to the host it names. When `signal` asks the run to stop, the
+ * socket work ends at once, as it does for a closed model, and the stop is rethrown instead of noted. A run that was
+ * stopped before its socket had connected asks the model for nothing at all: subscribing can make the service load it.
+ * Stopped later, while the action names are read, it reads no further list of them. */
 export async function loadCatalog(scope: ModelScope, pages: readonly UxPageCardDetails[], pageNames: ReadonlyMap<string, string>,
-  progress: Progress): Promise<{ catalog: ModelCatalog; notes: string[]; failedActionTypes: string[] }> {
+  progress: Progress, signal?: AbortSignal): Promise<{ catalog: ModelCatalog; notes: string[]; failedActionTypes: string[] }> {
   const { workspaceId: ws, modelId: model } = scope;
   const catalog = emptyCatalog();
   const notes: string[] = [];
@@ -307,12 +474,15 @@ export async function loadCatalog(scope: ModelScope, pages: readonly UxPageCardD
   }
 
   try {
-    await withSocket(scope.customerId, progress.log, async (connection, host) => {
+    await withSocket(scope.customerId, progress.log, signal, async (connection, host) => {
       modelHost = host;
       let status = "not reported yet";
       let stop: (error: Error) => void = () => undefined;
-      const stopped = new Promise<never>((_, reject) => { stop = reject; });
+      let ended = false;
+      const stopped = new Promise<never>((_, reject) => { stop = error => { ended = true; reject(error); }; });
       stopped.catch(() => undefined);
+      const halt = () => stop(new StompError("stopped"));
+      signal?.addEventListener("abort", halt, { once: true });
       connection.subscribe(`core://${ws}:${model}`, {
         accept: "widget/model", body: {}, timeoutMs: 30 * 60_000,
         until: data => {
@@ -328,7 +498,7 @@ export async function loadCatalog(scope: ModelScope, pages: readonly UxPageCardD
         if (connection.failed) throw connection.failed;
         return result;
       };
-      const reads: SocketReads = { scope, connection, settle, catalog, notes, progress };
+      const reads: SocketReads = { scope, connection, settle, halted: () => signal?.aborted === true, ended: () => ended, catalog, notes, progress };
       const started = Date.now();
       const waiting = setInterval(() => progress.status(`Reading names in ${scope.modelName}: ${Math.round((Date.now() - started) / 1000)} s, `
         + `model status ${status}. A model that is not open can take a few minutes to load…`), 5_000);
@@ -349,24 +519,32 @@ export async function loadCatalog(scope: ModelScope, pages: readonly UxPageCardD
         await readItemNames(reads, needs.items);
         await readViewLayouts(reads, refs);
         await findFilterLineItems(reads, pages);
+        await readFilterItemNames(reads, pages, needs.modules);
+        // Whatever a rule still holds unnamed, by what the rule's items are: it shows a live run's reader what was not found.
+        const unnamed = unnamedFilterRules(pages.flatMap(page => page.cards), catalog);
+        for (const line of unnamed.slice(0, MAX_LOGGED)) progress.log(line);
+        if (unnamed.length > MAX_LOGGED) progress.log(`filter rules with an unnamed item: ${unnamed.length - MAX_LOGGED} more are not listed`);
       } finally {
         clearInterval(waiting);
+        signal?.removeEventListener("abort", halt);
       }
     });
   } catch (error) {
     notes.push(`${scope.modelName}: names from the model data service were not available (${message(error)}); IDs are shown instead.`);
   }
+  signal?.throwIfAborted();
 
-  const actions = await readActionNames(scope, refs, modelHost, catalog, progress);
+  const actions = await readActionNames(scope, refs, modelHost, catalog, progress, signal);
   notes.push(...actions.notes);
   progress.log(`${scope.modelName}: ${catalog.modules.size} modules, ${catalog.views.size} saved views, ${catalog.dimensions.size} dimensions, `
     + `${catalog.lineItems.size} line items (${catalog.lineItemModules.size} modules read), ${catalog.actions.size} actions`);
   return { catalog, notes, failedActionTypes: actions.failedActionTypes };
 }
 
-/** File names in the model export's style (asked for by the user, 28 Sep 2026); App Details.csv comes first. */
-const DETAILS_FILE = "App Details.csv";
-const TAB_FILES: Record<TabName, string> = {
+/** File names in the model export's style (asked for by the user, 28 Sep 2026); App Details.csv comes first. Exported so
+ * that the results page, which knows an app's tables by these names, can pin them in a test. */
+export const DETAILS_FILE = "App Details.csv";
+export const TAB_FILES: Record<TabName, string> = {
   Pages: "Pages.csv", Cards: "Cards.csv", "Grid sections": "Grid Sections.csv", Filters: "Filters.csv", Formatting: "Conditional Formatting.csv",
   Actions: "Action Buttons.csv", "Where used": "Where Used.csv",
 };
@@ -375,14 +553,38 @@ const HOW_TO_READ: readonly [detail: string, value: string][] = [
   ["View type", "Custom view: a module shaped on the page. Saved view: a saved view or a module's default view, built in the model and only selected on the page. Combined grid: several module sections in one card."],
   ["Set in the model (saved view)", "A saved view's own filters, sorts and show/hide live in the model, not on the page."],
   ["(not in the model)", "A module or line item a card still points at but the model no longer has: deleted, or not visible to you. Search Where Used.csv for it to find the cards."],
-  ["Filter context", "Filter-context items show their IDs; their names are not looked up."],
+  ["Filter context and values", "An item in a filter rule, whether chosen as the filter context or compared with a line item formatted as a list, is shown by its name where the model gives one, and by its ID otherwise. If a context item has no name, the rule's line item and context are listed together in place of the line item's name."],
   ["Long IDs", "IDs of 12 or more digits are written as text so Excel shows every digit; the formula bar shows them as =\"…\"."],
 ];
 
-export async function analyseApp(appGuid: string, progress: Progress, diagnostics: () => string): Promise<TaskResult> {
-  if (!GUID.test(appGuid)) throw new Error("Open an app first: the address has no app ID.");
+/** What the user is told when the app itself cannot be read (progress.ts `Failure`), by what Anaplan answered. */
+const APP_UNREAD = {
+  refused: "Anaplan refused the request. You may not have access to this app: check that you can open it in Anaplan, then choose Run again.",
+  missing: "Anaplan could not find this app. It may have been deleted or moved: open it again in Anaplan, then click the Cardigan icon.",
+  failed: `Anaplan answered with an error. Wait a moment, then choose Run again. ${SEND_LOG}`,
+  unreachable: "Anaplan could not be reached. Check your connection, then choose Run again.",
+  slow: "Anaplan took too long to answer. Wait a moment, then choose Run again.",
+  unreadable: `Cardigan could not read Anaplan's answer about this app. ${REFRESH} ${SEND_LOG}`,
+};
+
+/** A failed read of the app as the sentence for the user, with the read's own code and HTTP status as the detail for the
+ * log. A session that has ended is passed on as it is: the content script tells it by its code. */
+function appUnread(error: unknown): unknown {
+  if (!(error instanceof RestError) || error.code === "SIGNED_OUT") return error;
+  const said = error.code === "HTTP_ERROR" ? (error.status === 403 ? APP_UNREAD.refused : error.status === 404 ? APP_UNREAD.missing : APP_UNREAD.failed)
+    : error.code === "NETWORK_ERROR" ? APP_UNREAD.unreachable : error.code === "TIMEOUT" ? APP_UNREAD.slow : APP_UNREAD.unreadable;
+  return new Failure(said, error.message);
+}
+
+/** The app's pages as the zip's files: App Details.csv, then the seven tables. `signal` stops the run (the results page that
+ * asked for it went away): it starts no further page and asks nothing more for a model's names (loadCatalog), and it
+ * rejects with the signal's reason. Only the page that is being read is finished first: the routes still to be tried for
+ * it are tried. */
+export async function analyseApp(appGuid: string, progress: Progress, diagnostics: () => string, signal?: AbortSignal): Promise<AnalysisResult> {
+  if (!GUID.test(appGuid)) throw new Failure("Open an app first: the address has no app ID.");
   progress.status("Reading the app…");
-  const app = (await getJson(`${DEFINITION}apps/${appGuid}?includeUnpublished=true&includeReportPages=true`, { apiVersion: "2" })) as Obj;
+  const app = (await getJson(`${DEFINITION}apps/${appGuid}?includeUnpublished=true&includeReportPages=true`, { apiVersion: "2" })
+    .catch(error => { throw appUnread(error); })) as Obj;
   const appName = text(app?.name) ?? "App";
   const categories = new Map<string, string>();
   for (const category of list(app?.categories)) if (text(category.guid) && text(category.name)) categories.set(category.guid, category.name);
@@ -398,6 +600,7 @@ export async function analyseApp(appGuid: string, progress: Progress, diagnostic
   const inputs: PageInput[] = [];
   const described = new Map<PageInput, UxPageCardDetails>();
   for (const [index, entry] of entries.entries()) {
+    signal?.throwIfAborted();
     const pageName = pageNames.get(entry.guid) ?? entry.guid;
     progress.status(`Reading page ${index + 1} of ${entries.length}: ${pageName}`);
     const read = entry.hasPublishedVersion === false ? { state: "Not published" } : await readPublished(entry.guid, declaredType(entry), progress.log);
@@ -444,19 +647,21 @@ export async function analyseApp(appGuid: string, progress: Progress, diagnostic
     models.set(key, group);
   }
   for (const { scope, inputs: group } of models.values()) {
-    const { catalog, notes, failedActionTypes } = await loadCatalog(scope, group.map(input => described.get(input)!), pageNames, progress);
+    signal?.throwIfAborted();
+    const { catalog, notes, failedActionTypes } = await loadCatalog(scope, group.map(input => described.get(input)!), pageNames, progress, signal);
     summary.push(...notes);
     for (const input of group) {
       const details = described.get(input)!;
-      input.details = addDerivedContextSelectors(nameCardDetails(details, resolveFromCatalog(details.references, catalog)), catalog);
+      input.details = addDerivedContextSelectors(nameFilterValues(nameCardDetails(details, resolveFromCatalog(details.references, catalog)), catalog), catalog);
       input.dimensionNames = catalog.dimensions;
       input.failedActionTypes = failedActionTypes;
     }
   }
 
+  // Stopped during its last read, the run had nothing left to be stopped before: it ends here, as a stopped run.
+  signal?.throwIfAborted();
   progress.status("Building the report…");
   const report = buildReport(inputs);
-  const encoder = new TextEncoder();
   const analysed = inputs.filter(input => input.details).length;
   // An unpublished page has no published version to read, so it is counted apart: "93 of 93", not "93 of 96".
   const unpublished = inputs.filter(input => input.state === "Not published").length;
@@ -487,13 +692,16 @@ export async function analyseApp(appGuid: string, progress: Progress, diagnostic
     ...HOW_TO_READ.map(([detail, value]): DetailRow => ["How to read", detail, value]),
     ...diagnosticRows(diagnostics()),
   ];
-  const files = [
-    { name: DETAILS_FILE, data: encoder.encode(toCsv(DETAILS_HEADERS, details)) },
-    ...tabs.map(tab => ({ name: TAB_FILES[tab], data: encoder.encode(toCsv(report[tab].headers, report[tab].rows)) })),
+  // Every file guards formula-like cells, as the page analysis always has (zip.ts `toCsv`).
+  const table = (file: string, headers: readonly string[], rows: readonly (readonly unknown[])[]): ResultTable =>
+    ({ file, label: file.replace(/\.csv$/, ""), headers: [...headers], rows: plainRows(rows), guard: true });
+  const tables: ResultTable[] = [
+    { ...table(DETAILS_FILE, DETAILS_HEADERS, details), details: true },
+    ...tabs.map(tab => table(TAB_FILES[tab], report[tab].headers, report[tab].rows)),
   ];
   const date = new Date().toISOString().slice(0, 10);
   return {
-    zip: zipStore(files), fileName: `${fileSafe(appName, "app")} - App Export - ${date}.zip`,
+    kind: "app", name: appName, id: appGuid, zipName: `${fileSafe(appName, "app")} - App Export - ${date}.zip`, tables,
     summary: [`${analysed} of ${published} pages analysed${skipped}, ${cards} cards.`, ...summary],
   };
 }

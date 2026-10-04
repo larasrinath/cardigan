@@ -1,4 +1,4 @@
-import type { Log } from "./panel.js";
+import type { Log } from "./progress.js";
 import { ANAPLAN_HOST } from "./util.js";
 
 /** A minimal STOMP client for Page Builder's widget data socket (traced in the designer bundle, 27 Sep 2026: CONNECT
@@ -99,21 +99,30 @@ export class StompConnection {
   /** Why the connection ended, if it has (a server error such as REDIRECTION_REQUIRED, or a close). */
   get failed(): Error | undefined { return this.failure; }
 
-  static open(url: string, connectHeaders: Record<string, string>, log: Log, timeoutMs = 30_000): Promise<StompConnection> {
+  /** `signal` stops the opening: no socket is opened once it has aborted, and a socket that is still connecting when it
+   * aborts is closed at once, without waiting for the service to answer. Either way the promise rejects with the signal's
+   * reason. Once the connection is open the signal does nothing more here. */
+  static open(url: string, connectHeaders: Record<string, string>, log: Log, signal?: AbortSignal, timeoutMs = 30_000): Promise<StompConnection> {
     return new Promise((resolve, reject) => {
+      if (signal?.aborted) { reject(signal.reason); return; }
       let settled = false;
       const socket = new WebSocket(url);
       socket.binaryType = "arraybuffer";
       const connection = new StompConnection(socket, log);
       let timer: ReturnType<typeof setTimeout> | undefined;
-      const finish = (error?: Error) => {
+      const finish = (error?: unknown) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
-        if (error) { connection.close(); reject(error); } else resolve(connection);
+        signal?.removeEventListener("abort", stop);
+        if (error === undefined) resolve(connection); else { connection.close(); reject(error); }
       };
+      const stop = () => finish(signal?.reason ?? new StompError("stopped"));
+      signal?.addEventListener("abort", stop, { once: true });
       timer = setTimeout(() => finish(new StompError("Timed out connecting to the model data service.")), timeoutMs);
       socket.addEventListener("open", () => {
+        // The opening has ended already (stopped, or timed out) and the socket was closed: nothing is sent on it.
+        if (settled) return;
         log("socket open; sending CONNECT");
         connection.send({ command: "CONNECT", headers: { "accept-version": "1.2,1.1,1.0", "heart-beat": "20000,0", ...connectHeaders }, body: "" });
       });
@@ -123,6 +132,8 @@ export class StompConnection {
         connection.buffer = rest;
         for (const frame of frames) {
           if (frame.command === "CONNECTED") {
+            // The opening has ended already (stopped, or timed out) and the socket is closing: no heart-beat is started for it.
+            if (settled) continue;
             connection.escapeHeaders = frame.headers.version === "1.2";
             log(`CONNECTED version=${frame.headers.version ?? "?"} server=${frame.headers.server ?? "?"}`);
             connection.heartbeat = setInterval(() => { if (socket.readyState === WebSocket.OPEN) socket.send("\n"); }, 20_000);

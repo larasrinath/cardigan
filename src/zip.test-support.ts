@@ -1,20 +1,29 @@
-/** Reads back what the analyzer writes, so a test can check a file inside an export rather than only the panel summary.
+/** Reads back what the analyzer writes, so a test can check a file inside an export rather than only the summary.
  * Tests only. */
 
-/** Each file in a stored (uncompressed) zip as zipStore writes it, by name, as text. */
-export function unzipText(zip: Uint8Array): Map<string, string> {
+/** True when two files are the same, byte for byte. */
+export const sameBytes = (a: Uint8Array, b: Uint8Array): boolean => a.byteLength === b.byteLength && a.every((byte, index) => byte === b[index]);
+
+/** Each file in a stored (uncompressed) zip as zipStore writes it, in the zip's order, with its bytes. */
+export function zipEntries(zip: Uint8Array): { name: string; data: Uint8Array }[] {
   const view = new DataView(zip.buffer, zip.byteOffset, zip.byteLength);
   const decoder = new TextDecoder();
-  const files = new Map<string, string>();
+  const entries: { name: string; data: Uint8Array }[] = [];
   let offset = 0;
   while (offset + 30 <= zip.byteLength && view.getUint32(offset, true) === 0x04034b50) {
     const size = view.getUint32(offset + 18, true);
     const nameLength = view.getUint16(offset + 26, true);
     const start = offset + 30 + nameLength + view.getUint16(offset + 28, true);
-    files.set(decoder.decode(zip.subarray(offset + 30, offset + 30 + nameLength)), decoder.decode(zip.subarray(start, start + size)));
+    entries.push({ name: decoder.decode(zip.subarray(offset + 30, offset + 30 + nameLength)), data: zip.subarray(start, start + size) });
     offset = start + size;
   }
-  return files;
+  return entries;
+}
+
+/** Each of those files by name, as text. */
+export function unzipText(zip: Uint8Array): Map<string, string> {
+  const decoder = new TextDecoder();
+  return new Map(zipEntries(zip).map(({ name, data }) => [name, decoder.decode(data)]));
 }
 
 /** A CSV as toCsv writes it (optional byte order mark, CRLF rows, quoted cells with doubled quotes), as rows of cells. */

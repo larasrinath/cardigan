@@ -9,7 +9,7 @@ const AUSTRALIA = "au1a.app2.anaplan.com";
 const LOOKALIKES = ["au1a.app2.anaplan.com.evil.example", "app2anaplan.com", "au1a.app2anaplan.com", "au1a.app2.anaplan.com.", "au1a.app2.anaplan.co",
   "au1a.app2.anaplan.com:8443", "au1a.app2.anaplan.com/a", "user@au1a.app2.anaplan.com", "app2.anaplan.com.evil.example"];
 
-interface Manifest { content_scripts: { matches: string[]; js: string[] }[] }
+interface Manifest { content_scripts: { matches: string[]; js: string[] }[]; content_security_policy?: Record<string, string> }
 const manifest = JSON.parse(readFileSync(new URL("../manifest.json", import.meta.url), "utf8")) as Manifest;
 
 describe("Anaplan regions, Australia's app2 host included", () => {
@@ -18,6 +18,21 @@ describe("Anaplan regions, Australia's app2 host included", () => {
       [["dist/content.js"], ["https://*.app.anaplan.com/*", "https://*.app2.anaplan.com/*"]],
       [["dist/model-export.js"], ["https://*.app.anaplan.com/*", "https://*.app2.anaplan.com/*"]],
     ]);
+  });
+
+  it("asks for no permissions and no host permissions, required or optional", () => {
+    // That is permissions, host_permissions, optional_permissions and optional_host_permissions. The toolbar icon's click,
+    // the tab it opens and the port to a tab's content script need none of them.
+    expect(Object.keys(manifest).filter(key => key.endsWith("permissions"))).toEqual([]);
+  });
+
+  it("lets its own pages and its service worker load only the extension's own files", () => {
+    // Scripts, the stylesheet and the icon come from the package ('self') and everything else from nowhere: no address to
+    // fetch from, no frame, no font, no form to send. Only styles may be written in the page, as the results page's markup
+    // does; a style runs no code. The packager refuses a policy that lets anything else in (scripts/package.mjs).
+    expect(manifest.content_security_policy).toEqual({
+      extension_pages: "default-src 'none'; script-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; img-src 'self'; base-uri 'none'; form-action 'none'",
+    });
   });
 
   it("takes Australia's host as an Anaplan host, and its origin as an Anaplan origin in the model export bridge", () => {
