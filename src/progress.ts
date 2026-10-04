@@ -3,3 +3,6 @@
 
 export type Log = (line: string) => void;
 export interface Progress { status(text: string): void; log: Log }
+
+/** What a run asks before each further read: it throws once the run was asked to stop. An AbortSignal is one. */
+export type Stop = Pick<AbortSignal, "throwIfAborted">;

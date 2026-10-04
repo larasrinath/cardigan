@@ -1,5 +1,5 @@
 import { DETAILS_HEADERS, diagnosticRows, exportRows, type DetailRow } from "../details.js";
-import type { Log, Progress } from "../progress.js";
+import type { Log, Progress, Stop } from "../progress.js";
 import { plainRows } from "../result-plain.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
 import { fileSafe, message, text } from "../util.js";
@@ -25,8 +25,10 @@ const HOW_TO_READ: readonly [detail: string, value: string][] = [
   ["Model Calendar", "Follows the assessment template. Months and days are their names, and Current Fiscal Year is shown with its dates, as the Model Calendar tab shows it. Settings that do not apply to this calendar type are blank; Model size (GB) and Captured by are left for you to fill in."],
 ];
 
-/** The model's settings as the zip's files: Model Details.csv, then one file per grid that could be read. */
-export async function exportModel(progress: Progress, diagnostics: () => string): Promise<AnalysisResult> {
+/** The model's settings as the zip's files: Model Details.csv, then one file per grid that could be read. Once the export
+ * was asked to stop, `progress` throws at its next step and `stop` before the next page of a grid's rows (bridge.ts
+ * `serveCore`), and that ends it. */
+export async function exportModel(progress: Progress, diagnostics: () => string, stop?: Stop): Promise<AnalysisResult> {
   const log: Log = progress.log;
   progress.status("Loading the model page's client…");
   const native = await loadNative();
@@ -64,7 +66,7 @@ export async function exportModel(progress: Progress, diagnostics: () => string)
       fail(file, error);
     }
   };
-  const grid = (file: string, rows: string, columns: string) => readGrid(native, rows, columns, file, log);
+  const grid = (file: string, rows: string, columns: string) => readGrid(native, rows, columns, file, log, undefined, false, stop);
   const plain = (file: string, rows: () => string, columns: () => string) => step(file, async () => add(file, gridTable(await grid(file, rows(), columns()))));
 
   await step("Line Items", async () => add("Line Items", lineItemsTable(await grid("Line Items", axis(native, "MODULE_WITH_LINE_ITEM"), axis(native, "LINE_ITEM_PROPERTY")))));
@@ -113,7 +115,7 @@ export async function exportModel(progress: Progress, diagnostics: () => string)
   await plain("Versions", () => axis(native, "VERSION_ALL"), () => axis(native, "VERSION_PROPERTY"));
   await plain("Source Models", () => axis(native, "REMOTE_MODEL"), () => axis(native, "REMOTE_MODEL_PROPERTY"));
   await step("Model Calendar", async () => {
-    const calendar = await readGrid(native, axis(native, "TIMESCALE_PROPERTY"), axis(native, "EMPTY_1_0"), "Model Calendar", log, undefined, true);
+    const calendar = await readGrid(native, axis(native, "TIMESCALE_PROPERTY"), axis(native, "EMPTY_1_0"), "Model Calendar", log, undefined, true, stop);
     const values = new Map(calendar.rows.map(row => [row.ids[0], row.cells.find(cell => cell !== "") ?? ""] as [number, string]));
     // Year to date and year to go show only when the time summary setting is on (TimeRangeEditor, as SAM reads it).
     const flag = native.constants.FEATURE_FLAGS?.TIME_SUMMARY;

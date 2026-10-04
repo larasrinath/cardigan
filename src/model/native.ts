@@ -1,4 +1,4 @@
-import type { Log } from "../progress.js";
+import type { Log, Stop } from "../progress.js";
 import { SCOPE_ID, sleep } from "../util.js";
 import { labelEntries, windowRows, type Grid } from "./grid.js";
 
@@ -114,9 +114,10 @@ function selectorLabel(view: Any, page: Any, index: number): string | undefined 
   return at >= 0 && typeof labels[at] === "string" ? labels[at] as string : undefined;
 }
 
-/** Reads a whole grid in row pages; column labels come from the first read. `selectorLabels` shows list choices by label. */
+/** Reads a whole grid in row pages; column labels come from the first read. `selectorLabels` shows list choices by label.
+ * `stop` is asked before each page: an export that was asked to stop reads no further one. */
 export async function readGrid(native: Native, rows: string, columns: string, name: string, log: Log, cellsPerRead = CELLS_PER_READ,
-  selectorLabels = false): Promise<Grid> {
+  selectorLabels = false, stop?: Stop): Promise<Grid> {
   const viewDefinition = { type: "MODEL_DEFINITION", staticContextIdentifiers: [], ...native.helper.getAxesForViewDefinition([rows], [columns]) };
   const first = await readWindow(native, viewDefinition, 0, 1, selectorLabels);
   const rowCount = Number(first.rowCount) || 0;
@@ -128,6 +129,7 @@ export async function readGrid(native: Native, rows: string, columns: string, na
   const perRead = Math.max(1, Math.floor(cellsPerRead / Math.max(1, columnCount)));
   const currencies = native.cache.getAllCurrenciesLabelPage?.();
   for (let start = 0; start < rowCount; start += perRead) {
+    stop?.throwIfAborted();
     const count = Math.min(perRead, rowCount - start);
     const view = start === 0 && count === 1 ? first : await readWindow(native, viewDefinition, start, count, selectorLabels);
     const pages = (Array.isArray(view.dataPages) ? view.dataPages : []).map((page: Any) => {

@@ -1,5 +1,5 @@
 import { stampLine } from "./details.js";
-import type { Progress } from "./progress.js";
+import type { Progress, Stop } from "./progress.js";
 import { plainResult, textOf } from "./result-plain.js";
 import type { AnalysisResult } from "./result-types.js";
 import { SCOPE_ID, sleep } from "./util.js";
@@ -45,8 +45,9 @@ export function watchCore(self: MessageTarget, onCore: (core: CoreHandle) => voi
 }
 
 /** Shell side: asks the core frame to export and relays its progress. Fails if the frame goes quiet for `idleMs`, or sends
- * something that is not a model's result. `signal` stops it: the frame is told to stop reading, and the run rejects with
- * the signal's reason. */
+ * something that is not a model's result. `signal` stops it: the run rejects with the signal's reason. A frame that went
+ * quiet and a run that was stopped are both given up at once, and the frame is told to stop reading (serveCore says when
+ * it then does). */
 export function runInCore(self: MessageTarget, core: CoreHandle, progress: Progress, idleMs = 300_000, signal?: AbortSignal): Promise<AnalysisResult> {
   return new Promise((resolve, reject) => {
     const nonce = crypto.randomUUID();
@@ -57,11 +58,13 @@ export function runInCore(self: MessageTarget, core: CoreHandle, progress: Progr
       signal?.removeEventListener("abort", stop);
       if ("result" in outcome) resolve(outcome.result); else reject(outcome.error);
     };
-    const idle = () => { clearTimeout(timer); timer = setTimeout(() => finish({ error: new Error("The model frame stopped answering.") }), idleMs); };
-    const stop = () => {
+    /** Ends the run while the frame may still be exporting for it: the frame is told to stop. */
+    const giveUp = (error: unknown) => {
       core.source.postMessage({ protocol: PROTOCOL, type: "stop", nonce }, core.origin);
-      finish({ error: signal?.reason ?? new Error(STOPPED) });
+      finish({ error });
     };
+    const idle = () => { clearTimeout(timer); timer = setTimeout(() => giveUp(new Error("The model frame stopped answering.")), idleMs); };
+    const stop = () => giveUp(signal?.reason ?? new Error(STOPPED));
     const listener = (event: MessageEvent) => {
       const data = ours(event);
       if (!data || event.source !== (core.source as unknown) || event.origin !== core.origin || data.nonce !== nonce) return;
@@ -150,10 +153,11 @@ export function greetFrames(root: Window, depth = 0): void {
 }
 
 /** Core side: announces itself to the top window until acknowledged, then runs the exports the top window asks for, one at
- * a time. A "stop" for the running export ends it at its next step. A "run" that arrives before that step takes the
- * export over, so a second export never starts beside the first. */
+ * a time. A "stop" for the running export ends it before its next step (a status or a log line) or its next read of a
+ * grid, whichever comes first: the read that is under way is let finish, and nothing is read after it. A "run" that
+ * arrives before then takes the export over, so a second export never starts beside the first. */
 export function serveCore(self: MessageTarget, top: Endpoint, modelId: () => string | undefined,
-  exporter: (progress: Progress, diagnostics: () => string) => Promise<AnalysisResult>, announceMs = 2000, announceForMs = 10 * 60_000): () => void {
+  exporter: (progress: Progress, diagnostics: () => string, stop: Stop) => Promise<AnalysisResult>, announceMs = 2000, announceForMs = 10 * 60_000): () => void {
   let running: { nonce: string; origin: string; stopped: boolean } | undefined;
   const announce = () => { const id = modelId(); if (id) top.postMessage({ protocol: PROTOCOL, type: "core-ready", modelId: id }, "*"); };
   const timer = setInterval(announce, announceMs);
@@ -173,13 +177,15 @@ export function serveCore(self: MessageTarget, top: Endpoint, modelId: () => str
     const run = running = { nonce: data.nonce, origin: event.origin, stopped: false };
     const reply = (message: Message) => top.postMessage({ protocol: PROTOCOL, nonce: run.nonce, ...message }, run.origin);
     const lines: string[] = [];
+    /** What ends a stopped export: the exporter asks it before each read, and every step asks it first. */
+    const stop: Stop = { throwIfAborted: () => { if (run.stopped) throw new Error(STOPPED); } };
     // Stamped as the content script stamps its own log, so Model Details.csv gives every diagnostic line its time.
     const step = (type: "status" | "log") => (text: string) => {
-      if (run.stopped) throw new Error(STOPPED);
+      stop.throwIfAborted();
       lines.push(stampLine(text));
       reply({ type, text });
     };
-    exporter({ status: step("status"), log: step("log") }, () => lines.join("\r\n"))
+    exporter({ status: step("status"), log: step("log") }, () => lines.join("\r\n"), stop)
       .then(result => reply({ type: "done", result }))
       .catch(error => reply({ type: "error", message: error instanceof Error ? error.message : String(error) }))
       .finally(() => { running = undefined; });
