@@ -4,11 +4,12 @@ import { HEADERS } from "../report.js";
 import type { AnalysisResult, Cell, ResultTable } from "../result-types.js";
 import { cardsOf, columnsOf, rowKeys, type Column } from "./columns.js";
 import {
-  bannersHtml, cardDrawerHtml, cardDrawerSubHtml, cellHtml, colChooserHtml, colFilterHtml, crumbsHtml, detailsHtml, esc, headerMetaHtml, idPill,
-  MOON_ICON, navHtml, overviewHtml, pagerHtml, rowDrawerHtml, runHtml, SUN_ICON, tableHtml, type Links, type TableView,
+  cardDrawerHtml, cardDrawerSubHtml, cellHtml, colChooserHtml, colFilterHtml, crumbsHtml, detailsHtml, esc, headerMetaHtml, idPill,
+  MOON_ICON, navHtml, overviewHtml, pagerHtml, rowCellHtml, rowDrawerHtml, rowDrawerSubHtml, runBannerHtml, runHtml, SUN_ICON, tableHtml, tableParts, type Links, type TableView,
 } from "./markup.js";
+import { parseMarkup } from "./dom.test-support.js";
 import { decode, readMarkup, shownValues, structure } from "./markup.test-support.js";
-import { analysedOf, cardSections, detailSections, detailsOf, diagnosticLog, overviewOf, resultNotes } from "./result-view.js";
+import { analysedOf, cardSections, detailSections, detailsOf, diagnosticLog, overviewOf } from "./result-view.js";
 import { pageOf, selectRows, valueCounts } from "./table-engine.js";
 
 /** What an Anaplan user can type into a card title, a text card, a name or a formula. */
@@ -79,7 +80,8 @@ describe("The results page's escaping", () => {
       expect(tagNames(html)).not.toContain("img");
       expect(attributeNames(html).filter(name => /^on/i.test(name))).toEqual([]);
       // The title is a link to the card's details, and its text is what was typed.
-      expect(html).toContain("<button type=\"button\" class=\"link\" data-act=\"card\" title=\"Open card details\">&lt;img src=x onerror=alert(1)&gt;</button>");
+      const links = parseMarkup(html).querySelectorAll('.link[data-act="card"]').filter(link => link.textContent === IMG);
+      expect(links.map(link => [link.localName, link.title, link.querySelectorAll("img").length])).toEqual([["button", "Open card details", 0]]);
     }
   });
 
@@ -88,8 +90,9 @@ describe("The results page's escaping", () => {
       headerMetaHtml({ name: QUOTED, kind: "App", host: QUOTED, exportedOn: QUOTED }),
       navHtml([{ id: "overview", label: "Overview" }, { id: "1", label: QUOTED, count: 2 }], "1"),
       crumbsHtml(QUOTED, QUOTED),
-      overviewHtml({ tiles: [{ label: QUOTED, count: 1 }], cardTypes: [[QUOTED, 1]], models: [{ model: QUOTED, workspace: QUOTED, modelId: QUOTED }] }),
+      overviewHtml({ tiles: [{ label: QUOTED, count: 1 }], cardTypes: [[QUOTED, 1]], models: [{ model: QUOTED, workspace: QUOTED, modelId: QUOTED }], notes: [QUOTED] }),
       tableHtml(viewOf({ file: "Pages.csv", label: QUOTED, headers: ["Page", QUOTED], rows: [[QUOTED, QUOTED]], guard: true }, LINKS, { search: QUOTED, context: QUOTED })),
+      rowDrawerSubHtml(41, QUOTED),
       cardDrawerSubHtml(QUOTED, QUOTED, QUOTED),
     ];
     for (const html of pieces) {
@@ -120,7 +123,7 @@ describe("The results page's escaping", () => {
     expect([...pill.attributes.keys()]).toEqual(["type", "class", "data-copy", "title", "aria-label"]);
     expect(decode(pill.attributes.get("data-copy") ?? "")).toBe(SCRIPT);
     expect(detailsHtml([{ section: SCRIPT, rows: [[SCRIPT, SCRIPT]] }], [SCRIPT])).not.toContain("<script");
-    expect(bannersHtml([SCRIPT], [SCRIPT])).not.toContain("<script");
+    expect(overviewHtml({ tiles: [], cardTypes: [], models: [], notes: [SCRIPT] })).not.toContain("<script");
   });
 
   it("lets no text change a cell's markup, in any kind of column", () => {
@@ -133,9 +136,51 @@ describe("The results page's escaping", () => {
     for (const text of HOSTILE) expect(shownValues(cellHtml(column(0, "Any"), [text], LINKS))).toContain(text);
   });
 
-  it("lets no text change the header, the banners, the navigation or the breadcrumb", () => {
+  it("lets no text change a row's first cell, the one that opens the row, in any kind of column", () => {
+    for (const kind of KINDS) {
+      for (const links of [LINKS, NO_LINKS]) {
+        for (const [index, text] of HOSTILE.entries()) {
+          expectInert(texts => rowCellHtml(column(0, "Any", kind), [texts(index)], links), 0);
+          expect(shownValues(rowCellHtml(column(0, "Any", kind), [text], links)), kind).toContain(text);
+        }
+      }
+    }
+  });
+
+  it("makes a row's first cell open the row: its content is the button, or a button stands before a link, an ID or nothing", () => {
+    /** The cell's buttons, each by what a click on it does and what it shows, and the text the cell shows outside them. */
+    const cell = (kind: Column["kind"], value: Cell | undefined, links = LINKS) => {
+      const td = parseMarkup(rowCellHtml(column(0, "Any", kind), value === undefined ? [] : [value], links));
+      const outside = td.childNodes.filter(node => node.nodeType === 3).map(node => node.textContent).join("").trim();
+      return [td.querySelectorAll("button").map(button => [button.dataset.act ?? (button.dataset.copy !== undefined ? "copy" : ""), button.textContent, button.getAttribute("aria-label")]), outside];
+    };
+    // Plain content is the button itself, named by its own text, and the cell shows nothing else.
+    expect(cell("text", "Revenue")).toEqual([[["row", "Revenue", null]], ""]);
+    expect(cell("text", 0)).toEqual([[["row", "0", null]], ""]);
+    expect(cell("tag", "Grid")).toEqual([[["row", "Grid", null]], ""]);
+    expect(cell("text", "—")).toEqual([[["row", "—", null]], ""]);
+    // Without the result's Cards file a page or a card is plain text, and so the button.
+    expect(cell("page", "Overview", NO_LINKS)).toEqual([[["row", "Overview", null]], ""]);
+    expect(cell("card", 3, NO_LINKS)).toEqual([[["row", "3", null]], ""]);
+    // A link or an ID keeps what it does; the row's button stands before it, with a name of its own.
+    expect(cell("page", "Overview")).toEqual([[["row", "", "Open this row"], ["page", "Overview", null]], ""]);
+    expect(cell("card", 3)).toEqual([[["row", "", "Open this row"], ["card", "3", null]], ""]);
+    expect(cell("id", "card-a")).toEqual([[["row", "", "Open this row"], ["copy", "card-a", "Copy ID card-a"]], ""]);
+    // A cell without text has the button alone.
+    expect(cell("text", "")).toEqual([[["row", "", "Open this row"]], ""]);
+    expect(cell("page", undefined)).toEqual([[["row", "", "Open this row"]], ""]);
+    // In a table it is the first column shown that opens the row, whichever column that is, and no other.
+    const table: ResultTable = { file: "Cards.csv", label: "Cards", headers: ["Page", "Card #", "Card title"], rows: [["Overview", 1, "Sales"], ["Stores", 2, "Plan"]], guard: true };
+    const acts = (columns: Column[]) => parseMarkup(tableHtml(viewOf(table, LINKS, { columns }))).querySelectorAll("tbody tr")
+      .map(row => row.children.map(td => td.querySelectorAll("[data-act]").map(button => button.dataset.act).join("+")));
+    const columns = columnsOf(table);
+    expect(acts(columns)).toEqual([["row+page", "card", "card"], ["row+page", "card", "card"]]);
+    expect(acts(columns.slice(1))).toEqual([["row+card", "card"], ["row+card", "card"]]);
+    expect(acts([column(2, "Card title")])).toEqual([["row"], ["row"]]);
+  });
+
+  it("lets no text change the header, the navigation or the breadcrumb", () => {
     expectInert(text => headerMetaHtml({ name: text(0), kind: text(1), host: text(2), exportedOn: text(3) }), 4);
-    expectInert(text => bannersHtml([text(0), text(1), text(2)], [text(3), text(4), text(5), text(6)]), 7);
     expectInert(text => navHtml([{ id: "overview", label: text(0) }, { id: "1", label: text(1), count: 3 }, { id: "details", label: text(2) }], "details"), 3);
     expectInert(text => crumbsHtml(text(0), text(1)), 2);
     expectInert(text => crumbsHtml(text(2), undefined), 0);
@@ -145,7 +190,10 @@ describe("The results page's escaping", () => {
     expectInert(text => overviewHtml({
       tiles: [{ label: text(0), count: 3 }, { label: text(1), count: 1 }], cardTypes: [[text(2), 4], [text(3), 1]],
       models: [{ model: text(4), workspace: text(5), modelId: text(6) }, { model: text(7), workspace: text(8), modelId: text(9) }],
+      notes: [text(10), text(11), text(12)],
     }), 7);
+    // The notes alone, each of the texts in turn.
+    expectInert(text => overviewHtml({ tiles: [], cardTypes: [], models: [], notes: HOSTILE.map((_, index) => text(index)) }), 7);
     expectInert(text => detailsHtml([{ section: text(0), rows: [[text(1), text(2)], [text(3), text(4)]] }, { section: text(5), rows: [[text(6), text(7)]] }], [text(8), text(9), text(10)]), 7);
   });
 
@@ -161,6 +209,78 @@ describe("The results page's escaping", () => {
     expectInert(text => tableHtml(viewOf(table(text), LINKS, { rows: [], total: 0, from: 0, to: 0, search: text(2), context: text(3), filtered: new Set([1]) })), 6);
   });
 
+  it("makes a table's view of the parts the page writes again while the user types, each in its place", () => {
+    const table: ResultTable = { file: "Cards.csv", label: QUOTED, headers: ["Page", "Card #", IMG], guard: true,
+      rows: [["Overview", 1, SCRIPT], ["Overview", 2, "Margin"], ["Stores", 1, CLOSERS]] };
+    for (const overrides of [{}, { search: QUOTED, sort: { column: 1, dir: "desc" as const }, filtered: new Set([0]), context: IMG }, { rows: [], total: 0, from: 0, to: 0, search: SCRIPT }]) {
+      const view = viewOf(table, LINKS, overrides);
+      const parts = tableParts(view);
+      const whole = parseMarkup(tableHtml(view));
+      // What the box, the pager and the count hold in the whole view is exactly the part.
+      expect(whole.querySelector("#tableWrap")?.innerHTML.trim()).toBe(parseMarkup(parts.grid).innerHTML.trim());
+      expect(whole.querySelector("#pager")?.innerHTML.trim()).toBe(parseMarkup(parts.pager).innerHTML.trim());
+      expect(whole.querySelector("#rowCount")?.textContent).toBe(parts.count);
+      expect(whole.querySelector("#resetBtn")?.hidden).toBe(!parts.modified);
+      // And the parts hold none of the rest: the search box is not in them.
+      for (const part of [parts.grid, parts.pager]) expect(readMarkup(part).tags.filter(tag => tag.attributes.get("id") === "tblSearch")).toEqual([]);
+      expectInert(text => tableParts(viewOf({ ...table, label: text(0), headers: [text(1), text(2), text(3)], rows: [[text(4), text(5), text(6)]] }, LINKS, overrides)).grid, 0);
+    }
+    // Reset is offered for a search, a filter, a sort or a jump, each on its own, and not for a search of spaces only.
+    const modified = (overrides: Partial<TableView>) => tableParts(viewOf(table, LINKS, overrides)).modified;
+    expect([modified({}), modified({ search: "   " }), modified({ search: "a" }), modified({ filtered: new Set([2]) }), modified({ sort: { column: 0, dir: "asc" } }), modified({ context: "" })])
+      .toEqual([false, false, true, true, true, true]);
+    expect(tableParts(viewOf(table, LINKS)).count).toBe("1–3 of 3 rows");
+    expect(tableParts(viewOf(table, LINKS, { total: 2, to: 2 })).count).toBe("1–2 of 2 rows (filtered from 3)");
+    // One row is a row, and no rows are said in words, not as "0–0 of 0 rows".
+    expect(tableParts(viewOf(table, LINKS, { total: 1, to: 1 })).count).toBe("1–1 of 1 row (filtered from 3)");
+    expect(tableParts(viewOf(table, LINKS, { rows: [], total: 0, from: 0, to: 0, search: "x" })).count).toBe("No rows (filtered from 3)");
+    expect(tableParts(viewOf({ ...table, rows: [] }, LINKS)).count).toBe("No rows");
+    // A table without rows says so in the page's own word for it.
+    const none = parseMarkup(tableHtml(viewOf({ ...table, label: "Filters", rows: [] }, LINKS)));
+    expect([none.querySelector(".e-title")?.textContent, none.querySelector(".e-sub")?.textContent]).toEqual(["Filters has no rows", "Nothing was found for this table in this analysis."]);
+  });
+
+  it("shows a row whole in the drawer: each value as it is, in the element that keeps its line breaks and spaces", () => {
+    const text = "IF Sales > 0 THEN\n    Sales  *  Price\nELSE\n\t0";
+    const columns = [column(0, "Formula"), column(1, "Type", "tag"), column(2, "Page", "page"), column(3, "Card title", "card"), column(4, "Card ID", "id", { hidden: true }), column(5, "Empty"), column(6, "None")];
+    const row: Cell[] = [text, text, text, text, text, "", "—"];
+    for (const html of [rowDrawerHtml(columns, row, LINKS), rowDrawerHtml(columns, row, NO_LINKS), cardDrawerHtml(columns, row, LINKS, [])]) {
+      const values = parseMarkup(html).querySelectorAll(".d-dl dd");
+      expect(parseMarkup(html).querySelectorAll(".d-dl dt").map(name => name.textContent)).toEqual(["Formula", "Type", "Page", "Card title", "Card ID", "Empty", "None"]);
+      // Every cell's own text, to the character, whatever its column's kind; an empty cell stays empty.
+      expect(values.map(value => value.textContent)).toEqual([text, text, text, text, text, "", "—"]);
+      // The text of a value stands in a cell-t or, for an ID, in its pill, and in nothing else: the dd holds no other text.
+      for (const value of values.slice(0, 5)) {
+        const holders = value.querySelectorAll(".cell-t, .id-pill");
+        expect(holders.map(holder => holder.textContent)).toEqual([text]);
+        expect(value.childNodes.filter(node => node.nodeType === 3)).toEqual([]);
+      }
+      expect(values[4].querySelectorAll(".id-pill").map(pill => pill.dataset.copy)).toEqual([text]);
+    }
+    // A tag stays a tag and a link a link, in the drawer as in the table; only the table leaves the cell-t out of them.
+    const kinds = (html: string) => parseMarkup(html).querySelectorAll(".tag, .link").map(element => [element.classList.contains("tag") ? "tag" : element.dataset.act, element.querySelectorAll(".cell-t").length]);
+    expect(kinds(rowDrawerHtml(columns, row, LINKS))).toEqual([["tag", 1], ["page", 1], ["card", 1]]);
+    expect(kinds(columns.map(entry => cellHtml(entry, row, LINKS)).join(""))).toEqual([["tag", 0], ["page", 0], ["card", 0]]);
+  });
+
+  it("shows the cells a row holds beyond its headers too, under names of the page's own", () => {
+    const table: ResultTable = { file: "Line Items.csv", label: "Line Items", headers: ["", "Formula"], guard: false,
+      rows: [["Revenue", "Units * Price", "left over", IMG, 7], ["Units", ""], ["Short"]] };
+    const columns = columnsOf(table);
+    const pairs = (row: Cell[]) => {
+      const drawer = parseMarkup(rowDrawerHtml(columns, row, NO_LINKS));
+      return drawer.querySelectorAll("dt").map((name, index) => [name.textContent, drawer.querySelectorAll("dd")[index].textContent]);
+    };
+    expect(pairs(table.rows[0])).toEqual([["Name", "Revenue"], ["Formula", "Units * Price"], ["Column 3", "left over"], ["Column 4", IMG], ["Column 5", "7"]]);
+    // A row with as many cells as headers, or fewer, has the table's columns and no more.
+    expect(pairs(table.rows[1])).toEqual([["Name", "Units"], ["Formula", ""]]);
+    expect(pairs(table.rows[2])).toEqual([["Name", "Short"], ["Formula", ""]]);
+    // A card's drawer shows its row the same way. The table itself keeps to its headers.
+    expect(parseMarkup(cardDrawerHtml(columns, table.rows[0], NO_LINKS, [])).querySelectorAll("dt").map(name => name.textContent)).toEqual(["Name", "Formula", "Column 3", "Column 4", "Column 5"]);
+    expect(parseMarkup(tableHtml(viewOf(table, NO_LINKS))).querySelectorAll("tbody tr").map(tr => tr.children.length)).toEqual([2, 2, 2]);
+    expectInert(texts => rowDrawerHtml(columns, [texts(0), texts(1), texts(2), texts(3)], NO_LINKS), 4);
+  });
+
   it("lets no text change the column filter, the column chooser or the drawer", () => {
     expectInert(text => colFilterHtml(column(0, text(0), "text", { filter: true }), [[text(1), 3], [text(2), 1], [text(3), 1]], new Set([text(1), text(3)])), 4);
     expectInert(text => colFilterHtml(column(0, text(0)), [[text(1), 3]], undefined), 2);
@@ -168,6 +288,13 @@ describe("The results page's escaping", () => {
     const columns = (text: Texts) => KINDS.map((kind, index) => column(index, text(index), kind));
     const row = (text: Texts): Cell[] => KINDS.map((_, index) => text(index + 2));
     expectInert(text => rowDrawerHtml(columns(text), row(text), LINKS), 7);
+    // The line under a row's name says which row of which table, and is nothing but text whatever the table's name holds.
+    for (const [index, name] of HOSTILE.entries()) {
+      expectInert(text => rowDrawerSubHtml(41, text(index)), 0);
+      expect(readMarkup(rowDrawerSubHtml(41, name)).tags).toEqual([]);
+      expect(shownValues(rowDrawerSubHtml(41, name))).toEqual([`Row 41 of ${name}`]);
+    }
+    expect(rowDrawerSubHtml(3, "Line Items")).toBe("Row 3 of Line Items");
     expectInert(text => cardDrawerSubHtml(text(0), text(1), text(2)), 3);
     expectInert(text => cardDrawerHtml(columns(text), row(text), LINKS, [
       { title: text(0), none: text(1), headings: [text(2), text(3)], rows: [[text(4), text(5)], [text(6), text(0)]] },
@@ -183,10 +310,18 @@ describe("The results page's escaping", () => {
     expect(filter.map(tag => tag.attributes.get("data-fval"))).toEqual(["0", "1"]);
   });
 
-  it("holds no text of its own in the view of a run: the page sets each part as plain text", () => {
-    const { tags, texts } = readMarkup(runHtml());
-    expect(tags.flatMap(tag => (tag.attributes.has("id") ? [tag.attributes.get("id")] : []))).toEqual(["runTitle", "runStatus", "runHint", "runLog", "diagLog"]);
-    expect(texts.map(text => text.trim()).filter(text => text !== "")).toEqual(["Diagnostics", "Copy diagnostic log"]);
+  it("holds no text of a run in the run's view or in its banner: the page sets each part as plain text", () => {
+    const ids = (html: string) => readMarkup(html).tags.flatMap(tag => (tag.attributes.has("id") ? [tag.attributes.get("id")] : []));
+    const words = (html: string) => readMarkup(html).texts.map(text => text.trim()).filter(text => text !== "");
+    expect(ids(runHtml())).toEqual(["runTitle", "runStatus", "runHint", "runLog", "diagLog"]);
+    expect(words(runHtml())).toEqual(["Diagnostics", "Copy diagnostic log"]);
+    expect(ids(runBannerHtml())).toEqual(["runBanner", "bannerTitle", "bannerText", "bannerHint", "bannerCopy"]);
+    expect(words(runBannerHtml())).toEqual(["The results below are from the earlier run.", "Copy diagnostic log"]);
+    // Both copy the log of the run, not the one a result carries; the banner's button waits, hidden, for a first line.
+    const copies = (html: string) => parseMarkup(html).querySelectorAll("button").map(button => [button.dataset.act, button.textContent.trim(), button.hidden]);
+    expect(copies(runHtml())).toEqual([["copy-run-log", "Copy diagnostic log", false]]);
+    expect(copies(runBannerHtml())).toEqual([["copy-run-log", "Copy diagnostic log", true]]);
+    expect(copies(detailsHtml([], ["a line"]))).toEqual([["copy-diag", "Copy diagnostic log", false]]);
   });
 });
 
@@ -219,7 +354,6 @@ describe("A result whose every text is hostile, through every view of the page",
   function everyView(): string[] {
     const details = detailsOf(result);
     const cards = cardsOf(result);
-    const notes = resultNotes(result);
     const tables = result.tables.filter(table => table !== details);
     const linksOf = (table: ResultTable): Links => {
       const keys = rowKeys(table);
@@ -227,10 +361,12 @@ describe("A result whose every text is hostile, through every view of the page",
     };
     const pieces = [
       headerMetaHtml(analysedOf(result)),
-      bannersHtml(notes.summary, notes.notes),
       navHtml([{ id: "overview", label: "Overview" }, ...tables.map((table, index) => ({ id: String(index + 1), label: table.label, count: table.rows.length })), { id: "details", label: "Details" }], "overview"),
       overviewHtml(overviewOf(result)),
       detailsHtml(detailSections(details), diagnosticLog(details)),
+      // The run's own view and its banner hold no text of a result, but they are the page's markup too.
+      runHtml(),
+      runBannerHtml(),
     ];
     for (const table of tables) {
       const columns = columnsOf(table);
@@ -240,6 +376,7 @@ describe("A result whose every text is hostile, through every view of the page",
       pieces.push(tableHtml(viewOf(table, links, { columns: columns.filter(entry => !entry.hidden) })));
       pieces.push(colChooserHtml(columns, new Set()));
       for (const entry of columns.filter(candidate => candidate.filter)) pieces.push(colFilterHtml(entry, valueCounts(table.rows, entry.index), undefined));
+      pieces.push(rowDrawerSubHtml(1, table.label));
       for (const row of table.rows) pieces.push(rowDrawerHtml(columns, row, links));
     }
     if (cards) {
@@ -253,8 +390,8 @@ describe("A result whose every text is hostile, through every view of the page",
 
   it("is made of the design's own elements and attributes only", () => {
     const html = everyView().join("\n");
-    const elements = new Set(["button", "circle", "dd", "details", "div", "dl", "dt", "em", "h1", "h3", "input", "kbd", "label", "option", "p", "path", "pre", "rect",
-      "section", "select", "span", "strong", "summary", "svg", "table", "tbody", "td", "th", "thead", "tr"]);
+    const elements = new Set(["button", "circle", "dd", "details", "div", "dl", "dt", "em", "h1", "h2", "h3", "input", "kbd", "label", "li", "option", "p", "path", "pre", "rect",
+      "section", "select", "span", "strong", "summary", "svg", "table", "tbody", "td", "th", "thead", "tr", "ul"]);
     const attributes = /^(aria-[a-z]+|data-(act|nav|copy|sort|colfilter|col|fval|page|popact)|class|type|title|style|id|hidden|open|disabled|checked|selected|value|placeholder|tabindex|role|scope|width|height|viewBox|fill|stroke|stroke-width|stroke-linecap|stroke-linejoin|d|cx|cy|r|x|y|rx)$/;
     expect(tagNames(html).filter(name => !elements.has(name))).toEqual([]);
     expect(attributeNames(html).filter(name => !attributes.test(name))).toEqual([]);
@@ -272,7 +409,7 @@ describe("A result whose every text is hostile, through every view of the page",
           if (name === "style") styles.add(value.replace(/\d+%/, "N%"));
           if (name === "class") expect(value, "a class").toMatch(/^[a-z0-9 -]*$/);
           if (/^data-(sort|colfilter|col|fval|page)$/.test(name)) expect(value, name).toMatch(/^-?\d+$/);
-          if (name === "data-act") expect(["page", "card", "reset", "clear-search", "clear-context", "copy-diag"]).toContain(value);
+          if (name === "data-act") expect(["page", "card", "row", "reset", "clear-search", "clear-context", "copy-diag", "copy-run-log"]).toContain(value);
           if (name === "data-nav") expect(value).toMatch(/^(overview|details|map|\d+)$/);
           if (name === "id") expect(value).toMatch(/^[A-Za-z]+$/);
         }
@@ -280,7 +417,7 @@ describe("A result whose every text is hostile, through every view of the page",
     }
     // Every style on the page is one of the design's own; the only part that varies is a bar's width, a number.
     expect([...styles].sort()).toEqual(["display:block;width:N%", "font-family:var(--mono);font-size:11px", "font-size:12px;color:var(--text-3);margin:4px 0 0",
-      "margin-left:auto", "overflow:hidden;text-overflow:ellipsis"]);
+      "margin-bottom:12px", "margin-left:auto", "margin-left:auto;flex:none", "overflow:hidden;text-overflow:ellipsis"]);
   });
 
   it("shows each hostile text as it was typed, somewhere on the page", () => {
@@ -290,5 +427,61 @@ describe("A result whose every text is hostile, through every view of the page",
 
   it("has static icons that hold nothing but their drawing", () => {
     for (const icon of [SUN_ICON, MOON_ICON]) expect(tagNames(icon).filter(name => !["svg", "path", "circle"].includes(name))).toEqual([]);
+  });
+
+  it("hides every icon from a screen reader: each stands beside a text or in a control with a name", () => {
+    const icons = [...everyView(), SUN_ICON, MOON_ICON].flatMap(html => readMarkup(html).tags.filter(tag => tag.name === "svg" && !tag.closing));
+    expect(icons.length).toBeGreaterThan(40);
+    expect(icons.filter(icon => icon.attributes.get("aria-hidden") !== "true")).toEqual([]);
+    // A button that holds only an icon has a name of its own.
+    for (const html of everyView()) {
+      for (const button of parseMarkup(html).querySelectorAll("button")) {
+        if (button.textContent.trim() === "") expect(button.getAttribute("aria-label"), button.outerHTML).toMatch(/\S/);
+      }
+    }
+  });
+
+  it("goes down its headings one level at a time: a view from its h1, the drawer from the shell's h2", () => {
+    /** The headings of a piece of markup, in order, as "level text". */
+    const headings = (html: string) => parseMarkup(html).querySelectorAll("h1, h2, h3, h4, h5, h6").map(heading => `${heading.localName[1]} ${heading.textContent}`);
+    const overview = overviewOf({ kind: "app", name: "App", id: "id", zipName: "App.zip", summary: ["A note."], tables: [
+      { file: "Pages.csv", label: "Pages", headers: ["Page", "Model", "Workspace", "Model ID"], rows: [["Overview", "Model one", "Main", "id-1"]], guard: true },
+      { file: "Cards.csv", label: "Cards", headers: ["Page", "Card type", "Card ID"], rows: [["Overview", "Grid", "card-a"]], guard: true }] });
+    expect(headings(overviewHtml(overview))).toEqual(["1 Overview", "2 Cards by type", "2 Models", "2 Notes"]);
+    expect(headings(detailsHtml([{ section: "App", rows: [["App", "Demo"]] }, { section: "Export", rows: [] }], ["a line"]))).toEqual(["1 Details", "2 App", "2 Export"]);
+    const table: ResultTable = { file: "Cards.csv", label: "Cards", headers: ["Page"], rows: [["Overview"]], guard: true };
+    expect(headings(tableHtml(viewOf(table, LINKS)))).toEqual(["1 Cards"]);
+    expect(headings(runHtml())).toEqual(["1 "]);
+    // The drawer's heading is the page shell's h2 (results.html), so its sections are one level under that.
+    expect(headings(rowDrawerHtml(columnsOf(table), table.rows[0], LINKS))).toEqual(["3 All columns"]);
+    expect(headings(cardDrawerHtml(columnsOf(table), table.rows[0], LINKS, [{ title: "Filters", none: "filters", headings: ["Sec"], rows: [] }]))).toEqual(["3 Card details", "3 Filters (0)"]);
+    // Whatever the result, no view goes from one level to one two below it.
+    for (const html of everyView()) {
+      const levels = headings(html).map(heading => Number(heading[0]));
+      expect(levels.filter((level, index) => index > 0 && level > levels[index - 1] + 1), headings(html).join(" | ")).toEqual([]);
+      if (levels.includes(1)) expect(levels[0]).toBe(1);
+    }
+  });
+
+  it("gives the diagnostic log, which the keyboard can scroll, a role and a name", () => {
+    for (const html of [runHtml(), detailsHtml([], ["a line"])]) {
+      const log = parseMarkup(html).querySelector("#diagLog");
+      expect([log?.localName, log?.getAttribute("tabindex"), log?.getAttribute("role"), log?.getAttribute("aria-label")]).toEqual(["pre", "0", "region", "Diagnostic log"]);
+    }
+  });
+
+  it("says in a filter button's name and in its icon's shape, not by colour alone, that the filter is in force", () => {
+    const table: ResultTable = { file: "Cards.csv", label: "Cards", headers: ["Page", "Card #", "Card type"], rows: [["Overview", 1, "Grid"], ["Stores", 2, "KPI"]], guard: true };
+    const buttons = parseMarkup(tableHtml(viewOf(table, LINKS, { filtered: new Set([2]) }))).querySelectorAll("[data-colfilter]");
+    expect(buttons.map(button => [button.dataset.colfilter, button.getAttribute("aria-label"), button.title, button.classList.contains("active"), button.querySelector("svg")?.getAttribute("fill"),
+      button.getAttribute("aria-haspopup"), button.getAttribute("aria-expanded")])).toEqual([
+      ["0", "Filter by Page", "Filter by Page", false, "none", "dialog", "false"],
+      ["1", "Filter by Card #", "Filter by Card #", false, "none", "dialog", "false"],
+      ["2", "Filter by Card type (filter on)", "Filter by Card type (filter on)", true, "currentColor", "dialog", "false"],
+    ]);
+    // The outline is drawn with a stroke; the filled funnel needs none.
+    expect(buttons.map(button => button.querySelector("svg")?.getAttribute("stroke"))).toEqual(["currentColor", "currentColor", null]);
+    const chooser = parseMarkup(tableHtml(viewOf(table, LINKS))).querySelector("#colBtn");
+    expect([chooser?.getAttribute("aria-haspopup"), chooser?.getAttribute("aria-expanded")]).toEqual(["dialog", "false"]);
   });
 });

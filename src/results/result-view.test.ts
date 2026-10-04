@@ -2,13 +2,13 @@ import { describe, expect, it } from "vitest";
 import { DETAILS_HEADERS, diagnosticRows, exportRows, type DetailRow } from "../details.js";
 import { HEADERS, type TabName } from "../report.js";
 import type { AnalysisResult, Cell, ResultTable } from "../result-types.js";
+import { APP_FILES } from "./columns.js";
 import { analysedOf, CARD_PARTS, cardSections, detailSections, detailsOf, detailValue, diagnosticLog, overviewOf, resultNotes } from "./result-view.js";
 
-const FILES: Record<string, TabName> = {
-  "Pages.csv": "Pages", "Cards.csv": "Cards", "Grid Sections.csv": "Grid sections", "Filters.csv": "Filters",
-  "Conditional Formatting.csv": "Formatting", "Action Buttons.csv": "Actions", "Where Used.csv": "Where used",
-};
-const LOG = "14:02:05 page-analyzer v0.7.0: app on us1a.app.anaplan.com\r\n14:02:06 app: 2 pages\r\nplain line\r\n14:02:07 ";
+/** The app export's files, as the page names them, and the report table each holds. */
+const FILES: Record<string, TabName> = Object.fromEntries((Object.keys(APP_FILES) as TabName[]).map(tab => [APP_FILES[tab], tab]));
+// A run's log as the tab writes it: its first line names the build, what is read and the host (progress.ts `firstLine`).
+const LOG = "14:02:05 Cardigan dev: app 01234567-89ab-cdef-0123-456789abcdef on us1a.app.anaplan.com\r\n14:02:06 app: 2 pages\r\nplain line\r\n14:02:07 ";
 const detailsTable = (file: string, rows: DetailRow[]): ResultTable => ({ file, label: file.replace(/\.csv$/, ""), headers: DETAILS_HEADERS, rows, guard: true, details: true });
 /** An app file with the report's real headers; each row gives only the columns it cares about, the rest are dashes. */
 const appTable = (file: string, rows: Record<string, Cell>[]): ResultTable => {
@@ -40,6 +40,16 @@ describe("What the results page reads out of a result", () => {
     expect(detailsOf(result("model", [lineItems, modelDetails]))).toBe(modelDetails);
     expect(detailsOf(result("model", [lineItems]))).toBeUndefined();
     expect(detailsOf(result("model", []))).toBeUndefined();
+    // A file with the Details file's name and columns but without the mark is a table like any other; one with the mark is
+    // the Details file whatever it is called and wherever it stands.
+    const { details: _mark, ...unmarked } = modelDetails;
+    const marked: ResultTable = { ...lineItems, file: "About this export.csv", label: "About this export", details: true };
+    expect(detailsOf(result("model", [unmarked, lineItems]))).toBeUndefined();
+    expect(detailsOf(result("model", [unmarked, lineItems, marked]))).toBe(marked);
+    expect(detailsOf(result("app", [{ ...appDetails, file: "Model Details.csv" }]))?.file).toBe("Model Details.csv");
+    // What the page reads out of the Details file follows the mark too: the header's host, the notes and the tiles.
+    const named = result("model", [unmarked, lineItems], []);
+    expect([analysedOf(named).host, resultNotes(named), overviewOf(named).tiles.map(tile => tile.label)]).toEqual([undefined, [], ["Model Details", "Line Items"]]);
   });
 
   it("groups the Details file's rows by section, in the file's order, and keeps the diagnostic log apart", () => {
@@ -72,22 +82,31 @@ describe("What the results page reads out of a result", () => {
     expect(analysedOf(result("model", []))).toEqual({ name: "Model one", kind: "Model", host: undefined, exportedOn: undefined });
   });
 
-  it("gives an app's notes: the summary, then the Notes rows the summary does not already say", () => {
+  it("gives an app's notes, one line each: the summary, then the Notes rows the summary does not already say", () => {
     // analyse.ts puts each name note in the summary and in a Notes row called Names; pages not analysed are Notes rows only.
     const summary = ["2 of 2 pages analysed; 1 unpublished, not analysed, 3 cards.", "Demo model: the model is closed, so IDs are shown instead of names."];
-    expect(resultNotes(result("app", [appDetails], summary))).toEqual({ summary, notes: ["Legacy archive: Not published"] });
+    expect(resultNotes(result("app", [appDetails], summary))).toEqual([...summary, "Legacy archive: Not published"]);
     const answered = detailsTable("App Details.csv", [["Notes", "Names", "All models answered."]]);
-    expect(resultNotes(result("app", [answered], ["2 of 2 pages analysed, 3 cards."]))).toEqual({
-      summary: ["2 of 2 pages analysed, 3 cards."], notes: ["Names: All models answered."] });
+    expect(resultNotes(result("app", [answered], ["2 of 2 pages analysed, 3 cards."]))).toEqual(["2 of 2 pages analysed, 3 cards.", "Names: All models answered."]);
   });
 
-  it("gives a model's notes once: the export writes each as a summary line and as a Notes row", () => {
-    const summary = ["Line Items: 120 rows", "Imports: not exported (the grid did not load).", "Actions: the Actions list came without Notes; the Diagnostics rows list the columns it had."];
-    expect(resultNotes(result("model", [modelDetails], summary))).toEqual({ summary, notes: [] });
+  it("gives a model's notes once, without the lines that only say how many rows a file has", () => {
+    // model/export.ts lists every file's row count in the summary, and writes each note as a summary line and as a Notes row.
+    const file = (label: string, rows: number): ResultTable => ({ file: `${label}.csv`, label, headers: ["", "Formula"], rows: Array.from({ length: rows }, (_, index) => [`Row ${index}`, ""]), guard: false });
+    const tables = [modelDetails, file("Line Items", 120), file("Imports", 4), file("Versions", 1), file("Source Models", 0)];
+    const said = ["Imports: 4 rows (3 matched in the Actions list)", "Exports: not exported (the grid did not load).",
+      "Actions: the Actions list came without Notes; the Diagnostics rows list the columns it had."];
+    const summary = ["Line Items: 120 rows", said[0], "Versions: 1 rows", "Source Models: 0 rows", said[1], said[2]];
+    expect(resultNotes(result("model", tables, summary))).toEqual(said);
+    expect(resultNotes(result("model", tables, ["Versions: 1 row", "Line Items: 120 rows"]))).toEqual([said[2]]);
+    // A count that is not the file's own, a file the result does not have, or a line that says more: each says something
+    // the tiles do not, and stays.
+    const other = ["Line Items: 119 rows", "Modules: 2 rows", "Line Items: 120 rows.", "line items: 120 rows", "Line Items: 120 rows read"];
+    expect(resultNotes(result("model", [file("Line Items", 120)], other))).toEqual(other);
     // Without the summary line the Notes row is shown; twice the same row is shown once; a row without a name is its value.
     const twice = detailsTable("Model Details.csv", [["Notes", "Actions", "no columns"], ["Notes", "Actions", "no columns"], ["Notes", "", "On its own"]]);
-    expect(resultNotes(result("model", [twice], ["", "Line Items: 120 rows"]))).toEqual({ summary: ["Line Items: 120 rows"], notes: ["Actions: no columns", "On its own"] });
-    expect(resultNotes(result("model", []))).toEqual({ summary: [], notes: [] });
+    expect(resultNotes(result("model", [twice, file("Line Items", 120)], ["", "Line Items: 120 rows"]))).toEqual(["Actions: no columns", "On its own"]);
+    expect(resultNotes(result("model", []))).toEqual([]);
   });
 
   it("counts for the overview: each file's rows, an app's cards by type and its models", () => {
@@ -102,14 +121,46 @@ describe("What the results page reads out of a result", () => {
       tiles: [{ label: "Pages", count: 4 }, { label: "Cards", count: 6 }, { label: "Filters", count: 0 }],
       cardTypes: [["Grid", 2], ["KPI", 2], ["Chart", 1], ["Text", 1]],
       models: [{ model: "Demo model", workspace: "Main", modelId: "0123456789ABCDEF0123456789ABCDEF" }, { model: "Other model", workspace: "Old", modelId: "FEDCBA9876543210FEDCBA9876543210" }],
+      notes: ["Legacy archive: Not published", "Names: Demo model: the model is closed, so IDs are shown instead of names."],
     });
+  });
+
+  it("names an app's tiles by the design's shorter names, and any other file's by the file's own", () => {
+    const every = (Object.values(APP_FILES)).map(file => appTable(file, []));
+    expect(overviewOf(result("app", [appDetails, ...every])).tiles.map(tile => tile.label)).toEqual(
+      ["Pages", "Cards", "Grid sections", "Filters", "Formatting rules", "Action buttons", "Where Used"]);
+    // The file's own label is not what names the tile, and a file the app export does not have keeps its label.
+    const renamed: ResultTable = { ...appTable("Conditional Formatting.csv", []), label: "Something else" };
+    const other: ResultTable = { file: "Formatting rules.csv", label: "Formatting rules of mine", headers: [""], rows: [["a"]], guard: false };
+    expect(overviewOf(result("app", [renamed, other])).tiles).toEqual([{ label: "Formatting rules", count: 0 }, { label: "Formatting rules of mine", count: 1 }]);
+    // The navigation and the table's own heading keep the file's name: only the tile is short.
+    expect(appTable("Conditional Formatting.csv", []).label).toBe("Conditional Formatting");
+  });
+
+  it("lists two models of the same name as two when their IDs or their workspaces differ, and one model once", () => {
+    const pages = appTable("Pages.csv", [
+      { Page: "One", Model: "Planning", Workspace: "Main", "Model ID": "AAAA0000AAAA0000AAAA0000AAAA0000" },
+      { Page: "Two", Model: "Planning", Workspace: "Main", "Model ID": "BBBB1111BBBB1111BBBB1111BBBB1111" },
+      { Page: "Three", Model: "Planning", Workspace: "Archive", "Model ID": "AAAA0000AAAA0000AAAA0000AAAA0000" },
+      { Page: "Four", Model: "Planning", Workspace: "Main", "Model ID": "AAAA0000AAAA0000AAAA0000AAAA0000" },
+      // A page that names its model by an ID alone is still a model; one that names nothing is not.
+      { Page: "Five", "Model ID": "CCCC2222CCCC2222CCCC2222CCCC2222" },
+      { Page: "Six" },
+    ]);
+    expect(overviewOf(result("app", [pages])).models).toEqual([
+      { model: "Planning", workspace: "Main", modelId: "AAAA0000AAAA0000AAAA0000AAAA0000" },
+      { model: "Planning", workspace: "Main", modelId: "BBBB1111BBBB1111BBBB1111BBBB1111" },
+      { model: "Planning", workspace: "Archive", modelId: "AAAA0000AAAA0000AAAA0000AAAA0000" },
+      { model: "—", workspace: "—", modelId: "CCCC2222CCCC2222CCCC2222CCCC2222" },
+    ]);
   });
 
   it("gives a model's overview its row counts and nothing made up", () => {
     const lineItems: ResultTable = { file: "Line Items.csv", label: "Line Items", headers: ["", "Formula"], rows: [["Revenue", "Units * Price"], ["Units", ""]], guard: false };
     const modules: ResultTable = { file: "Modules.csv", label: "Modules", headers: ["", "Card type", "Model"], rows: [["REP01", "x", "y"]], guard: false };
-    expect(overviewOf(result("model", [modelDetails, lineItems, modules]))).toEqual({
-      tiles: [{ label: "Line Items", count: 2 }, { label: "Modules", count: 1 }], cardTypes: [], models: [] });
+    expect(overviewOf(result("model", [modelDetails, lineItems, modules], ["Line Items: 2 rows", "Modules: 1 rows"]))).toEqual({
+      tiles: [{ label: "Line Items", count: 2 }, { label: "Modules", count: 1 }], cardTypes: [], models: [],
+      notes: ["Actions: the Actions list came without Notes; the Diagnostics rows list the columns it had."] });
   });
 
   it("names, for a card's parts, only columns the app's files really have", () => {

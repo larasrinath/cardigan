@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ROWS_MAX, type TabMessage } from "../protocol.js";
+import { FRESH_MS, ROWS_MAX, type TabMessage } from "../protocol.js";
 import type { AnalysisResult, Cell } from "../result-types.js";
 import { resultZip } from "../result-zip.js";
-import { describeState, MAX_LOG_LINES, ResultsClient, tabIdFrom, UNREADABLE, type RunState, type TabPort } from "./connection.js";
+import { describeState, MAX_LOG_LINES, NO_REASON, openedJustNow, ResultsClient, runLabel, tabIdFrom, UNREADABLE, withoutOpened, type RunState, type TabPort } from "./connection.js";
 
 /** A port as the page holds it. What the page posts arrives as a copy, as Chrome delivers it, and so does what the tab sends. */
 class FakePort implements TabPort {
@@ -16,6 +16,10 @@ class FakePort implements TabPort {
   postMessage(message: unknown): void {
     if (this.closed) throw new Error("Attempting to use a disconnected port object");
     this.posted.push(structuredClone(message));
+  }
+  /** The tab's side has gone, and Chrome has not said so yet: posting throws before the port's closing is heard. */
+  breakSilently(): void {
+    this.closed = true;
   }
   disconnect(): void {
     this.closed = true;
@@ -32,8 +36,9 @@ class FakePort implements TabPort {
   }
 }
 
-/** A page's client with every port it opened, every state it was told and the log as last shown. */
-function page(options: { noTab?: boolean; closeReason?: string; connect?: () => TabPort } = {}) {
+/** A page's client with every port it opened, every state it was told and the log as last shown. Unless a test says
+ * otherwise, it is a page the icon has just opened. */
+function page(options: { noTab?: boolean; closeReason?: string; connect?: () => TabPort; autoRun?: boolean } = {}) {
   const ports: FakePort[] = [];
   const states: RunState[] = [];
   let shownLog: string[] = [];
@@ -43,6 +48,7 @@ function page(options: { noTab?: boolean; closeReason?: string; connect?: () => 
       ports.push(port);
       return port;
     }),
+    autoRun: options.autoRun ?? true,
     closeReason: () => options.closeReason,
     onState: state => states.push(state),
     onLog: lines => { shownLog = [...lines]; },
@@ -70,6 +76,28 @@ describe("The results page's address", () => {
   it("names the Anaplan tab to read, and nothing else counts as a tab", () => {
     expect([tabIdFrom("?tab=123"), tabIdFrom("?other=1&tab=7"), tabIdFrom("?tab=0")]).toEqual([123, 7, 0]);
     expect(["", "?", "?tab=", "?tab=abc", "?tab=12a", "?tab=-1", "?tab=1.5", "?tab= 1", "?tab=12345678901", "?table=1"].map(tabIdFrom).filter(id => id !== undefined)).toEqual([]);
+  });
+
+  it("says the icon has just opened the page only when the click it names is less than a minute old", () => {
+    const now = Date.UTC(2026, 9, 3, 14, 2, 5);
+    const at = (opened: number | string) => openedJustNow(`?tab=7&opened=${opened}`, now);
+    expect([at(now), at(now - 1), at(now - FRESH_MS + 1)]).toEqual([true, true, true]);
+    // A minute ago or more: a page that was reloaded, restored from history or after a restart, or kept as a bookmark.
+    expect([at(now - FRESH_MS), at(now - 3_600_000), at(0)]).toEqual([false, false, false]);
+    // A time still to come is not the icon's, and neither is anything that is not a time.
+    expect([at(now + 1), at(now + FRESH_MS), at(""), at("now"), at("-1"), at("1.79e12"), at(`+${now}`), at(`${now}0000`)].filter(fresh => fresh)).toEqual([]);
+    // Without the parameter nothing opened the page just now; the first value counts when it is there twice.
+    expect([openedJustNow("", now), openedJustNow("?tab=7", now), openedJustNow(`?opened=${now}`, now), openedJustNow(`?opened=x&opened=${now}`, now)]).toEqual([false, false, true, false]);
+  });
+
+  it("gives the address without the time of the click, and says when there is none to take out", () => {
+    expect(withoutOpened("?tab=7&opened=1790000000000")).toBe("?tab=7");
+    expect(withoutOpened("?opened=1&tab=7&opened=2")).toBe("?tab=7");
+    expect(withoutOpened("?opened=1")).toBe("");
+    expect([withoutOpened("?tab=7"), withoutOpened(""), withoutOpened("?openedx=1")]).toEqual([undefined, undefined, undefined]);
+    // The tab reads the same before and after, and what is left is no longer a click.
+    const rest = withoutOpened(`?tab=123&opened=${Date.UTC(2026, 9, 3)}`) ?? "";
+    expect([tabIdFrom(rest), openedJustNow(rest, Date.UTC(2026, 9, 3))]).toEqual([123, false]);
   });
 });
 
@@ -149,13 +177,80 @@ describe("The results page's connection to the Anaplan tab", () => {
     expect(client.state).toEqual({ phase: "done", result, received: NOW });
   });
 
+  it("reads nothing by itself on a page the icon did not just open: it says what the tab shows and waits for the run control", () => {
+    for (const [subject, message] of [[APP, "That Anaplan tab shows an app."], [MODEL, "That Anaplan tab shows a model."]] as const) {
+      const { client, ports, phases } = page({ autoRun: false });
+      client.start();
+      expect(client.asked).toBe(false);
+      ports[0].send({ type: "subject", subject });
+      expect(client.state).toEqual({ phase: "ready", kind: subject.kind });
+      expect(describeState(client.state, client.asked)).toEqual({ title: "Ready to analyse", message,
+        hint: "Choose Run to analyse it. This page starts by itself only when the Cardigan icon has just opened it." });
+      // Nothing the tab sends afterwards starts a run either.
+      ports[0].send({ type: "subject", subject: APP });
+      ports[0].send({ type: "status", text: "late" });
+      ports[0].send({ type: "done" });
+      expect(ports[0].posted).toEqual([]);
+      expect(phases()).toEqual(["connecting", "ready"]);
+
+      // The run control: the analysis runs on the open port, and the control is Run again from then on.
+      client.runAgain();
+      expect(ports).toHaveLength(1);
+      expect(ports[0].posted).toEqual([RUN]);
+      expect([client.asked, client.state.phase]).toEqual([true, "running"]);
+    }
+  });
+
+  it("names the run control as it reads: Run until an analysis was asked for, Run again after", () => {
+    expect([runLabel(false), runLabel(true)]).toEqual(["Run", "Run again"]);
+    const { client, ports } = page({ autoRun: false });
+    client.start();
+    ports[0].send({ type: "subject", subject: { kind: "none" } });
+    expect(ports[0].posted).toEqual([]);
+    expect(describeState(client.state, client.asked).hint).toBe(
+      "Open an app, or a model in Model Building, in that tab; if it is still loading, give it a moment. Then choose Run.");
+    // The control asks the tab afresh, and what the tab then shows is analysed without another click.
+    client.runAgain();
+    expect(client.asked).toBe(true);
+    ports[1].send({ type: "subject", subject: { kind: "none" } });
+    expect(describeState(client.state, client.asked).hint).toBe(
+      "Open an app, or a model in Model Building, in that tab; if it is still loading, give it a moment. Then choose Run again.");
+    client.runAgain();
+    ports[2].send({ type: "subject", subject: APP });
+    expect(ports[2].posted).toEqual([RUN]);
+    // A page the icon has just opened has asked from the start.
+    expect(page().client.asked).toBe(true);
+  });
+
+  it("on a page the icon did not just open, connects anew for the run control when the tab is gone", () => {
+    const { client, ports, phases } = page({ autoRun: false });
+    client.start();
+    ports[0].send({ type: "subject", subject: APP });
+    // The tab is closed, or leaves the page, while the page waits: the page still says what it was shown.
+    ports[0].drop();
+    expect(client.state).toEqual({ phase: "ready", kind: "app" });
+    client.runAgain();
+    expect(ports).toHaveLength(2);
+    expect(ports[0].posted).toEqual([]);
+    ports[1].drop();
+    expect(phases()).toEqual(["connecting", "ready", "connecting", "unreachable"]);
+    // And when it never answered at all.
+    const never = page({ autoRun: false });
+    never.client.start();
+    never.ports[0].drop();
+    expect(never.client.state).toEqual({ phase: "unreachable" });
+    never.client.runAgain();
+    never.ports[1].send({ type: "subject", subject: MODEL });
+    expect(never.ports[1].posted).toEqual([RUN]);
+  });
+
   it("says so when the address names no tab, and has nothing to run again", () => {
     const { client, ports, phases } = page({ noTab: true });
     client.start();
     client.runAgain();
     expect(phases()).toEqual(["no-tab", "no-tab"]);
     expect(ports).toEqual([]);
-    expect(describeState(client.state)).toEqual({ title: "No Anaplan tab", message: "This page was opened without an Anaplan tab to read.",
+    expect(describeState(client.state, client.asked)).toEqual({ title: "No Anaplan tab", message: "This page was opened without an Anaplan tab to read.",
       hint: "Open an app or a model in Anaplan, then click the Cardigan icon on that tab." });
   });
 
@@ -165,7 +260,7 @@ describe("The results page's connection to the Anaplan tab", () => {
     ports[0].send({ type: "subject", subject: { kind: "none" } });
     expect(phases()).toEqual(["connecting", "no-subject"]);
     expect(ports[0].posted).toEqual([]);
-    expect(describeState(client.state)).toEqual({ title: "Nothing to analyse", message: "That Anaplan page is not an app or a model.",
+    expect(describeState(client.state, client.asked)).toEqual({ title: "Nothing to analyse", message: "That Anaplan page is not an app or a model.",
       hint: "Open an app, or a model in Model Building, in that tab; if it is still loading, give it a moment. Then choose Run again." });
 
     // The tab says what it shows once per port, and a model page can say "none" for its first seconds, so Run again
@@ -196,7 +291,7 @@ describe("The results page's connection to the Anaplan tab", () => {
     client.start();
     ports[0].drop();
     expect(phases()).toEqual(["connecting", "unreachable"]);
-    expect(describeState(client.state)).toEqual({ title: "Not connected", message: "Cardigan cannot reach that tab.",
+    expect(describeState(client.state, client.asked)).toEqual({ title: "Not connected", message: "Cardigan cannot reach that tab.",
       hint: "If it is an Anaplan app or model, refresh it, then click the Cardigan icon again." });
     expect(log()).toEqual(["14:02:05 The tab did not answer: Could not establish connection. Receiving end does not exist."]);
 
@@ -222,9 +317,9 @@ describe("The results page's connection to the Anaplan tab", () => {
     ports[0].send({ type: "subject", subject: APP });
     ports[0].send({ type: "log", text: "14:02:05 GET /apps 401" });
     ports[0].send({ type: "error", message: "You're signed out of Anaplan. Sign in and try again.", code: "SIGNED_OUT" });
-    expect(client.state).toEqual({ phase: "failed", message: "You're signed out of Anaplan. Sign in and try again.", signedOut: true });
-    expect(describeState(client.state)).toEqual({ title: "The analysis stopped", message: "You're signed out of Anaplan. Sign in and try again.",
-      hint: "Choose Run again to try once more." });
+    expect(client.state).toEqual({ phase: "failed", message: "You're signed out of Anaplan. Sign in and try again." });
+    // The tab's message says what to do: the page puts no advice of its own under it.
+    expect(describeState(client.state, client.asked)).toEqual({ title: "The analysis stopped", message: "You're signed out of Anaplan. Sign in and try again.", hint: "" });
     // The log of the failed run stays, to be copied.
     expect(client.log).toEqual(["14:02:05 GET /apps 401"]);
 
@@ -234,11 +329,11 @@ describe("The results page's connection to the Anaplan tab", () => {
     expect(client.state).toEqual({ phase: "running", status: "Starting the analysis…" });
     expect(client.log).toEqual([]);
 
-    ports[0].send({ type: "error", message: "Stopped: the model frame did not answer." });
-    expect(client.state).toEqual({ phase: "failed", message: "Stopped: the model frame did not answer.", signedOut: false });
+    ports[0].send({ type: "error", message: "Anaplan could not be reached. Check your connection, then choose Run again." });
+    expect(client.state).toEqual({ phase: "failed", message: "Anaplan could not be reached. Check your connection, then choose Run again." });
     ports[0].send({ type: "run-again-please" });
     ports[0].send({ type: "error" });
-    expect(client.state).toEqual({ phase: "failed", message: "Stopped: the model frame did not answer.", signedOut: false });
+    expect(client.state).toEqual({ phase: "failed", message: "Anaplan could not be reached. Check your connection, then choose Run again." });
   });
 
   it("shows the text of an error without a code: nothing to analyse, or the tab busy with something else", () => {
@@ -247,17 +342,55 @@ describe("The results page's connection to the Anaplan tab", () => {
     ports[0].send({ type: "subject", subject: MODEL });
     // The tab may first say it is stopping a run an earlier page asked for; that is a status like any other.
     ports[0].send({ type: "status", text: "Stopping the previous run…" });
-    expect(describeState(client.state).message).toBe("Stopping the previous run…");
-    ports[0].send({ type: "error", message: "This page has no model to export yet." });
-    expect(describeState(client.state)).toEqual({ title: "The analysis stopped", message: "This page has no model to export yet.", hint: "Choose Run again to try once more." });
+    expect(describeState(client.state, client.asked).message).toBe("Stopping the previous run…");
+    const busy = "Cardigan is still analysing what this Anaplan tab showed before. Wait for that to finish, or close its results page, then choose Run again.";
+    ports[0].send({ type: "error", message: busy });
+    expect(describeState(client.state, client.asked)).toEqual({ title: "The analysis stopped", message: busy, hint: "" });
+    // No run started in the tab, so the tab wrote nothing into a log: the page writes the one line, and there is a log to copy.
+    expect(client.log).toEqual([`14:02:05 stopped: ${busy}`]);
+    // A run that failed has its own lines, the tab's last one saying why: the page adds none.
+    client.runAgain();
+    ports[0].send({ type: "log", text: "14:02:06 stopped: GET /apps 503" });
+    ports[0].send({ type: "error", message: "Anaplan could not be reached. Check your connection, then choose Run again." });
+    expect(client.log).toEqual(["14:02:06 stopped: GET /apps 503"]);
   });
 
-  it("gives an error without words a message of its own", () => {
-    const { client, ports } = page();
+  it("gives an error without words a message of its own, which says what to do in the words the tab's messages use", () => {
+    for (const error of [{ type: "error", message: "" }, { type: "error" }, { type: "error", message: 503 }]) {
+      const { client, ports } = page();
+      client.start();
+      ports[0].send({ type: "subject", subject: APP });
+      ports[0].send(error);
+      expect(client.state).toEqual({ phase: "failed", message: NO_REASON });
+      // The message names the button that copies the log, so there is a log: the page's own line.
+      expect(client.log).toEqual([`14:02:05 stopped: ${NO_REASON}`]);
+    }
+    expect(NO_REASON).toBe("The analysis stopped without saying why. Choose Run again. If it keeps happening, choose Copy diagnostic log and send the log.");
+  });
+
+  it("takes an error in place of done as a failed run, and keeps nothing of the result that was arriving", () => {
+    // A piece of the result could not be sent: the tab says why in a last line of the log, then that the run failed.
+    const { client, ports, log } = page();
     client.start();
     ports[0].send({ type: "subject", subject: APP });
-    ports[0].send({ type: "error", message: "" });
-    expect(client.state).toEqual({ phase: "failed", message: "The analysis stopped without saying why.", signedOut: false });
+    ports[0].send({ type: "result", result: empty() });
+    ports[0].send({ type: "rows", table: 0, rows: full().tables[0].rows });
+    ports[0].send({ type: "rows", table: 1, rows: full().tables[1].rows.slice(0, 1) });
+    ports[0].send({ type: "log", text: "14:02:07 stopped: the result could not be sent (Message length exceeded maximum allowed length.)" });
+    const unsent = "Cardigan finished reading but could not pass the result to this page. Choose Run again. If it keeps happening, choose Copy diagnostic log and send the log.";
+    ports[0].send({ type: "error", message: unsent });
+    expect(client.state).toEqual({ phase: "failed", message: unsent });
+    expect(log()).toEqual(["14:02:07 stopped: the result could not be sent (Message length exceeded maximum allowed length.)"]);
+    // What still arrives of that run completes nothing.
+    ports[0].send({ type: "rows", table: 1, rows: full().tables[1].rows.slice(1) });
+    ports[0].send({ type: "done" });
+    expect(client.state).toEqual({ phase: "failed", message: unsent });
+    // The next run starts from its own "result": the rows that had arrived are not in it.
+    client.runAgain();
+    ports[0].send({ type: "result", result: empty() });
+    ports[0].send({ type: "done" });
+    if (client.state.phase !== "done") throw new Error("no result");
+    expect(client.state.result.tables.map(table => table.rows.length)).toEqual([0, 0, 0, 0]);
   });
 
   it("says the Anaplan tab was closed or left the page when the port closes during a run, and reconnects on Run again", () => {
@@ -268,7 +401,7 @@ describe("The results page's connection to the Anaplan tab", () => {
     ports[0].send({ type: "result", result: empty() });
     ports[0].drop();
     expect(phases()).toEqual(["connecting", "running", "running", "interrupted"]);
-    expect(describeState(client.state)).toEqual({ title: "The analysis stopped", message: "The Anaplan tab was closed or left the page before the analysis finished.",
+    expect(describeState(client.state, client.asked)).toEqual({ title: "The analysis stopped", message: "The Anaplan tab was closed or left the page before the analysis finished.",
       hint: "Open the app or model again, then click the Cardigan icon or choose Run again." });
     expect(log()).toEqual(["14:02:05 app: 2 pages", "14:02:05 The connection to the tab closed."]);
 
@@ -277,7 +410,7 @@ describe("The results page's connection to the Anaplan tab", () => {
     ports[1].send({ type: "subject", subject: APP });
     // The half result of the run that was cut off is gone: this one starts from its own "result".
     ports[1].send({ type: "done" });
-    expect(client.state).toEqual({ phase: "failed", message: UNREADABLE, signedOut: false });
+    expect(client.state).toEqual({ phase: "failed", message: UNREADABLE });
   });
 
   it("keeps a finished result when the tab is closed afterwards, and reconnects on Run again", () => {
@@ -318,6 +451,45 @@ describe("The results page's connection to the Anaplan tab", () => {
     expect(client.state.result.tables.map(table => table.rows.length)).toEqual([0, 0, 1, 0]);
   });
 
+  it("takes a port that throws on the first run as a tab that did not answer", () => {
+    const { client, ports, phases, log } = page();
+    client.start();
+    ports[0].breakSilently();
+    ports[0].send({ type: "subject", subject: APP });
+    expect(phases()).toEqual(["connecting", "unreachable"]);
+    expect([ports[0].posted, log(), client.asked]).toEqual([[], ["14:02:05 The tab did not answer."], true]);
+    // Chrome's own word that the port closed, when it comes, changes nothing more.
+    ports[0].drop();
+    expect(phases()).toEqual(["connecting", "unreachable"]);
+    // Run again connects anew, and what the tab then shows is analysed.
+    client.runAgain();
+    ports[1].send({ type: "subject", subject: APP });
+    expect([ports.length, ports[1].posted, client.state.phase]).toEqual([2, [RUN], "running"]);
+  });
+
+  it("opens a new port for Run again when the open one throws, and runs on that", () => {
+    const { client, ports, phases } = page();
+    client.start();
+    ports[0].send({ type: "subject", subject: APP });
+    ports[0].send({ type: "result", result: full() });
+    ports[0].send({ type: "done" });
+    ports[0].breakSilently();
+    client.runAgain();
+    // Nothing went out on the broken port; the new one is asked what the tab shows, and then for the analysis.
+    expect([ports.length, ports[0].posted, ports[0].closedByPage, phases().slice(-1)]).toEqual([2, [RUN], true, ["connecting"]]);
+    ports[1].send({ type: "subject", subject: MODEL });
+    expect([ports[1].posted, client.state]).toEqual([[RUN], { phase: "running", status: "Starting the analysis…" }]);
+    // The same on a page that waits for the run control: its first run, on a port that has gone meanwhile.
+    const waiting = page({ autoRun: false });
+    waiting.client.start();
+    waiting.ports[0].send({ type: "subject", subject: APP });
+    waiting.ports[0].breakSilently();
+    waiting.client.runAgain();
+    expect([waiting.ports.length, waiting.ports[0].posted, waiting.client.state.phase]).toEqual([2, [], "connecting"]);
+    waiting.ports[1].send({ type: "subject", subject: APP });
+    expect(waiting.ports[1].posted).toEqual([RUN]);
+  });
+
   it("no longer listens to a port it has replaced", () => {
     const { client, ports } = page();
     client.start();
@@ -353,20 +525,34 @@ describe("The results page's connection to the Anaplan tab", () => {
       "a row that is not a list of cells": [{ type: "result", result: empty() }, { type: "rows", table: 1, rows: [["a"], "b"] }],
       "a result without tables": [{ type: "result", result: { kind: "app", name: "x", summary: [] } }],
       "a result whose table has no rows": [{ type: "result", result: { ...empty(), tables: [{ file: "a.csv", headers: [] }] } }],
+      "a result whose table has no headers": [{ type: "result", result: { ...empty(), tables: [{ file: "a.csv", label: "a", rows: [], guard: true }] } }],
+      "a result whose headers are not a list": [{ type: "result", result: { ...empty(), tables: [{ file: "a.csv", headers: "Page", rows: [] }] } }],
+      "a result with a table that is nothing": [{ type: "result", result: { ...empty(), tables: [...empty().tables, null] } }],
+      "a result with a table that is a text": [{ type: "result", result: { ...empty(), tables: ["Cards.csv"] } }],
+      "a result that is nothing": [{ type: "result", result: null }],
+      "a result that is a text": [{ type: "result", result: "done" }],
       "a result without a summary": [{ type: "result", result: { ...empty(), summary: undefined } }],
       "no result at all": [{ type: "result" }],
     };
+    const reasons = new Set<string>();
     for (const [name, messages] of Object.entries(cases)) {
-      const { client, ports } = page();
+      const { client, ports, log } = page();
       client.start();
       ports[0].send({ type: "subject", subject: APP });
       for (const message of messages) ports[0].send(message);
-      expect(client.state, name).toEqual({ phase: "failed", message: UNREADABLE, signedOut: false });
+      expect(client.state, name).toEqual({ phase: "failed", message: UNREADABLE });
+      // The message is for the user; the log says which piece did not fit, so there is something to copy and send.
+      expect(log(), name).toHaveLength(1);
+      expect(log()[0], name).toMatch(/^14:02:05 stopped: the tab (sent|said) /);
+      reasons.add(log()[0]);
       // What still arrives of that run changes nothing.
       ports[0].send({ type: "rows", table: 1, rows: [["late"]] });
       ports[0].send({ type: "done" });
       expect(client.state.phase, name).toBe("failed");
     }
+    // A result, its rows, and "done" each have their own reason.
+    expect([...reasons].sort()).toEqual(["14:02:05 stopped: the tab said its result was complete before it sent one",
+      "14:02:05 stopped: the tab sent a result the page cannot read", "14:02:05 stopped: the tab sent rows that fit no table of its result"]);
   });
 
   it("ignores what is not a message, and progress outside a run", () => {
@@ -407,8 +593,8 @@ describe("The results page's connection to the Anaplan tab", () => {
   });
 
   it("describes connecting and running in the tab's own words", () => {
-    expect(describeState({ phase: "connecting" })).toEqual({ title: "Connecting", message: "Connecting to the Anaplan tab…", hint: "" });
-    expect(describeState({ phase: "running", status: "Reading Line Items…" })).toEqual({ title: "Analysing", message: "Reading Line Items…",
+    expect(describeState({ phase: "connecting" }, true)).toEqual({ title: "Connecting", message: "Connecting to the Anaplan tab…", hint: "" });
+    expect(describeState({ phase: "running", status: "Reading Line Items…" }, true)).toEqual({ title: "Analysing", message: "Reading Line Items…",
       hint: "Keep the Anaplan tab open until this finishes." });
   });
 });

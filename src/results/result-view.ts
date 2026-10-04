@@ -1,9 +1,9 @@
 import type { AnalysisResult, ResultTable } from "../result-types.js";
-import { columnIndex } from "./columns.js";
+import { APP_FILES, columnIndex } from "./columns.js";
 import { cellText, compareText, NONE } from "./table-engine.js";
 
-/** What the results page reads out of a result besides its tables: the Details file's sections, the diagnostic log, the
- * notes and the overview's counts. Everything is taken from cells as they stand: nothing is split out of a joined text. */
+/** What the results page reads out of a result besides its tables: the Details file's sections, the diagnostic log, and
+ * the overview's counts and notes. Everything is taken from cells as they stand: nothing is split out of a joined text. */
 
 /** The one file about the export itself (App Details.csv, Model Details.csv): rows of Section, Detail, Value. */
 export const detailsOf = (result: AnalysisResult): ResultTable | undefined => result.tables.find(table => table.details === true);
@@ -44,12 +44,14 @@ export function detailValue(details: ResultTable | undefined, section: string, d
   return row ? cellText(row[2]) : undefined;
 }
 
-/** The result's notes: its summary lines, then the Details file's Notes rows as "Detail: Value". A Notes row whose text
- * the summary already holds, word for word, is not said twice. */
-export function resultNotes(result: AnalysisResult): { summary: string[]; notes: string[] } {
+/** The result's notes, one line each: its summary lines, then the Details file's Notes rows as "Detail: Value". A Notes row
+ * whose text the summary already holds, word for word, is not said twice. A line that says only how many rows a file has
+ * ("Line Items: 120 rows", as a model's summary lists every file) is left out: the overview's tiles say that. */
+export function resultNotes(result: AnalysisResult): string[] {
+  const rowCounts = new Set(result.tables.flatMap(table => ["rows", "row"].map(word => `${cellText(table.label)}: ${table.rows.length} ${word}`)));
   const summary = result.summary.map(cellText).filter(line => line !== "");
   const said = new Set(summary);
-  const notes: string[] = [];
+  const notes = summary.filter(line => !rowCounts.has(line));
   for (const row of detailsOf(result)?.rows ?? []) {
     if (cellText(row[0]) !== NOTES) continue;
     const detail = cellText(row[1]);
@@ -59,7 +61,7 @@ export function resultNotes(result: AnalysisResult): { summary: string[]; notes:
     said.add(line);
     notes.push(line);
   }
-  return { summary, notes };
+  return notes;
 }
 
 /** What the header says was analysed. */
@@ -75,15 +77,15 @@ export function analysedOf(result: AnalysisResult): Analysed {
 /** The files that list a card's parts, as the design's card details show them: a heading per column, holding one of the
  * file's columns or several put side by side (a dash or a blank among several is left out). */
 export const CARD_PARTS: readonly { file: string; title: string; none: string; columns: readonly (readonly [heading: string, headers: readonly string[], join?: string])[] }[] = [
-  { file: "Grid Sections.csv", title: "Grid sections", none: "grid sections", columns: [
+  { file: APP_FILES["Grid sections"], title: "Grid sections", none: "grid sections", columns: [
     ["#", ["Section #"]], ["Layout", ["Section layout"]], ["Source module", ["Source module"]], ["Saved view", ["Saved view"]],
     ["Line items shown", ["Line items shown"]], ["Row filter", ["Row filter"]], ["Formatting", ["Conditional formatting"]]] },
-  { file: "Filters.csv", title: "Filters", none: "filters", columns: [
+  { file: APP_FILES.Filters, title: "Filters", none: "filters", columns: [
     ["Sec", ["Section #"]], ["Filter on", ["Filter on"]], ["Dimension", ["Filtered dimension"]], ["Group", ["Condition group", "Show items that match"], " · "],
     ["Condition", ["Condition line item", "Operator", "Value"]], ["Context", ["Condition context"]]] },
-  { file: "Conditional Formatting.csv", title: "Conditional formatting", none: "formatting rules", columns: [
+  { file: APP_FILES.Formatting, title: "Conditional formatting", none: "formatting rules", columns: [
     ["Sec", ["Section #"]], ["Style", ["Format style"]], ["Line item", ["Formatted line item"]], ["Driven by", ["Colour driven by"]], ["Colour stops", ["Colour stops"]]] },
-  { file: "Action Buttons.csv", title: "Buttons & links", none: "buttons", columns: [
+  { file: APP_FILES.Actions, title: "Buttons & links", none: "buttons", columns: [
     ["Label", ["Button label"]], ["Action type", ["Action type"]], ["Model action", ["Model action name"]], ["Runs auto", ["Runs automatically"]], ["Cancel", ["Cancel button"]]] },
 ];
 
@@ -112,6 +114,13 @@ export function cardSections(result: AnalysisResult, page: string, cardId: strin
   return sections;
 }
 
+/** The design's names for the overview's tiles, where a file is one of the app's: shorter than the file's own name, so
+ * that a tile's name keeps to one line. Any other file's tile has the file's own label. */
+const TILE_LABELS: ReadonlyMap<string, string> = new Map([
+  [APP_FILES.Pages, "Pages"], [APP_FILES.Cards, "Cards"], [APP_FILES["Grid sections"], "Grid sections"], [APP_FILES.Filters, "Filters"],
+  [APP_FILES.Formatting, "Formatting rules"], [APP_FILES.Actions, "Action buttons"], [APP_FILES["Where used"], "Where Used"],
+]);
+
 export interface ModelRow { model: string; workspace: string; modelId: string }
 export interface Overview {
   /** Every file but the Details file, with its number of rows. */
@@ -120,13 +129,15 @@ export interface Overview {
   cardTypes: [type: string, count: number][];
   /** An app's models: each different Model, Workspace and Model ID its pages name, in the pages' order. */
   models: ModelRow[];
+  /** The result's notes (`resultNotes`). */
+  notes: string[];
 }
 
 export function overviewOf(result: AnalysisResult): Overview {
-  const tiles = result.tables.filter(table => table.details !== true).map(table => ({ label: cellText(table.label), count: table.rows.length }));
+  const tiles = result.tables.filter(table => table.details !== true).map(table => ({ label: TILE_LABELS.get(table.file) ?? cellText(table.label), count: table.rows.length }));
 
   const counts = new Map<string, number>();
-  const cards = result.tables.find(table => table.file === "Cards.csv");
+  const cards = result.tables.find(table => table.file === APP_FILES.Cards);
   const type = cards && columnIndex(cards, "Card type");
   if (cards && type !== undefined) {
     for (const row of cards.rows) counts.set(cellText(row[type]), (counts.get(cellText(row[type])) ?? 0) + 1);
@@ -134,7 +145,7 @@ export function overviewOf(result: AnalysisResult): Overview {
   const cardTypes = [...counts].sort(([a, x], [b, y]) => y - x || compareText(a, b));
 
   const models = new Map<string, ModelRow>();
-  const pages = result.tables.find(table => table.file === "Pages.csv");
+  const pages = result.tables.find(table => table.file === APP_FILES.Pages);
   const model = pages && columnIndex(pages, "Model");
   const workspace = pages && columnIndex(pages, "Workspace");
   const modelId = pages && columnIndex(pages, "Model ID");
@@ -147,5 +158,5 @@ export function overviewOf(result: AnalysisResult): Overview {
       if (!models.has(key)) models.set(key, entry);
     }
   }
-  return { tiles, cardTypes, models: [...models.values()] };
+  return { tiles, cardTypes, models: [...models.values()], notes: resultNotes(result) };
 }
