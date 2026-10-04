@@ -443,6 +443,34 @@ function settleScrim(): void {
 function setBehindDrawer(inert: boolean): void {
   for (const part of [find(".skip"), find(".hd"), el("banners"), find(".shell")]) if (part) part.inert = inert;
 }
+/** What lies behind the open navigation of a narrow window, where it slides over the page: the link that skips to the
+ * results, the header, the banner area and the view. While the navigation is open these are inert, so the Tab key stays
+ * among its entries and a screen reader does not read on into the page behind it. */
+function setBehindNav(inert: boolean): void {
+  for (const part of [find(".skip"), find(".hd"), el("banners"), find("#main")]) if (part) part.inert = inert;
+}
+/** Opens the navigation of a narrow window and takes the focus into it: to the entry of the view shown. */
+function openNav(): void {
+  el("sidenav").classList.add("open");
+  el("navToggle").setAttribute("aria-expanded", "true");
+  const scrim = el("scrim");
+  scrim.hidden = false;
+  requestAnimationFrame(() => scrim.classList.add("show"));
+  setBehindNav(true);
+  focusOn('#navList [aria-current="page"]', "#navList .nav-item");
+}
+/** Closes it, when it is open. `back` gives the focus back to the button that opens it: after Escape and after a click
+ * beside it. An entry that is chosen takes the focus to its view instead. */
+function closeNav(back: boolean): void {
+  if (!el("sidenav").classList.contains("open")) return;
+  el("sidenav").classList.remove("open");
+  el("navToggle").setAttribute("aria-expanded", "false");
+  el("scrim").classList.remove("show");
+  setTimeout(settleScrim, 210);
+  // The page behind takes part again before the focus goes back into it.
+  setBehindNav(false);
+  if (back) el("navToggle").focus();
+}
 /** Shows the drawer. The title is a text and is set as one; the line under it and the body are markup.ts' markup. What
  * the focus goes back to afterwards is what opened the drawer from the page: a link inside the drawer that opens another
  * card does not last, so it leaves that as it is. */
@@ -470,8 +498,7 @@ function closeDrawer(): void {
   const scrim = el("scrim");
   drawer.classList.remove("show");
   scrim.classList.remove("show");
-  el("sidenav").classList.remove("open");
-  el("navToggle").setAttribute("aria-expanded", "false");
+  closeNav(false);
   clearTimeout(drawerTimer);
   drawerTimer = setTimeout(() => {
     drawer.hidden = true;
@@ -528,11 +555,9 @@ function navTo(view: View, context?: string): void {
   state.search = "";
   state.context = context;
   renderAll();
+  // The navigation of a narrow window closes on a choice, before the view takes the focus: until then the view is behind it.
+  closeNav(false);
   el("view").focus({ preventScroll: true });
-  el("sidenav").classList.remove("open");
-  el("navToggle").setAttribute("aria-expanded", "false");
-  el("scrim").classList.remove("show");
-  setTimeout(settleScrim, 210);
   window.scrollTo({ top: 0 });
 }
 /** The cards of one page: the Cards table, kept to that page. The drawer closes first when the jump starts in it: the page
@@ -700,11 +725,8 @@ document.addEventListener("keydown", event => {
       return;
     }
     if (el("sidenav").classList.contains("open")) {
-      el("sidenav").classList.remove("open");
-      el("scrim").classList.remove("show");
+      closeNav(true);
       el("scrim").hidden = true;
-      el("navToggle").setAttribute("aria-expanded", "false");
-      el("navToggle").focus();
     }
     return;
   }
@@ -714,18 +736,14 @@ document.addEventListener("keydown", event => {
   }
 });
 el("drawerClose").addEventListener("click", closeDrawer);
-el("scrim").addEventListener("click", closeDrawer);
+// A click beside what is open closes it: the navigation of a narrow window, or the drawer.
+el("scrim").addEventListener("click", () => {
+  if (el("sidenav").classList.contains("open")) closeNav(true);
+  else closeDrawer();
+});
 el("navToggle").addEventListener("click", () => {
-  const open = el("sidenav").classList.toggle("open");
-  el("navToggle").setAttribute("aria-expanded", String(open));
-  const scrim = el("scrim");
-  if (open) {
-    scrim.hidden = false;
-    requestAnimationFrame(() => scrim.classList.add("show"));
-  } else {
-    scrim.classList.remove("show");
-    setTimeout(settleScrim, 210);
-  }
+  if (el("sidenav").classList.contains("open")) closeNav(true);
+  else openNav();
 });
 el("themeToggle").addEventListener("click", toggleTheme);
 el("dlAll").addEventListener("click", () => {
