@@ -41,6 +41,20 @@ const search = (text: string) => ({ search: text, filters: new Map<number, Set<s
 /** A count as its cell holds it: a number, or with a plus sign the least it can be. */
 const counted = (least: number, most: number | undefined): Cell => (most === undefined ? least : `${least}+`);
 
+/** How many pages have a name, as a Pages table lists them, and how many of those it says have no cards. A page is its
+ * Page ID, or its row where the table gives no ID; it has no cards where every row of it says 0 cards. */
+function pagesNamed(table: ResultTable, name: string): { listed: number; withoutCards: number } {
+  const [pageAt, idAt, cardsAt] = ["Page", "Page ID", "Total cards"].map(header => table.headers.indexOf(header));
+  const noCards = new Map<string, boolean>();
+  table.rows.forEach((row, index) => {
+    if (String(row[pageAt] ?? "") !== name) return;
+    const id = idAt < 0 ? "" : String(row[idAt] ?? "").trim();
+    const listed = id !== "" && id !== NONE ? `page ${id}` : `row ${index}`;
+    noCards.set(listed, (noCards.get(listed) ?? true) && cardsAt >= 0 && String(row[cardsAt] ?? "").trim() === "0");
+  });
+  return { listed: noCards.size, withoutCards: [...noCards.values()].filter(none => none).length };
+}
+
 /** A result's view, after checking what holds for every view: its uses are the file's rows, each of them exactly once and
  * as the file has it, and each object's row says what its uses add up to. A count is the number of names and numbers
  * its uses give, and nothing says otherwise, unless some of them are on a page name that more than one page has: then it
@@ -53,6 +67,20 @@ function viewOf(result: AnalysisResult): WhereUsedView {
   const cell = (row: number, header: string): Cell => file.rows[row][file.headers.indexOf(header)] ?? "";
   const shared = new Map(view.sharedPageNames ?? []);
   const onShared = view.objects.flatMap(object => object.uses).filter(used => used.pagesOfName !== undefined);
+  // Every number of pages that is said of a name is the number of pages the Pages table lists under it: in the view, on
+  // each use, and in the words of both notes. Where a note says that some of them have no cards, the table says so of
+  // exactly that many, and of fewer than all of them.
+  const listedPages = result.tables.find(table => table.file === "Pages.csv");
+  if (!listedPages) throw new Error("The result has no Pages file");
+  for (const [name, said] of shared) expect(said, name).toBe(pagesNamed(listedPages, name).listed);
+  for (const text of [view.note, ...view.objects.map(object => object.note ?? "")]) {
+    for (const [, name, said, without] of text.matchAll(/"([^"]*)" \((\d+) pages(?:, (\d+) of them without cards)?\)/g)) {
+      const { listed, withoutCards } = pagesNamed(listedPages, name);
+      expect(Number(said), text).toBe(listed);
+      expect(without === undefined ? [0, listed] : [Number(without)], text).toContain(withoutCards);
+      if (without !== undefined) expect(withoutCards, text).toBeLessThan(listed);
+    }
+  }
   expect([...shared.keys()].sort()).toEqual([...new Set(onShared.map(used => used.page))].sort());
   expect("sharedPageNames" in view).toBe(onShared.length > 0);
   expect(view.note.includes("shared by more than one page")).toBe(onShared.length > 0);
@@ -779,6 +807,53 @@ describe("The Where used table by object, where pages share a name", () => {
     expect(spread(three)).toEqual({ "REV01 Sales": [2, undefined, 2, undefined], "Margin %": [2, 4, 3, 4], Products: [1, undefined, 1, undefined], Time: [1, 3, 3, undefined] });
     expect([three.sharedPageNames, three.objects[3].note]).toEqual([[["Overview", 3]],
       `It has 3 uses on a page name that more than one page has: "Overview" (3 pages). ${NOT_KNOWN} It is on 1 to 3 pages.`]);
+  });
+
+  it("says how many pages have a name as the Pages file lists them, a page without cards among them", () => {
+    // Two published pages called Sales board and one that is not published, as the report lists them: the third has no
+    // cards, so no use is on it.
+    const boards = [input("Sales board", guid(1), "Demand planning", DEMAND, [grid("card-1", SALES_MODULE), grid("card-2", PRICES_MODULE)]),
+      input("Sales board", guid(2), "Demand planning", DEMAND, [grid("card-3", PRICES_MODULE), grid("card-4", SALES_MODULE)])];
+    const unpublished: PageInput = { ...input("Sales board", guid(3), "Demand planning", DEMAND, []), state: "Not published", details: undefined };
+    const result = reportedApp(...boards, unpublished);
+    const listed = result.tables.find(table => table.file === "Pages.csv")?.rows.filter(row => row[HEADERS.Pages.indexOf("Page")] === "Sales board") ?? [];
+    expect(listed.map(row => [row[HEADERS.Pages.indexOf("Publish state")], row[HEADERS.Pages.indexOf("Total cards")]]))
+      .toEqual([["Published (no unpublished changes)", 2], ["Published (no unpublished changes)", 2], ["Not published", 0]]);
+    const view = viewOf(result);
+    // The Pages file lists three pages of the name, and three is the number said of it wherever one is said: in the view,
+    // on every use on the name, which is what the drawer puts into "3 pages have this name", and in both notes.
+    expect(view.sharedPageNames).toEqual([["Sales board", listed.length]]);
+    expect(view.objects.flatMap(object => object.uses.map(used => used.pagesOfName))).toEqual(Array.from({ length: 12 }, () => listed.length));
+    expect(view.note).toBe('12 uses of 4 objects. The CSV lists every use. 1 page name is shared by more than one page: "Sales board" (3 pages, 1 of them without cards). '
+      + `${SHARED} A count with "+" is at least that number.`);
+    expect(view.objects[0].note).toBe(`It has 2 uses on a page name that more than one page has: "Sales board" (3 pages, 1 of them without cards). ${NOT_KNOWN} It is on 1 or 2 pages.`);
+    // The counts go by the two pages that have cards, as they do without the third page: a module on card 1 of one page
+    // and card 2 of the other is on one or two pages, never on three.
+    expect(view.rows).toEqual([
+      ["Module", "REV01 Sales", "—", "1+", 2, "Data source (custom view)", SALES],
+      ["Module", "REV02 Prices", "—", "1+", 2, "Data source (custom view)", "102000000002"],
+      ["Dimension", "Products", "—", 2, 4, "Rows", "101000000001"],
+      ["Dimension", "Time", "—", 2, 4, "Columns", "20000000003"],
+    ]);
+    const two = viewOf(reportedApp(...boards));
+    expect([view.rows, spread(view)]).toEqual([two.rows, spread(two)]);
+    expect([two.sharedPageNames, two.objects[0].note]).toEqual([[["Sales board", 2]],
+      `It has 2 uses on a page name that more than one page has: "Sales board" (2 pages). ${NOT_KNOWN} It is on 1 or 2 pages.`]);
+
+    // Hand-made: the number said is the Pages file's, whatever its pages are like. Four pages, two of them without cards.
+    const said = (...rows: Fields[]) => {
+      const made = viewOf(app(pages(...rows, demand("Stores")), USES_ALIKE));
+      return [made.sharedPageNames, [...new Set(made.objects.flatMap(object => object.uses.map(used => used.pagesOfName)))], made.note.split(": ")[1].split(". ")[0], spread(made)["Margin %"]];
+    };
+    expect(said(demand("Overview", { "Total cards": 3 }), demand("Overview", { "Total cards": 0 }), demand("Overview", { "Total cards": 2 }), demand("Overview", { "Total cards": 0 })))
+      .toEqual([[["Overview", 4]], [4, undefined], '"Overview" (4 pages, 2 of them without cards)', [2, 3, 3, 4]]);
+    // A page is its ID: one page listed twice, a second page and a third without cards are three pages, two with cards.
+    expect(said(demand("Overview", { "Page ID": guid(1) }), demand("Overview", { "Page ID": guid(1) }), demand("Overview", { "Page ID": guid(2) }),
+      demand("Overview", { "Page ID": guid(3), "Total cards": 0 }))).toEqual([[["Overview", 3]], [3, undefined], '"Overview" (3 pages, 1 of them without cards)', [2, 3, 3, 4]]);
+    // Every page of the name with cards: nothing is said of cards. And where none of them is said to have cards, the
+    // numbers of cards say nothing, and nothing is said of them either.
+    expect(said(demand("Overview"), demand("Overview"), demand("Overview"))).toEqual([[["Overview", 3]], [3, undefined], '"Overview" (3 pages)', [2, 4, 3, 4]]);
+    expect(said(demand("Overview", { "Total cards": 0 }), demand("Overview", { "Total cards": 0 }))).toEqual([[["Overview", 2]], [2, undefined], '"Overview" (2 pages)', [2, 3, 3, 4]]);
   });
 
   it("takes a row that comes more often than pages have the name for no more than one page and one card", () => {
