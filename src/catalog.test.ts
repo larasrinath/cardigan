@@ -1,12 +1,17 @@
 import { describe, expect, it } from "vitest";
 import type { UxEntityRef } from "./card-reader/card-types.js";
 import {
-  addActions, addLineItems, addLists, addModuleDimensions, addModuleViews, addSelections, applicableModuleIds, emptyCatalog, resolveFromCatalog,
-  unresolvedFilterItems, viewLayoutFromMetadata,
+  addActions, addLineItems, addLists, addModuleDimensions, addModuleViews, addSelections, applicableModuleIds, describeFormat, emptyCatalog, entityType,
+  filterItemNeeds, nameFilterValues, resolveFromCatalog, selectionShape, unnamedFilterRules, unresolvedFilterItems, viewLayoutFromMetadata,
 } from "./catalog.js";
 
 // Synthetic IDs only.
 const [MODULE, MODULE_2, LIST, VIEW] = ["102000000901", "102000000902", "101000000901", "130000000901"];
+/** A list that is no dimension the catalog has loaded, and items by their entity type and index: a list's top level item
+ * is its item zero. */
+const ROLES = "101000000911";
+const ITEM = (type: number, index: number) => `${type}${String(index).padStart(9, "0")}`;
+const ALL_REGIONS = ITEM(358, 0);
 const ref = (kind: UxEntityRef["kind"], id: string, extra: Partial<UxEntityRef> = {}): UxEntityRef => ({ kind, id, ...extra });
 
 function loaded() {
@@ -97,5 +102,144 @@ describe("Page analyzer names from the model data service", () => {
     const { itemIds, axisDimensionIds } = unresolvedFilterItems(cards, catalog);
     expect([...itemIds]).toEqual(["1901000000009"]);
     expect([...axisDimensionIds]).toEqual([LIST]);
+
+    // A rule has one line item. Once it is known, what the rule still holds unnamed is its context: no module lists that,
+    // so it is not looked for among line items, and its axis is not a place to look.
+    const fixed = [{ grid: { regions: [{ region: "SINGLE",
+      rows: { dimensions: [{ dimension: ref("dimension", LIST) }], filter: { operator: "AND", conditions: [leaf(["20000000003", ALL_REGIONS, "1901000000001"])], groups: [] } },
+      columns: { dimensions: [{ dimension: ref("dimension", "20000000003") }], filter: { operator: "AND", conditions: [leaf([ALL_REGIONS, "1901000000009"])], groups: [] } } }] } }];
+    const sought = unresolvedFilterItems(fixed, catalog);
+    expect([[...sought.itemIds], [...sought.axisDimensionIds]]).toEqual([[ALL_REGIONS, "1901000000009"], ["20000000003"]]);
+    // An item that was named is no longer looked for either.
+    addSelections(catalog, { data: [{ itemId: ALL_REGIONS, label: "All regions" }] });
+    expect([...unresolvedFilterItems(fixed, catalog).itemIds]).toEqual(["1901000000009"]);
+  });
+
+  it("keeps what the line items listing says of a line item's format: its data type and the list of a list format, never another value", () => {
+    const catalog = loaded();
+    const lineItem = (n: number, format?: unknown) => ({ lineItemId: 1902000000000 + n, lineItemLabel: `Line item ${n}`, ...(format === undefined ? {} : { lineItemInfo: { format } }) });
+    addLineItems(catalog, MODULE_2, { data: [
+      // As the classic client's format object has them: the list of a list format, the plain types, a time period.
+      lineItem(1, { dataType: "ENTITY", hierarchyEntityLongId: Number(ROLES), isRelative: false, entityFormatFilter: { mappingHierarchyEntityLongId: Number(LIST), "Product - North": { deep: 1 } } }),
+      lineItem(2, { dataType: "NUMBER", decimalPlaces: 2, units: "NONE", hierarchyEntityLongId: Number(ROLES) }),
+      lineItem(3, { dataType: "TIME_ENTITY", periodType: { entityIndex: 3, entityLabel: "Month" } }),
+      // Other names for the same: the list is the one value that is a dimension of this model, and with two there is none.
+      lineItem(4, { type: "LIST", listId: Number(LIST) }),
+      lineItem(5, { dataType: "ENTITY", listId: LIST, parentListId: "101000000902" }),
+      // A data type that is no plain token is not kept; a list that is no ID is none; a key that is no plain word is not shown.
+      lineItem(6, { dataType: "a list of Product", hierarchyEntityLongId: "Product", "Product - North": true }),
+      lineItem(7), { ...lineItem(8), lineItemInfo: {} }, lineItem(9, "ENTITY"), lineItem(10, ["ENTITY"]), lineItem(11, null),
+    ] });
+    const id = (n: number) => String(1902000000000 + n);
+    expect([...catalog.lineItemFormats]).toEqual([
+      // The keys are kept for the log, with those of an object under a key, and no deeper.
+      [id(1), { dataType: "ENTITY", listId: ROLES, keys: ["dataType", "entityFormatFilter{?, mappingHierarchyEntityLongId}", "hierarchyEntityLongId", "isRelative"] }],
+      [id(2), { dataType: "NUMBER", keys: ["dataType", "decimalPlaces", "hierarchyEntityLongId", "units"] }],
+      [id(3), { dataType: "TIME_ENTITY", listId: "20000000003", keys: ["dataType", "periodType{entityIndex, entityLabel}"] }],
+      [id(4), { listId: LIST, keys: ["listId", "type"] }],
+      [id(5), { dataType: "ENTITY", keys: ["dataType", "listId", "parentListId"] }],
+      [id(6), { keys: ["?", "dataType", "hierarchyEntityLongId"] }],
+    ]);
+    // Every line item is still named, with or without a format.
+    expect([...catalog.lineItems.keys()].slice(1)).toEqual(Array.from({ length: 11 }, (_, index) => id(index + 1)));
+    // For the diagnostic log: keys, the data type and the dimension, and nothing else of the format.
+    expect([1, 2, 4, 5, 6, 7].map(n => describeFormat(id(n), catalog))).toEqual([
+      `filter line item ${id(1)}: format {dataType, entityFormatFilter{?, mappingHierarchyEntityLongId}, hierarchyEntityLongId, isRelative}, data type ENTITY, items of dimension ${ROLES}`,
+      `filter line item ${id(2)}: format {dataType, decimalPlaces, hierarchyEntityLongId, units}, data type NUMBER`,
+      `filter line item ${id(4)}: format {listId, type}, items of dimension ${LIST}`,
+      `filter line item ${id(5)}: format {dataType, listId, parentListId}, data type ENTITY, no list named`,
+      `filter line item ${id(6)}: format {?, dataType, hierarchyEntityLongId}`,
+      `filter line item ${id(7)}: no format in the line items listing`]);
+  });
+
+  it("names a filter rule's item once a read has named it, and remembers which module and dimension named an item of its entity type", () => {
+    const catalog = loaded();
+    // An item's ID is its entity type and an index: the items of one list share the type.
+    expect([entityType(ALL_REGIONS), entityType(ITEM(404, 3)), entityType("5438300031"), entityType("1901000000001")]).toEqual(["358", "404", "5", "1901"]);
+    const answer = { data: [{ itemId: ALL_REGIONS, label: "All regions", index: 0 }, { itemId: Number(ITEM(358, 7)), label: "North" }, { itemId: ITEM(404, 3), label: "Planner" },
+      { itemId: "7", label: "Seven" }, { itemId: ITEM(404, 4) }] };
+    expect(addSelections(catalog, answer, { moduleId: MODULE, dimensionId: LIST })).toBe(4);
+    // The first place that named an item of a type is kept; an ID too short to be an item's has no type.
+    addSelections(catalog, { data: [{ itemId: ITEM(358, 8), label: "South" }, { itemId: ITEM(318, 1), label: "Open" }] }, { moduleId: MODULE_2, dimensionId: ROLES });
+    addSelections(catalog, { data: [{ itemId: ITEM(319, 1), label: "No source" }] });
+    expect([...catalog.itemSources]).toEqual([["358", { moduleId: MODULE, dimensionId: LIST }], ["404", { moduleId: MODULE, dimensionId: LIST }],
+      ["318", { moduleId: MODULE_2, dimensionId: ROLES }]]);
+    // What an answer holds, for the diagnostic log: the count and the first entry's keys.
+    expect([selectionShape(answer), selectionShape({ data: [] }), selectionShape({ data: ["x"] }), selectionShape({ items: [] }), selectionShape(undefined)])
+      .toEqual(["5 entries of {index, itemId, label}", "0 entries", "1 entries", "no data list", "no data list"]);
+
+    // A rule's selected item of unknown kind: a line item, a list or a module first, as SAM's resolver has it; then a named item.
+    const refs = [ref("unknown", ALL_REGIONS), ref("unknown", ITEM(358, 9)), ref("unknown", "1901000000001"), ref("unknown", LIST), ref("listItem", ITEM(404, 3))];
+    const resolved = resolveFromCatalog(refs, catalog);
+    expect(resolved.names).toEqual({ [`unknown:${ALL_REGIONS}`]: "All regions", "unknown:1901000000001": "Volume", [`unknown:${LIST}`]: "Product", [`listItem:${ITEM(404, 3)}`]: "Planner" });
+    expect(resolved.kinds).toEqual({ [`unknown:${ALL_REGIONS}`]: "listItem", "unknown:1901000000001": "lineItem", [`unknown:${LIST}`]: "dimension" });
+    expect(resolved.unresolved).toEqual([{ kind: "unknown", id: ITEM(358, 9), reason: "Not found in the model's metadata." }]);
+  });
+
+  it("says which items of filter rules are still to be named: fixed context items by the line item's module, compared items by line item", () => {
+    const catalog = loaded();
+    const [ROLE, STATUS, AMOUNT, MONTH, NOTE, UNSAID, ODD] = [1, 2, 3, 4, 5, 6, 7].map(n => String(1902000000000 + n));
+    addLineItems(catalog, MODULE_2, { data: [
+      { lineItemId: ROLE, lineItemLabel: "Role", lineItemInfo: { format: { dataType: "ENTITY", hierarchyEntityLongId: Number(ROLES) } } },
+      { lineItemId: STATUS, lineItemLabel: "Status", lineItemInfo: { format: { dataType: "ENTITY", hierarchyEntityLongId: Number(ROLES) } } },
+      { lineItemId: AMOUNT, lineItemLabel: "Amount", lineItemInfo: { format: { dataType: "NUMBER" } } },
+      { lineItemId: MONTH, lineItemLabel: "Month", lineItemInfo: { format: { dataType: "TIME_ENTITY" } } },
+      { lineItemId: NOTE, lineItemLabel: "Note", lineItemInfo: { format: { dataType: "TEXT", textType: "GENERAL" } } },
+      { lineItemId: UNSAID, lineItemLabel: "Unsaid" },
+      { lineItemId: ODD, lineItemLabel: "Odd", lineItemInfo: { format: { dataType: "SOMETHING_NEW" } } }] });
+    const rule = (ids: string[], values: unknown[], operator = "EQUALS") => ({ operator, values, selectedItems: ids.map(id => ref("unknown", id)) });
+    const card = (id: string, rowDimension: string, ...rules: unknown[]) => ({ id, grid: { regions: [{ region: "SINGLE",
+      rows: { dimensions: [{ dimension: ref("dimension", rowDimension) }], filter: { operator: "AND", conditions: [], groups: [{ operator: "AND", conditions: rules, groups: [] }] } } }] } });
+    const cards = [
+      card("card-1", LIST,
+        // The owner's fourth row: Time follows the page, a second dimension is fixed to one of its items, and the last is the line item.
+        rule(["20000000003", ALL_REGIONS, ROLE], [ITEM(404, 3)]),
+        // Compared with items of the list it is formatted as; with a number; with a time period; with text that only looks like an ID.
+        rule([STATUS], [ITEM(318, 2), ITEM(318, 1)]), rule([AMOUNT], ["318000000002"], "GREATER_THAN"), rule([MONTH], ["5438300031"]), rule([NOTE], [ITEM(318, 2)]),
+        // Not a value that can be an item's ID: text, a short number, true, nothing.
+        rule([STATUS], ["Open", "42", true, null, 12, { id: ITEM(318, 5) }]),
+        // A format that is not given, or says nothing known: a value is not taken for an item, however the rule tests it.
+        rule([UNSAID], [ITEM(318, 3)]), rule([UNSAID], [ITEM(318, 4), ITEM(318, 3), "7"], "GREATER_THAN"), rule([ODD], [Number(ITEM(318, 6))], "NOT_EQUALS")),
+      // The same line item in another card; and a rule on a line item of the first module, with two items fixed.
+      card("card-2", "101000000902", rule([STATUS], [ITEM(318, 1), ITEM(318, 7), "7"]), rule([ITEM(358, 2), ITEM(359, 1), "101000000902", "1901000000001"], ["0"], "NOT_EQUALS")),
+      // No line item that is known, or two: nothing can be said of the rule's other items.
+      card("card-3", LIST, rule(["20000000003", ITEM(358, 3), "1901000000777"], [ITEM(318, 8)]), rule([ROLE, STATUS, ITEM(358, 4)], [ITEM(318, 9)])),
+    ];
+    expect(filterItemNeeds(cards, catalog)).toEqual({
+      // The dimensions a rule filters or leaves to the page's selection are the least likely to hold its fixed item.
+      context: [{ moduleId: MODULE_2, itemIds: [ALL_REGIONS], unlikely: ["20000000003", LIST] },
+        { moduleId: MODULE, itemIds: [ITEM(358, 2), ITEM(359, 1)], unlikely: ["101000000902"] }],
+      values: [{ lineItemId: ROLE, moduleId: MODULE_2, listId: ROLES, itemIds: [ITEM(404, 3)] },
+        { lineItemId: STATUS, moduleId: MODULE_2, listId: ROLES, itemIds: [ITEM(318, 2), ITEM(318, 1), ITEM(318, 7)] },
+        { lineItemId: MONTH, moduleId: MODULE_2, listId: "20000000003", itemIds: ["5438300031"] }],
+      // What looks like an ID where the listing does not say what the line item's values are: counted, for the log, and no more.
+      unsaid: [{ lineItemId: UNSAID, values: 2 }, { lineItemId: ODD, values: 1 }],
+    });
+    // For the log: each rule that holds an item nothing names, by what its items are, in their order. IDs only.
+    expect(unnamedFilterRules(cards, catalog)).toEqual([
+      `filter rule with an unnamed item (card card-1): dimension 20000000003, unnamed ${ALL_REGIONS}, line item ${ROLE} of module ${MODULE_2}`,
+      `filter rule with an unnamed item (card card-2): unnamed ${ITEM(358, 2)}, unnamed ${ITEM(359, 1)}, dimension 101000000902, line item 1901000000001 of module ${MODULE}`,
+      `filter rule with an unnamed item (card card-3): dimension 20000000003, unnamed ${ITEM(358, 3)}, unnamed 1901000000777`,
+      `filter rule with an unnamed item (card card-3): line item ${ROLE} of module ${MODULE_2}, line item ${STATUS} of module ${MODULE_2}, unnamed ${ITEM(358, 4)}`]);
+
+    // Once named, an item is no longer needed: what is left is what no read named. (The answers here also name what is no
+    // item of a rule's: a value that is no ID, and the values of rules nothing can be said of.)
+    addSelections(catalog, { data: [[ALL_REGIONS, "All regions"], [ITEM(359, 1), "Retail"], [ITEM(404, 3), "Planner"], [ITEM(318, 1), "Open"], [ITEM(318, 2), "Closed"],
+      [ITEM(318, 3), "Late"], [ITEM(318, 4), "Never shown"], [ITEM(318, 5), "Never shown"], ["5438300031", "Jan 26"], ["318000000002", "Closed"],
+      ["7", "Never shown"], [ITEM(318, 8), "Never shown"], [ITEM(318, 9), "Never shown"]].map(([itemId, label]) => ({ itemId, label })) });
+    expect(filterItemNeeds(cards, catalog)).toEqual({ context: [{ moduleId: MODULE, itemIds: [ITEM(358, 2)], unlikely: ["101000000902"] }],
+      values: [{ lineItemId: STATUS, moduleId: MODULE_2, listId: ROLES, itemIds: [ITEM(318, 7)] }],
+      unsaid: [{ lineItemId: UNSAID, values: 2 }, { lineItemId: ODD, values: 1 }] });
+    expect(unnamedFilterRules(cards, catalog)[0]).toBe(
+      `filter rule with an unnamed item (card card-2): unnamed ${ITEM(358, 2)}, item ${ITEM(359, 1)}, dimension 101000000902, line item 1901000000001 of module ${MODULE}`);
+
+    // The values of the rules, named: an item's name stands for its ID only where the listing says the value is an item,
+    // although an item of that very ID has a name, and one that was not named keeps its ID. Nothing else changes, whatever it is.
+    const values = (details: { cards: unknown[] }) => details.cards.flatMap(each => (each as typeof cards[0]).grid.regions[0].rows.filter.groups[0].conditions.map(condition => (condition as { values: unknown[] }).values));
+    const copy = structuredClone({ cards });
+    expect(nameFilterValues(copy, catalog)).toBe(copy);
+    expect(values(copy)).toEqual([["Planner"], ["Closed", "Open"], ["318000000002"], ["Jan 26"], [ITEM(318, 2)], ["Open", "42", true, null, 12, { id: ITEM(318, 5) }],
+      [ITEM(318, 3)], [ITEM(318, 4), ITEM(318, 3), "7"], [Number(ITEM(318, 6))], ["Open", ITEM(318, 7), "7"], ["0"], [ITEM(318, 8)], [ITEM(318, 9)]]);
+    expect(values({ cards })[0]).toEqual([ITEM(404, 3)]);
   });
 });

@@ -1,7 +1,10 @@
 // Packages the built extension as release/cardigan-<version>.zip and prints its SHA-256.
-// The zip holds only the files Chrome loads: manifest.json, the bundles it names under dist/ and the icons it names under
-// icons/. Entries are sorted, carry fixed timestamps and attributes and are stored uncompressed, so the same files give the
-// same bytes on every run, machine and Node version. Offline: it never uploads or publishes anything.
+// The zip holds only the files Chrome loads: manifest.json, the bundles it names under dist/, the icons it names under
+// icons/, and the results page with its stylesheet and its bundle; a page that loads any other file is refused, and so is a
+// content security policy that would let one in from outside the package, or a manifest that declares no policy at all.
+// Entries are sorted, carry fixed timestamps and attributes and are stored uncompressed, so the same files give the same
+// bytes on every run, machine and Node version.
+// Offline: it never uploads or publishes anything.
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -10,12 +13,35 @@ import zlib from 'node:zlib';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-/** Manifest keys the packager understands. A key that could name another file (background, action, web_accessible_resources…)
- * fails packaging until the packager learns it, so a runtime file can never be left out silently. */
-const KNOWN_KEYS = new Set(['manifest_version', 'name', 'version', 'minimum_chrome_version', 'description', 'icons', 'content_scripts']);
+/** Manifest keys the packager understands. A key that could name another file (web_accessible_resources, options_page,
+ * side_panel…) fails packaging until the packager learns it, so a runtime file can never be left out silently. A permission
+ * key fails it too: Cardigan asks for none. */
+const KNOWN_KEYS = new Set(['manifest_version', 'name', 'version', 'minimum_chrome_version', 'description', 'icons', 'action', 'background', 'content_scripts',
+  'content_security_policy']);
 const KNOWN_SCRIPT_KEYS = new Set(['matches', 'js', 'run_at', 'world', 'all_frames']);
-/** The only places a packaged file may come from: built bundles and icons. Never src, tests, docs or node_modules. */
+/** The toolbar icon has a title and icons. A default_popup would name a page, and would take the click from the service worker. */
+const KNOWN_ACTION_KEYS = new Set(['default_title', 'default_icon']);
+const KNOWN_BACKGROUND_KEYS = new Set(['service_worker']);
+/** The one policy the packager knows: that of the extension's own pages and its service worker. A sandbox policy would
+ * come with sandboxed pages, which the manifest would have to name. The manifest must declare this one: without it Chrome
+ * applies its own default, which holds only scripts and plugins to the package. */
+const KNOWN_POLICY_KEYS = new Set(['extension_pages']);
+/** What a policy may let in: the extension's own files, or nothing. */
+const PACKAGED_SOURCES = new Set(["'self'", "'none'"]);
+/** A style written in the page runs no code, and what it loads is held to the same sources: these directives may allow it. */
+const INLINE_STYLE_DIRECTIVES = new Set(['style-src', 'style-src-elem', 'style-src-attr']);
+/** The only places a file the manifest names may come from: built bundles and icons. Never src, tests, docs or node_modules. */
 const RUNTIME_PATH = /^(?:dist\/[A-Za-z0-9][A-Za-z0-9._-]*\.js|icons\/[A-Za-z0-9][A-Za-z0-9._-]*\.png)$/;
+/** The results page, its stylesheet and its bundle. The manifest names none of them: the service worker opens the page by
+ * name (RESULTS_PAGE in src/protocol.ts), and the page loads the other two. */
+const PAGE_FILES = ['results.html', 'results.css', 'dist/results.js'];
+const [PAGE, PAGE_STYLES, PAGE_BUNDLE] = PAGE_FILES;
+/** A start tag with its attributes, and one attribute with its value: in either quotes, or bare. */
+const TAG = /<([a-z][a-z0-9-]*)((?:[^>"']|"[^"]*"|'[^']*')*)>/gi;
+const ATTRIBUTE = /([^\s"'=<>/]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/g;
+/** url(…) and @import "…", wherever styles are written: the stylesheet, a <style> block or a style attribute. A longer name
+ * that ends in url, such as createObjectURL(…), is not one. */
+const STYLE_LOAD = /(?<![\w-])url\(\s*(?:"([^"]*)"|'([^']*)'|([^"'()\s]*))\s*\)|@import\s+(?:"([^"]*)"|'([^']*)')/gi;
 /** Inputs of the bundles: if any is newer than a bundle, the bundle is stale. Tests are not bundled. */
 const BUILD_INPUTS = ['manifest.json', 'package-lock.json', 'scripts/build.mjs'];
 const NOT_BUNDLED = /\.test(?:-support)?\.ts$/;
@@ -32,20 +58,54 @@ const EXTERNAL_ATTRS = (0o100644 << 16) >>> 0;
 const byName = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 const readJson = (dir, name) => JSON.parse(readFileSync(path.join(dir, name), 'utf8'));
 
-/** The files the manifest makes Chrome load, plus the manifest itself, as sorted posix paths. */
+/** What keeps a content security policy out of a package. Whatever the policy lets a page or the service worker load must
+ * be in the package: every source is 'self' or 'none', and default-src is there, so that what the policy does not list is
+ * refused too. That leaves no remote source (a scheme, a host or a wildcard), no 'unsafe-eval' and no inline script. The
+ * directives for styles may allow 'unsafe-inline'. */
+export function policyProblems(policy) {
+  if (typeof policy !== 'string' || policy.trim() === '') return ['is not a policy'];
+  const directives = policy.split(';').map(part => part.trim().split(/\s+/)).filter(([name]) => name !== '')
+    .map(([name, ...sources]) => [name.toLowerCase(), sources]);
+  const problems = directives.flatMap(([name, sources]) => sources
+    .filter(source => !PACKAGED_SOURCES.has(source.toLowerCase()) && !(source.toLowerCase() === "'unsafe-inline'" && INLINE_STYLE_DIRECTIVES.has(name)))
+    .map(source => `allows ${source} in ${name}, which is not 'self' or 'none'`));
+  if (!directives.some(([name]) => name === 'default-src')) problems.push('has no default-src, so what it does not list could come from anywhere');
+  return problems;
+}
+
+/** The files Chrome loads, as sorted posix paths: the manifest itself, the files it names and the results page's files. */
 export function runtimeFiles(manifest) {
   const problems = [];
-  for (const key of Object.keys(manifest)) if (!KNOWN_KEYS.has(key)) problems.push(`manifest.json: "${key}" is not known to the packager`);
+  const checkKeys = (section, known, where) => {
+    for (const key of Object.keys(section)) if (!known.has(key)) problems.push(`manifest.json: ${where}"${key}" is not known to the packager`);
+  };
   const scripts = Array.isArray(manifest.content_scripts) ? manifest.content_scripts : [];
-  for (const script of scripts) {
-    for (const key of Object.keys(script)) if (!KNOWN_SCRIPT_KEYS.has(key)) problems.push(`manifest.json: content_scripts "${key}" is not known to the packager`);
+  const [action, background] = [manifest.action ?? {}, manifest.background ?? {}];
+  checkKeys(manifest, KNOWN_KEYS, '');
+  for (const script of scripts) checkKeys(script, KNOWN_SCRIPT_KEYS, 'content_scripts ');
+  checkKeys(action, KNOWN_ACTION_KEYS, 'action ');
+  checkKeys(background, KNOWN_BACKGROUND_KEYS, 'background ');
+  const policies = manifest.content_security_policy;
+  if (policies === undefined) {
+    problems.push('manifest.json: has no "content_security_policy", so Chrome\'s default would apply, which lets a page load from outside the package');
+  } else if (!policies || typeof policies !== 'object' || Array.isArray(policies) || !('extension_pages' in policies)) {
+    problems.push('manifest.json: "content_security_policy" does not hold "extension_pages"');
+  } else {
+    checkKeys(policies, KNOWN_POLICY_KEYS, 'content_security_policy ');
+    for (const problem of policyProblems(policies.extension_pages)) problems.push(`manifest.json: content_security_policy "extension_pages" ${problem}`);
   }
-  const named = [...scripts.flatMap(script => script.js ?? []), ...Object.values(manifest.icons ?? {})];
+  const named = [
+    ...scripts.flatMap(script => script.js ?? []),
+    ...Object.values(manifest.icons ?? {}),
+    // The toolbar icon: one file, or one per size.
+    ...(typeof action.default_icon === 'string' ? [action.default_icon] : Object.values(action.default_icon ?? {})),
+    ...(background.service_worker === undefined ? [] : [background.service_worker]),
+  ];
   for (const file of named) {
     if (typeof file !== 'string' || !RUNTIME_PATH.test(file)) problems.push(`manifest.json: ${JSON.stringify(file)} is not a dist/*.js bundle or an icons/*.png icon`);
   }
   if (problems.length) throw new Error(`Cannot package:\n${problems.join('\n')}`);
-  return [...new Set(['manifest.json', ...named])].sort(byName);
+  return [...new Set(['manifest.json', ...named, ...PAGE_FILES])].sort(byName);
 }
 
 function sourceFiles(dir) {
@@ -72,6 +132,37 @@ export function staleBundles(dir, files) {
     if (!existsSync(full)) return [`${name} is missing`];
     return lstatSync(full).mtimeMs < newest.time ? [`${name} is older than ${newest.name}`] : [];
   });
+}
+
+/** Whether an address makes Chrome load a file: not when it is empty, a place in the page itself (#…) or inline data. */
+const loadsFile = address => address !== '' && !/^(?:#|data:)/i.test(address);
+
+/** What a page's markup loads: every src, and the href of every <link>. A link the user follows (<a href>) loads nothing. */
+function markupLoads(html) {
+  const found = [];
+  for (const [, tag, attributes] of html.matchAll(TAG)) {
+    for (const [, name, double, single, bare] of attributes.matchAll(ATTRIBUTE)) {
+      if (name.toLowerCase() === 'src' || (name.toLowerCase() === 'href' && tag.toLowerCase() === 'link')) found.push(double ?? single ?? bare);
+    }
+  }
+  return found.filter(loadsFile);
+}
+
+/** What styles load: every url() and @import. */
+function styleLoads(styles) {
+  return [...styles.matchAll(STYLE_LOAD)].map(match => match.slice(1).find(address => address !== undefined)).filter(loadsFile);
+}
+
+/** What keeps the results page out of a package, given its text, its stylesheet's and the packaged `files`. Every file the
+ * two load must be packaged, under the name it is packaged by, so that nothing the page needs is left out and nothing comes
+ * from the network. And the page must load its own stylesheet and bundle, so that neither is packaged unused. */
+export function pageProblems(page, styles, files) {
+  const loads = { [PAGE]: [...markupLoads(page), ...styleLoads(page)], [PAGE_STYLES]: styleLoads(styles) };
+  return [
+    ...Object.entries(loads).flatMap(([name, loaded]) => [...new Set(loaded)].filter(file => !files.includes(file))
+      .map(file => `${name} loads ${JSON.stringify(file)}, which is not packaged`)),
+    ...[PAGE_STYLES, PAGE_BUNDLE].filter(file => !loads[PAGE].includes(file)).map(file => `${PAGE} does not load ${file}`),
+  ];
 }
 
 /** A zip of `[{ name, data }]` in the given order: stored entries with fixed timestamps and attributes. */
@@ -139,6 +230,9 @@ export function packageExtension({ dir = ROOT, outDir = path.join(dir, 'release'
     if (!lstatSync(full).isFile()) throw new Error(`Cannot package: ${name} is not a regular file`);
     return { name, data: readFileSync(full) };
   });
+  const text = name => entries.find(entry => entry.name === name).data.toString('utf8');
+  const problems = pageProblems(text(PAGE), text(PAGE_STYLES), files);
+  if (problems.length) throw new Error(`Cannot package:\n${problems.join('\n')}`);
   const zip = createZip(entries);
   mkdirSync(outDir, { recursive: true });
   const file = path.join(outDir, `cardigan-${manifest.version}.zip`);
