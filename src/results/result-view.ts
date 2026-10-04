@@ -106,6 +106,30 @@ export function modelFacts(result: AnalysisResult): [setting: string, value: str
   return facts;
 }
 
+/** The order of a model's files in the navigation and among the overview's tiles: the order of Anaplan's own Model
+ * settings, with the Actions list's files in the order the owner gave. Each file is known by the name model/export.ts
+ * writes it under. Line Item Subsets is not exported yet, and has its place for when it is. A file of a result that is
+ * not listed here comes after these, in the result's own order: a file that is renamed, or new, moves to the end and
+ * does not go missing. */
+export const MODEL_FILE_ORDER: readonly string[] = [
+  MODEL_CALENDAR_FILE, "Time Ranges.csv", "Versions.csv", "General Lists.csv", "Line Item Subsets.csv", "Modules.csv", "Line Items.csv",
+  "Processes.csv", "Imports.csv", "Import Data Sources.csv", "Exports.csv", "Other Actions.csv", "Source Models.csv",
+];
+
+/** The result's files as the page lists them, in the navigation and as the overview's tiles: every file but the Details
+ * file, each with its place in the result's tables. An app's are in the result's order; a model's in `MODEL_FILE_ORDER`.
+ * Only this list is ordered: the zip keeps the result's own order. */
+export function listedTables(result: AnalysisResult): { index: number; table: ResultTable }[] {
+  const tables = result.tables.map((table, index) => ({ index, table })).filter(({ table }) => table.details !== true);
+  if (result.kind !== "model") return tables;
+  const rank = (table: ResultTable): number => {
+    const place = MODEL_FILE_ORDER.indexOf(table.file);
+    return place < 0 ? MODEL_FILE_ORDER.length : place;
+  };
+  // The sort keeps the result's order among the files that are not listed, and among files of one name.
+  return tables.sort((a, b) => rank(a.table) - rank(b.table));
+}
+
 /** What the header says was analysed. */
 export interface Analysed { name: string; kind: string; host: string | undefined; exportedOn: string | undefined }
 export function analysedOf(result: AnalysisResult): Analysed {
@@ -165,7 +189,7 @@ const TILE_LABELS: ReadonlyMap<string, string> = new Map([
 
 export interface ModelRow { model: string; workspace: string; modelId: string }
 export interface Overview {
-  /** Every file but the Details file, with the number of rows its table lists. */
+  /** Every file but the Details file, in the navigation's order (`listedTables`), with the number of rows its table lists. */
   tiles: { label: string; count: number }[];
   /** An app's cards by the text of their Card type, most first. */
   cardTypes: [type: string, count: number][];
@@ -178,8 +202,7 @@ export interface Overview {
 }
 
 export function overviewOf(result: AnalysisResult): Overview {
-  const tiles = result.tables.filter(table => table.details !== true)
-    .map(table => ({ label: TILE_LABELS.get(table.file) ?? cellText(table.label), count: listedRows(result, table).rows.length }));
+  const tiles = listedTables(result).map(({ table }) => ({ label: TILE_LABELS.get(table.file) ?? cellText(table.label), count: listedRows(result, table).rows.length }));
 
   const counts = new Map<string, number>();
   const cards = result.tables.find(table => table.file === APP_FILES.Cards);

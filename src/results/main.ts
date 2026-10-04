@@ -10,7 +10,7 @@ import {
   overviewHtml, rowDrawerHtml, rowDrawerSubHtml, runBannerHtml, runHtml, SUN_ICON, tableHtml, tableParts, type Links, type NavEntry, type TableView,
 } from "./markup.js";
 import type { PageId } from "./page-ids.js";
-import { analysedOf, cardSections, detailSections, detailsOf, diagnosticLog, listedRows, overviewOf, unlistedNote } from "./result-view.js";
+import { analysedOf, cardSections, detailSections, detailsOf, diagnosticLog, listedRows, listedTables, overviewOf, unlistedNote } from "./result-view.js";
 import { cellText, NONE, pageOf, rememberingSelect, rowName, valueCounts, type Row, type Sort, type TableQuery } from "./table-engine.js";
 
 /** The results page (results.html): the design's script, on the real result. It connects to the Anaplan tab the address
@@ -78,7 +78,8 @@ function downloadFile(name: string, data: BlobPart, type: string): void {
 }
 
 /* ================= state ================= */
-/** One file of the result as the page shows it: its columns, and what the user chose for it. */
+/** One file of the result as the page shows it: its columns, and what the user chose for it. The files are kept in the
+ * order the navigation lists them in (result-view.ts `listedTables`). */
 interface Shown {
   /** Its place in the result's tables, which is also its name in the navigation. */
   index: number;
@@ -241,7 +242,7 @@ function renderAll(): void {
   if (!result) return;
   const entry = currentEntry();
   if (!entry && state.view !== "details") state.view = "overview";
-  el("navList").innerHTML = navHtml(navEntries(), String(state.view));
+  el("navList").innerHTML = navHtml(navEntries(), String(state.view), result.kind === "model");
   el("crumbs").innerHTML = crumbsHtml(entry ? cellText(entry.table.label) : state.view === "details" ? "Details" : undefined, entry ? state.context : undefined);
   if (entry) renderTable(entry);
   else if (state.view === "details") el("view").innerHTML = detailsHtml(detailSections(details), diagnosticLog(details));
@@ -266,8 +267,7 @@ function showResult(next: AnalysisResult, at: Date): void {
   details = detailsOf(next);
   cards = cardsOf(next);
   shown = new Map();
-  next.tables.forEach((file, index) => {
-    if (file === details) return;
+  for (const { index, table: file } of listedTables(next)) {
     // What the page counts, filters and searches is the table as it lists it: the columns' filters follow its rows too.
     const { rows, unlisted } = listedRows(next, file);
     const table = unlisted ? { ...file, rows } : file;
@@ -278,7 +278,7 @@ function showResult(next: AnalysisResult, at: Date): void {
       index, file, table, unlisted, columns, keys, links: { page, card: page && keys.cardId !== undefined },
       filters: new Map(), hidden: defaultHidden(columns), sort: undefined, page: 0,
     });
-  });
+  }
   state.view = "overview";
   state.search = "";
   state.context = undefined;

@@ -11,7 +11,7 @@ import { APP_FILES } from "./columns.js";
 import { describeState, ResultsClient, type RunState } from "./connection.js";
 import { APP_HOST, GOLDEN_APP, GOLDEN_GRIDS, goldenApp, LINE_ITEMS, MODEL, MODEL_HOST, modelPage, serveEngine, SHELL_HOST, type EngineRun } from "./engine.test-support.js";
 import { FakeTab, MESSAGE_MAX_BYTES, NOBODY, TOO_LARGE, type PortEnd } from "./port-pair.test-support.js";
-import { detailsOf, diagnosticLog, listedRows, MODEL_CALENDAR_FILE, modelFacts } from "./result-view.js";
+import { detailsOf, diagnosticLog, listedRows, listedTables, MODEL_CALENDAR_FILE, MODEL_FILE_ORDER, modelFacts } from "./result-view.js";
 
 // The results page's client against the engine: the content script's real side of the port around the real analysis of an
 // app and the real export of a model in its frame, joined to the page by ports that pass messages as Chrome's do. What
@@ -207,6 +207,15 @@ describe("The results page against the engine in the Anaplan tab", () => {
     const calendar = result.tables.find(table => table.file === MODEL_CALENDAR_FILE);
     expect([calendar && listedRows(result, calendar).unlisted, calendar && listedRows(result, calendar).rows.length, modelFacts(result)])
       .toEqual([5, 26, [["Workspace", "Workspace one"], ["Model", "Demand: plan"], ["Captured on", "2026-09-28"]]]);
+    // The page orders a model's files by their names. Every file the export knows, written or not (its Details file names
+    // each one), is in that order; the one name in the order that the export does not know yet is Line Item Subsets.
+    const known = (detailsOf(result)?.rows ?? []).filter(row => row[0] === "Files").map(row => String(row[1]));
+    expect([known.length, known.filter(file => !MODEL_FILE_ORDER.includes(file)), MODEL_FILE_ORDER.filter(file => !known.includes(file))]).toEqual([12, [], ["Line Item Subsets.csv"]]);
+    // So this result's files are listed in the order of Anaplan's Model settings, each one once. (This model has no source models.)
+    expect(listedTables(result).map(({ table }) => table.label)).toEqual(["Model Calendar", "Time Ranges", "Versions", "General Lists", "Modules", "Line Items", "Processes", "Imports",
+      "Import Data Sources", "Exports", "Other Actions"]);
+    expect(result.tables.map(table => table.label)).toEqual(["Model Details", "Line Items", "Modules", "General Lists", "Processes", "Imports", "Import Data Sources", "Exports", "Other Actions",
+      "Time Ranges", "Versions", "Model Calendar"]);
     expect(result.summary.at(-1)).toBe("Source Models: not exported (This model page has no REMOTE_MODEL axis.).");
   });
 

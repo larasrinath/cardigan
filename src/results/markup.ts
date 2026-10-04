@@ -90,14 +90,18 @@ export function headerMetaHtml(analysed: Analysed): string {
 
 export interface NavEntry { id: string; label: string; count?: number }
 
-export function navHtml(entries: readonly NavEntry[], current: string): string {
+/** The navigation: one entry for each view, in the order given. `map` adds the model map as the last entry, which is for
+ * a model only and still to come: it is listed, off, and says so. */
+export function navHtml(entries: readonly NavEntry[], current: string, map: boolean): string {
   const items = entries.map(entry => {
     const cur = entry.id === current ? ' aria-current="page"' : "";
     const cnt = entry.count === undefined ? "" : `<span class="cnt">${esc(entry.count)}</span>`;
     return `<button type="button" class="nav-item" data-nav="${esc(entry.id)}"${cur}><span>${esc(entry.label)}</span>${cnt}</button>`;
   });
-  items.push(`<button type="button" class="nav-item disabled" aria-disabled="true" data-nav="map" title="Model map is coming in a later version">
+  if (map) {
+    items.push(`<button type="button" class="nav-item disabled" aria-disabled="true" data-nav="map" title="Model map is coming in a later version">
     <span>Model map</span><span class="soon">coming soon</span></button>`);
+  }
   return items.join("");
 }
 
