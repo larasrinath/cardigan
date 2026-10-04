@@ -184,15 +184,38 @@ td.num{font-variant-numeric:tabular-nums}
 .link:hover{text-decoration:underline}
 /* Among other text a link is underlined: its colour alone does not tell it from the words around it. */
 .d-sub .link{text-decoration:underline}
-/* The button that opens a row stands before its first cell's own link, in the cell's 320px. The link stops at 296px,
-   so a long name is cut short: one that filled the cell would not fit beside the button, and would be dropped whole. */
-[data-act="row"] + .link{max-width:min(100%,296px)}
+/* The button that opens a row stands before its first cell's own link or ID. That leaves room for the button, 24px
+   short of what the cell holds (320px, less in a narrow box), so a long name is cut short: one that filled the cell
+   would not fit beside the button, and would be dropped whole. */
+[data-act="row"] + .link{max-width:min(100%,296px,50cqi - 53px)}
+[data-act="row"] + .id-pill{max-width:min(180px,50cqi - 53px)}
 .dash{color:var(--text-3)}
 .scroll-fade{
   position:sticky;bottom:0;left:0;right:0;height:26px;pointer-events:none;
   background:linear-gradient(to bottom,transparent,var(--panel));opacity:1;transition:opacity .2s;
 }
 .table-wrap.at-end .scroll-fade,.table-wrap.no-scroll .scroll-fade{opacity:0}
+/* The first column on screen stays at the left while the rest of the table scrolls sideways under it. The page's script
+   writes only the columns that are shown, so that column is each row's first cell, whichever columns are hidden.
+   - Nothing shows through it: a row says its own background, an opaque colour, and its first cell takes that.
+   - The header's first cell lies above the rest of the header, the column above the other cells, and the shade at the
+     box's foot above the column as above the rest.
+   - It is at most 340px wide, as every column, and at most half of what the box shows, which is what counts in a narrow
+     window (the 9px are half a scrollbar, for where scrollbars take room). A header too long for that takes a second line.
+   - Once the table has been scrolled sideways a hairline marks its edge (where Chrome can tell: 133 and later).
+   - A control that takes the keyboard's focus under it is brought out: for that the box counts as beginning where the
+     column can end. The column's own controls are in view where they are, and the margin that reaches across the box
+     says so: without it the table would jump back each time one of them took the focus. */
+.table-wrap{container-type:inline-size;container-type:inline-size scroll-state;scroll-padding-left:min(340px,50%)}
+.table-wrap tr{background:var(--panel)}
+.table-wrap :is(th,td):first-child{position:sticky;left:0;max-width:min(340px,50cqi - 9px)}
+.table-wrap th:first-child{z-index:4;white-space:normal}
+.table-wrap th:first-child .th-sort{text-align:left}
+.table-wrap td:first-child{background:inherit}
+.table-wrap :is(th,td):first-child button{scroll-margin-right:100vw}
+@container scroll-state(scrollable: left){
+  .table-wrap :is(th,td):first-child{box-shadow:1px 0 0 var(--border-strong)}
+}
 
 /* pills, tags */
 .id-pill{
