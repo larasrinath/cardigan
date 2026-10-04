@@ -167,6 +167,8 @@ td.num{font-variant-numeric:tabular-nums}
 .cell-t{display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom}
 .link{color:var(--accent);border-radius:var(--r-xs);text-align:left;max-width:100%;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom}
 .link:hover{text-decoration:underline}
+/* Among other text a link is underlined: its colour alone does not tell it from the words around it. */
+.d-sub .link{text-decoration:underline}
 .dash{color:var(--text-3)}
 .scroll-fade{
   position:sticky;bottom:0;left:0;right:0;height:26px;pointer-events:none;
