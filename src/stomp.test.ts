@@ -216,4 +216,32 @@ describe("Page analyzer socket client", () => {
     expect([connection.failed, FakeSocket.last!.readyState, sent()]).toEqual([undefined, 1, ["CONNECT"]]);
     connection.close();
   });
+
+  it("sends nothing on a socket that opens after its opening has ended: after a stop, or after the time to connect is over", async () => {
+    vi.stubGlobal("WebSocket", FakeSocket);
+    const stopped = new Error("Stopped: the results page was closed.");
+    const lines: string[] = [];
+    const sent = () => FakeSocket.last!.frames().map(frame => frame.command);
+
+    // Stopped while the socket connects, it is closed and no frame was sent. Should it say that it has opened all the
+    // same, nothing is sent on it then either, and nothing is logged for it.
+    const stopping = new AbortController();
+    const opening = StompConnection.open("wss://host.example/ws", {}, line => { lines.push(line); }, stopping.signal);
+    stopping.abort(stopped);
+    await expect(opening).rejects.toBe(stopped);
+    await flush();
+    expect([sent(), lines]).toEqual([[], ["socket closed code=1000"]]);
+    FakeSocket.last!.emit("open", {});
+    await flush();
+    expect([sent(), lines.splice(0)]).toEqual([[], ["socket closed code=1000"]]);
+
+    // The same once the time to connect is over, here without an answer to CONNECT: the socket was closed with the
+    // DISCONNECT every open socket ends on, and an open that arrives after that sends no second CONNECT.
+    const slow = StompConnection.open("wss://host.example/ws", {}, line => { lines.push(line); }, undefined, 5);
+    await expect(slow).rejects.toThrow("Timed out connecting to the model data service.");
+    expect([sent(), lines]).toEqual([["CONNECT", "DISCONNECT"], ["socket open; sending CONNECT", "CONNECT", "DISCONNECT", "socket closed code=1000"]]);
+    FakeSocket.last!.emit("open", {});
+    await flush();
+    expect([sent(), lines]).toEqual([["CONNECT", "DISCONNECT"], ["socket open; sending CONNECT", "CONNECT", "DISCONNECT", "socket closed code=1000"]]);
+  });
 });

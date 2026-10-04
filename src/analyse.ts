@@ -26,7 +26,10 @@ const MAX_EXTRA_MODULES = 60;
 const LOAD_MS = 300_000;
 const LINE_ITEMS_MS = 120_000;
 /** Naming the items of filter rules is tried in several places in turn, so a read that goes unanswered is given up sooner. */
-const FILTER_ITEMS_MS = 30_000;
+const FILTER_ITEM_READ_MS = 10_000;
+/** As long as naming the items of filter rules may take in one model, all its reads together: the names are a help to the
+ * reader, and nobody should wait minutes for them. It leaves room for two reads that go unanswered and a third. */
+const FILTER_ITEMS_BUDGET_MS = 30_000;
 /** As many reads as naming the items of filter rules may take in one model. */
 const MAX_FILTER_ITEM_READS = 40;
 /** As many of the IDs, or of the rules, that were left unnamed as the log lists. */
@@ -316,9 +319,11 @@ async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCar
  *   of a module that has that list as a dimension: one whose dimensions are known, or one the model names for the list.
  *   When the listing does not say the list, the dimensions of the line item's own module are asked.
  * Where an item of the same entity type was named before, that module and dimension are asked first. Nothing is asked
- * twice, at most MAX_FILTER_ITEM_READS reads are made, and after two reads that went unanswered no more are made. An
- * item no read names keeps its ID, and so does a value of a line item the listing does not say is formatted as a list or a
- * time period: nothing is asked about that one. The log says what was asked and how much of it was named, in IDs only.
+ * twice, at most MAX_FILTER_ITEM_READS reads are made, and after two reads that went unanswered no more are made. All of
+ * them together take FILTER_ITEMS_BUDGET_MS at most, from the first: when that time is up no further read is made, and
+ * the one that is waiting is given up. An item no read names keeps its ID, and so does a value of a line item the listing
+ * does not say is formatted as a list or a time period: nothing is asked about that one. The log says what was asked and
+ * how much of it was named, in IDs only, and when the time ran out, how much was left unasked.
  * `asked` are the modules whose dimensions were asked for with the grids'. */
 async function readFilterItemNames(reads: SocketReads, pages: readonly UxPageCardDetails[], asked: ReadonlySet<string>): Promise<void> {
   const { scope, connection, settle, ended, catalog, progress } = reads;
@@ -329,22 +334,39 @@ async function readFilterItemNames(reads: SocketReads, pages: readonly UxPageCar
   }
   let left = MAX_FILTER_ITEM_READS;
   let unanswered = 0;
+  /** When the time for these reads is up, once the first of them is made; and whether it stopped one. */
+  let until = Infinity;
+  let timeUp = false;
+  /** The items a read asked for, answered or not. */
+  const sent = new Set<string>();
   const unnamed = (itemIds: readonly string[]) => itemIds.filter(id => !catalog.listItems.has(id));
-  /** One read, when there are reads left: the first shows the step. What it throws is logged, unless the socket work has ended. */
-  const read = async (what: string, destination: string, options: SubscribeOptions, done: (json: unknown) => string): Promise<void> => {
+  /** One read, when there are reads and time left: the first shows the step and starts the time. A read waits for its
+   * answer no longer than the time that is left. What it throws is logged, unless the socket work has ended.
+   * `itemIds` are the items it asks for. */
+  const read = async (what: string, destination: string, options: SubscribeOptions, done: (json: unknown) => string, itemIds: readonly string[] = []): Promise<void> => {
     if (left <= 0 || unanswered >= 2) return;
-    if (left === MAX_FILTER_ITEM_READS) progress.status(`Reading filter item names in ${scope.modelName}…`);
+    if (left === MAX_FILTER_ITEM_READS) {
+      progress.status(`Reading filter item names in ${scope.modelName}…`);
+      until = Date.now() + FILTER_ITEMS_BUDGET_MS;
+    }
+    const time = until - Date.now();
+    if (time <= 0) { timeUp = true; return; }
     left--;
+    itemIds.forEach(id => sent.add(id));
     try {
-      progress.log(`${what}${done(await settle(connection.subscribe(destination, { ...options, timeoutMs: FILTER_ITEMS_MS })))}`);
+      progress.log(`${what}${done(await settle(connection.subscribe(destination, { ...options, timeoutMs: Math.min(FILTER_ITEM_READ_MS, time) })))}`);
     } catch (error) {
       if (connection.failed || ended()) throw error;
-      if (error instanceof StompError && error.code === "TIMEOUT") unanswered++;
+      // Given up because the time for all of them was up, a read is not one that went unanswered for as long as a read may.
+      const waited = error instanceof StompError && error.code === "TIMEOUT";
+      if (waited && Date.now() >= until) timeUp = true; else if (waited) unanswered++;
       progress.log(`${what}: ${message(error)}`);
     }
   };
   const dimensionsOf = (moduleId: string) => (catalog.moduleDimensions.get(moduleId) ?? []).map(dimension => dimension.id).filter(id => id !== LINE_ITEMS);
   const tried = new Map<string, Set<string>>();
+  /** The items a place was not asked for, or not to the end, because the time was up: no read names them after that. */
+  const cutShort = new Set<string>();
   /** Asks one module's dimension for the names of those of the items that are still unnamed and were not asked of it before.
    * A dimension whose ID is no ID (the listings are the service's own text) is not asked. */
   const ask = async (kind: string, moduleId: string, dimensionId: string, itemIds: readonly string[]): Promise<void> => {
@@ -356,7 +378,8 @@ async function readFilterItemNames(reads: SocketReads, pages: readonly UxPageCar
       { accept: "widget/selection", body: { itemIds: asking, filter: "" } }, json => {
         addSelections(catalog, json, { moduleId, dimensionId });
         return `, ${asking.length - unnamed(asking).length} named (answer: ${selectionShape(json)})`;
-      });
+      }, asking);
+    if (timeUp) asking.forEach(id => cutShort.add(id));
   };
   /** First of all, where an item of the same entity type was named before. */
   const askKnownSources = async (kind: string, itemIds: readonly string[]): Promise<void> => {
@@ -417,6 +440,11 @@ async function readFilterItemNames(reads: SocketReads, pages: readonly UxPageCar
   }
   if (left <= 0) progress.log(`filter item names: no more than ${MAX_FILTER_ITEM_READS} reads are made`);
   if (unanswered >= 2) progress.log("filter item names: two reads went unanswered, no more were made");
+  if (timeUp) {
+    const items = [...new Set([...needs.context, ...needs.values].flatMap(group => group.itemIds))];
+    progress.log(`filter item names: the ${FILTER_ITEMS_BUDGET_MS / 1000} seconds allowed for them ran out after ${MAX_FILTER_ITEM_READS - left} reads: `
+      + `${sent.size} items asked for, ${items.length - unnamed(items).length} named, the asking of ${cutShort.size} not finished`);
+  }
 }
 
 /** Names for one model. Like Page Builder, it asks for the data straight away and lets the service load the model: a
