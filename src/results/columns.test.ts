@@ -1,20 +1,25 @@
 import { describe, expect, it } from "vitest";
 import { HEADERS, type TabName } from "../report.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
-import { cardsOf, COLUMN_CHOICES, columnIndex, columnsOf, rowKeys } from "./columns.js";
+import { APP_FILES, cardsOf, COLUMN_CHOICES, columnIndex, columnsOf, FILTER_MAX, FILTER_MIN, rowColumns, rowKeys } from "./columns.js";
 
-/** The app export's files (analyse.ts) and the report tables they hold. */
-const FILES: Record<string, TabName> = {
-  "Pages.csv": "Pages", "Cards.csv": "Cards", "Grid Sections.csv": "Grid sections", "Filters.csv": "Filters",
-  "Conditional Formatting.csv": "Formatting", "Action Buttons.csv": "Actions", "Where Used.csv": "Where used",
-};
+/** The app export's files, as the page names them, and the report table each holds. */
+const FILES: Record<string, TabName> = Object.fromEntries((Object.keys(APP_FILES) as TabName[]).map(tab => [APP_FILES[tab], tab]));
 const table = (file: string, headers: string[]): ResultTable => ({ file, label: file.replace(/\.csv$/, ""), headers, rows: [], guard: true });
 const appTable = (file: string): ResultTable => table(file, HEADERS[FILES[file]]);
 const labels = (columns: { label: string }[]) => columns.map(column => column.label);
 
 describe("The results page's columns", () => {
+  it("names an app's files in one place: one for each of the report's tables, each a CSV file of its own", () => {
+    // analyse.ts writes the files under these very names; a test beside it holds the two lists together.
+    expect(APP_FILES).toEqual({ Pages: "Pages.csv", Cards: "Cards.csv", "Grid sections": "Grid Sections.csv", Filters: "Filters.csv",
+      Formatting: "Conditional Formatting.csv", Actions: "Action Buttons.csv", "Where used": "Where Used.csv" });
+    expect(Object.keys(APP_FILES)).toEqual(Object.keys(HEADERS));
+    expect(new Set(Object.values(APP_FILES)).size).toBe(7);
+  });
+
   it("makes its choices only for columns the app's files really have", () => {
-    expect([...COLUMN_CHOICES.keys()]).toEqual(Object.keys(FILES));
+    expect([...COLUMN_CHOICES.keys()]).toEqual(Object.values(APP_FILES));
     for (const [file, choices] of COLUMN_CHOICES) {
       expect([...choices.keys()].filter(header => !HEADERS[FILES[file]].includes(header)), file).toEqual([]);
     }
@@ -70,6 +75,17 @@ describe("The results page's columns", () => {
     expect(columnsOf({ ...appTable("Cards.csv"), headers: ["", "Card #"] }).map(column => [column.label, column.kind])).toEqual([["Name", "text"], ["Card #", "card"]]);
   });
 
+  it("keeps each column at its header's place when headers are unnamed, as in every file of a model", () => {
+    // The place is what a sort, a filter and a cell are read by: the page's own names for unnamed headers change none of it.
+    const lineItems = table("Line Items.csv", ["", "Formula", "", "Format", ""]);
+    expect(columnsOf(lineItems).map(column => [column.index, column.label])).toEqual([[0, "Name"], [1, "Formula"], [2, "Column 3"], [3, "Format"], [4, "Column 5"]]);
+    // A header is found by its own text: the first unnamed one by the empty text, and none by a name the page gave.
+    expect([columnIndex(lineItems, ""), columnIndex(lineItems, "Format"), columnIndex(lineItems, "Name"), columnIndex(lineItems, "Column 3")]).toEqual([0, 3, undefined, undefined]);
+    // Only a file whose every header is unnamed, and one with no headers at all.
+    expect(columnsOf(table("Odd.csv", ["", "", ""])).map(column => [column.index, column.label])).toEqual([[0, "Name"], [1, "Column 2"], [2, "Column 3"]]);
+    expect(columnsOf(table("Empty.csv", []))).toEqual([]);
+  });
+
   it("shows every column of a file it has no choices for as plain text: a model's files, odd names", () => {
     const columns = columnsOf(table("Line Items.csv", ["", "Formula", "Page", "Card ID", "constructor", "__proto__", "Formula"]));
     expect(columns.map(column => [column.label, column.kind, column.num, column.filter, column.hidden]))
@@ -77,6 +93,55 @@ describe("The results page's columns", () => {
     // Neither does a file, or a header, with the name of a built-in property pick up anything.
     expect(columnsOf(table("constructor", ["toString", "Page"])).map(column => column.kind)).toEqual(["text", "text"]);
     expect(columnsOf({ ...appTable("Cards.csv"), headers: ["hasOwnProperty", "Card #"] }).map(column => column.kind)).toEqual(["text", "card"]);
+  });
+
+  it("offers a filter on any column that holds between 2 and 30 different texts, in a model's files too", () => {
+    expect([FILTER_MIN, FILTER_MAX]).toEqual([2, 30]);
+    /** A column of `rows` rows that holds `different` different texts. */
+    const values = (different: number, rows = 90) => Array.from({ length: rows }, (_, index) => `value ${index % different}`);
+    const columns = { "": values(90), One: values(1), Two: values(2), Thirty: values(30), "Thirty-one": values(31), Numbers: values(90).map((_, index) => index % 3),
+      // A blank is a text like any other, and so is the cell a short row does not have.
+      Blank: values(90).map((_, index) => (index % 2 ? "" : "set")), "All blank": values(90).map(() => "") };
+    const headers = Object.keys(columns);
+    const rows = values(90).map((_, row) => Object.values(columns).map(column => column[row]));
+    const lineItems: ResultTable = { ...table("Line Items.csv", [...headers, "Missing"]), rows: rows.map((row, index) => (index % 2 ? [...row, "there"] : row)) };
+    expect(Object.fromEntries(columnsOf(lineItems).map(column => [column.label, column.filter]))).toEqual({
+      Name: false, One: false, Two: true, Thirty: true, "Thirty-one": false, Numbers: true, Blank: true, "All blank": false, Missing: true });
+    // Nothing else about the column changes with it.
+    expect(columnsOf(lineItems).every(column => column.kind === "text" && !column.num && !column.hidden)).toBe(true);
+    // Texts that differ only in case, or in a space, are different texts, as the filter lists them.
+    const cased: ResultTable = { ...table("Modules.csv", ["", "Area"]), rows: [["a", "Sales"], ["b", "sales"], ["c", "Sales "]] };
+    expect(columnsOf(cased).map(column => column.filter)).toEqual([true, true]);
+    // Without rows no column of a model's file has anything to filter.
+    expect(columnsOf(table("Line Items.csv", headers)).some(column => column.filter)).toBe(false);
+  });
+
+  it("keeps the design's filters in an app's files whatever their columns hold, and adds one where a column holds few texts", () => {
+    const cards = appTable("Cards.csv");
+    const at = (header: string) => cards.headers.indexOf(header);
+    const row = (page: string, number: number, type: string, saved: string) => cards.headers.map((_, index) =>
+      (index === at("Page") ? page : index === at("Card #") ? number : index === at("Card type") ? type : index === at("Saved view") ? saved : index === at("Card ID") ? `card-${page}-${number}` : "—"));
+    const filters = (rows: ReturnType<typeof row>[]) => labels(columnsOf({ ...cards, rows }).filter(column => column.filter));
+    // One page and one type: the design's three filters stay, although each has nothing to choose between.
+    expect(filters([row("Overview", 1, "Grid", "—")])).toEqual(["Page", "Card type", "View type"]);
+    // Forty pages: Page keeps its filter although it holds more than thirty texts. Card # and Saved view gain one.
+    const many = Array.from({ length: 80 }, (_, index) => row(`Page ${index % 40}`, index % 2 + 1, index % 3 ? "Grid" : "KPI", index % 5 ? "—" : "Top 10"));
+    expect(filters(many)).toEqual(["Page", "Card #", "Card type", "View type", "Saved view"]);
+    // The column is still what the design made it: a hidden ID with few values is a hidden ID that can be filtered.
+    const pages = appTable("Pages.csv");
+    const twoModels = Array.from({ length: 6 }, (_, index) => pages.headers.map(header => (header === "Page" ? `Page ${index}` : header === "Model ID" ? `model-${index % 2}` : "—")));
+    expect(columnsOf({ ...pages, rows: twoModels }).find(column => column.label === "Model ID")).toMatchObject({ kind: "id", hidden: true, filter: true });
+  });
+
+  it("gives a row its table's columns, and one more for each cell it holds beyond the headers", () => {
+    const columns = columnsOf(table("Line Items.csv", ["", "Formula"]));
+    expect(rowColumns(columns, ["Revenue", "Units * Price"])).toEqual(columns);
+    expect(rowColumns(columns, ["Short"])).toEqual(columns);
+    expect(rowColumns(columns, [])).toEqual(columns);
+    expect(rowColumns(columns, ["Revenue", "Units * Price", "x", "", 5]).map(column => [column.index, column.label, column.kind, column.hidden])).toEqual([
+      [0, "Name", "text", false], [1, "Formula", "text", false], [2, "Column 3", "text", false], [3, "Column 4", "text", false], [4, "Column 5", "text", false]]);
+    // The table's own columns are not touched.
+    expect(labels(columns)).toEqual(["Name", "Formula"]);
   });
 
   it("finds a header's place, and the columns that identify a row's page and card", () => {

@@ -9,6 +9,8 @@
 export interface Tag {
   name: string;
   closing: boolean;
+  /** Written as <name ... />: an element that holds nothing. */
+  selfClosing: boolean;
   /** Each attribute with its value as written, still escaped; undefined for an attribute without a value. */
   attributes: Map<string, string | undefined>;
 }
@@ -16,6 +18,8 @@ export interface Markup {
   tags: Tag[];
   /** The text between the tags, as written, still escaped. */
   texts: string[];
+  /** The tags and the texts between them, in the order they are written. */
+  parts: (Tag | string)[];
 }
 
 const TAG_NAME = /[A-Za-z][A-Za-z0-9-]*/y;
@@ -25,12 +29,16 @@ const ATTRIBUTE_NAME = /[^\s"'<>/=]+/y;
 export function readMarkup(html: string, page = false): Markup {
   const tags: Tag[] = [];
   const texts: string[] = [];
+  const parts: (Tag | string)[] = [];
   const near = (at: number) => JSON.stringify(html.slice(Math.max(0, at - 20), at + 40));
   let index = 0;
   while (index < html.length) {
     const open = html.indexOf("<", index);
     const text = html.slice(index, open < 0 ? html.length : open);
-    if (text) texts.push(text);
+    if (text) {
+      texts.push(text);
+      parts.push(text);
+    }
     if (open < 0) break;
     if (page && html.startsWith("<!--", open)) {
       const end = html.indexOf("-->", open);
@@ -50,11 +58,12 @@ export function readMarkup(html: string, page = false): Markup {
     if (!name) throw new Error(`A "<" that starts no tag, near ${near(open)}`);
     at += name.length;
     const attributes = new Map<string, string | undefined>();
+    let selfClosing = false;
     for (;;) {
       while (at < html.length && /\s/.test(html[at])) at++;
       if (at >= html.length) throw new Error(`A tag that does not end, near ${near(open)}`);
       if (html[at] === ">") { at++; break; }
-      if (html[at] === "/" && html[at + 1] === ">") { at += 2; break; }
+      if (html[at] === "/" && html[at + 1] === ">") { at += 2; selfClosing = true; break; }
       ATTRIBUTE_NAME.lastIndex = at;
       const attribute = ATTRIBUTE_NAME.exec(html)?.[0];
       if (!attribute) throw new Error(`An unexpected character in a tag, near ${near(at)}`);
@@ -70,10 +79,12 @@ export function readMarkup(html: string, page = false): Markup {
       attributes.set(attribute, html.slice(at + 2, end));
       at = end + 1;
     }
-    tags.push({ name: name.toLowerCase(), closing, attributes });
+    const tag: Tag = { name: name.toLowerCase(), closing, selfClosing, attributes };
+    tags.push(tag);
+    parts.push(tag);
     index = at;
   }
-  return { tags, texts };
+  return { tags, texts, parts };
 }
 
 /** The elements and attribute names of a piece of markup, in order, without any value or text: what the data must not be

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { NONE as REPORT_NONE } from "../report.js";
 import type { Cell } from "../result-types.js";
-import { cellText, NONE, pageOf, pagerItems, rememberingSelect, selectRows, sortRows, valueCounts, type TableQuery } from "./table-engine.js";
+import { cellText, NONE, pageOf, pagerItems, rememberingSelect, ROW_NAME_MAX, rowName, selectRows, sortRows, valueCounts, type TableQuery } from "./table-engine.js";
 
 // Page, Card #, Card title, Card type, Card ID
 const CARDS: Cell[][] = [
@@ -20,6 +20,17 @@ describe("The results page's table engine", () => {
     expect([cellText("=A + B"), cellText(12), cellText(0), cellText(""), cellText(undefined), cellText(null), cellText(-1.5)]).toEqual(["=A + B", "12", "0", "", "", "", "-1.5"]);
     // The dash the page greys is the one the app export writes where it has nothing to say.
     expect(NONE).toBe(REPORT_NONE);
+  });
+
+  it("names a row by its first cell that says something", () => {
+    expect([rowName(["Revenue", "Units * Price"]), rowName(["", "Units * Price"]), rowName(["—", "", 12, "x"]), rowName([0, "x"]), rowName(["   ", "\n", "  name  "])])
+      .toEqual(["Revenue", "Units * Price", "12", "0", "name"]);
+    // No cell says anything: the row has no name of its own.
+    expect([rowName([]), rowName(["", "—", "  "])]).toEqual(["", ""]);
+    // A text is a name as it stands, markup and all; only one far longer than a name is cut, and marked as cut.
+    expect(rowName(["<b>Q4</b> plan"])).toBe("<b>Q4</b> plan");
+    const long = "x".repeat(ROW_NAME_MAX + 30);
+    expect([rowName(["x".repeat(ROW_NAME_MAX)]).length, rowName([long]), ROW_NAME_MAX]).toEqual([ROW_NAME_MAX, `${"x".repeat(ROW_NAME_MAX)}…`, 120]);
   });
 
   it("keeps the file's rows and order when nothing is asked", () => {
@@ -108,26 +119,36 @@ describe("The results page's table engine", () => {
 
   it("does not search and sort again for the same rows and an equal query, and does for any other", () => {
     const select = rememberingSelect();
-    const filters = new Map([[3, new Set(["Grid", "KPI"])]]);
-    const query = (): TableQuery => ({ search: "s", filters, sort: { column: 2, dir: "asc" }, context: { column: 0, value: "Overview" } });
+    const filters = new Map([[3, new Set(["Grid", "KPI", "Text"])]]);
+    const query = (): TableQuery => ({ search: "e", filters, sort: { column: 2, dir: "asc" } });
     const first = select(CARDS, query());
-    expect(titles(first)).toEqual(["Sales by region"]);
+    // Several rows, so that an order shows.
+    expect(titles(first)).toEqual(["How to use this page", "Margin %", "Sales by region", "Store plan"]);
     // Turning a page asks again with an equal query: the very same list comes back.
     expect(select(CARDS, query())).toBe(first);
-    // Each part of the query counts, and so does a box ticked in a filter that stays the same object.
-    for (const changed of [{ search: "sa" }, { sort: { column: 2, dir: "desc" as const } }, { sort: undefined }, { context: { column: 0, value: "Stores" } }, { context: undefined },
-      { filters: new Map([[3, new Set(["Grid"])]]) }, { filters: new Map() }]) {
+    // Each part of the query counts. Every other query is asked straight after the first one, which is what is remembered
+    // then, and each gives other rows or another order than it: a part left out of what is compared would show here.
+    const others: Partial<TableQuery>[] = [{ search: "sa" }, { sort: { column: 2, dir: "desc" } }, { sort: { column: 1, dir: "asc" } }, { sort: undefined },
+      { context: { column: 0, value: "Stores" } }, { filters: new Map([[3, new Set(["Grid"])]]) }, { filters: new Map() }];
+    for (const changed of others) {
+      const base = select(CARDS, query());
       const other = select(CARDS, { ...query(), ...changed });
-      expect(other, JSON.stringify(changed)).not.toBe(first);
-      expect(other).toEqual(selectRows(CARDS, { ...query(), ...changed }));
+      expect(other, JSON.stringify(changed)).not.toBe(base);
+      expect(titles(other), JSON.stringify(changed)).toEqual(titles(selectRows(CARDS, { ...query(), ...changed })));
+      expect(titles(other), JSON.stringify(changed)).not.toEqual(titles(base));
     }
+    expect(titles(select(CARDS, { ...query(), sort: { column: 2, dir: "desc" } }))).toEqual(["Store plan", "Sales by region", "Margin %", "How to use this page"]);
+    // A jump is told from another jump, too.
+    const stores = select(CARDS, { ...query(), context: { column: 0, value: "Stores" } });
+    expect([titles(stores), titles(select(CARDS, { ...query(), context: { column: 0, value: "Overview" } }))]).toEqual([["Store plan"], ["How to use this page", "Margin %", "Sales by region"]]);
+    // So does a box ticked in a filter that stays the same object.
     const before = select(CARDS, query());
-    filters.get(3)?.add("Text");
-    expect(titles(select(CARDS, query()))).toEqual(["How to use this page", "Sales by region"]);
+    filters.get(3)?.delete("Text");
+    expect(titles(select(CARDS, query()))).toEqual(["Margin %", "Sales by region", "Store plan"]);
     expect(select(CARDS, query())).not.toBe(before);
     // Other rows are another table, even with an equal query.
-    expect(titles(select(CARDS.slice(0, 1), query()))).toEqual(["Sales by region"]);
-    expect(select(CARDS.slice(0, 1), query())).not.toBe(select(CARDS.slice(0, 1), query()));
+    expect(titles(select(CARDS.slice(0, 2), query()))).toEqual(["Margin %", "Sales by region"]);
+    expect(select(CARDS.slice(0, 2), query())).not.toBe(select(CARDS.slice(0, 2), query()));
     // Each table view keeps its own memory.
     expect(rememberingSelect()(CARDS, query())).not.toBe(select(CARDS, query()));
   });

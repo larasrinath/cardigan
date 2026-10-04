@@ -3,17 +3,19 @@ import type { AnalysisResult, ResultTable } from "../result-types.js";
 import { resultZip, tableCsv } from "../result-zip.js";
 import { VERSION } from "../version.js";
 import { cardsOf, columnIndex, columnsOf, rowKeys, type CardsTable, type Column, type RowKeys } from "./columns.js";
-import { describeState, ResultsClient, tabIdFrom, type RunState } from "./connection.js";
+import { describeState, openedJustNow, ResultsClient, runLabel, tabIdFrom, withoutOpened, type RunState } from "./connection.js";
+import { CSV_FALLBACK, downloadName, ZIP_FALLBACK } from "./file-name.js";
 import {
-  bannersHtml, cardDrawerHtml, cardDrawerSubHtml, colChooserHtml, colFilterHtml, crumbsHtml, detailsHtml, esc, headerMetaHtml, MOON_ICON, navHtml,
-  overviewHtml, rowDrawerHtml, runHtml, SUN_ICON, tableHtml, type Links, type NavEntry,
+  cardDrawerHtml, cardDrawerSubHtml, colChooserHtml, colFilterHtml, crumbsHtml, detailsHtml, headerMetaHtml, MOON_ICON, navHtml,
+  overviewHtml, rowDrawerHtml, rowDrawerSubHtml, runBannerHtml, runHtml, SUN_ICON, tableHtml, tableParts, type Links, type NavEntry, type TableView,
 } from "./markup.js";
 import type { PageId } from "./page-ids.js";
-import { analysedOf, cardSections, detailSections, detailsOf, diagnosticLog, overviewOf, resultNotes } from "./result-view.js";
-import { cellText, NONE, pageOf, rememberingSelect, valueCounts, type Row, type Sort, type TableQuery } from "./table-engine.js";
+import { analysedOf, cardSections, detailSections, detailsOf, diagnosticLog, overviewOf } from "./result-view.js";
+import { cellText, NONE, pageOf, rememberingSelect, rowName, valueCounts, type Row, type Sort, type TableQuery } from "./table-engine.js";
 
 /** The results page (results.html): the design's script, on the real result. It connects to the Anaplan tab the address
- * names, lets the analysis run, shows its progress and then the result: an overview, one table per file, the details
+ * names and says what that tab shows. The analysis starts by itself when the icon has just opened the page, and otherwise
+ * with the run control. The page shows its progress and then the result: an overview, one table per file, the details
  * and the downloads. The markup is built in markup.ts and the data work is done in the modules beside it; this file
  * only holds what the user chose and puts the pieces on the page. */
 
@@ -33,6 +35,19 @@ function announce(message: string): void {
   el("live").textContent = message;
 }
 
+/** Gives the focus to the first of these that is on the page and can take it. After a part of the page is written again,
+ * that is the control the user has just used, as it stands now, or the nearest thing to it. Without this the focus is left
+ * on nothing, and a keyboard user starts again from the top of the page. */
+function focusOn(...selectors: string[]): void {
+  for (const selector of selectors) {
+    const node = find<HTMLButtonElement>(selector);
+    if (node && !node.disabled && !node.hidden) {
+      node.focus();
+      return;
+    }
+  }
+}
+
 async function copyText(text: string, what = text): Promise<void> {
   try {
     await navigator.clipboard.writeText(text);
@@ -50,6 +65,7 @@ async function copyText(text: string, what = text): Promise<void> {
     area.remove();
   }
 }
+/** Saves `data` as a download. `name` is a plain file name (file-name.ts), never a name a result gave unchecked. */
 function downloadFile(name: string, data: BlobPart, type: string): void {
   const url = URL.createObjectURL(new Blob([data], { type }));
   const link = document.createElement("a");
@@ -119,15 +135,27 @@ function toggleTheme(): void {
   try { localStorage.setItem("cardigan-theme", next); } catch { /* not remembered */ }
   applyTheme(next);
 }
+/** A text node, as Node.TEXT_NODE names it. */
+const TEXT_NODE = 3;
+/** The run control's words, after its icon: "Run" until an analysis has been asked for on this page, "Run again" after. */
+function showRunLabel(): void {
+  const button = el("runAgain");
+  const label = runLabel(client.asked);
+  const words = [...button.childNodes].reverse().find(node => node.nodeType === TEXT_NODE && node.textContent?.trim());
+  if (!words) button.append(label);
+  else if (words.textContent !== label) words.textContent = label;
+  button.title = client.asked ? "Analyse the Anaplan tab again" : "Analyse the Anaplan tab";
+}
 /** The header's buttons follow what there is to act on. */
 function updateActions(): void {
   const phase = client.state.phase;
   el<HTMLButtonElement>("runAgain").disabled = phase === "running" || phase === "no-tab";
+  showRunLabel();
   el<HTMLButtonElement>("dlAll").disabled = !result;
   const table = currentTable();
   const csv = el<HTMLButtonElement>("dlCsv");
   csv.disabled = !table;
-  csv.title = table ? `Download ${cellText(table.file)}` : result ? "Open a table to download it" : "";
+  csv.title = table ? `Download ${downloadName(table.file, ".csv", CSV_FALLBACK)}` : result ? "Open a table to download it" : "";
 }
 
 /* ================= views ================= */
@@ -147,28 +175,60 @@ function query(entry: Shown): TableQuery {
   };
 }
 
-function renderTable(entry: Shown): void {
-  const label = cellText(entry.table.label);
+/** What a table shows now: the page of rows the search, the filters, the sort and the jump leave, and what the user chose. */
+function tableView(entry: Shown): TableView {
   const page = pageOf(select(entry.table.rows, query(entry)), entry.page, state.pageSize);
   entry.page = page.page;
   currentSlice = page.rows;
-  el("view").innerHTML = tableHtml({
-    label, columns: entry.columns.filter(column => !entry.hidden.has(column.index)), rows: page.rows,
+  return {
+    label: cellText(entry.table.label), columns: entry.columns.filter(column => !entry.hidden.has(column.index)), rows: page.rows,
     page: page.page, pages: page.pages, pageSize: state.pageSize, from: page.from, to: page.to, total: page.total, all: entry.table.rows.length,
     search: state.search, sort: entry.sort, filtered: new Set(entry.filters.keys()), context: state.context, links: entry.links,
-  });
+  };
+}
+/** The shade at the foot of the table's box goes once there is nothing more to scroll to. */
+function updateFade(wrap: HTMLElement): void {
+  wrap.classList.toggle("at-end", wrap.scrollTop + wrap.clientHeight >= wrap.scrollHeight - 6);
+  wrap.classList.toggle("no-scroll", wrap.scrollHeight <= wrap.clientHeight + 2);
+}
+const announceTable = (view: TableView): void =>
+  announce(`${view.label}: ${view.total === 1 ? "1 row" : `${view.total} rows`}${view.context !== undefined ? `, filtered to ${view.context}` : ""}`);
+
+/** Draws a table's view whole: its name, its toolbar with the search box, its rows and its pager. */
+function renderTable(entry: Shown): void {
+  const view = tableView(entry);
+  el("view").innerHTML = tableHtml(view);
   const wrap = find("#tableWrap");
   if (wrap) {
-    const updateFade = () => {
-      wrap.classList.toggle("at-end", wrap.scrollTop + wrap.clientHeight >= wrap.scrollHeight - 6);
-      wrap.classList.toggle("no-scroll", wrap.scrollHeight <= wrap.clientHeight + 2);
-    };
-    wrap.addEventListener("scroll", updateFade);
-    updateFade();
+    wrap.addEventListener("scroll", () => updateFade(wrap));
+    updateFade(wrap);
   }
   const search = find<HTMLInputElement>("#tblSearch");
   if (search) search.selectionStart = search.selectionEnd = search.value.length;
-  announce(`${label}: ${page.total} rows${state.context !== undefined ? `, filtered to ${state.context}` : ""}`);
+  markPopOwner();
+  announceTable(view);
+}
+
+/** Draws again what follows the search, the filters, the sort and the page: the rows, the pager, the count, and whether
+ * Reset is offered. The rest of the view stays as it is, the search box above all: writing the box again while the user
+ * types into it would move the caret and break a letter that is still being put together (a dead key, an input method). */
+function updateTable(entry: Shown): void {
+  const wrap = find("#tableWrap");
+  const pager = find("#pager");
+  const count = find("#rowCount");
+  if (!wrap || !pager || !count) return renderTable(entry);
+  const view = tableView(entry);
+  const parts = tableParts(view);
+  wrap.innerHTML = parts.grid;
+  wrap.scrollTop = 0;
+  pager.innerHTML = parts.pager;
+  count.textContent = parts.count;
+  const reset = find("#resetBtn");
+  if (reset) reset.hidden = !parts.modified;
+  find("#searchWrap")?.classList.toggle("has-value", view.search !== "");
+  updateFade(wrap);
+  markPopOwner();
+  announceTable(view);
 }
 
 function renderAll(): void {
@@ -183,8 +243,18 @@ function renderAll(): void {
   updateActions();
 }
 
-/** A result arrived: the page becomes the design's results page for it. */
+/** A result arrived, complete: the page becomes the design's results page for it. Only now does it take the place of an
+ * earlier result, of which nothing is kept: not the rows on the page, the drawer's row, the last selection, or the banner
+ * of the run that has just ended. */
 function showResult(next: AnalysisResult, at: Date): void {
+  // Focus that is inside what the new result replaces moves to the new view; anywhere else, in the header, it stays.
+  const replaced = [el("view"), el("drawer"), el("popover")].some(part => part.contains(document.activeElement));
+  closePopover();
+  closeDrawer();
+  currentSlice = [];
+  drawerRow = undefined;
+  select = rememberingSelect();
+  el("banners").innerHTML = "";
   result = next;
   received = at;
   details = detailsOf(next);
@@ -206,34 +276,21 @@ function showResult(next: AnalysisResult, at: Date): void {
   const analysed = analysedOf(next);
   document.title = `Cardigan — ${analysed.name}`;
   el("hdMeta").innerHTML = headerMetaHtml(analysed);
-  const notes = resultNotes(next);
-  el("banners").innerHTML = bannersHtml(notes.summary, notes.notes);
   el("sidenav").hidden = false;
   el("navToggle").hidden = false;
   renderAll();
+  if (replaced) el("view").focus({ preventScroll: true });
   announce(`Analysis finished: ${analysed.name}`);
 }
 
-/** Before there is a result: connecting, running, or why there is nothing to show. Every text is set as plain text. */
+/** The states in which a run did not start or did not finish. */
+const STOPPED: ReadonlySet<RunState["phase"]> = new Set(["unreachable", "no-subject", "failed", "interrupted"]);
+
+/** Connecting, running, or why there is no new result. Before the first result this is the whole view. Once a result is on
+ * the page it stays there until a new one is complete, and the same words stand in the banner area above it: a run that
+ * cannot start or does not finish takes nothing away. Every text is set as plain text. */
 function showRun(runState: RunState): void {
-  if (result || !find("#runStatus")) {
-    result = undefined;
-    details = undefined;
-    cards = undefined;
-    shown = new Map();
-    // Nothing of the result that is being replaced is kept: not the rows on the page, the drawer's row or the last selection.
-    currentSlice = [];
-    drawerRow = undefined;
-    select = rememberingSelect();
-    closePopover();
-    closeDrawer();
-    document.title = "Cardigan";
-    for (const id of ["hdMeta", "banners", "navList", "crumbs"] as const) el(id).innerHTML = "";
-    el("sidenav").hidden = true;
-    el("navToggle").hidden = true;
-    el("view").innerHTML = runHtml();
-  }
-  const text = describeState(runState);
+  const text = describeState(runState, client.asked);
   const set = (selector: string, value: string) => {
     const node = find(selector);
     if (node) {
@@ -241,16 +298,35 @@ function showRun(runState: RunState): void {
       node.hidden = value === "";
     }
   };
-  set("#runTitle", text.title);
-  set("#runStatus", text.message);
-  set("#runHint", text.hint);
+  if (result) {
+    if (!find("#runBanner")) el("banners").innerHTML = runBannerHtml();
+    const banner = find("#runBanner");
+    banner?.classList.toggle("warn", STOPPED.has(runState.phase));
+    banner?.classList.toggle("note", !STOPPED.has(runState.phase));
+    set("#bannerTitle", text.title);
+    set("#bannerText", text.message);
+    set("#bannerHint", text.hint);
+  } else {
+    if (!find("#runStatus")) {
+      // The page before its first result: there is nothing to navigate yet.
+      el("sidenav").hidden = true;
+      el("navToggle").hidden = true;
+      el("view").innerHTML = runHtml();
+    }
+    set("#runTitle", text.title);
+    set("#runStatus", text.message);
+    set("#runHint", text.hint);
+  }
   showLog(client.log);
   updateActions();
   announce(text.message);
 }
 
-/** The run's diagnostic log while there is no result: its latest lines, kept in view. */
+/** The run's diagnostic log. Before the first result its latest lines are under the message, kept in view. Beside an
+ * earlier result there is only the banner's button to copy it, which is there once the log has a line. */
 function showLog(lines: readonly string[]): void {
+  const copy = find("#bannerCopy");
+  if (copy) copy.hidden = lines.length === 0;
   const block = find("#runLog");
   const log = find("#diagLog");
   if (result || !block || !log) return;
@@ -260,20 +336,35 @@ function showLog(lines: readonly string[]): void {
 }
 
 /* ================= popovers (column filter / column chooser) ================= */
-let popAnchor: Element | null = null;
-function closePopover(): void {
+/** The control that opened the popover, as a selector: a filter's button is written again with the table's head while its
+ * popover is open, so the element itself does not last. */
+let popOwner: string | undefined;
+/** Says on each button that opens a popover whether its popover is open now. The table's head is written with every one
+ * closed, so this follows each draw of the table as well as each opening and closing. */
+function markPopOwner(): void {
+  for (const button of document.querySelectorAll("[data-colfilter], #colBtn")) button.setAttribute("aria-expanded", String(popOwner !== undefined && button.matches(popOwner)));
+}
+/** Closes the popover. `back` gives the focus back to the control that opened it: after Escape and after the popover's own
+ * buttons, which would otherwise leave the focus on nothing. A click elsewhere takes the focus where it was made. */
+function closePopover(back = false): void {
   const popover = el("popover");
   if (!popover.hidden) {
     popover.hidden = true;
     popover.innerHTML = "";
   }
-  popAnchor = null;
+  const owner = popOwner;
+  popOwner = undefined;
+  markPopOwner();
+  if (back && owner) focusOn(owner);
 }
-function openPopover(anchor: Element, html: string): void {
+/** Opens the popover under `anchor`, the button `owner` names. `name` is what the popover is, for a screen reader. */
+function openPopover(owner: string, anchor: Element, name: string, html: string): void {
   const popover = el("popover");
   popover.innerHTML = html;
+  popover.setAttribute("aria-label", name);
   popover.hidden = false;
-  popAnchor = anchor;
+  popOwner = owner;
+  markPopOwner();
   const rect = anchor.getBoundingClientRect();
   const width = 260;
   let top = rect.bottom + 6;
@@ -288,9 +379,9 @@ function openPopover(anchor: Element, html: string): void {
     popover.querySelector<HTMLElement>("input,button")?.focus();
   });
 }
-function openColFilter(entry: Shown, column: Column, anchor: Element): void {
+function openColFilter(entry: Shown, column: Column, owner: string, anchor: Element): void {
   const values = valueCounts(entry.table.rows, column.index);
-  openPopover(anchor, colFilterHtml(column, values, entry.filters.get(column.index)));
+  openPopover(owner, anchor, `Filter: ${column.label}`, colFilterHtml(column, values, entry.filters.get(column.index)));
   const popover = el("popover");
   popover.querySelectorAll<HTMLInputElement>("input[data-fval]").forEach(input => {
     input.addEventListener("change", () => {
@@ -304,30 +395,30 @@ function openColFilter(entry: Shown, column: Column, anchor: Element): void {
       if (input.checked) selected.add(value); else selected.delete(value);
       if (selected.size === values.length) entry.filters.delete(column.index);
       entry.page = 0;
-      renderTable(entry);
+      updateTable(entry);
     });
   });
   popover.querySelector('[data-popact="all"]')?.addEventListener("click", () => {
     entry.filters.delete(column.index);
     entry.page = 0;
-    closePopover();
-    renderTable(entry);
+    updateTable(entry);
+    closePopover(true);
   });
 }
 function openColChooser(entry: Shown, anchor: Element): void {
-  openPopover(anchor, colChooserHtml(entry.columns, entry.hidden));
+  openPopover("#colBtn", anchor, "Show or hide columns", colChooserHtml(entry.columns, entry.hidden));
   const popover = el("popover");
   popover.querySelectorAll<HTMLInputElement>("input[data-col]").forEach(input => {
     input.addEventListener("change", () => {
       const column = Number(input.dataset.col);
       if (input.checked) entry.hidden.delete(column); else entry.hidden.add(column);
-      renderTable(entry);
+      updateTable(entry);
     });
   });
   popover.querySelector('[data-popact="defaults"]')?.addEventListener("click", () => {
     entry.hidden = defaultHidden(entry.columns);
-    closePopover();
-    renderTable(entry);
+    updateTable(entry);
+    closePopover(true);
   });
 }
 
@@ -338,9 +429,19 @@ let drawerTimer: ReturnType<typeof setTimeout> | undefined;
 function settleScrim(): void {
   if (el("drawer").hidden && !el("sidenav").classList.contains("open")) el("scrim").hidden = true;
 }
+/** What lies behind the open drawer: the link that skips to the results, the header, the banner area and the shell. The
+ * drawer says it is modal, so while it is open these are inert: the Tab key stays in the drawer, and a screen reader does
+ * not read on into the page behind it. */
+function setBehindDrawer(inert: boolean): void {
+  for (const part of [find(".skip"), find(".hd"), el("banners"), find(".shell")]) if (part) part.inert = inert;
+}
+/** Shows the drawer. The title is a text and is set as one; the line under it and the body are markup.ts' markup. What
+ * the focus goes back to afterwards is what opened the drawer from the page: a link inside the drawer that opens another
+ * card does not last, so it leaves that as it is. */
 function openDrawer(title: string, subHtml: string, bodyHtml: string, opener?: Element | null): void {
   clearTimeout(drawerTimer);
-  state.lastFocus = opener ?? document.activeElement;
+  const from = opener ?? document.activeElement;
+  if (!el("drawer").contains(from)) state.lastFocus = from;
   el("drawerTitle").textContent = title;
   el("drawerSub").innerHTML = subHtml;
   el("drawerBody").innerHTML = bodyHtml;
@@ -348,6 +449,7 @@ function openDrawer(title: string, subHtml: string, bodyHtml: string, opener?: E
   const scrim = el("scrim");
   drawer.hidden = false;
   scrim.hidden = false;
+  setBehindDrawer(true);
   requestAnimationFrame(() => {
     drawer.classList.add("show");
     scrim.classList.add("show");
@@ -367,14 +469,17 @@ function closeDrawer(): void {
     drawer.hidden = true;
     settleScrim();
   }, 210);
+  // The page behind takes part again before the focus goes back into it.
+  setBehindDrawer(false);
   if (state.lastFocus instanceof HTMLElement && document.contains(state.lastFocus)) state.lastFocus.focus();
   state.lastFocus = null;
 }
-/** Any row, in full. */
+/** Any row, in full. Its heading is the row's own name; the line under it says which row of which table it is, by its
+ * place in the file, which a search, a filter or a sort does not change. */
 function openRowDrawer(entry: Shown, row: Row, opener: Element): void {
   drawerRow = { entry, row };
   const position = entry.table.rows.findIndex(candidate => candidate === row) + 1;
-  openDrawer(`Row ${position}`, esc(entry.table.label), rowDrawerHtml(entry.columns, row, entry.links), opener);
+  openDrawer(rowName(row) || `Row ${position}`, rowDrawerSubHtml(position, cellText(entry.table.label)), rowDrawerHtml(entry.columns, row, entry.links), opener);
 }
 /** A card: its row of the Cards file, and the rows of the other files that carry its Card ID on its page. */
 function openCardDrawer(page: string, cardId: string, opener: Element): void {
@@ -407,6 +512,10 @@ function rowFor(element: Element): { entry: Shown; row: Row } | undefined {
 /* ================= view switching ================= */
 function navTo(view: View, context?: string): void {
   closePopover();
+  // The search and the jump end with the view. The table that is left had its page counted among the rows they kept,
+  // so it is shown from its first page when the user comes back to it.
+  const left = currentEntry();
+  if (left && (state.search.trim() !== "" || state.context !== undefined)) left.page = 0;
   state.view = view;
   state.search = "";
   state.context = context;
@@ -418,13 +527,14 @@ function navTo(view: View, context?: string): void {
   setTimeout(settleScrim, 210);
   window.scrollTo({ top: 0 });
 }
-/** The cards of one page: the Cards table, kept to that page. */
+/** The cards of one page: the Cards table, kept to that page. The drawer closes first when the jump starts in it: the page
+ * behind it takes part again, so the view the jump opens can take the focus. */
 function gotoPage(page: string): void {
   const entry = cards && shown.get(cards.index);
   if (!entry) return;
+  closeDrawer();
   entry.page = 0;
   navTo(entry.index, page);
-  closeDrawer();
 }
 
 /* ================= global events ================= */
@@ -455,10 +565,15 @@ document.addEventListener("click", event => {
           openCardDrawer(cellText(from.row[from.entry.keys.page]), cellText(from.row[from.entry.keys.cardId]), act);
         }
         return;
+      case "row":
+        if (from) openRowDrawer(from.entry, from.row, act);
+        return;
+      // Both of these go away with what they clear, so the focus moves on: to the view, and to the search box.
       case "clear-context":
         state.context = undefined;
         if (entry) entry.page = 0;
         renderAll();
+        el("view").focus({ preventScroll: true });
         return;
       case "reset":
         state.search = "";
@@ -469,17 +584,25 @@ document.addEventListener("click", event => {
           entry.page = 0;
         }
         renderAll();
+        focusOn("#tblSearch");
         return;
-      case "clear-search":
+      case "clear-search": {
         state.search = "";
+        const box = find<HTMLInputElement>("#tblSearch");
+        if (box) box.value = "";
         if (entry) {
           entry.page = 0;
-          renderTable(entry);
-          find("#tblSearch")?.focus();
+          updateTable(entry);
         }
+        box?.focus();
         return;
+      }
+      // The log a result carries, on its Details view; and the log of the run the page follows or last followed.
       case "copy-diag":
-        void copyText((result ? diagnosticLog(details) : client.log).join("\n"), "the diagnostic log");
+        void copyText(diagnosticLog(details).join("\n"), "the diagnostic log");
+        return;
+      case "copy-run-log":
+        void copyText(client.log.join("\n"), "the diagnostic log");
         return;
     }
   }
@@ -499,37 +622,44 @@ document.addEventListener("click", event => {
   if (sortButton && entry) {
     const column = Number(sortButton.dataset.sort);
     entry.sort = !entry.sort || entry.sort.column !== column ? { column, dir: "asc" } : entry.sort.dir === "asc" ? { column, dir: "desc" } : undefined;
-    renderTable(entry);
+    // Another order puts other rows on every page: the table is shown from its first page, as after a search or a filter.
+    entry.page = 0;
+    updateTable(entry);
+    focusOn(`[data-sort="${column}"]`);
     return;
   }
 
   const filterButton = target.closest<HTMLElement>("[data-colfilter]");
   if (filterButton && entry) {
-    const column = entry.columns[Number(filterButton.dataset.colfilter)];
-    if ((!popover.hidden && popAnchor === filterButton) || !column) closePopover();
-    else openColFilter(entry, column, filterButton);
+    const index = Number(filterButton.dataset.colfilter);
+    const column = entry.columns[index];
+    const owner = `[data-colfilter="${index}"]`;
+    if ((!popover.hidden && popOwner === owner) || !column) closePopover();
+    else openColFilter(entry, column, owner, filterButton);
     return;
   }
   const chooser = target.closest("#colBtn");
   if (chooser && entry) {
-    if (!popover.hidden && popAnchor === chooser) closePopover();
+    if (!popover.hidden && popOwner === "#colBtn") closePopover();
     else openColChooser(entry, chooser);
     return;
   }
 
   const pager = target.closest<HTMLButtonElement>(".pg-btn[data-page]");
   if (pager && !pager.disabled && entry) {
+    // Previous, Next or a page's number, by the name the pager gives each: the page's number is the current page after this.
+    const name = pager.getAttribute("aria-label") ?? "";
     entry.page = parseInt(pager.dataset.page ?? "", 10);
-    renderTable(entry);
-    const wrap = find("#tableWrap");
-    if (wrap) wrap.scrollTop = 0;
+    updateTable(entry);
+    focusOn(`.pg-btn[aria-label="${name}"]`, '.pg-btn[aria-current="true"]');
     return;
   }
 
+  // A click anywhere else on a row opens it too. The row's own button is what the focus goes back to afterwards.
   const tr = target.closest("#tableWrap tbody tr");
   if (tr && !target.closest("button, a, input, label, select")) {
     const from = rowFor(tr);
-    if (from) openRowDrawer(from.entry, from.row, tr);
+    if (from) openRowDrawer(from.entry, from.row, tr.querySelector('[data-act="row"]') ?? tr);
   }
 });
 document.addEventListener("input", event => {
@@ -537,8 +667,7 @@ document.addEventListener("input", event => {
   if (event.target instanceof HTMLInputElement && event.target.id === "tblSearch" && entry) {
     state.search = event.target.value;
     entry.page = 0;
-    renderTable(entry);
-    find("#tblSearch")?.focus();
+    updateTable(entry);
   }
 });
 document.addEventListener("change", event => {
@@ -546,13 +675,14 @@ document.addEventListener("change", event => {
   if (event.target instanceof HTMLSelectElement && event.target.id === "pageSize" && entry) {
     state.pageSize = parseInt(event.target.value, 10) || 50;
     entry.page = 0;
-    renderTable(entry);
+    updateTable(entry);
+    focusOn("#pageSize");
   }
 });
 document.addEventListener("keydown", event => {
   if (event.key === "Escape") {
     if (!el("popover").hidden) {
-      closePopover();
+      closePopover(true);
       return;
     }
     if (el("drawer").classList.contains("show")) {
@@ -590,14 +720,14 @@ el("navToggle").addEventListener("click", () => {
 el("themeToggle").addEventListener("click", toggleTheme);
 el("dlAll").addEventListener("click", () => {
   if (!result) return;
-  const name = cellText(result.zipName) || "Cardigan export.zip";
+  const name = downloadName(result.zipName, ".zip", ZIP_FALLBACK);
   downloadFile(name, resultZip(result, received), "application/zip");
   toast(`Downloaded ${name}`);
 });
 el("dlCsv").addEventListener("click", () => {
   const table = currentTable();
   if (!table) return;
-  const name = cellText(table.file) || "table.csv";
+  const name = downloadName(table.file, ".csv", CSV_FALLBACK);
   downloadFile(name, tableCsv(table), "text/csv;charset=utf-8");
   toast(`Downloaded ${name}`);
 });
@@ -609,11 +739,27 @@ window.matchMedia?.("(prefers-color-scheme: dark)").addEventListener("change", e
 });
 
 /* ================= init ================= */
+/** Whether the toolbar icon has just opened this page: only then does the analysis start by itself (protocol.ts). The time
+ * of the click is taken out of the address at once, so that a reload, a duplicate or a tab Chrome restores finds none and
+ * waits for the run control. A page that cannot change its address starts nothing by itself either. */
+function openedByIcon(): boolean {
+  const rest = withoutOpened(location.search);
+  if (rest === undefined) return false;
+  const fresh = openedJustNow(location.search, Date.now());
+  try {
+    history.replaceState(history.state, "", `${location.pathname}${rest}${location.hash}`);
+  } catch {
+    return false;
+  }
+  return fresh;
+}
+
 el("version").textContent = `v${VERSION}`;
 applyTheme(currentTheme());
 const tabId = tabIdFrom(location.search);
 const client = new ResultsClient({
   connect: tabId === undefined ? undefined : () => chrome.tabs.connect(tabId, { name: PORT_NAME }),
+  autoRun: openedByIcon(),
   closeReason: () => chrome.runtime.lastError?.message,
   onState: next => (next.phase === "done" ? showResult(next.result, next.received) : showRun(next)),
   onLog: showLog,

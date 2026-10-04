@@ -1,4 +1,4 @@
-import type { Column } from "./columns.js";
+import { rowColumns, type Column } from "./columns.js";
 import type { Analysed, CardSection, DetailSection, Overview } from "./result-view.js";
 import { cellText, NONE, pagerItems, type Row, type Sort } from "./table-engine.js";
 
@@ -14,15 +14,17 @@ export const esc = (value: unknown): string => cellText(value).replace(/[&<>"']/
 
 const DASH = `<span class="dash">${NONE}</span>`;
 const BLANK = "<em>(blank)</em>";
-const CLOSE_ICON = '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 3l10 10M13 3 3 13"/></svg>';
+const CLOSE_ICON = '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 3l10 10M13 3 3 13"/></svg>';
 const SEARCH_PATH = '<circle cx="7" cy="7" r="4.6"/><path d="M10.6 10.6 14 14"/>';
 const FILTER_PATH = '<path d="M2 3h12l-4.6 5.2v4.3L6.6 14V8.2L2 3Z"/>';
-const INFO_ICON = '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="8" cy="8" r="6.4"/><path d="M8 7.4v3.4M8 5v.2"/></svg>';
-export const SUN_ICON = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="3.2"/><path d="M8 1.5v1.8M8 12.7v1.8M1.5 8h1.8M12.7 8h1.8M3.4 3.4l1.3 1.3M11.3 11.3l1.3 1.3M12.6 3.4l-1.3 1.3M4.7 11.3l-1.3 1.3"/></svg>';
-export const MOON_ICON = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 9.5A5.8 5.8 0 0 1 6.5 2.5 5.8 5.8 0 1 0 13.5 9.5Z"/></svg>';
-const DIAGNOSTICS_SUMMARY = '<summary><svg class="car" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3l6 5-6 5"/></svg>Diagnostics</summary>';
-const COPY_LOG_BUTTON = `<button type="button" class="btn sm" data-act="copy-diag">
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5.5" y="5.5" width="8" height="8" rx="2"/><path d="M10.5 5.5v-2a2 2 0 0 0-2-2h-5a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h2"/></svg>
+export const SUN_ICON = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="3.2"/><path d="M8 1.5v1.8M8 12.7v1.8M1.5 8h1.8M12.7 8h1.8M3.4 3.4l1.3 1.3M11.3 11.3l1.3 1.3M12.6 3.4l-1.3 1.3M4.7 11.3l-1.3 1.3"/></svg>';
+export const MOON_ICON = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13.5 9.5A5.8 5.8 0 0 1 6.5 2.5 5.8 5.8 0 1 0 13.5 9.5Z"/></svg>';
+const INFO_ICON = '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6.4"/><path d="M8 7.4v3.4M8 5v.2"/></svg>';
+const DIAGNOSTICS_SUMMARY = '<summary><svg class="car" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3l6 5-6 5"/></svg>Diagnostics</summary>';
+/** The button that copies a diagnostic log. The messages of a failed run name it by these words (progress.ts). `act` says
+ * which log: "copy-diag" the one a result carries, "copy-run-log" the one of the run the page is following or last followed. */
+const copyLogButton = (act: "copy-diag" | "copy-run-log", attributes = ""): string => `<button type="button" class="btn sm" data-act="${act}"${attributes}>
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="2"/><path d="M10.5 5.5v-2a2 2 0 0 0-2-2h-5a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h2"/></svg>
           Copy diagnostic log</button>`;
 
 /* ---------- cells ---------- */
@@ -41,26 +43,42 @@ const plain = (text: string): string => `<span class="cell-t" title="${esc(text)
  * row's own Page or Card ID column. */
 export interface Links { page: boolean; card: boolean }
 
-/** One cell: always the cell's own text, shown the way its column is shown. An empty cell stays empty. */
-export function cellHtml(column: Column, row: Row, links: Links): string {
+/** One cell: always the cell's own text, shown the way its column is shown. An empty cell stays empty. `whole` is for the
+ * drawer, where a value is read in full: there its text stands in a `cell-t` whatever the column's kind, and that is the
+ * element in which the stylesheet keeps a value's line breaks and spaces (an ID is a pill, which it shows uncut). */
+export function cellHtml(column: Column, row: Row, links: Links, whole = false): string {
   const text = cellText(row[column.index]);
   if (text === "") return "";
   if (text === NONE) return DASH;
+  const shown = whole ? `<span class="cell-t">${esc(text)}</span>` : esc(text);
   switch (column.kind) {
     case "id":
       return idPill(text);
     case "tag":
-      return `<span class="tag">${esc(text)}</span>`;
+      return `<span class="tag">${shown}</span>`;
     case "page":
-      return links.page ? `<button type="button" class="link" data-act="page" title="Show cards on ${esc(text)}">${esc(text)}</button>` : plain(text);
+      return links.page ? `<button type="button" class="link" data-act="page" title="Show cards on ${esc(text)}">${shown}</button>` : plain(text);
     case "card":
-      return links.card ? `<button type="button" class="link" data-act="card" title="Open card details">${esc(text)}</button>` : plain(text);
+      return links.card ? `<button type="button" class="link" data-act="card" title="Open card details">${shown}</button>` : plain(text);
     default:
       return plain(text);
   }
 }
 
-/* ---------- header, banners, navigation ---------- */
+const ROW_ICON = '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3l6 5-6 5"/></svg>';
+
+/** The first cell of a row on screen, which also opens the row, so that a row can be read in full from the keyboard: the
+ * cell's content is a button. A cell that is already a link or an ID to copy keeps that, and a cell without text has
+ * nothing to make a button of: there a small button stands before the cell's own content. */
+export function rowCellHtml(column: Column, row: Row, links: Links): string {
+  const text = cellText(row[column.index]);
+  const own = cellHtml(column, row, links);
+  const control = text !== NONE && (column.kind === "id" || (column.kind === "page" && links.page) || (column.kind === "card" && links.card));
+  if (text === "" || control) return `<button type="button" class="link" data-act="row" aria-label="Open this row" title="Open this row">${ROW_ICON}</button> ${own}`;
+  return `<button type="button" class="link" data-act="row" title="Open this row">${own}</button>`;
+}
+
+/* ---------- header, navigation ---------- */
 
 export function headerMetaHtml(analysed: Analysed): string {
   const parts = [esc(analysed.kind)];
@@ -68,14 +86,6 @@ export function headerMetaHtml(analysed: Analysed): string {
   if (analysed.exportedOn) parts.push(`Exported ${esc(analysed.exportedOn)}`);
   return `<div class="meta-app">${esc(analysed.name)}</div>
      <div class="meta-sub">${parts.join('<span class="dotsep">·</span>')}</div>`;
-}
-
-/** The result's notes: its summary lines in one banner, and the notes the summary does not already say in another. */
-export function bannersHtml(summary: readonly string[], notes: readonly string[]): string {
-  const banners: string[] = [];
-  if (summary.length) banners.push(`<div class="banner note">${INFO_ICON}<div>${summary.map(esc).join(" · ")}</div></div>`);
-  if (notes.length) banners.push(`<div class="banner note">${INFO_ICON}<div>${notes.map(note => `<div>${esc(note)}</div>`).join("")}</div></div>`);
-  return banners.join("");
 }
 
 export interface NavEntry { id: string; label: string; count?: number }
@@ -111,10 +121,12 @@ export function crumbsHtml(label: string | undefined, context: string | undefine
 
 /* ---------- overview ---------- */
 
+/** A view's heading is the page's h1, so what stands under it in the overview and in the details is an h2. The drawer's
+ * heading is an h2 of the page shell, and its sections are h3. No view goes from one level to one two below it. */
 export function overviewHtml(overview: Overview): string {
   const most = overview.cardTypes.reduce((max, [, count]) => Math.max(max, count), 1);
   const types = overview.cardTypes.length ? `
-      <section class="panel" aria-labelledby="ovt"><h3 id="ovt">Cards by type</h3>
+      <section class="panel" aria-labelledby="ovt"><h2 id="ovt">Cards by type</h2>
         <div class="typebars">
           ${overview.cardTypes.map(([type, count]) => `
             <div class="typebar"><span>${type === "" ? BLANK : esc(type)}</span>
@@ -123,20 +135,27 @@ export function overviewHtml(overview: Overview): string {
         </div>
       </section>` : "";
   const models = overview.models.length ? `
-      <section class="panel" aria-labelledby="ovm"><h3 id="ovm">Models</h3>
+      <section class="panel" aria-labelledby="ovm"><h2 id="ovm">Models</h2>
         ${overview.models.map(model => `
           <div class="model-row">
             <div class="m-name">${esc(model.model)} ${idPill(model.modelId)}</div>
             <div class="m-sub">Workspace: ${esc(model.workspace)}</div>
           </div>`).join("")}
       </section>` : "";
+  // The design's Warnings panel, without its coloured dots: a note has no severity.
+  const notes = overview.notes.length ? `
+    <section class="panel" aria-labelledby="ovn" style="margin-bottom:12px"><h2 id="ovn">Notes</h2>
+      <ul class="warn-list">
+        ${overview.notes.map(note => `<li><span class="wl-ink">${esc(note)}</span></li>`).join("")}
+      </ul>
+    </section>` : "";
   return `
     <h1 class="view-title">Overview</h1>
     <div class="ov-grid">
       ${overview.tiles.map(tile => `<div class="stat"><div class="s-lab">${esc(tile.label)}</div><div class="s-num">${esc(tile.count)}</div><div class="s-sub">${tile.count === 1 ? "row" : "rows"}</div></div>`).join("")}
     </div>${types || models ? `
     <div class="ov-cols">${types}${models}
-    </div>` : ""}`;
+    </div>` : ""}${notes}`;
 }
 
 /* ---------- details ---------- */
@@ -145,13 +164,13 @@ export function overviewHtml(overview: Overview): string {
 export function detailsHtml(sections: readonly DetailSection[], log: readonly string[]): string {
   return `
     <h1 class="view-title">Details</h1>
-    ${sections.map(section => `<div class="d-sec"><h3>${esc(section.section)}</h3>
+    ${sections.map(section => `<div class="d-sec"><h2>${esc(section.section)}</h2>
       <dl class="dl">${section.rows.map(([detail, value]) => `<dt>${esc(detail)}</dt><dd>${esc(value)}</dd>`).join("")}</dl></div>`).join("")}
     ${log.length ? `<details class="diag">
       ${DIAGNOSTICS_SUMMARY}
       <div class="diag-body">
-        <pre id="diagLog" tabindex="0">${esc(log.join("\n"))}</pre>
-        ${COPY_LOG_BUTTON}
+        <pre id="diagLog" tabindex="0" role="region" aria-label="Diagnostic log">${esc(log.join("\n"))}</pre>
+        ${copyLogButton("copy-diag")}
       </div>
     </details>` : ""}`;
 }
@@ -170,10 +189,21 @@ export function runHtml(): string {
     <details class="diag" id="runLog" open hidden>
       ${DIAGNOSTICS_SUMMARY}
       <div class="diag-body">
-        <pre id="diagLog" tabindex="0"></pre>
-        ${COPY_LOG_BUTTON}
+        <pre id="diagLog" tabindex="0" role="region" aria-label="Diagnostic log"></pre>
+        ${copyLogButton("copy-run-log")}
       </div>
     </details>`;
+}
+
+/** The banner a run's progress or failure stands in while an earlier result stays on the page: a heading, the status or
+ * the message, what to do, and the button that copies that run's log. Like the run's own view it holds no text of the run:
+ * the page sets each part as plain text. */
+export function runBannerHtml(): string {
+  return `<div class="banner note" id="runBanner">${INFO_ICON}
+      <div><div><strong id="bannerTitle"></strong></div>
+        <div><span id="bannerText"></span> <span id="bannerHint"></span></div>
+        <div>The results below are from the earlier run.</div></div>
+      ${copyLogButton("copy-run-log", ' id="bannerCopy" style="margin-left:auto;flex:none" hidden')}</div>`;
 }
 
 /* ---------- table ---------- */
@@ -215,21 +245,36 @@ export function pagerHtml(page: number, pages: number, total: number, pageSize: 
       </select></span>`;
 }
 
-export function tableHtml(view: TableView): string {
+/** The parts of a table view that follow what the user asked for: the search, the filters, the sort and the page. The
+ * page writes these again while the user types, and leaves the rest of the view, the search box above all, as it is. */
+export interface TableParts {
+  /** What the table's box holds: the table, or why it shows no row. */
+  grid: string;
+  pager: string;
+  /** Which rows are shown, as text: "1–50 of 120 rows". */
+  count: string;
+  /** Whether a search, a filter, a sort or a jump is in force: Reset is offered then. */
+  modified: boolean;
+}
+
+export function tableParts(view: TableView): TableParts {
   const label = esc(view.label);
   const searching = view.search.trim() !== "";
   const filtering = view.filtered.size > 0;
   const jumped = view.context !== undefined;
-  const modified = searching || filtering || jumped || view.sort !== undefined;
 
   const head = view.columns.map(column => {
     const dir = view.sort?.column === column.index ? view.sort.dir : undefined;
     const aria = dir ? (dir === "asc" ? "ascending" : "descending") : "none";
     const arrow = `<span class="dir" aria-hidden="true">${dir ? (dir === "asc" ? "▲" : "▼") : ""}</span>`;
     const name = esc(column.label);
-    const filter = column.filter ? `<button type="button" class="th-filter ${view.filtered.has(column.index) ? "active" : ""}"
-        data-colfilter="${column.index}" aria-label="Filter by ${name}" aria-haspopup="dialog" title="Filter by ${name}">
-        <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">${FILTER_PATH}</svg></button>` : "";
+    // A filter in force shows in more than the button's colour: the funnel is filled, where it is otherwise an outline,
+    // and the button's name says so. The page sets aria-expanded while the button's popover is open.
+    const active = view.filtered.has(column.index);
+    const says = `Filter by ${name}${active ? " (filter on)" : ""}`;
+    const filter = column.filter ? `<button type="button" class="th-filter ${active ? "active" : ""}"
+        data-colfilter="${column.index}" aria-label="${says}" aria-haspopup="dialog" aria-expanded="false" title="${says}">
+        <svg width="11" height="11" viewBox="0 0 16 16" ${active ? 'fill="currentColor"' : 'fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"'} aria-hidden="true">${FILTER_PATH}</svg></button>` : "";
     return `<th scope="col" class="${column.num ? "num" : ""}" aria-sort="${aria}">
       <div class="th-in"><button type="button" class="th-sort" data-sort="${column.index}">${name}${arrow}</button>${filter}</div></th>`;
   }).join("");
@@ -238,61 +283,74 @@ export function tableHtml(view: TableView): string {
   let empty = "";
   if (view.all === 0) {
     empty = `<div class="empty">
-      <svg width="30" height="30" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round">${FILTER_PATH}</svg>
+      <svg width="30" height="30" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" aria-hidden="true">${FILTER_PATH}</svg>
       <div class="e-title">${label} has no rows</div>
-      <div class="e-sub">Nothing was found for this file in this analysis.</div>
+      <div class="e-sub">Nothing was found for this table in this analysis.</div>
       </div>`;
   } else if (view.total === 0) {
     const what = [...(searching ? ["search"] : []), ...(filtering ? ["column filters"] : []), ...(jumped ? ["page selection"] : [])].join(" and ");
     empty = `<div class="empty">
-      <svg width="30" height="30" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round">${SEARCH_PATH}</svg>
+      <svg width="30" height="30" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" aria-hidden="true">${SEARCH_PATH}</svg>
       <div class="e-title">No results</div>
       <div class="e-sub">Nothing in ${label} matches the current ${what}.</div>
       <button type="button" class="btn sm" data-act="reset">Clear search &amp; filters</button>
       </div>`;
   } else {
-    body = view.rows.map(row => `<tr>${view.columns.map(column =>
-      `<td class="${column.num ? "num" : ""}">${cellHtml(column, row, view.links)}</td>`).join("")}</tr>`).join("");
+    body = view.rows.map(row => `<tr>${view.columns.map((column, position) =>
+      `<td class="${column.num ? "num" : ""}">${position === 0 ? rowCellHtml(column, row, view.links) : cellHtml(column, row, view.links)}</td>`).join("")}</tr>`).join("");
   }
 
-  const count = `${view.from}–${view.to} of ${view.total} rows` + (view.total !== view.all ? ` (filtered from ${view.all})` : "");
+  return {
+    grid: `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>
+      ${empty}
+      <div class="scroll-fade" aria-hidden="true"></div>`,
+    pager: pagerHtml(view.page, view.pages, view.total, view.pageSize),
+    count: (view.total === 0 ? "No rows" : `${view.from}–${view.to} of ${view.total} ${view.total === 1 ? "row" : "rows"}`) + (view.total !== view.all ? ` (filtered from ${view.all})` : ""),
+    modified: searching || filtering || jumped || view.sort !== undefined,
+  };
+}
+
+/** A table view whole: its name, its toolbar with the search box, and the parts above in their places. */
+export function tableHtml(view: TableView): string {
+  const label = esc(view.label);
+  const parts = tableParts(view);
   return `
     <h1 class="view-title">${label}</h1>
     <div class="toolbar">
-      <div class="search-wrap ${view.search ? "has-value" : ""}">
+      <div class="search-wrap ${view.search ? "has-value" : ""}" id="searchWrap">
         <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">${SEARCH_PATH}</svg>
         <input id="tblSearch" type="search" value="${esc(view.search)}" placeholder="Search all columns…" aria-label="Search ${label}">
         <button type="button" class="search-clear" data-act="clear-search" aria-label="Clear search">
           ${CLOSE_ICON}</button>
         <kbd title="Press / to focus search">/</kbd>
       </div>
-      <button type="button" class="btn sm" id="colBtn" aria-haspopup="dialog">
-        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"/></svg>
+      <button type="button" class="btn sm" id="colBtn" aria-haspopup="dialog" aria-expanded="false">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"/></svg>
         Columns</button>
-      <button type="button" class="btn sm" data-act="reset" ${modified ? "" : "hidden"}>Reset</button>
-      <span class="rowcount" id="rowCount">${count}</span>
+      <button type="button" class="btn sm" data-act="reset" id="resetBtn" ${parts.modified ? "" : "hidden"}>Reset</button>
+      <span class="rowcount" id="rowCount">${esc(parts.count)}</span>
     </div>
     <div class="table-wrap" id="tableWrap" tabindex="0" role="region" aria-label="${label} table">
-      <table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>
-      ${empty}
-      <div class="scroll-fade" aria-hidden="true"></div>
+      ${parts.grid}
     </div>
-    <div class="pager" id="pager">${pagerHtml(view.page, view.pages, view.total, view.pageSize)}</div>`;
+    <div class="pager" id="pager">${parts.pager}</div>`;
 }
 
 /* ---------- popovers ---------- */
 
-/** A column's filter: each text the column holds with its number of rows, ticked when shown. A box is known by its place
- * in the list, so no value is read back out of the page. */
+/** A column's filter: each text the column holds with its number of rows, ticked when shown. The numbers count the rows
+ * of the whole table, whatever the search, the other filters or a jump leave on screen, and a line above them says so. A
+ * box is known by its place in the list, so no value is read back out of the page. */
 export function colFilterHtml(column: Column, values: readonly (readonly [value: string, count: number])[], selected: ReadonlySet<string> | undefined): string {
   const checked = (value: string) => (!selected || selected.has(value) ? "checked" : "");
   return `
     <div class="pop-hd"><span>Filter: ${esc(column.label)}</span><button type="button" data-popact="all">Show all</button></div>
+    ${values.length ? '<div class="pop-hd" aria-hidden="true"><span>Value</span><span>Rows in the whole table</span></div>' : ""}
     <div class="pop-bd">
       ${values.length ? values.map(([value, count], index) => `
         <label class="pop-opt"><input type="checkbox" data-fval="${index}" ${checked(value)}>
         <span style="overflow:hidden;text-overflow:ellipsis">${value === "" ? BLANK : esc(value)}</span>
-        <span class="po-cnt">${esc(count)}</span></label>`).join("")
+        <span class="po-cnt">${esc(count)}<span class="sr-only"> ${count === 1 ? "row" : "rows"} in the whole table</span></span></label>`).join("")
       : '<div class="pop-empty">No values</div>'}
     </div>`;
 }
@@ -309,13 +367,20 @@ export function colChooserHtml(columns: readonly Column[], hidden: ReadonlySet<n
 
 /* ---------- drawer ---------- */
 
+/** A row whole: every one of its cells, also those beyond the table's headers, each with its value in full. Nothing but
+ * the value stands in a `dd`, so no space of the markup's own is kept with it. */
 const allColumns = (columns: readonly Column[], row: Row, links: Links): string =>
-  `<dl class="d-dl">${columns.map(column => `<dt>${esc(column.label)}</dt><dd>${cellHtml(column, row, links)}</dd>`).join("")}</dl>`;
+  `<dl class="d-dl">${rowColumns(columns, row).map(column => `<dt>${esc(column.label)}</dt><dd>${cellHtml(column, row, links, true)}</dd>`).join("")}</dl>`;
 
 /** One row in full: every column, hidden ones included, with nothing cut short. */
 export function rowDrawerHtml(columns: readonly Column[], row: Row, links: Links): string {
   return `<div class="d-sec"><h3>All columns</h3>
     ${allColumns(columns, row, links)}</div>`;
+}
+
+/** Under a row's name in the drawer: which row of which table it is. `position` is the row's place in the file, from 1. */
+export function rowDrawerSubHtml(position: number, label: string): string {
+  return `Row ${esc(position)} of ${esc(label)}`;
 }
 
 /** Under a card's name in the drawer: its page (a jump to that page's cards), its type and its ID. */

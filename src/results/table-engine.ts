@@ -12,6 +12,17 @@ export const cellText = (cell: unknown): string => (cell === null || cell === un
 /** The dash the app export writes where there is nothing to say (report.ts `NONE`). The page shows it greyed, as text. */
 export const NONE = "—";
 
+/** A name for a row: the text of its first cell that says something, which is neither empty nor the dash. Nothing when no
+ * cell does. A text far longer than a name is cut, since it stands as a heading; the cell itself is never cut. */
+export function rowName(row: Row): string {
+  for (const cell of row) {
+    const text = cellText(cell).trim();
+    if (text !== "" && text !== NONE) return text.length > ROW_NAME_MAX ? `${text.slice(0, ROW_NAME_MAX)}…` : text;
+  }
+  return "";
+}
+export const ROW_NAME_MAX = 120;
+
 export interface Sort { column: number; dir: "asc" | "desc" }
 
 export interface TableQuery {
