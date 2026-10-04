@@ -4,12 +4,12 @@ import { HEADERS } from "../report.js";
 import type { AnalysisResult, Cell, ResultTable } from "../result-types.js";
 import { cardsOf, columnsOf, rowKeys, type Column } from "./columns.js";
 import {
-  bannersHtml, cardDrawerHtml, cardDrawerSubHtml, cellHtml, colChooserHtml, colFilterHtml, crumbsHtml, detailsHtml, esc, headerMetaHtml, idPill,
+  cardDrawerHtml, cardDrawerSubHtml, cellHtml, colChooserHtml, colFilterHtml, crumbsHtml, detailsHtml, esc, headerMetaHtml, idPill,
   MOON_ICON, navHtml, overviewHtml, pagerHtml, rowCellHtml, rowDrawerHtml, rowDrawerSubHtml, runHtml, SUN_ICON, tableHtml, tableParts, type Links, type TableView,
 } from "./markup.js";
 import { parseMarkup } from "./dom.test-support.js";
 import { decode, readMarkup, shownValues, structure } from "./markup.test-support.js";
-import { analysedOf, cardSections, detailSections, detailsOf, diagnosticLog, overviewOf, resultNotes } from "./result-view.js";
+import { analysedOf, cardSections, detailSections, detailsOf, diagnosticLog, overviewOf } from "./result-view.js";
 import { pageOf, selectRows, valueCounts } from "./table-engine.js";
 
 /** What an Anaplan user can type into a card title, a text card, a name or a formula. */
@@ -89,7 +89,7 @@ describe("The results page's escaping", () => {
       headerMetaHtml({ name: QUOTED, kind: "App", host: QUOTED, exportedOn: QUOTED }),
       navHtml([{ id: "overview", label: "Overview" }, { id: "1", label: QUOTED, count: 2 }], "1"),
       crumbsHtml(QUOTED, QUOTED),
-      overviewHtml({ tiles: [{ label: QUOTED, count: 1 }], cardTypes: [[QUOTED, 1]], models: [{ model: QUOTED, workspace: QUOTED, modelId: QUOTED }] }),
+      overviewHtml({ tiles: [{ label: QUOTED, count: 1 }], cardTypes: [[QUOTED, 1]], models: [{ model: QUOTED, workspace: QUOTED, modelId: QUOTED }], notes: [QUOTED] }),
       tableHtml(viewOf({ file: "Pages.csv", label: QUOTED, headers: ["Page", QUOTED], rows: [[QUOTED, QUOTED]], guard: true }, LINKS, { search: QUOTED, context: QUOTED })),
       rowDrawerSubHtml(QUOTED),
       cardDrawerSubHtml(QUOTED, QUOTED, QUOTED),
@@ -122,7 +122,7 @@ describe("The results page's escaping", () => {
     expect([...pill.attributes.keys()]).toEqual(["type", "class", "data-copy", "title", "aria-label"]);
     expect(decode(pill.attributes.get("data-copy") ?? "")).toBe(SCRIPT);
     expect(detailsHtml([{ section: SCRIPT, rows: [[SCRIPT, SCRIPT]] }], [SCRIPT])).not.toContain("<script");
-    expect(bannersHtml([SCRIPT], [SCRIPT])).not.toContain("<script");
+    expect(overviewHtml({ tiles: [], cardTypes: [], models: [], notes: [SCRIPT] })).not.toContain("<script");
   });
 
   it("lets no text change a cell's markup, in any kind of column", () => {
@@ -178,9 +178,8 @@ describe("The results page's escaping", () => {
     expect(acts([column(2, "Card title")])).toEqual([["row"], ["row"]]);
   });
 
-  it("lets no text change the header, the banners, the navigation or the breadcrumb", () => {
+  it("lets no text change the header, the navigation or the breadcrumb", () => {
     expectInert(text => headerMetaHtml({ name: text(0), kind: text(1), host: text(2), exportedOn: text(3) }), 4);
-    expectInert(text => bannersHtml([text(0), text(1), text(2)], [text(3), text(4), text(5), text(6)]), 7);
     expectInert(text => navHtml([{ id: "overview", label: text(0) }, { id: "1", label: text(1), count: 3 }, { id: "details", label: text(2) }], "details"), 3);
     expectInert(text => crumbsHtml(text(0), text(1)), 2);
     expectInert(text => crumbsHtml(text(2), undefined), 0);
@@ -190,7 +189,10 @@ describe("The results page's escaping", () => {
     expectInert(text => overviewHtml({
       tiles: [{ label: text(0), count: 3 }, { label: text(1), count: 1 }], cardTypes: [[text(2), 4], [text(3), 1]],
       models: [{ model: text(4), workspace: text(5), modelId: text(6) }, { model: text(7), workspace: text(8), modelId: text(9) }],
+      notes: [text(10), text(11), text(12)],
     }), 7);
+    // The notes alone, each of the texts in turn.
+    expectInert(text => overviewHtml({ tiles: [], cardTypes: [], models: [], notes: HOSTILE.map((_, index) => text(index)) }), 7);
     expectInert(text => detailsHtml([{ section: text(0), rows: [[text(1), text(2)], [text(3), text(4)]] }, { section: text(5), rows: [[text(6), text(7)]] }], [text(8), text(9), text(10)]), 7);
   });
 
@@ -294,7 +296,6 @@ describe("A result whose every text is hostile, through every view of the page",
   function everyView(): string[] {
     const details = detailsOf(result);
     const cards = cardsOf(result);
-    const notes = resultNotes(result);
     const tables = result.tables.filter(table => table !== details);
     const linksOf = (table: ResultTable): Links => {
       const keys = rowKeys(table);
@@ -302,7 +303,6 @@ describe("A result whose every text is hostile, through every view of the page",
     };
     const pieces = [
       headerMetaHtml(analysedOf(result)),
-      bannersHtml(notes.summary, notes.notes),
       navHtml([{ id: "overview", label: "Overview" }, ...tables.map((table, index) => ({ id: String(index + 1), label: table.label, count: table.rows.length })), { id: "details", label: "Details" }], "overview"),
       overviewHtml(overviewOf(result)),
       detailsHtml(detailSections(details), diagnosticLog(details)),
@@ -329,8 +329,8 @@ describe("A result whose every text is hostile, through every view of the page",
 
   it("is made of the design's own elements and attributes only", () => {
     const html = everyView().join("\n");
-    const elements = new Set(["button", "circle", "dd", "details", "div", "dl", "dt", "em", "h1", "h3", "input", "kbd", "label", "option", "p", "path", "pre", "rect",
-      "section", "select", "span", "strong", "summary", "svg", "table", "tbody", "td", "th", "thead", "tr"]);
+    const elements = new Set(["button", "circle", "dd", "details", "div", "dl", "dt", "em", "h1", "h3", "input", "kbd", "label", "li", "option", "p", "path", "pre", "rect",
+      "section", "select", "span", "strong", "summary", "svg", "table", "tbody", "td", "th", "thead", "tr", "ul"]);
     const attributes = /^(aria-[a-z]+|data-(act|nav|copy|sort|colfilter|col|fval|page|popact)|class|type|title|style|id|hidden|open|disabled|checked|selected|value|placeholder|tabindex|role|scope|width|height|viewBox|fill|stroke|stroke-width|stroke-linecap|stroke-linejoin|d|cx|cy|r|x|y|rx)$/;
     expect(tagNames(html).filter(name => !elements.has(name))).toEqual([]);
     expect(attributeNames(html).filter(name => !attributes.test(name))).toEqual([]);
@@ -356,7 +356,7 @@ describe("A result whose every text is hostile, through every view of the page",
     }
     // Every style on the page is one of the design's own; the only part that varies is a bar's width, a number.
     expect([...styles].sort()).toEqual(["display:block;width:N%", "font-family:var(--mono);font-size:11px", "font-size:12px;color:var(--text-3);margin:4px 0 0",
-      "margin-left:auto", "overflow:hidden;text-overflow:ellipsis"]);
+      "margin-bottom:12px", "margin-left:auto", "overflow:hidden;text-overflow:ellipsis"]);
   });
 
   it("shows each hostile text as it was typed, somewhere on the page", () => {

@@ -163,9 +163,10 @@ describe("The results page's script, on the page", () => {
     expect(page.texts("#hdMeta .meta-app")).toEqual(["Demo <img src=x onerror=alert(1)> app"]);
     expect(page.has("img")).toBe(false);
     expect(page.find("#hdMeta .meta-sub").textContent).toContain("us1a.app.anaplan.com");
-    // The notes: the summary, and the Notes rows of the Details file.
-    expect(page.id("banners").textContent).toContain("1 of 1 pages analysed, 2 cards.");
-    expect(page.id("banners").textContent).toContain("Archive: Not published");
+    // The notes are a panel of the overview, one line each: the summary, and the Notes rows of the Details file. The banner
+    // area holds none of them.
+    expect([page.texts("#view .panel h3"), page.texts("#view .warn-list li")]).toEqual([["Cards by type", "Notes"], ["1 of 1 pages analysed, 2 cards.", "Archive: Not published"]]);
+    expect(page.id("banners").children).toEqual([]);
     // One navigation entry per file, the Details file as Details, and the model map as coming later.
     expect(page.all("#navList [data-nav]").map(entry => entry.dataset.nav)).toEqual(["overview", "1", "2", "details", "map"]);
     expect(page.find('#navList [data-nav="map"]').title).toBe("Model map is coming in a later version");
@@ -443,6 +444,14 @@ describe("The results page's script, on the page", () => {
     page.id("colBtn").press();
     page.id("tblSearch").press();
     expect([page.id("popover").hidden, active() === page.id("tblSearch")]).toEqual([true, true]);
+  });
+
+  it("shows no Notes panel for a model whose summary only says how many rows each file has", async () => {
+    await openWith(MODEL);
+    expect([page.texts("#view h1"), page.texts("#view .s-lab"), page.has("#view .warn-list"), page.id("banners").children]).toEqual([["Overview"], ["Line Items", "Modules"], false, []]);
+    // A table's view has no notes either: they are on the overview only.
+    goTo(1);
+    expect([page.has(".warn-list"), page.id("banners").children]).toEqual([false, []]);
   });
 
   it("says so when the address names no tab, and connects to nothing", async () => {

@@ -5,11 +5,11 @@ import { VERSION } from "../version.js";
 import { cardsOf, columnIndex, columnsOf, rowKeys, type CardsTable, type Column, type RowKeys } from "./columns.js";
 import { describeState, openedJustNow, ResultsClient, runLabel, tabIdFrom, withoutOpened, type RunState } from "./connection.js";
 import {
-  bannersHtml, cardDrawerHtml, cardDrawerSubHtml, colChooserHtml, colFilterHtml, crumbsHtml, detailsHtml, headerMetaHtml, MOON_ICON, navHtml,
+  cardDrawerHtml, cardDrawerSubHtml, colChooserHtml, colFilterHtml, crumbsHtml, detailsHtml, headerMetaHtml, MOON_ICON, navHtml,
   overviewHtml, rowDrawerHtml, rowDrawerSubHtml, runHtml, SUN_ICON, tableHtml, tableParts, type Links, type NavEntry, type TableView,
 } from "./markup.js";
 import type { PageId } from "./page-ids.js";
-import { analysedOf, cardSections, detailSections, detailsOf, diagnosticLog, overviewOf, resultNotes } from "./result-view.js";
+import { analysedOf, cardSections, detailSections, detailsOf, diagnosticLog, overviewOf } from "./result-view.js";
 import { cellText, NONE, pageOf, rememberingSelect, valueCounts, type Row, type Sort, type TableQuery } from "./table-engine.js";
 
 /** The results page (results.html): the design's script, on the real result. It connects to the Anaplan tab the address
@@ -262,8 +262,6 @@ function showResult(next: AnalysisResult, at: Date): void {
   const analysed = analysedOf(next);
   document.title = `Cardigan — ${analysed.name}`;
   el("hdMeta").innerHTML = headerMetaHtml(analysed);
-  const notes = resultNotes(next);
-  el("banners").innerHTML = bannersHtml(notes.summary, notes.notes);
   el("sidenav").hidden = false;
   el("navToggle").hidden = false;
   renderAll();

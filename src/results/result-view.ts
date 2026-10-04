@@ -2,8 +2,8 @@ import type { AnalysisResult, ResultTable } from "../result-types.js";
 import { columnIndex } from "./columns.js";
 import { cellText, compareText, NONE } from "./table-engine.js";
 
-/** What the results page reads out of a result besides its tables: the Details file's sections, the diagnostic log, the
- * notes and the overview's counts. Everything is taken from cells as they stand: nothing is split out of a joined text. */
+/** What the results page reads out of a result besides its tables: the Details file's sections, the diagnostic log, and
+ * the overview's counts and notes. Everything is taken from cells as they stand: nothing is split out of a joined text. */
 
 /** The one file about the export itself (App Details.csv, Model Details.csv): rows of Section, Detail, Value. */
 export const detailsOf = (result: AnalysisResult): ResultTable | undefined => result.tables.find(table => table.details === true);
@@ -44,12 +44,14 @@ export function detailValue(details: ResultTable | undefined, section: string, d
   return row ? cellText(row[2]) : undefined;
 }
 
-/** The result's notes: its summary lines, then the Details file's Notes rows as "Detail: Value". A Notes row whose text
- * the summary already holds, word for word, is not said twice. */
-export function resultNotes(result: AnalysisResult): { summary: string[]; notes: string[] } {
+/** The result's notes, one line each: its summary lines, then the Details file's Notes rows as "Detail: Value". A Notes row
+ * whose text the summary already holds, word for word, is not said twice. A line that says only how many rows a file has
+ * ("Line Items: 120 rows", as a model's summary lists every file) is left out: the overview's tiles say that. */
+export function resultNotes(result: AnalysisResult): string[] {
+  const rowCounts = new Set(result.tables.flatMap(table => ["rows", "row"].map(word => `${cellText(table.label)}: ${table.rows.length} ${word}`)));
   const summary = result.summary.map(cellText).filter(line => line !== "");
   const said = new Set(summary);
-  const notes: string[] = [];
+  const notes = summary.filter(line => !rowCounts.has(line));
   for (const row of detailsOf(result)?.rows ?? []) {
     if (cellText(row[0]) !== NOTES) continue;
     const detail = cellText(row[1]);
@@ -59,7 +61,7 @@ export function resultNotes(result: AnalysisResult): { summary: string[]; notes:
     said.add(line);
     notes.push(line);
   }
-  return { summary, notes };
+  return notes;
 }
 
 /** What the header says was analysed. */
@@ -120,6 +122,8 @@ export interface Overview {
   cardTypes: [type: string, count: number][];
   /** An app's models: each different Model, Workspace and Model ID its pages name, in the pages' order. */
   models: ModelRow[];
+  /** The result's notes (`resultNotes`). */
+  notes: string[];
 }
 
 export function overviewOf(result: AnalysisResult): Overview {
@@ -147,5 +151,5 @@ export function overviewOf(result: AnalysisResult): Overview {
       if (!models.has(key)) models.set(key, entry);
     }
   }
-  return { tiles, cardTypes, models: [...models.values()] };
+  return { tiles, cardTypes, models: [...models.values()], notes: resultNotes(result) };
 }
