@@ -891,6 +891,12 @@ describe("The results page's script, on the page", () => {
     expect([page.id("runStatus").textContent, page.id("runHint").hidden, page.id("runLog").hidden, page.id("diagLog").textContent]).toEqual([
       "Cardigan received a result it could not read. Refresh the Anaplan tab, then click the Cardigan icon again.", true, false,
       "14:02:05 stopped: the tab said its result was complete before it sent one"]);
+    // An error the tab sends without having started a run comes without a log: the page writes the one line, so the
+    // button is beside this message too.
+    page.id("runAgain").press();
+    const busy = "Cardigan is still analysing what this Anaplan tab showed before. Wait for that to finish, or close its results page, then choose Run again.";
+    ports[0].send({ type: "error", message: busy });
+    expect([page.id("runStatus").textContent, page.id("runLog").hidden, page.id("diagLog").textContent, page.has('#view [data-act="copy-run-log"]')]).toEqual([busy, false, `14:02:05 stopped: ${busy}`, true]);
   });
 
   it("shows the tab's error as text, and keeps Run again usable on an Anaplan page that is not an app or a model", async () => {

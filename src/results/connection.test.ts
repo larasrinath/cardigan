@@ -346,6 +346,13 @@ describe("The results page's connection to the Anaplan tab", () => {
     const busy = "Cardigan is still analysing what this Anaplan tab showed before. Wait for that to finish, or close its results page, then choose Run again.";
     ports[0].send({ type: "error", message: busy });
     expect(describeState(client.state, client.asked)).toEqual({ title: "The analysis stopped", message: busy, hint: "" });
+    // No run started in the tab, so the tab wrote nothing into a log: the page writes the one line, and there is a log to copy.
+    expect(client.log).toEqual([`14:02:05 stopped: ${busy}`]);
+    // A run that failed has its own lines, the tab's last one saying why: the page adds none.
+    client.runAgain();
+    ports[0].send({ type: "log", text: "14:02:06 stopped: GET /apps 503" });
+    ports[0].send({ type: "error", message: "Anaplan could not be reached. Check your connection, then choose Run again." });
+    expect(client.log).toEqual(["14:02:06 stopped: GET /apps 503"]);
   });
 
   it("gives an error without words a message of its own, which says what to do in the words the tab's messages use", () => {
@@ -355,6 +362,8 @@ describe("The results page's connection to the Anaplan tab", () => {
       ports[0].send({ type: "subject", subject: APP });
       ports[0].send(error);
       expect(client.state).toEqual({ phase: "failed", message: NO_REASON });
+      // The message names the button that copies the log, so there is a log: the page's own line.
+      expect(client.log).toEqual([`14:02:05 stopped: ${NO_REASON}`]);
     }
     expect(NO_REASON).toBe("The analysis stopped without saying why. Choose Run again. If it keeps happening, choose Copy diagnostic log and send the log.");
   });

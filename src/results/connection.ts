@@ -222,9 +222,14 @@ export class ResultsClient {
         return this.set({ phase: "done", result, received: new Date() });
       }
       // Also in place of "done", when a piece of the result could not be sent: what has arrived of it is not shown.
-      case "error":
+      case "error": {
         this.pending = undefined;
-        return this.set({ phase: "failed", message: text(message.message) && message.message ? message.message : NO_REASON });
+        const failure = text(message.message) && message.message ? message.message : NO_REASON;
+        // The tab writes why a run stopped into its log before it says so. An error with no line before it (the tab had
+        // nothing to analyse, or is busy with an earlier run) gets one here: a failed run always has a log to copy.
+        if (!this.log.length) this.append(stampLine(`stopped: ${failure}`));
+        return this.set({ phase: "failed", message: failure });
+      }
     }
   }
 
