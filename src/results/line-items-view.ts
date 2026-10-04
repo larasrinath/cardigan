@@ -10,6 +10,7 @@ import { cellText } from "./table-engine.js";
  *
  * A module's own row is one whose Module Name cell is empty; a line item's row names its module there. That is how an
  * export of a real model shows them. The classic client tells the two apart by the row's ID, which a table does not hold.
+ * A table in which no row is a module's own is not the grid as the view knows it, and is shown as it is.
  *
  * The rest is how the classic client itself reads this grid (anaplan/gridlet/_editor/ActionEditor.js, `LineItemsLoader`
  * and the editors that use it). A line item belongs to the nearest module's row above it. The view takes that row for the
@@ -44,7 +45,7 @@ export interface LineItemsView {
   moduleRows: number;
   /** The modules among them with no line items: no row of `table` names them. */
   emptyModules: number;
-  /** One line for the page to show with the table: what was left out. None when nothing was. */
+  /** One line for the page to show with the table: what was left out. None when the table is shown as it is. */
   note?: string;
 }
 
@@ -53,20 +54,19 @@ interface ModuleRow { name: string; appliesTo: Cell; named: boolean }
 const count = (amount: number, one: string, many: string): string => (amount === 1 ? `1 ${one}` : `${amount} ${many}`);
 
 /** What the page says of the rows left out: how many, and how many of them are modules that no line item names. */
-function noteOf(moduleRows: number, emptyModules: number): string | undefined {
-  if (moduleRows === 0) return undefined;
+function noteOf(moduleRows: number, emptyModules: number): string {
   const left = `${count(moduleRows, "module row is", "module rows are")} in the CSV only; each line item shows its module.`;
   return emptyModules === 0 ? left : `${left} ${count(emptyModules, "module has no line items, so it is", "modules have no line items, so they are")} not in this table.`;
 }
 
 /** The view of the engine's Line Items table, or nothing for any other table: another file, one without a column the
- * view reads after the row's name, or one that already has the view's own column. */
+ * view reads after the row's name, or one in which no row is a module's own (the view itself is such a table). */
 function viewOf(table: ResultTable): LineItemsView | undefined {
   if (table.file !== LINE_ITEMS_FILE) return undefined;
   const { headers } = table;
   const moduleName = headers.indexOf(MODULE_NAME);
   const appliesTo = headers.indexOf(APPLIES_TO);
-  if (moduleName < 1 || appliesTo < 1 || headers.includes(APPLIES_TO_FROM)) return undefined;
+  if (moduleName < 1 || appliesTo < 1) return undefined;
   const startOfSection = headers.indexOf(START_OF_SECTION);
   // The row's name, its module, then every other column in the file's order.
   const order = [0, moduleName, ...headers.map((_, index) => index).filter(index => index !== 0 && index !== moduleName)];
@@ -74,7 +74,7 @@ function viewOf(table: ResultTable): LineItemsView | undefined {
   const rows: Cell[][] = [];
   let moduleRows = 0;
   let namedModules = 0;
-  /** The nearest module's row above, and the Applies To of the line item that started the section, with its module's name. */
+  // The nearest module's row above, and the Applies To of the line item that started the section, with its module's name.
   let above: ModuleRow | undefined;
   let section: { module: string; appliesTo: Cell } | undefined;
   for (const row of table.rows) {
@@ -104,11 +104,11 @@ function viewOf(table: ResultTable): LineItemsView | undefined {
     for (let index = headers.length; index < row.length; index++) cells.push(row[index] ?? "");
     rows.push(cells);
   }
+  if (moduleRows === 0) return undefined;
   const emptyModules = moduleRows - namedModules;
-  const note = noteOf(moduleRows, emptyModules);
   return {
     table: { ...table, headers: order.flatMap(index => (index === appliesTo ? [headers[index], APPLIES_TO_FROM] : [headers[index]])), rows },
-    moduleRows, emptyModules, ...(note === undefined ? {} : { note }),
+    moduleRows, emptyModules, note: noteOf(moduleRows, emptyModules),
   };
 }
 
