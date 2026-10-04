@@ -165,6 +165,8 @@ How it reads:
 
 ## If names show as IDs or the analysis stops
 
+When the analysis stops, the page says in a plain sentence what happened and what to do next. The codes and statuses behind it are in the diagnostic log.
+
 The diagnostic log is on the results page. Open **Details**, then **Diagnostics**, and click **Copy diagnostic log**. While an analysis runs, and when it stops without a result, the log is under the message instead, with the same button. When **Run again** fails, the earlier result stays, and the button beside the failure's message copies the log of the run that failed. After a result, its lines are also the **Diagnostics** rows at the end of `App Details.csv` (`Model Details.csv` for a model export). They list:
 
 - request paths and HTTP statuses
