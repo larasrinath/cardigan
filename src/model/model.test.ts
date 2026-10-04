@@ -10,6 +10,7 @@ import { CALENDAR_HEADERS, CALENDAR_PROPERTIES, calendarKind, calendarRows } fro
 import { exportModel } from "./export.js";
 import * as grids from "./grid.js";
 import { cellText, gridTable, labelEntries, plainText, windowRows, type CellSource, type Grid } from "./grid.js";
+import * as lineItems from "./lineitems.js";
 import { lineItemsTable } from "./lineitems.js";
 import { assertRead, modelOnPage, readGrid, type Native } from "./native.js";
 
@@ -495,6 +496,81 @@ describe("Model export: Model settings grids to tables", () => {
     expect(received).toEqual(result);
     expect(sameBytes(resultZip(received, ZIPPED_AT), MODEL_ZIP_0_6_1)).toBe(true);
   });
+
+  it("reads Line Items, Modules and General Lists in that order, and keeps each file's place whichever of them cannot be read", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(Date.UTC(2026, 8, 28, 12, 30, 10)));
+    const [LINE_ITEMS, MODULES, LISTS] = ["LINE ITEMS × LINE ITEM PROPERTIES", "MODULES × MODULE PROPERTIES", "LISTS × LIST PROPERTIES"];
+    const REJECTED = "The model rejected the read.";
+    const NO_SOURCE_MODELS = "Source Models: not exported (This model page has no REMOTE_MODEL axis.).";
+    /** The golden model exported while the model rejects the reads of these grids: the reads of the three grids, the first
+     * files of the zip, what the Details file's first three Files rows and the summary's first two lines say, and the notes. */
+    const exported = async (...rejected: string[]) => {
+      const reads: string[] = [];
+      const result = await exportGoldenModel(Object.fromEntries(Object.entries(GOLDEN_GRIDS).filter(([grid]) => !rejected.includes(grid))), reads);
+      return {
+        reads: reads.filter(read => /^(LINE ITEMS|MODULES|LISTS) /.test(read)),
+        zip: [...unzipText(resultZip(result)).keys()].slice(0, 4),
+        files: result.tables[0].rows.filter(row => row[0] === "Files").slice(0, 3).map(row => `${row[1]}: ${row[2]}`),
+        summary: result.summary.slice(0, 2),
+        notes: result.summary.filter(line => line.includes("not exported")),
+      };
+    };
+    // Every grid read: the three are read one after the other, a first row and then the rest, and their files come first.
+    expect(await exported()).toEqual({
+      reads: ["LINE ITEMS 0+1", "LINE ITEMS 0+4", "MODULES 0+1", "MODULES 0+2", "LISTS 0+1", "LISTS 0+2"],
+      zip: ["Model Details.csv", "Line Items.csv", "Modules.csv", "General Lists.csv"],
+      files: ["Line Items.csv: 4 rows", "Modules.csv: 2 rows", "General Lists.csv: 2 rows"],
+      summary: ["Line Items: 4 rows", "Modules: 2 rows"], notes: [NO_SOURCE_MODELS] });
+    // A grid that cannot be read is tried in its turn, its row of the Details file stands where its file would, and the
+    // other two files are exported, Line Items first whenever it was read.
+    expect(await exported(LISTS)).toEqual({
+      reads: ["LINE ITEMS 0+1", "LINE ITEMS 0+4", "MODULES 0+1", "MODULES 0+2", "LISTS 0+1"],
+      zip: ["Model Details.csv", "Line Items.csv", "Modules.csv", "Processes.csv"],
+      files: ["Line Items.csv: 4 rows", "Modules.csv: 2 rows", `General Lists.csv: Not exported: ${REJECTED}`],
+      summary: ["Line Items: 4 rows", "Modules: 2 rows"], notes: [`General Lists: not exported (${REJECTED}).`, NO_SOURCE_MODELS] });
+    expect(await exported(MODULES)).toEqual({
+      reads: ["LINE ITEMS 0+1", "LINE ITEMS 0+4", "MODULES 0+1", "LISTS 0+1", "LISTS 0+2"],
+      zip: ["Model Details.csv", "Line Items.csv", "General Lists.csv", "Processes.csv"],
+      files: ["Line Items.csv: 4 rows", `Modules.csv: Not exported: ${REJECTED}`, "General Lists.csv: 2 rows"],
+      summary: ["Line Items: 4 rows", "General Lists: 2 rows"], notes: [`Modules: not exported (${REJECTED}).`, NO_SOURCE_MODELS] });
+    expect(await exported(MODULES, LISTS)).toEqual({
+      reads: ["LINE ITEMS 0+1", "LINE ITEMS 0+4", "MODULES 0+1", "LISTS 0+1"],
+      zip: ["Model Details.csv", "Line Items.csv", "Processes.csv", "Imports.csv"],
+      files: ["Line Items.csv: 4 rows", `Modules.csv: Not exported: ${REJECTED}`, `General Lists.csv: Not exported: ${REJECTED}`],
+      summary: ["Line Items: 4 rows", "Processes: 1 rows"],
+      notes: [`Modules: not exported (${REJECTED}).`, `General Lists: not exported (${REJECTED}).`, NO_SOURCE_MODELS] });
+    expect(await exported(LINE_ITEMS)).toEqual({
+      reads: ["LINE ITEMS 0+1", "MODULES 0+1", "MODULES 0+2", "LISTS 0+1", "LISTS 0+2"],
+      zip: ["Model Details.csv", "Modules.csv", "General Lists.csv", "Processes.csv"],
+      files: [`Line Items.csv: Not exported: ${REJECTED}`, "Modules.csv: 2 rows", "General Lists.csv: 2 rows"],
+      summary: ["Modules: 2 rows", "General Lists: 2 rows"], notes: [`Line Items: not exported (${REJECTED}).`, NO_SOURCE_MODELS] });
+    expect(await exported(LINE_ITEMS, MODULES, LISTS)).toEqual({
+      reads: ["LINE ITEMS 0+1", "MODULES 0+1", "LISTS 0+1"],
+      zip: ["Model Details.csv", "Processes.csv", "Imports.csv", "Import Data Sources.csv"],
+      files: [`Line Items.csv: Not exported: ${REJECTED}`, `Modules.csv: Not exported: ${REJECTED}`, `General Lists.csv: Not exported: ${REJECTED}`],
+      summary: ["Processes: 1 rows", "Imports: 3 rows (2 matched in the Actions list)"],
+      notes: [`Line Items: not exported (${REJECTED}).`, `Modules: not exported (${REJECTED}).`, `General Lists: not exported (${REJECTED}).`, NO_SOURCE_MODELS] });
+  });
+
+  it("takes a Line Items table that cannot be made for that file's failure, in the file's own place, and exports the other files", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(Date.UTC(2026, 8, 28, 12, 30, 10)));
+    vi.spyOn(lineItems, "lineItemsTable").mockImplementation(() => { throw new Error("no table"); });
+    const result = await exportGoldenModel();
+    expect(result.tables.map(table => table.file).slice(0, 4)).toEqual(["Model Details.csv", "Modules.csv", "General Lists.csv", "Processes.csv"]);
+    expect(result.tables[0].rows.filter(row => row[0] === "Files").slice(0, 3).map(row => `${row[1]}: ${row[2]}`))
+      .toEqual(["Line Items.csv: Not exported: no table", "Modules.csv: 2 rows", "General Lists.csv: 2 rows"]);
+    expect([result.summary.slice(0, 2), result.summary.slice(-2)]).toEqual([["Modules: 2 rows", "General Lists: 2 rows"],
+      ["Line Items: not exported (no table).", "Source Models: not exported (This model page has no REMOTE_MODEL axis.)."]]);
+    // Its note stands first too, before the note of a file that could not be read after it.
+    const { "MODULES × MODULE PROPERTIES": _modules, ...withoutModules } = GOLDEN_GRIDS;
+    const both = await exportGoldenModel(withoutModules);
+    expect(both.tables[0].rows.filter(row => row[0] === "Files").slice(0, 3).map(row => `${row[1]}: ${row[2]}`))
+      .toEqual(["Line Items.csv: Not exported: no table", "Modules.csv: Not exported: The model rejected the read.", "General Lists.csv: 2 rows"]);
+    expect(both.summary.filter(line => line.includes("not exported"))).toEqual(["Line Items: not exported (no table).", "Modules: not exported (The model rejected the read.).",
+      "Source Models: not exported (This model page has no REMOTE_MODEL axis.)."]);
+  });
 });
 
 // One model exported end to end, as the 0.6.1 zip in golden-0.6.1.test-support.ts was made: every Model settings grid the
@@ -541,12 +617,18 @@ const GOLDEN_AXES: Record<string, string> = { MODULE_WITH_LINE_ITEM: "LINE ITEMS
   IMPORT_DATA_SOURCE_DETAILS_PROPERTY: "DATA SOURCE PROPERTIES", TIME_RANGE: "TIME RANGES", TIME_RANGE_PROPERTY: "TIME RANGE PROPERTIES", VERSION_ALL: "VERSIONS",
   VERSION_PROPERTY: "VERSION PROPERTIES", TIMESCALE_PROPERTY: "CALENDAR", EMPTY_1_0: "EMPTY" };
 
-/** Runs the model export against a page whose classic client serves those grids, a few rows at a time. */
-async function exportGoldenModel() {
+/** Runs the model export against a page whose classic client serves those grids, a few rows at a time. The model rejects
+ * the read of a grid that is not among `grids`, and `reads` is given each read in order: its row axis and the rows asked for. */
+async function exportGoldenModel(grids: Record<string, FakeGrid> = GOLDEN_GRIDS, reads: string[] = []) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const aggregator = { isDirty: () => false, post: (request: any, _flag: boolean, ok: (response: unknown) => boolean) => {
     const { viewDefinition, pageRequests: [{ startRow, rowCount }] } = request.params;
-    const grid = GOLDEN_GRIDS[`${viewDefinition.rowAxis} × ${viewDefinition.columnAxis}`];
+    reads.push(`${viewDefinition.rowAxis} ${startRow}+${rowCount}`);
+    const grid = grids[`${viewDefinition.rowAxis} × ${viewDefinition.columnAxis}`];
+    if (!grid) {
+      queueMicrotask(() => ok({ error: "no such grid" }));
+      return true;
+    }
     const slice = grid.rows.slice(startRow, startRow + rowCount);
     const dimensions = Math.max(...grid.rows.map(entry => entry.ids.length));
     queueMicrotask(() => ok({ result: { viewRequestResults: [{ rowCount: grid.rows.length, columnCount: grid.columns.length,
