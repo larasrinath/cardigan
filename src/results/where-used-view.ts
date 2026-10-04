@@ -11,15 +11,22 @@ import { cellText, compareText, NONE, type Row } from "./table-engine.js";
  * An object is its type and its ID. An ID is unique inside one model only and the file names no model, so in an app of
  * several models the Pages file says which model the page of each use reads: the same ID in two models is two objects.
  * Nothing is guessed. A use on a page whose model the Pages file does not settle goes to an object without a model, and an
- * object without an ID is its type, its name and its module. A page is known by its name, which is all the file has of it:
- * two pages of one name count as one page, and their cards of one number as one card. */
+ * object without an ID is its type, its name and its module.
+ *
+ * The file has only the name of a use's page. Where more than one page has a name (the Pages file lists each with its
+ * own ID), the uses on that name cannot be told apart, and a count of pages or cards may be open. A count is then the
+ * least it can be, and it says so: its cell reads "41+", the object carries the most it can be and a note, each such use
+ * says how many pages have its page's name, and the view's note says which names are shared. No count is given as exact
+ * unless it is. Where no two pages share a name, none of this is there and every count is a plain number. */
 
 /** The file the view is made of. */
 export const WHERE_USED_FILE = APP_FILES["Where used"];
 
-/** The view's columns. Pages and Cards are numbers, so they sort as numbers. Model is a column only in an app of several
- * models. With one model it would hold the same name in every row, and the page's search, which looks in every cell,
- * shown or hidden, would then keep every row for any word of that name: for "21", in a model called "Plan 2021". */
+/** The view's columns. Pages and Cards are numbers, so they sort as numbers. A count that the file leaves open is the
+ * least it can be, as text with a plus sign after it ("41+"): the page's sort puts it by its number, straight after the
+ * same number without the sign. Model is a column only in an app of several models. With one model it would hold the same
+ * name in every row, and the page's search, which looks in every cell, shown or hidden, would then keep every row for any
+ * word of that name: for "21", in a model called "Plan 2021". */
 export const BY_OBJECT_HEADERS: readonly string[] = ["Object type", "Object name", "Object's module", "Model", "Pages", "Cards", "Used as", "Object ID"];
 const MODEL = "Model";
 
@@ -64,6 +71,8 @@ export interface WhereUsedUse {
   /** The card's ID, which is what the page opens a card by. It is there when the Cards file has exactly one card of that
    * number on a page of that name. */
   cardId?: string;
+  /** How many pages have this page's name, when more than one does: which of them the use is on, the file does not say. */
+  pagesOfName?: number;
 }
 
 /** One object, as its row of the view shows it, with its uses. */
@@ -75,9 +84,17 @@ export interface WhereUsedObject {
   /** The model it is in, as the Model column names it; the dash when that is not known. It is given in an app of one
    * model too, where the view has no Model column. */
   model: string;
-  /** How many different pages use it, and how many different cards: a card is a page and a card number. */
+  /** How many different pages use it, and how many different cards: a card is a page and a card number. Each is exact,
+   * unless `pagesMost` or `cardsMost` is there: then it is the least it can be. */
   pages: number;
   cards: number;
+  /** The most pages and cards it can be on, where its uses on a page name that more than one page has leave that open.
+   * Not there when the count is exact. */
+  pagesMost?: number;
+  cardsMost?: number;
+  /** For an object with uses on a page name that more than one page has: what that leaves open, in plain words for the
+   * drawer to show under the object's name. */
+  note?: string;
   /** Each role it is used in, with the number of uses in that role: most uses first, equal ones in the file's order. */
   roles: [role: string, uses: number][];
   /** Its ID; what the file holds for it (nothing, or the dash) when it has none. */
@@ -105,6 +122,9 @@ export interface WhereUsedView {
    * on a page that the Pages file does not list, or lists without a model. Both are 0 in an app of one model. */
   ambiguousUses: number;
   unlistedUses: number;
+  /** The page names with uses that more than one page has, each with the number of those pages, in the file's order. Not
+   * there when no use is on such a name. */
+  sharedPageNames?: [name: string, pages: number][];
   /** What the page says about the view, as plain text. */
   note: string;
 }
@@ -203,6 +223,30 @@ function modelsOf(pages: ResultTable, at: Record<keyof typeof PAGE_HEADERS, numb
   return { labels: modelLabels(models), ofPage, ofPageId };
 }
 
+/** Page name -> how many pages have it, for the names that more than one page has. A page is a row of the Pages file, or
+ * the rows that give one Page ID. A page without cards uses nothing, so it is not one a use can be on: only where no page
+ * of that name has cards does the file's count of cards say nothing, and every page of the name counts. */
+function sharedNamesOf(pages: ResultTable, pageAt: number): Map<string, number> {
+  const idAt = columnIndex(pages, "Page ID");
+  const cardsAt = columnIndex(pages, "Total cards");
+  const named = new Map<string, { all: Set<string>; withCards: Set<string> }>();
+  pages.rows.forEach((row, index) => {
+    const name = cellText(row[pageAt]);
+    const id = idAt === undefined ? "" : cellText(row[idAt]);
+    const page = JSON.stringify(says(id) ? [id] : index);
+    const known = named.get(name) ?? { all: new Set<string>(), withCards: new Set<string>() };
+    known.all.add(page);
+    if (cardsAt === undefined || cellText(row[cardsAt]).trim() !== "0") known.withCards.add(page);
+    named.set(name, known);
+  });
+  const shared = new Map<string, number>();
+  for (const [name, { all, withCards }] of named) {
+    const pagesOfName = withCards.size > 0 ? withCards.size : all.size;
+    if (pagesOfName > 1) shared.set(name, pagesOfName);
+  }
+  return shared;
+}
+
 /** Page name and card number -> the card's ID, from the Cards file. Nothing where the file has no such card, or two cards
  * of that number on pages of that name with different IDs: then the file does not say which card a use is on. */
 function cardIdsOf(result: AnalysisResult): (page: string, card: string) => string | undefined {
@@ -234,6 +278,50 @@ interface Group {
   cards: Set<string>;
   roles: Map<string, number>;
   uses: WhereUsedUse[];
+  /** Its uses on page names that more than one page has: by name, then by card number, how often each row comes. */
+  shared: Map<string, Map<string, Map<string, number>>>;
+}
+
+/** On how many pages and cards an object is used, at least and at most. Each page name is at least one page and each card
+ * number on it at least one card. On a name that more than one page has, the uses may be on more of them: on no more pages
+ * than have the name, and on no more pages or cards than there are uses. The same row twice is two cards of that number,
+ * on two pages of that name, because the file has one row for an object, a card and a role. Where a row comes more often
+ * than pages have the name, the file does not keep to that, and its repeats say nothing. */
+function spreadOf(group: Group, sharedNames: ReadonlyMap<string, number>): { pages: number; pagesMost: number; cards: number; cardsMost: number } {
+  const spread = { pages: group.pages.size, pagesMost: group.pages.size, cards: group.cards.size, cardsMost: group.cards.size };
+  for (const [name, byCard] of group.shared) {
+    const pagesOfName = sharedNames.get(name) ?? 1;
+    const numbers = [...byCard.values()].map(rows => ({ uses: [...rows.values()].reduce((sum, times) => sum + times, 0), repeats: Math.max(...rows.values()) }));
+    const kept = numbers.every(number => number.repeats <= pagesOfName);
+    const repeats = numbers.map(number => (kept ? number.repeats : 1));
+    spread.pages += Math.max(...repeats) - 1;
+    spread.pagesMost += Math.min(pagesOfName, numbers.reduce((sum, number) => sum + number.uses, 0)) - 1;
+    numbers.forEach((number, index) => {
+      spread.cards += repeats[index] - 1;
+      spread.cardsMost += Math.min(pagesOfName, number.uses) - 1;
+    });
+  }
+  return spread;
+}
+
+/** Page names with the number of pages that have each, as a note lists them: three of them, then how many more. */
+function namesText(names: readonly (readonly [name: string, pages: number])[]): string {
+  return names.slice(0, 3).map(([name, pages]) => `"${name}" (${pages} pages)`).join(", ") + (names.length > 3 ? ` and ${names.length - 3} more` : "");
+}
+
+/** What an object's drawer says of its uses on page names that more than one page has, and of the counts they leave open. */
+function objectNote(uses: number, names: readonly (readonly [name: string, pages: number])[], open: readonly (readonly [least: number, most: number, word: string])[]): string {
+  const ranges = open.map(([least, most, word]) => `${least} ${most === least + 1 ? "or" : "to"} ${most} ${word}`);
+  return `It has ${count(uses, "use")} on ${names.length === 1 ? "a page name" : "page names"} that more than one page has: ${namesText(names)}. `
+    + "The CSV has only the name of a use's page, so which of those pages a use is on is not known."
+    + (ranges.length ? ` It is on ${ranges.join(" and on ")}.` : "");
+}
+
+/** On how many pages and cards an object is used, in words, for the line under its name: "2 pages, 3 cards", and "at least
+ * 41 pages, 84 cards" where the number of its pages is open. */
+export function usedOn(object: WhereUsedObject): string {
+  const said = (least: number, most: number | undefined, word: string): string => `${most === undefined ? "" : "at least "}${count(least, word)}`;
+  return `${said(object.pages, object.pagesMost, "page")}, ${said(object.cards, object.cardsMost, "card")}`;
 }
 
 const RANK = new Map(TYPE_ORDER.map((type, index) => [type, index]));
@@ -248,12 +336,20 @@ function inIndexOrder(a: WhereUsedObject, b: WhereUsedObject): number {
     || byText(a.name, b.name) || byText(a.module, b.module) || byText(a.model, b.model) || byText(a.id, b.id);
 }
 
-function noteOf(uses: number, objects: number, modelUnknown: number): string {
+/** What the page says about the view: how much it lists, then what the file left open, where it did. */
+function noteOf(uses: number, objects: number, modelUnknown: number, shared: readonly (readonly [name: string, pages: number])[], marked: boolean): string {
   if (uses === 0) return "No uses. The CSV has no rows.";
-  const told = `${count(uses, "use")} of ${count(objects, "object")}. The CSV lists every use.`;
-  if (modelUnknown === 0) return told;
-  return `${told} ${count(modelUnknown, "use")} ${modelUnknown === 1 ? "is" : "are"} on a page whose model is not known, so `
-    + `${modelUnknown === 1 ? "its object is" : "their objects are"} listed without a model.`;
+  const said = [`${count(uses, "use")} of ${count(objects, "object")}. The CSV lists every use.`];
+  if (modelUnknown > 0) {
+    said.push(`${count(modelUnknown, "use")} ${modelUnknown === 1 ? "is" : "are"} on a page whose model is not known, so `
+      + `${modelUnknown === 1 ? "its object is" : "their objects are"} listed without a model.`);
+  }
+  if (shared.length > 0) {
+    said.push(`${count(shared.length, "page name")} ${shared.length === 1 ? "is" : "are each"} shared by more than one page: ${namesText(shared)}. `
+      + "The CSV has only the name of a use's page, so the uses on those pages cannot be told apart.");
+    if (marked) said.push('A count with "+" is at least that number.');
+  }
+  return said.join(" ");
 }
 
 function byObject(result: AnalysisResult): WhereUsedView | undefined {
@@ -267,6 +363,9 @@ function byObject(result: AnalysisResult): WhereUsedView | undefined {
   const models = modelsOf(pages, pageAt);
   const multiModel = models.labels.size > 1;
   const cardIdOf = cardIdsOf(result);
+  const sharedNames = sharedNamesOf(pages, pageAt.page);
+  /** The shared names that uses are on, in the file's order. */
+  const sharedUsed = new Map<string, number>();
 
   const groups = new Map<string, Group>();
   let ambiguousUses = 0;
@@ -287,7 +386,7 @@ function byObject(result: AnalysisResult): WhereUsedView | undefined {
     const key = JSON.stringify(says(id) ? [type, model, id] : [type, model, name, module]);
     let group = groups.get(key);
     if (!group) {
-      group = { type, model, id, names: new Map(), modules: new Map(), pages: new Set(), cards: new Set(), roles: new Map(), uses: [] };
+      group = { type, model, id, names: new Map(), modules: new Map(), pages: new Set(), cards: new Set(), roles: new Map(), uses: [], shared: new Map() };
       groups.set(key, group);
     }
     tally(group.names, name);
@@ -295,30 +394,55 @@ function byObject(result: AnalysisResult): WhereUsedView | undefined {
     tally(group.roles, usedAs);
     group.pages.add(page);
     group.cards.add(JSON.stringify([page, cellText(card)]));
+    // A use on a name that more than one page has: which of them it is on, the file does not say.
+    const pagesOfName = sharedNames.get(page);
+    if (pagesOfName !== undefined) {
+      sharedUsed.set(page, pagesOfName);
+      const byCard = group.shared.get(page) ?? new Map<string, Map<string, number>>();
+      const sameRows = byCard.get(cellText(card)) ?? new Map<string, number>();
+      tally(sameRows, JSON.stringify([name, module, usedAs, id]));
+      byCard.set(cellText(card), sameRows);
+      group.shared.set(page, byCard);
+    }
     const cardId = cardIdOf(page, cellText(card));
-    group.uses.push({ row: index, page, card, usedAs, ...(cardId === undefined ? {} : { cardId }) });
+    group.uses.push({ row: index, page, card, usedAs, ...(cardId === undefined ? {} : { cardId }), ...(pagesOfName === undefined ? {} : { pagesOfName }) });
   });
 
   const labelOf = (keys: ReadonlySet<string> | undefined): string => (keys?.size === 1 ? models.labels.get([...keys][0]) ?? NONE : NONE);
   const onlyModel = [...models.labels.values()][0] ?? NONE;
   const modelOf = (group: Group): string => (group.type === PAGE ? labelOf(models.ofPageId.get(group.id))
     : !multiModel ? onlyModel : group.model === undefined ? NONE : models.labels.get(group.model) ?? NONE);
-  const objects = [...groups.values()].map((group): WhereUsedObject => ({
-    type: group.type, name: mostGiven(group.names), module: mostGiven(group.modules), model: modelOf(group), pages: group.pages.size, cards: group.cards.size,
-    roles: [...group.roles].sort(([, a], [, b]) => b - a), id: group.id, uses: group.uses,
-  })).sort(inIndexOrder);
+  const objects = [...groups.values()].map((group): WhereUsedObject => {
+    const { pages: onPages, pagesMost, cards: onCards, cardsMost } = spreadOf(group, sharedNames);
+    const names = [...group.shared.keys()].map((name): [string, number] => [name, sharedNames.get(name) ?? 1]);
+    // A count is open where it can be more than the least: only then is the most given, and said in the note.
+    const open = [[onPages, pagesMost, "pages"] as const, [onCards, cardsMost, "cards"] as const].filter(([least, most]) => most > least);
+    return {
+      type: group.type, name: mostGiven(group.names), module: mostGiven(group.modules), model: modelOf(group), pages: onPages, cards: onCards,
+      roles: [...group.roles].sort(([, a], [, b]) => b - a), id: group.id, uses: group.uses,
+      ...(pagesMost > onPages ? { pagesMost } : {}), ...(cardsMost > onCards ? { cardsMost } : {}),
+      ...(names.length > 0 ? { note: objectNote(group.uses.filter(use => use.pagesOfName !== undefined).length, names, open) } : {}),
+    };
+  }).sort(inIndexOrder);
 
   const roles = [...new Set(objects.flatMap(object => object.roles.map(([role]) => role)))];
   const separator = SEPARATORS.find(candidate => !roles.some(role => role.includes(candidate))) ?? SEPARATORS[0];
   // The cells in the order of `BY_OBJECT_HEADERS`, with Model where the app has several models to tell apart.
   const headers = BY_OBJECT_HEADERS.filter(header => multiModel || header !== MODEL);
-  const rows = objects.map((object): Cell[] => [object.type, object.name, object.module, ...(multiModel ? [object.model] : []), object.pages, object.cards,
-    object.roles.map(([role]) => role).join(separator), object.id]);
+  // A count is a number, or with a plus sign the least it can be: the mark is in the cell, where no choice of columns hides it.
+  const counted = (least: number, most: number | undefined): Cell => (most === undefined ? least : `${least}+`);
+  const rows = objects.map((object): Cell[] => [object.type, object.name, object.module, ...(multiModel ? [object.model] : []),
+    counted(object.pages, object.pagesMost), counted(object.cards, object.cardsMost), object.roles.map(([role]) => role).join(separator), object.id]);
   // A column of few different texts gets its filter from columns.ts, as in any table.
   const columns = columnsOf({ file: "", label: "", headers, rows, guard: true }).map((column): Column => ({ ...column, ...SHOWN.get(column.label) }));
 
   const totalUses = file.rows.length;
-  return { headers, columns, rows, objects, totalUses, multiModel, ambiguousUses, unlistedUses, note: noteOf(totalUses, objects.length, ambiguousUses + unlistedUses) };
+  const sharedPageNames = [...sharedUsed];
+  const marked = objects.some(object => object.pagesMost !== undefined || object.cardsMost !== undefined);
+  return {
+    headers, columns, rows, objects, totalUses, multiModel, ambiguousUses, unlistedUses, ...(sharedPageNames.length > 0 ? { sharedPageNames } : {}),
+    note: noteOf(totalUses, objects.length, ambiguousUses + unlistedUses, sharedPageNames, marked),
+  };
 }
 
 /** The by-object view of an app's Where used file. Undefined when the result is not an app's, or when the Where used file,
