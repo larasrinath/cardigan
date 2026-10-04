@@ -35,9 +35,9 @@ const RESULT: AnalysisResult = {
 
 /** What an Anaplan user can type into a name: a tag with a handler, which would be one on the page if it were written as markup. */
 const TAG = '<img src="x" onerror="alert(1)">';
-/** The same app, with that tag in the Cards table's name and in a card's title. */
+/** The same app, with that tag in the Cards table's name, in a card's title and in a page's name. */
 const NAMED: AnalysisResult = {
-  ...RESULT, tables: [RESULT.tables[0], RESULT.tables[1], { ...RESULT.tables[2], label: `Cards ${TAG}`,
+  ...RESULT, tables: [RESULT.tables[0], { ...RESULT.tables[1], rows: [["Overview", 2], [`Stores ${TAG}`, 0]] }, { ...RESULT.tables[2], label: `Cards ${TAG}`,
     rows: [["Overview", 1, `Sales ${TAG}`, "Grid", "card-a"], ["Overview", 2, "=Margin", "KPI", "card-b"]] }],
 };
 
@@ -407,10 +407,11 @@ describe("The results page's script, on the page", () => {
     await openWith(NAMED);
     page.find('#navList [data-nav="2"]').press();
     expect(page.texts("#view h1")).toEqual([`Cards ${TAG}`]);
-    // A click on a row, outside its links, opens the row. The line under the drawer's title is the table's name.
+    // A click on a row, outside its links, opens the row. The drawer's title is the row's own name, its first cell, and
+    // the line under it says which row of which table it is.
     page.find("#tableWrap tbody tr .tag").press();
     expect(page.id("drawer").hidden).toBe(false);
-    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual(["Row 1", `Cards ${TAG}`]);
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual(["Overview", `Row 1 of Cards ${TAG}`]);
     expect(page.id("drawerSub").children).toEqual([]);
     expect(page.texts("#drawerBody dd")).toContain(`Sales ${TAG}`);
     // A card's number opens the card. The drawer's title is the card's own title.
@@ -419,7 +420,12 @@ describe("The results page's script, on the page", () => {
     expect(page.id("drawerTitle").textContent).toBe(`Card 1 — Sales ${TAG}`);
     expect(page.id("drawerTitle").children).toEqual([]);
     expect(page.texts("#drawerSub .link")).toEqual(["Overview"]);
-    // Neither name became an element, anywhere on the page.
+    // A row whose own name holds the tag: the page named so, in the Pages table.
+    page.id("drawerClose").press();
+    goTo(1);
+    page.all('#tableWrap tbody [data-act="row"]')[1].press();
+    expect([page.id("drawerTitle").textContent, page.id("drawerTitle").children, page.id("drawerSub").textContent]).toEqual([`Stores ${TAG}`, [], "Row 2 of Pages"]);
+    // None of the names became an element, anywhere on the page.
     expect([page.has("img"), page.all("[onerror]")]).toEqual([false, []]);
   });
 
@@ -519,6 +525,8 @@ describe("The results page's script, on the page", () => {
     expect(firstCells().slice(0, 2)).toEqual(["Line item 20", "Line item 19"]);
     buttons()[1].press();
     expect(page.texts("#drawerBody dd")).toEqual(["Line item 19", "Number", "Source 19 * 2", "Revenue"]);
+    // The drawer is headed by the row's own name, and says where the row is in the file, not on screen.
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual(["Line item 19", "Row 19 of Line Items"]);
     page.id("drawerClose").press();
 
     // A click on the row itself opens it as before, and the focus then goes back to the row's button.
@@ -539,11 +547,11 @@ describe("The results page's script, on the page", () => {
   it("shows a row whole in its drawer: each cell as it is, and the cells it holds beyond the table's headers", async () => {
     const formula = "IF a THEN\n    b  *  c\nELSE d";
     const odd: AnalysisResult = { ...MODEL, tables: [MODEL.tables[0], { file: "Line Items.csv", label: "Line Items", headers: ["", "Formula"], guard: false,
-      rows: [["Revenue", formula, "beyond the headers", `more ${TAG}`], ["Units", "1"]] }] };
+      rows: [["Revenue", formula, "beyond the headers", `more ${TAG}`], ["Units", "1"], ["", "—"]] }] };
     await openWith(odd);
     goTo(1);
     // The table keeps to its headers; the row's drawer has every cell, as the CSV has.
-    expect([page.all("#tableWrap thead th").length, page.all("#tableWrap tbody tr").map(row => row.children.length)]).toEqual([2, [2, 2]]);
+    expect([page.all("#tableWrap thead th").length, page.all("#tableWrap tbody tr").map(row => row.children.length)]).toEqual([2, [2, 2, 2]]);
     page.all('#tableWrap tbody [data-act="row"]')[0].press();
     expect(page.texts("#drawerBody dt")).toEqual(["Name", "Formula", "Column 3", "Column 4"]);
     expect(page.all("#drawerBody dd").map(value => value.textContent)).toEqual(["Revenue", formula, "beyond the headers", `more ${TAG}`]);
@@ -552,6 +560,10 @@ describe("The results page's script, on the page", () => {
     page.id("drawerClose").press();
     page.all('#tableWrap tbody [data-act="row"]')[1].press();
     expect(page.texts("#drawerBody dt")).toEqual(["Name", "Formula"]);
+    page.id("drawerClose").press();
+    // A row no cell of which says anything has no name of its own: its drawer is headed by its place in the file.
+    page.all('#tableWrap tbody [data-act="row"]')[2].press();
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual(["Row 3", "Row 3 of Line Items"]);
     page.id("drawerClose").press();
     page.id("dlCsv").press();
     expect(await saved[0].text()).toContain("beyond the headers");
@@ -564,7 +576,8 @@ describe("The results page's script, on the page", () => {
     expect(first).toEqual([[["row", "", "Open this row"], ["page", "Overview", null]], [["row", "", "Open this row"], ["page", "Overview", null]]]);
     // The row's button opens the row, not the card and not the page's cards.
     page.all('#tableWrap tbody [data-act="row"]')[1].press();
-    expect([page.id("drawerTitle").textContent, page.texts("#drawerBody h3"), page.texts("#drawerBody dd")]).toEqual(["Row 2", ["All columns"], ["Overview", "2", "=Margin", "KPI", "card-b"]]);
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent, page.texts("#drawerBody h3"), page.texts("#drawerBody dd")])
+      .toEqual(["Overview", "Row 2 of Cards", ["All columns"], ["Overview", "2", "=Margin", "KPI", "card-b"]]);
     page.key("Escape");
     // And the page's name still shows that page's cards.
     page.find('#tableWrap tbody [data-act="page"]').press();

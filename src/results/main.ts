@@ -11,7 +11,7 @@ import {
 } from "./markup.js";
 import type { PageId } from "./page-ids.js";
 import { analysedOf, cardSections, detailSections, detailsOf, diagnosticLog, overviewOf } from "./result-view.js";
-import { cellText, NONE, pageOf, rememberingSelect, valueCounts, type Row, type Sort, type TableQuery } from "./table-engine.js";
+import { cellText, NONE, pageOf, rememberingSelect, rowName, valueCounts, type Row, type Sort, type TableQuery } from "./table-engine.js";
 
 /** The results page (results.html): the design's script, on the real result. It connects to the Anaplan tab the address
  * names and says what that tab shows. The analysis starts by itself when the icon has just opened the page, and otherwise
@@ -460,11 +460,12 @@ function closeDrawer(): void {
   if (state.lastFocus instanceof HTMLElement && document.contains(state.lastFocus)) state.lastFocus.focus();
   state.lastFocus = null;
 }
-/** Any row, in full. */
+/** Any row, in full. Its heading is the row's own name; the line under it says which row of which table it is, by its
+ * place in the file, which a search, a filter or a sort does not change. */
 function openRowDrawer(entry: Shown, row: Row, opener: Element): void {
   drawerRow = { entry, row };
   const position = entry.table.rows.findIndex(candidate => candidate === row) + 1;
-  openDrawer(`Row ${position}`, rowDrawerSubHtml(cellText(entry.table.label)), rowDrawerHtml(entry.columns, row, entry.links), opener);
+  openDrawer(rowName(row) || `Row ${position}`, rowDrawerSubHtml(position, cellText(entry.table.label)), rowDrawerHtml(entry.columns, row, entry.links), opener);
 }
 /** A card: its row of the Cards file, and the rows of the other files that carry its Card ID on its page. */
 function openCardDrawer(page: string, cardId: string, opener: Element): void {
