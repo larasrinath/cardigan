@@ -1199,19 +1199,19 @@ describe("What a click, a key and typing do on the results page", () => {
     // The words, as Anaplan says them; a Ratio with the names its own row holds.
     expect([column("Format"), column("Summary")]).toEqual([["Number", "Number", "Number", "Number, 2 decimal places, %", "Number"],
       ["Sum", "None", "Sum", "Ratio = Margin / Revenue", "Sum, Time: Closing Balance"]]);
-    // The search reads the words, and the text the CSV has in their place as well: what could be found in the file can be
-    // found here. The cells show the words either way.
+    // The search reads the words, not the text the CSV has in their place: a word is found where it is seen.
     page.id("tblSearch").type("closing balance");
     expect([column("Name"), page.id("rowCount").textContent]).toEqual([["Cost"], "1–1 of 1 row (filtered from 5)"]);
-    page.id("tblSearch").type("CLOSING_BALANCE");
-    expect([column("Name"), column("Summary"), page.id("rowCount").textContent]).toEqual([["Cost"], ["Sum, Time: Closing Balance"], "1–1 of 1 row (filtered from 5)"]);
-    page.id("tblSearch").type("decimalplaces");
-    expect([column("Name"), column("Format")]).toEqual([["Margin %"], ["Number, 2 decimal places, %"]]);
-    page.id("tblSearch").type("summaryMethod");
-    expect(page.id("rowCount").textContent).toBe("1–5 of 5 rows");
-    // What neither holds finds nothing, and a module's own row, which the table does not list, is not found by its cells.
-    page.id("tblSearch").type("summaryMethods");
-    expect(page.id("rowCount").textContent).toBe("No rows (filtered from 5)");
+    // A common word finds the rows that show it and no others. Every Summary's definition holds "summaryMethod", so the
+    // CSV's text of all five rows has "sum" in it; three of them show the word.
+    page.id("tblSearch").type("sum");
+    expect([column("Name"), column("Summary"), page.id("rowCount").textContent])
+      .toEqual([["Units", "Revenue", "Cost"], ["Sum", "Sum", "Sum, Time: Closing Balance"], "1–3 of 3 rows (filtered from 5)"]);
+    // What only the CSV's text holds finds nothing: a definition's keys, its values as the export writes them, its true and false.
+    for (const word of ["summaryMethod", "CLOSING_BALANCE", "percentage", "decimalPlaces", "false"]) {
+      page.id("tblSearch").type(word);
+      expect(page.id("rowCount").textContent, word).toBe("No rows (filtered from 5)");
+    }
     page.id("tblSearch").type("");
     // The Summary column's filter lists the words, each with its rows.
     page.find('[data-colfilter="4"]').press();

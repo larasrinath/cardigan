@@ -28,10 +28,6 @@ export interface Sort { column: number; dir: "asc" | "desc" }
 export interface TableQuery {
   /** Keeps the rows with this text in any column, whatever its case. */
   search: string;
-  /** More texts of a row for the search to read besides its cells: for a table that shows a cell otherwise than the CSV
-   * has it, the CSV's text, so that what the file holds can be found as well as what the table shows. The same rows
-   * always go with the same function. */
-  also?: (row: Row) => Iterable<unknown> | undefined;
   /** Column -> the cell texts to keep. A column without a set keeps every row; an empty set keeps none. */
   filters: ReadonlyMap<number, ReadonlySet<string>>;
   sort?: Sort;
@@ -74,15 +70,7 @@ export function selectRows<T extends Row>(rows: readonly T[], query: TableQuery)
   const { context } = query;
   if (context) out = out.filter(row => cellText(row[context.column]) === context.value);
   const needle = query.search.trim().toLowerCase();
-  if (needle) {
-    const holds = (text: unknown): boolean => cellText(text).toLowerCase().includes(needle);
-    const { also } = query;
-    out = out.filter(row => {
-      if (row.some(holds)) return true;
-      for (const text of also?.(row) ?? []) if (holds(text)) return true;
-      return false;
-    });
-  }
+  if (needle) out = out.filter(row => row.some(cell => cellText(cell).toLowerCase().includes(needle)));
   for (const [column, values] of query.filters) out = out.filter(row => values.has(cellText(row[column])));
   return query.sort ? sortRows(out, query.sort) : out;
 }
@@ -90,10 +78,10 @@ export function selectRows<T extends Row>(rows: readonly T[], query: TableQuery)
 /** `selectRows` that remembers its last answer: the same rows and an equal query give the same list back without searching
  * and sorting again. Turning a page of a long sorted table asks for exactly that. */
 export function rememberingSelect(): <T extends Row>(rows: readonly T[], query: TableQuery) => readonly T[] {
-  let last: { rows: readonly Row[]; also: TableQuery["also"]; key: string; selected: readonly Row[] } | undefined;
+  let last: { rows: readonly Row[]; key: string; selected: readonly Row[] } | undefined;
   return <T extends Row>(rows: readonly T[], query: TableQuery): readonly T[] => {
     const key = JSON.stringify([query.search, [...query.filters].map(([column, values]) => [column, [...values]]), query.sort ?? null, query.context ?? null]);
-    if (!last || last.rows !== rows || last.also !== query.also || last.key !== key) last = { rows, also: query.also, key, selected: selectRows(rows, query) };
+    if (!last || last.rows !== rows || last.key !== key) last = { rows, key, selected: selectRows(rows, query) };
     return last.selected as readonly T[];
   };
 }
