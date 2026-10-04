@@ -4,8 +4,8 @@ import { HEADERS, type TabName } from "../report.js";
 import { CALENDAR_HEADERS, calendarRows } from "../model/calendar.js";
 import type { AnalysisResult, Cell, ResultTable } from "../result-types.js";
 import { APP_FILES } from "./columns.js";
-import { ABOUT_MODEL, analysedOf, CARD_PARTS, cardSections, detailSections, detailsOf, detailValue, diagnosticLog, listedRows, listedTables, MODEL_CALENDAR_FILE, MODEL_FILE_ORDER, modelFacts,
-  overviewOf, resultNotes, unlistedNote } from "./result-view.js";
+import { ABOUT_MODEL, analysedOf, CARD_PARTS, cardSections, detailSections, detailsOf, detailValue, diagnosticLog, FILE_RULES, fileView, listedTables, MODEL_CALENDAR_FILE, MODEL_FILE_ORDER, modelFacts,
+  overviewOf, resultNotes } from "./result-view.js";
 
 /** The app export's files, as the page names them, and the report table each holds. */
 const FILES: Record<string, TabName> = Object.fromEntries((Object.keys(APP_FILES) as TabName[]).map(tab => [APP_FILES[tab], tab]));
@@ -251,26 +251,27 @@ describe("What the results page reads out of a result", () => {
     const lineItems: ResultTable = { file: "Line Items.csv", label: "Line Items", headers: ["Section", "Formula"], rows: [["Model", "a"], ["Model Calendar", "b"]], guard: false };
     const model = result("model", [modelDetails, lineItems, file]);
     // The template has five rows about the model and twenty-six about its calendar: the table lists exactly the latter.
-    const listed = listedRows(model, file);
-    expect([file.rows.length, listed.unlisted, listed.rows.length, [...new Set(listed.rows.map(row => row[0]))]]).toEqual([31, 5, 26, ["Model Calendar"]]);
-    expect(listed.rows).toEqual(file.rows.filter(row => row[0] !== "Model"));
+    const listed = fileView(model, file);
+    expect([file.rows.length, listed.note, listed.table.rows.length, [...new Set(listed.table.rows.map(row => row[0]))]]).toEqual([31, "5 rows about the model are in the CSV only.", 26, ["Model Calendar"]]);
+    expect(listed.table).toEqual({ ...file, rows: file.rows.filter(row => row[0] !== "Model") });
     expect(file.rows.filter(row => row[0] === "Model").map(row => row[1])).toEqual(["Workspace", "Model", "Model size (GB)", "Captured on", "Captured by"]);
     // The file itself is as it was: the CSV is made of it.
     expect(file.rows).toHaveLength(31);
     // Any other file lists every row, the same rows, whatever its columns are called and hold; so does the Details file.
-    expect([listedRows(model, lineItems).rows === lineItems.rows, listedRows(model, lineItems).unlisted, listedRows(model, modelDetails).unlisted]).toEqual([true, 0, 0]);
+    expect([fileView(model, lineItems), fileView(model, modelDetails)]).toEqual([{ table: lineItems }, { table: modelDetails }]);
+    expect(fileView(model, lineItems).table).toBe(lineItems);
+    // The rules are few and each is one file's own, by the kind of result and the file's name.
+    expect([[...FILE_RULES.model.keys()], [...FILE_RULES.app.keys()]]).toEqual([["Model Calendar.csv"], []]);
     // The rule is that file's alone: by its name, in a model's result, by its Section column.
-    expect(listedRows(model, { ...file, file: "Model Calendar (2).csv" }).unlisted).toBe(0);
-    expect(listedRows(result("app", [appDetails, file]), file).unlisted).toBe(0);
-    expect(listedRows(model, { ...file, headers: ["Group", ...file.headers.slice(1)] }).unlisted).toBe(0);
+    const renamed = { ...file, file: "Model Calendar (2).csv" };
+    const regrouped = { ...file, headers: ["Group", ...file.headers.slice(1)] };
+    expect([fileView(model, renamed), fileView(result("app", [appDetails, file]), file), fileView(model, regrouped)]).toEqual([{ table: renamed }, { table: file }, { table: regrouped }]);
     // A row is left to the CSV for being about the model, not for its place: wherever such a row stands, and only such a row.
     const mixed: ResultTable = { ...file, headers: ["Setting", "Section", "Value"], rows: [["Calendar Type", "Model Calendar", "x"], ["Model", "Model", "y"], ["Other", "Something else", "z"], ["Model", "model", "w"]] };
-    expect(listedRows(model, mixed)).toEqual({ rows: [mixed.rows[0], mixed.rows[2], mixed.rows[3]], unlisted: 1 });
+    expect(fileView(model, mixed)).toEqual({ table: { ...mixed, rows: [mixed.rows[0], mixed.rows[2], mixed.rows[3]] }, note: "1 row about the model is in the CSV only." });
     // A calendar file with no row about the model lists every row, and is the same list.
     const none: ResultTable = { ...file, rows: file.rows.slice(5) };
-    expect([listedRows(model, none).rows === none.rows, listedRows(model, none).unlisted]).toEqual([true, 0]);
-    // What the table then says about the rows it leaves out.
-    expect([unlistedNote(5), unlistedNote(1)]).toEqual(["5 rows about the model are in the CSV only.", "1 row about the model is in the CSV only."]);
+    expect([fileView(model, none).table === none, fileView(model, none).note]).toEqual([true, undefined]);
   });
 
   it("reads the model's own facts out of its Model Calendar file, without the ones that have no value", () => {

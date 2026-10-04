@@ -1,4 +1,4 @@
-import type { AnalysisResult, Cell, ResultTable } from "../result-types.js";
+import type { AnalysisResult, ResultTable } from "../result-types.js";
 import { APP_FILES, columnIndex } from "./columns.js";
 import { cellText, compareText, NONE } from "./table-engine.js";
 
@@ -67,38 +67,50 @@ export function resultNotes(result: AnalysisResult): string[] {
   return notes;
 }
 
+/** A file as the page shows it: the table it lists in the file's place, and a short line for under the table's name when
+ * that table is not the file as it stands. What the page counts, searches, filters and opens is this table; the CSV, as a
+ * table's download and in the zip, is always the file as the export wrote it. */
+export interface FileView { table: ResultTable; note?: string }
+
+/** A rule for one file: what the page shows in its place. It gives nothing when the file is not as the rule expects it,
+ * and then the file is shown as it stands. */
+export type FileRule = (file: ResultTable, result: AnalysisResult) => FileView | undefined;
+
 /** A model's Model Calendar file (model/export.ts writes it under this name) follows a template: its first rows are about
  * the model itself (its workspace, its name, when it was captured), under the Section "Model", and the rest are the
- * calendar's settings. It is the one file whose table does not list every row: the rows about the model are not the
- * calendar's, so the page says them with the model, in the overview, and the table lists the others. The CSV, as a table's
- * download and in the zip, has every row as the export wrote it. */
+ * calendar's settings. The rows about the model are not the calendar's, so the page says them with the model, in the
+ * overview, and the table lists the others. */
 export const MODEL_CALENDAR_FILE = "Model Calendar.csv";
 /** The Section of the Model Calendar file's rows about the model. */
 export const ABOUT_MODEL = "Model";
 
-/** The Model Calendar file's column that says what a row is about; undefined for any other file, for an app's result, and
- * for a Model Calendar file without that column: of those, every row is listed. */
-const aboutColumn = (result: AnalysisResult, table: ResultTable): number | undefined =>
-  (result.kind === "model" && table.file === MODEL_CALENDAR_FILE ? columnIndex(table, "Section") : undefined);
+const calendarView: FileRule = file => {
+  const about = columnIndex(file, "Section");
+  if (about === undefined) return undefined;
+  const rows = file.rows.filter(row => cellText(row[about]) !== ABOUT_MODEL);
+  const left = file.rows.length - rows.length;
+  // The line says where the rows are, so that the table's count is not taken for the file's.
+  return left ? { table: { ...file, rows }, note: `${left} ${left === 1 ? "row about the model is" : "rows about the model are"} in the CSV only.` } : undefined;
+};
 
-/** The rows of one of the result's files that the page lists as its table, and how many the file has besides. That is
- * every row and none, except for a model's Model Calendar file (`MODEL_CALENDAR_FILE`). */
-export function listedRows(result: AnalysisResult, table: ResultTable): { rows: Cell[][]; unlisted: number } {
-  const about = aboutColumn(result, table);
-  if (about === undefined) return { rows: table.rows, unlisted: 0 };
-  const rows = table.rows.filter(row => cellText(row[about]) !== ABOUT_MODEL);
-  return rows.length === table.rows.length ? { rows: table.rows, unlisted: 0 } : { rows, unlisted: table.rows.length - rows.length };
+/** The files the page shows otherwise than as they stand, each with its rule, by the kind of result and the file's name.
+ * No other file is touched: a rule is a file's own, not a filter over all of them. */
+export const FILE_RULES: Record<AnalysisResult["kind"], ReadonlyMap<string, FileRule>> = {
+  app: new Map(),
+  model: new Map([[MODEL_CALENDAR_FILE, calendarView]]),
+};
+
+/** One of the result's files as the page shows it: by its rule, or as it stands. */
+export function fileView(result: AnalysisResult, file: ResultTable): FileView {
+  return FILE_RULES[result.kind].get(file.file)?.(file, result) ?? { table: file };
 }
-
-/** What a table that leaves rows to the CSV says about them, so that its count is not taken for the file's. */
-export const unlistedNote = (unlisted: number): string => `${unlisted} ${unlisted === 1 ? "row about the model is" : "rows about the model are"} in the CSV only.`;
 
 /** What a model's Model Calendar file says about the model itself: each setting with its value, in the file's order. A
  * setting without a value, as the export leaves the ones it cannot know, is left out. */
 export function modelFacts(result: AnalysisResult): [setting: string, value: string][] {
   const facts: [string, string][] = [];
-  for (const table of result.tables) {
-    const about = aboutColumn(result, table);
+  for (const table of result.kind === "model" ? result.tables.filter(candidate => candidate.file === MODEL_CALENDAR_FILE) : []) {
+    const about = columnIndex(table, "Section");
     const setting = columnIndex(table, "Setting");
     const value = columnIndex(table, "Value");
     if (about === undefined || setting === undefined || value === undefined) continue;
@@ -214,7 +226,7 @@ export interface Overview {
 }
 
 export function overviewOf(result: AnalysisResult): Overview {
-  const tiles = listedTables(result).map(({ table }) => ({ label: TILE_LABELS.get(table.file) ?? cellText(table.label), count: listedRows(result, table).rows.length }));
+  const tiles = listedTables(result).map(({ table }) => ({ label: TILE_LABELS.get(table.file) ?? cellText(table.label), count: fileView(result, table).table.rows.length }));
 
   const counts = new Map<string, number>();
   const cards = result.tables.find(table => table.file === APP_FILES.Cards);
