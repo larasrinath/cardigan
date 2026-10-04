@@ -7,9 +7,9 @@ import { zipEntries } from "./zip.test-support.js";
  *
  * Made once by running 0.6.1's own analyseApp and exportModel on those fixtures, with the clock at 2026-09-28 12:30:10 UTC and
  * the time zone UTC (a zip entry carries its time as local time). Never regenerate them from newer code: a difference means the
- * export changed. What is deliberately written otherwise since is named below, a row of the app's files and a column of the
- * model's (`APP_ROW_REWORDED`, `MODEL_COLUMN_ADDED`): a test then compares with 0.6.1's zip but for that row or that column,
- * and the zips themselves stay as they are. */
+ * export changed. What is deliberately written otherwise since is named below, a row of the app's files, and a column and
+ * a row of the model's (`APP_ROW_REWORDED`, `MODEL_COLUMN_ADDED`, `MODEL_ROW_REWORDED`): a test then compares with 0.6.1's
+ * zip but for what is named, and the zips themselves stay as they are. */
 
 /** The time on every entry of both zips, as a local time, so the comparison holds in any time zone. */
 export const ZIPPED_AT = new Date(2026, 8, 28, 12, 30, 10);
@@ -190,9 +190,10 @@ export const MODEL_ZIP_0_6_1 = bytes([
  * made from has no Format column in its Line Items grid, so no line item of it is formatted as a list and the column is
  * empty in every row: the file's first line gains the column's name as a last cell, and every other line an empty one.
  *
- * Besides the build's name, it is the only place where this model's files are known to differ from 0.6.1's. The name is in
- * the "Exported with" row and, for a model page opened on its own, in the first Diagnostics line, and does not show in a
- * comparison here, for the reasons given at `APP_ROW_REWORDED`. */
+ * Besides the build's name, this column and the row that describes it (`MODEL_ROW_REWORDED`) are the only places where
+ * this model's files are known to differ from 0.6.1's. The name is in the "Exported with" row and, for a model page opened
+ * on its own, in the first Diagnostics line, and does not show in a comparison here, for the reasons given at
+ * `APP_ROW_REWORDED`. */
 export const MODEL_COLUMN_ADDED = { file: "Line Items.csv", header: "Format List" } as const;
 
 /** 0.6.1's text of that file with the column: each line as it is, with the one cell added at its end. `csv` is the file's
@@ -205,12 +206,30 @@ export function withColumnAdded(csv: string): string {
   return lines.map((line, index) => `${line},${index === 0 ? MODEL_COLUMN_ADDED.header : ""}\r\n`).join("");
 }
 
-/** The model's zip as 0.6.1 wrote it but for that column: every file's bytes as they are in `MODEL_ZIP_0_6_1`, with the
- * cell added to each line of Line Items.csv, written by zipStore with the same time on every entry. model/model.test.ts
- * pins that zipStore writes `MODEL_ZIP_0_6_1` itself, byte for byte, from the files as they are, so what differs from this
- * zip differs from 0.6.1. */
-export const MODEL_ZIP_COLUMN_ADDED = zipStore(zipEntries(MODEL_ZIP_0_6_1).map(entry => {
-  if (entry.name !== MODEL_COLUMN_ADDED.file) return entry;
-  const text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(entry.data);
-  return { name: entry.name, data: new TextEncoder().encode(withColumnAdded(text)) };
+/** The one row of the model's Model Details.csv that is deliberately not what 0.6.1 wrote, as the row's whole line of the
+ * file. The "How to read" row on Line Items named the two columns that the export added after Anaplan's own, which were
+ * all it added. The file has a third now (`MODEL_COLUMN_ADDED`), and Model Details.csv is to describe the files as they
+ * are: the row says that Anaplan's own columns come first, unchanged, and what each of the three after them holds. */
+export const MODEL_ROW_REWORDED = {
+  file: "Model Details.csv",
+  was: `How to read,Line Items,"Each module's row sits above its line items. Ratio Numerator and Ratio Denominator, after Anaplan's own columns, name the line items a Ratio summary divides: the Summary JSON gives only their IDs."\r\n`,
+  now: `How to read,Line Items,"Each module's row sits above its line items. Anaplan's own columns come first and are unchanged, and three columns follow them. Ratio Numerator and Ratio Denominator name the line items a Ratio summary divides: the Summary JSON gives only their IDs. Format List names the list of a line item formatted as a list, as General Lists.csv names it: the Format JSON gives only the list's ID. It is empty for any other format, for a list that is not in General Lists.csv, such as a list subset or a line item subset, and when General Lists.csv was not exported."\r\n`,
+} as const;
+
+/** 0.6.1's text of that file with the row as it is written now: every other line as it is. `csv` is the file's text, with
+ * its byte order mark or without. */
+export function withRowReworded(csv: string): string {
+  const lines = csv.split(MODEL_ROW_REWORDED.was);
+  if (lines.length !== 2) throw new Error("0.6.1's Model Details.csv does not hold the reworded row exactly once.");
+  return lines.join(MODEL_ROW_REWORDED.now);
+}
+
+/** The model's zip as 0.6.1 wrote it but for that column and that row: every file's bytes as they are in `MODEL_ZIP_0_6_1`,
+ * with the cell added to each line of Line Items.csv and that one line of Model Details.csv replaced, written by zipStore
+ * with the same time on every entry. model/model.test.ts pins that zipStore writes `MODEL_ZIP_0_6_1` itself, byte for byte,
+ * from the files as they are, so what differs from this zip differs from 0.6.1. */
+export const MODEL_ZIP_COLUMN_AND_ROW = zipStore(zipEntries(MODEL_ZIP_0_6_1).map(entry => {
+  const written = entry.name === MODEL_COLUMN_ADDED.file ? withColumnAdded : entry.name === MODEL_ROW_REWORDED.file ? withRowReworded : undefined;
+  if (!written) return entry;
+  return { name: entry.name, data: new TextEncoder().encode(written(new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(entry.data))) };
 }), ZIPPED_AT);

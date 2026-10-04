@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { MODEL_COLUMN_ADDED, MODEL_ZIP_0_6_1, MODEL_ZIP_COLUMN_ADDED, withColumnAdded, ZIPPED_AT } from "../golden-0.6.1.test-support.js";
+import { MODEL_COLUMN_ADDED, MODEL_ROW_REWORDED, MODEL_ZIP_0_6_1, MODEL_ZIP_COLUMN_AND_ROW, withColumnAdded, withRowReworded, ZIPPED_AT } from "../golden-0.6.1.test-support.js";
 import { NOT_SCOPE_IDS, SCOPE_IDS } from "../guards.test-support.js";
 import { Failure } from "../progress.js";
 import { resultZip } from "../result-zip.js";
@@ -11,7 +11,7 @@ import { exportModel } from "./export.js";
 import * as grids from "./grid.js";
 import { cellText, gridTable, labelEntries, plainText, windowRows, type CellSource, type Grid } from "./grid.js";
 import * as lineItems from "./lineitems.js";
-import { lineItemsTable } from "./lineitems.js";
+import { FORMAT_LIST_COLUMN, lineItemsTable, RATIO_COLUMNS } from "./lineitems.js";
 import { assertRead, modelOnPage, readGrid, type Native } from "./native.js";
 
 // Synthetic IDs and names only. Entity type = ID / 1e9 (102 module, 118 process, 4 property), as the classic client encodes it.
@@ -531,7 +531,8 @@ describe("Model export: Model settings grids to tables", () => {
     // No grid is read for the names: every grid is read once, in the order it always was, Line Items first.
     expect(reads).toEqual(["LINE ITEMS 0+1", "LINE ITEMS 0+5", "MODULES 0+1", "MODULES 0+2", "LISTS 0+1", "LISTS 0+2", "ACTIONS 0+1", "ACTIONS 0+10", "IMPORTS 0+1", "IMPORTS 0+2",
       "DATA SOURCES 0+1", "TIME RANGES 0+1", "VERSIONS 0+1", "VERSIONS 0+2", "CALENDAR 0+1", "CALENDAR 0+10"]);
-    // The file has its place and its count as ever, and the other files do not know of the column.
+    // The file has its place and its count as ever. The Details file says what it says of the golden model, but for the
+    // file's number of rows, and every other file is the golden model's own.
     expect(result.tables.map(table => table.file).slice(0, 4)).toEqual(["Model Details.csv", "Line Items.csv", "Modules.csv", "General Lists.csv"]);
     expect(result.summary.slice(0, 3)).toEqual(["Line Items: 5 rows", "Modules: 2 rows", "General Lists: 2 rows"]);
     const details = (exported: typeof result) => exported.tables[0].rows.filter(row => row[0] !== "Diagnostics");
@@ -566,30 +567,42 @@ describe("Model export: Model settings grids to tables", () => {
     expect(unzipText(resultZip(JSON.parse(JSON.stringify(result)) as typeof result)).get("Versions.csv")).toBe(written.slice(1));
   });
 
-  it("writes the zip 0.6.1 wrote for the same model, byte for byte but for the Format List column of Line Items.csv, and returns each file as a table", async () => {
+  it("writes the zip 0.6.1 wrote for the same model, byte for byte but for the Format List column of Line Items.csv and the row of Model Details.csv about that file's columns, and returns each file as a table", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date(Date.UTC(2026, 8, 28, 12, 30, 10)));
     const result = await exportGoldenModel();
     const zip = resultZip(result, ZIPPED_AT);
-    // One column is deliberately not in 0.6.1's zip: Format List, the last of Line Items.csv (MODEL_COLUMN_ADDED). This model's
-    // Line Items grid has no Format column, so the column is empty in every row. Everything else is what 0.6.1 wrote, byte
-    // for byte.
-    // File by file first, so that a difference shows as text: 0.6.1's files in their order, each with its text, and of
-    // Line Items.csv every line with that one cell more at its end.
+    // Two things are deliberately not what 0.6.1 wrote, and each is named (golden-0.6.1.test-support.ts). Line Items.csv has
+    // one column more, Format List, its last (MODEL_COLUMN_ADDED): this model's Line Items grid has no Format column, so the
+    // column is empty in every row. And the "How to read" row of Model Details.csv about Line Items says what the three
+    // columns after Anaplan's own hold, where it named the two there were (MODEL_ROW_REWORDED). Everything else is what
+    // 0.6.1 wrote, byte for byte.
+    // File by file first, so that a difference shows as text: 0.6.1's files in their order, each with its text; of Line
+    // Items.csv every line with that one cell more at its end, and of Model Details.csv every line but that one.
     const [written, before] = [unzipText(zip), unzipText(MODEL_ZIP_0_6_1)];
     expect([...written.keys()]).toEqual([...before.keys()]);
-    for (const [file, text] of before) expect(written.get(file), file).toBe(file === MODEL_COLUMN_ADDED.file ? withColumnAdded(text) : text);
-    // The file's own cells are 0.6.1's, every one: the column is the last, under its name, and holds nothing.
+    const since = (file: string, text: string): string => (file === MODEL_COLUMN_ADDED.file ? withColumnAdded(text) : file === MODEL_ROW_REWORDED.file ? withRowReworded(text) : text);
+    for (const [file, text] of before) expect(written.get(file), file).toBe(since(file, text));
+    // The Line Items file's own cells are 0.6.1's, every one: the column is the last, under its name, and holds nothing.
     const [lineItems, lineItemsBefore] = [parseCsv(written.get(MODEL_COLUMN_ADDED.file)!), parseCsv(before.get(MODEL_COLUMN_ADDED.file)!)];
     expect(lineItems.map(row => row.slice(0, -1))).toEqual(lineItemsBefore);
     expect(lineItems.map(row => row.at(-1))).toEqual([MODEL_COLUMN_ADDED.header, "", "", "", ""]);
-    // Then every byte. Of the twelve files, only Line Items.csv has other bytes than 0.6.1's.
+    // Model Details.csv has 0.6.1's rows, each in its place and all but one in 0.6.1's words: the one that differs is the
+    // row named, in the words named.
+    const [details, detailsBefore] = [parseCsv(written.get(MODEL_ROW_REWORDED.file)!), parseCsv(before.get(MODEL_ROW_REWORDED.file)!)];
+    expect(details.length).toBe(detailsBefore.length);
+    expect(details.flatMap((row, index) => (row.join("\n") === detailsBefore[index].join("\n") ? [] : [[detailsBefore[index], row]])))
+      .toEqual([[parseCsv(MODEL_ROW_REWORDED.was)[0], parseCsv(MODEL_ROW_REWORDED.now)[0]]]);
+    // That row is the file's account of Line Items.csv, and names each column the export adds to the grid's own.
+    const [section, detail, howToRead] = parseCsv(MODEL_ROW_REWORDED.now)[0];
+    expect([section, detail, [...RATIO_COLUMNS, FORMAT_LIST_COLUMN].filter(column => !howToRead.includes(column))]).toEqual(["How to read", "Line Items", []]);
+    // Then every byte. Of the twelve files, only those two have other bytes than 0.6.1's.
     const [files, golden] = [zipEntries(zip), zipEntries(MODEL_ZIP_0_6_1)];
-    expect([files.length, files.filter((file, index) => !sameBytes(file.data, golden[index].data)).map(file => file.name)]).toEqual([12, [MODEL_COLUMN_ADDED.file]]);
+    expect([files.length, files.filter((file, index) => !sameBytes(file.data, golden[index].data)).map(file => file.name)]).toEqual([12, [MODEL_ROW_REWORDED.file, MODEL_COLUMN_ADDED.file]]);
     // The zip around the files is written as 0.6.1 wrote it: from 0.6.1's own files, it is 0.6.1's zip.
     expect(sameBytes(zipStore(golden, ZIPPED_AT), MODEL_ZIP_0_6_1)).toBe(true);
-    // So this run's zip is, byte for byte, 0.6.1's zip with that one column added.
-    expect(sameBytes(zip, MODEL_ZIP_COLUMN_ADDED)).toBe(true);
+    // So this run's zip is, byte for byte, 0.6.1's zip with that one column added and that one row reworded.
+    expect(sameBytes(zip, MODEL_ZIP_COLUMN_AND_ROW)).toBe(true);
 
     expect([result.kind, result.name, result.id, result.zipName])
       .toEqual(["model", "Demand: plan", "FEDCBA9876543210FEDCBA9876543210", "Demand plan - Model Export - 2026-09-28.zip"]);
@@ -608,7 +621,7 @@ describe("Model export: Model settings grids to tables", () => {
     // Plain data: the tables are the same after the trip to the results page as JSON, and so is the zip.
     const received = JSON.parse(JSON.stringify(result)) as typeof result;
     expect(received).toEqual(result);
-    expect(sameBytes(resultZip(received, ZIPPED_AT), MODEL_ZIP_COLUMN_ADDED)).toBe(true);
+    expect(sameBytes(resultZip(received, ZIPPED_AT), MODEL_ZIP_COLUMN_AND_ROW)).toBe(true);
   });
 
   it("reads Line Items, Modules and General Lists in that order, and keeps each file's place whichever of them cannot be read", async () => {
