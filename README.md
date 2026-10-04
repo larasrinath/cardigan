@@ -49,7 +49,9 @@ The results page shows:
 - **Details**: the Details file (`App Details.csv` or `Model Details.csv`) under its sections, with the diagnostic log under **Diagnostics**. From here, **Download this table (.csv)** saves the Details file.
 - **Model map**: listed as coming in a later version.
 
-**Run again** analyses the Anaplan tab again, and so does reloading the results page. Closing the results page stops the analysis.
+**Run again** analyses the Anaplan tab again. The result stays on the page until the new one is complete. Closing the results page stops the analysis.
+
+The results page starts the analysis by itself only when the icon has just opened it, within a minute of the click. A results page that is reloaded, duplicated, restored from history or reopened later does not: it says what the Anaplan tab shows and waits for you to choose **Run**.
 
 If the page says **Not connected** ("Cardigan cannot reach that tab."), the tab did not answer. That is a tab that is not an Anaplan page, or an Anaplan tab that has not been refreshed since the extension was installed, updated or reloaded. Refresh the Anaplan tab, then click the Cardigan icon again.
 
@@ -192,7 +194,7 @@ If the results page says **Not connected** or **Nothing to analyse**, see [Use i
 Layout:
 
 - `manifest.json`: the toolbar icon, the service worker and the two content scripts. It asks for no permissions.
-- `src/background.ts`: the service worker, bundled into `dist/background.js`. A click on the toolbar icon opens the results page next to the clicked tab.
+- `src/background.ts`: the service worker, bundled into `dist/background.js`. A click on the toolbar icon opens the results page next to the clicked tab, with that tab's ID and the time of the click in its address.
 - `results.html`, `results.css` and `src/results/`: the results page. Its script is bundled into `dist/results.js`:
   - `main.ts`: puts the page together and acts on what you click.
   - `connection.ts`: talks to the Anaplan tab, and holds what the page says in each state.
