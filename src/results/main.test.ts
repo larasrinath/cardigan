@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { PORT_NAME, RESULTS_PAGE, type TabMessage } from "../protocol.js";
+import { FRESH_MS, PORT_NAME, RESULTS_PAGE, type TabMessage } from "../protocol.js";
 import type { AnalysisResult } from "../result-types.js";
 import { resultZip } from "../result-zip.js";
 import { FakeElement, FakeInput, FakePage, FakeSelect } from "./dom.test-support.js";
@@ -47,17 +47,25 @@ describe("The results page's script, on the page", () => {
   let connects: unknown[][];
   let saved: Blob[];
   let lastError: { message?: string } | undefined;
+  /** The page's address, each address the script changed it to, and whether changing it is refused. */
+  let location: { search: string; pathname: string; hash: string };
+  let replaced: string[];
+  let fixedAddress: boolean;
 
   beforeEach(() => {
-    vi.resetModules();
     vi.useFakeTimers();
     vi.setSystemTime(NOW);
-    page = new FakePage(SHELL);
     ports = [];
     connects = [];
     saved = [];
     lastError = undefined;
-    vi.stubGlobal("document", page.document);
+    replaced = [];
+    fixedAddress = false;
+    vi.stubGlobal("history", { state: null, replaceState: (_state: unknown, _unused: string, address: string) => {
+      if (fixedAddress) throw new Error("The address cannot be changed.");
+      replaced.push(address);
+      location.search = address.includes("?") ? address.slice(address.indexOf("?")) : "";
+    } });
     vi.stubGlobal("window", { matchMedia: () => ({ matches: false, addEventListener: () => undefined }), scrollTo: () => undefined, innerWidth: 1280, innerHeight: 800 });
     vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => undefined });
     // The kinds of element the script tells apart.
@@ -75,10 +83,19 @@ describe("The results page's script, on the page", () => {
   });
   afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
+  /** Loads the page at an address: a new page each time, as opening or reloading it gives. */
   const open = async (search: string) => {
-    vi.stubGlobal("location", { search });
+    vi.resetModules();
+    page = new FakePage(SHELL);
+    location = { search, pathname: "/results.html", hash: "" };
+    vi.stubGlobal("document", page.document);
+    vi.stubGlobal("location", location);
     await import("./main.js");
   };
+  /** The address the icon's click gives the page, a second and a half after the click. */
+  const clicked = (tab: number) => `?tab=${tab}&opened=${NOW.getTime() - 1500}`;
+  /** What the run control reads, beside its icon. */
+  const runControl = () => [page.id("runAgain").textContent.trim(), page.id("runAgain").title, page.all("#runAgain svg").length];
   const bytes = async (blob: Blob) => new Uint8Array(await blob.arrayBuffer());
   const sendResult = (port: FakePort, result = RESULT) => {
     port.send({ type: "result", result: { ...result, tables: result.tables.map(table => ({ ...table, rows: [] })) } });
@@ -87,18 +104,21 @@ describe("The results page's script, on the page", () => {
   };
   /** The page with a result on it, as the icon's click leaves it. */
   const openWith = async (result = RESULT) => {
-    await open("?tab=42");
+    await open(clicked(42));
     ports[0].send({ type: "subject", subject: { kind: "app", id: result.id } });
     sendResult(ports[0], result);
   };
   const disabled = (...ids: string[]) => ids.map(id => page.id(id).disabled);
 
   it("connects to the tab its address names, lets the analysis run by itself, shows the progress and then the result", async () => {
-    await open("?tab=42");
+    await open(clicked(42));
     expect(page.id("version").textContent).toBe("vdev");
     expect(connects).toEqual([[42, { name: PORT_NAME }]]);
     expect(page.id("runStatus").textContent).toBe("Connecting to the Anaplan tab…");
     expect(ports[0].posted).toEqual([]);
+    // The time of the click has left the address, and the tab's ID has stayed.
+    expect([replaced, location.search]).toEqual([["/results.html?tab=42"], "?tab=42"]);
+    expect(runControl()).toEqual(["Run again", "Analyse the Anaplan tab again", 1]);
 
     // The tab says what it shows: the page asks for the analysis at once, without a click.
     ports[0].send({ type: "subject", subject: { kind: "app", id: RESULT.id } });
@@ -132,10 +152,61 @@ describe("The results page's script, on the page", () => {
     expect(disabled("runAgain", "dlAll", "dlCsv")).toEqual([false, false, true]);
   });
 
-  it("downloads the result's zip under its own name, the same bytes however late and however often", async () => {
+  it("starts nothing by itself when the icon did not open it just now: it says what the tab shows, and Run analyses it", async () => {
+    // Reloaded or duplicated (the time of the click is gone), restored later (it is a minute old or more), or opened by
+    // hand with a time that is none or is still to come.
+    const addresses = ["?tab=42", `?tab=42&opened=${NOW.getTime() - FRESH_MS}`, `?tab=42&opened=${NOW.getTime() - 86_400_000}`,
+      `?tab=42&opened=${NOW.getTime() + 5000}`, "?tab=42&opened=now"];
+    for (const [index, address] of addresses.entries()) {
+      await open(address);
+      expect(connects[index], address).toEqual([42, { name: PORT_NAME }]);
+      ports[index].send({ type: "subject", subject: { kind: "app", id: RESULT.id } });
+      expect(ports[index].posted, address).toEqual([]);
+      expect(["runTitle", "runStatus", "runHint"].map(id => page.id(id).textContent), address).toEqual(["Ready to analyse", "That Anaplan tab shows an app.",
+        "Choose Run to analyse it. This page starts by itself only when the Cardigan icon has just opened it."]);
+      expect(runControl(), address).toEqual(["Run", "Analyse the Anaplan tab", 1]);
+      expect(disabled("runAgain", "dlAll", "dlCsv"), address).toEqual([false, true, true]);
+      // A time that is in the address goes, fresh or not.
+      expect(location.search, address).toBe("?tab=42");
+
+      page.id("runAgain").press();
+      expect(ports[index].posted, address).toEqual([{ type: "run" }]);
+      expect([page.id("runTitle").textContent, page.id("runStatus").textContent], address).toEqual(["Analysing", "Starting the analysis…"]);
+      expect(runControl(), address).toEqual(["Run again", "Analyse the Anaplan tab again", 1]);
+    }
+    expect(replaced).toEqual(Array(4).fill("/results.html?tab=42"));
+  });
+
+  it("says a model is a model, and analyses it on Run", async () => {
     await open("?tab=42");
+    ports[0].send({ type: "subject", subject: { kind: "model", id: "0123456789ABCDEF0123456789ABCDEF" } });
+    expect(page.id("runStatus").textContent).toBe("That Anaplan tab shows a model.");
+    page.id("runAgain").press();
+    expect(ports[0].posted).toEqual([{ type: "run" }]);
+  });
+
+  it("does not start again when the page the icon opened is reloaded", async () => {
+    await open(clicked(42));
     ports[0].send({ type: "subject", subject: { kind: "app", id: RESULT.id } });
-    sendResult(ports[0]);
+    expect(ports[0].posted).toEqual([{ type: "run" }]);
+    // A reload loads the address the page left behind, still within the minute.
+    await open(location.search);
+    ports[1].send({ type: "subject", subject: { kind: "app", id: RESULT.id } });
+    expect(ports[1].posted).toEqual([]);
+    expect([page.id("runTitle").textContent, runControl()[0]]).toEqual(["Ready to analyse", "Run"]);
+    expect(replaced).toEqual(["/results.html?tab=42"]);
+  });
+
+  it("starts nothing by itself when it cannot take the time of the click out of its address", async () => {
+    fixedAddress = true;
+    await open(clicked(42));
+    ports[0].send({ type: "subject", subject: { kind: "app", id: RESULT.id } });
+    expect(ports[0].posted).toEqual([]);
+    expect(page.id("runTitle").textContent).toBe("Ready to analyse");
+  });
+
+  it("downloads the result's zip under its own name, the same bytes however late and however often", async () => {
+    await openWith();
     page.id("dlAll").press();
     vi.setSystemTime(new Date(Date.UTC(2026, 9, 3, 18, 45, 0)));
     page.id("dlAll").press();
@@ -150,9 +221,7 @@ describe("The results page's script, on the page", () => {
   });
 
   it("runs again when asked: on the same port after a result, and the old result leaves the page", async () => {
-    await open("?tab=42");
-    ports[0].send({ type: "subject", subject: { kind: "app", id: RESULT.id } });
-    sendResult(ports[0]);
+    await openWith();
     page.id("runAgain").press();
     expect(connects).toHaveLength(1);
     expect(ports[0].posted).toEqual([{ type: "run" }, { type: "run" }]);
@@ -196,7 +265,7 @@ describe("The results page's script, on the page", () => {
   });
 
   it("says it cannot reach the tab when Chrome closes the port at once, with Chrome's reason in the log, and reconnects on Run again", async () => {
-    await open("?tab=7");
+    await open(clicked(7));
     lastError = { message: "Could not establish connection. Receiving end does not exist." };
     ports[0].drop();
     lastError = undefined;
@@ -209,7 +278,7 @@ describe("The results page's script, on the page", () => {
   });
 
   it("shows the tab's error as text, and keeps Run again usable on an Anaplan page that is not an app or a model", async () => {
-    await open("?tab=42");
+    await open(clicked(42));
     ports[0].send({ type: "subject", subject: { kind: "none" } });
     expect(page.id("runStatus").textContent).toBe("That Anaplan page is not an app or a model.");
     expect(page.id("runAgain").disabled).toBe(false);
