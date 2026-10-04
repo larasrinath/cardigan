@@ -283,7 +283,7 @@ export function tableParts(view: TableView): TableParts {
     empty = `<div class="empty">
       <svg width="30" height="30" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" aria-hidden="true">${FILTER_PATH}</svg>
       <div class="e-title">${label} has no rows</div>
-      <div class="e-sub">Nothing was found for this file in this analysis.</div>
+      <div class="e-sub">Nothing was found for this table in this analysis.</div>
       </div>`;
   } else if (view.total === 0) {
     const what = [...(searching ? ["search"] : []), ...(filtering ? ["column filters"] : []), ...(jumped ? ["page selection"] : [])].join(" and ");
@@ -303,7 +303,7 @@ export function tableParts(view: TableView): TableParts {
       ${empty}
       <div class="scroll-fade" aria-hidden="true"></div>`,
     pager: pagerHtml(view.page, view.pages, view.total, view.pageSize),
-    count: `${view.from}–${view.to} of ${view.total} rows` + (view.total !== view.all ? ` (filtered from ${view.all})` : ""),
+    count: (view.total === 0 ? "No rows" : `${view.from}–${view.to} of ${view.total} ${view.total === 1 ? "row" : "rows"}`) + (view.total !== view.all ? ` (filtered from ${view.all})` : ""),
     modified: searching || filtering || jumped || view.sort !== undefined,
   };
 }
