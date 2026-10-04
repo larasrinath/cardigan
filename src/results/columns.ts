@@ -133,6 +133,23 @@ export function columnIndex(table: ResultTable, header: string): number | undefi
   return index < 0 ? undefined : index;
 }
 
+/** The column that names a row, in each of the app's files: what the row's drawer is headed by. An app's first column is
+ * the app or the page, which every row of the page shares: the row's own name is the page in Pages, the card's title in
+ * Cards, and in the other files what the row is about. A row of any other file (every file of a model) is named by the
+ * first of its cells that says something, which there is the row's name. */
+export const ROW_NAME_COLUMNS: Record<TabName, string> = {
+  Pages: "Page", Cards: "Card title", "Grid sections": "Source module", Filters: "Condition line item", Formatting: "Formatted line item",
+  Actions: "Button label", "Where used": "Object name",
+};
+const ROW_NAMES: ReadonlyMap<string, string> = new Map((Object.keys(ROW_NAME_COLUMNS) as TabName[]).map(tab => [APP_FILES[tab], ROW_NAME_COLUMNS[tab]]));
+
+/** The place of the column that names a table's rows; undefined for a file the page knows no such column of, and for a
+ * table that lacks it. */
+export function rowNameIndex(table: ResultTable): number | undefined {
+  const header = ROW_NAMES.get(table.file);
+  return header === undefined ? undefined : columnIndex(table, header);
+}
+
 /** The columns a row's links read: its page, and its card's ID. */
 export interface RowKeys { page: number | undefined; cardId: number | undefined }
 export const rowKeys = (table: ResultTable): RowKeys => ({ page: columnIndex(table, "Page"), cardId: columnIndex(table, "Card ID") });
