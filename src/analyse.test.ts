@@ -84,13 +84,28 @@ const gridCard = { id: "card-1", type: "TABLE", grid: { regions: [{ region: "SIN
   columns: { dimensions: [{ dimension: { kind: "dimension", id: "20000000003" } }] } }] } };
 const withGrid = (...references: unknown[]) => [{ cards: [gridCard], references: [{ kind: "module", id: MODULE }, ...references] }] as unknown as UxPageCardDetails[];
 
-/** One host's model data service: each SEND is answered by its destination, or with no data. */
-function serveModel(answers: Record<string, (id: string) => string> = {}) {
+// Filter rules whose items are stored as IDs. A list's items share an entity type, the digits before the last nine, and
+// its top level item is its item zero. Role is formatted as the list Roles, which no grid shows.
+const [REGIONS, ROLES, STAFFING, ROLE, STATUS] = ["101000000912", "101000000911", "102000000905", "1901000000011", "1901000000012"];
+const ITEM = (type: number, index: number) => `${type}${String(index).padStart(9, "0")}`;
+const rule = (selected: string[], values: unknown[], operator = "EQUALS") => ({ operator, values, selectedItems: selected.map(id => ({ kind: "unknown", id })) });
+/** A grid of the module, with Product on rows and Time on columns, whose rows are filtered by the rules. */
+const ruled = (...rules: unknown[]) => [{ cards: [{ id: "card-1", type: "TABLE", grid: { regions: [{ region: "SINGLE", module: { kind: "module", id: MODULE },
+  rows: { dimensions: [{ dimension: { kind: "dimension", id: LIST } }], filter: { operator: "AND", match: "all", conditions: rules, groups: [] } },
+  columns: { dimensions: [{ dimension: { kind: "dimension", id: "20000000003" } }] } }] } }], references: [{ kind: "module", id: MODULE }] }] as unknown as UxPageCardDetails[];
+const listFormat = (list: string) => ({ lineItemInfo: { format: { dataType: "ENTITY", hierarchyEntityLongId: Number(list) } } });
+/** The answer to a read of item labels: these entries, or of the items asked for, those a dimension has. */
+const selection = (...items: [id: string, label: string][]) => (id: string) => update(id, { data: items.map(([itemId, label], index) => ({ itemId, label, index })) });
+const labels = (has: Record<string, string>) => (id: string, asked: Any) => update(id, { data: (asked.itemIds as string[]).flatMap(itemId => (has[itemId] ? [{ itemId, label: has[itemId] }] : [])) });
+
+/** One host's model data service: each SEND is answered by its destination (and, where the answer depends on it, by what
+ * it asks for), or with no data. */
+function serveModel(answers: Record<string, (id: string, asked: Any) => string> = {}) {
   ScriptedSocket.reply = (socket, frame) => {
     if (frame.command === "CONNECT") { socket.serve(CONNECTED); return; }
     if (frame.command !== "SEND") return;
     const { destination, id } = frame.headers;
-    socket.serve(answers[destination]?.(id) ?? update(id, { data: [] }));
+    socket.serve(answers[destination]?.(id, JSON.parse(frame.body || "{}")) ?? update(id, { data: [] }));
   };
 }
 const sent = (command: string) => ScriptedSocket.sockets.flatMap(socket => socket.frames).filter(frame => frame.command === command);
@@ -698,6 +713,341 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
         .toEqual([MODULE, MODULE_3, ...candidates.slice(0, read)].map(module => at(`/modules/${module}/lineItems`)));
       expect(log).toContain(`line items of module ${MODULE_3}: LINE_ITEMS_UNAVAILABLE`);
       expect(done.catalog.lineItems.has(FILTER_ITEM)).toBe(!!found);
+    }
+  });
+
+  it("names the item a filter rule's context is fixed to, and the items a list-formatted line item is compared with", async () => {
+    serveModel({
+      [MODULE_VIEWS]: id => update(id, { data: [{ id: Number(MODULE), name: "Demand", views: [] }], dimensions: {} }),
+      [at("/lists")]: id => update(id, { data: [{ id: LIST, name: "Product" }, { id: REGIONS, name: "Region" }, { id: ROLES, name: "Roles" }] }),
+      [at(`/modules/${MODULE}/lineItems`)]: id => update(id, { data: [{ lineItemId: ROLE, lineItemLabel: "Role", ...listFormat(ROLES) },
+        { lineItemId: STATUS, lineItemLabel: "Status", ...listFormat(REGIONS) }] }),
+      // Every module has the Line Items dimension, and its listing may name it: it holds line items, so it is not asked for items.
+      [at("/dimensions")]: id => update(id, { modules: { [MODULE]: { dimensions: [{ id: "20000000012", label: "Line Items" }, { id: LIST, label: "Product" },
+        { id: "20000000003", label: "Time" }, { id: REGIONS, label: "Region" }] } } }),
+      [at(`/modules/${MODULE}/dimensions/${REGIONS}`)]: selection([ITEM(358, 0), "All regions"], [ITEM(358, 2), "North"]),
+      [at("/applicableModules")]: id => update(id, { data: [{ id: Number(STAFFING), label: "Staffing" }, { id: Number(candidate(1)), label: "Other" }] }),
+      [at(`/modules/${STAFFING}/dimensions/${ROLES}`)]: selection([ITEM(404, 3), "Planner"]),
+    });
+    const { log, statuses, result } = run(ruled(
+      // What the owner saw: Time follows the page, a second dimension is fixed to its top level item, and the last is the
+      // line item, which is compared with an item of the list it is formatted as.
+      rule(["20000000003", ITEM(358, 0), ROLE], [ITEM(404, 3)]),
+      // A line item formatted as a list its own module has as a dimension, compared with two of that list's items.
+      rule([STATUS], [ITEM(358, 2), ITEM(358, 0)])));
+    const { catalog, notes } = await result;
+
+    expect(notes).toEqual([]);
+    expect([...catalog.listItems]).toEqual([[ITEM(358, 0), "All regions"], [ITEM(358, 2), "North"], [ITEM(404, 3), "Planner"]]);
+    // After the names, the line items and the grid's dimensions: one read of item labels per dimension, as for shown and hidden
+    // items, and for a list no known module has as a dimension, first the modules that have it. The fixed item is asked of
+    // the dimension the rule neither filters nor leaves to the page; nothing is asked twice, and nothing for what is named.
+    expect(sent("SEND").slice(5).map(frame => [frame.headers.destination, JSON.parse(frame.body)])).toEqual([
+      [at(`/modules/${MODULE}/dimensions/${REGIONS}`), { itemIds: [ITEM(358, 0)], filter: "" }],
+      [at("/applicableModules"), { dimensions: [Number(ROLES)] }],
+      [at(`/modules/${STAFFING}/dimensions/${ROLES}`), { itemIds: [ITEM(404, 3)], filter: "" }]]);
+    expect(sent("SUBSCRIBE").slice(5).map(frame => frame.headers.accept)).toEqual(["widget/selection", undefined, "widget/selection"]);
+    expect(statuses.at(-1)).toBe("Reading filter item names in Synthetic model…");
+    // The log says per kind what was asked of which module and dimension and how much of it was named, in IDs and keys only.
+    expect(log.filter(line => /^(filter |modules with|dimensions of \d+ modules of)/.test(line))).toEqual([
+      `filter context items: 1 asked of dimension ${REGIONS} in module ${MODULE}, 1 named (answer: 2 entries of {index, itemId, label})`,
+      `filter line item ${ROLE}: format {dataType, hierarchyEntityLongId}, data type ENTITY, items of dimension ${ROLES}`,
+      `modules with dimension ${ROLES}: ${STAFFING}, ${candidate(1)}`,
+      `filter values: 1 asked of dimension ${ROLES} in module ${STAFFING}, 1 named (answer: 1 entries of {index, itemId, label})`,
+      `filter line item ${STATUS}: format {dataType, hierarchyEntityLongId}, data type ENTITY, items of dimension ${REGIONS}`,
+      "filter context items: 1 of 1 named", "filter values: 3 of 3 named"]);
+    expect(log.join("\n")).not.toMatch(/All regions|North|Planner|Roles|Region\b/);
+  });
+
+  it("reads the dimensions of a rule's line item's module that no grid shows, and stops looking for line items once every rule has its own", async () => {
+    const candidates = [1, 2, 3, 4, 5, 6].map(candidate);
+    /** The rule's line item is in a module no card shows, with this format. */
+    const serve = (dataType: string, list?: string) => {
+      ScriptedSocket.sockets = [];
+      serveModel({
+        [at("/lists")]: id => update(id, { data: [{ id: LIST, name: "Product" }, { id: LIST_2, name: "Territory" }, { id: REGIONS, name: "Region" }] }),
+        // The modules that have the filtered dimension: the rule's line item is in the second that was not read yet.
+        [at("/applicableModules")]: id => update(id, { data: [MODULE, ...candidates].map(module => ({ id: module, label: `Module ${module}` })) }),
+        [at(`/modules/${candidate(2)}/lineItems`)]: id => update(id, { data: [{ lineItemId: FILTER_ITEM, lineItemLabel: "Include?",
+          lineItemInfo: { format: { dataType, ...(list ? { hierarchyEntityLongId: Number(list) } : {}) } } }] }),
+        // The grid's module with the grids' dimensions; the line item's module only when it is asked for.
+        [at("/dimensions")]: (id, asked) => update(id, { modules: Object.fromEntries((asked.moduleIds as string[]).map(module => [module,
+          { dimensions: [{ id: LIST, label: "Product" }, { id: LIST_2, label: "Territory" }, ...(module === MODULE ? [] : [{ id: REGIONS, label: "Region" }])] }])) }),
+        [at(`/modules/${candidate(2)}/dimensions/${REGIONS}`)]: labels({ [ITEM(358, 2)]: "North" }),
+      });
+    };
+    const lastSent = (count: number) => sent("SEND").map(frame => [frame.headers.destination, JSON.parse(frame.body)]).slice(-count);
+    // Territory follows the page, a second dimension is fixed to one item, and the line item is in a module no card shows.
+    serve("BOOLEAN");
+    const { log, statuses, result } = run(ruled(rule([LIST_2, ITEM(358, 2), FILTER_ITEM], ["true"])));
+    const { catalog, notes } = await result;
+
+    expect(notes).toEqual([]);
+    expect([catalog.lineItems.get(FILTER_ITEM), [...catalog.listItems]]).toEqual([{ name: "Include?", moduleId: candidate(2) }, [[ITEM(358, 2), "North"]]]);
+    // The search ends with the batch that found the line item: the item the rule's context is fixed to is no line item, so
+    // the two modules left are not read for it.
+    expect(destinations().filter(destination => destination.endsWith("/lineItems"))).toEqual([MODULE, ...candidates.slice(0, 4)].map(module => at(`/modules/${module}/lineItems`)));
+    // Then the module's dimensions, and the item from the one the rule neither filters nor leaves to the page.
+    expect(lastSent(2)).toEqual([[at("/dimensions"), { moduleIds: [candidate(2)] }], [at(`/modules/${candidate(2)}/dimensions/${REGIONS}`), { itemIds: [ITEM(358, 2)], filter: "" }]]);
+    expect(statuses.slice(-2)).toEqual(["Finding filter line items in Synthetic model…", "Reading filter item names in Synthetic model…"]);
+    expect(log.filter(line => /^(filter |dimensions of)/.test(line))).toEqual(["dimensions of 1 of 1 modules",
+      "dimensions of 1 modules of filter line items: 1 read",
+      `filter context items: 1 asked of dimension ${REGIONS} in module ${candidate(2)}, 1 named (answer: 1 entries of {itemId, label})`,
+      "filter context items: 1 of 1 named"]);
+    // The value, true, is no item: nothing is asked for it, and the line item's format is not logged.
+    expect(log.join("\n")).not.toContain("filter values");
+
+    // The same for a line item of such a module that is compared with an item, when the listing says it is formatted as a
+    // list and not which: the module's dimensions are read, to be asked in turn.
+    serve("ENTITY");
+    const compared = await run(ruled(rule([FILTER_ITEM], [ITEM(358, 2)]))).result;
+    expect([...compared.catalog.listItems]).toEqual([[ITEM(358, 2), "North"]]);
+    expect(lastSent(4)).toEqual([[at("/dimensions"), { moduleIds: [candidate(2)] }],
+      ...[LIST, LIST_2, REGIONS].map(dimension => [at(`/modules/${candidate(2)}/dimensions/${dimension}`), { itemIds: [ITEM(358, 2)], filter: "" }])]);
+    // When the listing does say which list, the item is asked where that list is a dimension: the dimensions of the line
+    // item's own module are not needed, and not read.
+    serve("ENTITY", ROLES);
+    await run(ruled(rule([FILTER_ITEM], [ITEM(404, 3)]))).result;
+    expect(destinations().filter(destination => destination === at("/dimensions"))).toHaveLength(1);
+    expect(lastSent(3)).toEqual([[at("/applicableModules"), { dimensions: [Number(ROLES)] }],
+      ...[MODULE, candidate(1)].map(module => [at(`/modules/${module}/dimensions/${ROLES}`), { itemIds: [ITEM(404, 3)], filter: "" }])]);
+
+    // A module whose dimensions were asked for with the grids' and not given is not asked for them again: the item its rule is
+    // fixed to is left as it is, the log says why, and no step is shown for reads that are not made.
+    ScriptedSocket.sockets = [];
+    serveModel({ [at(`/modules/${MODULE}/lineItems`)]: id => update(id, { data: [{ lineItemId: ROLE, lineItemLabel: "Role", ...listFormat(ROLES) }] }),
+      [at("/dimensions")]: id => rejected(id, "DIMENSIONS_UNAVAILABLE") });
+    const ungiven = run(ruled(rule(["20000000003", ITEM(358, 0), ROLE], ["true"])));
+    expect((await ungiven.result).notes).toEqual(["Synthetic model: module dimensions were not available (DIMENSIONS_UNAVAILABLE); context selectors show only those saved on the page."]);
+    expect([destinations().slice(4), ungiven.statuses.at(-1)]).toEqual([[at("/dimensions")], "Reading module dimensions in Synthetic model…"]);
+    expect(ungiven.log.filter(line => line.startsWith("filter "))).toEqual([
+      `filter context items: 1 of module ${MODULE} not asked: its dimensions are not known`,
+      `filter context items: 0 of 1 named; left as IDs: ${ITEM(358, 0)}`,
+      `filter rule with an unnamed item (card card-1): dimension 20000000003, unnamed ${ITEM(358, 0)}, line item ${ROLE} of module ${MODULE}`]);
+  });
+
+  it("asks for a compared item where its list is a dimension: a module whose dimensions are known, one the model names for the list, or the line item's own", async () => {
+    const dimensions = (extra: Record<string, string[]> = {}) => (id: string) => update(id, { modules: Object.fromEntries(Object.entries({ [MODULE]: [LIST, "20000000003", REGIONS], ...extra })
+      .map(([module, ids]) => [module, { dimensions: ids.map(dimension => ({ id: dimension, label: `Dimension ${dimension}` })) }])) });
+    const DEPUTY = "1901000000013";
+    const lineItems = (id: string) => update(id, { data: [{ lineItemId: ROLE, lineItemLabel: "Role", ...listFormat(ROLES) }, { lineItemId: STATUS, lineItemLabel: "Status", ...listFormat(REGIONS) },
+      { lineItemId: DEPUTY, lineItemLabel: "Deputy", ...listFormat(ROLES) }] });
+    /** The reads after the names, the line items and the grid's dimensions: what naming the rules' items asked. */
+    const asked = () => sent("SEND").slice(5).map(frame => [frame.headers.destination.replace(at(""), ""), JSON.parse(frame.body)]);
+    const [first, second] = [{ itemIds: [ITEM(404, 3), ITEM(404, 4)], filter: "" }, { itemIds: [ITEM(404, 4)], filter: "" }];
+    const roles = rule([ROLE], [ITEM(404, 3), ITEM(404, 4)], "NOT_EQUALS");
+    const planner = selection([ITEM(404, 3), "Planner"]);
+    let asking: string[] = [];
+    for (const [why, answers, pages, reads, left] of [
+      // The line item's own module has the list as a dimension: it is asked, and no other.
+      ["its own module", { [at(`/modules/${MODULE}/dimensions/${REGIONS}`)]: selection([ITEM(358, 2), "North"]) }, ruled(rule([STATUS], [ITEM(358, 2)])),
+        [[`/modules/${MODULE}/dimensions/${REGIONS}`, { itemIds: [ITEM(358, 2)], filter: "" }]], []],
+      // Another module whose dimensions are known has it: no need to ask the model which modules do.
+      ["a known module", { [at("/dimensions")]: dimensions({ [STAFFING]: [ROLES] }), [at(`/modules/${STAFFING}/dimensions/${ROLES}`)]: selection([ITEM(404, 3), "Planner"], [ITEM(404, 4), "Buyer"]) },
+        ruled(roles), [[`/modules/${STAFFING}/dimensions/${ROLES}`, first]], []],
+      // Three such modules: the first names one of the two items, the second is asked for the other and has no name for it,
+      // and a third is not asked.
+      ["two of the known modules", { [at("/dimensions")]: dimensions({ [STAFFING]: [ROLES], [candidate(1)]: [LIST, ROLES], [candidate(2)]: [ROLES] }), [at(`/modules/${STAFFING}/dimensions/${ROLES}`)]: planner },
+        ruled(roles), [[`/modules/${STAFFING}/dimensions/${ROLES}`, first], [`/modules/${candidate(1)}/dimensions/${ROLES}`, second]], [ITEM(404, 4)]],
+      // The model names three modules for the list, after one whose ID is none: the same two are asked, in the same way.
+      ["two of the model's", { [at("/applicableModules")]: (id: string) => update(id, { data: ["its/own", ...[STAFFING, candidate(1), candidate(2)].map(Number)].map(module => ({ id: module, label: "A module" })) }),
+        [at(`/modules/${STAFFING}/dimensions/${ROLES}`)]: planner }, ruled(roles),
+      [["/applicableModules", { dimensions: [Number(ROLES)] }], [`/modules/${STAFFING}/dimensions/${ROLES}`, first], [`/modules/${candidate(1)}/dimensions/${ROLES}`, second]], [ITEM(404, 4)]],
+      // A second line item that is formatted as the same list: the modules found for the list are asked, not looked for again.
+      ["the same list again", { [at("/applicableModules")]: (id: string) => update(id, { data: [{ id: Number(STAFFING), label: "A module" }] }), [at(`/modules/${STAFFING}/dimensions/${ROLES}`)]: planner },
+        ruled(roles, rule([DEPUTY], [ITEM(404, 5)])),
+        [["/applicableModules", { dimensions: [Number(ROLES)] }], [`/modules/${STAFFING}/dimensions/${ROLES}`, first], [`/modules/${STAFFING}/dimensions/${ROLES}`, { itemIds: [ITEM(404, 5)], filter: "" }]],
+        [ITEM(404, 4), ITEM(404, 5)]],
+      // The model names no module for the list, or does not answer the question: the line item's own module is asked all the same.
+      ["none named", { [at(`/modules/${MODULE}/dimensions/${ROLES}`)]: selection([ITEM(404, 3), "Planner"], [ITEM(404, 4), "Buyer"]) }, ruled(roles),
+        [["/applicableModules", { dimensions: [Number(ROLES)] }], [`/modules/${MODULE}/dimensions/${ROLES}`, first]], []],
+      ["the question refused", { [at("/applicableModules")]: (id: string) => rejected(id, "MODULES_UNAVAILABLE") }, ruled(roles),
+        [["/applicableModules", { dimensions: [Number(ROLES)] }], [`/modules/${MODULE}/dimensions/${ROLES}`, first]], [ITEM(404, 3), ITEM(404, 4)]],
+    ] as const) {
+      ScriptedSocket.sockets = [];
+      serveModel({ [at(`/modules/${MODULE}/lineItems`)]: lineItems, [at("/dimensions")]: dimensions(), ...answers });
+      const { log, result } = run(pages);
+      const { catalog, notes } = await result;
+      asking = log.filter(line => line.startsWith("modules with dimension") || line.includes(" asked of "));
+      expect(asked(), why).toEqual(reads);
+      // An item no read named keeps its ID: the log lists it, and no note is added.
+      const values = pages[0].cards.flatMap(card => (card as Any).grid.regions[0].rows.filter.conditions.flatMap((condition: Any) => condition.values as string[]));
+      expect(values.filter((value: string) => !catalog.listItems.has(value)), why).toEqual(left);
+      expect(log.filter(line => line.startsWith("filter values: ")).at(-1), why)
+        .toBe(`filter values: ${values.length - left.length} of ${values.length} named${left.length ? `; left as IDs: ${left.join(", ")}` : ""}`);
+      expect(notes, why).toEqual([]);
+    }
+    // The refused question and the read that had no answer for the items, as the log has them.
+    expect(asking).toEqual([`modules with dimension ${ROLES}: MODULES_UNAVAILABLE`,
+      `filter values: 2 asked of dimension ${ROLES} in module ${MODULE}, 0 named (answer: 0 entries)`]);
+  });
+
+  it("asks for a value only where the listing says it is an item: a time period, or an item of a list; never under a plain format or one that is not given", async () => {
+    const [MONTH, UNSAID, ODD, AMOUNT, NOTE, FLAG, DAY, BARE, LOOSE, LISTED] = [21, 22, 23, 24, 25, 26, 27, 28, 29, 30].map(n => `19010000000${n}`);
+    const format = (dataType: string) => ({ lineItemInfo: { format: { dataType } } });
+    const lineItems = (id: string) => update(id, { data: [{ lineItemId: MONTH, lineItemLabel: "Month", ...format("TIME_ENTITY") }, { lineItemId: UNSAID, lineItemLabel: "Unsaid" },
+      { lineItemId: ODD, lineItemLabel: "Odd", ...format("SOMETHING_NEW") }, { lineItemId: AMOUNT, lineItemLabel: "Amount", ...format("NUMBER") },
+      { lineItemId: NOTE, lineItemLabel: "Note", ...format("TEXT") }, { lineItemId: FLAG, lineItemLabel: "Flag", ...format("BOOLEAN") },
+      { lineItemId: DAY, lineItemLabel: "Day", ...format("DATE") }, { lineItemId: BARE, lineItemLabel: "Bare", ...format("NONE") },
+      { lineItemId: LOOSE, lineItemLabel: "Loose", ...format("ENTITY") }, { lineItemId: LISTED, lineItemLabel: "Listed", ...listFormat(ROLES) }] });
+    const dimensions = (id: string) => update(id, { modules: { [MODULE]: { dimensions: [LIST, "20000000003", REGIONS].map(dimension => ({ id: dimension, label: `Dimension ${dimension}` })) } } });
+    const serve = (answers: Record<string, (id: string, asked: Any) => string> = {}) => {
+      ScriptedSocket.sockets = [];
+      serveModel({ [at(`/modules/${MODULE}/lineItems`)]: lineItems, [at("/dimensions")]: dimensions, ...answers });
+    };
+    const asked = (from = 5) => sent("SEND").slice(from).map(frame => [frame.headers.destination.replace(at(""), ""), JSON.parse(frame.body).itemIds]);
+
+    // A line item formatted as a time period is compared with periods: they are items of Time, which its module has.
+    serve({ [at(`/modules/${MODULE}/dimensions/20000000003`)]: labels({ "5438300031": "Jan 26" }) });
+    const period = await run(ruled(rule([MONTH], ["5438300031"]))).result;
+    expect([asked(), [...period.catalog.listItems]]).toEqual([[[`/modules/${MODULE}/dimensions/20000000003`, ["5438300031"]]], [["5438300031", "Jan 26"]]]);
+
+    // The listing says the line item is formatted as a list, and not which: the item is asked of each dimension of the line
+    // item's own module in turn, until one names it.
+    serve({ [at(`/modules/${MODULE}/dimensions/${REGIONS}`)]: labels({ [ITEM(318, 3)]: "Late" }) });
+    const loose = run(ruled(rule([LOOSE], [ITEM(318, 3)], "NOT_EQUALS")));
+    expect([...(await loose.result).catalog.listItems]).toEqual([[ITEM(318, 3), "Late"]]);
+    expect(asked()).toEqual([LIST, "20000000003", REGIONS].map(dimension => [`/modules/${MODULE}/dimensions/${dimension}`, [ITEM(318, 3)]]));
+    expect(loose.log.filter(line => line.startsWith("filter line item"))).toEqual([`filter line item ${LOOSE}: format {dataType}, data type ENTITY, no list named`]);
+    // Where an item of the same entity type was named before (here a hidden item of the rows), that module and dimension
+    // are asked first, for the items of that type: the item a rule is fixed to, then the items it compares with.
+    serve({ [at(`/modules/${MODULE}/dimensions/${LIST}`)]: labels({ [ITEM(318, 9)]: "Old", [ITEM(318, 0)]: "All", [ITEM(318, 3)]: "Late" }) });
+    const hiding = ruled(rule([ITEM(318, 0), LOOSE], [ITEM(318, 3), ITEM(318, 4), ITEM(319, 1)]));
+    (hiding[0].cards[0] as Any).grid.regions[0].rows.dimensions[0].hides = [{ kind: "listItem", id: ITEM(318, 9) }];
+    const hidden = await run(hiding).result;
+    expect(asked()).toEqual([[`/modules/${MODULE}/dimensions/${LIST}`, [ITEM(318, 9)]], [`/modules/${MODULE}/dimensions/${LIST}`, [ITEM(318, 0)]],
+      [`/modules/${MODULE}/dimensions/${LIST}`, [ITEM(318, 3), ITEM(318, 4)]],
+      // What is still unnamed goes through the module's dimensions as before, and nothing is asked of a dimension twice:
+      // the one that had no name for an item is asked only for the item of a type nothing was named of.
+      [`/modules/${MODULE}/dimensions/${LIST}`, [ITEM(319, 1)]],
+      ...["20000000003", REGIONS].map(dimension => [`/modules/${MODULE}/dimensions/${dimension}`, [ITEM(318, 4), ITEM(319, 1)]])]);
+    expect([...hidden.catalog.listItems]).toEqual([[ITEM(318, 9), "Old"], [ITEM(318, 0), "All"], [ITEM(318, 3), "Late"]]);
+
+    // A read that names a rule's item is remembered in the same way: the item a rule is compared with is asked where the
+    // item it is fixed to, of the same type, was named. A dimension, or a module, whose ID in the service's listing is no
+    // ID is never asked: no destination is built from it.
+    const odd = (id: string) => update(id, { modules: { [MODULE]: { dimensions: [LIST, "20000000003", "its/own", REGIONS].map(dimension => ({ id: dimension, label: `Dimension ${dimension}` })) },
+      "its/own": { dimensions: [{ id: ROLES, label: "Roles" }] } } });
+    serve({ [at("/dimensions")]: odd, [at(`/modules/${MODULE}/dimensions/${REGIONS}`)]: labels({ [ITEM(358, 0)]: "All regions", [ITEM(358, 2)]: "North" }) });
+    const remembered = await run(ruled(rule(["20000000003", ITEM(358, 0), LOOSE], [ITEM(358, 2)]), rule([LISTED], [ITEM(404, 3)]))).result;
+    expect(asked()).toEqual([[`/modules/${MODULE}/dimensions/${REGIONS}`, [ITEM(358, 0)]], [`/modules/${MODULE}/dimensions/${REGIONS}`, [ITEM(358, 2)]],
+      // The list of the second rule's line item: the only module known to have it has no ID, so the model is asked which have.
+      ["/applicableModules", undefined], [`/modules/${MODULE}/dimensions/${ROLES}`, [ITEM(404, 3)]]]);
+    expect([...remembered.catalog.listItems]).toEqual([[ITEM(358, 0), "All regions"], [ITEM(358, 2), "North"]]);
+
+    // Named where an item of its type was named before, a compared item needs no module to be found for its list.
+    ScriptedSocket.sockets = [];
+    serveModel({ [at(`/modules/${MODULE}/lineItems`)]: lineItems, [at("/dimensions")]: id => update(id, { modules: {} }),
+      [at(`/modules/${MODULE}/dimensions/${ROLES}`)]: labels({ [ITEM(404, 9)]: "Old", [ITEM(404, 3)]: "Planner" }) });
+    const sameList = ruled(rule([LISTED], [ITEM(404, 3)]));
+    (sameList[0].cards[0] as Any).grid.regions[0].rows.dimensions[0] = { dimension: { kind: "dimension", id: ROLES }, hides: [{ kind: "listItem", id: ITEM(404, 9) }] };
+    expect([...(await run(sameList).result).catalog.listItems]).toEqual([[ITEM(404, 9), "Old"], [ITEM(404, 3), "Planner"]]);
+    expect(asked()).toEqual([[`/modules/${MODULE}/dimensions/${ROLES}`, [ITEM(404, 9)]], [`/modules/${MODULE}/dimensions/${ROLES}`, [ITEM(404, 3)]]]);
+
+    // The listing gives no format, or one that says nothing known: a value is not taken for an item, however much it looks
+    // like an ID and although the model has a name for an item of that ID. Nothing is asked for it and no step is shown; the
+    // log says what the listing gave and how many values were left, so that a live run shows a listing that names formats
+    // otherwise.
+    serve({ [at(`/modules/${MODULE}/dimensions/${REGIONS}`)]: labels({ [ITEM(318, 3)]: "Late" }) });
+    const unsaid = run(ruled(rule([UNSAID], [ITEM(318, 3), ITEM(318, 4)]), rule([UNSAID], [ITEM(318, 3), "12"], "NOT_EQUALS"), rule([ODD], [ITEM(318, 3)])));
+    expect([...(await unsaid.result).catalog.listItems]).toEqual([]);
+    expect([asked(), unsaid.statuses.at(-1), unsaid.log.filter(line => line.startsWith("filter "))]).toEqual([[], "Reading module dimensions in Synthetic model…", [
+      `filter line item ${UNSAID}: no format in the line items listing; 2 of its values look like IDs and are not asked for: it is not said to be formatted as a list`,
+      `filter line item ${ODD}: format {dataType}, data type SOMETHING_NEW; 1 of its values look like IDs and are not asked for: it is not said to be formatted as a list`]]);
+
+    // Under a plain format a value is never an item either, and that is all there is to it: nothing is asked, and nothing logged.
+    serve();
+    const { statuses, log, result } = run(ruled(...[AMOUNT, NOTE, FLAG, DAY, BARE].map(lineItem => rule([lineItem], [ITEM(318, 3)]))));
+    await result;
+    expect([asked(), statuses.at(-1), log.filter(line => line.startsWith("filter "))]).toEqual([[], "Reading module dimensions in Synthetic model…", []]);
+  });
+
+  it("keeps the reads that name filter items bounded, and the log: a refused read is logged and the next place is asked, two unanswered reads end the asking, and so do forty reads", async () => {
+    const lineItems = (id: string) => update(id, { data: [{ lineItemId: ROLE, lineItemLabel: "Role", ...listFormat(ROLES) }] });
+    const dimensionsOf = (ids: string[]) => (id: string) => update(id, { modules: { [MODULE]: { dimensions: ids.map(dimension => ({ id: dimension, label: `Dimension ${dimension}` })) } } });
+    const fixed = ruled(rule(["20000000003", ITEM(358, 0), ROLE], ["true"]));
+    const asked = () => destinations().slice(5).map(destination => destination.replace(at(`/modules/${MODULE}/dimensions/`), ""));
+    const others = [1, 2, 3, 4].map(n => String(101000000920 + n));
+
+    // The service refuses the read of one dimension: that is logged, and the next dimension is asked.
+    serveModel({ [at(`/modules/${MODULE}/lineItems`)]: lineItems, [at("/dimensions")]: dimensionsOf([LIST, others[0], REGIONS]),
+      [at(`/modules/${MODULE}/dimensions/${others[0]}`)]: id => rejected(id, "NOT_A_DIMENSION_OF_THE_MODULE"),
+      [at(`/modules/${MODULE}/dimensions/${REGIONS}`)]: labels({ [ITEM(358, 0)]: "All regions" }) });
+    const refused = run(fixed);
+    expect([...(await refused.result).catalog.listItems]).toEqual([[ITEM(358, 0), "All regions"]]);
+    expect(asked()).toEqual([others[0], REGIONS]);
+    expect(refused.log.filter(line => line.startsWith("filter context items"))).toEqual([
+      `filter context items: 1 asked of dimension ${others[0]} in module ${MODULE}: NOT_A_DIMENSION_OF_THE_MODULE`,
+      `filter context items: 1 asked of dimension ${REGIONS} in module ${MODULE}, 1 named (answer: 1 entries of {itemId, label})`,
+      "filter context items: 1 of 1 named"]);
+
+    // The service does not answer: after half a minute the next dimension is asked, and after two such reads no more are.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
+    ScriptedSocket.sockets = [];
+    serveModel({ [at(`/modules/${MODULE}/lineItems`)]: lineItems, [at("/dimensions")]: dimensionsOf([LIST, ...others]),
+      ...Object.fromEntries(others.map(dimension => [at(`/modules/${MODULE}/dimensions/${dimension}`), () => ""])) });
+    const unanswered = run(fixed);
+    let outcome: unknown = "reading";
+    unanswered.result.then(done => { outcome = done.notes; }, error => { outcome = error; });
+    await vi.advanceTimersByTimeAsync(59_000);
+    expect([outcome, asked()]).toEqual(["reading", others.slice(0, 2)]);
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect([outcome, asked()]).toEqual([[], others.slice(0, 2)]);
+    expect(unanswered.log.filter(line => line.startsWith("filter "))).toEqual([
+      ...others.slice(0, 2).map(dimension => `filter context items: 1 asked of dimension ${dimension} in module ${MODULE}: Timed out waiting for ${at(`/modules/${MODULE}/dimensions/${dimension}`)}.`),
+      `filter context items: 0 of 1 named; left as IDs: ${ITEM(358, 0)}`, "filter item names: two reads went unanswered, no more were made",
+      `filter rule with an unnamed item (card card-1): dimension 20000000003, unnamed ${ITEM(358, 0)}, line item ${ROLE} of module ${MODULE}`]);
+    vi.useRealTimers();
+
+    // A module of fifty dimensions, none of which has the item: forty are asked.
+    const fifty = Array.from({ length: 50 }, (_, index) => String(101000001000 + index));
+    ScriptedSocket.sockets = [];
+    serveModel({ [at(`/modules/${MODULE}/lineItems`)]: lineItems, [at("/dimensions")]: dimensionsOf(fifty) });
+    const many = run(fixed);
+    expect((await many.result).notes).toEqual([]);
+    expect(asked()).toEqual(fifty.slice(0, 40));
+    expect(many.log.filter(line => line.startsWith("filter ")).slice(-3)).toEqual([`filter context items: 0 of 1 named; left as IDs: ${ITEM(358, 0)}`,
+      "filter item names: no more than 40 reads are made",
+      `filter rule with an unnamed item (card card-1): dimension 20000000003, unnamed ${ITEM(358, 0)}, line item ${ROLE} of module ${MODULE}`]);
+
+    // The log is kept bounded too: of the IDs, and of the rules, that were left as they are, it lists thirty and counts the rest.
+    const crowd = Array.from({ length: 33 }, (_, index) => ITEM(358, index));
+    ScriptedSocket.sockets = [];
+    serveModel({ [at(`/modules/${MODULE}/lineItems`)]: lineItems, [at("/dimensions")]: dimensionsOf([LIST, REGIONS]) });
+    const crowded = run(ruled(...crowd.map(item => rule([item, ROLE], ["true"]))));
+    await crowded.result;
+    expect(crowded.log.filter(line => line.startsWith("filter "))).toEqual([
+      ...[REGIONS, LIST].map(dimension => `filter context items: 33 asked of dimension ${dimension} in module ${MODULE}, 0 named (answer: 0 entries)`),
+      `filter context items: 0 of 33 named; left as IDs: ${crowd.slice(0, 30).join(", ")} and 3 more`,
+      ...crowd.slice(0, 30).map(item => `filter rule with an unnamed item (card card-1): unnamed ${item}, line item ${ROLE} of module ${MODULE}`),
+      "filter rules with an unnamed item: 3 more are not listed"]);
+  });
+
+  it("ends the socket work at once when the run is stopped, the model closes or the connection fails while filter items are named", async () => {
+    const stopped = new Error("Stopped: the results page was closed.");
+    const others = [1, 2].map(n => String(101000000920 + n));
+    const fixed = ruled(rule(["20000000003", ITEM(358, 0), ROLE], ["true"]));
+    const waiting = at(`/modules/${MODULE}/dimensions/${others[0]}`);
+    const answers = (during: (id: string) => string) => ({ [at("")]: (id: string) => { status = id; return update(id, { status: "UNKNOWN" }); },
+      [at(`/modules/${MODULE}/lineItems`)]: (id: string) => update(id, { data: [{ lineItemId: ROLE, lineItemLabel: "Role" }] }),
+      [at("/dimensions")]: (id: string) => update(id, { modules: { [MODULE]: { dimensions: [LIST, ...others, REGIONS].map(dimension => ({ id: dimension, label: `Dimension ${dimension}` })) } } }),
+      [waiting]: during });
+    let status = "";
+
+    // Stopped while the first dimension is asked: that read is the last, the socket is closed and the stop is what ends the run.
+    const stopping = new AbortController();
+    serveModel(answers(() => { stopping.abort(stopped); return ""; }));
+    await expect(run(fixed, scope, stopping.signal).result).rejects.toBe(stopped);
+    expect([destinations().at(-1), sent("DISCONNECT").length, ScriptedSocket.sockets.map(socket => socket.readyState)]).toEqual([waiting, 1, [3]]);
+
+    // The model closes, or the connection fails: the next dimension is not asked, and the names are reported as not available.
+    for (const [during, reason] of [[() => update(status, { status: "CLOSED" }), "the model is closed"], [() => SERVICE_DOWN, "SERVICE_DOWN"]] as const) {
+      ScriptedSocket.sockets = [];
+      serveModel(answers(during));
+      const { log, result } = run(fixed);
+      expect((await result).notes, reason).toEqual([`Synthetic model: names from the model data service were not available (${reason}); IDs are shown instead.`]);
+      expect(destinations().at(-1), reason).toBe(waiting);
+      expect(log.filter(line => line.startsWith("filter ")), reason).toEqual([]);
     }
   });
 
