@@ -136,14 +136,22 @@ export const MODULES_FILE = "Modules.csv";
 
 /** A model's Line Items file is every module's blueprint in one grid: a module's own row, then its line items. The page
  * shows it as a table of line items, each with its module and the dimensions it really has (line-items-view.ts), and the
- * line under the table's name says how many modules' rows that leaves to the CSV. A module with no line items is then in
- * no row of the table: where the result has the Modules file, the line says that it lists them. */
+ * line under the table's name says how many modules' rows that leaves to the CSV.
+ *
+ * The view is given the modules' names where the result has them: the first column of the Modules file, as the file has
+ * it. A row that holds nothing but a name is then a module's own row only when the name is a module's, and otherwise a
+ * line item whose module is not known, which stays in the table. A result without the Modules file, or with one that
+ * lists nothing, has no names to give, and every such row is taken for a module's own.
+ *
+ * A module with no line items is in no row of the table. Where the names came from the Modules file, the line says that
+ * the file lists such modules: a row with nothing under it is taken for a module's own because the file names it. */
 const lineItemsRule: FileRule = (file, result) => {
-  const view = lineItemsView(file);
+  const modules = result.tables.find(table => table.file === MODULES_FILE);
+  const names = modules?.rows.length ? new Set(modules.rows.map(row => cellText(row[0]))) : undefined;
+  const view = lineItemsView(file, names);
   // The view gives the table itself back when it does not apply to it.
   if (view.table === file) return undefined;
-  const modules = view.emptyModules > 0 ? result.tables.find(table => table.file === MODULES_FILE) : undefined;
-  const where = modules ? ` ${view.emptyModules === 1 ? "It is" : "They are"} listed in the ${cellText(modules.label)} table.` : "";
+  const where = modules && names && view.emptyModules > 0 ? ` ${view.emptyModules === 1 ? "It is" : "They are"} listed in the ${cellText(modules.label)} table.` : "";
   const none = view.table.rows.length ? {} : { none: "Every row of the file is a module's own: no module has a line item." };
   return { table: view.table, note: view.note === undefined ? undefined : `${view.note}${where}`, ...none };
 };
