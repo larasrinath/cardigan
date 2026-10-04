@@ -44,10 +44,10 @@ After a rebuild, click the reload icon on the extension's card in `chrome://exte
 
 The results page shows:
 
-- **Overview**: how many rows each table has, and the result's notes under **Notes**. For an app, also its cards by type and the models its pages use.
-- **One table per file**, except the Details file. Search all its columns, click a column's name to sort by it, choose 25, 50 or 100 rows per page, and pick the columns to show under **Columns**. A column that holds 2 to 30 different values also has a filter. Click a row, or press Enter on the button in its first cell, to see it in full: every value whole, with its line breaks. For an app, a page's name shows that page's cards, and in **Cards** a card's number or title opens the card with its grid sections, filters, formatting and buttons.
-- **Details**: the Details file (`App Details.csv` or `Model Details.csv`) under its sections, with the diagnostic log under **Diagnostics**. From here, **Download this table (.csv)** saves the Details file.
-- **Model map**: listed as coming in a later version.
+- **Overview**: how many rows each table has, and what the Details file (`App Details.csv` or `Model Details.csv`) holds: the details of the export, the result's notes under **Notes**, and at the end two sections that start closed, **How to read these files** and **Diagnostics** with the diagnostic log. For an app, also its cards by type and the models its pages use. From here, **Download this table (.csv)** saves the Details file.
+- **One table per file**, except the Details file. Search all its columns, click a column's name to sort by it, and pick the columns to show under **Columns**. The page numbers and the choice of 25, 50 or 100 rows per page are at the top right of the table, and the first column stays in view when a wide table is scrolled sideways. A column that holds 2 to 30 different values also has a filter. Click a row, or press Enter on the button in its first cell, to see it in full: every value whole, with its line breaks. For an app, a page's name shows that page's cards, and in **Cards** a card's title opens the card with its grid sections, filters, formatting and buttons. An app's ID columns, **Card #** and **Section #** start hidden, and **Columns** shows them. The CSV files always hold every column.
+- **A model's tables** come in the order of Anaplan's Model settings: Model Calendar, Time Ranges, Versions, General Lists, Modules, Line Items, Processes, Imports, Import Data Sources, Exports, Other Actions, Source Models. Some show their file otherwise than it is written: see [Model export](#model-export).
+- **Model map**, for a model only: listed last, as coming in a later version.
 
 **Run again** analyses the Anaplan tab again. The result stays on the page until the new one is complete. If the new run fails, its message stands above the result, with a **Copy diagnostic log** button. Closing the results page stops the analysis.
 
@@ -69,7 +69,7 @@ Everything uses your signed-in browser session on the app's own host and is read
 | --- | --- |
 | The app's pages and categories | `GET /a/springboard-definition-service/apps/{app}` (`x-api-version: 2`) |
 | Each page's published definition | `GET /a/springboard-definition-service/{boards\|grid-pages\|reports}/{page}` |
-| Names of modules, saved views, dimensions, lists and line items | Page Builder's model data socket (`/a/springboard-widget-data-service/ws`), one model at a time |
+| Names of modules, saved views, dimensions, lists and line items, and of the items shown, hidden or named in filter rules | Page Builder's model data socket (`/a/springboard-widget-data-service/ws`), one model at a time |
 | Names of imports, exports and processes | `GET /a/collaboration-actions-service/workspaces/{ws}/models/{model}/{imports\|exports\|processes}`, from the model's own host when it lives in another data centre |
 
 - Subscribing to a model's names can make Anaplan load that model, as opening one of its pages would.
@@ -114,7 +114,7 @@ How to read the files:
 
 - Only published versions are read. Pages that were never published are listed as "Not published" and counted apart: **Pages analysed** reads "93 of 93 (published versions); 3 unpublished, not analysed", so an app whose published pages were all read says so.
 - A saved view's own filters, sorts and show/hide live in the model and are not listed.
-- Filter-context items show their IDs.
+- An item in a filter rule, chosen as the filter context or compared with a line item formatted as a list, is shown by its name where the model gives one, and by its ID otherwise. Those names take extra reads of the kind already made for item names: at most 40 for a model, and none when no rule has such an item.
 - Buttons whose import, export or process is not found in the model keep their card label. **Name source** says which source was used.
 - Anaplan can change the internal services the extension reads without notice; see [NOTICE.md](NOTICE.md).
 
@@ -155,6 +155,12 @@ The zip, `<model> - Model Export - <date>.zip`, has one CSV per Model settings g
 | `Source Models.csv` | Source Models |
 | `Model Calendar.csv` | The model calendar, in the assessment template (Section, Setting, Value, Allowed values, Applies to, Notes) |
 
+The results page shows three things otherwise than the files hold them. The files stay as described above, and under the name of a table that lists fewer rows than its file a line says how many are in the CSV only:
+
+- **Model Calendar** lists the calendar's own rows. The rows about the model (its workspace, its name, when it was captured) are on the Overview. `Model Calendar.csv` keeps every row.
+- **Line Items** lists line items only, each with its module next to its name. **Applies To** shows the dimensions a line item has, its module's when it has none of its own, and **Applies To from** says which. `Line Items.csv` keeps Anaplan's layout, with each module's row.
+- A format, a summary and an action's definition are said in words, such as "Number, 0 decimal places". The CSV keeps the JSON, and a row opened in full shows both.
+
 How it reads:
 
 - It reads through the page's own Model Building client, requesting the same grids the settings tabs use. The script runs in the page's main world for that.
@@ -167,7 +173,7 @@ How it reads:
 
 When the analysis stops, the page says in a plain sentence what happened and what to do next. The codes and statuses behind it are in the diagnostic log.
 
-The diagnostic log is on the results page. Open **Details**, then **Diagnostics**, and click **Copy diagnostic log**. While an analysis runs, and when it stops without a result, the log is under the message instead, with the same button. When **Run again** fails, the earlier result stays, and the button beside the failure's message copies the log of the run that failed. After a result, its lines are also the **Diagnostics** rows at the end of `App Details.csv` (`Model Details.csv` for a model export). They list:
+The diagnostic log is on the results page. On the **Overview**, open **Diagnostics** at the end of the page and click **Copy diagnostic log**. While an analysis runs, and when it stops without a result, the log is under the message instead, with the same button. When **Run again** fails, the earlier result stays, and the button beside the failure's message copies the log of the run that failed. After a result, its lines are also the **Diagnostics** rows at the end of `App Details.csv` (`Model Details.csv` for a model export). They list:
 
 - request paths and HTTP statuses
 - socket frame commands and destinations
@@ -202,7 +208,9 @@ Layout:
   - `connection.ts`: talks to the Anaplan tab, and holds what the page says in each state.
   - `table-engine.ts`: search, filters, sorting and paging.
   - `columns.ts`: how each column is shown.
-  - `result-view.ts`: the overview, the details, the notes and the diagnostic log, read out of a result.
+  - `result-view.ts`: the overview, the details, the notes and the diagnostic log, read out of a result, and what each file's table shows.
+  - `line-items-view.ts`: a model's Line Items file as a table of line items.
+  - `readable-cells.ts`: a model's format, summary and action definitions in words.
   - `markup.ts`: writes the page's HTML, with every value from a result escaped.
   - `file-name.ts`: the name a download is saved under.
   - `page-ids.ts`: the elements of `results.html` that the script looks up.
@@ -228,7 +236,7 @@ Bump `version` in `manifest.json`, `package.json` and the two `version` fields a
 
 The zip holds eleven files: `manifest.json`, the four bundles in `dist/`, the four icons, `results.html` and `results.css`. It never holds sources, tests, docs or `node_modules`. Its entries are sorted, stored uncompressed and carry fixed times, so the same files give the same bytes, and the same SHA-256, on every run. The packager refuses to run when a bundle is missing or older than the sources it is built from, or when the results page loads a file that is not in the zip.
 
-The manifest declares a content security policy for the extension's own pages and its service worker: they load nothing from outside the package. The packager also refuses a manifest whose policy would allow that, as a remote address, a wildcard, `'unsafe-eval'` or a script written in the page would.
+The manifest declares a content security policy for the extension's own pages and its service worker: they load nothing from outside the package. The packager also refuses a manifest whose policy would allow that, as a remote address, a wildcard, `'unsafe-eval'` or a script written in the page would, and a manifest that declares no policy.
 
 ## Relationship to SAM
 
