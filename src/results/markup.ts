@@ -17,7 +17,6 @@ const BLANK = "<em>(blank)</em>";
 const CLOSE_ICON = '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 3l10 10M13 3 3 13"/></svg>';
 const SEARCH_PATH = '<circle cx="7" cy="7" r="4.6"/><path d="M10.6 10.6 14 14"/>';
 const FILTER_PATH = '<path d="M2 3h12l-4.6 5.2v4.3L6.6 14V8.2L2 3Z"/>';
-const INFO_ICON = '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="8" cy="8" r="6.4"/><path d="M8 7.4v3.4M8 5v.2"/></svg>';
 export const SUN_ICON = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="3.2"/><path d="M8 1.5v1.8M8 12.7v1.8M1.5 8h1.8M12.7 8h1.8M3.4 3.4l1.3 1.3M11.3 11.3l1.3 1.3M12.6 3.4l-1.3 1.3M4.7 11.3l-1.3 1.3"/></svg>';
 export const MOON_ICON = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 9.5A5.8 5.8 0 0 1 6.5 2.5 5.8 5.8 0 1 0 13.5 9.5Z"/></svg>';
 const DIAGNOSTICS_SUMMARY = '<summary><svg class="car" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3l6 5-6 5"/></svg>Diagnostics</summary>';
@@ -73,7 +72,7 @@ export function rowCellHtml(column: Column, row: Row, links: Links): string {
   return `<button type="button" class="link" data-act="row" title="Open this row">${own}</button>`;
 }
 
-/* ---------- header, banners, navigation ---------- */
+/* ---------- header, navigation ---------- */
 
 export function headerMetaHtml(analysed: Analysed): string {
   const parts = [esc(analysed.kind)];
@@ -81,14 +80,6 @@ export function headerMetaHtml(analysed: Analysed): string {
   if (analysed.exportedOn) parts.push(`Exported ${esc(analysed.exportedOn)}`);
   return `<div class="meta-app">${esc(analysed.name)}</div>
      <div class="meta-sub">${parts.join('<span class="dotsep">·</span>')}</div>`;
-}
-
-/** The result's notes: its summary lines in one banner, and the notes the summary does not already say in another. */
-export function bannersHtml(summary: readonly string[], notes: readonly string[]): string {
-  const banners: string[] = [];
-  if (summary.length) banners.push(`<div class="banner note">${INFO_ICON}<div>${summary.map(esc).join(" · ")}</div></div>`);
-  if (notes.length) banners.push(`<div class="banner note">${INFO_ICON}<div>${notes.map(note => `<div>${esc(note)}</div>`).join("")}</div></div>`);
-  return banners.join("");
 }
 
 export interface NavEntry { id: string; label: string; count?: number }
@@ -143,13 +134,20 @@ export function overviewHtml(overview: Overview): string {
             <div class="m-sub">Workspace: ${esc(model.workspace)}</div>
           </div>`).join("")}
       </section>` : "";
+  // The design's Warnings panel, without its coloured dots: a note has no severity.
+  const notes = overview.notes.length ? `
+    <section class="panel" aria-labelledby="ovn" style="margin-bottom:12px"><h3 id="ovn">Notes</h3>
+      <ul class="warn-list">
+        ${overview.notes.map(note => `<li><span class="wl-ink">${esc(note)}</span></li>`).join("")}
+      </ul>
+    </section>` : "";
   return `
     <h1 class="view-title">Overview</h1>
     <div class="ov-grid">
       ${overview.tiles.map(tile => `<div class="stat"><div class="s-lab">${esc(tile.label)}</div><div class="s-num">${esc(tile.count)}</div><div class="s-sub">${tile.count === 1 ? "row" : "rows"}</div></div>`).join("")}
     </div>${types || models ? `
     <div class="ov-cols">${types}${models}
-    </div>` : ""}`;
+    </div>` : ""}${notes}`;
 }
 
 /* ---------- details ---------- */
