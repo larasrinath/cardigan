@@ -270,8 +270,9 @@ function sharedNamesOf(pages: ResultTable, pageAt: number): Map<string, SharedNa
 /** Page name and card number -> the card's ID, from the Cards file, where the result settles which card that is. Exactly
  * one row of the file is a card of that number on a page of that name: two such rows are two cards, and the file does not
  * say which of them a use is on, also when both have one ID, as the cards of a page and of its copy can. And no other
- * row of that page name has the card's ID: the page opens a card by its page's name and its ID, and takes the first row
- * that has both, which under a name that a page shares with its copy may be a card of another number. */
+ * row of that page name has the card's ID: under a name that a page shares with its copy, the copy can have that ID on a
+ * card of another number. Only where both hold does the page make a use's card a link. It then opens the card that the
+ * use names by its page's name, its ID and its number, and never the first of several rows (main.ts `openCard`). */
 function cardIdsOf(result: AnalysisResult): (page: string, card: string) => string | undefined {
   const cards = result.tables.find(table => table.file === APP_FILES.Cards);
   const at = cards && places(cards, CARD_HEADERS);

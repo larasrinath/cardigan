@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { Cell, ResultTable } from "../result-types.js";
 import { columnsOf, type Column } from "./columns.js";
 import { parseMarkup, type FakeElement } from "./dom.test-support.js";
-import { cardDrawerSubHtml, cellHtml, colChooserHtml, colFilterHtml, navHtml, objectDrawerHtml, objectDrawerSubHtml, overviewHtml, pagerHtml, rowDrawerHtml, tableHtml, USES_AT_FIRST, type Links,
-  type TableView } from "./markup.js";
+import { cardDrawerSubHtml, cellHtml, colChooserHtml, colFilterHtml, FORGOTTEN_LINE, keptCopyHtml, navHtml, objectDrawerHtml, objectDrawerSubHtml, overviewHtml, pagerHtml, rowDrawerHtml, tableHtml,
+  USES_AT_FIRST, type KeptCopy, type Links, type TableView } from "./markup.js";
 import type { Overview } from "./result-view.js";
 import { pageOf, selectRows } from "./table-engine.js";
 import type { WhereUsedObject } from "./where-used-view.js";
@@ -287,10 +287,11 @@ describe("What the results page's markup shows", () => {
     // The notes stand above the cards by type and the models.
     expect([view.querySelectorAll(".panel h2").map(text), view.querySelectorAll(".warn-list li").map(text)]).toEqual([["Notes", "Cards by type", "Models"], ["A first note.", "A second note."]]);
     // A model's export has neither cards nor models, and a result may have no notes: then there is no panel for them, and
-    // without a Details file nothing else stands under the tiles.
+    // without a Details file nothing else stands under the tiles but the place for what the page keeps of the result,
+    // which holds nothing.
     const bare = parseMarkup(overviewHtml(overviewWith({ tiles: [{ label: "Line Items", count: 120 }] })));
     expect([bare.querySelectorAll(".stat").map(tile => tile.children.map(text)), bare.querySelectorAll(".panel").length, bare.querySelectorAll(".ov-cols").length,
-      bare.children.map(child => child.localName)]).toEqual([[["Line Items", "120", "rows"]], 0, 0, ["h1", "div"]]);
+      bare.children.map(child => child.localName), bare.querySelector("#ovKept")?.innerHTML]).toEqual([[["Line Items", "120", "rows"]], 0, 0, ["h1", "div", "p"], ""]);
     const one = parseMarkup(overviewHtml(overviewWith({ cardTypes: [["Grid", 3]] })));
     expect([one.querySelectorAll(".panel h2").map(text), one.querySelector(".tb-fill")?.getAttribute("style")]).toEqual([["Cards by type"], "display:block;width:100%"]);
   });
@@ -490,9 +491,10 @@ describe("What the results page's markup shows", () => {
       const names = view.querySelectorAll(`${selector} dt`).map(text);
       return names.map((name, index) => [name, text(view.querySelectorAll(`${selector} dd`)[index])]);
     };
-    // The order under the heading: the tiles, what was read, the notes, an app's panels, the files, how to read them, the log.
+    // The order under the heading: the tiles, what was read, the place for what the page keeps of it, the notes, an app's
+    // panels, the files, how to read them, the log.
     expect(view.children.map(child => child.id || (child.classList.contains("panel") ? "notes" : child.classList.contains("ov-grid") ? "tiles" : child.classList.contains("ov-cols") ? "panels" : child.localName)))
-      .toEqual(["h1", "tiles", "ovAbout", "notes", "panels", "ovFiles", "ovHowTo", "ovLog"]);
+      .toEqual(["h1", "tiles", "ovAbout", "ovKept", "notes", "panels", "ovFiles", "ovHowTo", "ovLog"]);
     expect([text(view.querySelector("#ovAbout h2")), list("#ovAbout dl.dl")]).toEqual(["About this export", [["App", "Demo <b>app</b>"], ["Cards", "3"], ["Exported on", "2026-10-03 14:02 UTC"]]]);
     expect([text(view.querySelector("#ovFiles h2")), list("#ovFiles dl.dl")]).toEqual(["Files", [["Imports.csv", "Not exported: the grid did not load"]]]);
     expect(view.querySelectorAll("b").length).toBe(0);
@@ -513,6 +515,41 @@ describe("What the results page's markup shows", () => {
     // Each part is there only when it has something to say: without a log there is no Diagnostics section, and nothing to copy.
     const bare = parseMarkup(overviewHtml(overviewWith({ about: [["Model", "Model one"]] })));
     expect([bare.children.map(child => child.id || child.localName), bare.querySelectorAll("details").length, bare.querySelectorAll("[data-act]").length, text(bare.querySelector("h1"))])
-      .toEqual([["h1", "div", "ovAbout"], 0, 0, "Overview"]);
+      .toEqual([["h1", "div", "ovAbout", "ovKept"], 0, 0, "Overview"]);
+  });
+
+  it("says under the details of the export what the page keeps of the result for a refresh: the button that forgets a kept copy, and one line once it is forgotten", () => {
+    const parts: Partial<Overview> = { tiles: [{ label: "Pages", count: 7 }], about: [["App", "Demo app"], ["Exported on", "2026-10-03 14:02 UTC"]], notes: ["A note."] };
+    const overview = (copy?: KeptCopy) => parseMarkup(copy === undefined ? overviewHtml(overviewWith(parts)) : overviewHtml(overviewWith(parts), copy));
+    /** The place: what it is, where it stands in the overview, and what it holds, element by element. */
+    const place = (copy?: KeptCopy) => {
+      const view = overview(copy);
+      const kept = view.querySelector("#ovKept");
+      return [kept?.localName, kept?.getAttribute("class"), view.children.map(child => child.id || child.localName).slice(1, 4),
+        kept?.children.map(child => [child.localName, child.id || child.dataset.act, text(child)])];
+    };
+    const where = ["p", "ov-kept", ["div", "ovAbout", "ovKept"]];
+    // Nothing kept, as before a result is kept and for one that cannot be: the place is there and holds nothing at all,
+    // neither an element nor a text, so that the stylesheet can give it no room. That is also the overview by itself.
+    expect([place("none"), place(), overview("none").querySelector("#ovKept")?.innerHTML, keptCopyHtml("none")]).toEqual([[...where, []], [...where, []], "", ""]);
+    // A copy is kept: a line that says so, and beside it the button that forgets the copy.
+    expect(place("kept")).toEqual([...where, [["span", "keptLine", "A copy of this result is kept for a refresh of this page."], ["button", "forget", "Forget this result"]]]);
+    const button = overview("kept").querySelector('#ovKept [data-act="forget"]');
+    // It is the design's small button, one the Tab key reaches, and the line beside it describes it to a screen reader.
+    expect([button?.getAttribute("type"), button?.getAttribute("class"), button?.focusable, button?.getAttribute("aria-describedby"), button?.hasAttribute("aria-label"),
+      overview("kept").querySelector("#keptLine")?.hasAttribute("tabindex")]).toEqual(["button", "btn sm", true, "keptLine", false, false]);
+    // Forgotten: the button is gone, and one line says what happened. It can take the focus the button had, by script only.
+    expect(place("forgotten")).toEqual([...where, [["span", "keptLine", "The copy kept for refreshes is removed. This result stays here until you refresh or close this page."]]]);
+    expect(FORGOTTEN_LINE).toBe("The copy kept for refreshes is removed. This result stays here until you refresh or close this page.");
+    const line = overview("forgotten").querySelector("#keptLine");
+    expect([line?.getAttribute("tabindex"), line?.focusable, overview("forgotten").querySelectorAll("#ovKept button").length]).toEqual(["-1", true, 0]);
+    for (const copy of ["none", "kept", "forgotten"] as const) {
+      // What the place holds is what the page writes into it when what is kept changes, to the character.
+      expect(overview(copy).querySelector("#ovKept")?.innerHTML, copy).toBe(parseMarkup(keptCopyHtml(copy)).innerHTML);
+      // Its look is the stylesheet's, and it has no heading: it stands under the one about the export.
+      expect([overview(copy).querySelectorAll("#ovKept, #ovKept [style]").filter(element => element.hasAttribute("style")).length, overview(copy).querySelectorAll("#ovKept h2, #ovKept h3").length], copy).toEqual([0, 0]);
+      // Without anything about the export, the place stands under the tiles.
+      expect(parseMarkup(overviewHtml(overviewWith({ tiles: parts.tiles }), copy)).children.map(child => child.id || child.localName), copy).toEqual(["h1", "div", "ovKept"]);
+    }
   });
 });
