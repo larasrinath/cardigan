@@ -579,6 +579,23 @@ describe("The results page's connection to the Anaplan tab", () => {
     expect([client.log[0], client.log[MAX_LOG_LINES - 1]]).toEqual(["line 5", `line ${MAX_LOG_LINES + 4}`]);
   });
 
+  it("takes a line of the page's own into the run's log, with its time, and tells the page; the next run starts without it", () => {
+    const { client, ports, log } = page();
+    client.start();
+    ports[0].send({ type: "subject", subject: APP });
+    ports[0].send({ type: "log", text: "14:02:05 app: 2 pages" });
+    ports[0].send({ type: "result", result: empty() });
+    ports[0].send({ type: "done" });
+    // What became of the run's result on the page, after the run: the state is the result still.
+    vi.setSystemTime(new Date(Date.UTC(2026, 9, 3, 14, 2, 9)));
+    client.note("This result is not kept across a refresh: the tab's session storage is not available.");
+    expect(client.log).toEqual(["14:02:05 app: 2 pages", "14:02:09 This result is not kept across a refresh: the tab's session storage is not available."]);
+    expect([log(), client.state.phase]).toEqual([client.log, "done"]);
+    // The log is the run's: Run again starts a new one, without the line.
+    client.runAgain();
+    expect([client.log, log()]).toEqual([[], []]);
+  });
+
   it("does not change what the tab sent: the result is the page's own copy", () => {
     // A port that hands the client the very objects the tab sent, without the copy a real port makes.
     const listeners: ((message: unknown) => void)[] = [];

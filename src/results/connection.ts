@@ -130,6 +130,11 @@ export class ResultsClient {
     this.options.onLog?.(this.log);
   }
 
+  /** A line of the page's own in the run's log, with its time: what became of the run's result on the page. */
+  note(line: string): void {
+    this.append(stampLine(line));
+  }
+
   private clearLog(): void {
     this.log.length = 0;
     this.options.onLog?.(this.log);

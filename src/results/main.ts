@@ -5,9 +5,11 @@ import { VERSION } from "../version.js";
 import { cardsOf, columnIndex, columnsOf, rowKeys, rowNameIndex, type CardsTable, type Column, type RowKeys } from "./columns.js";
 import { describeState, openedJustNow, ResultsClient, runLabel, tabIdFrom, withoutOpened, type RunState } from "./connection.js";
 import { CSV_FALLBACK, downloadName, ZIP_FALLBACK } from "./file-name.js";
+import { analysedLine, notKeptNote } from "./keep-notes.js";
+import { ResultKeeper } from "./keep-result.js";
 import {
   cardDrawerHtml, cardDrawerSubHtml, colChooserHtml, colFilterHtml, crumbsHtml, headerMetaHtml, MOON_ICON, navHtml,
-  overviewHtml, rowDrawerHtml, rowDrawerSubHtml, runBannerHtml, runHtml, SUN_ICON, tableHtml, tableParts, type Links, type NavEntry, type TableView,
+  noteBannerHtml, overviewHtml, rowDrawerHtml, rowDrawerSubHtml, runBannerHtml, runHtml, SUN_ICON, tableHtml, tableParts, type Links, type NavEntry, type TableView,
 } from "./markup.js";
 import type { PageId } from "./page-ids.js";
 import { analysedOf, cardSections, detailsOf, diagnosticLog, fileView, listedTables, overviewOf, type FileView } from "./result-view.js";
@@ -103,8 +105,14 @@ interface Shown {
 type View = "overview" | number;
 
 let result: AnalysisResult | undefined;
-/** When the result was complete: its zip carries this time, so downloading it twice gives the same bytes. */
+/** When the result was complete: its zip carries this time, so downloading it twice gives the same bytes. A result that
+ * was brought back after a refresh of the page comes with the time it had, so its zip is the same before and after. */
 let received = new Date();
+/** Whether the result on the page was brought back after a refresh (keep-result.ts), and not analysed since the page loaded. */
+let broughtBack = false;
+/** True while the page looks for a result it kept before a refresh. Until it knows, it draws no waiting view, which a
+ * result that comes back would replace at once. */
+let takingBack = false;
 let details: ResultTable | undefined;
 let cards: CardsTable | undefined;
 let shown = new Map<number, Shown>();
@@ -146,14 +154,17 @@ function toggleTheme(): void {
 }
 /** A text node, as Node.TEXT_NODE names it. */
 const TEXT_NODE = 3;
-/** The run control's words, after its icon: "Run" until an analysis has been asked for on this page, "Run again" after. */
+/** Whether an analysis has been made for this page: one was asked for on it, or it shows a result, which a page that was
+ * refreshed brings back without asking. The run control then says "again". */
+const ranBefore = (): boolean => client.asked || result !== undefined;
+/** The run control's words, after its icon: "Run" until an analysis has been made for this page, "Run again" after. */
 function showRunLabel(): void {
   const button = el("runAgain");
-  const label = runLabel(client.asked);
+  const label = runLabel(ranBefore());
   const words = [...button.childNodes].reverse().find(node => node.nodeType === TEXT_NODE && node.textContent?.trim());
   if (!words) button.append(label);
   else if (words.textContent !== label) words.textContent = label;
-  button.title = client.asked ? "Analyse the Anaplan tab again" : "Analyse the Anaplan tab";
+  button.title = ranBefore() ? "Analyse the Anaplan tab again" : "Analyse the Anaplan tab";
 }
 /** The header's buttons follow what there is to act on. */
 function updateActions(): void {
@@ -248,13 +259,29 @@ function renderAll(): void {
   el("crumbs").innerHTML = crumbsHtml(entry ? cellText(entry.table.label) : undefined, entry ? state.context : undefined);
   if (entry) renderTable(entry);
   else el("view").innerHTML = overviewHtml(overviewOf(result));
+  // The line above a result that was brought back says "today" by the clock: each view says it anew, so that it is still
+  // true on a page left open past midnight.
+  const line = broughtBack ? find("#noteText") : null;
+  if (line) line.textContent = analysedLine(received, new Date());
   updateActions();
+}
+
+/** A note of the page's own in the banner area above the result: when a result that was brought back was analysed, or
+ * that a result will not be there after a refresh. `withLog` offers the button that copies the run's log, which then holds
+ * the reason. The line is set as plain text. */
+function showNote(line: string, withLog: boolean): void {
+  el("banners").innerHTML = noteBannerHtml();
+  const text = find("#noteText");
+  if (text) text.textContent = line;
+  const copy = find("#noteCopy");
+  if (copy) copy.hidden = !withLog;
 }
 
 /** A result arrived, complete: the page becomes the design's results page for it. Only now does it take the place of an
  * earlier result, of which nothing is kept: not the rows on the page, the drawer's row, the last selection, or the banner
- * of the run that has just ended. */
-function showResult(next: AnalysisResult, at: Date): void {
+ * of the run that has just ended. `back` is for a result the page kept before it was refreshed and has now brought back:
+ * it is shown like any other, under a line that says when it was analysed. */
+function showResult(next: AnalysisResult, at: Date, back = false): void {
   // Focus that is inside what the new result replaces moves to the new view; anywhere else, in the header, it stays.
   const replaced = [el("view"), el("drawer"), el("popover")].some(part => part.contains(document.activeElement));
   closePopover();
@@ -265,6 +292,7 @@ function showResult(next: AnalysisResult, at: Date): void {
   el("banners").innerHTML = "";
   result = next;
   received = at;
+  broughtBack = back;
   details = detailsOf(next);
   cards = cardsOf(next);
   shown = new Map();
@@ -289,7 +317,11 @@ function showResult(next: AnalysisResult, at: Date): void {
   el("navToggle").hidden = false;
   renderAll();
   if (replaced) el("view").focus({ preventScroll: true });
-  announce(`Analysis finished: ${analysed.name}`);
+  if (!back) return announce(`Analysis finished: ${analysed.name}`);
+  // Nothing was analysed just now: the page says what it shows, and from when.
+  const line = analysedLine(at, new Date());
+  showNote(line, false);
+  announce(`${analysed.name}. ${line}`);
 }
 
 /** The states in which a run did not start or did not finish. */
@@ -299,7 +331,10 @@ const STOPPED: ReadonlySet<RunState["phase"]> = new Set(["unreachable", "no-subj
  * the page it stays there until a new one is complete, and the same words stand in the banner area above it: a run that
  * cannot start or does not finish takes nothing away. Every text is set as plain text. */
 function showRun(runState: RunState): void {
-  const text = describeState(runState, client.asked);
+  // A result that was brought back stands under its own line until an analysis is asked for on this page: that the tab was
+  // reached, or was not, says nothing about it. And a page that may still bring one back draws no waiting view yet.
+  if (result ? broughtBack && !client.asked : takingBack) return updateActions();
+  const text = describeState(runState, ranBefore());
   const set = (selector: string, value: string) => {
     const node = find(selector);
     if (node) {
@@ -787,14 +822,62 @@ function openedByIcon(): boolean {
   return fresh;
 }
 
+/** How long the page waits for the frame that draws a result before it keeps the result all the same. */
+const KEEP_WITHOUT_FRAME_MS = 1000;
+
+/** Keeps a finished run's result for a refresh of this page (keep-result.ts), in the place of the one kept before. The
+ * result is on screen first: writing it out and compressing it take a moment on the page's own thread, and that must not
+ * hold up what the user sees. A result that cannot be kept is whole and on the page all the same: the page says so once,
+ * in a note above it, and the keeper's reason goes into the run's log, which the note's button copies. */
+function keepLater(kept: AnalysisResult, at: Date): void {
+  let begun = false;
+  const keep = (): void => {
+    if (begun) return;
+    begun = true;
+    void keeper.keep(kept, at).then(outcome => {
+      if (outcome.kept) return;
+      const note = notKeptNote(outcome.reason);
+      // Nothing to say for a result that a later one replaced, nor once the page has gone on: to another result, or to a
+      // run, whose banner stands where the note would.
+      if (note === undefined || result !== kept || client.state.phase !== "done") return;
+      client.note(outcome.message);
+      showNote(note, true);
+      announce(note);
+    });
+  };
+  // After the frame that draws the result. A window that is not shown draws none: there the result is kept after a moment.
+  requestAnimationFrame(() => setTimeout(keep, 0));
+  setTimeout(keep, KEEP_WITHOUT_FRAME_MS);
+}
+
 el("version").textContent = `v${VERSION}`;
 applyTheme(currentTheme());
 const tabId = tabIdFrom(location.search);
+const byIcon = openedByIcon();
+const keeper = new ResultKeeper({ tabId });
 const client = new ResultsClient({
   connect: tabId === undefined ? undefined : () => chrome.tabs.connect(tabId, { name: PORT_NAME }),
-  autoRun: openedByIcon(),
+  autoRun: byIcon,
   closeReason: () => chrome.runtime.lastError?.message,
-  onState: next => (next.phase === "done" ? showResult(next.result, next.received) : showRun(next)),
+  onState: next => {
+    if (next.phase !== "done") return showRun(next);
+    // Only a run's result is kept, and only once it is drawn: a result that was brought back is kept already.
+    showResult(next.result, next.received);
+    keepLater(next.result, next.received);
+  },
   onLog: showLog,
 });
+// A page the icon has just opened analyses anew, and takes nothing back. Any other page may be one that was refreshed: it
+// looks for the result it kept, and shows it at once, having asked the tab nothing. Meanwhile it connects to the tab as
+// ever, so that the run control works.
+takingBack = !byIcon;
 client.start();
+if (takingBack) {
+  void keeper.takeBack().then(back => {
+    takingBack = false;
+    // A run that finished meanwhile has the page: its result is the newer one.
+    if (back.found && !result) showResult(back.result, back.received, true);
+    // The state the page held back, or the one that belongs above the result: a run asked for meanwhile has its banner.
+    if (client.state.phase !== "done") showRun(client.state);
+  });
+}

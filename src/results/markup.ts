@@ -225,6 +225,14 @@ export function runBannerHtml(): string {
       ${copyLogButton("copy-run-log", ' id="bannerCopy" style="margin-left:auto;flex:none" hidden')}</div>`;
 }
 
+/** A note of the page's own above a result: one line, and the button that copies the run's log for a note whose reason
+ * is in that log. It holds no text: the page sets the line as plain text, and shows the button when there is a reason. */
+export function noteBannerHtml(): string {
+  return `<div class="banner note" id="noteBanner">${INFO_ICON}
+      <div><span id="noteText"></span></div>
+      ${copyLogButton("copy-run-log", ' id="noteCopy" style="margin-left:auto;flex:none" hidden')}</div>`;
+}
+
 /* ---------- table ---------- */
 
 export interface TableView {

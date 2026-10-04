@@ -6,7 +6,7 @@ import { BUSY, NOTHING_TO_ANALYSE, UNSENT } from "../tab-port.js";
 import { APP_FILES, COLUMN_CHOICES } from "./columns.js";
 import { NO_REASON, runLabel, UNREADABLE } from "./connection.js";
 import { parseMarkup } from "./dom.test-support.js";
-import { overviewHtml, runBannerHtml, runHtml } from "./markup.js";
+import { noteBannerHtml, overviewHtml, runBannerHtml, runHtml } from "./markup.js";
 import { CARD_PARTS } from "./result-view.js";
 
 // The names the results page and the engine share without sharing code: the page knows an app's files by their names,
@@ -40,7 +40,7 @@ describe("The names the results page and the engine know each other by", () => {
     expect(controls.map(control => chosen.filter(rest => rest.startsWith(control)).length)).toEqual([4, 3]);
     // The button that copies a log reads exactly so wherever a failed run or a result shows its log.
     const overview = overviewHtml({ tiles: [], cardTypes: [], models: [], notes: [], about: [], files: [], howToRead: [], log: ["a line"] });
-    for (const html of [runHtml(), runBannerHtml(), overview]) {
+    for (const html of [runHtml(), runBannerHtml(), noteBannerHtml(), overview]) {
       expect(parseMarkup(html).querySelectorAll("button").map(button => button.textContent.trim())).toEqual(["Copy diagnostic log"]);
     }
     // The page's own two failures say what to do in the engine's words.
