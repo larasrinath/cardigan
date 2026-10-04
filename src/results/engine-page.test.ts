@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DETAILS_FILE } from "../analyse.js";
-import { APP_ZIP_0_6_1 } from "../golden-0.6.1.test-support.js";
+import { APP_ZIP_REWORDED } from "../golden-0.6.1.test-support.js";
 import { PORT_NAME, RESULTS_PAGE } from "../protocol.js";
 import { resultZip, tableCsv } from "../result-zip.js";
 import { UNSENT } from "../tab-port.js";
@@ -135,11 +135,12 @@ describe("The results page itself against the engine in the Anaplan tab", () => 
     expect(headings).toEqual(cards.headers.filter(header => !["Card #", "Card ID", "Source IDs"].includes(header)));
     expect(page.all("#tableWrap tbody tr").map(row => row.children[headings.indexOf("Card title")].textContent.trim())).toEqual(cards.rows.map(row => String(row[cards.headers.indexOf("Card title")])));
 
-    // "Download all" saves the engine's result as its zip, byte for byte, under its name; file for file it is the zip 0.6.1 wrote.
+    // "Download all" saves the engine's result as its zip, byte for byte, under its name; file for file it is the zip 0.6.1 wrote,
+    // but for the one row of the Details file that is deliberately reworded since (APP_ROW_REWORDED in golden-0.6.1.test-support.ts).
     const [name, zip] = await downloadAll();
     expect(name).toBe("Planning app - App Export - 2026-09-28.zip");
     expectSameZip(zip, resultZip(result, NOW));
-    expect(files(zip, DETAILS_FILE)).toEqual(files(APP_ZIP_0_6_1, DETAILS_FILE));
+    expect(files(zip, DETAILS_FILE)).toEqual(files(APP_ZIP_REWORDED, DETAILS_FILE));
     // "Download this table" saves the table on screen as the engine's own CSV.
     page.id("dlCsv").press();
     expect([page.downloads[1].name, `\ufeff${await saved[1].text()}`]).toEqual(["Cards.csv", tableCsv(cards)]);

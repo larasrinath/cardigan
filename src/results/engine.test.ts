@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DETAILS_FILE, TAB_FILES } from "../analyse.js";
-import { APP_ZIP_0_6_1, MODEL_ZIP_0_6_1, ZIPPED_AT } from "../golden-0.6.1.test-support.js";
+import { APP_ZIP_REWORDED, MODEL_ZIP_0_6_1, ZIPPED_AT } from "../golden-0.6.1.test-support.js";
 import { Failure, firstLine } from "../progress.js";
 import { ROWS_MAX, type Subject } from "../protocol.js";
 import type { AnalysisResult } from "../result-types.js";
@@ -173,8 +173,9 @@ describe("The results page against the engine in the Anaplan tab", () => {
     // The files are the ones the page knows an app's files by, the Details file first.
     expect(result.tables.map(table => table.file)).toEqual([DETAILS_FILE, ...Object.values(TAB_FILES)]);
     expect(result.tables.map(table => table.file)).toEqual([detailsOf(result)?.file, ...Object.values(APP_FILES)]);
-    // What the page would give for download is, file for file, the zip 0.6.1 wrote for this app.
-    expect(files(resultZip(result, ZIPPED_AT), DETAILS_FILE)).toEqual(files(APP_ZIP_0_6_1, DETAILS_FILE));
+    // What the page would give for download is, file for file, the zip 0.6.1 wrote for this app, but for the one row of the
+    // Details file that is deliberately reworded since (APP_ROW_REWORDED in golden-0.6.1.test-support.ts).
+    expect(files(resultZip(result, ZIPPED_AT), DETAILS_FILE)).toEqual(files(APP_ZIP_REWORDED, DETAILS_FILE));
     expect([result.kind, result.name, result.zipName, result.summary]).toEqual(["app", "Planning: app", "Planning app - App Export - 2026-09-28.zip",
       ["1 of 1 pages analysed; 1 unpublished, not analysed, 3 cards."]]);
   });
