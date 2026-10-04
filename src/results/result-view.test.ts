@@ -114,6 +114,18 @@ describe("What the results page reads out of a result", () => {
     });
   });
 
+  it("names an app's tiles by the design's shorter names, and any other file's by the file's own", () => {
+    const every = (Object.values(APP_FILES)).map(file => appTable(file, []));
+    expect(overviewOf(result("app", [appDetails, ...every])).tiles.map(tile => tile.label)).toEqual(
+      ["Pages", "Cards", "Grid sections", "Filters", "Formatting rules", "Action buttons", "Where Used"]);
+    // The file's own label is not what names the tile, and a file the app export does not have keeps its label.
+    const renamed: ResultTable = { ...appTable("Conditional Formatting.csv", []), label: "Something else" };
+    const other: ResultTable = { file: "Formatting rules.csv", label: "Formatting rules of mine", headers: [""], rows: [["a"]], guard: false };
+    expect(overviewOf(result("app", [renamed, other])).tiles).toEqual([{ label: "Formatting rules", count: 0 }, { label: "Formatting rules of mine", count: 1 }]);
+    // The navigation and the table's own heading keep the file's name: only the tile is short.
+    expect(appTable("Conditional Formatting.csv", []).label).toBe("Conditional Formatting");
+  });
+
   it("gives a model's overview its row counts and nothing made up", () => {
     const lineItems: ResultTable = { file: "Line Items.csv", label: "Line Items", headers: ["", "Formula"], rows: [["Revenue", "Units * Price"], ["Units", ""]], guard: false };
     const modules: ResultTable = { file: "Modules.csv", label: "Modules", headers: ["", "Card type", "Model"], rows: [["REP01", "x", "y"]], guard: false };
