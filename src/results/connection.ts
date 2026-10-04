@@ -1,15 +1,36 @@
 import { stampLine } from "../details.js";
-import { TAB_PARAM, type PageMessage, type Subject, type TabMessage } from "../protocol.js";
+import { FRESH_MS, OPENED_PARAM, TAB_PARAM, type PageMessage, type Subject, type TabMessage } from "../protocol.js";
 import type { AnalysisResult } from "../result-types.js";
 
-/** The results page's side of the port to the Anaplan tab's content script (protocol.ts): it connects, asks for the
- * analysis as soon as the tab says it shows an app or a model, follows the progress and puts the result together.
- * Nothing here touches the page: the page is told the state and draws it. */
+/** The results page's side of the port to the Anaplan tab's content script (protocol.ts): it connects, hears what the tab
+ * shows, asks for the analysis, follows the progress and puts the result together. It asks by itself only on a page the
+ * icon has just opened; any other page waits for the run control. Nothing here touches the page: the page is told the
+ * state and draws it. */
 
 /** The Anaplan tab's ID from the results page's address ("?tab=123"), or undefined when the address names none. */
 export function tabIdFrom(search: string): number | undefined {
   const value = new URLSearchParams(search).get(TAB_PARAM);
   return value !== null && /^\d{1,10}$/.test(value) ? Number(value) : undefined;
+}
+
+/** Whether the toolbar icon has just opened the page: its address says when the icon was clicked ("opened=<Date.now()>"),
+ * and that is less than FRESH_MS before `now`. Only then may the page start the analysis by itself (protocol.ts). A time
+ * that is no number, or one still to come, is not the icon's. */
+export function openedJustNow(search: string, now: number): boolean {
+  const value = new URLSearchParams(search).get(OPENED_PARAM);
+  if (value === null || !/^\d{1,15}$/.test(value)) return false;
+  const age = now - Number(value);
+  return age >= 0 && age < FRESH_MS;
+}
+
+/** The page's address without the time it was opened at, or undefined when it holds none. A page that has read the time
+ * puts this in the address's place, so that a reload, a duplicate or a tab Chrome restores starts nothing by itself. */
+export function withoutOpened(search: string): string | undefined {
+  const params = new URLSearchParams(search);
+  if (!params.has(OPENED_PARAM)) return undefined;
+  params.delete(OPENED_PARAM);
+  const rest = params.toString();
+  return rest ? `?${rest}` : "";
 }
 
 /** The part of chrome.runtime.Port the client uses; a test hands it a stand-in. */
@@ -25,6 +46,8 @@ export type RunState =
   | { phase: "unreachable" }
   /** The tab is an Anaplan page that shows neither an app nor a model, or a model page that has not loaded its model yet. */
   | { phase: "no-subject" }
+  /** The tab shows an app or a model, and nothing has asked for its analysis: the icon did not open this page just now. */
+  | { phase: "ready"; kind: "app" | "model" }
   | { phase: "running"; status: string }
   /** The tab said the run failed. */
   | { phase: "failed"; message: string; signedOut: boolean }
@@ -36,6 +59,8 @@ export type RunState =
 export interface ClientOptions {
   /** Opens the port to the tab: chrome.tabs.connect(tabId, { name: PORT_NAME }). Undefined when the address names no tab. */
   connect: (() => TabPort) | undefined;
+  /** True on a page the toolbar icon has just opened (`openedJustNow`): the only page that asks for the analysis by itself. */
+  autoRun: boolean;
   /** Why Chrome closed a port (chrome.runtime.lastError), which it only says while the port's disconnect event runs. */
   closeReason?: () => string | undefined;
   onState(state: RunState): void;
@@ -61,6 +86,9 @@ function isResult(value: unknown): value is AnalysisResult {
 
 export class ResultsClient {
   state: RunState = { phase: "connecting" };
+  /** Whether an analysis has been asked for on this page: by the icon that has just opened it, or with the run control.
+   * Until then the page only says what the tab shows, and reads nothing. */
+  asked: boolean;
   /** The diagnostic log of the current run: the tab's lines, each stamped with its time, and why a port closed. */
   readonly log: string[] = [];
   private port: TabPort | undefined;
@@ -68,17 +96,21 @@ export class ResultsClient {
   /** The result being put together, between "result" and "done". */
   private pending: AnalysisResult | undefined;
 
-  constructor(private readonly options: ClientOptions) {}
+  constructor(private readonly options: ClientOptions) {
+    this.asked = options.autoRun;
+  }
 
-  /** Connects to the tab. The page asks for nothing else: an app or a model is analysed as soon as the tab says it shows one. */
+  /** Connects to the tab. On a page the icon has just opened, an app or a model is analysed as soon as the tab says it
+   * shows one. Any other page says what the tab shows and waits for the run control. */
   start(): void {
     this.open();
   }
 
-  /** Runs the analysis again: on the open port when the tab showed an app or a model, otherwise on a new port, which asks
-   * the tab afresh what it shows. Ignored while a run is in progress. */
+  /** The run control: analyses what the tab shows. On the open port when the tab showed an app or a model, otherwise on a
+   * new port, which asks the tab afresh what it shows and then analyses it. Ignored while a run is in progress. */
   runAgain(): void {
     if (this.state.phase === "running") return;
+    this.asked = true;
     const usable = this.port !== undefined && this.subject !== undefined && this.subject.kind !== "none";
     if (!usable || !this.run()) this.open();
   }
@@ -150,6 +182,8 @@ export class ResultsClient {
       const subject: Subject | undefined = message.subject && typeof message.subject === "object" ? message.subject : undefined;
       if (subject && (subject.kind === "app" || subject.kind === "model")) {
         this.subject = subject;
+        // A page nobody has asked reads nothing: by now its tab ID may belong to another tab than the one it was opened for.
+        if (!this.asked) return this.set({ phase: "ready", kind: subject.kind });
         if (!this.run()) this.closed(undefined);
       } else {
         this.subject = { kind: "none" };
@@ -206,13 +240,19 @@ export class ResultsClient {
       this.append(stampLine(`The connection to the tab closed${why}`));
       this.set({ phase: "interrupted" });
     }
-    // After a result, an error or "not an app or a model" there is nothing to say: Run again opens a new port.
+    // After a result, an error or "not an app or a model", and while the page waits for the run control, there is nothing
+    // to say: the run control opens a new port.
   }
 }
 
-/** What the page says for a state that is not a result: a heading, the message, and what to do about it. */
+/** What the run control reads: "Run" until an analysis has been asked for on this page, "Run again" after. */
+export const runLabel = (asked: boolean): string => (asked ? "Run again" : "Run");
+
+/** What the page says for a state that is not a result: a heading, the message, and what to do about it. `asked` is the
+ * client's: the run control is named as it reads. */
 export interface StateText { title: string; message: string; hint: string }
-export function describeState(state: RunState): StateText {
+export function describeState(state: RunState, asked: boolean): StateText {
+  const run = runLabel(asked);
   switch (state.phase) {
     case "no-tab":
       return { title: "No Anaplan tab", message: "This page was opened without an Anaplan tab to read.",
@@ -224,14 +264,17 @@ export function describeState(state: RunState): StateText {
         hint: "If it is an Anaplan app or model, refresh it, then click the Cardigan icon again." };
     case "no-subject":
       return { title: "Nothing to analyse", message: "That Anaplan page is not an app or a model.",
-        hint: "Open an app, or a model in Model Building, in that tab; if it is still loading, give it a moment. Then choose Run again." };
+        hint: `Open an app, or a model in Model Building, in that tab; if it is still loading, give it a moment. Then choose ${run}.` };
+    case "ready":
+      return { title: "Ready to analyse", message: `That Anaplan tab shows ${state.kind === "app" ? "an app" : "a model"}.`,
+        hint: `Choose ${run} to analyse it. This page starts by itself only when the Cardigan icon has just opened it.` };
     case "running":
       return { title: "Analysing", message: state.status, hint: "Keep the Anaplan tab open until this finishes." };
     case "failed":
-      return { title: "The analysis stopped", message: state.message, hint: "Choose Run again to try once more." };
+      return { title: "The analysis stopped", message: state.message, hint: `Choose ${run} to try once more.` };
     case "interrupted":
       return { title: "The analysis stopped", message: "The Anaplan tab was closed or left the page before the analysis finished.",
-        hint: "Open the app or model again, then click the Cardigan icon or choose Run again." };
+        hint: `Open the app or model again, then click the Cardigan icon or choose ${run}.` };
     case "done":
       return { title: "Results", message: "", hint: "" };
   }

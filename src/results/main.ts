@@ -3,7 +3,7 @@ import type { AnalysisResult, ResultTable } from "../result-types.js";
 import { resultZip, tableCsv } from "../result-zip.js";
 import { VERSION } from "../version.js";
 import { cardsOf, columnIndex, columnsOf, rowKeys, type CardsTable, type Column, type RowKeys } from "./columns.js";
-import { describeState, ResultsClient, tabIdFrom, type RunState } from "./connection.js";
+import { describeState, openedJustNow, ResultsClient, runLabel, tabIdFrom, withoutOpened, type RunState } from "./connection.js";
 import {
   bannersHtml, cardDrawerHtml, cardDrawerSubHtml, colChooserHtml, colFilterHtml, crumbsHtml, detailsHtml, headerMetaHtml, MOON_ICON, navHtml,
   overviewHtml, rowDrawerHtml, rowDrawerSubHtml, runHtml, SUN_ICON, tableHtml, type Links, type NavEntry,
@@ -13,7 +13,8 @@ import { analysedOf, cardSections, detailSections, detailsOf, diagnosticLog, ove
 import { cellText, NONE, pageOf, rememberingSelect, valueCounts, type Row, type Sort, type TableQuery } from "./table-engine.js";
 
 /** The results page (results.html): the design's script, on the real result. It connects to the Anaplan tab the address
- * names, lets the analysis run, shows its progress and then the result: an overview, one table per file, the details
+ * names and says what that tab shows. The analysis starts by itself when the icon has just opened the page, and otherwise
+ * with the run control. The page shows its progress and then the result: an overview, one table per file, the details
  * and the downloads. The markup is built in markup.ts and the data work is done in the modules beside it; this file
  * only holds what the user chose and puts the pieces on the page. */
 
@@ -119,10 +120,22 @@ function toggleTheme(): void {
   try { localStorage.setItem("cardigan-theme", next); } catch { /* not remembered */ }
   applyTheme(next);
 }
+/** A text node, as Node.TEXT_NODE names it. */
+const TEXT_NODE = 3;
+/** The run control's words, after its icon: "Run" until an analysis has been asked for on this page, "Run again" after. */
+function showRunLabel(): void {
+  const button = el("runAgain");
+  const label = runLabel(client.asked);
+  const words = [...button.childNodes].reverse().find(node => node.nodeType === TEXT_NODE && node.textContent?.trim());
+  if (!words) button.append(label);
+  else if (words.textContent !== label) words.textContent = label;
+  button.title = client.asked ? "Analyse the Anaplan tab again" : "Analyse the Anaplan tab";
+}
 /** The header's buttons follow what there is to act on. */
 function updateActions(): void {
   const phase = client.state.phase;
   el<HTMLButtonElement>("runAgain").disabled = phase === "running" || phase === "no-tab";
+  showRunLabel();
   el<HTMLButtonElement>("dlAll").disabled = !result;
   const table = currentTable();
   const csv = el<HTMLButtonElement>("dlCsv");
@@ -233,7 +246,7 @@ function showRun(runState: RunState): void {
     el("navToggle").hidden = true;
     el("view").innerHTML = runHtml();
   }
-  const text = describeState(runState);
+  const text = describeState(runState, client.asked);
   const set = (selector: string, value: string) => {
     const node = find(selector);
     if (node) {
@@ -610,11 +623,27 @@ window.matchMedia?.("(prefers-color-scheme: dark)").addEventListener("change", e
 });
 
 /* ================= init ================= */
+/** Whether the toolbar icon has just opened this page: only then does the analysis start by itself (protocol.ts). The time
+ * of the click is taken out of the address at once, so that a reload, a duplicate or a tab Chrome restores finds none and
+ * waits for the run control. A page that cannot change its address starts nothing by itself either. */
+function openedByIcon(): boolean {
+  const rest = withoutOpened(location.search);
+  if (rest === undefined) return false;
+  const fresh = openedJustNow(location.search, Date.now());
+  try {
+    history.replaceState(history.state, "", `${location.pathname}${rest}${location.hash}`);
+  } catch {
+    return false;
+  }
+  return fresh;
+}
+
 el("version").textContent = `v${VERSION}`;
 applyTheme(currentTheme());
 const tabId = tabIdFrom(location.search);
 const client = new ResultsClient({
   connect: tabId === undefined ? undefined : () => chrome.tabs.connect(tabId, { name: PORT_NAME }),
+  autoRun: openedByIcon(),
   closeReason: () => chrome.runtime.lastError?.message,
   onState: next => (next.phase === "done" ? showResult(next.result, next.received) : showRun(next)),
   onLog: showLog,
