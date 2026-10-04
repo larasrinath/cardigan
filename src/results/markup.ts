@@ -251,6 +251,8 @@ export interface TableView {
   note: string | undefined;
   /** The ways the table can be shown, when it has more than one: a switch stands at the head of its toolbar. */
   ways?: readonly TableWay[];
+  /** For a table that lists no row although its file has rows, which `note` says: what it says in the rows' place. */
+  none?: string;
   /** The columns shown, in the table's order. */
   columns: readonly Column[];
   /** The rows of the page shown. */
@@ -323,10 +325,12 @@ export function tableParts(view: TableView): TableParts {
   let body = "";
   let empty = "";
   if (view.all === 0) {
+    // A table without rows says that nothing was found, unless its file has rows that the table leaves to the CSV: the
+    // line under its name counts those, and here the table says that none of them is its own.
     empty = `<div class="empty">
       <svg width="30" height="30" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" aria-hidden="true">${FILTER_PATH}</svg>
-      <div class="e-title">${label} has no rows</div>
-      <div class="e-sub">Nothing was found for this table in this analysis.</div>
+      <div class="e-title">${label} has no rows${view.none === undefined ? "" : " of its own"}</div>
+      <div class="e-sub">${view.none === undefined ? "Nothing was found for this table in this analysis." : esc(view.none)}</div>
       </div>`;
   } else if (view.total === 0) {
     const what = [...(searching ? ["search"] : []), ...(filtering ? ["column filters"] : []), ...(jumped ? ["page selection"] : [])].join(" and ");

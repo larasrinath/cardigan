@@ -982,6 +982,31 @@ describe("The results page's script, on the page", () => {
     expect([page.all("#view .view-note").length, page.id("rowCount").textContent]).toEqual([0, "1–50 of 120 rows"]);
   });
 
+  it("says of a Model Calendar whose every row is about the model that it has no rows of its own, not that nothing was found", async () => {
+    // The calendar's settings could not be read: the file has the template's five rows about the model, and no other.
+    const file = WITH_CALENDAR.tables[3];
+    const only: AnalysisResult = { ...WITH_CALENDAR, tables: [...WITH_CALENDAR.tables.slice(0, 3), { ...file, rows: file.rows.slice(0, 5) }] };
+    await openWith(only);
+    // The tile and the navigation count the rows the table lists, none, and the tile says the CSV's five.
+    expect(page.all("#view .stat")[0].children.map(child => child.textContent)).toEqual(["Model Calendar", "0", "rows", "5 rows in the CSV"]);
+    expect(page.find('#navList [data-nav="3"]').children.map(child => child.textContent)).toEqual(["Model Calendar", "0"]);
+    goTo(3);
+    // The line under the name says where the five rows are. In the rows' place the table says that none is the calendar's
+    // own, which does not contradict it; "Nothing was found" would.
+    expect([page.texts("#view .view-note"), page.texts("#tableWrap .e-title"), page.texts("#tableWrap .e-sub"), page.id("rowCount").textContent])
+      .toEqual([["5 rows about the model are in the CSV only."], ["Model Calendar has no rows of its own"], ["Every row of the file is about the model."], "No rows"]);
+    expect([page.id("view").textContent.includes("Nothing was found"), page.all("#tableWrap tbody tr").length, page.id("pager").children]).toEqual([false, 0, []]);
+    // The file is whole in its download.
+    page.id("dlCsv").press();
+    expect((await saved[0].text()).split("\r\n").filter(line => line.startsWith("Model,"))).toHaveLength(5);
+    // A file without rows at all says, as ever, that nothing was found for it.
+    page.id("runAgain").press();
+    sendResult(ports[0], { ...WITH_CALENDAR, tables: [...WITH_CALENDAR.tables.slice(0, 3), { ...file, rows: [] }] });
+    goTo(3);
+    expect([page.all("#view .view-note").length, page.texts("#tableWrap .e-title"), page.texts("#tableWrap .e-sub")])
+      .toEqual([0, ["Model Calendar has no rows"], ["Nothing was found for this table in this analysis."]]);
+  });
+
   it("shows no Notes panel for a model whose summary only says how many rows each file has", async () => {
     await openWith(MODEL);
     expect([page.texts("#view h1"), page.texts("#view .s-lab"), page.has("#view .warn-list"), page.id("banners").children]).toEqual([["Overview"], ["Modules", "Line Items"], false, []]);

@@ -93,6 +93,8 @@ interface Shown {
    * is the table the rule gives, and `note` is the line under the table's name that says so. */
   table: ResultTable;
   note: string | undefined;
+  /** What the table says in the rows' place when the file's rule leaves it none of the file's rows to list. */
+  none: string | undefined;
   /** The CSV's text for each cell the table says in words, by the table's row and the column's place: a row's drawer shows both. */
   exported: FileView["exported"];
   columns: Column[];
@@ -218,7 +220,7 @@ function tableView(entry: Shown): TableView {
   entry.page = page.page;
   currentSlice = page.rows;
   return {
-    label: cellText(entry.table.label), note: entry.note,
+    label: cellText(entry.table.label), note: entry.note, none: entry.none,
     ways: entry.ways && [{ way: "object", label: "By object", chosen: entry === entry.ways.object }, { way: "use", label: "Every use", chosen: entry === entry.ways.use }],
     columns: entry.columns.filter(column => !entry.hidden.has(column.index)), rows: page.rows,
     page: page.page, pages: page.pages, pageSize: state.pageSize, from: page.from, to: page.to, total: page.total, all: entry.table.rows.length,
@@ -321,12 +323,12 @@ function showResult(next: AnalysisResult, at: Date, back = false): void {
   const whereUsed = byObject && next.tables.find(table => table.file === WHERE_USED_FILE);
   for (const { index, table: file } of listedTables(next)) {
     // What the page counts, filters and searches is the table as it shows it: the columns' filters follow its rows too.
-    const { table, note, exported } = fileView(next, file);
+    const { table, note, none, exported } = fileView(next, file);
     const columns = columnsOf(table);
     const keys = rowKeys(table);
     const page = cards !== undefined && keys.page !== undefined;
     const entry: Shown = {
-      index, file, table, note, exported, columns, keys, links: { page, card: page && keys.cardId !== undefined },
+      index, file, table, note, none, exported, columns, keys, links: { page, card: page && keys.cardId !== undefined },
       filters: new Map(), hidden: defaultHidden(columns), sort: undefined, page: 0, listed: table.rows.length,
     };
     shown.set(index, entry);
@@ -335,7 +337,7 @@ function showResult(next: AnalysisResult, at: Date, back = false): void {
     // columns. Its cells link to nothing: a row opens the object, which lists its uses. The file's own number of rows is
     // what the navigation shows either way: it is what the CSV holds, and a download is the file in both.
     const object: Shown = {
-      index, file, table: { ...file, headers: byObject.headers, rows: byObject.rows }, note: byObject.note, exported: undefined, columns: byObject.columns,
+      index, file, table: { ...file, headers: byObject.headers, rows: byObject.rows }, note: byObject.note, none: undefined, exported: undefined, columns: byObject.columns,
       keys: { page: undefined, cardId: undefined }, links: { page: false, card: false },
       filters: new Map(), hidden: defaultHidden(byObject.columns), sort: undefined, page: 0, listed: file.rows.length, objects: byObject,
     };

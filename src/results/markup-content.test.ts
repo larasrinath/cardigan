@@ -194,6 +194,14 @@ describe("What the results page's markup shows", () => {
     expect(empty({ search: "x", filtered: new Set([0, 3]), context: "Stores" })[1]).toBe("Nothing in Cards matches the current search and column filters and page selection.");
     // With rows to show there is no such message.
     expect(parseMarkup(tableHtml(viewOf(CARDS, LINKS))).querySelectorAll(".empty")).toEqual([]);
+    // A table whose file has rows, all of them left to the CSV, does not say that nothing was found: it says that none of
+    // the rows is its own, in the words it is given, as text. The line under its name says how many rows the CSV has.
+    const left = { all: 0, note: "5 rows about the model are in the CSV only.", none: "Every row of the file is <b>about</b> the model." };
+    expect(empty(left)).toEqual(["Cards has no rows of its own", "Every row of the file is <b>about</b> the model.", [], 0, ""]);
+    const view = parseMarkup(tableHtml(viewOf(CARDS, LINKS, { rows: [], total: 0, from: 0, to: 0, ...left })));
+    expect([view.querySelectorAll(".view-note").map(text), view.querySelectorAll(".empty b").length, view.textContent.includes("Nothing was found")]).toEqual([["5 rows about the model are in the CSV only."], 0, false]);
+    // Those words are for a table without rows only: one that a search leaves empty says so as ever.
+    expect(empty({ search: "x", none: left.none }).slice(0, 2)).toEqual(["No results", "Nothing in Cards matches the current search."]);
   });
 
   it("offers Previous, the page numbers and Next, each with the page it goes to, and marks the page shown", () => {
