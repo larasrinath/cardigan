@@ -62,7 +62,8 @@ async function readPublished(guid: string, declared: UxPageType | undefined, log
 }
 
 /** `work` gets the host that finally served the model, after any redirect. A run that `signal` has stopped opens no socket,
- * and one stopped while its socket connects closes it again before `work`: nothing is subscribed to for a stopped run. */
+ * and one stopped while its socket connects closes it at once, without waiting for the service to answer: nothing is
+ * subscribed to for a stopped run. */
 async function withSocket<T>(customerId: string, log: Log, signal: AbortSignal | undefined, work: (connection: StompConnection, host: string) => Promise<T>): Promise<T> {
   let host = location.host;
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -74,7 +75,7 @@ async function withSocket<T>(customerId: string, log: Log, signal: AbortSignal |
       connection = await StompConnection.open(url, {
         "enabled-features": "", "accept-language": navigator.language || "en", "close-mode": "error-frame", "page-visible": "true",
         ...(customerId ? { "anaplan-customer": customerId } : {}),
-      }, log);
+      }, log, signal);
       signal?.throwIfAborted();
       return await work(connection, host);
     } catch (error) {
