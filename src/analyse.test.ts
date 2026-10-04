@@ -6,6 +6,7 @@ import { ANAPLAN_HOSTS, NOT_SCOPE_IDS, OTHER_HOSTS, SCOPE_IDS } from "./guards.t
 import { assemble } from "./pieces.test-support.js";
 import { Failure } from "./progress.js";
 import * as report from "./report.js";
+import { NONE } from "./report.js";
 import * as rest from "./rest.js";
 import { resultZip } from "./result-zip.js";
 import { decodeFrames, type StompFrame } from "./stomp.js";
@@ -1201,6 +1202,77 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     expect(sameBytes(resultZip(received, ZIPPED_AT), APP_ZIP_0_6_1)).toBe(true);
   });
 
+  it("writes the names of a filter rule's items where the model gives them, and their IDs as before where it does not", async () => {
+    const lines: string[] = [];
+    const analyse = () => analyseApp(GOLDEN_APP, { status: () => undefined, log: line => { lines.push(line); } }, () => "");
+    const filters = (result: Awaited<ReturnType<typeof analyse>>) => {
+      const table = result.tables.find(each => each.file === "Filters.csv")!;
+      return table.rows.map(row => ["Condition line item", "Condition line item's module", "Operator", "Value", "Condition context", "Line item ID"].map(header => row[table.headers.indexOf(header)]));
+    };
+    const cell = (result: Awaited<ReturnType<typeof analyse>>, file: string, header: string) => {
+      const table = result.tables.find(each => each.file === file)!;
+      return table.rows.map(row => row[table.headers.indexOf(header)]);
+    };
+    const usedIn = (result: Awaited<ReturnType<typeof analyse>>) => result.tables.find(each => each.file === "Where Used.csv")!.rows
+      .filter(row => String(row[5]).startsWith("Filter")).map(row => [row[0], row[1], row[2], row[5], row[6]]);
+
+    // The model's item reads answer nothing, as if it knew none of the items: every file is what it was before.
+    serveStaffApp({});
+    const unnamed = await analyse();
+    expect(filters(unnamed)).toEqual([
+      ["Status", "Demand", "is equal to", ITEM(318, 2), NONE, STATUS], ["Status", "Demand", "is equal to", ITEM(318, 1), NONE, STATUS],
+      ["Status", "Demand", "is equal to", `${ITEM(318, 2)}, ${ITEM(318, 1)}`, "Territory = current", STATUS],
+      // No line item is told from the rule's other items while one of them is unnamed: all three are listed.
+      [`Time, ${ITEM(358, 0)}, Role`, NONE, "is equal to", ITEM(404, 3), NONE, NONE]]);
+    expect(cell(unnamed, "Cards.csv", "Filters")).toEqual([[`Rows, match all: Status [Demand] is equal to ${ITEM(318, 2)}`, `Rows, match all: Status [Demand] is equal to ${ITEM(318, 1)}`,
+      `Rows, match all: Status [Demand] is equal to ${ITEM(318, 2)}, ${ITEM(318, 1)} (context: Territory = current)`,
+      `Rows, match all: Time, ${ITEM(358, 0)}, Role [${NONE}] is equal to ${ITEM(404, 3)}`].join(" | ")]);
+    expect(usedIn(unnamed)).toEqual([["Line item", "Status", "Demand", "Filter", STATUS], ["Dimension", "Territory", NONE, "Filter context", LIST_2],
+      ["Line item", `Time, ${ITEM(358, 0)}, Role`, NONE, "Filter", NONE]]);
+    expect(unnamed.summary).toEqual(["1 of 1 pages analysed, 1 cards."]);
+
+    // The model names them: each ID is the item's name wherever it stood, and the fourth rule is told apart: its line item,
+    // that item's module and ID, and its context.
+    lines.length = 0;
+    serveStaffApp({ [at(`/modules/${MODULE}/dimensions/${REGIONS}`)]: labels({ [ITEM(358, 0)]: "All regions" }),
+      [at(`/modules/${MODULE}/dimensions/${STATUSES}`)]: labels({ [ITEM(318, 1)]: "Open", [ITEM(318, 2)]: "Closed" }),
+      [at("/applicableModules")]: id => update(id, { data: [{ id: Number(STAFFING), label: "Staffing" }] }),
+      [at(`/modules/${STAFFING}/dimensions/${ROLES}`)]: labels({ [ITEM(404, 3)]: "Planner" }) });
+    const named = await analyse();
+    expect(filters(named)).toEqual([
+      ["Status", "Demand", "is equal to", "Closed", NONE, STATUS], ["Status", "Demand", "is equal to", "Open", NONE, STATUS],
+      ["Status", "Demand", "is equal to", "Closed, Open", "Territory = current", STATUS],
+      ["Role", "Demand", "is equal to", "Planner", "Time = current; All regions", ROLE]]);
+    expect(cell(named, "Cards.csv", "Filters")).toEqual([["Rows, match all: Status [Demand] is equal to Closed", "Rows, match all: Status [Demand] is equal to Open",
+      "Rows, match all: Status [Demand] is equal to Closed, Open (context: Territory = current)",
+      "Rows, match all: Role [Demand] is equal to Planner (context: Time = current; All regions)"].join(" | ")]);
+    expect(usedIn(named)).toEqual([["Line item", "Status", "Demand", "Filter", STATUS], ["Dimension", "Territory", NONE, "Filter context", LIST_2],
+      ["Line item", "Role", "Demand", "Filter", ROLE], ["Dimension", "Time", NONE, "Filter context", "20000000003"]]);
+    // Nothing else differs between the two: the other columns of Filters.csv and of Cards.csv, the other rows of Where
+    // Used.csv, and every other file. App Details.csv counts the row that Where Used.csv gains for the rule that is told
+    // apart (its context's dimension), and says when it was exported.
+    const changing: Record<string, string[]> = { "Filters.csv": ["Condition line item", "Condition line item's module", "Value", "Condition context", "Line item ID"], "Cards.csv": ["Filters"] };
+    const others = (result: typeof named) => result.tables.map(table => [table.file,
+      table.file === DETAILS_FILE ? table.rows.filter(row => row[1] !== "Exported on" && row[1] !== "Where Used.csv")
+        : table.file === "Where Used.csv" ? table.rows.filter(row => !String(row[5]).startsWith("Filter"))
+          : table.rows.map(row => row.filter((_, column) => !(changing[table.file] ?? []).includes(table.headers[column])))]);
+    expect(others(named)).toEqual(others(unnamed));
+    const used = (result: typeof named) => result.tables.find(each => each.file === "Where Used.csv")!.rows.length;
+    expect(used(named)).toBe(used(unnamed) + 1);
+    expect([unnamed, named].map(result => result.tables[0].rows.find(row => row[1] === "Where Used.csv")?.[2])).toEqual([`${used(unnamed)} rows`, `${used(named)} rows`]);
+    // The log names what was asked and how much was named, never an item, a list or a line item by its name.
+    expect(lines.filter(line => line.startsWith("filter "))).toEqual([
+      // The rule's context item is an item of one of its line item's module's dimensions: those the rule does not name are asked in turn.
+      `filter context items: 1 asked of dimension ${LIST_2} in module ${MODULE}, 0 named (answer: 0 entries)`,
+      `filter context items: 1 asked of dimension ${REGIONS} in module ${MODULE}, 1 named (answer: 1 entries of {itemId, label})`,
+      `filter line item ${STATUS}: format {dataType, hierarchyEntityLongId}, data type ENTITY, items of dimension ${STATUSES}`,
+      `filter values: 2 asked of dimension ${STATUSES} in module ${MODULE}, 2 named (answer: 2 entries of {itemId, label})`,
+      `filter line item ${ROLE}: format {dataType, hierarchyEntityLongId}, data type ENTITY, items of dimension ${ROLES}`,
+      `filter values: 1 asked of dimension ${ROLES} in module ${STAFFING}, 1 named (answer: 1 entries of {itemId, label})`,
+      "filter context items: 1 of 1 named", "filter values: 3 of 3 named"]);
+    expect(lines.join("\n")).not.toMatch(/All regions|Planner|Open|Closed|Status|Role\b|Staffing|Territory/);
+  });
+
   it("ends with done when the same app is analysed for a results page, although the socket's closing is logged after it", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date(Date.UTC(2026, 8, 28, 12, 30, 10)));
@@ -1298,6 +1370,39 @@ function serveGoldenApp() {
     [at(`/modules/${MODULE}/dimensions/${LIST}`)]: id => update(id, { data: [{ itemId: NORTH, label: "North" }, { itemId: SOUTH, label: "South" }] }),
     [at("/applicableModules")]: id => update(id, { data: [{ id: Number(MODULE), label: "Demand" }, { id: Number(candidate(2)), label: "Filter flags" }] }),
     [at(`/modules/${candidate(2)}/lineItems`)]: id => update(id, { data: [{ lineItemId: FILTER_ITEM, lineItemLabel: "Include?" }] }),
+  });
+}
+
+// An app with the filter rules the owner's first live run showed as IDs (all IDs here are made up): a line item formatted
+// as a list is compared with one or two of that list's items, and a rule whose context fixes a dimension to its top level
+// item. Status is formatted as a list the grid's module has as a dimension, Role as a list it has not.
+const STATUSES = "101000000913";
+const itemRule = (selectedItems: string[], values: string[]) => ({ type: "LEAF", rule: { selectedItems, operator: "EQUALS", values, identifier: "", axisKey: null } });
+const staffCard: Any = { ...goldenCards[1], defaultTitle: "Staff by product", widgetDataSources: [{ ...goldenCards[1].widgetDataSources[0],
+  axisDescriptionQuery: { id: guid(900), version: 1, conditionalFormattingRules: [], regions: { SINGLE: { moduleId: MODULE, columns: axis([dim("20000000003")]),
+    rows: axis([dim(LIST)], [{ type: "BRANCH", operator: "AND", nodes: [itemRule([STATUS], [ITEM(318, 2)]), itemRule([STATUS], [ITEM(318, 1)]),
+      itemRule([LIST_2, STATUS], [ITEM(318, 2), ITEM(318, 1)]), itemRule(["20000000003", ITEM(358, 0), ROLE], [ITEM(404, 3)])] }]) } } } }] };
+const staffLayout = structuredClone(goldenBoard.layout);
+staffLayout.areas.main[0].areas.sections[0].areas.rows = [goldenBoard.layout.areas.main[0].areas.sections[0].areas.rows[1]];
+const staffBoard: Any = { ...goldenBoard, name: "Staff board", layout: staffLayout, widgets: { [staffCard.clientGuid]: staffCard } };
+
+/** That app's services. `items` are the answers of the model's item reads; without one, a read has no item to name. */
+function serveStaffApp(items: Record<string, (id: string, asked: Any) => string>) {
+  const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+    const path = new URL(url).pathname;
+    if (path.endsWith(`/apps/${GOLDEN_APP}`)) return json({ name: "Staffing app", pages: [{ guid: guid(1000), name: "Staff board", pageType: "BOARD", hasPublishedVersion: true }] });
+    return path.endsWith(`/boards/${guid(1000)}`) ? json(staffBoard) : new Response("{}", { status: 404 });
+  }));
+  ScriptedSocket.sockets = [];
+  serveModel({
+    [MODULE_VIEWS]: id => update(id, { data: [{ id: Number(MODULE), name: "Demand", views: [] }], dimensions: { "20000000003": { label: "Time" } } }),
+    [at("/lists")]: id => update(id, { data: [[LIST, "Product"], [LIST_2, "Territory"], [REGIONS, "Region"], [ROLES, "Roles"], [STATUSES, "Statuses"]].map(([id_, name]) => ({ id: id_, name })) }),
+    [at(`/modules/${MODULE}/lineItems`)]: id => update(id, { data: [{ lineItemId: STATUS, lineItemLabel: "Status", ...listFormat(STATUSES) },
+      { lineItemId: ROLE, lineItemLabel: "Role", ...listFormat(ROLES) }] }),
+    [at("/dimensions")]: id => update(id, { modules: { [MODULE]: { dimensions: [[LIST, "Product"], ["20000000003", "Time"], [LIST_2, "Territory"], [REGIONS, "Region"], [STATUSES, "Statuses"]]
+      .map(([id_, label]) => ({ id: id_, label })) } } }),
+    ...items,
   });
 }
 
