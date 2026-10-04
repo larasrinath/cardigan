@@ -282,6 +282,9 @@ describe("The Where used table, by object", () => {
     // A model the file names only by its ID goes by the ID, and takes its name from another page of the same model.
     expect(models(page("One", NONE, MAIN), supply("Two"))).toEqual([MAIN, "Supply planning"]);
     expect(models(page("One", NONE, MAIN), page("Two", "Planning", MAIN), supply("Three"))).toEqual(["Planning", "Supply planning"]);
+    // Whichever of them comes first: a later page of the model that does not name it takes nothing away.
+    expect(models(page("One", "Planning", MAIN), page("Two", NONE, MAIN), supply("Three"))).toEqual(["Planning", "Supply planning"]);
+    expect(models(page("One", "Planning", MAIN), page("Two", "", MAIN, { Workspace: "" }), page("Three", NONE, MAIN), supply("Four"))).toEqual(["Planning", "Supply planning"]);
     // A model without an ID is known by its name and its workspace.
     expect(models(page("One", "Planning", NONE), page("Two", "Planning", NONE, { Workspace: "Archive" }), page("Three", "Planning", NONE)))
       .toEqual(["Planning (Archive)", "Planning (Main)"]);
@@ -315,6 +318,12 @@ describe("The Where used table, by object", () => {
     const two = viewOf(app(pages(demand("Demand review"), supply("Supply review")), whereUsed(
       use("Line item", "Sales, Margin", NONE, "Demand review", 1, "Filter", NONE), use("Line item", "Sales, Margin", NONE, "Supply review", 1, "Filter", NONE))));
     expect(column(two, "Model")).toEqual(["Demand planning", "Supply planning"]);
+    // Two uses without an ID in two modules are two objects: which module it is counts, not only whether there is one.
+    const modules = viewOf(app(PAGES, whereUsed(
+      use("Line item", "Amount", "REV01 Sales", "Overview", 1, "Field", NONE), use("Line item", "Amount", "REV02 Prices", "Overview", 1, "Field", NONE),
+      use("Line item", "Amount", "REV01 Sales", "Stores", 1, "Field", ""))));
+    expect(modules.rows).toEqual([["Line item", "Amount", "REV01 Sales", 2, 2, "Field", "—"], ["Line item", "Amount", "REV02 Prices", 1, 1, "Field", "—"]]);
+    expect(modules.objects.map(object => object.uses.map(used => used.row))).toEqual([[0, 2], [1]]);
     // A linked page without an ID is known by its name, and no page of the Pages file is taken for it: these two pages
     // have no ID in the file either.
     const linked = viewOf(app(pages(demand("Overview"), demand("Stores")), whereUsed(use("Page", "Somewhere", NONE, "Overview", 7, "Link target", NONE))));
