@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { UxPageCardDetails } from "./card-reader/card-types.js";
-import { analyseApp, loadCatalog } from "./analyse.js";
+import { analyseApp, DETAILS_FILE, loadCatalog, TAB_FILES } from "./analyse.js";
 import { APP_ZIP_0_6_1, ZIPPED_AT } from "./golden-0.6.1.test-support.js";
 import { ANAPLAN_HOSTS, NOT_SCOPE_IDS, OTHER_HOSTS, SCOPE_IDS } from "./guards.test-support.js";
 import { assemble } from "./pieces.test-support.js";
@@ -833,6 +833,10 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
       ["Grid Sections.csv", "Grid Sections", true, undefined, 1], ["Filters.csv", "Filters", true, undefined, 1],
       ["Conditional Formatting.csv", "Conditional Formatting", true, undefined, 1], ["Action Buttons.csv", "Action Buttons", true, undefined, 2],
       ["Where Used.csv", "Where Used", true, undefined, 10]]);
+    // The names by which the results page knows an app's files are the ones exported: the Details file, then a file per tab.
+    expect(result.tables.map(table => table.file)).toEqual([DETAILS_FILE, ...Object.values(TAB_FILES)]);
+    expect([DETAILS_FILE, TAB_FILES]).toEqual(["App Details.csv", { Pages: "Pages.csv", Cards: "Cards.csv", "Grid sections": "Grid Sections.csv", Filters: "Filters.csv",
+      Formatting: "Conditional Formatting.csv", Actions: "Action Buttons.csv", "Where used": "Where Used.csv" }]);
     // A cell is the value itself: the CSV's guard against formulas and its 12-digit IDs as text are added when it is written.
     const cards = result.tables[2];
     const cell = (row: number, header: string) => cards.rows[row][cards.headers.indexOf(header)];
