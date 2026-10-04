@@ -52,7 +52,9 @@ export function watchCore(self: MessageTarget, onCore: (core: CoreHandle) => voi
 /** Shell side: asks the core frame to export and relays its progress. Fails if the frame goes quiet for `idleMs`, or sends
  * something that is not a model's result. `signal` stops it: the run rejects with the signal's reason. A frame that went
  * quiet and a run that was stopped are both given up at once, and the frame is told to stop reading (serveCore says when
- * it then does). */
+ * it then does). Quiet is no message of this run at all: besides its steps and log lines the frame sends "alive" before
+ * each page of a grid it reads, so that a grid of many pages, which has nothing to report between them, is not taken for
+ * a frame that has gone. */
 export function runInCore(self: MessageTarget, core: CoreHandle, progress: Progress, idleMs = 300_000, signal?: AbortSignal): Promise<AnalysisResult> {
   return new Promise((resolve, reject) => {
     const nonce = crypto.randomUUID();
@@ -73,6 +75,7 @@ export function runInCore(self: MessageTarget, core: CoreHandle, progress: Progr
     const listener = (event: MessageEvent) => {
       const data = ours(event);
       if (!data || event.source !== (core.source as unknown) || event.origin !== core.origin || data.nonce !== nonce) return;
+      // Whatever the frame sends for this run starts the wait again. For "alive" that is all: it is not passed on.
       idle();
       // Nothing here may throw, or the run would be left waiting for the idle time: textOf has a text for every value.
       if (data.type === "status") progress.status(textOf(data.text));
@@ -157,9 +160,11 @@ export function greetFrames(root: Window, depth = 0): void {
 }
 
 /** Core side: announces itself to the top window until acknowledged, then runs the exports the top window asks for, one at
- * a time. A "stop" for the running export ends it before its next step (a status or a log line) or its next read of a
- * grid, whichever comes first: the read that is under way is let finish, and nothing is read after it. A "run" that
- * arrives before then takes the export over, so a second export never starts beside the first. */
+ * a time. A "stop" for the running export ends it before its next step (a status or a log line) or the next page of a
+ * grid it reads, whichever comes first: the read that is under way is let finish, and nothing is read after it. A "run"
+ * that arrives before then takes the export over, so a second export never starts beside the first. An export that is
+ * not stopped tells the top window before each page of a grid that it is still going ("alive"), which is all that keeps
+ * the top window waiting while a grid of many pages is read (runInCore). */
 export function serveCore(self: MessageTarget, top: Endpoint, modelId: () => string | undefined,
   exporter: (progress: Progress, diagnostics: () => string, stop: Stop) => Promise<AnalysisResult>, announceMs = 2000, announceForMs = 10 * 60_000): () => void {
   let running: { nonce: string; origin: string; stopped: boolean } | undefined;
@@ -181,11 +186,14 @@ export function serveCore(self: MessageTarget, top: Endpoint, modelId: () => str
     const run = running = { nonce: data.nonce, origin: event.origin, stopped: false };
     const reply = (message: Message) => top.postMessage({ protocol: PROTOCOL, nonce: run.nonce, ...message }, run.origin);
     const lines: string[] = [];
-    /** What ends a stopped export: the exporter asks it before each read, and every step asks it first. */
-    const stop: Stop = { throwIfAborted: () => { if (run.stopped) throw new Error(STOPPED); } };
+    /** What ends a stopped export: every step asks it first. */
+    const check = () => { if (run.stopped) throw new Error(STOPPED); };
+    /** What the exporter asks before each page of a grid: a stopped export ends there as well, and one that goes on says
+     * so. "alive" is no step and no line of the log: nothing is shown for it, and Model Details.csv has no row of it. */
+    const stop: Stop = { throwIfAborted: () => { check(); reply({ type: "alive" }); } };
     // Stamped as the content script stamps its own log, so Model Details.csv gives every diagnostic line its time.
     const step = (type: "status" | "log") => (text: string) => {
-      stop.throwIfAborted();
+      check();
       lines.push(stampLine(text));
       reply({ type, text });
     };
