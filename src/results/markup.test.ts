@@ -330,6 +330,25 @@ describe("The results page's escaping", () => {
     for (const multiModel of [true, false]) expectInertInTurn(text => objectDrawerSubHtml(object(text, 1), multiModel), multiModel ? 4 : 3);
     const named = parseMarkup(`<div>${objectDrawerSubHtml({ ...object(harmless, 1), model: `Demand ${IMG} planning <b>EU</b>` }, true)}</div>`);
     expect([named.querySelectorAll("img, b").length, named.textContent.includes(`Demand ${IMG} planning <b>EU</b>`)]).toEqual([0, true]);
+    // An object with uses on a page name that pages share: its note, which names those pages, with each of the texts in
+    // turn, in the line under its name; and its uses, each marked with how many pages have its page's name.
+    // (The note takes the place after the model's, or the model's own in an app of one model, which says no model there.)
+    for (const multiModel of [true, false]) {
+      expectInertInTurn(text => objectDrawerSubHtml({ ...object(text, 1), pagesMost: 3, cardsMost: 4, note: `It has uses on "${text(multiModel ? 4 : 3)}" (2 pages).` }, multiModel), multiModel ? 5 : 4);
+    }
+    for (const links of [LINKS, NO_LINKS]) {
+      expectInertInTurn(text => objectDrawerHtml({ ...object(harmless, 0), uses: [0, 1, 2, 3].map(index => ({ row: index, page: text(index % 2), card: text(2 + index), usedAs: text(6 + index), pagesOfName: 2 + index % 2 })) }, links, false), 10);
+    }
+    // What says the counts is the view's own words, made of numbers, and how many pages share a name is a number. Should
+    // either hold a text all the same, as a value of the wrong shape can, it is written as that text.
+    const plain = { ...object(harmless, 1), uses: [{ row: 0, page: "Overview", card: 1, usedAs: "Rows", pagesOfName: 2 }] };
+    for (const entry of HOSTILE) {
+      const odd = { ...plain, pages: entry as unknown as number, cards: entry as unknown as number, uses: [{ ...plain.uses[0], pagesOfName: entry as unknown as number }] };
+      for (const [html, harmlessly] of [[objectDrawerSubHtml(odd, true), objectDrawerSubHtml(plain, true)], [objectDrawerHtml(odd, LINKS, false), objectDrawerHtml(plain, LINKS, false)]]) {
+        expect(structure(html), entry).toEqual(structure(harmlessly));
+        expect(shownValues(html).some(value => value.includes(entry)), entry).toBe(true);
+      }
+    }
     // What a click reads of a use is its place among the object's uses, a number, and never the use's own text: here on
     // the three pages' names and on the thirty cards that are named.
     const uses = readMarkup(objectDrawerHtml(object(hostile, 60), LINKS, true)).tags.filter(tag => tag.attributes.has("data-use"));

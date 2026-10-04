@@ -1,7 +1,7 @@
 import { rowColumns, type Column } from "./columns.js";
 import type { Analysed, CardSection, Overview } from "./result-view.js";
 import { cellText, NONE, pagerItems, type Row, type Sort } from "./table-engine.js";
-import type { WhereUsedObject } from "./where-used-view.js";
+import { usedOn, type WhereUsedObject } from "./where-used-view.js";
 
 /** The results page's markup, as the design writes it: each function turns data into the HTML text the page then shows.
  * Every string of a result was typed by an Anaplan user (card titles, text cards, names, formulas), so every value that
@@ -465,19 +465,22 @@ export function cardDrawerHtml(columns: readonly Column[], row: Row, links: Link
 /** How many of an object's uses its drawer lists at first. An object such as Time can have hundreds. */
 export const USES_AT_FIRST = 50;
 
-const counted = (number: number, one: string): string => `${number} ${one}${number === 1 ? "" : "s"}`;
 const saysSomething = (text: string): boolean => text.trim() !== "" && text.trim() !== NONE;
 
 /** Under an object's name in its drawer: its type, its module, its model in an app of several, its ID to copy, and on how
- * many pages and cards it is used. A part that says nothing is left out. */
+ * many pages and cards it is used. A part that says nothing is left out. The pages and cards are said in the view's own
+ * words (where-used-view.ts `usedOn`): a count that the file leaves open, because pages share a name, is "at least" that
+ * many, as its cell in the table says with a plus sign. For such an object the view's note follows on a line of its own:
+ * which names are shared, and what the counts can be. */
 export function objectDrawerSubHtml(object: WhereUsedObject, multiModel: boolean): string {
-  return [
+  const line = [
     saysSomething(object.type) ? esc(object.type) : "",
     saysSomething(object.module) ? esc(object.module) : "",
     multiModel && saysSomething(object.model) ? esc(object.model) : "",
     saysSomething(object.id) ? idPill(object.id) : "",
-    `${counted(object.pages, "page")}, ${counted(object.cards, "card")}`,
+    esc(usedOn(object)),
   ].filter(part => part !== "").join(" · ");
+  return object.note === undefined || !saysSomething(object.note) ? line : `${line}<div>${esc(object.note)}</div>`;
 }
 
 /** An object of the Where Used table in full: each role it is used in with its number of uses, then its uses, as Page,
@@ -485,6 +488,8 @@ export function objectDrawerSubHtml(object: WhereUsedObject, multiModel: boolean
  * order: a page is named with the first of its uses, and for a screen reader with each of them. A page's name jumps to
  * that page's cards, and a card's number opens the card, where the result has the cards to show (`links`) and, for a
  * card, the use names its card. A use is known by its place among the object's uses, which the page counted itself.
+ * Where more than one page has a page's name, the file does not say which of them a use is on (`pagesOfName`): the name
+ * then says how many pages have it, so that their uses under the one name are not read as one page's.
  * At first the drawer lists `USES_AT_FIRST` uses, with a control that lists them all (`all`): the first of the rest then
  * takes the focus. */
 export function objectDrawerHtml(object: WhereUsedObject, links: Links, all: boolean): string {
@@ -498,9 +503,10 @@ export function objectDrawerHtml(object: WhereUsedObject, links: Links, all: boo
   const rows = listed.map((index, at) => {
     const use = object.uses[index];
     const first = at === 0 || object.uses[listed[at - 1]].page !== use.page;
-    const page = !first ? `<span class="sr-only">${esc(use.page)}</span>`
-      : links.page && saysSomething(use.page) ? `<button type="button" class="link" data-act="use-page" data-use="${index}" title="Show cards on ${esc(use.page)}">${esc(use.page)}</button>`
-      : esc(use.page);
+    const shared = use.pagesOfName === undefined ? "" : `${esc(use.pagesOfName)} pages have this name`;
+    const page = !first ? `<span class="sr-only">${esc(use.page)}${shared === "" ? "" : `, ${shared}`}</span>`
+      : `${links.page && saysSomething(use.page) ? `<button type="button" class="link" data-act="use-page" data-use="${index}" title="Show cards on ${esc(use.page)}">${esc(use.page)}</button>`
+        : esc(use.page)}${shared === "" ? "" : ` (${shared})`}`;
     const card = links.card && use.cardId !== undefined ? `<button type="button" class="link" data-act="use-card" data-use="${index}" title="Open card details">${esc(use.card)}</button>` : esc(use.card);
     // The first use that the control added is where the reader goes on: it can take the focus.
     return `<tr${all && at === USES_AT_FIRST ? ' id="usesRest" tabindex="-1"' : ""}><td>${page}</td><td>${card}</td><td>${esc(use.usedAs)}</td></tr>`;

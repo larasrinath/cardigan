@@ -1969,6 +1969,56 @@ describe("An app's Where Used table, by object and by use", () => {
     expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent, page.texts("#drawerBody h3")]).toEqual(["Time", "Row 3 of Where Used", ["All columns"]]);
   });
 
+  it("says of an object used on a page name that two pages share that its counts are at least that many, why, and which of its uses those are", async () => {
+    // Two pages are called Overview, and the file has only a page's name. Time is used there on card 1 in two ways and on
+    // card 2: on one of the two pages, or on both. REP02 Stores is used on Stores only.
+    const uses: Cell[][] = [
+      ["Dimension", "Time", "—", "Overview", 1, "Column dimension", "20000000003"],
+      ["Dimension", "Time", "—", "Overview", 1, "Context selector", "20000000003"],
+      ["Dimension", "Time", "—", "Overview", 2, "Column dimension", "20000000003"],
+      ["Module", "REP02 Stores", "—", "Stores", 1, "Source module", "102000000002"],
+      ["Dimension", "Time", "—", "Stores", 1, "Column dimension", "20000000003"],
+    ];
+    const pages: Cell[][] = [["Demo app", "Overview", "Model one", "Main", MODEL_ID], ["Demo app", "Overview", "Model one", "Main", MODEL_ID], ["Demo app", "Stores", "Model one", "Main", MODEL_ID]];
+    // Both Overview pages have a card 1; only one of them has a card 2.
+    const cards: Cell[][] = [["Overview", 1, "Sales", "Grid", "card-a"], ["Overview", 2, "Margin", "KPI", "card-b"], ["Overview", 1, "Sales, copied", "Grid", "card-x"], ["Stores", 1, "Stores grid", "Grid", "card-c"]];
+    await openWith(whereUsed(uses, pages, cards));
+    goTo(3);
+    // The table says so in the cells, with a plus sign, and in the line under its name.
+    expect([column("Object name"), column("Pages"), column("Cards")]).toEqual([["REP02 Stores", "Time"], ["1", "2+"], ["1", "3+"]]);
+    expect(page.texts("#view .view-note")[0]).toContain('1 page name is shared by more than one page: "Overview" (2 pages).');
+
+    // The object's drawer says the same of its counts, in words: at least so many. No number is said as exact that is not.
+    rowButton("Time").press();
+    const said = page.id("drawerSub");
+    expect([page.id("drawerTitle").textContent, said.childNodes.filter(node => node.nodeType === 3).map(node => node.textContent).join("").trim(), said.textContent.includes("2 pages, 3 cards")])
+      .toEqual(["Time", "Dimension ·  · at least 2 pages, at least 3 cards", false]);
+    // Under that line, why: which name is shared, and what the counts can be.
+    expect(said.querySelectorAll("div").map(note => note.textContent)).toEqual(['It has 3 uses on a page name that more than one page has: "Overview" (2 pages). '
+      + "The CSV has only the name of a use's page, so which of those pages a use is on is not known. It is on 2 or 3 pages and on 3 or 4 cards."]);
+    // Its uses: the three under Overview may be on either page of that name, and the name says that two pages have it,
+    // to the eye where it heads them and to a screen reader with each. Stores is one page.
+    const listed = () => page.all("#drawerUses tbody tr");
+    expect(listed().map(row => row.children.map(cell => cell.textContent.trim()))).toEqual([["Overview (2 pages have this name)", "1", "Column dimension"],
+      ["Overview, 2 pages have this name", "1", "Context selector"], ["Overview, 2 pages have this name", "2", "Column dimension"], ["Stores", "1", "Column dimension"]]);
+    expect(listed().map(row => [row.children[0].querySelectorAll("button").length, row.children[0].querySelectorAll(".sr-only").length])).toEqual([[1, 0], [0, 1], [0, 1], [1, 0]]);
+    // Card 1 of Overview is two cards, so its number is no link; card 2 is one card, and opens.
+    expect(listed().map(row => row.children[1].querySelectorAll("button").length)).toEqual([0, 0, 1, 1]);
+    listed()[2].children[1].querySelector("button")?.press();
+    expect([page.id("drawerTitle").textContent, page.texts("#drawerSub .link")]).toEqual(["Card 2 — Margin", ["Overview"]]);
+    page.key("Escape");
+    // The shared name still leads to the cards of that name: both pages'.
+    rowButton("Time").press();
+    listed()[0].children[0].querySelector("button")?.press();
+    expect([page.texts("#crumbs .ctx"), page.all("#tableWrap tbody tr").map(row => row.children[1].textContent.trim())]).toEqual([["Page: Overview"], ["Sales", "Margin", "Sales, copied"]]);
+
+    // An object none of whose uses is on a shared name reads exactly as before: its counts as they are, no note, no mark.
+    goTo(3);
+    rowButton("REP02 Stores").press();
+    expect([page.id("drawerSub").textContent, page.id("drawerSub").querySelectorAll("div").length, listed().map(row => row.children.map(cell => cell.textContent.trim()))])
+      .toEqual(["Module · 102000000002 · 1 page, 1 card", 0, [["Stores", "1", "Source module"]]]);
+  });
+
   it("lists the first fifty of an object's uses, by page, and all of them on request", async () => {
     // Sixty pages of two cards, each card with Time as its columns: 120 uses of one object, and one of another.
     const pages = Array.from({ length: 60 }, (_, index): Cell[] => ["Demo app", `Page ${index + 1}`, "Model one", "Main", MODEL_ID]);
