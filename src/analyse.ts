@@ -379,9 +379,10 @@ export async function loadCatalog(scope: ModelScope, pages: readonly UxPageCardD
   return { catalog, notes, failedActionTypes: actions.failedActionTypes };
 }
 
-/** File names in the model export's style (asked for by the user, 28 Sep 2026); App Details.csv comes first. */
-const DETAILS_FILE = "App Details.csv";
-const TAB_FILES: Record<TabName, string> = {
+/** File names in the model export's style (asked for by the user, 28 Sep 2026); App Details.csv comes first. Exported so
+ * that the results page, which knows an app's tables by these names, can pin them in a test. */
+export const DETAILS_FILE = "App Details.csv";
+export const TAB_FILES: Record<TabName, string> = {
   Pages: "Pages.csv", Cards: "Cards.csv", "Grid sections": "Grid Sections.csv", Filters: "Filters.csv", Formatting: "Conditional Formatting.csv",
   Actions: "Action Buttons.csv", "Where used": "Where Used.csv",
 };
