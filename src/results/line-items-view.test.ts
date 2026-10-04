@@ -227,7 +227,7 @@ describe("The Line Items table as the results page shows it", () => {
       ["Flat Rate", "Plan", "", "Line item"], ["Flat Fee", "Plan", "", "Section"],
       ["Sales", "Other", "Channels", "Module"]]);
     // Nor does a section run on into another module's line items when that module's row is missing.
-    const orphans = lineItemsView(table(SHORT, [lineItem("Uplift", "First", "Regions", "true"), lineItem("Next", "First"), lineItem("Orphan", "Second")]));
+    const orphans = lineItemsView(table(SHORT, [moduleRow("Zero", "Time"), lineItem("Uplift", "First", "Regions", "true"), lineItem("Next", "First"), lineItem("Orphan", "Second")]));
     expect(said(orphans)).toEqual([["Uplift", "First", "Regions", "Line item"], ["Next", "First", "Regions", "Section"], ["Orphan", "Second", "-", "Module (not found)"]]);
     // A module's row ends the section whatever the module is called: the line items under it start from that row.
     const again = lineItemsView(table(SHORT, [moduleRow("Plan", "Products"), lineItem("Uplift", "Plan", "Regions", "true"), moduleRow("Plan", "Channels"), lineItem("Sales", "Plan")]));
@@ -251,13 +251,11 @@ describe("The Line Items table as the results page shows it", () => {
     expect(none.note).toBe("1 module row is in the CSV only; each line item shows its module. 1 module has no line items, so it is not in this table.");
   });
 
-  it("says in one line how many module rows it left out, and nothing when it left out none", () => {
+  it("says in one line how many module rows it left out", () => {
     const note = (rows: Cell[][]) => lineItemsView(table(SHORT, rows)).note;
     expect(note([moduleRow("Sales"), lineItem("Units", "Sales")])).toBe("1 module row is in the CSV only; each line item shows its module.");
     expect(note([moduleRow("Sales"), lineItem("Units", "Sales"), moduleRow("Stock"), lineItem("Units", "Stock"), moduleRow("Empty")]))
       .toBe("3 module rows are in the CSV only; each line item shows its module. 1 module has no line items, so it is not in this table.");
-    const none = lineItemsView(table(SHORT, [lineItem("Units", "Sales")]));
-    expect([none.moduleRows, none.emptyModules, "note" in none]).toEqual([0, 0, false]);
     // The numbers the note is made of add up to the file's rows: none is lost between the CSV and the page.
     const view = lineItemsView(table(HEADERS, MODEL));
     expect(view.table.rows.length + view.moduleRows).toBe(MODEL.length);
@@ -300,12 +298,17 @@ describe("The Line Items table as the results page shows it", () => {
     expect(lineItemsView(table(SHORT, [["Sales", "", "Products"], lineItem("Units", "Sales")])).table.rows).toEqual([["Units", "Sales", NUMBER, "Products", "Module", "false", ""]]);
   });
 
-  it("returns the table as it is, with no note, when it lacks a column the view reads", () => {
+  it("returns the table as it is, with no note, when it lacks a column the view reads, or any module's own row", () => {
     const rows = [["Sales", "", "Products", "", "", ""], ["Units", NUMBER, "-", "false", "Sales", ""]];
     const without = (header: string) => table(SHORT.map(name => (name === header ? `${name} (old)` : name)), rows);
     for (const given of [without(MODULE_NAME), without(APPLIES_TO), table(SHORT.map(name => name.toLowerCase()), rows), table(["", "Format"], [["Units", NUMBER]]),
-      // The row's name is the first column: neither of the two can stand there.
-      table(["Module Name", "Applies To"], [["Sales", "-"]]), table(["Applies To", "Module Name"], [["-", "Sales"]]), table([], rows), table([], [])]) {
+      // The row's name is the first column: neither of the two can stand there, whatever the rows under them hold.
+      table(["Module Name", "Applies To"], [["", "Products"], ["Sales", "-"]]), table(["Applies To", "Module Name"], [["Products", ""], ["-", "Sales"]]),
+      table([], rows), table([], []),
+      // No row is a module's own: only line items, or modules' rows that name themselves as their module. Such a table is not
+      // the grid as the view knows it, and no line item's module could be found in it.
+      table(SHORT, [lineItem("Units", "Sales"), lineItem("Price", "Sales", "Products")]),
+      table(SHORT, [["Sales", "", "Products", "", "Sales", ""], lineItem("Units", "Sales")])]) {
       const view = lineItemsView(given);
       expect(view, given.headers.join("|")).toEqual(asItIs(given));
       expect(view.table, given.headers.join("|")).toBe(given);
@@ -313,16 +316,19 @@ describe("The Line Items table as the results page shows it", () => {
     }
     // Without Start of Section the view still applies: only the two are needed.
     expect(lineItemsView(without(START_OF_SECTION)).moduleRows).toBe(1);
-    // The view of a view is the view: a table that already has the view's own column is not the export's.
+    // The view of a view is the view: no row of it is a module's own.
     const view = lineItemsView(table(SHORT, rows));
     expect(lineItemsView(view.table)).toEqual(asItIs(view.table));
     expect(lineItemsView(view.table).table).toBe(view.table);
   });
 
-  it("gives an empty table its headers in the view's order, and nothing to say", () => {
-    const view = lineItemsView(table(HEADERS, []));
-    expect(view).toEqual({ table: table(VIEW_HEADERS, []), moduleRows: 0, emptyModules: 0 });
-    expect(lineItemsView(table(SHORT, []))).toEqual({ table: table(SHORT_VIEW, []), moduleRows: 0, emptyModules: 0 });
+  it("returns an empty table as it is", () => {
+    for (const empty of [table(HEADERS, []), table(SHORT, [])]) {
+      const view = lineItemsView(empty);
+      expect(view).toEqual(asItIs(empty));
+      expect(view.table).toBe(empty);
+      expect("note" in view).toBe(false);
+    }
   });
 
   it("never throws: whatever it cannot read comes back as it is", () => {
@@ -378,7 +384,8 @@ describe("The Line Items table as the results page shows it", () => {
       .toEqual([["Module Name", "text", true, false], ["Applies To", "text", true, false], ["Applies To from", "text", true, false]]);
     const from = VIEW_HEADERS.indexOf(APPLIES_TO_FROM);
     expect(valueCounts(view.table.rows, from)).toEqual([["Line item", 2], ["Module", 9]]);
-    // A search for a module finds its line items, and for a dimension the line items that have it, their module's included.
+    // A search for a module finds its line items. A search for a dimension finds every line item that has it, the ones that
+    // take it from their module too: in the file only the module's own row holds it for them.
     const found = (search: string) => selectRows(view.table.rows, { search, filters: new Map() }).map(row => `${row[1]}.${row[0]}`);
     expect(found("cost01")).toEqual([`${REVENUE}.Margin`, `${COSTS}.Cost`, `${COSTS}.Revenue`, `${COSTS}.Rate`]);
     expect(found("regions")).toEqual(["Units", "Revenue", "--- Checks ---", "Margin", "Margin %"].map(name => `${REVENUE}.${name}`));
