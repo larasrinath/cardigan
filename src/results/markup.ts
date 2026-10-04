@@ -332,17 +332,19 @@ export function tableHtml(view: TableView): string {
 
 /* ---------- popovers ---------- */
 
-/** A column's filter: each text the column holds with its number of rows, ticked when shown. A box is known by its place
- * in the list, so no value is read back out of the page. */
+/** A column's filter: each text the column holds with its number of rows, ticked when shown. The numbers count the rows
+ * of the whole table, whatever the search, the other filters or a jump leave on screen, and a line above them says so. A
+ * box is known by its place in the list, so no value is read back out of the page. */
 export function colFilterHtml(column: Column, values: readonly (readonly [value: string, count: number])[], selected: ReadonlySet<string> | undefined): string {
   const checked = (value: string) => (!selected || selected.has(value) ? "checked" : "");
   return `
     <div class="pop-hd"><span>Filter: ${esc(column.label)}</span><button type="button" data-popact="all">Show all</button></div>
+    ${values.length ? '<div class="pop-hd" aria-hidden="true"><span>Value</span><span>Rows in the whole table</span></div>' : ""}
     <div class="pop-bd">
       ${values.length ? values.map(([value, count], index) => `
         <label class="pop-opt"><input type="checkbox" data-fval="${index}" ${checked(value)}>
         <span style="overflow:hidden;text-overflow:ellipsis">${value === "" ? BLANK : esc(value)}</span>
-        <span class="po-cnt">${esc(count)}</span></label>`).join("")
+        <span class="po-cnt">${esc(count)}<span class="sr-only"> ${count === 1 ? "row" : "rows"} in the whole table</span></span></label>`).join("")
       : '<div class="pop-empty">No values</div>'}
     </div>`;
 }
