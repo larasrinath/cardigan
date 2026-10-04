@@ -327,8 +327,14 @@ td.num{font-variant-numeric:tabular-nums}
 .d-dl dt:last-of-type,.d-dl dd:last-of-type{border-bottom:0}
 /* A value shows as it is: its line breaks and its spaces are kept, and a long line wraps. */
 .d-dl dd .cell-t{white-space:pre-wrap}
+/* A card's parts, each kind in a small table under its heading. A table is as wide as the drawer: a header takes more
+   than one line when it has to, and a cell's text breaks where it must, so that seven columns fit. In a narrow window
+   they cannot (see the responsive rules): there the table scrolls sideways inside its own section, under the heading,
+   which stays where it is. The drawer itself never scrolls sideways. */
+.d-sec:has(> .mini){overflow-x:auto}
+.d-sec:has(> .mini) > h3{position:sticky;left:0}
 .mini{width:100%;border:1px solid var(--border);border-radius:var(--r-sm);border-collapse:separate;border-spacing:0;font-size:12px;overflow:hidden}
-.mini th{background:var(--panel-2);color:var(--text-2);font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;text-align:left;padding:6px 10px;border-bottom:1px solid var(--border-strong);white-space:nowrap}
+.mini th{background:var(--panel-2);color:var(--text-2);font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;text-align:left;padding:6px 10px;border-bottom:1px solid var(--border-strong);white-space:normal}
 .mini td{padding:6px 10px;border-bottom:1px solid var(--border);vertical-align:top;white-space:normal;word-break:break-word}
 .mini tr:last-child td{border-bottom:0}
 
@@ -369,6 +375,11 @@ td.num{font-variant-numeric:tabular-nums}
   .ov-cols{grid-template-columns:minmax(0,1fr)}
   .meta-app{white-space:normal;overflow-wrap:anywhere}
   .toast{max-width:calc(100vw - 28px)}
+}
+/* Under 530px the drawer cannot hold a card's table of seven columns however its words break. A cell keeps its words
+   whole there, up to the 160px it asks for at most (a longer word breaks), and the table scrolls inside its section. */
+@media (max-width:530px){
+  .mini td{word-break:normal;overflow-wrap:break-word;max-width:160px}
 }
 /* A wrapped header is high: in a short window it scrolls away with the page instead of covering it. */
 @media (max-width:1120px) and (max-height:560px){ .hd{position:static} }
