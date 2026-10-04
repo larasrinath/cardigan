@@ -7,7 +7,8 @@ import { analysedOf, CARD_PARTS, cardSections, detailSections, detailsOf, detail
 
 /** The app export's files, as the page names them, and the report table each holds. */
 const FILES: Record<string, TabName> = Object.fromEntries((Object.keys(APP_FILES) as TabName[]).map(tab => [APP_FILES[tab], tab]));
-const LOG = "14:02:05 page-analyzer v0.7.0: app on us1a.app.anaplan.com\r\n14:02:06 app: 2 pages\r\nplain line\r\n14:02:07 ";
+// A run's log as the tab writes it: its first line names the build, what is read and the host (progress.ts `firstLine`).
+const LOG = "14:02:05 Cardigan dev: app 01234567-89ab-cdef-0123-456789abcdef on us1a.app.anaplan.com\r\n14:02:06 app: 2 pages\r\nplain line\r\n14:02:07 ";
 const detailsTable = (file: string, rows: DetailRow[]): ResultTable => ({ file, label: file.replace(/\.csv$/, ""), headers: DETAILS_HEADERS, rows, guard: true, details: true });
 /** An app file with the report's real headers; each row gives only the columns it cares about, the rest are dashes. */
 const appTable = (file: string, rows: Record<string, Cell>[]): ResultTable => {
@@ -39,6 +40,16 @@ describe("What the results page reads out of a result", () => {
     expect(detailsOf(result("model", [lineItems, modelDetails]))).toBe(modelDetails);
     expect(detailsOf(result("model", [lineItems]))).toBeUndefined();
     expect(detailsOf(result("model", []))).toBeUndefined();
+    // A file with the Details file's name and columns but without the mark is a table like any other; one with the mark is
+    // the Details file whatever it is called and wherever it stands.
+    const { details: _mark, ...unmarked } = modelDetails;
+    const marked: ResultTable = { ...lineItems, file: "About this export.csv", label: "About this export", details: true };
+    expect(detailsOf(result("model", [unmarked, lineItems]))).toBeUndefined();
+    expect(detailsOf(result("model", [unmarked, lineItems, marked]))).toBe(marked);
+    expect(detailsOf(result("app", [{ ...appDetails, file: "Model Details.csv" }]))?.file).toBe("Model Details.csv");
+    // What the page reads out of the Details file follows the mark too: the header's host, the notes and the tiles.
+    const named = result("model", [unmarked, lineItems], []);
+    expect([analysedOf(named).host, resultNotes(named), overviewOf(named).tiles.map(tile => tile.label)]).toEqual([undefined, [], ["Model Details", "Line Items"]]);
   });
 
   it("groups the Details file's rows by section, in the file's order, and keeps the diagnostic log apart", () => {
@@ -124,6 +135,24 @@ describe("What the results page reads out of a result", () => {
     expect(overviewOf(result("app", [renamed, other])).tiles).toEqual([{ label: "Formatting rules", count: 0 }, { label: "Formatting rules of mine", count: 1 }]);
     // The navigation and the table's own heading keep the file's name: only the tile is short.
     expect(appTable("Conditional Formatting.csv", []).label).toBe("Conditional Formatting");
+  });
+
+  it("lists two models of the same name as two when their IDs or their workspaces differ, and one model once", () => {
+    const pages = appTable("Pages.csv", [
+      { Page: "One", Model: "Planning", Workspace: "Main", "Model ID": "AAAA0000AAAA0000AAAA0000AAAA0000" },
+      { Page: "Two", Model: "Planning", Workspace: "Main", "Model ID": "BBBB1111BBBB1111BBBB1111BBBB1111" },
+      { Page: "Three", Model: "Planning", Workspace: "Archive", "Model ID": "AAAA0000AAAA0000AAAA0000AAAA0000" },
+      { Page: "Four", Model: "Planning", Workspace: "Main", "Model ID": "AAAA0000AAAA0000AAAA0000AAAA0000" },
+      // A page that names its model by an ID alone is still a model; one that names nothing is not.
+      { Page: "Five", "Model ID": "CCCC2222CCCC2222CCCC2222CCCC2222" },
+      { Page: "Six" },
+    ]);
+    expect(overviewOf(result("app", [pages])).models).toEqual([
+      { model: "Planning", workspace: "Main", modelId: "AAAA0000AAAA0000AAAA0000AAAA0000" },
+      { model: "Planning", workspace: "Main", modelId: "BBBB1111BBBB1111BBBB1111BBBB1111" },
+      { model: "Planning", workspace: "Archive", modelId: "AAAA0000AAAA0000AAAA0000AAAA0000" },
+      { model: "—", workspace: "—", modelId: "CCCC2222CCCC2222CCCC2222CCCC2222" },
+    ]);
   });
 
   it("gives a model's overview its row counts and nothing made up", () => {
