@@ -110,6 +110,9 @@ interface Shown {
   ways?: { object: Shown; use: Shown };
   /** For the way that lists the file by object (where-used-view.ts): the view, whose rows are this table's. */
   objects?: WhereUsedView;
+  /** For a table whose rows name their card by its number alone, an app's Where Used as every use: the card's ID, for
+   * each row whose card the result has. The card's number is a link in those rows. */
+  cardIds?: ReadonlyMap<Row, string>;
 }
 type View = "overview" | number;
 
@@ -338,6 +341,13 @@ function showResult(next: AnalysisResult, at: Date, back = false): void {
     };
     entry.listed = file.rows.length;
     entry.ways = object.ways = { object, use: entry };
+    // As every use, a row names its card by its number, and the file has no column of card IDs. The view knows each use's
+    // card where the result has it: there the number opens the card, as it does from the object's drawer.
+    const cardIds = new Map<Row, string>();
+    for (const use of byObject.objects.flatMap(each => each.uses)) if (use.cardId !== undefined) cardIds.set(file.rows[use.row], use.cardId);
+    entry.cardIds = cardIds;
+    entry.columns = entry.columns.map(column => (column.label === "Card #" ? { ...column, kind: "card" } : column));
+    entry.links = { ...entry.links, card: entry.links.page, hasCard: row => cardIds.has(row) };
     shown.set(index, everyUse ? entry : object);
   }
   state.view = "overview";
@@ -720,11 +730,13 @@ document.addEventListener("click", event => {
       case "page":
         if (from && from.entry.keys.page !== undefined) gotoPage(cellText(from.row[from.entry.keys.page]));
         return;
-      case "card":
-        if (from && from.entry.keys.page !== undefined && from.entry.keys.cardId !== undefined) {
-          openCardDrawer(cellText(from.row[from.entry.keys.page]), cellText(from.row[from.entry.keys.cardId]), act);
-        }
+      // The row's card: by the row's own Card ID, or for a table without that column by the card the row is known to name.
+      case "card": {
+        if (!from || from.entry.keys.page === undefined) return;
+        const cardId = from.entry.keys.cardId !== undefined ? cellText(from.row[from.entry.keys.cardId]) : from.entry.cardIds?.get(from.row);
+        if (cardId !== undefined) openCardDrawer(cellText(from.row[from.entry.keys.page]), cardId, act);
         return;
+      }
       case "row":
         if (from) openRowDrawer(from.entry, from.row, act);
         return;

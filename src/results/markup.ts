@@ -45,8 +45,12 @@ export function idPill(id: unknown): string {
 const plain = (text: string): string => `<span class="cell-t" title="${esc(text)}">${esc(text)}</span>`;
 
 /** What a row's cells may link to: its page's cards and its card's details. Both need the result's Cards file and the
- * row's own Page or Card ID column. */
-export interface Links { page: boolean; card: boolean }
+ * row's own Page or Card ID column. A table whose rows name their card by its number alone says for each row whether
+ * the result has that card (`hasCard`): only then is the row's card a link. */
+export interface Links { page: boolean; card: boolean; hasCard?: (row: Row) => boolean }
+
+/** Whether a row's card is a link: the table's cards are, and this row's card is one the result has. */
+const cardLinked = (links: Links, row: Row): boolean => links.card && (links.hasCard?.(row) ?? true);
 
 /** One cell: always the cell's own text, shown the way its column is shown. An empty cell stays empty. `whole` is for the
  * drawer, where a value is read in full: there its text stands in a `cell-t` whatever the column's kind, and that is the
@@ -64,7 +68,7 @@ export function cellHtml(column: Column, row: Row, links: Links, whole = false):
     case "page":
       return links.page ? `<button type="button" class="link" data-act="page" title="Show cards on ${esc(text)}">${shown}</button>` : plain(text);
     case "card":
-      return links.card ? `<button type="button" class="link" data-act="card" title="Open card details">${shown}</button>` : plain(text);
+      return cardLinked(links, row) ? `<button type="button" class="link" data-act="card" title="Open card details">${shown}</button>` : plain(text);
     default:
       return plain(text);
   }
@@ -78,7 +82,7 @@ const ROW_ICON = '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" st
 export function rowCellHtml(column: Column, row: Row, links: Links): string {
   const text = cellText(row[column.index]);
   const own = cellHtml(column, row, links);
-  const control = text !== NONE && (column.kind === "id" || (column.kind === "page" && links.page) || (column.kind === "card" && links.card));
+  const control = text !== NONE && (column.kind === "id" || (column.kind === "page" && links.page) || (column.kind === "card" && cardLinked(links, row)));
   if (text === "" || control) return `<button type="button" class="link" data-act="row" aria-label="Open this row" title="Open this row">${ROW_ICON}</button> ${own}`;
   return `<button type="button" class="link" data-act="row" title="Open this row">${own}</button>`;
 }
