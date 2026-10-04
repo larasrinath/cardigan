@@ -14,7 +14,8 @@ class FakeSocket {
   private readonly listeners = new Map<string, Listener[]>();
   constructor(readonly url: string) {
     FakeSocket.last = this;
-    queueMicrotask(() => { this.readyState = 1; this.emit("open", {}); });
+    // A socket that was closed while it connected does not open, as a browser's does not.
+    queueMicrotask(() => { if (this.readyState !== 0) return; this.readyState = 1; this.emit("open", {}); });
   }
   addEventListener(type: string, listener: Listener) { this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]); }
   send(data: string) { this.sent.push(data); }
@@ -35,7 +36,7 @@ async function connected(onLog: (line: string) => void = log): Promise<[StompCon
 }
 
 describe("Page analyzer socket client", () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
   it("refuses every frame or action that could change model data", () => {
     expect(() => encodeFrame({ command: "SEND", headers: { destination: "core://w:m/x", "action-type": "SUBMIT_VALUE" }, body: "{}" }, true))
@@ -160,5 +161,59 @@ describe("Page analyzer socket client", () => {
     FakeSocket.last!.close(1008);
     await expect(opening).rejects.toMatchObject({ message: "Connection closed (code 1008).", code: "CLOSE_1008", fqdn: undefined });
     expect(closes()).toEqual(["socket closed code=1008"]);
+  });
+
+  it("ends an opening that is stopped at once: no socket once stopped, a connecting one closed without waiting for the service", async () => {
+    vi.stubGlobal("WebSocket", FakeSocket);
+    const stopped = new Error("Stopped: the results page was closed.");
+    const lines: string[] = [];
+    const open = (signal: AbortSignal) => StompConnection.open("wss://host.example/ws", {}, line => { lines.push(line); }, signal);
+    const sent = () => FakeSocket.last!.frames().map(frame => frame.command);
+
+    // Stopped already: no socket is opened.
+    FakeSocket.last = undefined;
+    const before = new AbortController();
+    before.abort(stopped);
+    await expect(open(before.signal)).rejects.toBe(stopped);
+    expect(FakeSocket.last).toBeUndefined();
+
+    // Stopped while the socket itself still connects: it is closed before it opens, so CONNECT is never sent.
+    const connecting = new AbortController();
+    const unopened = open(connecting.signal);
+    connecting.abort(stopped);
+    await expect(unopened).rejects.toBe(stopped);
+    await flush();
+    expect([FakeSocket.last!.readyState, sent(), lines.splice(0)]).toEqual([3, [], ["socket closed code=1000"]]);
+
+    // Stopped after CONNECT, which the service has not answered: closed at once, with the DISCONNECT every open socket ends on.
+    const unanswered = new AbortController();
+    const waiting = open(unanswered.signal);
+    await flush();
+    expect(sent()).toEqual(["CONNECT"]);
+    unanswered.abort(stopped);
+    await expect(waiting).rejects.toBe(stopped);
+    expect([FakeSocket.last!.readyState, sent()]).toEqual([3, ["CONNECT", "DISCONNECT"]]);
+    // The service's answer may still arrive on the closing socket: it connects nothing, and no heart-beat is started for it.
+    const intervals = vi.spyOn(globalThis, "setInterval");
+    FakeSocket.last!.serve("CONNECTED\nversion:1.2\nserver:test\n\n\0");
+    expect(intervals).not.toHaveBeenCalled();
+    expect(lines.splice(0)).toEqual(["socket open; sending CONNECT", "CONNECT", "DISCONNECT", "socket closed code=1000"]);
+
+    // A stop without a reason of its own rejects with the signal's.
+    const bare = new AbortController();
+    const unexplained = open(bare.signal);
+    bare.abort();
+    await expect(unexplained).rejects.toBe(bare.signal.reason);
+
+    // Once the connection is open a stop is no longer this step's to act on: the connection stays open, for its user to close.
+    const later = new AbortController();
+    const opening = open(later.signal);
+    await flush();
+    FakeSocket.last!.serve("CONNECTED\nversion:1.2\nserver:test\n\n\0");
+    const connection = await opening;
+    expect(intervals).toHaveBeenCalledTimes(1);
+    later.abort(stopped);
+    expect([connection.failed, FakeSocket.last!.readyState, sent()]).toEqual([undefined, 1, ["CONNECT"]]);
+    connection.close();
   });
 });
