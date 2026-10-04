@@ -125,6 +125,8 @@ main{flex:1;min-width:0}
 }
 .crumbs .ctx button{display:inline-flex;color:inherit;border-radius:999px;padding:1px}
 .view-title{font-size:17px;font-weight:650;margin:0 0 12px}
+/* The line under a table's name that says what the table leaves to the CSV: close under the name, in the secondary text. */
+.view-note{font-size:12px;color:var(--text-2);margin:-6px 0 12px}
 
 /* ---------- toolbar ---------- */
 .toolbar{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap}
@@ -142,12 +144,13 @@ main{flex:1;min-width:0}
 .search-clear{display:none;color:var(--text-3);border-radius:999px;padding:2px}
 .search-clear:hover{color:var(--text)}
 .search-wrap.has-value .search-clear{display:inline-flex}
-.rowcount{margin-left:auto;font-size:12px;color:var(--text-2);font-variant-numeric:tabular-nums}
+/* The count takes the room that is left in its line and stands at the right end of it, beside the pager that follows it. */
+.rowcount{flex:1 1 auto;text-align:right;font-size:12px;color:var(--text-2);font-variant-numeric:tabular-nums}
 
 /* ---------- table ---------- */
 /* With a table on screen the page is as high as the window, and each box down to the table's takes the height that is
-   left to it. The table's box grows from 220px into what the header, the banners, the breadcrumb, the toolbar and the
-   pager leave, and no further than its rows: a short table stays short, and the pager stays in the window. */
+   left to it. The table's box grows from 220px into what the header, the banners, the breadcrumb and the toolbar leave,
+   down to the shell's foot, and no further than its rows: a short table stays short. */
 body:has(.table-wrap){display:flex;flex-direction:column;height:100dvh}
 body:has(.table-wrap) > .banners,body:has(.table-wrap) > .shell{width:100%}
 body:has(.table-wrap) > .shell,#view:has(> .table-wrap){flex:1 1 auto}
@@ -184,15 +187,38 @@ td.num{font-variant-numeric:tabular-nums}
 .link:hover{text-decoration:underline}
 /* Among other text a link is underlined: its colour alone does not tell it from the words around it. */
 .d-sub .link{text-decoration:underline}
-/* The button that opens a row stands before its first cell's own link, in the cell's 320px. The link stops at 296px,
-   so a long name is cut short: one that filled the cell would not fit beside the button, and would be dropped whole. */
-[data-act="row"] + .link{max-width:min(100%,296px)}
+/* The button that opens a row stands before its first cell's own link or ID. That leaves room for the button, 24px
+   short of what the cell holds (320px, less in a narrow box), so a long name is cut short: one that filled the cell
+   would not fit beside the button, and would be dropped whole. */
+[data-act="row"] + .link{max-width:min(100%,296px,50cqi - 53px)}
+[data-act="row"] + .id-pill{max-width:min(180px,50cqi - 53px)}
 .dash{color:var(--text-3)}
 .scroll-fade{
   position:sticky;bottom:0;left:0;right:0;height:26px;pointer-events:none;
   background:linear-gradient(to bottom,transparent,var(--panel));opacity:1;transition:opacity .2s;
 }
 .table-wrap.at-end .scroll-fade,.table-wrap.no-scroll .scroll-fade{opacity:0}
+/* The first column on screen stays at the left while the rest of the table scrolls sideways under it. The page's script
+   writes only the columns that are shown, so that column is each row's first cell, whichever columns are hidden.
+   - Nothing shows through it: a row says its own background, an opaque colour, and its first cell takes that.
+   - The header's first cell lies above the rest of the header, the column above the other cells, and the shade at the
+     box's foot above the column as above the rest.
+   - It is at most 340px wide, as every column, and at most half of what the box shows, which is what counts in a narrow
+     window (the 9px are half a scrollbar, for where scrollbars take room). A header too long for that takes a second line.
+   - Once the table has been scrolled sideways a hairline marks its edge (where Chrome can tell: 133 and later).
+   - A control that takes the keyboard's focus under it is brought out: for that the box counts as beginning where the
+     column can end. The column's own controls are in view where they are, and the margin that reaches across the box
+     says so: without it the table would jump back each time one of them took the focus. */
+.table-wrap{container-type:inline-size;container-type:inline-size scroll-state;scroll-padding-left:min(340px,50%)}
+.table-wrap tr{background:var(--panel)}
+.table-wrap :is(th,td):first-child{position:sticky;left:0;max-width:min(340px,50cqi - 9px)}
+.table-wrap th:first-child{z-index:4;white-space:normal}
+.table-wrap th:first-child .th-sort{text-align:left}
+.table-wrap td:first-child{background:inherit}
+.table-wrap :is(th,td):first-child button{scroll-margin-right:100vw}
+@container scroll-state(scrollable: left){
+  .table-wrap :is(th,td):first-child{box-shadow:1px 0 0 var(--border-strong)}
+}
 
 /* pills, tags */
 .id-pill{
@@ -208,9 +234,14 @@ td.num{font-variant-numeric:tabular-nums}
   padding:1px 7px;font-size:11.5px;color:var(--text-2);
 }
 
-/* pagination */
-.pager{display:flex;align-items:center;gap:10px;margin-top:10px;font-size:12px;color:var(--text-2);flex-wrap:wrap}
+/* pagination: the toolbar's last child, at its right end beside the count. When the toolbar has no room for it there
+   it takes a line of its own, still at the right, and wraps within itself when that line is too short for it. A table
+   with no row to show has an empty pager, which takes no room. */
+.pager{display:flex;align-items:center;gap:10px;margin-left:auto;font-size:12px;color:var(--text-2);flex-wrap:wrap}
+.pager:empty{display:none}
 .pager .pages{display:flex;gap:4px;align-items:center}
+/* The choice of rows per page ends the pager: where the pager wraps within itself, it stands at the right of its line. */
+.pager .per-page{margin-left:auto}
 .pg-btn{min-width:28px;height:28px;border-radius:999px;border:1px solid var(--border-strong);background:var(--panel);padding:0 8px;font-variant-numeric:tabular-nums}
 .pg-btn:hover:not([disabled]){background:var(--panel-2)}
 .pg-btn[aria-current="true"]{background:var(--ink);color:var(--ink-text);border-color:var(--ink);font-weight:600}
@@ -257,12 +288,20 @@ td.num{font-variant-numeric:tabular-nums}
 .diag summary::-webkit-details-marker{display:none}
 .diag summary .car{transition:transform .15s;color:var(--text-3)}
 .diag[open] summary .car{transform:rotate(90deg)}
+/* A section's heading stands inside what opens it and takes its look. Two sections in a row keep 12px between them. */
+.diag summary h2{font:inherit}
+.diag + .diag{margin-top:12px}
 .diag-body{border-top:1px solid var(--border);padding:12px 16px}
 .diag pre{
   font-family:var(--mono);font-size:11.5px;line-height:1.6;background:var(--panel-2);
   border:1px solid var(--border);border-radius:var(--r-sm);padding:12px;overflow:auto;max-height:340px;margin:0 0 10px;
   color:var(--text-2);white-space:pre-wrap;word-break:break-word;
 }
+/* In a section's body the padding is the space at its head and its foot: the first and the last thing in it add none.
+   A log keeps 10px from what stands before it, as it does from the button after it. */
+.diag-body > :first-child{margin-top:0}
+.diag-body > :last-child{margin-bottom:0}
+.diag-body > * + pre{margin-top:10px}
 
 /* ---------- drawer ---------- */
 .scrim{position:fixed;inset:0;background:rgba(16,15,12,.44);z-index:60;opacity:0;transition:opacity .18s}
