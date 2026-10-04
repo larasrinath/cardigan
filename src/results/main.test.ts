@@ -920,10 +920,17 @@ describe("What a click, a key and typing do on the results page", () => {
   const shows = () => [page.texts("#view h1")[0], page.texts('#navList [aria-current="page"] span')[0], page.texts("#crumbs strong")[0]];
   /** The headings of the columns on screen. */
   const headings = () => page.all("#tableWrap thead .th-sort").map(button => button.textContent.trim().replace(/[▲▼]$/, ""));
-  /** The rows on screen, by the text of one column. */
-  const column = (place: number) => page.all("#tableWrap tbody tr").map(row => row.children[place].textContent.trim());
-  /** The links of the rows on screen that open a card: two a row, its number and its title. */
+  /** The rows on screen, by the text of one column, which is named by its heading. */
+  const column = (heading: string) => page.all("#tableWrap tbody tr").map(row => row.children[headings().indexOf(heading)].textContent.trim());
+  /** The links of the rows on screen that open a card. In the Cards table that is each row's title; a card's number is
+   * one too, in the tables that have it, once the column is shown. */
   const cardLinks = () => page.all('#tableWrap tbody [data-act="card"]');
+  /** Ticks or unticks a column in the chooser, by its name, and closes the chooser. */
+  const toggleColumn = (name: string) => {
+    page.id("colBtn").press();
+    page.all("#popover .pop-opt").find(option => option.children[1].textContent === name)?.children[0].tick();
+    page.key("Escape");
+  };
 
   it("opens the table the navigation names, the overview and the details, and says that the model map is to come", async () => {
     await openWith(APP);
@@ -974,17 +981,19 @@ describe("What a click, a key and typing do on the results page", () => {
   it("opens the row that was clicked, not its neighbour, on a click anywhere in the row but on a control", async () => {
     await openWith(APP);
     goTo(3);
+    expect(headings()).toEqual(["Page", "Section layout", "Source module"]);
     for (const [index, row] of APP.tables[3].rows.entries()) {
       // On a plain cell of the row: its section layout.
-      page.all("#tableWrap tbody tr")[index].children[3].press();
+      page.all("#tableWrap tbody tr")[index].children[1].press();
       expect([page.all("#drawerBody dd").map(value => value.textContent), page.id("drawerSub").textContent], `row ${index + 1}`).toEqual([row.map(String), `Row ${index + 1} of Grid Sections`]);
       page.key("Escape");
     }
     // On the cell itself, beside its text, as well as on the text.
-    page.all("#tableWrap tbody tr")[1].children[4].querySelector(".cell-t")?.press();
+    page.all("#tableWrap tbody tr")[1].children[2].querySelector(".cell-t")?.press();
     expect(page.texts("#drawerBody dd")[4]).toBe("REP09 Copy");
     page.key("Escape");
-    // A control in a row does what it does and does not open the row: the ID's pill copies the ID.
+    // A control in a row does what it does and does not open the row: the ID's pill, once its column is shown, copies the ID.
+    toggleColumn("Card ID");
     page.all("#tableWrap tbody .id-pill")[1].press();
     await settle();
     expect([copied, page.id("toast").textContent, drawerShown()]).toEqual([["card-a"], "Copied card-a", false]);
@@ -998,28 +1007,47 @@ describe("What a click, a key and typing do on the results page", () => {
     goTo(2);
     /** The card in the drawer: its heading, its page, its sections, and the grid sections listed for it. */
     const card = () => [page.id("drawerTitle").textContent, page.texts("#drawerSub .link")[0], page.texts("#drawerBody h3"), page.texts("#drawerBody .mini td").slice(0, 3)];
-    // The second page is a copy of the first and kept its cards' IDs: a card is the one of its own page.
-    cardLinks()[4].press();
+    // In the Cards table a card's title opens it: one link a row. The second page is a copy of the first and kept its
+    // cards' IDs: a card is the one of its own page.
+    expect(cardLinks().map(link => link.textContent)).toEqual(["Sales", "Margin", "Sales, copied", "Margin, copied"]);
+    cardLinks()[2].press();
     expect(card()).toEqual(["Card 1 — Sales, copied", "Overview (copy)", ["Card details", "Grid sections (1)"], ["1", "Own rows and columns", "REP09 Copy"]]);
     expect(page.texts("#drawerBody .d-dl dd")).toEqual(["Overview (copy)", "1", "Sales, copied", "Grid", "card-a"]);
     page.key("Escape");
-    // The title is a link as much as the number.
-    cardLinks()[1].press();
+    cardLinks()[0].press();
     expect(card()).toEqual(["Card 1 — Sales", "Overview", ["Card details", "Grid sections (1)"], ["1", "Own rows and columns", "REP01 Sales"]]);
     page.key("Escape");
     // A card without grid sections says so.
-    cardLinks()[2].press();
+    cardLinks()[1].press();
     expect([card().slice(0, 3), page.texts("#drawerBody p")]).toEqual([["Card 2 — Margin", "Overview", ["Card details", "Grid sections (0)"]], ["No grid sections on this card."]]);
     page.key("Escape");
+    // The card's number, once its column is shown, is a link as much as the title.
+    toggleColumn("Card #");
+    expect(cardLinks().slice(0, 2).map(link => link.textContent)).toEqual(["1", "Sales"]);
+    cardLinks()[0].press();
+    expect(card().slice(0, 2)).toEqual(["Card 1 — Sales", "Overview"]);
+    page.key("Escape");
 
-    // From another table, the card's number opens the card of that row, by the row's page and Card ID.
+    // Another table has no card's title, and its card's number starts hidden: no cell on screen opens a card. The row's
+    // drawer shows the number, and there it opens the card of that row, by the row's page and Card ID.
     goTo(3);
+    expect([headings(), cardLinks()]).toEqual([["Page", "Section layout", "Source module"], []]);
+    const rowButton = () => page.all('#tableWrap tbody [data-act="row"]')[1];
+    rowButton().press();
+    expect([page.id("drawerSub").textContent, page.texts("#drawerBody dt").slice(0, 3), page.all('#drawerBody [data-act="card"]').map(link => [link.textContent, link.title])])
+      .toEqual(["Row 2 of Grid Sections", ["Page", "Card #", "Section #"], [["1", "Open card details"]]]);
+    page.find('#drawerBody [data-act="card"]').press();
+    expect(card()).toEqual(["Card 1 — Sales, copied", "Overview (copy)", ["Card details", "Grid sections (1)"], ["1", "Own rows and columns", "REP09 Copy"]]);
+    // Inside the card's drawer, a card's link opens that card too: here the same one again, by its title.
+    page.all('#drawerBody [data-act="card"]')[1].press();
+    expect(card().slice(0, 2)).toEqual(["Card 1 — Sales, copied", "Overview (copy)"]);
+    // The drawer then closes back to what opened it from the table, not to a link inside it, which is gone.
+    page.key("Escape");
+    expect(page.document.activeElement).toBe(rowButton());
+    // With the column shown, the number opens the card from the table as well.
+    toggleColumn("Card #");
     cardLinks()[1].press();
     expect(card().slice(0, 2)).toEqual(["Card 1 — Sales, copied", "Overview (copy)"]);
-    // Inside the drawer, a card's link opens that card too: here the same one again, by its title.
-    page.find('#drawerBody [data-act="card"]').press();
-    expect(card().slice(0, 2)).toEqual(["Card 1 — Sales, copied", "Overview (copy)"]);
-    // The drawer then closes back to what opened it from the table, not to the link inside it, which is gone.
     page.key("Escape");
     expect(page.document.activeElement).toBe(cardLinks()[1]);
     // A row whose card the export does not have: a word about it, and no drawer.
@@ -1029,7 +1057,7 @@ describe("What a click, a key and typing do on the results page", () => {
 
   it("shows a page's cards on a click on the page's name, wherever the Page column stands, and from the drawer", async () => {
     await openWith(APP);
-    const jumped = () => [shows(), page.texts("#crumbs .ctx"), column(2), page.id("rowCount").textContent];
+    const jumped = () => [shows(), page.texts("#crumbs .ctx"), column("Card title"), page.id("rowCount").textContent];
     const copies = [["Cards", "Cards", "Cards"], ["Page: Overview (copy)"], ["Sales, copied", "Margin, copied"], "1–2 of 2 rows (filtered from 4)"];
     // Where Used: the page is its fourth column.
     goTo(4);
@@ -1050,33 +1078,34 @@ describe("What a click, a key and typing do on the results page", () => {
     expect([jumped().slice(1, 3), drawerShown()]).toEqual([[["Page: Overview"], ["Sales", "Margin"]], false]);
     // The jump is a view of the Cards table: a search narrows it further, and the navigation's Cards shows them all again.
     page.id("tblSearch").type("sales");
-    expect(column(2)).toEqual(["Sales"]);
+    expect(column("Card title")).toEqual(["Sales"]);
     goTo(2);
-    expect([page.has("#crumbs .ctx"), column(2).length, page.id("tblSearch").value]).toEqual([false, 4, ""]);
+    expect([page.has("#crumbs .ctx"), column("Card title").length, page.id("tblSearch").value]).toEqual([false, 4, ""]);
   });
 
   it("sorts by a column on its button: ascending, descending, then the file's order again; another column starts ascending", async () => {
     await openWith(APP);
     goTo(2);
     const sorted = () => page.all("#tableWrap thead th").map(heading => heading.getAttribute("aria-sort")).filter(direction => direction !== "none").length;
-    expect([column(2), sorted()]).toEqual([["Sales", "Margin", "Sales, copied", "Margin, copied"], 0]);
+    const titles = () => column("Card title");
+    expect([titles(), sorted()]).toEqual([["Sales", "Margin", "Sales, copied", "Margin, copied"], 0]);
     page.find('[data-sort="2"]').press();
-    expect([column(2), page.find('[data-sort="2"]').closest("th")?.getAttribute("aria-sort"), sorted()]).toEqual([["Margin", "Margin, copied", "Sales", "Sales, copied"], "ascending", 1]);
+    expect([titles(), page.find('[data-sort="2"]').closest("th")?.getAttribute("aria-sort"), sorted()]).toEqual([["Margin", "Margin, copied", "Sales", "Sales, copied"], "ascending", 1]);
     page.find('[data-sort="2"]').press();
-    expect([column(2), page.find('[data-sort="2"]').closest("th")?.getAttribute("aria-sort")]).toEqual([["Sales, copied", "Sales", "Margin, copied", "Margin"], "descending"]);
-    // Another column, while this one is descending: that column, ascending, and only it. Rows that sort the same keep the file's order.
-    page.find('[data-sort="1"]').press();
-    expect([column(2), page.find('[data-sort="1"]').closest("th")?.getAttribute("aria-sort"), sorted()]).toEqual([["Sales", "Sales, copied", "Margin", "Margin, copied"], "ascending", 1]);
-    page.find('[data-sort="1"]').press();
-    expect(column(2)).toEqual(["Margin", "Margin, copied", "Sales", "Sales, copied"]);
-    page.find('[data-sort="1"]').press();
-    expect([column(2), sorted(), page.id("resetBtn").hidden]).toEqual([["Sales", "Margin", "Sales, copied", "Margin, copied"], 0, true]);
+    expect([titles(), page.find('[data-sort="2"]').closest("th")?.getAttribute("aria-sort")]).toEqual([["Sales, copied", "Sales", "Margin, copied", "Margin"], "descending"]);
+    // Another column, the card's type, while this one is descending: that column, ascending, and only it. Rows that sort the same keep the file's order.
+    page.find('[data-sort="3"]').press();
+    expect([titles(), page.find('[data-sort="3"]').closest("th")?.getAttribute("aria-sort"), sorted()]).toEqual([["Sales", "Sales, copied", "Margin", "Margin, copied"], "ascending", 1]);
+    page.find('[data-sort="3"]').press();
+    expect(titles()).toEqual(["Margin", "Margin, copied", "Sales", "Sales, copied"]);
+    page.find('[data-sort="3"]').press();
+    expect([titles(), sorted(), page.id("resetBtn").hidden]).toEqual([["Sales", "Margin", "Sales, copied", "Margin, copied"], 0, true]);
   });
 
   it("filters a column by the boxes ticked, and has no filter left once every box is ticked again", async () => {
     await openWith(APP);
     goTo(2);
-    const state = () => [column(2), page.find('[data-colfilter="3"]').classList.contains("active"), page.id("resetBtn").hidden, page.id("rowCount").textContent];
+    const state = () => [column("Card title"), page.find('[data-colfilter="3"]').classList.contains("active"), page.id("resetBtn").hidden, page.id("rowCount").textContent];
     page.find('[data-colfilter="3"]').press();
     expect(choices()).toEqual([["Grid", "2", true], ["KPI", "2", true]]);
     page.all("#popover input")[1].tick();
@@ -1097,7 +1126,7 @@ describe("What a click, a key and typing do on the results page", () => {
     page.find('[data-colfilter="0"]').press();
     expect(choices()).toEqual([["Overview", "2", true], ["Overview (copy)", "2", true]]);
     page.all("#popover input")[0].tick();
-    expect(column(2)).toEqual(["Margin, copied"]);
+    expect(column("Card title")).toEqual(["Margin, copied"]);
   });
 
   it("clears the search, the filters, the sort and the jump with Reset", async () => {
@@ -1109,7 +1138,7 @@ describe("What a click, a key and typing do on the results page", () => {
     page.find('[data-colfilter="3"]').press();
     page.all("#popover input")[0].tick();
     page.key("Escape");
-    const inForce = () => [column(2), page.has("#crumbs .ctx"), page.id("tblSearch").value, page.all(".th-filter.active").length,
+    const inForce = () => [column("Card title"), page.has("#crumbs .ctx"), page.id("tblSearch").value, page.all(".th-filter.active").length,
       page.all("#tableWrap thead th").filter(heading => heading.getAttribute("aria-sort") !== "none").length, page.id("resetBtn").hidden];
     expect(inForce()).toEqual([["Margin, copied"], true, "copied", 1, 1, false]);
     page.id("resetBtn").press();
@@ -1123,24 +1152,40 @@ describe("What a click, a key and typing do on the results page", () => {
     await openWith(APP);
     goTo(2);
     const boxes = () => page.all("#popover .pop-opt").map(option => `${option.children[1].textContent}${option.children[0].checked ? " ✓" : ""}`);
-    expect(headings()).toEqual(["Page", "Card #", "Card title", "Card type"]);
+    // The card's number and its ID start hidden. Both are in the chooser, unticked; the ID is marked as one.
+    expect(headings()).toEqual(["Page", "Card title", "Card type"]);
     page.id("colBtn").press();
-    expect(boxes()).toEqual(["Page ✓", "Card # ✓", "Card title ✓", "Card type ✓", "Card ID"]);
-    // An ID that starts hidden is shown, a column that is shown is hidden: each box acts on its own column.
+    expect(boxes()).toEqual(["Page ✓", "Card #", "Card title ✓", "Card type ✓", "Card ID"]);
+    expect(page.all("#popover .pop-opt").map(option => option.querySelector(".po-cnt")?.textContent ?? "")).toEqual(["", "", "", "", "ID"]);
+    // A column that starts hidden is shown, a column that is shown is hidden: each box acts on its own column.
     page.all("#popover input")[4].tick();
-    expect([headings(), column(4)]).toEqual([["Page", "Card #", "Card title", "Card type", "Card ID"], ["card-a", "card-b", "card-a", "card-b"]]);
+    expect([headings(), column("Card ID")]).toEqual([["Page", "Card title", "Card type", "Card ID"], ["card-a", "card-b", "card-a", "card-b"]]);
     page.all("#popover input")[1].tick();
-    expect([headings(), column(1), boxes()]).toEqual([["Page", "Card title", "Card type", "Card ID"], ["Sales", "Margin", "Sales, copied", "Margin, copied"],
-      ["Page ✓", "Card #", "Card title ✓", "Card type ✓", "Card ID ✓"]]);
+    expect([headings(), column("Card #")]).toEqual([["Page", "Card #", "Card title", "Card type", "Card ID"], ["1", "2", "1", "2"]]);
+    page.all("#popover input")[3].tick();
+    expect([headings(), column("Card title"), boxes()]).toEqual([["Page", "Card #", "Card title", "Card ID"], ["Sales", "Margin", "Sales, copied", "Margin, copied"],
+      ["Page ✓", "Card # ✓", "Card title ✓", "Card type", "Card ID ✓"]]);
     // The choice is the table's own: another table is as it was, and this one is as it was left.
     page.key("Escape");
     goTo(3);
-    expect(headings()).toEqual(["Page", "Card #", "Section #", "Section layout", "Source module", "Card ID"]);
+    expect(headings()).toEqual(["Page", "Section layout", "Source module"]);
+    page.id("colBtn").press();
+    expect(boxes()).toEqual(["Page ✓", "Card #", "Section #", "Section layout ✓", "Source module ✓", "Card ID"]);
+    page.key("Escape");
+    // The search reads the columns that are not shown as well: a card's ID finds its row.
+    page.id("tblSearch").type("card-gone");
+    expect([column("Source module"), page.id("rowCount").textContent]).toEqual([["REP02 Gone"], "1–1 of 1 row (filtered from 3)"]);
     goTo(2);
-    expect(headings()).toEqual(["Page", "Card title", "Card type", "Card ID"]);
+    expect(headings()).toEqual(["Page", "Card #", "Card title", "Card ID"]);
     page.id("colBtn").press();
     page.find('#popover [data-popact="defaults"]').press();
-    expect([headings(), page.id("popover").hidden]).toEqual([["Page", "Card #", "Card title", "Card type"], true]);
+    expect([headings(), page.id("popover").hidden]).toEqual([["Page", "Card title", "Card type"], true]);
+    // Where Used keeps its card's number out of sight too; there it is a number only, in the row's drawer as well.
+    goTo(4);
+    expect(headings()).toEqual(["Object type", "Object name", "Object's module", "Page", "Used as"]);
+    page.all('#tableWrap tbody [data-act="row"]')[0].press();
+    expect([page.texts("#drawerBody dt"), page.texts("#drawerBody dd")[4], page.all('#drawerBody [data-act="card"]')])
+      .toEqual([["Object type", "Object name", "Object's module", "Page", "Card #", "Used as", "Object ID"], "1", []]);
   });
 
   it("turns a table's pages and changes how many rows a page holds, with the rows that belong there", async () => {
@@ -1202,7 +1247,7 @@ describe("What a click, a key and typing do on the results page", () => {
     // Opened again before it has slid out, it stays.
     cardLinks()[0].press();
     page.key("Escape");
-    cardLinks()[2].press();
+    cardLinks()[1].press();
     vi.advanceTimersByTime(500);
     expect([drawerShown(), page.id("drawer").hidden, page.id("drawerTitle").textContent]).toEqual([true, false, "Card 2 — Margin"]);
   });
@@ -1272,6 +1317,7 @@ describe("What a click, a key and typing do on the results page", () => {
     // An ID is a cell like any other: it can hold what an Anaplan user typed.
     await openWith({ ...APP, tables: APP.tables.map((table, index) => (index === 3 ? { ...table, rows: [["Overview", 1, 1, "Own rows and columns", "REP01 Sales", `card ${TAG}`]] } : table)) });
     goTo(3);
+    toggleColumn("Card ID");
     page.find("#tableWrap tbody .id-pill").press();
     await settle();
     expect([copied, page.id("toast").textContent, page.id("toast").children, page.has("img")]).toEqual([[`card ${TAG}`], `Copied card ${TAG}`, [], false]);
@@ -1286,6 +1332,7 @@ describe("What a click, a key and typing do on the results page", () => {
   it("copies through a text box when the clipboard refuses, and says so when that fails too", async () => {
     await openWith(APP);
     goTo(3);
+    toggleColumn("Card ID");
     clipboardRefuses = true;
     page.commandWorks = true;
     page.find("#tableWrap tbody .id-pill").press();

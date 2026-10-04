@@ -355,13 +355,15 @@ export function colFilterHtml(column: Column, values: readonly (readonly [value:
     </div>`;
 }
 
+/** The column chooser. A column that starts hidden because it holds IDs is marked as one; a number that starts hidden, a
+ * card's or a section's, has no mark. */
 export function colChooserHtml(columns: readonly Column[], hidden: ReadonlySet<number>): string {
   return `
     <div class="pop-hd"><span>Show / hide columns</span><button type="button" data-popact="defaults">Defaults</button></div>
     <div class="pop-bd">
       ${columns.map(column => `
         <label class="pop-opt"><input type="checkbox" data-col="${column.index}" ${hidden.has(column.index) ? "" : "checked"}>
-        <span>${esc(column.label)}</span>${column.hidden ? '<span class="po-cnt">ID</span>' : ""}</label>`).join("")}
+        <span>${esc(column.label)}</span>${column.hidden && !column.num ? '<span class="po-cnt">ID</span>' : ""}</label>`).join("")}
     </div>`;
 }
 

@@ -200,16 +200,20 @@ describe("What the results page's markup shows", () => {
   });
 
   it("lists every column in the chooser, ticked when shown, each box carrying its own column", () => {
-    const columns = [column(0, "Page", "page"), column(5, "Card ID", "id", { hidden: true }), column(2, "Card title", "card"), column(9, "Source IDs", "text", { hidden: true })];
-    /** Each column: its name, the column its box carries, whether it is ticked, and its mark as one that starts hidden. */
+    const columns = [column(0, "Page", "page"), column(5, "Card ID", "id", { hidden: true }), column(2, "Card title", "card"), column(9, "Source IDs", "text", { hidden: true }),
+      column(1, "Card #", "card", { hidden: true, num: true }), column(4, "Total cards", "text", { num: true })];
+    /** Each column: its name, the column its box carries, whether it is ticked, and its mark as IDs that start hidden. */
     const boxes = (hidden: number[]) => parseMarkup(colChooserHtml(columns, new Set(hidden))).querySelectorAll(".pop-opt").map(option => {
       const box = option.querySelector("input");
       return [text(option.children[1]), box?.dataset.col, box?.checked, text(option.querySelector(".po-cnt"))];
     });
-    expect(boxes([5, 9])).toEqual([["Page", "0", true, ""], ["Card ID", "5", false, "ID"], ["Card title", "2", true, ""], ["Source IDs", "9", false, "ID"]]);
+    // A number that starts hidden, a card's, is not marked as an ID.
+    expect(boxes([5, 9, 1])).toEqual([["Page", "0", true, ""], ["Card ID", "5", false, "ID"], ["Card title", "2", true, ""], ["Source IDs", "9", false, "ID"],
+      ["Card #", "1", false, ""], ["Total cards", "4", true, ""]]);
     // What is ticked follows what is hidden now, not what starts hidden; the mark follows what starts hidden.
-    expect(boxes([0, 2])).toEqual([["Page", "0", false, ""], ["Card ID", "5", true, "ID"], ["Card title", "2", false, ""], ["Source IDs", "9", true, "ID"]]);
-    expect(boxes([]).map(box => box[2])).toEqual([true, true, true, true]);
+    expect(boxes([0, 2])).toEqual([["Page", "0", false, ""], ["Card ID", "5", true, "ID"], ["Card title", "2", false, ""], ["Source IDs", "9", true, "ID"],
+      ["Card #", "1", true, ""], ["Total cards", "4", true, ""]]);
+    expect(boxes([]).map(box => box[2])).toEqual([true, true, true, true, true, true]);
     const popover = parseMarkup(colChooserHtml(columns, new Set()));
     expect([text(popover.querySelector(".pop-hd span")), popover.querySelectorAll("[data-popact]").map(button => [button.dataset.popact, text(button)])]).toEqual(["Show / hide columns", [["defaults", "Defaults"]]]);
   });

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { HEADERS, type TabName } from "../report.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
-import { APP_FILES, cardsOf, COLUMN_CHOICES, columnIndex, columnsOf, FILTER_MAX, FILTER_MIN, rowColumns, rowKeys } from "./columns.js";
+import { APP_FILES, cardsOf, COLUMN_CHOICES, columnIndex, columnsOf, FILTER_MAX, FILTER_MIN, NUMBERS_HIDDEN, rowColumns, rowKeys } from "./columns.js";
 
 /** The app export's files, as the page names them, and the report table each holds. */
 const FILES: Record<string, TabName> = Object.fromEntries((Object.keys(APP_FILES) as TabName[]).map(tab => [APP_FILES[tab], tab]));
@@ -31,10 +31,10 @@ describe("The results page's columns", () => {
     expect(columns.map(column => column.index)).toEqual(HEADERS.Cards.map((_, index) => index));
   });
 
-  it("keeps the design's choices for the Cards file: filters, hidden IDs, numbers, and what is a tag, an ID or a link", () => {
+  it("keeps the design's choices for the Cards file: filters, what starts hidden, numbers, and what is a tag, an ID or a link", () => {
     const columns = columnsOf(appTable("Cards.csv"));
     expect(labels(columns.filter(column => column.filter))).toEqual(["Page", "Card type", "View type"]);
-    expect(labels(columns.filter(column => column.hidden))).toEqual(["Card ID", "Source IDs"]);
+    expect(labels(columns.filter(column => column.hidden))).toEqual(["Card #", "Card ID", "Source IDs"]);
     expect(labels(columns.filter(column => column.num))).toEqual(["Card #"]);
     expect(Object.fromEntries(columns.filter(column => column.kind !== "text").map(column => [column.label, column.kind]))).toEqual({
       "Page": "page", "Card #": "card", "Card title": "card", "Card type": "tag", "View type": "tag", "Card ID": "id" });
@@ -48,22 +48,43 @@ describe("The results page's columns", () => {
     expect(choices("Pages.csv")).toEqual({
       filter: ["Category", "Page type", "Publish state", "Model"], hidden: ["Page ID", "App ID", "Model ID"],
       num: ["Total cards", "Grid cards", "Chart cards", "KPI cards", "Field cards", "Action cards", "Text & image cards"] });
-    expect(choices("Grid Sections.csv")).toEqual({ filter: ["Page", "View type", "Section layout"], hidden: ["Section ID", "Module ID"], num: ["Card #", "Section #"] });
+    expect(choices("Grid Sections.csv")).toEqual({
+      filter: ["Page", "View type", "Section layout"], hidden: ["Card #", "Section #", "Card ID", "Section ID", "Module ID"], num: ["Card #", "Section #"] });
     expect(choices("Filters.csv")).toEqual({
-      filter: ["Page", "Filter on", "Filtered dimension", "Show items that match", "Operator"], hidden: ["Line item ID"], num: ["Card #", "Section #"] });
-    expect(choices("Conditional Formatting.csv")).toEqual({ filter: ["Page", "Format style"], hidden: ["Line item ID"], num: ["Card #", "Section #"] });
+      filter: ["Page", "Filter on", "Filtered dimension", "Show items that match", "Operator"], hidden: ["Card #", "Section #", "Card ID", "Line item ID"], num: ["Card #", "Section #"] });
+    expect(choices("Conditional Formatting.csv")).toEqual({ filter: ["Page", "Format style"], hidden: ["Card #", "Section #", "Card ID", "Line item ID"], num: ["Card #", "Section #"] });
     expect(choices("Action Buttons.csv")).toEqual({
-      filter: ["Page", "Action type", "Name source", "Runs automatically", "Cancel button"], hidden: ["Action ID"], num: ["Card #"] });
-    expect(choices("Where Used.csv")).toEqual({ filter: ["Object type", "Page", "Used as"], hidden: ["Object ID"], num: ["Card #"] });
-    // Every ID column is an ID to copy; Card ID is shown where it is the way back to the card, and hidden on the card's own row.
+      filter: ["Page", "Action type", "Name source", "Runs automatically", "Cancel button"], hidden: ["Card #", "Card ID", "Action ID"], num: ["Card #"] });
+    expect(choices("Where Used.csv")).toEqual({ filter: ["Object type", "Page", "Used as"], hidden: ["Card #", "Object ID"], num: ["Card #"] });
+    // Every ID column is an ID to copy.
     for (const file of Object.keys(FILES)) {
       const columns = columnsOf(appTable(file));
       expect(labels(columns.filter(column => column.kind === "id")), file).toEqual(HEADERS[FILES[file]].filter(header => / ID$/.test(header)));
     }
-    expect(columnsOf(appTable("Filters.csv")).find(column => column.label === "Card ID")).toMatchObject({ kind: "id", hidden: false });
     // The Pages file lists each page once, so its Page column has no filter; Where Used has no Card ID, so its Card # is a number only.
     expect(columnsOf(appTable("Pages.csv")).find(column => column.label === "Page")).toMatchObject({ kind: "page", filter: false });
     expect(columnsOf(appTable("Where Used.csv")).find(column => column.label === "Card #")).toMatchObject({ kind: "text", num: true });
+  });
+
+  it("starts every ID, every card's number and every section's number hidden, in each of the app's tables that has one", () => {
+    expect(NUMBERS_HIDDEN).toEqual(["Card #", "Section #"]);
+    const startsHidden = (header: string) => / IDs?$/.test(header) || NUMBERS_HIDDEN.includes(header);
+    for (const file of Object.keys(FILES)) {
+      const headers = HEADERS[FILES[file]];
+      // Exactly those, by the names the analysis gives its columns: a table that gains such a column hides it too.
+      expect(labels(columnsOf(appTable(file)).filter(column => column.hidden)), file).toEqual(headers.filter(startsHidden));
+    }
+    // Each of the three is in more than one table, and none of them is a table's first column: the cell that opens a row stays.
+    const tablesWith = (header: string) => Object.keys(FILES).filter(file => HEADERS[FILES[file]].includes(header));
+    expect([tablesWith("Card #").length, tablesWith("Section #").length, tablesWith("Card ID").length]).toEqual([6, 3, 5]);
+    expect(Object.keys(FILES).map(file => labels(columnsOf(appTable(file)).filter(column => !column.hidden))[0]))
+      .toEqual(["App", "Page", "Page", "Page", "Page", "Page", "Object type"]);
+    // What opens a card is still told apart from a number: where the row holds the card's ID, the card's number is a link to it.
+    expect(Object.fromEntries(Object.keys(FILES).filter(file => HEADERS[FILES[file]].includes("Card #")).map(file =>
+      [file, columnsOf(appTable(file)).find(column => column.label === "Card #")?.kind]))).toEqual({
+      "Cards.csv": "card", "Grid Sections.csv": "card", "Filters.csv": "card", "Conditional Formatting.csv": "card", "Action Buttons.csv": "card", "Where Used.csv": "text" });
+    // A file the page has no choices for hides nothing, whatever its columns are called.
+    expect(columnsOf(table("Line Items.csv", ["", "Card #", "Section #", "Card ID"])).some(column => column.hidden)).toBe(false);
   });
 
   it("gives the column Anaplan leaves unnamed a name of the page's own, and leaves the table's header as it is", () => {
