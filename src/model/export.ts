@@ -79,16 +79,20 @@ export async function exportModel(progress: Progress, diagnostics: () => string,
   const plain = (file: string, rows: () => string, columns: () => string) => step(file, async () => add(file, gridTable(await grid(file, rows(), columns()))));
 
   // Line Items is read first, as ever, and its file keeps the first place. Its table is made only once General Lists has
-  // been read or has failed: that grid's rows are to name the lists its formats point at. Nothing else moves: the reads,
-  // the steps and the lines of the log are in the order they had.
+  // been read or has failed: that grid's rows name the lists of its Format List column (lineitems.ts), and no grid is read
+  // for the names. Nothing else moves: the reads, the steps and the lines of the log are in the order they had.
   const lineItemsAt = place();
   const lineItems = await step("Line Items", () => grid("Line Items", axis(native, "MODULE_WITH_LINE_ITEM"), axis(native, "LINE_ITEM_PROPERTY")));
   await plain("Modules", () => axis(native, "MODULE_ALL"), () => native.axisHelper.getModuleSystemAxisIdentifier());
-  await plain("General Lists", () => axis(native, "HIERARCHY"), () => native.axisHelper.getHierarchySystemAxisIdentifier());
+  const lists = await step("General Lists", async () => {
+    const read = await grid("General Lists", axis(native, "HIERARCHY"), native.axisHelper.getHierarchySystemAxisIdentifier());
+    add("General Lists", gridTable(read));
+    return read;
+  });
   if (lineItems) {
     // A table that cannot be made is its file's failure, as it was while the table was made in the file's own step.
     try {
-      add("Line Items", lineItemsTable(lineItems), undefined, lineItemsAt);
+      add("Line Items", lineItemsTable(lineItems, lists), undefined, lineItemsAt);
     } catch (error) {
       fail("Line Items", error, lineItemsAt);
     }
