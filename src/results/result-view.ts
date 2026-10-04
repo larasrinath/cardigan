@@ -114,6 +114,13 @@ export function cardSections(result: AnalysisResult, page: string, cardId: strin
   return sections;
 }
 
+/** The design's names for the overview's tiles, where a file is one of the app's: shorter than the file's own name, so
+ * that a tile's name keeps to one line. Any other file's tile has the file's own label. */
+const TILE_LABELS: ReadonlyMap<string, string> = new Map([
+  [APP_FILES.Pages, "Pages"], [APP_FILES.Cards, "Cards"], [APP_FILES["Grid sections"], "Grid sections"], [APP_FILES.Filters, "Filters"],
+  [APP_FILES.Formatting, "Formatting rules"], [APP_FILES.Actions, "Action buttons"], [APP_FILES["Where used"], "Where Used"],
+]);
+
 export interface ModelRow { model: string; workspace: string; modelId: string }
 export interface Overview {
   /** Every file but the Details file, with its number of rows. */
@@ -127,7 +134,7 @@ export interface Overview {
 }
 
 export function overviewOf(result: AnalysisResult): Overview {
-  const tiles = result.tables.filter(table => table.details !== true).map(table => ({ label: cellText(table.label), count: table.rows.length }));
+  const tiles = result.tables.filter(table => table.details !== true).map(table => ({ label: TILE_LABELS.get(table.file) ?? cellText(table.label), count: table.rows.length }));
 
   const counts = new Map<string, number>();
   const cards = result.tables.find(table => table.file === APP_FILES.Cards);
