@@ -50,6 +50,27 @@ describe("The results page's table engine", () => {
     expect(selectRows(CARDS, all({ search: ".*" }))).toEqual([]);
   });
 
+  it("finds a row by more texts than its cells when a table gives them: what the CSV has where the table shows other words", () => {
+    // The Margin % card's type is shown as "KPI"; the file, say, has "{"type":"KPI_CARD"}" in its place, and a number for the first card's.
+    const exported = new Map<readonly Cell[], unknown[]>([[CARDS[1], ['{"type":"KPI_CARD"}', null, undefined]], [CARDS[0], [407]]]);
+    const also = (row: readonly Cell[]) => exported.get(row);
+    // The row is found by the text the table shows and by the other, whatever the case; a row without more texts by its cells only.
+    expect(titles(selectRows(CARDS, all({ search: "kpi_card", also })))).toEqual(["Margin %"]);
+    expect(titles(selectRows(CARDS, all({ search: "KPI", also })))).toEqual(["Margin %"]);
+    expect(titles(selectRows(CARDS, all({ search: "407", also })))).toEqual(["Sales by region"]);
+    expect(titles(selectRows(CARDS, all({ search: "sales", also })))).toEqual(["Sales by region", "sales value"]);
+    expect(selectRows(CARDS, all({ search: "null", also }))).toEqual([]);
+    // Without them, as ever, only what the cells hold is found.
+    expect(selectRows(CARDS, all({ search: "kpi_card" }))).toEqual([]);
+    // They are read for the search alone: a filter and a sort go by the cells, and no search keeps every row.
+    expect(titles(selectRows(CARDS, all({ also, filters: new Map([[3, new Set(['{"type":"KPI_CARD"}'])]]) })))).toEqual([]);
+    expect(selectRows(CARDS, all({ also }))).toHaveLength(6);
+    expect(titles(selectRows(CARDS, all({ search: "card", also, filters: new Map([[0, new Set(["Overview"])]]), sort: { column: 2, dir: "desc" } })))).toEqual(["Sales by region", "Margin %", "How to use this page"]);
+    // Any list of texts will do: a map's values, as the page hands them over.
+    const values = new Map([[1, "from a map"]]);
+    expect(titles(selectRows(CARDS, all({ search: "from a map", also: row => (row === CARDS[5] ? values.values() : undefined) })))).toEqual(["—"]);
+  });
+
   it("filters a column to the texts ticked, and several columns together", () => {
     expect(titles(selectRows(CARDS, all({ filters: new Map([[3, new Set(["Grid", "KPI"])]]) })))).toEqual(["Sales by region", "Margin %", "Store plan"]);
     expect(titles(selectRows(CARDS, all({ filters: new Map([[3, new Set(["Grid", "KPI"])], [0, new Set(["Stores"])]]) })))).toEqual(["Store plan"]);
@@ -151,6 +172,12 @@ describe("The results page's table engine", () => {
     expect(select(CARDS.slice(0, 2), query())).not.toBe(select(CARDS.slice(0, 2), query()));
     // Each table view keeps its own memory.
     expect(rememberingSelect()(CARDS, query())).not.toBe(select(CARDS, query()));
+    // More texts for the search are part of what is asked: with them, and with others, the rows are searched again; with the same, not.
+    const also = (row: readonly Cell[]) => (row === CARDS[5] ? ["e"] : undefined);
+    const withMore = select(CARDS, { ...query(), filters: new Map(), also });
+    expect([titles(withMore).includes("—"), titles(select(CARDS, { ...query(), filters: new Map() })).includes("—")]).toEqual([true, false]);
+    expect(select(CARDS, { ...query(), filters: new Map(), also })).toBe(select(CARDS, { ...query(), filters: new Map(), also }));
+    expect(titles(select(CARDS, { ...query(), filters: new Map(), also: () => undefined })).includes("—")).toBe(false);
   });
 
   it("cuts the rows into pages and says which rows a page shows", () => {

@@ -97,6 +97,8 @@ interface Shown {
   none: string | undefined;
   /** The CSV's text for each cell the table says in words, by the table's row and the column's place: a row's drawer shows both. */
   exported: FileView["exported"];
+  /** That text, for the search: a row is found by the words the table shows and by what the CSV has in their place. */
+  also: TableQuery["also"];
   columns: Column[];
   keys: RowKeys;
   links: Links;
@@ -209,7 +211,7 @@ function navEntries(): NavEntry[] {
 function query(entry: Shown): TableQuery {
   const column = entry.keys.page;
   return {
-    search: state.search, filters: entry.filters, sort: entry.sort,
+    search: state.search, also: entry.also, filters: entry.filters, sort: entry.sort,
     context: state.context !== undefined && column !== undefined ? { column, value: state.context } : undefined,
   };
 }
@@ -328,7 +330,7 @@ function showResult(next: AnalysisResult, at: Date, back = false): void {
     const keys = rowKeys(table);
     const page = cards !== undefined && keys.page !== undefined;
     const entry: Shown = {
-      index, file, table, note, none, exported, columns, keys, links: { page, card: page && keys.cardId !== undefined },
+      index, file, table, note, none, exported, also: exported && (row => exported.get(row)?.values()), columns, keys, links: { page, card: page && keys.cardId !== undefined },
       filters: new Map(), hidden: defaultHidden(columns), sort: undefined, page: 0, listed: table.rows.length,
     };
     shown.set(index, entry);
@@ -337,7 +339,7 @@ function showResult(next: AnalysisResult, at: Date, back = false): void {
     // columns. Its cells link to nothing: a row opens the object, which lists its uses. The file's own number of rows is
     // what the navigation shows either way: it is what the CSV holds, and a download is the file in both.
     const object: Shown = {
-      index, file, table: { ...file, headers: byObject.headers, rows: byObject.rows }, note: byObject.note, none: undefined, exported: undefined, columns: byObject.columns,
+      index, file, table: { ...file, headers: byObject.headers, rows: byObject.rows }, note: byObject.note, none: undefined, exported: undefined, also: undefined, columns: byObject.columns,
       keys: { page: undefined, cardId: undefined }, links: { page: false, card: false },
       filters: new Map(), hidden: defaultHidden(byObject.columns), sort: undefined, page: 0, listed: file.rows.length, objects: byObject,
     };
