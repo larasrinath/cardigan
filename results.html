@@ -17,7 +17,7 @@
 
 <header class="hd">
   <button id="navToggle" class="icon-btn nav-toggle" aria-label="Open table navigation" aria-expanded="false">
-    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2 4h12M2 8h12M2 12h12"/></svg>
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/></svg>
   </button>
   <div class="brand">
     <svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true">
@@ -29,16 +29,16 @@
   <div class="meta" id="hdMeta"></div>
   <div class="hd-actions">
     <button class="btn" id="runAgain" title="Analyse the Anaplan tab again">
-      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14.4 3.3v3.5h-3.5"/><path d="M12.95 9.75a5.25 5.25 0 1 1-1.24-5.46l2.7 2.54"/></svg>
+      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.4 3.3v3.5h-3.5"/><path d="M12.95 9.75a5.25 5.25 0 1 1-1.24-5.46l2.7 2.54"/></svg>
       Run again
     </button>
     <button id="themeToggle" class="icon-btn" aria-label="Switch colour theme" title="Switch colour theme"></button>
     <button class="btn primary" id="dlAll">
-      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v8m0 0 3-3M8 10 5 7M2.5 13.5h11"/></svg>
+      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2v8m0 0 3-3M8 10 5 7M2.5 13.5h11"/></svg>
       Download all (.zip)
     </button>
     <button class="btn" id="dlCsv">
-      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v8m0 0 3-3M8 10 5 7M2.5 13.5h11"/></svg>
+      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2v8m0 0 3-3M8 10 5 7M2.5 13.5h11"/></svg>
       Download this table (.csv)
     </button>
   </div>
@@ -52,7 +52,7 @@
     <div id="navList"></div>
   </nav>
   <main id="main">
-    <div class="crumbs" id="crumbs" aria-label="Breadcrumb"></div>
+    <nav class="crumbs" id="crumbs" aria-label="Breadcrumb"></nav>
     <div id="view" tabindex="-1"></div>
   </main>
 </div>
@@ -65,13 +65,13 @@
       <div class="d-sub" id="drawerSub"></div>
     </div>
     <button class="icon-btn" id="drawerClose" aria-label="Close details panel">
-      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 3l10 10M13 3 3 13"/></svg>
+      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 3l10 10M13 3 3 13"/></svg>
     </button>
   </div>
   <div class="drawer-bd" id="drawerBody"></div>
 </aside>
 
-<div class="popover" id="popover" role="dialog" hidden></div>
+<div class="popover" id="popover" role="dialog" aria-label="Column options" hidden></div>
 <div class="toast" id="toast" role="status"></div>
 <p class="sr-only" aria-live="polite" id="live"></p>
 
