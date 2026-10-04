@@ -179,7 +179,7 @@ describe("The results page's script, on the page", () => {
     expect(page.find("#hdMeta .meta-sub").textContent).toContain("us1a.app.anaplan.com");
     // The notes are a panel of the overview, one line each: the summary, and the Notes rows of the Details file. The banner
     // area holds none of them.
-    expect([page.texts("#view .panel h3"), page.texts("#view .warn-list li")]).toEqual([["Cards by type", "Notes"], ["1 of 1 pages analysed, 2 cards.", "Archive: Not published"]]);
+    expect([page.texts("#view .panel h2"), page.texts("#view .warn-list li")]).toEqual([["Cards by type", "Notes"], ["1 of 1 pages analysed, 2 cards.", "Archive: Not published"]]);
     expect(page.id("banners").children).toEqual([]);
     // One navigation entry per file, the Details file as Details, and the model map as coming later.
     expect(page.all("#navList [data-nav]").map(entry => entry.dataset.nav)).toEqual(["overview", "1", "2", "details", "map"]);
@@ -713,6 +713,21 @@ describe("The results page's script, on the page", () => {
     expect(behind()).toEqual([true, true, true, true]);
     sendResult(ports[0]);
     expect([behind(), page.id("drawer").classList.contains("show"), page.texts("#view h1")]).toEqual([[false, false, false, false], false, ["Overview"]]);
+  });
+
+  it("goes down the page's headings one level at a time, in every view and in the drawer", async () => {
+    await openWith();
+    /** The levels of the headings inside a part of the page, in the order they stand. */
+    const levels = (part: string) => page.all(`${part} h1, ${part} h2, ${part} h3, ${part} h4, ${part} h5, ${part} h6`).map(heading => Number(heading.localName[1]));
+    // The overview and the details: the view's heading, then its panels and sections one level under it.
+    expect([levels("#main"), page.texts("#main h2")]).toEqual([[1, 2, 2], ["Cards by type", "Notes"]]);
+    page.find('#navList [data-nav="details"]').press();
+    expect([levels("#main"), page.texts("#main h2")]).toEqual([[1, 2, 2], ["Export", "Notes"]]);
+    // A table has its one heading. The drawer's own heading is an h2, and its sections stand one level under that.
+    goTo(2);
+    expect(levels("#main")).toEqual([1]);
+    page.find('#tableWrap tbody [data-act="card"]').press();
+    expect([levels("#drawer"), page.texts("#drawer h3")]).toEqual([[2, 3], ["Card details"]]);
   });
 
   it("says on each button that opens a popover whether its popover is open, and says what the popover is", async () => {
