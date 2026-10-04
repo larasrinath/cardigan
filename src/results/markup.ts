@@ -14,13 +14,13 @@ export const esc = (value: unknown): string => cellText(value).replace(/[&<>"']/
 
 const DASH = `<span class="dash">${NONE}</span>`;
 const BLANK = "<em>(blank)</em>";
-const CLOSE_ICON = '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 3l10 10M13 3 3 13"/></svg>';
+const CLOSE_ICON = '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 3l10 10M13 3 3 13"/></svg>';
 const SEARCH_PATH = '<circle cx="7" cy="7" r="4.6"/><path d="M10.6 10.6 14 14"/>';
 const FILTER_PATH = '<path d="M2 3h12l-4.6 5.2v4.3L6.6 14V8.2L2 3Z"/>';
-export const SUN_ICON = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="3.2"/><path d="M8 1.5v1.8M8 12.7v1.8M1.5 8h1.8M12.7 8h1.8M3.4 3.4l1.3 1.3M11.3 11.3l1.3 1.3M12.6 3.4l-1.3 1.3M4.7 11.3l-1.3 1.3"/></svg>';
-export const MOON_ICON = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 9.5A5.8 5.8 0 0 1 6.5 2.5 5.8 5.8 0 1 0 13.5 9.5Z"/></svg>';
+export const SUN_ICON = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="3.2"/><path d="M8 1.5v1.8M8 12.7v1.8M1.5 8h1.8M12.7 8h1.8M3.4 3.4l1.3 1.3M11.3 11.3l1.3 1.3M12.6 3.4l-1.3 1.3M4.7 11.3l-1.3 1.3"/></svg>';
+export const MOON_ICON = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13.5 9.5A5.8 5.8 0 0 1 6.5 2.5 5.8 5.8 0 1 0 13.5 9.5Z"/></svg>';
 const INFO_ICON = '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6.4"/><path d="M8 7.4v3.4M8 5v.2"/></svg>';
-const DIAGNOSTICS_SUMMARY = '<summary><svg class="car" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3l6 5-6 5"/></svg>Diagnostics</summary>';
+const DIAGNOSTICS_SUMMARY = '<summary><svg class="car" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3l6 5-6 5"/></svg>Diagnostics</summary>';
 /** The button that copies a diagnostic log. The messages of a failed run name it by these words (progress.ts). `act` says
  * which log: "copy-diag" the one a result carries, "copy-run-log" the one of the run the page is following or last followed. */
 const copyLogButton = (act: "copy-diag" | "copy-run-log", attributes = ""): string => `<button type="button" class="btn sm" data-act="${act}"${attributes}>
@@ -167,7 +167,7 @@ export function detailsHtml(sections: readonly DetailSection[], log: readonly st
     ${log.length ? `<details class="diag">
       ${DIAGNOSTICS_SUMMARY}
       <div class="diag-body">
-        <pre id="diagLog" tabindex="0">${esc(log.join("\n"))}</pre>
+        <pre id="diagLog" tabindex="0" role="region" aria-label="Diagnostic log">${esc(log.join("\n"))}</pre>
         ${copyLogButton("copy-diag")}
       </div>
     </details>` : ""}`;
@@ -187,7 +187,7 @@ export function runHtml(): string {
     <details class="diag" id="runLog" open hidden>
       ${DIAGNOSTICS_SUMMARY}
       <div class="diag-body">
-        <pre id="diagLog" tabindex="0"></pre>
+        <pre id="diagLog" tabindex="0" role="region" aria-label="Diagnostic log"></pre>
         ${copyLogButton("copy-run-log")}
       </div>
     </details>`;
@@ -266,9 +266,13 @@ export function tableParts(view: TableView): TableParts {
     const aria = dir ? (dir === "asc" ? "ascending" : "descending") : "none";
     const arrow = `<span class="dir" aria-hidden="true">${dir ? (dir === "asc" ? "▲" : "▼") : ""}</span>`;
     const name = esc(column.label);
-    const filter = column.filter ? `<button type="button" class="th-filter ${view.filtered.has(column.index) ? "active" : ""}"
-        data-colfilter="${column.index}" aria-label="Filter by ${name}" aria-haspopup="dialog" title="Filter by ${name}">
-        <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">${FILTER_PATH}</svg></button>` : "";
+    // A filter in force shows in more than the button's colour: the funnel is filled, where it is otherwise an outline,
+    // and the button's name says so. The page sets aria-expanded while the button's popover is open.
+    const active = view.filtered.has(column.index);
+    const says = `Filter by ${name}${active ? " (filter on)" : ""}`;
+    const filter = column.filter ? `<button type="button" class="th-filter ${active ? "active" : ""}"
+        data-colfilter="${column.index}" aria-label="${says}" aria-haspopup="dialog" aria-expanded="false" title="${says}">
+        <svg width="11" height="11" viewBox="0 0 16 16" ${active ? 'fill="currentColor"' : 'fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"'} aria-hidden="true">${FILTER_PATH}</svg></button>` : "";
     return `<th scope="col" class="${column.num ? "num" : ""}" aria-sort="${aria}">
       <div class="th-in"><button type="button" class="th-sort" data-sort="${column.index}">${name}${arrow}</button>${filter}</div></th>`;
   }).join("");
@@ -277,14 +281,14 @@ export function tableParts(view: TableView): TableParts {
   let empty = "";
   if (view.all === 0) {
     empty = `<div class="empty">
-      <svg width="30" height="30" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round">${FILTER_PATH}</svg>
+      <svg width="30" height="30" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" aria-hidden="true">${FILTER_PATH}</svg>
       <div class="e-title">${label} has no rows</div>
       <div class="e-sub">Nothing was found for this file in this analysis.</div>
       </div>`;
   } else if (view.total === 0) {
     const what = [...(searching ? ["search"] : []), ...(filtering ? ["column filters"] : []), ...(jumped ? ["page selection"] : [])].join(" and ");
     empty = `<div class="empty">
-      <svg width="30" height="30" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round">${SEARCH_PATH}</svg>
+      <svg width="30" height="30" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" aria-hidden="true">${SEARCH_PATH}</svg>
       <div class="e-title">No results</div>
       <div class="e-sub">Nothing in ${label} matches the current ${what}.</div>
       <button type="button" class="btn sm" data-act="reset">Clear search &amp; filters</button>
@@ -318,8 +322,8 @@ export function tableHtml(view: TableView): string {
           ${CLOSE_ICON}</button>
         <kbd title="Press / to focus search">/</kbd>
       </div>
-      <button type="button" class="btn sm" id="colBtn" aria-haspopup="dialog">
-        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"/></svg>
+      <button type="button" class="btn sm" id="colBtn" aria-haspopup="dialog" aria-expanded="false">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"/></svg>
         Columns</button>
       <button type="button" class="btn sm" data-act="reset" id="resetBtn" ${parts.modified ? "" : "hidden"}>Reset</button>
       <span class="rowcount" id="rowCount">${esc(parts.count)}</span>

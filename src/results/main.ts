@@ -205,6 +205,7 @@ function renderTable(entry: Shown): void {
   }
   const search = find<HTMLInputElement>("#tblSearch");
   if (search) search.selectionStart = search.selectionEnd = search.value.length;
+  markPopOwner();
   announceTable(view);
 }
 
@@ -226,6 +227,7 @@ function updateTable(entry: Shown): void {
   if (reset) reset.hidden = !parts.modified;
   find("#searchWrap")?.classList.toggle("has-value", view.search !== "");
   updateFade(wrap);
+  markPopOwner();
   announceTable(view);
 }
 
@@ -337,6 +339,11 @@ function showLog(lines: readonly string[]): void {
 /** The control that opened the popover, as a selector: a filter's button is written again with the table's head while its
  * popover is open, so the element itself does not last. */
 let popOwner: string | undefined;
+/** Says on each button that opens a popover whether its popover is open now. The table's head is written with every one
+ * closed, so this follows each draw of the table as well as each opening and closing. */
+function markPopOwner(): void {
+  for (const button of document.querySelectorAll("[data-colfilter], #colBtn")) button.setAttribute("aria-expanded", String(popOwner !== undefined && button.matches(popOwner)));
+}
 /** Closes the popover. `back` gives the focus back to the control that opened it: after Escape and after the popover's own
  * buttons, which would otherwise leave the focus on nothing. A click elsewhere takes the focus where it was made. */
 function closePopover(back = false): void {
@@ -347,13 +354,17 @@ function closePopover(back = false): void {
   }
   const owner = popOwner;
   popOwner = undefined;
+  markPopOwner();
   if (back && owner) focusOn(owner);
 }
-function openPopover(owner: string, anchor: Element, html: string): void {
+/** Opens the popover under `anchor`, the button `owner` names. `name` is what the popover is, for a screen reader. */
+function openPopover(owner: string, anchor: Element, name: string, html: string): void {
   const popover = el("popover");
   popover.innerHTML = html;
+  popover.setAttribute("aria-label", name);
   popover.hidden = false;
   popOwner = owner;
+  markPopOwner();
   const rect = anchor.getBoundingClientRect();
   const width = 260;
   let top = rect.bottom + 6;
@@ -370,7 +381,7 @@ function openPopover(owner: string, anchor: Element, html: string): void {
 }
 function openColFilter(entry: Shown, column: Column, owner: string, anchor: Element): void {
   const values = valueCounts(entry.table.rows, column.index);
-  openPopover(owner, anchor, colFilterHtml(column, values, entry.filters.get(column.index)));
+  openPopover(owner, anchor, `Filter: ${column.label}`, colFilterHtml(column, values, entry.filters.get(column.index)));
   const popover = el("popover");
   popover.querySelectorAll<HTMLInputElement>("input[data-fval]").forEach(input => {
     input.addEventListener("change", () => {
@@ -395,7 +406,7 @@ function openColFilter(entry: Shown, column: Column, owner: string, anchor: Elem
   });
 }
 function openColChooser(entry: Shown, anchor: Element): void {
-  openPopover("#colBtn", anchor, colChooserHtml(entry.columns, entry.hidden));
+  openPopover("#colBtn", anchor, "Show or hide columns", colChooserHtml(entry.columns, entry.hidden));
   const popover = el("popover");
   popover.querySelectorAll<HTMLInputElement>("input[data-col]").forEach(input => {
     input.addEventListener("change", () => {
