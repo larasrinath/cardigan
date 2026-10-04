@@ -7,8 +7,9 @@ import { zipEntries } from "./zip.test-support.js";
  *
  * Made once by running 0.6.1's own analyseApp and exportModel on those fixtures, with the clock at 2026-09-28 12:30:10 UTC and
  * the time zone UTC (a zip entry carries its time as local time). Never regenerate them from newer code: a difference means the
- * export changed. What is deliberately written otherwise since is named below, row by row (`APP_ROW_REWORDED`): a test then
- * compares with 0.6.1's zip but for that row, and the zips themselves stay as they are. */
+ * export changed. What is deliberately written otherwise since is named below, a row of the app's files and a column of the
+ * model's (`APP_ROW_REWORDED`, `MODEL_COLUMN_ADDED`): a test then compares with 0.6.1's zip but for that row or that column,
+ * and the zips themselves stay as they are. */
 
 /** The time on every entry of both zips, as a local time, so the comparison holds in any time zone. */
 export const ZIPPED_AT = new Date(2026, 8, 28, 12, 30, 10);
@@ -183,3 +184,33 @@ export const MODEL_ZIP_0_6_1 = bytes([
   "SwECFAAUAAAIAADFYzxdmh07XkgAAABIAAAADAAAAAAAAAAAAAAAAAA5EQAAVmVyc2lvbnMuY3N2UEsBAhQAFAAACAAAxWM8XduccDYpDQAAKQ0AABIAAAAAAAAAAAAAAAAAqxEAAE1vZGVsIENhbG",
   "VuZGFyLmNzdlBLBQYAAAAADAAMANsCAAAEHwAAAAA=",
 ].join(""));
+
+/** The one column of the model's files that is deliberately not what 0.6.1 wrote. Line Items.csv has a column more, its
+ * last: "Format List", which names the list of a line item formatted as a list (model/lineitems.ts). The model this zip was
+ * made from has no Format column in its Line Items grid, so no line item of it is formatted as a list and the column is
+ * empty in every row: the file's first line gains the column's name as a last cell, and every other line an empty one.
+ *
+ * Besides the build's name, it is the only place where this model's files are known to differ from 0.6.1's. The name is in
+ * the "Exported with" row and, for a model page opened on its own, in the first Diagnostics line, and does not show in a
+ * comparison here, for the reasons given at `APP_ROW_REWORDED`. */
+export const MODEL_COLUMN_ADDED = { file: "Line Items.csv", header: "Format List" } as const;
+
+/** 0.6.1's text of that file with the column: each line as it is, with the one cell added at its end. `csv` is the file's
+ * text as toCsv wrote it, with its byte order mark or without. */
+export function withColumnAdded(csv: string): string {
+  const lines = csv.split("\r\n");
+  // A row is a line: the text ends in a line end, and no cell holds one. (A line that ends inside a quoted cell has an odd
+  // number of quotes. The line break in one of this file's cells is a line feed alone.)
+  if (lines.pop() !== "" || lines.some(line => line.split("\"").length % 2 === 0)) throw new Error("0.6.1's Line Items.csv does not hold one row a line.");
+  return lines.map((line, index) => `${line},${index === 0 ? MODEL_COLUMN_ADDED.header : ""}\r\n`).join("");
+}
+
+/** The model's zip as 0.6.1 wrote it but for that column: every file's bytes as they are in `MODEL_ZIP_0_6_1`, with the
+ * cell added to each line of Line Items.csv, written by zipStore with the same time on every entry. model/model.test.ts
+ * pins that zipStore writes `MODEL_ZIP_0_6_1` itself, byte for byte, from the files as they are, so what differs from this
+ * zip differs from 0.6.1. */
+export const MODEL_ZIP_COLUMN_ADDED = zipStore(zipEntries(MODEL_ZIP_0_6_1).map(entry => {
+  if (entry.name !== MODEL_COLUMN_ADDED.file) return entry;
+  const text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(entry.data);
+  return { name: entry.name, data: new TextEncoder().encode(withColumnAdded(text)) };
+}), ZIPPED_AT);

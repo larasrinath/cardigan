@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DETAILS_FILE, TAB_FILES } from "../analyse.js";
-import { APP_ZIP_REWORDED, MODEL_ZIP_0_6_1, ZIPPED_AT } from "../golden-0.6.1.test-support.js";
+import { APP_ZIP_REWORDED, MODEL_ZIP_COLUMN_ADDED, ZIPPED_AT } from "../golden-0.6.1.test-support.js";
 import { Failure, firstLine } from "../progress.js";
 import { ROWS_MAX, type Subject } from "../protocol.js";
 import type { AnalysisResult } from "../result-types.js";
@@ -200,8 +200,9 @@ describe("The results page against the engine in the Anaplan tab", () => {
     // The log the result carries is the frame's own, which begins with the export: inside Model Building it has neither
     // of the two lines the content script wrote before it asked the frame. From there on the two logs are the same.
     expect(diagnosticLog(detailsOf(result))).toEqual(page.client.log.slice(2));
-    // What the page would give for download is, file for file, the zip 0.6.1 wrote for this model.
-    expect(files(resultZip(result, ZIPPED_AT), "Model Details.csv")).toEqual(files(MODEL_ZIP_0_6_1, "Model Details.csv"));
+    // What the page would give for download is, file for file, the zip 0.6.1 wrote for this model, but for the one column of
+    // Line Items.csv that is deliberately added since (MODEL_COLUMN_ADDED in golden-0.6.1.test-support.ts).
+    expect(files(resultZip(result, ZIPPED_AT), "Model Details.csv")).toEqual(files(MODEL_ZIP_COLUMN_ADDED, "Model Details.csv"));
     expect([result.kind, result.name, result.zipName]).toEqual(["model", "Demand: plan", "Demand plan - Model Export - 2026-09-28.zip"]);
     // The page's one rule about a model's file fits the file the export writes: its name, its Section column, and the
     // template's five rows about the model, of which the export fills in three.
@@ -244,7 +245,7 @@ describe("The results page against the engine in the Anaplan tab", () => {
     expect(cells("Exports.csv", "Action")).toEqual([['{"exportType":"GRID_CURRENT_PAGE"}'], ['{"exportType":"GRID_CURRENT_PAGE"}']]);
   });
 
-  it("takes a model's line items, 5,000 rows of 26 columns, in the pieces the engine sends them in", async () => {
+  it("takes a model's line items, 5,000 rows of 27 columns, in the pieces the engine sends them in", async () => {
     const columns = ["Formula", "Summary", ...Array.from({ length: 21 }, (_, index) => `Property ${index + 1}`)];
     const rows = Array.from({ length: 5000 }, (_, index) => ({ ids: [1901000000000 + index, 102000000001], labels: [`Line item ${index}`, "Profitability"],
       cells: [`IF 'Flag ${index}' THEN Volume[SELECT: Versions.Actual] * Price ELSE 0`, '{"summaryMethod":"SUM"}', ...Array.from({ length: 21 }, (_, column) => `value ${index}.${column}`)] }));
@@ -265,9 +266,9 @@ describe("The results page against the engine in the Anaplan tab", () => {
 
     expectEngineResult(page, runs[0]);
     const lineItems = page.held().result.tables[1];
-    expect([lineItems.file, lineItems.headers.length, lineItems.rows.length]).toEqual(["Line Items.csv", 26, 5000]);
-    expect([lineItems.rows[0][0], lineItems.rows[4999][0], lineItems.rows[4999][25]]).toEqual(["Line item 0", "Line item 4999", ""]);
-    expect(lineItems.rows.every((row, index) => row.length === 26 && row[3] === `value ${index}.0`)).toBe(true);
+    expect([lineItems.file, lineItems.headers.length, lineItems.rows.length]).toEqual(["Line Items.csv", 27, 5000]);
+    expect([lineItems.rows[0][0], lineItems.rows[4999][0], lineItems.rows[4999][26]]).toEqual(["Line item 0", "Line item 4999", ""]);
+    expect(lineItems.rows.every((row, index) => row.length === 27 && row[3] === `value ${index}.0`)).toBe(true);
   });
 
   it("shows why the engine could not read the app in the engine's own sentence, with the detail in the log, and runs again", async () => {
@@ -395,7 +396,7 @@ describe("The results page against the engine in the Anaplan tab", () => {
     expect([runs.length, settings.reads.filter((read, index, all) => all.indexOf(read) !== index)]).toEqual([2, []]);
     expectEngineResult(next, runs[1]);
     const { result } = next.held();
-    expect(files(resultZip(result, ZIPPED_AT), "Model Details.csv")).toEqual(files(MODEL_ZIP_0_6_1, "Model Details.csv"));
+    expect(files(resultZip(result, ZIPPED_AT), "Model Details.csv")).toEqual(files(MODEL_ZIP_COLUMN_ADDED, "Model Details.csv"));
     // The next page's log begins where it took over, after the two lines the content script writes for every run. The log
     // the result carries is the export's from its beginning: between them the two pages were told each line of it once.
     expect(next.client.log.slice(0, 3)).toEqual([firstLine("model", MODEL, SHELL_HOST), runs[1].said[0], "Modules: 2 rows × 2 columns; columns: Applies To | Cell Count"].map(stamped));

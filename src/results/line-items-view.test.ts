@@ -8,15 +8,15 @@ import { APPLIES_TO, APPLIES_TO_FROM, APPLIES_TO_SOURCE, LINE_ITEMS_FILE, lineIt
 import { selectRows, valueCounts } from "./table-engine.js";
 
 // Made-up names only. The headers are the ones a real model's Line Items table has, in its order: the unnamed column with
-// each row's name, the grid's 25 columns as the diagnostic log of an export lists them, then the two the export adds.
+// each row's name, the grid's 25 columns as the diagnostic log of an export lists them, then the three the export adds.
 const GRID_COLUMNS = ["Format", "Formula", "Summary", "Applies To", "Time Scale", "Time Range", "Versions", "Style", "Cell Count", "Calculation Effort", "Notes",
   "Read Access Driver", "Write Access Driver", "Users List", "Parent", "Is Summary", "Formula Scope", "Code", "Use Switchover", "Breakback", "Brought-Forward",
   "Start of Section", "Data Tags", "Referenced By", "Module Name"];
-const HEADERS = ["", ...GRID_COLUMNS, "Ratio Numerator", "Ratio Denominator"];
+const HEADERS = ["", ...GRID_COLUMNS, "Ratio Numerator", "Ratio Denominator", "Format List"];
 /** The same headers as the view orders them: the module after the name, and where Applies To came from after Applies To. */
 const VIEW_HEADERS = ["", "Module Name", "Format", "Formula", "Summary", "Applies To", "Applies To from", "Time Scale", "Time Range", "Versions", "Style", "Cell Count",
   "Calculation Effort", "Notes", "Read Access Driver", "Write Access Driver", "Users List", "Parent", "Is Summary", "Formula Scope", "Code", "Use Switchover", "Breakback",
-  "Brought-Forward", "Start of Section", "Data Tags", "Referenced By", "Ratio Numerator", "Ratio Denominator"];
+  "Brought-Forward", "Start of Section", "Data Tags", "Referenced By", "Ratio Numerator", "Ratio Denominator", "Format List"];
 
 const NUMBER = '{"dataType":"NUMBER"}';
 const NO_DATA = '{"dataType":"NONE"}';
@@ -124,7 +124,7 @@ describe("The Line Items table as the results page shows it", () => {
     const result = await exportedLineItems(MODEL);
     // The export's files here: the one about the export itself, then the grid's. The view knows the grid's by this name.
     expect(result.tables.map(written => written.file)).toEqual(["Model Details.csv", LINE_ITEMS_FILE]);
-    // The row's name first, the grid's columns under Anaplan's own headers, the two ratio columns last. The module each
+    // The row's name first, the grid's columns under Anaplan's own headers, the export's three columns last. The module each
     // line item's row carries on the grid's axis is not in the table: only the Module Name column says it.
     const exported = result.tables[1];
     expect(exported).toEqual(table(HEADERS, MODEL));
@@ -140,7 +140,7 @@ describe("The Line Items table as the results page shows it", () => {
 
   it("is for the model's Line Items file, and for no other", () => {
     const lineItems = table(HEADERS, MODEL);
-    expect([LINE_ITEMS_FILE, lineItems.file, lineItems.label, HEADERS.length, VIEW_HEADERS.length]).toEqual(["Line Items.csv", "Line Items.csv", "Line Items", 28, 29]);
+    expect([LINE_ITEMS_FILE, lineItems.file, lineItems.label, HEADERS.length, VIEW_HEADERS.length]).toEqual(["Line Items.csv", "Line Items.csv", "Line Items", 29, 30]);
     expect(lineItemsView(lineItems).moduleRows).toBe(5);
     // The same table under any other name comes back as it is: a file is known by its whole name, as it is written.
     for (const file of ["Modules.csv", "line items.csv", "Line Items", "Line Items.csv ", "Line Items (1).csv", "Model Details.csv"]) {
@@ -178,7 +178,7 @@ describe("The Line Items table as the results page shows it", () => {
       ["Cost", COSTS, "Cost Centres", "Module"], ["Revenue", COSTS, "Cost Centres", "Module"],
       // An empty Applies To on a line item is its own: it applies to no list, whatever its module applies to.
       ["Rate", COSTS, "", "Line item"]]);
-    // Every other column holds, for each line item, the very cell the file holds: Format and Summary as they stand, the ratio columns too.
+    // Every other column holds, for each line item, the very cell the file holds: Format and Summary as they stand, the export's three columns too.
     const lineItems = MODEL.filter(row => row[HEADERS.indexOf(MODULE_NAME)] !== "");
     for (const header of HEADERS.filter(name => name !== APPLIES_TO)) expect(column(view.table, header), header).toEqual(lineItems.map(row => row[HEADERS.indexOf(header)]));
     expect([column(view.table, "Format")[3], column(view.table, "Summary")[5], column(view.table, "Ratio Numerator")[5], column(view.table, "Ratio Denominator")[5]])
