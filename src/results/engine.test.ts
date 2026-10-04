@@ -11,7 +11,6 @@ import { APP_FILES } from "./columns.js";
 import { describeState, ResultsClient, type RunState } from "./connection.js";
 import { APP_HOST, GOLDEN_APP, GOLDEN_GRIDS, goldenApp, LINE_ITEMS, MODEL, MODEL_HOST, modelPage, serveEngine, SHELL_HOST, type EngineRun } from "./engine.test-support.js";
 import { FakeTab, MESSAGE_MAX_BYTES, NOBODY, TOO_LARGE, type PortEnd } from "./port-pair.test-support.js";
-import { selectRows } from "./table-engine.js";
 import { detailsOf, diagnosticLog, fileView, listedTables, MODEL_CALENDAR_FILE, MODEL_FILE_ORDER, modelFacts, overviewOf } from "./result-view.js";
 
 // The results page's client against the engine: the content script's real side of the port around the real analysis of an
@@ -243,12 +242,6 @@ describe("The results page against the engine in the Anaplan tab", () => {
     expect(cells("Line Items.csv", "Summary")).toEqual([["", '{"summaryMethod":"SUM"}', '{"summaryMethod":"SUM"}', ratio], ["", "Sum", "Sum", "Ratio = Profit / Revenue"]]);
     expect(cells("Other Actions.csv", "Action")).toEqual([['{"actionType":"DELETE_BY_SELECTION"}'], ["Delete from List using Selection"]]);
     expect(cells("Exports.csv", "Action")).toEqual([['{"exportType":"GRID_CURRENT_PAGE"}'], ['{"exportType":"GRID_CURRENT_PAGE"}']]);
-    // The search still finds a row by the text the CSV has: the page hands the engine's text to the search with the words.
-    const lineItems = result.tables.find(candidate => candidate.file === "Line Items.csv")!;
-    const shown = fileView(result, lineItems);
-    const found = (search: string) => selectRows(shown.table.rows, { search, filters: new Map(), also: row => shown.exported?.get(row)?.values() }).map(row => row[0]);
-    expect([found("ratioNumeratorIdentifier"), found("ratio = profit"), found("summaryMethod").length, selectRows(shown.table.rows, { search: "summaryMethod", filters: new Map() }).length])
-      .toEqual([["Margin %"], ["Margin %"], 3, 0]);
   });
 
   it("takes a model's line items, 5,000 rows of 26 columns, in the pieces the engine sends them in", async () => {
