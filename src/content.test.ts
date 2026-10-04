@@ -162,6 +162,43 @@ describe("The content scripts on an Anaplan page", () => {
       { type: "error", message: "Anaplan refused the request. You may not have access to this app: check that you can open it in Anaplan, then choose Run again." }]);
   });
 
+  it("stops the app's analysis when the results page is closed: the page being read is finished, and no further one is started", async () => {
+    at(`/a/apps/app/${APP}`);
+    const pageGuid = (n: number) => `11111111-2222-3333-4444-55555555555${n}`;
+    const pages = [1, 2, 3].map(n => ({ guid: pageGuid(n), name: `Page ${n}`, pageType: "BOARD", hasPublishedVersion: true }));
+    const read: string[] = [];
+    let port: FakePort | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      const path = new URL(url).pathname.split("/").slice(3).join("/");
+      read.push(path);
+      if (path.startsWith("apps/")) return new Response(JSON.stringify({ name: "Plan", pages }), { status: 200 });
+      // The results page is closed while page 1 is being read. No route returns the page, so all three are tried.
+      if (path === `boards/${pageGuid(1)}`) port!.close();
+      return new Response("{}", { status: 404 });
+    }));
+    await import("./content.js");
+    port = open();
+    port.say({ type: "run" });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(read).toEqual([`apps/${APP}`, `boards/${pageGuid(1)}`, `grid-pages/${pageGuid(1)}`, `reports/${pageGuid(1)}`]);
+    expect(vi.mocked(globalThis.WebSocket).mock.calls).toEqual([]);
+  });
+
+  it("waits for the model's frame on a Model Building page even when the page's own window has announced a model", async () => {
+    at(MODEL_BUILDING);
+    await import("./content.js");
+    // Only this window itself says it holds a model: no frame has checked in.
+    hear({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL }, SHELL, page);
+    expect(posted).toEqual([{ protocol: PROTOCOL, type: "ack" }]);
+    const port = open();
+    port.say({ type: "run" });
+    await vi.advanceTimersByTimeAsync(2500);
+    // Acknowledged, and never asked to export: Model Building reads in the frame, so the page goes on waiting for it.
+    expect(posted.map(message => (message as { type: string }).type)).toEqual(["ack"]);
+    expect(port.received.filter(message => message.type === "status")).toEqual(Array(3).fill({ type: "status", text: "Waiting for the model's frame…" }));
+    port.close();
+  });
+
   it("exports a model through its core frame when the results page asks, and hands the files on in pieces", async () => {
     at(MODEL_BUILDING);
     await import("./content.js");

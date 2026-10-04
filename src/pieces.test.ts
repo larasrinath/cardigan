@@ -84,6 +84,10 @@ describe("A result sent to the results page piece by piece", () => {
     const messages = [...resultMessages(model(table("Line Items.csv", ["", "Notes"], rows)))];
     expect(pieces(messages).filter(piece => piece.table === 1).map(piece => piece.rows.map(row => row[0]))).toEqual([["before"], ["huge"], ["after", "last"]]);
     expect(assemble(messages).tables[1].rows).toEqual(rows);
+    // When that row is the table's first, nothing goes before it: no piece is ever empty.
+    const first = [...resultMessages(model(table("Line Items.csv", ["", "Notes"], rows.slice(1)), table("Modules.csv", ["", "Notes"], [["huge", huge]])))];
+    expect(pieces(first).map(piece => [piece.table, piece.rows.map(row => row[0])])).toEqual([[0, ["Model", "Files"]], [1, ["huge"]], [1, ["after", "last"]], [2, ["huge"]]]);
+    expect(assemble(first).tables[1].rows).toEqual(rows.slice(1));
   });
 
   it("stays far below Chrome's limit for a message even when every character has to be escaped", () => {
