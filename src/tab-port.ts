@@ -1,10 +1,9 @@
 import { stampLine } from "./details.js";
 import { resultMessages } from "./pieces.js";
-import { failureOf, SEND_LOG, type Progress } from "./progress.js";
+import { failureOf, firstLine, SEND_LOG, type Progress } from "./progress.js";
 import { PORT_NAME, type PageMessage, type Subject, type TabMessage } from "./protocol.js";
 import type { AnalysisResult } from "./result-types.js";
 import { message } from "./util.js";
-import { VERSION } from "./version.js";
 
 /** The Anaplan tab's end of the port to the results page (protocol.ts). The page opens the port; this side says what the
  * tab shows and reads nothing until the page sends "run". It then reports each step and each line of the diagnostic log,
@@ -91,7 +90,7 @@ export function serveTab(runtime: Pick<typeof chrome.runtime, "id" | "onConnect"
       tell({ type: "log", text: stamped });
     };
     const progress: Progress = { status: text => { current.status = text; tell({ type: "status", text }); log(text); }, log };
-    log(`Cardigan ${VERSION}: ${subject.kind} ${subject.id} on ${tab.host}`);
+    log(firstLine(subject.kind, subject.id, tab.host));
     const perform = async () => {
       try {
         const result = await tab.run(subject, progress, () => current.lines.join("\r\n"), current.stop.signal);
