@@ -370,9 +370,9 @@ export function rowDrawerHtml(columns: readonly Column[], row: Row, links: Links
     ${allColumns(columns, row, links)}</div>`;
 }
 
-/** Under a row's name in the drawer: the table it is a row of. */
-export function rowDrawerSubHtml(label: string): string {
-  return esc(label);
+/** Under a row's name in the drawer: which row of which table it is. `position` is the row's place in the file, from 1. */
+export function rowDrawerSubHtml(position: number, label: string): string {
+  return `Row ${esc(position)} of ${esc(label)}`;
 }
 
 /** Under a card's name in the drawer: its page (a jump to that page's cards), its type and its ID. */

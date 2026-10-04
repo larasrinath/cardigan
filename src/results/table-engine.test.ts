@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { NONE as REPORT_NONE } from "../report.js";
 import type { Cell } from "../result-types.js";
-import { cellText, NONE, pageOf, pagerItems, rememberingSelect, selectRows, sortRows, valueCounts, type TableQuery } from "./table-engine.js";
+import { cellText, NONE, pageOf, pagerItems, rememberingSelect, ROW_NAME_MAX, rowName, selectRows, sortRows, valueCounts, type TableQuery } from "./table-engine.js";
 
 // Page, Card #, Card title, Card type, Card ID
 const CARDS: Cell[][] = [
@@ -20,6 +20,17 @@ describe("The results page's table engine", () => {
     expect([cellText("=A + B"), cellText(12), cellText(0), cellText(""), cellText(undefined), cellText(null), cellText(-1.5)]).toEqual(["=A + B", "12", "0", "", "", "", "-1.5"]);
     // The dash the page greys is the one the app export writes where it has nothing to say.
     expect(NONE).toBe(REPORT_NONE);
+  });
+
+  it("names a row by its first cell that says something", () => {
+    expect([rowName(["Revenue", "Units * Price"]), rowName(["", "Units * Price"]), rowName(["—", "", 12, "x"]), rowName([0, "x"]), rowName(["   ", "\n", "  name  "])])
+      .toEqual(["Revenue", "Units * Price", "12", "0", "name"]);
+    // No cell says anything: the row has no name of its own.
+    expect([rowName([]), rowName(["", "—", "  "])]).toEqual(["", ""]);
+    // A text is a name as it stands, markup and all; only one far longer than a name is cut, and marked as cut.
+    expect(rowName(["<b>Q4</b> plan"])).toBe("<b>Q4</b> plan");
+    const long = "x".repeat(ROW_NAME_MAX + 30);
+    expect([rowName(["x".repeat(ROW_NAME_MAX)]).length, rowName([long]), ROW_NAME_MAX]).toEqual([ROW_NAME_MAX, `${"x".repeat(ROW_NAME_MAX)}…`, 120]);
   });
 
   it("keeps the file's rows and order when nothing is asked", () => {
