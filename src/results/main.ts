@@ -498,6 +498,10 @@ function rowFor(element: Element): { entry: Shown; row: Row } | undefined {
 /* ================= view switching ================= */
 function navTo(view: View, context?: string): void {
   closePopover();
+  // The search and the jump end with the view. The table that is left had its page counted among the rows they kept,
+  // so it is shown from its first page when the user comes back to it.
+  const left = currentEntry();
+  if (left && (state.search.trim() !== "" || state.context !== undefined)) left.page = 0;
   state.view = view;
   state.search = "";
   state.context = context;
@@ -603,6 +607,8 @@ document.addEventListener("click", event => {
   if (sortButton && entry) {
     const column = Number(sortButton.dataset.sort);
     entry.sort = !entry.sort || entry.sort.column !== column ? { column, dir: "asc" } : entry.sort.dir === "asc" ? { column, dir: "desc" } : undefined;
+    // Another order puts other rows on every page: the table is shown from its first page, as after a search or a filter.
+    entry.page = 0;
     updateTable(entry);
     focusOn(`[data-sort="${column}"]`);
     return;

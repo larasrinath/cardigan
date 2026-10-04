@@ -140,7 +140,7 @@ describe("The results page's script, on the page", () => {
   /** The column headings that offer a filter, by the column's name. */
   const filterable = () => page.all("#tableWrap thead th").filter(heading => heading.querySelector("[data-colfilter]")).map(heading => heading.querySelector(".th-sort")?.textContent.trim());
   /** The open filter's choices: each one's text, its count, and whether it is ticked. */
-  const choices = () => page.all("#popover .pop-opt").map(option => [option.children[1].textContent, option.querySelector(".po-cnt")?.textContent, option.children[0].checked]);
+  const choices = () => page.all("#popover .pop-opt").map(option => [option.children[1].textContent, option.querySelector(".po-cnt")?.childNodes[0].textContent, option.children[0].checked]);
   /** The pager's buttons: each one's words, with a mark on the current page and brackets around one that is disabled. */
   const pagerButtons = () => page.all("#pager .pg-btn").map(button => {
     const words = button.textContent.trim();
@@ -474,6 +474,8 @@ describe("The results page's script, on the page", () => {
     expect(filterable()).toEqual(["Format", "Module"]);
     page.find('[data-colfilter="3"]').press();
     expect(choices()).toEqual([["Cost", "60", true], ["Revenue", "60", true]]);
+    // The popover says what its numbers count: to the eye above the list, and to a screen reader with each number.
+    expect([page.texts("#popover .pop-hd"), page.texts("#popover .po-cnt")]).toEqual([["Filter: ModuleShow all", "ValueRows in the whole table"], ["60 rows in the whole table", "60 rows in the whole table"]]);
     page.all("#popover input")[0].tick();
     expect([page.id("rowCount").textContent, firstCells()[0], page.find('[data-colfilter="3"]').classList.contains("active")]).toEqual(["1–50 of 60 rows (filtered from 120)", "Line item 1", true]);
     // A second column's filter narrows what the first left.
@@ -486,6 +488,69 @@ describe("The results page's script, on the page", () => {
     page.key("Escape");
     goTo(2);
     expect(filterable()).toEqual(["Name", "Functional Area"]);
+  });
+
+  it("shows a table from its first page again after a sort, a search or a filter, and after leaving a search behind", async () => {
+    await openWith(MODEL);
+    goTo(1);
+    const current = () => page.texts('#pager .pg-btn[aria-current="true"]')[0];
+    const toPage = (number: number) => page.find(`.pg-btn[aria-label="Page ${number}"]`).press();
+    // A sort puts other rows on every page: each of its three steps starts at the first page.
+    for (const expected of ["Line item 1", "Line item 120", "Line item 1"]) {
+      toPage(3);
+      expect(current()).toBe("3");
+      page.find('[data-sort="0"]').press();
+      expect([current(), firstCells()[0]]).toEqual(["1", expected]);
+    }
+    // A filter and a search do the same: a box ticked, and Show all.
+    toPage(2);
+    page.find('[data-colfilter="1"]').press();
+    page.all("#popover input")[0].tick();
+    expect([current(), page.id("rowCount").textContent]).toEqual(["1", "1–50 of 80 rows (filtered from 120)"]);
+    toPage(2);
+    page.find('[data-colfilter="1"]').press();
+    page.find('#popover [data-popact="all"]').press();
+    expect([current(), page.id("rowCount").textContent]).toEqual(["1", "1–50 of 120 rows"]);
+    toPage(3);
+    page.id("tblSearch").type("revenue");
+    expect([current(), page.id("rowCount").textContent]).toEqual(["1", "1–50 of 60 rows (filtered from 120)"]);
+    // Rows per page and the columns shown change no row's place: only the page size starts again.
+    toPage(2);
+    page.id("colBtn").press();
+    page.all("#popover input")[1].tick();
+    page.key("Escape");
+    expect(current()).toBe("2");
+
+    // The search ends when the user leaves the table: coming back, the table is whole again, and on its first page.
+    goTo(2);
+    goTo(1);
+    expect([page.id("tblSearch").value, current(), page.id("rowCount").textContent]).toEqual(["", "1", "1–50 of 120 rows"]);
+    // Without a search, a table keeps the page the user left it on.
+    toPage(3);
+    goTo(2);
+    goTo(1);
+    expect([current(), page.id("rowCount").textContent]).toEqual(["3", "101–120 of 120 rows"]);
+  });
+
+  it("shows a table from its first page again after a jump to a page's cards is left behind", async () => {
+    // An app with sixty cards on one page and sixty on another.
+    const cards = Array.from({ length: 120 }, (_, index): Cell[] => [index < 60 ? "Overview" : "Stores", index % 60 + 1, `Card ${index + 1}`, "Grid", `card-${index}`]);
+    await openWith({ ...RESULT, tables: [RESULT.tables[0], { ...RESULT.tables[1], rows: [["Overview", 60], ["Stores", 60]] }, { ...RESULT.tables[2], rows: cards }] });
+    goTo(1);
+    page.all('#tableWrap tbody [data-act="page"]')[1].press();
+    expect([page.texts("#view h1"), page.texts("#crumbs .ctx"), page.id("rowCount").textContent]).toEqual([["Cards"], ["Page: Stores"], "1–50 of 60 rows (filtered from 120)"]);
+    page.find('.pg-btn[aria-label="Page 2"]').press();
+    expect(page.id("rowCount").textContent).toBe("51–60 of 60 rows (filtered from 120)");
+    // Leaving the jump by the navigation, and coming back to all the cards.
+    goTo(1);
+    goTo(2);
+    expect([page.has("#crumbs .ctx"), page.id("rowCount").textContent]).toEqual([false, "1–50 of 120 rows"]);
+    // The breadcrumb's cross ends the jump in place, and gives the view the focus.
+    goTo(1);
+    page.all('#tableWrap tbody [data-act="page"]')[0].press();
+    page.find('.pg-btn[aria-label="Page 2"]').press();
+    page.find('#crumbs [data-act="clear-context"]').press();
+    expect([page.has("#crumbs .ctx"), page.id("rowCount").textContent, page.document.activeElement === page.id("view")]).toEqual([false, "1–50 of 120 rows", true]);
   });
 
   it("keeps the focus on the control the user has just used when the table is drawn again", async () => {
