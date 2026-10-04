@@ -3,7 +3,7 @@ import { DETAILS_HEADERS, diagnosticRows, exportRows, type DetailRow } from "../
 import { HEADERS, type TabName } from "../report.js";
 import { CALENDAR_HEADERS, calendarRows } from "../model/calendar.js";
 import type { AnalysisResult, Cell, ResultTable } from "../result-types.js";
-import { APP_FILES, cardsOf } from "./columns.js";
+import { APP_FILES, cardsOf, columnsOf } from "./columns.js";
 import { lineItemsView } from "./line-items-view.js";
 import { ABOUT_MODEL, analysedOf, CARD_PARTS, cardParts, cardSections, detailSections, detailsOf, detailValue, diagnosticLog, FILE_RULES, fileView, listedTables, MODEL_CALENDAR_FILE, MODEL_FILE_ORDER, modelFacts,
   MODULES_FILE, overviewOf, resultNotes } from "./result-view.js";
@@ -431,7 +431,7 @@ describe("What the results page reads out of a result", () => {
     const model = result("model", [modelDetails, lineItems]);
     const shown = fileView(model, lineItems);
     // A Format and a Summary are said as Anaplan says them. A Ratio names what it divides by its own row's two cells; a
-    // list is said by its ID, for which a result has no name.
+    // list is said by its ID where the file has no Format List column to name it, as here.
     expect(shown.table).toEqual({ ...lineItems, rows: [
       ["Units", "Number", "", "Sum", "", ""],
       ["Margin %", "Number, 2 decimal places, %", "Margin / Revenue", "Ratio = Margin / Revenue", "Margin", "Revenue"],
@@ -486,6 +486,56 @@ describe("What the results page reads out of a result", () => {
     // The words change no row: the tile counts the line items, as before.
     expect(overviewOf(model).tiles).toEqual([{ label: "Line Items", count: 2, inCsv: 3 }]);
     expect(blueprint.rows[1]).toEqual(["Units", NUMBER, '{"summaryMethod":"SUM","timeSummaryMethod":"SUM"}', "-", "Revenue", "", ""]);
+  });
+
+  it("says a list format with the list's name from its own row's Format List cell, and with the list's ID where that cell is empty", () => {
+    const list = (id: number, changes: Record<string, unknown> = {}): string =>
+      JSON.stringify({ hierarchyEntityLongId: id, entityFormatFilter: null, selectiveAccessApplied: false, showAll: false, dataType: "ENTITY", ...changes });
+    const NUMBER = '{"dataType":"NUMBER"}';
+    const SUM = '{"summaryMethod":"SUM","timeSummaryMethod":"SUM"}';
+    const NO_SUMMARY = '{"summaryMethod":"NONE","timeSummaryMethod":"NONE"}';
+    // The Line Items file as the export writes it: Format List last, with a general list's name and nothing for any other list.
+    const headers = ["", "Format", "Summary", "Applies To", "Module Name", "Ratio Numerator", "Ratio Denominator", "Format List"];
+    const lineItems: ResultTable = { file: "Line Items.csv", label: "Line Items", guard: false, headers, rows: [
+      ["Orders", "", "", "Products, Time", "", "", "", ""],
+      ["Product", list(101000000007), NO_SUMMARY, "-", "Orders", "", "", "Products"],
+      ["Region", list(101000000008, { selectiveAccessApplied: true }), NO_SUMMARY, "-", "Orders", "", "", "Regions <b>& more</b>"],
+      ["Active product", list(109000000004), NO_SUMMARY, "-", "Orders", "", "", ""],
+      ["Units", NUMBER, SUM, "-", "Orders", "", "", ""],
+      // What only the page could be given: a name of spaces, which says nothing; a name beside a format that is no list's;
+      // and another name for a list a row above has named. The name is the row's own cell, asked of no other row.
+      ["Spaces", list(101000000009), NO_SUMMARY, "-", "Orders", "", "", "  "],
+      ["Named number", NUMBER, SUM, "-", "Orders", "", "", "Products"],
+      ["Product again", list(101000000007), NO_SUMMARY, "-", "Orders", "", "", "Product catalogue"]] };
+    const kept = structuredClone(lineItems);
+    const model = result("model", [modelDetails, lineItems]);
+    const shown = fileView(model, lineItems);
+    // The view of line items keeps the column where the file has it, the last; the words stand in the Format column.
+    expect(shown.table.headers).toEqual(["", "Module Name", "Format", "Summary", "Applies To", "Applies To from", "Ratio Numerator", "Ratio Denominator", "Format List"]);
+    const cells = (header: string) => shown.table.rows.map(row => row[shown.table.headers.indexOf(header)]);
+    expect([cells(""), cells("Format"), cells("Format List")]).toEqual([
+      ["Product", "Region", "Active product", "Units", "Spaces", "Named number", "Product again"],
+      ["List: Products", "List: Regions <b>& more</b>, filter: selective access", "List: ID 109000000004", "Number", "List: ID 101000000009", "Number", "List: Product catalogue"],
+      ["Products", "Regions <b>& more</b>", "", "", "  ", "Products", "Product catalogue"]]);
+    // The CSV's text is kept for the Format and the Summary, as before. The Format List cell is the file's own, and has none.
+    expect([...shown.exported?.get(shown.table.rows[0]) ?? []]).toEqual([[2, list(101000000007)], [3, NO_SUMMARY]]);
+    // The column starts shown, as the two of a ratio do, and is a column like any other: plain text, with a filter by list.
+    expect(columnsOf(shown.table).slice(-3).map(column => [column.label, column.kind, column.hidden, column.filter])).toEqual([
+      ["Ratio Numerator", "text", false, false], ["Ratio Denominator", "text", false, false], ["Format List", "text", false, true]]);
+    // The file itself is as it was: the CSV is made of it.
+    expect(lineItems).toEqual(kept);
+
+    // The file as it stands (no row of it is a module's own) is said the same way.
+    const flat: ResultTable = { ...lineItems, rows: lineItems.rows.slice(1, 3) };
+    expect(fileView(result("model", [flat]), flat).table.rows.map(row => row[1])).toEqual(["List: Products", "List: Regions <b>& more</b>, filter: selective access"]);
+    // Without the column, as a result of an earlier version has the file, a list is said by its ID.
+    const before: ResultTable = { ...lineItems, headers: headers.slice(0, -1), rows: lineItems.rows.slice(1, 3).map(row => row.slice(0, -1)) };
+    expect(fileView(result("model", [before]), before).table.rows.map(row => row[1])).toEqual(["List: ID 101000000007", "List: ID 101000000008, filter: selective access"]);
+    // The column is the Line Items file's: in another of a model's files a column of that name names no list.
+    const other: ResultTable = { ...flat, file: "Line Items (2).csv" };
+    expect(fileView(result("model", [other]), other).table.rows.map(row => row[1])).toEqual(["List: ID 101000000007", "List: ID 101000000008, filter: selective access"]);
+    // An app's tables are never said in words.
+    expect(fileView(result("app", [appDetails, flat]), flat)).toEqual({ table: flat });
   });
 
   it("reads the model's own facts out of its Model Calendar file, without the ones that have no value", () => {
