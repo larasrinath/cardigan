@@ -444,6 +444,39 @@ describe("The Line Items table as the results page shows it", () => {
     expect([said(formula), formula.moduleRows]).toEqual([[["Stock", "", "-", "Module (not found)"], ["Price", "Sales", "Products", "Module"]], 1]);
   });
 
+  it("takes names that differ only by the spaces around them for different names, wherever it compares a module's name", () => {
+    // With the Modules file's names: a row that holds only a name is a module's own when its name is one of them as it is
+    // written. With a space before it or after it, it is another name, and the row stays in the table.
+    const listed = lineItemsView(table(BOTH, [["Stock", "", "", "Warehouses", ""], ["Cover", NUMBER, SUM, "-", "Stock"],
+      [" Sales", "", "", "Products", ""], ["Sales ", "", "", "Regions", ""], ["Sales", "", "", "Channels", ""]]), new Set(["Sales", "Stock"]));
+    expect([said(listed), listed.moduleRows, listed.emptyModules]).toEqual([
+      [["Cover", "Stock", "Warehouses", "Module"], [" Sales", "", "Products", "Line item"], ["Sales ", "", "Regions", "Line item"]], 2, 1]);
+    // The same the other way round: a name the Modules file writes with a space is not the name of a row without it.
+    const spaced = lineItemsView(table(BOTH, [["Stock", "", "", "Warehouses", ""], ["Cover", NUMBER, SUM, "-", "Stock"], ["Sales", "", "", "Channels", ""]]), new Set([" Sales", "Sales ", "Stock"]));
+    expect([said(spaced), spaced.moduleRows]).toEqual([[["Cover", "Stock", "Warehouses", "Module"], ["Sales", "", "Channels", "Line item"]], 1]);
+
+    // With the names a line item gives as its module (the names given list none here): "Sales " makes no module of the row
+    // Sales, and Stock none of the row "Stock ". Only Costs is named as it is written.
+    const named = lineItemsView(table(BOTH, [
+      ["Sales", "", "", "Products", ""], ["Units", NUMBER, SUM, "-", "Sales "],
+      ["Stock ", "", "", "Warehouses", ""], ["Cover", NUMBER, SUM, "-", "Stock"],
+      ["Costs", "", "", "Regions", ""], ["Rent", NUMBER, SUM, "-", "Costs"]]), new Set());
+    expect([said(named), named.moduleRows, named.emptyModules]).toEqual([[
+      ["Sales", "", "Products", "Line item"], ["Units", "Sales ", "-", "Module (not found)"],
+      ["Stock ", "", "Warehouses", "Line item"], ["Cover", "Stock", "-", "Module (not found)"],
+      ["Rent", "Costs", "Regions", "Module"]], 1, 0]);
+
+    // And where a line item's Module Name is compared with the module's row above it: the row is called "Sales ", so it is
+    // the module of the line item that names "Sales ", and not of the one that names Sales.
+    const above = lineItemsView(table(BOTH, [["Sales ", "", "", "Products", ""], ["Units", NUMBER, SUM, "-", "Sales"], ["Price", NUMBER, SUM, "-", "Sales "]]));
+    expect(said(above)).toEqual([["Units", "Sales", "-", "Module (not found)"], ["Price", "Sales ", "Products", "Module"]]);
+    // Only a Module Name of nothing but spaces is no name at all: its row names no module, and it makes no module of a
+    // row that is called by those spaces.
+    const blank = lineItemsView(table(BOTH, [["Sales", "", "", "Products", ""], ["Units", NUMBER, SUM, "-", " "], [" ", "", "", "Regions", ""]]), new Set(["Sales"]));
+    expect([said(blank), blank.note]).toEqual([[["Units", " ", "-", "Module (not found)"], [" ", "", "Regions", "Line item"]],
+      "1 module row is in the CSV only; each line item shows its module, except 2 whose module is not known: they have no Module Name in the file."]);
+  });
+
   it("reads the table as before when the names are not given, or are no set of names", () => {
     const given = table(BOTH, [["Sales", "", "", "Products", ""], ["Units", NUMBER, SUM, "-", "Sales"], ["Lost", "", "", "", ""]]);
     const before = lineItemsView(given);

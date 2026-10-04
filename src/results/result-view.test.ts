@@ -408,6 +408,11 @@ describe("What the results page reads out of a result", () => {
       rows: [["Units", "Revenue", "", "Products, Time", "Module"], ["Rent", "Costs", "", "Regions", "Module"]],
       note: "3 module rows are in the CSV only; each line item shows its module. 1 module has no line items, so it is not in this table. It is listed in the Modules table.",
       tile: { label: "Line Items", count: 2, inCsv: 5 } });
+    // A name is the Modules file's only as the file writes it: listed with a space before or after it, Price is not the
+    // row's name, and the row stays in the table as it does when the file does not list it at all.
+    for (const spaced of [" Price", "Price ", " Price "]) {
+      expect(shown(last, [{ ...modules, rows: [...modules.rows, [spaced, ""]] }]), JSON.stringify(spaced)).toEqual(shown(last, [modules]));
+    }
     // A result without the Modules file, or with one that lists nothing, has no names to give: such a row is taken for a
     // module's own, as the view does by itself, and no table is said to list a module. The line says that the names could
     // not be checked, and why: Price, of which only the name was read, is among the rows it counts as modules' own.
