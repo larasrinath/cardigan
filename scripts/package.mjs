@@ -1,8 +1,9 @@
 // Packages the built extension as release/cardigan-<version>.zip and prints its SHA-256.
 // The zip holds only the files Chrome loads: manifest.json, the bundles it names under dist/, the icons it names under
 // icons/, and the results page with its stylesheet and its bundle; a page that loads any other file is refused, and so is a
-// content security policy that would let one in from outside the package. Entries are sorted, carry fixed timestamps and
-// attributes and are stored uncompressed, so the same files give the same bytes on every run, machine and Node version.
+// content security policy that would let one in from outside the package, or a manifest that declares no policy at all.
+// Entries are sorted, carry fixed timestamps and attributes and are stored uncompressed, so the same files give the same
+// bytes on every run, machine and Node version.
 // Offline: it never uploads or publishes anything.
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -22,7 +23,8 @@ const KNOWN_SCRIPT_KEYS = new Set(['matches', 'js', 'run_at', 'world', 'all_fram
 const KNOWN_ACTION_KEYS = new Set(['default_title', 'default_icon']);
 const KNOWN_BACKGROUND_KEYS = new Set(['service_worker']);
 /** The one policy the packager knows: that of the extension's own pages and its service worker. A sandbox policy would
- * come with sandboxed pages, which the manifest would have to name. */
+ * come with sandboxed pages, which the manifest would have to name. The manifest must declare this one: without it Chrome
+ * applies its own default, which holds only scripts and plugins to the package. */
 const KNOWN_POLICY_KEYS = new Set(['extension_pages']);
 /** What a policy may let in: the extension's own files, or nothing. */
 const PACKAGED_SOURCES = new Set(["'self'", "'none'"]);
@@ -83,14 +85,14 @@ export function runtimeFiles(manifest) {
   for (const script of scripts) checkKeys(script, KNOWN_SCRIPT_KEYS, 'content_scripts ');
   checkKeys(action, KNOWN_ACTION_KEYS, 'action ');
   checkKeys(background, KNOWN_BACKGROUND_KEYS, 'background ');
-  if ('content_security_policy' in manifest) {
-    const policies = manifest.content_security_policy;
-    if (!policies || typeof policies !== 'object' || Array.isArray(policies) || !('extension_pages' in policies)) {
-      problems.push('manifest.json: "content_security_policy" does not hold "extension_pages"');
-    } else {
-      checkKeys(policies, KNOWN_POLICY_KEYS, 'content_security_policy ');
-      for (const problem of policyProblems(policies.extension_pages)) problems.push(`manifest.json: content_security_policy "extension_pages" ${problem}`);
-    }
+  const policies = manifest.content_security_policy;
+  if (policies === undefined) {
+    problems.push('manifest.json: has no "content_security_policy", so Chrome\'s default would apply, which lets a page load from outside the package');
+  } else if (!policies || typeof policies !== 'object' || Array.isArray(policies) || !('extension_pages' in policies)) {
+    problems.push('manifest.json: "content_security_policy" does not hold "extension_pages"');
+  } else {
+    checkKeys(policies, KNOWN_POLICY_KEYS, 'content_security_policy ');
+    for (const problem of policyProblems(policies.extension_pages)) problems.push(`manifest.json: content_security_policy "extension_pages" ${problem}`);
   }
   const named = [
     ...scripts.flatMap(script => script.js ?? []),
