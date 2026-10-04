@@ -30,7 +30,7 @@ const LINES: ResultTable = {
 function viewOf(table: ResultTable, links: Links, overrides: Partial<TableView> = {}): TableView {
   const page = pageOf(selectRows(table.rows, { search: "", filters: new Map() }), 0, 50);
   return { label: table.label, columns: columnsOf(table), rows: page.rows, page: page.page, pages: page.pages, pageSize: 50, from: page.from, to: page.to,
-    total: page.total, all: table.rows.length, search: "", sort: undefined, filtered: new Set(), context: undefined, links, ...overrides };
+    total: page.total, all: table.rows.length, search: "", sort: undefined, filtered: new Set(), context: undefined, links, note: undefined, ...overrides };
 }
 const text = (element: FakeElement | null | undefined): string => element?.textContent.trim() ?? "";
 /** The body of a table's markup: the text of each cell, row by row. */
@@ -242,7 +242,7 @@ describe("What the results page's markup shows", () => {
       tiles: [{ label: "Pages", count: 7 }, { label: "Cards", count: 1 }, { label: "Filters", count: 0 }],
       cardTypes: [["Grid", 8], ["KPI", 2], ["", 1]],
       models: [{ model: "Model one", workspace: "Main", modelId: "id-1" }, { model: "Model two", workspace: "Other", modelId: "—" }],
-      notes: ["A first note.", "A second note."],
+      notes: ["A first note.", "A second note."], facts: [],
     }));
     expect(view.querySelectorAll(".stat").map(tile => tile.children.map(text))).toEqual([["Pages", "7", "rows"], ["Cards", "1", "row"], ["Filters", "0", "rows"]]);
     // A bar is as long as its type's share of the largest; a type without a name is called blank.
@@ -253,10 +253,27 @@ describe("What the results page's markup shows", () => {
       text(model.querySelector(".m-sub"))])).toEqual([["Model one", "id-1", "Workspace: Main"], ["Model two", "—", "Workspace: Other"]]);
     expect([view.querySelectorAll(".panel h2").map(text), view.querySelectorAll(".warn-list li").map(text)]).toEqual([["Cards by type", "Models", "Notes"], ["A first note.", "A second note."]]);
     // A model's export has neither cards nor models, and a result may have no notes: then there is no panel for them.
-    const bare = parseMarkup(overviewHtml({ tiles: [{ label: "Line Items", count: 120 }], cardTypes: [], models: [], notes: [] }));
+    const bare = parseMarkup(overviewHtml({ tiles: [{ label: "Line Items", count: 120 }], cardTypes: [], models: [], notes: [], facts: [] }));
     expect([bare.querySelectorAll(".stat").map(tile => tile.children.map(text)), bare.querySelectorAll(".panel").length, bare.querySelectorAll(".ov-cols").length]).toEqual([[["Line Items", "120", "rows"]], 0, 0]);
-    const one = parseMarkup(overviewHtml({ tiles: [], cardTypes: [["Grid", 3]], models: [], notes: [] }));
+    const one = parseMarkup(overviewHtml({ tiles: [], cardTypes: [["Grid", 3]], models: [], notes: [], facts: [] }));
     expect([one.querySelectorAll(".panel h2").map(text), one.querySelector(".tb-fill")?.getAttribute("style")]).toEqual([["Cards by type"], "display:block;width:100%"]);
+  });
+
+  it("shows a model's own facts in a panel of the overview, each setting beside its value, as text", () => {
+    const view = parseMarkup(overviewHtml({ tiles: [{ label: "Model Calendar", count: 26 }], cardTypes: [], models: [], notes: ["A note."],
+      facts: [["Workspace", "Main <b>one</b>"], ["Model", "Demand: plan"], ["Captured on", "2026-10-03"]] }));
+    expect(view.querySelectorAll(".ov-cols .panel").map(panel => [text(panel.querySelector("h2")), panel.getAttribute("aria-labelledby") === panel.querySelector("h2")?.id])).toEqual([["Model", true]]);
+    expect([view.querySelectorAll(".ov-cols dl.d-dl dt").map(text), view.querySelectorAll(".ov-cols dl.d-dl dd").map(text)])
+      .toEqual([["Workspace", "Model", "Captured on"], ["Main <b>one</b>", "Demand: plan", "2026-10-03"]]);
+    expect([view.querySelectorAll("b").length, view.querySelectorAll(".panel h2").map(text)]).toEqual([0, ["Model", "Notes"]]);
+  });
+
+  it("says under a table's name what the table leaves to the CSV, as text, and nothing for a table that lists every row", () => {
+    const noted = parseMarkup(tableHtml(viewOf(CARDS, LINKS, { note: "5 rows about the model <i>are</i> in the CSV only." })));
+    expect([noted.children.map(child => child.id || child.localName), noted.querySelectorAll(".view-note").map(text), noted.querySelectorAll("i").length])
+      .toEqual([["h1", "p", "div", "tableWrap"], ["5 rows about the model <i>are</i> in the CSV only."], 0]);
+    const plain = parseMarkup(tableHtml(viewOf(CARDS, LINKS)));
+    expect([plain.children.map(child => child.id || child.localName), plain.querySelectorAll(".view-note").length]).toEqual([["h1", "div", "tableWrap"], 0]);
   });
 
   it("shows the details under their sections, each detail beside its value, and the log line for line", () => {

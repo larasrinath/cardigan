@@ -57,7 +57,7 @@ const attributeNames = (html: string) => [...new Set(readMarkup(html).tags.flatM
 function viewOf(table: ResultTable, links: Links, overrides: Partial<TableView> = {}): TableView {
   const page = pageOf(selectRows(table.rows, { search: "", filters: new Map() }), 0, 50);
   return { label: table.label, columns: columnsOf(table), rows: page.rows, page: page.page, pages: page.pages, pageSize: 50, from: page.from, to: page.to,
-    total: page.total, all: table.rows.length, search: "", sort: undefined, filtered: new Set(), context: undefined, links, ...overrides };
+    total: page.total, all: table.rows.length, search: "", sort: undefined, filtered: new Set(), context: undefined, links, note: undefined, ...overrides };
 }
 
 describe("The results page's escaping", () => {
@@ -90,7 +90,7 @@ describe("The results page's escaping", () => {
       headerMetaHtml({ name: QUOTED, kind: "App", host: QUOTED, exportedOn: QUOTED }),
       navHtml([{ id: "overview", label: "Overview" }, { id: "1", label: QUOTED, count: 2 }], "1"),
       crumbsHtml(QUOTED, QUOTED),
-      overviewHtml({ tiles: [{ label: QUOTED, count: 1 }], cardTypes: [[QUOTED, 1]], models: [{ model: QUOTED, workspace: QUOTED, modelId: QUOTED }], notes: [QUOTED] }),
+      overviewHtml({ tiles: [{ label: QUOTED, count: 1 }], cardTypes: [[QUOTED, 1]], models: [{ model: QUOTED, workspace: QUOTED, modelId: QUOTED }], notes: [QUOTED], facts: [[QUOTED, QUOTED]] }),
       tableHtml(viewOf({ file: "Pages.csv", label: QUOTED, headers: ["Page", QUOTED], rows: [[QUOTED, QUOTED]], guard: true }, LINKS, { search: QUOTED, context: QUOTED })),
       rowDrawerSubHtml(41, QUOTED),
       cardDrawerSubHtml(QUOTED, QUOTED, QUOTED),
@@ -123,7 +123,7 @@ describe("The results page's escaping", () => {
     expect([...pill.attributes.keys()]).toEqual(["type", "class", "data-copy", "title", "aria-label"]);
     expect(decode(pill.attributes.get("data-copy") ?? "")).toBe(SCRIPT);
     expect(detailsHtml([{ section: SCRIPT, rows: [[SCRIPT, SCRIPT]] }], [SCRIPT])).not.toContain("<script");
-    expect(overviewHtml({ tiles: [], cardTypes: [], models: [], notes: [SCRIPT] })).not.toContain("<script");
+    expect(overviewHtml({ tiles: [], cardTypes: [], models: [], notes: [SCRIPT], facts: [[SCRIPT, SCRIPT]] })).not.toContain("<script");
   });
 
   it("lets no text change a cell's markup, in any kind of column", () => {
@@ -190,10 +190,11 @@ describe("The results page's escaping", () => {
     expectInert(text => overviewHtml({
       tiles: [{ label: text(0), count: 3 }, { label: text(1), count: 1 }], cardTypes: [[text(2), 4], [text(3), 1]],
       models: [{ model: text(4), workspace: text(5), modelId: text(6) }, { model: text(7), workspace: text(8), modelId: text(9) }],
-      notes: [text(10), text(11), text(12)],
+      notes: [text(10), text(11), text(12)], facts: [[text(13), text(14)], [text(15), text(16)]],
     }), 7);
-    // The notes alone, each of the texts in turn.
-    expectInert(text => overviewHtml({ tiles: [], cardTypes: [], models: [], notes: HOSTILE.map((_, index) => text(index)) }), 7);
+    // The notes alone, and a model's facts alone, each of the texts in turn.
+    expectInert(text => overviewHtml({ tiles: [], cardTypes: [], models: [], notes: HOSTILE.map((_, index) => text(index)), facts: [] }), 7);
+    expectInert(text => overviewHtml({ tiles: [], cardTypes: [], models: [], notes: [], facts: HOSTILE.map((_, index) => [text(index), text(index + 1)]) }), 7);
     expectInert(text => detailsHtml([{ section: text(0), rows: [[text(1), text(2)], [text(3), text(4)]] }, { section: text(5), rows: [[text(6), text(7)]] }], [text(8), text(9), text(10)]), 7);
   });
 
@@ -203,7 +204,7 @@ describe("The results page's escaping", () => {
       rows: [[text(6), text(0), text(1), text(2), text(3)], [text(4), text(5), text(6), text(0), text(1)]],
     });
     const kinds = (source: ResultTable): Column[] => columnsOf(source).map((entry, index) => ({ ...entry, kind: KINDS[index], filter: index % 2 === 0, num: index === 1 }));
-    expectInert(text => tableHtml(viewOf(table(text), LINKS, { columns: kinds(table(text)), search: text(2), context: text(3), sort: { column: 1, dir: "asc" }, filtered: new Set([0]) })), 7);
+    expectInert(text => tableHtml(viewOf(table(text), LINKS, { columns: kinds(table(text)), search: text(2), context: text(3), note: text(7), sort: { column: 1, dir: "asc" }, filtered: new Set([0]) })), 7);
     // A table with no rows, and one whose search finds nothing.
     expectInert(text => tableHtml(viewOf({ ...table(text), rows: [] }, NO_LINKS)), 6);
     expectInert(text => tableHtml(viewOf(table(text), LINKS, { rows: [], total: 0, from: 0, to: 0, search: text(2), context: text(3), filtered: new Set([1]) })), 6);

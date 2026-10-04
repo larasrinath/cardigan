@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { CALENDAR_HEADERS, CALENDAR_PROPERTIES, calendarRows } from "../model/calendar.js";
 import { FRESH_MS, PORT_NAME, RESULTS_PAGE, type TabMessage } from "../protocol.js";
 import type { AnalysisResult, Cell } from "../result-types.js";
 import { resultZip, tableCsv } from "../result-zip.js";
@@ -74,6 +75,14 @@ const MODEL: AnalysisResult = {
     { file: "Line Items.csv", label: "Line Items", headers: ["", "Format", "Formula", "Module"], rows: LINES, guard: false },
     { file: "Modules.csv", label: "Modules", headers: ["", "Functional Area"], rows: [["Revenue", "Sales"], ["Cost", "Finance"]], guard: false },
   ],
+};
+
+/** The same model with its Model Calendar file as the export writes it: the assessment template's rows, the first five of
+ * them about the model. */
+const WITH_CALENDAR: AnalysisResult = {
+  ...MODEL, summary: [...MODEL.summary, "Model Calendar: 31 rows"],
+  tables: [...MODEL.tables, { file: "Model Calendar.csv", label: "Model Calendar", headers: [...CALENDAR_HEADERS], guard: false,
+    rows: calendarRows({ workspace: "Main", model: "Model one", capturedOn: "2026-10-03", values: new Map([[CALENDAR_PROPERTIES["Calendar Type"], "Calendar Months/Quarters/Years"]]) }) }],
 };
 
 // The page under test, and what stands in for the browser around it. A test loads the page with `open`.
@@ -836,6 +845,52 @@ describe("The results page's script, on the page", () => {
     page.id("colBtn").press();
     page.id("tblSearch").press();
     expect([page.id("popover").hidden, active() === page.id("tblSearch")]).toEqual([true, true]);
+  });
+
+  it("lists the calendar's rows only in a model's Model Calendar table and says so, with the model's facts on the overview; the downloads hold every row", async () => {
+    await openWith(WITH_CALENDAR);
+    const file = WITH_CALENDAR.tables[3];
+    expect([file.rows.length, file.rows.filter(row => row[0] === "Model").length]).toEqual([31, 5]);
+    // The overview: the file's tile counts the rows its table lists, and a panel holds what the file says about the model.
+    expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Line Items", "120", "rows"], ["Modules", "2", "rows"], ["Model Calendar", "26", "rows"]]);
+    expect([page.texts("#view .ov-cols .panel h2"), page.texts("#view .ov-cols dt"), page.texts("#view .ov-cols dd")])
+      .toEqual([["Model"], ["Workspace", "Model", "Captured on"], ["Main", "Model one", "2026-10-03"]]);
+    // The navigation counts the same rows.
+    expect(page.all("#navList .nav-item").filter(item => item.querySelector(".cnt")).map(item => item.children.map(child => child.textContent)))
+      .toEqual([["Line Items", "120"], ["Modules", "2"], ["Model Calendar", "26"]]);
+
+    // The table: the calendar's settings, none of the rows about the model, and a line that says where those are.
+    goTo(3);
+    const settings = () => page.all("#tableWrap tbody tr").map(row => row.children[1].textContent.trim());
+    expect([page.texts("#view .view-note"), page.id("rowCount").textContent, page.id("live").textContent])
+      .toEqual([["5 rows about the model are in the CSV only."], "1–26 of 26 rows", "Model Calendar: 26 rows"]);
+    expect([firstCells().every(section => section === "Model Calendar"), settings().slice(0, 2), settings().filter(setting => ["Workspace", "Model", "Captured on"].includes(setting))])
+      .toEqual([true, ["Calendar Type", "Fiscal Year Starts"], []]);
+    // The search reads the rows listed and no others: the calendar's type finds its row, the model's name finds none.
+    const note = page.find("#view .view-note");
+    page.id("tblSearch").type("quarters");
+    expect([settings(), page.id("rowCount").textContent]).toEqual([["Calendar Type"], "1–1 of 1 row (filtered from 26)"]);
+    page.id("tblSearch").type("Model one");
+    expect([settings(), page.id("rowCount").textContent]).toEqual([[], "No rows (filtered from 26)"]);
+    page.id("tblSearch").type("");
+    // The line under the name was not written again meanwhile. Section holds one text in the rows listed: it offers no filter.
+    expect([page.find("#view .view-note") === note, filterable().includes("Section")]).toEqual([true, false]);
+    // A row's drawer says its place among the rows the table lists.
+    page.all('#tableWrap tbody [data-act="row"]')[0].press();
+    expect([page.id("drawerSub").textContent, page.texts("#drawerBody dd").slice(0, 3)]).toEqual(["Row 1 of Model Calendar", ["Model Calendar", "Calendar Type", "Calendar Months/Quarters/Years"]]);
+    page.key("Escape");
+
+    // "Download this table" saves the file whole, the rows about the model first; "Download all" saves the result's zip as it is.
+    page.id("dlCsv").press();
+    const csv = tableCsv(file);
+    expect([page.downloads[0].name, await saved[0].text(), csv.charCodeAt(0)]).toEqual(["Model Calendar.csv", csv.slice(1), 0xfeff]);
+    expect((await saved[0].text()).split("\r\n").filter(line => line.startsWith("Model,")).map(line => line.split(",")[1])).toEqual(["Workspace", "Model", "Model size (GB)", "Captured on", "Captured by"]);
+    page.id("dlAll").press();
+    expect(await bytes(saved[1])).toEqual(resultZip(WITH_CALENDAR, NOW));
+
+    // Another table lists every row of its file, and says nothing under its name.
+    goTo(1);
+    expect([page.all("#view .view-note").length, page.id("rowCount").textContent]).toEqual([0, "1–50 of 120 rows"]);
   });
 
   it("shows no Notes panel for a model whose summary only says how many rows each file has", async () => {

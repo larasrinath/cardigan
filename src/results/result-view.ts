@@ -1,4 +1,4 @@
-import type { AnalysisResult, ResultTable } from "../result-types.js";
+import type { AnalysisResult, Cell, ResultTable } from "../result-types.js";
 import { APP_FILES, columnIndex } from "./columns.js";
 import { cellText, compareText, NONE } from "./table-engine.js";
 
@@ -64,6 +64,48 @@ export function resultNotes(result: AnalysisResult): string[] {
   return notes;
 }
 
+/** A model's Model Calendar file (model/export.ts writes it under this name) follows a template: its first rows are about
+ * the model itself (its workspace, its name, when it was captured), under the Section "Model", and the rest are the
+ * calendar's settings. It is the one file whose table does not list every row: the rows about the model are not the
+ * calendar's, so the page says them with the model, in the overview, and the table lists the others. The CSV, as a table's
+ * download and in the zip, has every row as the export wrote it. */
+export const MODEL_CALENDAR_FILE = "Model Calendar.csv";
+/** The Section of the Model Calendar file's rows about the model. */
+export const ABOUT_MODEL = "Model";
+
+/** The Model Calendar file's column that says what a row is about; undefined for any other file, for an app's result, and
+ * for a Model Calendar file without that column: of those, every row is listed. */
+const aboutColumn = (result: AnalysisResult, table: ResultTable): number | undefined =>
+  (result.kind === "model" && table.file === MODEL_CALENDAR_FILE ? columnIndex(table, "Section") : undefined);
+
+/** The rows of one of the result's files that the page lists as its table, and how many the file has besides. That is
+ * every row and none, except for a model's Model Calendar file (`MODEL_CALENDAR_FILE`). */
+export function listedRows(result: AnalysisResult, table: ResultTable): { rows: Cell[][]; unlisted: number } {
+  const about = aboutColumn(result, table);
+  if (about === undefined) return { rows: table.rows, unlisted: 0 };
+  const rows = table.rows.filter(row => cellText(row[about]) !== ABOUT_MODEL);
+  return rows.length === table.rows.length ? { rows: table.rows, unlisted: 0 } : { rows, unlisted: table.rows.length - rows.length };
+}
+
+/** What a table that leaves rows to the CSV says about them, so that its count is not taken for the file's. */
+export const unlistedNote = (unlisted: number): string => `${unlisted} ${unlisted === 1 ? "row about the model is" : "rows about the model are"} in the CSV only.`;
+
+/** What a model's Model Calendar file says about the model itself: each setting with its value, in the file's order. A
+ * setting without a value, as the export leaves the ones it cannot know, is left out. */
+export function modelFacts(result: AnalysisResult): [setting: string, value: string][] {
+  const facts: [string, string][] = [];
+  for (const table of result.tables) {
+    const about = aboutColumn(result, table);
+    const setting = columnIndex(table, "Setting");
+    const value = columnIndex(table, "Value");
+    if (about === undefined || setting === undefined || value === undefined) continue;
+    for (const row of table.rows) {
+      if (cellText(row[about]) === ABOUT_MODEL && cellText(row[value]).trim() !== "") facts.push([cellText(row[setting]), cellText(row[value])]);
+    }
+  }
+  return facts;
+}
+
 /** What the header says was analysed. */
 export interface Analysed { name: string; kind: string; host: string | undefined; exportedOn: string | undefined }
 export function analysedOf(result: AnalysisResult): Analysed {
@@ -123,7 +165,7 @@ const TILE_LABELS: ReadonlyMap<string, string> = new Map([
 
 export interface ModelRow { model: string; workspace: string; modelId: string }
 export interface Overview {
-  /** Every file but the Details file, with its number of rows. */
+  /** Every file but the Details file, with the number of rows its table lists. */
   tiles: { label: string; count: number }[];
   /** An app's cards by the text of their Card type, most first. */
   cardTypes: [type: string, count: number][];
@@ -131,10 +173,13 @@ export interface Overview {
   models: ModelRow[];
   /** The result's notes (`resultNotes`). */
   notes: string[];
+  /** A model's own facts, which its Model Calendar file holds (`modelFacts`). */
+  facts: [setting: string, value: string][];
 }
 
 export function overviewOf(result: AnalysisResult): Overview {
-  const tiles = result.tables.filter(table => table.details !== true).map(table => ({ label: TILE_LABELS.get(table.file) ?? cellText(table.label), count: table.rows.length }));
+  const tiles = result.tables.filter(table => table.details !== true)
+    .map(table => ({ label: TILE_LABELS.get(table.file) ?? cellText(table.label), count: listedRows(result, table).rows.length }));
 
   const counts = new Map<string, number>();
   const cards = result.tables.find(table => table.file === APP_FILES.Cards);
@@ -158,5 +203,5 @@ export function overviewOf(result: AnalysisResult): Overview {
       if (!models.has(key)) models.set(key, entry);
     }
   }
-  return { tiles, cardTypes, models: [...models.values()], notes: resultNotes(result) };
+  return { tiles, cardTypes, models: [...models.values()], notes: resultNotes(result), facts: modelFacts(result) };
 }

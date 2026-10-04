@@ -11,7 +11,7 @@ import { APP_FILES } from "./columns.js";
 import { describeState, ResultsClient, type RunState } from "./connection.js";
 import { APP_HOST, GOLDEN_APP, GOLDEN_GRIDS, goldenApp, LINE_ITEMS, MODEL, MODEL_HOST, modelPage, serveEngine, SHELL_HOST, type EngineRun } from "./engine.test-support.js";
 import { FakeTab, MESSAGE_MAX_BYTES, NOBODY, TOO_LARGE, type PortEnd } from "./port-pair.test-support.js";
-import { detailsOf, diagnosticLog } from "./result-view.js";
+import { detailsOf, diagnosticLog, listedRows, MODEL_CALENDAR_FILE, modelFacts } from "./result-view.js";
 
 // The results page's client against the engine: the content script's real side of the port around the real analysis of an
 // app and the real export of a model in its frame, joined to the page by ports that pass messages as Chrome's do. What
@@ -202,6 +202,11 @@ describe("The results page against the engine in the Anaplan tab", () => {
     // What the page would give for download is, file for file, the zip 0.6.1 wrote for this model.
     expect(files(resultZip(result, ZIPPED_AT), "Model Details.csv")).toEqual(files(MODEL_ZIP_0_6_1, "Model Details.csv"));
     expect([result.kind, result.name, result.zipName]).toEqual(["model", "Demand: plan", "Demand plan - Model Export - 2026-09-28.zip"]);
+    // The page's one rule about a model's file fits the file the export writes: its name, its Section column, and the
+    // template's five rows about the model, of which the export fills in three.
+    const calendar = result.tables.find(table => table.file === MODEL_CALENDAR_FILE);
+    expect([calendar && listedRows(result, calendar).unlisted, calendar && listedRows(result, calendar).rows.length, modelFacts(result)])
+      .toEqual([5, 26, [["Workspace", "Workspace one"], ["Model", "Demand: plan"], ["Captured on", "2026-09-28"]]]);
     expect(result.summary.at(-1)).toBe("Source Models: not exported (This model page has no REMOTE_MODEL axis.).");
   });
 

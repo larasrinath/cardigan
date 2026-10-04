@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { DETAILS_HEADERS, diagnosticRows, exportRows, type DetailRow } from "../details.js";
 import { HEADERS, type TabName } from "../report.js";
+import { CALENDAR_HEADERS, calendarRows } from "../model/calendar.js";
 import type { AnalysisResult, Cell, ResultTable } from "../result-types.js";
 import { APP_FILES } from "./columns.js";
-import { analysedOf, CARD_PARTS, cardSections, detailSections, detailsOf, detailValue, diagnosticLog, overviewOf, resultNotes } from "./result-view.js";
+import { ABOUT_MODEL, analysedOf, CARD_PARTS, cardSections, detailSections, detailsOf, detailValue, diagnosticLog, listedRows, MODEL_CALENDAR_FILE, modelFacts, overviewOf, resultNotes,
+  unlistedNote } from "./result-view.js";
 
 /** The app export's files, as the page names them, and the report table each holds. */
 const FILES: Record<string, TabName> = Object.fromEntries((Object.keys(APP_FILES) as TabName[]).map(tab => [APP_FILES[tab], tab]));
@@ -121,7 +123,7 @@ describe("What the results page reads out of a result", () => {
       tiles: [{ label: "Pages", count: 4 }, { label: "Cards", count: 6 }, { label: "Filters", count: 0 }],
       cardTypes: [["Grid", 2], ["KPI", 2], ["Chart", 1], ["Text", 1]],
       models: [{ model: "Demo model", workspace: "Main", modelId: "0123456789ABCDEF0123456789ABCDEF" }, { model: "Other model", workspace: "Old", modelId: "FEDCBA9876543210FEDCBA9876543210" }],
-      notes: ["Legacy archive: Not published", "Names: Demo model: the model is closed, so IDs are shown instead of names."],
+      notes: ["Legacy archive: Not published", "Names: Demo model: the model is closed, so IDs are shown instead of names."], facts: [],
     });
   });
 
@@ -160,7 +162,59 @@ describe("What the results page reads out of a result", () => {
     const modules: ResultTable = { file: "Modules.csv", label: "Modules", headers: ["", "Card type", "Model"], rows: [["REP01", "x", "y"]], guard: false };
     expect(overviewOf(result("model", [modelDetails, lineItems, modules], ["Line Items: 2 rows", "Modules: 1 rows"]))).toEqual({
       tiles: [{ label: "Line Items", count: 2 }, { label: "Modules", count: 1 }], cardTypes: [], models: [],
-      notes: ["Actions: the Actions list came without Notes; the Diagnostics rows list the columns it had."] });
+      notes: ["Actions: the Actions list came without Notes; the Diagnostics rows list the columns it had."], facts: [] });
+  });
+
+  // A model's Model Calendar file as the export writes it: the assessment template's rows, the first five about the model.
+  const calendar = (workspace = "Main", model = "Model one"): ResultTable => ({ file: "Model Calendar.csv", label: "Model Calendar", headers: [...CALENDAR_HEADERS], guard: false,
+    rows: calendarRows({ workspace, model, capturedOn: "2026-10-03", values: new Map() }) });
+
+  it("lists every row of every file, but for the rows about the model in a model's Model Calendar file", () => {
+    expect([MODEL_CALENDAR_FILE, ABOUT_MODEL]).toEqual(["Model Calendar.csv", "Model"]);
+    const file = calendar();
+    const lineItems: ResultTable = { file: "Line Items.csv", label: "Line Items", headers: ["Section", "Formula"], rows: [["Model", "a"], ["Model Calendar", "b"]], guard: false };
+    const model = result("model", [modelDetails, lineItems, file]);
+    // The template has five rows about the model and twenty-six about its calendar: the table lists exactly the latter.
+    const listed = listedRows(model, file);
+    expect([file.rows.length, listed.unlisted, listed.rows.length, [...new Set(listed.rows.map(row => row[0]))]]).toEqual([31, 5, 26, ["Model Calendar"]]);
+    expect(listed.rows).toEqual(file.rows.filter(row => row[0] !== "Model"));
+    expect(file.rows.filter(row => row[0] === "Model").map(row => row[1])).toEqual(["Workspace", "Model", "Model size (GB)", "Captured on", "Captured by"]);
+    // The file itself is as it was: the CSV is made of it.
+    expect(file.rows).toHaveLength(31);
+    // Any other file lists every row, the same rows, whatever its columns are called and hold; so does the Details file.
+    expect([listedRows(model, lineItems).rows === lineItems.rows, listedRows(model, lineItems).unlisted, listedRows(model, modelDetails).unlisted]).toEqual([true, 0, 0]);
+    // The rule is that file's alone: by its name, in a model's result, by its Section column.
+    expect(listedRows(model, { ...file, file: "Model Calendar (2).csv" }).unlisted).toBe(0);
+    expect(listedRows(result("app", [appDetails, file]), file).unlisted).toBe(0);
+    expect(listedRows(model, { ...file, headers: ["Group", ...file.headers.slice(1)] }).unlisted).toBe(0);
+    // A row is left to the CSV for being about the model, not for its place: wherever such a row stands, and only such a row.
+    const mixed: ResultTable = { ...file, headers: ["Setting", "Section", "Value"], rows: [["Calendar Type", "Model Calendar", "x"], ["Model", "Model", "y"], ["Other", "Something else", "z"], ["Model", "model", "w"]] };
+    expect(listedRows(model, mixed)).toEqual({ rows: [mixed.rows[0], mixed.rows[2], mixed.rows[3]], unlisted: 1 });
+    // A calendar file with no row about the model lists every row, and is the same list.
+    const none: ResultTable = { ...file, rows: file.rows.slice(5) };
+    expect([listedRows(model, none).rows === none.rows, listedRows(model, none).unlisted]).toEqual([true, 0]);
+    // What the table then says about the rows it leaves out.
+    expect([unlistedNote(5), unlistedNote(1)]).toEqual(["5 rows about the model are in the CSV only.", "1 row about the model is in the CSV only."]);
+  });
+
+  it("reads the model's own facts out of its Model Calendar file, without the ones that have no value", () => {
+    const model = result("model", [modelDetails, calendar("Main", "Demand: plan")]);
+    // The export cannot know the model's size or who captured it: those two are empty, and are not facts.
+    expect(modelFacts(model)).toEqual([["Workspace", "Main"], ["Model", "Demand: plan"], ["Captured on", "2026-10-03"]]);
+    expect(modelFacts(result("model", [modelDetails, calendar("", "Demand: plan")]))).toEqual([["Model", "Demand: plan"], ["Captured on", "2026-10-03"]]);
+    // A value that was filled in is one; a value of spaces only is none.
+    const filled = calendar();
+    filled.rows[2][2] = "12.5";
+    filled.rows[4][2] = "  ";
+    expect(modelFacts(result("model", [filled])).map(fact => fact[0])).toEqual(["Workspace", "Model", "Model size (GB)", "Captured on"]);
+    // Nothing for an app, for a model without the file, and for a file without those columns.
+    expect([modelFacts(result("app", [appDetails, calendar()])), modelFacts(result("model", [modelDetails])),
+      modelFacts(result("model", [{ ...calendar(), headers: ["Section", "Name", "Value"] }]))]).toEqual([[], [], []]);
+    // The overview has the facts, and counts for the file's tile the rows its table lists.
+    const overview = overviewOf(result("model", [modelDetails, calendar()], ["Model Calendar: 31 rows"]));
+    expect([overview.facts, overview.tiles]).toEqual([[["Workspace", "Main"], ["Model", "Model one"], ["Captured on", "2026-10-03"]], [{ label: "Model Calendar", count: 26 }]]);
+    // The summary's line that says how many rows the file has is still no note: it counts the file, as the CSV has it.
+    expect(overview.notes).toEqual(["Actions: the Actions list came without Notes; the Diagnostics rows list the columns it had."]);
   });
 
   it("names, for a card's parts, only columns the app's files really have", () => {
