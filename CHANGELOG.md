@@ -13,7 +13,7 @@ The results now open on a page of their own, and nothing is added to Anaplan's p
 - **The first line of the diagnostic log.** It names the build, what is read and the host. Apart from the version number in **Exported with**, it is the one line of the files that changes:
   - An app: it was `page-analyzer v0.6.1: <app id> on <host>` and is now `Cardigan 0.7.0: app <app id> on <host>`. It is the first **Diagnostics** row of `App Details.csv`.
   - A model in Model Building: the results page shows `Cardigan 0.7.0: model <model id> on <host>` while the export runs, where the panel's log began `model-export-shell v0.6.1: <model id> on <host>`. `Model Details.csv` does not change: it holds the log of the model's own frame, which never had this line.
-  - The classic model page opened on its own: 0.6.1 began the Diagnostics rows of `Model Details.csv` with `model-export v0.6.1: <model id> on <host>`. 0.7.0 does not write that row.
+  - The classic model page opened on its own: the Diagnostics rows of `Model Details.csv` began with `model-export v0.6.1: <model id> on <host>` and now begin with `Cardigan 0.7.0: model <model id> on <host>`.
 - **Content security policy.** The manifest declares one for the extension's own pages and its service worker: scripts, the stylesheet and the icon come from the extension's own package, and nothing is loaded from anywhere else. `npm run package` refuses a manifest whose policy would allow more.
 - **Build and packaging.** `npm run build` writes four bundles: `dist/background.js` and `dist/results.js` are new. The release zip holds eleven files: `manifest.json`, the four bundles, the four icons, `results.html` and `results.css`.
 
