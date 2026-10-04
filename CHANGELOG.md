@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.7.0 (3 October 2026)
+## 0.7.0 (4 October 2026)
 
 The results now open on a page of their own, and nothing is added to Anaplan's pages.
 
