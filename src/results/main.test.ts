@@ -312,6 +312,86 @@ describe("The results page's script, on the page", () => {
     expect([box.value, page.document.activeElement === box, page.id("rowCount").textContent]).toEqual(["", true, "1–50 of 120 rows"]);
   });
 
+  it("keeps the focus on the control the user has just used when the table is drawn again", async () => {
+    await openWith(MODEL);
+    goTo(1);
+    /** What has the focus: its sort column, its name in the pager or its ID, and whether it is on the page as it stands now. */
+    const focus = () => {
+      const active = page.document.activeElement;
+      return [active.dataset.sort ?? active.getAttribute("aria-label") ?? active.id, active.isConnected && active !== page.document.body];
+    };
+    // A sort: the same column's button, through ascending, descending and back to the file's order.
+    for (const direction of ["ascending", "descending", "none"]) {
+      page.find('[data-sort="2"]').press();
+      expect([focus(), page.find('[data-sort="2"]').closest("th")?.getAttribute("aria-sort")], direction).toEqual([["2", true], direction]);
+      expect(page.document.activeElement).toBe(page.find('[data-sort="2"]'));
+    }
+
+    // The pager: Next stays Next while there is a next page; on the last page it is disabled, and the page's own number takes the focus.
+    page.find('.pg-btn[aria-label="Next page"]').press();
+    expect([focus(), pagerButtons()]).toEqual([["Next page", true], ["‹", "1", "[2]", "3", "›"]]);
+    page.document.activeElement.press();
+    expect([focus(), pagerButtons()]).toEqual([["Page 3", true], ["‹", "1", "2", "[3]", "(›)"]]);
+    // A page's number: that page's button, which is the current one now. Previous: the same, down to the first page.
+    page.find('.pg-btn[aria-label="Page 2"]').press();
+    expect([focus(), pagerButtons()]).toEqual([["Page 2", true], ["‹", "1", "[2]", "3", "›"]]);
+    page.find('.pg-btn[aria-label="Previous page"]').press();
+    expect([focus(), pagerButtons()]).toEqual([["Page 1", true], ["(‹)", "[1]", "2", "3", "›"]]);
+
+    // Rows per page: the list itself, with what was chosen.
+    page.id("pageSize").choose("100");
+    expect([focus(), page.id("pageSize").value, page.id("rowCount").textContent]).toEqual([["Rows per page", true], "100", "1–100 of 120 rows"]);
+    expect(page.document.activeElement).toBe(page.id("pageSize"));
+
+    // Reset goes away with what it resets: the focus moves to the search box. So does "Clear search & filters" under no rows.
+    page.find('[data-sort="1"]').press();
+    page.id("resetBtn").press();
+    expect([focus(), page.id("resetBtn").hidden]).toEqual([["Search Line Items", true], true]);
+    page.id("tblSearch").type("no such line");
+    page.find('.empty [data-act="reset"]').press();
+    expect([focus(), page.id("tblSearch").value, firstCells().length]).toEqual([["Search Line Items", true], "", 100]);
+  });
+
+  it("gives the focus back to the button that opened a popover when the popover closes itself", async () => {
+    await openWith();
+    goTo(2);
+    const active = () => page.document.activeElement;
+    // Escape, in a column's filter and in the column chooser.
+    page.find('[data-colfilter="3"]').press();
+    expect([page.id("popover").hidden, page.id("popover").contains(active())]).toEqual([false, true]);
+    page.key("Escape");
+    expect([page.id("popover").hidden, active() === page.find('[data-colfilter="3"]')]).toEqual([true, true]);
+    page.id("colBtn").press();
+    page.key("Escape");
+    expect([page.id("popover").hidden, active() === page.id("colBtn")]).toEqual([true, true]);
+
+    // A box ticked in the filter draws the table's head again, the filter's button with it: the popover stays open with
+    // the focus in it, and Escape then finds the button as it stands now.
+    page.find('[data-colfilter="3"]').press();
+    const before = page.find('[data-colfilter="3"]');
+    page.all("#popover input")[0].tick();
+    expect([firstCells(), page.id("popover").hidden, page.id("popover").contains(active()), before.isConnected]).toEqual([["Overview"], false, true, false]);
+    page.key("Escape");
+    expect(active()).toBe(page.find('[data-colfilter="3"]'));
+    // The button that opened the popover also closes it, written again or not.
+    page.find('[data-colfilter="3"]').press();
+    page.find('[data-colfilter="3"]').press();
+    expect(page.id("popover").hidden).toBe(true);
+
+    // The popover's own buttons close it: Show all and Defaults.
+    page.find('[data-colfilter="3"]').press();
+    page.find('#popover [data-popact="all"]').press();
+    expect([page.id("popover").hidden, active() === page.find('[data-colfilter="3"]'), firstCells().length]).toEqual([true, true, 2]);
+    page.id("colBtn").press();
+    page.find('#popover [data-popact="defaults"]').press();
+    expect([page.id("popover").hidden, active() === page.id("colBtn")]).toEqual([true, true]);
+
+    // A click elsewhere closes it too, and the focus stays where the click put it.
+    page.id("colBtn").press();
+    page.id("tblSearch").press();
+    expect([page.id("popover").hidden, active() === page.id("tblSearch")]).toEqual([true, true]);
+  });
+
   it("says so when the address names no tab, and connects to nothing", async () => {
     await open("");
     expect(connects).toEqual([]);

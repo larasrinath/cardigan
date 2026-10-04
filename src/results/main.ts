@@ -34,6 +34,19 @@ function announce(message: string): void {
   el("live").textContent = message;
 }
 
+/** Gives the focus to the first of these that is on the page and can take it. After a part of the page is written again,
+ * that is the control the user has just used, as it stands now, or the nearest thing to it. Without this the focus is left
+ * on nothing, and a keyboard user starts again from the top of the page. */
+function focusOn(...selectors: string[]): void {
+  for (const selector of selectors) {
+    const node = find<HTMLButtonElement>(selector);
+    if (node && !node.disabled && !node.hidden) {
+      node.focus();
+      return;
+    }
+  }
+}
+
 async function copyText(text: string, what = text): Promise<void> {
   try {
     await navigator.clipboard.writeText(text);
@@ -303,20 +316,26 @@ function showLog(lines: readonly string[]): void {
 }
 
 /* ================= popovers (column filter / column chooser) ================= */
-let popAnchor: Element | null = null;
-function closePopover(): void {
+/** The control that opened the popover, as a selector: a filter's button is written again with the table's head while its
+ * popover is open, so the element itself does not last. */
+let popOwner: string | undefined;
+/** Closes the popover. `back` gives the focus back to the control that opened it: after Escape and after the popover's own
+ * buttons, which would otherwise leave the focus on nothing. A click elsewhere takes the focus where it was made. */
+function closePopover(back = false): void {
   const popover = el("popover");
   if (!popover.hidden) {
     popover.hidden = true;
     popover.innerHTML = "";
   }
-  popAnchor = null;
+  const owner = popOwner;
+  popOwner = undefined;
+  if (back && owner) focusOn(owner);
 }
-function openPopover(anchor: Element, html: string): void {
+function openPopover(owner: string, anchor: Element, html: string): void {
   const popover = el("popover");
   popover.innerHTML = html;
   popover.hidden = false;
-  popAnchor = anchor;
+  popOwner = owner;
   const rect = anchor.getBoundingClientRect();
   const width = 260;
   let top = rect.bottom + 6;
@@ -331,9 +350,9 @@ function openPopover(anchor: Element, html: string): void {
     popover.querySelector<HTMLElement>("input,button")?.focus();
   });
 }
-function openColFilter(entry: Shown, column: Column, anchor: Element): void {
+function openColFilter(entry: Shown, column: Column, owner: string, anchor: Element): void {
   const values = valueCounts(entry.table.rows, column.index);
-  openPopover(anchor, colFilterHtml(column, values, entry.filters.get(column.index)));
+  openPopover(owner, anchor, colFilterHtml(column, values, entry.filters.get(column.index)));
   const popover = el("popover");
   popover.querySelectorAll<HTMLInputElement>("input[data-fval]").forEach(input => {
     input.addEventListener("change", () => {
@@ -353,12 +372,12 @@ function openColFilter(entry: Shown, column: Column, anchor: Element): void {
   popover.querySelector('[data-popact="all"]')?.addEventListener("click", () => {
     entry.filters.delete(column.index);
     entry.page = 0;
-    closePopover();
     updateTable(entry);
+    closePopover(true);
   });
 }
 function openColChooser(entry: Shown, anchor: Element): void {
-  openPopover(anchor, colChooserHtml(entry.columns, entry.hidden));
+  openPopover("#colBtn", anchor, colChooserHtml(entry.columns, entry.hidden));
   const popover = el("popover");
   popover.querySelectorAll<HTMLInputElement>("input[data-col]").forEach(input => {
     input.addEventListener("change", () => {
@@ -369,8 +388,8 @@ function openColChooser(entry: Shown, anchor: Element): void {
   });
   popover.querySelector('[data-popact="defaults"]')?.addEventListener("click", () => {
     entry.hidden = defaultHidden(entry.columns);
-    closePopover();
     updateTable(entry);
+    closePopover(true);
   });
 }
 
@@ -499,10 +518,12 @@ document.addEventListener("click", event => {
           openCardDrawer(cellText(from.row[from.entry.keys.page]), cellText(from.row[from.entry.keys.cardId]), act);
         }
         return;
+      // Both of these go away with what they clear, so the focus moves on: to the view, and to the search box.
       case "clear-context":
         state.context = undefined;
         if (entry) entry.page = 0;
         renderAll();
+        el("view").focus({ preventScroll: true });
         return;
       case "reset":
         state.search = "";
@@ -513,6 +534,7 @@ document.addEventListener("click", event => {
           entry.page = 0;
         }
         renderAll();
+        focusOn("#tblSearch");
         return;
       case "clear-search": {
         state.search = "";
@@ -547,27 +569,33 @@ document.addEventListener("click", event => {
     const column = Number(sortButton.dataset.sort);
     entry.sort = !entry.sort || entry.sort.column !== column ? { column, dir: "asc" } : entry.sort.dir === "asc" ? { column, dir: "desc" } : undefined;
     updateTable(entry);
+    focusOn(`[data-sort="${column}"]`);
     return;
   }
 
   const filterButton = target.closest<HTMLElement>("[data-colfilter]");
   if (filterButton && entry) {
-    const column = entry.columns[Number(filterButton.dataset.colfilter)];
-    if ((!popover.hidden && popAnchor === filterButton) || !column) closePopover();
-    else openColFilter(entry, column, filterButton);
+    const index = Number(filterButton.dataset.colfilter);
+    const column = entry.columns[index];
+    const owner = `[data-colfilter="${index}"]`;
+    if ((!popover.hidden && popOwner === owner) || !column) closePopover();
+    else openColFilter(entry, column, owner, filterButton);
     return;
   }
   const chooser = target.closest("#colBtn");
   if (chooser && entry) {
-    if (!popover.hidden && popAnchor === chooser) closePopover();
+    if (!popover.hidden && popOwner === "#colBtn") closePopover();
     else openColChooser(entry, chooser);
     return;
   }
 
   const pager = target.closest<HTMLButtonElement>(".pg-btn[data-page]");
   if (pager && !pager.disabled && entry) {
+    // Previous, Next or a page's number, by the name the pager gives each: the page's number is the current page after this.
+    const name = pager.getAttribute("aria-label") ?? "";
     entry.page = parseInt(pager.dataset.page ?? "", 10);
     updateTable(entry);
+    focusOn(`.pg-btn[aria-label="${name}"]`, '.pg-btn[aria-current="true"]');
     return;
   }
 
@@ -591,12 +619,13 @@ document.addEventListener("change", event => {
     state.pageSize = parseInt(event.target.value, 10) || 50;
     entry.page = 0;
     updateTable(entry);
+    focusOn("#pageSize");
   }
 });
 document.addEventListener("keydown", event => {
   if (event.key === "Escape") {
     if (!el("popover").hidden) {
-      closePopover();
+      closePopover(true);
       return;
     }
     if (el("drawer").classList.contains("show")) {
