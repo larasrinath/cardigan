@@ -214,6 +214,11 @@ describe("The results page against the engine in the Anaplan tab", () => {
     const counts = (detailsOf(result)?.rows ?? []).filter(row => row[0] === "Files" && /^\d+ rows$/.test(String(row[2]))).map(row => `${String(row[1]).replace(/\.csv$/, "")}: ${row[2]}`);
     const onTiles = overview.tiles.flatMap(tile => [tile.count, ...(tile.inCsv === undefined ? [] : [tile.inCsv])].map(rows => `${tile.label}: ${rows} rows`));
     expect([counts.length, counts.filter(line => !onTiles.includes(line)), overview.tiles.find(tile => tile.label === "Model Calendar")]).toEqual([10, [], { label: "Model Calendar", count: 26, inCsv: 31 }]);
+    // The export says two things both in its summary and in a Files row: how many imports it matched, and that the source
+    // models were not exported. The overview says each once, with the files, and neither among the notes.
+    expect(result.summary.filter(line => !/^[A-Za-z ]+: \d+ rows$/.test(line))).toEqual(["Imports: 3 rows (2 matched in the Actions list)",
+      "Source Models: not exported (This model page has no REMOTE_MODEL axis.)."]);
+    expect([overview.notes, overview.files]).toEqual([[], [["Imports.csv", "3 rows (2 matched in the Actions list)"], ["Source Models.csv", "Not exported: This model page has no REMOTE_MODEL axis."]]]);
     // The page orders a model's files by their names. Every file the export knows, written or not (its Details file names
     // each one), is in that order; the one name in the order that the export does not know yet is Line Item Subsets.
     const known = (detailsOf(result)?.rows ?? []).filter(row => row[0] === "Files").map(row => String(row[1]));
