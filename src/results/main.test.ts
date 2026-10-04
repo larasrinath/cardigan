@@ -536,6 +536,27 @@ describe("The results page's script, on the page", () => {
     expect(page.texts("#drawerBody dd")[0]).toBe("Line item 20");
   });
 
+  it("shows a row whole in its drawer: each cell as it is, and the cells it holds beyond the table's headers", async () => {
+    const formula = "IF a THEN\n    b  *  c\nELSE d";
+    const odd: AnalysisResult = { ...MODEL, tables: [MODEL.tables[0], { file: "Line Items.csv", label: "Line Items", headers: ["", "Formula"], guard: false,
+      rows: [["Revenue", formula, "beyond the headers", `more ${TAG}`], ["Units", "1"]] }] };
+    await openWith(odd);
+    goTo(1);
+    // The table keeps to its headers; the row's drawer has every cell, as the CSV has.
+    expect([page.all("#tableWrap thead th").length, page.all("#tableWrap tbody tr").map(row => row.children.length)]).toEqual([2, [2, 2]]);
+    page.all('#tableWrap tbody [data-act="row"]')[0].press();
+    expect(page.texts("#drawerBody dt")).toEqual(["Name", "Formula", "Column 3", "Column 4"]);
+    expect(page.all("#drawerBody dd").map(value => value.textContent)).toEqual(["Revenue", formula, "beyond the headers", `more ${TAG}`]);
+    expect(page.all("#drawerBody dd .cell-t").map(value => value.textContent)).toEqual(["Revenue", formula, "beyond the headers", `more ${TAG}`]);
+    expect(page.has("img")).toBe(false);
+    page.id("drawerClose").press();
+    page.all('#tableWrap tbody [data-act="row"]')[1].press();
+    expect(page.texts("#drawerBody dt")).toEqual(["Name", "Formula"]);
+    page.id("drawerClose").press();
+    page.id("dlCsv").press();
+    expect(await saved[0].text()).toContain("beyond the headers");
+  });
+
   it("keeps a page's link in an app's first column, with the row's button before it", async () => {
     await openWith();
     goTo(2);

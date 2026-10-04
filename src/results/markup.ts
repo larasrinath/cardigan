@@ -1,4 +1,4 @@
-import type { Column } from "./columns.js";
+import { rowColumns, type Column } from "./columns.js";
 import type { Analysed, CardSection, DetailSection, Overview } from "./result-view.js";
 import { cellText, NONE, pagerItems, type Row, type Sort } from "./table-engine.js";
 
@@ -43,20 +43,23 @@ const plain = (text: string): string => `<span class="cell-t" title="${esc(text)
  * row's own Page or Card ID column. */
 export interface Links { page: boolean; card: boolean }
 
-/** One cell: always the cell's own text, shown the way its column is shown. An empty cell stays empty. */
-export function cellHtml(column: Column, row: Row, links: Links): string {
+/** One cell: always the cell's own text, shown the way its column is shown. An empty cell stays empty. `whole` is for the
+ * drawer, where a value is read in full: there its text stands in a `cell-t` whatever the column's kind, and that is the
+ * element in which the stylesheet keeps a value's line breaks and spaces (an ID is a pill, which it shows uncut). */
+export function cellHtml(column: Column, row: Row, links: Links, whole = false): string {
   const text = cellText(row[column.index]);
   if (text === "") return "";
   if (text === NONE) return DASH;
+  const shown = whole ? `<span class="cell-t">${esc(text)}</span>` : esc(text);
   switch (column.kind) {
     case "id":
       return idPill(text);
     case "tag":
-      return `<span class="tag">${esc(text)}</span>`;
+      return `<span class="tag">${shown}</span>`;
     case "page":
-      return links.page ? `<button type="button" class="link" data-act="page" title="Show cards on ${esc(text)}">${esc(text)}</button>` : plain(text);
+      return links.page ? `<button type="button" class="link" data-act="page" title="Show cards on ${esc(text)}">${shown}</button>` : plain(text);
     case "card":
-      return links.card ? `<button type="button" class="link" data-act="card" title="Open card details">${esc(text)}</button>` : plain(text);
+      return links.card ? `<button type="button" class="link" data-act="card" title="Open card details">${shown}</button>` : plain(text);
     default:
       return plain(text);
   }
@@ -356,8 +359,10 @@ export function colChooserHtml(columns: readonly Column[], hidden: ReadonlySet<n
 
 /* ---------- drawer ---------- */
 
+/** A row whole: every one of its cells, also those beyond the table's headers, each with its value in full. Nothing but
+ * the value stands in a `dd`, so no space of the markup's own is kept with it. */
 const allColumns = (columns: readonly Column[], row: Row, links: Links): string =>
-  `<dl class="d-dl">${columns.map(column => `<dt>${esc(column.label)}</dt><dd>${cellHtml(column, row, links)}</dd>`).join("")}</dl>`;
+  `<dl class="d-dl">${rowColumns(columns, row).map(column => `<dt>${esc(column.label)}</dt><dd>${cellHtml(column, row, links, true)}</dd>`).join("")}</dl>`;
 
 /** One row in full: every column, hidden ones included, with nothing cut short. */
 export function rowDrawerHtml(columns: readonly Column[], row: Row, links: Links): string {

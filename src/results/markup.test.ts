@@ -80,7 +80,8 @@ describe("The results page's escaping", () => {
       expect(tagNames(html)).not.toContain("img");
       expect(attributeNames(html).filter(name => /^on/i.test(name))).toEqual([]);
       // The title is a link to the card's details, and its text is what was typed.
-      expect(html).toContain("<button type=\"button\" class=\"link\" data-act=\"card\" title=\"Open card details\">&lt;img src=x onerror=alert(1)&gt;</button>");
+      const links = parseMarkup(html).querySelectorAll('.link[data-act="card"]').filter(link => link.textContent === IMG);
+      expect(links.map(link => [link.localName, link.title, link.querySelectorAll("img").length])).toEqual([["button", "Open card details", 0]]);
     }
   });
 
@@ -230,6 +231,47 @@ describe("The results page's escaping", () => {
       .toEqual([false, false, true, true, true, true]);
     expect(tableParts(viewOf(table, LINKS)).count).toBe("1–3 of 3 rows");
     expect(tableParts(viewOf(table, LINKS, { total: 2, to: 2 })).count).toBe("1–2 of 2 rows (filtered from 3)");
+  });
+
+  it("shows a row whole in the drawer: each value as it is, in the element that keeps its line breaks and spaces", () => {
+    const text = "IF Sales > 0 THEN\n    Sales  *  Price\nELSE\n\t0";
+    const columns = [column(0, "Formula"), column(1, "Type", "tag"), column(2, "Page", "page"), column(3, "Card title", "card"), column(4, "Card ID", "id", { hidden: true }), column(5, "Empty"), column(6, "None")];
+    const row: Cell[] = [text, text, text, text, text, "", "—"];
+    for (const html of [rowDrawerHtml(columns, row, LINKS), rowDrawerHtml(columns, row, NO_LINKS), cardDrawerHtml(columns, row, LINKS, [])]) {
+      const values = parseMarkup(html).querySelectorAll(".d-dl dd");
+      expect(parseMarkup(html).querySelectorAll(".d-dl dt").map(name => name.textContent)).toEqual(["Formula", "Type", "Page", "Card title", "Card ID", "Empty", "None"]);
+      // Every cell's own text, to the character, whatever its column's kind; an empty cell stays empty.
+      expect(values.map(value => value.textContent)).toEqual([text, text, text, text, text, "", "—"]);
+      // The text of a value stands in a cell-t or, for an ID, in its pill, and in nothing else: the dd holds no other text.
+      for (const value of values.slice(0, 5)) {
+        const holders = value.querySelectorAll(".cell-t, .id-pill");
+        expect(holders.map(holder => holder.textContent)).toEqual([text]);
+        expect(value.childNodes.filter(node => node.nodeType === 3)).toEqual([]);
+      }
+      expect(values[4].querySelectorAll(".id-pill").map(pill => pill.dataset.copy)).toEqual([text]);
+    }
+    // A tag stays a tag and a link a link, in the drawer as in the table; only the table leaves the cell-t out of them.
+    const kinds = (html: string) => parseMarkup(html).querySelectorAll(".tag, .link").map(element => [element.classList.contains("tag") ? "tag" : element.dataset.act, element.querySelectorAll(".cell-t").length]);
+    expect(kinds(rowDrawerHtml(columns, row, LINKS))).toEqual([["tag", 1], ["page", 1], ["card", 1]]);
+    expect(kinds(columns.map(entry => cellHtml(entry, row, LINKS)).join(""))).toEqual([["tag", 0], ["page", 0], ["card", 0]]);
+  });
+
+  it("shows the cells a row holds beyond its headers too, under names of the page's own", () => {
+    const table: ResultTable = { file: "Line Items.csv", label: "Line Items", headers: ["", "Formula"], guard: false,
+      rows: [["Revenue", "Units * Price", "left over", IMG, 7], ["Units", ""], ["Short"]] };
+    const columns = columnsOf(table);
+    const pairs = (row: Cell[]) => {
+      const drawer = parseMarkup(rowDrawerHtml(columns, row, NO_LINKS));
+      return drawer.querySelectorAll("dt").map((name, index) => [name.textContent, drawer.querySelectorAll("dd")[index].textContent]);
+    };
+    expect(pairs(table.rows[0])).toEqual([["Name", "Revenue"], ["Formula", "Units * Price"], ["Column 3", "left over"], ["Column 4", IMG], ["Column 5", "7"]]);
+    // A row with as many cells as headers, or fewer, has the table's columns and no more.
+    expect(pairs(table.rows[1])).toEqual([["Name", "Units"], ["Formula", ""]]);
+    expect(pairs(table.rows[2])).toEqual([["Name", "Short"], ["Formula", ""]]);
+    // A card's drawer shows its row the same way. The table itself keeps to its headers.
+    expect(parseMarkup(cardDrawerHtml(columns, table.rows[0], NO_LINKS, [])).querySelectorAll("dt").map(name => name.textContent)).toEqual(["Name", "Formula", "Column 3", "Column 4", "Column 5"]);
+    expect(parseMarkup(tableHtml(viewOf(table, NO_LINKS))).querySelectorAll("tbody tr").map(tr => tr.children.length)).toEqual([2, 2, 2]);
+    expectInert(texts => rowDrawerHtml(columns, [texts(0), texts(1), texts(2), texts(3)], NO_LINKS), 4);
   });
 
   it("lets no text change the column filter, the column chooser or the drawer", () => {
