@@ -1,5 +1,14 @@
+import type { TabName } from "../report.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
 import { cellText } from "./table-engine.js";
+
+/** The names of an app export's files, by the report table each holds. The analysis writes its files under these names
+ * (analyse.ts), and whatever the page knows about one of them, here or in result-view.ts, is keyed by a name from this
+ * one place. A model's files are not named anywhere: the page knows nothing about any of them in particular. */
+export const APP_FILES: Record<TabName, string> = {
+  Pages: "Pages.csv", Cards: "Cards.csv", "Grid sections": "Grid Sections.csv", Filters: "Filters.csv", Formatting: "Conditional Formatting.csv",
+  Actions: "Action Buttons.csv", "Where used": "Where Used.csv",
+};
 
 /** How the results page shows each column. Columns come from a table's headers. The design's choices for the app's seven
  * files are kept by header name: which columns offer a filter, which start hidden, which are numbers, and which are shown
@@ -33,40 +42,40 @@ const TAG: Choice = { kind: "tag", filter: true };
 const ID: Choice = { kind: "id" };
 const HIDDEN_ID: Choice = { kind: "id", hidden: true };
 
-const CHOICES: Record<string, Record<string, Choice>> = {
-  "Pages.csv": {
+const CHOICES: Record<TabName, Record<string, Choice>> = {
+  Pages: {
     "Category": FILTER, "Page": { kind: "page" }, "Page type": TAG, "Publish state": FILTER, "Model": FILTER,
     "Total cards": NUM, "Grid cards": NUM, "Chart cards": NUM, "KPI cards": NUM, "Field cards": NUM, "Action cards": NUM, "Text & image cards": NUM,
     "Page ID": HIDDEN_ID, "App ID": HIDDEN_ID, "Model ID": HIDDEN_ID,
   },
-  "Cards.csv": {
+  Cards: {
     "Page": PAGE, "Card #": CARD_NUMBER, "Card title": { kind: "card" }, "Card type": TAG, "View type": TAG,
     "Card ID": HIDDEN_ID, "Source IDs": { hidden: true },
   },
-  "Grid Sections.csv": {
+  "Grid sections": {
     "Page": PAGE, "Card #": CARD_NUMBER, "View type": TAG, "Section #": NUM, "Section layout": FILTER,
     "Card ID": ID, "Section ID": HIDDEN_ID, "Module ID": HIDDEN_ID,
   },
-  "Filters.csv": {
+  Filters: {
     "Page": PAGE, "Card #": CARD_NUMBER, "Section #": NUM, "Filter on": TAG, "Filtered dimension": FILTER, "Show items that match": TAG,
     "Operator": FILTER, "Card ID": ID, "Line item ID": HIDDEN_ID,
   },
-  "Conditional Formatting.csv": {
+  Formatting: {
     "Page": PAGE, "Card #": CARD_NUMBER, "Section #": NUM, "Format style": TAG, "Card ID": ID, "Line item ID": HIDDEN_ID,
   },
-  "Action Buttons.csv": {
+  Actions: {
     "Page": PAGE, "Card #": CARD_NUMBER, "Action type": TAG, "Name source": FILTER, "Runs automatically": FILTER, "Cancel button": FILTER,
     "Card ID": ID, "Action ID": HIDDEN_ID,
   },
-  "Where Used.csv": {
+  "Where used": {
     "Object type": TAG, "Page": PAGE, "Card #": NUM, "Used as": FILTER, "Object ID": HIDDEN_ID,
   },
 };
 
-/** File name -> header -> choice. The file names are the app export's (analyse.ts), the headers are report.ts `HEADERS`.
+/** File name -> header -> choice. The file names are the app export's (`APP_FILES`), the headers are report.ts `HEADERS`.
  * Maps, so that a file or a header with the name of an object's built-in property finds nothing. */
 export const COLUMN_CHOICES: ReadonlyMap<string, ReadonlyMap<string, Choice>> = new Map(
-  Object.entries(CHOICES).map(([file, choices]): [string, ReadonlyMap<string, Choice>] => [file, new Map(Object.entries(choices))]));
+  (Object.keys(CHOICES) as TabName[]).map((tab): [string, ReadonlyMap<string, Choice>] => [APP_FILES[tab], new Map(Object.entries(CHOICES[tab]))]));
 
 /** A table's columns, in the order of its headers. */
 export function columnsOf(table: ResultTable): Column[] {
@@ -103,7 +112,7 @@ export const rowKeys = (table: ResultTable): RowKeys => ({ page: columnIndex(tab
  * nothing links to a card or to a page's cards. */
 export interface CardsTable { index: number; table: ResultTable; page: number; cardId: number }
 export function cardsOf(result: AnalysisResult): CardsTable | undefined {
-  const index = result.tables.findIndex(table => table.file === "Cards.csv");
+  const index = result.tables.findIndex(table => table.file === APP_FILES.Cards);
   if (index < 0) return undefined;
   const table = result.tables[index];
   const { page, cardId } = rowKeys(table);

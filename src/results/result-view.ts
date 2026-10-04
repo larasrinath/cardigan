@@ -1,5 +1,5 @@
 import type { AnalysisResult, ResultTable } from "../result-types.js";
-import { columnIndex } from "./columns.js";
+import { APP_FILES, columnIndex } from "./columns.js";
 import { cellText, compareText, NONE } from "./table-engine.js";
 
 /** What the results page reads out of a result besides its tables: the Details file's sections, the diagnostic log, and
@@ -77,15 +77,15 @@ export function analysedOf(result: AnalysisResult): Analysed {
 /** The files that list a card's parts, as the design's card details show them: a heading per column, holding one of the
  * file's columns or several put side by side (a dash or a blank among several is left out). */
 export const CARD_PARTS: readonly { file: string; title: string; none: string; columns: readonly (readonly [heading: string, headers: readonly string[], join?: string])[] }[] = [
-  { file: "Grid Sections.csv", title: "Grid sections", none: "grid sections", columns: [
+  { file: APP_FILES["Grid sections"], title: "Grid sections", none: "grid sections", columns: [
     ["#", ["Section #"]], ["Layout", ["Section layout"]], ["Source module", ["Source module"]], ["Saved view", ["Saved view"]],
     ["Line items shown", ["Line items shown"]], ["Row filter", ["Row filter"]], ["Formatting", ["Conditional formatting"]]] },
-  { file: "Filters.csv", title: "Filters", none: "filters", columns: [
+  { file: APP_FILES.Filters, title: "Filters", none: "filters", columns: [
     ["Sec", ["Section #"]], ["Filter on", ["Filter on"]], ["Dimension", ["Filtered dimension"]], ["Group", ["Condition group", "Show items that match"], " · "],
     ["Condition", ["Condition line item", "Operator", "Value"]], ["Context", ["Condition context"]]] },
-  { file: "Conditional Formatting.csv", title: "Conditional formatting", none: "formatting rules", columns: [
+  { file: APP_FILES.Formatting, title: "Conditional formatting", none: "formatting rules", columns: [
     ["Sec", ["Section #"]], ["Style", ["Format style"]], ["Line item", ["Formatted line item"]], ["Driven by", ["Colour driven by"]], ["Colour stops", ["Colour stops"]]] },
-  { file: "Action Buttons.csv", title: "Buttons & links", none: "buttons", columns: [
+  { file: APP_FILES.Actions, title: "Buttons & links", none: "buttons", columns: [
     ["Label", ["Button label"]], ["Action type", ["Action type"]], ["Model action", ["Model action name"]], ["Runs auto", ["Runs automatically"]], ["Cancel", ["Cancel button"]]] },
 ];
 
@@ -130,7 +130,7 @@ export function overviewOf(result: AnalysisResult): Overview {
   const tiles = result.tables.filter(table => table.details !== true).map(table => ({ label: cellText(table.label), count: table.rows.length }));
 
   const counts = new Map<string, number>();
-  const cards = result.tables.find(table => table.file === "Cards.csv");
+  const cards = result.tables.find(table => table.file === APP_FILES.Cards);
   const type = cards && columnIndex(cards, "Card type");
   if (cards && type !== undefined) {
     for (const row of cards.rows) counts.set(cellText(row[type]), (counts.get(cellText(row[type])) ?? 0) + 1);
@@ -138,7 +138,7 @@ export function overviewOf(result: AnalysisResult): Overview {
   const cardTypes = [...counts].sort(([a, x], [b, y]) => y - x || compareText(a, b));
 
   const models = new Map<string, ModelRow>();
-  const pages = result.tables.find(table => table.file === "Pages.csv");
+  const pages = result.tables.find(table => table.file === APP_FILES.Pages);
   const model = pages && columnIndex(pages, "Model");
   const workspace = pages && columnIndex(pages, "Workspace");
   const modelId = pages && columnIndex(pages, "Model ID");

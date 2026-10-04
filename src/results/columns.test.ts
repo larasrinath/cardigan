@@ -1,20 +1,25 @@
 import { describe, expect, it } from "vitest";
 import { HEADERS, type TabName } from "../report.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
-import { cardsOf, COLUMN_CHOICES, columnIndex, columnsOf, rowColumns, rowKeys } from "./columns.js";
+import { APP_FILES, cardsOf, COLUMN_CHOICES, columnIndex, columnsOf, rowColumns, rowKeys } from "./columns.js";
 
-/** The app export's files (analyse.ts) and the report tables they hold. */
-const FILES: Record<string, TabName> = {
-  "Pages.csv": "Pages", "Cards.csv": "Cards", "Grid Sections.csv": "Grid sections", "Filters.csv": "Filters",
-  "Conditional Formatting.csv": "Formatting", "Action Buttons.csv": "Actions", "Where Used.csv": "Where used",
-};
+/** The app export's files, as the page names them, and the report table each holds. */
+const FILES: Record<string, TabName> = Object.fromEntries((Object.keys(APP_FILES) as TabName[]).map(tab => [APP_FILES[tab], tab]));
 const table = (file: string, headers: string[]): ResultTable => ({ file, label: file.replace(/\.csv$/, ""), headers, rows: [], guard: true });
 const appTable = (file: string): ResultTable => table(file, HEADERS[FILES[file]]);
 const labels = (columns: { label: string }[]) => columns.map(column => column.label);
 
 describe("The results page's columns", () => {
+  it("names an app's files in one place: one for each of the report's tables, each a CSV file of its own", () => {
+    // analyse.ts writes the files under these very names; a test beside it holds the two lists together.
+    expect(APP_FILES).toEqual({ Pages: "Pages.csv", Cards: "Cards.csv", "Grid sections": "Grid Sections.csv", Filters: "Filters.csv",
+      Formatting: "Conditional Formatting.csv", Actions: "Action Buttons.csv", "Where used": "Where Used.csv" });
+    expect(Object.keys(APP_FILES)).toEqual(Object.keys(HEADERS));
+    expect(new Set(Object.values(APP_FILES)).size).toBe(7);
+  });
+
   it("makes its choices only for columns the app's files really have", () => {
-    expect([...COLUMN_CHOICES.keys()]).toEqual(Object.keys(FILES));
+    expect([...COLUMN_CHOICES.keys()]).toEqual(Object.values(APP_FILES));
     for (const [file, choices] of COLUMN_CHOICES) {
       expect([...choices.keys()].filter(header => !HEADERS[FILES[file]].includes(header)), file).toEqual([]);
     }
