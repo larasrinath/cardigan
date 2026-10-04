@@ -40,7 +40,9 @@ export type TabMessage =
   | { type: "result"; result: AnalysisResult }
   | { type: "rows"; table: number; rows: Cell[][] }
   | { type: "done" }
-  /** The run failed. `code` is "SIGNED_OUT" when Anaplan's session has ended. */
+  /** The run failed; `message` is a plain sentence for the user. `code` is "SIGNED_OUT" when Anaplan's session has ended.
+   * An "error" can also arrive after "result" and "rows", in place of "done", when a piece of the result could not be
+   * sent: the result is then incomplete and must not be shown. */
   | { type: "error"; message: string; code?: "SIGNED_OUT" };
 
 /** One "rows" message holds at most ROWS_MAX rows, and is cut earlier once the text of its cells passes ROWS_MAX_CHARS,
