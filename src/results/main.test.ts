@@ -450,9 +450,9 @@ describe("The results page's script, on the page", () => {
 
     // Each further letter does the same, and so does taking letters away.
     box.type("item 119");
-    expect([firstCells(), page.id("rowCount").textContent]).toEqual([["Line item 119"], "1–1 of 1 rows (filtered from 120)"]);
+    expect([firstCells(), page.id("rowCount").textContent]).toEqual([["Line item 119"], "1–1 of 1 row (filtered from 120)"]);
     box.type("item 119x");
-    expect([firstCells(), page.texts("#tableWrap .e-title"), pagerButtons()]).toEqual([[], ["No results"], []]);
+    expect([firstCells(), page.texts("#tableWrap .e-title"), pagerButtons(), page.id("rowCount").textContent]).toEqual([[], ["No results"], [], "No rows (filtered from 120)"]);
     box.type("");
     expect([firstCells().length, page.id("rowCount").textContent, page.id("resetBtn").hidden, page.id("searchWrap").classList.contains("has-value")])
       .toEqual([50, "1–50 of 120 rows", true, false]);
@@ -784,6 +784,8 @@ describe("The results page's script, on the page", () => {
   it("shows no Notes panel for a model whose summary only says how many rows each file has", async () => {
     await openWith(MODEL);
     expect([page.texts("#view h1"), page.texts("#view .s-lab"), page.has("#view .warn-list"), page.id("banners").children]).toEqual([["Overview"], ["Line Items", "Modules"], false, []]);
+    // A model's tiles carry its files' own names; the navigation does too.
+    expect(page.texts("#navList .nav-item span").filter(text => !/^\d+$/.test(text)).slice(1, 3)).toEqual(["Line Items", "Modules"]);
     // A table's view has no notes either: they are on the overview only.
     goTo(1);
     expect([page.has(".warn-list"), page.id("banners").children]).toEqual([false, []]);

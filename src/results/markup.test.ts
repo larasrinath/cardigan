@@ -231,6 +231,13 @@ describe("The results page's escaping", () => {
       .toEqual([false, false, true, true, true, true]);
     expect(tableParts(viewOf(table, LINKS)).count).toBe("1–3 of 3 rows");
     expect(tableParts(viewOf(table, LINKS, { total: 2, to: 2 })).count).toBe("1–2 of 2 rows (filtered from 3)");
+    // One row is a row, and no rows are said in words, not as "0–0 of 0 rows".
+    expect(tableParts(viewOf(table, LINKS, { total: 1, to: 1 })).count).toBe("1–1 of 1 row (filtered from 3)");
+    expect(tableParts(viewOf(table, LINKS, { rows: [], total: 0, from: 0, to: 0, search: "x" })).count).toBe("No rows (filtered from 3)");
+    expect(tableParts(viewOf({ ...table, rows: [] }, LINKS)).count).toBe("No rows");
+    // A table without rows says so in the page's own word for it.
+    const none = parseMarkup(tableHtml(viewOf({ ...table, label: "Filters", rows: [] }, LINKS)));
+    expect([none.querySelector(".e-title")?.textContent, none.querySelector(".e-sub")?.textContent]).toEqual(["Filters has no rows", "Nothing was found for this table in this analysis."]);
   });
 
   it("shows a row whole in the drawer: each value as it is, in the element that keeps its line breaks and spaces", () => {
