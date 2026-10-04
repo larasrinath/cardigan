@@ -375,6 +375,12 @@ test('the repository\'s package.json and manifest.json carry the same version', 
   assert.equal(pkg.version, manifest.version);
 });
 
+test('the repository\'s manifest declares a content security policy, and one the packager takes', () => {
+  const manifest = JSON.parse(readFileSync(path.join(ROOT, 'manifest.json'), 'utf8'));
+  assert.deepEqual(Object.keys(manifest.content_security_policy), ['extension_pages']);
+  assert.deepEqual(policyProblems(manifest.content_security_policy.extension_pages), []);
+});
+
 test('the repository\'s results page loads only packaged files, its own stylesheet and bundle among them',
   { skip: !existsSync(path.join(ROOT, 'results.html')) && 'results.html is not in this checkout' }, () => {
     const read = name => readFileSync(path.join(ROOT, name), 'utf8');
