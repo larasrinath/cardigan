@@ -2,7 +2,7 @@ import { PORT_NAME } from "../protocol.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
 import { resultZip, tableCsv } from "../result-zip.js";
 import { VERSION } from "../version.js";
-import { cardsOf, columnIndex, columnsOf, rowKeys, type CardsTable, type Column, type RowKeys } from "./columns.js";
+import { cardsOf, columnIndex, columnsOf, rowKeys, rowNameIndex, type CardsTable, type Column, type RowKeys } from "./columns.js";
 import { describeState, openedJustNow, ResultsClient, runLabel, tabIdFrom, withoutOpened, type RunState } from "./connection.js";
 import { CSV_FALLBACK, downloadName, ZIP_FALLBACK } from "./file-name.js";
 import {
@@ -509,12 +509,16 @@ function closeDrawer(): void {
   if (state.lastFocus instanceof HTMLElement && document.contains(state.lastFocus)) state.lastFocus.focus();
   state.lastFocus = null;
 }
-/** Any row, in full. Its heading is the row's own name; the line under it says which row of which table it is, by its
- * place among the rows the table lists, which a search, a filter or a sort does not change. */
+/** Any row, in full. Its heading is the row's own name: the cell of the column that names the file's rows (columns.ts
+ * `ROW_NAME_COLUMNS`), or, where the page knows no such column or the cell says nothing, the first cell that does. The
+ * line under it says which row of which table it is, by its place among the rows the table lists, which a search, a
+ * filter or a sort does not change. */
 function openRowDrawer(entry: Shown, row: Row, opener: Element): void {
   drawerRow = { entry, row };
   const position = entry.table.rows.findIndex(candidate => candidate === row) + 1;
-  openDrawer(rowName(row) || `Row ${position}`, rowDrawerSubHtml(position, cellText(entry.table.label)), rowDrawerHtml(entry.columns, row, entry.links), opener);
+  const named = rowNameIndex(entry.table);
+  const name = (named === undefined ? "" : rowName([row[named] ?? ""])) || rowName(row) || `Row ${position}`;
+  openDrawer(name, rowDrawerSubHtml(position, cellText(entry.table.label)), rowDrawerHtml(entry.columns, row, entry.links), opener);
 }
 /** A card: its row of the Cards file, and the rows of the other files that carry its Card ID on its page. */
 function openCardDrawer(page: string, cardId: string, opener: Element): void {

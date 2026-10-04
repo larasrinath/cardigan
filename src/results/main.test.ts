@@ -457,12 +457,12 @@ describe("The results page's script, on the page", () => {
     await openWith(NAMED);
     page.find('#navList [data-nav="2"]').press();
     expect(page.texts("#view h1")).toEqual([`Cards ${TAG}`]);
-    // A click on a row, outside its links, opens the row. The drawer's title is the row's own name, its first cell, and
-    // the line under it says which row of which table it is.
+    // A click on a row, outside its links, opens the row. The drawer's title is the row's own name, which for a card is
+    // its title, and the line under it says which row of which table it is.
     page.find("#tableWrap tbody tr .tag").press();
     expect(page.id("drawer").hidden).toBe(false);
-    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual(["Overview", `Row 1 of Cards ${TAG}`]);
-    expect(page.id("drawerSub").children).toEqual([]);
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual([`Sales ${TAG}`, `Row 1 of Cards ${TAG}`]);
+    expect([page.id("drawerTitle").children, page.id("drawerSub").children]).toEqual([[], []]);
     expect(page.texts("#drawerBody dd")).toContain(`Sales ${TAG}`);
     // A card's number opens the card. The drawer's title is the card's own title.
     page.id("drawerClose").press();
@@ -714,11 +714,37 @@ describe("The results page's script, on the page", () => {
     // The row's button opens the row, not the card and not the page's cards.
     page.all('#tableWrap tbody [data-act="row"]')[1].press();
     expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent, page.texts("#drawerBody h3"), page.texts("#drawerBody dd")])
-      .toEqual(["Overview", "Row 2 of Cards", ["All columns"], ["Overview", "2", "=Margin", "KPI", "card-b"]]);
+      .toEqual(["=Margin", "Row 2 of Cards", ["All columns"], ["Overview", "2", "=Margin", "KPI", "card-b"]]);
     page.key("Escape");
     // And the page's name still shows that page's cards.
     page.find('#tableWrap tbody [data-act="page"]').press();
     expect(page.texts("#crumbs .ctx")).toEqual(["Page: Overview"]);
+  });
+
+  it("heads a row's drawer by the row's own name: the column that names the file's rows, and the first cell that says something where there is none", async () => {
+    // The app's files, the Pages and the Action Buttons among them, and a card without a title.
+    const app: AnalysisResult = { ...APP, tables: [...APP.tables.map((table, index) => (index === 2 ? { ...table, rows: [...table.rows, ["Overview", 3, "—", "Text", "card-c"], ["Overview", 4, "", "Text", "card-d"]] } : table)),
+      { file: "Action Buttons.csv", label: "Action Buttons", headers: ["Page", "Card #", "Button label", "Action type", "Card ID"], guard: true, rows: [["Overview", 1, "Reload plan", "Import", "card-a"]] }] };
+    await openWith(app);
+    /** The heading and the line under it of the drawer that a row's button opens. */
+    const heading = (table: number, row: number) => {
+      goTo(table);
+      page.all('#tableWrap tbody [data-act="row"]')[row].press();
+      const title = [page.id("drawerTitle").textContent, page.id("drawerSub").textContent];
+      page.key("Escape");
+      return title;
+    };
+    // Pages: the page, not the app that every row begins with. Cards: the card's title, not its page.
+    expect([heading(1, 0), heading(1, 1)]).toEqual([["Overview", "Row 1 of Pages"], ["Overview (copy)", "Row 2 of Pages"]]);
+    expect([heading(2, 1), heading(2, 3)]).toEqual([["Margin", "Row 2 of Cards"], ["Margin, copied", "Row 4 of Cards"]]);
+    // The other files: what the row is about. A grid section's source module, an object's name, a button's label.
+    expect([heading(3, 2), heading(4, 1), heading(5, 0)]).toEqual([["REP02 Gone", "Row 3 of Grid Sections"], ["REP09 Copy", "Row 2 of Where Used"], ["Reload plan", "Row 1 of Action Buttons"]]);
+    // A card without a title, a dash or nothing in its place: the first cell of the row that says something.
+    expect([heading(2, 4), heading(2, 5)]).toEqual([["Overview", "Row 5 of Cards"], ["Overview", "Row 6 of Cards"]]);
+    // A model's rows are named by their first column, as they were.
+    page.id("runAgain").press();
+    sendResult(ports[0], MODEL);
+    expect([heading(1, 2), heading(2, 1)]).toEqual([["Line item 3", "Row 3 of Line Items"], ["Cost", "Row 2 of Modules"]]);
   });
 
   it("keeps the keyboard inside the open drawer: what lies behind it is inert until it closes, however it closes", async () => {

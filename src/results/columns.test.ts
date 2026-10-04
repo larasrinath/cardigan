@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { HEADERS, type TabName } from "../report.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
-import { APP_FILES, cardsOf, COLUMN_CHOICES, columnIndex, columnsOf, FILTER_MAX, FILTER_MIN, NUMBERS_HIDDEN, rowColumns, rowKeys } from "./columns.js";
+import { APP_FILES, cardsOf, COLUMN_CHOICES, columnIndex, columnsOf, FILTER_MAX, FILTER_MIN, NUMBERS_HIDDEN, ROW_NAME_COLUMNS, rowColumns, rowKeys, rowNameIndex } from "./columns.js";
 
 /** The app export's files, as the page names them, and the report table each holds. */
 const FILES: Record<string, TabName> = Object.fromEntries((Object.keys(APP_FILES) as TabName[]).map(tab => [APP_FILES[tab], tab]));
@@ -171,6 +171,19 @@ describe("The results page's columns", () => {
     expect(rowKeys(filters)).toEqual({ page: 0, cardId: 13 });
     expect(rowKeys(appTable("Where Used.csv"))).toEqual({ page: 3, cardId: undefined });
     expect(rowKeys(table("Modules.csv", ["", "Functional Area"]))).toEqual({ page: undefined, cardId: undefined });
+  });
+
+  it("names the column a row of each of the app's files is called by, and none for any other file", () => {
+    expect(ROW_NAME_COLUMNS).toEqual({ Pages: "Page", Cards: "Card title", "Grid sections": "Source module", Filters: "Condition line item", Formatting: "Formatted line item",
+      Actions: "Button label", "Where used": "Object name" });
+    // One for each of the app's files, each a column the analysis really writes, and none of them the file's first column,
+    // which is the app or the page that the rows of a page share.
+    expect(Object.keys(ROW_NAME_COLUMNS)).toEqual(Object.keys(HEADERS));
+    expect((Object.keys(HEADERS) as TabName[]).map(tab => HEADERS[tab].indexOf(ROW_NAME_COLUMNS[tab]))).toEqual([2, 2, 5, 8, 5, 2, 1]);
+    expect(Object.keys(FILES).map(file => rowNameIndex(appTable(file)))).toEqual([2, 2, 5, 8, 5, 2, 1]);
+    // A table that lacks the column, and a file the page knows no such column of: a model's, whatever its columns are called.
+    expect([rowNameIndex(table("Cards.csv", ["Page", "Card #"])), rowNameIndex(table("Line Items.csv", ["", "Page", "Card title"])), rowNameIndex(table("constructor", ["Page"]))])
+      .toEqual([undefined, undefined, undefined]);
   });
 
   it("links to cards only when the result has a Cards file with a Page and a Card ID", () => {
