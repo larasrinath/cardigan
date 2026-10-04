@@ -19,9 +19,12 @@ const SEARCH_PATH = '<circle cx="7" cy="7" r="4.6"/><path d="M10.6 10.6 14 14"/>
 const FILTER_PATH = '<path d="M2 3h12l-4.6 5.2v4.3L6.6 14V8.2L2 3Z"/>';
 export const SUN_ICON = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="3.2"/><path d="M8 1.5v1.8M8 12.7v1.8M1.5 8h1.8M12.7 8h1.8M3.4 3.4l1.3 1.3M11.3 11.3l1.3 1.3M12.6 3.4l-1.3 1.3M4.7 11.3l-1.3 1.3"/></svg>';
 export const MOON_ICON = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 9.5A5.8 5.8 0 0 1 6.5 2.5 5.8 5.8 0 1 0 13.5 9.5Z"/></svg>';
+const INFO_ICON = '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6.4"/><path d="M8 7.4v3.4M8 5v.2"/></svg>';
 const DIAGNOSTICS_SUMMARY = '<summary><svg class="car" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3l6 5-6 5"/></svg>Diagnostics</summary>';
-const COPY_LOG_BUTTON = `<button type="button" class="btn sm" data-act="copy-diag">
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5.5" y="5.5" width="8" height="8" rx="2"/><path d="M10.5 5.5v-2a2 2 0 0 0-2-2h-5a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h2"/></svg>
+/** The button that copies a diagnostic log. The messages of a failed run name it by these words (progress.ts). `act` says
+ * which log: "copy-diag" the one a result carries, "copy-run-log" the one of the run the page is following or last followed. */
+const copyLogButton = (act: "copy-diag" | "copy-run-log", attributes = ""): string => `<button type="button" class="btn sm" data-act="${act}"${attributes}>
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="2"/><path d="M10.5 5.5v-2a2 2 0 0 0-2-2h-5a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h2"/></svg>
           Copy diagnostic log</button>`;
 
 /* ---------- cells ---------- */
@@ -162,7 +165,7 @@ export function detailsHtml(sections: readonly DetailSection[], log: readonly st
       ${DIAGNOSTICS_SUMMARY}
       <div class="diag-body">
         <pre id="diagLog" tabindex="0">${esc(log.join("\n"))}</pre>
-        ${COPY_LOG_BUTTON}
+        ${copyLogButton("copy-diag")}
       </div>
     </details>` : ""}`;
 }
@@ -182,9 +185,20 @@ export function runHtml(): string {
       ${DIAGNOSTICS_SUMMARY}
       <div class="diag-body">
         <pre id="diagLog" tabindex="0"></pre>
-        ${COPY_LOG_BUTTON}
+        ${copyLogButton("copy-run-log")}
       </div>
     </details>`;
+}
+
+/** The banner a run's progress or failure stands in while an earlier result stays on the page: a heading, the status or
+ * the message, what to do, and the button that copies that run's log. Like the run's own view it holds no text of the run:
+ * the page sets each part as plain text. */
+export function runBannerHtml(): string {
+  return `<div class="banner note" id="runBanner">${INFO_ICON}
+      <div><div><strong id="bannerTitle"></strong></div>
+        <div><span id="bannerText"></span> <span id="bannerHint"></span></div>
+        <div>The results below are from the earlier run.</div></div>
+      ${copyLogButton("copy-run-log", ' id="bannerCopy" style="margin-left:auto;flex:none" hidden')}</div>`;
 }
 
 /* ---------- table ---------- */
