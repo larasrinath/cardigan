@@ -497,7 +497,7 @@ describe("Model export: Model settings grids to tables", () => {
   });
 });
 
-// One model exported end to end, as the 0.6.1 zip in zip-0.6.1.test-support.ts was made: every Model settings grid the
+// One model exported end to end, as the 0.6.1 zip in golden-0.6.1.test-support.ts was made: every Model settings grid the
 // export reads, with the values a CSV has to quote (commas, quotes, line breaks) and text that looks like a formula, an
 // import the Imports tab does not list, and one grid the page's client does not have (Source Models).
 interface FakeGrid { columns: string[]; rows: { ids: number[]; labels: (string | null)[]; cells: string[] }[] }

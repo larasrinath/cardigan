@@ -874,7 +874,7 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
   });
 });
 
-// One app read end to end, as the 0.6.1 zip in zip-0.6.1.test-support.ts was made: a published board with an action card, a
+// One app read end to end, as the 0.6.1 zip in golden-0.6.1.test-support.ts was made: a published board with an action card, a
 // custom view (a row filter, two hidden items and a formatting rule) and a text card whose text looks like a formula, and a
 // page that was never published. Names come from the socket and the actions service.
 const GOLDEN_APP = "01234567-89ab-cdef-0123-456789abcdef";
