@@ -1,5 +1,8 @@
 /* ---------- tokens ---------- */
+/* Each theme says which it is, so that what the browser draws itself follows it: the scrollbars, the tick boxes and the
+   menu of the rows-per-page choice. */
 :root{
+  color-scheme:light;
   --bg:#faf9f5; --panel:#ffffff; --panel-2:#f3f1ea; --panel-3:#eceade;
   --border:#e5e4df; --border-strong:#d4d2c8;
   --text:#191919; --text-2:#5b584f; --text-3:#716e65;
@@ -15,6 +18,7 @@
   --r-xs:4px; --r-sm:8px; --r-md:12px;
 }
 :root[data-theme="dark"]{
+  color-scheme:dark;
   --bg:#141413; --panel:#1d1d1b; --panel-2:#242422; --panel-3:#2c2c29;
   --border:#2f2f2b; --border-strong:#40403a;
   --text:#faf9f5; --text-2:#aaa69c; --text-3:#8e8a7f;
