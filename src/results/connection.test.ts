@@ -17,6 +17,10 @@ class FakePort implements TabPort {
     if (this.closed) throw new Error("Attempting to use a disconnected port object");
     this.posted.push(structuredClone(message));
   }
+  /** The tab's side has gone, and Chrome has not said so yet: posting throws before the port's closing is heard. */
+  breakSilently(): void {
+    this.closed = true;
+  }
   disconnect(): void {
     this.closed = true;
     this.closedByPage = true;
@@ -438,6 +442,45 @@ describe("The results page's connection to the Anaplan tab", () => {
     expect(client.state.result.tables.map(table => table.rows.length)).toEqual([0, 0, 1, 0]);
   });
 
+  it("takes a port that throws on the first run as a tab that did not answer", () => {
+    const { client, ports, phases, log } = page();
+    client.start();
+    ports[0].breakSilently();
+    ports[0].send({ type: "subject", subject: APP });
+    expect(phases()).toEqual(["connecting", "unreachable"]);
+    expect([ports[0].posted, log(), client.asked]).toEqual([[], ["14:02:05 The tab did not answer."], true]);
+    // Chrome's own word that the port closed, when it comes, changes nothing more.
+    ports[0].drop();
+    expect(phases()).toEqual(["connecting", "unreachable"]);
+    // Run again connects anew, and what the tab then shows is analysed.
+    client.runAgain();
+    ports[1].send({ type: "subject", subject: APP });
+    expect([ports.length, ports[1].posted, client.state.phase]).toEqual([2, [RUN], "running"]);
+  });
+
+  it("opens a new port for Run again when the open one throws, and runs on that", () => {
+    const { client, ports, phases } = page();
+    client.start();
+    ports[0].send({ type: "subject", subject: APP });
+    ports[0].send({ type: "result", result: full() });
+    ports[0].send({ type: "done" });
+    ports[0].breakSilently();
+    client.runAgain();
+    // Nothing went out on the broken port; the new one is asked what the tab shows, and then for the analysis.
+    expect([ports.length, ports[0].posted, ports[0].closedByPage, phases().slice(-1)]).toEqual([2, [RUN], true, ["connecting"]]);
+    ports[1].send({ type: "subject", subject: MODEL });
+    expect([ports[1].posted, client.state]).toEqual([[RUN], { phase: "running", status: "Starting the analysis…" }]);
+    // The same on a page that waits for the run control: its first run, on a port that has gone meanwhile.
+    const waiting = page({ autoRun: false });
+    waiting.client.start();
+    waiting.ports[0].send({ type: "subject", subject: APP });
+    waiting.ports[0].breakSilently();
+    waiting.client.runAgain();
+    expect([waiting.ports.length, waiting.ports[0].posted, waiting.client.state.phase]).toEqual([2, [], "connecting"]);
+    waiting.ports[1].send({ type: "subject", subject: APP });
+    expect(waiting.ports[1].posted).toEqual([RUN]);
+  });
+
   it("no longer listens to a port it has replaced", () => {
     const { client, ports } = page();
     client.start();
@@ -473,6 +516,12 @@ describe("The results page's connection to the Anaplan tab", () => {
       "a row that is not a list of cells": [{ type: "result", result: empty() }, { type: "rows", table: 1, rows: [["a"], "b"] }],
       "a result without tables": [{ type: "result", result: { kind: "app", name: "x", summary: [] } }],
       "a result whose table has no rows": [{ type: "result", result: { ...empty(), tables: [{ file: "a.csv", headers: [] }] } }],
+      "a result whose table has no headers": [{ type: "result", result: { ...empty(), tables: [{ file: "a.csv", label: "a", rows: [], guard: true }] } }],
+      "a result whose headers are not a list": [{ type: "result", result: { ...empty(), tables: [{ file: "a.csv", headers: "Page", rows: [] }] } }],
+      "a result with a table that is nothing": [{ type: "result", result: { ...empty(), tables: [...empty().tables, null] } }],
+      "a result with a table that is a text": [{ type: "result", result: { ...empty(), tables: ["Cards.csv"] } }],
+      "a result that is nothing": [{ type: "result", result: null }],
+      "a result that is a text": [{ type: "result", result: "done" }],
       "a result without a summary": [{ type: "result", result: { ...empty(), summary: undefined } }],
       "no result at all": [{ type: "result" }],
     };

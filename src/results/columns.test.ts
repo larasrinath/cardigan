@@ -75,6 +75,17 @@ describe("The results page's columns", () => {
     expect(columnsOf({ ...appTable("Cards.csv"), headers: ["", "Card #"] }).map(column => [column.label, column.kind])).toEqual([["Name", "text"], ["Card #", "card"]]);
   });
 
+  it("keeps each column at its header's place when headers are unnamed, as in every file of a model", () => {
+    // The place is what a sort, a filter and a cell are read by: the page's own names for unnamed headers change none of it.
+    const lineItems = table("Line Items.csv", ["", "Formula", "", "Format", ""]);
+    expect(columnsOf(lineItems).map(column => [column.index, column.label])).toEqual([[0, "Name"], [1, "Formula"], [2, "Column 3"], [3, "Format"], [4, "Column 5"]]);
+    // A header is found by its own text: the first unnamed one by the empty text, and none by a name the page gave.
+    expect([columnIndex(lineItems, ""), columnIndex(lineItems, "Format"), columnIndex(lineItems, "Name"), columnIndex(lineItems, "Column 3")]).toEqual([0, 3, undefined, undefined]);
+    // Only a file whose every header is unnamed, and one with no headers at all.
+    expect(columnsOf(table("Odd.csv", ["", "", ""])).map(column => [column.index, column.label])).toEqual([[0, "Name"], [1, "Column 2"], [2, "Column 3"]]);
+    expect(columnsOf(table("Empty.csv", []))).toEqual([]);
+  });
+
   it("shows every column of a file it has no choices for as plain text: a model's files, odd names", () => {
     const columns = columnsOf(table("Line Items.csv", ["", "Formula", "Page", "Card ID", "constructor", "__proto__", "Formula"]));
     expect(columns.map(column => [column.label, column.kind, column.num, column.filter, column.hidden]))
