@@ -40,7 +40,7 @@ After a rebuild, click the reload icon on the extension's card in `chrome://exte
 1. Open an app in Anaplan while signed in: `https://<region>.app.anaplan.com/a/apps/app/<app id>…` (in Australia, `https://au1a.app2.anaplan.com/…`). For a model, see [Model export](#model-export).
 2. Click the Cardigan icon in Chrome's toolbar. The results page opens in a new tab, right after the Anaplan tab, and starts the analysis by itself.
 3. The page shows each step as it reads. Keep the Anaplan tab open until it finishes.
-4. Read the results on the page, or save them: **Download all (.zip)** saves every file, and **Download this table (.csv)** saves the table on screen.
+4. Read the results on the page, or save them: **Download all (.zip)** saves every file, and **Download this table (.csv)** saves the table on screen. A download whose name cannot be used as a file name is saved as `Cardigan export.zip` (a table as `table.csv`).
 
 The results page shows:
 
@@ -202,6 +202,7 @@ Layout:
   - `columns.ts`: how each column is shown.
   - `result-view.ts`: the overview, the details, the notes and the diagnostic log, read out of a result.
   - `markup.ts`: writes the page's HTML, with every value from a result escaped.
+  - `file-name.ts`: the name a download is saved under.
   - `page-ids.ts`: the elements of `results.html` that the script looks up.
 - `src/content.ts`: the script in the Anaplan tab (isolated world), bundled into `dist/content.js`. It says whether the tab shows an app or a model. When the results page asks, it runs the app analysis (`analyse.ts`) or has the model's frame export the model (`bridge.ts`).
 - `src/tab-port.ts`: the Anaplan tab's end of the connection to the results page: one run at a time, its progress and its result, and stopping when the page is closed. `src/protocol.ts` lists the messages, and `src/progress.ts` says how a run reports its steps.
