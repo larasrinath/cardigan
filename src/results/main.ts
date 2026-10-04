@@ -1,4 +1,5 @@
 import { PORT_NAME } from "../protocol.js";
+import { plainResult } from "../result-plain.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
 import { resultZip, tableCsv } from "../result-zip.js";
 import { VERSION } from "../version.js";
@@ -354,6 +355,47 @@ function showResult(next: AnalysisResult, at: Date, back = false): void {
   const line = analysedLine(at, new Date());
   showNote(line, false);
   announce(`${analysed.name}. ${line}`);
+}
+
+/** The page's title while it has no result: the shell's own. */
+const TITLE = document.title;
+
+/** Takes the page back to having no result, after `showResult` began to put one on it and could not: what it set, and
+ * what it drew. Whatever made that fail may be in the way here too, so a part of the page that is not there is passed over. */
+function clearResult(): void {
+  result = undefined;
+  details = undefined;
+  cards = undefined;
+  shown = new Map();
+  broughtBack = false;
+  currentSlice = [];
+  drawerRow = undefined;
+  drawerObject = undefined;
+  state.view = "overview";
+  state.search = "";
+  state.context = undefined;
+  document.title = TITLE;
+  for (const id of ["hdMeta", "banners", "navList", "crumbs", "view"] as const satisfies readonly PageId[]) {
+    const part = document.getElementById(id);
+    if (part) part.innerHTML = "";
+  }
+}
+
+/** Shows a result the page kept before it was refreshed (keep-result.ts). What comes back is read as a result once more,
+ * field by field, as one from another window is (result-plain.ts): the keeper asks of it only what the page asks of the
+ * pieces the tab sends, and what was kept may be another build's, or not a result's shape at all. False when it is no
+ * result, or when showing it fails: the page is then without a result, as it was, and what was kept is to be forgotten,
+ * or every refresh would find it again. */
+function showKept(kept: unknown, at: Date): boolean {
+  const back = plainResult(kept);
+  if (!back) return false;
+  try {
+    showResult(back, at, true);
+    return true;
+  } catch {
+    clearResult();
+    return false;
+  }
 }
 
 /** The states in which a run did not start or did not finish. */
@@ -948,8 +990,9 @@ client.start();
 if (takingBack) {
   void keeper.takeBack().then(back => {
     takingBack = false;
-    // A run that finished meanwhile has the page: its result is the newer one.
-    if (back.found && !result) showResult(back.result, back.received, true);
+    // A run that finished meanwhile has the page: its result is the newer one. What came back and cannot be shown is
+    // forgotten: the page then waits for the run control, as one that kept nothing.
+    if (back.found && !result && !showKept(back.result, back.received)) keeper.forget();
     // The state the page held back, or the one that belongs above the result: a run asked for meanwhile has its banner.
     if (client.state.phase !== "done") showRun(client.state);
   });
