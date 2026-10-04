@@ -2,12 +2,11 @@ import { describe, expect, it } from "vitest";
 import { DETAILS_HEADERS, diagnosticRows, exportRows, type DetailRow } from "../details.js";
 import { HEADERS, type TabName } from "../report.js";
 import type { AnalysisResult, Cell, ResultTable } from "../result-types.js";
+import { APP_FILES } from "./columns.js";
 import { analysedOf, CARD_PARTS, cardSections, detailSections, detailsOf, detailValue, diagnosticLog, overviewOf, resultNotes } from "./result-view.js";
 
-const FILES: Record<string, TabName> = {
-  "Pages.csv": "Pages", "Cards.csv": "Cards", "Grid Sections.csv": "Grid sections", "Filters.csv": "Filters",
-  "Conditional Formatting.csv": "Formatting", "Action Buttons.csv": "Actions", "Where Used.csv": "Where used",
-};
+/** The app export's files, as the page names them, and the report table each holds. */
+const FILES: Record<string, TabName> = Object.fromEntries((Object.keys(APP_FILES) as TabName[]).map(tab => [APP_FILES[tab], tab]));
 const LOG = "14:02:05 page-analyzer v0.7.0: app on us1a.app.anaplan.com\r\n14:02:06 app: 2 pages\r\nplain line\r\n14:02:07 ";
 const detailsTable = (file: string, rows: DetailRow[]): ResultTable => ({ file, label: file.replace(/\.csv$/, ""), headers: DETAILS_HEADERS, rows, guard: true, details: true });
 /** An app file with the report's real headers; each row gives only the columns it cares about, the rest are dashes. */
