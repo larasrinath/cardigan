@@ -99,6 +99,10 @@ export function resultNotes(result: AnalysisResult): string[] {
 export interface FileView {
   table: ResultTable;
   note?: string;
+  /** For a table that lists no row although its file has rows, because the file's rule leaves every one of them to the
+   * CSV: what the table says in the rows' place. The file was read and has rows, which `note` counts, so the table must
+   * not say that nothing was found. */
+  none?: string;
   /** For the cells of `table` that the page says in words: the text the CSV has in each one's place, by the row as `table`
    * holds it and by the column's place in it. A row's drawer shows both. None when no cell is said in words. */
   exported?: ReadonlyMap<readonly Cell[], ReadonlyMap<number, Cell>>;
@@ -121,8 +125,10 @@ const calendarView: FileRule = file => {
   if (about === undefined) return undefined;
   const rows = file.rows.filter(row => cellText(row[about]) !== ABOUT_MODEL);
   const left = file.rows.length - rows.length;
+  if (!left) return undefined;
   // The line says where the rows are, so that the table's count is not taken for the file's.
-  return left ? { table: { ...file, rows }, note: `${left} ${left === 1 ? "row about the model is" : "rows about the model are"} in the CSV only.` } : undefined;
+  const note = `${left} ${left === 1 ? "row about the model is" : "rows about the model are"} in the CSV only.`;
+  return { table: { ...file, rows }, note, ...(rows.length ? {} : { none: "Every row of the file is about the model." }) };
 };
 
 /** A model's Modules file, which lists every module (model/export.ts writes it under this name). */
@@ -138,7 +144,8 @@ const lineItemsRule: FileRule = (file, result) => {
   if (view.table === file) return undefined;
   const modules = view.emptyModules > 0 ? result.tables.find(table => table.file === MODULES_FILE) : undefined;
   const where = modules ? ` ${view.emptyModules === 1 ? "It is" : "They are"} listed in the ${cellText(modules.label)} table.` : "";
-  return { table: view.table, note: view.note === undefined ? undefined : `${view.note}${where}` };
+  const none = view.table.rows.length ? {} : { none: "Every row of the file is a module's own: no module has a line item." };
+  return { table: view.table, note: view.note === undefined ? undefined : `${view.note}${where}`, ...none };
 };
 
 /** The files the page shows otherwise than as they stand, each with its rule, by the kind of result and the file's name.

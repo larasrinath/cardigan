@@ -218,6 +218,9 @@ describe("The results page's escaping", () => {
     // A table with no rows, and one whose search finds nothing.
     expectInert(text => tableHtml(viewOf({ ...table(text), rows: [] }, NO_LINKS)), 6);
     expectInert(text => tableHtml(viewOf(table(text), LINKS, { rows: [], total: 0, from: 0, to: 0, search: text(2), context: text(3), filtered: new Set([1]) })), 6);
+    // A table whose file's rows are all left to the CSV: what it says in the rows' place, each of the texts in turn.
+    for (const [index] of HOSTILE.entries()) expectInert(text => tableHtml(viewOf({ ...table(harmless), rows: [] }, NO_LINKS, { note: text(index), none: text(index + 1) })), 0);
+    for (const entry of HOSTILE) expect(shownValues(tableHtml(viewOf({ ...table(harmless), rows: [] }, NO_LINKS, { none: entry }))), entry).toContain(entry);
   });
 
   it("makes a table's view of the parts the page writes again while the user types, each in its place", () => {

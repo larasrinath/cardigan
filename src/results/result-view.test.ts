@@ -324,6 +324,12 @@ describe("What the results page reads out of a result", () => {
     // A calendar file with no row about the model lists every row, and is the same list.
     const none: ResultTable = { ...file, rows: file.rows.slice(5) };
     expect([fileView(model, none).table === none, fileView(model, none).note]).toEqual([true, undefined]);
+    // A calendar file whose every row is about the model leaves its table none: the table then says so, in the rows' place,
+    // and the line under its name counts the rows as ever. A table that has rows to list says nothing in their place.
+    const only: ResultTable = { ...file, rows: file.rows.slice(0, 5) };
+    expect(fileView(model, only)).toEqual({ table: { ...only, rows: [] }, note: "5 rows about the model are in the CSV only.", none: "Every row of the file is about the model." });
+    expect([fileView(model, file).none, fileView(model, lineItems).none]).toEqual([undefined, undefined]);
+    expect(overviewOf(result("model", [only])).tiles).toEqual([{ label: "Model Calendar", count: 0, inCsv: 5 }]);
   });
 
   it("shows a model's Line Items file as a table of line items, and says what that leaves to the CSV and where a module without line items is", () => {
@@ -343,6 +349,12 @@ describe("What the results page reads out of a result", () => {
     // The line is the view's own. Since the result has the Modules file, it also says where the module without line items is.
     expect(shown.note).toBe("3 module rows are in the CSV only; each line item shows its module. 1 module has no line items, so it is not in this table. It is listed in the Modules table.");
     expect(shown.note).toBe(`${lineItemsView(blueprint).note} It is listed in the Modules table.`);
+    expect(shown.none).toBeUndefined();
+    // A grid of modules without line items leaves the table none of its rows: it says that, not that nothing was found.
+    const bare: ResultTable = { ...blueprint, rows: [["Revenue", "", "Products, Time", ""], ["Costs", "", "Regions", ""]] };
+    expect(fileView(result("model", [bare, modules]), bare)).toEqual({ table: { ...bare, headers: ["", "Module Name", "Formula", "Applies To", "Applies To from"], rows: [] },
+      note: "2 module rows are in the CSV only; each line item shows its module. 2 modules have no line items, so they are not in this table. They are listed in the Modules table.",
+      none: "Every row of the file is a module's own: no module has a line item." });
     // Without the Modules file there is no table to name; with every module named by a line item there is nothing to add.
     expect(fileView(result("model", [modelDetails, blueprint]), blueprint).note).toBe(lineItemsView(blueprint).note);
     const full: ResultTable = { ...blueprint, rows: blueprint.rows.filter(row => row[0] !== "--- Archive ---") };
