@@ -368,19 +368,21 @@ describe("The Where used table, by object", () => {
     const types = ["Zebra", "Page", "Process", NONE, "Saved view", "alpha", "Import", "Dimension", "Line item", "Module", "Navigation", "Export"];
     expect([...new Set(column(viewOf(app(PAGES, whereUsed(...types.flatMap(type => named(type, ["One"]))))), "Object type"))]).toEqual(
       ["Module", "Line item", "Dimension", "Saved view", "Import", "Export", "Process", "Navigation", "Page", NONE, "alpha", "Zebra"]);
-    // Names: "2" before "11", whatever the case, and names that differ only in case always the same way round.
-    const names = ["Item 11", "21", "item 2", "11", "Item 2", "2", "ITEM 2", "1", "Margin %", "item 1"];
-    const sorted = ["1", "2", "11", "21", "item 1", "ITEM 2", "Item 2", "item 2", "Item 11", "Margin %"];
+    // Names: "2" before "11", whatever the case, and names that differ only in case always the same way round. (No name
+    // here differs in the case of an "i": a browser set to Turkish reads "I" and "i" as two letters, in any table.)
+    const names = ["Step 11", "21", "step 2", "11", "Step 2", "2", "STEP 2", "1", "Margin %", "step 1"];
+    const sorted = ["1", "2", "11", "21", "Margin %", "step 1", "STEP 2", "Step 2", "step 2", "Step 11"];
     expect(column(viewOf(app(PAGES, whereUsed(...named("Line item", names)))), "Object name")).toEqual(sorted);
     expect(column(viewOf(app(PAGES, whereUsed(...named("Line item", [...names].reverse())))), "Object name")).toEqual(sorted);
     // Each of them is an object of its own: none is merged with a name that looks alike.
     expect(viewOf(app(PAGES, whereUsed(...named("Line item", names)))).rows).toHaveLength(names.length);
-    // Then the module, read the same way; no module comes first.
-    const modules = ["REV10 Returns", NONE, "REV2 Prices", "rev2 prices", "REV1 Sales"];
+    // Then the module, read the same way; no module comes first. The module counts before the case of the name: "revenue"
+    // of the first module stands among the "Revenue" of the others, where its module puts it.
+    const modules = ["REV10 Returns", NONE, "REV2 Prices", "rev2 prices"];
     const view = viewOf(app(PAGES, whereUsed(...modules.map((module, index) => use("Line item", "Revenue", module, "Overview", 1, "Field", String(286000000100 + index))),
-      use("Line item", "Cost", "REV10 Returns", "Overview", 1, "Field", "286000000200"))));
+      use("Line item", "revenue", "REV1 Sales", "Overview", 1, "Field", "286000000150"), use("Line item", "Cost", "REV10 Returns", "Overview", 1, "Field", "286000000200"))));
     expect(view.rows.map(row => [row[1], row[2]])).toEqual(
-      [["Cost", "REV10 Returns"], ["Revenue", "—"], ["Revenue", "REV1 Sales"], ["Revenue", "REV2 Prices"], ["Revenue", "rev2 prices"], ["Revenue", "REV10 Returns"]]);
+      [["Cost", "REV10 Returns"], ["Revenue", "—"], ["revenue", "REV1 Sales"], ["Revenue", "REV2 Prices"], ["Revenue", "rev2 prices"], ["Revenue", "REV10 Returns"]]);
   });
 
   it("lists an object's roles most used first, then in the file's order, with a separator no role holds", () => {
