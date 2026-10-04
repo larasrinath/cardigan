@@ -526,6 +526,47 @@ describe("The results page's script, on the page", () => {
     expect(page.texts("#crumbs .ctx")).toEqual(["Page: Overview"]);
   });
 
+  it("keeps the keyboard inside the open drawer: what lies behind it is inert until it closes, however it closes", async () => {
+    await openWith();
+    goTo(2);
+    const behind = () => [page.find(".skip"), page.find(".hd"), page.id("banners"), page.find(".shell")].map(part => part.inert);
+    const rowButton = () => page.all('#tableWrap tbody [data-act="row"]')[0];
+    expect(behind()).toEqual([false, false, false, false]);
+
+    rowButton().press();
+    expect(behind()).toEqual([true, true, true, true]);
+    // Nothing behind the drawer takes the focus; the drawer's own controls do, and the drawer has it.
+    expect([page.id("tblSearch"), page.id("runAgain"), page.find(".skip"), rowButton(), page.id("drawerClose"), page.find("#drawerBody .link")].map(control => control.focusable))
+      .toEqual([false, false, false, false, true, true]);
+    expect([page.id("drawer").inert, page.document.activeElement === page.id("drawerClose")]).toEqual([false, true]);
+    // The message a copied ID gives is not behind the drawer: it is still announced.
+    expect([page.id("toast"), page.id("live")].map(part => part.closest("[inert]"))).toEqual([null, null]);
+
+    // Escape: the page takes part again, and the focus is back on the row's button, which can take it again.
+    page.key("Escape");
+    expect([behind(), page.document.activeElement === rowButton()]).toEqual([[false, false, false, false], true]);
+    // The close button, a click beside the drawer, and a jump from the drawer to a page's cards.
+    rowButton().press();
+    page.id("drawerClose").press();
+    expect(behind()).toEqual([false, false, false, false]);
+    rowButton().press();
+    page.id("scrim").press();
+    expect(behind()).toEqual([false, false, false, false]);
+    rowButton().press();
+    page.find('#drawerBody [data-act="page"]').press();
+    expect([behind(), page.texts("#crumbs .ctx")]).toEqual([[false, false, false, false], ["Page: Overview"]]);
+    // A card's drawer is the same drawer.
+    page.find('#tableWrap tbody [data-act="card"]').press();
+    expect(behind()).toEqual([true, true, true, true]);
+    // A new result that takes the page while the drawer is open closes it, and the page takes part again.
+    page.id("drawerClose").press();
+    page.id("runAgain").press();
+    page.find('#tableWrap tbody [data-act="card"]').press();
+    expect(behind()).toEqual([true, true, true, true]);
+    sendResult(ports[0]);
+    expect([behind(), page.id("drawer").classList.contains("show"), page.texts("#view h1")]).toEqual([[false, false, false, false], false, ["Overview"]]);
+  });
+
   it("gives the focus back to the button that opened a popover when the popover closes itself", async () => {
     await openWith();
     goTo(2);
