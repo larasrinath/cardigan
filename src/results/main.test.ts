@@ -2510,6 +2510,48 @@ describe("A result kept while the results page is refreshed", () => {
       .toEqual(["Ready to analyse", "Choose Run to analyse it. This page starts by itself only when the Cardigan icon has just opened it.", []]);
   });
 
+  it("takes everything a kept result had drawn off the page again when showing it fails at its last step", async () => {
+    await openWith(APP);
+    await letKeep();
+    await open(refreshed);
+    /** What the page holds of a result, part by part: the tab's title, the result's name in the header, the note above it,
+     * the navigation, the breadcrumb and the view's heading. */
+    const parts = () => [page.document.title, page.id("hdMeta").textContent.trim(), page.id("banners").children.length, page.id("navList").children.length,
+      page.id("crumbs").textContent.trim(), page.texts("#view h1")];
+    // The kept result is not on the page yet: the keeper reads it in turns of its own.
+    expect(parts()).toEqual(["Cardigan", "", 0, 0, "", []]);
+    // Showing it fails at the very end, when all of it is drawn: the last thing the page does is to say the result to a
+    // screen reader, and here that fails, once. What the page holds at that moment is noted.
+    const live = page.id("live");
+    let said = "";
+    let drawn: unknown[] | undefined;
+    Object.defineProperty(live, "textContent", { configurable: true, get: () => said, set: (message: string) => {
+      if (!drawn && message.startsWith(`${APP.name}. Analysed`)) {
+        drawn = parts();
+        throw new Error("The announcement failed.");
+      }
+      said = message;
+    } });
+    // The page then forgets what it kept, before it draws anything in the result's place: what it holds then is noted too.
+    let cleared: unknown[] | undefined;
+    const { removeItem } = session.storage;
+    session.storage.removeItem = (key: string) => {
+      if (drawn) cleared ??= parts();
+      removeItem(key);
+    };
+    await eventually(() => drawn !== undefined, "the kept result to be shown");
+    await eventually(() => page.has("#runTitle"), "the waiting view");
+    await pass(20);
+    // Every part was there when it failed: the title, the header's line, the note, the navigation, the breadcrumb, the overview.
+    expect(drawn).toEqual(["Cardigan — Demo app", expect.stringContaining("Demo app"), 1, 5, "Overview", ["Overview"]]);
+    // All of it was taken off the page at once, the view too, and not only drawn over by what the page shows next.
+    expect(cleared).toEqual(["Cardigan", "", 0, 0, "", []]);
+    // The page is then the one that kept nothing: the waiting view, no navigation, and Run. What was kept is gone.
+    expect(parts()).toEqual(["Cardigan", "", 0, 0, "", ["Connecting"]]);
+    expect([page.id("runStatus").textContent, page.has("#noteBanner"), page.id("sidenav").hidden, said]).toEqual(["Connecting to the Anaplan tab…", false, true, "Connecting to the Anaplan tab…"]);
+    expect([session.held.size, runControl()[0], disabled("runAgain", "dlAll", "dlCsv")]).toEqual([0, "Run", [false, true, true]]);
+  });
+
   it("shows no note about a result that another result has replaced by the time its keeping ends", async () => {
     session.refuses = "QuotaExceededError";
     await openWith(APP);
