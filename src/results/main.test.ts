@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FRESH_MS, PORT_NAME, RESULTS_PAGE, type TabMessage } from "../protocol.js";
-import type { AnalysisResult } from "../result-types.js";
+import type { AnalysisResult, Cell } from "../result-types.js";
 import { resultZip } from "../result-zip.js";
 import { FakeElement, FakeInput, FakePage, FakeSelect } from "./dom.test-support.js";
 
@@ -39,6 +39,20 @@ const TAG = '<img src="x" onerror="alert(1)">';
 const NAMED: AnalysisResult = {
   ...RESULT, tables: [RESULT.tables[0], RESULT.tables[1], { ...RESULT.tables[2], label: `Cards ${TAG}`,
     rows: [["Overview", 1, `Sales ${TAG}`, "Grid", "card-a"], ["Overview", 2, "=Margin", "KPI", "card-b"]] }],
+};
+
+/** A model's export: a Line Items file long enough for three pages, as Anaplan lays it out, with its first column unnamed. */
+const LINES: Cell[][] = Array.from({ length: 120 }, (_, index) =>
+  [`Line item ${index + 1}`, ["Number", "Text", "Boolean"][index % 3], `Source ${index + 1} * 2`, index < 60 ? "Revenue" : "Cost"]);
+const MODEL: AnalysisResult = {
+  kind: "model", name: "Model one", id: "0123456789ABCDEF0123456789ABCDEF", zipName: "Model one - Model Export - 2026-10-03.zip",
+  summary: ["Line Items: 120 rows", "Modules: 2 rows"],
+  tables: [
+    { file: "Model Details.csv", label: "Model Details", headers: ["Section", "Detail", "Value"], guard: true, details: true,
+      rows: [["Model", "Model", "Model one"], ["Export", "Anaplan host", "us1a.app.anaplan.com"], ["Diagnostics", "09:30:00", "Line Items: 120 rows"]] },
+    { file: "Line Items.csv", label: "Line Items", headers: ["", "Format", "Formula", "Module"], rows: LINES, guard: false },
+    { file: "Modules.csv", label: "Modules", headers: ["", "Functional Area"], rows: [["Revenue", "Sales"], ["Cost", "Finance"]], guard: false },
+  ],
 };
 
 describe("The results page's script, on the page", () => {
@@ -109,6 +123,15 @@ describe("The results page's script, on the page", () => {
     sendResult(ports[0], result);
   };
   const disabled = (...ids: string[]) => ids.map(id => page.id(id).disabled);
+  /** Opens one of the result's tables from the navigation, by its place among the result's files. */
+  const goTo = (table: number) => page.find(`#navList [data-nav="${table}"]`).press();
+  /** The rows on screen, by the text of their first cell. */
+  const firstCells = () => page.all("#tableWrap tbody tr").map(row => row.children[0].textContent.trim());
+  /** The pager's buttons: each one's words, with a mark on the current page and brackets around one that is disabled. */
+  const pagerButtons = () => page.all("#pager .pg-btn").map(button => {
+    const words = button.textContent.trim();
+    return button.disabled ? `(${words})` : button.hasAttribute("aria-current") ? `[${words}]` : words;
+  });
 
   it("connects to the tab its address names, lets the analysis run by itself, shows the progress and then the result", async () => {
     await open(clicked(42));
@@ -253,6 +276,40 @@ describe("The results page's script, on the page", () => {
     expect(page.texts("#drawerSub .link")).toEqual(["Overview"]);
     // Neither name became an element, anywhere on the page.
     expect([page.has("img"), page.all("[onerror]")]).toEqual([false, []]);
+  });
+
+  it("leaves the search box alone while the user types: only the rows, the count, the pager and Reset are drawn again", async () => {
+    await openWith(MODEL);
+    goTo(1);
+    const box = page.id("tblSearch");
+    const kept = [box, page.find(".toolbar"), page.id("tableWrap"), page.id("pager"), page.id("colBtn"), page.find("#view h1")];
+    expect([page.id("rowCount").textContent, firstCells().length, page.id("resetBtn").hidden, pagerButtons()]).toEqual(["1–50 of 120 rows", 50, true, ["(‹)", "[1]", "2", "3", "›"]]);
+
+    box.type("item 11");
+    // The box is the very element the user is typing into, with what was typed and the focus still in it.
+    expect(page.id("tblSearch")).toBe(box);
+    expect([box.value, page.document.activeElement === box]).toEqual(["item 11", true]);
+    expect(firstCells()).toEqual(["Line item 11", ...Array.from({ length: 10 }, (_, index) => `Line item ${110 + index}`)]);
+    expect([page.id("rowCount").textContent, page.id("resetBtn").hidden, pagerButtons()]).toEqual(["1–11 of 11 rows (filtered from 120)", false, ["(‹)", "[1]", "(›)"]]);
+    expect(page.id("searchWrap").classList.contains("has-value")).toBe(true);
+
+    // Each further letter does the same, and so does taking letters away.
+    box.type("item 119");
+    expect([firstCells(), page.id("rowCount").textContent]).toEqual([["Line item 119"], "1–1 of 1 rows (filtered from 120)"]);
+    box.type("item 119x");
+    expect([firstCells(), page.texts("#tableWrap .e-title"), pagerButtons()]).toEqual([[], ["No results"], []]);
+    box.type("");
+    expect([firstCells().length, page.id("rowCount").textContent, page.id("resetBtn").hidden, page.id("searchWrap").classList.contains("has-value")])
+      .toEqual([50, "1–50 of 120 rows", true, false]);
+    // The rest of the view was never written again either.
+    expect([page.id("tblSearch"), page.find(".toolbar"), page.id("tableWrap"), page.id("pager"), page.id("colBtn"), page.find("#view h1")].map((element, index) => element === kept[index]))
+      .toEqual(Array(6).fill(true));
+
+    // The cross in the box empties it where it stands and gives it the focus back.
+    box.type("item 12");
+    page.find('[data-act="clear-search"]').press();
+    expect(page.id("tblSearch")).toBe(box);
+    expect([box.value, page.document.activeElement === box, page.id("rowCount").textContent]).toEqual(["", true, "1–50 of 120 rows"]);
   });
 
   it("says so when the address names no tab, and connects to nothing", async () => {

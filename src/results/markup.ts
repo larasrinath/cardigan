@@ -215,12 +215,23 @@ export function pagerHtml(page: number, pages: number, total: number, pageSize: 
       </select></span>`;
 }
 
-export function tableHtml(view: TableView): string {
+/** The parts of a table view that follow what the user asked for: the search, the filters, the sort and the page. The
+ * page writes these again while the user types, and leaves the rest of the view, the search box above all, as it is. */
+export interface TableParts {
+  /** What the table's box holds: the table, or why it shows no row. */
+  grid: string;
+  pager: string;
+  /** Which rows are shown, as text: "1–50 of 120 rows". */
+  count: string;
+  /** Whether a search, a filter, a sort or a jump is in force: Reset is offered then. */
+  modified: boolean;
+}
+
+export function tableParts(view: TableView): TableParts {
   const label = esc(view.label);
   const searching = view.search.trim() !== "";
   const filtering = view.filtered.size > 0;
   const jumped = view.context !== undefined;
-  const modified = searching || filtering || jumped || view.sort !== undefined;
 
   const head = view.columns.map(column => {
     const dir = view.sort?.column === column.index ? view.sort.dir : undefined;
@@ -255,11 +266,24 @@ export function tableHtml(view: TableView): string {
       `<td class="${column.num ? "num" : ""}">${cellHtml(column, row, view.links)}</td>`).join("")}</tr>`).join("");
   }
 
-  const count = `${view.from}–${view.to} of ${view.total} rows` + (view.total !== view.all ? ` (filtered from ${view.all})` : "");
+  return {
+    grid: `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>
+      ${empty}
+      <div class="scroll-fade" aria-hidden="true"></div>`,
+    pager: pagerHtml(view.page, view.pages, view.total, view.pageSize),
+    count: `${view.from}–${view.to} of ${view.total} rows` + (view.total !== view.all ? ` (filtered from ${view.all})` : ""),
+    modified: searching || filtering || jumped || view.sort !== undefined,
+  };
+}
+
+/** A table view whole: its name, its toolbar with the search box, and the parts above in their places. */
+export function tableHtml(view: TableView): string {
+  const label = esc(view.label);
+  const parts = tableParts(view);
   return `
     <h1 class="view-title">${label}</h1>
     <div class="toolbar">
-      <div class="search-wrap ${view.search ? "has-value" : ""}">
+      <div class="search-wrap ${view.search ? "has-value" : ""}" id="searchWrap">
         <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">${SEARCH_PATH}</svg>
         <input id="tblSearch" type="search" value="${esc(view.search)}" placeholder="Search all columns…" aria-label="Search ${label}">
         <button type="button" class="search-clear" data-act="clear-search" aria-label="Clear search">
@@ -269,15 +293,13 @@ export function tableHtml(view: TableView): string {
       <button type="button" class="btn sm" id="colBtn" aria-haspopup="dialog">
         <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"/></svg>
         Columns</button>
-      <button type="button" class="btn sm" data-act="reset" ${modified ? "" : "hidden"}>Reset</button>
-      <span class="rowcount" id="rowCount">${count}</span>
+      <button type="button" class="btn sm" data-act="reset" id="resetBtn" ${parts.modified ? "" : "hidden"}>Reset</button>
+      <span class="rowcount" id="rowCount">${esc(parts.count)}</span>
     </div>
     <div class="table-wrap" id="tableWrap" tabindex="0" role="region" aria-label="${label} table">
-      <table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>
-      ${empty}
-      <div class="scroll-fade" aria-hidden="true"></div>
+      ${parts.grid}
     </div>
-    <div class="pager" id="pager">${pagerHtml(view.page, view.pages, view.total, view.pageSize)}</div>`;
+    <div class="pager" id="pager">${parts.pager}</div>`;
 }
 
 /* ---------- popovers ---------- */

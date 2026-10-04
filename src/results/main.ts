@@ -6,7 +6,7 @@ import { cardsOf, columnIndex, columnsOf, rowKeys, type CardsTable, type Column,
 import { describeState, openedJustNow, ResultsClient, runLabel, tabIdFrom, withoutOpened, type RunState } from "./connection.js";
 import {
   bannersHtml, cardDrawerHtml, cardDrawerSubHtml, colChooserHtml, colFilterHtml, crumbsHtml, detailsHtml, headerMetaHtml, MOON_ICON, navHtml,
-  overviewHtml, rowDrawerHtml, rowDrawerSubHtml, runHtml, SUN_ICON, tableHtml, type Links, type NavEntry,
+  overviewHtml, rowDrawerHtml, rowDrawerSubHtml, runHtml, SUN_ICON, tableHtml, tableParts, type Links, type NavEntry, type TableView,
 } from "./markup.js";
 import type { PageId } from "./page-ids.js";
 import { analysedOf, cardSections, detailSections, detailsOf, diagnosticLog, overviewOf, resultNotes } from "./result-view.js";
@@ -160,28 +160,58 @@ function query(entry: Shown): TableQuery {
   };
 }
 
-function renderTable(entry: Shown): void {
-  const label = cellText(entry.table.label);
+/** What a table shows now: the page of rows the search, the filters, the sort and the jump leave, and what the user chose. */
+function tableView(entry: Shown): TableView {
   const page = pageOf(select(entry.table.rows, query(entry)), entry.page, state.pageSize);
   entry.page = page.page;
   currentSlice = page.rows;
-  el("view").innerHTML = tableHtml({
-    label, columns: entry.columns.filter(column => !entry.hidden.has(column.index)), rows: page.rows,
+  return {
+    label: cellText(entry.table.label), columns: entry.columns.filter(column => !entry.hidden.has(column.index)), rows: page.rows,
     page: page.page, pages: page.pages, pageSize: state.pageSize, from: page.from, to: page.to, total: page.total, all: entry.table.rows.length,
     search: state.search, sort: entry.sort, filtered: new Set(entry.filters.keys()), context: state.context, links: entry.links,
-  });
+  };
+}
+/** The shade at the foot of the table's box goes once there is nothing more to scroll to. */
+function updateFade(wrap: HTMLElement): void {
+  wrap.classList.toggle("at-end", wrap.scrollTop + wrap.clientHeight >= wrap.scrollHeight - 6);
+  wrap.classList.toggle("no-scroll", wrap.scrollHeight <= wrap.clientHeight + 2);
+}
+const announceTable = (view: TableView): void =>
+  announce(`${view.label}: ${view.total} rows${view.context !== undefined ? `, filtered to ${view.context}` : ""}`);
+
+/** Draws a table's view whole: its name, its toolbar with the search box, its rows and its pager. */
+function renderTable(entry: Shown): void {
+  const view = tableView(entry);
+  el("view").innerHTML = tableHtml(view);
   const wrap = find("#tableWrap");
   if (wrap) {
-    const updateFade = () => {
-      wrap.classList.toggle("at-end", wrap.scrollTop + wrap.clientHeight >= wrap.scrollHeight - 6);
-      wrap.classList.toggle("no-scroll", wrap.scrollHeight <= wrap.clientHeight + 2);
-    };
-    wrap.addEventListener("scroll", updateFade);
-    updateFade();
+    wrap.addEventListener("scroll", () => updateFade(wrap));
+    updateFade(wrap);
   }
   const search = find<HTMLInputElement>("#tblSearch");
   if (search) search.selectionStart = search.selectionEnd = search.value.length;
-  announce(`${label}: ${page.total} rows${state.context !== undefined ? `, filtered to ${state.context}` : ""}`);
+  announceTable(view);
+}
+
+/** Draws again what follows the search, the filters, the sort and the page: the rows, the pager, the count, and whether
+ * Reset is offered. The rest of the view stays as it is, the search box above all: writing the box again while the user
+ * types into it would move the caret and break a letter that is still being put together (a dead key, an input method). */
+function updateTable(entry: Shown): void {
+  const wrap = find("#tableWrap");
+  const pager = find("#pager");
+  const count = find("#rowCount");
+  if (!wrap || !pager || !count) return renderTable(entry);
+  const view = tableView(entry);
+  const parts = tableParts(view);
+  wrap.innerHTML = parts.grid;
+  wrap.scrollTop = 0;
+  pager.innerHTML = parts.pager;
+  count.textContent = parts.count;
+  const reset = find("#resetBtn");
+  if (reset) reset.hidden = !parts.modified;
+  find("#searchWrap")?.classList.toggle("has-value", view.search !== "");
+  updateFade(wrap);
+  announceTable(view);
 }
 
 function renderAll(): void {
@@ -317,14 +347,14 @@ function openColFilter(entry: Shown, column: Column, anchor: Element): void {
       if (input.checked) selected.add(value); else selected.delete(value);
       if (selected.size === values.length) entry.filters.delete(column.index);
       entry.page = 0;
-      renderTable(entry);
+      updateTable(entry);
     });
   });
   popover.querySelector('[data-popact="all"]')?.addEventListener("click", () => {
     entry.filters.delete(column.index);
     entry.page = 0;
     closePopover();
-    renderTable(entry);
+    updateTable(entry);
   });
 }
 function openColChooser(entry: Shown, anchor: Element): void {
@@ -334,13 +364,13 @@ function openColChooser(entry: Shown, anchor: Element): void {
     input.addEventListener("change", () => {
       const column = Number(input.dataset.col);
       if (input.checked) entry.hidden.delete(column); else entry.hidden.add(column);
-      renderTable(entry);
+      updateTable(entry);
     });
   });
   popover.querySelector('[data-popact="defaults"]')?.addEventListener("click", () => {
     entry.hidden = defaultHidden(entry.columns);
     closePopover();
-    renderTable(entry);
+    updateTable(entry);
   });
 }
 
@@ -484,14 +514,17 @@ document.addEventListener("click", event => {
         }
         renderAll();
         return;
-      case "clear-search":
+      case "clear-search": {
         state.search = "";
+        const box = find<HTMLInputElement>("#tblSearch");
+        if (box) box.value = "";
         if (entry) {
           entry.page = 0;
-          renderTable(entry);
-          find("#tblSearch")?.focus();
+          updateTable(entry);
         }
+        box?.focus();
         return;
+      }
       case "copy-diag":
         void copyText((result ? diagnosticLog(details) : client.log).join("\n"), "the diagnostic log");
         return;
@@ -513,7 +546,7 @@ document.addEventListener("click", event => {
   if (sortButton && entry) {
     const column = Number(sortButton.dataset.sort);
     entry.sort = !entry.sort || entry.sort.column !== column ? { column, dir: "asc" } : entry.sort.dir === "asc" ? { column, dir: "desc" } : undefined;
-    renderTable(entry);
+    updateTable(entry);
     return;
   }
 
@@ -534,9 +567,7 @@ document.addEventListener("click", event => {
   const pager = target.closest<HTMLButtonElement>(".pg-btn[data-page]");
   if (pager && !pager.disabled && entry) {
     entry.page = parseInt(pager.dataset.page ?? "", 10);
-    renderTable(entry);
-    const wrap = find("#tableWrap");
-    if (wrap) wrap.scrollTop = 0;
+    updateTable(entry);
     return;
   }
 
@@ -551,8 +582,7 @@ document.addEventListener("input", event => {
   if (event.target instanceof HTMLInputElement && event.target.id === "tblSearch" && entry) {
     state.search = event.target.value;
     entry.page = 0;
-    renderTable(entry);
-    find("#tblSearch")?.focus();
+    updateTable(entry);
   }
 });
 document.addEventListener("change", event => {
@@ -560,7 +590,7 @@ document.addEventListener("change", event => {
   if (event.target instanceof HTMLSelectElement && event.target.id === "pageSize" && entry) {
     state.pageSize = parseInt(event.target.value, 10) || 50;
     entry.page = 0;
-    renderTable(entry);
+    updateTable(entry);
   }
 });
 document.addEventListener("keydown", event => {
