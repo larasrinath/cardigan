@@ -12,6 +12,12 @@ const DEFAULT_NUMBER = { minimumSignificantDigits: 4, decimalPlaces: -1, decimal
 const number = (changes: Record<string, unknown> = {}): string | undefined => formatWords(cell({ ...DEFAULT_NUMBER, ...changes }));
 const places = (decimalPlaces: unknown) => ({ minimumSignificantDigits: -1, decimalPlaces });
 const digits = (minimumSignificantDigits: unknown) => ({ minimumSignificantDigits, decimalPlaces: -1 });
+/** A number's words when its custom units are stored as `customUnits`, and those words when the units read `units`. */
+const custom = (customUnits: string): string | undefined => number({ unitsType: "CUSTOM", customUnits, unitsDisplayType: "CUSTOM_SUFFIX" });
+const withUnits = (units: string): string => `Number, custom units ${units} (suffix)`;
+/** What Anaplan stores for custom units that were typed: the "&" escaped first, then "<", ">" and the double quote, as
+ * the classic client's escapeHTML does it. */
+const stored = (typed: string): string => typed.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 const LISTS = new Map([["101000000007", "Products"], ["109000000002", "Products: Active"]]);
 const LIST_NAMES: CellNames = { listName: id => LISTS.get(id) };
@@ -88,7 +94,30 @@ describe("A line item's Format in words", () => {
   });
 
   it("says custom units as they were typed, not as Anaplan stores them", () => {
-    expect(number({ unitsType: "CUSTOM", customUnits: "R&amp;D &lt;h&gt; &quot;net&quot;", unitsDisplayType: "CUSTOM_SUFFIX" })).toBe("Number, custom units R&D <h> \"net\" (suffix)");
+    expect(custom("R&amp;D &lt;h&gt; &quot;net&quot;")).toBe(withUnits("R&D <h> \"net\""));
+    expect(custom("&lt;b&gt;")).toBe(withUnits("<b>"));
+  });
+
+  it("undoes what Anaplan escaped in custom units once: entity text that was typed stays entity text", () => {
+    // Typed as "&lt;b&gt;", and so stored with each "&" escaped. Undone once, it is the text that was typed. Undone twice
+    // it would be "<b>", another unit, and the page, which escapes these words once, would show that one.
+    expect(custom("&amp;lt;b&amp;gt;")).toBe(withUnits("&lt;b&gt;"));
+    // Each escaped character behind an escaped "&": whichever is undone first, none is undone twice.
+    expect(["&amp;amp;", "&amp;lt;", "&amp;gt;", "&amp;quot;"].map(custom)).toEqual(["&amp;", "&lt;", "&gt;", "&quot;"].map(withUnits));
+    // Typed characters beside typed entity text: every one is undone, and none is left half undone.
+    expect(custom("&lt;&amp;lt;&gt;&amp;gt;&quot;&amp;quot;&amp;&amp;amp;")).toBe(withUnits("<&lt;>&gt;\"&quot;&&amp;"));
+    // Escaped three times over: one escaping is undone, not every one.
+    expect(custom("&amp;amp;lt;b&amp;amp;gt;")).toBe(withUnits("&amp;lt;b&amp;gt;"));
+    // Whatever was typed comes back as it was typed, from what Anaplan stores for it.
+    for (const typed of ["<b>", "&lt;b&gt;", "&amp;lt;b&amp;gt;", "R&D", "R&amp;D", "a < b > c & \"d\"", "&&lt;&&gt;&&quot;&&amp;", "&;lt;", "&amp", "&#60;", "100% & more"]) {
+      expect(custom(stored(typed)), typed).toBe(withUnits(typed));
+    }
+  });
+
+  it("leaves entity text that Anaplan does not write in custom units as it is", () => {
+    // Another entity, a character by its number, other case, no semicolon, a bare "&": none of them is undone.
+    const text = "&apos; &#60; &#x3c; &nbsp; &copy; &LT; &Amp; &QUOT; &lt &amp &gt &quot R&D & ;";
+    expect(custom(text)).toBe(withUnits(text));
   });
 
   it("says each other option of a number that is not at Anaplan's default, always in the same order", () => {
@@ -174,6 +203,10 @@ describe("A line item's Format in words", () => {
   it("gives plain text: a name and custom units go in as they are, for the caller to escape", () => {
     expect(formatWords(list(), { listName: () => "<b>Tom & \"Jerry's\"</b>" })).toBe("List: <b>Tom & \"Jerry's\"</b>");
     expect(number({ unitsType: "CUSTOM", customUnits: "<i>x</i>", unitsDisplayType: "CUSTOM_PREFIX" })).toBe("Number, custom units <i>x</i> (prefix)");
+    // Only custom units are stored escaped. A name from the caller and a period's label are plain text already: entity
+    // text in one is text, and nothing of it is undone.
+    expect(formatWords(list(), { listName: () => "R&amp;D &lt;b&gt;" })).toBe("List: R&amp;D &lt;b&gt;");
+    expect(formatWords(cell({ periodType: { entityId: "MONTH", entityLabel: "P&amp;L &lt;month&gt;" }, dataType: "TIME_ENTITY" }))).toBe("Time Period: P&amp;L &lt;month&gt;");
   });
 
   it("leaves a cell that is not a format it reads as it is", () => {
@@ -282,6 +315,8 @@ describe("A line item's Summary in words", () => {
   it("gives plain text: a name goes in as it is, for the caller to escape", () => {
     expect(summary({ ...chosen("RATIO", "RATIO", true), ...RATIO_IDS }, { ratioNumerator: "<i>Profit</i> & loss", ratioDenominator: "Revenue \"net\"" }))
       .toBe("Ratio = <i>Profit</i> & loss / Revenue \"net\"");
+    // Entity text in a name is text: nothing of it is undone.
+    expect(summary({ ...chosen("RATIO", "RATIO", true), ...RATIO_IDS }, { ratioNumerator: "R&amp;D", ratioDenominator: "&lt;all&gt;" })).toBe("Ratio = R&amp;D / &lt;all&gt;");
   });
 
   it("leaves a cell that is not a summary it reads as it is", () => {
@@ -330,6 +365,7 @@ describe("An action's definition in words", () => {
     expect([actionWords(from("DELETE_BY_SELECTION"), LIST_NAMES), actionWords(from("ORDER_HIERARCHY", ""), LIST_NAMES)]).toEqual(["Delete from List using Selection", "Order List"]);
     // A name goes in as it is, whatever it holds.
     expect(actionWords(from("DELETE_BY_SELECTION", "_101000000007_"), { listName: () => "$& <b>$1</b> List" })).toBe("Delete from $& <b>$1</b> List using Selection");
+    expect(actionWords(from("ORDER_HIERARCHY", "_101000000007_"), { listName: () => "R&amp;D &lt;b&gt;" })).toBe("Order R&amp;D &lt;b&gt;");
     // Another kind of action names no list: what its cell holds in that place is not read, an ID or not.
     expect(actionWords(from("BULK_COPY", "_101000000007_"), LIST_NAMES)).toBe("Bulk Copy");
     expect(actionWords(from("BULK_COPY", "Versions"), LIST_NAMES)).toBe("Bulk Copy");
