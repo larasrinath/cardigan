@@ -5,12 +5,13 @@ import type { AnalysisResult, Cell, ResultTable } from "../result-types.js";
 import { cardsOf, columnsOf, rowKeys, type Column } from "./columns.js";
 import {
   cardDrawerHtml, cardDrawerSubHtml, cellHtml, colChooserHtml, colFilterHtml, crumbsHtml, esc, headerMetaHtml, idPill,
-  MOON_ICON, navHtml, noteBannerHtml, overviewHtml, pagerHtml, rowCellHtml, rowDrawerHtml, rowDrawerSubHtml, runBannerHtml, runHtml, SUN_ICON, tableHtml, tableParts, type Links, type TableView,
+  MOON_ICON, navHtml, noteBannerHtml, objectDrawerHtml, objectDrawerSubHtml, overviewHtml, pagerHtml, rowCellHtml, rowDrawerHtml, rowDrawerSubHtml, runBannerHtml, runHtml, SUN_ICON, tableHtml, tableParts, type Links, type TableView,
 } from "./markup.js";
 import { parseMarkup } from "./dom.test-support.js";
 import { decode, readMarkup, shownValues, structure } from "./markup.test-support.js";
 import { analysedOf, cardSections, detailsOf, overviewOf, type Overview } from "./result-view.js";
 import { pageOf, selectRows, valueCounts } from "./table-engine.js";
+import { whereUsedView, type WhereUsedObject } from "./where-used-view.js";
 
 /** What an Anaplan user can type into a card title, a text card, a name or a formula. */
 const IMG = "<img src=x onerror=alert(1)>";
@@ -288,6 +289,26 @@ describe("The results page's escaping", () => {
     expectInert(texts => rowDrawerHtml(columns, [texts(0), texts(1), texts(2), texts(3)], NO_LINKS), 4);
   });
 
+  it("lets no text change the switch between a table's ways, or an object's drawer", () => {
+    // The switch: the table's name is in its label; a way's own name and words are the page's, and are written as text all the same.
+    expectInert(text => tableHtml(viewOf({ file: "Where Used.csv", label: text(0), headers: [text(1)], rows: [[text(2)]], guard: true }, NO_LINKS,
+      { ways: [{ way: "object", label: text(3), chosen: true }, { way: "use", label: text(4), chosen: false }], note: text(5) })), 6);
+    // An object: its type, its module, its ID, its model, each role, and each use's page, card and role. Its name is the
+    // drawer's heading, which the page sets as text.
+    const object = (text: Texts, uses: number): WhereUsedObject => ({ type: text(0), module: text(1), id: text(2), model: text(3), name: text(4), pages: 2, cards: 3,
+      roles: [[text(5), 2], [text(6), 1]], uses: Array.from({ length: uses }, (_, index) => ({ row: index, page: text(7 + index % 3), card: text(10 + index), usedAs: text(11 + index), cardId: index % 2 ? text(12) : undefined })) });
+    for (const links of [LINKS, NO_LINKS]) {
+      expectInert(text => objectDrawerHtml(object(text, 6), links, false), 7);
+      expectInert(text => objectDrawerHtml(object(text, 60), links, false), 7);
+      expectInert(text => objectDrawerHtml(object(text, 60), links, true), 7);
+    }
+    for (const multiModel of [true, false]) expectInert(text => objectDrawerSubHtml(object(text, 1), multiModel), multiModel ? 4 : 3);
+    // What a click reads of a use is its place among the object's uses, a number, and never the use's own text: here on
+    // the three pages' names and on the thirty cards that are named.
+    const uses = readMarkup(objectDrawerHtml(object(hostile, 60), LINKS, true)).tags.filter(tag => tag.attributes.has("data-use"));
+    expect([uses.length, uses.every(tag => /^\d+$/.test(tag.attributes.get("data-use") ?? "")), [...new Set(uses.map(tag => tag.attributes.get("data-act")))].sort()]).toEqual([33, true, ["use-card", "use-page"]]);
+  });
+
   it("lets no text change the column filter, the column chooser or the drawer", () => {
     expectInert(text => colFilterHtml(column(0, text(0), "text", { filter: true }), [[text(1), 3], [text(2), 1], [text(3), 1]], new Set([text(1), text(3)])), 4);
     expectInert(text => colFilterHtml(column(0, text(0)), [[text(1), 3]], undefined), 2);
@@ -406,6 +427,15 @@ describe("A result whose every text is hostile, through every view of the page",
         pieces.push(cardDrawerHtml(columnsOf(cards.table), row, linksOf(cards.table), cardSections(result, String(row[cards.page]), String(row[cards.cardId]))));
       }
     }
+    // The Where Used file by object: its table under the switch, and each object's drawer, with its uses' links.
+    const byObject = whereUsedView(result);
+    if (!byObject) throw new Error("The result has no view of Where Used by object.");
+    const ways = [{ way: "object", label: "By object", chosen: true }, { way: "use", label: "Every use", chosen: false }];
+    pieces.push(tableHtml(viewOf({ file: "Where Used.csv", label: QUOTED, headers: byObject.headers, rows: byObject.rows, guard: true }, NO_LINKS, { columns: byObject.columns, ways, note: byObject.note })));
+    for (const object of byObject.objects) {
+      pieces.push(objectDrawerSubHtml(object, true));
+      for (const all of [false, true]) pieces.push(objectDrawerHtml({ ...object, uses: Array.from({ length: 60 }, (_, index) => ({ ...object.uses[0], row: index, cardId: SCRIPT })) }, LINKS, all));
+    }
     return pieces;
   }
 
@@ -413,7 +443,7 @@ describe("A result whose every text is hostile, through every view of the page",
     const html = everyView().join("\n");
     const elements = new Set(["button", "circle", "dd", "details", "div", "dl", "dt", "em", "h1", "h2", "h3", "input", "kbd", "label", "li", "option", "p", "path", "pre", "rect",
       "section", "select", "span", "strong", "summary", "svg", "table", "tbody", "td", "th", "thead", "tr", "ul"]);
-    const attributes = /^(aria-[a-z]+|data-(act|nav|copy|sort|colfilter|col|fval|page|popact)|class|type|title|style|id|hidden|open|disabled|checked|selected|value|placeholder|tabindex|role|scope|width|height|viewBox|fill|stroke|stroke-width|stroke-linecap|stroke-linejoin|d|cx|cy|r|x|y|rx)$/;
+    const attributes = /^(aria-[a-z]+|data-(act|nav|copy|sort|colfilter|col|fval|page|popact|way|use)|class|type|title|style|id|hidden|open|disabled|checked|selected|value|placeholder|tabindex|role|scope|width|height|viewBox|fill|stroke|stroke-width|stroke-linecap|stroke-linejoin|d|cx|cy|r|x|y|rx)$/;
     expect(tagNames(html).filter(name => !elements.has(name))).toEqual([]);
     expect(attributeNames(html).filter(name => !attributes.test(name))).toEqual([]);
     // The table, the drawer and the popovers are all there: this is the whole page, not a corner of it.
@@ -429,16 +459,18 @@ describe("A result whose every text is hostile, through every view of the page",
           if (HOSTILE.some(entry => decode(value).includes(entry))) expect(VALUE_ATTRIBUTES, `${tag.name} ${name}="${value}"`).toContain(name);
           if (name === "style") styles.add(value.replace(/\d+%/, "N%"));
           if (name === "class") expect(value, "a class").toMatch(/^[a-z0-9 -]*$/);
-          if (/^data-(sort|colfilter|col|fval|page)$/.test(name)) expect(value, name).toMatch(/^-?\d+$/);
-          if (name === "data-act") expect(["page", "card", "row", "reset", "clear-search", "clear-context", "copy-diag", "copy-run-log"]).toContain(value);
+          if (/^data-(sort|colfilter|col|fval|page|use)$/.test(name)) expect(value, name).toMatch(/^-?\d+$/);
+          if (name === "data-act") expect(["page", "card", "row", "reset", "clear-search", "clear-context", "copy-diag", "copy-run-log", "use-page", "use-card", "more-uses"]).toContain(value);
           if (name === "data-nav") expect(value).toMatch(/^(overview|map|\d+)$/);
+          if (name === "data-way") expect(value).toMatch(/^(object|use)$/);
           if (name === "id") expect(value).toMatch(/^[A-Za-z]+$/);
         }
       }
     }
     // Every style on the page is one of the design's own; the only part that varies is a bar's width, a number.
-    expect([...styles].sort()).toEqual(["display:block;width:N%", "font-family:var(--mono);font-size:11px", "font-size:12px;color:var(--text-3);margin:4px 0 0", "font:inherit",
-      "margin-bottom:10px", "margin-bottom:12px", "margin-left:auto", "margin-left:auto;flex:none", "overflow:hidden;text-overflow:ellipsis"]);
+    expect([...styles].sort()).toEqual(["display:block;width:N%", "font-family:var(--mono);font-size:11px", "font-size:12px;color:var(--text-2);margin:-6px 0 12px",
+      "font-size:12px;color:var(--text-3);margin:4px 0 0", "font:inherit", "margin-bottom:10px", "margin-bottom:12px", "margin-left:auto", "margin-left:auto;flex:none",
+      "overflow:hidden;text-overflow:ellipsis"]);
   });
 
   it("shows each hostile text as it was typed, somewhere on the page", () => {

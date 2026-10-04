@@ -203,6 +203,45 @@ describe("The results page itself against the engine in the Anaplan tab", () => 
     expect([tab.ports[0].tab.heard, runs.length, page.id("runAgain").textContent.trim()]).toEqual([[{ type: "run" }], 1, "Run again"]);
     expectSameZip((await downloadAll())[1], resultZip(runs[0].result!, NOW));
   });
+  it("lists the engine's Where Used file by object, opens an object with its uses, and saves the engine's own file in both ways", async () => {
+    await open(clicked);
+    await until(shown("Planning: app"), "the result on the page");
+    const result = runs[0].result!;
+    const index = result.tables.findIndex(table => table.file === "Where Used.csv");
+    const file = result.tables[index];
+    // The engine found ten uses: that is the file, and what the navigation counts.
+    expect([file.rows.length, page.find(`#navList [data-nav="${index}"]`).children.map(child => child.textContent)]).toEqual([10, ["Where Used", "10"]]);
+    page.find(`#navList [data-nav="${index}"]`).press();
+    // By object at first: nine objects, in the order of an index. Territory is used twice by one card, and is one row.
+    const cells = () => page.all("#tableWrap tbody tr").map(row => row.children.map(cell => cell.textContent.trim()));
+    expect([page.texts("#view .view-note"), page.all("#tableWays button").map(button => [button.textContent.trim(), button.getAttribute("aria-pressed")]), page.id("rowCount").textContent])
+      .toEqual([["10 uses of 9 objects. The CSV lists every use."], [["By object", "true"], ["Every use", "false"]], "1–9 of 9 rows"]);
+    expect(cells()).toEqual([
+      ["Module", "Demand", "—", "1", "1", "Data source (custom view)"],
+      ["Line item", "Include?", "Filter flags", "1", "1", "Filter"],
+      ["Line item", "Volume", "Demand", "1", "1", "Formatting"],
+      ["Dimension", "Line Items", "—", "1", "1", "Page selector"],
+      ["Dimension", "Product", "—", "1", "1", "Rows"],
+      ["Dimension", "Territory", "—", "1", "1", "Page selector; Filter context"],
+      ["Dimension", "Time", "—", "1", "1", "Columns"],
+      ["Import", "Import demand", "—", "1", "1", "Action button"],
+      ["Process", "Run nightly", "—", "1", "1", "Action button"]]);
+    // Territory's drawer: what it is, its two roles, and its two uses on the one card, which the card's number opens.
+    page.all('#tableWrap tbody [data-act="row"]')[5].press();
+    const drawerRows = (section: number) => page.all("#drawerBody .d-sec")[section].querySelectorAll("tbody tr").map(row => row.children.map(cell => cell.textContent.trim()));
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent, drawerRows(0), drawerRows(1)]).toEqual(["Territory", "Dimension · 101000000902 · 1 page, 1 card",
+      [["Page selector", "1"], ["Filter context", "1"]], [["Demand board", "2", "Page selector"], ["Demand board", "2", "Filter context"]]]);
+    page.find('#drawerUses [data-act="use-card"]').press();
+    expect([page.id("drawerTitle").textContent, page.texts("#drawerSub .link")]).toEqual(["Card 2 — Demand by product", ["Demand board"]]);
+    page.id("drawerClose").press();
+    // "Download this table" saves the engine's file, every use, whichever way the table is shown.
+    page.id("dlCsv").press();
+    page.find('#tableWays [data-way="use"]').press();
+    expect([cells().length, page.id("rowCount").textContent, page.all("#view .view-note").length]).toEqual([10, "1–10 of 10 rows", 0]);
+    page.id("dlCsv").press();
+    expect([page.downloads.map(download => download.name), `\ufeff${await saved[0].text()}`, `\ufeff${await saved[1].text()}`]).toEqual([["Where Used.csv", "Where Used.csv"], tableCsv(file), tableCsv(file)]);
+  });
+
   it("brings the engine's result back after a refresh of the page, without asking the engine, and saves the same zip", async () => {
     await open(clicked);
     await until(shown("Planning: app"), "the result on the page");

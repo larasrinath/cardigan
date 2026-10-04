@@ -1741,6 +1741,241 @@ describe("What a click, a key and typing do on the results page", () => {
   });
 });
 
+describe("An app's Where Used table, by object and by use", () => {
+  /** An app as the analysis lays its files out, with the columns the by-object view reads: two pages of one model, three
+   * cards, and eight uses of four objects, in page and card order as the file has them. */
+  const USES: Cell[][] = [
+    ["Module", "REP01 Sales", "—", "Overview", 1, "Source module", "102000000001"],
+    ["Line item", "Revenue", "REP01 Sales", "Overview", 1, "Line item shown", "1901000000001"],
+    ["Dimension", "Time", "—", "Overview", 1, "Column dimension", "20000000003"],
+    ["Module", "REP01 Sales", "—", "Overview", 2, "Source module", "102000000001"],
+    ["Dimension", "Time", "—", "Overview", 2, "Context selector", "20000000003"],
+    ["Module", "REP02 Stores", "—", "Stores", 1, "Source module", "102000000002"],
+    ["Dimension", "Time", "—", "Stores", 1, "Column dimension", "20000000003"],
+    ["Line item", "Revenue", "REP01 Sales", "Stores", 1, "Filter line item", "1901000000001"],
+  ];
+  const whereUsed = (uses: Cell[][], pages: Cell[][], cards: Cell[][]): AnalysisResult => ({
+    kind: "app", name: "Demo app", id: "01234567-89ab-cdef-0123-456789abcdef", zipName: "Demo app - App Export - 2026-10-03.zip", summary: [],
+    tables: [
+      { file: "App Details.csv", label: "App Details", headers: ["Section", "Detail", "Value"], guard: true, details: true, rows: [["App", "App", "Demo app"]] },
+      { file: "Pages.csv", label: "Pages", headers: ["App", "Page", "Model", "Workspace", "Model ID"], guard: true, rows: pages },
+      { file: "Cards.csv", label: "Cards", headers: ["Page", "Card #", "Card title", "Card type", "Card ID"], guard: true, rows: cards },
+      { file: "Where Used.csv", label: "Where Used", headers: ["Object type", "Object name", "Object's module", "Page", "Card #", "Used as", "Object ID"], guard: true, rows: uses },
+    ],
+  });
+  const MODEL_ID = "0A".repeat(16);
+  const WHERE = whereUsed(USES, [["Demo app", "Overview", "Model one", "Main", MODEL_ID], ["Demo app", "Stores", "Model one", "Main", MODEL_ID]],
+    [["Overview", 1, "Sales", "Grid", "card-a"], ["Overview", 2, "Margin", "KPI", "card-b"], ["Stores", 1, "Stores grid", "Grid", "card-c"]]);
+  const FILE = WHERE.tables[3];
+
+  /** The headings of the columns on screen, and the rows on screen by the text of one column. */
+  const headings = () => page.all("#tableWrap thead .th-sort").map(button => button.textContent.trim().replace(/[▲▼]$/, ""));
+  const column = (heading: string) => page.all("#tableWrap tbody tr").map(row => row.children[headings().indexOf(heading)].textContent.trim());
+  /** The switch: each way's words, with a mark on the one that is shown, as assistive technology is told and as it looks. */
+  const ways = () => page.all("#tableWays button").map(button => `${button.textContent.trim()}${button.getAttribute("aria-pressed") === "true" ? " (shown)" : ""}${button.classList.contains("primary") ? " filled" : ""}`);
+  const way = (name: "object" | "use") => page.find(`#tableWays [data-way="${name}"]`);
+  /** The rows of a table in the drawer, cell by cell. */
+  const drawerRows = (section: number) => page.all("#drawerBody .d-sec")[section].querySelectorAll("tbody tr").map(row => row.children.map(cell => cell.textContent.trim()));
+  const rowButton = (name: string) => page.all('#tableWrap tbody [data-act="row"]')[column("Object name").indexOf(name)];
+
+  it("lists the file by object at first: one row an object, with its pages, its cards and what it is used as; the navigation and the tile count the uses", async () => {
+    await openWith(WHERE);
+    // The file's number of uses is what the navigation and the overview's tile say: it is what the CSV holds.
+    expect(page.all("#navList .nav-item").filter(item => item.querySelector(".cnt")).map(item => item.children.map(child => child.textContent))).toEqual([["Pages", "2"], ["Cards", "3"], ["Where Used", "8"]]);
+    expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Pages", "2", "rows"], ["Cards", "3", "rows"], ["Where Used", "8", "rows"]]);
+
+    goTo(3);
+    // The switch stands at the head of the toolbar, with By object shown: said to assistive technology, and filled.
+    expect([page.find(".toolbar").children.map(child => child.id), page.id("tableWays").getAttribute("role"), page.id("tableWays").getAttribute("aria-label"), ways()])
+      .toEqual([["tableWays", "searchWrap", "colBtn", "resetBtn", "rowCount", "pager"], "group", "How Where Used is listed", ["By object (shown) filled", "Every use"]]);
+    expect(page.all("#tableWays button").every(button => button.localName === "button" && button.focusable)).toBe(true);
+    // One row an object, in the order of an index: by type, then by name. The ID is there to choose, as in the file's own table.
+    expect(headings()).toEqual(["Object type", "Object name", "Object's module", "Pages", "Cards", "Used as"]);
+    expect(page.all("#tableWrap tbody tr").map(row => row.children.map(cell => cell.textContent.trim()))).toEqual([
+      ["Module", "REP01 Sales", "—", "1", "2", "Source module"],
+      ["Module", "REP02 Stores", "—", "1", "1", "Source module"],
+      ["Line item", "Revenue", "REP01 Sales", "2", "2", "Line item shown; Filter line item"],
+      ["Dimension", "Time", "—", "2", "3", "Column dimension; Context selector"]]);
+    // The line under the name says how many uses that is, and of how many objects. The count beside the pager is the table's.
+    expect([page.texts("#view .view-note"), page.id("rowCount").textContent, page.id("live").textContent, page.texts("#view h1")])
+      .toEqual([["8 uses of 4 objects. The CSV lists every use."], "1–4 of 4 rows", "Where Used: 4 rows", ["Where Used"]]);
+    // No cell of it leads anywhere by itself: a row opens its object.
+    expect([page.all('#tableWrap tbody [data-act="page"]').length, page.all('#tableWrap tbody [data-act="card"]').length, page.all('#tableWrap tbody [data-act="row"]').length]).toEqual([0, 0, 4]);
+
+    // The search, a column's filter, the sort and the chooser work on the objects.
+    page.id("tblSearch").type("revenue");
+    expect([column("Object name"), page.id("rowCount").textContent]).toEqual([["Revenue"], "1–1 of 1 row (filtered from 4)"]);
+    page.id("tblSearch").type("");
+    page.find('[data-colfilter="0"]').press();
+    expect(choices()).toEqual([["Dimension", "1", true], ["Line item", "1", true], ["Module", "2", true]]);
+    page.all("#popover input")[2].tick();
+    expect(column("Object name")).toEqual(["Revenue", "Time"]);
+    page.key("Escape");
+    page.id("resetBtn").press();
+    // The two counts are numbers, and sort as numbers; until a sort is chosen the table keeps the order it came in.
+    page.find('[data-sort="4"]').press();
+    page.find('[data-sort="4"]').press();
+    expect([column("Object name"), column("Cards")]).toEqual([["Time", "REP01 Sales", "Revenue", "REP02 Stores"], ["3", "2", "2", "1"]]);
+    page.id("resetBtn").press();
+    expect(column("Object name")).toEqual(["REP01 Sales", "REP02 Stores", "Revenue", "Time"]);
+    page.id("colBtn").press();
+    expect(page.all("#popover .pop-opt").map(option => `${option.children[1].textContent}${option.children[0].checked ? " ✓" : ""}`))
+      .toEqual(["Object type ✓", "Object name ✓", "Object's module ✓", "Pages ✓", "Cards ✓", "Used as ✓", "Object ID"]);
+    page.all("#popover input")[6].tick();
+    expect(column("Object ID")).toEqual(["102000000001", "102000000002", "1901000000001", "20000000003"]);
+  });
+
+  it("shows every use with the switch, and by object again; each way keeps what was chosen for it, and the choice lasts while the page is open", async () => {
+    await openWith(WHERE);
+    goTo(3);
+    page.find('[data-sort="4"]').press();
+    way("use").press();
+    // Every use: the file's own table as before, one row a use, with nothing under its name. The switch has the focus still.
+    expect([ways(), page.document.activeElement === way("use"), page.all("#view .view-note").length]).toEqual([["By object", "Every use (shown) filled"], true, 0]);
+    expect([headings(), page.id("rowCount").textContent, column("Object name"), column("Page")]).toEqual([["Object type", "Object name", "Object's module", "Page", "Used as"], "1–8 of 8 rows",
+      USES.map(use => String(use[1])), USES.map(use => String(use[3]))]);
+    // Its page is a link again, and the sort chosen by object is not its own.
+    expect([page.all('#tableWrap tbody [data-act="page"]').length, page.all("#tableWrap thead th").filter(heading => heading.getAttribute("aria-sort") !== "none").length, page.id("resetBtn").hidden]).toEqual([8, 0, true]);
+    // The navigation's count is the same in both ways.
+    expect(page.find('#navList [data-nav="3"] .cnt').textContent).toBe("8");
+
+    // Back by object: the sort chosen there is still in force.
+    way("object").press();
+    expect([ways(), page.document.activeElement === way("object"), column("Object name"), page.texts("#view .view-note")])
+      .toEqual([["By object (shown) filled", "Every use"], true, ["REP02 Stores", "REP01 Sales", "Revenue", "Time"], ["8 uses of 4 objects. The CSV lists every use."]]);
+    // The search goes with the user from one way to the other: the object that was looked for, and then its uses.
+    page.id("tblSearch").type("time");
+    expect(column("Object name")).toEqual(["Time"]);
+    way("use").press();
+    expect([page.id("tblSearch").value, column("Used as"), page.id("rowCount").textContent]).toEqual(["time", ["Column dimension", "Context selector", "Column dimension"], "1–3 of 3 rows (filtered from 8)"]);
+
+    // The choice lasts: through another table and back, and through a new result.
+    goTo(1);
+    goTo(3);
+    expect([ways(), page.id("rowCount").textContent]).toEqual([["By object", "Every use (shown) filled"], "1–8 of 8 rows"]);
+    page.id("runAgain").press();
+    sendResult(ports[0], WHERE);
+    goTo(3);
+    expect([ways(), page.id("rowCount").textContent]).toEqual([["By object", "Every use (shown) filled"], "1–8 of 8 rows"]);
+    way("object").press();
+    expect([ways(), page.id("rowCount").textContent]).toEqual([["By object (shown) filled", "Every use"], "1–4 of 4 rows"]);
+  });
+
+  it("opens an object from its row: what it is, what it is used as, and its uses by page; a use's page shows that page's cards and its card opens the card", async () => {
+    await openWith(WHERE);
+    goTo(3);
+    rowButton("Time").press();
+    // Headed by the object's name. Under it its type, its ID to copy, and on how many pages and cards it is used; its
+    // module says nothing, and an app of one model has no model to tell it apart by.
+    expect([page.id("drawer").hidden, page.id("drawerTitle").textContent, page.id("drawerSub").textContent, page.find("#drawerSub .id-pill").dataset.copy])
+      .toEqual([false, "Time", "Dimension · 20000000003 · 2 pages, 3 cards", "20000000003"]);
+    expect(page.texts("#drawerBody h3")).toEqual(["Used as", "Uses (3)"]);
+    // Each role with its number of uses, the most used first.
+    expect(drawerRows(0)).toEqual([["Column dimension", "2"], ["Context selector", "1"]]);
+    // Its uses in the file's order, by page: a page is named with its first use, and to a screen reader with each.
+    expect(drawerRows(1)).toEqual([["Overview", "1", "Column dimension"], ["Overview", "2", "Context selector"], ["Stores", "1", "Column dimension"]]);
+    const uses = () => page.all("#drawerUses tbody tr");
+    expect(uses().map(row => [row.children[0].querySelectorAll("button").length, row.children[0].querySelectorAll(".sr-only").length, row.children[1].querySelectorAll("button").length]))
+      .toEqual([[1, 0, 1], [0, 1, 1], [1, 0, 1]]);
+    expect(page.has("#drawerBody [data-act=\"more-uses\"]")).toBe(false);
+
+    // A card's number opens that card: the second use is on card 2 of Overview.
+    uses()[1].children[1].querySelector("button")?.press();
+    expect([page.id("drawerTitle").textContent, page.texts("#drawerSub .link"), page.texts("#drawerBody h3")[0]]).toEqual(["Card 2 — Margin", ["Overview"], "Card details"]);
+    // The drawer closes back to the row that opened it from the table.
+    page.key("Escape");
+    expect(page.document.activeElement).toBe(rowButton("Time"));
+    // A page's name shows that page's cards: the third use is on Stores.
+    rowButton("Time").press();
+    uses()[2].children[0].querySelector("button")?.press();
+    expect([page.texts("#view h1"), page.texts("#crumbs .ctx"), page.all("#tableWrap tbody tr").map(row => row.children[1].textContent.trim()), page.id("drawer").classList.contains("show")])
+      .toEqual([["Cards"], ["Page: Stores"], ["Stores grid"], false]);
+
+    // An object with a module says it; the ID's pill copies the ID.
+    goTo(3);
+    rowButton("Revenue").press();
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent, drawerRows(0), drawerRows(1)]).toEqual(["Revenue", "Line item · REP01 Sales · 1901000000001 · 2 pages, 2 cards",
+      [["Line item shown", "1"], ["Filter line item", "1"]], [["Overview", "1", "Line item shown"], ["Stores", "1", "Filter line item"]]]);
+    page.find("#drawerSub .id-pill").press();
+    await settle();
+    expect(copied).toEqual(["1901000000001"]);
+    page.key("Escape");
+    // In the other way a row is a use, and opens as any row does.
+    way("use").press();
+    page.all('#tableWrap tbody [data-act="row"]')[2].press();
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent, page.texts("#drawerBody h3")]).toEqual(["Time", "Row 3 of Where Used", ["All columns"]]);
+  });
+
+  it("lists the first fifty of an object's uses, by page, and all of them on request", async () => {
+    // Sixty pages of two cards, each card with Time as its columns: 120 uses of one object, and one of another.
+    const pages = Array.from({ length: 60 }, (_, index): Cell[] => ["Demo app", `Page ${index + 1}`, "Model one", "Main", MODEL_ID]);
+    const cards = pages.flatMap((entry, index): Cell[][] => [[entry[1], 1, "First", "Grid", `card-${index}-1`], [entry[1], 2, "Second", "Grid", `card-${index}-2`]]);
+    const uses = cards.map((card): Cell[] => ["Dimension", "Time", "—", card[0], card[1], "Column dimension", "20000000003"]);
+    await openWith(whereUsed([...uses, ["Module", "REP01 Sales", "—", "Page 1", 1, "Source module", "102000000001"]], pages, cards));
+    goTo(3);
+    expect([page.texts("#view .view-note"), column("Pages"), column("Cards")]).toEqual([["121 uses of 2 objects. The CSV lists every use."], ["1", "60"], ["1", "120"]]);
+    rowButton("Time").press();
+    const listed = () => page.all("#drawerUses tbody tr");
+    expect([page.id("drawerSub").textContent, page.texts("#drawerBody h3"), listed().length]).toEqual(["Dimension · 20000000003 · 60 pages, 120 cards", ["Used as", "Uses (120)"], 50]);
+    // The first fifty, which is twenty-five pages of two: each page named once.
+    expect([listed()[0].children.map(cell => cell.textContent.trim()), listed()[49].children.map(cell => cell.textContent.trim()), page.all('#drawerUses [data-act="use-page"]').length])
+      .toEqual([["Page 1", "1", "Column dimension"], ["Page 25", "2", "Column dimension"], 25]);
+    expect(page.find("#drawerUses p").textContent.replace(/\s+/g, " ").trim()).toBe("The first 50 of 120 uses are listed. Show all 120 uses");
+    // The control lists them all, and goes with that: the first use it added takes the focus.
+    const more = page.find('#drawerUses [data-act="more-uses"]');
+    expect([more.localName, more.focusable]).toEqual(["button", true]);
+    more.press();
+    expect([listed().length, page.has('#drawerUses [data-act="more-uses"]'), page.has("#drawerUses p"), page.id("live").textContent]).toEqual([120, false, false, "All 120 uses are listed."]);
+    expect([page.document.activeElement === listed()[50], listed()[50].children.map(cell => cell.textContent.trim()), listed()[119].children.map(cell => cell.textContent.trim())])
+      .toEqual([true, ["Page 26", "1", "Column dimension"], ["Page 60", "2", "Column dimension"]]);
+    // A use beyond the first fifty leads where it says: card 2 of Page 60.
+    listed()[119].children[1].querySelector("button")?.press();
+    expect([page.id("drawerTitle").textContent, page.texts("#drawerSub .link")]).toEqual(["Card 2 — Second", ["Page 60"]]);
+    // Opened again, the drawer lists the first fifty again.
+    page.key("Escape");
+    rowButton("Time").press();
+    expect(listed().length).toBe(50);
+  });
+
+  it("saves the file whole in both ways: every use, as the result has it", async () => {
+    await openWith(WHERE);
+    goTo(3);
+    const csv = tableCsv(FILE);
+    page.id("tblSearch").type("time");
+    page.id("dlCsv").press();
+    expect([page.downloads[0].name, `\ufeff${await saved[0].text()}`, page.id("dlCsv").title]).toEqual(["Where Used.csv", csv, "Download Where Used.csv"]);
+    way("use").press();
+    page.id("dlCsv").press();
+    expect(`\ufeff${await saved[1].text()}`).toBe(csv);
+    expect(csv.split("\r\n").filter(line => line !== "")).toHaveLength(9);
+    page.id("dlAll").press();
+    expect(await bytes(saved[2])).toEqual(resultZip(WHERE, NOW));
+    // The result's own table was not touched.
+    expect(FILE.rows).toEqual(USES);
+  });
+
+  it("shows the file's own table, without a switch, where the result does not have what the view by object takes", async () => {
+    // An app whose Pages file names no model: the same table as ever.
+    await openWith(APP);
+    goTo(4);
+    expect([page.has("#tableWays"), page.find(".toolbar").children.map(child => child.id), page.all("#view .view-note").length, page.id("rowCount").textContent,
+      page.all('#tableWrap tbody [data-act="page"]').length]).toEqual([false, ["searchWrap", "colBtn", "resetBtn", "rowCount", "pager"], 0, "1–2 of 2 rows", 2]);
+    page.all('#tableWrap tbody [data-act="row"]')[0].press();
+    expect(page.texts("#drawerBody h3")).toEqual(["All columns"]);
+    page.key("Escape");
+    // A model's file of that name is a model's file.
+    page.id("runAgain").press();
+    sendResult(ports[0], { ...WHERE, kind: "model" });
+    goTo(3);
+    expect([page.has("#tableWays"), page.id("rowCount").textContent]).toEqual([false, "1–8 of 8 rows"]);
+    // No other table of the app has a switch.
+    page.id("runAgain").press();
+    sendResult(ports[0], WHERE);
+    goTo(2);
+    expect(page.has("#tableWays")).toBe(false);
+  });
+});
+
 describe("A result kept while the results page is refreshed", () => {
   /** The page's address once it has taken the time of the icon's click out of it: what a refresh loads. */
   const refreshed = "?tab=42";
