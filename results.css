@@ -119,9 +119,11 @@ main{flex:1;min-width:0}
 .crumbs button{color:var(--accent);text-decoration:none;border-radius:var(--r-xs)}
 .crumbs button:hover{text-decoration:underline}
 .crumbs .sep{color:var(--text-3)}
+/* The page a jump keeps. Its name wraps inside the chip, anywhere when it has no place to break at, so the page never
+   scrolls sideways for it. On one line the chip is a pill; on more it keeps the pill's corners, clear of the text. */
 .crumbs .ctx{
   display:inline-flex;align-items:center;gap:6px;background:var(--accent-soft);color:var(--accent-ink);
-  border-radius:999px;padding:2px 6px 2px 10px;font-size:12px;font-weight:550;
+  border-radius:11px;padding:2px 6px 2px 10px;font-size:12px;font-weight:550;overflow-wrap:anywhere;
 }
 .crumbs .ctx button{display:inline-flex;color:inherit;border-radius:999px;padding:1px}
 .view-title{font-size:17px;font-weight:650;margin:0 0 12px}
@@ -260,7 +262,8 @@ td.num{font-variant-numeric:tabular-nums}
 .stat .s-lab{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--text-3)}
 .stat .s-num{font-size:26px;font-weight:650;font-variant-numeric:tabular-nums;margin-top:4px;line-height:1.1}
 .stat .s-sub{font-size:11.5px;color:var(--text-2);margin-top:4px}
-.ov-cols{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
+/* Two panels side by side, equally wide whatever they hold: a long name wraps inside its panel and does not widen it. */
+.ov-cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;margin-bottom:12px}
 .panel{background:var(--panel);border:1px solid var(--border);border-radius:var(--r-md);padding:14px 16px}
 .panel h2,.panel h3{font-size:13px;margin-bottom:10px}
 .typebars{display:grid;gap:6px}
@@ -270,8 +273,8 @@ td.num{font-variant-numeric:tabular-nums}
 .typebar .tb-n{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
 .model-row{display:grid;gap:4px;padding:8px 0;border-bottom:1px solid var(--border)}
 .model-row:last-child{border-bottom:0}
-.model-row .m-name{font-weight:600;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.model-row .m-sub{font-size:12px;color:var(--text-2);display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.model-row .m-name{font-weight:600;display:flex;gap:8px;align-items:center;flex-wrap:wrap;overflow-wrap:anywhere}
+.model-row .m-sub{font-size:12px;color:var(--text-2);display:flex;gap:6px;align-items:center;flex-wrap:wrap;overflow-wrap:anywhere}
 .warn-list{display:grid;gap:8px;margin:0;padding:0;list-style:none}
 .warn-list li{display:flex;gap:9px;align-items:flex-start;font-size:12.5px;overflow-wrap:anywhere}
 .warn-list .wl-ink{color:var(--text)}
@@ -363,7 +366,7 @@ td.num{font-variant-numeric:tabular-nums}
   .sidenav.open{transform:translateX(0);visibility:visible;transition-delay:0s}
   .hd{gap:10px;padding:10px 14px}
   .shell{padding:12px 14px 28px}
-  .ov-cols{grid-template-columns:1fr}
+  .ov-cols{grid-template-columns:minmax(0,1fr)}
   .meta-app{white-space:normal;overflow-wrap:anywhere}
   .toast{max-width:calc(100vw - 28px)}
 }
