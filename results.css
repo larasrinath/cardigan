@@ -142,12 +142,13 @@ main{flex:1;min-width:0}
 .search-clear{display:none;color:var(--text-3);border-radius:999px;padding:2px}
 .search-clear:hover{color:var(--text)}
 .search-wrap.has-value .search-clear{display:inline-flex}
-.rowcount{margin-left:auto;font-size:12px;color:var(--text-2);font-variant-numeric:tabular-nums}
+/* The count takes the room that is left in its line and stands at the right end of it, beside the pager that follows it. */
+.rowcount{flex:1 1 auto;text-align:right;font-size:12px;color:var(--text-2);font-variant-numeric:tabular-nums}
 
 /* ---------- table ---------- */
 /* With a table on screen the page is as high as the window, and each box down to the table's takes the height that is
-   left to it. The table's box grows from 220px into what the header, the banners, the breadcrumb, the toolbar and the
-   pager leave, and no further than its rows: a short table stays short, and the pager stays in the window. */
+   left to it. The table's box grows from 220px into what the header, the banners, the breadcrumb and the toolbar leave,
+   down to the shell's foot, and no further than its rows: a short table stays short. */
 body:has(.table-wrap){display:flex;flex-direction:column;height:100dvh}
 body:has(.table-wrap) > .banners,body:has(.table-wrap) > .shell{width:100%}
 body:has(.table-wrap) > .shell,#view:has(> .table-wrap){flex:1 1 auto}
@@ -231,8 +232,11 @@ td.num{font-variant-numeric:tabular-nums}
   padding:1px 7px;font-size:11.5px;color:var(--text-2);
 }
 
-/* pagination */
-.pager{display:flex;align-items:center;gap:10px;margin-top:10px;font-size:12px;color:var(--text-2);flex-wrap:wrap}
+/* pagination: the toolbar's last child, at its right end beside the count. When the toolbar has no room for it there
+   it takes a line of its own, still at the right, and wraps within itself when that line is too short for it. A table
+   with no row to show has an empty pager, which takes no room. */
+.pager{display:flex;align-items:center;gap:10px;margin-left:auto;font-size:12px;color:var(--text-2);flex-wrap:wrap}
+.pager:empty{display:none}
 .pager .pages{display:flex;gap:4px;align-items:center}
 .pg-btn{min-width:28px;height:28px;border-radius:999px;border:1px solid var(--border-strong);background:var(--panel);padding:0 8px;font-variant-numeric:tabular-nums}
 .pg-btn:hover:not([disabled]){background:var(--panel-2)}
