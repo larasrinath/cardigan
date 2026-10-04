@@ -193,7 +193,7 @@ If the results page says **Not connected** or **Nothing to analyse**, see [Use i
 
 Layout:
 
-- `manifest.json`: the toolbar icon, the service worker and the two content scripts. It asks for no permissions.
+- `manifest.json`: the toolbar icon, the service worker, the two content scripts and the content security policy of the extension's own pages. It asks for no permissions.
 - `src/background.ts`: the service worker, bundled into `dist/background.js`. A click on the toolbar icon opens the results page next to the clicked tab, with that tab's ID and the time of the click in its address.
 - `results.html`, `results.css` and `src/results/`: the results page. Its script is bundled into `dist/results.js`:
   - `main.ts`: puts the page together and acts on what you click.
@@ -224,6 +224,8 @@ Bump `version` in `manifest.json`, `package.json` and the two `version` fields a
 5. Publish the zip with its SHA-256 as the release's download.
 
 The zip holds eleven files: `manifest.json`, the four bundles in `dist/`, the four icons, `results.html` and `results.css`. It never holds sources, tests, docs or `node_modules`. Its entries are sorted, stored uncompressed and carry fixed times, so the same files give the same bytes, and the same SHA-256, on every run. The packager refuses to run when a bundle is missing or older than the sources it is built from, or when the results page loads a file that is not in the zip.
+
+The manifest declares a content security policy for the extension's own pages and its service worker: they load nothing from outside the package. The packager also refuses a manifest whose policy would allow that, as a remote address, a wildcard, `'unsafe-eval'` or a script written in the page would.
 
 ## Relationship to SAM
 
