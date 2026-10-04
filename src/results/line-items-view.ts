@@ -8,9 +8,13 @@ import { cellText } from "./table-engine.js";
  * out, names each line item's module directly after its own name, and shows under Applies To the dimensions the line item
  * really has. The table given is never changed, and a download is written from it, never from the view.
  *
- * A module's own row is one whose Module Name cell is empty; a line item's row names its module there. That is how an
- * export of a real model shows them. The classic client tells the two apart by the row's ID, which a table does not hold.
- * A table in which no row is a module's own is not the grid as the view knows it, and is shown as it is.
+ * A module's own row names no module under Module Name and has neither a Format nor a Summary. A line item's row names
+ * its module there, and always has both (the classic client parses every line item's Format, and refuses a blank Summary).
+ * That is how an export of a real model shows them. The classic client tells the two apart by the row's ID, which a table
+ * does not hold. A row that names no module but has a Format or a Summary is a line item whose module is not known: the
+ * read gave no Module Name for it, or the row is cut short. It stays in the view, with its Applies To as the file has it.
+ * In a table without those two columns a row that names no module is a module's own. A table in which no row is a
+ * module's own is not the grid as the view knows it, and is shown as it is.
  *
  * The rest is how the classic client itself reads this grid (anaplan/gridlet/_editor/ActionEditor.js, `LineItemsLoader`
  * and the editors that use it). A line item belongs to the nearest module's row above it. The view takes that row for the
@@ -26,9 +30,12 @@ export const LINE_ITEMS_FILE = "Line Items.csv";
 /** The grid's own columns the view reads, by the headers Anaplan gives them. The row's name is the first column. */
 export const MODULE_NAME = "Module Name";
 export const APPLIES_TO = "Applies To";
+/** The columns that hold what every line item has and a module's own row has not, where the table has them. */
+const LINE_ITEM_HAS = ["Format", "Summary"];
 
 /** The column the view adds after Applies To, and what it says of each line item's Applies To: the module's, the line
- * item's own, or the module's when the module's row was not found (the dash is then shown as it is). */
+ * item's own, or the module's when the module is not known: its row was not found above the line item, or the line item
+ * names none (the dash is then shown as it is). */
 export const APPLIES_TO_FROM = "Applies To from";
 export const APPLIES_TO_SOURCE = { module: "Module", lineItem: "Line item", notFound: "Module (not found)" } as const;
 
@@ -41,19 +48,23 @@ export interface LineItemsView {
   table: ResultTable;
   /** The modules' own rows left out of `table`. */
   moduleRows: number;
-  /** The modules among them with no line items: no row of `table` names them. */
+  /** The modules among them with no line items: no line item stands under their row. */
   emptyModules: number;
-  /** One line for the page to show with the table: what was left out. None when the table is shown as it is. */
+  /** One line for the page to show with the table: what was left out, and how many line items name no module. None when
+   * the table is shown as it is. */
   note?: string;
 }
 
-interface ModuleRow { name: string; appliesTo: Cell; named: boolean }
+interface ModuleRow { name: string; appliesTo: Cell; lineItems: boolean }
 
 const count = (amount: number, one: string, many: string): string => (amount === 1 ? `1 ${one}` : `${amount} ${many}`);
 
-/** What the page says of the rows left out: how many, and how many of them are modules that no line item names. */
-function noteOf(moduleRows: number, emptyModules: number): string {
-  const left = `${count(moduleRows, "module row is", "module rows are")} in the CSV only; each line item shows its module.`;
+/** What the page says of the view: how many modules' rows it left out, how many line items name no module, and how many
+ * of the modules have no line items. That last part stays last: the page adds to it where those modules are listed
+ * (result-view.ts). */
+function noteOf(moduleRows: number, unnamed: number, emptyModules: number): string {
+  const except = unnamed === 0 ? "" : `, except ${count(unnamed, "whose module is not known: it has", "whose module is not known: they have")} no ${MODULE_NAME} in the file`;
+  const left = `${count(moduleRows, "module row is", "module rows are")} in the CSV only; each line item shows its module${except}.`;
   return emptyModules === 0 ? left : `${left} ${count(emptyModules, "module has no line items, so it is", "modules have no line items, so they are")} not in this table.`;
 }
 
@@ -65,27 +76,32 @@ function viewOf(table: ResultTable): LineItemsView | undefined {
   const moduleName = headers.indexOf(MODULE_NAME);
   const appliesTo = headers.indexOf(APPLIES_TO);
   if (moduleName < 1 || appliesTo < 1) return undefined;
+  const lineItemHas = LINE_ITEM_HAS.map(header => headers.indexOf(header)).filter(index => index > 0);
   // The row's name, its module, then every other column in the file's order.
   const order = [0, moduleName, ...headers.map((_, index) => index).filter(index => index !== 0 && index !== moduleName)];
 
   const rows: Cell[][] = [];
   let moduleRows = 0;
-  let namedModules = 0;
+  let withLineItems = 0;
+  let unnamed = 0;
   // The nearest module's row above.
   let above: ModuleRow | undefined;
   for (const row of table.rows) {
     if (!Array.isArray(row)) return undefined;
     const inModule = cellText(row[moduleName]);
-    if (inModule.trim() === "") {
+    const named = inModule.trim() !== "";
+    if (!named && !lineItemHas.some(index => cellText(row[index]).trim() !== "")) {
       moduleRows++;
-      above = { name: cellText(row[0]), appliesTo: row[appliesTo] ?? "", named: false };
+      above = { name: cellText(row[0]), appliesTo: row[appliesTo] ?? "", lineItems: false };
       continue;
     }
-    const itsModule = above?.name === inModule ? above : undefined;
-    if (itsModule && !itsModule.named) {
-      itsModule.named = true;
-      namedModules++;
+    // A line item, whatever module it names: the module's row above it is not one with nothing under it.
+    if (above && !above.lineItems) {
+      above.lineItems = true;
+      withLineItems++;
     }
+    if (!named) unnamed++;
+    const itsModule = named && above?.name === inModule ? above : undefined;
     const own = row[appliesTo] ?? "";
     const dash = cellText(own).trim() === DASH;
     const [shown, from]: [Cell, string] = !dash ? [own, APPLIES_TO_SOURCE.lineItem]
@@ -97,10 +113,10 @@ function viewOf(table: ResultTable): LineItemsView | undefined {
     rows.push(cells);
   }
   if (moduleRows === 0) return undefined;
-  const emptyModules = moduleRows - namedModules;
+  const emptyModules = moduleRows - withLineItems;
   return {
     table: { ...table, headers: order.flatMap(index => (index === appliesTo ? [headers[index], APPLIES_TO_FROM] : [headers[index]])), rows },
-    moduleRows, emptyModules, note: noteOf(moduleRows, emptyModules),
+    moduleRows, emptyModules, note: noteOf(moduleRows, unnamed, emptyModules),
   };
 }
 
