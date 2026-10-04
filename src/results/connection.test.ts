@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FRESH_MS, ROWS_MAX, type TabMessage } from "../protocol.js";
 import type { AnalysisResult, Cell } from "../result-types.js";
 import { resultZip } from "../result-zip.js";
-import { describeState, MAX_LOG_LINES, openedJustNow, ResultsClient, runLabel, tabIdFrom, UNREADABLE, withoutOpened, type RunState, type TabPort } from "./connection.js";
+import { describeState, MAX_LOG_LINES, NO_REASON, openedJustNow, ResultsClient, runLabel, tabIdFrom, UNREADABLE, withoutOpened, type RunState, type TabPort } from "./connection.js";
 
 /** A port as the page holds it. What the page posts arrives as a copy, as Chrome delivers it, and so does what the tab sends. */
 class FakePort implements TabPort {
@@ -313,9 +313,9 @@ describe("The results page's connection to the Anaplan tab", () => {
     ports[0].send({ type: "subject", subject: APP });
     ports[0].send({ type: "log", text: "14:02:05 GET /apps 401" });
     ports[0].send({ type: "error", message: "You're signed out of Anaplan. Sign in and try again.", code: "SIGNED_OUT" });
-    expect(client.state).toEqual({ phase: "failed", message: "You're signed out of Anaplan. Sign in and try again.", signedOut: true });
-    expect(describeState(client.state, client.asked)).toEqual({ title: "The analysis stopped", message: "You're signed out of Anaplan. Sign in and try again.",
-      hint: "Choose Run again to try once more." });
+    expect(client.state).toEqual({ phase: "failed", message: "You're signed out of Anaplan. Sign in and try again." });
+    // The tab's message says what to do: the page puts no advice of its own under it.
+    expect(describeState(client.state, client.asked)).toEqual({ title: "The analysis stopped", message: "You're signed out of Anaplan. Sign in and try again.", hint: "" });
     // The log of the failed run stays, to be copied.
     expect(client.log).toEqual(["14:02:05 GET /apps 401"]);
 
@@ -325,11 +325,11 @@ describe("The results page's connection to the Anaplan tab", () => {
     expect(client.state).toEqual({ phase: "running", status: "Starting the analysis…" });
     expect(client.log).toEqual([]);
 
-    ports[0].send({ type: "error", message: "Stopped: the model frame did not answer." });
-    expect(client.state).toEqual({ phase: "failed", message: "Stopped: the model frame did not answer.", signedOut: false });
+    ports[0].send({ type: "error", message: "Anaplan could not be reached. Check your connection, then choose Run again." });
+    expect(client.state).toEqual({ phase: "failed", message: "Anaplan could not be reached. Check your connection, then choose Run again." });
     ports[0].send({ type: "run-again-please" });
     ports[0].send({ type: "error" });
-    expect(client.state).toEqual({ phase: "failed", message: "Stopped: the model frame did not answer.", signedOut: false });
+    expect(client.state).toEqual({ phase: "failed", message: "Anaplan could not be reached. Check your connection, then choose Run again." });
   });
 
   it("shows the text of an error without a code: nothing to analyse, or the tab busy with something else", () => {
@@ -339,16 +339,45 @@ describe("The results page's connection to the Anaplan tab", () => {
     // The tab may first say it is stopping a run an earlier page asked for; that is a status like any other.
     ports[0].send({ type: "status", text: "Stopping the previous run…" });
     expect(describeState(client.state, client.asked).message).toBe("Stopping the previous run…");
-    ports[0].send({ type: "error", message: "This page has no model to export yet." });
-    expect(describeState(client.state, client.asked)).toEqual({ title: "The analysis stopped", message: "This page has no model to export yet.", hint: "Choose Run again to try once more." });
+    const busy = "Cardigan is still analysing what this Anaplan tab showed before. Wait for that to finish, or close its results page, then choose Run again.";
+    ports[0].send({ type: "error", message: busy });
+    expect(describeState(client.state, client.asked)).toEqual({ title: "The analysis stopped", message: busy, hint: "" });
   });
 
-  it("gives an error without words a message of its own", () => {
-    const { client, ports } = page();
+  it("gives an error without words a message of its own, which says what to do in the words the tab's messages use", () => {
+    for (const error of [{ type: "error", message: "" }, { type: "error" }, { type: "error", message: 503 }]) {
+      const { client, ports } = page();
+      client.start();
+      ports[0].send({ type: "subject", subject: APP });
+      ports[0].send(error);
+      expect(client.state).toEqual({ phase: "failed", message: NO_REASON });
+    }
+    expect(NO_REASON).toBe("The analysis stopped without saying why. Choose Run again. If it keeps happening, choose Copy diagnostic log and send the log.");
+  });
+
+  it("takes an error in place of done as a failed run, and keeps nothing of the result that was arriving", () => {
+    // A piece of the result could not be sent: the tab says why in a last line of the log, then that the run failed.
+    const { client, ports, log } = page();
     client.start();
     ports[0].send({ type: "subject", subject: APP });
-    ports[0].send({ type: "error", message: "" });
-    expect(client.state).toEqual({ phase: "failed", message: "The analysis stopped without saying why.", signedOut: false });
+    ports[0].send({ type: "result", result: empty() });
+    ports[0].send({ type: "rows", table: 0, rows: full().tables[0].rows });
+    ports[0].send({ type: "rows", table: 1, rows: full().tables[1].rows.slice(0, 1) });
+    ports[0].send({ type: "log", text: "14:02:07 stopped: the result could not be sent (Message length exceeded maximum allowed length.)" });
+    const unsent = "Cardigan finished reading but could not pass the result to this page. Choose Run again. If it keeps happening, choose Copy diagnostic log and send the log.";
+    ports[0].send({ type: "error", message: unsent });
+    expect(client.state).toEqual({ phase: "failed", message: unsent });
+    expect(log()).toEqual(["14:02:07 stopped: the result could not be sent (Message length exceeded maximum allowed length.)"]);
+    // What still arrives of that run completes nothing.
+    ports[0].send({ type: "rows", table: 1, rows: full().tables[1].rows.slice(1) });
+    ports[0].send({ type: "done" });
+    expect(client.state).toEqual({ phase: "failed", message: unsent });
+    // The next run starts from its own "result": the rows that had arrived are not in it.
+    client.runAgain();
+    ports[0].send({ type: "result", result: empty() });
+    ports[0].send({ type: "done" });
+    if (client.state.phase !== "done") throw new Error("no result");
+    expect(client.state.result.tables.map(table => table.rows.length)).toEqual([0, 0, 0, 0]);
   });
 
   it("says the Anaplan tab was closed or left the page when the port closes during a run, and reconnects on Run again", () => {
@@ -368,7 +397,7 @@ describe("The results page's connection to the Anaplan tab", () => {
     ports[1].send({ type: "subject", subject: APP });
     // The half result of the run that was cut off is gone: this one starts from its own "result".
     ports[1].send({ type: "done" });
-    expect(client.state).toEqual({ phase: "failed", message: UNREADABLE, signedOut: false });
+    expect(client.state).toEqual({ phase: "failed", message: UNREADABLE });
   });
 
   it("keeps a finished result when the tab is closed afterwards, and reconnects on Run again", () => {
@@ -447,17 +476,25 @@ describe("The results page's connection to the Anaplan tab", () => {
       "a result without a summary": [{ type: "result", result: { ...empty(), summary: undefined } }],
       "no result at all": [{ type: "result" }],
     };
+    const reasons = new Set<string>();
     for (const [name, messages] of Object.entries(cases)) {
-      const { client, ports } = page();
+      const { client, ports, log } = page();
       client.start();
       ports[0].send({ type: "subject", subject: APP });
       for (const message of messages) ports[0].send(message);
-      expect(client.state, name).toEqual({ phase: "failed", message: UNREADABLE, signedOut: false });
+      expect(client.state, name).toEqual({ phase: "failed", message: UNREADABLE });
+      // The message is for the user; the log says which piece did not fit, so there is something to copy and send.
+      expect(log(), name).toHaveLength(1);
+      expect(log()[0], name).toMatch(/^14:02:05 stopped: the tab (sent|said) /);
+      reasons.add(log()[0]);
       // What still arrives of that run changes nothing.
       ports[0].send({ type: "rows", table: 1, rows: [["late"]] });
       ports[0].send({ type: "done" });
       expect(client.state.phase, name).toBe("failed");
     }
+    // A result, its rows, and "done" each have their own reason.
+    expect([...reasons].sort()).toEqual(["14:02:05 stopped: the tab said its result was complete before it sent one",
+      "14:02:05 stopped: the tab sent a result the page cannot read", "14:02:05 stopped: the tab sent rows that fit no table of its result"]);
   });
 
   it("ignores what is not a message, and progress outside a run", () => {

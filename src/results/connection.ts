@@ -49,8 +49,9 @@ export type RunState =
   /** The tab shows an app or a model, and nothing has asked for its analysis: the icon did not open this page just now. */
   | { phase: "ready"; kind: "app" | "model" }
   | { phase: "running"; status: string }
-  /** The tab said the run failed. */
-  | { phase: "failed"; message: string; signedOut: boolean }
+  /** The run failed. `message` says what happened and what to do: the tab's own sentence (progress.ts `Failure`, tab-port.ts),
+   * or the page's when it could not put the result together. */
+  | { phase: "failed"; message: string }
   /** The port closed during a run: the tab was closed or went to another page. */
   | { phase: "interrupted" }
   /** `received` is when the result was complete: the one time its zip is stamped with, however often it is downloaded. */
@@ -70,8 +71,10 @@ export interface ClientOptions {
 
 const STARTING = "Starting the analysis…";
 const RECEIVING = "Receiving the result…";
+/** The page's own two failures, in the words the tab's messages use for what to do next (progress.ts): they name the run
+ * control and the button beside the log as those read. */
 export const UNREADABLE = "Cardigan received a result it could not read. Refresh the Anaplan tab, then click the Cardigan icon again.";
-const NO_REASON = "The analysis stopped without saying why.";
+export const NO_REASON = "The analysis stopped without saying why. Choose Run again. If it keeps happening, choose Copy diagnostic log and send the log.";
 export const MAX_LOG_LINES = 3000;
 
 const text = (value: unknown): value is string => typeof value === "string";
@@ -201,32 +204,35 @@ export class ResultsClient {
         if (text(message.text)) this.append(message.text);
         return;
       case "result":
-        if (!isResult(message.result)) return this.fail(UNREADABLE);
+        if (!isResult(message.result)) return this.fail("the tab sent a result the page cannot read");
         // The rows arrive in pieces after this; the tables are copied so the pieces are added to the page's own result.
         this.pending = { ...message.result, tables: message.result.tables.map(table => ({ ...table, rows: [...table.rows] })) };
         this.set({ phase: "running", status: RECEIVING });
         return;
       case "rows": {
         const table = typeof message.table === "number" ? this.pending?.tables[message.table] : undefined;
-        if (!table || !Array.isArray(message.rows) || !message.rows.every(Array.isArray)) return this.fail(UNREADABLE);
+        if (!table || !Array.isArray(message.rows) || !message.rows.every(Array.isArray)) return this.fail("the tab sent rows that fit no table of its result");
         for (const row of message.rows) table.rows.push(row);
         return;
       }
       case "done": {
         const result = this.pending;
-        if (!result) return this.fail(UNREADABLE);
+        if (!result) return this.fail("the tab said its result was complete before it sent one");
         this.pending = undefined;
         return this.set({ phase: "done", result, received: new Date() });
       }
+      // Also in place of "done", when a piece of the result could not be sent: what has arrived of it is not shown.
       case "error":
         this.pending = undefined;
-        return this.set({ phase: "failed", message: text(message.message) && message.message ? message.message : NO_REASON, signedOut: message.code === "SIGNED_OUT" });
+        return this.set({ phase: "failed", message: text(message.message) && message.message ? message.message : NO_REASON });
     }
   }
 
-  private fail(message: string): void {
+  /** The pieces the tab sent do not make a result. The run has failed, and the log says what did not fit. */
+  private fail(detail: string): void {
     this.pending = undefined;
-    this.set({ phase: "failed", message, signedOut: false });
+    this.append(stampLine(`stopped: ${detail}`));
+    this.set({ phase: "failed", message: UNREADABLE });
   }
 
   private closed(reason: string | undefined): void {
@@ -270,8 +276,9 @@ export function describeState(state: RunState, asked: boolean): StateText {
         hint: `Choose ${run} to analyse it. This page starts by itself only when the Cardigan icon has just opened it.` };
     case "running":
       return { title: "Analysing", message: state.status, hint: "Keep the Anaplan tab open until this finishes." };
+    // The message is a whole sentence that says what to do next, so the page adds no advice of its own under it.
     case "failed":
-      return { title: "The analysis stopped", message: state.message, hint: `Choose ${run} to try once more.` };
+      return { title: "The analysis stopped", message: state.message, hint: "" };
     case "interrupted":
       return { title: "The analysis stopped", message: "The Anaplan tab was closed or left the page before the analysis finished.",
         hint: `Open the app or model again, then click the Cardigan icon or choose ${run}.` };

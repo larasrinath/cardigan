@@ -596,6 +596,29 @@ describe("The results page's script, on the page", () => {
     expect(connects).toEqual([[7, { name: PORT_NAME }], [7, { name: PORT_NAME }]]);
   });
 
+  it("shows a failed run's message as it is, with nothing of the page's own under it, and the button that copies its log beside it", async () => {
+    await open(clicked(42));
+    ports[0].send({ type: "subject", subject: { kind: "app", id: RESULT.id } });
+    ports[0].send({ type: "log", text: `14:02:05 Cardigan dev: app ${RESULT.id} on us1a.app.anaplan.com` });
+    ports[0].send({ type: "log", text: "14:02:06 stopped: GET /a/springboard-definition-service/apps 503" });
+    const message = "Anaplan could not be reached. Check your connection, then choose Run again. If it keeps happening, choose Copy diagnostic log and send the log.";
+    ports[0].send({ type: "error", message });
+    expect([page.id("runTitle").textContent, page.id("runStatus").textContent, page.id("runHint").textContent, page.id("runHint").hidden]).toEqual(["The analysis stopped", message, "", true]);
+    // The two controls the message names are there, and read exactly as it names them.
+    const copy = page.find('#view [data-act="copy-run-log"]');
+    expect([runControl()[0], page.id("runAgain").disabled, copy.textContent.trim(), page.id("runLog").hidden]).toEqual(["Run again", false, "Copy diagnostic log", false]);
+    copy.press();
+    await settle();
+    expect(copied).toEqual([`14:02:05 Cardigan dev: app ${RESULT.id} on us1a.app.anaplan.com\n14:02:06 stopped: GET /a/springboard-definition-service/apps 503`]);
+
+    // A result the page cannot read is the page's own failure: its log says what did not fit, so there is a log to copy.
+    page.id("runAgain").press();
+    ports[0].send({ type: "done" });
+    expect([page.id("runStatus").textContent, page.id("runHint").hidden, page.id("runLog").hidden, page.id("diagLog").textContent]).toEqual([
+      "Cardigan received a result it could not read. Refresh the Anaplan tab, then click the Cardigan icon again.", true, false,
+      "14:02:05 stopped: the tab said its result was complete before it sent one"]);
+  });
+
   it("shows the tab's error as text, and keeps Run again usable on an Anaplan page that is not an app or a model", async () => {
     await open(clicked(42));
     ports[0].send({ type: "subject", subject: { kind: "none" } });
