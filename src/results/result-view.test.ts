@@ -4,8 +4,9 @@ import { HEADERS, type TabName } from "../report.js";
 import { CALENDAR_HEADERS, calendarRows } from "../model/calendar.js";
 import type { AnalysisResult, Cell, ResultTable } from "../result-types.js";
 import { APP_FILES } from "./columns.js";
+import { lineItemsView } from "./line-items-view.js";
 import { ABOUT_MODEL, analysedOf, CARD_PARTS, cardSections, detailSections, detailsOf, detailValue, diagnosticLog, FILE_RULES, fileView, listedTables, MODEL_CALENDAR_FILE, MODEL_FILE_ORDER, modelFacts,
-  overviewOf, resultNotes } from "./result-view.js";
+  MODULES_FILE, overviewOf, resultNotes } from "./result-view.js";
 
 /** The app export's files, as the page names them, and the report table each holds. */
 const FILES: Record<string, TabName> = Object.fromEntries((Object.keys(APP_FILES) as TabName[]).map(tab => [APP_FILES[tab], tab]));
@@ -261,7 +262,7 @@ describe("What the results page reads out of a result", () => {
     expect([fileView(model, lineItems), fileView(model, modelDetails)]).toEqual([{ table: lineItems }, { table: modelDetails }]);
     expect(fileView(model, lineItems).table).toBe(lineItems);
     // The rules are few and each is one file's own, by the kind of result and the file's name.
-    expect([[...FILE_RULES.model.keys()], [...FILE_RULES.app.keys()]]).toEqual([["Model Calendar.csv"], []]);
+    expect([[...FILE_RULES.model.keys()], [...FILE_RULES.app.keys()]]).toEqual([["Model Calendar.csv", "Line Items.csv"], []]);
     // The rule is that file's alone: by its name, in a model's result, by its Section column.
     const renamed = { ...file, file: "Model Calendar (2).csv" };
     const regrouped = { ...file, headers: ["Group", ...file.headers.slice(1)] };
@@ -272,6 +273,117 @@ describe("What the results page reads out of a result", () => {
     // A calendar file with no row about the model lists every row, and is the same list.
     const none: ResultTable = { ...file, rows: file.rows.slice(5) };
     expect([fileView(model, none).table === none, fileView(model, none).note]).toEqual([true, undefined]);
+  });
+
+  it("shows a model's Line Items file as a table of line items, and says what that leaves to the CSV and where a module without line items is", () => {
+    // The grid as the export writes it: each module's own row, then its line items; a dash under Applies To stands for the module's.
+    const blueprint: ResultTable = { file: "Line Items.csv", label: "Line Items", guard: false, headers: ["", "Formula", "Applies To", "Module Name"], rows: [
+      ["Revenue", "", "Products, Time", ""], ["Units", "", "-", "Revenue"], ["Price", "Units * 2", "Products", "Revenue"],
+      ["--- Archive ---", "", "", ""], ["Costs", "", "Regions", ""], ["Rent", "", "-", "Costs"], ["Salaries", "", "-", "Costs"]] };
+    const modules: ResultTable = { file: MODULES_FILE, label: "Modules", headers: ["", "Applies To"], rows: [["Revenue", "Products, Time"], ["--- Archive ---", ""], ["Costs", "Regions"]], guard: false };
+    expect(MODULES_FILE).toBe("Modules.csv");
+    const model = result("model", [modelDetails, blueprint, modules]);
+    const shown = fileView(model, blueprint);
+    // Line items only, each with its module after its name and the dimensions it really has, with where those came from.
+    expect(shown.table).toEqual({ ...blueprint, headers: ["", "Module Name", "Formula", "Applies To", "Applies To from"], rows: [
+      ["Units", "Revenue", "", "Products, Time", "Module"], ["Price", "Revenue", "Units * 2", "Products", "Line item"],
+      ["Rent", "Costs", "", "Regions", "Module"], ["Salaries", "Costs", "", "Regions", "Module"]] });
+    expect(shown.table).toEqual(lineItemsView(blueprint).table);
+    // The line is the view's own. Since the result has the Modules file, it also says where the module without line items is.
+    expect(shown.note).toBe("3 module rows are in the CSV only; each line item shows its module. 1 module has no line items, so it is not in this table. It is listed in the Modules table.");
+    expect(shown.note).toBe(`${lineItemsView(blueprint).note} It is listed in the Modules table.`);
+    // Without the Modules file there is no table to name; with every module named by a line item there is nothing to add.
+    expect(fileView(result("model", [modelDetails, blueprint]), blueprint).note).toBe(lineItemsView(blueprint).note);
+    const full: ResultTable = { ...blueprint, rows: blueprint.rows.filter(row => row[0] !== "--- Archive ---") };
+    expect(fileView(result("model", [full, modules]), full).note).toBe("2 module rows are in the CSV only; each line item shows its module.");
+    // Several such modules, and a Modules file under another label: the line names the table as the page does.
+    const two: ResultTable = { ...blueprint, rows: [...blueprint.rows, ["--- End ---", "", "", ""]] };
+    expect(fileView(result("model", [two, { ...modules, label: "All modules" }]), two).note)
+      .toBe("4 module rows are in the CSV only; each line item shows its module. 2 modules have no line items, so they are not in this table. They are listed in the All modules table.");
+    // The file itself is as it was: the CSV is made of it.
+    expect([blueprint.rows.length, blueprint.headers, blueprint.rows[1]]).toEqual([7, ["", "Formula", "Applies To", "Module Name"], ["Units", "", "-", "Revenue"]]);
+    // The rule is that file's alone, in a model's result. An app's file of that name, a file of another name, and a Line
+    // Items file that is not the grid (no column that names the module) are shown as they stand: the very table.
+    const renamed: ResultTable = { ...blueprint, file: "Line Items (2).csv" };
+    const flat: ResultTable = { ...blueprint, headers: ["", "Formula", "Applies To", "Module"] };
+    expect([fileView(result("app", [appDetails, blueprint]), blueprint), fileView(model, renamed), fileView(model, flat)]).toEqual([{ table: blueprint }, { table: renamed }, { table: flat }]);
+    expect(fileView(model, flat).table).toBe(flat);
+    // The overview's tile counts the line items, as the navigation does; the modules' tile is the Modules file's.
+    expect(overviewOf(model).tiles).toEqual([{ label: "Modules", count: 3 }, { label: "Line Items", count: 4 }]);
+  });
+
+  it("says a model's definitions in words in the table's place, and keeps the CSV's text for each cell it says so", () => {
+    const NUMBER = '{"dataType":"NUMBER"}';
+    const PERCENT = '{"minimumSignificantDigits":-1,"decimalPlaces":2,"unitsType":"PERCENTAGE","dataType":"NUMBER"}';
+    const LIST = '{"hierarchyEntityLongId":101000000047,"dataType":"ENTITY"}';
+    const SUM = '{"summaryMethod":"SUM","timeSummaryMethod":"SUM"}';
+    const NO_SUMMARY = '{"summaryMethod":"NONE","timeSummaryMethod":"NONE"}';
+    const RATIO = '{"summaryMethod":"RATIO","timeSummaryMethod":"RATIO","ratioNumeratorIdentifier":"_1901000000003_","ratioDenominatorIdentifier":"_1901000000002_"}';
+    const lineItems: ResultTable = { file: "Line Items.csv", label: "Line Items", guard: false, headers: ["", "Format", "Formula", "Summary", "Ratio Numerator", "Ratio Denominator"], rows: [
+      ["Units", NUMBER, "", SUM, "", ""],
+      ["Margin %", PERCENT, "Margin / Revenue", RATIO, "Margin", "Revenue"],
+      ["Region", LIST, "", NO_SUMMARY, "", ""],
+      ["--- Checks ---", "", "", "", "", ""],
+      ["Odd", "Number", '{"dataType":"NUMBER"}', '{"summaryMethod":7}', "", ""]] };
+    const kept = structuredClone(lineItems);
+    const model = result("model", [modelDetails, lineItems]);
+    const shown = fileView(model, lineItems);
+    // A Format and a Summary are said as Anaplan says them. A Ratio names what it divides by its own row's two cells; a
+    // list is said by its ID, for which a result has no name.
+    expect(shown.table).toEqual({ ...lineItems, rows: [
+      ["Units", "Number", "", "Sum", "", ""],
+      ["Margin %", "Number, 2 decimal places, %", "Margin / Revenue", "Ratio = Margin / Revenue", "Margin", "Revenue"],
+      ["Region", "List: ID 101000000047", "", "None", "", ""],
+      ["--- Checks ---", "", "", "", "", ""],
+      // What is no definition stays as it is: a plain text, a definition under another column, one the words are not known for.
+      ["Odd", "Number", '{"dataType":"NUMBER"}', '{"summaryMethod":7}', "", ""]] });
+    // For each cell said in words, the CSV's text, by the table's row and the column's place; a row with no such cell is the file's own row.
+    expect([...shown.exported ?? []].map(([row, texts]) => [shown.table.rows.findIndex(candidate => candidate === row), [...texts]]))
+      .toEqual([[0, [[1, NUMBER], [3, SUM]]], [1, [[1, PERCENT], [3, RATIO]]], [2, [[1, LIST], [3, NO_SUMMARY]]]]);
+    expect([shown.table.rows[3] === lineItems.rows[3], shown.table.rows[4] === lineItems.rows[4], shown.table.rows[0] === lineItems.rows[0]]).toEqual([true, true, false]);
+    // The file itself is as it was: the CSV is made of it.
+    expect(lineItems).toEqual(kept);
+    // Without the two columns a Ratio says its line items by their IDs.
+    const bare: ResultTable = { ...lineItems, headers: ["", "Format", "Formula", "Summary"], rows: [["Margin %", PERCENT, "", RATIO]] };
+    expect(fileView(result("model", [bare]), bare).table.rows).toEqual([["Margin %", "Number, 2 decimal places, %", "", "Ratio = ID 1901000000003 / ID 1901000000002"]]);
+
+    // An action's definition, in any of a model's files: the words where they are known, the cell as it is where not.
+    const actions: ResultTable = { file: "Other Actions.csv", label: "Other Actions", guard: false, headers: ["", "Action", "Notes"],
+      rows: [["Delete old items", '{"actionType":"DELETE_BY_SELECTION"}', ""], ["Send plan", '{"exportType":"GRID_CURRENT_PAGE"}', '{"actionType":"PROCESS"}']] };
+    const said = fileView(result("model", [actions]), actions);
+    expect([said.table.rows, [...said.exported ?? []].map(([, texts]) => [...texts])])
+      .toEqual([[["Delete old items", "Delete from List using Selection", ""], ["Send plan", '{"exportType":"GRID_CURRENT_PAGE"}', '{"actionType":"PROCESS"}']], [[[1, '{"actionType":"DELETE_BY_SELECTION"}']]]]);
+
+    // A table with none of the three columns, and one none of whose cells is a definition, are the file as it stands, with nothing kept.
+    const modules: ResultTable = { file: MODULES_FILE, label: "Modules", headers: ["", "Applies To"], rows: [["Revenue", '{"dataType":"NUMBER"}']], guard: false };
+    const plain: ResultTable = { ...lineItems, rows: [["Units", "Number", "", "Sum", "", ""]] };
+    expect([fileView(result("model", [modules]), modules), fileView(result("model", [plain]), plain)]).toEqual([{ table: modules }, { table: plain }]);
+    expect(fileView(result("model", [plain]), plain).table).toBe(plain);
+    // An app's tables are never said in words, whatever their columns are called and hold.
+    const app = result("app", [appDetails, lineItems, actions]);
+    expect([fileView(app, lineItems), fileView(app, actions)]).toEqual([{ table: lineItems }, { table: actions }]);
+    expect(fileView(app, lineItems).table).toBe(lineItems);
+  });
+
+  it("says the words after a file's own rule: the Line Items table of line items has them in the columns the view moved", () => {
+    const NUMBER = '{"dataType":"NUMBER"}';
+    const RATIO = '{"summaryMethod":"RATIO","timeSummaryMethod":"RATIO","ratioNumeratorIdentifier":"_1901000000003_","ratioDenominatorIdentifier":"_1901000000002_"}';
+    const blueprint: ResultTable = { file: "Line Items.csv", label: "Line Items", guard: false, headers: ["", "Format", "Summary", "Applies To", "Module Name", "Ratio Numerator", "Ratio Denominator"], rows: [
+      ["Revenue", "", "", "Products, Time", "", "", ""],
+      ["Units", NUMBER, '{"summaryMethod":"SUM","timeSummaryMethod":"SUM"}', "-", "Revenue", "", ""],
+      ["Margin %", NUMBER, RATIO, "-", "Revenue", "Margin", "Units"]] };
+    const model = result("model", [modelDetails, blueprint]);
+    const shown = fileView(model, blueprint);
+    expect([shown.table.headers, shown.table.rows, shown.note]).toEqual([["", "Module Name", "Format", "Summary", "Applies To", "Applies To from", "Ratio Numerator", "Ratio Denominator"], [
+      ["Units", "Revenue", "Number", "Sum", "Products, Time", "Module", "", ""],
+      ["Margin %", "Revenue", "Number", "Ratio = Margin / Units", "Products, Time", "Module", "Margin", "Units"]],
+    "1 module row is in the CSV only; each line item shows its module."]);
+    // What is kept is by the shown table's rows and columns: Format stands third there, and second in the file.
+    expect([...shown.exported ?? []].map(([row, texts]) => [shown.table.rows.findIndex(candidate => candidate === row), [...texts]]))
+      .toEqual([[0, [[2, NUMBER], [3, '{"summaryMethod":"SUM","timeSummaryMethod":"SUM"}']]], [1, [[2, NUMBER], [3, RATIO]]]]);
+    // The words change no row: the tile counts the line items, as before.
+    expect(overviewOf(model).tiles).toEqual([{ label: "Line Items", count: 2 }]);
+    expect(blueprint.rows[1]).toEqual(["Units", NUMBER, '{"summaryMethod":"SUM","timeSummaryMethod":"SUM"}', "-", "Revenue", "", ""]);
   });
 
   it("reads the model's own facts out of its Model Calendar file, without the ones that have no value", () => {

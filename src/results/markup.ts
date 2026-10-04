@@ -396,14 +396,20 @@ export function colChooserHtml(columns: readonly Column[], hidden: ReadonlySet<n
 /* ---------- drawer ---------- */
 
 /** A row whole: every one of its cells, also those beyond the table's headers, each with its value in full. Nothing but
- * the value stands in a `dd`, so no space of the markup's own is kept with it. */
-const allColumns = (columns: readonly Column[], row: Row, links: Links): string =>
-  `<dl class="d-dl">${rowColumns(columns, row).map(column => `<dt>${esc(column.label)}</dt><dd>${cellHtml(column, row, links, true)}</dd>`).join("")}</dl>`;
+ * the value stands in a `dd`, so no space of the markup's own is kept with it. `exported` has, for each cell the table
+ * says in words, the text the CSV holds in its place, by the column's place: that text follows the words, under the
+ * column's name and "in the CSV", so that it is clear which of the two is which. */
+const allColumns = (columns: readonly Column[], row: Row, links: Links, exported?: ReadonlyMap<number, unknown>): string =>
+  `<dl class="d-dl">${rowColumns(columns, row).map(column => {
+    const shown = `<dt>${esc(column.label)}</dt><dd>${cellHtml(column, row, links, true)}</dd>`;
+    return exported?.has(column.index) ? `${shown}<dt>${esc(column.label)} in the CSV</dt><dd><span class="cell-t">${esc(exported.get(column.index))}</span></dd>` : shown;
+  }).join("")}</dl>`;
 
-/** One row in full: every column, hidden ones included, with nothing cut short. */
-export function rowDrawerHtml(columns: readonly Column[], row: Row, links: Links): string {
+/** One row in full: every column, hidden ones included, with nothing cut short, and the CSV's text for each cell that is
+ * said in words (`exported`). */
+export function rowDrawerHtml(columns: readonly Column[], row: Row, links: Links, exported?: ReadonlyMap<number, unknown>): string {
   return `<div class="d-sec"><h3>All columns</h3>
-    ${allColumns(columns, row, links)}</div>`;
+    ${allColumns(columns, row, links, exported)}</div>`;
 }
 
 /** Under a row's name in the drawer: which row of which table it is. `position` is the row's place in the file, from 1. */
