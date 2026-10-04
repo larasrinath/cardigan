@@ -4,6 +4,7 @@ import { resultZip, tableCsv } from "../result-zip.js";
 import { VERSION } from "../version.js";
 import { cardsOf, columnIndex, columnsOf, rowKeys, type CardsTable, type Column, type RowKeys } from "./columns.js";
 import { describeState, openedJustNow, ResultsClient, runLabel, tabIdFrom, withoutOpened, type RunState } from "./connection.js";
+import { CSV_FALLBACK, downloadName, ZIP_FALLBACK } from "./file-name.js";
 import {
   cardDrawerHtml, cardDrawerSubHtml, colChooserHtml, colFilterHtml, crumbsHtml, detailsHtml, headerMetaHtml, MOON_ICON, navHtml,
   overviewHtml, rowDrawerHtml, rowDrawerSubHtml, runBannerHtml, runHtml, SUN_ICON, tableHtml, tableParts, type Links, type NavEntry, type TableView,
@@ -64,6 +65,7 @@ async function copyText(text: string, what = text): Promise<void> {
     area.remove();
   }
 }
+/** Saves `data` as a download. `name` is a plain file name (file-name.ts), never a name a result gave unchecked. */
 function downloadFile(name: string, data: BlobPart, type: string): void {
   const url = URL.createObjectURL(new Blob([data], { type }));
   const link = document.createElement("a");
@@ -153,7 +155,7 @@ function updateActions(): void {
   const table = currentTable();
   const csv = el<HTMLButtonElement>("dlCsv");
   csv.disabled = !table;
-  csv.title = table ? `Download ${cellText(table.file)}` : result ? "Open a table to download it" : "";
+  csv.title = table ? `Download ${downloadName(table.file, ".csv", CSV_FALLBACK)}` : result ? "Open a table to download it" : "";
 }
 
 /* ================= views ================= */
@@ -696,14 +698,14 @@ el("navToggle").addEventListener("click", () => {
 el("themeToggle").addEventListener("click", toggleTheme);
 el("dlAll").addEventListener("click", () => {
   if (!result) return;
-  const name = cellText(result.zipName) || "Cardigan export.zip";
+  const name = downloadName(result.zipName, ".zip", ZIP_FALLBACK);
   downloadFile(name, resultZip(result, received), "application/zip");
   toast(`Downloaded ${name}`);
 });
 el("dlCsv").addEventListener("click", () => {
   const table = currentTable();
   if (!table) return;
-  const name = cellText(table.file) || "table.csv";
+  const name = downloadName(table.file, ".csv", CSV_FALLBACK);
   downloadFile(name, tableCsv(table), "text/csv;charset=utf-8");
   toast(`Downloaded ${name}`);
 });
