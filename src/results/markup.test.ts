@@ -4,8 +4,9 @@ import { HEADERS } from "../report.js";
 import type { AnalysisResult, Cell, ResultTable } from "../result-types.js";
 import { cardsOf, columnsOf, rowKeys, type Column } from "./columns.js";
 import {
-  cardDrawerHtml, cardDrawerSubHtml, cellHtml, colChooserHtml, colFilterHtml, crumbsHtml, esc, headerMetaHtml, idPill,
-  MOON_ICON, navHtml, noteBannerHtml, objectDrawerHtml, objectDrawerSubHtml, overviewHtml, pagerHtml, rowCellHtml, rowDrawerHtml, rowDrawerSubHtml, runBannerHtml, runHtml, SUN_ICON, tableHtml, tableParts, type Links, type TableView,
+  cardDrawerHtml, cardDrawerSubHtml, cellHtml, colChooserHtml, colFilterHtml, crumbsHtml, esc, FORGOTTEN_LINE, headerMetaHtml, idPill, keptCopyHtml,
+  MOON_ICON, navHtml, noteBannerHtml, objectDrawerHtml, objectDrawerSubHtml, overviewHtml, pagerHtml, rowCellHtml, rowDrawerHtml, rowDrawerSubHtml, runBannerHtml, runHtml, SUN_ICON, tableHtml, tableParts,
+  type KeptCopy, type Links, type TableView,
 } from "./markup.js";
 import { parseMarkup } from "./dom.test-support.js";
 import { decode, readMarkup, shownValues, structure } from "./markup.test-support.js";
@@ -219,6 +220,27 @@ describe("The results page's escaping", () => {
     expectInert(text => overviewHtml(overviewWith({ files: each((texts, index): [string, string] => [texts(index), texts(index + 1)])(text) })), 7);
     expectInert(text => overviewHtml(overviewWith({ howToRead: each((texts, index): [string, string] => [texts(index), texts(index + 1)])(text) })), 7);
     expectInert(text => overviewHtml(overviewWith({ log: each((texts, index) => texts(index))(text) })), 7);
+  });
+
+  it("puts nothing of a result into what the overview says about the copy kept for a refresh: its words are the page's own", () => {
+    /** An overview whose every text is one of `text`'s. */
+    const full = (text: Texts): Overview => ({
+      tiles: [{ label: text(0), count: 3 }], cardTypes: [[text(1), 4]], models: [{ model: text(2), workspace: text(3), modelId: text(4) }],
+      notes: [text(5), text(6)], about: [[text(0), text(1)], [text(2), text(3)]], files: [[text(4), text(5)]], howToRead: [[text(6), text(0)]], log: [text(1), text(2)],
+    });
+    const words: Record<KeptCopy, string[]> = { none: [], kept: ["A copy of this result is kept for a refresh of this page.", "Forget this result"], forgotten: [FORGOTTEN_LINE] };
+    for (const copy of ["none", "kept", "forgotten"] as const) {
+      // What stands in the place is made of the state alone, so no result can have a say in it: the same markup, to the
+      // character, under an overview whose every text is hostile and under one that holds nothing but harmless words.
+      const places = [full(hostile), full(harmless), overviewWith({})].map(overview => parseMarkup(overviewHtml(overview, copy)).querySelector("#ovKept")?.innerHTML);
+      expect(places, copy).toEqual(Array(3).fill(parseMarkup(keptCopyHtml(copy)).innerHTML));
+      // Its texts are the page's sentences and the button's words, shown as they are; what its attributes hold is fixed as well.
+      expect(readMarkup(keptCopyHtml(copy)).texts.map(decode), copy).toEqual(words[copy]);
+      expect(readMarkup(keptCopyHtml(copy)).tags.flatMap(tag => [...tag.attributes].map(([name, value]) => `${name}=${value}`)), copy).toEqual({ none: [],
+        kept: ["id=keptLine", "type=button", "class=btn sm", "data-act=forget", "aria-describedby=keptLine"], forgotten: ["id=keptLine", "tabindex=-1"] }[copy]);
+      // The overview around it is as inert as it is without it.
+      expectInert(text => overviewHtml(full(text), copy), 7);
+    }
   });
 
   it("lets no text change a table: its name, its headers, its cells, the search box, the page a jump keeps", () => {
@@ -453,8 +475,11 @@ describe("A result whose every text is hostile, through every view of the page",
     const pieces = [
       headerMetaHtml(analysedOf(result)),
       navHtml([{ id: "overview", label: "Overview" }, ...tables.map((table, index) => ({ id: String(index + 1), label: table.label, count: table.rows.length })), ], "overview", true),
-      // The overview holds what the Details file says, too: there is no view of it apart.
+      // The overview holds what the Details file says, too: there is no view of it apart. And it says what the page keeps
+      // of the result for a refresh: nothing yet, a copy, or a copy no longer.
       overviewHtml(overviewOf(result)),
+      overviewHtml(overviewOf(result), "kept"),
+      overviewHtml(overviewOf(result), "forgotten"),
       // The run's own view and its banner hold no text of a result, but they are the page's markup too.
       runHtml(),
       runBannerHtml(),
@@ -514,7 +539,7 @@ describe("A result whose every text is hostile, through every view of the page",
           if (name === "style") styles.add(value.replace(/\d+%/, "N%"));
           if (name === "class") expect(value, "a class").toMatch(/^[a-z0-9 -]*$/);
           if (/^data-(sort|colfilter|col|fval|page|use)$/.test(name)) expect(value, name).toMatch(/^-?\d+$/);
-          if (name === "data-act") expect(["page", "card", "row", "reset", "clear-search", "clear-context", "copy-diag", "copy-run-log", "use-page", "use-card", "more-uses"]).toContain(value);
+          if (name === "data-act") expect(["page", "card", "row", "reset", "clear-search", "clear-context", "copy-diag", "copy-run-log", "use-page", "use-card", "more-uses", "forget"]).toContain(value);
           if (name === "data-nav") expect(value).toMatch(/^(overview|map|\d+)$/);
           if (name === "data-way") expect(value).toMatch(/^(object|use)$/);
           if (name === "id") expect(value).toMatch(/^[A-Za-z]+$/);
