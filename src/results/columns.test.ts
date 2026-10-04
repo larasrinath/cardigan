@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { HEADERS, type TabName } from "../report.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
-import { APP_FILES, cardsOf, COLUMN_CHOICES, columnIndex, columnsOf, FILTER_MAX, FILTER_MIN, NUMBERS_HIDDEN, ROW_NAME_COLUMNS, rowColumns, rowKeys, rowNameIndex } from "./columns.js";
+import { APP_FILES, cardsNamed, cardsOf, COLUMN_CHOICES, columnIndex, columnsOf, FILTER_MAX, FILTER_MIN, NUMBERS_HIDDEN, ROW_NAME_COLUMNS, rowColumns, rowKeys, rowNameIndex } from "./columns.js";
 
 /** The app export's files, as the page names them, and the report table each holds. */
 const FILES: Record<string, TabName> = Object.fromEntries((Object.keys(APP_FILES) as TabName[]).map(tab => [APP_FILES[tab], tab]));
@@ -168,9 +168,9 @@ describe("The results page's columns", () => {
   it("finds a header's place, and the columns that identify a row's page and card", () => {
     const filters = appTable("Filters.csv");
     expect([columnIndex(filters, "Page"), columnIndex(filters, "Card ID"), columnIndex(filters, "Nothing")]).toEqual([0, 13, undefined]);
-    expect(rowKeys(filters)).toEqual({ page: 0, cardId: 13 });
-    expect(rowKeys(appTable("Where Used.csv"))).toEqual({ page: 3, cardId: undefined });
-    expect(rowKeys(table("Modules.csv", ["", "Functional Area"]))).toEqual({ page: undefined, cardId: undefined });
+    expect(rowKeys(filters)).toEqual({ page: 0, cardId: 13, number: 1 });
+    expect(rowKeys(appTable("Where Used.csv"))).toEqual({ page: 3, cardId: undefined, number: 4 });
+    expect(rowKeys(table("Modules.csv", ["", "Functional Area"]))).toEqual({ page: undefined, cardId: undefined, number: undefined });
   });
 
   it("names the column a row of each of the app's files is called by, and none for any other file", () => {
@@ -188,9 +188,37 @@ describe("The results page's columns", () => {
 
   it("links to cards only when the result has a Cards file with a Page and a Card ID", () => {
     const result = (tables: ResultTable[]): AnalysisResult => ({ kind: "app", name: "App", id: "id", zipName: "App.zip", tables, summary: [] });
-    expect(cardsOf(result([appTable("Pages.csv"), appTable("Cards.csv")]))).toMatchObject({ index: 1, page: 0, cardId: 17 });
+    expect(cardsOf(result([appTable("Pages.csv"), appTable("Cards.csv")]))).toMatchObject({ index: 1, page: 0, cardId: 17, number: 1 });
+    expect(cardsOf(result([table("Cards.csv", ["Page", "Card ID"])]))).toMatchObject({ index: 0, page: 0, cardId: 1, number: undefined });
     expect(cardsOf(result([appTable("Pages.csv")]))).toBeUndefined();
     expect(cardsOf(result([table("Cards.csv", ["Page", "Card #"])]))).toBeUndefined();
     expect(cardsOf(result([table("Line Items.csv", ["", "Formula"])]))).toBeUndefined();
+  });
+
+  it("finds the cards that a page's name and a Card ID name, and tells cards of one name and ID apart by their number", () => {
+    const result = (cards: ResultTable): AnalysisResult => ({ kind: "app", name: "App", id: "id", zipName: "App.zip", tables: [cards], summary: [] });
+    // Two pages are called Overview, and the second is a copy that kept its cards' IDs: one card stands where it stood,
+    // one was moved to another place. The files have only a page's name, so both pages' cards are under the one name.
+    const file: ResultTable = { ...table("Cards.csv", ["Page", "Card #", "Card title", "Card ID"]), rows: [
+      ["Overview", 1, "Sales", "card-a"], ["Overview", 2, "Margin", "card-b"], ["Overview", 1, "Sales, copied", "card-a"], ["Overview", 3, "Margin, moved", "card-b"],
+      ["Stores", 1, "Stores", "card-a"], ["constructor", 1, "Odd", "__proto__"]] };
+    const cards = cardsOf(result(file));
+    if (!cards) throw new Error("The result has a Cards file.");
+    const titles = (page: string, cardId: string, number?: string) => cardsNamed(cards, page, cardId, number).map(row => row[2]);
+    // By name and ID: each row with both, in the file's order. They are rows of the file itself, so that a card found is the row to open.
+    expect([titles("Overview", "card-a"), titles("Overview", "card-b"), titles("Stores", "card-a")]).toEqual([["Sales", "Sales, copied"], ["Margin", "Margin, moved"], ["Stores"]]);
+    expect(cardsNamed(cards, "Overview", "card-a")[1]).toBe(file.rows[2]);
+    // The number tells cards of one name and ID apart where it differs, and does not where it is the same.
+    expect([titles("Overview", "card-b", "2"), titles("Overview", "card-b", "3"), titles("Overview", "card-b", "9"), titles("Overview", "card-a", "1")])
+      .toEqual([["Margin"], ["Margin, moved"], [], ["Sales", "Sales, copied"]]);
+    // One card of a name and an ID is that card whatever number is asked: the number is only what tells several apart.
+    expect([titles("Stores", "card-a", "1"), titles("Stores", "card-a", "7")]).toEqual([["Stores"], ["Stores"]]);
+    // A name or an ID the file does not have, in another case, or the name of a built-in property: no card, or its own.
+    expect([titles("Overview", "card-z"), titles("overview", "card-a"), titles("Stores", "card-b"), titles("toString", "card-a"), titles("constructor", "__proto__")])
+      .toEqual([[], [], [], [], ["Odd"]]);
+    // A Cards file without the number: every card of the name and the ID, whatever number is asked.
+    const unnumbered = cardsOf(result({ ...table("Cards.csv", ["Page", "Card title", "Card ID"]), rows: [["Overview", "Sales", "card-a"], ["Overview", "Sales, copied", "card-a"]] }));
+    if (!unnumbered) throw new Error("The result has a Cards file.");
+    expect(cardsNamed(unnumbered, "Overview", "card-a", "1").map(row => row[1])).toEqual(["Sales", "Sales, copied"]);
   });
 });

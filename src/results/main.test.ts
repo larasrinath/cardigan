@@ -1401,6 +1401,88 @@ describe("What a click, a key and typing do on the results page", () => {
     expect([page.id("toast").textContent, drawerShown(), page.find(".shell").inert]).toEqual(["Card not found in this export", false, false]);
   });
 
+  /** An app with two pages of one name, the second a copy that kept its cards' IDs. The files have only a page's name, so
+   * the cards of both pages stand under it: Sales with one number and one ID on both, Margin moved to another place on the
+   * copy, and under the number 3 a card of its own on each page. Only the copy's Sales has a formatting rule. */
+  const TWINS: AnalysisResult = {
+    ...APP, summary: ["2 of 2 pages analysed, 6 cards."],
+    tables: [
+      APP.tables[0],
+      { file: "Pages.csv", label: "Pages", headers: ["App", "Page", "Total cards", "Page ID"], guard: true, rows: [["Demo app", "Overview", 3, "page-1"], ["Demo app", "Overview", 3, "page-2"]] },
+      { file: "Cards.csv", label: "Cards", headers: ["Page", "Card #", "Card title", "Card type", "Conditional formatting", "Card ID"], guard: true,
+        rows: [["Overview", 1, "Sales", "Grid", "—", "card-a"], ["Overview", 2, "Margin", "KPI", "—", "card-b"], ["Overview", 3, "Stock", "Grid", "—", "card-s"],
+          ["Overview", 1, "Sales, copied", "Grid", "1 rule", "card-a"], ["Overview", 3, "Costs", "Grid", "—", "card-c"], ["Overview", 4, "Margin, moved", "KPI", "—", "card-b"]] },
+      { file: "Grid Sections.csv", label: "Grid Sections", headers: ["Page", "Card #", "Section #", "Section layout", "Source module", "Card ID"], guard: true,
+        rows: [["Overview", 1, 1, "Own rows and columns", "REP01 Sales", "card-a"], ["Overview", 3, 1, "Own rows and columns", "REP04 Stock", "card-s"],
+          ["Overview", 1, 1, "Own rows and columns", "REP09 Sales copy", "card-a"], ["Overview", 3, 1, "Own rows and columns", "REP05 Costs", "card-c"]] },
+      { file: "Conditional Formatting.csv", label: "Conditional Formatting", headers: ["Page", "Card #", "Section #", "Format style", "Formatted line item", "Card ID"], guard: true,
+        rows: [["Overview", 1, 1, "Colour scale", "Sales", "card-a"], ["Overview", 4, "—", "KPI indicator", "KPI value", "card-b"]] },
+    ],
+  };
+
+  it("opens the card of the row clicked where two pages share a name and their cards an ID, and does not list another card's parts as its own", async () => {
+    await openWith(TWINS);
+    goTo(2);
+    /** The card in the drawer: its heading, its own cells, its sections, the rows listed under them, and the line about what is left out. */
+    const card = () => ({ title: page.id("drawerTitle").textContent, cells: page.texts("#drawerBody .d-dl dd"), sections: page.texts("#drawerBody h3"),
+      rows: page.all("#drawerBody .mini tbody tr").map(row => row.children.map(cell => cell.textContent)), note: page.texts("#drawerSub div") });
+    const NOTE = '2 cards on pages named "Overview" have this number and this ID. '
+      + "The CSV has only the name of a card's page, so their grid sections and formatting rules cannot be told apart and are not listed here.";
+    expect(cardLinks().map(link => link.textContent)).toEqual(["Sales", "Margin", "Stock", "Sales, copied", "Costs", "Margin, moved"]);
+    // Sales is on both pages with one number and one ID. Each row opens its own card: the copy's title and its formatting
+    // rule, not those of the first card that has the page's name and the ID.
+    cardLinks()[3].press();
+    expect(card()).toEqual({ title: "Card 1 — Sales, copied", cells: ["Overview", "1", "Sales, copied", "Grid", "1 rule", "card-a"], sections: ["Card details"], rows: [], note: [NOTE] });
+    // Its grid sections and its formatting rules are in the other files under the same name, number and ID as the first
+    // page's: neither card's are listed as this one's (two grid sections for a card that has one), and the line says why.
+    // The line's page still leads to the cards under that name.
+    expect(page.all("#drawerSub [data-act]").map(control => [control.dataset.act, control.textContent])).toEqual([["page", "Overview"]]);
+    page.key("Escape");
+    cardLinks()[0].press();
+    expect(card()).toEqual({ title: "Card 1 — Sales", cells: ["Overview", "1", "Sales", "Grid", "—", "card-a"], sections: ["Card details"], rows: [], note: [NOTE] });
+    // Inside the drawer the card's own links open the same card again, not its twin.
+    page.all('#drawerBody [data-act="card"]')[1].press();
+    expect(card().title).toBe("Card 1 — Sales");
+    page.key("Escape");
+    // Margin kept its ID on the copy and stands in another place there: the number tells the two apart, so each has its
+    // own rows, and nothing is left out.
+    cardLinks()[1].press();
+    expect(card()).toMatchObject({ title: "Card 2 — Margin", sections: ["Card details", "Grid sections (0)", "Conditional formatting (0)"], rows: [], note: [] });
+    page.key("Escape");
+    cardLinks()[5].press();
+    expect(card()).toMatchObject({ title: "Card 4 — Margin, moved", sections: ["Card details", "Grid sections (0)", "Conditional formatting (1)"],
+      rows: [["—", "KPI indicator", "KPI value", "", ""]], note: [] });
+    page.key("Escape");
+    // Under the number 3 each page has a card of its own, with its own ID: each has its own grid section.
+    cardLinks()[2].press();
+    expect(card()).toMatchObject({ title: "Card 3 — Stock", sections: ["Card details", "Grid sections (1)", "Conditional formatting (0)"], rows: [["1", "Own rows and columns", "REP04 Stock", "", "", "", ""]], note: [] });
+    page.key("Escape");
+    cardLinks()[4].press();
+    expect(card()).toMatchObject({ title: "Card 3 — Costs", rows: [["1", "Own rows and columns", "REP05 Costs", "", "", "", ""]], note: [] });
+    page.key("Escape");
+
+    // In another table a card's number opens the card where the row names one card. The two rows of Sales could each be
+    // either card's: their number is plain text, in the table and in the row's drawer.
+    goTo(3);
+    toggleColumn("Card #");
+    expect([column("Card #"), page.all("#tableWrap tbody tr").map(row => row.querySelectorAll('[data-act="card"]').length)]).toEqual([["1", "3", "1", "3"], [0, 1, 0, 1]]);
+    cardLinks()[1].press();
+    expect(card().title).toBe("Card 3 — Costs");
+    page.key("Escape");
+    cardLinks()[0].press();
+    expect(card().title).toBe("Card 3 — Stock");
+    page.key("Escape");
+    page.all('#tableWrap tbody [data-act="row"]')[2].press();
+    expect([page.id("drawerSub").textContent, page.texts("#drawerBody dd").slice(0, 2), page.all('#drawerBody [data-act="card"]').length]).toEqual(["Row 3 of Grid Sections", ["Overview", "1"], 0]);
+    page.key("Escape");
+    // A row of the moved card names it by its number among the two that have its ID.
+    goTo(4);
+    toggleColumn("Card #");
+    expect([column("Card #"), page.all("#tableWrap tbody tr").map(row => row.querySelectorAll('[data-act="card"]').length)]).toEqual([["1", "4"], [0, 1]]);
+    cardLinks()[0].press();
+    expect(card().title).toBe("Card 4 — Margin, moved");
+  });
+
   it("shows a page's cards on a click on the page's name, wherever the Page column stands, and from the drawer", async () => {
     await openWith(APP);
     const jumped = () => [shows(), page.texts("#crumbs .ctx"), column("Card title"), page.id("rowCount").textContent];

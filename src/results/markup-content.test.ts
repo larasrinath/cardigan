@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Cell, ResultTable } from "../result-types.js";
 import { columnsOf, type Column } from "./columns.js";
 import { parseMarkup, type FakeElement } from "./dom.test-support.js";
-import { cellHtml, colChooserHtml, colFilterHtml, navHtml, objectDrawerHtml, objectDrawerSubHtml, overviewHtml, pagerHtml, rowDrawerHtml, tableHtml, USES_AT_FIRST, type Links,
+import { cardDrawerSubHtml, cellHtml, colChooserHtml, colFilterHtml, navHtml, objectDrawerHtml, objectDrawerSubHtml, overviewHtml, pagerHtml, rowDrawerHtml, tableHtml, USES_AT_FIRST, type Links,
   type TableView } from "./markup.js";
 import type { Overview } from "./result-view.js";
 import { pageOf, selectRows } from "./table-engine.js";
@@ -323,6 +323,16 @@ describe("What the results page's markup shows", () => {
     for (const none of [rowDrawerHtml(columns, row, NO_LINKS, new Map()), rowDrawerHtml(columns, row, NO_LINKS)]) {
       expect(parseMarkup(none).querySelectorAll("dt").map(name => name.textContent)).toEqual(["Name", "Format", "Formula", "Summary"]);
     }
+  });
+
+  it("says under a card's name its page, its type and its ID, and on a line of its own what its drawer leaves out", () => {
+    const sub = (note?: string) => parseMarkup(`<div>${cardDrawerSubHtml("Overview <b>north</b>", "Grid", "card-a", note)}</div>`).children[0];
+    const parts = (line: FakeElement) => line.children.map(child => [child.localName, child.dataset.act ?? (child.classList.contains("id-pill") ? "ID" : ""), text(child)]);
+    // The page is a jump to its cards, the ID is one to copy, and nothing stands under them for a card with its parts.
+    expect([parts(sub()), text(sub())]).toEqual([[["button", "page", "Overview <b>north</b>"], ["button", "ID", "card-a"]], "Overview <b>north</b> · Grid · card-a"]);
+    // The line about a card whose parts cannot be told from another card's follows, as text: it names the page as typed.
+    const note = '2 cards on pages named "Overview <b>north</b>" have this number and this ID.';
+    expect([parts(sub(note)), sub(note).querySelectorAll("b").length]).toEqual([[["button", "page", "Overview <b>north</b>"], ["button", "ID", "card-a"], ["div", "", note]], 0]);
   });
 
   it("puts the switch between a table's ways at the head of its toolbar: a button a way, the shown one said and filled", () => {

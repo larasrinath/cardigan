@@ -1,8 +1,8 @@
 import type { AnalysisResult, Cell, ResultTable } from "../result-types.js";
-import { APP_FILES, columnIndex } from "./columns.js";
+import { APP_FILES, cardsNamed, columnIndex, type CardsTable } from "./columns.js";
 import { LINE_ITEMS_FILE, lineItemsView } from "./line-items-view.js";
 import { READABLE_HEADERS, readableCell } from "./readable-cells.js";
-import { cellText, compareText, NONE } from "./table-engine.js";
+import { cellText, compareText, NONE, type Row } from "./table-engine.js";
 
 /** What the results page reads out of a result besides its tables: the Details file's sections, the diagnostic log, and
  * what the overview says: its counts and notes, and everything the Details file holds, which has no view of its own.
@@ -268,17 +268,20 @@ export const CARD_PARTS: readonly { file: string; title: string; none: string; c
 export interface CardSection { title: string; none: string; headings: string[]; rows: string[][] }
 
 /** A card's parts: the rows of the other files that carry its Card ID on its page. A card is known by both, because a
- * page copied in Anaplan may keep its cards' IDs. A file the result does not have, or one without those two columns, is
- * left out. */
-export function cardSections(result: AnalysisResult, page: string, cardId: string): CardSection[] {
+ * page copied in Anaplan may keep its cards' IDs. With `number`, the rows must give that number of the card as well: that
+ * is for a card whose page's name and ID another card has too. A file the result does not have, or one without the
+ * columns this reads, is left out. */
+export function cardSections(result: AnalysisResult, page: string, cardId: string, number?: string): CardSection[] {
   const sections: CardSection[] = [];
   for (const part of CARD_PARTS) {
     const table = result.tables.find(candidate => candidate.file === part.file);
     const pageColumn = table && columnIndex(table, "Page");
     const idColumn = table && columnIndex(table, "Card ID");
-    if (!table || pageColumn === undefined || idColumn === undefined) continue;
+    const numberColumn = table && number !== undefined ? columnIndex(table, "Card #") : undefined;
+    if (!table || pageColumn === undefined || idColumn === undefined || (number !== undefined && numberColumn === undefined)) continue;
     const indexes = part.columns.map(([, headers]) => headers.map(header => columnIndex(table, header)));
-    const rows = table.rows.filter(row => cellText(row[idColumn]) === cardId && cellText(row[pageColumn]) === page);
+    const rows = table.rows.filter(row => cellText(row[idColumn]) === cardId && cellText(row[pageColumn]) === page
+      && (numberColumn === undefined || cellText(row[numberColumn]) === number));
     sections.push({
       title: part.title, none: part.none, headings: part.columns.map(([heading]) => heading),
       rows: rows.map(row => part.columns.map(([, , join], column) => {
@@ -288,6 +291,33 @@ export function cardSections(result: AnalysisResult, page: string, cardId: strin
     });
   }
   return sections;
+}
+
+/** A card's parts as its drawer shows them, and what the drawer says where it cannot show them. */
+export interface CardParts { sections: CardSection[]; note?: string }
+
+/** Words as a sentence lists them: "filters", "filters and buttons", "grid sections, filters and buttons". */
+const wordList = (words: readonly string[]): string => (words.length < 2 ? words.join("") : `${words.slice(0, -1).join(", ")} and ${words[words.length - 1]}`);
+
+/** The parts of one card, given by its row of the Cards file. The files have only the name of a card's page, so a card is
+ * known by that name, its ID and its number (columns.ts `cardsNamed`). Where pages share a name and a copy kept its
+ * cards' numbers and IDs, more than one card is known by the same three, and a row of another file that carries them is
+ * a row of any of those cards. Such rows are not listed as this card's: the part is left out, and `note` says so. A part
+ * without such a row is one that none of those cards has, so it is listed, empty, as for any card. */
+export function cardParts(result: AnalysisResult, cards: CardsTable, row: Row): CardParts {
+  const page = cellText(row[cards.page]);
+  const cardId = cellText(row[cards.cardId]);
+  const number = cards.number === undefined ? undefined : cellText(row[cards.number]);
+  // The number is asked of the other files' rows only where the name and the ID are those of several cards.
+  const sections = cardSections(result, page, cardId, cardsNamed(cards, page, cardId).length > 1 ? number : undefined);
+  const alike = cardsNamed(cards, page, cardId, number).length;
+  const open = alike > 1 ? sections.filter(section => section.rows.length > 0) : [];
+  if (!open.length) return { sections };
+  return {
+    sections: sections.filter(section => !open.includes(section)),
+    note: `${alike} cards on pages named "${page}" have ${number === undefined ? "this ID" : "this number and this ID"}. `
+      + `The CSV has only the name of a card's page, so their ${wordList(open.map(section => section.none))} cannot be told apart and are not listed here.`,
+  };
 }
 
 /** The design's names for the overview's tiles, where a file is one of the app's: shorter than the file's own name, so

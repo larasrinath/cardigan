@@ -3,9 +3,9 @@ import { DETAILS_HEADERS, diagnosticRows, exportRows, type DetailRow } from "../
 import { HEADERS, type TabName } from "../report.js";
 import { CALENDAR_HEADERS, calendarRows } from "../model/calendar.js";
 import type { AnalysisResult, Cell, ResultTable } from "../result-types.js";
-import { APP_FILES } from "./columns.js";
+import { APP_FILES, cardsOf } from "./columns.js";
 import { lineItemsView } from "./line-items-view.js";
-import { ABOUT_MODEL, analysedOf, CARD_PARTS, cardSections, detailSections, detailsOf, detailValue, diagnosticLog, FILE_RULES, fileView, listedTables, MODEL_CALENDAR_FILE, MODEL_FILE_ORDER, modelFacts,
+import { ABOUT_MODEL, analysedOf, CARD_PARTS, cardParts, cardSections, detailSections, detailsOf, detailValue, diagnosticLog, FILE_RULES, fileView, listedTables, MODEL_CALENDAR_FILE, MODEL_FILE_ORDER, modelFacts,
   MODULES_FILE, overviewOf, resultNotes } from "./result-view.js";
 
 /** The app export's files, as the page names them, and the report table each holds. */
@@ -524,5 +524,88 @@ describe("What the results page reads out of a result", () => {
     expect(cardSections(result("model", []), "Overview", "card-a")).toEqual([]);
     // A column the file lacks is an empty cell, or left out of a cell made of several.
     expect(cardSections(result("app", [composed]), "Overview", "card-a")[0].rows).toEqual([["", "", "", "—", "is blank", ""], ["", "", "", "—", "—", ""]]);
+    // Asked for a card's number as well, a file without that column cannot be matched to the card either.
+    expect(cardSections(result("app", [composed]), "Overview", "card-a", "1")).toEqual([]);
+  });
+
+  // Two pages are called Overview, and the second is a copy that kept its cards' IDs. The files have only a page's name,
+  // so the cards of both are under the one name: Sales with one number and one ID on both, Margin moved to another place
+  // on the copy, Notes with nothing in any other file, and a card of its own on each page. Another page has a card
+  // with an ID of theirs.
+  const sharedCards = appTable("Cards.csv", [
+    { Page: "Overview", "Card #": 1, "Card title": "Sales", "Card ID": "card-a" },
+    { Page: "Overview", "Card #": 2, "Card title": "Margin", "Card ID": "card-b" },
+    { Page: "Overview", "Card #": 3, "Card title": "Notes", "Card ID": "card-n" },
+    { Page: "Overview", "Card #": 4, "Card title": "Stock", "Card ID": "card-s" },
+    { Page: "Overview", "Card #": 1, "Card title": "Sales, copied", "Card ID": "card-a" },
+    { Page: "Overview", "Card #": 3, "Card title": "Notes, copied", "Card ID": "card-n" },
+    { Page: "Overview", "Card #": 4, "Card title": "Costs", "Card ID": "card-c" },
+    { Page: "Overview", "Card #": 5, "Card title": "Margin, moved", "Card ID": "card-b" },
+    { Page: "Stores", "Card #": 1, "Card title": "Stores", "Card ID": "card-a" },
+  ]);
+  const sharedSections = appTable("Grid Sections.csv", [
+    { Page: "Overview", "Card #": 1, "Card ID": "card-a", "Section #": 1, "Source module": "REP01 Sales" },
+    { Page: "Overview", "Card #": 2, "Card ID": "card-b", "Section #": 1, "Source module": "REP02 Margin" },
+    { Page: "Overview", "Card #": 4, "Card ID": "card-s", "Section #": 1, "Source module": "REP04 Stock" },
+    { Page: "Overview", "Card #": 1, "Card ID": "card-a", "Section #": 1, "Source module": "REP09 Sales copy" },
+    { Page: "Overview", "Card #": 4, "Card ID": "card-c", "Section #": 1, "Source module": "REP05 Costs" },
+    { Page: "Overview", "Card #": 5, "Card ID": "card-b", "Section #": 1, "Source module": "REP08 Margin copy" },
+    { Page: "Stores", "Card #": 1, "Card ID": "card-a", "Section #": 1, "Source module": "REP06 Stores" },
+  ]);
+  const sharedFilters = appTable("Filters.csv", [
+    { Page: "Overview", "Card #": 1, "Card ID": "card-a", "Section #": 1, "Condition line item": "Sales", Operator: "is not blank" },
+    { Page: "Overview", "Card #": 5, "Card ID": "card-b", "Section #": 1, "Condition line item": "Margin %", Operator: "is not blank" },
+  ]);
+  const shared = result("app", [appDetails, sharedCards, sharedSections, sharedFilters, appTable("Action Buttons.csv", [])]);
+  /** A card's parts by the card's title: each part with what names its rows (a grid section's module, a filter's
+   * condition), and the line about the parts that are left out. */
+  const partsOf = (app: AnalysisResult, title: string) => {
+    const cards = cardsOf(app);
+    const row = cards?.table.rows.find(candidate => candidate[2] === title);
+    if (!cards || !row) throw new Error(`The result has no card called ${title}.`);
+    const { sections, note } = cardParts(app, cards, row);
+    const named = (section: { headings: string[] }) => Math.max(section.headings.indexOf("Source module"), section.headings.indexOf("Condition"), 0);
+    return { parts: sections.map(section => [section.title, section.rows.map(cells => cells[named(section)])]), note };
+  };
+
+  it("leaves out the parts of a card that cannot be told from another card's, and says so in their place", () => {
+    // Sales is one card on each of the two pages, with one number and one ID. A grid section or a filter that carries
+    // them is on either: it is not listed as this card's, whichever of the two the card is, and a line says why. A part
+    // that no row carries them in is one that neither card has: it is listed, empty, as for any card.
+    const note = '2 cards on pages named "Overview" have this number and this ID. '
+      + "The CSV has only the name of a card's page, so their grid sections and filters cannot be told apart and are not listed here.";
+    for (const title of ["Sales", "Sales, copied"]) expect(partsOf(shared, title), title).toEqual({ parts: [["Buttons & links", []]], note });
+    // The line names the parts it is about: here the grid sections alone, and three cards.
+    const three = result("app", [appTable("Cards.csv", [1, 2, 3].map(copy => ({ Page: "Overview", "Card #": 1, "Card title": `Sales ${copy}`, "Card ID": "card-a" }))), sharedSections, appTable("Filters.csv", [])]);
+    expect(partsOf(three, "Sales 2")).toEqual({ parts: [["Filters", []]],
+      note: '3 cards on pages named "Overview" have this number and this ID. The CSV has only the name of a card\'s page, so their grid sections cannot be told apart and are not listed here.' });
+    // Notes is on both pages too, and no other file has a row of it: neither card has any part, and nothing is left to say.
+    for (const title of ["Notes", "Notes, copied"]) expect(partsOf(shared, title), title).toEqual({ parts: [["Grid sections", []], ["Filters", []], ["Buttons & links", []]], note: undefined });
+  });
+
+  it("lists the parts of a card that the files do tell from every other, by its ID or by its number", () => {
+    // Margin kept its ID on the copy and stands in another place there: each of the two has the rows with its own number.
+    expect(partsOf(shared, "Margin")).toEqual({ parts: [["Grid sections", ["REP02 Margin"]], ["Filters", []], ["Buttons & links", []]], note: undefined });
+    expect(partsOf(shared, "Margin, moved")).toEqual({ parts: [["Grid sections", ["REP08 Margin copy"]], ["Filters", ["Margin % is not blank"]], ["Buttons & links", []]], note: undefined });
+    // Stock and Costs have one number, on the two pages, and each its own ID.
+    expect([partsOf(shared, "Stock").parts[0], partsOf(shared, "Costs").parts[0], partsOf(shared, "Stock").note, partsOf(shared, "Costs").note])
+      .toEqual([["Grid sections", ["REP04 Stock"]], ["Grid sections", ["REP05 Costs"]], undefined, undefined]);
+    // A card on a page of another name has the ID of the Sales cards: it is known by its page.
+    expect(partsOf(shared, "Stores")).toEqual({ parts: [["Grid sections", ["REP06 Stores"]], ["Filters", []], ["Buttons & links", []]], note: undefined });
+    // A card that alone has its page's name and its ID is not asked for its number in the other files: its rows are those
+    // with its page and its ID, as before.
+    const unnumbered = result("app", [appTable("Cards.csv", [{ Page: "Overview", "Card #": 1, "Card title": "Sales", "Card ID": "card-a" }]),
+      appTable("Grid Sections.csv", [{ Page: "Overview", "Card ID": "card-a", "Source module": "REP01 Sales" }])]);
+    expect(partsOf(unnumbered, "Sales")).toEqual({ parts: [["Grid sections", ["REP01 Sales"]]], note: undefined });
+  });
+
+  it("says of cards without a number only that they share their ID", () => {
+    // A Cards file without the Card # column: two cards of one page name and one ID are not told apart by anything.
+    const cards: ResultTable = { file: "Cards.csv", label: "Cards", headers: ["Page", "Card title", "Card ID"], rows: [["Overview", "Sales", "card-a"], ["Overview", "Sales, copied", "card-a"]], guard: true };
+    const app = result("app", [cards, sharedSections]);
+    const found = cardsOf(app);
+    if (!found) throw new Error("The result has a Cards file.");
+    expect(cardParts(app, found, cards.rows[1])).toEqual({ sections: [],
+      note: '2 cards on pages named "Overview" have this ID. The CSV has only the name of a card\'s page, so their grid sections cannot be told apart and are not listed here.' });
   });
 });
