@@ -134,8 +134,15 @@ describe("The stand-in page", () => {
     page.id("go").focus();
     expect(document.activeElement).toBe(document.body);
     page.id("close").focus();
-    page.id("close").remove();
+    const close = page.id("close");
+    close.remove();
     expect([document.activeElement, document.contains(page.id("drawer")), page.has("#close")]).toEqual([document.body, true, false]);
+    // What a user cannot get at, a test cannot click either: something hidden, inert or no longer on the page.
+    page.id("drawer").hidden = true;
+    page.find("main").inert = true;
+    expect(() => page.id("drawer").press()).toThrow("A user cannot get at <div>: <div> is hidden");
+    expect(() => page.id("view").type("x")).toThrow("A user cannot get at <div>: <main> is inert");
+    expect(() => close.press()).toThrow("A user cannot get at <button>: it is not on the page");
   });
 
   it("types, chooses and ticks as a user does, and saves what the script's own click on a link saves", () => {
