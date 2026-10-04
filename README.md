@@ -52,7 +52,9 @@ The results page shows:
 
 **Run again** analyses the Anaplan tab again. The result stays on the page until the new one is complete. If the new run fails, its message stands above the result, with a **Copy diagnostic log** button. Closing the results page stops the analysis.
 
-The results page starts the analysis by itself only when the icon has just opened it, within a minute of the click. A results page that is reloaded, duplicated, restored from history or reopened later does not: it says "That Anaplan tab shows an app." (or "a model.") and waits for you to choose **Run**. After a run the same control reads **Run again**.
+The results page starts the analysis by itself only when the icon has just opened it, within a minute of the click, and then it always analyses afresh. A results page that is reloaded, duplicated, restored from history or reopened later starts nothing by itself. If its tab still holds the last result that finished there, the page shows that result again, whole, under a line that says when it was analysed, such as "Analysed today at 21:34. Choose Run again to read Anaplan again." Nothing is read from Anaplan until you choose **Run again**. If the tab holds no result, the page says "That Anaplan tab shows an app." (or "a model.") and waits for you to choose **Run**. After a run the same control reads **Run again**.
+
+The result is kept for its own results tab only, compressed, in the browser's session storage; [NOTICE.md](NOTICE.md) says what that means for the data. A result of more than 64 MB as JSON, or of more than 9 MB once compressed, is not kept, and neither is one the browser's storage refuses. The page then says above the result that it will not be there after a refresh. The result itself is whole and can be downloaded.
 
 If the page says **Not connected** ("Cardigan cannot reach that tab."), the tab did not answer. That is a tab that is not an Anaplan page, or an Anaplan tab that has not been refreshed since the extension was installed, updated or reloaded. Refresh the Anaplan tab, then click the Cardigan icon again.
 
@@ -213,6 +215,7 @@ Layout:
   - `line-items-view.ts`: a model's Line Items file as a table of line items.
   - `readable-cells.ts`: a model's format, summary and action definitions in words.
   - `where-used-view.ts`: an app's Where Used file by object.
+  - `keep-result.ts`: keeps the last finished result in the tab's session storage, for a refresh of the page. `keep-notes.ts` holds what the page says about it.
   - `markup.ts`: writes the page's HTML, with every value from a result escaped.
   - `file-name.ts`: the name a download is saved under.
   - `page-ids.ts`: the elements of `results.html` that the script looks up.
