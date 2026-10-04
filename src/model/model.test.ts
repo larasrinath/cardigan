@@ -252,6 +252,67 @@ describe("Model export: Model settings grids to tables", () => {
     expect(() => assertRead({ requestType: "VIEW_REQUEST_SET", submissions: [], systemActions: [] })).not.toThrow();
   });
 
+  it("reads no further window of a grid once the export was asked to stop, and no further grid", async () => {
+    const stopped = new Error("The export was stopped.");
+    // The page's client, serving grids of any size: every read is recorded, and the test decides during which one the stop comes.
+    const reads: string[] = [];
+    let stopDuring = "";
+    let stop = (): void => undefined;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const client = (sizes: Record<string, number>): any => {
+      const aggregator = { isDirty: () => false, post: (request: any, _flag: boolean, ok: (response: unknown) => boolean) => {
+        const { viewDefinition: { rowAxis }, pageRequests: [{ startRow, rowCount }] } = request.params;
+        reads.push(`${rowAxis} ${startRow}+${rowCount}`);
+        if (reads.at(-1) === stopDuring) stop();
+        const ids = Array.from({ length: Math.min(rowCount, sizes[rowAxis] - startRow) }, (_, index) => 1901000000000 + startRow + index);
+        queueMicrotask(() => ok({ result: { viewRequestResults: [{ rowCount: sizes[rowAxis], columnCount: 3,
+          rowLabelPages: [{ start: startRow, count: ids.length, entityLongIds: [ids], labels: [ids.map(id => `Item ${id % 100000}`)] }],
+          columnLabelPages: [{ start: 0, count: 3, entityLongIds: [[4000000009, 4000000010, 4000000011]], labels: [["Formula", "Summary", "Notes"]] }],
+          dataPages: [{ startRow, rows: ids.map(() => ["", "", ""]) }] }] } }));
+        return true;
+      } };
+      return { cache: { getAllCurrenciesLabelPage: () => undefined, getModelName: () => "Plan" }, aggregator, ids: {},
+        helper: { getAxesForViewDefinition: (rows: string[], columns: string[]) => ({ rowAxis: rows[0], columnAxis: columns[0] }) },
+        constants: { SYSTEM_AXIS_IDENTIFIER_MODULE_WITH_LINE_ITEM_IDENTIFIER: "LINE ITEMS", SYSTEM_AXIS_IDENTIFIER_LINE_ITEM_PROPERTY_IDENTIFIER: "LINE ITEM PROPERTIES",
+          SYSTEM_AXIS_IDENTIFIER_MODULE_ALL_IDENTIFIER: "MODULES" },
+        RequestGenerator: class { getRequest(params: unknown) { return { requestType: "VIEW_REQUEST_SET", submissions: [], systemActions: [], params }; } },
+        DataPage: class extends FakePage { constructor({ page }: any) { super(page); } },
+        axisHelper: { getModuleSystemAxisIdentifier: () => "MODULE PROPERTIES" }, workspaceId: "0123456789abcdef0123456789abcdef", modelId: "FEDCBA9876543210FEDCBA9876543210" };
+    };
+
+    // One grid, read six cells at a time: 60 rows of 3 columns are thirty windows of two rows after the first read.
+    const stopping = new AbortController();
+    stop = () => stopping.abort(stopped);
+    stopDuring = "ROWS 2+2";
+    await expect(readGrid(client({ ROWS: 60 }), "ROWS", "COLS", "Line Items", () => undefined, 6, false, stopping.signal)).rejects.toBe(stopped);
+    // The stop came while the second window was read: that read is let finish, and it is the last.
+    expect(reads).toEqual(["ROWS 0+1", "ROWS 0+2", "ROWS 2+2"]);
+    // Not stopped, the same grid is read to its end.
+    reads.length = 0;
+    expect((await readGrid(client({ ROWS: 60 }), "ROWS", "COLS", "Line Items", () => undefined, 6, false, new AbortController().signal)).rows).toHaveLength(60);
+    expect(reads).toHaveLength(31);
+
+    // The whole export, as the model's frame runs it (bridge.ts `serveCore`): once it was asked to stop, the check it is given
+    // refuses, and so does every step. 30,000 line items of 3 columns are three windows of the 40,000 cells one read asks for.
+    reads.length = 0;
+    let asked = false;
+    stop = () => { asked = true; };
+    stopDuring = "LINE ITEMS 13333+13333";
+    const check = { throwIfAborted: () => { if (asked) throw stopped; } };
+    const page = client({ "LINE ITEMS": 30_000, MODULES: 2 });
+    vi.stubGlobal("window", { workspaceId: page.workspaceId, modelId: page.modelId, require: (_modules: string[], loaded: (...modules: unknown[]) => void) =>
+      loaded(page.cache, page.aggregator, page.helper, page.ids, page.constants, page.RequestGenerator, page.DataPage, page.axisHelper) });
+    vi.stubGlobal("location", { host: "eu2a.app.anaplan.com", pathname: "/core-webapp/anaplan/framework.jsp" });
+    await expect(exportModel({ status: check.throwIfAborted, log: check.throwIfAborted }, () => "", check)).rejects.toBe(stopped);
+    expect(reads).toEqual(["LINE ITEMS 0+1", "LINE ITEMS 0+13333", "LINE ITEMS 13333+13333"]);
+    // Not stopped, it reads the third window and goes on to the next grid.
+    reads.length = 0;
+    stopDuring = "";
+    asked = false;
+    expect((await exportModel({ status: check.throwIfAborted, log: check.throwIfAborted }, () => "", check)).summary.slice(0, 2)).toEqual(["Line Items: 30000 rows", "Modules: 2 rows"]);
+    expect(reads).toEqual(["LINE ITEMS 0+1", "LINE ITEMS 0+13333", "LINE ITEMS 13333+13333", "LINE ITEMS 26666+3334", "MODULES 0+1", "MODULES 0+2"]);
+  });
+
   it("finds the open model only on a page with the classic client's loader and 32-character model and workspace IDs", () => {
     const [WS, MODEL] = ["0123456789abcdef0123456789abcdef", "FEDCBA9876543210FEDCBA9876543210"];
     const on = (page: Record<string, unknown>) => { vi.stubGlobal("window", page); return modelOnPage(); };

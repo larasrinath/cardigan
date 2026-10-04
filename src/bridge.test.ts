@@ -129,8 +129,11 @@ describe("Model export bridge between the Model Building page and the model's co
     expect(runs).toBe(0);
     stop();
 
-    const silent: CoreHandle = { source: { postMessage: () => undefined }, origin: CORE, modelId: MODEL };
+    // A frame that stops answering is given up on, and told to stop: whatever it still reads for this run is for nobody.
+    const asked: { type: string; nonce: string }[] = [];
+    const silent: CoreHandle = { source: { postMessage: message => { asked.push(message as { type: string; nonce: string }); } }, origin: CORE, modelId: MODEL };
     await expect(runInCore(shell, silent, collect().progress, 20)).rejects.toThrow("The model frame stopped answering.");
+    expect(asked.map(message => [message.type, message.nonce === asked[0].nonce])).toEqual([["run", true], ["stop", true]]);
   });
 
   it("takes progress and the result only from the frame it asked, from that frame's origin and for its own run", async () => {
@@ -352,6 +355,62 @@ describe("Model export bridge between the Model Building page and the model's co
     expect(runs()).toBe(2);
     await next(); await next(); await next();
     await expect(again).resolves.toEqual(exported());
+    stop();
+  });
+
+  it("stops the export of a frame it gave up on, which is then free for the next run", async () => {
+    const { exporter, next, reached, runs, failure } = stepped();
+    const { shell, handle, stop } = await connected(exporter);
+    // The export reports its first step and then nothing for longer than the page waits.
+    await expect(runInCore(shell, handle, collect().progress, 30)).rejects.toThrow("The model frame stopped answering.");
+    await next();
+    expect([reached, failure()]).toEqual([["Reading Line Items…"], new Error("The export was stopped.")]);
+    const again = runInCore(shell, handle, collect().progress);
+    await settle();
+    expect(runs()).toBe(2);
+    await next(); await next(); await next();
+    await expect(again).resolves.toEqual(exported());
+    stop();
+  });
+
+  it("gives the export a check to make before each read, which refuses once the run was stopped unless a new run has taken the export over", async () => {
+    // An export that reads one grid window by window, with no step in between that could end it.
+    const waits: (() => void)[] = [];
+    const windows: number[][] = [];
+    let failure: unknown;
+    const { shell, handle, stop } = await connected(async (progress, _diagnostics, check) => {
+      const read: number[] = [];
+      windows.push(read);
+      progress.status("Reading Line Items…");
+      try {
+        for (let window = 0; window < 4; window++) {
+          check.throwIfAborted();
+          read.push(window);
+          await new Promise<void>(resolve => { waits.push(resolve); });
+        }
+      } catch (error) { failure = error; throw error; }
+      return exported();
+    });
+    const next = async () => { waits.shift()?.(); await settle(); };
+
+    const stopping = new AbortController();
+    const run = runInCore(shell, handle, collect().progress, undefined, stopping.signal);
+    await settle();
+    await next();
+    // Stopped while the second window is read: that read is let finish, and it is the last.
+    stopping.abort(new Error("Stopped: the results page was closed."));
+    await expect(run).rejects.toThrow("Stopped: the results page was closed.");
+    await next();
+    expect([windows, failure]).toEqual([[[0, 1]], new Error("The export was stopped.")]);
+
+    // A run that asks before the stopped export's next read takes it over: the check lets it read on to the end.
+    const first = runInCore(shell, handle, collect().progress, undefined, stopping.signal);
+    await expect(first).rejects.toThrow("Stopped: the results page was closed.");
+    const second = runInCore(shell, handle, collect().progress);
+    await settle();
+    await next(); await next(); await next(); await next();
+    await expect(second).resolves.toEqual(exported());
+    expect(windows).toEqual([[0, 1], [0, 1, 2, 3]]);
     stop();
   });
 
