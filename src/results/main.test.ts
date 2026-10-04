@@ -85,6 +85,31 @@ const WITH_CALENDAR: AnalysisResult = {
     rows: calendarRows({ workspace: "Main", model: "Model one", capturedOn: "2026-10-03", values: new Map([[CALENDAR_PROPERTIES["Calendar Type"], "Calendar Months/Quarters/Years"]]) }) }],
 };
 
+/** A model whose Line Items file is laid out as the export writes it, with some of the grid's columns: each module's own
+ * row, then its line items, which name their module under Module Name and show a dash under Applies To where they take
+ * the module's. Format and Summary hold a definition, as Anaplan's own export of the grid does. One module has no line
+ * items. */
+const NUMBER = '{"dataType":"NUMBER"}';
+const PERCENT = '{"minimumSignificantDigits":-1,"decimalPlaces":2,"unitsType":"PERCENTAGE","dataType":"NUMBER"}';
+const SUM = '{"summaryMethod":"SUM","timeSummaryMethod":"SUM"}';
+const NO_SUMMARY = '{"summaryMethod":"NONE","timeSummaryMethod":"NONE"}';
+const CLOSING = '{"summaryMethod":"SUM","timeSummaryMethod":"CLOSING_BALANCE","timeSummarySameAsMainSummary":false}';
+const RATIO = '{"summaryMethod":"RATIO","timeSummaryMethod":"RATIO","ratioNumeratorIdentifier":"_1901000000003_","ratioDenominatorIdentifier":"_1901000000002_"}';
+const BLUEPRINT: AnalysisResult = {
+  ...MODEL, summary: ["Line Items: 8 rows", "Modules: 3 rows"],
+  tables: [MODEL.tables[0],
+    { file: "Line Items.csv", label: "Line Items", guard: false, headers: ["", "Format", "Formula", "Summary", "Applies To", "Module Name", "Ratio Numerator", "Ratio Denominator"], rows: [
+      ["REV01 Revenue", "", "", "", "Products, Time", "", "", ""],
+      ["Units", NUMBER, "", SUM, "-", "REV01 Revenue", "", ""],
+      ["Price", NUMBER, "", NO_SUMMARY, "Products", "REV01 Revenue", "", ""],
+      ["Revenue", NUMBER, "Units * Price", SUM, "-", "REV01 Revenue", "", ""],
+      ["Margin %", PERCENT, "Margin / Revenue", RATIO, "-", "REV01 Revenue", "Margin", "Revenue"],
+      ["--- Archive ---", "", "", "", "", "", "", ""],
+      ["COST01 Costs", "", "", "", "Cost Centres", "", "", ""],
+      ["Cost", NUMBER, "", CLOSING, "-", "COST01 Costs", "", ""]] },
+    { file: "Modules.csv", label: "Modules", headers: ["", "Applies To"], rows: [["REV01 Revenue", "Products, Time"], ["--- Archive ---", ""], ["COST01 Costs", "Cost Centres"]], guard: false }],
+};
+
 // The page under test, and what stands in for the browser around it. A test loads the page with `open`.
 let page: FakePage;
 let ports: FakePort[];
@@ -186,6 +211,8 @@ const firstCells = () => page.all("#tableWrap tbody tr").map(row => row.children
 const filterable = () => page.all("#tableWrap thead th").filter(heading => heading.querySelector("[data-colfilter]")).map(heading => heading.querySelector(".th-sort")?.textContent.trim());
 /** The open filter's choices: each one's text, its count, and whether it is ticked. */
 const choices = () => page.all("#popover .pop-opt").map(option => [option.children[1].textContent, option.querySelector(".po-cnt")?.childNodes[0].textContent, option.children[0].checked]);
+/** A cell as the CSV writes it when it holds quotes: in quotes, with each of its own doubled. */
+const csvCell = (text: string) => `"${text.replace(/"/g, '""')}"`;
 /** The pager's buttons: each one's words, with a mark on the current page and brackets around one that is disabled. */
 const pagerButtons = () => page.all("#pager .pg-btn").map(button => {
   const words = button.textContent.trim();
@@ -1039,6 +1066,67 @@ describe("What a click, a key and typing do on the results page", () => {
     goTo(2);
     page.find('#banners [data-nav="nowhere"]').press();
     expect(shows()).toEqual(["Overview", "Overview", "Overview"]);
+  });
+
+  it("shows a model's Line Items table as line items only, each with its module and the dimensions it has; the counts are the table's, the downloads the file's", async () => {
+    await openWith(BLUEPRINT);
+    const file = BLUEPRINT.tables[1];
+    // The overview's tile and the navigation count the line items, not the file's rows, three of which are modules' own.
+    expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Modules", "3", "rows"], ["Line Items", "5", "rows"]]);
+    expect(page.all("#navList .nav-item").filter(item => item.querySelector(".cnt")).map(item => item.children.map(child => child.textContent))).toEqual([["Modules", "3"], ["Line Items", "5"]]);
+
+    goTo(1);
+    // The module stands directly after the name, and after Applies To where it came from; the other columns are in the file's order.
+    expect(headings()).toEqual(["Name", "Module Name", "Format", "Formula", "Summary", "Applies To", "Applies To from", "Ratio Numerator", "Ratio Denominator"]);
+    expect([column("Name"), column("Module Name")]).toEqual([["Units", "Price", "Revenue", "Margin %", "Cost"], ["REV01 Revenue", "REV01 Revenue", "REV01 Revenue", "REV01 Revenue", "COST01 Costs"]]);
+    // A dash in the file is the module's Applies To here; a line item's own stays its own.
+    expect([column("Applies To"), column("Applies To from")]).toEqual([["Products, Time", "Products", "Products, Time", "Products, Time", "Cost Centres"], ["Module", "Line item", "Module", "Module", "Module"]]);
+    // The line under the table's name says what is left to the CSV, and where the module without line items is.
+    expect([page.texts("#view .view-note"), page.id("rowCount").textContent, page.id("live").textContent]).toEqual([
+      ["3 module rows are in the CSV only; each line item shows its module. 1 module has no line items, so it is not in this table. It is listed in the Modules table."],
+      "1–5 of 5 rows", "Line Items: 5 rows"]);
+
+    // The search, the filters and the sort are the table's: a module's name finds its line items, and a module's own row is not there to find.
+    page.id("tblSearch").type("cost01");
+    expect([column("Name"), page.id("rowCount").textContent]).toEqual([["Cost"], "1–1 of 1 row (filtered from 5)"]);
+    page.id("tblSearch").type("archive");
+    expect(page.id("rowCount").textContent).toBe("No rows (filtered from 5)");
+    page.id("tblSearch").type("");
+    expect(filterable()).toEqual(expect.arrayContaining(["Module Name", "Applies To from"]));
+    page.find('[data-colfilter="6"]').press();
+    expect(choices()).toEqual([["Line item", "1", true], ["Module", "4", true]]);
+    page.all("#popover input")[1].tick();
+    expect(column("Name")).toEqual(["Price"]);
+    page.key("Escape");
+    page.id("resetBtn").press();
+    page.find('[data-sort="1"]').press();
+    expect(column("Name")).toEqual(["Cost", "Units", "Price", "Revenue", "Margin %"]);
+    // A row's drawer is headed by the line item and says its place among the line items; it holds the view's columns.
+    page.all('#tableWrap tbody [data-act="row"]')[0].press();
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent, page.texts("#drawerBody dt").slice(0, 2), page.texts("#drawerBody dd").slice(0, 2)])
+      .toEqual(["Cost", "Row 5 of Line Items", ["Name", "Module Name"], ["Cost", "COST01 Costs"]]);
+    page.key("Escape");
+
+    // "Download this table" saves the file as the export wrote it: the modules' rows, the dashes, the file's own columns.
+    page.id("dlCsv").press();
+    const csv = tableCsv(file);
+    expect([page.downloads[0].name, await saved[0].text(), csv.charCodeAt(0)]).toEqual(["Line Items.csv", csv.slice(1), 0xfeff]);
+    expect((await saved[0].text()).split("\r\n").slice(0, 3)).toEqual([",Format,Formula,Summary,Applies To,Module Name,Ratio Numerator,Ratio Denominator", "REV01 Revenue,,,,\"Products, Time\",,,",
+      `Units,${csvCell(NUMBER)},,${csvCell(SUM)},-,REV01 Revenue,,`]);
+    page.id("dlAll").press();
+    expect(await bytes(saved[1])).toEqual(resultZip(BLUEPRINT, NOW));
+    // The result's own table was not touched.
+    expect([file.rows.length, file.headers[1], file.rows[1][4]]).toEqual([8, "Format", "-"]);
+
+    // The Modules table is the Modules file as it stands, and an app's file of the same name and layout is too.
+    goTo(2);
+    expect([headings(), page.all("#view .view-note").length, page.id("rowCount").textContent]).toEqual([["Name", "Applies To"], 0, "1–3 of 3 rows"]);
+    page.id("runAgain").press();
+    sendResult(ports[0], { ...BLUEPRINT, kind: "app" });
+    expect(page.all("#navList .nav-item").filter(item => item.querySelector(".cnt")).map(item => item.children.map(child => child.textContent))).toEqual([["Line Items", "8"], ["Modules", "3"]]);
+    goTo(1);
+    expect([headings(), column("Name").slice(0, 2), column("Applies To").slice(0, 2), page.all("#view .view-note").length, page.id("rowCount").textContent])
+      .toEqual([["Name", "Format", "Formula", "Summary", "Applies To", "Module Name", "Ratio Numerator", "Ratio Denominator"], ["REV01 Revenue", "Units"], ["Products, Time", "-"], 0, "1–8 of 8 rows"]);
   });
 
   it("lists a model's files in the order of Anaplan's Model settings, whatever order the result has them in, and the model map last", async () => {

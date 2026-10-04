@@ -1,5 +1,6 @@
 import type { AnalysisResult, ResultTable } from "../result-types.js";
 import { APP_FILES, columnIndex } from "./columns.js";
+import { LINE_ITEMS_FILE, lineItemsView } from "./line-items-view.js";
 import { cellText, compareText, NONE } from "./table-engine.js";
 
 /** What the results page reads out of a result besides its tables: the Details file's sections, the diagnostic log, and
@@ -93,11 +94,27 @@ const calendarView: FileRule = file => {
   return left ? { table: { ...file, rows }, note: `${left} ${left === 1 ? "row about the model is" : "rows about the model are"} in the CSV only.` } : undefined;
 };
 
+/** A model's Modules file, which lists every module (model/export.ts writes it under this name). */
+export const MODULES_FILE = "Modules.csv";
+
+/** A model's Line Items file is every module's blueprint in one grid: a module's own row, then its line items. The page
+ * shows it as a table of line items, each with its module and the dimensions it really has (line-items-view.ts), and the
+ * line under the table's name says how many modules' rows that leaves to the CSV. A module with no line items is then in
+ * no row of the table: where the result has the Modules file, the line says that it lists them. */
+const lineItemsRule: FileRule = (file, result) => {
+  const view = lineItemsView(file);
+  // The view gives the table itself back when it does not apply to it.
+  if (view.table === file) return undefined;
+  const modules = view.emptyModules > 0 ? result.tables.find(table => table.file === MODULES_FILE) : undefined;
+  const where = modules ? ` ${view.emptyModules === 1 ? "It is" : "They are"} listed in the ${cellText(modules.label)} table.` : "";
+  return { table: view.table, note: view.note === undefined ? undefined : `${view.note}${where}` };
+};
+
 /** The files the page shows otherwise than as they stand, each with its rule, by the kind of result and the file's name.
  * No other file is touched: a rule is a file's own, not a filter over all of them. */
 export const FILE_RULES: Record<AnalysisResult["kind"], ReadonlyMap<string, FileRule>> = {
   app: new Map(),
-  model: new Map([[MODEL_CALENDAR_FILE, calendarView]]),
+  model: new Map([[MODEL_CALENDAR_FILE, calendarView], [LINE_ITEMS_FILE, lineItemsRule]]),
 };
 
 /** One of the result's files as the page shows it: by its rule, or as it stands. */
@@ -127,7 +144,7 @@ export function modelFacts(result: AnalysisResult): [setting: string, value: str
  * not listed here comes after these, in the result's own order: a file that is renamed, or new, moves to the end and
  * does not go missing. */
 export const MODEL_FILE_ORDER: readonly string[] = [
-  MODEL_CALENDAR_FILE, "Time Ranges.csv", "Versions.csv", "General Lists.csv", "Line Item Subsets.csv", "Modules.csv", "Line Items.csv",
+  MODEL_CALENDAR_FILE, "Time Ranges.csv", "Versions.csv", "General Lists.csv", "Line Item Subsets.csv", MODULES_FILE, LINE_ITEMS_FILE,
   "Processes.csv", "Imports.csv", "Import Data Sources.csv", "Exports.csv", "Other Actions.csv", "Source Models.csv",
 ];
 
