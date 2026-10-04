@@ -5,8 +5,9 @@ import type { AnalysisResult, Cell, ResultTable } from "../result-types.js";
 import { cardsOf, columnsOf, rowKeys, type Column } from "./columns.js";
 import {
   bannersHtml, cardDrawerHtml, cardDrawerSubHtml, cellHtml, colChooserHtml, colFilterHtml, crumbsHtml, detailsHtml, esc, headerMetaHtml, idPill,
-  MOON_ICON, navHtml, overviewHtml, pagerHtml, rowDrawerHtml, rowDrawerSubHtml, runHtml, SUN_ICON, tableHtml, type Links, type TableView,
+  MOON_ICON, navHtml, overviewHtml, pagerHtml, rowDrawerHtml, rowDrawerSubHtml, runHtml, SUN_ICON, tableHtml, tableParts, type Links, type TableView,
 } from "./markup.js";
+import { parseMarkup } from "./dom.test-support.js";
 import { decode, readMarkup, shownValues, structure } from "./markup.test-support.js";
 import { analysedOf, cardSections, detailSections, detailsOf, diagnosticLog, overviewOf, resultNotes } from "./result-view.js";
 import { pageOf, selectRows, valueCounts } from "./table-engine.js";
@@ -160,6 +161,30 @@ describe("The results page's escaping", () => {
     // A table with no rows, and one whose search finds nothing.
     expectInert(text => tableHtml(viewOf({ ...table(text), rows: [] }, NO_LINKS)), 6);
     expectInert(text => tableHtml(viewOf(table(text), LINKS, { rows: [], total: 0, from: 0, to: 0, search: text(2), context: text(3), filtered: new Set([1]) })), 6);
+  });
+
+  it("makes a table's view of the parts the page writes again while the user types, each in its place", () => {
+    const table: ResultTable = { file: "Cards.csv", label: QUOTED, headers: ["Page", "Card #", IMG], guard: true,
+      rows: [["Overview", 1, SCRIPT], ["Overview", 2, "Margin"], ["Stores", 1, CLOSERS]] };
+    for (const overrides of [{}, { search: QUOTED, sort: { column: 1, dir: "desc" as const }, filtered: new Set([0]), context: IMG }, { rows: [], total: 0, from: 0, to: 0, search: SCRIPT }]) {
+      const view = viewOf(table, LINKS, overrides);
+      const parts = tableParts(view);
+      const whole = parseMarkup(tableHtml(view));
+      // What the box, the pager and the count hold in the whole view is exactly the part.
+      expect(whole.querySelector("#tableWrap")?.innerHTML.trim()).toBe(parseMarkup(parts.grid).innerHTML.trim());
+      expect(whole.querySelector("#pager")?.innerHTML.trim()).toBe(parseMarkup(parts.pager).innerHTML.trim());
+      expect(whole.querySelector("#rowCount")?.textContent).toBe(parts.count);
+      expect(whole.querySelector("#resetBtn")?.hidden).toBe(!parts.modified);
+      // And the parts hold none of the rest: the search box is not in them.
+      for (const part of [parts.grid, parts.pager]) expect(readMarkup(part).tags.filter(tag => tag.attributes.get("id") === "tblSearch")).toEqual([]);
+      expectInert(text => tableParts(viewOf({ ...table, label: text(0), headers: [text(1), text(2), text(3)], rows: [[text(4), text(5), text(6)]] }, LINKS, overrides)).grid, 0);
+    }
+    // Reset is offered for a search, a filter, a sort or a jump, each on its own, and not for a search of spaces only.
+    const modified = (overrides: Partial<TableView>) => tableParts(viewOf(table, LINKS, overrides)).modified;
+    expect([modified({}), modified({ search: "   " }), modified({ search: "a" }), modified({ filtered: new Set([2]) }), modified({ sort: { column: 0, dir: "asc" } }), modified({ context: "" })])
+      .toEqual([false, false, true, true, true, true]);
+    expect(tableParts(viewOf(table, LINKS)).count).toBe("1–3 of 3 rows");
+    expect(tableParts(viewOf(table, LINKS, { total: 2, to: 2 })).count).toBe("1–2 of 2 rows (filtered from 3)");
   });
 
   it("lets no text change the column filter, the column chooser or the drawer", () => {
