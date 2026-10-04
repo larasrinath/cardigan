@@ -123,7 +123,10 @@ describe("The results page itself against the engine in the Anaplan tab", () => 
     expect(page.texts("#view .warn-list li")).toEqual(["1 of 1 pages analysed; 1 unpublished, not analysed, 3 cards.", "Draft page: Not published", "Names: All models answered."]);
     page.find('#navList [data-nav="2"]').press();
     const cards = result.tables[2];
-    expect(page.all("#tableWrap tbody tr").map(row => row.children[2].textContent.trim())).toEqual(cards.rows.map(row => String(row[cards.headers.indexOf("Card title")])));
+    // Of the engine's columns, the IDs and the card's number start hidden; each card's title is on screen.
+    const headings = page.all("#tableWrap thead .th-sort").map(button => button.textContent.trim());
+    expect(headings).toEqual(cards.headers.filter(header => !["Card #", "Card ID", "Source IDs"].includes(header)));
+    expect(page.all("#tableWrap tbody tr").map(row => row.children[headings.indexOf("Card title")].textContent.trim())).toEqual(cards.rows.map(row => String(row[cards.headers.indexOf("Card title")])));
 
     // "Download all" saves the engine's result as its zip, byte for byte, under its name; file for file it is the zip 0.6.1 wrote.
     const [name, zip] = await downloadAll();

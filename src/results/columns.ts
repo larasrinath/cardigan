@@ -14,7 +14,12 @@ export const APP_FILES: Record<TabName, string> = {
  * files are kept by header name: which columns offer a filter, which start hidden, which are numbers, and which are shown
  * as an ID to copy, a tag or a link. Every cell shows its own text whatever the choice. A file or a header that is not
  * listed here (every file of a model export) gets a plain text column. In any file, a column that holds only a few
- * different texts offers a filter as well, so a model's tables can be filtered too. */
+ * different texts offers a filter as well, so a model's tables can be filtered too.
+ *
+ * Two kinds of column start hidden in every one of the app's tables: the IDs, and what only numbers a row's place, a
+ * card's number and a section's (`NUMBERS_HIDDEN`). A row says where it belongs in words, by its page and its card's
+ * title or its own name. A hidden column is still in the column chooser, in the search, in the row's drawer and in the
+ * CSV, which always has every column. */
 
 export type ColumnKind = "text" | "id" | "tag" | "page" | "card";
 
@@ -35,12 +40,16 @@ export interface Column {
 
 interface Choice { kind?: ColumnKind; num?: true; filter?: true; hidden?: true }
 
+/** The numbers that start hidden, by their header, wherever one of the app's tables has them. */
+export const NUMBERS_HIDDEN: readonly string[] = ["Card #", "Section #"];
+
 const PAGE: Choice = { kind: "page", filter: true };
-const CARD_NUMBER: Choice = { kind: "card", num: true };
+/** A card's number where the row also holds the card's ID: it opens the card, from the row's drawer while it is hidden. */
+const CARD_NUMBER: Choice = { kind: "card", num: true, hidden: true };
 const NUM: Choice = { num: true };
+const HIDDEN_NUM: Choice = { num: true, hidden: true };
 const FILTER: Choice = { filter: true };
 const TAG: Choice = { kind: "tag", filter: true };
-const ID: Choice = { kind: "id" };
 const HIDDEN_ID: Choice = { kind: "id", hidden: true };
 
 const CHOICES: Record<TabName, Record<string, Choice>> = {
@@ -54,22 +63,23 @@ const CHOICES: Record<TabName, Record<string, Choice>> = {
     "Card ID": HIDDEN_ID, "Source IDs": { hidden: true },
   },
   "Grid sections": {
-    "Page": PAGE, "Card #": CARD_NUMBER, "View type": TAG, "Section #": NUM, "Section layout": FILTER,
-    "Card ID": ID, "Section ID": HIDDEN_ID, "Module ID": HIDDEN_ID,
+    "Page": PAGE, "Card #": CARD_NUMBER, "View type": TAG, "Section #": HIDDEN_NUM, "Section layout": FILTER,
+    "Card ID": HIDDEN_ID, "Section ID": HIDDEN_ID, "Module ID": HIDDEN_ID,
   },
   Filters: {
-    "Page": PAGE, "Card #": CARD_NUMBER, "Section #": NUM, "Filter on": TAG, "Filtered dimension": FILTER, "Show items that match": TAG,
-    "Operator": FILTER, "Card ID": ID, "Line item ID": HIDDEN_ID,
+    "Page": PAGE, "Card #": CARD_NUMBER, "Section #": HIDDEN_NUM, "Filter on": TAG, "Filtered dimension": FILTER, "Show items that match": TAG,
+    "Operator": FILTER, "Card ID": HIDDEN_ID, "Line item ID": HIDDEN_ID,
   },
   Formatting: {
-    "Page": PAGE, "Card #": CARD_NUMBER, "Section #": NUM, "Format style": TAG, "Card ID": ID, "Line item ID": HIDDEN_ID,
+    "Page": PAGE, "Card #": CARD_NUMBER, "Section #": HIDDEN_NUM, "Format style": TAG, "Card ID": HIDDEN_ID, "Line item ID": HIDDEN_ID,
   },
   Actions: {
     "Page": PAGE, "Card #": CARD_NUMBER, "Action type": TAG, "Name source": FILTER, "Runs automatically": FILTER, "Cancel button": FILTER,
-    "Card ID": ID, "Action ID": HIDDEN_ID,
+    "Card ID": HIDDEN_ID, "Action ID": HIDDEN_ID,
   },
+  // Where Used has no Card ID, so its Card # opens nothing: it is a number only.
   "Where used": {
-    "Object type": TAG, "Page": PAGE, "Card #": NUM, "Used as": FILTER, "Object ID": HIDDEN_ID,
+    "Object type": TAG, "Page": PAGE, "Card #": HIDDEN_NUM, "Used as": FILTER, "Object ID": HIDDEN_ID,
   },
 };
 
