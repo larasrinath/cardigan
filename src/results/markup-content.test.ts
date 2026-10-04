@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Cell, ResultTable } from "../result-types.js";
 import { columnsOf, type Column } from "./columns.js";
 import { parseMarkup, type FakeElement } from "./dom.test-support.js";
-import { cellHtml, colChooserHtml, colFilterHtml, detailsHtml, overviewHtml, pagerHtml, tableHtml, type Links, type TableView } from "./markup.js";
+import { cellHtml, colChooserHtml, colFilterHtml, detailsHtml, navHtml, overviewHtml, pagerHtml, tableHtml, type Links, type TableView } from "./markup.js";
 import { pageOf, selectRows } from "./table-engine.js";
 
 // What each piece of markup shows: the right value in the right place. markup.test.ts checks that no value can change the
@@ -274,6 +274,21 @@ describe("What the results page's markup shows", () => {
       .toEqual([["h1", "p", "div", "tableWrap"], ["5 rows about the model <i>are</i> in the CSV only."], 0]);
     const plain = parseMarkup(tableHtml(viewOf(CARDS, LINKS)));
     expect([plain.children.map(child => child.id || child.localName), plain.querySelectorAll(".view-note").length]).toEqual([["h1", "div", "tableWrap"], 0]);
+  });
+
+  it("writes the navigation's entries in the order given, and the model map after them only when asked for it", () => {
+    const entries = [{ id: "overview", label: "Overview" }, { id: "12", label: "Model Calendar", count: 26 }, { id: "1", label: "Line Items", count: 120 }, { id: "details", label: "Details" }];
+    /** Each entry: its name in the navigation, its words, its count, and whether it is the current one or off. */
+    const items = (map: boolean) => parseMarkup(navHtml(entries, "12", map)).querySelectorAll(".nav-item").map(item =>
+      [item.dataset.nav, text(item.children[0]), text(item.querySelector(".cnt")), item.getAttribute("aria-current") ?? (item.classList.contains("disabled") ? "off" : "")]);
+    const listed = [["overview", "Overview", "", ""], ["12", "Model Calendar", "26", "page"], ["1", "Line Items", "120", ""], ["details", "Details", "", ""]];
+    expect(items(false)).toEqual(listed);
+    expect(items(true)).toEqual([...listed, ["map", "Model map", "", "off"]]);
+    // The model map is a button like the others, so the Tab key reaches it in its place, and it says that it is to come.
+    const map = parseMarkup(navHtml(entries, "overview", true)).querySelectorAll(".nav-item")[4];
+    expect([map.localName, map.getAttribute("aria-disabled"), map.title, text(map.querySelector(".soon"))]).toEqual(["button", "true", "Model map is coming in a later version", "coming soon"]);
+    // Nothing stands between the entries: no divider, no group.
+    expect(parseMarkup(navHtml(entries, "overview", true)).children.every(child => child.classList.contains("nav-item"))).toBe(true);
   });
 
   it("shows the details under their sections, each detail beside its value, and the log line for line", () => {

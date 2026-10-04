@@ -4,8 +4,8 @@ import { HEADERS, type TabName } from "../report.js";
 import { CALENDAR_HEADERS, calendarRows } from "../model/calendar.js";
 import type { AnalysisResult, Cell, ResultTable } from "../result-types.js";
 import { APP_FILES } from "./columns.js";
-import { ABOUT_MODEL, analysedOf, CARD_PARTS, cardSections, detailSections, detailsOf, detailValue, diagnosticLog, listedRows, MODEL_CALENDAR_FILE, modelFacts, overviewOf, resultNotes,
-  unlistedNote } from "./result-view.js";
+import { ABOUT_MODEL, analysedOf, CARD_PARTS, cardSections, detailSections, detailsOf, detailValue, diagnosticLog, listedRows, listedTables, MODEL_CALENDAR_FILE, MODEL_FILE_ORDER, modelFacts,
+  overviewOf, resultNotes, unlistedNote } from "./result-view.js";
 
 /** The app export's files, as the page names them, and the report table each holds. */
 const FILES: Record<string, TabName> = Object.fromEntries((Object.keys(APP_FILES) as TabName[]).map(tab => [APP_FILES[tab], tab]));
@@ -51,7 +51,7 @@ describe("What the results page reads out of a result", () => {
     expect(detailsOf(result("app", [{ ...appDetails, file: "Model Details.csv" }]))?.file).toBe("Model Details.csv");
     // What the page reads out of the Details file follows the mark too: the header's host, the notes and the tiles.
     const named = result("model", [unmarked, lineItems], []);
-    expect([analysedOf(named).host, resultNotes(named), overviewOf(named).tiles.map(tile => tile.label)]).toEqual([undefined, [], ["Model Details", "Line Items"]]);
+    expect([analysedOf(named).host, resultNotes(named), overviewOf(named).tiles.map(tile => tile.label)]).toEqual([undefined, [], ["Line Items", "Model Details"]]);
   });
 
   it("groups the Details file's rows by section, in the file's order, and keeps the diagnostic log apart", () => {
@@ -161,8 +161,40 @@ describe("What the results page reads out of a result", () => {
     const lineItems: ResultTable = { file: "Line Items.csv", label: "Line Items", headers: ["", "Formula"], rows: [["Revenue", "Units * Price"], ["Units", ""]], guard: false };
     const modules: ResultTable = { file: "Modules.csv", label: "Modules", headers: ["", "Card type", "Model"], rows: [["REP01", "x", "y"]], guard: false };
     expect(overviewOf(result("model", [modelDetails, lineItems, modules], ["Line Items: 2 rows", "Modules: 1 rows"]))).toEqual({
-      tiles: [{ label: "Line Items", count: 2 }, { label: "Modules", count: 1 }], cardTypes: [], models: [],
+      tiles: [{ label: "Modules", count: 1 }, { label: "Line Items", count: 2 }], cardTypes: [], models: [],
       notes: ["Actions: the Actions list came without Notes; the Diagnostics rows list the columns it had."], facts: [] });
+  });
+
+  it("lists a model's files in the order of Anaplan's Model settings, and an app's as the result has them", () => {
+    expect(MODEL_FILE_ORDER).toEqual(["Model Calendar.csv", "Time Ranges.csv", "Versions.csv", "General Lists.csv", "Line Item Subsets.csv", "Modules.csv", "Line Items.csv",
+      "Processes.csv", "Imports.csv", "Import Data Sources.csv", "Exports.csv", "Other Actions.csv", "Source Models.csv"]);
+    expect([MODEL_FILE_ORDER[0], new Set(MODEL_FILE_ORDER).size]).toEqual([MODEL_CALENDAR_FILE, 13]);
+    const file = (name: string): ResultTable => ({ file: name, label: name.replace(/\.csv$/, ""), headers: ["", "Value"], rows: [], guard: false });
+    /** The files of a result as the page lists them: each one's name and its place in the result. */
+    const listed = (kind: "app" | "model", ...names: string[]) => listedTables(result(kind, [modelDetails, ...names.map(file)])).map(({ index, table }) => `${index} ${table.file}`);
+    // The export's own order (model/export.ts), after the Details file: every file moves to its place, and keeps its place in the result as its name.
+    const written = ["Line Items.csv", "Modules.csv", "General Lists.csv", "Processes.csv", "Imports.csv", "Import Data Sources.csv", "Exports.csv", "Other Actions.csv", "Time Ranges.csv",
+      "Versions.csv", "Source Models.csv", "Model Calendar.csv"];
+    expect(listed("model", ...written)).toEqual(["12 Model Calendar.csv", "9 Time Ranges.csv", "10 Versions.csv", "3 General Lists.csv", "2 Modules.csv", "1 Line Items.csv", "4 Processes.csv",
+      "5 Imports.csv", "6 Import Data Sources.csv", "7 Exports.csv", "8 Other Actions.csv", "11 Source Models.csv"]);
+    // Only the files the result has, in that order.
+    expect(listed("model", "Imports.csv", "Line Items.csv", "Versions.csv")).toEqual(["3 Versions.csv", "2 Line Items.csv", "1 Imports.csv"]);
+    // A file that is not in the order comes after those that are, in the result's order, and none is dropped: a renamed
+    // file, a new one, one whose name differs in case. Line Item Subsets has its place already.
+    expect(listed("model", "Users.csv", "Line Items.csv", "modules.csv", "Line Item Subsets.csv", "Line Items (2).csv", "Model Calendar.csv"))
+      .toEqual(["6 Model Calendar.csv", "4 Line Item Subsets.csv", "2 Line Items.csv", "1 Users.csv", "3 modules.csv", "5 Line Items (2).csv"]);
+    // Two files of one name keep the result's order between them.
+    expect(listed("model", "Versions.csv", "Line Items.csv", "Versions.csv")).toEqual(["1 Versions.csv", "3 Versions.csv", "2 Line Items.csv"]);
+    // The Details file is not listed, wherever it stands; the result itself is left as it is.
+    const mixed = result("model", [file("Line Items.csv"), modelDetails, file("Versions.csv")]);
+    expect([listedTables(mixed).map(({ index, table }) => `${index} ${table.file}`), mixed.tables.map(table => table.file)])
+      .toEqual([["2 Versions.csv", "0 Line Items.csv"], ["Line Items.csv", "Model Details.csv", "Versions.csv"]]);
+    // An app's files are listed as the result has them, even ones with a model's names.
+    expect(listed("app", "Pages.csv", "Cards.csv", "Line Items.csv", "Model Calendar.csv", "Where Used.csv"))
+      .toEqual(["1 Pages.csv", "2 Cards.csv", "3 Line Items.csv", "4 Model Calendar.csv", "5 Where Used.csv"]);
+    // The overview's tiles follow the same order.
+    expect(overviewOf(result("model", [modelDetails, ...written.map(file)])).tiles.map(tile => tile.label)).toEqual(["Model Calendar", "Time Ranges", "Versions", "General Lists", "Modules",
+      "Line Items", "Processes", "Imports", "Import Data Sources", "Exports", "Other Actions", "Source Models"]);
   });
 
   // A model's Model Calendar file as the export writes it: the assessment template's rows, the first five about the model.
