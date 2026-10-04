@@ -161,8 +161,8 @@ The zip, `<model> - Model Export - <date>.zip`, has one CSV per Model settings g
 The results page shows three things otherwise than the files hold them. The files stay as described above, and under the name of a table that lists fewer rows than its file a line says how many are in the CSV only:
 
 - **Model Calendar** lists the calendar's own rows. The rows about the model (its workspace, its name, when it was captured) are on the Overview. `Model Calendar.csv` keeps every row.
-- **Line Items** lists line items only, each with its module next to its name. **Applies To** shows the dimensions a line item has, its module's when it has none of its own, and **Applies To from** says which. A row counts as a module's own only when its Module Name, Format and Summary are all empty: a line item with no Module Name in the file stays in the table, and the line under the table's name says how many there are. `Line Items.csv` keeps Anaplan's layout, with each module's row.
-- A format, a summary and an action's definition are said in words, such as "Number, 0 decimal places". The CSV keeps the JSON, and a row opened in full shows both. The search finds a row by the words or by the CSV's text; filters and sorting go by the words.
+- **Line Items** lists line items only, each with its module next to its name. **Applies To** shows the dimensions a line item has, its module's when it has none of its own, and **Applies To from** says which. A row counts as a module's own when its Module Name, Format, Formula and Summary are all empty and its name is a module's: the Modules file lists it, or a line item names it as its module. Any other row with an empty Module Name stays in the table as a line item whose module is not known, and the line under the table's name counts them. `Line Items.csv` keeps Anaplan's layout, with each module's row.
+- A format, a summary and an action's definition are said in words, such as "Number, 0 decimal places". The CSV keeps the JSON, and a row opened in full shows both. The search, the filters and the sorting go by the words, which are what the table shows.
 
 How it reads:
 
