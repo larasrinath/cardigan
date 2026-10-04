@@ -46,6 +46,19 @@ function expectInert(build: (text: Texts) => string, used: number): void {
   }
 }
 
+/** `expectInert` with each of the hostile texts in each place in turn. One text in one place shows only what that text
+ * can do there: a text that breaks out of an attribute changes nothing where a text is written unescaped between tags,
+ * and a tag changes nothing inside a quoted attribute. Round the whole list, every place meets every one of them. `places`
+ * is how many places of the markup take a text: each must show its text as typed, whichever it is. */
+function expectInertInTurn(build: (text: Texts) => string, places: number): void {
+  for (let shift = 0; shift < HOSTILE.length; shift++) {
+    const shifted = (text: Texts): Texts => index => text(index + shift);
+    expectInert(text => build(shifted(text)), 0);
+    const shown = shownValues(build(shifted(hostile)));
+    for (let place = 0; place < places; place++) expect(shown.filter(value => value.includes(hostile(place + shift))), `place ${place} shows its text as typed, with the texts moved on by ${shift}`).not.toEqual([]);
+  }
+}
+
 const LINKS: Links = { page: true, card: true };
 const NO_LINKS: Links = { page: false, card: false };
 const column = (index: number, label: string, kind: Column["kind"] = "text", extra: Partial<Column> = {}): Column =>
@@ -296,8 +309,9 @@ describe("The results page's escaping", () => {
   });
 
   it("lets no text change the switch between a table's ways, or an object's drawer", () => {
-    // The switch: the table's name is in its label; a way's own name and words are the page's, and are written as text all the same.
-    expectInert(text => tableHtml(viewOf({ file: "Where Used.csv", label: text(0), headers: [text(1)], rows: [[text(2)]], guard: true }, NO_LINKS,
+    // The switch: the table's name is in its label; a way's own name and words are the page's, and are written as text all
+    // the same. Every place takes every text in turn: a tag in a way's words would be an element if they were not escaped.
+    expectInertInTurn(text => tableHtml(viewOf({ file: "Where Used.csv", label: text(0), headers: [text(1)], rows: [[text(2)]], guard: true }, NO_LINKS,
       { ways: [{ way: "object", label: text(3), chosen: true }, { way: "use", label: text(4), chosen: false }], note: text(5) })), 6);
     // An object: its type, its module, its ID, its model, each role, and each use's page, card and role. Its name is the
     // drawer's heading, which the page sets as text.
@@ -307,8 +321,15 @@ describe("The results page's escaping", () => {
       expectInert(text => objectDrawerHtml(object(text, 6), links, false), 7);
       expectInert(text => objectDrawerHtml(object(text, 60), links, false), 7);
       expectInert(text => objectDrawerHtml(object(text, 60), links, true), 7);
+      // Each role, and each use's page, card and role, with each of the texts in turn.
+      expectInertInTurn(text => objectDrawerHtml({ ...object(harmless, 0), roles: [[text(0), 2], [text(1), 1]],
+        uses: [0, 1, 2, 3].map(index => ({ row: index, page: text(2 + index % 2), card: text(4 + index), usedAs: text(8 + index), cardId: index % 2 ? "card" : undefined })) }, links, false), 12);
     }
-    for (const multiModel of [true, false]) expectInert(text => objectDrawerSubHtml(object(text, 1), multiModel), multiModel ? 4 : 3);
+    // The line under the object's name: its type, its module, its ID and, in an app of several models, its model. Each of
+    // them with each of the texts in turn: a model's name that holds a tag is shown as that text, as the others are.
+    for (const multiModel of [true, false]) expectInertInTurn(text => objectDrawerSubHtml(object(text, 1), multiModel), multiModel ? 4 : 3);
+    const named = parseMarkup(`<div>${objectDrawerSubHtml({ ...object(harmless, 1), model: `Demand ${IMG} planning <b>EU</b>` }, true)}</div>`);
+    expect([named.querySelectorAll("img, b").length, named.textContent.includes(`Demand ${IMG} planning <b>EU</b>`)]).toEqual([0, true]);
     // What a click reads of a use is its place among the object's uses, a number, and never the use's own text: here on
     // the three pages' names and on the thirty cards that are named.
     const uses = readMarkup(objectDrawerHtml(object(hostile, 60), LINKS, true)).tags.filter(tag => tag.attributes.has("data-use"));

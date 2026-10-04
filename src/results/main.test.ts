@@ -2378,6 +2378,30 @@ describe("A result kept while the results page is refreshed", () => {
       .toEqual(["Ready to analyse", "Choose Run to analyse it. This page starts by itself only when the Cardigan icon has just opened it.", []]);
   });
 
+  it("shows no note about a result that another result has replaced by the time its keeping ends", async () => {
+    session.refuses = "QuotaExceededError";
+    await openWith(APP);
+    // The page begins to keep the first result: it is being compressed, and nothing has been written yet.
+    vi.advanceTimersByTime(0);
+    expect(session.writes).toBe(0);
+    // Before that ends, Run again brings a second result, whole, which takes the first one's place on the page.
+    page.id("runAgain").press();
+    sendResult(ports[0], { ...APP, name: "Demo app, read again" });
+    expect(page.document.title).toBe("Cardigan — Demo app, read again");
+    // Now the first result's keeping ends: the storage refused it. That is about a result which is no longer on the page.
+    // The page says nothing: no note above the second result, no announcement, no line in the second run's log.
+    await eventually(() => session.writes === 1, "the first result's keeping to end");
+    await pass(30);
+    expect([page.has("#noteBanner"), page.id("banners").children, page.id("live").textContent]).toEqual([false, [], "Analysis finished: Demo app, read again"]);
+    // The second result is kept in a turn of its own, and the note it gets is its own, with one reason in the log.
+    vi.advanceTimersByTime(0);
+    await eventually(() => page.has("#noteBanner"), "the second result's note");
+    expect([note(), session.writes, page.document.title]).toEqual([[TOO_LARGE_NOTE, "note", true], 2, "Cardigan — Demo app, read again"]);
+    page.id("noteCopy").press();
+    await settle();
+    expect(copied[0].split("\n").filter(line => line.includes("too large to keep"))).toHaveLength(1);
+  });
+
   it("shows nothing that was kept for another Anaplan tab, or by another version of the extension: the page waits for Run", async () => {
     await openWith(APP);
     await letKeep();
