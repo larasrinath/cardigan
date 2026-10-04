@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatWords, MAX_DEFINITION_LENGTH, READABLE_HEADERS, readableCell, summaryWords, type CellNames } from "./readable-cells.js";
+import { actionWords, formatWords, MAX_DEFINITION_LENGTH, READABLE_HEADERS, readableCell, summaryWords, type CellNames } from "./readable-cells.js";
 
 // Every definition here is made up, in the shape Anaplan's own export of a settings grid writes one: no model's data.
 const cell = (definition: unknown): string => JSON.stringify(definition);
@@ -29,12 +29,14 @@ const METHODS: [method: string, label: string][] = [["SUM", "Sum"], ["NONE", "No
   ["MAX", "Max"], ["OPENING_BALANCE", "Opening Balance"], ["CLOSING_BALANCE", "Closing Balance"], ["FIRST_NON_BLANK", "First non-blank"],
   ["LAST_NON_BLANK", "Last non-blank"], ["ANY", "Any"], ["ALL", "All"]];
 
+const task = (taskElement: Record<string, unknown>): string => cell({ actionType: "TASK_ELEMENT", taskElement: JSON.stringify(taskElement) });
+
 /** What no column's reader takes for a definition: text that is not JSON (one starts with a no-break space, which is not
  * white space to JSON), JSON that is not an object, an object without the fields, and a cell that is not text at all. */
 const NOT_A_DEFINITION: unknown[] = ["", " ", "Sum", "Number", "=Revenue - Cost", "IF Units > 0 THEN Units * Price ELSE 0", "Import into Prices", "not json", "{", "{not json}",
   "{\"dataType\":\"NUMBER\"", "{\"dataType\":\"NUMBER\"} and more", "[]", "[{\"dataType\":\"NUMBER\"}]", "null", "true", "42", "-1", "\"NUMBER\"", "{}", "{\"dataTypes\":\"NUMBER\"}",
-  "{\"__proto__\":{\"dataType\":\"NUMBER\",\"summaryMethod\":\"SUM\"}}", `${char(0xa0)}{"dataType":"NUMBER"}`,
-  null, undefined, 42, NaN, true, {}, [], { dataType: "NUMBER", summaryMethod: "SUM" }, () => "{\"dataType\":\"NUMBER\"}",
+  "{\"__proto__\":{\"dataType\":\"NUMBER\",\"summaryMethod\":\"SUM\",\"actionType\":\"PROCESS\"}}", `${char(0xa0)}{"dataType":"NUMBER"}`,
+  null, undefined, 42, NaN, true, {}, [], { dataType: "NUMBER", summaryMethod: "SUM", actionType: "PROCESS" }, () => "{\"dataType\":\"NUMBER\"}",
   // Very long: text that is no definition, text that only starts as one, and one nested deeper than any definition is.
   "x".repeat(1_000_000), `{${" ".repeat(1_000_000)}`, `${"{\"a\":".repeat(2_500)}1${"}".repeat(2_500)}`];
 
@@ -298,29 +300,81 @@ describe("A line item's Summary in words", () => {
   });
 });
 
+describe("An action's definition in words", () => {
+  it("says each kind of action as Anaplan's Actions grid shows it", () => {
+    expect(["PROCESS", "BULK_COPY", "UPDATE_CURRENT_PERIOD"].map(actionType => actionWords(cell({ actionType })))).toEqual(["Process", "Bulk Copy", "Update Current Period"]);
+    const operations: [operation: string, words: string][] = [["SIMPLE_CREATE", "Create"], ["SYNCHRONISE_HIERARCHY", "Synchronise Hierarchy"],
+      ["SET_PROPERTY_AND_SYNCHRONISE_HIERARCHY", "Set Property and Synchronise Hierarchy"], ["COPY_TO_NUMBERED_LIST", "Assign Only"], ["DEFINE_ENTITIES", "Define Entities"],
+      ["SELECT_CHILDREN", "Assign"], ["BULK_ENTITY_COPY", "Copy Branch"], ["BULK_DELETE_ENTITIES", "Delete Branch"], ["OPTIMIZER", "Optimizer"]];
+    for (const [operation, words] of operations) expect(actionWords(task({ taskElementType: "BULK_OPERATION", operation, hierarchyEntityLongId: 101000000007 })), operation).toBe(words);
+    expect(actionWords(task({ taskElementType: "DASHBOARD", dashboardEntityLongId: 115000000004 }))).toBe("Open Dashboard");
+    // The Optimizer is known by what it does, whatever kind of task element it is; any other kind is a task element.
+    expect(actionWords(task({ operation: "OPTIMIZER" }))).toBe("Optimizer");
+    expect(actionWords(task({ taskElementType: "OTHER_ACTION" }))).toBe("Task Element");
+    expect(actionWords(task({ taskElementType: "OTHER_ACTION", operation: "SIMPLE_CREATE" }))).toBe("Task Element");
+    // A bulk operation it does not know is said by its value, as Anaplan's grid says it.
+    expect(actionWords(task({ taskElementType: "BULK_OPERATION", operation: "MERGE_ENTITIES" }))).toBe("MERGE_ENTITIES");
+    expect(actionWords(task({ taskElementType: "BULK_OPERATION", operation: "constructor" }))).toBe("constructor");
+    // The task element as an object, where Anaplan writes it as JSON in text.
+    expect(actionWords(cell({ actionType: "TASK_ELEMENT", taskElement: { taskElementType: "BULK_OPERATION", operation: "SELECT_CHILDREN" } }))).toBe("Assign");
+  });
+
+  it("names the list an action deletes from or orders, or says the list's ID", () => {
+    const from = (actionType: string, hierarchyIdentifier?: unknown): string => cell({ actionType, hierarchyIdentifier, filterLineItemIdentifier: "_1901000000031_" });
+    expect(actionWords(from("DELETE_BY_SELECTION", "_101000000007_"), LIST_NAMES)).toBe("Delete from Products using Selection");
+    expect(actionWords(from("DELETE_BY_SELECTION", "_101000000007_"))).toBe("Delete from list ID 101000000007 using Selection");
+    expect(actionWords(from("DELETE_BY_SELECTION", "_101000000008_"), LIST_NAMES)).toBe("Delete from list ID 101000000008 using Selection");
+    expect(actionWords(from("ORDER_HIERARCHY", "_109000000002_"), LIST_NAMES)).toBe("Order Products: Active");
+    expect(actionWords(from("ORDER_HIERARCHY", "_109000000002_"))).toBe("Order list ID 109000000002");
+    // The action names no list: the label as it stands.
+    expect([actionWords(from("DELETE_BY_SELECTION"), LIST_NAMES), actionWords(from("ORDER_HIERARCHY", ""), LIST_NAMES)]).toEqual(["Delete from List using Selection", "Order List"]);
+    // A name goes in as it is, whatever it holds.
+    expect(actionWords(from("DELETE_BY_SELECTION", "_101000000007_"), { listName: () => "$& <b>$1</b> List" })).toBe("Delete from $& <b>$1</b> List using Selection");
+    // Another kind of action names no list: what its cell holds in that place is not read, an ID or not.
+    expect(actionWords(from("BULK_COPY", "_101000000007_"), LIST_NAMES)).toBe("Bulk Copy");
+    expect(actionWords(from("BULK_COPY", "Versions"), LIST_NAMES)).toBe("Bulk Copy");
+    expect(actionWords(from("UPDATE_CURRENT_PERIOD", { not: "an ID" }), LIST_NAMES)).toBe("Update Current Period");
+  });
+
+  it("leaves a cell that is not an action it reads as it is", () => {
+    for (const text of NOT_A_DEFINITION) expect(actionWords(text), String(text).slice(0, 40)).toBeUndefined();
+    const wrong: unknown[] = [{ exportType: "GRID_CURRENT_PAGE" }, { actionType: "EXPORT" }, { actionType: "process" }, { actionType: "" }, { actionType: null }, { actionType: 3 },
+      { actionType: ["PROCESS"] }, { actionType: "constructor" }, { actionType: "__proto__" }, { actionType: "TASK_ELEMENT" }, { actionType: "TASK_ELEMENT", taskElement: null },
+      { actionType: "TASK_ELEMENT", taskElement: "" }, { actionType: "TASK_ELEMENT", taskElement: "not json" }, { actionType: "TASK_ELEMENT", taskElement: "{not json}" },
+      { actionType: "TASK_ELEMENT", taskElement: "[]" }, { actionType: "TASK_ELEMENT", taskElement: [] }, { actionType: "TASK_ELEMENT", taskElement: 5 },
+      { actionType: "TASK_ELEMENT", taskElement: "{\"taskElementType\":\"BULK_OPERATION\"}" }, { actionType: "TASK_ELEMENT", taskElement: "{\"taskElementType\":7}" },
+      { actionType: "TASK_ELEMENT", taskElement: "{\"taskElementType\":\"BULK_OPERATION\",\"operation\":[\"SIMPLE_CREATE\"]}" },
+      { actionType: "DELETE_BY_SELECTION", hierarchyIdentifier: "Products" }, { actionType: "ORDER_HIERARCHY", hierarchyIdentifier: {} }];
+    for (const definition of wrong) expect(actionWords(cell(definition), LIST_NAMES), JSON.stringify(definition)).toBeUndefined();
+  });
+});
+
 describe("A cell in words, by its column's header", () => {
   const FORMAT = cell({ ...DEFAULT_NUMBER, ...places(2), unitsType: "PERCENTAGE", unitsDisplayType: "PERCENTAGE_SUFFIX" });
   const SUMMARY = cell(chosen("SUM", "CLOSING_BALANCE", false));
+  const ACTION = task({ taskElementType: "BULK_OPERATION", operation: "SIMPLE_CREATE" });
   const NAMES: CellNames = { ...LIST_NAMES, ...RATIO_NAMES };
 
-  it("understands the Format and the Summary column", () => {
-    expect(READABLE_HEADERS).toEqual(["Format", "Summary"]);
-    expect(READABLE_HEADERS.map(header => readableCell(header, { Format: FORMAT, Summary: SUMMARY }[header]))).toEqual(["Number, 2 decimal places, %", "Sum, Time: Closing Balance"]);
+  it("understands the Format, the Summary and the Action column", () => {
+    expect(READABLE_HEADERS).toEqual(["Format", "Summary", "Action"]);
+    expect(READABLE_HEADERS.map(header => readableCell(header, { Format: FORMAT, Summary: SUMMARY, Action: ACTION }[header])))
+      .toEqual(["Number, 2 decimal places, %", "Sum, Time: Closing Balance", "Create"]);
     // The names reach each column's words.
     expect(readableCell("Format", list(), NAMES)).toBe("List: Products");
     expect(readableCell("Summary", cell({ summaryMethod: "RATIO", ...RATIO_IDS }), NAMES)).toBe("Ratio = Profit / Revenue");
+    expect(readableCell("Action", cell({ actionType: "ORDER_HIERARCHY", hierarchyIdentifier: "_101000000007_" }), NAMES)).toBe("Order Products");
     expect(readableCell("Format", list())).toBe("List: ID 101000000007");
   });
 
   it("reads under a header only that column's own definition", () => {
-    const cells = [FORMAT, SUMMARY];
-    expect(READABLE_HEADERS.map(header => cells.map(text => readableCell(header, text) !== undefined))).toEqual([[true, false], [false, true]]);
+    const cells = [FORMAT, SUMMARY, ACTION];
+    expect(READABLE_HEADERS.map(header => cells.map(text => readableCell(header, text) !== undefined))).toEqual([[true, false, false], [false, true, false], [false, false, true]]);
   });
 
   it("gives nothing for any other column, whatever its cell holds", () => {
-    const merged = cell({ ...DEFAULT_NUMBER, ...chosen("SUM", "SUM", true) });
-    expect(READABLE_HEADERS.map(header => readableCell(header, merged))).toEqual(["Number", "Sum"]);
-    for (const header of ["", "format", "FORMAT", "Format ", " Format", "Formats", "Summary Method", "Action", "Formula", "Notes", "Applies To", "Ratio Numerator",
+    const merged = cell({ ...DEFAULT_NUMBER, ...chosen("SUM", "SUM", true), actionType: "PROCESS" });
+    expect(READABLE_HEADERS.map(header => readableCell(header, merged))).toEqual(["Number", "Sum", "Process"]);
+    for (const header of ["", "format", "FORMAT", "Format ", " Format", "Formats", "Summary Method", "Action type", "Formula", "Notes", "Applies To", "Ratio Numerator",
       "constructor", "__proto__", "toString", "hasOwnProperty", "0", 0, 1, null, undefined, true, {}, ["Format"], () => "Format"]) {
       expect(readableCell(header, merged), String(header)).toBeUndefined();
     }
@@ -336,7 +390,8 @@ describe("A cell in words, by its column's header", () => {
     const failing = Object.defineProperty({}, "ratioNumerator", { get: () => { throw new Error("no name"); } }) as CellNames;
     const names: unknown[] = [undefined, null, {}, "names", 7, [], LIST_NAMES, RATIO_NAMES, failing, { listName: () => { throw new Error("no such list"); } },
       { listName: "Products" }, { listName: () => ({ toString: () => { throw new Error("no text"); } }) }, { ratioNumerator: {}, ratioDenominator: [] }];
-    const texts: unknown[] = [...NOT_A_DEFINITION, FORMAT, SUMMARY, list(), cell({ summaryMethod: "RATIO", ...RATIO_IDS }), cell({ periodType: { entityId: "MONTH" }, dataType: "TIME_ENTITY" })];
+    const texts: unknown[] = [...NOT_A_DEFINITION, FORMAT, SUMMARY, ACTION, list(), cell({ summaryMethod: "RATIO", ...RATIO_IDS }),
+      cell({ actionType: "DELETE_BY_SELECTION", hierarchyIdentifier: "_101000000007_" }), cell({ periodType: { entityId: "MONTH" }, dataType: "TIME_ENTITY" })];
     let read = 0;
     for (const header of [...READABLE_HEADERS, "Notes", null]) {
       for (const text of texts) {
@@ -349,6 +404,6 @@ describe("A cell in words, by its column's header", () => {
       }
     }
     // Each definition was read under its own header with every one of the names, but the summary whose names cannot be read.
-    expect(read).toBe(5 * names.length - 1);
+    expect(read).toBe(7 * names.length - 1);
   });
 });

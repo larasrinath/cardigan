@@ -1,8 +1,8 @@
 /** Some cells of a model's settings grids hold a definition as JSON, because that is what Anaplan's own export of the grid
- * writes: a line item's Format (`{"minimumSignificantDigits":4,…,"dataType":"NUMBER"}`) and its Summary. The CSV keeps
- * that text exactly: other tools read it. The page says such a cell in words, and this module makes the words. It takes
- * the cell's text and gives plain text back, which the caller escapes. It reads no result and no page, and it never
- * throws: a cell it cannot read gives undefined, and the caller shows the cell as it is.
+ * writes: a line item's Format (`{"minimumSignificantDigits":4,…,"dataType":"NUMBER"}`), its Summary, and an action's
+ * definition in the Actions list. The CSV keeps that text exactly: other tools read it. The page says such a cell in words,
+ * and this module makes the words. It takes the cell's text and gives plain text back, which the caller escapes. It reads
+ * no result and no page, and it never throws: a cell it cannot read gives undefined, and the caller shows the cell as it is.
  *
  * The words are Anaplan's own wherever the classic client's sources settle them. Those sources are archived in the SAM
  * repository under docs/plans/model-building-deep-sources/: the client's modules in core-modules/ (named below as the
@@ -12,7 +12,7 @@
  * What the grid itself shows in such a cell is anaplan/data/DataPageCache/_DataPage.js `_getFormattedCellText` (and the
  * same in anaplan/data/CellItemCache.js). For a format: the data type's label, or for a list its name alone, or for a time
  * period the period's label alone. For a summary: the method's label, then ", Time: " and the time summary's label unless
- * the time summary is "Same as main summary".
+ * the time summary is "Same as main summary". For an action: anaplan/data/OtherAction.js `getDisplayValue`.
  *
  * The words here start from that and add what the grid leaves to its dialogs. A format says its data type before a list or
  * a period ("List: Products", where the grid shows "Products") and, after it, each option of the Format dialog that is not
@@ -21,8 +21,8 @@
 
 /** The names only the caller can know. A name that is missing or blank is never guessed: the ID is said instead, as an ID. */
 export interface CellNames {
-  /** The name of the list that a List format points at, by the list's ID as digits ("101000000007"). The client finds
-   * that ID among the lists, the list subsets and the line item subsets (anaplan/data/ModelContentHelper.js
+  /** The name of the list that a List format or an action points at, by the list's ID as digits ("101000000007"). The
+   * client finds that ID among the lists, the list subsets and the line item subsets (anaplan/data/ModelContentHelper.js
    * `getHierarchyId`). */
   listName?: (id: string) => string | undefined;
   /** The line items a Ratio summary divides, by name: the row's "Ratio Numerator" and "Ratio Denominator" cells. */
@@ -32,7 +32,9 @@ export interface CellNames {
 
 type Definition = Record<string, unknown>;
 
-/** A definition Anaplan writes is a few hundred characters. A cell longer than this is not one, and is not read. */
+/** A format or a summary is a few hundred characters. An action can be longer: Open Dashboard may name a dashboard for
+ * each of up to 200 items of a list (anaplan/constants.js `OPEN_DASHBOARD_MAX_ITEM_LIMIT`), which is some thousands of
+ * characters. A cell longer than this is not a definition, and is not read. */
 export const MAX_DEFINITION_LENGTH = 20_000;
 
 /** Thrown where a definition holds something its field cannot hold (a list for a data type, say). The cell is then one
@@ -75,7 +77,7 @@ function flag(value: unknown): boolean | undefined {
   return value;
 }
 
-/** A field's ID, as digits. A format holds a list's ID as a number; a summary holds a line item's ID between underscores
+/** A field's ID, as digits. A format holds a list's ID as a number; a summary and an action hold an ID between underscores
  * ("_1901000000011_", anaplan/utils/EntityLongIdHelper.js). Nothing when the field is absent, empty or -1, the client's
  * "none" (anaplan/data/ModelContentHelper.js `_getEntityId`). */
 function idOf(value: unknown): string | undefined {
@@ -291,6 +293,53 @@ function summaryOf(summary: Definition, names: CellNames): string {
   return `${say(main, true)}, Time: ${say(time, main !== RATIO)}`;
 }
 
+/* ---------- Action ---------- */
+
+/** The kinds of action the Actions list holds as a definition (anaplan/constants.js `ACTION_TYPE_…`) by their labels
+ * (anaplan/nls/actionEditor). The grid puts the list's name where two of the labels say "List" (OtherAction.js). */
+const ACTION_TYPE = labels(["PROCESS", "Process"], ["BULK_COPY", "Bulk Copy"], ["DELETE_BY_SELECTION", "Delete from List using Selection"],
+  ["ORDER_HIERARCHY", "Order List"], ["UPDATE_CURRENT_PERIOD", "Update Current Period"], ["TASK_ELEMENT", "Task Element"]);
+const NAMES_A_LIST = new Set(["DELETE_BY_SELECTION", "ORDER_HIERARCHY"]);
+
+/** What a task element does (anaplan/constants.js `taskElementOperation`) by its label (anaplan/nls/actionEditor). */
+const OPERATION = labels(["SIMPLE_CREATE", "Create"], ["SYNCHRONISE_HIERARCHY", "Synchronise Hierarchy"],
+  ["SET_PROPERTY_AND_SYNCHRONISE_HIERARCHY", "Set Property and Synchronise Hierarchy"], ["COPY_TO_NUMBERED_LIST", "Assign Only"], ["DEFINE_ENTITIES", "Define Entities"],
+  ["SELECT_CHILDREN", "Assign"], ["BULK_ENTITY_COPY", "Copy Branch"], ["BULK_DELETE_ENTITIES", "Delete Branch"], ["OPTIMIZER", "Optimizer"]);
+const OPEN_DASHBOARD = "Open Dashboard";
+
+/** A task element's words, in the order OtherAction.js `getDisplayValue` decides them: the Optimizer, then a bulk
+ * operation by what it does (an operation not listed is said by its value, as the grid says it), then Open Dashboard
+ * (anaplan/nls/actionEditor `DASHBOARD`), and for any other the label of the action's kind. The action holds its task
+ * element as JSON in text (anaplan/settings/Actions/Toolbar.js). */
+function taskWords(taskElement: unknown, label: string): string {
+  const task = part(typeof taskElement === "string" ? definitionOf(taskElement) : taskElement);
+  if (task === undefined) throw UNREADABLE;
+  const kind = word(task.taskElementType);
+  const operation = word(task.operation);
+  if (operation === "OPTIMIZER") return OPERATION.get(operation) ?? operation;
+  if (kind === "BULK_OPERATION") {
+    if (operation === undefined) throw UNREADABLE;
+    return OPERATION.get(operation) ?? operation;
+  }
+  return kind === "DASHBOARD" ? OPEN_DASHBOARD : label;
+}
+
+/** What the Actions grid shows for an action (OtherAction.js `getDisplayValue`), without its check that the list, the
+ * line item or the dashboard still exists: that needs the model. */
+function actionOf(action: Definition, names: CellNames): string {
+  const type = word(action.actionType);
+  const label = type === undefined ? undefined : ACTION_TYPE.get(type);
+  // An action of a kind this module does not know (an export's definition, say) is left as it is.
+  if (type === undefined || label === undefined) throw UNREADABLE;
+  if (type === "TASK_ELEMENT") return taskWords(action.taskElement, label);
+  if (!NAMES_A_LIST.has(type)) return label;
+  const id = idOf(action.hierarchyIdentifier);
+  if (id === undefined) return label;
+  const list = listNameOf(id, names) ?? `list ID ${id}`;
+  // A function, so that a name is put in as it is whatever it holds ("$&" means something to `replace` in text).
+  return label.replace("List", () => list);
+}
+
 /* ---------- for the caller ---------- */
 
 /** The words for one cell: undefined when the text is not a definition, or not one `say` can read. */
@@ -315,11 +364,17 @@ export function summaryWords(text: unknown, names?: CellNames): string | undefin
   return words(text, names, summaryOf);
 }
 
-/** The headers of the columns this module can say in words, as the model's grids name them. */
-export const READABLE_HEADERS = ["Format", "Summary"] as const;
+/** An Action cell of the Actions list in words: "Create", "Open Dashboard", "Delete from Products using Selection". */
+export function actionWords(text: unknown, names?: CellNames): string | undefined {
+  return words(text, names, actionOf);
+}
+
+/** The headers of the columns this module can say in words, as the model's grids name them: a line item's Format and its
+ * Summary, and the Action of the Actions list, which holds a definition for the actions under Other Actions. */
+export const READABLE_HEADERS = ["Format", "Summary", "Action"] as const;
 export type ReadableHeader = (typeof READABLE_HEADERS)[number];
 
-const READERS: Record<ReadableHeader, (text: unknown, names?: CellNames) => string | undefined> = { Format: formatWords, Summary: summaryWords };
+const READERS: Record<ReadableHeader, (text: unknown, names?: CellNames) => string | undefined> = { Format: formatWords, Summary: summaryWords, Action: actionWords };
 
 /** A cell in words, by its column's header: undefined when the column is not one of `READABLE_HEADERS`, or when the cell
  * is not a definition this module reads. The caller then shows the cell's own text. */
