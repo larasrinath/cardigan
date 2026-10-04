@@ -78,6 +78,22 @@ describe("What the results page's markup shows", () => {
     expect(parseMarkup(cellHtml(column(0, "Card ID", "id"), ["card-a"], LINKS)).children[0].getAttribute("aria-label")).toBe("Copy ID card-a");
   });
 
+  it("makes a card a link row by row where the table says which rows' cards the result has, in the table and in the row's drawer", () => {
+    // A table whose rows name their card by its number alone, as every use of Where Used does.
+    const columns = [column(0, "Object name"), column(1, "Page", "page"), column(2, "Card #", "card", { num: true })];
+    const [found, lost]: Cell[][] = [["Time", "Overview", 1], ["Time", "Overview", 9]];
+    const links: Links = { page: true, card: true, hasCard: row => row === found };
+    const cards = (html: string) => parseMarkup(`<div>${html}</div>`).querySelectorAll('[data-act="card"]').map(button => [text(button), button.title]);
+    // The card the result has is a link that opens it; the other is its number, as text.
+    expect([cards(cellHtml(columns[2], found, links)), cards(cellHtml(columns[2], lost, links)), text(parseMarkup(`<div>${cellHtml(columns[2], lost, links)}</div>`))])
+      .toEqual([[["1", "Open card details"]], [], "9"]);
+    // The same in the row's drawer, where every column stands, shown or not; the page is a link in both rows.
+    expect([cards(rowDrawerHtml(columns, found, links)), cards(rowDrawerHtml(columns, lost, links))]).toEqual([[["1", "Open card details"]], []]);
+    expect([found, lost].map(row => parseMarkup(rowDrawerHtml(columns, row, links)).querySelectorAll('[data-act="page"]').length)).toEqual([1, 1]);
+    // A table that links no cards links none, whatever is said of a row; one that does not say links every row's.
+    expect([cards(cellHtml(columns[2], found, { ...links, card: false })), cards(cellHtml(columns[2], lost, { page: true, card: true }))]).toEqual([[], [["9", "Open card details"]]]);
+  });
+
   it("heads a table with the columns shown, in their order, each with the sort button of that column", () => {
     /** Each heading: its name, the column its sort button carries, how it says it is sorted and the arrow it shows. */
     const heads = (view: TableView) => parseMarkup(tableHtml(view)).querySelectorAll("thead th").map(heading => {

@@ -168,6 +168,9 @@ describe("The results page's escaping", () => {
     // A link or an ID keeps what it does; the row's button stands before it, with a name of its own.
     expect(cell("page", "Overview")).toEqual([[["row", "", "Open this row"], ["page", "Overview", null]], ""]);
     expect(cell("card", 3)).toEqual([[["row", "", "Open this row"], ["card", "3", null]], ""]);
+    // In a table that says row by row whether the result has the row's card, a card that it has not is plain, and so the button.
+    expect(cell("card", 3, { ...LINKS, hasCard: () => true })).toEqual([[["row", "", "Open this row"], ["card", "3", null]], ""]);
+    expect(cell("card", 3, { ...LINKS, hasCard: () => false })).toEqual([[["row", "3", null]], ""]);
     expect(cell("id", "card-a")).toEqual([[["row", "", "Open this row"], ["copy", "card-a", "Copy ID card-a"]], ""]);
     // A cell without text has the button alone.
     expect(cell("text", "")).toEqual([[["row", "", "Open this row"]], ""]);

@@ -1967,6 +1967,44 @@ describe("An app's Where Used table, by object and by use", () => {
     expect(listed().length).toBe(50);
   });
 
+  it("opens a use's card from its row as every use too, where the result has the card: the card's number is a link in the row's drawer and in the table", async () => {
+    // One more use, on a card the Cards file does not have.
+    const gone: Cell[] = ["Module", "REP03 Gone", "—", "Overview", 9, "Source module", "102000000003"];
+    await openWith(whereUsed([...USES, gone], WHERE.tables[1].rows, WHERE.tables[2].rows));
+    goTo(3);
+    way("use").press();
+    // The card's number starts hidden, as in every table. The row's drawer lists every column: there the number opens the
+    // card the use is on, as it does from the object's drawer by object.
+    expect(headings()).toEqual(["Object type", "Object name", "Object's module", "Page", "Used as"]);
+    const rowButton = (index: number) => page.all('#tableWrap tbody [data-act="row"]')[index];
+    rowButton(4).press();
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent, page.texts("#drawerBody dt")])
+      .toEqual(["Time", "Row 5 of Where Used", ["Object type", "Object name", "Object's module", "Page", "Card #", "Used as", "Object ID"]]);
+    expect(page.all('#drawerBody [data-act="card"]').map(link => [link.textContent, link.title])).toEqual([["2", "Open card details"]]);
+    page.find('#drawerBody [data-act="card"]').press();
+    expect([page.id("drawerTitle").textContent, page.texts("#drawerSub .link"), page.texts("#drawerBody h3")[0]]).toEqual(["Card 2 — Margin", ["Overview"], "Card details"]);
+    // The drawer closes back to the row that opened it from the table.
+    page.key("Escape");
+    expect(page.document.activeElement).toBe(rowButton(4));
+    // The card of the right page: card 1 of Stores, not card 1 of Overview.
+    rowButton(6).press();
+    page.find('#drawerBody [data-act="card"]').press();
+    expect([page.id("drawerTitle").textContent, page.texts("#drawerSub .link")]).toEqual(["Card 1 — Stores grid", ["Stores"]]);
+    page.key("Escape");
+    // A use on a card the result does not have: its number is a number, and the row's page is a link still.
+    rowButton(8).press();
+    expect([page.id("drawerTitle").textContent, page.texts("#drawerBody dd")[4], page.all('#drawerBody [data-act="card"]').length, page.all('#drawerBody [data-act="page"]').length])
+      .toEqual(["REP03 Gone", "9", 0, 1]);
+    page.key("Escape");
+    // With the column shown, the same holds in the table: a link in each row whose card is there, the number alone in the other.
+    page.id("colBtn").press();
+    page.all("#popover .pop-opt").find(option => option.children[1].textContent === "Card #")?.children[0].tick();
+    page.key("Escape");
+    expect([column("Card #"), page.all("#tableWrap tbody tr").map(row => row.querySelectorAll('[data-act="card"]').length)]).toEqual([["1", "1", "1", "2", "2", "1", "1", "1", "9"], [1, 1, 1, 1, 1, 1, 1, 1, 0]]);
+    page.all('#tableWrap tbody [data-act="card"]')[3].press();
+    expect(page.id("drawerTitle").textContent).toBe("Card 2 — Margin");
+  });
+
   it("saves the file whole in both ways: every use, as the result has it", async () => {
     await openWith(WHERE);
     goTo(3);
