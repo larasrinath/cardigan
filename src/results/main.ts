@@ -10,7 +10,7 @@ import {
   overviewHtml, rowDrawerHtml, rowDrawerSubHtml, runBannerHtml, runHtml, SUN_ICON, tableHtml, tableParts, type Links, type NavEntry, type TableView,
 } from "./markup.js";
 import type { PageId } from "./page-ids.js";
-import { analysedOf, cardSections, detailsOf, diagnosticLog, fileView, listedTables, overviewOf } from "./result-view.js";
+import { analysedOf, cardSections, detailsOf, diagnosticLog, fileView, listedTables, overviewOf, type FileView } from "./result-view.js";
 import { cellText, NONE, pageOf, rememberingSelect, rowName, valueCounts, type Row, type Sort, type TableQuery } from "./table-engine.js";
 
 /** The results page (results.html): the design's script, on the real result. It connects to the Anaplan tab the address
@@ -89,6 +89,8 @@ interface Shown {
    * is the table the rule gives, and `note` is the line under the table's name that says so. */
   table: ResultTable;
   note: string | undefined;
+  /** The CSV's text for each cell the table says in words, by the table's row and the column's place: a row's drawer shows both. */
+  exported: FileView["exported"];
   columns: Column[];
   keys: RowKeys;
   links: Links;
@@ -268,12 +270,12 @@ function showResult(next: AnalysisResult, at: Date): void {
   shown = new Map();
   for (const { index, table: file } of listedTables(next)) {
     // What the page counts, filters and searches is the table as it shows it: the columns' filters follow its rows too.
-    const { table, note } = fileView(next, file);
+    const { table, note, exported } = fileView(next, file);
     const columns = columnsOf(table);
     const keys = rowKeys(table);
     const page = cards !== undefined && keys.page !== undefined;
     shown.set(index, {
-      index, file, table, note, columns, keys, links: { page, card: page && keys.cardId !== undefined },
+      index, file, table, note, exported, columns, keys, links: { page, card: page && keys.cardId !== undefined },
       filters: new Map(), hidden: defaultHidden(columns), sort: undefined, page: 0,
     });
   }
@@ -517,7 +519,7 @@ function openRowDrawer(entry: Shown, row: Row, opener: Element): void {
   const position = entry.table.rows.findIndex(candidate => candidate === row) + 1;
   const named = rowNameIndex(entry.table);
   const name = (named === undefined ? "" : rowName([row[named] ?? ""])) || rowName(row) || `Row ${position}`;
-  openDrawer(name, rowDrawerSubHtml(position, cellText(entry.table.label)), rowDrawerHtml(entry.columns, row, entry.links), opener);
+  openDrawer(name, rowDrawerSubHtml(position, cellText(entry.table.label)), rowDrawerHtml(entry.columns, row, entry.links, entry.exported?.get(row)), opener);
 }
 /** A card: its row of the Cards file, and the rows of the other files that carry its Card ID on its page. */
 function openCardDrawer(page: string, cardId: string, opener: Element): void {

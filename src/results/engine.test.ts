@@ -217,6 +217,19 @@ describe("The results page against the engine in the Anaplan tab", () => {
     expect(result.tables.map(table => table.label)).toEqual(["Model Details", "Line Items", "Modules", "General Lists", "Processes", "Imports", "Import Data Sources", "Exports", "Other Actions",
       "Time Ranges", "Versions", "Model Calendar"]);
     expect(result.summary.at(-1)).toBe("Source Models: not exported (This model page has no REMOTE_MODEL axis.).");
+    // The page says the export's definitions in words. A line item's Summary, where a Ratio is said with the two names the
+    // export wrote beside it; an action's definition; and an export's, which the words are not known for, stays as the
+    // CSV has it. The table the result holds, which the CSV is written from, keeps Anaplan's text.
+    const cells = (file: string, header: string): unknown[][] => {
+      const table = result.tables.find(candidate => candidate.file === file);
+      if (!table) throw new Error(`The export wrote no ${file}.`);
+      const shown = fileView(result, table).table;
+      return [table, shown].map(each => each.rows.map(row => row[each.headers.indexOf(header)]));
+    };
+    const ratio = JSON.stringify({ summaryMethod: "RATIO", timeSummaryMethod: "RATIO", ratioNumeratorIdentifier: "_1901000000001_", ratioDenominatorIdentifier: "_1901000000002_" });
+    expect(cells("Line Items.csv", "Summary")).toEqual([["", '{"summaryMethod":"SUM"}', '{"summaryMethod":"SUM"}', ratio], ["", "Sum", "Sum", "Ratio = Profit / Revenue"]]);
+    expect(cells("Other Actions.csv", "Action")).toEqual([['{"actionType":"DELETE_BY_SELECTION"}'], ["Delete from List using Selection"]]);
+    expect(cells("Exports.csv", "Action")).toEqual([['{"exportType":"GRID_CURRENT_PAGE"}'], ['{"exportType":"GRID_CURRENT_PAGE"}']]);
   });
 
   it("takes a model's line items, 5,000 rows of 26 columns, in the pieces the engine sends them in", async () => {

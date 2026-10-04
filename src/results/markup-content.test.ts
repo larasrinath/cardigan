@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Cell, ResultTable } from "../result-types.js";
 import { columnsOf, type Column } from "./columns.js";
 import { parseMarkup, type FakeElement } from "./dom.test-support.js";
-import { cellHtml, colChooserHtml, colFilterHtml, navHtml, overviewHtml, pagerHtml, tableHtml, type Links, type TableView } from "./markup.js";
+import { cellHtml, colChooserHtml, colFilterHtml, navHtml, overviewHtml, pagerHtml, rowDrawerHtml, tableHtml, type Links, type TableView } from "./markup.js";
 import type { Overview } from "./result-view.js";
 import { pageOf, selectRows } from "./table-engine.js";
 
@@ -263,6 +263,25 @@ describe("What the results page's markup shows", () => {
       bare.children.map(child => child.localName)]).toEqual([[["Line Items", "120", "rows"]], 0, 0, ["h1", "div"]]);
     const one = parseMarkup(overviewHtml(overviewWith({ cardTypes: [["Grid", 3]] })));
     expect([one.querySelectorAll(".panel h2").map(text), one.querySelector(".tb-fill")?.getAttribute("style")]).toEqual([["Cards by type"], "display:block;width:100%"]);
+  });
+
+  it("shows in a row's drawer, after a cell that is said in words, the text the CSV has in its place, named as the CSV's", () => {
+    const columns = [column(0, "Name"), column(1, "Format"), column(2, "Formula"), column(3, "Summary", "tag")];
+    const row = ["Margin %", "Number, 2 decimal places, %", "Margin / Revenue", "Ratio = Margin / Revenue"];
+    const format = '{"decimalPlaces":2,"unitsType":"PERCENTAGE","dataType":"NUMBER"}';
+    const summary = '{"summaryMethod":"RATIO"} <b>bold</b>\n  second line';
+    const drawer = parseMarkup(rowDrawerHtml(columns, row, NO_LINKS, new Map([[1, format], [3, summary]])));
+    // Each column's name beside its cell as the table shows it; after a cell said in words, the CSV's text under "in the CSV".
+    expect(drawer.querySelectorAll("dt").map(name => name.textContent)).toEqual(["Name", "Format", "Format in the CSV", "Formula", "Summary", "Summary in the CSV"]);
+    expect(drawer.querySelectorAll("dd").map(value => value.textContent)).toEqual(["Margin %", "Number, 2 decimal places, %", format, "Margin / Revenue", "Ratio = Margin / Revenue", summary]);
+    // The CSV's text is a text, whole: in the element that keeps its line breaks and spaces, whatever the column's kind, and never an element.
+    expect(drawer.querySelectorAll("dd").map(value => [value.children.map(child => child.classList.contains("cell-t") || child.classList.contains("tag")), value.querySelector(".cell-t")?.textContent]))
+      .toEqual([[[true], "Margin %"], [[true], "Number, 2 decimal places, %"], [[true], format], [[true], "Margin / Revenue"], [[true], "Ratio = Margin / Revenue"], [[true], summary]]);
+    expect([drawer.querySelectorAll("b").length, drawer.querySelectorAll("h3").map(text)]).toEqual([0, ["All columns"]]);
+    // A row none of whose cells is said in words, and a table that has no such cells, show the columns alone.
+    for (const none of [rowDrawerHtml(columns, row, NO_LINKS, new Map()), rowDrawerHtml(columns, row, NO_LINKS)]) {
+      expect(parseMarkup(none).querySelectorAll("dt").map(name => name.textContent)).toEqual(["Name", "Format", "Formula", "Summary"]);
+    }
   });
 
   it("says under a table's name what the table leaves to the CSV, as text, and nothing for a table that lists every row", () => {
