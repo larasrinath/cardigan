@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import type { Cell, ResultTable } from "../result-types.js";
 import { columnsOf, type Column } from "./columns.js";
 import { parseMarkup, type FakeElement } from "./dom.test-support.js";
-import { cellHtml, colChooserHtml, colFilterHtml, navHtml, overviewHtml, pagerHtml, rowDrawerHtml, tableHtml, type Links, type TableView } from "./markup.js";
+import { cellHtml, colChooserHtml, colFilterHtml, navHtml, objectDrawerHtml, objectDrawerSubHtml, overviewHtml, pagerHtml, rowDrawerHtml, tableHtml, USES_AT_FIRST, type Links,
+  type TableView } from "./markup.js";
 import type { Overview } from "./result-view.js";
 import { pageOf, selectRows } from "./table-engine.js";
+import type { WhereUsedObject } from "./where-used-view.js";
 
 // What each piece of markup shows: the right value in the right place. markup.test.ts checks that no value can change the
 // markup, with the same hostile texts everywhere; here every value is harmless and different from its neighbours, so a
@@ -281,6 +283,84 @@ describe("What the results page's markup shows", () => {
     // A row none of whose cells is said in words, and a table that has no such cells, show the columns alone.
     for (const none of [rowDrawerHtml(columns, row, NO_LINKS, new Map()), rowDrawerHtml(columns, row, NO_LINKS)]) {
       expect(parseMarkup(none).querySelectorAll("dt").map(name => name.textContent)).toEqual(["Name", "Format", "Formula", "Summary"]);
+    }
+  });
+
+  it("puts the switch between a table's ways at the head of its toolbar: a button a way, the shown one said and filled", () => {
+    const ways = [{ way: "object", label: "By object", chosen: true }, { way: "use", label: "Every use", chosen: false }];
+    const view = parseMarkup(tableHtml(viewOf(CARDS, LINKS, { ways })));
+    expect(view.querySelector(".toolbar")?.children.map(child => child.id)).toEqual(["tableWays", "searchWrap", "colBtn", "resetBtn", "rowCount", "pager"]);
+    const group = view.querySelector("#tableWays");
+    expect([group?.getAttribute("role"), group?.getAttribute("aria-label"), group?.children.map(child => child.localName)]).toEqual(["group", "How Cards is listed", ["button", "button"]]);
+    expect(group?.children.map(button => [text(button), button.dataset.way, button.getAttribute("aria-pressed"), button.classList.contains("primary"), button.getAttribute("type")]))
+      .toEqual([["By object", "object", "true", true, "button"], ["Every use", "use", "false", false, "button"]]);
+    // The other way round, the other button is the shown one; a table of one way has no switch.
+    const other = parseMarkup(tableHtml(viewOf(CARDS, LINKS, { ways: ways.map(way => ({ ...way, chosen: !way.chosen })) })));
+    expect(other.querySelectorAll("#tableWays button").map(button => [button.getAttribute("aria-pressed"), button.classList.contains("primary")])).toEqual([["false", false], ["true", true]]);
+    for (const none of [viewOf(CARDS, LINKS), viewOf(CARDS, LINKS, { ways: [] })]) expect(parseMarkup(tableHtml(none)).querySelectorAll("#tableWays, [data-way]")).toEqual([]);
+  });
+
+  it("shows an object in its drawer: what it is used as with its counts, and its uses by page, each use leading to its page and its card", () => {
+    expect(USES_AT_FIRST).toBe(50);
+    const object: WhereUsedObject = { type: "Dimension", name: "Time", module: "—", model: "Model one", pages: 2, cards: 3, id: "20000000003",
+      roles: [["Column dimension", 2], ["", 1]], uses: [
+        { row: 2, page: "Overview", card: 1, usedAs: "Column dimension", cardId: "card-a" },
+        { row: 6, page: "Stores <b>north</b>", card: 1, usedAs: "Column dimension" },
+        { row: 9, page: "Overview", card: "2", usedAs: "", cardId: "card-b" }] };
+    const drawer = parseMarkup(objectDrawerHtml(object, LINKS, false));
+    const rows = (section: number) => drawer.querySelectorAll(".d-sec")[section].querySelectorAll("tbody tr");
+    expect(drawer.querySelectorAll("h3").map(text)).toEqual(["Used as", "Uses (3)"]);
+    expect(drawer.querySelectorAll(".d-sec").map(section => section.querySelectorAll("th").map(text))).toEqual([["Used as", "Uses"], ["Page", "Card #", "Used as"]]);
+    // Each role with its number of uses; a role that is blank is said to be.
+    expect(rows(0).map(row => row.children.map(text))).toEqual([["Column dimension", "2"], ["(blank)", "1"]]);
+    // The uses, grouped by page: the pages in the file's order, and under a page its uses in the file's order.
+    expect(rows(1).map(row => row.children.map(text))).toEqual([["Overview", "1", "Column dimension"], ["Overview", "2", ""], ["Stores <b>north</b>", "1", "Column dimension"]]);
+    // A page is named with its first use, as a link to its cards; with its other uses it is said to a screen reader only.
+    // Each link carries the use's place among the object's uses, as the file has them: here the third use stands second.
+    const links = (row: number, cell: number) => rows(1)[row].children[cell].querySelectorAll("button").map(button => [button.dataset.act, button.dataset.use, text(button), button.title]);
+    expect([links(0, 0), links(1, 0), links(2, 0)]).toEqual([[["use-page", "0", "Overview", "Show cards on Overview"]], [], [["use-page", "1", "Stores <b>north</b>", "Show cards on Stores <b>north</b>"]]]);
+    expect(rows(1).map(row => row.children[0].querySelectorAll(".sr-only").map(text))).toEqual([[], ["Overview"], []]);
+    // A card's number opens the card where the use names its card; a use without one shows the number alone.
+    expect([links(0, 1), links(1, 1), links(2, 1)]).toEqual([[["use-card", "0", "1", "Open card details"]], [["use-card", "2", "2", "Open card details"]], []]);
+    expect([drawer.querySelectorAll("b").length, drawer.querySelectorAll('[data-act="more-uses"]').length, drawer.querySelector("#drawerUses")?.classList.contains("d-sec")]).toEqual([0, 0, true]);
+    // Without the cards to show, nothing is a link: the uses are text.
+    const plain = parseMarkup(objectDrawerHtml(object, NO_LINKS, false));
+    expect([plain.querySelectorAll("button").length, plain.querySelectorAll(".d-sec")[1].querySelectorAll("tbody tr").map(row => row.children.map(text))])
+      .toEqual([0, [["Overview", "1", "Column dimension"], ["Overview", "2", ""], ["Stores <b>north</b>", "1", "Column dimension"]]]);
+
+    // The line under the object's name: what says something of its type, its module, its model in an app of several, its ID, and its counts.
+    const sub = (changes: Partial<WhereUsedObject>, multiModel: boolean) => text(parseMarkup(`<div>${objectDrawerSubHtml({ ...object, ...changes }, multiModel)}</div>`));
+    expect([sub({}, false), sub({}, true), sub({ module: "REP01 <i>Sales</i>", pages: 1, cards: 1 }, true), sub({ id: "—", model: "—", type: "" }, true)])
+      .toEqual(["Dimension · 20000000003 · 2 pages, 3 cards", "Dimension · Model one · 20000000003 · 2 pages, 3 cards", "Dimension · REP01 <i>Sales</i> · Model one · 20000000003 · 1 page, 1 card", "2 pages, 3 cards"]);
+    const pill = parseMarkup(`<div>${objectDrawerSubHtml(object, false)}</div>`).querySelector(".id-pill");
+    expect([pill?.dataset.copy, pill?.getAttribute("aria-label")]).toEqual(["20000000003", "Copy ID 20000000003"]);
+  });
+
+  it("lists the first fifty of an object's uses, with a control for the rest, and all of them once asked", () => {
+    const uses = Array.from({ length: 130 }, (_, index) => ({ row: index, page: `Page ${index % 65}`, card: index < 65 ? 1 : 2, usedAs: "Column dimension", cardId: `card-${index}` }));
+    const object: WhereUsedObject = { type: "Dimension", name: "Time", module: "—", model: "—", pages: 65, cards: 130, id: "20000000003", roles: [["Column dimension", 130]], uses };
+    const first = parseMarkup(objectDrawerHtml(object, LINKS, false));
+    const listed = (drawer: FakeElement) => drawer.querySelectorAll("#drawerUses tbody tr");
+    // The heading counts them all. Fifty are listed: the first twenty-five pages, each with both of its uses, although the
+    // file lists each page's second use sixty-five rows after its first.
+    expect([text(first.querySelectorAll("h3")[1]), listed(first).length, listed(first).slice(0, 3).map(row => row.children.map(text)), listed(first)[49].children.map(text)])
+      .toEqual(["Uses (130)", 50, [["Page 0", "1", "Column dimension"], ["Page 0", "2", "Column dimension"], ["Page 1", "1", "Column dimension"]], ["Page 24", "2", "Column dimension"]]);
+    expect(listed(first).slice(0, 2).map(row => row.querySelectorAll("[data-use]").map(button => button.dataset.use))).toEqual([["0", "0"], ["65"]]);
+    // A line says so, with the control that lists the rest; no row is marked as where the rest begins.
+    const more = first.querySelector("#drawerUses p");
+    expect([more?.textContent.replace(/\s+/g, " ").trim(), more?.querySelectorAll("button").map(button => [button.dataset.act, text(button), button.getAttribute("type")]), first.querySelectorAll("#usesRest").length])
+      .toEqual(["The first 50 of 130 uses are listed. Show all 130 uses", [["more-uses", "Show all 130 uses", "button"]], 0]);
+    // All of them: every use once, no control, and the first of the rest can take the focus.
+    const all = parseMarkup(objectDrawerHtml(object, LINKS, true));
+    expect([listed(all).length, all.querySelectorAll('[data-act="more-uses"]').length, all.querySelectorAll("#drawerUses p").length]).toEqual([130, 0, 0]);
+    expect(new Set(listed(all).map(row => row.querySelector('[data-act="use-card"]')?.dataset.use)).size).toBe(130);
+    const rest = all.querySelector("#usesRest");
+    expect([rest === listed(all)[50], rest?.getAttribute("tabindex"), rest?.children.map(text), listed(all).filter(row => row.id !== "").length]).toEqual([true, "-1", ["Page 25", "1", "Column dimension"], 1]);
+    // An object with fifty uses or fewer lists them all at once, either way.
+    const few = { ...object, uses: uses.slice(0, 50) };
+    for (const asked of [false, true]) {
+      const drawer = parseMarkup(objectDrawerHtml(few, LINKS, asked));
+      expect([listed(drawer).length, drawer.querySelectorAll('[data-act="more-uses"]').length, drawer.querySelectorAll("#usesRest").length]).toEqual([50, 0, 0]);
     }
   });
 

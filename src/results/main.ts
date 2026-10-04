@@ -9,11 +9,12 @@ import { analysedLine, notKeptNote } from "./keep-notes.js";
 import { ResultKeeper } from "./keep-result.js";
 import {
   cardDrawerHtml, cardDrawerSubHtml, colChooserHtml, colFilterHtml, crumbsHtml, headerMetaHtml, MOON_ICON, navHtml,
-  noteBannerHtml, overviewHtml, rowDrawerHtml, rowDrawerSubHtml, runBannerHtml, runHtml, SUN_ICON, tableHtml, tableParts, type Links, type NavEntry, type TableView,
+  noteBannerHtml, objectDrawerHtml, objectDrawerSubHtml, overviewHtml, rowDrawerHtml, rowDrawerSubHtml, runBannerHtml, runHtml, SUN_ICON, tableHtml, tableParts, type Links, type NavEntry, type TableView,
 } from "./markup.js";
 import type { PageId } from "./page-ids.js";
 import { analysedOf, cardSections, detailsOf, diagnosticLog, fileView, listedTables, overviewOf, type FileView } from "./result-view.js";
 import { cellText, NONE, pageOf, rememberingSelect, rowName, valueCounts, type Row, type Sort, type TableQuery } from "./table-engine.js";
+import { objectOf, WHERE_USED_FILE, whereUsedView, type WhereUsedObject, type WhereUsedView } from "./where-used-view.js";
 
 /** The results page (results.html): the design's script, on the real result. It connects to the Anaplan tab the address
  * names and says what that tab shows. The analysis starts by itself when the icon has just opened the page, and otherwise
@@ -101,6 +102,13 @@ interface Shown {
   hidden: Set<number>;
   sort: Sort | undefined;
   page: number;
+  /** The number the navigation shows for the file: the rows its table lists, or for a file shown in two ways the file's own. */
+  listed: number;
+  /** For a file the page shows in two ways, an app's Where Used: both of them, each with what the user chose for it. The
+   * one that is shown is the file's entry among `shown`. */
+  ways?: { object: Shown; use: Shown };
+  /** For the way that lists the file by object (where-used-view.ts): the view, whose rows are this table's. */
+  objects?: WhereUsedView;
 }
 type View = "overview" | number;
 
@@ -127,6 +135,12 @@ const state = {
 /** The rows on the page now, and the row the drawer shows: what a click on a link or a row refers to. */
 let currentSlice: readonly Row[] = [];
 let drawerRow: { entry: Shown; row: Row } | undefined;
+/** The object the drawer shows, for a row of Where Used by object: what a click on one of its uses refers to, and whether
+ * all of its uses are listed. */
+let drawerObject: { view: WhereUsedView; object: WhereUsedObject; all: boolean } | undefined;
+/** Which way an app's Where Used table is shown: by object unless Every use was chosen. The choice lasts while the page
+ * is open, through other tables and through a new result. */
+let everyUse = false;
 let select = rememberingSelect();
 
 const defaultHidden = (columns: readonly Column[]): Set<number> => new Set(columns.filter(column => column.hidden).map(column => column.index));
@@ -182,7 +196,7 @@ function updateActions(): void {
 function navEntries(): NavEntry[] {
   return [
     { id: "overview", label: "Overview" },
-    ...[...shown.values()].map(entry => ({ id: String(entry.index), label: cellText(entry.table.label), count: entry.table.rows.length })),
+    ...[...shown.values()].map(entry => ({ id: String(entry.index), label: cellText(entry.table.label), count: entry.listed })),
   ];
 }
 
@@ -201,6 +215,7 @@ function tableView(entry: Shown): TableView {
   currentSlice = page.rows;
   return {
     label: cellText(entry.table.label), note: entry.note,
+    ways: entry.ways && [{ way: "object", label: "By object", chosen: entry === entry.ways.object }, { way: "use", label: "Every use", chosen: entry === entry.ways.use }],
     columns: entry.columns.filter(column => !entry.hidden.has(column.index)), rows: page.rows,
     page: page.page, pages: page.pages, pageSize: state.pageSize, from: page.from, to: page.to, total: page.total, all: entry.table.rows.length,
     search: state.search, sort: entry.sort, filtered: new Set(entry.filters.keys()), context: state.context, links: entry.links,
@@ -288,6 +303,7 @@ function showResult(next: AnalysisResult, at: Date, back = false): void {
   closeDrawer();
   currentSlice = [];
   drawerRow = undefined;
+  drawerObject = undefined;
   select = rememberingSelect();
   el("banners").innerHTML = "";
   result = next;
@@ -296,16 +312,32 @@ function showResult(next: AnalysisResult, at: Date, back = false): void {
   details = detailsOf(next);
   cards = cardsOf(next);
   shown = new Map();
+  // An app's Where Used file by object (where-used-view.ts), when the result has what that takes: the file's first table.
+  const byObject = whereUsedView(next);
+  const whereUsed = byObject && next.tables.find(table => table.file === WHERE_USED_FILE);
   for (const { index, table: file } of listedTables(next)) {
     // What the page counts, filters and searches is the table as it shows it: the columns' filters follow its rows too.
     const { table, note, exported } = fileView(next, file);
     const columns = columnsOf(table);
     const keys = rowKeys(table);
     const page = cards !== undefined && keys.page !== undefined;
-    shown.set(index, {
+    const entry: Shown = {
       index, file, table, note, exported, columns, keys, links: { page, card: page && keys.cardId !== undefined },
-      filters: new Map(), hidden: defaultHidden(columns), sort: undefined, page: 0,
-    });
+      filters: new Map(), hidden: defaultHidden(columns), sort: undefined, page: 0, listed: table.rows.length,
+    };
+    shown.set(index, entry);
+    if (!byObject || file !== whereUsed) continue;
+    // The file in two ways. By object, the table is the view's: one row an object, in the view's own order and with its
+    // columns. Its cells link to nothing: a row opens the object, which lists its uses. The file's own number of rows is
+    // what the navigation shows either way: it is what the CSV holds, and a download is the file in both.
+    const object: Shown = {
+      index, file, table: { ...file, headers: byObject.headers, rows: byObject.rows }, note: byObject.note, exported: undefined, columns: byObject.columns,
+      keys: { page: undefined, cardId: undefined }, links: { page: false, card: false },
+      filters: new Map(), hidden: defaultHidden(byObject.columns), sort: undefined, page: 0, listed: file.rows.length, objects: byObject,
+    };
+    entry.listed = file.rows.length;
+    entry.ways = object.ways = { object, use: entry };
+    shown.set(index, everyUse ? entry : object);
   }
   state.view = "overview";
   state.search = "";
@@ -550,11 +582,23 @@ function closeDrawer(): void {
  * line under it says which row of which table it is, by its place among the rows the table lists, which a search, a
  * filter or a sort does not change. */
 function openRowDrawer(entry: Shown, row: Row, opener: Element): void {
+  const object = entry.objects && objectOf(entry.objects, row);
+  if (entry.objects && object) return openObjectDrawer(entry.objects, object, opener);
+  drawerObject = undefined;
   drawerRow = { entry, row };
   const position = entry.table.rows.findIndex(candidate => candidate === row) + 1;
   const named = rowNameIndex(entry.table);
   const name = (named === undefined ? "" : rowName([row[named] ?? ""])) || rowName(row) || `Row ${position}`;
   openDrawer(name, rowDrawerSubHtml(position, cellText(entry.table.label)), rowDrawerHtml(entry.columns, row, entry.links, entry.exported?.get(row)), opener);
+}
+/** What an object's uses may link to: a page's cards and a card's details, where the result has the cards to show. */
+const useLinks = (): Links => ({ page: cards !== undefined, card: cards !== undefined });
+/** An object of Where Used by object: headed by its name, with what it is and where it is used under it, then its roles
+ * and its uses. A page among its uses jumps to that page's cards, and a card's number opens the card. */
+function openObjectDrawer(view: WhereUsedView, object: WhereUsedObject, opener: Element): void {
+  drawerRow = undefined;
+  drawerObject = { view, object, all: false };
+  openDrawer(rowName([object.name]) || rowName([object.type]) || "Object", objectDrawerSubHtml(object, view.multiModel), objectDrawerHtml(object, useLinks(), false), opener);
 }
 /** A card: its row of the Cards file, and the rows of the other files that carry its Card ID on its page. */
 function openCardDrawer(page: string, cardId: string, opener: Element): void {
@@ -570,6 +614,7 @@ function openCardDrawer(page: string, cardId: string, opener: Element): void {
     return index === undefined ? "" : cellText(row[index]);
   };
   const title = cell("Card title");
+  drawerObject = undefined;
   drawerRow = { entry, row };
   openDrawer(`Card ${cell("Card #")}${title !== "" && title !== NONE ? ` — ${title}` : ""}`, cardDrawerSubHtml(page, cell("Card type"), cardId),
     cardDrawerHtml(entry.columns, row, entry.links, cardSections(result, page, cardId)), opener);
@@ -641,6 +686,23 @@ document.addEventListener("click", event => {
       case "row":
         if (from) openRowDrawer(from.entry, from.row, act);
         return;
+      // A use of the object in the drawer, by its place among the object's uses: its page's cards, or its card.
+      case "use-page":
+      case "use-card": {
+        const use = drawerObject?.object.uses[Number(act.dataset.use)];
+        if (!use) return;
+        if (act.dataset.act === "use-page") gotoPage(use.page);
+        else if (use.cardId !== undefined) openCardDrawer(use.page, use.cardId, act);
+        return;
+      }
+      // Every use of the object in the drawer. The control goes with what it did: the first use it added takes the focus.
+      case "more-uses":
+        if (!drawerObject) return;
+        drawerObject.all = true;
+        el("drawerBody").innerHTML = objectDrawerHtml(drawerObject.object, useLinks(), true);
+        focusOn("#usesRest", "#drawerClose");
+        announce(`All ${drawerObject.object.uses.length} uses are listed.`);
+        return;
       // Both of these go away with what they clear, so the focus moves on: to the view, and to the search box.
       case "clear-context":
         state.context = undefined;
@@ -711,6 +773,17 @@ document.addEventListener("click", event => {
     const owner = `[data-colfilter="${index}"]`;
     if ((!popover.hidden && popOwner === owner) || !column) closePopover();
     else openColFilter(entry, column, owner, filterButton);
+    return;
+  }
+  // The switch of a file that is shown in two ways. Each way keeps what was chosen for it; the search goes with the user
+  // from one to the other. The switch is drawn again, so the way's own button takes the focus back.
+  const way = target.closest<HTMLElement>("[data-way]");
+  if (way && entry?.ways) {
+    closePopover();
+    everyUse = way.dataset.way === "use";
+    shown.set(entry.index, everyUse ? entry.ways.use : entry.ways.object);
+    renderAll();
+    focusOn(`[data-way="${everyUse ? "use" : "object"}"]`);
     return;
   }
   const chooser = target.closest("#colBtn");

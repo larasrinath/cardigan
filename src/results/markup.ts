@@ -1,6 +1,7 @@
 import { rowColumns, type Column } from "./columns.js";
 import type { Analysed, CardSection, Overview } from "./result-view.js";
 import { cellText, NONE, pagerItems, type Row, type Sort } from "./table-engine.js";
+import type { WhereUsedObject } from "./where-used-view.js";
 
 /** The results page's markup, as the design writes it: each function turns data into the HTML text the page then shows.
  * Every string of a result was typed by an Anaplan user (card titles, text cards, names, formulas), so every value that
@@ -235,10 +236,16 @@ export function noteBannerHtml(): string {
 
 /* ---------- table ---------- */
 
+/** One of the ways a table can be shown, for a file the page shows in more than one: its name among the page's own, the
+ * words on its button, and whether it is the one shown. */
+export interface TableWay { way: string; label: string; chosen: boolean }
+
 export interface TableView {
   label: string;
   /** A line under the table's name, for a table that does not list every row of its file. */
   note: string | undefined;
+  /** The ways the table can be shown, when it has more than one: a switch stands at the head of its toolbar. */
+  ways?: readonly TableWay[];
   /** The columns shown, in the table's order. */
   columns: readonly Column[];
   /** The rows of the page shown. */
@@ -341,16 +348,22 @@ export function tableParts(view: TableView): TableParts {
 
 /** A table view whole: its name, its toolbar, and the table's box under it, with the parts above in their places. The
  * toolbar holds the search box and the Columns and Reset buttons, and at its right end the count and then the pager, which
- * is its last child: nothing stands under the table. */
+ * is its last child: nothing stands under the table. A table that can be shown in more than one way has the switch
+ * between them at the toolbar's head: a button for each way, which says whether it is the one shown (aria-pressed), and
+ * the one shown is also the filled one. */
 export function tableHtml(view: TableView): string {
   const label = esc(view.label);
   const parts = tableParts(view);
+  const ways = view.ways?.length ? `
+      <div class="ways" id="tableWays" role="group" aria-label="How ${label} is listed">
+        ${view.ways.map(way => `<button type="button" class="btn sm${way.chosen ? " primary" : ""}" data-way="${esc(way.way)}" aria-pressed="${way.chosen ? "true" : "false"}">${esc(way.label)}</button>`).join("\n        ")}
+      </div>` : "";
   // The line under the name has no style of its own in the stylesheet yet: it is written as the design's small muted text.
   const note = view.note === undefined ? "" : `
     <p class="view-note" style="font-size:12px;color:var(--text-2);margin:-6px 0 12px">${esc(view.note)}</p>`;
   return `
     <h1 class="view-title">${label}</h1>${note}
-    <div class="toolbar">
+    <div class="toolbar">${ways}
       <div class="search-wrap ${view.search ? "has-value" : ""}" id="searchWrap">
         <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">${SEARCH_PATH}</svg>
         <input id="tblSearch" type="search" value="${esc(view.search)}" placeholder="Search all columns…" aria-label="Search ${label}">
@@ -439,4 +452,59 @@ export function cardDrawerHtml(columns: readonly Column[], row: Row, links: Link
       ${section.rows.length ? `<table class="mini"><thead><tr>${section.headings.map(heading => `<th>${esc(heading)}</th>`).join("")}</tr></thead>
         <tbody>${section.rows.map(cells => `<tr>${cells.map(cell => `<td>${esc(cell)}</td>`).join("")}</tr>`).join("")}</tbody></table>`
       : `<p style="font-size:12px;color:var(--text-3);margin:4px 0 0">No ${esc(section.none)} on this card.</p>`}</div>`).join("")}`;
+}
+
+/** How many of an object's uses its drawer lists at first. An object such as Time can have hundreds. */
+export const USES_AT_FIRST = 50;
+
+const counted = (number: number, one: string): string => `${number} ${one}${number === 1 ? "" : "s"}`;
+const saysSomething = (text: string): boolean => text.trim() !== "" && text.trim() !== NONE;
+
+/** Under an object's name in its drawer: its type, its module, its model in an app of several, its ID to copy, and on how
+ * many pages and cards it is used. A part that says nothing is left out. */
+export function objectDrawerSubHtml(object: WhereUsedObject, multiModel: boolean): string {
+  return [
+    saysSomething(object.type) ? esc(object.type) : "",
+    saysSomething(object.module) ? esc(object.module) : "",
+    multiModel && saysSomething(object.model) ? esc(object.model) : "",
+    saysSomething(object.id) ? idPill(object.id) : "",
+    `${counted(object.pages, "page")}, ${counted(object.cards, "card")}`,
+  ].filter(part => part !== "").join(" · ");
+}
+
+/** An object of the Where Used table in full: each role it is used in with its number of uses, then its uses, as Page,
+ * Card # and Used as. The uses are grouped by page, the pages in the file's order and each page's uses in the file's
+ * order: a page is named with the first of its uses, and for a screen reader with each of them. A page's name jumps to
+ * that page's cards, and a card's number opens the card, where the result has the cards to show (`links`) and, for a
+ * card, the use names its card. A use is known by its place among the object's uses, which the page counted itself.
+ * At first the drawer lists `USES_AT_FIRST` uses, with a control that lists them all (`all`): the first of the rest then
+ * takes the focus. */
+export function objectDrawerHtml(object: WhereUsedObject, links: Links, all: boolean): string {
+  const byPage = new Map<string, number[]>();
+  object.uses.forEach((use, index) => {
+    const uses = byPage.get(use.page);
+    if (uses) uses.push(index); else byPage.set(use.page, [index]);
+  });
+  const grouped = [...byPage.values()].flat();
+  const listed = all ? grouped : grouped.slice(0, USES_AT_FIRST);
+  const rows = listed.map((index, at) => {
+    const use = object.uses[index];
+    const first = at === 0 || object.uses[listed[at - 1]].page !== use.page;
+    const page = !first ? `<span class="sr-only">${esc(use.page)}</span>`
+      : links.page && saysSomething(use.page) ? `<button type="button" class="link" data-act="use-page" data-use="${index}" title="Show cards on ${esc(use.page)}">${esc(use.page)}</button>`
+      : esc(use.page);
+    const card = links.card && use.cardId !== undefined ? `<button type="button" class="link" data-act="use-card" data-use="${index}" title="Open card details">${esc(use.card)}</button>` : esc(use.card);
+    // The first use that the control added is where the reader goes on: it can take the focus.
+    return `<tr${all && at === USES_AT_FIRST ? ' id="usesRest" tabindex="-1"' : ""}><td>${page}</td><td>${card}</td><td>${esc(use.usedAs)}</td></tr>`;
+  });
+  const more = listed.length < grouped.length ? `
+      <p style="font-size:12px;color:var(--text-3);margin:4px 0 0">The first ${listed.length} of ${grouped.length} uses are listed.
+        <button type="button" class="link" data-act="more-uses">Show all ${grouped.length} uses</button></p>` : "";
+  return `
+    <div class="d-sec"><h3>Used as</h3>
+      <table class="mini"><thead><tr><th>Used as</th><th>Uses</th></tr></thead>
+        <tbody>${object.roles.map(([role, uses]) => `<tr><td>${role === "" ? BLANK : esc(role)}</td><td>${esc(uses)}</td></tr>`).join("")}</tbody></table></div>
+    <div class="d-sec" id="drawerUses"><h3>Uses (${grouped.length})</h3>
+      <table class="mini"><thead><tr><th>Page</th><th>Card #</th><th>Used as</th></tr></thead>
+        <tbody>${rows.join("")}</tbody></table>${more}</div>`;
 }
