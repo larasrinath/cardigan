@@ -15,10 +15,10 @@ import { cellText } from "./table-engine.js";
  * The rest is how the classic client itself reads this grid (anaplan/gridlet/_editor/ActionEditor.js, `LineItemsLoader`
  * and the editors that use it). A line item belongs to the nearest module's row above it. The view takes that row for the
  * line item's module only when its name is the line item's Module Name: otherwise the module's row is missing, and the
- * line item is shown as it is. A dash under Applies To stands for the module's Applies To. After a line item that has
- * Start of Section ticked and an Applies To of its own, it stands for that line item's instead, until the next line item
- * with Start of Section ticked or the next module. Anything but a dash, the empty text included, is the line item's own
- * (a subsidiary view). */
+ * line item is shown as it is. A dash under Applies To stands for the module's Applies To. It does so whatever Start of
+ * Section says: that is a break in how the blueprint shows a module's line items, not a change of dimensions (one of the
+ * client's three editors reads it as one; the view does not follow it). Anything but a dash, the empty text included, is
+ * the line item's own (a subsidiary view). */
 
 /** The file the view is for: the one the model export writes the Line Items grid to (model/export.ts). */
 export const LINE_ITEMS_FILE = "Line Items.csv";
@@ -26,13 +26,11 @@ export const LINE_ITEMS_FILE = "Line Items.csv";
 /** The grid's own columns the view reads, by the headers Anaplan gives them. The row's name is the first column. */
 export const MODULE_NAME = "Module Name";
 export const APPLIES_TO = "Applies To";
-export const START_OF_SECTION = "Start of Section";
 
-/** The column the view adds after Applies To, and what it says of each line item's Applies To: the module's, that of the
- * line item that started its section, the line item's own, or the module's when the module's row was not found (the dash
- * is then shown as it is). */
+/** The column the view adds after Applies To, and what it says of each line item's Applies To: the module's, the line
+ * item's own, or the module's when the module's row was not found (the dash is then shown as it is). */
 export const APPLIES_TO_FROM = "Applies To from";
-export const APPLIES_TO_SOURCE = { module: "Module", section: "Section", lineItem: "Line item", notFound: "Module (not found)" } as const;
+export const APPLIES_TO_SOURCE = { module: "Module", lineItem: "Line item", notFound: "Module (not found)" } as const;
 
 /** What a line item shows under Applies To when it has no dimensions of its own. */
 const DASH = "-";
@@ -67,23 +65,20 @@ function viewOf(table: ResultTable): LineItemsView | undefined {
   const moduleName = headers.indexOf(MODULE_NAME);
   const appliesTo = headers.indexOf(APPLIES_TO);
   if (moduleName < 1 || appliesTo < 1) return undefined;
-  const startOfSection = headers.indexOf(START_OF_SECTION);
   // The row's name, its module, then every other column in the file's order.
   const order = [0, moduleName, ...headers.map((_, index) => index).filter(index => index !== 0 && index !== moduleName)];
 
   const rows: Cell[][] = [];
   let moduleRows = 0;
   let namedModules = 0;
-  // The nearest module's row above, and the Applies To of the line item that started the section, with its module's name.
+  // The nearest module's row above.
   let above: ModuleRow | undefined;
-  let section: { module: string; appliesTo: Cell } | undefined;
   for (const row of table.rows) {
     if (!Array.isArray(row)) return undefined;
     const inModule = cellText(row[moduleName]);
     if (inModule.trim() === "") {
       moduleRows++;
       above = { name: cellText(row[0]), appliesTo: row[appliesTo] ?? "", named: false };
-      section = undefined;
       continue;
     }
     const itsModule = above?.name === inModule ? above : undefined;
@@ -93,10 +88,7 @@ function viewOf(table: ResultTable): LineItemsView | undefined {
     }
     const own = row[appliesTo] ?? "";
     const dash = cellText(own).trim() === DASH;
-    if (section?.module !== inModule) section = undefined;
-    if (startOfSection >= 0 && cellText(row[startOfSection]).trim().toLowerCase() === "true") section = dash ? undefined : { module: inModule, appliesTo: own };
     const [shown, from]: [Cell, string] = !dash ? [own, APPLIES_TO_SOURCE.lineItem]
-      : section ? [section.appliesTo, APPLIES_TO_SOURCE.section]
       : itsModule ? [itsModule.appliesTo, APPLIES_TO_SOURCE.module]
       : [own, APPLIES_TO_SOURCE.notFound];
     const cells: Cell[] = order.flatMap(index => (index === appliesTo ? [shown, from] : [row[index] ?? ""]));
