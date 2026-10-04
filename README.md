@@ -40,16 +40,18 @@ After a rebuild, click the reload icon on the extension's card in `chrome://exte
 1. Open an app in Anaplan while signed in: `https://<region>.app.anaplan.com/a/apps/app/<app id>…` (in Australia, `https://au1a.app2.anaplan.com/…`). For a model, see [Model export](#model-export).
 2. Click the Cardigan icon in Chrome's toolbar. The results page opens in a new tab, right after the Anaplan tab, and starts the analysis by itself.
 3. The page shows each step as it reads. Keep the Anaplan tab open until it finishes.
-4. Read the results on the page, or save them: **Download all (.zip)** saves every file, and **Download this table (.csv)** saves the table on screen.
+4. Read the results on the page, or save them: **Download all (.zip)** saves every file, and **Download this table (.csv)** saves the table on screen. A download whose name cannot be used as a file name is saved as `Cardigan export.zip` (a table as `table.csv`).
 
 The results page shows:
 
-- **Overview**: how many rows each table has. For an app, also its cards by type and the models its pages use.
-- **One table per file**, except the Details file. Search all its columns, click a column's name to sort by it, choose 25, 50 or 100 rows per page, and pick the columns to show under **Columns**. Click a row to see it in full. For an app, some columns also have a filter, a page's name shows that page's cards, and in **Cards** a card's number or title opens the card with its grid sections, filters, formatting and buttons.
+- **Overview**: how many rows each table has, and the result's notes under **Notes**. For an app, also its cards by type and the models its pages use.
+- **One table per file**, except the Details file. Search all its columns, click a column's name to sort by it, choose 25, 50 or 100 rows per page, and pick the columns to show under **Columns**. A column that holds 2 to 30 different values also has a filter. Click a row, or press Enter on the button in its first cell, to see it in full: every value whole, with its line breaks. For an app, a page's name shows that page's cards, and in **Cards** a card's number or title opens the card with its grid sections, filters, formatting and buttons.
 - **Details**: the Details file (`App Details.csv` or `Model Details.csv`) under its sections, with the diagnostic log under **Diagnostics**. From here, **Download this table (.csv)** saves the Details file.
 - **Model map**: listed as coming in a later version.
 
-**Run again** analyses the Anaplan tab again, and so does reloading the results page. Closing the results page stops the analysis.
+**Run again** analyses the Anaplan tab again. The result stays on the page until the new one is complete. If the new run fails, its message stands above the result, with a **Copy diagnostic log** button. Closing the results page stops the analysis.
+
+The results page starts the analysis by itself only when the icon has just opened it, within a minute of the click. A results page that is reloaded, duplicated, restored from history or reopened later does not: it says "That Anaplan tab shows an app." (or "a model.") and waits for you to choose **Run**. After a run the same control reads **Run again**.
 
 If the page says **Not connected** ("Cardigan cannot reach that tab."), the tab did not answer. That is a tab that is not an Anaplan page, or an Anaplan tab that has not been refreshed since the extension was installed, updated or reloaded. Refresh the Anaplan tab, then click the Cardigan icon again.
 
@@ -113,7 +115,7 @@ How to read the files:
 - Only published versions are read. Pages that were never published are listed as "Not published" and counted apart: **Pages analysed** reads "93 of 93 (published versions); 3 unpublished, not analysed", so an app whose published pages were all read says so.
 - A saved view's own filters, sorts and show/hide live in the model and are not listed.
 - Filter-context items show their IDs.
-- Buttons whose import, export or process is not found in the model keep their card label. **Name from** says which source was used.
+- Buttons whose import, export or process is not found in the model keep their card label. **Name source** says which source was used.
 - Anaplan can change the internal services the extension reads without notice; see [NOTICE.md](NOTICE.md).
 
 ## Model export
@@ -163,7 +165,9 @@ How it reads:
 
 ## If names show as IDs or the analysis stops
 
-The diagnostic log is on the results page. Open **Details**, then **Diagnostics**, and click **Copy diagnostic log**. While an analysis runs, and when it stops without a result, the log is under the message instead, with the same button. After a result, its lines are also the **Diagnostics** rows at the end of `App Details.csv` (`Model Details.csv` for a model export). They list:
+When the analysis stops, the page says in a plain sentence what happened and what to do next. The codes and statuses behind it are in the diagnostic log.
+
+The diagnostic log is on the results page. Open **Details**, then **Diagnostics**, and click **Copy diagnostic log**. While an analysis runs, and when it stops without a result, the log is under the message instead, with the same button. When **Run again** fails, the earlier result stays, and the button beside the failure's message copies the log of the run that failed. After a result, its lines are also the **Diagnostics** rows at the end of `App Details.csv` (`Model Details.csv` for a model export). They list:
 
 - request paths and HTTP statuses
 - socket frame commands and destinations
@@ -191,8 +195,8 @@ If the results page says **Not connected** or **Nothing to analyse**, see [Use i
 
 Layout:
 
-- `manifest.json`: the toolbar icon, the service worker and the two content scripts. It asks for no permissions.
-- `src/background.ts`: the service worker, bundled into `dist/background.js`. A click on the toolbar icon opens the results page next to the clicked tab.
+- `manifest.json`: the toolbar icon, the service worker, the two content scripts and the content security policy of the extension's own pages. It asks for no permissions.
+- `src/background.ts`: the service worker, bundled into `dist/background.js`. A click on the toolbar icon opens the results page next to the clicked tab, with that tab's ID and the time of the click in its address.
 - `results.html`, `results.css` and `src/results/`: the results page. Its script is bundled into `dist/results.js`:
   - `main.ts`: puts the page together and acts on what you click.
   - `connection.ts`: talks to the Anaplan tab, and holds what the page says in each state.
@@ -200,6 +204,7 @@ Layout:
   - `columns.ts`: how each column is shown.
   - `result-view.ts`: the overview, the details, the notes and the diagnostic log, read out of a result.
   - `markup.ts`: writes the page's HTML, with every value from a result escaped.
+  - `file-name.ts`: the name a download is saved under.
   - `page-ids.ts`: the elements of `results.html` that the script looks up.
 - `src/content.ts`: the script in the Anaplan tab (isolated world), bundled into `dist/content.js`. It says whether the tab shows an app or a model. When the results page asks, it runs the app analysis (`analyse.ts`) or has the model's frame export the model (`bridge.ts`).
 - `src/tab-port.ts`: the Anaplan tab's end of the connection to the results page: one run at a time, its progress and its result, and stopping when the page is closed. `src/protocol.ts` lists the messages, and `src/progress.ts` says how a run reports its steps.
@@ -222,6 +227,8 @@ Bump `version` in `manifest.json`, `package.json` and the two `version` fields a
 5. Publish the zip with its SHA-256 as the release's download.
 
 The zip holds eleven files: `manifest.json`, the four bundles in `dist/`, the four icons, `results.html` and `results.css`. It never holds sources, tests, docs or `node_modules`. Its entries are sorted, stored uncompressed and carry fixed times, so the same files give the same bytes, and the same SHA-256, on every run. The packager refuses to run when a bundle is missing or older than the sources it is built from, or when the results page loads a file that is not in the zip.
+
+The manifest declares a content security policy for the extension's own pages and its service worker: they load nothing from outside the package. The packager also refuses a manifest whose policy would allow that, as a remote address, a wildcard, `'unsafe-eval'` or a script written in the page would.
 
 ## Relationship to SAM
 
