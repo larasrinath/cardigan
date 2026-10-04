@@ -802,9 +802,19 @@ describe("The Where used table by object, where pages share a name", () => {
     const noIds = pages(demand("Overview"), demand("Overview"), demand("Stores"));
     const without = { ...noIds, headers: noIds.headers.filter(header => header !== "Page ID"), rows: noIds.rows.map(row => row.filter((_, index) => noIds.headers[index] !== "Page ID")) };
     expect(viewOf(app(without, USES_ALIKE)).rows).toEqual(viewOf(app(PAGES_ALIKE, USES_ALIKE)).rows);
-    // A page whose number of cards is not given may have cards. And where no page of the name is said to have any, that
-    // says nothing of the uses on it: every page of the name counts.
+    // A page whose number of cards is not given may have cards: an empty cell does not say "no cards", nor does a cell of
+    // spaces, a dash or any text that is not the number 0, nor a row that ends before the cell.
     expect(shared(demand("Overview", { "Total cards": 3 }), demand("Overview"))).toEqual([["Overview", 2]]);
+    for (const notSaid of ["", "   ", NONE, "none", "0 cards", "00", 0.5]) {
+      expect(shared(demand("Overview", { "Total cards": 3 }), demand("Overview", { "Total cards": notSaid })), JSON.stringify(notSaid)).toEqual([["Overview", 2]]);
+    }
+    const short: ResultTable = { file: "Pages.csv", label: "Pages", headers: ["Page", "Model", "Model ID", "Total cards"], guard: true,
+      rows: [["Overview", "Demand planning", DEMAND, 3], ["Overview", "Demand planning", DEMAND], ["Stores", "Demand planning", DEMAND, 1]] };
+    expect(viewOf(app(short, USES_ALIKE)).sharedPageNames).toEqual([["Overview", 2]]);
+    // Only the number 0 says it, as a number or as text: then the other Overview is the one page a use can be on.
+    for (const none of [0, "0", " 0 "]) expect(shared(demand("Overview", { "Total cards": 3 }), demand("Overview", { "Total cards": none })), JSON.stringify(none)).toBeUndefined();
+    // And where no page of the name is said to have any cards, that says nothing of the uses on it: every page of the
+    // name counts.
     expect(shared(demand("Overview", { "Total cards": 0 }), demand("Overview", { "Total cards": 0 }))).toEqual([["Overview", 2]]);
     // Three pages of the name: on no more of them than there are uses, and on no more than three.
     const three = viewOf(app(pages(demand("Overview"), demand("Overview"), demand("Overview"), demand("Stores")), USES_ALIKE));
