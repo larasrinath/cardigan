@@ -307,7 +307,9 @@ function publishedDate(value: number | string | undefined): string {
   return Number.isNaN(date.getTime()) ? NONE : date.toISOString().slice(0, 10);
 }
 
-/** Adds a Where used row; the first use of an object by a card in a role wins, so the order of the calls is the row order. */
+/** Adds a Where used row; the first use of an object by a card in a role wins, so the order of the calls is the row order.
+ * The card is a card of the page being read, whatever another page is called, and the object is the one with that type,
+ * ID, name and module: another object of the same name, such as a line item of another module, is another object. */
 type Use = (objType: string, obj: string, module: string, page: string, card: number, role: string, objId: string) => void;
 
 /** Filters: once per native axis, so a rows filter shared by combined-grid sections is listed once. Returns the Cards row's
@@ -420,16 +422,17 @@ function sectionRows(page: string, order: number, card: Obj, regions: Obj[], vie
 
 export function buildReport(pages: readonly PageInput[]): Report {
   const rows: Record<TabName, Cell[][]> = { Pages: [], Cards: [], "Grid sections": [], Filters: [], Formatting: [], Actions: [], "Where used": [] };
-  const used = new Set<string>();
-  const use = (objType: string, obj: string, module: string, page: string, card: number, role: string, objId: string) => {
-    const key = JSON.stringify([objType, obj, page, card, role]);
-    if (used.has(key)) return;
-    used.add(key);
-    rows["Where used"].push([objType, obj, module, page, card, role, objId]);
-  };
 
   for (const input of pages) {
     const page = input.pageName;
+    // The uses already written, of this page only: a page of the same name has its own.
+    const used = new Set<string>();
+    const use: Use = (objType, obj, module, usedOn, card, role, objId) => {
+      const key = JSON.stringify([objType, obj, module, objId, card, role]);
+      if (used.has(key)) return;
+      used.add(key);
+      rows["Where used"].push([objType, obj, module, usedOn, card, role, objId]);
+    };
     const typeCounts: Record<string, number> = Object.fromEntries(Object.values(TYPE_LABEL).map(label => [label, 0]));
     const viewCounts: Record<string, number> = Object.fromEntries(VIEW_ORDER.map(label => [label, 0]));
     const cards = [...(input.details?.cards ?? [])].map(card => card as Obj)
