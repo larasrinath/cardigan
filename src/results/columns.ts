@@ -77,7 +77,8 @@ const CHOICES: Record<TabName, Record<string, Choice>> = {
     "Page": PAGE, "Card #": CARD_NUMBER, "Action type": TAG, "Name source": FILTER, "Runs automatically": FILTER, "Cancel button": FILTER,
     "Card ID": HIDDEN_ID, "Action ID": HIDDEN_ID,
   },
-  // Where Used has no Card ID, so its Card # opens nothing: it is a number only.
+  // Where Used has no Card ID, so by its own columns its Card # is a number only. Listed as every use, the page makes it
+  // the link to the card in each row whose card the view of the file names (main.ts `showResult`).
   "Where used": {
     "Object type": TAG, "Page": PAGE, "Card #": HIDDEN_NUM, "Used as": FILTER, "Object ID": HIDDEN_ID,
   },
