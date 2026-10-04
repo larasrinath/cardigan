@@ -47,18 +47,20 @@ input,select{font:inherit;color:inherit}
 
 /* ---------- header ---------- */
 .hd{
-  position:sticky;top:0;z-index:40;display:flex;align-items:center;gap:16px;
+  position:sticky;top:0;z-index:40;display:flex;flex-wrap:wrap;align-items:center;gap:16px;
   padding:10px 20px;background:var(--panel);border-bottom:1px solid var(--border);
 }
 .brand{display:flex;align-items:center;gap:10px;flex:none}
 .brand svg{display:block}
 .brand-name{font-size:15px;font-weight:650;letter-spacing:.01em}
 .ver{font-family:var(--mono);font-size:11px;color:var(--text-2);background:var(--panel-2);border:1px solid var(--border);border-radius:999px;padding:1px 8px;margin-left:8px;vertical-align:2px}
-.meta{min-width:0;flex:1}
+/* The name keeps 200px beside the brand and the actions; when the three no longer fit on one line, the header wraps. */
+.meta{min-width:0;flex:1 1 200px}
+.meta:empty{flex-basis:0}
 .meta-app{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .meta-sub{color:var(--text-2);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .meta-sub .dotsep{margin:0 6px;color:var(--text-3)}
-.hd-actions{display:flex;align-items:center;gap:8px;flex:none}
+.hd-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;flex:0 1 auto}
 .btn{
   display:inline-flex;align-items:center;gap:7px;border-radius:999px;
   border:1px solid var(--border-strong);background:var(--panel);color:var(--text);
@@ -300,8 +302,10 @@ td.num{font-variant-numeric:tabular-nums}
   .hd{gap:10px;padding:10px 14px}
   .shell{padding:12px 14px 28px}
   .ov-cols{grid-template-columns:1fr}
-  .meta-app{max-width:34vw}
+  .meta-app{white-space:normal;overflow-wrap:anywhere}
 }
+/* A wrapped header is high: in a short window it scrolls away with the page instead of covering it. */
+@media (max-width:1120px) and (max-height:560px){ .hd{position:static} }
 @media (max-width:1120px){ .table-wrap{max-height:calc(100vh - 300px)} }
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{transition:none !important;animation:none !important}
