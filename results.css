@@ -84,7 +84,7 @@ input,select{font:inherit;color:inherit}
 .banners{padding:12px 20px 0;display:grid;gap:8px;max-width:1600px;margin:0 auto}
 .banner{
   display:flex;gap:10px;align-items:flex-start;border-radius:var(--r-sm);
-  padding:10px 14px;font-size:12.5px;border:1px solid;
+  padding:10px 14px;font-size:12.5px;border:1px solid;overflow-wrap:anywhere;
 }
 .banner svg{flex:none;margin-top:1px}
 .banner.note{background:var(--panel-2);border-color:var(--border);color:var(--text-2)}
@@ -200,7 +200,7 @@ td.num{font-variant-numeric:tabular-nums}
 .pager select{border:1px solid var(--border-strong);background:var(--panel);border-radius:999px;padding:3px 8px;font-size:12px}
 
 /* empty states */
-.empty{padding:56px 20px;text-align:center;color:var(--text-2)}
+.empty{padding:56px 20px;text-align:center;color:var(--text-2);overflow-wrap:anywhere}
 .empty .e-title{font-size:14px;font-weight:600;color:var(--text);margin-bottom:6px}
 .empty .e-sub{font-size:12.5px;margin-bottom:14px}
 .empty svg{color:var(--text-3);margin-bottom:10px}
@@ -226,8 +226,8 @@ td.num{font-variant-numeric:tabular-nums}
 
 /* ---------- details view ---------- */
 .dl{display:grid;grid-template-columns:220px 1fr;gap:0;background:var(--panel);border:1px solid var(--border);border-radius:var(--r-md);overflow:hidden;margin-bottom:14px}
-.dl dt{padding:9px 16px;font-size:12px;color:var(--text-2);border-bottom:1px solid var(--border);background:var(--panel-2)}
-.dl dd{padding:9px 16px;margin:0;border-bottom:1px solid var(--border);font-size:12.5px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.dl dt{padding:9px 16px;font-size:12px;color:var(--text-2);border-bottom:1px solid var(--border);background:var(--panel-2);overflow-wrap:anywhere}
+.dl dd{padding:9px 16px;margin:0;border-bottom:1px solid var(--border);font-size:12.5px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;overflow-wrap:anywhere}
 .dl dt:last-of-type,.dl dd:last-of-type{border-bottom:0}
 .diag{background:var(--panel);border:1px solid var(--border);border-radius:var(--r-md)}
 .diag summary{
