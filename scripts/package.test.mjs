@@ -330,6 +330,19 @@ test('takes a content security policy only for the extension\'s own pages, and o
   }
 });
 
+test('refuses a manifest that declares no content security policy', () => {
+  const { content_security_policy: declared, ...without } = JSON.parse(readFileSync(path.join(ROOT, 'manifest.json'), 'utf8'));
+  // The repository's manifest declares one, and is taken with it.
+  assert.deepEqual(runtimeFiles({ ...without, content_security_policy: declared }), RUNTIME);
+  const refusal = { message: 'Cannot package:\nmanifest.json: has no "content_security_policy", so Chrome\'s default would apply, which lets a page load from outside the package' };
+  assert.equal('content_security_policy' in without, false);
+  assert.throws(() => runtimeFiles(without), refusal);
+  assert.throws(() => runtimeFiles({ ...without, content_security_policy: undefined }), refusal);
+  // It is one problem among the others, not the only one named.
+  assert.throws(() => runtimeFiles({ ...without, options_page: 'options.html' }),
+    { message: `Cannot package:\nmanifest.json: "options_page" is not known to the packager\n${refusal.message.split('\n')[1]}` });
+});
+
 test('writes nothing when the manifest\'s content security policy is refused', () => withTemp(dir => {
   const repo = fixture(dir);
   const manifest = JSON.parse(readFileSync(path.join(repo, 'manifest.json'), 'utf8'));
@@ -340,6 +353,14 @@ test('writes nothing when the manifest\'s content security policy is refused', (
   withPolicy("default-src 'none'; script-src 'self' https://cdn.example.com");
   assert.throws(() => packageExtension({ dir: repo, outDir: path.join(dir, 'out') }),
     { message: 'Cannot package:\nmanifest.json: content_security_policy "extension_pages" allows https://cdn.example.com in script-src, which is not \'self\' or \'none\'' });
+  assert.equal(existsSync(path.join(dir, 'out')), false, 'nothing written');
+  // A manifest with no policy at all is refused the same way.
+  const { content_security_policy: declared, ...without } = manifest;
+  assert.deepEqual(Object.keys(declared), ['extension_pages']);
+  write(repo, 'manifest.json', `${JSON.stringify(without, null, 2)}\n`);
+  touch(repo, 'manifest.json', SOURCES_AT);
+  assert.throws(() => packageExtension({ dir: repo, outDir: path.join(dir, 'out') }),
+    { message: 'Cannot package:\nmanifest.json: has no "content_security_policy", so Chrome\'s default would apply, which lets a page load from outside the package' });
   assert.equal(existsSync(path.join(dir, 'out')), false, 'nothing written');
   withPolicy("default-src 'none'; script-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; img-src 'self'");
   assert.doesNotThrow(() => packageExtension({ dir: repo, outDir: path.join(dir, 'out') }));
