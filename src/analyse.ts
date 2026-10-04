@@ -292,11 +292,16 @@ async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCar
   const extra = [...candidates];
   progress.status(`Finding filter line items in ${scope.modelName}…`);
   // Until every rule has its line item: what a rule then still holds unnamed is its context, which no module lists.
-  const missing = () => unresolvedFilterItems(cards, catalog).itemIds.size > 0;
+  const missing = () => unresolvedFilterItems(cards, catalog).itemIds.size;
+  let read = 0;
   for (let i = 0; i < Math.min(extra.length, MAX_EXTRA_MODULES); i += 4) {
-    await settle(inBatches(extra.slice(i, Math.min(i + 4, MAX_EXTRA_MODULES)), 4, moduleId => readLineItems(reads, moduleId)));
+    const batch = extra.slice(i, Math.min(i + 4, MAX_EXTRA_MODULES));
+    await settle(inBatches(batch, 4, moduleId => readLineItems(reads, moduleId)));
+    read += batch.length;
     if (!missing()) break;
   }
+  // How far the search went, for the reader of a live run's log: a rule whose line item it did not find keeps its IDs.
+  progress.log(`filter line items: ${itemIds.size} looked for in ${read} of ${extra.length} modules that have the filtered dimensions, ${missing()} not found`);
   if (extra.length > MAX_EXTRA_MODULES && missing()) {
     notes.push(`${scope.modelName}: some filter line items were not found in the first ${MAX_EXTRA_MODULES} candidate modules.`);
   }
