@@ -236,7 +236,7 @@ Bump `version` in `manifest.json`, `package.json` and the two `version` fields a
 
 The zip holds eleven files: `manifest.json`, the four bundles in `dist/`, the four icons, `results.html` and `results.css`. It never holds sources, tests, docs or `node_modules`. Its entries are sorted, stored uncompressed and carry fixed times, so the same files give the same bytes, and the same SHA-256, on every run. The packager refuses to run when a bundle is missing or older than the sources it is built from, or when the results page loads a file that is not in the zip.
 
-The manifest declares a content security policy for the extension's own pages and its service worker: they load nothing from outside the package. The packager also refuses a manifest whose policy would allow that, as a remote address, a wildcard, `'unsafe-eval'` or a script written in the page would.
+The manifest declares a content security policy for the extension's own pages and its service worker: they load nothing from outside the package. The packager also refuses a manifest whose policy would allow that, as a remote address, a wildcard, `'unsafe-eval'` or a script written in the page would, and a manifest that declares no policy.
 
 ## Relationship to SAM
 
