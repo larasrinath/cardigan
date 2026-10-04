@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { HEADERS, type TabName } from "../report.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
-import { cardsOf, COLUMN_CHOICES, columnIndex, columnsOf, rowKeys } from "./columns.js";
+import { cardsOf, COLUMN_CHOICES, columnIndex, columnsOf, rowColumns, rowKeys } from "./columns.js";
 
 /** The app export's files (analyse.ts) and the report tables they hold. */
 const FILES: Record<string, TabName> = {
@@ -77,6 +77,17 @@ describe("The results page's columns", () => {
     // Neither does a file, or a header, with the name of a built-in property pick up anything.
     expect(columnsOf(table("constructor", ["toString", "Page"])).map(column => column.kind)).toEqual(["text", "text"]);
     expect(columnsOf({ ...appTable("Cards.csv"), headers: ["hasOwnProperty", "Card #"] }).map(column => column.kind)).toEqual(["text", "card"]);
+  });
+
+  it("gives a row its table's columns, and one more for each cell it holds beyond the headers", () => {
+    const columns = columnsOf(table("Line Items.csv", ["", "Formula"]));
+    expect(rowColumns(columns, ["Revenue", "Units * Price"])).toEqual(columns);
+    expect(rowColumns(columns, ["Short"])).toEqual(columns);
+    expect(rowColumns(columns, [])).toEqual(columns);
+    expect(rowColumns(columns, ["Revenue", "Units * Price", "x", "", 5]).map(column => [column.index, column.label, column.kind, column.hidden])).toEqual([
+      [0, "Name", "text", false], [1, "Formula", "text", false], [2, "Column 3", "text", false], [3, "Column 4", "text", false], [4, "Column 5", "text", false]]);
+    // The table's own columns are not touched.
+    expect(labels(columns)).toEqual(["Name", "Formula"]);
   });
 
   it("finds a header's place, and the columns that identify a row's page and card", () => {

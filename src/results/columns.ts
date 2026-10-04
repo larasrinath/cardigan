@@ -79,6 +79,16 @@ export function columnsOf(table: ResultTable): Column[] {
   });
 }
 
+/** The columns of one row in full: the table's, then one for each cell the row holds beyond its headers, under a name of
+ * the page's own. The CSV holds those cells, so the place where a row is read in full shows them too. */
+export function rowColumns(columns: readonly Column[], row: readonly unknown[]): Column[] {
+  const beyond = Array.from({ length: Math.max(0, row.length - columns.length) }, (_, extra): Column => {
+    const index = columns.length + extra;
+    return { index, label: `Column ${index + 1}`, kind: "text", num: false, filter: false, hidden: false };
+  });
+  return [...columns, ...beyond];
+}
+
 /** The position of a header in a table, or undefined when the table has no such column. */
 export function columnIndex(table: ResultTable, header: string): number | undefined {
   const index = table.headers.indexOf(header);
