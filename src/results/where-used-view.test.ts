@@ -5,7 +5,7 @@ import { plainRows } from "../result-plain.js";
 import type { AnalysisResult, Cell, ResultTable } from "../result-types.js";
 import { tableCsv } from "../result-zip.js";
 import { selectRows, sortRows } from "./table-engine.js";
-import { BY_OBJECT_HEADERS, objectOf, TYPE_ORDER, WHERE_USED_FILE, whereUsedView, type WhereUsedView } from "./where-used-view.js";
+import { BY_OBJECT_HEADERS, objectOf, TYPE_ORDER, usedOn, WHERE_USED_FILE, whereUsedView, type WhereUsedObject, type WhereUsedView } from "./where-used-view.js";
 
 // Made-up apps, models, pages and IDs only.
 
@@ -38,14 +38,25 @@ const [SALES, MARGIN] = ["102000000001", "286000000004"];
 const ONE_MODEL_HEADERS = ["Object type", "Object name", "Object's module", "Pages", "Cards", "Used as", "Object ID"];
 const search = (text: string) => ({ search: text, filters: new Map<number, Set<string>>() });
 
+/** A count as its cell holds it: a number, or with a plus sign the least it can be. */
+const counted = (least: number, most: number | undefined): Cell => (most === undefined ? least : `${least}+`);
+
 /** A result's view, after checking what holds for every view: its uses are the file's rows, each of them exactly once and
- * as the file has it, and each object's row says what its uses add up to. */
+ * as the file has it, and each object's row says what its uses add up to. A count is the number of names and numbers
+ * its uses give, and nothing says otherwise, unless some of them are on a page name that more than one page has: then it
+ * is at least that, it is marked wherever it is not exact, and the object and the view say so. */
 function viewOf(result: AnalysisResult): WhereUsedView {
   const view = whereUsedView(result);
   if (!view) throw new Error("The result has no by-object view");
   const file = result.tables.find(table => table.file === "Where Used.csv");
   if (!file) throw new Error("The result has no Where used file");
   const cell = (row: number, header: string): Cell => file.rows[row][file.headers.indexOf(header)] ?? "";
+  const shared = new Map(view.sharedPageNames ?? []);
+  const onShared = view.objects.flatMap(object => object.uses).filter(used => used.pagesOfName !== undefined);
+  expect([...shared.keys()].sort()).toEqual([...new Set(onShared.map(used => used.page))].sort());
+  expect("sharedPageNames" in view).toBe(onShared.length > 0);
+  expect(view.note.includes("shared by more than one page")).toBe(onShared.length > 0);
+  expect(view.note.includes('A count with "+"')).toBe(view.objects.some(object => object.pagesMost !== undefined || object.cardsMost !== undefined));
   // None lost and none twice.
   expect(view.totalUses).toBe(file.rows.length);
   expect(view.objects.flatMap(object => object.uses.map(used => used.row)).sort((a, b) => a - b)).toEqual(file.rows.map((_, index) => index));
@@ -60,14 +71,35 @@ function viewOf(result: AnalysisResult): WhereUsedView {
     for (const used of object.uses) {
       expect([object.type, used.page, used.usedAs]).toEqual(["Object type", "Page", "Used as"].map(header => String(cell(used.row, header))));
       expect(used.card).toBe(cell(used.row, "Card #"));
+      // A use says how many pages have its page's name where several do, and nothing of it otherwise.
+      expect(used.pagesOfName).toBe(shared.get(used.page));
+      expect("pagesOfName" in used).toBe(shared.has(used.page));
     }
-    // It says what they add up to, and its row says the same, cell for cell.
-    expect(object.pages).toBe(new Set(object.uses.map(used => used.page)).size);
-    expect(object.cards).toBe(new Set(object.uses.map(used => JSON.stringify([used.page, String(used.card)]))).size);
+    // It says what they add up to, and its row says the same, cell for cell. Each page name is at least a page and each
+    // card number on it at least a card: exactly that many, unless uses on a shared name leave more open.
+    const [names, numbers] = [new Set(object.uses.map(used => used.page)).size, new Set(object.uses.map(used => JSON.stringify([used.page, String(used.card)]))).size];
+    const open = object.uses.filter(used => used.pagesOfName !== undefined);
+    if (open.length === 0) {
+      expect([object.pages, object.cards]).toEqual([names, numbers]);
+      expect(["pagesMost", "cardsMost", "note"].filter(key => key in object)).toEqual([]);
+    } else {
+      // On no more pages than have the name, and on no more pages or cards than there are uses.
+      const room = [...new Set(open.map(used => used.page))].reduce((sum, name) => sum + Math.min(shared.get(name) ?? 1, open.filter(used => used.page === name).length) - 1, 0);
+      expect(object.pages).toBeGreaterThanOrEqual(names);
+      expect(object.cards).toBeGreaterThanOrEqual(numbers);
+      expect(object.pagesMost ?? object.pages).toBeLessThanOrEqual(names + room);
+      expect(object.cardsMost ?? object.cards).toBeLessThanOrEqual(object.uses.length);
+      // The most is there only where it is more than the least.
+      expect([object.pagesMost ?? Infinity, object.cardsMost ?? Infinity].map((most, at) => most > [object.pages, object.cards][at])).toEqual([true, true]);
+      expect(object.note).toContain(`It has ${open.length} use${open.length === 1 ? "" : "s"} on `);
+      expect(object.note).toContain("which of those pages a use is on is not known.");
+      expect(object.note?.includes(" It is on ")).toBe(object.pagesMost !== undefined || object.cardsMost !== undefined);
+    }
     expect(object.roles.reduce((sum, [, uses]) => sum + uses, 0)).toBe(object.uses.length);
     expect(object.roles.map(([role]) => role).sort()).toEqual([...new Set(object.uses.map(used => used.usedAs))].sort());
     const said: Record<string, Cell> = { "Object type": object.type, "Object name": object.name, "Object's module": object.module, Model: object.model,
-      Pages: object.pages, Cards: object.cards, "Used as": view.rows[index][view.headers.indexOf("Used as")], "Object ID": object.id };
+      Pages: counted(object.pages, object.pagesMost), Cards: counted(object.cards, object.cardsMost), "Used as": view.rows[index][view.headers.indexOf("Used as")],
+      "Object ID": object.id };
     expect(view.rows[index]).toEqual(view.headers.map(header => said[header]));
     expect(objectOf(view, view.rows[index])).toBe(object);
   });
@@ -120,17 +152,23 @@ const DESCRIBED = [
     ...NATIVE_ACTIONS.map((actionType, index) => ({ name: `Button ${index + 1}`, action: { id: `1180000000${String(index + 1).padStart(2, "0")}`, actionType } })),
     { name: "Custom step", action: { id: "119000000001", actionType: "CUSTOM_STEP" } }, { name: "Untyped", action: { id: "119000000002" } }] },
 ];
-/** The app the report makes of those cards on a page of one model, and of a card on a page of another model that shows a
- * module with the first model's module's ID: tables named, headed and made plain as the analysis hands them over. */
-function reported(): AnalysisResult {
-  const input = (pageName: string, pageGuid: string, modelName: string, modelId: string, described: unknown[]): PageInput => ({
-    appName: "Demo app", categoryName: "Planning", pageName, pageType: "BOARD", state: "Published (no unpublished changes)", modelName, workspaceName: "Main",
-    pageGuid, appGuid: guid(100), modelId, details: { cards: described } as unknown as PageInput["details"] });
-  const report = buildReport([input("Overview", guid(1), "Demand planning", DEMAND, DESCRIBED),
-    input("Stock", guid(2), "Supply planning", SUPPLY, [{ id: "card-9", type: "TABLE", viewType: "moduleView", sources: [{ module: ref(SALES, "INV01 Stock") }] }])]);
+/** A page as the report takes it: its name, its ID, its model and its cards as the card reader describes them. */
+const input = (pageName: string, pageGuid: string, modelName: string, modelId: string, described: unknown[]): PageInput => ({
+  appName: "Demo app", categoryName: "Planning", pageName, pageType: "BOARD", state: "Published (no unpublished changes)", modelName, workspaceName: "Main",
+  pageGuid, appGuid: guid(100), modelId, details: { cards: described } as unknown as PageInput["details"] });
+/** The app the report makes of such pages: tables named, headed and made plain as the analysis hands them over. */
+function reportedApp(...inputs: PageInput[]): AnalysisResult {
+  const report = buildReport(inputs);
   return app(...(Object.keys(HEADERS) as TabName[]).map((tab): ResultTable =>
     ({ file: TAB_FILES[tab], label: TAB_FILES[tab].replace(/\.csv$/, ""), headers: [...report[tab].headers], rows: plainRows(report[tab].rows), guard: true })));
 }
+/** The app of those cards on a page of one model, and of a card on a page of another model that shows a module with the
+ * first model's module's ID. */
+const reported = (): AnalysisResult => reportedApp(input("Overview", guid(1), "Demand planning", DEMAND, DESCRIBED),
+  input("Stock", guid(2), "Supply planning", SUPPLY, [{ id: "card-9", type: "TABLE", viewType: "moduleView", sources: [{ module: ref(SALES, "INV01 Stock") }] }]));
+/** A grid card of a module, with Products on its rows and Time on its columns. */
+const grid = (id: string, module: { id: string; name: string }) => ({ id, type: "TABLE", viewType: "customView", sources: [{ module }],
+  grid: { regions: [{ region: "SINGLE", module, rows: { dimensions: [{ dimension: ref("101000000001", "Products") }] }, columns: { dimensions: [{ dimension: TIME }] } }] } });
 
 describe("The Where used table, by object", () => {
   it("is the view of the file the analysis writes its Where used table to", () => {
@@ -244,6 +282,9 @@ describe("The Where used table, by object", () => {
     // A model the file names only by its ID goes by the ID, and takes its name from another page of the same model.
     expect(models(page("One", NONE, MAIN), supply("Two"))).toEqual([MAIN, "Supply planning"]);
     expect(models(page("One", NONE, MAIN), page("Two", "Planning", MAIN), supply("Three"))).toEqual(["Planning", "Supply planning"]);
+    // Whichever of them comes first: a later page of the model that does not name it takes nothing away.
+    expect(models(page("One", "Planning", MAIN), page("Two", NONE, MAIN), supply("Three"))).toEqual(["Planning", "Supply planning"]);
+    expect(models(page("One", "Planning", MAIN), page("Two", "", MAIN, { Workspace: "" }), page("Three", NONE, MAIN), supply("Four"))).toEqual(["Planning", "Supply planning"]);
     // A model without an ID is known by its name and its workspace.
     expect(models(page("One", "Planning", NONE), page("Two", "Planning", NONE, { Workspace: "Archive" }), page("Three", "Planning", NONE)))
       .toEqual(["Planning (Archive)", "Planning (Main)"]);
@@ -277,6 +318,12 @@ describe("The Where used table, by object", () => {
     const two = viewOf(app(pages(demand("Demand review"), supply("Supply review")), whereUsed(
       use("Line item", "Sales, Margin", NONE, "Demand review", 1, "Filter", NONE), use("Line item", "Sales, Margin", NONE, "Supply review", 1, "Filter", NONE))));
     expect(column(two, "Model")).toEqual(["Demand planning", "Supply planning"]);
+    // Two uses without an ID in two modules are two objects: which module it is counts, not only whether there is one.
+    const modules = viewOf(app(PAGES, whereUsed(
+      use("Line item", "Amount", "REV01 Sales", "Overview", 1, "Field", NONE), use("Line item", "Amount", "REV02 Prices", "Overview", 1, "Field", NONE),
+      use("Line item", "Amount", "REV01 Sales", "Stores", 1, "Field", ""))));
+    expect(modules.rows).toEqual([["Line item", "Amount", "REV01 Sales", 2, 2, "Field", "—"], ["Line item", "Amount", "REV02 Prices", 1, 1, "Field", "—"]]);
+    expect(modules.objects.map(object => object.uses.map(used => used.row))).toEqual([[0, 2], [1]]);
     // A linked page without an ID is known by its name, and no page of the Pages file is taken for it: these two pages
     // have no ID in the file either.
     const linked = viewOf(app(pages(demand("Overview"), demand("Stores")), whereUsed(use("Page", "Somewhere", NONE, "Overview", 7, "Link target", NONE))));
@@ -319,16 +366,22 @@ describe("The Where used table, by object", () => {
         use("Module", "REV01 Sales", NONE, "Summary", 1, "Data source", SALES),
         use("Module", "REV01 Sales", NONE, "Demand review", 1, "Data source", SALES),
         use("Module", "REV01 Sales", NONE, "Notes", 1, "Data source", SALES))));
+    // The two uses on Overview are on cards 1 and 2: two cards for certain, on one of the two pages or on both.
     expect(view.rows).toEqual([
-      ["Module", "REV01 Sales", "—", "—", 1, 2, "Data source", SALES],
+      ["Module", "REV01 Sales", "—", "—", "1+", 2, "Data source", SALES],
       ["Module", "REV01 Sales", "—", "Demand planning", 3, 3, "Data source", SALES],
     ]);
     expect(view.objects.map(object => object.uses.map(used => used.row))).toEqual([[0, 1], [2, 3, 4]]);
     expect([view.multiModel, view.ambiguousUses, view.unlistedUses]).toEqual([true, 2, 0]);
-    expect(view.note).toBe("5 uses of 2 objects. The CSV lists every use. 2 uses are on a page whose model is not known, so their objects are listed without a model.");
-    // One such use is said in the singular.
+    // The model that is not known, then the names that pages share: a page that names no model may still have cards.
+    const shared = "The CSV has only the name of a use's page, so the uses on those pages cannot be told apart.";
+    expect(view.note).toBe("5 uses of 2 objects. The CSV lists every use. 2 uses are on a page whose model is not known, so their objects are listed without a model. "
+      + `3 page names are each shared by more than one page: "Overview" (2 pages), "Summary" (2 pages), "Notes" (2 pages). ${shared} A count with "+" is at least that number.`);
+    // One such use is said in the singular. It is on one page and one card, whichever of the two pages that is.
     const single = viewOf(app(pages(demand("Overview"), supply("Overview")), whereUsed(use("Module", "REV01 Sales", NONE, "Overview", 1, "Data source", SALES))));
-    expect(single.note).toBe("1 use of 1 object. The CSV lists every use. 1 use is on a page whose model is not known, so its object is listed without a model.");
+    expect(single.rows).toEqual([["Module", "REV01 Sales", "—", "—", 1, 1, "Data source", SALES]]);
+    expect(single.note).toBe("1 use of 1 object. The CSV lists every use. 1 use is on a page whose model is not known, so its object is listed without a model. "
+      + `1 page name is shared by more than one page: "Overview" (2 pages). ${shared}`);
   });
 
   it("takes every object type and every role the report writes, each type at its place in the index", () => {
@@ -585,3 +638,256 @@ describe("The Where used table, by object", () => {
     expect(new Map(checked.objects.map(object => [`${object.type}|${object.model}|${object.id}`, object.uses.map(used => used.row)]))).toEqual(expected);
   });
 });
+
+describe("The Where used table by object, where pages share a name", () => {
+  // The file has only the name of a use's page. Two pages called Overview, with a page of another name between them.
+  const ONE_NAME = '1 page name is shared by more than one page: "Overview" (2 pages).';
+  const SHARED = "The CSV has only the name of a use's page, so the uses on those pages cannot be told apart.";
+  const NOT_KNOWN = "The CSV has only the name of a use's page, so which of those pages a use is on is not known.";
+  const ON_OVERVIEW = 'on a page name that more than one page has: "Overview" (2 pages).';
+  /** What a view says of each object's pages and cards: the least, and the most where that is more. */
+  const spread = (view: WhereUsedView) => Object.fromEntries(view.objects.map(object => [object.name, [object.pages, object.pagesMost, object.cards, object.cardsMost]]));
+  /** The report's app of three pages: an Overview with a grid of Sales and one of Prices, Stores with a grid of Sales, and a
+   * last page with the given cards, under the given name. */
+  const threePages = (lastName: string, last: unknown[]): AnalysisResult => reportedApp(
+    input("Overview", guid(1), "Demand planning", DEMAND, [grid("card-1", SALES_MODULE), grid("card-2", PRICES_MODULE)]),
+    input("Stores", guid(2), "Demand planning", DEMAND, [grid("card-3", SALES_MODULE)]),
+    input(lastName, guid(3), "Demand planning", DEMAND, last));
+
+  it("counts the same use on two pages of one name as two pages and two cards, on the report's own rows", () => {
+    // The second Overview has one grid of Sales, as the first has on its card 1: the file has those three rows twice.
+    const view = viewOf(threePages("Overview", [grid("card-4", SALES_MODULE)]));
+    // Counted by page name alone this read 2 pages and 2 cards for Sales, and 2 and 3 for the two dimensions.
+    expect(view.rows).toEqual([
+      ["Module", "REV01 Sales", "—", 3, 3, "Data source (custom view)", SALES],
+      ["Module", "REV02 Prices", "—", 1, 1, "Data source (custom view)", "102000000002"],
+      ["Dimension", "Products", "—", 3, 4, "Rows", "101000000001"],
+      ["Dimension", "Time", "—", 3, 4, "Columns", "20000000003"],
+    ]);
+    // Which is what the app has: the same app with its last page under a name of its own counts the same.
+    const told = viewOf(threePages("Overview, the other one", [grid("card-4", SALES_MODULE)]));
+    expect(told.rows).toEqual(view.rows);
+    expect(["sharedPageNames" in told, told.note]).toEqual([false, "12 uses of 4 objects. The CSV lists every use."]);
+    // Every count is exact here, so none is marked. The view still says that a name is shared, each object with uses
+    // on it says so, and so does each of those uses: its page is one of two.
+    expect(view.sharedPageNames).toEqual([["Overview", 2]]);
+    expect(view.note).toBe(`12 uses of 4 objects. The CSV lists every use. ${ONE_NAME} ${SHARED}`);
+    expect(view.objects.map(object => object.note)).toEqual([`It has 2 uses ${ON_OVERVIEW} ${NOT_KNOWN}`, `It has 1 use ${ON_OVERVIEW} ${NOT_KNOWN}`,
+      `It has 3 uses ${ON_OVERVIEW} ${NOT_KNOWN}`, `It has 3 uses ${ON_OVERVIEW} ${NOT_KNOWN}`]);
+    // Two cards are card 1 of an Overview, with two IDs: which of them a use is on, the file does not say, so neither
+    // use names its card. The card on Stores is the only card 1 there.
+    expect(view.objects[0].uses).toEqual([{ row: 0, page: "Overview", card: 1, usedAs: "Data source (custom view)", pagesOfName: 2 },
+      { row: 6, page: "Stores", card: 1, usedAs: "Data source (custom view)", cardId: "card-3" },
+      { row: 9, page: "Overview", card: 1, usedAs: "Data source (custom view)", pagesOfName: 2 }]);
+    // Card 2 is a card of one Overview only, so its use names it.
+    expect(view.objects[1].uses).toEqual([{ row: 3, page: "Overview", card: 2, usedAs: "Data source (custom view)", cardId: "card-2", pagesOfName: 2 }]);
+    expect(view.objects.map(usedOn)).toEqual(["3 pages, 3 cards", "1 page, 1 card", "3 pages, 4 cards", "3 pages, 4 cards"]);
+  });
+
+  it("gives the least a count can be, marked in its cell, where the file leaves it open, on the report's own rows", () => {
+    // The second Overview has the same two grids the other way round: Prices on its card 1 and Sales on its card 2.
+    const last = [grid("card-4", PRICES_MODULE), grid("card-5", SALES_MODULE)];
+    const view = viewOf(threePages("Overview", last));
+    // Sales is used by card 1 and by card 2 of an Overview: two cards for certain, on one of those pages or on both. Each
+    // dimension is used twice in the same way by a card 1 and by a card 2: on both pages, by two cards of each number.
+    expect(view.rows).toEqual([
+      ["Module", "REV01 Sales", "—", "2+", 3, "Data source (custom view)", SALES],
+      ["Module", "REV02 Prices", "—", "1+", 2, "Data source (custom view)", "102000000002"],
+      ["Dimension", "Products", "—", 3, 5, "Rows", "101000000001"],
+      ["Dimension", "Time", "—", 3, 5, "Columns", "20000000003"],
+    ]);
+    expect(spread(view)).toEqual({ "REV01 Sales": [2, 3, 3, undefined], "REV02 Prices": [1, 2, 2, undefined], Products: [3, undefined, 5, undefined], Time: [3, undefined, 5, undefined] });
+    expect(view.note).toBe(`15 uses of 4 objects. The CSV lists every use. ${ONE_NAME} ${SHARED} A count with "+" is at least that number.`);
+    expect(view.objects.map(object => object.note)).toEqual([`It has 2 uses ${ON_OVERVIEW} ${NOT_KNOWN} It is on 2 or 3 pages.`, `It has 2 uses ${ON_OVERVIEW} ${NOT_KNOWN} It is on 1 or 2 pages.`,
+      `It has 4 uses ${ON_OVERVIEW} ${NOT_KNOWN}`, `It has 4 uses ${ON_OVERVIEW} ${NOT_KNOWN}`]);
+    expect(view.objects.map(usedOn)).toEqual(["at least 2 pages, 3 cards", "at least 1 page, 2 cards", "3 pages, 5 cards", "3 pages, 5 cards"]);
+    // No count says less than the app has, or more: the same app with its last page under a name of its own.
+    const told = viewOf(threePages("Overview, the other one", last));
+    expect(spread(told)).toEqual({ "REV01 Sales": [3, undefined, 3, undefined], "REV02 Prices": [2, undefined, 2, undefined], Products: [3, undefined, 5, undefined], Time: [3, undefined, 5, undefined] });
+  });
+
+  // Hand-made: two pages called Overview and one called Stores, and uses of four objects.
+  const PAGES_ALIKE = pages(demand("Overview", { "Page ID": guid(1) }), demand("Overview", { "Page ID": guid(2) }), demand("Stores", { "Page ID": guid(3) }));
+  const USES_ALIKE = whereUsed(
+    // The same row twice: card 1 of each Overview shows the module.
+    use("Module", "REV01 Sales", NONE, "Overview", 1, "Data source", SALES),
+    use("Module", "REV01 Sales", NONE, "Overview", 1, "Data source", SALES),
+    // A card 1 filters by the line item and a card 1 formats by it: one card, or card 1 of each page.
+    use("Line item", "Margin %", "REV01 Sales", "Overview", 1, "Filter", MARGIN),
+    use("Line item", "Margin %", "REV01 Sales", "Overview", 1, "Formatting", MARGIN),
+    use("Line item", "Margin %", "REV01 Sales", "Overview", 2, "KPI value", MARGIN),
+    use("Line item", "Margin %", "REV01 Sales", "Stores", 3, "Filter", MARGIN),
+    // Three cards of three numbers: three cards, on one page or on both.
+    use("Dimension", "Time", NONE, "Overview", 1, "Columns", "20000000003"),
+    use("Dimension", "Time", NONE, "Overview", 2, "Columns", "20000000003"),
+    use("Dimension", "Time", NONE, "Overview", 3, "Columns", "20000000003"),
+    use("Dimension", "Products", NONE, "Stores", 1, "Rows", "101000000001"));
+
+  it("states no count as exact that is not: two uses that look alike are two pages, and an open count is at least its number", () => {
+    const view = viewOf(app(PAGES_ALIKE, USES_ALIKE));
+    expect(view.rows).toEqual([
+      ["Module", "REV01 Sales", "—", 2, 2, "Data source", SALES],
+      ["Line item", "Margin %", "REV01 Sales", "2+", "3+", "Filter; Formatting; KPI value", MARGIN],
+      ["Dimension", "Products", "—", 1, 1, "Rows", "101000000001"],
+      ["Dimension", "Time", "—", "1+", 3, "Columns", "20000000003"],
+    ]);
+    expect(spread(view)).toEqual({ "REV01 Sales": [2, undefined, 2, undefined], "Margin %": [2, 3, 3, 4], Products: [1, undefined, 1, undefined], Time: [1, 2, 3, undefined] });
+    expect(view.note).toBe(`10 uses of 4 objects. The CSV lists every use. ${ONE_NAME} ${SHARED} A count with "+" is at least that number.`);
+    // What the drawer is given: the line under the object's name, the note that says what is open, and for each use on
+    // the shared name how many pages have it. The module's two uses look alike, and each says its page is one of two.
+    expect(view.objects.map(object => [usedOn(object), object.note])).toEqual([
+      ["2 pages, 2 cards", `It has 2 uses ${ON_OVERVIEW} ${NOT_KNOWN}`],
+      ["at least 2 pages, at least 3 cards", `It has 3 uses ${ON_OVERVIEW} ${NOT_KNOWN} It is on 2 or 3 pages and on 3 or 4 cards.`],
+      ["1 page, 1 card", undefined],
+      ["at least 1 page, 3 cards", `It has 3 uses ${ON_OVERVIEW} ${NOT_KNOWN} It is on 1 or 2 pages.`]]);
+    expect(view.objects[0].uses).toEqual([{ row: 0, page: "Overview", card: 1, usedAs: "Data source", pagesOfName: 2 }, { row: 1, page: "Overview", card: 1, usedAs: "Data source", pagesOfName: 2 }]);
+    expect(view.objects[1].uses.map(used => used.pagesOfName)).toEqual([2, 2, 2, undefined]);
+    // The page's own sort puts a marked count by its number, straight after the same number unmarked, in both directions.
+    const [pagesAt, cardsAt] = [view.headers.indexOf("Pages"), view.headers.indexOf("Cards")];
+    expect(sortRows(view.rows, { column: pagesAt, dir: "asc" }).map(row => [row[1], row[pagesAt]])).toEqual([["Products", 1], ["Time", "1+"], ["REV01 Sales", 2], ["Margin %", "2+"]]);
+    expect(sortRows(view.rows, { column: pagesAt, dir: "desc" }).map(row => row[pagesAt])).toEqual(["2+", 2, "1+", 1]);
+    expect(sortRows(view.rows, { column: cardsAt, dir: "asc" }).map(row => row[cardsAt])).toEqual([1, 2, 3, "3+"]);
+    expect(sortRows([[9], ["10+"], [100], ["9+"], [10], ["41+"], [42], [41]], { column: 0, dir: "asc" }).flat()).toEqual([9, "9+", 10, "10+", 41, "41+", 42, 100]);
+    expect(view.columns.filter(shown => shown.num).map(shown => shown.label)).toEqual(["Pages", "Cards"]);
+  });
+
+  it("takes from the Pages file which pages have a name: a page is its ID, and a page without cards uses nothing", () => {
+    const shared = (...rows: Fields[]) => viewOf(app(pages(...rows, demand("Stores")), USES_ALIKE)).sharedPageNames;
+    const today = viewOf(app(pages(demand("Overview"), demand("Stores")), USES_ALIKE));
+    // One page called Overview: every count is the number of names and numbers, and nothing is said of shared names.
+    expect(today.rows.map(row => row.slice(3, 5))).toEqual([[1, 1], [2, 3], [1, 1], [1, 3]]);
+    expect([shared(demand("Overview")), today.note]).toEqual([undefined, "10 uses of 4 objects. The CSV lists every use."]);
+    // The same page listed twice is one page, and so is a page beside a page of its name that has no cards: not
+    // published, or not analysed. Either way the view is the one above.
+    for (const rows of [[demand("Overview", { "Page ID": guid(1) }), demand("Overview", { "Page ID": guid(1) })],
+      [demand("Overview", { "Page ID": guid(1), "Total cards": 3 }), demand("Overview", { "Page ID": guid(2), "Total cards": 0 })],
+      [demand("Overview", { "Total cards": "0" }), demand("Overview", { "Total cards": 3 }), demand("Overview", { "Total cards": 0 })]]) {
+      expect(viewOf(app(pages(...rows, demand("Stores")), USES_ALIKE))).toEqual(today);
+    }
+    // Two IDs are two pages, and so are two rows where the file gives no ID, or has no such column at all.
+    expect(shared(demand("Overview", { "Page ID": guid(1) }), demand("Overview", { "Page ID": guid(2) }))).toEqual([["Overview", 2]]);
+    expect(shared(demand("Overview"), demand("Overview", { "Page ID": "" }))).toEqual([["Overview", 2]]);
+    const noIds = pages(demand("Overview"), demand("Overview"), demand("Stores"));
+    const without = { ...noIds, headers: noIds.headers.filter(header => header !== "Page ID"), rows: noIds.rows.map(row => row.filter((_, index) => noIds.headers[index] !== "Page ID")) };
+    expect(viewOf(app(without, USES_ALIKE)).rows).toEqual(viewOf(app(PAGES_ALIKE, USES_ALIKE)).rows);
+    // A page whose number of cards is not given may have cards. And where no page of the name is said to have any, that
+    // says nothing of the uses on it: every page of the name counts.
+    expect(shared(demand("Overview", { "Total cards": 3 }), demand("Overview"))).toEqual([["Overview", 2]]);
+    expect(shared(demand("Overview", { "Total cards": 0 }), demand("Overview", { "Total cards": 0 }))).toEqual([["Overview", 2]]);
+    // Three pages of the name: on no more of them than there are uses, and on no more than three.
+    const three = viewOf(app(pages(demand("Overview"), demand("Overview"), demand("Overview"), demand("Stores")), USES_ALIKE));
+    expect(spread(three)).toEqual({ "REV01 Sales": [2, undefined, 2, undefined], "Margin %": [2, 4, 3, 4], Products: [1, undefined, 1, undefined], Time: [1, 3, 3, undefined] });
+    expect([three.sharedPageNames, three.objects[3].note]).toEqual([[["Overview", 3]],
+      `It has 3 uses on a page name that more than one page has: "Overview" (3 pages). ${NOT_KNOWN} It is on 1 to 3 pages.`]);
+  });
+
+  it("takes a row that comes more often than pages have the name for no more than one page and one card", () => {
+    // The file has one row for an object, a card and a role, so the same row twice is two pages. Three times on a name
+    // that two pages have is a file that does not keep to that: its repeats say nothing, here or on another card.
+    const rows = (times: number) => [...Array.from({ length: times }, () => use("Module", "REV01 Sales", NONE, "Overview", 1, "Data source", SALES)),
+      use("Module", "REV01 Sales", NONE, "Overview", 2, "Data source", SALES), use("Module", "REV01 Sales", NONE, "Overview", 2, "Data source", SALES)];
+    expect(spread(viewOf(app(PAGES_ALIKE, whereUsed(...rows(2)))))).toEqual({ "REV01 Sales": [2, undefined, 4, undefined] });
+    const view = viewOf(app(PAGES_ALIKE, whereUsed(...rows(3))));
+    expect(spread(view)).toEqual({ "REV01 Sales": [1, 2, 2, 4] });
+    expect(view.rows).toEqual([["Module", "REV01 Sales", "—", "1+", "2+", "Data source", SALES]]);
+    expect(view.objects[0].note).toBe(`It has 5 uses ${ON_OVERVIEW} ${NOT_KNOWN} It is on 1 or 2 pages and on 2 to 4 cards.`);
+    // On a name that one page has, a row twice is one page and one card, as it always was.
+    expect(spread(viewOf(app(PAGES, whereUsed(...rows(2)))))).toEqual({ "REV01 Sales": [1, undefined, 2, undefined] });
+    // Two rows that differ in anything are not the same row. One card may run a process from two buttons, each under its
+    // own label, and may use a line item in two ways: one page and one card, or two.
+    const labels = viewOf(app(PAGES_ALIKE, whereUsed(use("Process", "Run", NONE, "Overview", 1, "Action button", "118000000002"),
+      use("Process", "Run now", NONE, "Overview", 1, "Action button", "118000000002"),
+      use("Line item", "Margin %", "REV01 Sales", "Overview", 1, "Filter", MARGIN), use("Line item", "Margin %", "REV01 Sales", "Overview", 1, "Formatting", MARGIN),
+      use("Line item", "Target", "REV01 Sales", "Overview", 1, "Filter", "286000000005"), use("Line item", "Target", "REV02 Prices", "Overview", 1, "Filter", "286000000005"))));
+    expect(spread(labels)).toEqual({ "Margin %": [1, 2, 1, 2], Target: [1, 2, 1, 2], Run: [1, 2, 1, 2] });
+  });
+
+  it("names the shared page names in the note, three of them and then how many more", () => {
+    const names = ["Overview", "Summary", "Plan", "Review", "Notes"];
+    const noted = (count: number) => viewOf(app(pages(...names.slice(0, count).flatMap(name => [demand(name), demand(name)]), demand("Stores"), demand("Draft"), demand("Draft")),
+      whereUsed(...names.slice(0, count).map(name => use("Dimension", "Time", NONE, name, 1, "Columns", "20000000003")), use("Dimension", "Time", NONE, "Stores", 1, "Columns", "20000000003")))).note;
+    // A name that pages share, but that no use is on, is not one of them: Draft.
+    expect(noted(0)).toBe("1 use of 1 object. The CSV lists every use.");
+    expect(noted(1)).toBe(`2 uses of 1 object. The CSV lists every use. ${ONE_NAME} ${SHARED}`);
+    expect(noted(3)).toBe(`4 uses of 1 object. The CSV lists every use. 3 page names are each shared by more than one page: "Overview" (2 pages), "Summary" (2 pages), "Plan" (2 pages). ${SHARED}`);
+    expect(noted(5)).toBe(`6 uses of 1 object. The CSV lists every use. 5 page names are each shared by more than one page: "Overview" (2 pages), "Summary" (2 pages), "Plan" (2 pages) and 2 more. ${SHARED}`);
+    // The object has one use on each: one page and one card of each name, whichever page that is. Its own note lists them the same way.
+    const view = viewOf(app(pages(...names.flatMap(name => [demand(name), demand(name)])), whereUsed(...names.map(name => use("Dimension", "Time", NONE, name, 1, "Columns", "20000000003")))));
+    expect([view.rows, view.objects[0].note]).toEqual([[["Dimension", "Time", "—", 5, 5, "Columns", "20000000003"]],
+      `It has 5 uses on page names that more than one page has: "Overview" (2 pages), "Summary" (2 pages), "Plan" (2 pages) and 2 more. ${NOT_KNOWN}`]);
+  });
+
+  it("never says less than an app has, or more, in 400 made-up apps whose pages share names", () => {
+    // Numbers that are the same on every run.
+    let seed = 20261004;
+    const pick = (below: number): number => {
+      seed = (seed * 1664525 + 1013904223) % 4294967296;
+      return Math.floor(seed / 4294967296 * below);
+    };
+    const things: [type: string, name: string, module: string, id: string][] = [["Module", "REV01 Sales", NONE, SALES], ["Line item", "Margin %", "REV01 Sales", MARGIN],
+      ["Dimension", "Time", NONE, "20000000003"]];
+    const roles = ["Rows", "Filter"];
+    const seen = { exact: 0, open: 0, exactOnShared: 0 };
+    for (let made = 0; made < 400; made++) {
+      // Two to six pages with names from a pool of three, each with up to three cards, and on a page one row for an
+      // object, a card and a role, as the report writes them.
+      const listed = Array.from({ length: 2 + pick(5) }, (_, index) => ({ name: `Page ${1 + pick(3)}`, cards: pick(4), id: guid(100 + index) }));
+      const truth = new Map(things.map(([, , , id]) => [id, { pages: new Set<number>(), cards: new Set<string>() }]));
+      const rows: Fields[] = [];
+      listed.forEach((entry, at) => {
+        for (let card = 1; card <= entry.cards; card++) {
+          for (const [type, name, module, id] of things) {
+            for (const role of roles) {
+              if (pick(100) >= 30) continue;
+              rows.push(use(type, name, module, entry.name, card, role, id));
+              truth.get(id)?.pages.add(at);
+              truth.get(id)?.cards.add(`${at}:${card}`);
+            }
+          }
+        }
+      });
+      // Every other app has its rows in another order than the report's, page after page: what the view says does not
+      // lean on the order. And half of them do not say how many cards a page has: then a page without cards counts too.
+      if (made % 2 === 1) {
+        for (let at = rows.length - 1; at > 0; at--) {
+          const other = pick(at + 1);
+          [rows[at], rows[other]] = [rows[other], rows[at]];
+        }
+      }
+      const listing = (entry: { name: string; cards: number; id: string }) => demand(entry.name, { "Page ID": entry.id, ...(made % 4 < 2 ? { "Total cards": entry.cards } : {}) });
+      const view = viewOf(app(pages(...listed.map(listing)), whereUsed(...rows)));
+      for (const object of view.objects) {
+        const has = truth.get(object.id);
+        const told = `app ${made}, ${object.name}: ${JSON.stringify(listed)}`;
+        expect(has, told).toBeDefined();
+        if (!has) continue;
+        // The least is no more than the app has, the most no less, and a count without a most is the app's own.
+        expect(object.pages, told).toBeLessThanOrEqual(has.pages.size);
+        expect(object.pagesMost ?? object.pages, told).toBeGreaterThanOrEqual(has.pages.size);
+        expect(object.cards, told).toBeLessThanOrEqual(has.cards.size);
+        expect(object.cardsMost ?? object.cards, told).toBeGreaterThanOrEqual(has.cards.size);
+        const open = object.pagesMost !== undefined || object.cardsMost !== undefined;
+        seen[open ? "open" : "exact"]++;
+        if (!open && object.note !== undefined) seen.exactOnShared++;
+      }
+    }
+    // The apps were of every kind: counts the file leaves open, exact ones, and exact ones on a shared name.
+    expect(Object.values(seen).every(count => count > 50), JSON.stringify(seen)).toBe(true);
+  });
+
+  it("says nothing of shared names, and changes no count, where no two pages share a name", () => {
+    const view = viewOf(app(PAGES, USES));
+    expect(Object.keys(view).sort()).toEqual(["ambiguousUses", "columns", "headers", "multiModel", "note", "objects", "rows", "totalUses", "unlistedUses"]);
+    expect(view.objects.map(object => Object.keys(object).sort().join())).toEqual(Array.from({ length: 6 }, () => "cards,id,model,module,name,pages,roles,type,uses"));
+    expect(new Set(view.objects.flatMap(object => object.uses.map(used => Object.keys(used).join())))).toEqual(new Set(["row,page,card,usedAs"]));
+    expect(view.rows.every(row => typeof row[3] === "number" && typeof row[4] === "number")).toBe(true);
+    expect([view.note, view.objects.map(usedOn)]).toEqual(["10 uses of 6 objects. The CSV lists every use.",
+      ["2 pages, 2 cards", "2 pages, 3 cards", "1 page, 1 card", "1 page, 1 card", "1 page, 1 card", "1 page, 1 card"]]);
+    // The line under an object's name reads as the page wrote it before, for any object.
+    const object = (pagesOn: number, cardsOn: number, most: Partial<WhereUsedObject> = {}): WhereUsedObject =>
+      ({ type: "Dimension", name: "Time", module: NONE, model: NONE, pages: pagesOn, cards: cardsOn, roles: [], id: "20000000003", uses: [], ...most });
+    expect([usedOn(object(65, 130)), usedOn(object(1, 1)), usedOn(object(1, 2, { pagesMost: 2 })), usedOn(object(41, 84, { pagesMost: 42, cardsMost: 86 })), usedOn(object(3, 1, { cardsMost: 3 }))])
+      .toEqual(["65 pages, 130 cards", "1 page, 1 card", "at least 1 page, 2 cards", "at least 41 pages, at least 84 cards", "3 pages, at least 1 card"]);
+  });
+});
+
