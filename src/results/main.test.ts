@@ -1255,6 +1255,21 @@ describe("What a click, a key and typing do on the results page", () => {
     expect([copied, page.id("toast").textContent]).toEqual([[log], "Copied the diagnostic log"]);
   });
 
+  it("says what was copied as text, whatever the ID holds", async () => {
+    // An ID is a cell like any other: it can hold what an Anaplan user typed.
+    await openWith({ ...APP, tables: APP.tables.map((table, index) => (index === 3 ? { ...table, rows: [["Overview", 1, 1, "Own rows and columns", "REP01 Sales", `card ${TAG}`]] } : table)) });
+    goTo(3);
+    page.find("#tableWrap tbody .id-pill").press();
+    await settle();
+    expect([copied, page.id("toast").textContent, page.id("toast").children, page.has("img")]).toEqual([[`card ${TAG}`], `Copied card ${TAG}`, [], false]);
+    // The same when the clipboard refuses and the text box is used instead.
+    clipboardRefuses = true;
+    page.commandWorks = true;
+    page.find("#tableWrap tbody .id-pill").press();
+    await settle();
+    expect([page.created.map(element => element.value), page.id("toast").textContent, page.has("img")]).toEqual([[`card ${TAG}`], `Copied card ${TAG}`, false]);
+  });
+
   it("copies through a text box when the clipboard refuses, and says so when that fails too", async () => {
     await openWith(APP);
     goTo(3);
