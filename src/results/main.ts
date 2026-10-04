@@ -192,7 +192,7 @@ function updateFade(wrap: HTMLElement): void {
   wrap.classList.toggle("no-scroll", wrap.scrollHeight <= wrap.clientHeight + 2);
 }
 const announceTable = (view: TableView): void =>
-  announce(`${view.label}: ${view.total} rows${view.context !== undefined ? `, filtered to ${view.context}` : ""}`);
+  announce(`${view.label}: ${view.total === 1 ? "1 row" : `${view.total} rows`}${view.context !== undefined ? `, filtered to ${view.context}` : ""}`);
 
 /** Draws a table's view whole: its name, its toolbar with the search box, its rows and its pager. */
 function renderTable(entry: Shown): void {
@@ -435,10 +435,13 @@ function settleScrim(): void {
 function setBehindDrawer(inert: boolean): void {
   for (const part of [find(".skip"), find(".hd"), el("banners"), find(".shell")]) if (part) part.inert = inert;
 }
-/** Shows the drawer. The title is a text and is set as one; the line under it and the body are markup.ts' markup. */
+/** Shows the drawer. The title is a text and is set as one; the line under it and the body are markup.ts' markup. What
+ * the focus goes back to afterwards is what opened the drawer from the page: a link inside the drawer that opens another
+ * card does not last, so it leaves that as it is. */
 function openDrawer(title: string, subHtml: string, bodyHtml: string, opener?: Element | null): void {
   clearTimeout(drawerTimer);
-  state.lastFocus = opener ?? document.activeElement;
+  const from = opener ?? document.activeElement;
+  if (!el("drawer").contains(from)) state.lastFocus = from;
   el("drawerTitle").textContent = title;
   el("drawerSub").innerHTML = subHtml;
   el("drawerBody").innerHTML = bodyHtml;
@@ -524,13 +527,14 @@ function navTo(view: View, context?: string): void {
   setTimeout(settleScrim, 210);
   window.scrollTo({ top: 0 });
 }
-/** The cards of one page: the Cards table, kept to that page. */
+/** The cards of one page: the Cards table, kept to that page. The drawer closes first when the jump starts in it: the page
+ * behind it takes part again, so the view the jump opens can take the focus. */
 function gotoPage(page: string): void {
   const entry = cards && shown.get(cards.index);
   if (!entry) return;
+  closeDrawer();
   entry.page = 0;
   navTo(entry.index, page);
-  closeDrawer();
 }
 
 /* ================= global events ================= */

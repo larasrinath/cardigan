@@ -482,12 +482,13 @@ describe("The results page's script, on the page", () => {
     expect(page.id("tblSearch")).toBe(box);
     expect([box.value, page.document.activeElement === box]).toEqual(["item 11", true]);
     expect(firstCells()).toEqual(["Line item 11", ...Array.from({ length: 10 }, (_, index) => `Line item ${110 + index}`)]);
+    expect(page.id("live").textContent).toBe("Line Items: 11 rows");
     expect([page.id("rowCount").textContent, page.id("resetBtn").hidden, pagerButtons()]).toEqual(["1–11 of 11 rows (filtered from 120)", false, ["(‹)", "[1]", "(›)"]]);
     expect(page.id("searchWrap").classList.contains("has-value")).toBe(true);
 
     // Each further letter does the same, and so does taking letters away.
     box.type("item 119");
-    expect([firstCells(), page.id("rowCount").textContent]).toEqual([["Line item 119"], "1–1 of 1 row (filtered from 120)"]);
+    expect([firstCells(), page.id("rowCount").textContent, page.id("live").textContent]).toEqual([["Line item 119"], "1–1 of 1 row (filtered from 120)", "Line Items: 1 row"]);
     box.type("item 119x");
     expect([firstCells(), page.texts("#tableWrap .e-title"), pagerButtons(), page.id("rowCount").textContent]).toEqual([[], ["No results"], [], "No rows (filtered from 120)"]);
     box.type("");
@@ -740,6 +741,10 @@ describe("The results page's script, on the page", () => {
     rowButton().press();
     page.find('#drawerBody [data-act="page"]').press();
     expect([behind(), page.texts("#crumbs .ctx")]).toEqual([[false, false, false, false], ["Page: Overview"]]);
+    // The jump draws the view anew, so what opened the drawer is gone: the focus is on the view, not left in the drawer.
+    expect(page.document.activeElement).toBe(page.id("view"));
+    vi.advanceTimersByTime(210);
+    expect([page.id("drawer").hidden, page.document.activeElement === page.id("view")]).toEqual([true, true]);
     // A card's drawer is the same drawer.
     page.find('#tableWrap tbody [data-act="card"]').press();
     expect(behind()).toEqual([true, true, true, true]);
@@ -1008,7 +1013,9 @@ describe("What a click, a key and typing do on the results page", () => {
     // Inside the drawer, a card's link opens that card too: here the same one again, by its title.
     page.find('#drawerBody [data-act="card"]').press();
     expect(card().slice(0, 2)).toEqual(["Card 1 — Sales, copied", "Overview (copy)"]);
+    // The drawer then closes back to what opened it from the table, not to the link inside it, which is gone.
     page.key("Escape");
+    expect(page.document.activeElement).toBe(cardLinks()[1]);
     // A row whose card the export does not have: a word about it, and no drawer.
     cardLinks()[2].press();
     expect([page.id("toast").textContent, drawerShown(), page.find(".shell").inert]).toEqual(["Card not found in this export", false, false]);
