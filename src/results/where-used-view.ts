@@ -71,8 +71,10 @@ export interface WhereUsedUse {
   card: Cell;
   /** What the card uses the object as: the Used as cell's text. */
   usedAs: string;
-  /** The card's ID, which is what the page opens a card by. It is there when the Cards file has exactly one card of that
-   * number on a page of that name. */
+  /** The card's ID. The page opens a card by its page's name and its ID, so the ID is there only when both lead to this
+   * one card: exactly one row of the Cards file is a card of that number on a page of that name, and no other row of
+   * that page name has its ID. With two cards of the number the file does not say which of them it is, also when they
+   * have one ID. */
   cardId?: string;
   /** How many pages have this page's name, as the Pages file lists them: every page of the name, with cards or without.
    * It is there when the file cannot say which page the use is on, because more than one of them can have uses. */
@@ -265,22 +267,29 @@ function sharedNamesOf(pages: ResultTable, pageAt: number): Map<string, SharedNa
   return shared;
 }
 
-/** Page name and card number -> the card's ID, from the Cards file. Nothing where the file has no such card, or two cards
- * of that number on pages of that name with different IDs: then the file does not say which card a use is on. */
+/** Page name and card number -> the card's ID, from the Cards file, where the result settles which card that is. Exactly
+ * one row of the file is a card of that number on a page of that name: two such rows are two cards, and the file does not
+ * say which of them a use is on, also when both have one ID, as the cards of a page and of its copy can. And no other
+ * row of that page name has the card's ID: the page opens a card by its page's name and its ID, and takes the first row
+ * that has both, which under a name that a page shares with its copy may be a card of another number. */
 function cardIdsOf(result: AnalysisResult): (page: string, card: string) => string | undefined {
   const cards = result.tables.find(table => table.file === APP_FILES.Cards);
   const at = cards && places(cards, CARD_HEADERS);
+  /** By page name and card number: the ID of the one row that is such a card, or nothing where several rows are. */
   const ids = new Map<string, string | undefined>();
+  /** By page name and Card ID: how many rows have both. */
+  const rowsOfId = new Map<string, number>();
   if (cards && at) {
     for (const row of cards.rows) {
-      const key = JSON.stringify([cellText(row[at.page]), cellText(row[at.card])]);
-      const id = cellText(row[at.id]);
-      ids.set(key, ids.has(key) && ids.get(key) !== id ? undefined : id);
+      const [name, id] = [cellText(row[at.page]), cellText(row[at.id])];
+      const key = JSON.stringify([name, cellText(row[at.card])]);
+      ids.set(key, ids.has(key) ? undefined : id);
+      tally(rowsOfId, JSON.stringify([name, id]));
     }
   }
   return (page, card) => {
     const id = ids.get(JSON.stringify([page, card]));
-    return id !== undefined && says(id) ? id : undefined;
+    return id !== undefined && says(id) && rowsOfId.get(JSON.stringify([page, id])) === 1 ? id : undefined;
   };
 }
 
