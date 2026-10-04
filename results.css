@@ -184,6 +184,9 @@ td.num{font-variant-numeric:tabular-nums}
 .link:hover{text-decoration:underline}
 /* Among other text a link is underlined: its colour alone does not tell it from the words around it. */
 .d-sub .link{text-decoration:underline}
+/* The button that opens a row stands before its first cell's own link, in the cell's 320px. The link stops at 296px,
+   so a long name is cut short: one that filled the cell would not fit beside the button, and would be dropped whole. */
+[data-act="row"] + .link{max-width:min(100%,296px)}
 .dash{color:var(--text-3)}
 .scroll-fade{
   position:sticky;bottom:0;left:0;right:0;height:26px;pointer-events:none;
