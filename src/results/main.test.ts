@@ -225,14 +225,14 @@ describe("The results page's script, on the page", () => {
     expect(page.find("#hdMeta .meta-sub").textContent).toContain("us1a.app.anaplan.com");
     // The notes are a panel of the overview, one line each: the summary, and the Notes rows of the Details file. The banner
     // area holds none of them.
-    expect([page.texts("#view .panel h2"), page.texts("#view .warn-list li")]).toEqual([["Cards by type", "Notes"], ["1 of 1 pages analysed, 2 cards.", "Archive: Not published"]]);
+    expect([page.texts("#view .panel h2"), page.texts("#view .warn-list li")]).toEqual([["Notes", "Cards by type"], ["1 of 1 pages analysed, 2 cards.", "Archive: Not published"]]);
     expect(page.id("banners").children).toEqual([]);
-    // One navigation entry per file, and the Details file as Details. An app has no model map.
-    expect(page.all("#navList [data-nav]").map(entry => entry.dataset.nav)).toEqual(["overview", "1", "2", "details"]);
+    // One navigation entry per file. The Details file has none: the overview says what it holds. An app has no model map.
+    expect(page.all("#navList [data-nav]").map(entry => entry.dataset.nav)).toEqual(["overview", "1", "2"]);
     expect(page.texts("#view h1")).toEqual(["Overview"]);
     expect(page.id("sidenav").hidden).toBe(false);
-    // Downloads and Run again are there now; "this table" has no table on the overview.
-    expect(disabled("runAgain", "dlAll", "dlCsv")).toEqual([false, false, true]);
+    // Downloads and Run again are there now; on the overview "this table" is the Details file, which the overview shows.
+    expect([disabled("runAgain", "dlAll", "dlCsv"), page.id("dlCsv").title]).toEqual([[false, false, false], "Download App Details.csv"]);
   });
 
   it("starts nothing by itself when the icon did not open it just now: it says what the tab shows, and Run analyses it", async () => {
@@ -320,8 +320,8 @@ describe("The results page's script, on the page", () => {
     // What is saved is the result's own zip and files, as they are.
     expect(await bytes(saved[0])).toEqual(resultZip(named, NOW));
     expect([await saved[1].text(), await saved[2].text()]).toEqual([named.tables[1], named.tables[2]].map(table => tableCsv(table).replace(/^\ufeff/, "")));
-    // A plain name is used as it is.
-    page.find('#navList [data-nav="details"]').press();
+    // A plain name is used as it is: on the overview, the Details file's.
+    page.find('#navList [data-nav="overview"]').press();
     expect(page.id("dlCsv").title).toBe("Download App Details.csv");
     page.id("dlCsv").press();
     expect(page.downloads[3].name).toBe("App Details.csv");
@@ -344,7 +344,7 @@ describe("The results page's script, on the page", () => {
     // The earlier result is all still there: its name, its navigation, the table and the row the user was reading.
     const earlier = () => [page.document.title, page.texts("#hdMeta .meta-app"), page.all("#navList [data-nav]").length, page.texts("#view h1"), firstCells().length,
       page.id("drawer").hidden, page.texts("#drawerBody dd")[2]];
-    expect(earlier()).toEqual(["Cardigan — Demo <img src=x onerror=alert(1)> app", ["Demo <img src=x onerror=alert(1)> app"], 4, ["Cards"], 2, false, "=Margin"]);
+    expect(earlier()).toEqual(["Cardigan — Demo <img src=x onerror=alert(1)> app", ["Demo <img src=x onerror=alert(1)> app"], 3, ["Cards"], 2, false, "=Margin"]);
     expect(disabled("runAgain", "dlAll", "dlCsv")).toEqual([true, false, false]);
     // And it is what the downloads give, with the time it was complete at.
     vi.setSystemTime(new Date(Date.UTC(2026, 9, 3, 15, 0, 0)));
@@ -362,7 +362,7 @@ describe("The results page's script, on the page", () => {
       tables: [RESULT.tables[0], RESULT.tables[1], { ...RESULT.tables[2], rows: [["Overview", 1, "Only card", "Grid", "card-z"]] }] };
     ports[0].send({ type: "result", result: { ...next, tables: next.tables.map(table => ({ ...table, rows: [] })) } });
     next.tables.forEach((table, index) => ports[0].send({ type: "rows", table: index, rows: table.rows }));
-    expect([earlier().slice(0, 5), banner().slice(0, 3)]).toEqual([["Cardigan — Demo <img src=x onerror=alert(1)> app", ["Demo <img src=x onerror=alert(1)> app"], 4, ["Cards"], 2],
+    expect([earlier().slice(0, 5), banner().slice(0, 3)]).toEqual([["Cardigan — Demo <img src=x onerror=alert(1)> app", ["Demo <img src=x onerror=alert(1)> app"], 3, ["Cards"], 2],
       ["note", "Analysing", "Receiving the result…"]]);
     ports[0].send({ type: "done" });
     // Now the page is the new result's: its overview, without the banner, and without the drawer that showed a row of the old one.
@@ -370,7 +370,7 @@ describe("The results page's script, on the page", () => {
       .toEqual(["Cardigan — Demo app, second run", ["Overview"], ["1", "1"], [], false]);
     // The focus was in that drawer: it is on the new view now, not on nothing.
     expect(page.document.activeElement).toBe(page.id("view"));
-    expect(disabled("runAgain", "dlAll", "dlCsv")).toEqual([false, false, true]);
+    expect(disabled("runAgain", "dlAll", "dlCsv")).toEqual([false, false, false]);
     // The downloads are the new result's from now on, with its own time.
     page.id("dlAll").press();
     expect(page.downloads[2].name).toBe("Second.zip");
@@ -445,8 +445,9 @@ describe("The results page's script, on the page", () => {
     ports[0].drop();
     expect(banner().slice(0, 3)).toEqual(["warn", "The analysis stopped", "The Anaplan tab was closed or left the page before the analysis finished."]);
     expect(shown()).toEqual(first);
-    // The Details view still shows, and copies, the log the result carries.
-    page.find('#navList [data-nav="details"]').press();
+    // The overview still shows, and copies, the log the result carries.
+    page.find('#navList [data-nav="overview"]').press();
+    page.find("#ovLog summary").press();
     page.find('#view [data-act="copy-diag"]').press();
     await settle();
     expect(copied[1]).toBe("14:02:05 app: 1 page");
@@ -769,10 +770,8 @@ describe("The results page's script, on the page", () => {
     await openWith();
     /** The levels of the headings inside a part of the page, in the order they stand. */
     const levels = (part: string) => page.all(`${part} h1, ${part} h2, ${part} h3, ${part} h4, ${part} h5, ${part} h6`).map(heading => Number(heading.localName[1]));
-    // The overview and the details: the view's heading, then its panels and sections one level under it.
-    expect([levels("#main"), page.texts("#main h2")]).toEqual([[1, 2, 2], ["Cards by type", "Notes"]]);
-    page.find('#navList [data-nav="details"]').press();
-    expect([levels("#main"), page.texts("#main h2")]).toEqual([[1, 2, 2], ["Export", "Notes"]]);
+    // The overview: the view's heading, then its panels and sections one level under it, the one that starts closed too.
+    expect([levels("#main"), page.texts("#main h2")]).toEqual([[1, 2, 2, 2, 2], ["About this export", "Notes", "Cards by type", "Diagnostics"]]);
     // A table has its one heading. The drawer's own heading is an h2, and its sections stand one level under that.
     goTo(2);
     expect(levels("#main")).toEqual([1]);
@@ -850,10 +849,11 @@ describe("The results page's script, on the page", () => {
     await openWith(WITH_CALENDAR);
     const file = WITH_CALENDAR.tables[3];
     expect([file.rows.length, file.rows.filter(row => row[0] === "Model").length]).toEqual([31, 5]);
-    // The overview: the file's tile counts the rows its table lists, and a panel holds what the file says about the model.
+    // The overview: the file's tile counts the rows its table lists. What the file says about the model stands with what
+    // the Details file says about the export, after it, and without the model's name, which that has said.
     expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Model Calendar", "26", "rows"], ["Modules", "2", "rows"], ["Line Items", "120", "rows"]]);
-    expect([page.texts("#view .ov-cols .panel h2"), page.texts("#view .ov-cols dt"), page.texts("#view .ov-cols dd")])
-      .toEqual([["Model"], ["Workspace", "Model", "Captured on"], ["Main", "Model one", "2026-10-03"]]);
+    expect([page.texts("#ovAbout h2"), page.texts("#ovAbout dt"), page.texts("#ovAbout dd")])
+      .toEqual([["About this export"], ["Model", "Anaplan host", "Workspace", "Captured on"], ["Model one", "us1a.app.anaplan.com", "Main", "2026-10-03"]]);
     // The navigation counts the same rows.
     expect(page.all("#navList .nav-item").filter(item => item.querySelector(".cnt")).map(item => item.children.map(child => child.textContent)))
       .toEqual([["Model Calendar", "26"], ["Modules", "2"], ["Line Items", "120"]]);
@@ -986,19 +986,26 @@ describe("What a click, a key and typing do on the results page", () => {
     page.key("Escape");
   };
 
-  it("opens the table the navigation names, the overview and the details; an app's navigation is in the result's order, without a model map", async () => {
+  it("opens the table the navigation names, and the overview; an app's navigation is in the result's order, without a Details entry or a model map", async () => {
     await openWith(APP);
     expect(shows()).toEqual(["Overview", "Overview", "Overview"]);
     expect([page.all("#navList .nav-item").map(item => item.children[0].textContent), page.has('#navList [data-nav="map"]'), page.texts("#view .s-lab")])
-      .toEqual([["Overview", "Pages", "Cards", "Grid Sections", "Where Used", "Details"], false, ["Pages", "Cards", "Grid sections", "Where Used"]]);
+      .toEqual([["Overview", "Pages", "Cards", "Grid Sections", "Where Used"], false, ["Pages", "Cards", "Grid sections", "Where Used"]]);
     for (const [table, label, rows] of [[1, "Pages", 2], [2, "Cards", 4], [3, "Grid Sections", 3], [4, "Where Used", 2]] as const) {
       goTo(table);
       expect([shows(), firstCells().length, page.id("dlCsv").title]).toEqual([[label, label, label], rows, `Download ${label}.csv`]);
     }
-    page.find('#navList [data-nav="details"]').press();
-    expect([shows(), page.has("#tableWrap")]).toEqual([["Details", "Details", "Details"], false]);
     // The breadcrumb's Overview goes back to the overview.
     page.find('#crumbs [data-nav="overview"]').press();
+    expect(shows()).toEqual(["Overview", "Overview", "Overview"]);
+    // There is no Details view. A link that still names it, as the navigation's entry did, leads to the overview, which
+    // holds what that view held; so does any name that is not a file's place.
+    goTo(2);
+    page.id("banners").innerHTML = '<button type="button" data-nav="details">Details</button><button type="button" data-nav="nowhere">Nowhere</button>';
+    page.find('#banners [data-nav="details"]').press();
+    expect([shows(), page.has("#tableWrap"), page.texts("#view h2").slice(0, 1), page.document.activeElement === page.id("view")]).toEqual([["Overview", "Overview", "Overview"], false, ["About this export"], true]);
+    goTo(2);
+    page.find('#banners [data-nav="nowhere"]').press();
     expect(shows()).toEqual(["Overview", "Overview", "Overview"]);
   });
 
@@ -1013,13 +1020,13 @@ describe("What a click, a key and typing do on the results page", () => {
     const written = ["Line Items", "Modules", "General Lists", "Processes", "Imports", "Import Data Sources", "Exports", "Other Actions", "Time Ranges", "Versions", "Source Models", "Model Calendar"];
     const ordered = ["Model Calendar", "Time Ranges", "Versions", "General Lists", "Modules", "Line Items", "Processes", "Imports", "Import Data Sources", "Exports", "Other Actions", "Source Models"];
     await openWith(model(...written));
-    expect([entries(), tiles()]).toEqual([["Overview", ...ordered, "Details", "Model map"], ordered]);
+    expect([entries(), tiles()]).toEqual([["Overview", ...ordered, "Model map"], ordered]);
     // Each entry still opens its own file: its name in the navigation is the file's place in the result, and its count the file's.
     expect(page.all("#navList .nav-item").slice(1, 4).map(item => [item.dataset.nav, item.children[1].textContent])).toEqual([["12", "12"], ["9", "9"], ["10", "10"]]);
     goTo(9);
     expect([shows(), page.id("rowCount").textContent, firstCells()[0]]).toEqual([["Time Ranges", "Time Ranges", "Time Ranges"], "1–9 of 9 rows", "Time Ranges 1"]);
     // The model map is the last entry and still to come: it says so, a click says so for a moment, and the view stays.
-    const map = page.all("#navList .nav-item")[14];
+    const map = page.all("#navList .nav-item")[13];
     expect([map.dataset.nav, map.getAttribute("aria-disabled"), map.title, map.children.map(child => child.textContent)]).toEqual(["map", "true", "Model map is coming in a later version", ["Model map", "coming soon"]]);
     map.press();
     expect([page.id("toast").textContent, page.id("toast").classList.contains("show"), shows()[0]]).toEqual(["Model map is coming in a later version", true, "Time Ranges"]);
@@ -1034,20 +1041,20 @@ describe("What a click, a key and typing do on the results page", () => {
     // A result without some of the files lists the ones it has, in the same order.
     page.id("runAgain").press();
     sendResult(ports[0], model("Imports", "Line Items", "Versions"));
-    expect([entries(), tiles()]).toEqual([["Overview", "Versions", "Line Items", "Imports", "Details", "Model map"], ["Versions", "Line Items", "Imports"]]);
+    expect([entries(), tiles()]).toEqual([["Overview", "Versions", "Line Items", "Imports", "Model map"], ["Versions", "Line Items", "Imports"]]);
     // A file the order does not name comes after the ones it names, in the result's order: none goes missing. Line Item
     // Subsets, which the export does not write yet, has its place between General Lists and Modules.
     page.id("runAgain").press();
     sendResult(ports[0], model("Dashboards", "Line Items", "Line Item Subsets", "Users", "Modules", "General Lists"));
-    expect([entries(), tiles()]).toEqual([["Overview", "General Lists", "Line Item Subsets", "Modules", "Line Items", "Dashboards", "Users", "Details", "Model map"],
+    expect([entries(), tiles()]).toEqual([["Overview", "General Lists", "Line Item Subsets", "Modules", "Line Items", "Dashboards", "Users", "Model map"],
       ["General Lists", "Line Item Subsets", "Modules", "Line Items", "Dashboards", "Users"]]);
   });
 
-  it("saves with Download this table the table on screen, whole, and the Details file on the details view", async () => {
+  it("saves with Download this table the table on screen, whole, and the Details file on the overview", async () => {
     await openWith(APP);
     const last = async () => [page.downloads[page.downloads.length - 1].name, saved[saved.length - 1].type, await saved[saved.length - 1].text()];
     const csv = (file: string) => tableCsv(APP.tables.find(table => table.file === file)!).replace(/^\ufeff/, "");
-    for (const [where, file] of [[3, "Grid Sections.csv"], [1, "Pages.csv"], ["details", "App Details.csv"], [4, "Where Used.csv"], [2, "Cards.csv"]] as const) {
+    for (const [where, file] of [[3, "Grid Sections.csv"], [1, "Pages.csv"], ["overview", "App Details.csv"], [4, "Where Used.csv"], [2, "Cards.csv"]] as const) {
       page.find(`#navList [data-nav="${where}"]`).press();
       page.id("dlCsv").press();
       expect(await last(), file).toEqual([file, "text/csv;charset=utf-8", csv(file)]);
@@ -1061,11 +1068,9 @@ describe("What a click, a key and typing do on the results page", () => {
     expect(firstCells().length).toBe(2);
     page.id("dlCsv").press();
     expect((await last())[2]).toBe(csv("Cards.csv"));
-    // On the overview there is no table on screen: the button is off, and a click saves nothing.
+    // On the overview the file is the Details file, which is what the overview shows: the button says so.
     page.find('#navList [data-nav="overview"]').press();
-    const before = saved.length;
-    page.id("dlCsv").press();
-    expect([page.id("dlCsv").disabled, page.id("dlCsv").title, saved.length]).toEqual([true, "Open a table to download it", before]);
+    expect([page.id("dlCsv").disabled, page.id("dlCsv").title]).toEqual([false, "Download App Details.csv"]);
   });
 
   it("opens the row that was clicked, not its neighbour, on a click anywhere in the row but on a control", async () => {
@@ -1416,14 +1421,60 @@ describe("What a click, a key and typing do on the results page", () => {
     expect(theme()[0]).toBe("dark");
   });
 
-  it("copies the result's diagnostic log line for line from the details view", async () => {
+  it("opens the overview's closed sections from the keyboard, and copies the result's diagnostic log line for line", async () => {
     await openWith(APP);
-    page.find('#navList [data-nav="details"]').press();
     const log = "14:02:05 Cardigan dev: app 01234567 on us1a.app.anaplan.com\n14:02:06 app: 2 pages\na line without a time";
-    expect(page.id("diagLog").textContent).toBe(log);
-    page.find('#view [data-act="copy-diag"]').press();
+    const section = page.find("#ovLog");
+    const summary = page.find("#ovLog summary");
+    const copy = page.find('#view [data-act="copy-diag"]');
+    // Diagnostics starts closed: its summary takes the focus with the Tab key, and what it holds is out of reach.
+    expect([section.localName, section.hasAttribute("open"), summary.focusable, summary.textContent.trim(), copy.focusable, page.id("diagLog").focusable]).toEqual(["details", false, true, "Diagnostics", false, false]);
+    expect(() => copy.press()).toThrow("it is in a closed <details>");
+    // Enter on the summary opens it: the log is there line for line, and the button that copies it can be chosen.
+    summary.focus();
+    page.document.activeElement.press();
+    expect([section.hasAttribute("open"), copy.focusable, page.id("diagLog").focusable, page.id("diagLog").textContent]).toEqual([true, true, true, log]);
+    copy.press();
     await settle();
     expect([copied, page.id("toast").textContent]).toEqual([[log], "Copied the diagnostic log"]);
+    // Enter again closes it. The page's own keys leave the section alone: Escape and the slash do nothing to it.
+    summary.press();
+    expect(section.hasAttribute("open")).toBe(false);
+    summary.press();
+    expect([page.key("Escape").defaultPrevented, page.key("/").defaultPrevented, section.hasAttribute("open")]).toEqual([false, false, true]);
+  });
+
+  it("says on the overview everything the Details file holds, for an app and for a model: no row is dropped", async () => {
+    /** Every text the overview shows, with its closed sections' as well. */
+    const texts = () => [...page.texts("#view dt"), ...page.texts("#view dd"), ...page.texts("#view .warn-list li"), ...page.id("diagLog").textContent.split("\n")];
+    /** Each file's tile, by the file's own name, which is its entry's in the navigation: the tiles stand in the same order. */
+    const tiles = () => page.all("#navList .nav-item").filter(item => item.querySelector(".cnt")).map((item, index) => `${item.children[0].textContent}.csv: ${page.all("#view .stat .s-num")[index].textContent} rows`);
+    /** The rows of a result's Details file that the overview does not say: a detail and its value, a note, a line of the log, or a file's tile. */
+    const unsaid = (result: AnalysisResult) => {
+      const shown = texts();
+      return result.tables[0].rows.map(row => row.map(String)).filter(([section, detail, value]) => {
+        if (section === "Diagnostics") return !shown.includes(detail ? `${detail} ${value}` : value);
+        if (section === "Notes") return !shown.includes(`${detail}: ${value}`);
+        if (section === "Files" && /^\d+ rows$/.test(value)) return !tiles().includes(`${detail}: ${value}`);
+        return !(shown.includes(detail) && shown.includes(value));
+      });
+    };
+    const withFiles = (result: AnalysisResult, ...more: Cell[][]): AnalysisResult => ({ ...result, tables: [{ ...result.tables[0], rows: [...result.tables[0].rows,
+      ...result.tables.slice(1).map((table): Cell[] => ["Files", table.file, `${table.rows.length} rows`]), ...more] }, ...result.tables.slice(1)] });
+    // An app: what it is and how it was exported, a note, and how to read the files.
+    const app = withFiles(APP, ["Notes", "Archive", "Not published"], ["How to read", "Page and Card #", "Identify a card in every file."]);
+    await openWith(app);
+    expect([app.tables[0].rows.length, unsaid(app)]).toEqual([11, []]);
+    expect(page.texts("#view h2")).toEqual(["About this export", "Notes", "Cards by type", "How to read these files", "Diagnostics"]);
+    expect([page.texts("#ovAbout dt"), page.has("#ovFiles")]).toEqual([["App", "Anaplan host"], false]);
+    // A model, one of whose files was not exported and another counted with a remark: those two are said under Files.
+    const model = withFiles(MODEL, ["Files", "Source Models.csv", "Not exported: This model page has no REMOTE_MODEL axis."], ["How to read", "Layout", "As Anaplan's own export."]);
+    model.tables[0].rows[4] = ["Files", "Modules.csv", "2 rows (as listed)"];
+    page.id("runAgain").press();
+    sendResult(ports[0], model);
+    expect([model.tables[0].rows.length, unsaid(model)]).toEqual([7, []]);
+    expect([page.texts("#view h2"), page.texts("#ovFiles dt"), page.texts("#ovFiles dd")]).toEqual([["About this export", "Files", "How to read these files", "Diagnostics"],
+      ["Modules.csv", "Source Models.csv"], ["2 rows (as listed)", "Not exported: This model page has no REMOTE_MODEL axis."]]);
   });
 
   it("says what was copied as text, whatever the ID holds", async () => {

@@ -6,17 +6,17 @@ import { cardsOf, columnIndex, columnsOf, rowKeys, type CardsTable, type Column,
 import { describeState, openedJustNow, ResultsClient, runLabel, tabIdFrom, withoutOpened, type RunState } from "./connection.js";
 import { CSV_FALLBACK, downloadName, ZIP_FALLBACK } from "./file-name.js";
 import {
-  cardDrawerHtml, cardDrawerSubHtml, colChooserHtml, colFilterHtml, crumbsHtml, detailsHtml, headerMetaHtml, MOON_ICON, navHtml,
+  cardDrawerHtml, cardDrawerSubHtml, colChooserHtml, colFilterHtml, crumbsHtml, headerMetaHtml, MOON_ICON, navHtml,
   overviewHtml, rowDrawerHtml, rowDrawerSubHtml, runBannerHtml, runHtml, SUN_ICON, tableHtml, tableParts, type Links, type NavEntry, type TableView,
 } from "./markup.js";
 import type { PageId } from "./page-ids.js";
-import { analysedOf, cardSections, detailSections, detailsOf, diagnosticLog, listedRows, listedTables, overviewOf, unlistedNote } from "./result-view.js";
+import { analysedOf, cardSections, detailsOf, diagnosticLog, listedRows, listedTables, overviewOf, unlistedNote } from "./result-view.js";
 import { cellText, NONE, pageOf, rememberingSelect, rowName, valueCounts, type Row, type Sort, type TableQuery } from "./table-engine.js";
 
 /** The results page (results.html): the design's script, on the real result. It connects to the Anaplan tab the address
  * names and says what that tab shows. The analysis starts by itself when the icon has just opened the page, and otherwise
- * with the run control. The page shows its progress and then the result: an overview, one table per file, the details
- * and the downloads. The markup is built in markup.ts and the data work is done in the modules beside it; this file
+ * with the run control. The page shows its progress and then the result: an overview, which also holds what the Details
+ * file says, one table per file, and the downloads. The markup is built in markup.ts and the data work is done in the modules beside it; this file
  * only holds what the user chose and puts the pieces on the page. */
 
 const el = <T extends HTMLElement = HTMLElement>(id: PageId): T => document.getElementById(id) as T;
@@ -98,7 +98,7 @@ interface Shown {
   sort: Sort | undefined;
   page: number;
 }
-type View = "overview" | "details" | number;
+type View = "overview" | number;
 
 let result: AnalysisResult | undefined;
 /** When the result was complete: its zip carries this time, so downloading it twice gives the same bytes. */
@@ -121,8 +121,9 @@ let select = rememberingSelect();
 
 const defaultHidden = (columns: readonly Column[]): Set<number> => new Set(columns.filter(column => column.hidden).map(column => column.index));
 const currentEntry = (): Shown | undefined => (typeof state.view === "number" ? shown.get(state.view) : undefined);
-/** The file "Download this table" gives: the file of the table shown, whole, or the Details file on the details view. */
-const currentTable = (): ResultTable | undefined => (state.view === "details" ? details : currentEntry()?.file);
+/** The file "Download this table" gives: the file of the table shown, whole; on the overview, the Details file, which
+ * is what the overview shows. */
+const currentTable = (): ResultTable | undefined => currentEntry()?.file ?? (state.view === "overview" ? details : undefined);
 
 /* ================= header / theme ================= */
 function currentTheme(): "dark" | "light" {
@@ -161,7 +162,7 @@ function updateActions(): void {
   const table = currentTable();
   const csv = el<HTMLButtonElement>("dlCsv");
   csv.disabled = !table;
-  csv.title = table ? `Download ${downloadName(table.file, ".csv", CSV_FALLBACK)}` : result ? "Open a table to download it" : "";
+  csv.title = table ? `Download ${downloadName(table.file, ".csv", CSV_FALLBACK)}` : "";
 }
 
 /* ================= views ================= */
@@ -169,7 +170,6 @@ function navEntries(): NavEntry[] {
   return [
     { id: "overview", label: "Overview" },
     ...[...shown.values()].map(entry => ({ id: String(entry.index), label: cellText(entry.table.label), count: entry.table.rows.length })),
-    ...(details ? [{ id: "details", label: "Details" }] : []),
   ];
 }
 
@@ -241,11 +241,10 @@ function updateTable(entry: Shown): void {
 function renderAll(): void {
   if (!result) return;
   const entry = currentEntry();
-  if (!entry && state.view !== "details") state.view = "overview";
+  if (!entry) state.view = "overview";
   el("navList").innerHTML = navHtml(navEntries(), String(state.view), result.kind === "model");
-  el("crumbs").innerHTML = crumbsHtml(entry ? cellText(entry.table.label) : state.view === "details" ? "Details" : undefined, entry ? state.context : undefined);
+  el("crumbs").innerHTML = crumbsHtml(entry ? cellText(entry.table.label) : undefined, entry ? state.context : undefined);
   if (entry) renderTable(entry);
-  else if (state.view === "details") el("view").innerHTML = detailsHtml(detailSections(details), diagnosticLog(details));
   else el("view").innerHTML = overviewHtml(overviewOf(result));
   updateActions();
 }
@@ -606,7 +605,7 @@ document.addEventListener("click", event => {
         box?.focus();
         return;
       }
-      // The log a result carries, on its Details view; and the log of the run the page follows or last followed.
+      // The log a result carries, under Diagnostics on the overview; and the log of the run the page follows or last followed.
       case "copy-diag":
         void copyText(diagnosticLog(details).join("\n"), "the diagnostic log");
         return;
@@ -622,8 +621,10 @@ document.addEventListener("click", event => {
       toast("Model map is coming in a later version");
       return;
     }
+    // A file is named by its place in the result. Any other name leads to the overview: its own, and "details", the
+    // name of the view whose content the overview now holds.
     const id = nav.dataset.nav ?? "";
-    navTo(id === "overview" || id === "details" ? id : Number(id));
+    navTo(/^\d+$/.test(id) ? Number(id) : "overview");
     return;
   }
 

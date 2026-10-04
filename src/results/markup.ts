@@ -1,5 +1,5 @@
 import { rowColumns, type Column } from "./columns.js";
-import type { Analysed, CardSection, DetailSection, Overview } from "./result-view.js";
+import type { Analysed, CardSection, Overview } from "./result-view.js";
 import { cellText, NONE, pagerItems, type Row, type Sort } from "./table-engine.js";
 
 /** The results page's markup, as the design writes it: each function turns data into the HTML text the page then shows.
@@ -20,7 +20,12 @@ const FILTER_PATH = '<path d="M2 3h12l-4.6 5.2v4.3L6.6 14V8.2L2 3Z"/>';
 export const SUN_ICON = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="3.2"/><path d="M8 1.5v1.8M8 12.7v1.8M1.5 8h1.8M12.7 8h1.8M3.4 3.4l1.3 1.3M11.3 11.3l1.3 1.3M12.6 3.4l-1.3 1.3M4.7 11.3l-1.3 1.3"/></svg>';
 export const MOON_ICON = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13.5 9.5A5.8 5.8 0 0 1 6.5 2.5 5.8 5.8 0 1 0 13.5 9.5Z"/></svg>';
 const INFO_ICON = '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6.4"/><path d="M8 7.4v3.4M8 5v.2"/></svg>';
-const DIAGNOSTICS_SUMMARY = '<summary><svg class="car" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3l6 5-6 5"/></svg>Diagnostics</summary>';
+const CARET = '<svg class="car" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3l6 5-6 5"/></svg>';
+const DIAGNOSTICS_SUMMARY = `<summary>${CARET}Diagnostics</summary>`;
+/** What opens and closes a section of the overview that starts closed: a click on it, or Enter or Space while it has the
+ * focus, which the Tab key gives it. The section's heading stands inside it; the stylesheet has no rule for a heading
+ * there yet, so it takes the summary's look. */
+const sectionSummary = (title: string): string => `<summary>${CARET}<h2 style="font:inherit">${title}</h2></summary>`;
 /** The button that copies a diagnostic log. The messages of a failed run name it by these words (progress.ts). `act` says
  * which log: "copy-diag" the one a result carries, "copy-run-log" the one of the run the page is following or last followed. */
 const copyLogButton = (act: "copy-diag" | "copy-run-log", attributes = ""): string => `<button type="button" class="btn sm" data-act="${act}"${attributes}>
@@ -125,8 +130,15 @@ export function crumbsHtml(label: string | undefined, context: string | undefine
 
 /* ---------- overview ---------- */
 
-/** A view's heading is the page's h1, so what stands under it in the overview and in the details is an h2. The drawer's
- * heading is an h2 of the page shell, and its sections are h3. No view goes from one level to one two below it. */
+/** Details beside their values, as the design's details list holds them. */
+const detailRows = (rows: readonly (readonly [detail: string, value: string])[]): string => rows.map(([detail, value]) => `<dt>${esc(detail)}</dt><dd>${esc(value)}</dd>`).join("");
+
+/** The overview: everything about the run in one view. Under the tiles, what someone checks first: what was read and when,
+ * then the notes, and for an app its cards by type and its models. After those, what is looked up now and then: files
+ * that say more than their tile, and two sections that start closed, how to read the files and the diagnostic log.
+ *
+ * A view's heading is the page's h1, so what stands under it is an h2, also inside a section that starts closed. The
+ * drawer's heading is an h2 of the page shell, and its sections are h3. No view goes from one level to one two below it. */
 export function overviewHtml(overview: Overview): string {
   const most = overview.cardTypes.reduce((max, [, count]) => Math.max(max, count), 1);
   const types = overview.cardTypes.length ? `
@@ -146,11 +158,26 @@ export function overviewHtml(overview: Overview): string {
             <div class="m-sub">Workspace: ${esc(model.workspace)}</div>
           </div>`).join("")}
       </section>` : "";
-  // A model's own facts, as its Model Calendar file holds them: the list a row's drawer uses, in a panel.
-  const facts = overview.facts.length ? `
-      <section class="panel" aria-labelledby="ovf"><h2 id="ovf">Model</h2>
-        <dl class="d-dl">${overview.facts.map(([setting, value]) => `<dt>${esc(setting)}</dt><dd>${esc(value)}</dd>`).join("")}</dl>
-      </section>` : "";
+  const about = overview.about.length ? `
+    <div class="d-sec" id="ovAbout"><h2>About this export</h2>
+      <dl class="dl">${detailRows(overview.about)}</dl></div>` : "";
+  const files = overview.files.length ? `
+    <div class="d-sec" id="ovFiles"><h2>Files</h2>
+      <dl class="dl">${detailRows(overview.files)}</dl></div>` : "";
+  const howToRead = overview.howToRead.length ? `
+    <details class="diag" id="ovHowTo" style="margin-bottom:12px">
+      ${sectionSummary("How to read these files")}
+      <div class="diag-body"><dl class="dl" style="margin-bottom:0">${detailRows(overview.howToRead)}</dl></div>
+    </details>` : "";
+  // The button stands above the log, so that it is in sight as soon as the section is open, however long the log is.
+  const log = overview.log.length ? `
+    <details class="diag" id="ovLog">
+      ${sectionSummary("Diagnostics")}
+      <div class="diag-body">
+        <div style="margin-bottom:10px">${copyLogButton("copy-diag")}</div>
+        <pre id="diagLog" tabindex="0" role="region" aria-label="Diagnostic log">${esc(overview.log.join("\n"))}</pre>
+      </div>
+    </details>` : "";
   // The design's Warnings panel, without its coloured dots: a note has no severity.
   const notes = overview.notes.length ? `
     <section class="panel" aria-labelledby="ovn" style="margin-bottom:12px"><h2 id="ovn">Notes</h2>
@@ -162,26 +189,9 @@ export function overviewHtml(overview: Overview): string {
     <h1 class="view-title">Overview</h1>
     <div class="ov-grid">
       ${overview.tiles.map(tile => `<div class="stat"><div class="s-lab">${esc(tile.label)}</div><div class="s-num">${esc(tile.count)}</div><div class="s-sub">${tile.count === 1 ? "row" : "rows"}</div></div>`).join("")}
-    </div>${types || models || facts ? `
-    <div class="ov-cols">${types}${models}${facts}
-    </div>` : ""}${notes}`;
-}
-
-/* ---------- details ---------- */
-
-/** The Details file's rows under their sections, then the diagnostic log it carries. */
-export function detailsHtml(sections: readonly DetailSection[], log: readonly string[]): string {
-  return `
-    <h1 class="view-title">Details</h1>
-    ${sections.map(section => `<div class="d-sec"><h2>${esc(section.section)}</h2>
-      <dl class="dl">${section.rows.map(([detail, value]) => `<dt>${esc(detail)}</dt><dd>${esc(value)}</dd>`).join("")}</dl></div>`).join("")}
-    ${log.length ? `<details class="diag">
-      ${DIAGNOSTICS_SUMMARY}
-      <div class="diag-body">
-        <pre id="diagLog" tabindex="0" role="region" aria-label="Diagnostic log">${esc(log.join("\n"))}</pre>
-        ${copyLogButton("copy-diag")}
-      </div>
-    </details>` : ""}`;
+    </div>${about}${notes}${types || models ? `
+    <div class="ov-cols">${types}${models}
+    </div>` : ""}${files}${howToRead}${log}`;
 }
 
 /* ---------- the run, before there is a result ---------- */
