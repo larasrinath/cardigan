@@ -37,7 +37,8 @@ class ScriptedSocket {
   private readonly listeners = new Map<string, Listener[]>();
   constructor(readonly url: string) {
     ScriptedSocket.sockets.push(this);
-    setTimeout(() => { this.readyState = 1; this.emit("open", {}); }, 0);
+    // A socket that was closed while it connected does not open, as a browser's does not.
+    setTimeout(() => { if (this.readyState !== 0) return; this.readyState = 1; this.emit("open", {}); }, 0);
   }
   get host() { return new URL(this.url).host; }
   addEventListener(type: string, listener: Listener) { this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]); }
@@ -516,11 +517,16 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     /** Every frame sent on each socket: its command and, for a subscription or its data request, what it asks the model for. */
     const frames = () => ScriptedSocket.sockets.map(socket => socket.frames.map(({ command, headers: { destination } }) =>
       (destination === undefined ? command : `${command} ${destination.replace(/^core:\/+[^/]*/, "") || "status"}`)));
-    /** The run's end, and then long enough for anything it left behind to be sent. */
-    const ended = async (signal: AbortSignal) => {
-      const started = Date.now();
-      await expect(run(pages, scope, signal).result).rejects.toBe(stopped);
-      expect(Date.now() - started).toBeLessThan(2_000);
+    /** The run's end, which comes at once, and then long enough for anything it left behind to be sent. `stop` stops the run
+     * as soon as it has started. */
+    const ended = async (signal: AbortSignal, stop: () => void = () => undefined) => {
+      const { result } = run(pages, scope, signal);
+      stop();
+      let waiting: ReturnType<typeof setTimeout> | undefined;
+      const outcome = await Promise.race([result.then(() => "read", (error: unknown) => error),
+        new Promise(resolve => { waiting = setTimeout(() => resolve("still running"), 2_000); })]);
+      clearTimeout(waiting);
+      expect(outcome).toBe(stopped);
       await new Promise(resolve => setTimeout(resolve, 20));
       expect(globalThis.fetch).not.toHaveBeenCalled();
     };
@@ -532,10 +538,26 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     await ended(before.signal);
     expect(ScriptedSocket.sockets).toEqual([]);
 
-    // Stopped while the socket connects: it is closed again as soon as it has connected, with nothing subscribed.
+    // Stopped while the socket itself still connects: it is closed at once, before it opens, so not even CONNECT is sent.
+    const opening = new AbortController();
+    await ended(opening.signal, () => opening.abort(stopped));
+    expect(frames()).toEqual([[]]);
+    expect(ScriptedSocket.sockets.map(socket => socket.readyState)).toEqual([3]);
+
+    // Stopped after CONNECT, which the service never answers: the socket is closed at once, without waiting half a minute
+    // for the answer, with the DISCONNECT every open socket ends on.
+    ScriptedSocket.sockets = [];
+    const unanswered = new AbortController();
+    ScriptedSocket.reply = (_, frame) => { if (frame.command === "CONNECT") unanswered.abort(stopped); };
+    await ended(unanswered.signal);
+    expect(frames()).toEqual([["CONNECT", "DISCONNECT"]]);
+    expect(ScriptedSocket.sockets.map(socket => socket.readyState)).toEqual([3]);
+
+    // Stopped just as the service has answered CONNECT: the socket is closed again, with nothing subscribed.
+    ScriptedSocket.sockets = [];
     const connecting = new AbortController();
     ScriptedSocket.reply = (socket, frame) => {
-      if (frame.command === "CONNECT") { connecting.abort(stopped); socket.serve(CONNECTED); } else if (frame.command === "SEND") socket.serve(update(frame.headers.id, { data: [] }));
+      if (frame.command === "CONNECT") { socket.serve(CONNECTED); connecting.abort(stopped); } else if (frame.command === "SEND") socket.serve(update(frame.headers.id, { data: [] }));
     };
     await ended(connecting.signal);
     expect(frames()).toEqual([["CONNECT", "DISCONNECT"]]);
