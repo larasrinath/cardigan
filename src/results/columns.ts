@@ -14,7 +14,12 @@ export const APP_FILES: Record<TabName, string> = {
  * files are kept by header name: which columns offer a filter, which start hidden, which are numbers, and which are shown
  * as an ID to copy, a tag or a link. Every cell shows its own text whatever the choice. A file or a header that is not
  * listed here (every file of a model export) gets a plain text column. In any file, a column that holds only a few
- * different texts offers a filter as well, so a model's tables can be filtered too. */
+ * different texts offers a filter as well, so a model's tables can be filtered too.
+ *
+ * Two kinds of column start hidden in every one of the app's tables: the IDs, and what only numbers a row's place, a
+ * card's number and a section's (`NUMBERS_HIDDEN`). A row says where it belongs in words, by its page and its card's
+ * title or its own name. A hidden column is still in the column chooser, in the search, in the row's drawer and in the
+ * CSV, which always has every column. */
 
 export type ColumnKind = "text" | "id" | "tag" | "page" | "card";
 
@@ -35,12 +40,16 @@ export interface Column {
 
 interface Choice { kind?: ColumnKind; num?: true; filter?: true; hidden?: true }
 
+/** The numbers that start hidden, by their header, wherever one of the app's tables has them. */
+export const NUMBERS_HIDDEN: readonly string[] = ["Card #", "Section #"];
+
 const PAGE: Choice = { kind: "page", filter: true };
-const CARD_NUMBER: Choice = { kind: "card", num: true };
+/** A card's number where the row also holds the card's ID: it opens the card, from the row's drawer while it is hidden. */
+const CARD_NUMBER: Choice = { kind: "card", num: true, hidden: true };
 const NUM: Choice = { num: true };
+const HIDDEN_NUM: Choice = { num: true, hidden: true };
 const FILTER: Choice = { filter: true };
 const TAG: Choice = { kind: "tag", filter: true };
-const ID: Choice = { kind: "id" };
 const HIDDEN_ID: Choice = { kind: "id", hidden: true };
 
 const CHOICES: Record<TabName, Record<string, Choice>> = {
@@ -54,22 +63,23 @@ const CHOICES: Record<TabName, Record<string, Choice>> = {
     "Card ID": HIDDEN_ID, "Source IDs": { hidden: true },
   },
   "Grid sections": {
-    "Page": PAGE, "Card #": CARD_NUMBER, "View type": TAG, "Section #": NUM, "Section layout": FILTER,
-    "Card ID": ID, "Section ID": HIDDEN_ID, "Module ID": HIDDEN_ID,
+    "Page": PAGE, "Card #": CARD_NUMBER, "View type": TAG, "Section #": HIDDEN_NUM, "Section layout": FILTER,
+    "Card ID": HIDDEN_ID, "Section ID": HIDDEN_ID, "Module ID": HIDDEN_ID,
   },
   Filters: {
-    "Page": PAGE, "Card #": CARD_NUMBER, "Section #": NUM, "Filter on": TAG, "Filtered dimension": FILTER, "Show items that match": TAG,
-    "Operator": FILTER, "Card ID": ID, "Line item ID": HIDDEN_ID,
+    "Page": PAGE, "Card #": CARD_NUMBER, "Section #": HIDDEN_NUM, "Filter on": TAG, "Filtered dimension": FILTER, "Show items that match": TAG,
+    "Operator": FILTER, "Card ID": HIDDEN_ID, "Line item ID": HIDDEN_ID,
   },
   Formatting: {
-    "Page": PAGE, "Card #": CARD_NUMBER, "Section #": NUM, "Format style": TAG, "Card ID": ID, "Line item ID": HIDDEN_ID,
+    "Page": PAGE, "Card #": CARD_NUMBER, "Section #": HIDDEN_NUM, "Format style": TAG, "Card ID": HIDDEN_ID, "Line item ID": HIDDEN_ID,
   },
   Actions: {
     "Page": PAGE, "Card #": CARD_NUMBER, "Action type": TAG, "Name source": FILTER, "Runs automatically": FILTER, "Cancel button": FILTER,
-    "Card ID": ID, "Action ID": HIDDEN_ID,
+    "Card ID": HIDDEN_ID, "Action ID": HIDDEN_ID,
   },
+  // Where Used has no Card ID, so its Card # opens nothing: it is a number only.
   "Where used": {
-    "Object type": TAG, "Page": PAGE, "Card #": NUM, "Used as": FILTER, "Object ID": HIDDEN_ID,
+    "Object type": TAG, "Page": PAGE, "Card #": HIDDEN_NUM, "Used as": FILTER, "Object ID": HIDDEN_ID,
   },
 };
 
@@ -121,6 +131,23 @@ export function rowColumns(columns: readonly Column[], row: readonly unknown[]):
 export function columnIndex(table: ResultTable, header: string): number | undefined {
   const index = table.headers.indexOf(header);
   return index < 0 ? undefined : index;
+}
+
+/** The column that names a row, in each of the app's files: what the row's drawer is headed by. An app's first column is
+ * the app or the page, which every row of the page shares: the row's own name is the page in Pages, the card's title in
+ * Cards, and in the other files what the row is about. A row of any other file (every file of a model) is named by the
+ * first of its cells that says something, which there is the row's name. */
+export const ROW_NAME_COLUMNS: Record<TabName, string> = {
+  Pages: "Page", Cards: "Card title", "Grid sections": "Source module", Filters: "Condition line item", Formatting: "Formatted line item",
+  Actions: "Button label", "Where used": "Object name",
+};
+const ROW_NAMES: ReadonlyMap<string, string> = new Map((Object.keys(ROW_NAME_COLUMNS) as TabName[]).map(tab => [APP_FILES[tab], ROW_NAME_COLUMNS[tab]]));
+
+/** The place of the column that names a table's rows; undefined for a file the page knows no such column of, and for a
+ * table that lacks it. */
+export function rowNameIndex(table: ResultTable): number | undefined {
+  const header = ROW_NAMES.get(table.file);
+  return header === undefined ? undefined : columnIndex(table, header);
 }
 
 /** The columns a row's links read: its page, and its card's ID. */

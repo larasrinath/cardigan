@@ -145,6 +145,34 @@ describe("The stand-in page", () => {
     expect(() => close.press()).toThrow("A user cannot get at <button>: it is not on the page");
   });
 
+  it("shows of a closed details element only its summary, which takes the focus and opens and closes it", () => {
+    const page = new FakePage(PAGE);
+    page.id("view").innerHTML = '<details id="more"><summary id="sum"><h2 id="head">More</h2></summary><div><button id="inner">Inner</button></div><summary id="second">Not a summary</summary></details>'
+      + '<details id="shown" open><summary>Shown</summary><button id="open">Open</button></details><summary id="stray">No details</summary>';
+    const { document } = page;
+    const [more, sum, inner] = [page.id("more"), page.id("sum"), page.id("inner")];
+    // Closed: the first summary is in sight and takes the focus; nothing else of the element does, a second summary neither.
+    expect([sum.focusable, sum.inClosedDetails, page.id("head").inClosedDetails, inner.focusable, inner.inClosedDetails, page.id("second").focusable]).toEqual([true, false, false, false, true, false]);
+    expect(() => inner.press()).toThrow("A user cannot get at <button>: it is in a closed <details>");
+    inner.focus();
+    expect(document.activeElement.id).not.toBe("inner");
+    // A click on the summary, on what stands in it, or Enter on it while it has the focus, opens the element; again, and it closes.
+    page.id("head").press();
+    expect([more.hasAttribute("open"), document.activeElement.id, inner.focusable]).toEqual([true, "sum", true]);
+    inner.press();
+    expect([document.activeElement.id, more.hasAttribute("open")]).toEqual(["inner", true]);
+    sum.press();
+    expect([more.hasAttribute("open"), inner.focusable, document.activeElement.id === "inner"]).toEqual([false, false, false]);
+    // A script that takes the click keeps the element as it is.
+    sum.addEventListener("click", event => event.preventDefault());
+    sum.press();
+    expect(more.hasAttribute("open")).toBe(false);
+    // An element that is open shows what it holds; a summary outside a details element is no control.
+    expect([page.id("open").focusable, page.id("stray").focusable, page.id("shown").hasAttribute("open")]).toEqual([true, false, true]);
+    page.id("open").press();
+    expect(page.id("shown").hasAttribute("open")).toBe(true);
+  });
+
   it("types, chooses and ticks as a user does, and saves what the script's own click on a link saves", () => {
     const page = new FakePage(PAGE);
     const heard: string[] = [];
