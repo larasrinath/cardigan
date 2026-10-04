@@ -518,6 +518,9 @@ document.addEventListener("click", event => {
           openCardDrawer(cellText(from.row[from.entry.keys.page]), cellText(from.row[from.entry.keys.cardId]), act);
         }
         return;
+      case "row":
+        if (from) openRowDrawer(from.entry, from.row, act);
+        return;
       // Both of these go away with what they clear, so the focus moves on: to the view, and to the search box.
       case "clear-context":
         state.context = undefined;
@@ -599,10 +602,11 @@ document.addEventListener("click", event => {
     return;
   }
 
+  // A click anywhere else on a row opens it too. The row's own button is what the focus goes back to afterwards.
   const tr = target.closest("#tableWrap tbody tr");
   if (tr && !target.closest("button, a, input, label, select")) {
     const from = rowFor(tr);
-    if (from) openRowDrawer(from.entry, from.row, tr);
+    if (from) openRowDrawer(from.entry, from.row, tr.querySelector('[data-act="row"]') ?? tr);
   }
 });
 document.addEventListener("input", event => {

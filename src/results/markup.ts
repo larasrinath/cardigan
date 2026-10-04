@@ -60,6 +60,19 @@ export function cellHtml(column: Column, row: Row, links: Links): string {
   }
 }
 
+const ROW_ICON = '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3l6 5-6 5"/></svg>';
+
+/** The first cell of a row on screen, which also opens the row, so that a row can be read in full from the keyboard: the
+ * cell's content is a button. A cell that is already a link or an ID to copy keeps that, and a cell without text has
+ * nothing to make a button of: there a small button stands before the cell's own content. */
+export function rowCellHtml(column: Column, row: Row, links: Links): string {
+  const text = cellText(row[column.index]);
+  const own = cellHtml(column, row, links);
+  const control = text !== NONE && (column.kind === "id" || (column.kind === "page" && links.page) || (column.kind === "card" && links.card));
+  if (text === "" || control) return `<button type="button" class="link" data-act="row" aria-label="Open this row" title="Open this row">${ROW_ICON}</button> ${own}`;
+  return `<button type="button" class="link" data-act="row" title="Open this row">${own}</button>`;
+}
+
 /* ---------- header, banners, navigation ---------- */
 
 export function headerMetaHtml(analysed: Analysed): string {
@@ -262,8 +275,8 @@ export function tableParts(view: TableView): TableParts {
       <button type="button" class="btn sm" data-act="reset">Clear search &amp; filters</button>
       </div>`;
   } else {
-    body = view.rows.map(row => `<tr>${view.columns.map(column =>
-      `<td class="${column.num ? "num" : ""}">${cellHtml(column, row, view.links)}</td>`).join("")}</tr>`).join("");
+    body = view.rows.map(row => `<tr>${view.columns.map((column, position) =>
+      `<td class="${column.num ? "num" : ""}">${position === 0 ? rowCellHtml(column, row, view.links) : cellHtml(column, row, view.links)}</td>`).join("")}</tr>`).join("");
   }
 
   return {

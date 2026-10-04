@@ -352,6 +352,59 @@ describe("The results page's script, on the page", () => {
     expect([focus(), page.id("tblSearch").value, firstCells().length]).toEqual([["Search Line Items", true], "", 100]);
   });
 
+  it("opens a row from the keyboard: each row's first cell holds a button for it, in a model's tables too", async () => {
+    await openWith(MODEL);
+    goTo(1);
+    // A model's table has no link of its own: the row's name is the button, one per row on screen.
+    const buttons = () => page.all('#tableWrap tbody [data-act="row"]');
+    expect([buttons().length, buttons().slice(0, 3).map(button => button.textContent), buttons().every(button => button.localName === "button" && button.focusable)])
+      .toEqual([50, ["Line item 1", "Line item 2", "Line item 3"], true]);
+    expect(page.all("#tableWrap tbody tr").every(row => row.children[0].contains(row.querySelector('[data-act="row"]')))).toBe(true);
+    // The button opens its own row, not a neighbour, and the drawer shows the row whole.
+    buttons()[2].press();
+    expect([page.id("drawer").hidden, page.texts("#drawerBody dd")]).toEqual([false, ["Line item 3", "Boolean", "Source 3 * 2", "Revenue"]]);
+    // Escape closes the drawer and the focus is back on that row's button.
+    page.key("Escape");
+    vi.advanceTimersByTime(300);
+    expect([page.id("drawer").hidden, page.document.activeElement === buttons()[2]]).toEqual([true, true]);
+    // After a sort and on another page of the table, the button still opens the row it stands in.
+    page.find('[data-sort="0"]').press();
+    page.find('[data-sort="0"]').press();
+    page.find('.pg-btn[aria-label="Page 3"]').press();
+    expect(firstCells().slice(0, 2)).toEqual(["Line item 20", "Line item 19"]);
+    buttons()[1].press();
+    expect(page.texts("#drawerBody dd")).toEqual(["Line item 19", "Number", "Source 19 * 2", "Revenue"]);
+    page.id("drawerClose").press();
+
+    // A click on the row itself opens it as before, and the focus then goes back to the row's button.
+    page.all("#tableWrap tbody tr")[4].children[2].press();
+    expect(page.texts("#drawerBody dd")[0]).toBe("Line item 16");
+    page.key("Escape");
+    expect(page.document.activeElement).toBe(buttons()[4]);
+
+    // With the first column hidden, the first one shown opens the row.
+    page.id("colBtn").press();
+    page.all("#popover input")[0].tick();
+    page.key("Escape");
+    expect(buttons().slice(0, 2).map(button => button.textContent)).toEqual(["Text", "Number"]);
+    buttons()[0].press();
+    expect(page.texts("#drawerBody dd")[0]).toBe("Line item 20");
+  });
+
+  it("keeps a page's link in an app's first column, with the row's button before it", async () => {
+    await openWith();
+    goTo(2);
+    const first = page.all("#tableWrap tbody tr").map(row => row.children[0].querySelectorAll("button").map(button => [button.dataset.act, button.textContent, button.getAttribute("aria-label")]));
+    expect(first).toEqual([[["row", "", "Open this row"], ["page", "Overview", null]], [["row", "", "Open this row"], ["page", "Overview", null]]]);
+    // The row's button opens the row, not the card and not the page's cards.
+    page.all('#tableWrap tbody [data-act="row"]')[1].press();
+    expect([page.id("drawerTitle").textContent, page.texts("#drawerBody h3"), page.texts("#drawerBody dd")]).toEqual(["Row 2", ["All columns"], ["Overview", "2", "=Margin", "KPI", "card-b"]]);
+    page.key("Escape");
+    // And the page's name still shows that page's cards.
+    page.find('#tableWrap tbody [data-act="page"]').press();
+    expect(page.texts("#crumbs .ctx")).toEqual(["Page: Overview"]);
+  });
+
   it("gives the focus back to the button that opened a popover when the popover closes itself", async () => {
     await openWith();
     goTo(2);

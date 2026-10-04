@@ -5,7 +5,7 @@ import type { AnalysisResult, Cell, ResultTable } from "../result-types.js";
 import { cardsOf, columnsOf, rowKeys, type Column } from "./columns.js";
 import {
   bannersHtml, cardDrawerHtml, cardDrawerSubHtml, cellHtml, colChooserHtml, colFilterHtml, crumbsHtml, detailsHtml, esc, headerMetaHtml, idPill,
-  MOON_ICON, navHtml, overviewHtml, pagerHtml, rowDrawerHtml, rowDrawerSubHtml, runHtml, SUN_ICON, tableHtml, tableParts, type Links, type TableView,
+  MOON_ICON, navHtml, overviewHtml, pagerHtml, rowCellHtml, rowDrawerHtml, rowDrawerSubHtml, runHtml, SUN_ICON, tableHtml, tableParts, type Links, type TableView,
 } from "./markup.js";
 import { parseMarkup } from "./dom.test-support.js";
 import { decode, readMarkup, shownValues, structure } from "./markup.test-support.js";
@@ -133,6 +133,49 @@ describe("The results page's escaping", () => {
     }
     for (let index = 0; index < HOSTILE.length; index++) expectInert(text => idPill(text(index)), 0);
     for (const text of HOSTILE) expect(shownValues(cellHtml(column(0, "Any"), [text], LINKS))).toContain(text);
+  });
+
+  it("lets no text change a row's first cell, the one that opens the row, in any kind of column", () => {
+    for (const kind of KINDS) {
+      for (const links of [LINKS, NO_LINKS]) {
+        for (const [index, text] of HOSTILE.entries()) {
+          expectInert(texts => rowCellHtml(column(0, "Any", kind), [texts(index)], links), 0);
+          expect(shownValues(rowCellHtml(column(0, "Any", kind), [text], links)), kind).toContain(text);
+        }
+      }
+    }
+  });
+
+  it("makes a row's first cell open the row: its content is the button, or a button stands before a link, an ID or nothing", () => {
+    /** The cell's buttons, each by what a click on it does and what it shows, and the text the cell shows outside them. */
+    const cell = (kind: Column["kind"], value: Cell | undefined, links = LINKS) => {
+      const td = parseMarkup(rowCellHtml(column(0, "Any", kind), value === undefined ? [] : [value], links));
+      const outside = td.childNodes.filter(node => node.nodeType === 3).map(node => node.textContent).join("").trim();
+      return [td.querySelectorAll("button").map(button => [button.dataset.act ?? (button.dataset.copy !== undefined ? "copy" : ""), button.textContent, button.getAttribute("aria-label")]), outside];
+    };
+    // Plain content is the button itself, named by its own text, and the cell shows nothing else.
+    expect(cell("text", "Revenue")).toEqual([[["row", "Revenue", null]], ""]);
+    expect(cell("text", 0)).toEqual([[["row", "0", null]], ""]);
+    expect(cell("tag", "Grid")).toEqual([[["row", "Grid", null]], ""]);
+    expect(cell("text", "—")).toEqual([[["row", "—", null]], ""]);
+    // Without the result's Cards file a page or a card is plain text, and so the button.
+    expect(cell("page", "Overview", NO_LINKS)).toEqual([[["row", "Overview", null]], ""]);
+    expect(cell("card", 3, NO_LINKS)).toEqual([[["row", "3", null]], ""]);
+    // A link or an ID keeps what it does; the row's button stands before it, with a name of its own.
+    expect(cell("page", "Overview")).toEqual([[["row", "", "Open this row"], ["page", "Overview", null]], ""]);
+    expect(cell("card", 3)).toEqual([[["row", "", "Open this row"], ["card", "3", null]], ""]);
+    expect(cell("id", "card-a")).toEqual([[["row", "", "Open this row"], ["copy", "card-a", "Copy ID card-a"]], ""]);
+    // A cell without text has the button alone.
+    expect(cell("text", "")).toEqual([[["row", "", "Open this row"]], ""]);
+    expect(cell("page", undefined)).toEqual([[["row", "", "Open this row"]], ""]);
+    // In a table it is the first column shown that opens the row, whichever column that is, and no other.
+    const table: ResultTable = { file: "Cards.csv", label: "Cards", headers: ["Page", "Card #", "Card title"], rows: [["Overview", 1, "Sales"], ["Stores", 2, "Plan"]], guard: true };
+    const acts = (columns: Column[]) => parseMarkup(tableHtml(viewOf(table, LINKS, { columns }))).querySelectorAll("tbody tr")
+      .map(row => row.children.map(td => td.querySelectorAll("[data-act]").map(button => button.dataset.act).join("+")));
+    const columns = columnsOf(table);
+    expect(acts(columns)).toEqual([["row+page", "card", "card"], ["row+page", "card", "card"]]);
+    expect(acts(columns.slice(1))).toEqual([["row+card", "card"], ["row+card", "card"]]);
+    expect(acts([column(2, "Card title")])).toEqual([["row"], ["row"]]);
   });
 
   it("lets no text change the header, the banners, the navigation or the breadcrumb", () => {
@@ -305,7 +348,7 @@ describe("A result whose every text is hostile, through every view of the page",
           if (name === "style") styles.add(value.replace(/\d+%/, "N%"));
           if (name === "class") expect(value, "a class").toMatch(/^[a-z0-9 -]*$/);
           if (/^data-(sort|colfilter|col|fval|page)$/.test(name)) expect(value, name).toMatch(/^-?\d+$/);
-          if (name === "data-act") expect(["page", "card", "reset", "clear-search", "clear-context", "copy-diag"]).toContain(value);
+          if (name === "data-act") expect(["page", "card", "row", "reset", "clear-search", "clear-context", "copy-diag"]).toContain(value);
           if (name === "data-nav") expect(value).toMatch(/^(overview|details|map|\d+)$/);
           if (name === "id") expect(value).toMatch(/^[A-Za-z]+$/);
         }
