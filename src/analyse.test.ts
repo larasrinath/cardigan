@@ -576,6 +576,51 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     await expect(analyseApp("01234567-89ab-cdef-0123-456789abcdef", { status: () => undefined, log: () => undefined }, () => "", late.signal)).rejects.toBe(stopped);
     expect(vi.mocked(globalThis.fetch).mock.calls).toHaveLength(2);
     expect(ScriptedSocket.sockets).toEqual([]);
+
+    // Stopped while its only page is read, and no model's names are left to read: it still ends as a stopped run, with no report.
+    const last = new AbortController();
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      const path = new URL(url).pathname;
+      if (path.includes("/apps/")) return new Response(JSON.stringify({ name: "Plan", pages: [page(1)] }), { status: 200 });
+      last.abort(stopped);
+      return new Response("{}", { status: 404 });
+    }));
+    statuses.length = 0;
+    await expect(analyseApp("01234567-89ab-cdef-0123-456789abcdef", { status: text => { statuses.push(text); }, log: () => undefined }, () => "", last.signal))
+      .rejects.toBe(stopped);
+    expect(statuses).toEqual(["Reading the app…", "Reading page 1 of 1: Page 1"]);
+  });
+
+  it("reads no further list of action names once the run is stopped, from either host", async () => {
+    const stopped = new Error("Stopped: the results page was closed.");
+    const three = [{ cards: [], references: [{ kind: "action", id: "112000000901", actionType: "IMPORT" }, { kind: "action", id: "116000000901", actionType: "EXPORT" },
+      { kind: "action", id: "118000000901", actionType: "PROCESS" }] }] as unknown as UxPageCardDetails[];
+    // The model is served from its own host after a redirect, so each of the three lists is asked of the page's host and then,
+    // if that fails, of the model's. The run is stopped while the first read is under way, whether that read answers or fails.
+    for (const answered of [200, 500]) {
+      ScriptedSocket.sockets = [];
+      ScriptedSocket.reply = (socket, frame) => {
+        if (frame.command === "CONNECT") socket.serve(CONNECTED);
+        else if (frame.command === "SEND" && frame.headers.destination === at("") && socket.host === FIRST) {
+          socket.serve(`ERROR\n\n${JSON.stringify({ error: "REDIRECTION_REQUIRED", fqdn: MODEL_HOST })}\0`);
+        } else if (frame.command === "SEND") socket.serve(update(frame.headers.id, { data: [] }));
+      };
+      const stopping = new AbortController();
+      vi.stubGlobal("fetch", vi.fn(async () => { stopping.abort(stopped); return new Response("{}", { status: answered }); }));
+      const { log, result } = run(three, scope, stopping.signal);
+      await expect(result, String(answered)).rejects.toBe(stopped);
+      expect(vi.mocked(globalThis.fetch).mock.calls.map(([url]) => url), String(answered))
+        .toEqual([`https://${FIRST}/a/collaboration-actions-service/workspaces/${WS}/models/${MODEL}/imports`]);
+      // Nor is the model summed up for the log: the run has ended.
+      expect(log.filter(line => line.startsWith("Synthetic model: ")).map(line => line.replace(/^Synthetic model: /, "")), String(answered))
+        .toEqual(answered === 200 ? [`0 imports named (from ${FIRST})`] : [`imports from ${FIRST} answered HTTP_ERROR (HTTP 500)`]);
+    }
+    // Not stopped, all three lists are read: from the model's host too where the page's fails.
+    ScriptedSocket.sockets = [];
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 500 })));
+    await run(three, scope, new AbortController().signal).result;
+    expect(vi.mocked(globalThis.fetch).mock.calls.map(([url]) => new URL(url as string).host + new URL(url as string).pathname.replace(/.*\//, "/")))
+      .toEqual([`${FIRST}/imports`, `${MODEL_HOST}/imports`, `${FIRST}/exports`, `${MODEL_HOST}/exports`, `${FIRST}/processes`, `${MODEL_HOST}/processes`]);
   });
 
   it("does not look for filter line items once the shown modules' line items name every filter condition", async () => {

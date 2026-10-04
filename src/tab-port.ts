@@ -12,7 +12,10 @@ import { VERSION } from "./version.js";
  * - One run at a time. A second results page of the same tab that asks while a run is going follows that run.
  * - A run's "done" or "error" is its last message: whatever the run still reports afterwards is sent to nobody.
  * - A page that a piece of the result cannot be sent to is told that the run failed, in place of the rest and of "done".
- * - When the last page following a run goes away, the run is stopped: nothing more is read for a page nobody is looking at.
+ * - When the last page following a run goes away, the run is stopped: nothing new is asked of Anaplan for a page nobody is
+ *   looking at. An app's analysis starts no further page and asks nothing more for a model's names (analyse.ts), and a
+ *   model's export reads no further rows of a grid (bridge.ts). A read that is under way is not cut short, except that
+ *   the socket to a model is closed at once, and the routes still to be tried for the app page being read are tried.
  * - Only this extension's results page is answered: its own ID as the sender, and the port's name. */
 
 /** An app or a model: something a run can read. */

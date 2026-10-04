@@ -139,9 +139,10 @@ export function addDerivedContextSelectors(details: UxPageCardDetails, catalog: 
 
 /** Import, export and process names. A model in another data centre is served from its own host: the page's host
  * answered the first live run with a redirect, which a same-origin read refuses (a network error). `modelHost` is the
- * host the model data service settled on, when it connected. */
+ * host the model data service settled on, when it connected. A run that `signal` has stopped reads no further list: the
+ * stop is rethrown. */
 async function readActionNames(scope: ModelScope, refs: readonly UxEntityRef[], modelHost: string | undefined, catalog: ModelCatalog,
-  progress: Progress): Promise<{ notes: string[]; failedActionTypes: string[] }> {
+  progress: Progress, signal?: AbortSignal): Promise<{ notes: string[]; failedActionTypes: string[] }> {
   const { workspaceId: ws, modelId: model } = scope;
   const notes: string[] = [];
   const failedActionTypes: string[] = [];
@@ -152,6 +153,7 @@ async function readActionNames(scope: ModelScope, refs: readonly UxEntityRef[], 
     const hosts = [...new Set([location.host, ...(modelHost ? [modelHost] : [])])];
     let problem: string | undefined;
     for (const host of hosts) {
+      signal?.throwIfAborted();
       try {
         const before = catalog.actions.size;
         addActions(catalog, key, await getJson(path, { host }));
@@ -294,7 +296,8 @@ async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCar
  * status is watched and logged, never waited for. A connection-level error such as REDIRECTION_REQUIRED fails every
  * subscription and is rethrown, so withSocket reconnects to the host it names. When `signal` asks the run to stop, the
  * socket work ends at once, as it does for a closed model, and the stop is rethrown instead of noted. A run that was
- * stopped before its socket had connected asks the model for nothing at all: subscribing can make the service load it. */
+ * stopped before its socket had connected asks the model for nothing at all: subscribing can make the service load it.
+ * Stopped later, while the action names are read, it reads no further list of them. */
 export async function loadCatalog(scope: ModelScope, pages: readonly UxPageCardDetails[], pageNames: ReadonlyMap<string, string>,
   progress: Progress, signal?: AbortSignal): Promise<{ catalog: ModelCatalog; notes: string[]; failedActionTypes: string[] }> {
   const { workspaceId: ws, modelId: model } = scope;
@@ -369,7 +372,7 @@ export async function loadCatalog(scope: ModelScope, pages: readonly UxPageCardD
   }
   signal?.throwIfAborted();
 
-  const actions = await readActionNames(scope, refs, modelHost, catalog, progress);
+  const actions = await readActionNames(scope, refs, modelHost, catalog, progress, signal);
   notes.push(...actions.notes);
   progress.log(`${scope.modelName}: ${catalog.modules.size} modules, ${catalog.views.size} saved views, ${catalog.dimensions.size} dimensions, `
     + `${catalog.lineItems.size} line items (${catalog.lineItemModules.size} modules read), ${catalog.actions.size} actions`);
@@ -391,8 +394,10 @@ const HOW_TO_READ: readonly [detail: string, value: string][] = [
   ["Long IDs", "IDs of 12 or more digits are written as text so Excel shows every digit; the formula bar shows them as =\"…\"."],
 ];
 
-/** The app's pages as the zip's files: App Details.csv, then the seven tables. `signal` stops the run before the next page
- * or model is read (the results page that asked for it went away): the run then rejects with the signal's reason. */
+/** The app's pages as the zip's files: App Details.csv, then the seven tables. `signal` stops the run (the results page that
+ * asked for it went away): it starts no further page and asks nothing more for a model's names (loadCatalog), and it
+ * rejects with the signal's reason. Only the page that is being read is finished first: the routes still to be tried for
+ * it are tried. */
 export async function analyseApp(appGuid: string, progress: Progress, diagnostics: () => string, signal?: AbortSignal): Promise<AnalysisResult> {
   if (!GUID.test(appGuid)) throw new Error("Open an app first: the address has no app ID.");
   progress.status("Reading the app…");
@@ -470,6 +475,8 @@ export async function analyseApp(appGuid: string, progress: Progress, diagnostic
     }
   }
 
+  // Stopped during its last read, the run had nothing left to be stopped before: it ends here, as a stopped run.
+  signal?.throwIfAborted();
   progress.status("Building the report…");
   const report = buildReport(inputs);
   const analysed = inputs.filter(input => input.details).length;
