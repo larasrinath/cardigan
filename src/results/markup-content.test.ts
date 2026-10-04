@@ -138,6 +138,25 @@ describe("What the results page's markup shows", () => {
     expect(frame({ from: 51, to: 100, total: 120, all: 120 })[4]).toBe("51–100 of 120 rows");
   });
 
+  it("puts the pager at the right end of the toolbar, after the count, and nothing under the table", () => {
+    /** What the view holds, in order, and what its toolbar holds: each element by its ID, or by its class. */
+    const places = (overrides: Partial<TableView>) => {
+      const view = parseMarkup(tableHtml(viewOf(CARDS, LINKS, overrides)));
+      const name = (element: { id: string; localName: string; classList: { contains(name: string): boolean } }) => element.id || (element.classList.contains("toolbar") ? "toolbar" : element.localName);
+      return [view.children.map(name), view.querySelector(".toolbar")?.children.map(name), view.querySelector("#pager")?.classList.contains("pager")];
+    };
+    const expected = [["h1", "toolbar", "tableWrap"], ["searchWrap", "colBtn", "resetBtn", "rowCount", "pager"], true];
+    expect(places({})).toEqual(expected);
+    // The same with several pages, with a search in force, and with no row to show, where the pager is empty.
+    expect(places({ page: 1, pages: 3, from: 51, to: 100, total: 120, all: 120 })).toEqual(expected);
+    expect(places({ search: "sales", total: 1, to: 1 })).toEqual(expected);
+    expect(places({ rows: [], total: 0, from: 0, to: 0, search: "x" })).toEqual(expected);
+    // The pager's controls are its own: the buttons that turn the page and the list of page sizes, with their names as they were.
+    const pager = parseMarkup(tableHtml(viewOf(CARDS, LINKS, { page: 1, pages: 3, from: 51, to: 100, total: 120, all: 120 }))).querySelector("#pager");
+    expect([pager?.querySelectorAll(".pg-btn[data-page]").map(button => button.getAttribute("aria-label")), pager?.querySelectorAll("select").map(list => list.id)])
+      .toEqual([["Previous page", "Page 1", "Page 2", "Page 3", "Next page"], ["pageSize"]]);
+  });
+
   it("says why a table shows no row: it has none, or nothing matches what is in force", () => {
     const empty = (overrides: Partial<TableView>) => {
       const view = parseMarkup(tableHtml(viewOf(CARDS, LINKS, { rows: [], total: 0, from: 0, to: 0, ...overrides })));
