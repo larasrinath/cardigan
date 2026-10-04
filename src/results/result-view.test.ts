@@ -355,8 +355,10 @@ describe("What the results page reads out of a result", () => {
     expect(fileView(result("model", [bare, modules]), bare)).toEqual({ table: { ...bare, headers: ["", "Module Name", "Formula", "Applies To", "Applies To from"], rows: [] },
       note: "2 module rows are in the CSV only; each line item shows its module. 2 modules have no line items, so they are not in this table. They are listed in the Modules table.",
       none: "Every row of the file is a module's own: no module has a line item." });
-    // Without the Modules file there is no table to name; with every module named by a line item there is nothing to add.
-    expect(fileView(result("model", [modelDetails, blueprint]), blueprint).note).toBe(lineItemsView(blueprint).note);
+    // Without the Modules file there is no table to name, and no module's name to check a row against: the line says that
+    // instead. With every module named by a line item there is nothing to add.
+    expect(fileView(result("model", [modelDetails, blueprint]), blueprint).note)
+      .toBe(`${lineItemsView(blueprint).note} The Modules table was not exported, so a row with only a name is taken for a module's row.`);
     const full: ResultTable = { ...blueprint, rows: blueprint.rows.filter(row => row[0] !== "--- Archive ---") };
     expect(fileView(result("model", [full, modules]), full).note).toBe("2 module rows are in the CSV only; each line item shows its module.");
     // Several such modules, and a Modules file under another label: the line names the table as the page does.
@@ -407,11 +409,43 @@ describe("What the results page reads out of a result", () => {
       note: "3 module rows are in the CSV only; each line item shows its module. 1 module has no line items, so it is not in this table. It is listed in the Modules table.",
       tile: { label: "Line Items", count: 2, inCsv: 5 } });
     // A result without the Modules file, or with one that lists nothing, has no names to give: such a row is taken for a
-    // module's own, as the view does by itself, and no table is said to list a module.
+    // module's own, as the view does by itself, and no table is said to list a module. The line says that the names could
+    // not be checked, and why: Price, of which only the name was read, is among the rows it counts as modules' own.
     const without = "3 module rows are in the CSV only; each line item shows its module. 1 module has no line items, so it is not in this table.";
-    expect([shown(last, []).note, shown(last, [{ ...modules, rows: [] }]).note]).toEqual([without, without]);
+    expect([shown(last, []).note, shown(last, [{ ...modules, rows: [] }]).note]).toEqual([
+      `${without} The Modules table was not exported, so a row with only a name is taken for a module's row.`,
+      `${without} The Modules table lists no modules, so a row with only a name is taken for a module's row.`]);
     expect([shown(last, []).rows, lineItemsView(last).note]).toEqual([[["Units", "Revenue", "", "Products, Time", "Module"], ["Rent", "Costs", "", "Regions", "Module"]], without]);
     expect(shown(among, []).rows).toEqual([["Units", "Revenue", "", "Products, Time", "Module"], ["Sales", "Revenue", "Units * Price", "-", "Module (not found)"]]);
+  });
+
+  it("says under the Line Items table that no module's name could be checked, when the result has no Modules table with rows", () => {
+    const headers = ["", "Formula", "Applies To", "Module Name"];
+    const grid = (rows: Cell[][]): ResultTable => ({ file: "Line Items.csv", label: "Line Items", guard: false, headers, rows });
+    const modules = (rows: Cell[][], label = "Modules"): ResultTable => ({ file: MODULES_FILE, label, headers: ["", "Applies To"], rows, guard: false });
+    const note = (file: ResultTable, ...others: ResultTable[]) => fileView(result("model", [modelDetails, file, ...others]), file).note;
+    const counted = "1 module row is in the CSV only; each line item shows its module.";
+    const whole = grid([["Revenue", "", "Products, Time", ""], ["Units", "", "-", "Revenue"], ["Price", "Units * 2", "Products", "Revenue"]]);
+    // The Modules file failed to export: the result has none. The line says so, and what that means for a row with only a name.
+    expect(note(whole)).toBe(`${counted} The Modules table was not exported, so a row with only a name is taken for a module's row.`);
+    // The file is there and lists nothing: the table is named as the page names it, and said to list no modules.
+    expect(note(whole, modules([]))).toBe(`${counted} The Modules table lists no modules, so a row with only a name is taken for a module's row.`);
+    expect(note(whole, modules([], "All modules"))).toBe(`${counted} The All modules table lists no modules, so a row with only a name is taken for a module's row.`);
+    // With a Modules table that has rows the names were checked, and nothing is added: also when it does not list this module.
+    expect([note(whole, modules([["Revenue", "Products, Time"]])), note(whole, modules([["Costs", "Regions"]]))]).toEqual([counted, counted]);
+    // The sentence is the line's last: after the line items whose module is not known, and after the modules without line
+    // items, which no table is then said to list.
+    const mixed = grid([["Revenue", "", "Products, Time", ""], ["Units", "", "-", "Revenue"], ["Lost", "Units * 2", "-", ""], ["--- Archive ---", "", "", ""]]);
+    expect(note(mixed)).toBe("2 module rows are in the CSV only; each line item shows its module, except 1 whose module is not known: it has no Module Name in the file. "
+      + "1 module has no line items, so it is not in this table. The Modules table was not exported, so a row with only a name is taken for a module's row.");
+    // A table none of whose rows is left says it too, under the line that counts them.
+    const bare = grid([["Revenue", "", "Products, Time", ""], ["Costs", "", "Regions", ""]]);
+    expect(fileView(result("model", [bare]), bare)).toMatchObject({ none: "Every row of the file is a module's own: no module has a line item.",
+      note: "2 module rows are in the CSV only; each line item shows its module. 2 modules have no line items, so they are not in this table. "
+        + "The Modules table was not exported, so a row with only a name is taken for a module's row." });
+    // A file the view does not apply to has no line at all, whatever the result holds: nothing was left out of its table.
+    const flat = grid([["Units", "", "-", "Revenue"], ["Price", "Units * 2", "Products", "Revenue"]]);
+    expect([fileView(result("model", [flat]), flat), fileView(result("app", [appDetails, whole]), whole)]).toEqual([{ table: flat }, { table: whole }]);
   });
 
   it("says a model's definitions in words in the table's place, and keeps the CSV's text for each cell it says so", () => {
@@ -479,7 +513,7 @@ describe("What the results page reads out of a result", () => {
     expect([shown.table.headers, shown.table.rows, shown.note]).toEqual([["", "Module Name", "Format", "Summary", "Applies To", "Applies To from", "Ratio Numerator", "Ratio Denominator"], [
       ["Units", "Revenue", "Number", "Sum", "Products, Time", "Module", "", ""],
       ["Margin %", "Revenue", "Number", "Ratio = Margin / Units", "Products, Time", "Module", "Margin", "Units"]],
-    "1 module row is in the CSV only; each line item shows its module."]);
+    "1 module row is in the CSV only; each line item shows its module. The Modules table was not exported, so a row with only a name is taken for a module's row."]);
     // What is kept is by the shown table's rows and columns: Format stands third there, and second in the file.
     expect([...shown.exported ?? []].map(([row, texts]) => [shown.table.rows.findIndex(candidate => candidate === row), [...texts]]))
       .toEqual([[0, [[2, NUMBER], [3, '{"summaryMethod":"SUM","timeSummaryMethod":"SUM"}']]], [1, [[2, NUMBER], [3, RATIO]]]]);

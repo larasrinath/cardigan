@@ -141,7 +141,9 @@ export const MODULES_FILE = "Modules.csv";
  * The view is given the modules' names where the result has them: the first column of the Modules file, as the file has
  * it. A row that holds nothing but a name is then a module's own row only when the name is a module's, and otherwise a
  * line item whose module is not known, which stays in the table. A result without the Modules file, or with one that
- * lists nothing, has no names to give, and every such row is taken for a module's own.
+ * lists nothing, has no names to give, and every such row is taken for a module's own. The line then says that, and
+ * why: a line item of which only the name was read is among the rows it counts as modules' own, and nothing else on
+ * the page tells that the names could not be checked.
  *
  * A module with no line items is in no row of the table. Where the names came from the Modules file, the line says that
  * the file lists such modules: a row with nothing under it is taken for a module's own because the file names it. */
@@ -152,8 +154,10 @@ const lineItemsRule: FileRule = (file, result) => {
   // The view gives the table itself back when it does not apply to it.
   if (view.table === file) return undefined;
   const where = modules && names && view.emptyModules > 0 ? ` ${view.emptyModules === 1 ? "It is" : "They are"} listed in the ${cellText(modules.label)} table.` : "";
+  // A Modules file that was not exported is not among the result's tables; one without rows is, under its own label.
+  const unchecked = names ? "" : ` The ${modules ? `${cellText(modules.label)} table lists no modules` : "Modules table was not exported"}, so a row with only a name is taken for a module's row.`;
   const none = view.table.rows.length ? {} : { none: "Every row of the file is a module's own: no module has a line item." };
-  return { table: view.table, note: view.note === undefined ? undefined : `${view.note}${where}`, ...none };
+  return { table: view.table, note: view.note === undefined ? undefined : `${view.note}${where}${unchecked}`, ...none };
 };
 
 /** The files the page shows otherwise than as they stand, each with its rule, by the kind of result and the file's name.
