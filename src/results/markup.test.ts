@@ -468,9 +468,8 @@ describe("A result whose every text is hostile, through every view of the page",
       }
     }
     // Every style on the page is one of the design's own; the only part that varies is a bar's width, a number.
-    expect([...styles].sort()).toEqual(["display:block;width:N%", "font-family:var(--mono);font-size:11px", "font-size:12px;color:var(--text-2);margin:-6px 0 12px",
-      "font-size:12px;color:var(--text-3);margin:4px 0 0", "font:inherit", "margin-bottom:10px", "margin-bottom:12px", "margin-left:auto", "margin-left:auto;flex:none",
-      "overflow:hidden;text-overflow:ellipsis"]);
+    expect([...styles].sort()).toEqual(["display:block;width:N%", "font-family:var(--mono);font-size:11px", "font-size:12px;color:var(--text-3);margin:4px 0 0",
+      "margin-bottom:12px", "margin-left:auto;flex:none", "overflow:hidden;text-overflow:ellipsis"]);
   });
 
   it("shows each hostile text as it was typed, somewhere on the page", () => {

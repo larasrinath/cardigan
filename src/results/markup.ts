@@ -24,9 +24,8 @@ const INFO_ICON = '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" s
 const CARET = '<svg class="car" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3l6 5-6 5"/></svg>';
 const DIAGNOSTICS_SUMMARY = `<summary>${CARET}Diagnostics</summary>`;
 /** What opens and closes a section of the overview that starts closed: a click on it, or Enter or Space while it has the
- * focus, which the Tab key gives it. The section's heading stands inside it; the stylesheet has no rule for a heading
- * there yet, so it takes the summary's look. */
-const sectionSummary = (title: string): string => `<summary>${CARET}<h2 style="font:inherit">${title}</h2></summary>`;
+ * focus, which the Tab key gives it. The section's heading stands inside it, and takes its look by the stylesheet. */
+const sectionSummary = (title: string): string => `<summary>${CARET}<h2>${title}</h2></summary>`;
 /** The button that copies a diagnostic log. The messages of a failed run name it by these words (progress.ts). `act` says
  * which log: "copy-diag" the one a result carries, "copy-run-log" the one of the run the page is following or last followed. */
 const copyLogButton = (act: "copy-diag" | "copy-run-log", attributes = ""): string => `<button type="button" class="btn sm" data-act="${act}"${attributes}>
@@ -166,16 +165,16 @@ export function overviewHtml(overview: Overview): string {
     <div class="d-sec" id="ovFiles"><h2>Files</h2>
       <dl class="dl">${detailRows(overview.files)}</dl></div>` : "";
   const howToRead = overview.howToRead.length ? `
-    <details class="diag" id="ovHowTo" style="margin-bottom:12px">
+    <details class="diag" id="ovHowTo">
       ${sectionSummary("How to read these files")}
-      <div class="diag-body"><dl class="dl" style="margin-bottom:0">${detailRows(overview.howToRead)}</dl></div>
+      <div class="diag-body"><dl class="dl">${detailRows(overview.howToRead)}</dl></div>
     </details>` : "";
   // The button stands above the log, so that it is in sight as soon as the section is open, however long the log is.
   const log = overview.log.length ? `
     <details class="diag" id="ovLog">
       ${sectionSummary("Diagnostics")}
       <div class="diag-body">
-        <div style="margin-bottom:10px">${copyLogButton("copy-diag")}</div>
+        ${copyLogButton("copy-diag")}
         <pre id="diagLog" tabindex="0" role="region" aria-label="Diagnostic log">${esc(overview.log.join("\n"))}</pre>
       </div>
     </details>` : "";
@@ -275,7 +274,7 @@ export function pagerHtml(page: number, pages: number, total: number, pageSize: 
     <button type="button" class="pg-btn" data-page="${page - 1}" ${page === 0 ? "disabled" : ""} aria-label="Previous page">‹</button>
     <span class="pages">${numbers.join("")}</span>
     <button type="button" class="pg-btn" data-page="${page + 1}" ${page >= pages - 1 ? "disabled" : ""} aria-label="Next page">›</button>
-    <span style="margin-left:auto">Rows per page
+    <span class="per-page">Rows per page
       <select id="pageSize" aria-label="Rows per page">
         ${[25, 50, 100].map(size => `<option value="${size}" ${size === pageSize ? "selected" : ""}>${size}</option>`).join("")}
       </select></span>`;
@@ -358,9 +357,8 @@ export function tableHtml(view: TableView): string {
       <div class="ways" id="tableWays" role="group" aria-label="How ${label} is listed">
         ${view.ways.map(way => `<button type="button" class="btn sm${way.chosen ? " primary" : ""}" data-way="${esc(way.way)}" aria-pressed="${way.chosen ? "true" : "false"}">${esc(way.label)}</button>`).join("\n        ")}
       </div>` : "";
-  // The line under the name has no style of its own in the stylesheet yet: it is written as the design's small muted text.
   const note = view.note === undefined ? "" : `
-    <p class="view-note" style="font-size:12px;color:var(--text-2);margin:-6px 0 12px">${esc(view.note)}</p>`;
+    <p class="view-note">${esc(view.note)}</p>`;
   return `
     <h1 class="view-title">${label}</h1>${note}
     <div class="toolbar">${ways}
