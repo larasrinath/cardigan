@@ -525,7 +525,7 @@ const HOW_TO_READ: readonly [detail: string, value: string][] = [
   ["View type", "Custom view: a module shaped on the page. Saved view: a saved view or a module's default view, built in the model and only selected on the page. Combined grid: several module sections in one card."],
   ["Set in the model (saved view)", "A saved view's own filters, sorts and show/hide live in the model, not on the page."],
   ["(not in the model)", "A module or line item a card still points at but the model no longer has: deleted, or not visible to you. Search Where Used.csv for it to find the cards."],
-  ["Filter context", "Filter-context items show their IDs; their names are not looked up."],
+  ["Filter context and values", "An item in a filter rule, whether chosen as the filter context or compared with a line item formatted as a list, is shown by its name where the model gives one, and by its ID otherwise. If a context item has no name, the rule's line item and context are listed together in place of the line item's name."],
   ["Long IDs", "IDs of 12 or more digits are written as text so Excel shows every digit; the formula bar shows them as =\"…\"."],
 ];
 
