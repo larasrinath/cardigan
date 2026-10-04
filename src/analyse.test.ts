@@ -593,6 +593,24 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     expect(statuses).toEqual(["Reading the app…", "Reading page 1 of 1: Page 1"]);
   });
 
+  it("ends the socket work of the analysis when it is stopped while a model's names are read, and reads nothing after it", async () => {
+    const stopped = new Error("Stopped: the results page was closed.");
+    serveGoldenApp();
+    const answer = ScriptedSocket.reply;
+    const stopping = new AbortController();
+    // The run is stopped as the list names are asked for. They are still answered: nothing else ends the work.
+    ScriptedSocket.reply = (socket, frame) => {
+      if (frame.command === "SEND" && frame.headers.destination === at("/lists")) stopping.abort(stopped);
+      answer(socket, frame);
+    };
+    await expect(analyseApp(GOLDEN_APP, { status: () => undefined, log: () => undefined }, () => "", stopping.signal)).rejects.toBe(stopped);
+    // No line items, dimensions or item names are asked for; the socket is closed; the action names are not read.
+    expect(destinations()).toEqual([at(""), MODULE_VIEWS, at("/lists")]);
+    expect(sent("DISCONNECT")).toHaveLength(1);
+    expect(vi.mocked(globalThis.fetch).mock.calls.map(([url]) => new URL(url as string).pathname.split("/")[2]))
+      .toEqual(["springboard-definition-service", "springboard-definition-service"]);
+  });
+
   it("reads no further list of action names once the run is stopped, from either host", async () => {
     const stopped = new Error("Stopped: the results page was closed.");
     const three = [{ cards: [], references: [{ kind: "action", id: "112000000901", actionType: "IMPORT" }, { kind: "action", id: "116000000901", actionType: "EXPORT" },

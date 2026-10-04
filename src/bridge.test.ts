@@ -39,7 +39,8 @@ class FakeWindow {
 const MODEL = "FEDCBA9876543210FEDCBA9876543210";
 const [SHELL, CORE] = ["https://us1a.app.anaplan.com", "https://eu2a.app.anaplan.com"];
 /** How a failed run ended: the sentence the results page shows and the detail the diagnostic log keeps (progress.ts `Failure`). */
-const failed = (run: Promise<unknown>) => run.then(() => "not failed", (error: unknown) => (error instanceof Failure ? [error.message, error.detail] : error));
+const failedWith = (error: unknown) => (error instanceof Failure ? [error.message, error.detail] : error);
+const failed = (run: Promise<unknown>) => run.then(() => "not failed", failedWith);
 const settle = () => new Promise(resolve => setTimeout(resolve, 5));
 const collect = () => {
   const lines: string[] = [];
@@ -129,6 +130,13 @@ describe("Model export bridge between the Model Building page and the model's co
     core.seenBy(sibling).postMessage({ protocol: PROTOCOL, type: "run", nonce: "n" }, "*");
     await settle();
     expect(runs).toBe(0);
+    // Nor a run that names no run ID: its progress and its result could not be told from another run's.
+    for (const nonce of [undefined, null, 7, {}, ["n"]]) core.seenBy(shell).postMessage({ protocol: PROTOCOL, type: "run", nonce }, "*");
+    await settle();
+    expect(runs).toBe(0);
+    core.seenBy(shell).postMessage({ protocol: PROTOCOL, type: "run", nonce: "n" }, "*");
+    await settle();
+    expect(runs).toBe(1);
     stop();
 
     // A frame that stops answering is given up on, and told to stop: whatever it still reads for this run is for nobody.
@@ -177,6 +185,38 @@ describe("Model export bridge between the Model Building page and the model's co
     await settle();
     expect(outcome).toEqual(exported());
     expect(lines).toEqual(["status: Reading Versions…"]);
+  });
+
+  it("posts everything about a model to one origin only: the frame's as it announced itself, and the page's that asked", async () => {
+    /** A window that only records what is posted to it, and to which origin. */
+    const posts: [type: string, targetOrigin: string][] = [];
+    const recording: Endpoint = { postMessage: (message, targetOrigin) => { posts.push([(message as { type: string }).type, targetOrigin]); } };
+
+    // The page: the acknowledgement, the run with its ID and the stop go to the origin the frame announced itself from.
+    const shell = new FakeWindow(SHELL);
+    watchCore(shell, () => undefined);
+    shell.receive({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL }, CORE, recording);
+    await settle();
+    const stopping = new AbortController();
+    const run = runInCore(shell, { source: recording, origin: CORE, modelId: MODEL }, collect().progress, 20, stopping.signal);
+    stopping.abort(new Error("Stopped: the results page was closed."));
+    await expect(run).rejects.toThrow("Stopped: the results page was closed.");
+    // So does the stop for a frame that went quiet.
+    await expect(runInCore(shell, { source: recording, origin: CORE, modelId: MODEL }, collect().progress, 20)).rejects.toThrow(QUIET);
+    expect(posts).toEqual([["ack", CORE], ["run", CORE], ["stop", CORE], ["run", CORE], ["stop", CORE]]);
+
+    // The frame: its steps, its log, the result and a failure go to the origin that asked, and to no other.
+    posts.length = 0;
+    const core = new FakeWindow(CORE);
+    const exports: (() => AnalysisResult)[] = [exported, () => { throw new Failure("The model has not finished opening in the Anaplan tab."); }];
+    const stop = serveCore(core, recording, () => MODEL, async progress => { progress.status("Reading Versions…"); progress.log("Versions: 2 rows"); return exports.shift()!(); }, 60_000);
+    core.receive({ protocol: PROTOCOL, type: "run", nonce: "first" }, SHELL, recording);
+    await settle();
+    core.receive({ protocol: PROTOCOL, type: "run", nonce: "second" }, SHELL, recording);
+    await settle();
+    stop();
+    // Only the announcement goes to whoever is on top, as it always has: it carries the model's ID and nothing of the model.
+    expect(posts).toEqual([["core-ready", "*"], ["status", SHELL], ["log", SHELL], ["done", SHELL], ["status", SHELL], ["log", SHELL], ["error", SHELL]]);
   });
 
   it("checks every field of the result before use: only a model's files, with file names that are no path", async () => {
@@ -474,6 +514,45 @@ describe("Model export bridge between the Model Building page and the model's co
     expect(reached).toEqual(["Reading Line Items…", "Reading Modules…", "Reading Versions…"]);
     expect(lines).toEqual(["status: Reading Modules…", "status: Reading Versions…"]);
     stop();
+  });
+
+  it("does not let a run asked while another is going take the export from it", async () => {
+    const { exporter, next, runs } = stepped();
+    const { shell, handle, stop } = await connected(exporter);
+    // Should the first run ever stop hearing of its export, it gives up after half a second instead of five minutes.
+    const first = collect();
+    const going = runInCore(shell, handle, first.progress, 500);
+    await settle();
+    const second = collect();
+    runInCore(shell, handle, second.progress, 500).catch(() => undefined);
+    await settle();
+    await next(); await next(); await next();
+    // The first run hears every step and gets the result; the second, which was never started, hears nothing.
+    await expect(going).resolves.toEqual(exported());
+    expect([runs(), first.lines, second.lines]).toEqual([1, ["status: Reading Line Items…", "status: Reading Modules…", "status: Reading Versions…"], []]);
+    stop();
+  });
+
+  it("gives up on a frame only when it has sent nothing for the idle time: every message from it starts the wait again", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    const shell = new FakeWindow(SHELL);
+    const asked: { type: string; nonce: string }[] = [];
+    const source: Endpoint = { postMessage: message => { asked.push(message as { type: string; nonce: string }); } };
+    const { lines, progress } = collect();
+    let outcome: unknown = "waiting";
+    runInCore(shell, { source, origin: CORE, modelId: MODEL }, progress, 1000).then(result => { outcome = result; }, error => { outcome = failedWith(error); });
+    // A step, a log line and a message of a kind it does not know, each 900 ms after the one before: 2.7 s in all.
+    for (const message of [{ type: "status", text: "Reading Line Items…" }, { type: "log", text: "Line Items: 3 rows × 2 columns" }, { type: "still-here" }]) {
+      await vi.advanceTimersByTimeAsync(900);
+      shell.receive({ protocol: PROTOCOL, nonce: asked[0].nonce, ...message }, CORE, source);
+      await vi.advanceTimersByTimeAsync(0);
+    }
+    await vi.advanceTimersByTimeAsync(999);
+    expect([outcome, lines]).toEqual(["waiting", ["status: Reading Line Items…", "log: Line Items: 3 rows × 2 columns"]]);
+    // A message that is not this run's does not count.
+    shell.receive({ protocol: PROTOCOL, nonce: "another-run", type: "status", text: "Reading Modules…" }, CORE, source);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(outcome).toEqual([QUIET, "the model's frame sent nothing for 1 s"]);
   });
 
   it("serves the classic model page opened on its own, where both sides are the same window", async () => {
