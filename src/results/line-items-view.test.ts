@@ -8,15 +8,15 @@ import { APPLIES_TO, APPLIES_TO_FROM, APPLIES_TO_SOURCE, LINE_ITEMS_FILE, lineIt
 import { selectRows, valueCounts } from "./table-engine.js";
 
 // Made-up names only. The headers are the ones a real model's Line Items table has, in its order: the unnamed column with
-// each row's name, the grid's 25 columns as the diagnostic log of an export lists them, then the two the export adds.
+// each row's name, the grid's 25 columns as the diagnostic log of an export lists them, then the three the export adds.
 const GRID_COLUMNS = ["Format", "Formula", "Summary", "Applies To", "Time Scale", "Time Range", "Versions", "Style", "Cell Count", "Calculation Effort", "Notes",
   "Read Access Driver", "Write Access Driver", "Users List", "Parent", "Is Summary", "Formula Scope", "Code", "Use Switchover", "Breakback", "Brought-Forward",
   "Start of Section", "Data Tags", "Referenced By", "Module Name"];
-const HEADERS = ["", ...GRID_COLUMNS, "Ratio Numerator", "Ratio Denominator"];
+const HEADERS = ["", ...GRID_COLUMNS, "Ratio Numerator", "Ratio Denominator", "Format List"];
 /** The same headers as the view orders them: the module after the name, and where Applies To came from after Applies To. */
 const VIEW_HEADERS = ["", "Module Name", "Format", "Formula", "Summary", "Applies To", "Applies To from", "Time Scale", "Time Range", "Versions", "Style", "Cell Count",
   "Calculation Effort", "Notes", "Read Access Driver", "Write Access Driver", "Users List", "Parent", "Is Summary", "Formula Scope", "Code", "Use Switchover", "Breakback",
-  "Brought-Forward", "Start of Section", "Data Tags", "Referenced By", "Ratio Numerator", "Ratio Denominator"];
+  "Brought-Forward", "Start of Section", "Data Tags", "Referenced By", "Ratio Numerator", "Ratio Denominator", "Format List"];
 
 const NUMBER = '{"dataType":"NUMBER"}';
 const NO_DATA = '{"dataType":"NONE"}';
@@ -124,7 +124,7 @@ describe("The Line Items table as the results page shows it", () => {
     const result = await exportedLineItems(MODEL);
     // The export's files here: the one about the export itself, then the grid's. The view knows the grid's by this name.
     expect(result.tables.map(written => written.file)).toEqual(["Model Details.csv", LINE_ITEMS_FILE]);
-    // The row's name first, the grid's columns under Anaplan's own headers, the two ratio columns last. The module each
+    // The row's name first, the grid's columns under Anaplan's own headers, the export's three columns last. The module each
     // line item's row carries on the grid's axis is not in the table: only the Module Name column says it.
     const exported = result.tables[1];
     expect(exported).toEqual(table(HEADERS, MODEL));
@@ -140,7 +140,7 @@ describe("The Line Items table as the results page shows it", () => {
 
   it("is for the model's Line Items file, and for no other", () => {
     const lineItems = table(HEADERS, MODEL);
-    expect([LINE_ITEMS_FILE, lineItems.file, lineItems.label, HEADERS.length, VIEW_HEADERS.length]).toEqual(["Line Items.csv", "Line Items.csv", "Line Items", 28, 29]);
+    expect([LINE_ITEMS_FILE, lineItems.file, lineItems.label, HEADERS.length, VIEW_HEADERS.length]).toEqual(["Line Items.csv", "Line Items.csv", "Line Items", 29, 30]);
     expect(lineItemsView(lineItems).moduleRows).toBe(5);
     // The same table under any other name comes back as it is: a file is known by its whole name, as it is written.
     for (const file of ["Modules.csv", "line items.csv", "Line Items", "Line Items.csv ", "Line Items (1).csv", "Model Details.csv"]) {
@@ -178,7 +178,7 @@ describe("The Line Items table as the results page shows it", () => {
       ["Cost", COSTS, "Cost Centres", "Module"], ["Revenue", COSTS, "Cost Centres", "Module"],
       // An empty Applies To on a line item is its own: it applies to no list, whatever its module applies to.
       ["Rate", COSTS, "", "Line item"]]);
-    // Every other column holds, for each line item, the very cell the file holds: Format and Summary as they stand, the ratio columns too.
+    // Every other column holds, for each line item, the very cell the file holds: Format and Summary as they stand, the export's three columns too.
     const lineItems = MODEL.filter(row => row[HEADERS.indexOf(MODULE_NAME)] !== "");
     for (const header of HEADERS.filter(name => name !== APPLIES_TO)) expect(column(view.table, header), header).toEqual(lineItems.map(row => row[HEADERS.indexOf(header)]));
     expect([column(view.table, "Format")[3], column(view.table, "Summary")[5], column(view.table, "Ratio Numerator")[5], column(view.table, "Ratio Denominator")[5]])
@@ -442,6 +442,39 @@ describe("The Line Items table as the results page shows it", () => {
     // With something only a line item has, a Formula here, it is a line item whatever it is called.
     const formula = lineItemsView(table(["", "Formula", "Applies To", "Module Name"], [["Sales", "", "Products", ""], ["Stock", "Units * 2", "-", ""], ["Price", "", "-", "Sales"]]), new Set(["Sales", "Stock"]));
     expect([said(formula), formula.moduleRows]).toEqual([[["Stock", "", "-", "Module (not found)"], ["Price", "Sales", "Products", "Module"]], 1]);
+  });
+
+  it("takes names that differ only by the spaces around them for different names, wherever it compares a module's name", () => {
+    // With the Modules file's names: a row that holds only a name is a module's own when its name is one of them as it is
+    // written. With a space before it or after it, it is another name, and the row stays in the table.
+    const listed = lineItemsView(table(BOTH, [["Stock", "", "", "Warehouses", ""], ["Cover", NUMBER, SUM, "-", "Stock"],
+      [" Sales", "", "", "Products", ""], ["Sales ", "", "", "Regions", ""], ["Sales", "", "", "Channels", ""]]), new Set(["Sales", "Stock"]));
+    expect([said(listed), listed.moduleRows, listed.emptyModules]).toEqual([
+      [["Cover", "Stock", "Warehouses", "Module"], [" Sales", "", "Products", "Line item"], ["Sales ", "", "Regions", "Line item"]], 2, 1]);
+    // The same the other way round: a name the Modules file writes with a space is not the name of a row without it.
+    const spaced = lineItemsView(table(BOTH, [["Stock", "", "", "Warehouses", ""], ["Cover", NUMBER, SUM, "-", "Stock"], ["Sales", "", "", "Channels", ""]]), new Set([" Sales", "Sales ", "Stock"]));
+    expect([said(spaced), spaced.moduleRows]).toEqual([[["Cover", "Stock", "Warehouses", "Module"], ["Sales", "", "Channels", "Line item"]], 1]);
+
+    // With the names a line item gives as its module (the names given list none here): "Sales " makes no module of the row
+    // Sales, and Stock none of the row "Stock ". Only Costs is named as it is written.
+    const named = lineItemsView(table(BOTH, [
+      ["Sales", "", "", "Products", ""], ["Units", NUMBER, SUM, "-", "Sales "],
+      ["Stock ", "", "", "Warehouses", ""], ["Cover", NUMBER, SUM, "-", "Stock"],
+      ["Costs", "", "", "Regions", ""], ["Rent", NUMBER, SUM, "-", "Costs"]]), new Set());
+    expect([said(named), named.moduleRows, named.emptyModules]).toEqual([[
+      ["Sales", "", "Products", "Line item"], ["Units", "Sales ", "-", "Module (not found)"],
+      ["Stock ", "", "Warehouses", "Line item"], ["Cover", "Stock", "-", "Module (not found)"],
+      ["Rent", "Costs", "Regions", "Module"]], 1, 0]);
+
+    // And where a line item's Module Name is compared with the module's row above it: the row is called "Sales ", so it is
+    // the module of the line item that names "Sales ", and not of the one that names Sales.
+    const above = lineItemsView(table(BOTH, [["Sales ", "", "", "Products", ""], ["Units", NUMBER, SUM, "-", "Sales"], ["Price", NUMBER, SUM, "-", "Sales "]]));
+    expect(said(above)).toEqual([["Units", "Sales", "-", "Module (not found)"], ["Price", "Sales ", "Products", "Module"]]);
+    // Only a Module Name of nothing but spaces is no name at all: its row names no module, and it makes no module of a
+    // row that is called by those spaces.
+    const blank = lineItemsView(table(BOTH, [["Sales", "", "", "Products", ""], ["Units", NUMBER, SUM, "-", " "], [" ", "", "", "Regions", ""]]), new Set(["Sales"]));
+    expect([said(blank), blank.note]).toEqual([[["Units", " ", "-", "Module (not found)"], [" ", "", "Regions", "Line item"]],
+      "1 module row is in the CSV only; each line item shows its module, except 2 whose module is not known: they have no Module Name in the file."]);
   });
 
   it("reads the table as before when the names are not given, or are no set of names", () => {
