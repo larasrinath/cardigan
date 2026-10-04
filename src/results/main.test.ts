@@ -193,9 +193,9 @@ afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(
 
 /** Loads the page at an address: a new page each time, as opening or reloading it gives. A page that finds no result kept
  * for it has said so to itself by the time this returns. */
-const open = async (search: string) => {
+const open = async (search: string, shell = SHELL) => {
   vi.resetModules();
-  page = new FakePage(SHELL);
+  page = new FakePage(shell);
   location = { search, pathname: "/results.html", hash: "" };
   vi.stubGlobal("document", page.document);
   vi.stubGlobal("location", location);
@@ -2221,6 +2221,80 @@ describe("A result kept while the results page is refreshed", () => {
     expect([page.has("#noteBanner"), banner().slice(0, 2), page.texts("#view h1")]).toEqual([false, ["note", "Analysing"], ["Overview"]]);
     // The new run's log has no line about the earlier result either: it is empty, so its banner offers nothing to copy yet.
     expect(page.id("bannerCopy").hidden).toBe(true);
+  });
+
+  it("forgets a kept value that is not a result's shape, and waits for Run: the page is not left blank, and a refresh does not find it again", async () => {
+    /** Puts a value into the tab's storage as this very build would keep a result for this tab. */
+    const keep = async (value: unknown) => expect((await new ResultKeeper({ tabId: 42, storage: session.storage }).keep(value as AnalysisResult, NOW)).kept).toBe(true);
+    /** What the page shows once it has looked: its view's heading, whether a result is on it, and what the storage still holds. */
+    const looked = async () => {
+      await eventually(() => page.has("#runTitle") || page.has("#view .stat"), "the page to have looked for what it kept");
+      await pass(20);
+      return [page.texts("#view h1"), page.has("#noteBanner"), page.document.title, session.held.size, page.id("sidenav").hidden];
+    };
+    // Each of these passes the keeper's own check, which asks only for lists of tables, headers and rows: a value another
+    // build of the same version kept, say. None is a result the page can show.
+    const { kind: _kind, ...kindless } = APP;
+    const shapes: [what: string, value: unknown][] = [
+      ["no kind", kindless],
+      ["a kind the page does not know", { ...APP, kind: "dashboard" }],
+      ["no name for its zip", { ...APP, zipName: undefined }],
+      ["a table without a file name", { ...APP, tables: [APP.tables[0], { ...APP.tables[1], file: undefined }] }],
+      ["a table that does not say whether its cells are guarded", { ...APP, tables: [{ headers: ["Page"], rows: [["Overview"]], file: "Pages.csv", label: "Pages" }] }],
+    ];
+    for (const [what, value] of shapes) {
+      await keep(value);
+      expect(kept(), what).toBe(true);
+      await open(refreshed);
+      // The waiting view, as on a page that kept nothing; what was kept is gone, so the next refresh starts clean.
+      expect(await looked(), what).toEqual([["Connecting"], false, "Cardigan", 0, true]);
+      ports[ports.length - 1].send({ type: "subject", subject: { kind: "app", id: APP.id } });
+      expect([page.id("runTitle").textContent, runControl()[0], ports[ports.length - 1].posted], what).toEqual(["Ready to analyse", "Run", []]);
+    }
+    // Run works from there, and its result is kept in the usual way.
+    page.id("runAgain").press();
+    sendResult(ports[ports.length - 1], APP);
+    expect(page.document.title).toBe("Cardigan — Demo app");
+    await letKeep();
+    await open(refreshed);
+    await back("Demo app");
+  });
+
+  it("shows a kept result one of whose cells is no text or number, with that cell as text: what comes back is read as a result once more", async () => {
+    // A cell that `String` cannot convert, as JSON can hold one: an object whose own toString is not a function. And others
+    // that are no plain cells: nothing at all, a list, a yes.
+    const odd: AnalysisResult = { ...APP, tables: APP.tables.map((table, index) => (index === 1
+      ? { ...table, rows: [["Demo app", { toString: null }, null, ["a", "b"]], ["Demo app", "Overview (copy)", true, "page-2"]] as unknown as Cell[][] } : table)) };
+    expect((await new ResultKeeper({ tabId: 42, storage: session.storage }).keep(odd, NOW)).kept).toBe(true);
+    await open(refreshed);
+    await back("Demo app");
+    expect([page.texts("#view h1"), page.has("#noteBanner"), kept()]).toEqual([["Overview"], true, true]);
+    goTo(1);
+    expect(page.all("#tableWrap tbody tr").map(row => row.children.map(cell => cell.textContent.trim()))).toEqual([["Demo app", "[object Object]", ""], ["Demo app", "Overview (copy)", "true"]]);
+    // Its downloads are written from the same cells.
+    page.id("dlCsv").press();
+    expect(await saved[0].text()).toBe("App,Page,Total cards,Page ID\r\nDemo app,[object Object],,\"a,b\"\r\nDemo app,Overview (copy),true,page-2\r\n");
+    page.id("dlAll").press();
+    expect((await bytes(saved[1])).length).toBeGreaterThan(500);
+  });
+
+  it("forgets a kept result that it fails to show, and shows the waiting view in its place", async () => {
+    await openWith(APP);
+    await letKeep();
+    // A page on which showing a result fails part of the way: here its shell lacks the place for the result's name.
+    const broken = SHELL.replace('<div class="meta" id="hdMeta"></div>', "");
+    expect(broken).not.toBe(SHELL);
+    await open(refreshed, broken);
+    await eventually(() => page.has("#runTitle"), "the waiting view");
+    await pass(20);
+    // Nothing of the result is left on the page: no navigation, no note, no title; the run control is as on a page that
+    // kept nothing, and what was kept is gone.
+    expect([page.texts("#view h1"), page.id("runStatus").textContent, page.has("#noteBanner"), page.id("navList").children, page.id("sidenav").hidden, page.document.title])
+      .toEqual([["Connecting"], "Connecting to the Anaplan tab…", false, [], true, "Cardigan"]);
+    expect([session.held.size, runControl()[0], disabled("runAgain", "dlAll", "dlCsv")]).toEqual([0, "Run", [false, true, true]]);
+    ports[1].send({ type: "subject", subject: { kind: "app", id: APP.id } });
+    expect([page.id("runTitle").textContent, page.id("runHint").textContent, ports[1].posted])
+      .toEqual(["Ready to analyse", "Choose Run to analyse it. This page starts by itself only when the Cardigan icon has just opened it.", []]);
   });
 
   it("shows nothing that was kept for another Anaplan tab, or by another version of the extension: the page waits for Run", async () => {
