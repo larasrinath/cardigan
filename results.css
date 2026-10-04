@@ -282,6 +282,12 @@ td.num{font-variant-numeric:tabular-nums}
 .warn-list{display:grid;gap:8px;margin:0;padding:0;list-style:none}
 .warn-list li{display:flex;gap:9px;align-items:flex-start;font-size:12.5px;overflow-wrap:anywhere}
 .warn-list .wl-ink{color:var(--text)}
+/* What the page keeps of the result for a refresh: one line in the secondary text, close under the details of the export,
+   with the button that forgets the copy beside it. Where the two do not fit on a line, the button goes under the line.
+   The place is at least as high as the button, also once the button has gone: where the two stood on one line, what
+   stands under the place does not move then. Until a copy is kept the place is empty, and takes no room. */
+.ov-kept{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;min-height:28px;margin:-8px 0 16px;font-size:12px;color:var(--text-2)}
+.ov-kept:empty{display:none}
 
 /* ---------- details view ---------- */
 .dl{display:grid;grid-template-columns:220px 1fr;gap:0;background:var(--panel);border:1px solid var(--border);border-radius:var(--r-md);overflow:hidden;margin-bottom:14px}
