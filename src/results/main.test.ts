@@ -715,6 +715,32 @@ describe("The results page's script, on the page", () => {
     expect([behind(), page.id("drawer").classList.contains("show"), page.texts("#view h1")]).toEqual([[false, false, false, false], false, ["Overview"]]);
   });
 
+  it("says on each button that opens a popover whether its popover is open, and says what the popover is", async () => {
+    await openWith();
+    goTo(2);
+    /** The buttons whose popover is said to be open, by the column they filter or by their ID. */
+    const open = () => page.all("[data-colfilter], #colBtn").filter(button => button.getAttribute("aria-expanded") === "true").map(button => button.dataset.colfilter ?? button.id);
+    const said = () => page.all("[data-colfilter], #colBtn").map(button => button.getAttribute("aria-expanded"));
+    expect([open(), new Set(said())]).toEqual([[], new Set(["false"])]);
+    page.find('[data-colfilter="3"]').press();
+    expect([open(), page.id("popover").getAttribute("aria-label")]).toEqual([["3"], "Filter: Card type"]);
+    // A ticked box writes the table's head again, with the popover still open over it: the new button says so too, and
+    // says, not by its colour alone, that its filter is in force.
+    page.all("#popover input")[0].tick();
+    const button = page.find('[data-colfilter="3"]');
+    expect([open(), button.getAttribute("aria-label"), button.title, button.querySelector("svg")?.getAttribute("fill")]).toEqual([["3"], "Filter by Card type (filter on)", "Filter by Card type (filter on)", "currentColor"]);
+    expect([page.find('[data-colfilter="0"]').getAttribute("aria-label"), page.find('[data-colfilter="0"] svg').getAttribute("fill")]).toEqual(["Filter by Page", "none"]);
+    page.key("Escape");
+    expect([open(), new Set(said())]).toEqual([[], new Set(["false"])]);
+    // The column chooser, closed by a click elsewhere.
+    page.id("colBtn").press();
+    expect([open(), page.id("popover").getAttribute("aria-label")]).toEqual([["colBtn"], "Show or hide columns"]);
+    page.find('[data-colfilter="0"]').press();
+    expect([open(), page.id("popover").getAttribute("aria-label")]).toEqual([["0"], "Filter: Page"]);
+    page.id("tblSearch").press();
+    expect(open()).toEqual([]);
+  });
+
   it("gives the focus back to the button that opened a popover when the popover closes itself", async () => {
     await openWith();
     goTo(2);

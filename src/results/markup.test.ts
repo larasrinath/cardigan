@@ -421,4 +421,38 @@ describe("A result whose every text is hostile, through every view of the page",
   it("has static icons that hold nothing but their drawing", () => {
     for (const icon of [SUN_ICON, MOON_ICON]) expect(tagNames(icon).filter(name => !["svg", "path", "circle"].includes(name))).toEqual([]);
   });
+
+  it("hides every icon from a screen reader: each stands beside a text or in a control with a name", () => {
+    const icons = [...everyView(), SUN_ICON, MOON_ICON].flatMap(html => readMarkup(html).tags.filter(tag => tag.name === "svg" && !tag.closing));
+    expect(icons.length).toBeGreaterThan(40);
+    expect(icons.filter(icon => icon.attributes.get("aria-hidden") !== "true")).toEqual([]);
+    // A button that holds only an icon has a name of its own.
+    for (const html of everyView()) {
+      for (const button of parseMarkup(html).querySelectorAll("button")) {
+        if (button.textContent.trim() === "") expect(button.getAttribute("aria-label"), button.outerHTML).toMatch(/\S/);
+      }
+    }
+  });
+
+  it("gives the diagnostic log, which the keyboard can scroll, a role and a name", () => {
+    for (const html of [runHtml(), detailsHtml([], ["a line"])]) {
+      const log = parseMarkup(html).querySelector("#diagLog");
+      expect([log?.localName, log?.getAttribute("tabindex"), log?.getAttribute("role"), log?.getAttribute("aria-label")]).toEqual(["pre", "0", "region", "Diagnostic log"]);
+    }
+  });
+
+  it("says in a filter button's name and in its icon's shape, not by colour alone, that the filter is in force", () => {
+    const table: ResultTable = { file: "Cards.csv", label: "Cards", headers: ["Page", "Card #", "Card type"], rows: [["Overview", 1, "Grid"], ["Stores", 2, "KPI"]], guard: true };
+    const buttons = parseMarkup(tableHtml(viewOf(table, LINKS, { filtered: new Set([2]) }))).querySelectorAll("[data-colfilter]");
+    expect(buttons.map(button => [button.dataset.colfilter, button.getAttribute("aria-label"), button.title, button.classList.contains("active"), button.querySelector("svg")?.getAttribute("fill"),
+      button.getAttribute("aria-haspopup"), button.getAttribute("aria-expanded")])).toEqual([
+      ["0", "Filter by Page", "Filter by Page", false, "none", "dialog", "false"],
+      ["1", "Filter by Card #", "Filter by Card #", false, "none", "dialog", "false"],
+      ["2", "Filter by Card type (filter on)", "Filter by Card type (filter on)", true, "currentColor", "dialog", "false"],
+    ]);
+    // The outline is drawn with a stroke; the filled funnel needs none.
+    expect(buttons.map(button => button.querySelector("svg")?.getAttribute("stroke"))).toEqual(["currentColor", "currentColor", null]);
+    const chooser = parseMarkup(tableHtml(viewOf(table, LINKS))).querySelector("#colBtn");
+    expect([chooser?.getAttribute("aria-haspopup"), chooser?.getAttribute("aria-expanded")]).toEqual(["dialog", "false"]);
+  });
 });
