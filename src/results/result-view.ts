@@ -49,15 +49,38 @@ export function detailValue(details: ResultTable | undefined, section: string, d
   return row ? cellText(row[2]) : undefined;
 }
 
+/** How a Files row of the Details file says that a file was not exported, before the reason (model/export.ts). */
+const NOT_EXPORTED = "Not exported: ";
+
+/** The summary lines that say what a Files row of the Details file says. A model's summary lists every file, and the
+ * export writes each file's line and its Files row from the same words (model/export.ts): "Imports: 3 rows (2 matched in
+ * the Actions list)" beside the row "Imports.csv", "3 rows (2 matched in the Actions list)"; and for a file that was not
+ * exported, "Source Models: not exported (reason)." beside "Source Models.csv", "Not exported: reason". */
+function saidWithFiles(details: ResultTable | undefined): Set<string> {
+  const lines = new Set<string>();
+  for (const row of details?.rows ?? []) {
+    if (cellText(row[0]) !== FILES) continue;
+    const label = cellText(row[1]).replace(/\.csv$/, "");
+    const value = cellText(row[2]);
+    lines.add(`${label}: ${value}`);
+    if (value.startsWith(NOT_EXPORTED)) lines.add(`${label}: not exported (${value.slice(NOT_EXPORTED.length)}).`);
+  }
+  return lines;
+}
+
 /** The result's notes, one line each: its summary lines, then the Details file's Notes rows as "Detail: Value". A Notes row
- * whose text the summary already holds, word for word, is not said twice. A line that says only how many rows a file has
- * ("Line Items: 120 rows", as a model's summary lists every file) is left out: the file's tile on the overview says that
- * number, also where its table lists fewer rows than the file has (`Overview.tiles`). */
+ * whose text the summary already holds, word for word, is not said twice. Two kinds of summary line are no notes, since
+ * the overview says them with the files, once:
+ * - A line that says only how many rows a file has ("Line Items: 120 rows", as a model's summary lists every file): the
+ *   file's tile says that number, also where its table lists fewer rows than the file has (`Overview.tiles`).
+ * - A line that says what a Files row of the Details file says (`saidWithFiles`): that row is on the overview, under
+ *   Files or as the file's tile. */
 export function resultNotes(result: AnalysisResult): string[] {
   const rowCounts = new Set(result.tables.flatMap(table => ["rows", "row"].map(word => `${cellText(table.label)}: ${table.rows.length} ${word}`)));
+  const withFiles = saidWithFiles(detailsOf(result));
   const summary = result.summary.map(cellText).filter(line => line !== "");
   const said = new Set(summary);
-  const notes = summary.filter(line => !rowCounts.has(line));
+  const notes = summary.filter(line => !rowCounts.has(line) && !withFiles.has(line));
   for (const row of detailsOf(result)?.rows ?? []) {
     if (cellText(row[0]) !== NOTES) continue;
     const detail = cellText(row[1]);

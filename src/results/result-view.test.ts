@@ -112,6 +112,30 @@ describe("What the results page reads out of a result", () => {
     expect(resultNotes(result("model", []))).toEqual([]);
   });
 
+  it("says once what the summary and a Files row of the Details file both say: with the files, not among the notes", () => {
+    // model/export.ts writes each file's summary line and its Files row from the same words: a count with a remark, and a
+    // file that was not exported, which the two word differently.
+    const file = (label: string, rows: number): ResultTable => ({ file: `${label}.csv`, label, headers: ["", "Formula"], rows: Array.from({ length: rows }, (_, index) => [`Row ${index}`, ""]), guard: false });
+    const details = detailsTable("Model Details.csv", [["Model", "Model", "Model one"],
+      ["Files", "Line Items.csv", "120 rows"], ["Files", "Imports.csv", "3 rows (2 matched in the Actions list)"], ["Files", "Exports.csv", "Not exported: the grid did not load"],
+      ["Files", "Source Models.csv", "Not exported: This model page has no REMOTE_MODEL axis."], ["Notes", "Actions", "the Actions list came without Notes."]]);
+    const tables = [details, file("Line Items", 120), file("Imports", 3)];
+    const summary = ["Line Items: 120 rows", "Imports: 3 rows (2 matched in the Actions list)", "Exports: not exported (the grid did not load).",
+      "Source Models: not exported (This model page has no REMOTE_MODEL axis.).", "Actions: the Actions list came without Notes."];
+    const overview = overviewOf(result("model", tables, summary));
+    // The three are under Files, each once; the note that is one is the only note.
+    expect([overview.notes, overview.files]).toEqual([["Actions: the Actions list came without Notes."], [["Imports.csv", "3 rows (2 matched in the Actions list)"],
+      ["Exports.csv", "Not exported: the grid did not load"], ["Source Models.csv", "Not exported: This model page has no REMOTE_MODEL axis."]]]);
+    expect(resultNotes(result("model", tables, summary))).toEqual(overview.notes);
+    // A summary line that says something else than its file's row stays a note: another remark, another reason, another
+    // file, or a line that only begins like one.
+    const other = ["Imports: 3 rows (1 matched in the Actions list)", "Exports: not exported (the Actions list could not be read).", "Processes: not exported (the grid did not load).",
+      "Source Models: not exported (This model page has no REMOTE_MODEL axis.)", "Imports: 3 rows (2 matched in the Actions list). Checked."];
+    expect(resultNotes(result("model", tables, other))).toEqual([...other, "Actions: the Actions list came without Notes."]);
+    // Without the Details file's row there is nothing that says it with the files: the summary's line is the note.
+    expect(resultNotes(result("model", [file("Imports", 3)], summary.slice(1, 4)))).toEqual(summary.slice(1, 4));
+  });
+
   it("counts for the overview: each file's rows, an app's cards by type and its models", () => {
     const pages = appTable("Pages.csv", [
       { Page: "Overview", Model: "Demo model", Workspace: "Main", "Model ID": "0123456789ABCDEF0123456789ABCDEF" },
