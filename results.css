@@ -140,8 +140,16 @@ main{flex:1;min-width:0}
 .rowcount{margin-left:auto;font-size:12px;color:var(--text-2);font-variant-numeric:tabular-nums}
 
 /* ---------- table ---------- */
+/* With a table on screen the page is as high as the window, and each box down to the table's takes the height that is
+   left to it. The table's box grows from 220px into what the header, the banners, the breadcrumb, the toolbar and the
+   pager leave, and no further than its rows: a short table stays short, and the pager stays in the window. */
+body:has(.table-wrap){display:flex;flex-direction:column;height:100dvh}
+body:has(.table-wrap) > .banners,body:has(.table-wrap) > .shell{width:100%}
+body:has(.table-wrap) > .shell,#view:has(> .table-wrap){flex:1 1 auto}
+main:has(.table-wrap){align-self:stretch}
+main:has(.table-wrap),#view:has(> .table-wrap){display:flex;flex-direction:column}
 .table-wrap{
-  position:relative;overflow:auto;max-height:calc(100vh - 268px);min-height:220px;
+  position:relative;overflow:auto;flex:1 1 0;min-height:220px;max-height:max-content;
   background:var(--panel);border:1px solid var(--border);border-radius:var(--r-md);
 }
 table{border-collapse:separate;border-spacing:0;width:max-content;min-width:100%;font-size:12.5px}
@@ -310,7 +318,6 @@ td.num{font-variant-numeric:tabular-nums}
 }
 /* A wrapped header is high: in a short window it scrolls away with the page instead of covering it. */
 @media (max-width:1120px) and (max-height:560px){ .hd{position:static} }
-@media (max-width:1120px){ .table-wrap{max-height:calc(100vh - 300px)} }
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{transition:none !important;animation:none !important}
 }
