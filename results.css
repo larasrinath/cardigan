@@ -288,12 +288,13 @@ td.num{font-variant-numeric:tabular-nums}
 /* ---------- responsive ---------- */
 @media (max-width:1120px){
   .nav-toggle{display:inline-flex}
+  /* Closed, the navigation is off screen and hidden, so the Tab key skips it; it hides once it has slid out. */
   .sidenav{
     position:fixed;left:0;top:0;height:100dvh;max-height:none;width:264px;z-index:70;border-radius:0;
-    transform:translateX(-104%);transition:transform .2s cubic-bezier(.4,0,.2,1);border:0;border-right:1px solid var(--border-strong);
-    box-shadow:var(--shadow);
+    transform:translateX(-104%);visibility:hidden;transition:transform .2s cubic-bezier(.4,0,.2,1),visibility 0s .2s;
+    border:0;border-right:1px solid var(--border-strong);box-shadow:var(--shadow);
   }
-  .sidenav.open{transform:translateX(0)}
+  .sidenav.open{transform:translateX(0);visibility:visible;transition-delay:0s}
   .hd{gap:10px;padding:10px 14px}
   .shell{padding:12px 14px 28px}
   .ov-cols{grid-template-columns:1fr}
