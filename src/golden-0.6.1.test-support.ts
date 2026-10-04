@@ -1,10 +1,14 @@
+import { zipStore } from "./zip.js";
+import { zipEntries } from "./zip.test-support.js";
+
 /** Two zips exactly as version 0.6.1 (commit 4eb457a) wrote them, kept here as base64: the app in analyse.test.ts (`analyseGoldenApp`) and the
  * model in model/model.test.ts (`exportGoldenModel`). 0.6.1 built its zip inside the analysis; the analysis now returns tables
  * and result-zip.ts builds the zip, and these pin that the bytes did not change. Tests only.
  *
  * Made once by running 0.6.1's own analyseApp and exportModel on those fixtures, with the clock at 2026-09-28 12:30:10 UTC and
  * the time zone UTC (a zip entry carries its time as local time). Never regenerate them from newer code: a difference means the
- * export changed. */
+ * export changed. What is deliberately written otherwise since is named below, row by row (`APP_ROW_REWORDED`): a test then
+ * compares with 0.6.1's zip but for that row, and the zips themselves stay as they are. */
 
 /** The time on every entry of both zips, as a local time, so the comparison holds in any time zone. */
 export const ZIPPED_AT = new Date(2026, 8, 28, 12, 30, 10);
@@ -73,6 +77,30 @@ export const APP_ZIP_0_6_1 = bytes([
   "AUAAAIAADFYzxd89d7nxMBAAATAQAAGgAAAAAAAAAAAAAAAACLEQAAQ29uZGl0aW9uYWwgRm9ybWF0dGluZy5jc3ZQSwECFAAUAAAIAADFYzxdcLfEo6EBAAChAQAAEgAAAAAAAAAAAAAAAADWEgAA",
   "QWN0aW9uIEJ1dHRvbnMuY3N2UEsBAhQAFAAACAAAxWM8XU6ruxURAwAAEQMAAA4AAAAAAAAAAAAAAAAApxQAAFdoZXJlIFVzZWQuY3N2UEsFBgAAAAAIAAgA5wEAAOQXAAAAAA==",
 ].join(""));
+
+/** The one row of the app's App Details.csv that is deliberately not what 0.6.1 wrote, as the row's whole line of the file.
+ * The "How to read" row on a filter's context said that the names of its items are not looked up. They are looked up now,
+ * and so are the items that a rule compares a line item formatted as a list with, so the row says what is shown in either
+ * case: the name where the model gives one, the ID otherwise.
+ *
+ * It is the third place where this app's files are known to differ from 0.6.1's. The other two name the build: the
+ * "Exported with" row and the first Diagnostics line. Neither shows in a comparison here: the zip above was made by a build
+ * that calls itself "dev", as a build under test does, and a test either gives the run the log that 0.6.1 was given or
+ * leaves the Diagnostics rows, which are a run's own log, out of the comparison. */
+export const APP_ROW_REWORDED = {
+  was: "How to read,Filter context,Filter-context items show their IDs; their names are not looked up.\r\n",
+  now: `How to read,Filter context and values,"An item in a filter rule, whether chosen as the filter context or compared with a line item formatted as a list, is shown by its name where the model gives one, and by its ID otherwise. If a context item has no name, the rule's line item and context are listed together in place of the line item's name."\r\n`,
+} as const;
+
+/** The app's zip as 0.6.1 wrote it but for that row: every file's bytes as they are in `APP_ZIP_0_6_1`, with that one line
+ * of App Details.csv replaced, written by zipStore with the same time on every entry. analyse.test.ts pins that zipStore
+ * writes `APP_ZIP_0_6_1` itself, byte for byte, from the files as they are, so what differs from this zip differs from 0.6.1. */
+export const APP_ZIP_REWORDED = zipStore(zipEntries(APP_ZIP_0_6_1).map(entry => {
+  if (entry.name !== "App Details.csv") return entry;
+  const lines = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(entry.data).split(APP_ROW_REWORDED.was);
+  if (lines.length !== 2) throw new Error("0.6.1's App Details.csv does not hold the reworded row exactly once.");
+  return { name: entry.name, data: new TextEncoder().encode(lines.join(APP_ROW_REWORDED.now)) };
+}), ZIPPED_AT);
 
 /** `<model> - Model Export - <date>.zip`: Model Details.csv and eleven Model settings files (Source Models was not exported). */
 export const MODEL_ZIP_0_6_1 = bytes([
