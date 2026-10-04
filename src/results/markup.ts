@@ -45,11 +45,12 @@ export function idPill(id: unknown): string {
 const plain = (text: string): string => `<span class="cell-t" title="${esc(text)}">${esc(text)}</span>`;
 
 /** What a row's cells may link to: its page's cards and its card's details. Both need the result's Cards file and the
- * row's own Page or Card ID column. A table whose rows name their card by its number alone says for each row whether
- * the result has that card (`hasCard`): only then is the row's card a link. */
+ * row's own Page or Card ID column. `hasCard` says for each row whether its card is one to open: a table whose rows name
+ * their card by its number alone says whether the result has that card, and any table says no for a row whose card
+ * could be more than one. Only where it says yes is the row's card a link; elsewhere its number is plain text. */
 export interface Links { page: boolean; card: boolean; hasCard?: (row: Row) => boolean }
 
-/** Whether a row's card is a link: the table's cards are, and this row's card is one the result has. */
+/** Whether a row's card is a link: the table's cards are, and this row's card is one to open. */
 const cardLinked = (links: Links, row: Row): boolean => links.card && (links.hasCard?.(row) ?? true);
 
 /** One cell: always the cell's own text, shown the way its column is shown. An empty cell stays empty. `whole` is for the
@@ -446,12 +447,14 @@ export function rowDrawerSubHtml(position: number, label: string): string {
   return `Row ${esc(position)} of ${esc(label)}`;
 }
 
-/** Under a card's name in the drawer: its page (a jump to that page's cards), its type and its ID. */
-export function cardDrawerSubHtml(page: string, type: string, cardId: string): string {
-  return `<button type="button" class="link" data-act="page">${esc(page)}</button> · ${esc(type)} · ${idPill(cardId)}`;
+/** Under a card's name in the drawer: its page (a jump to that page's cards), its type and its ID. `note` follows on a
+ * line of its own: what the drawer says of a card whose parts it cannot list (result-view.ts `cardParts`). */
+export function cardDrawerSubHtml(page: string, type: string, cardId: string, note?: string): string {
+  const line = `<button type="button" class="link" data-act="page">${esc(page)}</button> · ${esc(type)} · ${idPill(cardId)}`;
+  return note === undefined ? line : `${line}<div>${esc(note)}</div>`;
 }
 
-/** A card in full: its row of the Cards file, then the rows of the other files that carry its Card ID. */
+/** A card in full: its row of the Cards file, then its parts: the rows of the other files that carry its Card ID. */
 export function cardDrawerHtml(columns: readonly Column[], row: Row, links: Links, sections: readonly CardSection[]): string {
   return `
     <div class="d-sec"><h3>Card details</h3>

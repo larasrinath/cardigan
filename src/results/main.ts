@@ -3,7 +3,7 @@ import { plainResult } from "../result-plain.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
 import { resultZip, tableCsv } from "../result-zip.js";
 import { VERSION } from "../version.js";
-import { cardsOf, columnIndex, columnsOf, rowKeys, rowNameIndex, type CardsTable, type Column, type RowKeys } from "./columns.js";
+import { cardsNamed, cardsOf, columnIndex, columnsOf, rowKeys, rowNameIndex, type CardsTable, type Column, type RowKeys } from "./columns.js";
 import { describeState, openedJustNow, ResultsClient, runLabel, tabIdFrom, withoutOpened, type RunState } from "./connection.js";
 import { CSV_FALLBACK, downloadName, ZIP_FALLBACK } from "./file-name.js";
 import { analysedLine, notKeptNote } from "./keep-notes.js";
@@ -13,7 +13,7 @@ import {
   noteBannerHtml, objectDrawerHtml, objectDrawerSubHtml, overviewHtml, rowDrawerHtml, rowDrawerSubHtml, runBannerHtml, runHtml, SUN_ICON, tableHtml, tableParts, type Links, type NavEntry, type TableView,
 } from "./markup.js";
 import type { PageId } from "./page-ids.js";
-import { analysedOf, cardSections, detailsOf, diagnosticLog, fileView, listedTables, overviewOf, type FileView } from "./result-view.js";
+import { analysedOf, cardParts, detailsOf, diagnosticLog, fileView, listedTables, overviewOf, type FileView } from "./result-view.js";
 import { cellText, NONE, pageOf, rememberingSelect, rowName, valueCounts, type Row, type Sort, type TableQuery } from "./table-engine.js";
 import { objectOf, WHERE_USED_FILE, whereUsedView, type WhereUsedObject, type WhereUsedView } from "./where-used-view.js";
 
@@ -333,6 +333,8 @@ function showResult(next: AnalysisResult, at: Date, back = false): void {
       index, file, table, note, none, exported, also: exported && (row => exported.get(row)?.values()), columns, keys, links: { page, card: page && keys.cardId !== undefined },
       filters: new Map(), hidden: defaultHidden(columns), sort: undefined, page: 0, listed: table.rows.length,
     };
+    // A number that could be more than one card's opens none of them: there it is plain text.
+    if (entry.links.card) entry.links.hasCard = row => cardsOfRow(entry, row).length < 2;
     shown.set(index, entry);
     if (!byObject || file !== whereUsed) continue;
     // The file in two ways. By object, the table is the view's: one row an object, in the view's own order and with its
@@ -340,7 +342,7 @@ function showResult(next: AnalysisResult, at: Date, back = false): void {
     // what the navigation shows either way: it is what the CSV holds, and a download is the file in both.
     const object: Shown = {
       index, file, table: { ...file, headers: byObject.headers, rows: byObject.rows }, note: byObject.note, none: undefined, exported: undefined, also: undefined, columns: byObject.columns,
-      keys: { page: undefined, cardId: undefined }, links: { page: false, card: false },
+      keys: { page: undefined, cardId: undefined, number: undefined }, links: { page: false, card: false },
       filters: new Map(), hidden: defaultHidden(byObject.columns), sort: undefined, page: 0, listed: file.rows.length, objects: byObject,
     };
     entry.listed = file.rows.length;
@@ -656,24 +658,39 @@ function openObjectDrawer(view: WhereUsedView, object: WhereUsedObject, opener: 
   drawerObject = { view, object, all: false };
   openDrawer(rowName([object.name]) || rowName([object.type]) || "Object", objectDrawerSubHtml(object, view.multiModel), objectDrawerHtml(object, useLinks(), false), opener);
 }
-/** A card: its row of the Cards file, and the rows of the other files that carry its Card ID on its page. */
-function openCardDrawer(page: string, cardId: string, opener: Element): void {
+/** The cards a row names, as rows of the Cards file. A row of that file is its own card. A row of another file names its
+ * card by its page's name and the card's ID (its own, or in a table without that column the one the row is known to
+ * name), and by the card's number where the two are those of several cards (columns.ts `cardsNamed`). None: the export
+ * has no such card. More than one: the files do not say which of them the row is on. */
+function cardsOfRow(entry: Shown, row: Row): readonly Row[] {
+  if (!cards || entry.keys.page === undefined) return [];
+  if (entry.index === cards.index) return [row];
+  const cardId = entry.keys.cardId !== undefined ? cellText(row[entry.keys.cardId]) : entry.cardIds?.get(row);
+  if (cardId === undefined) return [];
+  return cardsNamed(cards, cellText(row[entry.keys.page]), cardId, entry.keys.number === undefined ? undefined : cellText(row[entry.keys.number]));
+}
+/** Opens the card that a row or a use names, where that is one card. It never opens one of several: which of them is
+ * meant is not known, and the first is not more likely than the next. */
+function openCard(found: readonly Row[], opener: Element): void {
+  if (found.length === 1) openCardDrawer(found[0], opener);
+  else toast("Card not found in this export");
+}
+/** A card, by its row of the Cards file: that row, and the card's parts from the other files (result-view.ts
+ * `cardParts`). Under the card's page, a line says so where its parts cannot be told from another card's. */
+function openCardDrawer(row: Row, opener: Element): void {
   const found = cards;
   const entry = found && shown.get(found.index);
-  const row = found?.table.rows.find(candidate => cellText(candidate[found.cardId]) === cardId && cellText(candidate[found.page]) === page);
-  if (!result || !entry || !row) {
-    toast("Card not found in this export");
-    return;
-  }
+  if (!result || !found || !entry) return;
   const cell = (header: string): string => {
     const index = columnIndex(entry.table, header);
     return index === undefined ? "" : cellText(row[index]);
   };
   const title = cell("Card title");
+  const { sections, note } = cardParts(result, found, row);
   drawerObject = undefined;
   drawerRow = { entry, row };
-  openDrawer(`Card ${cell("Card #")}${title !== "" && title !== NONE ? ` — ${title}` : ""}`, cardDrawerSubHtml(page, cell("Card type"), cardId),
-    cardDrawerHtml(entry.columns, row, entry.links, cardSections(result, page, cardId)), opener);
+  openDrawer(`Card ${cell("Card #")}${title !== "" && title !== NONE ? ` — ${title}` : ""}`,
+    cardDrawerSubHtml(cellText(row[found.page]), cell("Card type"), cellText(row[found.cardId]), note), cardDrawerHtml(entry.columns, row, entry.links, sections), opener);
 }
 /** The row a click belongs to: the drawer's row inside the drawer, otherwise the table row clicked. */
 function rowFor(element: Element): { entry: Shown; row: Row } | undefined {
@@ -734,13 +751,10 @@ document.addEventListener("click", event => {
       case "page":
         if (from && from.entry.keys.page !== undefined) gotoPage(cellText(from.row[from.entry.keys.page]));
         return;
-      // The row's card: by the row's own Card ID, or for a table without that column by the card the row is known to name.
-      case "card": {
-        if (!from || from.entry.keys.page === undefined) return;
-        const cardId = from.entry.keys.cardId !== undefined ? cellText(from.row[from.entry.keys.cardId]) : from.entry.cardIds?.get(from.row);
-        if (cardId !== undefined) openCardDrawer(cellText(from.row[from.entry.keys.page]), cardId, act);
+      // The row's card: the row itself in the Cards table, and otherwise the one card that the row names.
+      case "card":
+        if (from) openCard(cardsOfRow(from.entry, from.row), act);
         return;
-      }
       case "row":
         if (from) openRowDrawer(from.entry, from.row, act);
         return;
@@ -750,7 +764,7 @@ document.addEventListener("click", event => {
         const use = drawerObject?.object.uses[Number(act.dataset.use)];
         if (!use) return;
         if (act.dataset.act === "use-page") gotoPage(use.page);
-        else if (use.cardId !== undefined) openCardDrawer(use.page, use.cardId, act);
+        else if (use.cardId !== undefined && cards) openCard(cardsNamed(cards, use.page, use.cardId, cellText(use.card)), act);
         return;
       }
       // Every use of the object in the drawer. The control goes with what it did: the first use it added takes the focus.

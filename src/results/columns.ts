@@ -1,6 +1,6 @@
 import type { TabName } from "../report.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
-import { cellText } from "./table-engine.js";
+import { cellText, type Row } from "./table-engine.js";
 
 /** The names of an app export's files, by the report table each holds. The analysis writes its files under these names
  * (analyse.ts), and whatever the page knows about one of them, here or in result-view.ts, is keyed by a name from this
@@ -150,17 +150,45 @@ export function rowNameIndex(table: ResultTable): number | undefined {
   return header === undefined ? undefined : columnIndex(table, header);
 }
 
-/** The columns a row's links read: its page, and its card's ID. */
-export interface RowKeys { page: number | undefined; cardId: number | undefined }
-export const rowKeys = (table: ResultTable): RowKeys => ({ page: columnIndex(table, "Page"), cardId: columnIndex(table, "Card ID") });
+/** The columns a row's links read: its page, and its card's ID and number. */
+export interface RowKeys { page: number | undefined; cardId: number | undefined; number: number | undefined }
+export const rowKeys = (table: ResultTable): RowKeys => ({ page: columnIndex(table, "Page"), cardId: columnIndex(table, "Card ID"), number: columnIndex(table, "Card #") });
 
 /** The Cards file of an app result with the columns that identify a card, or undefined when the result has none: then
- * nothing links to a card or to a page's cards. */
-export interface CardsTable { index: number; table: ResultTable; page: number; cardId: number }
+ * nothing links to a card or to a page's cards. A card's number is read where the file has that column. */
+export interface CardsTable {
+  index: number;
+  table: ResultTable;
+  page: number;
+  cardId: number;
+  number: number | undefined;
+  /** The file's rows by what names a card in every file, its page's name and its ID, so that a row's card is not looked
+   * for among all of them each time a cell is drawn. */
+  named: ReadonlyMap<string, readonly Row[]>;
+}
+const cardKey = (page: string, cardId: string): string => JSON.stringify([page, cardId]);
 export function cardsOf(result: AnalysisResult): CardsTable | undefined {
   const index = result.tables.findIndex(table => table.file === APP_FILES.Cards);
   if (index < 0) return undefined;
   const table = result.tables[index];
-  const { page, cardId } = rowKeys(table);
-  return page === undefined || cardId === undefined ? undefined : { index, table, page, cardId };
+  const { page, cardId, number } = rowKeys(table);
+  if (page === undefined || cardId === undefined) return undefined;
+  const named = new Map<string, Row[]>();
+  for (const row of table.rows) {
+    const key = cardKey(cellText(row[page]), cellText(row[cardId]));
+    const rows = named.get(key);
+    if (rows) rows.push(row); else named.set(key, [row]);
+  }
+  return { index, table, page, cardId, number, named };
+}
+
+/** The cards that a page's name and a Card ID name: the rows of the Cards file with both, in the file's order. The files
+ * have only the name of a card's page, and a page copied in Anaplan may keep its cards' IDs, so under a name that pages
+ * share this can be more than one card. The card's number, which every file has beside the ID, tells them apart where
+ * it differs: with `number`, of several such cards only those of that number are given. More than one row is then more
+ * than one card, and nothing in the files says which of them a row of another file is on. */
+export function cardsNamed(cards: CardsTable, page: string, cardId: string, number?: string): readonly Row[] {
+  const named = cards.named.get(cardKey(page, cardId)) ?? [];
+  const at = cards.number;
+  return named.length < 2 || number === undefined || at === undefined ? named : named.filter(row => cellText(row[at]) === number);
 }

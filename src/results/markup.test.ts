@@ -9,7 +9,7 @@ import {
 } from "./markup.js";
 import { parseMarkup } from "./dom.test-support.js";
 import { decode, readMarkup, shownValues, structure } from "./markup.test-support.js";
-import { analysedOf, cardSections, detailsOf, overviewOf, type Overview } from "./result-view.js";
+import { analysedOf, cardParts, detailsOf, overviewOf, type Overview } from "./result-view.js";
 import { pageOf, selectRows, valueCounts } from "./table-engine.js";
 import { whereUsedView, type WhereUsedObject } from "./where-used-view.js";
 
@@ -378,6 +378,8 @@ describe("The results page's escaping", () => {
     }
     expect(rowDrawerSubHtml(3, "Line Items")).toBe("Row 3 of Line Items");
     expectInert(text => cardDrawerSubHtml(text(0), text(1), text(2)), 3);
+    // The line about a card whose parts are left out names the card's page: it is text as well, with each of the texts in turn.
+    expectInertInTurn(text => cardDrawerSubHtml(text(0), text(1), text(2), `2 cards on pages named "${text(3)}" have this number and this ID.`), 4);
     expectInert(text => cardDrawerHtml(columns(text), row(text), LINKS, [
       { title: text(0), none: text(1), headings: [text(2), text(3)], rows: [[text(4), text(5)], [text(6), text(0)]] },
       { title: text(1), none: text(2), headings: [text(3)], rows: [] },
@@ -417,8 +419,10 @@ describe("A result whose every text is hostile, through every view of the page",
   const text = (): string => HOSTILE[next++ % HOSTILE.length];
   const appTable = (file: string, headers: string[], rows: number): ResultTable => ({
     file, label: file.replace(/\.csv$/, ""), headers, guard: true,
-    // Every cell is hostile, except what ties a row to its card and page, which the drawer looks up.
-    rows: Array.from({ length: rows }, () => headers.map(header => (header === "Page" ? QUOTED : header === "Card ID" ? SCRIPT : text()))),
+    // Every cell is hostile, except what ties a row to its card and page, which the drawer looks up: the page's name, the
+    // card's ID and its number. Every card has one page name and one ID, and every other row one number: the Cards file's
+    // first and third card are one card as far as the files say, and its second is told from them by its number.
+    rows: Array.from({ length: rows }, (_, index) => headers.map(header => (header === "Page" ? QUOTED : header === "Card ID" ? SCRIPT : header === "Card #" ? (index % 2 ? IMG : CLOSERS) : text()))),
   });
   const result: AnalysisResult = {
     kind: "app", name: IMG, id: SCRIPT, zipName: `${QUOTED}.zip`, summary: [text(), text()],
@@ -468,9 +472,13 @@ describe("A result whose every text is hostile, through every view of the page",
       for (const row of table.rows) pieces.push(rowDrawerHtml(columns, row, links));
     }
     if (cards) {
+      // A card with its parts, and one whose parts are left out, under a line that names its page.
+      expect(cards.table.rows.map(row => { const { sections, note } = cardParts(result, cards, row); return [sections.map(section => section.rows.length), note?.includes(QUOTED)]; }))
+        .toEqual([[[0], true], [[1, 1, 0, 0], undefined], [[0], true]]);
       for (const row of cards.table.rows) {
-        pieces.push(cardDrawerSubHtml(String(row[cards.page]), IMG, String(row[cards.cardId])));
-        pieces.push(cardDrawerHtml(columnsOf(cards.table), row, linksOf(cards.table), cardSections(result, String(row[cards.page]), String(row[cards.cardId]))));
+        const { sections, note } = cardParts(result, cards, row);
+        pieces.push(cardDrawerSubHtml(String(row[cards.page]), IMG, String(row[cards.cardId]), note));
+        pieces.push(cardDrawerHtml(columnsOf(cards.table), row, linksOf(cards.table), sections));
       }
     }
     // The Where Used file by object: its table under the switch, and each object's drawer, with its uses' links.
