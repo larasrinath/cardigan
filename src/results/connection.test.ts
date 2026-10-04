@@ -245,11 +245,14 @@ describe("The results page's connection to the Anaplan tab", () => {
   });
 
   it("says so when the address names no tab, and has nothing to run again", () => {
+    // The icon has just opened the page, but the address names no tab: nothing is asked, so nothing has been asked for.
     const { client, ports, phases } = page({ noTab: true });
+    expect([client.asked, runLabel(client.asked)]).toEqual([false, "Run"]);
     client.start();
     client.runAgain();
     expect(phases()).toEqual(["no-tab", "no-tab"]);
     expect(ports).toEqual([]);
+    expect([client.asked, runLabel(client.asked)]).toEqual([false, "Run"]);
     expect(describeState(client.state, client.asked)).toEqual({ title: "No Anaplan tab", message: "This page was opened without an Anaplan tab to read.",
       hint: "Open an app or a model in Anaplan, then click the Cardigan icon on that tab." });
   });

@@ -906,9 +906,15 @@ describe("The results page's script, on the page", () => {
     await open("");
     expect(connects).toEqual([]);
     expect([page.id("runTitle").textContent, page.id("runStatus").textContent]).toEqual(["No Anaplan tab", "This page was opened without an Anaplan tab to read."]);
-    expect(page.id("runAgain").disabled).toBe(true);
+    expect([page.id("runAgain").disabled, runControl().slice(0, 2)]).toEqual([true, ["Run", "Analyse the Anaplan tab"]]);
     page.id("runAgain").press();
     expect(connects).toEqual([]);
+    // The same when the icon's click is in the address but no tab that can be read: no analysis was asked for, so the
+    // control, which is off, does not say "again".
+    for (const search of [`?opened=${NOW.getTime() - 1500}`, `?tab=x&opened=${NOW.getTime() - 1500}`]) {
+      await open(search);
+      expect([connects, page.id("runTitle").textContent, page.id("runAgain").disabled, runControl().slice(0, 2)], search).toEqual([[], "No Anaplan tab", true, ["Run", "Analyse the Anaplan tab"]]);
+    }
   });
 
   it("says it cannot reach the tab when Chrome closes the port at once, with Chrome's reason in the log, and reconnects on Run again", async () => {
