@@ -83,11 +83,16 @@ input,select{font:inherit;color:inherit}
 /* ---------- banners ---------- */
 .banners{padding:12px 20px 0;display:grid;gap:8px;max-width:1600px;margin:0 auto}
 .banner{
-  display:flex;gap:10px;align-items:flex-start;border-radius:var(--r-sm);
+  display:flex;flex-wrap:wrap;gap:10px;align-items:flex-start;border-radius:var(--r-sm);
   padding:10px 14px;font-size:12.5px;border:1px solid;overflow-wrap:anywhere;
 }
 .banner svg{flex:none;margin-top:1px}
+/* The text keeps 200px beside the icon: a button that no longer fits beside it goes under it. */
+.banner > div{flex:1 1 200px;min-width:0}
+.banner.warn{background:var(--warn-soft);border-color:color-mix(in srgb,var(--warn) 35%,transparent);color:var(--text)}
+.banner.warn > svg{color:var(--warn)}
 .banner.note{background:var(--panel-2);border-color:var(--border);color:var(--text-2)}
+.banner strong{font-weight:600}
 
 /* ---------- shell / nav ---------- */
 .shell{display:flex;gap:20px;max-width:1600px;margin:0 auto;padding:12px 20px 32px;align-items:flex-start}
