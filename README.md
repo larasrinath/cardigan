@@ -46,6 +46,7 @@ The results page shows:
 
 - **Overview**: how many rows each table has, and what the Details file (`App Details.csv` or `Model Details.csv`) holds: the details of the export, the result's notes under **Notes**, and at the end two sections that start closed, **How to read these files** and **Diagnostics** with the diagnostic log. For an app, also its cards by type and the models its pages use. From here, **Download this table (.csv)** saves the Details file.
 - **One table per file**, except the Details file. Search all its columns, click a column's name to sort by it, and pick the columns to show under **Columns**. The page numbers and the choice of 25, 50 or 100 rows per page are at the top right of the table, and the first column stays in view when a wide table is scrolled sideways. A column that holds 2 to 30 different values also has a filter. Click a row, or press Enter on the button in its first cell, to see it in full: every value whole, with its line breaks. For an app, a page's name shows that page's cards, and in **Cards** a card's title opens the card with its grid sections, filters, formatting and buttons. An app's ID columns, **Card #** and **Section #** start hidden, and **Columns** shows them. The CSV files always hold every column.
+- **An app's Where Used table** opens **By object**: one row per object, such as a module, a line item, a saved view or a process, with how many pages and cards use it and what they use it as, in the order of an index (by type, then by name). In an app of several models a row also names the object's model. A row opens the object with its uses: a page's name there shows that page's cards, and a card's number opens the card. **Every use**, the button beside **By object** above the table, lists the uses as `Where Used.csv` holds them. In both ways **Download this table (.csv)** saves that file, with every use.
 - **A model's tables** come in the order of Anaplan's Model settings: Model Calendar, Time Ranges, Versions, General Lists, Modules, Line Items, Processes, Imports, Import Data Sources, Exports, Other Actions, Source Models. Some show their file otherwise than it is written: see [Model export](#model-export).
 - **Model map**, for a model only: listed last, as coming in a later version.
 
@@ -211,6 +212,7 @@ Layout:
   - `result-view.ts`: the overview, the details, the notes and the diagnostic log, read out of a result, and what each file's table shows.
   - `line-items-view.ts`: a model's Line Items file as a table of line items.
   - `readable-cells.ts`: a model's format, summary and action definitions in words.
+  - `where-used-view.ts`: an app's Where Used file by object.
   - `markup.ts`: writes the page's HTML, with every value from a result escaped.
   - `file-name.ts`: the name a download is saved under.
   - `page-ids.ts`: the elements of `results.html` that the script looks up.
