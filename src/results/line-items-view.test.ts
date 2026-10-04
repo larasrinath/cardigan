@@ -1,6 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { exportModel } from "../model/export.js";
 import type { Cell, ResultTable } from "../result-types.js";
-import { tableCsv } from "../result-zip.js";
+import { resultZip, tableCsv } from "../result-zip.js";
+import { parseCsv, unzipText } from "../zip.test-support.js";
 import { columnsOf } from "./columns.js";
 import { APPLIES_TO, APPLIES_TO_FROM, APPLIES_TO_SOURCE, LINE_ITEMS_FILE, lineItemsView, MODULE_NAME, START_OF_SECTION, type LineItemsView } from "./line-items-view.js";
 import { selectRows, valueCounts } from "./table-engine.js";
@@ -70,7 +72,70 @@ const said = (view: LineItemsView): Cell[][] => {
 /** The view of a table it must leave alone: the table itself, nothing left out, nothing to say. */
 const asItIs = (given: ResultTable): LineItemsView => ({ table: given, moduleRows: 0, emptyModules: 0 });
 
+// The classic client is an untyped module graph, and so is its stand-in.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Any = any;
+
+/** The classic client's data page as far as the export reads it: a rectangle of cells from (startRow, 0). */
+class FakePage {
+  constructor(private readonly page: { startRow: number; rows: Cell[][] }) {}
+  contains(row: number, at: number) { return row >= this.page.startRow && row < this.page.startRow + this.page.rows.length && at < (this.page.rows[0]?.length ?? 0); }
+  getIndex(row: number, at: number) { return (row - this.page.startRow) * 1000 + at; }
+  getCellText(index: number) { return this.page.rows[Math.floor(index / 1000)][index % 1000]; }
+  getOriginalText(index: number) { return this.getCellText(index); }
+}
+
+/** The model export, run on a page whose classic client serves only the Line Items grid. `rows` are the table's rows; the
+ * grid gives each as its axis does: a module's row under its own ID, a line item's under its ID and its module's. */
+async function exportedLineItems(rows: Cell[][]) {
+  const inModule = (row: Cell[]) => row[HEADERS.indexOf(MODULE_NAME)];
+  const moduleIds = new Map(rows.flatMap((row, index): [Cell, number][] => (inModule(row) === "" ? [[row[0], 102000000000 + index]] : [])));
+  const served = rows.map((row, index) => {
+    const cells = row.slice(1, 1 + GRID_COLUMNS.length);
+    return inModule(row) === "" ? { ids: [102000000000 + index, -1], labels: [row[0], null], cells }
+      : { ids: [lineItemId(index), moduleIds.get(inModule(row))], labels: [row[0], inModule(row)], cells };
+  });
+  const aggregator = { isDirty: () => false, post: (request: Any, _flag: boolean, ok: (response: unknown) => boolean) => {
+    const { pageRequests: [{ startRow, rowCount }] } = request.params;
+    const slice = served.slice(startRow, startRow + rowCount);
+    queueMicrotask(() => ok({ result: { viewRequestResults: [{ rowCount: served.length, columnCount: GRID_COLUMNS.length,
+      rowLabelPages: [{ start: startRow, count: slice.length, entityLongIds: [0, 1].map(d => slice.map(row => row.ids[d])), labels: [0, 1].map(d => slice.map(row => row.labels[d])) }],
+      columnLabelPages: [{ start: 0, count: GRID_COLUMNS.length, entityLongIds: [GRID_COLUMNS.map((_, index) => 4000000001 + index)], labels: [GRID_COLUMNS] }],
+      dataPages: [{ startRow, rows: slice.map(row => row.cells) }] }] } }));
+    return true;
+  } };
+  const cache = { getModelName: () => "Plan", getWorkspaceInfo: () => ({ name: "Workspace one" }), getAllCurrenciesLabelPage: () => undefined };
+  const helper = { getAxesForViewDefinition: (rowAxes: string[], columnAxes: string[]) => ({ rowAxis: rowAxes[0], columnAxis: columnAxes[0] }) };
+  const constants = { SYSTEM_AXIS_IDENTIFIER_MODULE_WITH_LINE_ITEM_IDENTIFIER: "LINE ITEMS", SYSTEM_AXIS_IDENTIFIER_LINE_ITEM_PROPERTY_IDENTIFIER: "LINE ITEM PROPERTIES" };
+  class RequestGenerator { getRequest(params: unknown) { return { requestType: "VIEW_REQUEST_SET", submissions: [], systemActions: [], params }; } }
+  class DataPage extends FakePage { constructor({ page }: Any) { super(page); } }
+  vi.stubGlobal("window", { workspaceId: "0123456789abcdef0123456789abcdef", modelId: "FEDCBA9876543210FEDCBA9876543210",
+    require: (_modules: string[], loaded: (...modules: unknown[]) => void) => loaded(cache, aggregator, helper, {}, constants, RequestGenerator, DataPage, {}) });
+  vi.stubGlobal("location", { host: "eu2a.app.anaplan.com", pathname: "/core-webapp/anaplan/framework.jsp" });
+  return exportModel({ status: () => undefined, log: () => undefined }, () => "");
+}
+
 describe("The Line Items table as the results page shows it", () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it("is given, by the model export, the table these cases are written on, under the file name it looks for", async () => {
+    const result = await exportedLineItems(MODEL);
+    // The export's files here: the one about the export itself, then the grid's. The view knows the grid's by this name.
+    expect(result.tables.map(written => written.file)).toEqual(["Model Details.csv", LINE_ITEMS_FILE]);
+    // The row's name first, the grid's columns under Anaplan's own headers, the two ratio columns last. The module each
+    // line item's row carries on the grid's axis is not in the table: only the Module Name column says it.
+    const exported = result.tables[1];
+    expect(exported).toEqual(table(HEADERS, MODEL));
+    const view = lineItemsView(exported);
+    expect(view).toEqual(lineItemsView(table(HEADERS, MODEL)));
+    expect([view.table.headers, view.table.rows.length, view.moduleRows, view.emptyModules]).toEqual([VIEW_HEADERS, 11, 5, 2]);
+    // The export's own details file is not the view's. And the zip still holds the grid as the export read it, row for
+    // row, the modules' own rows among them: the view is another table, and the result's is not touched.
+    expect(lineItemsView(result.tables[0]).table).toBe(result.tables[0]);
+    const [headers, ...rows] = parseCsv(unzipText(resultZip(result)).get(LINE_ITEMS_FILE) ?? "");
+    expect([headers, rows]).toEqual([HEADERS, MODEL]);
+  });
+
   it("is for the model's Line Items file, and for no other", () => {
     const lineItems = table(HEADERS, MODEL);
     expect([LINE_ITEMS_FILE, lineItems.file, lineItems.label, HEADERS.length, VIEW_HEADERS.length]).toEqual(["Line Items.csv", "Line Items.csv", "Line Items", 28, 29]);
