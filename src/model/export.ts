@@ -18,7 +18,7 @@ import { axis, loadNative, readGrid, typeIndex } from "./native.js";
 type Any = any;
 const HOW_TO_READ: readonly [detail: string, value: string][] = [
   ["Layout", "Each file is laid out as Anaplan's own export of the same Model settings grid: an unlabelled first column, then the grid's columns, with each cell's underlying value."],
-  ["Line Items", "Each module's row sits above its line items. Ratio Numerator and Ratio Denominator, after Anaplan's own columns, name the line items a Ratio summary divides: the Summary JSON gives only their IDs."],
+  ["Line Items", "Each module's row sits above its line items. Anaplan's own columns come first and are unchanged, and three columns follow them. Ratio Numerator and Ratio Denominator name the line items a Ratio summary divides: the Summary JSON gives only their IDs. Format List names the list of a line item formatted as a list, as General Lists.csv names it: the Format JSON gives only the list's ID. It is empty for any other format, for a list that is not in General Lists.csv, such as a list subset or a line item subset, and when General Lists.csv was not exported."],
   ["Processes, Exports and Other Actions", "The Actions list split at its headings, in its own columns: definition, last run (start time and duration), notes, the processes that use each action and the dashboards it appears on."],
   ["Imports", "The Imports tab (source and target), then each import's columns from the Actions list (last run, duration, notes, Used in Processes, Used in Dashboards), matched on the import's ID. The Actions list's \"Import into …\" text is left out: Target Object and Target Type say the same."],
   ["Import Data Sources", "Each data source, with the imports that use it."],
@@ -46,36 +46,57 @@ export async function exportModel(progress: Progress, diagnostics: () => string,
   const notes: string[] = [];
   const fileRows: DetailRow[] = [];
   const noteRows: DetailRow[] = [];
-  const add = (file: string, table: Table, detail?: string) => {
+  /** Where the next file goes: among the tables, the summary's lines, the notes and the Details file's Files rows. A file
+   * whose table is made after later grids were read is put at the place that was taken when its own grid was read. */
+  const place = () => ({ table: tables.length, line: summary.length, note: notes.length, row: fileRows.length });
+  const add = (file: string, table: Table, detail?: string, at = place()) => {
     // No guard: a grid's values are written exactly as Anaplan's own export writes them (zip.ts `toCsv`).
-    tables.push({ file: `${file}.csv`, label: file, headers: [...table.headers], rows: plainRows(table.rows), guard: false });
+    tables.splice(at.table, 0, { file: `${file}.csv`, label: file, headers: [...table.headers], rows: plainRows(table.rows), guard: false });
     const rows = `${table.rows.length} rows${detail ? ` (${detail})` : ""}`;
-    summary.push(`${file}: ${rows}`);
-    fileRows.push(["Files", `${file}.csv`, rows]);
+    summary.splice(at.line, 0, `${file}: ${rows}`);
+    fileRows.splice(at.row, 0, ["Files", `${file}.csv`, rows]);
   };
-  const fail = (file: string, error: unknown) => {
-    notes.push(`${file}: not exported (${message(error)}).`);
-    fileRows.push(["Files", `${file}.csv`, `Not exported: ${message(error)}`]);
+  const fail = (file: string, error: unknown, at = place()) => {
+    notes.splice(at.note, 0, `${file}: not exported (${message(error)}).`);
+    fileRows.splice(at.row, 0, ["Files", `${file}.csv`, `Not exported: ${message(error)}`]);
     log(`${file}: ${message(error)}`);
   };
   const note = (detail: string, text: string) => {
     notes.push(`${detail}: ${text}`);
     noteRows.push(["Notes", detail, text]);
   };
-  const step = async (file: string, work: () => Promise<void>) => {
+  /** One file's step: what its work gives, or nothing when the work failed, which is then the file's failure. */
+  const step = async <T>(file: string, work: () => Promise<T>): Promise<T | undefined> => {
     progress.status(`Reading ${file}…`);
     try {
-      await work();
+      return await work();
     } catch (error) {
       fail(file, error);
+      return undefined;
     }
   };
   const grid = (file: string, rows: string, columns: string) => readGrid(native, rows, columns, file, log, undefined, false, stop);
   const plain = (file: string, rows: () => string, columns: () => string) => step(file, async () => add(file, gridTable(await grid(file, rows(), columns()))));
 
-  await step("Line Items", async () => add("Line Items", lineItemsTable(await grid("Line Items", axis(native, "MODULE_WITH_LINE_ITEM"), axis(native, "LINE_ITEM_PROPERTY")))));
+  // Line Items is read first, as ever, and its file keeps the first place. Its table is made only once General Lists has
+  // been read or has failed: that grid's rows name the lists of its Format List column (lineitems.ts), and no grid is read
+  // for the names. Nothing else moves: the reads, the steps and the lines of the log are in the order they had.
+  const lineItemsAt = place();
+  const lineItems = await step("Line Items", () => grid("Line Items", axis(native, "MODULE_WITH_LINE_ITEM"), axis(native, "LINE_ITEM_PROPERTY")));
   await plain("Modules", () => axis(native, "MODULE_ALL"), () => native.axisHelper.getModuleSystemAxisIdentifier());
-  await plain("General Lists", () => axis(native, "HIERARCHY"), () => native.axisHelper.getHierarchySystemAxisIdentifier());
+  const lists = await step("General Lists", async () => {
+    const read = await grid("General Lists", axis(native, "HIERARCHY"), native.axisHelper.getHierarchySystemAxisIdentifier());
+    add("General Lists", gridTable(read));
+    return read;
+  });
+  if (lineItems) {
+    // A table that cannot be made is its file's failure, as it was while the table was made in the file's own step.
+    try {
+      add("Line Items", lineItemsTable(lineItems, lists), undefined, lineItemsAt);
+    } catch (error) {
+      fail("Line Items", error, lineItemsAt);
+    }
+  }
   // The Actions list, split at its headings (Processes, Imports, Exports, Other Actions); no combined Actions file.
   progress.status("Reading Actions…");
   let actions: Grid | undefined;

@@ -21,6 +21,14 @@ import { cellText } from "./table-engine.js";
  * when a line item of the file gives it as its module. Without the names every such row is taken for a module's own. A
  * table in which no row is a module's own is not the grid as the view knows it, and is shown as it is.
  *
+ * A module's name is compared whole and as it is written, wherever the view compares one: with the names given, with the
+ * Module Names of the file's line items, and with the name of the module's row above a line item. A name that differs
+ * from a module's only by spaces before or after it is another name. The classic client takes those spaces off a
+ * module's name when the module is made or renamed (anaplan/view/NewModule.js, anaplan/gridlet/Gridlet.js `_endEdit`),
+ * so a module's name has none, and a text that has them is not that name. Taken for it, a row could be left out as a
+ * module's own, or a line item given another module's Applies To; compared as it is, the row stays in the table and the
+ * line item keeps what the file says. Only a Module Name of nothing but spaces is no name at all.
+ *
  * The rest is how the classic client itself reads this grid (anaplan/gridlet/_editor/ActionEditor.js, `LineItemsLoader`
  * and the editors that use it). A line item belongs to the nearest module's row above it. The view takes that row for the
  * line item's module only when its name is the line item's Module Name: otherwise the module's row is missing, and the
@@ -75,7 +83,8 @@ function noteOf(moduleRows: number, unnamed: number, emptyModules: number): stri
 }
 
 /** Whether a name is a module's, as far as the model's module names say: it is one of them, or a line item of the file
- * gives it as its module, which makes it one whatever the names hold. Without the names any name may be a module's. */
+ * gives it as its module, which makes it one whatever the names hold. Either way it is that name as it is written, with
+ * the spaces around it if it has any. Without the names any name may be a module's. */
 function moduleNamed(rows: readonly Cell[][], moduleName: number, names: ReadonlySet<string> | undefined): (name: string) => boolean {
   const given = typeof names?.has === "function" ? names : undefined;
   if (!given) return () => true;
