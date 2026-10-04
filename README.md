@@ -115,7 +115,7 @@ How to read the files:
 - Only published versions are read. Pages that were never published are listed as "Not published" and counted apart: **Pages analysed** reads "93 of 93 (published versions); 3 unpublished, not analysed", so an app whose published pages were all read says so.
 - A saved view's own filters, sorts and show/hide live in the model and are not listed.
 - Filter-context items show their IDs.
-- Buttons whose import, export or process is not found in the model keep their card label. **Name from** says which source was used.
+- Buttons whose import, export or process is not found in the model keep their card label. **Name source** says which source was used.
 - Anaplan can change the internal services the extension reads without notice; see [NOTICE.md](NOTICE.md).
 
 ## Model export
