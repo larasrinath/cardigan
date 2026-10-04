@@ -41,6 +41,27 @@ const NAMED: AnalysisResult = {
     rows: [["Overview", 1, `Sales ${TAG}`, "Grid", "card-a"], ["Overview", 2, "=Margin", "KPI", "card-b"]] }],
 };
 
+/** An app as the analysis names and lays out its files, with fewer columns: two pages, the second a copy of the first that
+ * kept its cards' IDs, the files that list a card's parts, and one whose Page column is not its first. */
+const APP: AnalysisResult = {
+  kind: "app", name: "Demo app", id: "01234567-89ab-cdef-0123-456789abcdef", zipName: "Demo app - App Export - 2026-10-03.zip", summary: ["2 of 2 pages analysed, 4 cards."],
+  tables: [
+    { file: "App Details.csv", label: "App Details", headers: ["Section", "Detail", "Value"], guard: true, details: true,
+      rows: [["App", "App", "Demo app"], ["Export", "Anaplan host", "us1a.app.anaplan.com"], ["Diagnostics", "14:02:05", "Cardigan dev: app 01234567 on us1a.app.anaplan.com"],
+        ["Diagnostics", "14:02:06", "app: 2 pages"], ["Diagnostics", "", "a line without a time"]] },
+    { file: "Pages.csv", label: "Pages", headers: ["App", "Page", "Total cards", "Page ID"], guard: true,
+      rows: [["Demo app", "Overview", 2, "page-1"], ["Demo app", "Overview (copy)", 2, "page-2"]] },
+    { file: "Cards.csv", label: "Cards", headers: ["Page", "Card #", "Card title", "Card type", "Card ID"], guard: true,
+      rows: [["Overview", 1, "Sales", "Grid", "card-a"], ["Overview", 2, "Margin", "KPI", "card-b"],
+        ["Overview (copy)", 1, "Sales, copied", "Grid", "card-a"], ["Overview (copy)", 2, "Margin, copied", "KPI", "card-b"]] },
+    { file: "Grid Sections.csv", label: "Grid Sections", headers: ["Page", "Card #", "Section #", "Section layout", "Source module", "Card ID"], guard: true,
+      rows: [["Overview", 1, 1, "Own rows and columns", "REP01 Sales", "card-a"], ["Overview (copy)", 1, 1, "Own rows and columns", "REP09 Copy", "card-a"],
+        ["Overview", 3, 1, "Own rows and columns", "REP02 Gone", "card-gone"]] },
+    { file: "Where Used.csv", label: "Where Used", headers: ["Object type", "Object name", "Object's module", "Page", "Card #", "Used as", "Object ID"], guard: true,
+      rows: [["Module", "REP01 Sales", "—", "Overview", 1, "Source module", "102000000001"], ["Module", "REP09 Copy", "—", "Overview (copy)", 1, "Source module", "102000000009"]] },
+  ],
+};
+
 /** A model's export: a Line Items file long enough for three pages, as Anaplan lays it out, with its first column unnamed. */
 const LINES: Cell[][] = Array.from({ length: 120 }, (_, index) =>
   [`Line item ${index + 1}`, ["Number", "Text", "Boolean"][index % 3], `Source ${index + 1} * 2`, index < 60 ? "Revenue" : "Cost"]);
@@ -55,98 +76,114 @@ const MODEL: AnalysisResult = {
   ],
 };
 
+// The page under test, and what stands in for the browser around it. A test loads the page with `open`.
+let page: FakePage;
+let ports: FakePort[];
+let connects: unknown[][];
+let saved: Blob[];
+/** What the script put on the clipboard, and whether the clipboard refuses. */
+let copied: string[];
+let clipboardRefuses: boolean;
+/** What the page keeps between visits, whether the system prefers a dark theme, and who asked to hear when that changes. */
+let stored: Map<string, string>;
+let systemDark: boolean;
+let systemListeners: ((event: { matches: boolean }) => void)[];
+let lastError: { message?: string } | undefined;
+/** The page's address, each address the script changed it to, and whether changing it is refused. */
+let location: { search: string; pathname: string; hash: string };
+let replaced: string[];
+let fixedAddress: boolean;
+
+beforeEach(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(NOW);
+  ports = [];
+  connects = [];
+  saved = [];
+  copied = [];
+  clipboardRefuses = false;
+  stored = new Map();
+  systemDark = false;
+  systemListeners = [];
+  lastError = undefined;
+  replaced = [];
+  fixedAddress = false;
+  vi.stubGlobal("history", { state: null, replaceState: (_state: unknown, _unused: string, address: string) => {
+    if (fixedAddress) throw new Error("The address cannot be changed.");
+    replaced.push(address);
+    location.search = address.includes("?") ? address.slice(address.indexOf("?")) : "";
+  } });
+  vi.stubGlobal("window", {
+    matchMedia: () => ({ get matches() { return systemDark; }, addEventListener: (_type: string, listener: (event: { matches: boolean }) => void) => { systemListeners.push(listener); } }),
+    scrollTo: () => undefined, innerWidth: 1280, innerHeight: 800,
+  });
+  vi.stubGlobal("localStorage", { getItem: (key: string) => stored.get(key) ?? null, setItem: (key: string, value: string) => { stored.set(key, value); } });
+  // The kinds of element the script tells apart.
+  vi.stubGlobal("Element", FakeElement);
+  vi.stubGlobal("HTMLElement", FakeElement);
+  vi.stubGlobal("HTMLInputElement", FakeInput);
+  vi.stubGlobal("HTMLSelectElement", FakeSelect);
+  vi.stubGlobal("requestAnimationFrame", (callback: () => void) => { callback(); return 0; });
+  vi.stubGlobal("chrome", {
+    tabs: { connect: (...args: unknown[]) => { connects.push(args); const port = new FakePort(); ports.push(port); return port; } },
+    runtime: { get lastError() { return lastError; } },
+  });
+  vi.stubGlobal("navigator", { clipboard: { writeText: async (text: string) => {
+    if (clipboardRefuses) throw new Error("Write permission denied.");
+    copied.push(text);
+  } } });
+  vi.spyOn(URL, "createObjectURL").mockImplementation(blob => { saved.push(blob as Blob); return "blob:saved"; });
+  vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+});
+afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+/** Loads the page at an address: a new page each time, as opening or reloading it gives. */
+const open = async (search: string) => {
+  vi.resetModules();
+  page = new FakePage(SHELL);
+  location = { search, pathname: "/results.html", hash: "" };
+  vi.stubGlobal("document", page.document);
+  vi.stubGlobal("location", location);
+  await import("./main.js");
+};
+/** The address the icon's click gives the page, a second and a half after the click. */
+const clicked = (tab: number) => `?tab=${tab}&opened=${NOW.getTime() - 1500}`;
+/** What the run control reads, beside its icon. */
+const runControl = () => [page.id("runAgain").textContent.trim(), page.id("runAgain").title, page.all("#runAgain svg").length];
+const bytes = async (blob: Blob) => new Uint8Array(await blob.arrayBuffer());
+/** Lets what the script started without waiting for it, such as a copy to the clipboard, come to its end. */
+const settle = async () => { for (let turn = 0; turn < 5; turn++) await Promise.resolve(); };
+/** The banner above a result: its kind, and its heading, message and hint as far as they are shown. */
+const banner = () => (page.has("#runBanner")
+  ? [page.id("runBanner").classList.contains("warn") ? "warn" : "note", ...["bannerTitle", "bannerText", "bannerHint"].filter(id => !page.id(id).hidden).map(id => page.id(id).textContent)]
+  : []);
+const sendResult = (port: FakePort, result = RESULT) => {
+  port.send({ type: "result", result: { ...result, tables: result.tables.map(table => ({ ...table, rows: [] })) } });
+  result.tables.forEach((table, index) => port.send({ type: "rows", table: index, rows: table.rows }));
+  port.send({ type: "done" });
+};
+/** The page with a result on it, as the icon's click leaves it. */
+const openWith = async (result = RESULT) => {
+  await open(clicked(42));
+  ports[0].send({ type: "subject", subject: { kind: "app", id: result.id } });
+  sendResult(ports[0], result);
+};
+const disabled = (...ids: string[]) => ids.map(id => page.id(id).disabled);
+/** Opens one of the result's tables from the navigation, by its place among the result's files. */
+const goTo = (table: number) => page.find(`#navList [data-nav="${table}"]`).press();
+/** The rows on screen, by the text of their first cell. */
+const firstCells = () => page.all("#tableWrap tbody tr").map(row => row.children[0].textContent.trim());
+/** The column headings that offer a filter, by the column's name. */
+const filterable = () => page.all("#tableWrap thead th").filter(heading => heading.querySelector("[data-colfilter]")).map(heading => heading.querySelector(".th-sort")?.textContent.trim());
+/** The open filter's choices: each one's text, its count, and whether it is ticked. */
+const choices = () => page.all("#popover .pop-opt").map(option => [option.children[1].textContent, option.querySelector(".po-cnt")?.childNodes[0].textContent, option.children[0].checked]);
+/** The pager's buttons: each one's words, with a mark on the current page and brackets around one that is disabled. */
+const pagerButtons = () => page.all("#pager .pg-btn").map(button => {
+  const words = button.textContent.trim();
+  return button.disabled ? `(${words})` : button.hasAttribute("aria-current") ? `[${words}]` : words;
+});
+
 describe("The results page's script, on the page", () => {
-  let page: FakePage;
-  let ports: FakePort[];
-  let connects: unknown[][];
-  let saved: Blob[];
-  /** What the script put on the clipboard. */
-  let copied: string[];
-  let lastError: { message?: string } | undefined;
-  /** The page's address, each address the script changed it to, and whether changing it is refused. */
-  let location: { search: string; pathname: string; hash: string };
-  let replaced: string[];
-  let fixedAddress: boolean;
-
-  beforeEach(() => {
-    vi.useFakeTimers();
-    vi.setSystemTime(NOW);
-    ports = [];
-    connects = [];
-    saved = [];
-    copied = [];
-    lastError = undefined;
-    replaced = [];
-    fixedAddress = false;
-    vi.stubGlobal("history", { state: null, replaceState: (_state: unknown, _unused: string, address: string) => {
-      if (fixedAddress) throw new Error("The address cannot be changed.");
-      replaced.push(address);
-      location.search = address.includes("?") ? address.slice(address.indexOf("?")) : "";
-    } });
-    vi.stubGlobal("window", { matchMedia: () => ({ matches: false, addEventListener: () => undefined }), scrollTo: () => undefined, innerWidth: 1280, innerHeight: 800 });
-    vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => undefined });
-    // The kinds of element the script tells apart.
-    vi.stubGlobal("Element", FakeElement);
-    vi.stubGlobal("HTMLElement", FakeElement);
-    vi.stubGlobal("HTMLInputElement", FakeInput);
-    vi.stubGlobal("HTMLSelectElement", FakeSelect);
-    vi.stubGlobal("requestAnimationFrame", (callback: () => void) => { callback(); return 0; });
-    vi.stubGlobal("chrome", {
-      tabs: { connect: (...args: unknown[]) => { connects.push(args); const port = new FakePort(); ports.push(port); return port; } },
-      runtime: { get lastError() { return lastError; } },
-    });
-    vi.stubGlobal("navigator", { clipboard: { writeText: async (text: string) => { copied.push(text); } } });
-    vi.spyOn(URL, "createObjectURL").mockImplementation(blob => { saved.push(blob as Blob); return "blob:saved"; });
-    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
-  });
-  afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
-
-  /** Loads the page at an address: a new page each time, as opening or reloading it gives. */
-  const open = async (search: string) => {
-    vi.resetModules();
-    page = new FakePage(SHELL);
-    location = { search, pathname: "/results.html", hash: "" };
-    vi.stubGlobal("document", page.document);
-    vi.stubGlobal("location", location);
-    await import("./main.js");
-  };
-  /** The address the icon's click gives the page, a second and a half after the click. */
-  const clicked = (tab: number) => `?tab=${tab}&opened=${NOW.getTime() - 1500}`;
-  /** What the run control reads, beside its icon. */
-  const runControl = () => [page.id("runAgain").textContent.trim(), page.id("runAgain").title, page.all("#runAgain svg").length];
-  const bytes = async (blob: Blob) => new Uint8Array(await blob.arrayBuffer());
-  /** Lets what the script started without waiting for it, such as a copy to the clipboard, come to its end. */
-  const settle = async () => { for (let turn = 0; turn < 5; turn++) await Promise.resolve(); };
-  /** The banner above a result: its kind, and its heading, message and hint as far as they are shown. */
-  const banner = () => (page.has("#runBanner")
-    ? [page.id("runBanner").classList.contains("warn") ? "warn" : "note", ...["bannerTitle", "bannerText", "bannerHint"].filter(id => !page.id(id).hidden).map(id => page.id(id).textContent)]
-    : []);
-  const sendResult = (port: FakePort, result = RESULT) => {
-    port.send({ type: "result", result: { ...result, tables: result.tables.map(table => ({ ...table, rows: [] })) } });
-    result.tables.forEach((table, index) => port.send({ type: "rows", table: index, rows: table.rows }));
-    port.send({ type: "done" });
-  };
-  /** The page with a result on it, as the icon's click leaves it. */
-  const openWith = async (result = RESULT) => {
-    await open(clicked(42));
-    ports[0].send({ type: "subject", subject: { kind: "app", id: result.id } });
-    sendResult(ports[0], result);
-  };
-  const disabled = (...ids: string[]) => ids.map(id => page.id(id).disabled);
-  /** Opens one of the result's tables from the navigation, by its place among the result's files. */
-  const goTo = (table: number) => page.find(`#navList [data-nav="${table}"]`).press();
-  /** The rows on screen, by the text of their first cell. */
-  const firstCells = () => page.all("#tableWrap tbody tr").map(row => row.children[0].textContent.trim());
-  /** The column headings that offer a filter, by the column's name. */
-  const filterable = () => page.all("#tableWrap thead th").filter(heading => heading.querySelector("[data-colfilter]")).map(heading => heading.querySelector(".th-sort")?.textContent.trim());
-  /** The open filter's choices: each one's text, its count, and whether it is ticked. */
-  const choices = () => page.all("#popover .pop-opt").map(option => [option.children[1].textContent, option.querySelector(".po-cnt")?.childNodes[0].textContent, option.children[0].checked]);
-  /** The pager's buttons: each one's words, with a mark on the current page and brackets around one that is disabled. */
-  const pagerButtons = () => page.all("#pager .pg-btn").map(button => {
-    const words = button.textContent.trim();
-    return button.disabled ? `(${words})` : button.hasAttribute("aria-current") ? `[${words}]` : words;
-  });
-
   it("connects to the tab its address names, lets the analysis run by itself, shows the progress and then the result", async () => {
     await open(clicked(42));
     expect(page.id("version").textContent).toBe("vdev");
@@ -863,5 +900,374 @@ describe("The results page's script, on the page", () => {
     expect([page.id("runTitle").textContent, page.id("runStatus").textContent]).toEqual(["The analysis stopped", "You're signed out of <b>Anaplan</b>. Sign in and try again."]);
     // The message was set as text, not written into the page's markup: its tag is no element.
     expect(page.has("#view b")).toBe(false);
+  });
+});
+
+describe("What a click, a key and typing do on the results page", () => {
+  const drawerShown = () => page.id("drawer").classList.contains("show");
+  /** What the view, the navigation and the breadcrumb each say is shown. */
+  const shows = () => [page.texts("#view h1")[0], page.texts('#navList [aria-current="page"] span')[0], page.texts("#crumbs strong")[0]];
+  /** The headings of the columns on screen. */
+  const headings = () => page.all("#tableWrap thead .th-sort").map(button => button.textContent.trim().replace(/[▲▼]$/, ""));
+  /** The rows on screen, by the text of one column. */
+  const column = (place: number) => page.all("#tableWrap tbody tr").map(row => row.children[place].textContent.trim());
+  /** The links of the rows on screen that open a card: two a row, its number and its title. */
+  const cardLinks = () => page.all('#tableWrap tbody [data-act="card"]');
+
+  it("opens the table the navigation names, the overview and the details, and says that the model map is to come", async () => {
+    await openWith(APP);
+    expect(shows()).toEqual(["Overview", "Overview", "Overview"]);
+    for (const [table, label, rows] of [[1, "Pages", 2], [2, "Cards", 4], [3, "Grid Sections", 3], [4, "Where Used", 2]] as const) {
+      goTo(table);
+      expect([shows(), firstCells().length, page.id("dlCsv").title]).toEqual([[label, label, label], rows, `Download ${label}.csv`]);
+    }
+    page.find('#navList [data-nav="details"]').press();
+    expect([shows(), page.has("#tableWrap")]).toEqual([["Details", "Details", "Details"], false]);
+    // The breadcrumb's Overview goes back to the overview.
+    page.find('#crumbs [data-nav="overview"]').press();
+    expect(shows()).toEqual(["Overview", "Overview", "Overview"]);
+    // The model map is listed as to come: a click says so, for a moment, and the view stays.
+    page.find('#navList [data-nav="map"]').press();
+    expect([page.id("toast").textContent, page.id("toast").classList.contains("show"), shows()[0]]).toEqual(["Model map is coming in a later version", true, "Overview"]);
+    vi.advanceTimersByTime(2199);
+    expect(page.id("toast").classList.contains("show")).toBe(true);
+    vi.advanceTimersByTime(1);
+    expect(page.id("toast").classList.contains("show")).toBe(false);
+  });
+
+  it("saves with Download this table the table on screen, whole, and the Details file on the details view", async () => {
+    await openWith(APP);
+    const last = async () => [page.downloads[page.downloads.length - 1].name, saved[saved.length - 1].type, await saved[saved.length - 1].text()];
+    const csv = (file: string) => tableCsv(APP.tables.find(table => table.file === file)!).replace(/^\ufeff/, "");
+    for (const [where, file] of [[3, "Grid Sections.csv"], [1, "Pages.csv"], ["details", "App Details.csv"], [4, "Where Used.csv"], [2, "Cards.csv"]] as const) {
+      page.find(`#navList [data-nav="${where}"]`).press();
+      page.id("dlCsv").press();
+      expect(await last(), file).toEqual([file, "text/csv;charset=utf-8", csv(file)]);
+      expect(page.id("toast").textContent).toBe(`Downloaded ${file}`);
+    }
+    // What is searched, filtered, sorted or hidden on screen does not change the file: it is the table as the zip holds it.
+    page.id("tblSearch").type("margin");
+    page.find('[data-sort="2"]').press();
+    page.id("colBtn").press();
+    page.all("#popover input")[0].tick();
+    expect(firstCells().length).toBe(2);
+    page.id("dlCsv").press();
+    expect((await last())[2]).toBe(csv("Cards.csv"));
+    // On the overview there is no table on screen: the button is off, and a click saves nothing.
+    page.find('#navList [data-nav="overview"]').press();
+    const before = saved.length;
+    page.id("dlCsv").press();
+    expect([page.id("dlCsv").disabled, page.id("dlCsv").title, saved.length]).toEqual([true, "Open a table to download it", before]);
+  });
+
+  it("opens the row that was clicked, not its neighbour, on a click anywhere in the row but on a control", async () => {
+    await openWith(APP);
+    goTo(3);
+    for (const [index, row] of APP.tables[3].rows.entries()) {
+      // On a plain cell of the row: its section layout.
+      page.all("#tableWrap tbody tr")[index].children[3].press();
+      expect([page.all("#drawerBody dd").map(value => value.textContent), page.id("drawerSub").textContent], `row ${index + 1}`).toEqual([row.map(String), `Row ${index + 1} of Grid Sections`]);
+      page.key("Escape");
+    }
+    // On the cell itself, beside its text, as well as on the text.
+    page.all("#tableWrap tbody tr")[1].children[4].querySelector(".cell-t")?.press();
+    expect(page.texts("#drawerBody dd")[4]).toBe("REP09 Copy");
+    page.key("Escape");
+    // A control in a row does what it does and does not open the row: the ID's pill copies the ID.
+    page.all("#tableWrap tbody .id-pill")[1].press();
+    await settle();
+    expect([copied, page.id("toast").textContent, drawerShown()]).toEqual([["card-a"], "Copied card-a", false]);
+    page.all("#tableWrap tbody .id-pill")[2].press();
+    await settle();
+    expect(copied).toEqual(["card-a", "card-gone"]);
+  });
+
+  it("opens the card a link stands for: the one on that row's page, with its parts", async () => {
+    await openWith(APP);
+    goTo(2);
+    /** The card in the drawer: its heading, its page, its sections, and the grid sections listed for it. */
+    const card = () => [page.id("drawerTitle").textContent, page.texts("#drawerSub .link")[0], page.texts("#drawerBody h3"), page.texts("#drawerBody .mini td").slice(0, 3)];
+    // The second page is a copy of the first and kept its cards' IDs: a card is the one of its own page.
+    cardLinks()[4].press();
+    expect(card()).toEqual(["Card 1 — Sales, copied", "Overview (copy)", ["Card details", "Grid sections (1)"], ["1", "Own rows and columns", "REP09 Copy"]]);
+    expect(page.texts("#drawerBody .d-dl dd")).toEqual(["Overview (copy)", "1", "Sales, copied", "Grid", "card-a"]);
+    page.key("Escape");
+    // The title is a link as much as the number.
+    cardLinks()[1].press();
+    expect(card()).toEqual(["Card 1 — Sales", "Overview", ["Card details", "Grid sections (1)"], ["1", "Own rows and columns", "REP01 Sales"]]);
+    page.key("Escape");
+    // A card without grid sections says so.
+    cardLinks()[2].press();
+    expect([card().slice(0, 3), page.texts("#drawerBody p")]).toEqual([["Card 2 — Margin", "Overview", ["Card details", "Grid sections (0)"]], ["No grid sections on this card."]]);
+    page.key("Escape");
+
+    // From another table, the card's number opens the card of that row, by the row's page and Card ID.
+    goTo(3);
+    cardLinks()[1].press();
+    expect(card().slice(0, 2)).toEqual(["Card 1 — Sales, copied", "Overview (copy)"]);
+    // Inside the drawer, a card's link opens that card too: here the same one again, by its title.
+    page.find('#drawerBody [data-act="card"]').press();
+    expect(card().slice(0, 2)).toEqual(["Card 1 — Sales, copied", "Overview (copy)"]);
+    page.key("Escape");
+    // A row whose card the export does not have: a word about it, and no drawer.
+    cardLinks()[2].press();
+    expect([page.id("toast").textContent, drawerShown(), page.find(".shell").inert]).toEqual(["Card not found in this export", false, false]);
+  });
+
+  it("shows a page's cards on a click on the page's name, wherever the Page column stands, and from the drawer", async () => {
+    await openWith(APP);
+    const jumped = () => [shows(), page.texts("#crumbs .ctx"), column(2), page.id("rowCount").textContent];
+    const copies = [["Cards", "Cards", "Cards"], ["Page: Overview (copy)"], ["Sales, copied", "Margin, copied"], "1–2 of 2 rows (filtered from 4)"];
+    // Where Used: the page is its fourth column.
+    goTo(4);
+    page.all('#tableWrap tbody [data-act="page"]')[1].press();
+    expect(jumped()).toEqual(copies);
+    // Pages: its second.
+    goTo(1);
+    page.all('#tableWrap tbody [data-act="page"]')[0].press();
+    expect(jumped().slice(1, 3)).toEqual([["Page: Overview"], ["Sales", "Margin"]]);
+    // In the Cards table itself the page's name narrows the table to that page.
+    page.find('#crumbs [data-act="clear-context"]').press();
+    page.all('#tableWrap tbody [data-act="page"]')[3].press();
+    expect(jumped()).toEqual(copies);
+    // From a card's drawer: the page under its heading, and the page among its details.
+    page.find('#crumbs [data-act="clear-context"]').press();
+    cardLinks()[0].press();
+    page.find('#drawerSub [data-act="page"]').press();
+    expect([jumped().slice(1, 3), drawerShown()]).toEqual([[["Page: Overview"], ["Sales", "Margin"]], false]);
+    // The jump is a view of the Cards table: a search narrows it further, and the navigation's Cards shows them all again.
+    page.id("tblSearch").type("sales");
+    expect(column(2)).toEqual(["Sales"]);
+    goTo(2);
+    expect([page.has("#crumbs .ctx"), column(2).length, page.id("tblSearch").value]).toEqual([false, 4, ""]);
+  });
+
+  it("sorts by a column on its button: ascending, descending, then the file's order again; another column starts ascending", async () => {
+    await openWith(APP);
+    goTo(2);
+    const sorted = () => page.all("#tableWrap thead th").map(heading => heading.getAttribute("aria-sort")).filter(direction => direction !== "none").length;
+    expect([column(2), sorted()]).toEqual([["Sales", "Margin", "Sales, copied", "Margin, copied"], 0]);
+    page.find('[data-sort="2"]').press();
+    expect([column(2), page.find('[data-sort="2"]').closest("th")?.getAttribute("aria-sort"), sorted()]).toEqual([["Margin", "Margin, copied", "Sales", "Sales, copied"], "ascending", 1]);
+    page.find('[data-sort="2"]').press();
+    expect([column(2), page.find('[data-sort="2"]').closest("th")?.getAttribute("aria-sort")]).toEqual([["Sales, copied", "Sales", "Margin, copied", "Margin"], "descending"]);
+    // Another column, while this one is descending: that column, ascending, and only it. Rows that sort the same keep the file's order.
+    page.find('[data-sort="1"]').press();
+    expect([column(2), page.find('[data-sort="1"]').closest("th")?.getAttribute("aria-sort"), sorted()]).toEqual([["Sales", "Sales, copied", "Margin", "Margin, copied"], "ascending", 1]);
+    page.find('[data-sort="1"]').press();
+    expect(column(2)).toEqual(["Margin", "Margin, copied", "Sales", "Sales, copied"]);
+    page.find('[data-sort="1"]').press();
+    expect([column(2), sorted(), page.id("resetBtn").hidden]).toEqual([["Sales", "Margin", "Sales, copied", "Margin, copied"], 0, true]);
+  });
+
+  it("filters a column by the boxes ticked, and has no filter left once every box is ticked again", async () => {
+    await openWith(APP);
+    goTo(2);
+    const state = () => [column(2), page.find('[data-colfilter="3"]').classList.contains("active"), page.id("resetBtn").hidden, page.id("rowCount").textContent];
+    page.find('[data-colfilter="3"]').press();
+    expect(choices()).toEqual([["Grid", "2", true], ["KPI", "2", true]]);
+    page.all("#popover input")[1].tick();
+    expect(state()).toEqual([["Sales", "Sales, copied"], true, false, "1–2 of 2 rows (filtered from 4)"]);
+    // Nothing ticked shows nothing, and says that the filter is why.
+    page.all("#popover input")[0].tick();
+    expect([state()[0], page.texts("#tableWrap .e-sub"), page.id("rowCount").textContent]).toEqual([[], ["Nothing in Cards matches the current column filters."], "No rows (filtered from 4)"]);
+    page.all("#popover input")[1].tick();
+    expect(state()).toEqual([["Margin", "Margin, copied"], true, false, "1–2 of 2 rows (filtered from 4)"]);
+    // Every box ticked again is no filter: nothing is in force, and Reset is not offered.
+    page.all("#popover input")[0].tick();
+    expect(state()).toEqual([["Sales", "Margin", "Sales, copied", "Margin, copied"], false, true, "1–4 of 4 rows"]);
+    // The popover opened again shows what is ticked; a filter on a second column narrows what the first leaves.
+    page.all("#popover input")[0].tick();
+    page.key("Escape");
+    page.find('[data-colfilter="3"]').press();
+    expect(choices()).toEqual([["Grid", "2", false], ["KPI", "2", true]]);
+    page.find('[data-colfilter="0"]').press();
+    expect(choices()).toEqual([["Overview", "2", true], ["Overview (copy)", "2", true]]);
+    page.all("#popover input")[0].tick();
+    expect(column(2)).toEqual(["Margin, copied"]);
+  });
+
+  it("clears the search, the filters, the sort and the jump with Reset", async () => {
+    await openWith(APP);
+    goTo(1);
+    page.all('#tableWrap tbody [data-act="page"]')[1].press();
+    page.id("tblSearch").type("copied");
+    page.find('[data-sort="2"]').press();
+    page.find('[data-colfilter="3"]').press();
+    page.all("#popover input")[0].tick();
+    page.key("Escape");
+    const inForce = () => [column(2), page.has("#crumbs .ctx"), page.id("tblSearch").value, page.all(".th-filter.active").length,
+      page.all("#tableWrap thead th").filter(heading => heading.getAttribute("aria-sort") !== "none").length, page.id("resetBtn").hidden];
+    expect(inForce()).toEqual([["Margin, copied"], true, "copied", 1, 1, false]);
+    page.id("resetBtn").press();
+    expect(inForce()).toEqual([["Sales", "Margin", "Sales, copied", "Margin, copied"], false, "", 0, 0, true]);
+    // The filter is gone, not merely unshown: its popover has every box ticked again.
+    page.find('[data-colfilter="3"]').press();
+    expect(choices().map(choice => choice[2])).toEqual([true, true]);
+  });
+
+  it("hides and shows columns in the chooser, and puts back with Defaults the ones that start hidden", async () => {
+    await openWith(APP);
+    goTo(2);
+    const boxes = () => page.all("#popover .pop-opt").map(option => `${option.children[1].textContent}${option.children[0].checked ? " ✓" : ""}`);
+    expect(headings()).toEqual(["Page", "Card #", "Card title", "Card type"]);
+    page.id("colBtn").press();
+    expect(boxes()).toEqual(["Page ✓", "Card # ✓", "Card title ✓", "Card type ✓", "Card ID"]);
+    // An ID that starts hidden is shown, a column that is shown is hidden: each box acts on its own column.
+    page.all("#popover input")[4].tick();
+    expect([headings(), column(4)]).toEqual([["Page", "Card #", "Card title", "Card type", "Card ID"], ["card-a", "card-b", "card-a", "card-b"]]);
+    page.all("#popover input")[1].tick();
+    expect([headings(), column(1), boxes()]).toEqual([["Page", "Card title", "Card type", "Card ID"], ["Sales", "Margin", "Sales, copied", "Margin, copied"],
+      ["Page ✓", "Card #", "Card title ✓", "Card type ✓", "Card ID ✓"]]);
+    // The choice is the table's own: another table is as it was, and this one is as it was left.
+    page.key("Escape");
+    goTo(3);
+    expect(headings()).toEqual(["Page", "Card #", "Section #", "Section layout", "Source module", "Card ID"]);
+    goTo(2);
+    expect(headings()).toEqual(["Page", "Card title", "Card type", "Card ID"]);
+    page.id("colBtn").press();
+    page.find('#popover [data-popact="defaults"]').press();
+    expect([headings(), page.id("popover").hidden]).toEqual([["Page", "Card #", "Card title", "Card type"], true]);
+  });
+
+  it("turns a table's pages and changes how many rows a page holds, with the rows that belong there", async () => {
+    await openWith(MODEL);
+    goTo(1);
+    const range = () => [firstCells()[0], firstCells()[firstCells().length - 1], page.id("rowCount").textContent, pagerButtons().join(" ")];
+    expect(range()).toEqual(["Line item 1", "Line item 50", "1–50 of 120 rows", "(‹) [1] 2 3 ›"]);
+    page.find('.pg-btn[aria-label="Next page"]').press();
+    expect(range()).toEqual(["Line item 51", "Line item 100", "51–100 of 120 rows", "‹ 1 [2] 3 ›"]);
+    page.find('.pg-btn[aria-label="Page 3"]').press();
+    expect(range()).toEqual(["Line item 101", "Line item 120", "101–120 of 120 rows", "‹ 1 2 [3] (›)"]);
+    // A button that is off does nothing.
+    page.find('.pg-btn[aria-label="Next page"]').press();
+    expect(range()[2]).toBe("101–120 of 120 rows");
+    page.find('.pg-btn[aria-label="Previous page"]').press();
+    expect(range().slice(0, 3)).toEqual(["Line item 51", "Line item 100", "51–100 of 120 rows"]);
+    // Rows per page: the table starts again at its first page, and every table keeps the size.
+    page.id("pageSize").choose("25");
+    expect(range()).toEqual(["Line item 1", "Line item 25", "1–25 of 120 rows", "(‹) [1] 2 3 4 5 ›"]);
+    page.id("pageSize").choose("100");
+    expect(range()).toEqual(["Line item 1", "Line item 100", "1–100 of 120 rows", "(‹) [1] 2 ›"]);
+    goTo(2);
+    expect(page.id("pageSize").value).toBe("100");
+  });
+
+  it("takes the slash key to the search box, and leaves a slash that is typed into a box alone", async () => {
+    await openWith(APP);
+    // The overview has no search box: the key is left to the browser.
+    expect(page.key("/").defaultPrevented).toBe(false);
+    goTo(2);
+    expect(page.document.activeElement).toBe(page.id("view"));
+    const slash = page.key("/");
+    expect([slash.defaultPrevented, page.document.activeElement === page.id("tblSearch")]).toEqual([true, true]);
+    // In the box, and in the list of page sizes, the key is a character like any other.
+    expect(page.key("/").defaultPrevented).toBe(false);
+    page.id("pageSize").focus();
+    expect([page.key("/").defaultPrevented, page.document.activeElement === page.id("pageSize")]).toEqual([false, true]);
+    // Other keys are not taken either.
+    page.id("view").focus();
+    expect([page.key("a").defaultPrevented, page.key("Enter").defaultPrevented, page.document.activeElement === page.id("view")]).toEqual([false, false, true]);
+  });
+
+  it("closes with Escape what is open: a popover, the drawer, the navigation of a narrow window", async () => {
+    await openWith(APP);
+    goTo(2);
+    // Nothing open: nothing happens.
+    page.key("Escape");
+    expect([page.id("popover").hidden, drawerShown(), shows()[0]]).toEqual([true, false, "Cards"]);
+    page.id("colBtn").press();
+    page.key("Escape");
+    expect(page.id("popover").hidden).toBe(true);
+    cardLinks()[0].press();
+    expect(drawerShown()).toBe(true);
+    page.key("Escape");
+    // The drawer slides out, and is out of the page once it has: with the scrim, unless the navigation still needs it.
+    expect([drawerShown(), page.id("drawer").hidden, page.id("scrim").hidden]).toEqual([false, false, false]);
+    vi.advanceTimersByTime(210);
+    expect([page.id("drawer").hidden, page.id("scrim").hidden]).toEqual([true, true]);
+    // Opened again before it has slid out, it stays.
+    cardLinks()[0].press();
+    page.key("Escape");
+    cardLinks()[2].press();
+    vi.advanceTimersByTime(500);
+    expect([drawerShown(), page.id("drawer").hidden, page.id("drawerTitle").textContent]).toEqual([true, false, "Card 2 — Margin"]);
+  });
+
+  it("opens and closes the navigation of a narrow window with its button, with Escape and with a click beside it", async () => {
+    await openWith(APP);
+    const navigation = () => [page.id("sidenav").classList.contains("open"), page.id("navToggle").getAttribute("aria-expanded"), page.id("scrim").hidden];
+    expect(navigation()).toEqual([false, "false", true]);
+    page.id("navToggle").press();
+    expect(navigation()).toEqual([true, "true", false]);
+    // Escape closes it and gives the focus back to its button.
+    page.id("navList").children[1].focus();
+    page.key("Escape");
+    expect([navigation(), page.document.activeElement === page.id("navToggle")]).toEqual([[false, "false", true], true]);
+    // The button closes it again; the scrim goes once it has faded.
+    page.id("navToggle").press();
+    page.id("navToggle").press();
+    expect(navigation().slice(0, 2)).toEqual([false, "false"]);
+    vi.advanceTimersByTime(210);
+    expect(page.id("scrim").hidden).toBe(true);
+    // A click beside it, on the scrim, closes it; so does choosing a table, which is then shown.
+    page.id("navToggle").press();
+    page.id("scrim").press();
+    vi.advanceTimersByTime(210);
+    expect(navigation()).toEqual([false, "false", true]);
+    page.id("navToggle").press();
+    goTo(3);
+    vi.advanceTimersByTime(210);
+    expect([navigation(), shows()[0]]).toEqual([[false, "false", true], "Grid Sections"]);
+  });
+
+  it("follows the system's colour theme until one is chosen, and keeps the choice", async () => {
+    systemDark = true;
+    await open(clicked(42));
+    const theme = () => [page.document.documentElement.dataset.theme, page.id("themeToggle").title, page.all("#themeToggle svg").length];
+    expect(theme()).toEqual(["dark", "Switch to light theme", 1]);
+    // The system changes its theme: the page follows, as long as none was chosen here.
+    systemListeners[0]({ matches: false });
+    expect(theme()).toEqual(["light", "Switch to dark theme", 1]);
+    // The button changes the theme and remembers it.
+    page.id("themeToggle").press();
+    expect([theme(), stored.get("cardigan-theme")]).toEqual([["dark", "Switch to light theme", 1], "dark"]);
+    page.id("themeToggle").press();
+    expect([theme(), stored.get("cardigan-theme")]).toEqual([["light", "Switch to dark theme", 1], "light"]);
+    // A chosen theme stays when the system changes, and when the page is opened again.
+    systemListeners[0]({ matches: true });
+    expect(theme()[0]).toBe("light");
+    await open(clicked(42));
+    expect([systemDark, theme()[0]]).toEqual([true, "light"]);
+    // Something else under that name is no choice.
+    stored.set("cardigan-theme", "sepia");
+    await open(clicked(42));
+    expect(theme()[0]).toBe("dark");
+  });
+
+  it("copies the result's diagnostic log line for line from the details view", async () => {
+    await openWith(APP);
+    page.find('#navList [data-nav="details"]').press();
+    const log = "14:02:05 Cardigan dev: app 01234567 on us1a.app.anaplan.com\n14:02:06 app: 2 pages\na line without a time";
+    expect(page.id("diagLog").textContent).toBe(log);
+    page.find('#view [data-act="copy-diag"]').press();
+    await settle();
+    expect([copied, page.id("toast").textContent]).toEqual([[log], "Copied the diagnostic log"]);
+  });
+
+  it("copies through a text box when the clipboard refuses, and says so when that fails too", async () => {
+    await openWith(APP);
+    goTo(3);
+    clipboardRefuses = true;
+    page.commandWorks = true;
+    page.find("#tableWrap tbody .id-pill").press();
+    await settle();
+    // The text box held the ID, was asked to copy it, and is gone again.
+    expect([page.commands, page.id("toast").textContent, copied]).toEqual([["copy"], "Copied card-a", []]);
+    expect(page.created.map(element => [element.localName, element.value, element.isConnected])).toEqual([["textarea", "card-a", false]]);
+    page.commandWorks = false;
+    page.find("#tableWrap tbody .id-pill").press();
+    await settle();
+    expect([page.commands, page.id("toast").textContent, page.has("textarea")]).toEqual([["copy", "copy"], "Copy failed", false]);
   });
 });
