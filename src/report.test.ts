@@ -372,4 +372,50 @@ describe("Page analyzer report, from a native page to the agreed CSV tables", ()
     for (const tab of Object.keys(HEADERS) as TabName[]) expect(result[tab].headers).toBe(HEADERS[tab]);
     expect(JSON.stringify(result)).not.toContain(TOKEN);
   });
+
+  // Where used, from cards as the card reader describes them once they are named.
+  const lineItem = (n: number, name: string, moduleName: string) => ({ kind: "lineItem", id: LI(n), name, moduleName });
+  const process = (id: string, name: string) => ({ action: { kind: "action", id, actionType: "PROCESS" }, name });
+  const fieldCard_ = (id: string, rowIndex: number, ...lineItems: Obj[]) => ({ id, type: "FIELD", placement: { kind: "board", rowIndex, columnStart: 0 },
+    hasSavedWidgetReference: false, fields: lineItems.map(each => ({ lineItem: each })) });
+  const actionCard_ = (id: string, rowIndex: number, ...actions: Obj[]) => ({ id, type: "ACTION", placement: { kind: "board", rowIndex, columnStart: 0 },
+    hasSavedWidgetReference: false, actions });
+  const pageOf = (pageName: string, pageGuid: string, ...pageCards: Obj[]): PageInput => ({ appName: "Planning app", categoryName: "Demand", pageName, pageType: "BOARD",
+    state: "Published (no unpublished changes)", modelName: "Model one", workspaceName: "Workspace one", pageGuid, appGuid: guid(1002), modelId: "MODEL-1",
+    details: { ...describePageCards("BOARD", structuredClone(native)), cards: pageCards } as never });
+
+  it("lists in Where used the uses of every page, also of a page that has the name of an earlier page", () => {
+    const shown = [lineItem(1, "Show?", "Demand"), lineItem(8, "Factor", "Factors")];
+    const [fields, buttons] = [fieldCard_("card-1", 0, ...shown), actionCard_("card-2", 1, process("118000000901", "Run nightly"))];
+    // Three pages of one name (a page, its copy, and a page with the same cards the other way round), then a page of another
+    // name. Each has the rows it has when it is the only page: the rows of two pages of one name can be the same row twice.
+    const result = buildReport([pageOf("Plan", guid(1000), fields, buttons), pageOf("Plan", guid(1020), fields, buttons),
+      pageOf("Plan", guid(1030), actionCard_("card-1", 0, process("118000000901", "Run nightly")), fieldCard_("card-2", 1, ...shown)), pageOf("Review", guid(1040), buttons)]);
+    const copy = [["Line item", "Show?", "Demand", "Plan", 1, "Field", LI(1)], ["Line item", "Factor", "Factors", "Plan", 1, "Field", LI(8)],
+      ["Process", "Run nightly", "—", "Plan", 2, "Action button", "118000000901"]];
+    expect(result["Where used"].rows).toEqual([...copy, ...copy,
+      ["Process", "Run nightly", "—", "Plan", 1, "Action button", "118000000901"],
+      ["Line item", "Show?", "Demand", "Plan", 2, "Field", LI(1)], ["Line item", "Factor", "Factors", "Plan", 2, "Field", LI(8)],
+      ["Process", "Run nightly", "—", "Review", 1, "Action button", "118000000901"]]);
+    // The other tables always had a row for each of them.
+    expect(result.Cards.rows.map(row => [row[0], row[1], row[3]])).toEqual([["Plan", 1, "Field"], ["Plan", 2, "Action"], ["Plan", 1, "Field"], ["Plan", 2, "Action"],
+      ["Plan", 1, "Action"], ["Plan", 2, "Field"], ["Review", 1, "Action"]]);
+  });
+
+  it("lists in Where used each object a card uses in a role, also one that has the name of another: the first use of the same object wins", () => {
+    const result = buildReport([pageOf("Plan", guid(1000),
+      // Two line items of one name, from two modules, and the first of them once more.
+      fieldCard_("card-1", 0, lineItem(1, "Amount", "Demand"), lineItem(8, "Amount", "Factors"), lineItem(1, "Amount", "Demand")),
+      // Two actions the model has no name for, under one label; the first of them once more, under that label and under another.
+      actionCard_("card-2", 1, process("118000000901", "Run nightly"), process("118000000902", "Run nightly"), process("118000000901", "Run nightly"),
+        process("118000000901", "Run it again")))]);
+    expect(result["Where used"].rows).toEqual([
+      ["Line item", "Amount", "Demand", "Plan", 1, "Field", LI(1)], ["Line item", "Amount", "Factors", "Plan", 1, "Field", LI(8)],
+      ["Process", "Run nightly", "—", "Plan", 2, "Action button", "118000000901"], ["Process", "Run nightly", "—", "Plan", 2, "Action button", "118000000902"],
+      // Its label is the only name such an action has, so it is listed under each: as it was before objects were told apart by their IDs.
+      ["Process", "Run it again", "—", "Plan", 2, "Action button", "118000000901"]]);
+    // Every button has its row in Action Buttons.csv, as before.
+    expect(result.Actions.rows.map(row => [row[2], row[9]])).toEqual([["Run nightly", "118000000901"], ["Run nightly", "118000000902"], ["Run nightly", "118000000901"],
+      ["Run it again", "118000000901"]]);
+  });
 });
