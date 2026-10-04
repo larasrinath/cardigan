@@ -1,6 +1,7 @@
-import type { AnalysisResult, ResultTable } from "../result-types.js";
+import type { AnalysisResult, Cell, ResultTable } from "../result-types.js";
 import { APP_FILES, columnIndex } from "./columns.js";
 import { LINE_ITEMS_FILE, lineItemsView } from "./line-items-view.js";
+import { READABLE_HEADERS, readableCell } from "./readable-cells.js";
 import { cellText, compareText, NONE } from "./table-engine.js";
 
 /** What the results page reads out of a result besides its tables: the Details file's sections, the diagnostic log, and
@@ -71,7 +72,13 @@ export function resultNotes(result: AnalysisResult): string[] {
 /** A file as the page shows it: the table it lists in the file's place, and a short line for under the table's name when
  * that table is not the file as it stands. What the page counts, searches, filters and opens is this table; the CSV, as a
  * table's download and in the zip, is always the file as the export wrote it. */
-export interface FileView { table: ResultTable; note?: string }
+export interface FileView {
+  table: ResultTable;
+  note?: string;
+  /** For the cells of `table` that the page says in words: the text the CSV has in each one's place, by the row as `table`
+   * holds it and by the column's place in it. A row's drawer shows both. None when no cell is said in words. */
+  exported?: ReadonlyMap<readonly Cell[], ReadonlyMap<number, Cell>>;
+}
 
 /** A rule for one file: what the page shows in its place. It gives nothing when the file is not as the rule expects it,
  * and then the file is shown as it stands. */
@@ -117,9 +124,49 @@ export const FILE_RULES: Record<AnalysisResult["kind"], ReadonlyMap<string, File
   model: new Map([[MODEL_CALENDAR_FILE, calendarView], [LINE_ITEMS_FILE, lineItemsRule]]),
 };
 
-/** One of the result's files as the page shows it: by its rule, or as it stands. */
+/** One of the result's files by its rule alone, or as it stands: the rows the page lists, before any cell is said in words. */
+const ruledView = (result: AnalysisResult, file: ResultTable): FileView => FILE_RULES[result.kind].get(file.file)?.(file, result) ?? { table: file };
+
+/** The Line Items file's columns that name what a Ratio summary divides (model/lineitems.ts adds them to the grid's own). */
+const RATIO_NUMERATOR = "Ratio Numerator";
+const RATIO_DENOMINATOR = "Ratio Denominator";
+
+/** A model's table with its definitions said in words. Some cells of a model's grids hold a definition as JSON, because
+ * Anaplan's own export of the grid writes that: a line item's Format and its Summary, an action's definition. The words
+ * for such a cell (readable-cells.ts) take its place in the table, so the page searches, filters and sorts by them, and
+ * `exported` keeps the text the CSV has. A cell the words are not known for stays as it is, and a row without such a cell
+ * is the table's own row. A Ratio is said with the names in its own row's Ratio Numerator and Ratio Denominator cells; a
+ * list is said by its ID, since a result holds no names of lists by their IDs. */
+function inWords(view: FileView): FileView {
+  const { table } = view;
+  const readable = table.headers.flatMap((header, index) => (READABLE_HEADERS.some(known => known === header) ? [index] : []));
+  if (!readable.length) return view;
+  const numerator = columnIndex(table, RATIO_NUMERATOR);
+  const denominator = columnIndex(table, RATIO_DENOMINATOR);
+  const exported = new Map<readonly Cell[], Map<number, Cell>>();
+  const rows = table.rows.map(row => {
+    const names = { ratioNumerator: numerator === undefined ? undefined : cellText(row[numerator]), ratioDenominator: denominator === undefined ? undefined : cellText(row[denominator]) };
+    let said: Cell[] | undefined;
+    const texts = new Map<number, Cell>();
+    for (const index of readable) {
+      const words = readableCell(table.headers[index], row[index], names);
+      if (words === undefined) continue;
+      said ??= [...row];
+      said[index] = words;
+      texts.set(index, row[index]);
+    }
+    if (said) exported.set(said, texts);
+    return said ?? row;
+  });
+  return exported.size ? { ...view, table: { ...table, rows }, exported } : view;
+}
+
+/** One of the result's files as the page shows it: by its rule, or as it stands, and for a model's result with its
+ * definitions said in words, which comes after the rule (a rule moves columns and rows, and keeps the columns' names). An
+ * app's tables are never put into words: its columns of those names hold other things. */
 export function fileView(result: AnalysisResult, file: ResultTable): FileView {
-  return FILE_RULES[result.kind].get(file.file)?.(file, result) ?? { table: file };
+  const view = ruledView(result, file);
+  return result.kind === "model" ? inWords(view) : view;
 }
 
 /** What a model's Model Calendar file says about the model itself: each setting with its value, in the file's order. A
@@ -243,7 +290,8 @@ export interface Overview {
 }
 
 export function overviewOf(result: AnalysisResult): Overview {
-  const tiles = listedTables(result).map(({ table }) => ({ label: TILE_LABELS.get(table.file) ?? cellText(table.label), count: fileView(result, table).table.rows.length }));
+  // A tile counts the rows the file's table lists. The words change no row, so the count needs the file's rule only.
+  const tiles = listedTables(result).map(({ table }) => ({ label: TILE_LABELS.get(table.file) ?? cellText(table.label), count: ruledView(result, table).table.rows.length }));
 
   const counts = new Map<string, number>();
   const cards = result.tables.find(table => table.file === APP_FILES.Cards);

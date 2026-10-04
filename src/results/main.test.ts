@@ -1129,6 +1129,66 @@ describe("What a click, a key and typing do on the results page", () => {
       .toEqual([["Name", "Format", "Formula", "Summary", "Applies To", "Module Name", "Ratio Numerator", "Ratio Denominator"], ["REV01 Revenue", "Units"], ["Products, Time", "-"], 0, "1–8 of 8 rows"]);
   });
 
+  it("says a model's Format and Summary in words in the table, for the search, the filter and the sort as well; the row's drawer has the CSV's text too, and the downloads only that", async () => {
+    await openWith(BLUEPRINT);
+    const file = BLUEPRINT.tables[1];
+    goTo(1);
+    // The words, as Anaplan says them; a Ratio with the names its own row holds.
+    expect([column("Format"), column("Summary")]).toEqual([["Number", "Number", "Number", "Number, 2 decimal places, %", "Number"],
+      ["Sum", "None", "Sum", "Ratio = Margin / Revenue", "Sum, Time: Closing Balance"]]);
+    // The search reads the words, not the text the CSV has in their place.
+    page.id("tblSearch").type("closing balance");
+    expect([column("Name"), page.id("rowCount").textContent]).toEqual([["Cost"], "1–1 of 1 row (filtered from 5)"]);
+    page.id("tblSearch").type("summaryMethod");
+    expect(page.id("rowCount").textContent).toBe("No rows (filtered from 5)");
+    page.id("tblSearch").type("");
+    // The Summary column's filter lists the words, each with its rows.
+    page.find('[data-colfilter="4"]').press();
+    expect(choices()).toEqual([["None", "1", true], ["Ratio = Margin / Revenue", "1", true], ["Sum", "2", true], ["Sum, Time: Closing Balance", "1", true]]);
+    page.all("#popover input")[2].tick();
+    expect([column("Name"), page.id("rowCount").textContent]).toEqual([["Price", "Margin %", "Cost"], "1–3 of 3 rows (filtered from 5)"]);
+    page.key("Escape");
+    page.id("resetBtn").press();
+    // The sort is by the words: descending by Format, the one format that says more comes first.
+    page.find('[data-sort="2"]').press();
+    page.find('[data-sort="2"]').press();
+    expect([column("Name")[0], column("Format")[0]]).toEqual(["Margin %", "Number, 2 decimal places, %"]);
+
+    // The row's drawer: the words beside each column's name, and after them the CSV's text, named as the CSV's.
+    page.all('#tableWrap tbody [data-act="row"]')[0].press();
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual(["Margin %", "Row 4 of Line Items"]);
+    expect(page.texts("#drawerBody dt")).toEqual(["Name", "Module Name", "Format", "Format in the CSV", "Formula", "Summary", "Summary in the CSV", "Applies To", "Applies To from",
+      "Ratio Numerator", "Ratio Denominator"]);
+    expect(page.all("#drawerBody dd").map(value => value.textContent)).toEqual(["Margin %", "REV01 Revenue", "Number, 2 decimal places, %", PERCENT, "Margin / Revenue", "Ratio = Margin / Revenue", RATIO,
+      "Products, Time", "Module", "Margin", "Revenue"]);
+    page.key("Escape");
+    // Another row has its own: the drawer is the row's, after a sort as well.
+    page.all('#tableWrap tbody [data-act="row"]')[4].press();
+    expect([page.id("drawerTitle").textContent, page.texts("#drawerBody dd").slice(2, 4), page.texts("#drawerBody dd").slice(5, 7)]).toEqual(["Cost", ["Number", NUMBER], ["Sum, Time: Closing Balance", CLOSING]]);
+    page.key("Escape");
+
+    // The downloads hold the file as the export wrote it: Anaplan's text, and none of the words.
+    page.id("dlCsv").press();
+    expect(`\ufeff${await saved[0].text()}`).toBe(tableCsv(file));
+    expect([(await saved[0].text()).includes(csvCell(RATIO)), (await saved[0].text()).includes("Ratio = "), (await saved[0].text()).includes("decimal places")]).toEqual([true, false, false]);
+    page.id("dlAll").press();
+    expect(await bytes(saved[1])).toEqual(resultZip(BLUEPRINT, NOW));
+    expect(file.rows[4].slice(0, 4)).toEqual(["Margin %", PERCENT, "Margin / Revenue", RATIO]);
+
+    // A table without such cells has nothing of the CSV's to add in its drawer.
+    goTo(2);
+    page.all('#tableWrap tbody [data-act="row"]')[0].press();
+    expect(page.texts("#drawerBody dt")).toEqual(["Name", "Applies To"]);
+    page.key("Escape");
+    // An app's tables are never said in words, whatever their columns are called: the cells are as the file has them.
+    page.id("runAgain").press();
+    sendResult(ports[0], { ...BLUEPRINT, kind: "app" });
+    goTo(1);
+    expect([column("Format").slice(0, 2), column("Summary").slice(0, 2)]).toEqual([["", NUMBER], ["", SUM]]);
+    page.all('#tableWrap tbody [data-act="row"]')[1].press();
+    expect(page.texts("#drawerBody dt")).toEqual(["Name", "Format", "Formula", "Summary", "Applies To", "Module Name", "Ratio Numerator", "Ratio Denominator"]);
+  });
+
   it("lists a model's files in the order of Anaplan's Model settings, whatever order the result has them in, and the model map last", async () => {
     /** A model's result with these files after its Details file, in this order; each has as many rows as its place in the result. */
     const model = (...files: string[]): AnalysisResult => ({ ...MODEL, summary: [], tables: [MODEL.tables[0], ...files.map((file, index) =>
