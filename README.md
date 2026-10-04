@@ -44,14 +44,14 @@ After a rebuild, click the reload icon on the extension's card in `chrome://exte
 
 The results page shows:
 
-- **Overview**: how many rows each table has. For an app, also its cards by type and the models its pages use.
-- **One table per file**, except the Details file. Search all its columns, click a column's name to sort by it, choose 25, 50 or 100 rows per page, and pick the columns to show under **Columns**. Click a row to see it in full. For an app, some columns also have a filter, a page's name shows that page's cards, and in **Cards** a card's number or title opens the card with its grid sections, filters, formatting and buttons.
+- **Overview**: how many rows each table has, and the result's notes under **Notes**. For an app, also its cards by type and the models its pages use.
+- **One table per file**, except the Details file. Search all its columns, click a column's name to sort by it, choose 25, 50 or 100 rows per page, and pick the columns to show under **Columns**. A column that holds 2 to 30 different values also has a filter. Click a row, or press Enter on the button in its first cell, to see it in full: every value whole, with its line breaks. For an app, a page's name shows that page's cards, and in **Cards** a card's number or title opens the card with its grid sections, filters, formatting and buttons.
 - **Details**: the Details file (`App Details.csv` or `Model Details.csv`) under its sections, with the diagnostic log under **Diagnostics**. From here, **Download this table (.csv)** saves the Details file.
 - **Model map**: listed as coming in a later version.
 
-**Run again** analyses the Anaplan tab again. The result stays on the page until the new one is complete. Closing the results page stops the analysis.
+**Run again** analyses the Anaplan tab again. The result stays on the page until the new one is complete. If the new run fails, its message stands above the result, with a **Copy diagnostic log** button. Closing the results page stops the analysis.
 
-The results page starts the analysis by itself only when the icon has just opened it, within a minute of the click. A results page that is reloaded, duplicated, restored from history or reopened later does not: it says what the Anaplan tab shows and waits for you to choose **Run**.
+The results page starts the analysis by itself only when the icon has just opened it, within a minute of the click. A results page that is reloaded, duplicated, restored from history or reopened later does not: it says "That Anaplan tab shows an app." (or "a model.") and waits for you to choose **Run**. After a run the same control reads **Run again**.
 
 If the page says **Not connected** ("Cardigan cannot reach that tab."), the tab did not answer. That is a tab that is not an Anaplan page, or an Anaplan tab that has not been refreshed since the extension was installed, updated or reloaded. Refresh the Anaplan tab, then click the Cardigan icon again.
 
@@ -165,7 +165,7 @@ How it reads:
 
 ## If names show as IDs or the analysis stops
 
-The diagnostic log is on the results page. Open **Details**, then **Diagnostics**, and click **Copy diagnostic log**. While an analysis runs, and when it stops without a result, the log is under the message instead, with the same button. After a result, its lines are also the **Diagnostics** rows at the end of `App Details.csv` (`Model Details.csv` for a model export). They list:
+The diagnostic log is on the results page. Open **Details**, then **Diagnostics**, and click **Copy diagnostic log**. While an analysis runs, and when it stops without a result, the log is under the message instead, with the same button. When **Run again** fails, the earlier result stays, and the button beside the failure's message copies the log of the run that failed. After a result, its lines are also the **Diagnostics** rows at the end of `App Details.csv` (`Model Details.csv` for a model export). They list:
 
 - request paths and HTTP statuses
 - socket frame commands and destinations
