@@ -5,7 +5,7 @@ import type { AnalysisResult, Cell, ResultTable } from "../result-types.js";
 import { cardsOf, columnsOf, rowKeys, type Column } from "./columns.js";
 import {
   bannersHtml, cardDrawerHtml, cardDrawerSubHtml, cellHtml, colChooserHtml, colFilterHtml, crumbsHtml, detailsHtml, esc, headerMetaHtml, idPill,
-  MOON_ICON, navHtml, overviewHtml, pagerHtml, rowDrawerHtml, runHtml, SUN_ICON, tableHtml, type Links, type TableView,
+  MOON_ICON, navHtml, overviewHtml, pagerHtml, rowDrawerHtml, rowDrawerSubHtml, runHtml, SUN_ICON, tableHtml, type Links, type TableView,
 } from "./markup.js";
 import { decode, readMarkup, shownValues, structure } from "./markup.test-support.js";
 import { analysedOf, cardSections, detailSections, detailsOf, diagnosticLog, overviewOf, resultNotes } from "./result-view.js";
@@ -90,6 +90,7 @@ describe("The results page's escaping", () => {
       crumbsHtml(QUOTED, QUOTED),
       overviewHtml({ tiles: [{ label: QUOTED, count: 1 }], cardTypes: [[QUOTED, 1]], models: [{ model: QUOTED, workspace: QUOTED, modelId: QUOTED }] }),
       tableHtml(viewOf({ file: "Pages.csv", label: QUOTED, headers: ["Page", QUOTED], rows: [[QUOTED, QUOTED]], guard: true }, LINKS, { search: QUOTED, context: QUOTED })),
+      rowDrawerSubHtml(QUOTED),
       cardDrawerSubHtml(QUOTED, QUOTED, QUOTED),
     ];
     for (const html of pieces) {
@@ -168,6 +169,12 @@ describe("The results page's escaping", () => {
     const columns = (text: Texts) => KINDS.map((kind, index) => column(index, text(index), kind));
     const row = (text: Texts): Cell[] => KINDS.map((_, index) => text(index + 2));
     expectInert(text => rowDrawerHtml(columns(text), row(text), LINKS), 7);
+    // The line under a row's name is the table's name, and nothing but text whatever that name holds.
+    for (const [index, name] of HOSTILE.entries()) {
+      expectInert(text => rowDrawerSubHtml(text(index)), 0);
+      expect(readMarkup(rowDrawerSubHtml(name)).tags).toEqual([]);
+      expect(shownValues(rowDrawerSubHtml(name))).toEqual([name]);
+    }
     expectInert(text => cardDrawerSubHtml(text(0), text(1), text(2)), 3);
     expectInert(text => cardDrawerHtml(columns(text), row(text), LINKS, [
       { title: text(0), none: text(1), headings: [text(2), text(3)], rows: [[text(4), text(5)], [text(6), text(0)]] },
@@ -240,6 +247,7 @@ describe("A result whose every text is hostile, through every view of the page",
       pieces.push(tableHtml(viewOf(table, links, { columns: columns.filter(entry => !entry.hidden) })));
       pieces.push(colChooserHtml(columns, new Set()));
       for (const entry of columns.filter(candidate => candidate.filter)) pieces.push(colFilterHtml(entry, valueCounts(table.rows, entry.index), undefined));
+      pieces.push(rowDrawerSubHtml(table.label));
       for (const row of table.rows) pieces.push(rowDrawerHtml(columns, row, links));
     }
     if (cards) {

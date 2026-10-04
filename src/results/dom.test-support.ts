@@ -300,10 +300,17 @@ export class FakeElement {
     this.dispatch("click");
   }
 
-  /* What a user does. A disabled control ignores it. */
+  /* What a user does. A disabled control ignores it; an element the user cannot get at is the test's mistake. */
 
+  private reach(): void {
+    for (let node: FakeElement | null = this; node; node = node.parentElement) {
+      if (node.hidden || node.inert) throw new Error(`A user cannot get at <${this.localName}>: <${node.localName}> is ${node.hidden ? "hidden" : "inert"}`);
+    }
+    if (!this.isConnected) throw new Error(`A user cannot get at <${this.localName}>: it is not on the page`);
+  }
   /** A click, or Enter on a focused control: focus goes to the element or to the nearest thing around it that takes focus. */
   press(): void {
+    this.reach();
     if (this.disabled) return;
     let taker: FakeElement | null = this;
     while (taker && !taker.focusable) taker = taker.parentElement;
@@ -312,6 +319,7 @@ export class FakeElement {
   }
   /** Ticks or unticks a checkbox. */
   tick(): void {
+    this.reach();
     if (this.disabled) return;
     this.focus();
     this.checked = !this.checked;
@@ -320,12 +328,14 @@ export class FakeElement {
   }
   /** Types into a text box: its whole text becomes `text`. */
   type(text: string): void {
+    this.reach();
     this.focus();
     this.value = text;
     this.dispatch("input");
   }
   /** Chooses an option of a list. */
   choose(value: string): void {
+    this.reach();
     this.focus();
     this.value = value;
     this.dispatch("change");

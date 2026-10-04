@@ -33,6 +33,14 @@ const RESULT: AnalysisResult = {
   ],
 };
 
+/** What an Anaplan user can type into a name: a tag with a handler, which would be one on the page if it were written as markup. */
+const TAG = '<img src="x" onerror="alert(1)">';
+/** The same app, with that tag in the Cards table's name and in a card's title. */
+const NAMED: AnalysisResult = {
+  ...RESULT, tables: [RESULT.tables[0], RESULT.tables[1], { ...RESULT.tables[2], label: `Cards ${TAG}`,
+    rows: [["Overview", 1, `Sales ${TAG}`, "Grid", "card-a"], ["Overview", 2, "=Margin", "KPI", "card-b"]] }],
+};
+
 describe("The results page's script, on the page", () => {
   let page: FakePage;
   let ports: FakePort[];
@@ -72,10 +80,16 @@ describe("The results page's script, on the page", () => {
     await import("./main.js");
   };
   const bytes = async (blob: Blob) => new Uint8Array(await blob.arrayBuffer());
-  const sendResult = (port: FakePort) => {
-    port.send({ type: "result", result: { ...RESULT, tables: RESULT.tables.map(table => ({ ...table, rows: [] })) } });
-    RESULT.tables.forEach((table, index) => port.send({ type: "rows", table: index, rows: table.rows }));
+  const sendResult = (port: FakePort, result = RESULT) => {
+    port.send({ type: "result", result: { ...result, tables: result.tables.map(table => ({ ...table, rows: [] })) } });
+    result.tables.forEach((table, index) => port.send({ type: "rows", table: index, rows: table.rows }));
     port.send({ type: "done" });
+  };
+  /** The page with a result on it, as the icon's click leaves it. */
+  const openWith = async (result = RESULT) => {
+    await open("?tab=42");
+    ports[0].send({ type: "subject", subject: { kind: "app", id: result.id } });
+    sendResult(ports[0], result);
   };
   const disabled = (...ids: string[]) => ids.map(id => page.id(id).disabled);
 
@@ -150,6 +164,26 @@ describe("The results page's script, on the page", () => {
     page.id("dlAll").press();
     page.id("dlCsv").press();
     expect(saved).toEqual([]);
+  });
+
+  it("opens a row and a card whose table and title hold a tag, and shows both names as text", async () => {
+    await openWith(NAMED);
+    page.find('#navList [data-nav="2"]').press();
+    expect(page.texts("#view h1")).toEqual([`Cards ${TAG}`]);
+    // A click on a row, outside its links, opens the row. The line under the drawer's title is the table's name.
+    page.find("#tableWrap tbody tr .tag").press();
+    expect(page.id("drawer").hidden).toBe(false);
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual(["Row 1", `Cards ${TAG}`]);
+    expect(page.id("drawerSub").children).toEqual([]);
+    expect(page.texts("#drawerBody dd")).toContain(`Sales ${TAG}`);
+    // A card's number opens the card. The drawer's title is the card's own title.
+    page.id("drawerClose").press();
+    page.find('#tableWrap tbody [data-act="card"]').press();
+    expect(page.id("drawerTitle").textContent).toBe(`Card 1 — Sales ${TAG}`);
+    expect(page.id("drawerTitle").children).toEqual([]);
+    expect(page.texts("#drawerSub .link")).toEqual(["Overview"]);
+    // Neither name became an element, anywhere on the page.
+    expect([page.has("img"), page.all("[onerror]")]).toEqual([false, []]);
   });
 
   it("says so when the address names no tab, and connects to nothing", async () => {

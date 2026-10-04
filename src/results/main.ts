@@ -5,8 +5,8 @@ import { VERSION } from "../version.js";
 import { cardsOf, columnIndex, columnsOf, rowKeys, type CardsTable, type Column, type RowKeys } from "./columns.js";
 import { describeState, ResultsClient, tabIdFrom, type RunState } from "./connection.js";
 import {
-  bannersHtml, cardDrawerHtml, cardDrawerSubHtml, colChooserHtml, colFilterHtml, crumbsHtml, detailsHtml, esc, headerMetaHtml, MOON_ICON, navHtml,
-  overviewHtml, rowDrawerHtml, runHtml, SUN_ICON, tableHtml, type Links, type NavEntry,
+  bannersHtml, cardDrawerHtml, cardDrawerSubHtml, colChooserHtml, colFilterHtml, crumbsHtml, detailsHtml, headerMetaHtml, MOON_ICON, navHtml,
+  overviewHtml, rowDrawerHtml, rowDrawerSubHtml, runHtml, SUN_ICON, tableHtml, type Links, type NavEntry,
 } from "./markup.js";
 import type { PageId } from "./page-ids.js";
 import { analysedOf, cardSections, detailSections, detailsOf, diagnosticLog, overviewOf, resultNotes } from "./result-view.js";
@@ -338,6 +338,7 @@ let drawerTimer: ReturnType<typeof setTimeout> | undefined;
 function settleScrim(): void {
   if (el("drawer").hidden && !el("sidenav").classList.contains("open")) el("scrim").hidden = true;
 }
+/** Shows the drawer. The title is a text and is set as one; the line under it and the body are markup.ts' markup. */
 function openDrawer(title: string, subHtml: string, bodyHtml: string, opener?: Element | null): void {
   clearTimeout(drawerTimer);
   state.lastFocus = opener ?? document.activeElement;
@@ -374,7 +375,7 @@ function closeDrawer(): void {
 function openRowDrawer(entry: Shown, row: Row, opener: Element): void {
   drawerRow = { entry, row };
   const position = entry.table.rows.findIndex(candidate => candidate === row) + 1;
-  openDrawer(`Row ${position}`, esc(entry.table.label), rowDrawerHtml(entry.columns, row, entry.links), opener);
+  openDrawer(`Row ${position}`, rowDrawerSubHtml(cellText(entry.table.label)), rowDrawerHtml(entry.columns, row, entry.links), opener);
 }
 /** A card: its row of the Cards file, and the rows of the other files that carry its Card ID on its page. */
 function openCardDrawer(page: string, cardId: string, opener: Element): void {

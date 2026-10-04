@@ -318,6 +318,11 @@ export function rowDrawerHtml(columns: readonly Column[], row: Row, links: Links
     ${allColumns(columns, row, links)}</div>`;
 }
 
+/** Under a row's name in the drawer: the table it is a row of. */
+export function rowDrawerSubHtml(label: string): string {
+  return esc(label);
+}
+
 /** Under a card's name in the drawer: its page (a jump to that page's cards), its type and its ID. */
 export function cardDrawerSubHtml(page: string, type: string, cardId: string): string {
   return `<button type="button" class="link" data-act="page">${esc(page)}</button> · ${esc(type)} · ${idPill(cardId)}`;
