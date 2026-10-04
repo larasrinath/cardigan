@@ -375,6 +375,45 @@ describe("What the results page's markup shows", () => {
     expect([pill?.dataset.copy, pill?.getAttribute("aria-label")]).toEqual(["20000000003", "Copy ID 20000000003"]);
   });
 
+  it("says of an object with uses on a page name that pages share that its counts are the least they can be, why, and which uses those are", () => {
+    // Two pages are called Overview, and the file has only a page's name: this object's three uses there may be on either.
+    const open: WhereUsedObject = { type: "Dimension", name: "Time", module: "—", model: "Model one", pages: 2, pagesMost: 3, cards: 3, cardsMost: 4, id: "20000000003",
+      note: 'It has 3 uses on a page name that more than one page has: "Overview <b>north</b>" (2 pages). The CSV has only the name of a use\'s page, so which of those pages a use is on is not known. It is on 2 or 3 pages and on 3 or 4 cards.',
+      roles: [["Column dimension", 3], ["Context selector", 1]], uses: [
+        { row: 1, page: "Overview <b>north</b>", card: 1, usedAs: "Column dimension", pagesOfName: 2 },
+        { row: 2, page: "Overview <b>north</b>", card: 1, usedAs: "Context selector", pagesOfName: 2 },
+        { row: 5, page: "Stores", card: 1, usedAs: "Column dimension", cardId: "card-c" },
+        { row: 7, page: "Overview <b>north</b>", card: 2, usedAs: "Column dimension", cardId: "card-b", pagesOfName: 2 }] };
+    const sub = (object: WhereUsedObject, multiModel = false) => parseMarkup(`<div>${objectDrawerSubHtml(object, multiModel)}</div>`).children[0];
+    // The line under the name says "at least" for each count that is open, and no number as exact that is not. The note
+    // follows on a line of its own, as text: the page name in it holds a tag, and is shown as typed.
+    const said = sub(open);
+    expect([said.childNodes.filter(node => node.nodeType === 3).map(node => node.textContent).join("").trim(), said.children.map(child => [child.localName, child.classList.contains("id-pill") ? "ID" : text(child)])])
+      .toEqual(["Dimension ·  · at least 2 pages, at least 3 cards", [["button", "ID"], ["div", open.note]]]);
+    expect([said.querySelectorAll("b").length, text(said).includes("2 pages, 3 cards") && !text(said).includes("at least 2 pages, at least 3 cards")]).toEqual([0, false]);
+    // One count open and the other exact: only the open one says "at least".
+    expect(text(sub({ ...open, pagesMost: undefined }))).toContain(" · 2 pages, at least 3 cards");
+    expect(text(sub({ ...open, pages: 1, cardsMost: undefined }))).toContain(" · at least 1 page, 3 cards");
+    // An object none of whose uses is on a shared name reads exactly as it did: its counts as they are, and no note.
+    const exact: WhereUsedObject = { ...open, pagesMost: undefined, cardsMost: undefined, note: undefined, uses: open.uses.map(({ pagesOfName: _shared, ...use }) => use) };
+    expect([text(sub(exact)), sub(exact).querySelectorAll("div").length, text(sub(exact, true))]).toEqual(["Dimension · 20000000003 · 2 pages, 3 cards", 0, "Dimension · Model one · 20000000003 · 2 pages, 3 cards"]);
+    expect([sub({ ...exact, note: "" }).querySelectorAll("div").length, sub({ ...exact, note: "  " }).querySelectorAll("div").length]).toEqual([0, 0]);
+
+    // The uses: the shared name says how many pages have it, where it heads its uses and, for a screen reader, with each
+    // of them; a page whose name is its own says nothing more. The name is the link to its cards either way.
+    const rows = (object: WhereUsedObject, links: Links) => parseMarkup(objectDrawerHtml(object, links, false)).querySelectorAll("#drawerUses tbody tr");
+    expect(rows(open, LINKS).map(row => text(row.children[0]))).toEqual(["Overview <b>north</b> (2 pages have this name)", "Overview <b>north</b>, 2 pages have this name", "Overview <b>north</b>, 2 pages have this name", "Stores"]);
+    expect(rows(open, LINKS).map(row => [row.children[0].querySelectorAll("button").map(text), row.children[0].querySelectorAll(".sr-only").map(text)]))
+      .toEqual([[["Overview <b>north</b>"], []], [[], ["Overview <b>north</b>, 2 pages have this name"]], [[], ["Overview <b>north</b>, 2 pages have this name"]], [["Stores"], []]]);
+    expect(rows(open, NO_LINKS).map(row => [text(row.children[0]), row.querySelectorAll("button").length])).toEqual([["Overview <b>north</b> (2 pages have this name)", 0],
+      ["Overview <b>north</b>, 2 pages have this name", 0], ["Overview <b>north</b>, 2 pages have this name", 0], ["Stores", 0]]);
+    // A use on a shared name opens its card only where the use names one; the rest of the list is as for any object.
+    expect(rows(open, LINKS).map(row => row.children[1].querySelectorAll('[data-act="use-card"]').map(button => button.dataset.use))).toEqual([[], [], ["3"], ["2"]]);
+    expect(rows(exact, LINKS).map(row => text(row.children[0]))).toEqual(["Overview <b>north</b>", "Overview <b>north</b>", "Overview <b>north</b>", "Stores"]);
+    // Three pages of the name are said as three.
+    expect(text(rows({ ...open, uses: [{ ...open.uses[0], pagesOfName: 3 }] }, LINKS)[0].children[0])).toBe("Overview <b>north</b> (3 pages have this name)");
+  });
+
   it("lists the first fifty of an object's uses, with a control for the rest, and all of them once asked", () => {
     const uses = Array.from({ length: 130 }, (_, index) => ({ row: index, page: `Page ${index % 65}`, card: index < 65 ? 1 : 2, usedAs: "Column dimension", cardId: `card-${index}` }));
     const object: WhereUsedObject = { type: "Dimension", name: "Time", module: "—", model: "—", pages: 65, cards: 130, id: "20000000003", roles: [["Column dimension", 130]], uses };
