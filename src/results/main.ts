@@ -10,7 +10,7 @@ import {
   overviewHtml, rowDrawerHtml, rowDrawerSubHtml, runBannerHtml, runHtml, SUN_ICON, tableHtml, tableParts, type Links, type NavEntry, type TableView,
 } from "./markup.js";
 import type { PageId } from "./page-ids.js";
-import { analysedOf, cardSections, detailsOf, diagnosticLog, listedRows, listedTables, overviewOf, unlistedNote } from "./result-view.js";
+import { analysedOf, cardSections, detailsOf, diagnosticLog, fileView, listedTables, overviewOf } from "./result-view.js";
 import { cellText, NONE, pageOf, rememberingSelect, rowName, valueCounts, type Row, type Sort, type TableQuery } from "./table-engine.js";
 
 /** The results page (results.html): the design's script, on the real result. It connects to the Anaplan tab the address
@@ -85,10 +85,10 @@ interface Shown {
   index: number;
   /** The file as the result holds it: what a download gives. */
   file: ResultTable;
-  /** The file as the page lists it: the same, but for the one file whose table leaves rows to the CSV (result-view.ts
-   * `listedRows`), which has only the rows listed, and `unlisted` says how many it leaves. */
+  /** The file as the page shows it: the same, unless the file has a rule of its own (result-view.ts `fileView`). Then it
+   * is the table the rule gives, and `note` is the line under the table's name that says so. */
   table: ResultTable;
-  unlisted: number;
+  note: string | undefined;
   columns: Column[];
   keys: RowKeys;
   links: Links;
@@ -187,7 +187,7 @@ function tableView(entry: Shown): TableView {
   entry.page = page.page;
   currentSlice = page.rows;
   return {
-    label: cellText(entry.table.label), note: entry.unlisted ? unlistedNote(entry.unlisted) : undefined,
+    label: cellText(entry.table.label), note: entry.note,
     columns: entry.columns.filter(column => !entry.hidden.has(column.index)), rows: page.rows,
     page: page.page, pages: page.pages, pageSize: state.pageSize, from: page.from, to: page.to, total: page.total, all: entry.table.rows.length,
     search: state.search, sort: entry.sort, filtered: new Set(entry.filters.keys()), context: state.context, links: entry.links,
@@ -267,14 +267,13 @@ function showResult(next: AnalysisResult, at: Date): void {
   cards = cardsOf(next);
   shown = new Map();
   for (const { index, table: file } of listedTables(next)) {
-    // What the page counts, filters and searches is the table as it lists it: the columns' filters follow its rows too.
-    const { rows, unlisted } = listedRows(next, file);
-    const table = unlisted ? { ...file, rows } : file;
+    // What the page counts, filters and searches is the table as it shows it: the columns' filters follow its rows too.
+    const { table, note } = fileView(next, file);
     const columns = columnsOf(table);
     const keys = rowKeys(table);
     const page = cards !== undefined && keys.page !== undefined;
     shown.set(index, {
-      index, file, table, unlisted, columns, keys, links: { page, card: page && keys.cardId !== undefined },
+      index, file, table, note, columns, keys, links: { page, card: page && keys.cardId !== undefined },
       filters: new Map(), hidden: defaultHidden(columns), sort: undefined, page: 0,
     });
   }
