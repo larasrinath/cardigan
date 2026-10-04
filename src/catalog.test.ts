@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { UxEntityRef } from "./card-reader/card-types.js";
 import {
-  addActions, addLineItems, addLists, addModuleDimensions, addModuleViews, addSelections, applicableModuleIds, emptyCatalog, resolveFromCatalog,
+  addActions, addLineItems, addLists, addModuleDimensions, addModuleViews, addSelections, applicableModuleIds, describeFormat, emptyCatalog, resolveFromCatalog,
   unresolvedFilterItems, viewLayoutFromMetadata,
 } from "./catalog.js";
 
 // Synthetic IDs only.
 const [MODULE, MODULE_2, LIST, VIEW] = ["102000000901", "102000000902", "101000000901", "130000000901"];
+/** A list that is no dimension the catalog has loaded. */
+const ROLES = "101000000911";
 const ref = (kind: UxEntityRef["kind"], id: string, extra: Partial<UxEntityRef> = {}): UxEntityRef => ({ kind, id, ...extra });
 
 function loaded() {
@@ -97,5 +99,42 @@ describe("Page analyzer names from the model data service", () => {
     const { itemIds, axisDimensionIds } = unresolvedFilterItems(cards, catalog);
     expect([...itemIds]).toEqual(["1901000000009"]);
     expect([...axisDimensionIds]).toEqual([LIST]);
+  });
+
+  it("keeps what the line items listing says of a line item's format: its data type and the list of a list format, never another value", () => {
+    const catalog = loaded();
+    const lineItem = (n: number, format?: unknown) => ({ lineItemId: 1902000000000 + n, lineItemLabel: `Line item ${n}`, ...(format === undefined ? {} : { lineItemInfo: { format } }) });
+    addLineItems(catalog, MODULE_2, { data: [
+      // As the classic client's format object has them: the list of a list format, the plain types, a time period.
+      lineItem(1, { dataType: "ENTITY", hierarchyEntityLongId: Number(ROLES), isRelative: false, entityFormatFilter: { mappingHierarchyEntityLongId: Number(LIST), "Product - North": { deep: 1 } } }),
+      lineItem(2, { dataType: "NUMBER", decimalPlaces: 2, units: "NONE", hierarchyEntityLongId: Number(ROLES) }),
+      lineItem(3, { dataType: "TIME_ENTITY", periodType: { entityIndex: 3, entityLabel: "Month" } }),
+      // Other names for the same: the list is the one value that is a dimension of this model, and with two there is none.
+      lineItem(4, { type: "LIST", listId: Number(LIST) }),
+      lineItem(5, { dataType: "ENTITY", listId: LIST, parentListId: "101000000902" }),
+      // A data type that is no plain token is not kept; a list that is no ID is none; a key that is no plain word is not shown.
+      lineItem(6, { dataType: "a list of Product", hierarchyEntityLongId: "Product", "Product - North": true }),
+      lineItem(7), { ...lineItem(8), lineItemInfo: {} }, lineItem(9, "ENTITY"), lineItem(10, ["ENTITY"]), lineItem(11, null),
+    ] });
+    const id = (n: number) => String(1902000000000 + n);
+    expect([...catalog.lineItemFormats]).toEqual([
+      // The keys are kept for the log, with those of an object under a key, and no deeper.
+      [id(1), { dataType: "ENTITY", listId: ROLES, keys: ["dataType", "entityFormatFilter{?, mappingHierarchyEntityLongId}", "hierarchyEntityLongId", "isRelative"] }],
+      [id(2), { dataType: "NUMBER", keys: ["dataType", "decimalPlaces", "hierarchyEntityLongId", "units"] }],
+      [id(3), { dataType: "TIME_ENTITY", listId: "20000000003", keys: ["dataType", "periodType{entityIndex, entityLabel}"] }],
+      [id(4), { listId: LIST, keys: ["listId", "type"] }],
+      [id(5), { dataType: "ENTITY", keys: ["dataType", "listId", "parentListId"] }],
+      [id(6), { keys: ["?", "dataType", "hierarchyEntityLongId"] }],
+    ]);
+    // Every line item is still named, with or without a format.
+    expect([...catalog.lineItems.keys()].slice(1)).toEqual(Array.from({ length: 11 }, (_, index) => id(index + 1)));
+    // For the diagnostic log: keys, the data type and the dimension, and nothing else of the format.
+    expect([1, 2, 4, 5, 6, 7].map(n => describeFormat(id(n), catalog))).toEqual([
+      `filter line item ${id(1)}: format {dataType, entityFormatFilter{?, mappingHierarchyEntityLongId}, hierarchyEntityLongId, isRelative}, data type ENTITY, items of dimension ${ROLES}`,
+      `filter line item ${id(2)}: format {dataType, decimalPlaces, hierarchyEntityLongId, units}, data type NUMBER`,
+      `filter line item ${id(4)}: format {listId, type}, items of dimension ${LIST}`,
+      `filter line item ${id(5)}: format {dataType, listId, parentListId}, data type ENTITY, no list named`,
+      `filter line item ${id(6)}: format {?, dataType, hierarchyEntityLongId}`,
+      `filter line item ${id(7)}: no format in the line items listing`]);
   });
 });

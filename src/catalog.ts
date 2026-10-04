@@ -8,6 +8,8 @@ export interface ModelCatalog {
   views: Map<string, { name: string; moduleId: string }>;
   dimensions: Map<string, string>;
   lineItems: Map<string, { name: string; moduleId: string }>;
+  /** What the line items listing says of each line item's format, for those it says it of. */
+  lineItemFormats: Map<string, LineItemFormat>;
   actions: Map<string, string>;
   pages: Map<string, string>;
   /** Modules whose line items were read. */
@@ -24,10 +26,30 @@ export interface ModelCatalog {
   viewLayouts: Map<string, UxViewLayout>;
 }
 
+/** A line item's format as far as naming needs it, from the listing's `lineItemInfo.format`. Page Builder tells line items
+ * apart by its `dataType` (docs/research/card-formats-designer.md, sections 1 and 6), in the classic client's words: there
+ * a line item is formatted as a list when `format.dataType === "ENTITY"`, and the list is `format.hierarchyEntityLongId`.
+ * No capture confirms that the listing names the list by that key: the diagnostic log shows the keys it has. */
+export interface LineItemFormat {
+  /** NONE, NUMBER, BOOLEAN, DATE, TEXT, ENTITY (formatted as a list) or TIME_ENTITY (as a time period), when the format says. */
+  dataType?: string;
+  /** The list, or Time, whose items the line item's values are. */
+  listId?: string;
+  /** The format's keys, and those of an object under a key (`key{its, keys}`), for the diagnostic log: never its values. */
+  keys: string[];
+}
+
 export function emptyCatalog(): ModelCatalog {
-  return { modules: new Map(), views: new Map(), dimensions: new Map(), lineItems: new Map(), actions: new Map(), pages: new Map(),
+  return { modules: new Map(), views: new Map(), dimensions: new Map(), lineItems: new Map(), lineItemFormats: new Map(), actions: new Map(), pages: new Map(),
     lineItemModules: new Set(), unreadableModules: new Set(), moduleListLoaded: false, moduleDimensions: new Map(), listItems: new Map(), viewLayouts: new Map() };
 }
+
+/** An entity's ID, an item's or a list's: an entity type times a thousand million plus an index (EntityLongIdHelper in the
+ * classic client), so ten digits or more. */
+const LONG_ID = /^[1-9]\d{9,17}$/;
+const TIME = "20000000003";
+/** The formats whose values are no items (the classic client's `dataTypes`). */
+const PLAIN_TYPES = new Set(["NONE", "NUMBER", "BOOLEAN", "DATE", "TEXT"]);
 
 const idText = (value: unknown): string | undefined =>
   (typeof value === "string" && value) || (typeof value === "number" && Number.isSafeInteger(value) ? String(value) : undefined);
@@ -64,13 +86,38 @@ export function addLists(catalog: ModelCatalog, json: unknown): void {
   }
 }
 
-/** `core://{ws}:{model}/modules/{moduleId}/lineItems`: `data[] = {lineItemId, lineItemLabel}`. */
+/** An object's keys in order. One that is no plain word is written `?`: only the listing's own vocabulary reaches the log. */
+function keysOf(value: Obj, nested = true): string[] {
+  return Object.keys(value).sort().map(key => {
+    const word = /^[A-Za-z_]\w{0,39}$/.test(key) ? key : "?";
+    const under: unknown = value[key];
+    return nested && under && typeof under === "object" && !Array.isArray(under) ? `${word}{${keysOf(under as Obj, false).join(", ")}}` : word;
+  });
+}
+
+/** The list of a list format is `hierarchyEntityLongId` in the classic client. Should the listing name it otherwise, it is
+ * the format's one value that is a dimension of this model; with two such values nothing is taken for it. */
+function lineItemFormat(format: Obj, catalog: ModelCatalog): LineItemFormat {
+  const dataType = typeof format.dataType === "string" && /^[A-Z][A-Z_]{0,29}$/.test(format.dataType) ? format.dataType : undefined;
+  const keys = keysOf(format);
+  if (dataType && PLAIN_TYPES.has(dataType)) return { dataType, keys };
+  if (dataType === "TIME_ENTITY") return { dataType, listId: TIME, keys };
+  const named = idText(format.hierarchyEntityLongId);
+  const dimensions = [...new Set(Object.values(format).flatMap(value => { const id = idText(value); return id && catalog.dimensions.has(id) ? [id] : []; }))];
+  const listId = named && LONG_ID.test(named) ? named : dimensions.length === 1 ? dimensions[0] : undefined;
+  return { ...(dataType ? { dataType } : {}), ...(listId ? { listId } : {}), keys };
+}
+
+/** `core://{ws}:{model}/modules/{moduleId}/lineItems`: `data[] = {lineItemId, lineItemLabel, lineItemInfo: {format}}`. */
 export function addLineItems(catalog: ModelCatalog, moduleId: string, json: unknown): void {
   catalog.lineItemModules.add(moduleId);
   for (const item of list((json as Obj | undefined)?.data)) {
     const id = idText(item.lineItemId);
     const label = text(item.lineItemLabel);
-    if (id && label) catalog.lineItems.set(id, { name: label, moduleId });
+    if (!id || !label) continue;
+    catalog.lineItems.set(id, { name: label, moduleId });
+    const format: unknown = item.lineItemInfo?.format;
+    if (format && typeof format === "object" && !Array.isArray(format)) catalog.lineItemFormats.set(id, lineItemFormat(format as Obj, catalog));
   }
 }
 
@@ -247,4 +294,13 @@ export function unresolvedFilterItems(cards: readonly unknown[], catalog: ModelC
     }
   }
   return { itemIds, axisDimensionIds };
+}
+
+/** For the diagnostic log: what the line items listing said of a line item's format (its keys, its data type and the
+ * dimension its values are items of; no other value). It shows a live run's reader how the listing names a list format. */
+export function describeFormat(lineItemId: string, catalog: ModelCatalog): string {
+  const format = catalog.lineItemFormats.get(lineItemId);
+  if (!format) return `filter line item ${lineItemId}: no format in the line items listing`;
+  return `filter line item ${lineItemId}: format {${format.keys.join(", ")}}${format.dataType ? `, data type ${format.dataType}` : ""}`
+    + (format.listId ? `, items of dimension ${format.listId}` : format.dataType === "ENTITY" ? ", no list named" : "");
 }
