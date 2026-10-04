@@ -1,5 +1,5 @@
 import { DETAILS_HEADERS, diagnosticRows, exportRows, type DetailRow } from "../details.js";
-import type { Log, Progress, Stop } from "../progress.js";
+import { Failure, SEND_LOG, type Log, type Progress, type Stop } from "../progress.js";
 import { plainRows } from "../result-plain.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
 import { fileSafe, message, text } from "../util.js";
@@ -24,6 +24,10 @@ const HOW_TO_READ: readonly [detail: string, value: string][] = [
   ["Import Data Sources", "Each data source, with the imports that use it."],
   ["Model Calendar", "Follows the assessment template. Months and days are their names, and Current Fiscal Year is shown with its dates, as the Model Calendar tab shows it. Settings that do not apply to this calendar type are blank; Model size (GB) and Captured by are left for you to fill in."],
 ];
+
+/** What the user is told when not one grid could be read (progress.ts `Failure`); why each could not is the detail. */
+const NOTHING_READ = "Cardigan could not read any of this model's settings. Check that the model is open and that you can see its Model settings in Anaplan, "
+  + `then choose Run again. ${SEND_LOG}`;
 
 /** The model's settings as the zip's files: Model Details.csv, then one file per grid that could be read. Once the export
  * was asked to stop, `progress` throws at its next step and `stop` before the next page of a grid's rows (bridge.ts
@@ -124,7 +128,7 @@ export async function exportModel(progress: Progress, diagnostics: () => string,
     add("Model Calendar", { headers: CALENDAR_HEADERS, rows: calendarRows({ workspace, model, capturedOn: new Date().toISOString().slice(0, 10), values, showsYearToDate }) });
   });
 
-  if (!tables.length) throw new Error(notes.join(" ") || "Nothing could be read from this model page.");
+  if (!tables.length) throw new Failure(NOTHING_READ, notes.join(" ") || undefined);
   const details: DetailRow[] = [
     ["Model", "Model", model],
     ["Model", "Workspace", workspace || "—"],

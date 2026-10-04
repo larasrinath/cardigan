@@ -1,4 +1,4 @@
-import type { Log, Stop } from "../progress.js";
+import { Failure, REFRESH, SEND_LOG, type Log, type Stop } from "../progress.js";
 import { SCOPE_ID, sleep } from "../util.js";
 import { labelEntries, windowRows, type Grid } from "./grid.js";
 
@@ -23,6 +23,9 @@ const MODULES = ["anaplan/data/ModelContentCache", "anaplan/data/Aggregator", "a
 const CELLS_PER_READ = 40_000;
 const MAX_ROWS = 250_000;
 const READ_TIMEOUT_MS = 180_000;
+/** What the user is told when the page's client cannot be used (progress.ts `Failure`). */
+const NOT_OPEN = "The model has not finished opening in the Anaplan tab. Wait until it shows, then choose Run again.";
+const NO_CLIENT = `Cardigan could not read this model page. ${REFRESH} ${SEND_LOG}`;
 
 /** The classic model building page exposes its AMD loader and the open model on window. */
 export function modelOnPage(): string | undefined {
@@ -34,11 +37,11 @@ export function modelOnPage(): string | undefined {
 export function loadNative(timeoutMs = 30_000): Promise<Native> {
   const w = window as Any;
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("The model page's client did not load.")), timeoutMs);
+    const timer = setTimeout(() => reject(new Failure(NOT_OPEN, `the model page's client did not load in ${timeoutMs / 1000} s`)), timeoutMs);
     w.require(MODULES, (cache: Any, aggregator: Any, helper: Any, ids: Any, constants: Any, RequestGenerator: Any, DataPage: Any, axisHelper: Any) => {
       clearTimeout(timer);
       resolve({ cache, aggregator, helper, ids, constants, RequestGenerator, DataPage, axisHelper, workspaceId: w.workspaceId, modelId: w.modelId });
-    }, () => { clearTimeout(timer); reject(new Error("The model page's client modules are not available.")); });
+    }, () => { clearTimeout(timer); reject(new Failure(NO_CLIENT, "the model page's client modules are not available")); });
   });
 }
 

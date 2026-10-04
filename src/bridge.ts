@@ -1,5 +1,5 @@
 import { stampLine } from "./details.js";
-import type { Progress, Stop } from "./progress.js";
+import { Failure, failureOf, REFRESH, SEND_LOG, UNEXPECTED, type Progress, type Stop } from "./progress.js";
 import { plainResult, textOf } from "./result-plain.js";
 import type { AnalysisResult } from "./result-types.js";
 import { SCOPE_ID, sleep } from "./util.js";
@@ -17,6 +17,11 @@ export const ANAPLAN_ORIGIN = /^https:\/\/[a-z0-9.-]+\.anaplan\.com$/i;
 const WAIT_FOR_CORE_MS = 20_000;
 /** Why an export that was asked to stop ends. */
 const STOPPED = "The export was stopped.";
+/** What the user is told when the page cannot get the model exported (progress.ts `Failure`). */
+export const NO_MODEL = "Cardigan could not reach the model inside this page. If the model is still opening, wait until it shows and choose Run again; "
+  + `otherwise refresh the Anaplan tab, then click the Cardigan icon again. ${SEND_LOG}`;
+export const QUIET = "The model stopped answering while Cardigan was reading it. Check that it is still open in the Anaplan tab, then choose Run again.";
+export const UNREADABLE = `Cardigan could not read what the model's page sent back. ${REFRESH} ${SEND_LOG}`;
 
 export interface Endpoint { postMessage(message: unknown, targetOrigin: string, transfer?: Transferable[]): void }
 export interface MessageTarget {
@@ -63,7 +68,7 @@ export function runInCore(self: MessageTarget, core: CoreHandle, progress: Progr
       core.source.postMessage({ protocol: PROTOCOL, type: "stop", nonce }, core.origin);
       finish({ error });
     };
-    const idle = () => { clearTimeout(timer); timer = setTimeout(() => giveUp(new Error("The model frame stopped answering.")), idleMs); };
+    const idle = () => { clearTimeout(timer); timer = setTimeout(() => giveUp(new Failure(QUIET, `the model's frame sent nothing for ${idleMs / 1000} s`)), idleMs); };
     const stop = () => giveUp(signal?.reason ?? new Error(STOPPED));
     const listener = (event: MessageEvent) => {
       const data = ours(event);
@@ -72,10 +77,13 @@ export function runInCore(self: MessageTarget, core: CoreHandle, progress: Progr
       // Nothing here may throw, or the run would be left waiting for the idle time: textOf has a text for every value.
       if (data.type === "status") progress.status(textOf(data.text));
       else if (data.type === "log") progress.log(textOf(data.text));
-      else if (data.type === "error") finish({ error: new Error(textOf(data.message)) });
-      else if (data.type === "done") {
+      else if (data.type === "error") {
+        // The frame sends the sentence for the user and, apart from it, the detail for the log (serveCore).
+        const detail = data.detail === undefined ? undefined : textOf(data.detail);
+        finish({ error: typeof data.message === "string" && data.message ? new Failure(data.message, detail) : new Failure(UNEXPECTED, detail ?? textOf(data.message)) });
+      } else if (data.type === "done") {
         const result = plainResult(data.result);
-        finish(result?.kind === "model" ? { result } : { error: new Error("The model frame sent a result this page cannot read.") });
+        finish(result?.kind === "model" ? { result } : { error: new Failure(UNREADABLE, "the model's frame sent a result this page cannot read") });
       }
     };
     if (signal?.aborted) { reject(signal.reason ?? new Error(STOPPED)); return; }
@@ -101,11 +109,7 @@ export async function exportInCore(self: Window, core: () => CoreHandle | undefi
   const seen = [...probes()];
   for (const probe of seen) progress.log(describeProbe(probe));
   const found = core();
-  if (!found) {
-    throw new Error(seen.length
-      ? `The model's frame did not answer. ${seen.length} frame(s) reported; copy the diagnostic log and send it.`
-      : "No frame reported in. Reload the extension in chrome://extensions, refresh the Anaplan tab and try again.");
-  }
+  if (!found) throw new Failure(NO_MODEL, seen.length ? `the model's frame did not answer; ${seen.length} frame(s) reported in` : "no frame reported in");
   if (found.modelId.toUpperCase() !== model.toUpperCase()) progress.log("the model frame reports a different model than this page's address");
   return runInCore(self, found, progress, undefined, signal);
 }
@@ -187,7 +191,7 @@ export function serveCore(self: MessageTarget, top: Endpoint, modelId: () => str
     };
     exporter({ status: step("status"), log: step("log") }, () => lines.join("\r\n"), stop)
       .then(result => reply({ type: "done", result }))
-      .catch(error => reply({ type: "error", message: error instanceof Error ? error.message : String(error) }))
+      .catch(error => { const failed = failureOf(error); reply({ type: "error", message: failed.message, detail: failed.detail }); })
       .finally(() => { running = undefined; });
   };
   self.addEventListener("message", listener);

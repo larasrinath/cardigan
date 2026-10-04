@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MODEL_ZIP_0_6_1, ZIPPED_AT } from "../golden-0.6.1.test-support.js";
 import { NOT_SCOPE_IDS, SCOPE_IDS } from "../guards.test-support.js";
+import { Failure } from "../progress.js";
 import { resultZip } from "../result-zip.js";
 import { toCsv } from "../zip.js";
 import { parseCsv, sameBytes, unzipText } from "../zip.test-support.js";
@@ -376,6 +377,38 @@ describe("Model export: Model settings grids to tables", () => {
     expect((await run(`${"m".repeat(79)} b`)).zipName).toBe(`${"m".repeat(79)}  - Model Export - 2026-09-28.zip`);
     // A name that is empty or not text is no name: the model's ID stands in.
     for (const name of ["", 42, null, ["Plan"], { name: "Plan" }]) expect((await run(name)).zipName, JSON.stringify(name)).toBe(`${MODEL} - Model Export - 2026-09-28.zip`);
+  });
+
+  it("fails in plain words when nothing could be read or the page's client cannot be used, instead of returning an export without files", async () => {
+    const [WS, MODEL] = ["0123456789abcdef0123456789abcdef", "FEDCBA9876543210FEDCBA9876543210"];
+    vi.stubGlobal("location", { host: "eu2a.app.anaplan.com", pathname: "/core-webapp/anaplan/framework.jsp" });
+    /** How the export ended: the sentence the results page shows and the detail the diagnostic log keeps (progress.ts `Failure`). */
+    const exporting = () => exportModel({ status: () => undefined, log: () => undefined }, () => "")
+      .then(result => result.tables.map(table => table.file), (error: unknown) => (error instanceof Failure ? [error.message, error.detail] : error));
+    const sendLog = "If it keeps happening, choose Copy diagnostic log and send the log.";
+
+    // A model page whose client has none of the grids' axes: no file could be read, so there is no export, and why each
+    // file could not be read is the detail.
+    vi.stubGlobal("window", { workspaceId: WS, modelId: MODEL, require: (_modules: string[], loaded: (...modules: unknown[]) => void) => loaded({}, {}, {}, {}, {}, class {}, class {}, {}) });
+    const reasons = [["Line Items", "MODULE_WITH_LINE_ITEM"], ["Modules", "MODULE_ALL"], ["General Lists", "HIERARCHY"], ["Processes", "ACTION_WITH_HEADING"],
+      ["Exports", "ACTION_WITH_HEADING"], ["Other Actions", "ACTION_WITH_HEADING"], ["Imports", "IMPORT_ALL"], ["Import Data Sources", "IMPORT_DATA_SOURCE"],
+      ["Time Ranges", "TIME_RANGE"], ["Versions", "VERSION_ALL"], ["Source Models", "REMOTE_MODEL"], ["Model Calendar", "TIMESCALE_PROPERTY"]];
+    expect(await exporting()).toEqual([
+      `Cardigan could not read any of this model's settings. Check that the model is open and that you can see its Model settings in Anaplan, then choose Run again. ${sendLog}`,
+      reasons.map(([file, axis]) => `${file}: not exported (This model page has no ${axis} axis.).`).join(" ")]);
+
+    // The page's loader cannot give the client's modules.
+    vi.stubGlobal("window", { workspaceId: WS, modelId: MODEL, require: (_modules: string[], _loaded: unknown, failed: () => void) => failed() });
+    expect(await exporting()).toEqual([`Cardigan could not read this model page. Refresh the Anaplan tab, then click the Cardigan icon again. ${sendLog}`,
+      "the model page's client modules are not available"]);
+
+    // The loader does not answer: the model is still opening. The export waits half a minute for it.
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { workspaceId: WS, modelId: MODEL, require: () => undefined });
+    const waiting = exporting();
+    await vi.advanceTimersByTimeAsync(29_999);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await waiting).toEqual(["The model has not finished opening in the Anaplan tab. Wait until it shows, then choose Run again.", "the model page's client did not load in 30 s"]);
   });
 
   it("exports the Line Items grid with the ratio columns, naming each operand by its line item, not its module", async () => {
