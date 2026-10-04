@@ -10,7 +10,7 @@ import {
   overviewHtml, rowDrawerHtml, rowDrawerSubHtml, runBannerHtml, runHtml, SUN_ICON, tableHtml, tableParts, type Links, type NavEntry, type TableView,
 } from "./markup.js";
 import type { PageId } from "./page-ids.js";
-import { analysedOf, cardSections, detailSections, detailsOf, diagnosticLog, overviewOf } from "./result-view.js";
+import { analysedOf, cardSections, detailSections, detailsOf, diagnosticLog, listedRows, overviewOf, unlistedNote } from "./result-view.js";
 import { cellText, NONE, pageOf, rememberingSelect, rowName, valueCounts, type Row, type Sort, type TableQuery } from "./table-engine.js";
 
 /** The results page (results.html): the design's script, on the real result. It connects to the Anaplan tab the address
@@ -82,7 +82,12 @@ function downloadFile(name: string, data: BlobPart, type: string): void {
 interface Shown {
   /** Its place in the result's tables, which is also its name in the navigation. */
   index: number;
+  /** The file as the result holds it: what a download gives. */
+  file: ResultTable;
+  /** The file as the page lists it: the same, but for the one file whose table leaves rows to the CSV (result-view.ts
+   * `listedRows`), which has only the rows listed, and `unlisted` says how many it leaves. */
   table: ResultTable;
+  unlisted: number;
   columns: Column[];
   keys: RowKeys;
   links: Links;
@@ -115,8 +120,8 @@ let select = rememberingSelect();
 
 const defaultHidden = (columns: readonly Column[]): Set<number> => new Set(columns.filter(column => column.hidden).map(column => column.index));
 const currentEntry = (): Shown | undefined => (typeof state.view === "number" ? shown.get(state.view) : undefined);
-/** The file "Download this table" gives: the table shown, or the Details file on the details view. */
-const currentTable = (): ResultTable | undefined => (state.view === "details" ? details : currentEntry()?.table);
+/** The file "Download this table" gives: the file of the table shown, whole, or the Details file on the details view. */
+const currentTable = (): ResultTable | undefined => (state.view === "details" ? details : currentEntry()?.file);
 
 /* ================= header / theme ================= */
 function currentTheme(): "dark" | "light" {
@@ -181,7 +186,8 @@ function tableView(entry: Shown): TableView {
   entry.page = page.page;
   currentSlice = page.rows;
   return {
-    label: cellText(entry.table.label), columns: entry.columns.filter(column => !entry.hidden.has(column.index)), rows: page.rows,
+    label: cellText(entry.table.label), note: entry.unlisted ? unlistedNote(entry.unlisted) : undefined,
+    columns: entry.columns.filter(column => !entry.hidden.has(column.index)), rows: page.rows,
     page: page.page, pages: page.pages, pageSize: state.pageSize, from: page.from, to: page.to, total: page.total, all: entry.table.rows.length,
     search: state.search, sort: entry.sort, filtered: new Set(entry.filters.keys()), context: state.context, links: entry.links,
   };
@@ -260,13 +266,16 @@ function showResult(next: AnalysisResult, at: Date): void {
   details = detailsOf(next);
   cards = cardsOf(next);
   shown = new Map();
-  next.tables.forEach((table, index) => {
-    if (table === details) return;
+  next.tables.forEach((file, index) => {
+    if (file === details) return;
+    // What the page counts, filters and searches is the table as it lists it: the columns' filters follow its rows too.
+    const { rows, unlisted } = listedRows(next, file);
+    const table = unlisted ? { ...file, rows } : file;
     const columns = columnsOf(table);
     const keys = rowKeys(table);
     const page = cards !== undefined && keys.page !== undefined;
     shown.set(index, {
-      index, table, columns, keys, links: { page, card: page && keys.cardId !== undefined },
+      index, file, table, unlisted, columns, keys, links: { page, card: page && keys.cardId !== undefined },
       filters: new Map(), hidden: defaultHidden(columns), sort: undefined, page: 0,
     });
   });
@@ -475,7 +484,7 @@ function closeDrawer(): void {
   state.lastFocus = null;
 }
 /** Any row, in full. Its heading is the row's own name; the line under it says which row of which table it is, by its
- * place in the file, which a search, a filter or a sort does not change. */
+ * place among the rows the table lists, which a search, a filter or a sort does not change. */
 function openRowDrawer(entry: Shown, row: Row, opener: Element): void {
   drawerRow = { entry, row };
   const position = entry.table.rows.findIndex(candidate => candidate === row) + 1;

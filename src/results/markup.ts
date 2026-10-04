@@ -142,6 +142,11 @@ export function overviewHtml(overview: Overview): string {
             <div class="m-sub">Workspace: ${esc(model.workspace)}</div>
           </div>`).join("")}
       </section>` : "";
+  // A model's own facts, as its Model Calendar file holds them: the list a row's drawer uses, in a panel.
+  const facts = overview.facts.length ? `
+      <section class="panel" aria-labelledby="ovf"><h2 id="ovf">Model</h2>
+        <dl class="d-dl">${overview.facts.map(([setting, value]) => `<dt>${esc(setting)}</dt><dd>${esc(value)}</dd>`).join("")}</dl>
+      </section>` : "";
   // The design's Warnings panel, without its coloured dots: a note has no severity.
   const notes = overview.notes.length ? `
     <section class="panel" aria-labelledby="ovn" style="margin-bottom:12px"><h2 id="ovn">Notes</h2>
@@ -153,8 +158,8 @@ export function overviewHtml(overview: Overview): string {
     <h1 class="view-title">Overview</h1>
     <div class="ov-grid">
       ${overview.tiles.map(tile => `<div class="stat"><div class="s-lab">${esc(tile.label)}</div><div class="s-num">${esc(tile.count)}</div><div class="s-sub">${tile.count === 1 ? "row" : "rows"}</div></div>`).join("")}
-    </div>${types || models ? `
-    <div class="ov-cols">${types}${models}
+    </div>${types || models || facts ? `
+    <div class="ov-cols">${types}${models}${facts}
     </div>` : ""}${notes}`;
 }
 
@@ -210,6 +215,8 @@ export function runBannerHtml(): string {
 
 export interface TableView {
   label: string;
+  /** A line under the table's name, for a table that does not list every row of its file. */
+  note: string | undefined;
   /** The columns shown, in the table's order. */
   columns: readonly Column[];
   /** The rows of the page shown. */
@@ -316,8 +323,11 @@ export function tableParts(view: TableView): TableParts {
 export function tableHtml(view: TableView): string {
   const label = esc(view.label);
   const parts = tableParts(view);
+  // The line under the name has no style of its own in the stylesheet yet: it is written as the design's small muted text.
+  const note = view.note === undefined ? "" : `
+    <p class="view-note" style="font-size:12px;color:var(--text-2);margin:-6px 0 12px">${esc(view.note)}</p>`;
   return `
-    <h1 class="view-title">${label}</h1>
+    <h1 class="view-title">${label}</h1>${note}
     <div class="toolbar">
       <div class="search-wrap ${view.search ? "has-value" : ""}" id="searchWrap">
         <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">${SEARCH_PATH}</svg>
