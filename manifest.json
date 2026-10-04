@@ -22,6 +22,9 @@
   "background": {
     "service_worker": "dist/background.js"
   },
+  "content_security_policy": {
+    "extension_pages": "default-src 'none'; script-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; img-src 'self'; base-uri 'none'; form-action 'none'"
+  },
   "content_scripts": [
     {
       "matches": ["https://*.app.anaplan.com/*", "https://*.app2.anaplan.com/*"],
