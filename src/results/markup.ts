@@ -138,13 +138,34 @@ export function crumbsHtml(label: string | undefined, context: string | undefine
 /** Details beside their values, as the design's details list holds them. */
 const detailRows = (rows: readonly (readonly [detail: string, value: string])[]): string => rows.map(([detail, value]) => `<dt>${esc(detail)}</dt><dd>${esc(value)}</dd>`).join("");
 
+/** What the page keeps of the result on it for a refresh of the page (keep-result.ts), as the overview says it: "kept"
+ * while a copy is kept for the tab, "forgotten" once the user has had that copy removed, and "none" otherwise: before the
+ * result is kept, and for one that could not be kept. */
+export type KeptCopy = "none" | "kept" | "forgotten";
+
+const KEPT_LINE = "A copy of this result is kept for a refresh of this page.";
+/** What the overview says once the kept copy is removed. The page says it through its live region as well. */
+export const FORGOTTEN_LINE = "The copy kept for refreshes is removed. This result stays here until you refresh or close this page.";
+
+/** What stands in the overview's place for the kept copy (`#ovKept`). While a copy is kept: a line that says so, and the
+ * button that forgets it, which the line describes. Once it is forgotten: the line that says so, which takes the focus the
+ * button had. Otherwise nothing at all, so that the place is empty and takes no room. Every word is the page's own: the
+ * place holds nothing of a result. */
+export function keptCopyHtml(copy: KeptCopy): string {
+  if (copy === "kept") {
+    return `<span id="keptLine">${esc(KEPT_LINE)}</span><button type="button" class="btn sm" data-act="forget" aria-describedby="keptLine">Forget this result</button>`;
+  }
+  return copy === "forgotten" ? `<span id="keptLine" tabindex="-1">${esc(FORGOTTEN_LINE)}</span>` : "";
+}
+
 /** The overview: everything about the run in one view. Under the tiles, what someone checks first: what was read and when,
- * then the notes, and for an app its cards by type and its models. After those, what is looked up now and then: files
- * that say more than their tile, and two sections that start closed, how to read the files and the diagnostic log.
+ * with what the page keeps of the result for a refresh (`copy`) close under it, then the notes, and for an app its cards
+ * by type and its models. After those, what is looked up now and then: files that say more than their tile, and two
+ * sections that start closed, how to read the files and the diagnostic log.
  *
  * A view's heading is the page's h1, so what stands under it is an h2, also inside a section that starts closed. The
  * drawer's heading is an h2 of the page shell, and its sections are h3. No view goes from one level to one two below it. */
-export function overviewHtml(overview: Overview): string {
+export function overviewHtml(overview: Overview, copy: KeptCopy = "none"): string {
   const most = overview.cardTypes.reduce((max, [, count]) => Math.max(max, count), 1);
   const types = overview.cardTypes.length ? `
       <section class="panel" aria-labelledby="ovt"><h2 id="ovt">Cards by type</h2>
@@ -196,7 +217,8 @@ export function overviewHtml(overview: Overview): string {
       ${overview.tiles.map(tile => `<div class="stat"><div class="s-lab">${esc(tile.label)}</div><div class="s-num">${esc(tile.count)}</div><div class="s-sub">${tile.count === 1 ? "row" : "rows"}</div>${
         // A table that leaves rows to the CSV: the tile counts the rows listed, and says how many the file has.
         tile.inCsv === undefined ? "" : `<div class="s-sub">${esc(tile.inCsv)} ${tile.inCsv === 1 ? "row" : "rows"} in the CSV</div>`}</div>`).join("")}
-    </div>${about}${notes}${types || models ? `
+    </div>${about}
+    <p class="ov-kept" id="ovKept">${keptCopyHtml(copy)}</p>${notes}${types || models ? `
     <div class="ov-cols">${types}${models}
     </div>` : ""}${files}${howToRead}${log}`;
 }
