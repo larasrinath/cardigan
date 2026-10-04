@@ -310,7 +310,9 @@ export function tableParts(view: TableView): TableParts {
   };
 }
 
-/** A table view whole: its name, its toolbar with the search box, and the parts above in their places. */
+/** A table view whole: its name, its toolbar, and the table's box under it, with the parts above in their places. The
+ * toolbar holds the search box and the Columns and Reset buttons, and at its right end the count and then the pager, which
+ * is its last child: nothing stands under the table. */
 export function tableHtml(view: TableView): string {
   const label = esc(view.label);
   const parts = tableParts(view);
@@ -329,11 +331,11 @@ export function tableHtml(view: TableView): string {
         Columns</button>
       <button type="button" class="btn sm" data-act="reset" id="resetBtn" ${parts.modified ? "" : "hidden"}>Reset</button>
       <span class="rowcount" id="rowCount">${esc(parts.count)}</span>
+      <div class="pager" id="pager">${parts.pager}</div>
     </div>
     <div class="table-wrap" id="tableWrap" tabindex="0" role="region" aria-label="${label} table">
       ${parts.grid}
-    </div>
-    <div class="pager" id="pager">${parts.pager}</div>`;
+    </div>`;
 }
 
 /* ---------- popovers ---------- */

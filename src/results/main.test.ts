@@ -1211,6 +1211,29 @@ describe("What a click, a key and typing do on the results page", () => {
     expect(page.id("pageSize").value).toBe("100");
   });
 
+  it("keeps the pager in the toolbar above the table, after the count, through every draw; nothing stands under the table", async () => {
+    await openWith(MODEL);
+    goTo(1);
+    /** What the view holds, in order, and what the toolbar holds: each element by its ID, or its kind. */
+    const places = () => [page.id("view").children.map(child => child.id || child.localName), page.find(".toolbar").children.map(child => child.id)];
+    const expected = [["h1", "div", "tableWrap"], ["searchWrap", "colBtn", "resetBtn", "rowCount", "pager"]];
+    expect(places()).toEqual(expected);
+    expect([page.id("rowCount").textContent, pagerButtons().join(" "), page.id("pager").contains(page.id("pageSize")), page.id("pageSize").value]).toEqual(["1–50 of 120 rows", "(‹) [1] 2 3 ›", true, "50"]);
+    // A page turn, another number of rows per page and a search draw the pager again, where it stands.
+    const pager = page.id("pager");
+    page.find('.pg-btn[aria-label="Next page"]').press();
+    page.id("pageSize").choose("25");
+    page.id("tblSearch").type("item 1");
+    expect([places(), page.id("pager") === pager, page.id("rowCount").textContent, pagerButtons().join(" ")]).toEqual([expected, true, "1–25 of 32 rows (filtered from 120)", "(‹) [1] 2 ›"]);
+    // A table of one page has its count, its one page and the list of page sizes there as well.
+    goTo(2);
+    expect([places(), page.id("rowCount").textContent, pagerButtons().join(" "), page.id("pager").contains(page.id("pageSize")), page.id("pageSize").value])
+      .toEqual([expected, "1–2 of 2 rows", "(‹) [1] (›)", true, "25"]);
+    // With no row to show, the count says so and the pager is there, empty.
+    page.id("tblSearch").type("no such module");
+    expect([places(), page.id("rowCount").textContent, page.id("pager").children]).toEqual([expected, "No rows (filtered from 2)", []]);
+  });
+
   it("takes the slash key to the search box, and leaves a slash that is typed into a box alone", async () => {
     await openWith(APP);
     // The overview has no search box: the key is left to the browser.
