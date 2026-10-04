@@ -1,7 +1,7 @@
 import type { AnalysisResult, Cell, ResultTable } from "../result-types.js";
 import { APP_FILES, cardsNamed, columnIndex, type CardsTable } from "./columns.js";
 import { LINE_ITEMS_FILE, lineItemsView } from "./line-items-view.js";
-import { READABLE_HEADERS, readableCell } from "./readable-cells.js";
+import { READABLE_HEADERS, readableCell, type CellNames } from "./readable-cells.js";
 import { cellText, compareText, NONE, type Row } from "./table-engine.js";
 
 /** What the results page reads out of a result besides its tables: the Details file's sections, the diagnostic log, and
@@ -169,22 +169,31 @@ const ruledView = (result: AnalysisResult, file: ResultTable): FileView => FILE_
 /** The Line Items file's columns that name what a Ratio summary divides (model/lineitems.ts adds them to the grid's own). */
 const RATIO_NUMERATOR = "Ratio Numerator";
 const RATIO_DENOMINATOR = "Ratio Denominator";
+/** The Line Items file's column that names the list of a line item formatted as a list (model/lineitems.ts adds it after
+ * those two). It is empty for a list the export could not name. */
+const FORMAT_LIST = "Format List";
 
 /** A model's table with its definitions said in words. Some cells of a model's grids hold a definition as JSON, because
  * Anaplan's own export of the grid writes that: a line item's Format and its Summary, an action's definition. The words
  * for such a cell (readable-cells.ts) take its place in the table, so the page searches, filters and sorts by them, and
  * `exported` keeps the text the CSV has. A cell the words are not known for stays as it is, and a row without such a cell
- * is the table's own row. A Ratio is said with the names in its own row's Ratio Numerator and Ratio Denominator cells; a
- * list is said by its ID, since a result holds no names of lists by their IDs. */
+ * is the table's own row. A Ratio is said with the names in its own row's Ratio Numerator and Ratio Denominator cells. A
+ * line item's list format is said with the name in its own row's Format List cell, and by the list's ID where that cell
+ * is empty or the file has no such column. A result holds no names of lists by their IDs, so any other list is said by
+ * its ID. */
 function inWords(view: FileView): FileView {
   const { table } = view;
   const readable = table.headers.flatMap((header, index) => (READABLE_HEADERS.some(known => known === header) ? [index] : []));
   if (!readable.length) return view;
   const numerator = columnIndex(table, RATIO_NUMERATOR);
   const denominator = columnIndex(table, RATIO_DENOMINATOR);
+  const formatList = table.file === LINE_ITEMS_FILE ? columnIndex(table, FORMAT_LIST) : undefined;
   const exported = new Map<readonly Cell[], Map<number, Cell>>();
   const rows = table.rows.map(row => {
-    const names = { ratioNumerator: numerator === undefined ? undefined : cellText(row[numerator]), ratioDenominator: denominator === undefined ? undefined : cellText(row[denominator]) };
+    // The row's Format is the one cell of it that names a list, so the name is given whatever ID is asked for.
+    const list = formatList === undefined ? "" : cellText(row[formatList]);
+    const names: CellNames = { ratioNumerator: numerator === undefined ? undefined : cellText(row[numerator]), ratioDenominator: denominator === undefined ? undefined : cellText(row[denominator]),
+      listName: list === "" ? undefined : () => list };
     let said: Cell[] | undefined;
     const texts = new Map<number, Cell>();
     for (const index of readable) {

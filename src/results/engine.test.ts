@@ -245,6 +245,33 @@ describe("The results page against the engine in the Anaplan tab", () => {
     expect(cells("Exports.csv", "Action")).toEqual([['{"exportType":"GRID_CURRENT_PAGE"}'], ['{"exportType":"GRID_CURRENT_PAGE"}']]);
   });
 
+  it("says a line item's list format with the name the export wrote beside it, from the model's General Lists", async () => {
+    const list = (id: number): string => JSON.stringify({ hierarchyEntityLongId: id, entityFormatFilter: null, selectiveAccessApplied: false, showAll: false, dataType: "ENTITY" });
+    // The golden model with a Format column: a line item formatted as each of its two general lists, one as a list subset.
+    const rows = [{ ids: [102000000001, -1], labels: ["Profitability", null], cells: ["", "", "Products, Time", ""] },
+      { ids: [1901000000001, 102000000001], labels: ["Product", "Profitability"], cells: [list(101000000001), '{"summaryMethod":"NONE"}', "-", "Profitability"] },
+      { ids: [1901000000002, 102000000001], labels: ["Region", "Profitability"], cells: [list(101000000002), '{"summaryMethod":"NONE"}', "-", "Profitability"] },
+      { ids: [1901000000003, 102000000001], labels: ["Active product", "Profitability"], cells: [list(109000000001), '{"summaryMethod":"NONE"}', "-", "Profitability"] }];
+    const settings = showModel(modelPage({ ...GOLDEN_GRIDS, [LINE_ITEMS]: { columns: ["Format", "Summary", "Applies To", "Module Name"], rows } }));
+    const page = resultsPage(tab);
+    await until(done(page), "the result");
+    expectEngineResult(page, runs[0]);
+    // The names came from the General Lists grid, read once and after Line Items: no grid is read for them.
+    expect(settings.reads).toEqual(["LINE ITEMS 0+1", "LINE ITEMS 0+4", "MODULES 0+1", "MODULES 0+2", "LISTS 0+1", "LISTS 0+2", "ACTIONS 0+1", "ACTIONS 0+10", "IMPORTS 0+1", "IMPORTS 0+2",
+      "DATA SOURCES 0+1", "TIME RANGES 0+1", "VERSIONS 0+1", "VERSIONS 0+2", "CALENDAR 0+1", "CALENDAR 0+10"]);
+    const { result } = page.held();
+    const file = result.tables.find(table => table.file === "Line Items.csv");
+    if (!file) throw new Error("The export wrote no Line Items.csv.");
+    // The file holds the Format as Anaplan writes it, and the list's name in its last column. A list subset is not named.
+    expect([file.headers, file.rows.map(row => [row[0], row[1], row.at(-1)])]).toEqual([["", "Format", "Summary", "Applies To", "Module Name", "Ratio Numerator", "Ratio Denominator", "Format List"],
+      [["Profitability", "", ""], ["Product", list(101000000001), "Products"], ["Region", list(101000000002), "+ Regions"], ["Active product", list(109000000001), ""]]]);
+    // The page says the format with that name, and with the list's ID where the file has none. The column is in its table.
+    const shown = fileView(result, file).table;
+    expect([shown.headers, shown.rows.map(row => [row[0], row[2], row.at(-1)])]).toEqual([
+      ["", "Module Name", "Format", "Summary", "Applies To", "Applies To from", "Ratio Numerator", "Ratio Denominator", "Format List"],
+      [["Product", "List: Products", "Products"], ["Region", "List: + Regions", "+ Regions"], ["Active product", "List: ID 109000000001", ""]]]);
+  });
+
   it("takes a model's line items, 5,000 rows of 27 columns, in the pieces the engine sends them in", async () => {
     const columns = ["Formula", "Summary", ...Array.from({ length: 21 }, (_, index) => `Property ${index + 1}`)];
     const rows = Array.from({ length: 5000 }, (_, index) => ({ ids: [1901000000000 + index, 102000000001], labels: [`Line item ${index}`, "Profitability"],
