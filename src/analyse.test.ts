@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { UxPageCardDetails } from "./card-reader/card-types.js";
 import { analyseApp, DETAILS_FILE, loadCatalog, TAB_FILES } from "./analyse.js";
-import { APP_ZIP_0_6_1, ZIPPED_AT } from "./golden-0.6.1.test-support.js";
+import { APP_ROW_REWORDED, APP_ZIP_0_6_1, APP_ZIP_REWORDED, ZIPPED_AT } from "./golden-0.6.1.test-support.js";
 import { ANAPLAN_HOSTS, NOT_SCOPE_IDS, OTHER_HOSTS, SCOPE_IDS } from "./guards.test-support.js";
 import { assemble } from "./pieces.test-support.js";
 import { Failure } from "./progress.js";
@@ -12,8 +12,8 @@ import { resultZip } from "./result-zip.js";
 import { decodeFrames, type StompFrame } from "./stomp.js";
 import { serveTab } from "./tab-port.js";
 import { EXTENSION, FakePort } from "./tab-port.test-support.js";
-import { toCsv } from "./zip.js";
-import { parseCsv, sameBytes, unzipText } from "./zip.test-support.js";
+import { toCsv, zipStore } from "./zip.js";
+import { parseCsv, sameBytes, unzipText, zipEntries } from "./zip.test-support.js";
 
 // Synthetic IDs only. The flow replays the first live run (28 Sep 2026): the model status stays UNKNOWN, and the first
 // host answers REDIRECTION_REQUIRED naming the host the model lives on.
@@ -1199,14 +1199,29 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     expect([(noApp as Failure).message, (noApp as Failure).detail]).toEqual(["Open an app first: the address has no app ID.", undefined]);
   });
 
-  it("writes the zip 0.6.1 wrote for the same app, byte for byte, and returns each file as a table", async () => {
+  it("writes the zip 0.6.1 wrote for the same app, byte for byte but for one reworded row of App Details.csv, and returns each file as a table", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date(Date.UTC(2026, 8, 28, 12, 30, 10)));
     const result = await analyseGoldenApp();
     const zip = resultZip(result, ZIPPED_AT);
-    // File by file first, so a difference shows as text; then every byte of the zip.
-    expect(unzipText(zip)).toEqual(unzipText(APP_ZIP_0_6_1));
-    expect(sameBytes(zip, APP_ZIP_0_6_1)).toBe(true);
+    // One row of App Details.csv is deliberately not what 0.6.1 wrote: the "How to read" row on a filter's context, which now
+    // says how the items of a filter are shown (APP_ROW_REWORDED; the two other known differences, the build's name in the
+    // "Exported with" row and in the first Diagnostics line, do not show here). Everything else is what 0.6.1 wrote, byte
+    // for byte.
+    // File by file first, so that a difference shows as text: 0.6.1's files in their order, each with its text, and of
+    // App Details.csv every line but that one, which stood there once.
+    const [written, before] = [unzipText(zip), unzipText(APP_ZIP_0_6_1)];
+    expect([...written.keys()]).toEqual([...before.keys()]);
+    const lines = before.get(DETAILS_FILE)!.split(APP_ROW_REWORDED.was);
+    expect(lines).toHaveLength(2);
+    for (const [file, text] of before) expect(written.get(file), file).toBe(file === DETAILS_FILE ? lines.join(APP_ROW_REWORDED.now) : text);
+    // Then every byte. Of the eight files, only App Details.csv has other bytes than 0.6.1's.
+    const [files, golden] = [zipEntries(zip), zipEntries(APP_ZIP_0_6_1)];
+    expect(files.filter((file, index) => !sameBytes(file.data, golden[index].data)).map(file => file.name)).toEqual([DETAILS_FILE]);
+    // The zip around the files is written as 0.6.1 wrote it: from 0.6.1's own files, it is 0.6.1's zip.
+    expect(sameBytes(zipStore(golden, ZIPPED_AT), APP_ZIP_0_6_1)).toBe(true);
+    // So this run's zip is, byte for byte, 0.6.1's zip with that one row reworded.
+    expect(sameBytes(zip, APP_ZIP_REWORDED)).toBe(true);
 
     expect([result.kind, result.name, result.id, result.zipName]).toEqual(["app", "Planning: app", GOLDEN_APP, "Planning app - App Export - 2026-09-28.zip"]);
     expect(result.summary).toEqual(["1 of 1 pages analysed; 1 unpublished, not analysed, 3 cards."]);
@@ -1227,7 +1242,7 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     // Plain data: the tables are the same after the trip to the results page as JSON, and so is the zip.
     const received = JSON.parse(JSON.stringify(result)) as typeof result;
     expect(received).toEqual(result);
-    expect(sameBytes(resultZip(received, ZIPPED_AT), APP_ZIP_0_6_1)).toBe(true);
+    expect(sameBytes(resultZip(received, ZIPPED_AT), APP_ZIP_REWORDED)).toBe(true);
   });
 
   it("writes the names of a filter rule's items where the model gives them, and their IDs as before where it does not", async () => {
