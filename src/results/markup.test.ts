@@ -295,6 +295,14 @@ describe("The results page's escaping", () => {
     const columns = (text: Texts) => KINDS.map((kind, index) => column(index, text(index), kind));
     const row = (text: Texts): Cell[] => KINDS.map((_, index) => text(index + 2));
     expectInert(text => rowDrawerHtml(columns(text), row(text), LINKS), 7);
+    // With the CSV's text for the cells said in words, under each kind of column; and each of the texts in turn as such a
+    // text: it stands there as it was typed, and changes nothing else.
+    expectInert(text => rowDrawerHtml(columns(text), row(text), LINKS, new Map(KINDS.map((_, index) => [index, text(index + 4)]))), 7);
+    const withText = (exported: string) => rowDrawerHtml(columns(harmless), row(harmless), NO_LINKS, new Map([[1, exported]]));
+    for (const entry of HOSTILE) {
+      expect(structure(withText(entry)), entry).toEqual(structure(withText("a harmless text")));
+      expect(shownValues(withText(entry)), entry).toContain(entry);
+    }
     // The line under a row's name says which row of which table, and is nothing but text whatever the table's name holds.
     for (const [index, name] of HOSTILE.entries()) {
       expectInert(text => rowDrawerSubHtml(41, text(index)), 0);
