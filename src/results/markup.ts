@@ -188,7 +188,9 @@ export function overviewHtml(overview: Overview): string {
   return `
     <h1 class="view-title">Overview</h1>
     <div class="ov-grid">
-      ${overview.tiles.map(tile => `<div class="stat"><div class="s-lab">${esc(tile.label)}</div><div class="s-num">${esc(tile.count)}</div><div class="s-sub">${tile.count === 1 ? "row" : "rows"}</div></div>`).join("")}
+      ${overview.tiles.map(tile => `<div class="stat"><div class="s-lab">${esc(tile.label)}</div><div class="s-num">${esc(tile.count)}</div><div class="s-sub">${tile.count === 1 ? "row" : "rows"}</div>${
+        // A table that leaves rows to the CSV: the tile counts the rows listed, and says how many the file has.
+        tile.inCsv === undefined ? "" : `<div class="s-sub">${esc(tile.inCsv)} ${tile.inCsv === 1 ? "row" : "rows"} in the CSV</div>`}</div>`).join("")}
     </div>${about}${notes}${types || models ? `
     <div class="ov-cols">${types}${models}
     </div>` : ""}${files}${howToRead}${log}`;

@@ -11,7 +11,7 @@ import { APP_FILES } from "./columns.js";
 import { describeState, ResultsClient, type RunState } from "./connection.js";
 import { APP_HOST, GOLDEN_APP, GOLDEN_GRIDS, goldenApp, LINE_ITEMS, MODEL, MODEL_HOST, modelPage, serveEngine, SHELL_HOST, type EngineRun } from "./engine.test-support.js";
 import { FakeTab, MESSAGE_MAX_BYTES, NOBODY, TOO_LARGE, type PortEnd } from "./port-pair.test-support.js";
-import { detailsOf, diagnosticLog, fileView, listedTables, MODEL_CALENDAR_FILE, MODEL_FILE_ORDER, modelFacts } from "./result-view.js";
+import { detailsOf, diagnosticLog, fileView, listedTables, MODEL_CALENDAR_FILE, MODEL_FILE_ORDER, modelFacts, overviewOf } from "./result-view.js";
 
 // The results page's client against the engine: the content script's real side of the port around the real analysis of an
 // app and the real export of a model in its frame, joined to the page by ports that pass messages as Chrome's do. What
@@ -208,6 +208,12 @@ describe("The results page against the engine in the Anaplan tab", () => {
     const calendar = result.tables.find(table => table.file === MODEL_CALENDAR_FILE);
     expect([calendar?.rows.length, calendar && fileView(result, calendar).note, calendar && fileView(result, calendar).table.rows.length, modelFacts(result)])
       .toEqual([31, "5 rows about the model are in the CSV only.", 26, [["Workspace", "Workspace one"], ["Model", "Demand: plan"], ["Captured on", "2026-09-28"]]]);
+    // The overview loses none of the counts the export's Details file gives. Each row that only counts a file is said by
+    // the file's tile: as the rows its table lists, or, for the calendar, whose table lists 26 of its 31, as the CSV's rows.
+    const overview = overviewOf(result);
+    const counts = (detailsOf(result)?.rows ?? []).filter(row => row[0] === "Files" && /^\d+ rows$/.test(String(row[2]))).map(row => `${String(row[1]).replace(/\.csv$/, "")}: ${row[2]}`);
+    const onTiles = overview.tiles.flatMap(tile => [tile.count, ...(tile.inCsv === undefined ? [] : [tile.inCsv])].map(rows => `${tile.label}: ${rows} rows`));
+    expect([counts.length, counts.filter(line => !onTiles.includes(line)), overview.tiles.find(tile => tile.label === "Model Calendar")]).toEqual([10, [], { label: "Model Calendar", count: 26, inCsv: 31 }]);
     // The page orders a model's files by their names. Every file the export knows, written or not (its Details file names
     // each one), is in that order; the one name in the order that the export does not know yet is Line Item Subsets.
     const known = (detailsOf(result)?.rows ?? []).filter(row => row[0] === "Files").map(row => String(row[1]));

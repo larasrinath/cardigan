@@ -51,7 +51,8 @@ export function detailValue(details: ResultTable | undefined, section: string, d
 
 /** The result's notes, one line each: its summary lines, then the Details file's Notes rows as "Detail: Value". A Notes row
  * whose text the summary already holds, word for word, is not said twice. A line that says only how many rows a file has
- * ("Line Items: 120 rows", as a model's summary lists every file) is left out: the overview's tiles say that. */
+ * ("Line Items: 120 rows", as a model's summary lists every file) is left out: the file's tile on the overview says that
+ * number, also where its table lists fewer rows than the file has (`Overview.tiles`). */
 export function resultNotes(result: AnalysisResult): string[] {
   const rowCounts = new Set(result.tables.flatMap(table => ["rows", "row"].map(word => `${cellText(table.label)}: ${table.rows.length} ${word}`)));
   const summary = result.summary.map(cellText).filter(line => line !== "");
@@ -268,8 +269,10 @@ const TILE_LABELS: ReadonlyMap<string, string> = new Map([
 
 export interface ModelRow { model: string; workspace: string; modelId: string }
 export interface Overview {
-  /** Every file but the Details file, in the navigation's order (`listedTables`), with the number of rows its table lists. */
-  tiles: { label: string; count: number }[];
+  /** Every file but the Details file, in the navigation's order (`listedTables`), with the number of rows its table lists.
+   * Where that is not the number of rows the file has, because its table leaves rows to the CSV, `inCsv` is the file's own
+   * number: the tile says both, so the count the Details file gives for the file is on the overview either way. */
+  tiles: { label: string; count: number; inCsv?: number }[];
   /** An app's cards by the text of their Card type, most first. */
   cardTypes: [type: string, count: number][];
   /** An app's models: each different Model, Workspace and Model ID its pages name, in the pages' order. */
@@ -281,7 +284,8 @@ export interface Overview {
    * rows have said already. */
   about: [detail: string, value: string][];
   /** The Details file's rows about files, as far as a file's tile does not say the same: a file that was not exported,
-   * and a count that comes with a remark. A row that says only how many rows a file of the result has is left to the tile. */
+   * and a count that comes with a remark. A row that says only how many rows a file of the result has is left to the tile,
+   * which says that very number: as its count, or as the rows the CSV has where its table lists another number. */
   files: [file: string, value: string][];
   /** How to read these files: the Details file's rows of that section. */
   howToRead: [detail: string, value: string][];
@@ -290,8 +294,12 @@ export interface Overview {
 }
 
 export function overviewOf(result: AnalysisResult): Overview {
-  // A tile counts the rows the file's table lists. The words change no row, so the count needs the file's rule only.
-  const tiles = listedTables(result).map(({ table }) => ({ label: TILE_LABELS.get(table.file) ?? cellText(table.label), count: ruledView(result, table).table.rows.length }));
+  // A tile counts the rows the file's table lists, and says the file's own number beside it where the two differ. The
+  // words change no row, so the count needs the file's rule only.
+  const tiles = listedTables(result).map(({ table }) => {
+    const count = ruledView(result, table).table.rows.length;
+    return { label: TILE_LABELS.get(table.file) ?? cellText(table.label), count, ...(count === table.rows.length ? {} : { inCsv: table.rows.length }) };
+  });
 
   const counts = new Map<string, number>();
   const cards = result.tables.find(table => table.file === APP_FILES.Cards);
@@ -321,7 +329,8 @@ export function overviewOf(result: AnalysisResult): Overview {
   for (const fact of modelFacts(result)) {
     if (!about.some(([detail, value]) => detail === fact[0] && value === fact[1])) about.push(fact);
   }
-  // The Details file says "1 rows" too: a count is the file's number of rows and the word, whatever the number.
+  // A Files row that says only the file's own number of rows is said by the file's tile. The Details file says "1 rows"
+  // too: a count is the file's number of rows and the word, whatever the number.
   const onlyCounted = new Map(result.tables.map(table => [table.file, `${table.rows.length} rows`]));
   const files = rowsOf(FILES).filter(([file, value]) => onlyCounted.get(file) !== value);
   return { tiles, cardTypes, models: [...models.values()], notes: resultNotes(result), about, files, howToRead: rowsOf(HOW_TO_READ), log: diagnosticLog(detailsOf(result)) };
