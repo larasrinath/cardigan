@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.1 (4 October 2026)
+
+Two additions to 0.7.0. Version 0.7.0 was merged but not published, so 0.7.1 is the first release with the results page.
+
+- **A new column in `Line Items.csv`.** A model's `Line Items.csv` has one more column, after **Ratio Denominator**: **Format List**. For a line item formatted as a list it holds the list's name, as `General Lists.csv` names it; the Format cell gives the list only by its ID. It is empty for any other format, for a list that is not a row of General Lists, such as a list subset or a line item subset, and when General Lists could not be read. No read is added for it: the names come from the General Lists grid the export already reads. The results page says such a format with the name, as "List: Products", and with the list's ID where the column is empty. The file's other columns hold what 0.7.0 wrote. In `Model Details.csv` the **How to read** row about Line Items now says what each of the three added columns holds; the model's other files are unchanged.
+- **Forget this result.** On the Overview, under what was analysed, a line says that a copy of the result is kept for a refresh of the page, with **Forget this result** beside it. It removes the kept copy at once; the result stays on the page, with its downloads, until the page is refreshed or closed. The control shows only while a copy is kept, and comes back when **Run again** keeps a new result. [NOTICE.md](NOTICE.md) says where the copy is kept.
+- **Line Items without a Modules file.** When a model's Modules file was not exported, or lists no modules, the line under the Line Items table says so: a row with only a name is then taken for a module's row.
+- **What stays the same.** An app's files are, byte for byte, what 0.7.0 writes, and so are a model's apart from the column and the row above. Nothing new is read from Anaplan, and the manifest is unchanged apart from the version.
+
 ## 0.7.0 (4 October 2026)
 
 The results now open on a page of their own, and nothing is added to Anaplan's pages.

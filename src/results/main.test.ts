@@ -7,6 +7,7 @@ import { resultZip, tableCsv } from "../result-zip.js";
 import { FakeElement, FakeInput, FakePage, FakeSelect } from "./dom.test-support.js";
 import { analysedLine, NOT_KEPT_NOTE, TOO_LARGE_NOTE } from "./keep-notes.js";
 import { KEPT_PREFIX, ResultKeeper, type KeptStorage } from "./keep-result.js";
+import { FORGOTTEN_LINE } from "./markup.js";
 
 /** The page as it is packaged: the script runs on results.html itself, read by the stand-in page. */
 const SHELL = readFileSync(new URL(`../../${RESULTS_PAGE}`, import.meta.url), "utf8");
@@ -2591,5 +2592,269 @@ describe("A result kept while the results page is refreshed", () => {
     await open(refreshed);
     await pass(30);
     expect([page.id("runTitle").textContent, page.has("#noteBanner"), session.held.size]).toEqual(["Connecting", false, 0]);
+  });
+
+  /* ---------- forgetting the kept result ---------- */
+
+  /** The overview's place for what the tab keeps of the result, element by element: each one's ID, or what a click on it
+   * does, and its text. Nothing on a view that has no such place. */
+  const keptPlace = () => (page.has("#ovKept") ? page.id("ovKept").children.map(child => [child.id || child.dataset.act, child.textContent]) : undefined);
+  const KEPT = [["keptLine", "A copy of this result is kept for a refresh of this page."], ["forget", "Forget this result"]];
+  const FORGOTTEN = [["keptLine", FORGOTTEN_LINE]];
+  /** The control that forgets the kept result, once the overview offers it. */
+  const offered = async () => {
+    await eventually(() => page.has('#ovKept [data-act="forget"]'), "the control that forgets the kept result");
+    return page.find('#ovKept [data-act="forget"]');
+  };
+  const toOverview = () => page.find('#navList [data-nav="overview"]').press();
+
+  it("offers Forget this result on the overview once a copy is kept, and not before: neither without a result nor while the result is still being kept", async () => {
+    await open(clicked(42));
+    // Before any result the page has its waiting view, and that has no such control.
+    expect([page.texts("#view h1"), page.has("#ovKept"), page.has('[data-act="forget"]')]).toEqual([["Connecting"], false, false]);
+    ports[0].send({ type: "subject", subject: { kind: "app", id: APP.id } });
+    expect([page.texts("#view h1"), page.has('[data-act="forget"]')]).toEqual([["Analysing"], false]);
+    sendResult(ports[0], APP);
+    // The result is on the page, and nothing of it is kept yet: the overview has the place, which holds nothing.
+    expect([page.texts("#view h1"), keptPlace(), page.id("ovKept").textContent, session.held.size]).toEqual([["Overview"], [], "", 0]);
+    // Meanwhile Diagnostics is opened, from the keyboard.
+    const summary = page.find("#ovLog summary");
+    summary.focus();
+    page.document.activeElement.press();
+    await pass(30);
+    expect([keptPlace(), session.held.size, page.find("#ovLog").hasAttribute("open")]).toEqual([[], 0, true]);
+
+    await letKeep();
+    const control = await offered();
+    // Kept: under the details of the export a line says so, and beside it stands the control, a button the Tab key reaches.
+    const parts = page.id("view").children.map(part => part.id);
+    expect([keptPlace(), kept(), parts.indexOf("ovAbout") >= 0, parts.indexOf("ovKept") - parts.indexOf("ovAbout")]).toEqual([KEPT, true, true, 1]);
+    expect([control.localName, control.getAttribute("type"), control.focusable, page.id("keptLine").focusable]).toEqual(["button", "button", true, false]);
+    // Only that place was written: the overview is the one that was drawn, with its opened section still open and the
+    // focus where it was. Nothing is said about it either: no banner, and no announcement, for nothing happened to the result.
+    expect([page.find("#ovLog summary") === summary, page.find("#ovLog").hasAttribute("open"), page.document.activeElement === summary]).toEqual([true, true, true]);
+    expect([page.id("banners").children, page.id("live").textContent]).toEqual([[], "Analysis finished: Demo app"]);
+    // The control is the overview's: a table's view has none, and the overview has it again when it is shown again.
+    goTo(2);
+    expect([page.texts("#view h1"), page.has("#ovKept"), page.has('[data-act="forget"]')]).toEqual([["Cards"], false, false]);
+    toOverview();
+    expect(keptPlace()).toEqual(KEPT);
+  });
+
+  it("offers Forget this result on the overview also when the result was kept while a table was shown", async () => {
+    await openWith(APP);
+    goTo(2);
+    await letKeep();
+    await pass(30);
+    // The table's view has no place for it, and is left as it is.
+    expect([kept(), page.texts("#view h1"), page.has("#ovKept"), firstCells().length]).toEqual([true, ["Cards"], false, 4]);
+    toOverview();
+    expect(keptPlace()).toEqual(KEPT);
+  });
+
+  it("offers Forget this result for a result that was brought back after a refresh, which is still kept", async () => {
+    await openWith(APP);
+    await letKeep();
+    await open(refreshed);
+    await back("Demo app");
+    // With the result, at once: the tab's storage holds what it came from.
+    expect([keptPlace(), kept(), note()[0]]).toEqual([KEPT, true, analysedLine(NOW, NOW)]);
+    const control = page.find('#ovKept [data-act="forget"]');
+    expect([control.localName, control.focusable]).toEqual(["button", true]);
+    // The tab's answer and the views change nothing about it.
+    ports[1].send({ type: "subject", subject: { kind: "app", id: APP.id } });
+    goTo(1);
+    toOverview();
+    expect([keptPlace(), kept()]).toEqual([KEPT, true]);
+  });
+
+  it("removes every key the keeper wrote when Forget this result is used, and no other key of the tab's storage", async () => {
+    // What else the tab's storage may hold. None of these is the keeper's, though some look like one of its own.
+    const others: Record<string, string> = { "cardigan-theme": "dark", "cardigan-kept": "not the keeper's", "cardigan-kepthead": "nor this", "Cardigan-kept:0": "another case",
+      " cardigan-kept:0": "a space first", "kept:0": "x", "head": "x", "0": "x" };
+    for (const [key, value] of Object.entries(others)) session.held.set(key, value);
+    // A result whose text hardly compresses, made up from a seed, so that keeping it takes several keys.
+    let seed = 20261004;
+    const digits = () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0).toString(36).padStart(7, "0");
+    const noise: AnalysisResult = { ...APP, name: "Noise", tables: [APP.tables[0], { file: "Noise.csv", label: "Noise", headers: ["#", "Text"], guard: true,
+      rows: Array.from({ length: 900 }, (_, index): Cell[] => [index, Array.from({ length: 120 }, digits).join("")]) }] };
+    await openWith(noise);
+    await letKeep();
+    const control = await offered();
+    // The keeper wrote its head and several parts, each under its own prefix.
+    const written = [...session.held.keys()].filter(key => !(key in others));
+    expect([written.length > 3, written.every(key => key.startsWith(KEPT_PREFIX)), written.includes(`${KEPT_PREFIX}head`), written.includes(`${KEPT_PREFIX}2`)]).toEqual([true, true, true, true]);
+    control.press();
+    // Every one of them is gone, at once, and what else the storage held is as it was.
+    expect(Object.fromEntries(session.held)).toEqual(others);
+    expect([keptPlace(), page.document.title]).toEqual([FORGOTTEN, "Cardigan — Noise"]);
+  });
+
+  it("leaves the result on the page when its kept copy is forgotten, with both downloads; the control goes, and one line says so in its place", async () => {
+    await openWith(APP);
+    await letKeep();
+    const control = await offered();
+    page.id("dlAll").press();
+    const before = await bytes(saved[0]);
+    /** What the page shows of the result: its name, its overview, its navigation, the details of the export, and its controls. */
+    const shown = () => [page.document.title, page.texts("#hdMeta .meta-app"), page.texts("#view h1"), page.texts("#view .s-lab"), page.all("#navList .nav-item").map(item => item.children[0].textContent),
+      page.id("sidenav").hidden, page.texts("#ovAbout dd"), page.texts("#view h2"), disabled("runAgain", "dlAll", "dlCsv"), runControl()[0], page.id("toast").textContent, page.id("banners").children.length];
+    const was = shown();
+    expect(was.slice(0, 3)).toEqual(["Cardigan — Demo app", ["Demo app"], ["Overview"]]);
+
+    // From the keyboard: the button takes the focus, and Enter presses it.
+    control.focus();
+    expect(page.document.activeElement).toBe(control);
+    page.document.activeElement.press();
+    // The copy is gone. So is the control: one line stands in its place, and it has the focus the control had.
+    expect([kept(), session.held.size]).toEqual([false, 0]);
+    expect([keptPlace(), page.has('[data-act="forget"]'), control.isConnected]).toEqual([FORGOTTEN, false, false]);
+    expect([page.document.activeElement === page.id("keptLine"), page.document.activeElement === page.document.body, page.id("view").contains(page.document.activeElement)]).toEqual([true, false, true]);
+    // The page says the line through its live region. It says nothing else: no banner, no other message.
+    expect([page.id("live").textContent, FORGOTTEN_LINE]).toEqual([FORGOTTEN_LINE, "The copy kept for refreshes is removed. This result stays here until you refresh or close this page."]);
+    // The result is on the page as it was, every part of it.
+    expect(shown()).toEqual(was);
+
+    // Both downloads give what they gave, however much later: the zip, the same bytes as before, and a table's file.
+    vi.setSystemTime(new Date(NOW.getTime() + 3_600_000));
+    page.id("dlAll").press();
+    expect(await bytes(saved[1])).toEqual(before);
+    expect(before).toEqual(resultZip(APP, NOW));
+    page.id("dlCsv").press();
+    goTo(2);
+    page.id("dlCsv").press();
+    expect(page.downloads.map(download => download.name)).toEqual([APP.zipName, APP.zipName, "App Details.csv", "Cards.csv"]);
+    expect([await saved[2].text(), await saved[3].text()]).toEqual([APP.tables[0], APP.tables[2]].map(table => tableCsv(table).replace(/^﻿/, "")));
+    // Its tables work as ever, and a card still opens.
+    expect([firstCells().length, page.id("rowCount").textContent]).toEqual([4, "1–4 of 4 rows"]);
+    page.all('#tableWrap tbody [data-act="card"]')[1].press();
+    expect(page.id("drawerTitle").textContent).toBe("Card 2 — Margin");
+    page.key("Escape");
+    // The line stays for as long as the result does: the overview says it again when it is shown again, without the control.
+    toOverview();
+    expect([keptPlace(), page.has('[data-act="forget"]')]).toEqual([FORGOTTEN, false]);
+  });
+
+  it("shows the waiting view after a refresh once the kept copy is forgotten, and asks the tab nothing", async () => {
+    await openWith(APP);
+    await letKeep();
+    (await offered()).press();
+    await open(refreshed);
+    await eventually(() => page.has("#runTitle"), "the waiting view");
+    await pass(30);
+    // The page that kept nothing: no result, no line about one, no navigation, and Run.
+    expect([page.texts("#view h1"), page.has("#noteBanner"), page.has("#ovKept"), page.document.title, page.id("sidenav").hidden, session.held.size])
+      .toEqual([["Connecting"], false, false, "Cardigan", true, 0]);
+    ports[1].send({ type: "subject", subject: { kind: "app", id: APP.id } });
+    expect([page.id("runTitle").textContent, runControl()[0], ports[1].posted, disabled("runAgain", "dlAll", "dlCsv")]).toEqual(["Ready to analyse", "Run", [], [false, true, true]]);
+
+    // The same for a result that a refresh had brought back: forgotten there, the next refresh finds nothing.
+    page.id("runAgain").press();
+    sendResult(ports[1], APP);
+    await letKeep();
+    await open(refreshed);
+    await back("Demo app");
+    const line = note()[0];
+    expect([line, keptPlace()]).toEqual([analysedLine(NOW, NOW), KEPT]);
+    page.find('#ovKept [data-act="forget"]').press();
+    // The line above the result still says when it was analysed, here and in every view: that is as true as before.
+    expect([keptPlace(), kept(), note(), page.id("live").textContent, page.document.activeElement === page.id("keptLine")]).toEqual([FORGOTTEN, false, [line, "note", false], FORGOTTEN_LINE, true]);
+    goTo(2);
+    toOverview();
+    expect([note()[0], keptPlace(), page.document.title]).toEqual([line, FORGOTTEN, "Cardigan — Demo app"]);
+    await open(refreshed);
+    await eventually(() => page.has("#runTitle"), "the waiting view");
+    await pass(30);
+    expect([page.texts("#view h1"), page.has("#noteBanner"), page.document.title, session.held.size]).toEqual([["Connecting"], false, "Cardigan", 0]);
+    ports[3].send({ type: "subject", subject: { kind: "app", id: APP.id } });
+    expect([page.id("runTitle").textContent, runControl()[0], ports[3].posted]).toEqual(["Ready to analyse", "Run", []]);
+  });
+
+  it("keeps the next result as ever after a forgetting, and offers to forget that one: Run again brings the control back", async () => {
+    await openWith(APP);
+    await letKeep();
+    (await offered()).press();
+    expect([keptPlace(), kept()]).toEqual([FORGOTTEN, false]);
+    // Run again, with the forgotten result still on the page: the line stays under the run's banner, and nothing is kept.
+    page.id("runAgain").press();
+    expect([banner().slice(0, 2), keptPlace(), session.held.size]).toEqual([["note", "Analysing"], FORGOTTEN, 0]);
+    const next: AnalysisResult = { ...APP, name: "Demo app, read again", zipName: "Again.zip" };
+    sendResult(ports[0], next);
+    // The new result is on the page and is not kept yet: the place holds neither the line nor the control.
+    expect([page.document.title, keptPlace(), session.held.size]).toEqual(["Cardigan — Demo app, read again", [], 0]);
+    await letKeep();
+    await offered();
+    expect([keptPlace(), kept()]).toEqual([KEPT, true]);
+
+    // Forgotten while a run is going: the copy of the result on the page goes, and the run's result is kept all the same.
+    page.id("runAgain").press();
+    page.find('#ovKept [data-act="forget"]').press();
+    expect([banner().slice(0, 2), keptPlace(), session.held.size, page.document.title]).toEqual([["note", "Analysing"], FORGOTTEN, 0, "Cardigan — Demo app, read again"]);
+    const third: AnalysisResult = { ...APP, name: "Demo app, a third time" };
+    sendResult(ports[0], third);
+    expect(keptPlace()).toEqual([]);
+    await letKeep();
+    await offered();
+    // It is that result a refresh brings back, with the control.
+    await open(refreshed);
+    await back("Demo app, a third time");
+    expect([keptPlace(), kept()]).toEqual([KEPT, true]);
+  });
+
+  it("offers nothing to forget for a result that is too large to keep, or that could not be kept", async () => {
+    session.refuses = "QuotaExceededError";
+    await openWith(APP);
+    vi.advanceTimersByTime(0);
+    await eventually(() => page.has("#noteBanner"), "the note");
+    // The note above the result says that it is not kept. The overview's place holds nothing: there is no copy to forget.
+    expect([note()[0], keptPlace(), page.has('[data-act="forget"]'), session.held.size]).toEqual([TOO_LARGE_NOTE, [], false, 0]);
+    goTo(2);
+    toOverview();
+    await pass(30);
+    expect([keptPlace(), page.has('[data-act="forget"]')]).toEqual([[], false]);
+    // The same when the storage refuses the result for another reason, and on a page without session storage.
+    session.refuses = "SecurityError";
+    page.id("runAgain").press();
+    sendResult(ports[0], APP);
+    vi.advanceTimersByTime(0);
+    await eventually(() => page.has("#noteBanner"), "the second note");
+    expect([note()[0], keptPlace(), session.held.size]).toEqual([NOT_KEPT_NOTE, [], 0]);
+    vi.stubGlobal("sessionStorage", undefined);
+    page.id("runAgain").press();
+    sendResult(ports[0], APP);
+    vi.advanceTimersByTime(0);
+    await eventually(() => page.has("#noteBanner"), "the third note");
+    expect([note()[0], keptPlace()]).toEqual([NOT_KEPT_NOTE, []]);
+    // A result that is kept after those gets the control, and no note.
+    vi.stubGlobal("sessionStorage", session.storage);
+    session.refuses = "";
+    page.id("runAgain").press();
+    sendResult(ports[0], APP);
+    await letKeep();
+    await offered();
+    expect([keptPlace(), page.has("#noteBanner"), kept()]).toEqual([KEPT, false, true]);
+  });
+
+  it("does not offer to forget the result on the page while what is kept is an earlier result: its keeping ended after the page had gone on", async () => {
+    await openWith(APP);
+    // The page begins to keep the first result: it is being compressed, and nothing has been written yet.
+    vi.advanceTimersByTime(0);
+    expect(session.writes).toBe(0);
+    // Before that ends, Run again brings a second result, whole, which takes the first one's place on the page.
+    page.id("runAgain").press();
+    sendResult(ports[0], { ...APP, name: "Demo app, read again" });
+    expect([page.document.title, keptPlace()]).toEqual(["Cardigan — Demo app, read again", []]);
+    // Now the first result's keeping ends, and it is kept. The result on the page is the second, of which nothing is kept
+    // yet: the page offers nothing.
+    await eventually(kept, "the first result's keeping to end");
+    await pass(30);
+    expect([page.document.title, keptPlace(), page.has('[data-act="forget"]')]).toEqual(["Cardigan — Demo app, read again", [], false]);
+    // The second result is kept in its own turn, in the first one's place. Then the control is there, and it is that
+    // result a refresh brings back.
+    vi.advanceTimersByTime(0);
+    await offered();
+    expect([keptPlace(), kept()]).toEqual([KEPT, true]);
+    await open(refreshed);
+    await back("Demo app, read again");
   });
 });

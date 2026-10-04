@@ -1,16 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { MODEL_ZIP_0_6_1, ZIPPED_AT } from "../golden-0.6.1.test-support.js";
+import { MODEL_COLUMN_ADDED, MODEL_ROW_REWORDED, MODEL_ZIP_0_6_1, MODEL_ZIP_COLUMN_AND_ROW, withColumnAdded, withRowReworded, ZIPPED_AT } from "../golden-0.6.1.test-support.js";
 import { NOT_SCOPE_IDS, SCOPE_IDS } from "../guards.test-support.js";
 import { Failure } from "../progress.js";
 import { resultZip } from "../result-zip.js";
-import { toCsv } from "../zip.js";
-import { parseCsv, sameBytes, unzipText } from "../zip.test-support.js";
+import { toCsv, zipStore } from "../zip.js";
+import { parseCsv, sameBytes, unzipText, zipEntries } from "../zip.test-support.js";
 import { actionKind, mergeImports, missingActionColumns } from "./actions.js";
 import { CALENDAR_HEADERS, CALENDAR_PROPERTIES, calendarKind, calendarRows } from "./calendar.js";
 import { exportModel } from "./export.js";
 import * as grids from "./grid.js";
 import { cellText, gridTable, labelEntries, plainText, windowRows, type CellSource, type Grid } from "./grid.js";
-import { lineItemsTable } from "./lineitems.js";
+import * as lineItems from "./lineitems.js";
+import { FORMAT_LIST_COLUMN, lineItemsTable, RATIO_COLUMNS } from "./lineitems.js";
 import { assertRead, modelOnPage, readGrid, type Native } from "./native.js";
 
 // Synthetic IDs and names only. Entity type = ID / 1e9 (102 module, 118 process, 4 property), as the classic client encodes it.
@@ -206,11 +207,64 @@ describe("Model export: Model settings grids to tables", () => {
       { ids: [1901000000002], labels: ["Profit"], cells: ['{"summaryMethod":"SUM","ratioNumeratorIdentifier":""}', "Margin"] },
       { ids: [1901000000003], labels: ["Revenue"], cells: ["not json", "Margin"] }] };
     const table = lineItemsTable(grid);
-    expect(table.headers).toEqual(["", "Summary", "Module Name", "Ratio Numerator", "Ratio Denominator"]);
-    expect(table.rows.map(row => row.slice(-2))).toEqual([["", ""], ["Profit", "Revenue"], ["", ""], ["", ""]]);
+    expect(table.headers).toEqual(["", "Summary", "Module Name", "Ratio Numerator", "Ratio Denominator", "Format List"]);
+    expect(table.rows.map(row => row.slice(3, 5))).toEqual([["", ""], ["Profit", "Revenue"], ["", ""], ["", ""]]);
     // Anaplan's own columns are untouched; an ID the grid does not hold stays blank rather than guessed.
     expect(table.rows[1].slice(0, 3)).toEqual(["Margin %", ratio, "Margin"]);
-    expect(lineItemsTable({ ...grid, rows: grid.rows.slice(1, 2) }).rows[0].slice(-2)).toEqual(["", ""]);
+    expect(lineItemsTable({ ...grid, rows: grid.rows.slice(1, 2) }).rows[0].slice(3, 5)).toEqual(["", ""]);
+  });
+
+  it("names the list of a line item formatted as a list, from the General Lists grid's rows by ID, and nothing it would have to guess", () => {
+    const list = (hierarchyEntityLongId: unknown, changes: Record<string, unknown> = {}): string =>
+      JSON.stringify({ hierarchyEntityLongId, entityFormatFilter: null, selectiveAccessApplied: false, showAll: false, dataType: "ENTITY", ...changes });
+    // The General Lists grid: each list's row under the list's ID, named by its label. The cells are the list's settings.
+    const TOO_LONG = "101000000007000000007";
+    const lists: Grid = { columns: [{ ids: [4000000101], labels: ["Top Level Item"] }], rows: [
+      { ids: [101000000007], labels: ["Products"], cells: ["All Products"] },
+      { ids: [101000000008], labels: ['Regions, "north" & south'], cells: [""] },
+      { ids: [Number(TOO_LONG)], labels: ["Rounded"], cells: [""] }] };
+    const NUMBER = '{"minimumSignificantDigits":4,"decimalPlaces":-1,"dataType":"NUMBER"}';
+    /** Each line item's Format, and what its Format List cell holds. */
+    const cases: [name: string, format: string, formatList: string][] = [
+      ["Product", list(101000000007), "Products"],
+      // The name is the list's own, whatever it holds and whatever else the format says.
+      ["Region", list(101000000008, { selectiveAccessApplied: true, entityFormatFilter: { mappingHierarchy: "_101000000007_" } }), 'Regions, "north" & south'],
+      // The ID as text, between underscores or not, is the same ID.
+      ["As text", list("101000000007"), "Products"], ["As identifier", list("_101000000007_"), "Products"],
+      // A list that is no row of General Lists is not named, and its ID is not written in the name's place: a list subset
+      // and a line item subset (IDs of their entity types, 109 and 114), a built-in list such as Users, Versions or Time
+      // (IDs the classic client's anaplan/constants.js has for those three), and a general list the grid does not hold.
+      ["Subset", list(109000000004), ""], ["Line item subset", list(114000000002), ""], ["User", list(101999999999), ""], ["Version", list(20000000020), ""],
+      ["Period", list(20000000003), ""], ["Gone", list(101000000009), ""],
+      // A format that names no list, or names it by something that is no ID.
+      ["No list", list(null), ""], ["None", list(-1), ""], ["Not set", '{"dataType":"ENTITY"}', ""], ["Half", list(101000000007.5), ""], ["Named", list("Products"), ""],
+      ["Many", list([101000000007]), ""], ["Spaced", list(" 101000000007 "), ""], ["Powers", list("1.01000000007e11"), ""],
+      // An ID of more digits than a number holds exactly is not looked up: two such IDs can be one number, as this one and its row's are.
+      ["Too long", `{"hierarchyEntityLongId":${TOO_LONG},"dataType":"ENTITY"}`, ""], ["Too long as text", list(TOO_LONG), ""],
+      // Any other format, also one that carries a list's ID; and a cell that is no format.
+      ["Units", NUMBER, ""], ["Odd number", '{"hierarchyEntityLongId":101000000007,"dataType":"NUMBER"}', ""],
+      ["Month", '{"periodType":{"entityId":"MONTH","entityLabel":"Month"},"hierarchyEntityLongId":101000000007,"dataType":"TIME_ENTITY"}', ""],
+      ["Words", "List: Products", ""], ["Cut short", '{"hierarchyEntityLongId":101000000007,"dataType":"ENT', ""], ["Blank", "", ""]];
+    const grid: Grid = { columns: [{ ids: [4000000212], labels: ["Format"] }, { ids: [4000000011], labels: ["Module Name"] }], rows: [
+      { ids: [102000000001], labels: ["Orders"], cells: ["", ""] },
+      ...cases.map(([name, format], index) => ({ ids: [1901000000001 + index], labels: [name], cells: [format, "Orders"] }))] };
+    const table = lineItemsTable(grid, lists);
+    // The column comes last, after the two of a ratio. A module's own row has no format, and so no list.
+    expect(table.headers).toEqual(["", "Format", "Module Name", "Ratio Numerator", "Ratio Denominator", "Format List"]);
+    expect(table.rows.map(row => [row[0], row[5]])).toEqual([["Orders", ""], ...cases.map(([name, , formatList]) => [name, formatList])]);
+    // Anaplan's own columns are untouched, the Format among them: the CSV keeps the ID.
+    expect(table.rows.map(row => row.slice(0, 5))).toEqual([["Orders", "", "", "", ""], ...cases.map(([name, format]) => [name, format, "Orders", "", ""])]);
+    // Without the General Lists grid, or with one that has no rows, the column is there and empty: no list is named.
+    for (const without of [lineItemsTable(grid), lineItemsTable(grid, undefined), lineItemsTable(grid, { ...lists, rows: [] })]) {
+      expect([without.headers, without.rows.map(row => row[5])]).toEqual([table.headers, table.rows.map(() => "")]);
+      expect(without.rows.map(row => row.slice(0, 5))).toEqual(table.rows.map(row => row.slice(0, 5)));
+    }
+    // A list is found by its row's ID alone: not by its name, not by a cell, and not by a line item's ID.
+    const other: Grid = { columns: lists.columns, rows: [{ ids: [101000000001], labels: ["101000000007"], cells: ["101000000007"] }, { ids: [1901000000001], labels: ["Product"], cells: [""] }] };
+    expect(lineItemsTable(grid, other).rows.map(row => row[5])).toEqual(table.rows.map(() => ""));
+    // A grid without a Format column has the column too, empty, whatever a row's name and its other cells hold.
+    const bare = lineItemsTable({ columns: [{ ids: [4000000009], labels: ["Formula"] }], rows: [{ ids: [1901000000001], labels: [list(101000000007)], cells: [list(101000000007)] }] }, lists);
+    expect([bare.headers, bare.rows]).toEqual([["", "Formula", "Ratio Numerator", "Ratio Denominator", "Format List"], [[list(101000000007), list(101000000007), "", "", ""]]]);
   });
 
   it("reads a large grid in row pages through the page's client, sending reads only", async () => {
@@ -446,9 +500,55 @@ describe("Model export: Model settings grids to tables", () => {
     expect(result.summary[0]).toBe("Line Items: 4 rows");
     expect(new Set(axes.map(pair => pair.join(" × ")))).toEqual(new Set(["LINE ITEMS × LINE ITEM PROPERTIES"]));
     const [headers, ...table] = parseCsv(unzipText(resultZip(result)).get("Line Items.csv") ?? "");
-    expect(headers).toEqual(["", "Formula", "Summary", "Ratio Numerator", "Ratio Denominator"]);
-    expect(table).toEqual([["Profitability", "", "", "", ""], ["Profit", "", '{"summaryMethod":"SUM"}', "", ""],
-      ["Revenue", "", '{"summaryMethod":"SUM"}', "", ""], ["Margin %", "Profit / Revenue", ratio, "Profit", "Revenue"]]);
+    expect(headers).toEqual(["", "Formula", "Summary", "Ratio Numerator", "Ratio Denominator", "Format List"]);
+    expect(table).toEqual([["Profitability", "", "", "", "", ""], ["Profit", "", '{"summaryMethod":"SUM"}', "", "", ""],
+      ["Revenue", "", '{"summaryMethod":"SUM"}', "", "", ""], ["Margin %", "Profit / Revenue", ratio, "Profit", "Revenue", ""]]);
+  });
+
+  it("exports Line Items.csv with each list format's list named from General Lists, which it reads after it and reads once", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(Date.UTC(2026, 8, 28, 12, 30, 10)));
+    const [LINE_ITEMS, LISTS] = ["LINE ITEMS × LINE ITEM PROPERTIES", "LISTS × LIST PROPERTIES"];
+    const list = (id: number): string => JSON.stringify({ hierarchyEntityLongId: id, entityFormatFilter: null, dataType: "ENTITY" });
+    const NUMBER = '{"dataType":"NUMBER"}';
+    // The golden model with a Format column: two line items formatted as its two general lists, one as a list subset.
+    const formatted: FakeGrid = { columns: ["Format", "Summary"], rows: [
+      { ids: [102000000001, -1], labels: ["Profitability", null], cells: ["", ""] },
+      { ids: [1901000000001, 102000000001], labels: ["Product", "Profitability"], cells: [list(101000000001), '{"summaryMethod":"NONE"}'] },
+      { ids: [1901000000002, 102000000001], labels: ["Region", "Profitability"], cells: [list(101000000002), '{"summaryMethod":"NONE"}'] },
+      { ids: [1901000000003, 102000000001], labels: ["Active product", "Profitability"], cells: [list(109000000001), '{"summaryMethod":"NONE"}'] },
+      { ids: [1901000000004, 102000000001], labels: ["Profit", "Profitability"], cells: [NUMBER, '{"summaryMethod":"SUM"}'] }] };
+    const grids = { ...GOLDEN_GRIDS, [LINE_ITEMS]: formatted };
+    const reads: string[] = [];
+    const result = await exportGoldenModel(grids, reads);
+    const csv = (exported: typeof result, file: string) => parseCsv(unzipText(resultZip(exported, ZIPPED_AT)).get(file) ?? "");
+    // The names are those of General Lists.csv's first column. A list subset is no row of it and is not named.
+    expect(csv(result, "General Lists.csv").map(row => row[0])).toEqual(["", "Products", "+ Regions"]);
+    expect(csv(result, "Line Items.csv")).toEqual([["", "Format", "Summary", "Ratio Numerator", "Ratio Denominator", "Format List"],
+      ["Profitability", "", "", "", "", ""], ["Product", list(101000000001), '{"summaryMethod":"NONE"}', "", "", "Products"],
+      ["Region", list(101000000002), '{"summaryMethod":"NONE"}', "", "", "+ Regions"], ["Active product", list(109000000001), '{"summaryMethod":"NONE"}', "", "", ""],
+      ["Profit", NUMBER, '{"summaryMethod":"SUM"}', "", "", ""]]);
+    // No grid is read for the names: every grid is read once, in the order it always was, Line Items first.
+    expect(reads).toEqual(["LINE ITEMS 0+1", "LINE ITEMS 0+5", "MODULES 0+1", "MODULES 0+2", "LISTS 0+1", "LISTS 0+2", "ACTIONS 0+1", "ACTIONS 0+10", "IMPORTS 0+1", "IMPORTS 0+2",
+      "DATA SOURCES 0+1", "TIME RANGES 0+1", "VERSIONS 0+1", "VERSIONS 0+2", "CALENDAR 0+1", "CALENDAR 0+10"]);
+    // The file has its place and its count as ever. The Details file says what it says of the golden model, but for the
+    // file's number of rows, and every other file is the golden model's own.
+    expect(result.tables.map(table => table.file).slice(0, 4)).toEqual(["Model Details.csv", "Line Items.csv", "Modules.csv", "General Lists.csv"]);
+    expect(result.summary.slice(0, 3)).toEqual(["Line Items: 5 rows", "Modules: 2 rows", "General Lists: 2 rows"]);
+    const details = (exported: typeof result) => exported.tables[0].rows.filter(row => row[0] !== "Diagnostics");
+    const golden = await exportGoldenModel();
+    expect(details(result)).toEqual(details(golden).map(row => (row[1] === "Line Items.csv" ? ["Files", "Line Items.csv", "5 rows"] : row)));
+    for (const table of golden.tables.slice(2)) expect(result.tables.find(other => other.file === table.file), table.file).toEqual(table);
+
+    // General Lists cannot be read: Line Items.csv is exported all the same, with the column there and empty, and the
+    // Details file and the summary say of both files what they said before the column was there.
+    const { [LISTS]: _lists, ...withoutLists } = grids;
+    const without = await exportGoldenModel(withoutLists);
+    expect(csv(without, "Line Items.csv")).toEqual(csv(result, "Line Items.csv").map((row, index) => (index === 0 ? row : [...row.slice(0, 5), ""])));
+    expect([without.tables.map(table => table.file).slice(0, 4), without.summary.slice(0, 2), without.summary.slice(-2)]).toEqual([
+      ["Model Details.csv", "Line Items.csv", "Modules.csv", "Processes.csv"], ["Line Items: 5 rows", "Modules: 2 rows"],
+      ["General Lists: not exported (The model rejected the read.).", "Source Models: not exported (This model page has no REMOTE_MODEL axis.)."]]);
+    expect(details(without)).toEqual(details(result).map(row => (row[1] === "General Lists.csv" ? ["Files", "General Lists.csv", "Not exported: The model rejected the read."] : row)));
   });
 
   it("returns only text and finite numbers as cells, whatever a grid holds, without changing the CSV", async () => {
@@ -467,14 +567,42 @@ describe("Model export: Model settings grids to tables", () => {
     expect(unzipText(resultZip(JSON.parse(JSON.stringify(result)) as typeof result)).get("Versions.csv")).toBe(written.slice(1));
   });
 
-  it("writes the zip 0.6.1 wrote for the same model, byte for byte, and returns each file as a table", async () => {
+  it("writes the zip 0.6.1 wrote for the same model, byte for byte but for the Format List column of Line Items.csv and the row of Model Details.csv about that file's columns, and returns each file as a table", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date(Date.UTC(2026, 8, 28, 12, 30, 10)));
     const result = await exportGoldenModel();
     const zip = resultZip(result, ZIPPED_AT);
-    // File by file first, so a difference shows as text; then every byte of the zip.
-    expect(unzipText(zip)).toEqual(unzipText(MODEL_ZIP_0_6_1));
-    expect(sameBytes(zip, MODEL_ZIP_0_6_1)).toBe(true);
+    // Two things are deliberately not what 0.6.1 wrote, and each is named (golden-0.6.1.test-support.ts). Line Items.csv has
+    // one column more, Format List, its last (MODEL_COLUMN_ADDED): this model's Line Items grid has no Format column, so the
+    // column is empty in every row. And the "How to read" row of Model Details.csv about Line Items says what the three
+    // columns after Anaplan's own hold, where it named the two there were (MODEL_ROW_REWORDED). Everything else is what
+    // 0.6.1 wrote, byte for byte.
+    // File by file first, so that a difference shows as text: 0.6.1's files in their order, each with its text; of Line
+    // Items.csv every line with that one cell more at its end, and of Model Details.csv every line but that one.
+    const [written, before] = [unzipText(zip), unzipText(MODEL_ZIP_0_6_1)];
+    expect([...written.keys()]).toEqual([...before.keys()]);
+    const since = (file: string, text: string): string => (file === MODEL_COLUMN_ADDED.file ? withColumnAdded(text) : file === MODEL_ROW_REWORDED.file ? withRowReworded(text) : text);
+    for (const [file, text] of before) expect(written.get(file), file).toBe(since(file, text));
+    // The Line Items file's own cells are 0.6.1's, every one: the column is the last, under its name, and holds nothing.
+    const [lineItems, lineItemsBefore] = [parseCsv(written.get(MODEL_COLUMN_ADDED.file)!), parseCsv(before.get(MODEL_COLUMN_ADDED.file)!)];
+    expect(lineItems.map(row => row.slice(0, -1))).toEqual(lineItemsBefore);
+    expect(lineItems.map(row => row.at(-1))).toEqual([MODEL_COLUMN_ADDED.header, "", "", "", ""]);
+    // Model Details.csv has 0.6.1's rows, each in its place and all but one in 0.6.1's words: the one that differs is the
+    // row named, in the words named.
+    const [details, detailsBefore] = [parseCsv(written.get(MODEL_ROW_REWORDED.file)!), parseCsv(before.get(MODEL_ROW_REWORDED.file)!)];
+    expect(details.length).toBe(detailsBefore.length);
+    expect(details.flatMap((row, index) => (row.join("\n") === detailsBefore[index].join("\n") ? [] : [[detailsBefore[index], row]])))
+      .toEqual([[parseCsv(MODEL_ROW_REWORDED.was)[0], parseCsv(MODEL_ROW_REWORDED.now)[0]]]);
+    // That row is the file's account of Line Items.csv, and names each column the export adds to the grid's own.
+    const [section, detail, howToRead] = parseCsv(MODEL_ROW_REWORDED.now)[0];
+    expect([section, detail, [...RATIO_COLUMNS, FORMAT_LIST_COLUMN].filter(column => !howToRead.includes(column))]).toEqual(["How to read", "Line Items", []]);
+    // Then every byte. Of the twelve files, only those two have other bytes than 0.6.1's.
+    const [files, golden] = [zipEntries(zip), zipEntries(MODEL_ZIP_0_6_1)];
+    expect([files.length, files.filter((file, index) => !sameBytes(file.data, golden[index].data)).map(file => file.name)]).toEqual([12, [MODEL_ROW_REWORDED.file, MODEL_COLUMN_ADDED.file]]);
+    // The zip around the files is written as 0.6.1 wrote it: from 0.6.1's own files, it is 0.6.1's zip.
+    expect(sameBytes(zipStore(golden, ZIPPED_AT), MODEL_ZIP_0_6_1)).toBe(true);
+    // So this run's zip is, byte for byte, 0.6.1's zip with that one column added and that one row reworded.
+    expect(sameBytes(zip, MODEL_ZIP_COLUMN_AND_ROW)).toBe(true);
 
     expect([result.kind, result.name, result.id, result.zipName])
       .toEqual(["model", "Demand: plan", "FEDCBA9876543210FEDCBA9876543210", "Demand plan - Model Export - 2026-09-28.zip"]);
@@ -488,12 +616,87 @@ describe("Model export: Model settings grids to tables", () => {
       ["Import Data Sources.csv", "Import Data Sources", false, undefined, 1], ["Exports.csv", "Exports", false, undefined, 1],
       ["Other Actions.csv", "Other Actions", false, undefined, 1], ["Time Ranges.csv", "Time Ranges", false, undefined, 1], ["Versions.csv", "Versions", false, undefined, 2],
       ["Model Calendar.csv", "Model Calendar", false, undefined, 31]]);
-    expect(result.tables[1].headers).toEqual(["", "Formula", "Summary", "Notes", "Ratio Numerator", "Ratio Denominator"]);
-    expect(result.tables[1].rows[1]).toEqual(["Profit", "=Revenue - Cost", '{"summaryMethod":"SUM"}', "First line\nSecond line", "", ""]);
+    expect(result.tables[1].headers).toEqual(["", "Formula", "Summary", "Notes", "Ratio Numerator", "Ratio Denominator", "Format List"]);
+    expect(result.tables[1].rows[1]).toEqual(["Profit", "=Revenue - Cost", '{"summaryMethod":"SUM"}', "First line\nSecond line", "", "", ""]);
     // Plain data: the tables are the same after the trip to the results page as JSON, and so is the zip.
     const received = JSON.parse(JSON.stringify(result)) as typeof result;
     expect(received).toEqual(result);
-    expect(sameBytes(resultZip(received, ZIPPED_AT), MODEL_ZIP_0_6_1)).toBe(true);
+    expect(sameBytes(resultZip(received, ZIPPED_AT), MODEL_ZIP_COLUMN_AND_ROW)).toBe(true);
+  });
+
+  it("reads Line Items, Modules and General Lists in that order, and keeps each file's place whichever of them cannot be read", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(Date.UTC(2026, 8, 28, 12, 30, 10)));
+    const [LINE_ITEMS, MODULES, LISTS] = ["LINE ITEMS × LINE ITEM PROPERTIES", "MODULES × MODULE PROPERTIES", "LISTS × LIST PROPERTIES"];
+    const REJECTED = "The model rejected the read.";
+    const NO_SOURCE_MODELS = "Source Models: not exported (This model page has no REMOTE_MODEL axis.).";
+    /** The golden model exported while the model rejects the reads of these grids: the reads of the three grids, the first
+     * files of the zip, what the Details file's first three Files rows and the summary's first two lines say, and the notes. */
+    const exported = async (...rejected: string[]) => {
+      const reads: string[] = [];
+      const result = await exportGoldenModel(Object.fromEntries(Object.entries(GOLDEN_GRIDS).filter(([grid]) => !rejected.includes(grid))), reads);
+      return {
+        reads: reads.filter(read => /^(LINE ITEMS|MODULES|LISTS) /.test(read)),
+        zip: [...unzipText(resultZip(result)).keys()].slice(0, 4),
+        files: result.tables[0].rows.filter(row => row[0] === "Files").slice(0, 3).map(row => `${row[1]}: ${row[2]}`),
+        summary: result.summary.slice(0, 2),
+        notes: result.summary.filter(line => line.includes("not exported")),
+      };
+    };
+    // Every grid read: the three are read one after the other, a first row and then the rest, and their files come first.
+    expect(await exported()).toEqual({
+      reads: ["LINE ITEMS 0+1", "LINE ITEMS 0+4", "MODULES 0+1", "MODULES 0+2", "LISTS 0+1", "LISTS 0+2"],
+      zip: ["Model Details.csv", "Line Items.csv", "Modules.csv", "General Lists.csv"],
+      files: ["Line Items.csv: 4 rows", "Modules.csv: 2 rows", "General Lists.csv: 2 rows"],
+      summary: ["Line Items: 4 rows", "Modules: 2 rows"], notes: [NO_SOURCE_MODELS] });
+    // A grid that cannot be read is tried in its turn, its row of the Details file stands where its file would, and the
+    // other two files are exported, Line Items first whenever it was read.
+    expect(await exported(LISTS)).toEqual({
+      reads: ["LINE ITEMS 0+1", "LINE ITEMS 0+4", "MODULES 0+1", "MODULES 0+2", "LISTS 0+1"],
+      zip: ["Model Details.csv", "Line Items.csv", "Modules.csv", "Processes.csv"],
+      files: ["Line Items.csv: 4 rows", "Modules.csv: 2 rows", `General Lists.csv: Not exported: ${REJECTED}`],
+      summary: ["Line Items: 4 rows", "Modules: 2 rows"], notes: [`General Lists: not exported (${REJECTED}).`, NO_SOURCE_MODELS] });
+    expect(await exported(MODULES)).toEqual({
+      reads: ["LINE ITEMS 0+1", "LINE ITEMS 0+4", "MODULES 0+1", "LISTS 0+1", "LISTS 0+2"],
+      zip: ["Model Details.csv", "Line Items.csv", "General Lists.csv", "Processes.csv"],
+      files: ["Line Items.csv: 4 rows", `Modules.csv: Not exported: ${REJECTED}`, "General Lists.csv: 2 rows"],
+      summary: ["Line Items: 4 rows", "General Lists: 2 rows"], notes: [`Modules: not exported (${REJECTED}).`, NO_SOURCE_MODELS] });
+    expect(await exported(MODULES, LISTS)).toEqual({
+      reads: ["LINE ITEMS 0+1", "LINE ITEMS 0+4", "MODULES 0+1", "LISTS 0+1"],
+      zip: ["Model Details.csv", "Line Items.csv", "Processes.csv", "Imports.csv"],
+      files: ["Line Items.csv: 4 rows", `Modules.csv: Not exported: ${REJECTED}`, `General Lists.csv: Not exported: ${REJECTED}`],
+      summary: ["Line Items: 4 rows", "Processes: 1 rows"],
+      notes: [`Modules: not exported (${REJECTED}).`, `General Lists: not exported (${REJECTED}).`, NO_SOURCE_MODELS] });
+    expect(await exported(LINE_ITEMS)).toEqual({
+      reads: ["LINE ITEMS 0+1", "MODULES 0+1", "MODULES 0+2", "LISTS 0+1", "LISTS 0+2"],
+      zip: ["Model Details.csv", "Modules.csv", "General Lists.csv", "Processes.csv"],
+      files: [`Line Items.csv: Not exported: ${REJECTED}`, "Modules.csv: 2 rows", "General Lists.csv: 2 rows"],
+      summary: ["Modules: 2 rows", "General Lists: 2 rows"], notes: [`Line Items: not exported (${REJECTED}).`, NO_SOURCE_MODELS] });
+    expect(await exported(LINE_ITEMS, MODULES, LISTS)).toEqual({
+      reads: ["LINE ITEMS 0+1", "MODULES 0+1", "LISTS 0+1"],
+      zip: ["Model Details.csv", "Processes.csv", "Imports.csv", "Import Data Sources.csv"],
+      files: [`Line Items.csv: Not exported: ${REJECTED}`, `Modules.csv: Not exported: ${REJECTED}`, `General Lists.csv: Not exported: ${REJECTED}`],
+      summary: ["Processes: 1 rows", "Imports: 3 rows (2 matched in the Actions list)"],
+      notes: [`Line Items: not exported (${REJECTED}).`, `Modules: not exported (${REJECTED}).`, `General Lists: not exported (${REJECTED}).`, NO_SOURCE_MODELS] });
+  });
+
+  it("takes a Line Items table that cannot be made for that file's failure, in the file's own place, and exports the other files", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(Date.UTC(2026, 8, 28, 12, 30, 10)));
+    vi.spyOn(lineItems, "lineItemsTable").mockImplementation(() => { throw new Error("no table"); });
+    const result = await exportGoldenModel();
+    expect(result.tables.map(table => table.file).slice(0, 4)).toEqual(["Model Details.csv", "Modules.csv", "General Lists.csv", "Processes.csv"]);
+    expect(result.tables[0].rows.filter(row => row[0] === "Files").slice(0, 3).map(row => `${row[1]}: ${row[2]}`))
+      .toEqual(["Line Items.csv: Not exported: no table", "Modules.csv: 2 rows", "General Lists.csv: 2 rows"]);
+    expect([result.summary.slice(0, 2), result.summary.slice(-2)]).toEqual([["Modules: 2 rows", "General Lists: 2 rows"],
+      ["Line Items: not exported (no table).", "Source Models: not exported (This model page has no REMOTE_MODEL axis.)."]]);
+    // Its note stands first too, before the note of a file that could not be read after it.
+    const { "MODULES × MODULE PROPERTIES": _modules, ...withoutModules } = GOLDEN_GRIDS;
+    const both = await exportGoldenModel(withoutModules);
+    expect(both.tables[0].rows.filter(row => row[0] === "Files").slice(0, 3).map(row => `${row[1]}: ${row[2]}`))
+      .toEqual(["Line Items.csv: Not exported: no table", "Modules.csv: Not exported: The model rejected the read.", "General Lists.csv: 2 rows"]);
+    expect(both.summary.filter(line => line.includes("not exported"))).toEqual(["Line Items: not exported (no table).", "Modules: not exported (The model rejected the read.).",
+      "Source Models: not exported (This model page has no REMOTE_MODEL axis.)."]);
   });
 });
 
@@ -541,12 +744,18 @@ const GOLDEN_AXES: Record<string, string> = { MODULE_WITH_LINE_ITEM: "LINE ITEMS
   IMPORT_DATA_SOURCE_DETAILS_PROPERTY: "DATA SOURCE PROPERTIES", TIME_RANGE: "TIME RANGES", TIME_RANGE_PROPERTY: "TIME RANGE PROPERTIES", VERSION_ALL: "VERSIONS",
   VERSION_PROPERTY: "VERSION PROPERTIES", TIMESCALE_PROPERTY: "CALENDAR", EMPTY_1_0: "EMPTY" };
 
-/** Runs the model export against a page whose classic client serves those grids, a few rows at a time. */
-async function exportGoldenModel() {
+/** Runs the model export against a page whose classic client serves those grids, a few rows at a time. The model rejects
+ * the read of a grid that is not among `grids`, and `reads` is given each read in order: its row axis and the rows asked for. */
+async function exportGoldenModel(grids: Record<string, FakeGrid> = GOLDEN_GRIDS, reads: string[] = []) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const aggregator = { isDirty: () => false, post: (request: any, _flag: boolean, ok: (response: unknown) => boolean) => {
     const { viewDefinition, pageRequests: [{ startRow, rowCount }] } = request.params;
-    const grid = GOLDEN_GRIDS[`${viewDefinition.rowAxis} × ${viewDefinition.columnAxis}`];
+    reads.push(`${viewDefinition.rowAxis} ${startRow}+${rowCount}`);
+    const grid = grids[`${viewDefinition.rowAxis} × ${viewDefinition.columnAxis}`];
+    if (!grid) {
+      queueMicrotask(() => ok({ error: "no such grid" }));
+      return true;
+    }
     const slice = grid.rows.slice(startRow, startRow + rowCount);
     const dimensions = Math.max(...grid.rows.map(entry => entry.ids.length));
     queueMicrotask(() => ok({ result: { viewRequestResults: [{ rowCount: grid.rows.length, columnCount: grid.columns.length,

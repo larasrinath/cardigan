@@ -9,8 +9,9 @@ import { CSV_FALLBACK, downloadName, ZIP_FALLBACK } from "./file-name.js";
 import { analysedLine, notKeptNote } from "./keep-notes.js";
 import { ResultKeeper } from "./keep-result.js";
 import {
-  cardDrawerHtml, cardDrawerSubHtml, colChooserHtml, colFilterHtml, crumbsHtml, headerMetaHtml, MOON_ICON, navHtml,
-  noteBannerHtml, objectDrawerHtml, objectDrawerSubHtml, overviewHtml, rowDrawerHtml, rowDrawerSubHtml, runBannerHtml, runHtml, SUN_ICON, tableHtml, tableParts, type Links, type NavEntry, type TableView,
+  cardDrawerHtml, cardDrawerSubHtml, colChooserHtml, colFilterHtml, crumbsHtml, FORGOTTEN_LINE, headerMetaHtml, keptCopyHtml, MOON_ICON, navHtml,
+  noteBannerHtml, objectDrawerHtml, objectDrawerSubHtml, overviewHtml, rowDrawerHtml, rowDrawerSubHtml, runBannerHtml, runHtml, SUN_ICON, tableHtml, tableParts,
+  type KeptCopy, type Links, type NavEntry, type TableView,
 } from "./markup.js";
 import type { PageId } from "./page-ids.js";
 import { analysedOf, cardParts, detailsOf, diagnosticLog, fileView, listedTables, overviewOf, type FileView } from "./result-view.js";
@@ -124,6 +125,10 @@ let result: AnalysisResult | undefined;
 let received = new Date();
 /** Whether the result on the page was brought back after a refresh (keep-result.ts), and not analysed since the page loaded. */
 let broughtBack = false;
+/** What the tab keeps of the result on the page for a refresh: a copy, once the result is kept and when it was brought
+ * back; a copy no longer, once the user has had it forgotten; and none while the result is still being kept, or when it
+ * could not be kept. The overview says which, and offers to forget a copy that is kept. */
+let keptCopy: KeptCopy = "none";
 /** True while the page looks for a result it kept before a refresh. Until it knows, it draws no waiting view, which a
  * result that comes back would replace at once. */
 let takingBack = false;
@@ -279,7 +284,7 @@ function renderAll(): void {
   el("navList").innerHTML = navHtml(navEntries(), String(state.view), result.kind === "model");
   el("crumbs").innerHTML = crumbsHtml(entry ? cellText(entry.table.label) : undefined, entry ? state.context : undefined);
   if (entry) renderTable(entry);
-  else el("view").innerHTML = overviewHtml(overviewOf(result));
+  else el("view").innerHTML = overviewHtml(overviewOf(result), keptCopy);
   // The line above a result that was brought back says "today" by the clock: each view says it anew, so that it is still
   // true on a page left open past midnight.
   const line = broughtBack ? find("#noteText") : null;
@@ -296,6 +301,15 @@ function showNote(line: string, withLog: boolean): void {
   if (text) text.textContent = line;
   const copy = find("#noteCopy");
   if (copy) copy.hidden = !withLog;
+}
+
+/** What the tab keeps of the result on the page has changed: the overview says it, in the place it has for that. Only
+ * that place is written again, so the rest of the overview stays as it is: a section that was opened stays open, and the
+ * focus stays where it is. Another view has no such place, and the overview says it when it is drawn. */
+function setKeptCopy(next: KeptCopy): void {
+  keptCopy = next;
+  const place = find("#ovKept");
+  if (place) place.innerHTML = keptCopyHtml(next);
 }
 
 /** A result arrived, complete: the page becomes the design's results page for it. Only now does it take the place of an
@@ -315,6 +329,9 @@ function showResult(next: AnalysisResult, at: Date, back = false): void {
   result = next;
   received = at;
   broughtBack = back;
+  // A result that was brought back is kept: the tab's storage still holds what it came from. A run's result is not kept
+  // yet: that follows once it is drawn (`keepLater`), and until it has succeeded there is no copy to forget.
+  keptCopy = back ? "kept" : "none";
   details = detailsOf(next);
   cards = cardsOf(next);
   shown = new Map();
@@ -382,6 +399,7 @@ function clearResult(): void {
   cards = undefined;
   shown = new Map();
   broughtBack = false;
+  keptCopy = "none";
   currentSlice = [];
   drawerRow = undefined;
   drawerObject = undefined;
@@ -809,6 +827,14 @@ document.addEventListener("click", event => {
       case "copy-run-log":
         void copyText(client.log.join("\n"), "the diagnostic log");
         return;
+      // The copy the tab keeps for a refresh goes, and nothing else does: the result stays on the page, with its
+      // downloads. The control goes with what it removed: the line that says so takes its place and the focus.
+      case "forget":
+        keeper.forget();
+        setKeptCopy("forgotten");
+        focusOn("#keptLine", "#view");
+        announce(FORGOTTEN_LINE);
+        return;
     }
   }
 
@@ -970,15 +996,21 @@ const KEEP_WITHOUT_FRAME_MS = 1000;
 
 /** Keeps a finished run's result for a refresh of this page (keep-result.ts), in the place of the one kept before. The
  * result is on screen first: writing it out and compressing it take a moment on the page's own thread, and that must not
- * hold up what the user sees. A result that cannot be kept is whole and on the page all the same: the page says so once,
- * in a note above it, and the keeper's reason goes into the run's log, which the note's button copies. */
+ * hold up what the user sees. Once it is kept, the overview offers to forget the copy. A result that cannot be kept is
+ * whole and on the page all the same: the page says so once, in a note above it, and the keeper's reason goes into the
+ * run's log, which the note's button copies. */
 function keepLater(kept: AnalysisResult, at: Date): void {
   let begun = false;
   const keep = (): void => {
     if (begun) return;
     begun = true;
     void keeper.keep(kept, at).then(outcome => {
-      if (outcome.kept) return;
+      if (outcome.kept) {
+        // Now there is a copy to forget, and the overview offers that. Unless the page has gone on to another result
+        // meanwhile: what is kept is then not the result on the page, and that one is kept in its own turn.
+        if (result === kept) setKeptCopy("kept");
+        return;
+      }
       const note = notKeptNote(outcome.reason);
       // Nothing to say for a result that a later one replaced, nor once the page has gone on: to another result, or to a
       // run, whose banner stands where the note would.
