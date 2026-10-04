@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { describeProbe, exportInCore, probeFrame, PROTOCOL, runInCore, serveCore, watchCore, watchProbes, type CoreHandle, type Endpoint, type FrameProbe } from "./bridge.js";
+import { describeProbe, exportInCore, NO_MODEL, probeFrame, PROTOCOL, QUIET, runInCore, serveCore, UNREADABLE, watchCore, watchProbes, type CoreHandle, type Endpoint,
+  type FrameProbe } from "./bridge.js";
 import { NOT_SCOPE_IDS, SCOPE_IDS } from "./guards.test-support.js";
-import type { Progress } from "./progress.js";
+import { Failure, UNEXPECTED, type Progress } from "./progress.js";
 import type { AnalysisResult, Cell } from "./result-types.js";
 
 /** Two windows that talk like browser windows: posting to a window as another window holds it delivers a cloned message
@@ -37,7 +38,8 @@ class FakeWindow {
 
 const MODEL = "FEDCBA9876543210FEDCBA9876543210";
 const [SHELL, CORE] = ["https://us1a.app.anaplan.com", "https://eu2a.app.anaplan.com"];
-const UNREADABLE = "The model frame sent a result this page cannot read.";
+/** How a failed run ended: the sentence the results page shows and the detail the diagnostic log keeps (progress.ts `Failure`). */
+const failed = (run: Promise<unknown>) => run.then(() => "not failed", (error: unknown) => (error instanceof Failure ? [error.message, error.detail] : error));
 const settle = () => new Promise(resolve => setTimeout(resolve, 5));
 const collect = () => {
   const lines: string[] = [];
@@ -132,8 +134,20 @@ describe("Model export bridge between the Model Building page and the model's co
     // A frame that stops answering is given up on, and told to stop: whatever it still reads for this run is for nobody.
     const asked: { type: string; nonce: string }[] = [];
     const silent: CoreHandle = { source: { postMessage: message => { asked.push(message as { type: string; nonce: string }); } }, origin: CORE, modelId: MODEL };
-    await expect(runInCore(shell, silent, collect().progress, 20)).rejects.toThrow("The model frame stopped answering.");
+    expect(await failed(runInCore(shell, silent, collect().progress, 20))).toEqual([QUIET, "the model's frame sent nothing for 0.02 s"]);
     expect(asked.map(message => [message.type, message.nonce === asked[0].nonce])).toEqual([["run", true], ["stop", true]]);
+  });
+
+  it("says in plain words why the page could not get the model exported, and keeps the count and the cause for the log", () => {
+    // Each says what happened and what to do next; the last sentence names the button beside the diagnostic log.
+    expect(NO_MODEL).toBe("Cardigan could not reach the model inside this page. If the model is still opening, wait until it shows and choose Run again; "
+      + "otherwise refresh the Anaplan tab, then click the Cardigan icon again. If it keeps happening, choose Copy diagnostic log and send the log.");
+    expect(QUIET).toBe("The model stopped answering while Cardigan was reading it. Check that it is still open in the Anaplan tab, then choose Run again.");
+    expect(UNREADABLE).toBe("Cardigan could not read what the model's page sent back. Refresh the Anaplan tab, then click the Cardigan icon again. "
+      + "If it keeps happening, choose Copy diagnostic log and send the log.");
+    expect(UNEXPECTED).toBe("Cardigan ran into a problem it did not expect. Choose Run again. If it keeps happening, choose Copy diagnostic log and send the log.");
+    // No number, code or word a developer would use is left in them.
+    for (const message of [NO_MODEL, QUIET, UNREADABLE, UNEXPECTED]) expect(message).not.toMatch(/\d|frame|HTTP|chrome:|extension/i);
   });
 
   it("takes progress and the result only from the frame it asked, from that frame's origin and for its own run", async () => {
@@ -195,7 +209,7 @@ describe("Model export bridge between the Model Building page and the model's co
       ["a row that is missing", { ...exported(), tables: [{ ...table, rows: missing(["Units", ""]) }] }],
       ["a table that is nothing", { ...exported(), tables: [null] }], ["a table that is missing", { ...exported(), tables: missing(table) }],
     ] as const) {
-      await expect(answers(result), why).rejects.toThrow(UNREADABLE);
+      expect(await failed(answers(result)), why).toEqual([UNREADABLE, "the model's frame sent a result this page cannot read"]);
     }
     // What is kept is the contract's fields and nothing else, with every cell as text or a finite number.
     const odd = { ...exported([["Revenue", undefined as never], [null as never, NaN], [true as never, 12]]), extra: "dropped",
@@ -225,10 +239,12 @@ describe("Model export bridge between the Model Building page and the model's co
     await expect(run).resolves.toEqual({ ...exported(), summary: ["[object Object]"],
       tables: [{ ...exported().tables[1], headers: ["", "[object Object]"], rows: [["Revenue", "[object Object]"]] }] });
     expect(lines).toEqual(["status: [object Object]", "log: [object Object]"]);
-    // In the reason an export failed.
-    const failed = asking();
-    failed.hears({ type: "error", message: textless });
-    await expect(failed.run).rejects.toThrow("[object Object]");
+    // An error whose message is no text, or none at all, is not shown as it is: what there is of it goes to the log.
+    for (const [sent, detail] of [[{ message: textless }, "[object Object]"], [{ message: "" }, ""], [{}, "undefined"], [{ message: 7, detail: textless }, "[object Object]"]] as const) {
+      const unreadable = asking();
+      unreadable.hears({ type: "error", ...sent });
+      expect(await failed(unreadable.run), JSON.stringify(sent)).toEqual([UNEXPECTED, detail]);
+    }
   });
 
   it("checks in again when the page greets it, and reports what each frame sees", async () => {
@@ -261,13 +277,21 @@ describe("Model export bridge between the Model Building page and the model's co
     shell.addEventListener("message", event => { if ((event.data as { type?: string }).type === "core-ready") announcements++; });
     let found: CoreHandle | undefined;
     watchCore(shell, handle => { found = handle; });
-    const stop = serveCore(core, shell.seenBy(core), () => MODEL, async () => { throw new Error("This model page has no REMOTE_MODEL axis."); }, 5);
+    // The export fails as a run tells its user (a sentence, and the detail for the log), then with an error of another kind.
+    const failures: unknown[] = [new Failure("Cardigan could not read any of this model's settings.", "Line Items: not exported (This model page has no MODULE_WITH_LINE_ITEM axis.)."),
+      new Failure("The model has not finished opening in the Anaplan tab."), new TypeError("Cannot read properties of undefined (reading 'getModelName')"), "plain text"];
+    const stop = serveCore(core, shell.seenBy(core), () => MODEL, async () => { throw failures.shift(); }, 5);
     await settle();
     await settle();
     const seen = announcements;
     await new Promise(resolve => setTimeout(resolve, 30));
     expect(announcements).toBe(seen);
-    await expect(runInCore(shell, found!, collect().progress)).rejects.toThrow("This model page has no REMOTE_MODEL axis.");
+    // The sentence and its detail cross to the page as they are; an error not written for the user is told as unexpected.
+    expect(await failed(runInCore(shell, found!, collect().progress)))
+      .toEqual(["Cardigan could not read any of this model's settings.", "Line Items: not exported (This model page has no MODULE_WITH_LINE_ITEM axis.)."]);
+    expect(await failed(runInCore(shell, found!, collect().progress))).toEqual(["The model has not finished opening in the Anaplan tab.", undefined]);
+    expect(await failed(runInCore(shell, found!, collect().progress))).toEqual([UNEXPECTED, "Cannot read properties of undefined (reading 'getModelName')"]);
+    expect(await failed(runInCore(shell, found!, collect().progress))).toEqual([UNEXPECTED, "plain text"]);
     stop();
   });
 
@@ -362,7 +386,7 @@ describe("Model export bridge between the Model Building page and the model's co
     const { exporter, next, reached, runs, failure } = stepped();
     const { shell, handle, stop } = await connected(exporter);
     // The export reports its first step and then nothing for longer than the page waits.
-    await expect(runInCore(shell, handle, collect().progress, 30)).rejects.toThrow("The model frame stopped answering.");
+    expect(await failed(runInCore(shell, handle, collect().progress, 30))).toEqual([QUIET, "the model's frame sent nothing for 0.03 s"]);
     await next();
     expect([reached, failure()]).toEqual([["Reading Line Items…"], new Error("The export was stopped.")]);
     const again = runInCore(shell, handle, collect().progress);
@@ -509,14 +533,15 @@ describe("Model export bridge between the Model Building page and the model's co
     const probe: FrameProbe = { host: "us1a.app.anaplan.com", path: "/a/modeling/", top: true, loader: "undefined", model: "undefined", workspace: "undefined" };
     const failing = (probes: FrameProbe[]) => {
       const { lines, progress } = collect();
-      const outcome = exportInCore(shell, () => undefined, () => probes, MODEL, progress).then(() => "exported", (error: Error) => error.message);
+      const outcome = failed(exportInCore(shell, () => undefined, () => probes, MODEL, progress));
       return { lines, outcome };
     };
     const nothing = failing([]);
     const something = failing([probe]);
     await vi.advanceTimersByTimeAsync(20_000);
-    expect(await nothing.outcome).toBe("No frame reported in. Reload the extension in chrome://extensions, refresh the Anaplan tab and try again.");
-    expect(await something.outcome).toBe("The model's frame did not answer. 1 frame(s) reported; copy the diagnostic log and send it.");
+    // The user is told the same either way; how many frames reported in is for the log.
+    expect(await nothing.outcome).toEqual([NO_MODEL, "no frame reported in"]);
+    expect(await something.outcome).toEqual([NO_MODEL, "the model's frame did not answer; 1 frame(s) reported in"]);
     expect(nothing.lines).toEqual(Array(20).fill("status: Waiting for the model's frame…"));
     expect(something.lines.at(-1)).toBe("log: page us1a.app.anaplan.com/a/modeling/: loader=undefined model=undefined workspace=undefined");
 

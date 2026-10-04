@@ -7,7 +7,7 @@ import {
   unresolvedFilterItems, viewLayoutFromMetadata, type ModelCatalog,
 } from "./catalog.js";
 import { DETAILS_HEADERS, diagnosticRows, exportRows, type DetailRow } from "./details.js";
-import type { Log, Progress } from "./progress.js";
+import { Failure, REFRESH, SEND_LOG, type Log, type Progress } from "./progress.js";
 import { buildReport, HEADERS, LINE_ITEMS, NONE, PAGE_TYPE, type PageInput, type TabName } from "./report.js";
 import { plainRows } from "./result-plain.js";
 import type { AnalysisResult, ResultTable } from "./result-types.js";
@@ -394,14 +394,34 @@ const HOW_TO_READ: readonly [detail: string, value: string][] = [
   ["Long IDs", "IDs of 12 or more digits are written as text so Excel shows every digit; the formula bar shows them as =\"…\"."],
 ];
 
+/** What the user is told when the app itself cannot be read (progress.ts `Failure`), by what Anaplan answered. */
+const APP_UNREAD = {
+  refused: "Anaplan refused the request. You may not have access to this app: check that you can open it in Anaplan, then choose Run again.",
+  missing: "Anaplan could not find this app. It may have been deleted or moved: open it again in Anaplan, then click the Cardigan icon.",
+  failed: `Anaplan answered with an error. Wait a moment, then choose Run again. ${SEND_LOG}`,
+  unreachable: "Anaplan could not be reached. Check your connection, then choose Run again.",
+  slow: "Anaplan took too long to answer. Wait a moment, then choose Run again.",
+  unreadable: `Cardigan could not read Anaplan's answer about this app. ${REFRESH} ${SEND_LOG}`,
+};
+
+/** A failed read of the app as the sentence for the user, with the read's own code and HTTP status as the detail for the
+ * log. A session that has ended is passed on as it is: the content script tells it by its code. */
+function appUnread(error: unknown): unknown {
+  if (!(error instanceof RestError) || error.code === "SIGNED_OUT") return error;
+  const said = error.code === "HTTP_ERROR" ? (error.status === 403 ? APP_UNREAD.refused : error.status === 404 ? APP_UNREAD.missing : APP_UNREAD.failed)
+    : error.code === "NETWORK_ERROR" ? APP_UNREAD.unreachable : error.code === "TIMEOUT" ? APP_UNREAD.slow : APP_UNREAD.unreadable;
+  return new Failure(said, error.message);
+}
+
 /** The app's pages as the zip's files: App Details.csv, then the seven tables. `signal` stops the run (the results page that
  * asked for it went away): it starts no further page and asks nothing more for a model's names (loadCatalog), and it
  * rejects with the signal's reason. Only the page that is being read is finished first: the routes still to be tried for
  * it are tried. */
 export async function analyseApp(appGuid: string, progress: Progress, diagnostics: () => string, signal?: AbortSignal): Promise<AnalysisResult> {
-  if (!GUID.test(appGuid)) throw new Error("Open an app first: the address has no app ID.");
+  if (!GUID.test(appGuid)) throw new Failure("Open an app first: the address has no app ID.");
   progress.status("Reading the app…");
-  const app = (await getJson(`${DEFINITION}apps/${appGuid}?includeUnpublished=true&includeReportPages=true`, { apiVersion: "2" })) as Obj;
+  const app = (await getJson(`${DEFINITION}apps/${appGuid}?includeUnpublished=true&includeReportPages=true`, { apiVersion: "2" })
+    .catch(error => { throw appUnread(error); })) as Obj;
   const appName = text(app?.name) ?? "App";
   const categories = new Map<string, string>();
   for (const category of list(app?.categories)) if (text(category.guid) && text(category.name)) categories.set(category.guid, category.name);

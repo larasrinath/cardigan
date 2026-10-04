@@ -4,7 +4,9 @@ import { analyseApp, loadCatalog } from "./analyse.js";
 import { APP_ZIP_0_6_1, ZIPPED_AT } from "./golden-0.6.1.test-support.js";
 import { ANAPLAN_HOSTS, NOT_SCOPE_IDS, OTHER_HOSTS, SCOPE_IDS } from "./guards.test-support.js";
 import { assemble } from "./pieces.test-support.js";
+import { Failure } from "./progress.js";
 import * as report from "./report.js";
+import * as rest from "./rest.js";
 import { resultZip } from "./result-zip.js";
 import { decodeFrames, type StompFrame } from "./stomp.js";
 import { serveTab } from "./tab-port.js";
@@ -760,6 +762,41 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     const odd = await analyseApp(APP, { status: () => undefined, log: () => undefined }, () => "");
     expect([odd.zipName, odd.summary]).toEqual(["Plan - App Export - 2026-09-28.zip", ["0 of 0 pages analysed, 0 cards."]]);
     await expect(analyseApp("not-an-app-id", { status: () => undefined, log: () => undefined }, () => "")).rejects.toThrow("Open an app first: the address has no app ID.");
+  });
+
+  it("says in plain words why the app could not be read, by what Anaplan answered, and keeps the code and the status for the log", async () => {
+    const read = vi.spyOn(rest, "getJson");
+    const analyse = () => analyseApp("01234567-89ab-cdef-0123-456789abcdef", { status: () => undefined, log: () => undefined }, () => "");
+    const failed = "Anaplan answered with an error. Wait a moment, then choose Run again. If it keeps happening, choose Copy diagnostic log and send the log.";
+    const unreadable = "Cardigan could not read Anaplan's answer about this app. Refresh the Anaplan tab, then click the Cardigan icon again. "
+      + "If it keeps happening, choose Copy diagnostic log and send the log.";
+    for (const [error, said, detail] of [
+      [new rest.RestError("HTTP_ERROR", 403), "Anaplan refused the request. You may not have access to this app: check that you can open it in Anaplan, then choose Run again.",
+        "HTTP_ERROR (HTTP 403)"],
+      [new rest.RestError("HTTP_ERROR", 404), "Anaplan could not find this app. It may have been deleted or moved: open it again in Anaplan, then click the Cardigan icon.",
+        "HTTP_ERROR (HTTP 404)"],
+      [new rest.RestError("HTTP_ERROR", 500), failed, "HTTP_ERROR (HTTP 500)"], [new rest.RestError("HTTP_ERROR", 400), failed, "HTTP_ERROR (HTTP 400)"],
+      [new rest.RestError("NETWORK_ERROR"), "Anaplan could not be reached. Check your connection, then choose Run again.", "NETWORK_ERROR"],
+      [new rest.RestError("TIMEOUT"), "Anaplan took too long to answer. Wait a moment, then choose Run again.", "TIMEOUT"],
+      [new rest.RestError("INVALID_RESPONSE", 200), unreadable, "INVALID_RESPONSE (HTTP 200)"], [new rest.RestError("TOO_LARGE"), unreadable, "TOO_LARGE"],
+      [new rest.RestError("INVALID_PATH"), unreadable, "INVALID_PATH"],
+    ] as const) {
+      read.mockRejectedValueOnce(error);
+      const outcome = await analyse().catch((thrown: unknown) => thrown);
+      // The sentence is what the results page shows; the read's own words are what the log's "stopped" line says.
+      expect(outcome, detail).toBeInstanceOf(Failure);
+      expect([(outcome as Failure).message, (outcome as Failure).detail], detail).toEqual([said, detail]);
+      expect(said, detail).not.toMatch(/\d|HTTP|_|ERROR/);
+    }
+    // A session that has ended is passed on as it is (the content script tells it by its code), and so is anything else.
+    for (const error of [new rest.RestError("SIGNED_OUT", 401), new rest.RestError("SIGNED_OUT", 498), new TypeError("no answer")]) {
+      read.mockRejectedValueOnce(error);
+      await expect(analyse(), error.message).rejects.toBe(error);
+    }
+    // An address without an app ID is told as it always was.
+    const noApp = await analyseApp("not-an-app-id", { status: () => undefined, log: () => undefined }, () => "").catch((thrown: unknown) => thrown);
+    expect(noApp).toBeInstanceOf(Failure);
+    expect([(noApp as Failure).message, (noApp as Failure).detail]).toEqual(["Open an app first: the address has no app ID.", undefined]);
   });
 
   it("writes the zip 0.6.1 wrote for the same app, byte for byte, and returns each file as a table", async () => {

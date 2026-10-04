@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { assemble } from "./pieces.test-support.js";
-import type { Progress } from "./progress.js";
+import { Failure, type Progress } from "./progress.js";
 import { PORT_NAME, ROWS_MAX, type Subject, type TabMessage } from "./protocol.js";
 import type { AnalysisResult, Cell } from "./result-types.js";
-import { BUSY, NOTHING_TO_ANALYSE, serveTab, SIGNED_OUT, type Seen, type Tab } from "./tab-port.js";
+import { BUSY, NOTHING_TO_ANALYSE, serveTab, SIGNED_OUT, UNSENT, type Seen, type Tab } from "./tab-port.js";
 import { EXTENSION, FakePort } from "./tab-port.test-support.js";
 
 const APP: Seen = { kind: "app", id: "01234567-89ab-cdef-0123-456789abcdef" };
@@ -17,6 +17,11 @@ const result = (rows: Cell[][] = [["Demand board", 1]]): AnalysisResult => ({ ki
 const RESULT_MESSAGES = [{ type: "result", result: { ...result(), tables: result().tables.map(table => ({ ...table, rows: [] })) } },
   { type: "rows", table: 0, rows: [["App", "App", "Planning app"]] }, { type: "rows", table: 1, rows: [["Demand board", 1]] }, { type: "done" }];
 const SIGNED_OUT_ERROR = new Error("SIGNED_OUT (HTTP 401)");
+/** What a page is told when a run fails with an error that was not written for its user. */
+const UNEXPECTED = "Cardigan ran into a problem it did not expect. Choose Run again. If it keeps happening, choose Copy diagnostic log and send the log.";
+/** A failure as a run tells it: the sentence for the user, and the detail for the diagnostic log. */
+const QUIET = new Failure("The model stopped answering while Cardigan was reading it. Check that it is still open in the Anaplan tab, then choose Run again.",
+  "the model's frame sent nothing for 300 s");
 const settle = () => new Promise(resolve => setTimeout(resolve, 0));
 
 /** A content script's tab whose runs the test finishes by hand. */
@@ -119,31 +124,41 @@ describe("The Anaplan tab's end of the port to the results page", () => {
     expect(assemble(page.take()).tables[1].rows).toEqual([["Demand board", 2]]);
   });
 
-  it("reports why a run stopped, and a signed-out session by its code", async () => {
+  it("reports why a run stopped in a sentence for the user, with the detail in the log, and a signed-out session by its code", async () => {
     const { runs, open } = tab();
     const page = open();
     page.say({ type: "run" });
     runs[0].progress.status("Reading page 1 of 2: Demand board");
-    runs[0].fail(new Error("The model frame stopped answering."));
+    runs[0].fail(QUIET);
     await settle();
-    expect(page.take().slice(4)).toEqual([{ type: "log", text: "01:59:09 stopped: The model frame stopped answering." },
-      { type: "error", message: "The model frame stopped answering." }]);
+    // The page shows the message as it is: the count, the code or the status number is in the line of the log before it.
+    expect(page.take().slice(4)).toEqual([{ type: "log", text: "01:59:09 stopped: the model's frame sent nothing for 300 s" }, { type: "error", message: QUIET.message }]);
+    // A failure that has no detail of its own is logged in its own words.
+    page.say({ type: "run" });
+    runs[1].fail(new Failure("Open an app first: the address has no app ID."));
+    await settle();
+    expect(page.take().slice(1)).toEqual([{ type: "log", text: "01:59:09 stopped: Open an app first: the address has no app ID." },
+      { type: "error", message: "Open an app first: the address has no app ID." }]);
 
     page.say({ type: "run" });
-    runs[1].fail(SIGNED_OUT_ERROR);
+    runs[2].fail(SIGNED_OUT_ERROR);
     await settle();
     expect(page.take().slice(1)).toEqual([{ type: "log", text: "01:59:09 stopped: SIGNED_OUT (HTTP 401)" },
       { type: "error", message: "You're signed out of Anaplan. Sign in and try again.", code: "SIGNED_OUT" }]);
     expect(SIGNED_OUT).toBe("You're signed out of Anaplan. Sign in and try again.");
 
-    // Something thrown that is no Error, and a run that fails before it returns a promise.
-    page.say({ type: "run" });
-    runs[2].fail("plain text");
-    await settle();
-    expect(page.take().at(-1)).toEqual({ type: "error", message: "plain text" });
+    // Any other error was not written for the user: its own text goes to the log, whether it is an Error or not.
+    for (const [thrown, logged] of [[new TypeError("Cannot read properties of undefined (reading 'rows')"), "Cannot read properties of undefined (reading 'rows')"],
+      [new Error("HTTP_ERROR (HTTP 403)"), "HTTP_ERROR (HTTP 403)"], ["plain text", "plain text"], [undefined, "undefined"], [{ toString: 1 }, "[object Object]"]] as const) {
+      page.say({ type: "run" });
+      runs.at(-1)!.fail(thrown);
+      await settle();
+      expect(page.take().slice(1), logged).toEqual([{ type: "log", text: `01:59:09 stopped: ${logged}` }, { type: "error", message: UNEXPECTED }]);
+    }
+    // A run that fails before it returns a promise.
     let connect: (port: chrome.runtime.Port) => void = () => undefined;
     serveTab({ id: EXTENSION, onConnect: { addListener: listener => { connect = listener; } } },
-      { host: "us1a.app.anaplan.com", subject: () => APP, run: () => { throw new Error("Open an app first: the address has no app ID."); }, signedOut: () => false });
+      { host: "us1a.app.anaplan.com", subject: () => APP, run: () => { throw new Failure("Open an app first: the address has no app ID."); }, signedOut: () => false });
     const other = new FakePort();
     connect(other as unknown as chrome.runtime.Port);
     other.say({ type: "run" });
@@ -175,10 +190,10 @@ describe("The Anaplan tab's end of the port to the results page", () => {
     expect(page.take()).toEqual([{ type: "log", text: HEADER }, { type: "log", text: "01:59:09 app: 2 pages" }]);
     expect(runs[1].diagnostics()).toBe(`${HEADER}\r\n01:59:09 app: 2 pages`);
 
-    // The same after an error: the line that says why the run stopped is its last.
-    runs[1].fail(new Error("The model frame stopped answering."));
+    // The same after an error: the line that says why the run stopped is the last of its log.
+    runs[1].fail(QUIET);
     await settle();
-    expect(page.take()).toEqual([{ type: "log", text: "01:59:09 stopped: The model frame stopped answering." }, { type: "error", message: "The model frame stopped answering." }]);
+    expect(page.take()).toEqual([{ type: "log", text: "01:59:09 stopped: the model's frame sent nothing for 300 s" }, { type: "error", message: QUIET.message }]);
     runs[1].progress.status("Reading Versions…");
     runs[1].progress.log("Versions: 2 rows");
     expect(page.received).toEqual([]);
@@ -200,6 +215,7 @@ describe("The Anaplan tab's end of the port to the results page", () => {
     page.say({ type: "run" });
     expect(runs).toEqual([]);
     expect(page.take()).toEqual([{ type: "subject", subject: { kind: "none" } }, { type: "error", message: NOTHING_TO_ANALYSE }]);
+    expect(NOTHING_TO_ANALYSE).toBe("This tab is not showing an Anaplan app or a model. Open an app, or a model in Model Building, then choose Run again.");
 
     // The user opens a model in the same tab, then runs again: the subject is sent once, the run reads what is there now.
     state.shows = MODEL;
@@ -254,9 +270,12 @@ describe("The Anaplan tab's end of the port to the results page", () => {
     page.refuses = message => message.type === "rows" && message.table === 1;
     runs[0].finish(result());
     await settle();
-    const unsent = { type: "error", message: "The result could not be sent to the results page: Message length exceeded maximum allowed length." };
-    // No further piece and no done: what the page holds is not taken for a result.
-    expect(page.take().slice(2)).toEqual([...RESULT_MESSAGES.slice(0, 2), unsent]);
+    // In place of the rest and of done: why, as the last line of the page's log, and the sentence for its user.
+    const unsent = [{ type: "log", text: "01:59:09 stopped: the result could not be sent (Message length exceeded maximum allowed length.)" },
+      { type: "error", message: "Cardigan finished reading but could not pass the result to this page. Choose Run again. If it keeps happening, choose Copy diagnostic log and send the log." }];
+    expect(UNSENT).toBe(unsent[1].message);
+    // What the page holds is not taken for a result.
+    expect(page.take().slice(2)).toEqual([...RESULT_MESSAGES.slice(0, 2), ...unsent]);
     expect(other.take().slice(2)).toEqual(RESULT_MESSAGES);
 
     // The same whichever piece it is: the result itself, a table's first rows, or done. The run is over each time.
@@ -265,7 +284,7 @@ describe("The Anaplan tab's end of the port to the results page", () => {
       page.say({ type: "run" });
       runs.at(-1)!.finish(result());
       await settle();
-      expect(page.take().slice(1), refused).toEqual([...RESULT_MESSAGES.slice(0, sent), unsent]);
+      expect(page.take().slice(1), refused).toEqual([...RESULT_MESSAGES.slice(0, sent), ...unsent]);
     }
     expect(runs).toHaveLength(4);
   });
@@ -350,6 +369,7 @@ describe("The Anaplan tab's end of the port to the results page", () => {
     second.say({ type: "run" });
     expect(runs).toHaveLength(1);
     expect(second.received).toEqual([{ type: "subject", subject: MODEL }, { type: "error", message: BUSY }]);
+    expect(BUSY).toBe("Cardigan is still analysing what this Anaplan tab showed before. Wait for that to finish, or close its results page, then choose Run again.");
     state.shows = { kind: "app", id: "ffffffff-89ab-cdef-0123-456789abcdef" };
     const third = open();
     third.say({ type: "run" });

@@ -153,12 +153,13 @@ describe("The content scripts on an Anaplan page", () => {
       { type: "log", text: "01:59:09 Reading the app…" }, { type: "log", text: "01:59:09 stopped: SIGNED_OUT (HTTP 401)" },
       { type: "error", message: "You're signed out of Anaplan. Sign in and try again.", code: "SIGNED_OUT" }]);
 
-    // Another failure carries no code.
-    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 500 })));
+    // Another failure carries no code: the page is told in plain words, and the status Anaplan answered with is in the log.
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 403 })));
     port.take();
     port.say({ type: "run" });
     await vi.waitFor(() => expect(port.received.at(-1)?.type).toBe("error"));
-    expect(port.received.at(-1)).toEqual({ type: "error", message: "HTTP_ERROR (HTTP 500)" });
+    expect(port.received.slice(-2)).toEqual([{ type: "log", text: "01:59:09 stopped: HTTP_ERROR (HTTP 403)" },
+      { type: "error", message: "Anaplan refused the request. You may not have access to this app: check that you can open it in Anaplan, then choose Run again." }]);
   });
 
   it("exports a model through its core frame when the results page asks, and hands the files on in pieces", async () => {
