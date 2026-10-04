@@ -121,10 +121,12 @@ export function crumbsHtml(label: string | undefined, context: string | undefine
 
 /* ---------- overview ---------- */
 
+/** A view's heading is the page's h1, so what stands under it in the overview and in the details is an h2. The drawer's
+ * heading is an h2 of the page shell, and its sections are h3. No view goes from one level to one two below it. */
 export function overviewHtml(overview: Overview): string {
   const most = overview.cardTypes.reduce((max, [, count]) => Math.max(max, count), 1);
   const types = overview.cardTypes.length ? `
-      <section class="panel" aria-labelledby="ovt"><h3 id="ovt">Cards by type</h3>
+      <section class="panel" aria-labelledby="ovt"><h2 id="ovt">Cards by type</h2>
         <div class="typebars">
           ${overview.cardTypes.map(([type, count]) => `
             <div class="typebar"><span>${type === "" ? BLANK : esc(type)}</span>
@@ -133,7 +135,7 @@ export function overviewHtml(overview: Overview): string {
         </div>
       </section>` : "";
   const models = overview.models.length ? `
-      <section class="panel" aria-labelledby="ovm"><h3 id="ovm">Models</h3>
+      <section class="panel" aria-labelledby="ovm"><h2 id="ovm">Models</h2>
         ${overview.models.map(model => `
           <div class="model-row">
             <div class="m-name">${esc(model.model)} ${idPill(model.modelId)}</div>
@@ -142,7 +144,7 @@ export function overviewHtml(overview: Overview): string {
       </section>` : "";
   // The design's Warnings panel, without its coloured dots: a note has no severity.
   const notes = overview.notes.length ? `
-    <section class="panel" aria-labelledby="ovn" style="margin-bottom:12px"><h3 id="ovn">Notes</h3>
+    <section class="panel" aria-labelledby="ovn" style="margin-bottom:12px"><h2 id="ovn">Notes</h2>
       <ul class="warn-list">
         ${overview.notes.map(note => `<li><span class="wl-ink">${esc(note)}</span></li>`).join("")}
       </ul>
@@ -162,7 +164,7 @@ export function overviewHtml(overview: Overview): string {
 export function detailsHtml(sections: readonly DetailSection[], log: readonly string[]): string {
   return `
     <h1 class="view-title">Details</h1>
-    ${sections.map(section => `<div class="d-sec"><h3>${esc(section.section)}</h3>
+    ${sections.map(section => `<div class="d-sec"><h2>${esc(section.section)}</h2>
       <dl class="dl">${section.rows.map(([detail, value]) => `<dt>${esc(detail)}</dt><dd>${esc(value)}</dd>`).join("")}</dl></div>`).join("")}
     ${log.length ? `<details class="diag">
       ${DIAGNOSTICS_SUMMARY}

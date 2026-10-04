@@ -390,7 +390,7 @@ describe("A result whose every text is hostile, through every view of the page",
 
   it("is made of the design's own elements and attributes only", () => {
     const html = everyView().join("\n");
-    const elements = new Set(["button", "circle", "dd", "details", "div", "dl", "dt", "em", "h1", "h3", "input", "kbd", "label", "li", "option", "p", "path", "pre", "rect",
+    const elements = new Set(["button", "circle", "dd", "details", "div", "dl", "dt", "em", "h1", "h2", "h3", "input", "kbd", "label", "li", "option", "p", "path", "pre", "rect",
       "section", "select", "span", "strong", "summary", "svg", "table", "tbody", "td", "th", "thead", "tr", "ul"]);
     const attributes = /^(aria-[a-z]+|data-(act|nav|copy|sort|colfilter|col|fval|page|popact)|class|type|title|style|id|hidden|open|disabled|checked|selected|value|placeholder|tabindex|role|scope|width|height|viewBox|fill|stroke|stroke-width|stroke-linecap|stroke-linejoin|d|cx|cy|r|x|y|rx)$/;
     expect(tagNames(html).filter(name => !elements.has(name))).toEqual([]);
@@ -438,6 +438,28 @@ describe("A result whose every text is hostile, through every view of the page",
       for (const button of parseMarkup(html).querySelectorAll("button")) {
         if (button.textContent.trim() === "") expect(button.getAttribute("aria-label"), button.outerHTML).toMatch(/\S/);
       }
+    }
+  });
+
+  it("goes down its headings one level at a time: a view from its h1, the drawer from the shell's h2", () => {
+    /** The headings of a piece of markup, in order, as "level text". */
+    const headings = (html: string) => parseMarkup(html).querySelectorAll("h1, h2, h3, h4, h5, h6").map(heading => `${heading.localName[1]} ${heading.textContent}`);
+    const overview = overviewOf({ kind: "app", name: "App", id: "id", zipName: "App.zip", summary: ["A note."], tables: [
+      { file: "Pages.csv", label: "Pages", headers: ["Page", "Model", "Workspace", "Model ID"], rows: [["Overview", "Model one", "Main", "id-1"]], guard: true },
+      { file: "Cards.csv", label: "Cards", headers: ["Page", "Card type", "Card ID"], rows: [["Overview", "Grid", "card-a"]], guard: true }] });
+    expect(headings(overviewHtml(overview))).toEqual(["1 Overview", "2 Cards by type", "2 Models", "2 Notes"]);
+    expect(headings(detailsHtml([{ section: "App", rows: [["App", "Demo"]] }, { section: "Export", rows: [] }], ["a line"]))).toEqual(["1 Details", "2 App", "2 Export"]);
+    const table: ResultTable = { file: "Cards.csv", label: "Cards", headers: ["Page"], rows: [["Overview"]], guard: true };
+    expect(headings(tableHtml(viewOf(table, LINKS)))).toEqual(["1 Cards"]);
+    expect(headings(runHtml())).toEqual(["1 "]);
+    // The drawer's heading is the page shell's h2 (results.html), so its sections are one level under that.
+    expect(headings(rowDrawerHtml(columnsOf(table), table.rows[0], LINKS))).toEqual(["3 All columns"]);
+    expect(headings(cardDrawerHtml(columnsOf(table), table.rows[0], LINKS, [{ title: "Filters", none: "filters", headings: ["Sec"], rows: [] }]))).toEqual(["3 Card details", "3 Filters (0)"]);
+    // Whatever the result, no view goes from one level to one two below it.
+    for (const html of everyView()) {
+      const levels = headings(html).map(heading => Number(heading[0]));
+      expect(levels.filter((level, index) => index > 0 && level > levels[index - 1] + 1), headings(html).join(" | ")).toEqual([]);
+      if (levels.includes(1)) expect(levels[0]).toBe(1);
     }
   });
 
