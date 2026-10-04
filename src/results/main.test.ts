@@ -254,6 +254,30 @@ describe("The results page's script, on the page", () => {
     expect(page.id("toast").textContent).toBe(`Downloaded ${RESULT.zipName}`);
   });
 
+  it("gives a download a fixed name when the result's own name is not a plain file name, and the same content", async () => {
+    // A path in the zip's name, a character that turns the text round in one file's name, and a path in another's.
+    const named: AnalysisResult = { ...RESULT, zipName: "..\\..\\evil.zip",
+      tables: [RESULT.tables[0], { ...RESULT.tables[1], file: `Pages${String.fromCodePoint(0x202e)}vsc.csv` }, { ...RESULT.tables[2], file: "../Cards.csv" }] };
+    await openWith(named);
+    page.id("dlAll").press();
+    expect(page.id("toast").textContent).toBe("Downloaded Cardigan export.zip");
+    goTo(1);
+    expect(page.id("dlCsv").title).toBe("Download table.csv");
+    page.id("dlCsv").press();
+    goTo(2);
+    page.id("dlCsv").press();
+    expect(page.downloads.map(download => download.name)).toEqual(["Cardigan export.zip", "table.csv", "table.csv"]);
+    expect(page.id("toast").textContent).toBe("Downloaded table.csv");
+    // What is saved is the result's own zip and files, as they are.
+    expect(await bytes(saved[0])).toEqual(resultZip(named, NOW));
+    expect([await saved[1].text(), await saved[2].text()]).toEqual([named.tables[1], named.tables[2]].map(table => tableCsv(table).replace(/^\ufeff/, "")));
+    // A plain name is used as it is.
+    page.find('#navList [data-nav="details"]').press();
+    expect(page.id("dlCsv").title).toBe("Download App Details.csv");
+    page.id("dlCsv").press();
+    expect(page.downloads[3].name).toBe("App Details.csv");
+  });
+
   it("keeps the result on the page while it runs again, and replaces it only with a complete new one", async () => {
     await openWith();
     goTo(2);
