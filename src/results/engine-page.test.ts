@@ -271,7 +271,7 @@ describe("The results page itself against the engine in the Anaplan tab", () => 
     const [again, after] = await downloadAll();
     expect(again).toBe(name);
     expectSameZip(after, before);
-    expect(files(after, DETAILS_FILE)).toEqual(files(APP_ZIP_0_6_1, DETAILS_FILE));
+    expect(files(after, DETAILS_FILE)).toEqual(files(APP_ZIP_REWORDED, DETAILS_FILE));
     expect(service.reads).toHaveLength(reads);
 
     // Run again asks the engine, on the port the page opened when it loaded, and the new result takes the kept one's place.
