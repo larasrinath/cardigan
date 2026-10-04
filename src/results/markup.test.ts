@@ -5,7 +5,7 @@ import type { AnalysisResult, Cell, ResultTable } from "../result-types.js";
 import { cardsOf, columnsOf, rowKeys, type Column } from "./columns.js";
 import {
   cardDrawerHtml, cardDrawerSubHtml, cellHtml, colChooserHtml, colFilterHtml, crumbsHtml, detailsHtml, esc, headerMetaHtml, idPill,
-  MOON_ICON, navHtml, overviewHtml, pagerHtml, rowCellHtml, rowDrawerHtml, rowDrawerSubHtml, runHtml, SUN_ICON, tableHtml, tableParts, type Links, type TableView,
+  MOON_ICON, navHtml, overviewHtml, pagerHtml, rowCellHtml, rowDrawerHtml, rowDrawerSubHtml, runBannerHtml, runHtml, SUN_ICON, tableHtml, tableParts, type Links, type TableView,
 } from "./markup.js";
 import { parseMarkup } from "./dom.test-support.js";
 import { decode, readMarkup, shownValues, structure } from "./markup.test-support.js";
@@ -260,10 +260,18 @@ describe("The results page's escaping", () => {
     expect(filter.map(tag => tag.attributes.get("data-fval"))).toEqual(["0", "1"]);
   });
 
-  it("holds no text of its own in the view of a run: the page sets each part as plain text", () => {
-    const { tags, texts } = readMarkup(runHtml());
-    expect(tags.flatMap(tag => (tag.attributes.has("id") ? [tag.attributes.get("id")] : []))).toEqual(["runTitle", "runStatus", "runHint", "runLog", "diagLog"]);
-    expect(texts.map(text => text.trim()).filter(text => text !== "")).toEqual(["Diagnostics", "Copy diagnostic log"]);
+  it("holds no text of a run in the run's view or in its banner: the page sets each part as plain text", () => {
+    const ids = (html: string) => readMarkup(html).tags.flatMap(tag => (tag.attributes.has("id") ? [tag.attributes.get("id")] : []));
+    const words = (html: string) => readMarkup(html).texts.map(text => text.trim()).filter(text => text !== "");
+    expect(ids(runHtml())).toEqual(["runTitle", "runStatus", "runHint", "runLog", "diagLog"]);
+    expect(words(runHtml())).toEqual(["Diagnostics", "Copy diagnostic log"]);
+    expect(ids(runBannerHtml())).toEqual(["runBanner", "bannerTitle", "bannerText", "bannerHint", "bannerCopy"]);
+    expect(words(runBannerHtml())).toEqual(["The results below are from the earlier run.", "Copy diagnostic log"]);
+    // Both copy the log of the run, not the one a result carries; the banner's button waits, hidden, for a first line.
+    const copies = (html: string) => parseMarkup(html).querySelectorAll("button").map(button => [button.dataset.act, button.textContent.trim(), button.hidden]);
+    expect(copies(runHtml())).toEqual([["copy-run-log", "Copy diagnostic log", false]]);
+    expect(copies(runBannerHtml())).toEqual([["copy-run-log", "Copy diagnostic log", true]]);
+    expect(copies(detailsHtml([], ["a line"]))).toEqual([["copy-diag", "Copy diagnostic log", false]]);
   });
 });
 
@@ -306,6 +314,9 @@ describe("A result whose every text is hostile, through every view of the page",
       navHtml([{ id: "overview", label: "Overview" }, ...tables.map((table, index) => ({ id: String(index + 1), label: table.label, count: table.rows.length })), { id: "details", label: "Details" }], "overview"),
       overviewHtml(overviewOf(result)),
       detailsHtml(detailSections(details), diagnosticLog(details)),
+      // The run's own view and its banner hold no text of a result, but they are the page's markup too.
+      runHtml(),
+      runBannerHtml(),
     ];
     for (const table of tables) {
       const columns = columnsOf(table);
@@ -348,7 +359,7 @@ describe("A result whose every text is hostile, through every view of the page",
           if (name === "style") styles.add(value.replace(/\d+%/, "N%"));
           if (name === "class") expect(value, "a class").toMatch(/^[a-z0-9 -]*$/);
           if (/^data-(sort|colfilter|col|fval|page)$/.test(name)) expect(value, name).toMatch(/^-?\d+$/);
-          if (name === "data-act") expect(["page", "card", "row", "reset", "clear-search", "clear-context", "copy-diag"]).toContain(value);
+          if (name === "data-act") expect(["page", "card", "row", "reset", "clear-search", "clear-context", "copy-diag", "copy-run-log"]).toContain(value);
           if (name === "data-nav") expect(value).toMatch(/^(overview|details|map|\d+)$/);
           if (name === "id") expect(value).toMatch(/^[A-Za-z]+$/);
         }
@@ -356,7 +367,7 @@ describe("A result whose every text is hostile, through every view of the page",
     }
     // Every style on the page is one of the design's own; the only part that varies is a bar's width, a number.
     expect([...styles].sort()).toEqual(["display:block;width:N%", "font-family:var(--mono);font-size:11px", "font-size:12px;color:var(--text-3);margin:4px 0 0",
-      "margin-bottom:12px", "margin-left:auto", "overflow:hidden;text-overflow:ellipsis"]);
+      "margin-bottom:12px", "margin-left:auto", "margin-left:auto;flex:none", "overflow:hidden;text-overflow:ellipsis"]);
   });
 
   it("shows each hostile text as it was typed, somewhere on the page", () => {

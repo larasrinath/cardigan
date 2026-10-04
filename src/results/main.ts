@@ -6,7 +6,7 @@ import { cardsOf, columnIndex, columnsOf, rowKeys, type CardsTable, type Column,
 import { describeState, openedJustNow, ResultsClient, runLabel, tabIdFrom, withoutOpened, type RunState } from "./connection.js";
 import {
   cardDrawerHtml, cardDrawerSubHtml, colChooserHtml, colFilterHtml, crumbsHtml, detailsHtml, headerMetaHtml, MOON_ICON, navHtml,
-  overviewHtml, rowDrawerHtml, rowDrawerSubHtml, runHtml, SUN_ICON, tableHtml, tableParts, type Links, type NavEntry, type TableView,
+  overviewHtml, rowDrawerHtml, rowDrawerSubHtml, runBannerHtml, runHtml, SUN_ICON, tableHtml, tableParts, type Links, type NavEntry, type TableView,
 } from "./markup.js";
 import type { PageId } from "./page-ids.js";
 import { analysedOf, cardSections, detailSections, detailsOf, diagnosticLog, overviewOf } from "./result-view.js";
@@ -239,8 +239,18 @@ function renderAll(): void {
   updateActions();
 }
 
-/** A result arrived: the page becomes the design's results page for it. */
+/** A result arrived, complete: the page becomes the design's results page for it. Only now does it take the place of an
+ * earlier result, of which nothing is kept: not the rows on the page, the drawer's row, the last selection, or the banner
+ * of the run that has just ended. */
 function showResult(next: AnalysisResult, at: Date): void {
+  // Focus that is inside what the new result replaces moves to the new view; anywhere else, in the header, it stays.
+  const replaced = [el("view"), el("drawer"), el("popover")].some(part => part.contains(document.activeElement));
+  closePopover();
+  closeDrawer();
+  currentSlice = [];
+  drawerRow = undefined;
+  select = rememberingSelect();
+  el("banners").innerHTML = "";
   result = next;
   received = at;
   details = detailsOf(next);
@@ -265,28 +275,17 @@ function showResult(next: AnalysisResult, at: Date): void {
   el("sidenav").hidden = false;
   el("navToggle").hidden = false;
   renderAll();
+  if (replaced) el("view").focus({ preventScroll: true });
   announce(`Analysis finished: ${analysed.name}`);
 }
 
-/** Before there is a result: connecting, running, or why there is nothing to show. Every text is set as plain text. */
+/** The states in which a run did not start or did not finish. */
+const STOPPED: ReadonlySet<RunState["phase"]> = new Set(["unreachable", "no-subject", "failed", "interrupted"]);
+
+/** Connecting, running, or why there is no new result. Before the first result this is the whole view. Once a result is on
+ * the page it stays there until a new one is complete, and the same words stand in the banner area above it: a run that
+ * cannot start or does not finish takes nothing away. Every text is set as plain text. */
 function showRun(runState: RunState): void {
-  if (result || !find("#runStatus")) {
-    result = undefined;
-    details = undefined;
-    cards = undefined;
-    shown = new Map();
-    // Nothing of the result that is being replaced is kept: not the rows on the page, the drawer's row or the last selection.
-    currentSlice = [];
-    drawerRow = undefined;
-    select = rememberingSelect();
-    closePopover();
-    closeDrawer();
-    document.title = "Cardigan";
-    for (const id of ["hdMeta", "banners", "navList", "crumbs"] as const) el(id).innerHTML = "";
-    el("sidenav").hidden = true;
-    el("navToggle").hidden = true;
-    el("view").innerHTML = runHtml();
-  }
   const text = describeState(runState, client.asked);
   const set = (selector: string, value: string) => {
     const node = find(selector);
@@ -295,16 +294,35 @@ function showRun(runState: RunState): void {
       node.hidden = value === "";
     }
   };
-  set("#runTitle", text.title);
-  set("#runStatus", text.message);
-  set("#runHint", text.hint);
+  if (result) {
+    if (!find("#runBanner")) el("banners").innerHTML = runBannerHtml();
+    const banner = find("#runBanner");
+    banner?.classList.toggle("warn", STOPPED.has(runState.phase));
+    banner?.classList.toggle("note", !STOPPED.has(runState.phase));
+    set("#bannerTitle", text.title);
+    set("#bannerText", text.message);
+    set("#bannerHint", text.hint);
+  } else {
+    if (!find("#runStatus")) {
+      // The page before its first result: there is nothing to navigate yet.
+      el("sidenav").hidden = true;
+      el("navToggle").hidden = true;
+      el("view").innerHTML = runHtml();
+    }
+    set("#runTitle", text.title);
+    set("#runStatus", text.message);
+    set("#runHint", text.hint);
+  }
   showLog(client.log);
   updateActions();
   announce(text.message);
 }
 
-/** The run's diagnostic log while there is no result: its latest lines, kept in view. */
+/** The run's diagnostic log. Before the first result its latest lines are under the message, kept in view. Beside an
+ * earlier result there is only the banner's button to copy it, which is there once the log has a line. */
 function showLog(lines: readonly string[]): void {
+  const copy = find("#bannerCopy");
+  if (copy) copy.hidden = lines.length === 0;
   const block = find("#runLog");
   const log = find("#diagLog");
   if (result || !block || !log) return;
@@ -548,8 +566,12 @@ document.addEventListener("click", event => {
         box?.focus();
         return;
       }
+      // The log a result carries, on its Details view; and the log of the run the page follows or last followed.
       case "copy-diag":
-        void copyText((result ? diagnosticLog(details) : client.log).join("\n"), "the diagnostic log");
+        void copyText(diagnosticLog(details).join("\n"), "the diagnostic log");
+        return;
+      case "copy-run-log":
+        void copyText(client.log.join("\n"), "the diagnostic log");
         return;
     }
   }

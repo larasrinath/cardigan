@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FRESH_MS, PORT_NAME, RESULTS_PAGE, type TabMessage } from "../protocol.js";
 import type { AnalysisResult, Cell } from "../result-types.js";
-import { resultZip } from "../result-zip.js";
+import { resultZip, tableCsv } from "../result-zip.js";
 import { FakeElement, FakeInput, FakePage, FakeSelect } from "./dom.test-support.js";
 
 /** The page as it is packaged: the script runs on results.html itself, read by the stand-in page. */
@@ -60,6 +60,8 @@ describe("The results page's script, on the page", () => {
   let ports: FakePort[];
   let connects: unknown[][];
   let saved: Blob[];
+  /** What the script put on the clipboard. */
+  let copied: string[];
   let lastError: { message?: string } | undefined;
   /** The page's address, each address the script changed it to, and whether changing it is refused. */
   let location: { search: string; pathname: string; hash: string };
@@ -72,6 +74,7 @@ describe("The results page's script, on the page", () => {
     ports = [];
     connects = [];
     saved = [];
+    copied = [];
     lastError = undefined;
     replaced = [];
     fixedAddress = false;
@@ -92,6 +95,7 @@ describe("The results page's script, on the page", () => {
       tabs: { connect: (...args: unknown[]) => { connects.push(args); const port = new FakePort(); ports.push(port); return port; } },
       runtime: { get lastError() { return lastError; } },
     });
+    vi.stubGlobal("navigator", { clipboard: { writeText: async (text: string) => { copied.push(text); } } });
     vi.spyOn(URL, "createObjectURL").mockImplementation(blob => { saved.push(blob as Blob); return "blob:saved"; });
     vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
   });
@@ -111,6 +115,12 @@ describe("The results page's script, on the page", () => {
   /** What the run control reads, beside its icon. */
   const runControl = () => [page.id("runAgain").textContent.trim(), page.id("runAgain").title, page.all("#runAgain svg").length];
   const bytes = async (blob: Blob) => new Uint8Array(await blob.arrayBuffer());
+  /** Lets what the script started without waiting for it, such as a copy to the clipboard, come to its end. */
+  const settle = async () => { for (let turn = 0; turn < 5; turn++) await Promise.resolve(); };
+  /** The banner above a result: its kind, and its heading, message and hint as far as they are shown. */
+  const banner = () => (page.has("#runBanner")
+    ? [page.id("runBanner").classList.contains("warn") ? "warn" : "note", ...["bannerTitle", "bannerText", "bannerHint"].filter(id => !page.id(id).hidden).map(id => page.id(id).textContent)]
+    : []);
   const sendResult = (port: FakePort, result = RESULT) => {
     port.send({ type: "result", result: { ...result, tables: result.tables.map(table => ({ ...table, rows: [] })) } });
     result.tables.forEach((table, index) => port.send({ type: "rows", table: index, rows: table.rows }));
@@ -244,19 +254,129 @@ describe("The results page's script, on the page", () => {
     expect(page.id("toast").textContent).toBe(`Downloaded ${RESULT.zipName}`);
   });
 
-  it("runs again when asked: on the same port after a result, and the old result leaves the page", async () => {
+  it("keeps the result on the page while it runs again, and replaces it only with a complete new one", async () => {
     await openWith();
+    goTo(2);
     page.id("runAgain").press();
+    page.all('#tableWrap tbody [data-act="row"]')[1].press();
+    // The run is on the same port, and its progress stands above the result, as text.
     expect(connects).toHaveLength(1);
     expect(ports[0].posted).toEqual([{ type: "run" }, { type: "run" }]);
-    expect(page.id("runStatus").textContent).toBe("Starting the analysis…");
-    expect(["hdMeta", "banners", "navList"].map(id => page.id(id).innerHTML)).toEqual(["", "", ""]);
-    expect(page.document.title).toBe("Cardigan");
-    expect(disabled("runAgain", "dlAll")).toEqual([true, true]);
-    // Nothing is downloaded while there is no result.
+    expect(banner()).toEqual(["note", "Analysing", "Starting the analysis…", "Keep the Anaplan tab open until this finishes."]);
+    expect(page.id("banners").textContent).toContain("The results below are from the earlier run.");
+    ports[0].send({ type: "status", text: `Reading page 1 of 1: ${TAG}` });
+    ports[0].send({ type: "log", text: "14:02:09 Reading page 1 of 1" });
+    expect([banner()[2], page.has("img")]).toEqual([`Reading page 1 of 1: ${TAG}`, false]);
+
+    // The earlier result is all still there: its name, its navigation, the table and the row the user was reading.
+    const earlier = () => [page.document.title, page.texts("#hdMeta .meta-app"), page.all("#navList [data-nav]").length, page.texts("#view h1"), firstCells().length,
+      page.id("drawer").hidden, page.texts("#drawerBody dd")[2]];
+    expect(earlier()).toEqual(["Cardigan — Demo <img src=x onerror=alert(1)> app", ["Demo <img src=x onerror=alert(1)> app"], 5, ["Cards"], 2, false, "=Margin"]);
+    expect(disabled("runAgain", "dlAll", "dlCsv")).toEqual([true, false, false]);
+    // And it is what the downloads give, with the time it was complete at.
+    vi.setSystemTime(new Date(Date.UTC(2026, 9, 3, 15, 0, 0)));
+    page.id("drawerClose").press();
     page.id("dlAll").press();
     page.id("dlCsv").press();
-    expect(saved).toEqual([]);
+    expect(page.downloads.map(download => download.name)).toEqual([RESULT.zipName, "Cards.csv"]);
+    expect(await bytes(saved[0])).toEqual(resultZip(RESULT, NOW));
+    expect(await saved[1].text()).toBe(tableCsv(RESULT.tables[2]).replace(/^\ufeff/, ""));
+
+    // The new result arrives in pieces: until it is complete, nothing of it is shown, and the user reads on.
+    page.all('#tableWrap tbody [data-act="row"]')[0].press();
+    expect(page.id("drawer").classList.contains("show")).toBe(true);
+    const next: AnalysisResult = { ...RESULT, name: "Demo app, second run", zipName: "Second.zip", summary: ["1 of 1 pages analysed, 1 card."],
+      tables: [RESULT.tables[0], RESULT.tables[1], { ...RESULT.tables[2], rows: [["Overview", 1, "Only card", "Grid", "card-z"]] }] };
+    ports[0].send({ type: "result", result: { ...next, tables: next.tables.map(table => ({ ...table, rows: [] })) } });
+    next.tables.forEach((table, index) => ports[0].send({ type: "rows", table: index, rows: table.rows }));
+    expect([earlier().slice(0, 5), banner().slice(0, 3)]).toEqual([["Cardigan — Demo <img src=x onerror=alert(1)> app", ["Demo <img src=x onerror=alert(1)> app"], 5, ["Cards"], 2],
+      ["note", "Analysing", "Receiving the result…"]]);
+    ports[0].send({ type: "done" });
+    // Now the page is the new result's: its overview, without the banner, and without the drawer that showed a row of the old one.
+    expect([page.document.title, page.texts("#view h1"), page.texts("#navList .cnt"), page.id("banners").children, page.id("drawer").classList.contains("show")])
+      .toEqual(["Cardigan — Demo app, second run", ["Overview"], ["1", "1"], [], false]);
+    // The focus was in that drawer: it is on the new view now, not on nothing.
+    expect(page.document.activeElement).toBe(page.id("view"));
+    expect(disabled("runAgain", "dlAll", "dlCsv")).toEqual([false, false, true]);
+    // The downloads are the new result's from now on, with its own time.
+    page.id("dlAll").press();
+    expect(page.downloads[2].name).toBe("Second.zip");
+    expect(await bytes(saved[2])).toEqual(resultZip(next, new Date(Date.UTC(2026, 9, 3, 15, 0, 0))));
+  });
+
+  it("closes a popover of the old result's table when the new result takes its place", async () => {
+    await openWith();
+    goTo(2);
+    page.id("runAgain").press();
+    page.find('[data-colfilter="3"]').press();
+    expect(page.id("popover").hidden).toBe(false);
+    sendResult(ports[0]);
+    expect([page.id("popover").hidden, page.id("popover").children, page.texts("#view h1")]).toEqual([true, [], ["Overview"]]);
+    expect(page.document.activeElement).toBe(page.id("view"));
+    // Focus outside what was replaced stays where it is: on a button of the header.
+    page.id("runAgain").press();
+    page.id("themeToggle").press();
+    sendResult(ports[0]);
+    expect(page.document.activeElement).toBe(page.id("themeToggle"));
+  });
+
+  it("keeps the result when Run again cannot reach the tab, and says so above it with that run's log to copy", async () => {
+    await openWith();
+    goTo(2);
+    // The Anaplan tab was closed after the analysis: its port has gone.
+    ports[0].drop();
+    lastError = { message: "Could not establish connection. Receiving end does not exist." };
+    page.id("runAgain").press();
+    expect(connects).toHaveLength(2);
+    expect([banner(), page.id("bannerCopy").hidden]).toEqual([["note", "Connecting", "Connecting to the Anaplan tab…"], true]);
+    ports[1].drop();
+    lastError = undefined;
+    expect(banner()).toEqual(["warn", "Not connected", "Cardigan cannot reach that tab.", "If it is an Anaplan app or model, refresh it, then click the Cardigan icon again."]);
+    // The result is where it was, and so are its downloads; Run again can be tried again.
+    expect([page.document.title, page.texts("#view h1"), firstCells().length, page.id("sidenav").hidden]).toEqual(["Cardigan — Demo <img src=x onerror=alert(1)> app", ["Cards"], 2, false]);
+    expect(disabled("runAgain", "dlAll", "dlCsv")).toEqual([false, false, false]);
+    // The banner's button copies the log of the run that failed, not the one the result carries.
+    expect(page.id("bannerCopy").hidden).toBe(false);
+    page.id("bannerCopy").press();
+    await settle();
+    expect(copied).toEqual(["14:02:05 The tab did not answer: Could not establish connection. Receiving end does not exist."]);
+    expect(page.id("toast").textContent).toBe("Copied the diagnostic log");
+  });
+
+  it("keeps the result when the new run fails or is cut off, even after pieces of a new result have arrived", async () => {
+    await openWith();
+    const shown = () => [page.document.title, page.texts("#view h1"), page.texts("#navList .cnt")];
+    const first = shown();
+    // The tab says the run failed.
+    page.id("runAgain").press();
+    ports[0].send({ type: "log", text: "14:02:09 stopped: GET /apps 503" });
+    ports[0].send({ type: "error", message: `Anaplan could not be reached. Check your connection, then choose Run again. ${TAG}` });
+    expect(banner().slice(0, 3)).toEqual(["warn", "The analysis stopped", `Anaplan could not be reached. Check your connection, then choose Run again. ${TAG}`]);
+    expect([shown(), page.has("img"), disabled("runAgain", "dlAll")]).toEqual([first, false, [false, false]]);
+
+    // A piece of the result could not be sent: an error takes the place of "done", after the result and some of its rows.
+    page.id("runAgain").press();
+    ports[0].send({ type: "result", result: { ...RESULT, name: "Half", tables: RESULT.tables.map(table => ({ ...table, rows: [] })) } });
+    ports[0].send({ type: "rows", table: 1, rows: [["Half a page", 1]] });
+    ports[0].send({ type: "log", text: "14:02:10 stopped: the result could not be sent (Message length exceeded maximum allowed length.)" });
+    ports[0].send({ type: "error", message: "Cardigan finished reading but could not pass the result to this page. Choose Run again." });
+    ports[0].send({ type: "done" });
+    expect([shown(), banner()[2]]).toEqual([first, "Cardigan finished reading but could not pass the result to this page. Choose Run again."]);
+    page.id("bannerCopy").press();
+    await settle();
+    expect(copied).toEqual(["14:02:10 stopped: the result could not be sent (Message length exceeded maximum allowed length.)"]);
+
+    // The tab is closed in the middle of the run.
+    page.id("runAgain").press();
+    ports[0].send({ type: "result", result: { ...RESULT, name: "Half", tables: RESULT.tables.map(table => ({ ...table, rows: [] })) } });
+    ports[0].drop();
+    expect(banner().slice(0, 3)).toEqual(["warn", "The analysis stopped", "The Anaplan tab was closed or left the page before the analysis finished."]);
+    expect(shown()).toEqual(first);
+    // The Details view still shows, and copies, the log the result carries.
+    page.find('#navList [data-nav="details"]').press();
+    page.find('#view [data-act="copy-diag"]').press();
+    await settle();
+    expect(copied[1]).toBe("14:02:05 app: 1 page");
   });
 
   it("opens a row and a card whose table and title hold a tag, and shows both names as text", async () => {
