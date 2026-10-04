@@ -714,6 +714,9 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
         .toEqual([MODULE, MODULE_3, ...candidates.slice(0, read)].map(module => at(`/modules/${module}/lineItems`)));
       expect(log).toContain(`line items of module ${MODULE_3}: LINE_ITEMS_UNAVAILABLE`);
       expect(done.catalog.lineItems.has(FILTER_ITEM)).toBe(!!found);
+      // The log says how far the search went, in counts only.
+      expect(log.filter(line => line.startsWith("filter line items:")), String(count))
+        .toEqual([`filter line items: 1 looked for in ${read} of ${count} modules that have the filtered dimensions, ${found ? 0 : 1} not found`]);
     }
   });
 
@@ -791,7 +794,10 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     // Then the module's dimensions, and the item from the one the rule neither filters nor leaves to the page.
     expect(lastSent(2)).toEqual([[at("/dimensions"), { moduleIds: [candidate(2)] }], [at(`/modules/${candidate(2)}/dimensions/${REGIONS}`), { itemIds: [ITEM(358, 2)], filter: "" }]]);
     expect(statuses.slice(-2)).toEqual(["Finding filter line items in Synthetic model…", "Reading filter item names in Synthetic model…"]);
+    // The log says how far the search went: the IDs of the rule that had no line item, the modules read of those that have
+    // the filtered dimension, and what was not found.
     expect(log.filter(line => /^(filter |dimensions of)/.test(line))).toEqual(["dimensions of 1 of 1 modules",
+      "filter line items: 2 looked for in 4 of 6 modules that have the filtered dimensions, 0 not found",
       "dimensions of 1 modules of filter line items: 1 read",
       `filter context items: 1 asked of dimension ${REGIONS} in module ${candidate(2)}, 1 named (answer: 1 entries of {itemId, label})`,
       "filter context items: 1 of 1 named"]);
