@@ -220,6 +220,8 @@ describe("The content scripts on an Anaplan page", () => {
       tables: [{ file: "Model Details.csv", label: "Model Details", headers: ["Section", "Detail", "Value"], rows: [["Model", "Model", "Model one"]], guard: true, details: true },
         { file: "Versions.csv", label: "Versions", headers: ["", "Is Actual"], rows: [["Actual", "true"]], guard: false }] };
     hear({ protocol: PROTOCOL, type: "status", nonce, text: "Reading Versions…" }, CORE, frame);
+    // The frame's sign of life before each page of a grid is for this script alone: the results page is sent nothing for it.
+    hear({ protocol: PROTOCOL, type: "alive", nonce }, CORE, frame);
     hear({ protocol: PROTOCOL, type: "done", nonce, result: exported }, CORE, frame);
     await vi.advanceTimersByTimeAsync(0);
     expect(port.types()).toEqual(["log", "status", "log", "result", "rows", "rows", "done"]);

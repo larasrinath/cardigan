@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { describeProbe, exportInCore, NO_MODEL, probeFrame, PROTOCOL, QUIET, runInCore, serveCore, UNREADABLE, watchCore, watchProbes, type CoreHandle, type Endpoint,
   type FrameProbe } from "./bridge.js";
 import { NOT_SCOPE_IDS, SCOPE_IDS } from "./guards.test-support.js";
+import { readGrid, type Native } from "./model/native.js";
 import { Failure, UNEXPECTED, type Progress, type Stop } from "./progress.js";
 import type { AnalysisResult, Cell } from "./result-types.js";
 
@@ -205,18 +206,25 @@ describe("Model export bridge between the Model Building page and the model's co
     await expect(runInCore(shell, { source: recording, origin: CORE, modelId: MODEL }, collect().progress, 20)).rejects.toThrow(QUIET);
     expect(posts).toEqual([["ack", CORE], ["run", CORE], ["stop", CORE], ["run", CORE], ["stop", CORE]]);
 
-    // The frame: its steps, its log, the result and a failure go to the origin that asked, and to no other.
+    // The frame: its steps, its log, its sign of life before a read, the result and a failure go to the origin that asked,
+    // and to no other.
     posts.length = 0;
     const core = new FakeWindow(CORE);
     const exports: (() => AnalysisResult)[] = [exported, () => { throw new Failure("The model has not finished opening in the Anaplan tab."); }];
-    const stop = serveCore(core, recording, () => MODEL, async progress => { progress.status("Reading Versions…"); progress.log("Versions: 2 rows"); return exports.shift()!(); }, 60_000);
+    const stop = serveCore(core, recording, () => MODEL, async (progress, _diagnostics, check) => {
+      progress.status("Reading Versions…");
+      check.throwIfAborted();
+      progress.log("Versions: 2 rows");
+      return exports.shift()!();
+    }, 60_000);
     core.receive({ protocol: PROTOCOL, type: "run", nonce: "first" }, SHELL, recording);
     await settle();
     core.receive({ protocol: PROTOCOL, type: "run", nonce: "second" }, SHELL, recording);
     await settle();
     stop();
     // Only the announcement goes to whoever is on top, as it always has: it carries the model's ID and nothing of the model.
-    expect(posts).toEqual([["core-ready", "*"], ["status", SHELL], ["log", SHELL], ["done", SHELL], ["status", SHELL], ["log", SHELL], ["error", SHELL]]);
+    expect(posts).toEqual([["core-ready", "*"], ["status", SHELL], ["alive", SHELL], ["log", SHELL], ["done", SHELL],
+      ["status", SHELL], ["alive", SHELL], ["log", SHELL], ["error", SHELL]]);
   });
 
   it("checks every field of the result before use: only a model's files, with file names that are no path", async () => {
@@ -541,18 +549,90 @@ describe("Model export bridge between the Model Building page and the model's co
     const { lines, progress } = collect();
     let outcome: unknown = "waiting";
     runInCore(shell, { source, origin: CORE, modelId: MODEL }, progress, 1000).then(result => { outcome = result; }, error => { outcome = failedWith(error); });
-    // A step, a log line and a message of a kind it does not know, each 900 ms after the one before: 2.7 s in all.
-    for (const message of [{ type: "status", text: "Reading Line Items…" }, { type: "log", text: "Line Items: 3 rows × 2 columns" }, { type: "still-here" }]) {
+    const { nonce } = asked[0];
+    // A step, a log line and the sign of life the frame gives before each page of a grid, each 900 ms after the one before:
+    // 2.7 s in all.
+    for (const message of [{ type: "status", text: "Reading Line Items…" }, { type: "log", text: "Line Items: 3 rows × 2 columns" }, { type: "alive" }]) {
       await vi.advanceTimersByTimeAsync(900);
-      shell.receive({ protocol: PROTOCOL, nonce: asked[0].nonce, ...message }, CORE, source);
+      shell.receive({ protocol: PROTOCOL, nonce, ...message }, CORE, source);
       await vi.advanceTimersByTimeAsync(0);
     }
     await vi.advanceTimersByTimeAsync(999);
+    // The sign of life is no step and no line of the log: it only starts the wait again.
     expect([outcome, lines]).toEqual(["waiting", ["status: Reading Line Items…", "log: Line Items: 3 rows × 2 columns"]]);
-    // A message that is not this run's does not count.
-    shell.receive({ protocol: PROTOCOL, nonce: "another-run", type: "status", text: "Reading Modules…" }, CORE, source);
+    // One that is not this run's, or not from the frame that was asked, at the origin it announced, does not count.
+    const sibling = new FakeWindow(CORE);
+    shell.receive({ protocol: PROTOCOL, nonce: "another-run", type: "alive" }, CORE, source);
+    shell.receive({ protocol: PROTOCOL, type: "alive" }, CORE, source);
+    shell.receive({ protocol: PROTOCOL, nonce, type: "alive" }, CORE, shell.seenBy(sibling));
+    shell.receive({ protocol: PROTOCOL, nonce, type: "alive" }, SHELL, source);
+    shell.receive({ protocol: PROTOCOL, nonce, type: "alive" }, "https://evil.example.com", source);
+    shell.receive({ protocol: "another-protocol", nonce, type: "alive" }, CORE, source);
     await vi.advanceTimersByTimeAsync(1);
     expect(outcome).toEqual([QUIET, "the model's frame sent nothing for 1 s"]);
+  });
+
+  it("does not give up on a frame while it reads a grid of many pages, each within the idle time: before each page the frame says it is still there", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
+    vi.setSystemTime(new Date(Date.UTC(2026, 8, 28, 1, 59, 9)));
+    // A model page's client with one grid, 60 rows of 3 columns, that takes a minute to answer each read.
+    const reads: string[] = [];
+    let answers = true;
+    const client = { cache: { getAllCurrenciesLabelPage: () => undefined }, ids: {}, constants: {}, axisHelper: {}, workspaceId: "w".repeat(32), modelId: MODEL,
+      helper: { getAxesForViewDefinition: (rows: string[], columns: string[]) => ({ rowAxis: rows[0], columnAxis: columns[0] }) },
+      RequestGenerator: class { getRequest(params: unknown) { return { requestType: "VIEW_REQUEST_SET", submissions: [], systemActions: [], params }; } },
+      DataPage: class { contains() { return true; } getIndex() { return 0; } getCellText() { return "Units * Price"; } getOriginalText() { return "Units * Price"; } },
+      aggregator: { isDirty: () => false, post: (request: { params: { pageRequests: { startRow: number; rowCount: number }[] } }, _flag: boolean, ok: (response: unknown) => boolean) => {
+        const { startRow, rowCount } = request.params.pageRequests[0];
+        reads.push(`${startRow}+${rowCount}`);
+        const ids = Array.from({ length: rowCount }, (_, index) => 1901000000000 + startRow + index);
+        if (answers) setTimeout(() => ok({ result: { viewRequestResults: [{ rowCount: 60, columnCount: 3,
+          rowLabelPages: [{ start: startRow, count: rowCount, entityLongIds: [ids], labels: [ids.map(id => `Item ${id % 1000}`)] }],
+          columnLabelPages: [{ start: 0, count: 3, entityLongIds: [[4000000009, 4000000010, 4000000011]], labels: [["Formula", "Summary", "Notes"]] }],
+          dataPages: [{ startRow, rows: ids.map(() => ["", "", ""]) }] }] } }), 60_000);
+        return true;
+      } } } as unknown as Native;
+    /** The export of that grid, six cells at a time: the first read, then thirty pages of two rows. Half an hour, and after
+     * the line that follows the first read it has nothing to report until it is done. `asks` is whether it asks the frame's
+     * check before each page, as the export does (model/native.ts `readGrid`). */
+    let diagnostic = "";
+    const reading = (asks: boolean) => async (progress: Progress, diagnostics: () => string, check: Stop) => {
+      progress.status("Reading Line Items…");
+      const grid = await readGrid(client, "ROWS", "COLS", "Line Items", progress.log, 6, false, asks ? check : undefined);
+      diagnostic = diagnostics();
+      return exported(grid.rows.map(row => [row.labels[0], row.cells[0]]));
+    };
+    /** Runs it in a frame, for a page that waits with its own idle time of five minutes, and lets forty minutes pass. */
+    const exporting = async (asks: boolean) => {
+      reads.length = 0;
+      const [shell, core] = [new FakeWindow(SHELL), new FakeWindow(CORE)];
+      let handle: CoreHandle | undefined;
+      watchCore(shell, found => { handle = found; });
+      const stop = serveCore(core, shell.seenBy(core), () => MODEL, reading(asks));
+      await vi.advanceTimersByTimeAsync(0);
+      const { lines, progress } = collect();
+      const outcome = runInCore(shell, handle!, progress).then(result => result.tables[1].rows.length, failedWith);
+      await vi.advanceTimersByTimeAsync(40 * 60_000);
+      stop();
+      return { lines, outcome: await outcome };
+    };
+
+    const kept = await exporting(true);
+    expect(kept.outcome).toBe(60);
+    expect(reads).toEqual(["0+1", ...Array.from({ length: 30 }, (_, page) => `${page * 2}+2`)]);
+    // What keeps the page waiting is no step and no line: the page is shown nothing more, and the log the export writes
+    // into Model Details.csv has no more rows.
+    const logged = "Line Items: 60 rows × 3 columns; columns: Formula | Summary | Notes";
+    expect(kept.lines).toEqual(["status: Reading Line Items…", `log: ${logged}`]);
+    expect(diagnostic).toBe(`01:59:09 Reading Line Items…\r\n02:00:09 ${logged}`);
+
+    // Read without asking before each page, as it was, the same grid is given up on five minutes after that line.
+    expect((await exporting(false)).outcome).toEqual([QUIET, "the model's frame sent nothing for 300 s"]);
+
+    // The other half of it: a read that is never answered ends by itself, as a failed read, sooner than the page gives up.
+    answers = false;
+    expect((await exporting(true)).outcome).toEqual([UNEXPECTED, "Timed out waiting for the model."]);
+    expect(reads).toEqual(["0+1"]);
   });
 
   it("serves the classic model page opened on its own, where both sides are the same window", async () => {
@@ -563,7 +643,12 @@ describe("Model export bridge between the Model Building page and the model's co
     page.addEventListener("message", event => { if ((event.data as { type?: string }).type === "core-ready") announcements++; });
     watchCore(page, handle => { found = handle; });
     let runs = 0;
-    const stop = serveCore(page, itself, () => MODEL, async progress => { runs++; progress.status("Reading Versions…"); return exported(); }, 5);
+    const stop = serveCore(page, itself, () => MODEL, async (progress, _diagnostics, check) => {
+      runs++;
+      progress.status("Reading Versions…");
+      check.throwIfAborted();
+      return exported();
+    }, 5);
     await settle();
     expect(found).toEqual({ source: itself, origin: CORE, modelId: MODEL });
     // Acknowledged like a frame: the announcements stop.
@@ -572,7 +657,8 @@ describe("Model export bridge between the Model Building page and the model's co
     await new Promise(resolve => setTimeout(resolve, 30));
     expect(announcements).toBe(seen);
 
-    // Each side also hears what it sends itself; neither takes its own message for the other's.
+    // Each side also hears what it sends itself, the sign of life before a read included; neither takes its own message
+    // for the other's.
     const { lines, progress } = collect();
     await expect(runInCore(page, found!, progress)).resolves.toEqual(exported());
     expect([runs, lines]).toEqual([1, ["status: Reading Versions…"]]);

@@ -22,6 +22,9 @@ const MODULES = ["anaplan/data/ModelContentCache", "anaplan/data/Aggregator", "a
 /** Cells requested per read, so large models are read in pages. */
 const CELLS_PER_READ = 40_000;
 const MAX_ROWS = 250_000;
+/** How long a read waits for the model's answer. With the wait for the page to be idle before it (`waitIdle`), that is less
+ * than the time the page waits for a frame that sends nothing (bridge.ts `runInCore`), so a read the model never answers
+ * ends as a failed read, not as a frame that has gone. */
 const READ_TIMEOUT_MS = 180_000;
 /** What the user is told when the page's client cannot be used (progress.ts `Failure`). */
 const NOT_OPEN = "The model has not finished opening in the Anaplan tab. Wait until it shows, then choose Run again.";
@@ -118,7 +121,9 @@ function selectorLabel(view: Any, page: Any, index: number): string | undefined 
 }
 
 /** Reads a whole grid in row pages; column labels come from the first read. `selectorLabels` shows list choices by label.
- * `stop` is asked before each page: an export that was asked to stop reads no further one. */
+ * `stop` is asked before each page: an export that was asked to stop reads no further one. Asking is also how the model's
+ * frame tells the page that waits for it that the export is still going (bridge.ts `serveCore`): nothing else is
+ * reported between two pages, so it has to be asked before every one. */
 export async function readGrid(native: Native, rows: string, columns: string, name: string, log: Log, cellsPerRead = CELLS_PER_READ,
   selectorLabels = false, stop?: Stop): Promise<Grid> {
   const viewDefinition = { type: "MODEL_DEFINITION", staticContextIdentifiers: [], ...native.helper.getAxesForViewDefinition([rows], [columns]) };
