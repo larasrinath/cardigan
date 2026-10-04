@@ -198,6 +198,10 @@ describe("What the results page's markup shows", () => {
       expect([list?.querySelectorAll("option").map(option => [option.getAttribute("value"), text(option), option.hasAttribute("selected")]), list?.value, list?.getAttribute("aria-label")])
         .toEqual([[["25", "25", size === 25], ["50", "50", size === 50], ["100", "100", size === 100]], String(size), "Rows per page"]);
     }
+    // The choice ends the pager, in the element the stylesheet sets at the right of its line; the page writes no style of its own for it.
+    const whole = parseMarkup(`<div class="pager">${pagerHtml(0, 3, 150, 50)}</div>`).querySelector(".pager");
+    const last = whole?.children[whole.children.length - 1];
+    expect([last?.classList.contains("per-page"), last?.querySelectorAll("select").map(list => list.id), whole?.querySelectorAll("[style]").length]).toEqual([true, ["pageSize"], 0]);
     // No rows, no pager.
     expect(pagerHtml(0, 1, 0, 50)).toBe("");
   });
@@ -368,6 +372,8 @@ describe("What the results page's markup shows", () => {
     const noted = parseMarkup(tableHtml(viewOf(CARDS, LINKS, { note: "5 rows about the model <i>are</i> in the CSV only." })));
     expect([noted.children.map(child => child.id || child.localName), noted.querySelectorAll(".view-note").map(text), noted.querySelectorAll("i").length])
       .toEqual([["h1", "p", "div", "tableWrap"], ["5 rows about the model <i>are</i> in the CSV only."], 0]);
+    // Its look is the stylesheet's, by its class.
+    expect([noted.querySelector("p")?.classList.contains("view-note"), noted.querySelector("p")?.hasAttribute("style")]).toEqual([true, false]);
     const plain = parseMarkup(tableHtml(viewOf(CARDS, LINKS)));
     expect([plain.children.map(child => child.id || child.localName), plain.querySelectorAll(".view-note").length]).toEqual([["h1", "div", "tableWrap"], 0]);
   });
@@ -416,7 +422,9 @@ describe("What the results page's markup shows", () => {
     expect(list("#ovHowTo dl.dl")).toEqual([["Layout", "Each file is laid out as Anaplan's own export."], ["Line Items", "Each module's row sits above its line items."]]);
     // The log line for line, with the button that copies it above it, so that it is in sight as soon as the section is open.
     expect(view.querySelector("#diagLog")?.textContent).toBe("14:02:05 first line\nplain line\n14:02:07 last line");
-    expect(view.querySelector("#ovLog .diag-body")?.children.map(child => child.querySelector("button") ? "button" : child.localName)).toEqual(["button", "pre"]);
+    expect(view.querySelector("#ovLog .diag-body")?.children.map(child => child.localName)).toEqual(["button", "pre"]);
+    // The sections' spacing and their headings' look are the stylesheet's: the page writes no style of its own for them.
+    expect(view.querySelectorAll("#ovHowTo, #ovLog").flatMap(section => [section, ...section.querySelectorAll("[style]")]).filter(element => element.hasAttribute("style"))).toEqual([]);
     expect(view.querySelectorAll("#ovLog [data-act]").map(button => [button.localName, button.dataset.act, text(button)])).toEqual([["button", "copy-diag", "Copy diagnostic log"]]);
     // Each part is there only when it has something to say: without a log there is no Diagnostics section, and nothing to copy.
     const bare = parseMarkup(overviewHtml(overviewWith({ about: [["Model", "Model one"]] })));
