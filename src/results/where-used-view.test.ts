@@ -541,10 +541,14 @@ describe("The Where used table, by object", () => {
     const uses = (result: AnalysisResult) => viewOf(result).objects[1].uses.map(used => [used.page, used.card, used.cardId]);
     expect(uses(app(PAGES, USES, cards(["Overview", 1, "card-a"], ["Overview", 2, "card-b"], ["Stores", 1, "card-c"], ["Stores", 3, "card-d"], ["Admin", 1, "card-e"]))))
       .toEqual([["Overview", 1, "card-a"], ["Overview", 1, "card-a"], ["Overview", 2, "card-b"], ["Stores", 3, "card-d"]]);
-    // Two pages of one name each have a card 1: which of the two cards it is, the file does not say. The same card listed
-    // twice is one card, a card without an ID has none to give, and a number written as text is the same number.
+    // Two rows of the Cards file for one page name and number are two cards: which of them a use is on, the file does not
+    // say. That holds when the two have one ID too, here for card 2, written as a number and as text. A card without an
+    // ID has none to give.
     expect(uses(app(PAGES, USES, cards(["Overview", 1, "card-a"], ["Overview", 1, "card-x"], ["Overview", "2", "card-b"], ["Overview", 2, "card-b"], ["Stores", 3, NONE]))))
-      .toEqual([["Overview", 1, undefined], ["Overview", 1, undefined], ["Overview", 2, "card-b"], ["Stores", 3, undefined]]);
+      .toEqual([["Overview", 1, undefined], ["Overview", 1, undefined], ["Overview", 2, undefined], ["Stores", 3, undefined]]);
+    // A card's number written as text is the same number: one row, and its ID.
+    expect(uses(app(PAGES, USES, cards(["Overview", "1", "card-a"], ["Overview", "2", "card-b"], ["Stores", "3", "card-d"]))))
+      .toEqual([["Overview", 1, "card-a"], ["Overview", 1, "card-a"], ["Overview", 2, "card-b"], ["Stores", 3, "card-d"]]);
     // Without the Cards file, or without one of its three columns, a use has its page and its card's number.
     const noId = cards(["Overview", 1, "card-a"]);
     expect(uses(app(PAGES, USES))).toEqual([["Overview", 1, undefined], ["Overview", 1, undefined], ["Overview", 2, undefined], ["Stores", 3, undefined]]);
@@ -854,6 +858,39 @@ describe("The Where used table by object, where pages share a name", () => {
     // numbers of cards say nothing, and nothing is said of them either.
     expect(said(demand("Overview"), demand("Overview"), demand("Overview"))).toEqual([[["Overview", 3]], [3, undefined], '"Overview" (3 pages)', [2, 4, 3, 4]]);
     expect(said(demand("Overview", { "Total cards": 0 }), demand("Overview", { "Total cards": 0 }))).toEqual([[["Overview", 2]], [2, undefined], '"Overview" (2 pages)', [2, 3, 3, 4]]);
+  });
+
+  it("names a use's card only where one card answers to its page name and number: not where a page and its copy share a name", () => {
+    // A page copied in Anaplan may keep its cards' IDs. Under the same name, card 1 of the page and card 1 of the copy are
+    // two rows of the Cards file with one ID: the page opens a card by its page's name and its ID, so it would open the
+    // first of the two, whichever the use is on. Card 2 is a card of the first page only.
+    const copied = cards(["Overview", 1, "card-a"], ["Overview", 2, "card-b"], ["Overview", 1, "card-a"], ["Stores", 3, "card-d"]);
+    const view = viewOf(app(PAGES_ALIKE, copied, USES_ALIKE));
+    expect(Object.fromEntries(view.objects.map(object => [object.name, object.uses.map(used => [used.page, used.card, used.cardId])]))).toEqual({
+      "REV01 Sales": [["Overview", 1, undefined], ["Overview", 1, undefined]],
+      "Margin %": [["Overview", 1, undefined], ["Overview", 1, undefined], ["Overview", 2, "card-b"], ["Stores", 3, "card-d"]],
+      // The file has no card 3 of an Overview, and no card 1 of Stores.
+      Time: [["Overview", 1, undefined], ["Overview", 2, "card-b"], ["Overview", 3, undefined]],
+      Products: [["Stores", 1, undefined]],
+    });
+    expect(view.objects[0].uses.every(used => !("cardId" in used))).toBe(true);
+    // The same on the report's own rows: the last page is a copy of the first, with its cards' IDs and its name.
+    const report = viewOf(threePages("Overview", [grid("card-1", SALES_MODULE), grid("card-2", PRICES_MODULE)]));
+    expect(report.objects.flatMap(object => object.uses.map(used => `${used.page} ${String(used.card)}: ${used.cardId ?? "no card"}`)).sort()).toEqual([
+      ...Array.from({ length: 6 }, () => "Overview 1: no card"), ...Array.from({ length: 6 }, () => "Overview 2: no card"), ...Array.from({ length: 3 }, () => "Stores 1: card-3")]);
+    // One card of its number is not enough where its ID is another card's too. A copy listed first, with the original's
+    // first card removed, keeps its cards' IDs under other numbers: card 3 is one card, but the page would open the
+    // first card of that name with its ID, which is card 2 of the copy. So card 3 is not named, and neither is any other.
+    const shifted = cards(["Overview", 1, "card-y"], ["Overview", 2, "card-z"], ["Overview", 1, "card-x"], ["Overview", 2, "card-y"], ["Overview", 3, "card-z"], ["Stores", 3, "card-d"]);
+    const moved = viewOf(app(PAGES_ALIKE, shifted, USES_ALIKE));
+    expect(moved.objects.flatMap(object => object.uses.map(used => `${used.page} ${String(used.card)}: ${used.cardId ?? "no card"}`)).filter(said => !said.endsWith("no card"))).toEqual(["Stores 3: card-d"]);
+    // Where the ID is one card's alone, the one card of its number is named: card 3 with an ID of its own.
+    const own = viewOf(app(PAGES_ALIKE, cards(["Overview", 1, "card-y"], ["Overview", 2, "card-z"], ["Overview", 1, "card-x"], ["Overview", 2, "card-y"], ["Overview", 3, "card-w"]), USES_ALIKE));
+    expect(own.objects.flatMap(object => object.uses.map(used => `${used.page} ${String(used.card)}: ${used.cardId ?? "no card"}`)).filter(said => !said.endsWith("no card"))).toEqual(["Overview 3: card-w"]);
+    // Under a name of its own, each card of the copy is the one card of its page and number, and is named.
+    const renamed = viewOf(threePages("Overview (copy)", [grid("card-1", SALES_MODULE), grid("card-2", PRICES_MODULE)]));
+    expect(new Set(renamed.objects.flatMap(object => object.uses.map(used => `${used.page} ${String(used.card)}: ${used.cardId ?? "no card"}`)))).toEqual(new Set([
+      "Overview 1: card-1", "Overview 2: card-2", "Stores 1: card-3", "Overview (copy) 1: card-1", "Overview (copy) 2: card-2"]));
   });
 
   it("takes a row that comes more often than pages have the name for no more than one page and one card", () => {
