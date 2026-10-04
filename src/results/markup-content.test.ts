@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { Cell, ResultTable } from "../result-types.js";
 import { columnsOf, type Column } from "./columns.js";
 import { parseMarkup, type FakeElement } from "./dom.test-support.js";
-import { cellHtml, colChooserHtml, colFilterHtml, detailsHtml, navHtml, overviewHtml, pagerHtml, tableHtml, type Links, type TableView } from "./markup.js";
+import { cellHtml, colChooserHtml, colFilterHtml, navHtml, overviewHtml, pagerHtml, tableHtml, type Links, type TableView } from "./markup.js";
+import type { Overview } from "./result-view.js";
 import { pageOf, selectRows } from "./table-engine.js";
 
 // What each piece of markup shows: the right value in the right place. markup.test.ts checks that no value can change the
@@ -33,6 +34,8 @@ function viewOf(table: ResultTable, links: Links, overrides: Partial<TableView> 
     total: page.total, all: table.rows.length, search: "", sort: undefined, filtered: new Set(), context: undefined, links, note: undefined, ...overrides };
 }
 const text = (element: FakeElement | null | undefined): string => element?.textContent.trim() ?? "";
+/** An overview that holds nothing but what a test gives it. */
+const overviewWith = (parts: Partial<Overview>): Overview => ({ tiles: [], cardTypes: [], models: [], notes: [], about: [], files: [], howToRead: [], log: [], ...parts });
 /** The body of a table's markup: the text of each cell, row by row. */
 const cells = (html: string): string[][] => parseMarkup(html).querySelectorAll("tbody tr").map(row => row.children.map(text));
 
@@ -238,12 +241,12 @@ describe("What the results page's markup shows", () => {
   });
 
   it("shows the overview's tiles, an app's cards by type as bars, its models and the notes", () => {
-    const view = parseMarkup(overviewHtml({
+    const view = parseMarkup(overviewHtml(overviewWith({
       tiles: [{ label: "Pages", count: 7 }, { label: "Cards", count: 1 }, { label: "Filters", count: 0 }],
       cardTypes: [["Grid", 8], ["KPI", 2], ["", 1]],
       models: [{ model: "Model one", workspace: "Main", modelId: "id-1" }, { model: "Model two", workspace: "Other", modelId: "—" }],
-      notes: ["A first note.", "A second note."], facts: [],
-    }));
+      notes: ["A first note.", "A second note."],
+    })));
     expect(view.querySelectorAll(".stat").map(tile => tile.children.map(text))).toEqual([["Pages", "7", "rows"], ["Cards", "1", "row"], ["Filters", "0", "rows"]]);
     // A bar is as long as its type's share of the largest; a type without a name is called blank.
     expect(view.querySelectorAll(".typebar").map(bar => [text(bar.children[0]), text(bar.querySelector(".tb-n")), bar.querySelector(".tb-fill")?.getAttribute("style")])).toEqual([
@@ -251,21 +254,15 @@ describe("What the results page's markup shows", () => {
     // A model: its name, its ID to copy (a dash where there is none), and its workspace.
     expect(view.querySelectorAll(".model-row").map(model => [model.querySelector(".m-name")?.childNodes[0].textContent.trim(), model.querySelector(".id-pill")?.dataset.copy ?? text(model.querySelector(".dash")),
       text(model.querySelector(".m-sub"))])).toEqual([["Model one", "id-1", "Workspace: Main"], ["Model two", "—", "Workspace: Other"]]);
-    expect([view.querySelectorAll(".panel h2").map(text), view.querySelectorAll(".warn-list li").map(text)]).toEqual([["Cards by type", "Models", "Notes"], ["A first note.", "A second note."]]);
-    // A model's export has neither cards nor models, and a result may have no notes: then there is no panel for them.
-    const bare = parseMarkup(overviewHtml({ tiles: [{ label: "Line Items", count: 120 }], cardTypes: [], models: [], notes: [], facts: [] }));
-    expect([bare.querySelectorAll(".stat").map(tile => tile.children.map(text)), bare.querySelectorAll(".panel").length, bare.querySelectorAll(".ov-cols").length]).toEqual([[["Line Items", "120", "rows"]], 0, 0]);
-    const one = parseMarkup(overviewHtml({ tiles: [], cardTypes: [["Grid", 3]], models: [], notes: [], facts: [] }));
+    // The notes stand above the cards by type and the models.
+    expect([view.querySelectorAll(".panel h2").map(text), view.querySelectorAll(".warn-list li").map(text)]).toEqual([["Notes", "Cards by type", "Models"], ["A first note.", "A second note."]]);
+    // A model's export has neither cards nor models, and a result may have no notes: then there is no panel for them, and
+    // without a Details file nothing else stands under the tiles.
+    const bare = parseMarkup(overviewHtml(overviewWith({ tiles: [{ label: "Line Items", count: 120 }] })));
+    expect([bare.querySelectorAll(".stat").map(tile => tile.children.map(text)), bare.querySelectorAll(".panel").length, bare.querySelectorAll(".ov-cols").length,
+      bare.children.map(child => child.localName)]).toEqual([[["Line Items", "120", "rows"]], 0, 0, ["h1", "div"]]);
+    const one = parseMarkup(overviewHtml(overviewWith({ cardTypes: [["Grid", 3]] })));
     expect([one.querySelectorAll(".panel h2").map(text), one.querySelector(".tb-fill")?.getAttribute("style")]).toEqual([["Cards by type"], "display:block;width:100%"]);
-  });
-
-  it("shows a model's own facts in a panel of the overview, each setting beside its value, as text", () => {
-    const view = parseMarkup(overviewHtml({ tiles: [{ label: "Model Calendar", count: 26 }], cardTypes: [], models: [], notes: ["A note."],
-      facts: [["Workspace", "Main <b>one</b>"], ["Model", "Demand: plan"], ["Captured on", "2026-10-03"]] }));
-    expect(view.querySelectorAll(".ov-cols .panel").map(panel => [text(panel.querySelector("h2")), panel.getAttribute("aria-labelledby") === panel.querySelector("h2")?.id])).toEqual([["Model", true]]);
-    expect([view.querySelectorAll(".ov-cols dl.d-dl dt").map(text), view.querySelectorAll(".ov-cols dl.d-dl dd").map(text)])
-      .toEqual([["Workspace", "Model", "Captured on"], ["Main <b>one</b>", "Demand: plan", "2026-10-03"]]);
-    expect([view.querySelectorAll("b").length, view.querySelectorAll(".panel h2").map(text)]).toEqual([0, ["Model", "Notes"]]);
   });
 
   it("says under a table's name what the table leaves to the CSV, as text, and nothing for a table that lists every row", () => {
@@ -291,18 +288,40 @@ describe("What the results page's markup shows", () => {
     expect(parseMarkup(navHtml(entries, "overview", true)).children.every(child => child.classList.contains("nav-item"))).toBe(true);
   });
 
-  it("shows the details under their sections, each detail beside its value, and the log line for line", () => {
-    const view = parseMarkup(detailsHtml(
-      [{ section: "App", rows: [["App", "Demo app"], ["Cards", "3"]] }, { section: "Export", rows: [["Exported on", "2026-10-03 14:02 UTC"]] }, { section: "Empty", rows: [] }],
-      ["14:02:05 first line", "plain line", "14:02:07 last line"]));
-    expect(view.querySelectorAll(".d-sec").map(section => {
-      const names = section.querySelectorAll("dt").map(text);
-      return [text(section.querySelector("h2")), names.map((name, index) => [name, text(section.querySelectorAll("dd")[index])])];
-    })).toEqual([["App", [["App", "Demo app"], ["Cards", "3"]]], ["Export", [["Exported on", "2026-10-03 14:02 UTC"]]], ["Empty", []]]);
+  it("shows on the overview what the Details file says: what was read first, then the files that say more than their tile, and two sections that start closed", () => {
+    const view = parseMarkup(overviewHtml(overviewWith({
+      tiles: [{ label: "Pages", count: 7 }], cardTypes: [["Grid", 8]], models: [{ model: "Model one", workspace: "Main", modelId: "id-1" }], notes: ["A note."],
+      about: [["App", "Demo <b>app</b>"], ["Cards", "3"], ["Exported on", "2026-10-03 14:02 UTC"]],
+      files: [["Imports.csv", "Not exported: the grid did not load"]],
+      howToRead: [["Layout", "Each file is laid out as Anaplan's own export."], ["Line Items", "Each module's row sits above its line items."]],
+      log: ["14:02:05 first line", "plain line", "14:02:07 last line"],
+    })));
+    /** A list of details: each detail beside its value. */
+    const list = (selector: string) => {
+      const names = view.querySelectorAll(`${selector} dt`).map(text);
+      return names.map((name, index) => [name, text(view.querySelectorAll(`${selector} dd`)[index])]);
+    };
+    // The order under the heading: the tiles, what was read, the notes, an app's panels, the files, how to read them, the log.
+    expect(view.children.map(child => child.id || (child.classList.contains("panel") ? "notes" : child.classList.contains("ov-grid") ? "tiles" : child.classList.contains("ov-cols") ? "panels" : child.localName)))
+      .toEqual(["h1", "tiles", "ovAbout", "notes", "panels", "ovFiles", "ovHowTo", "ovLog"]);
+    expect([text(view.querySelector("#ovAbout h2")), list("#ovAbout dl.dl")]).toEqual(["About this export", [["App", "Demo <b>app</b>"], ["Cards", "3"], ["Exported on", "2026-10-03 14:02 UTC"]]]);
+    expect([text(view.querySelector("#ovFiles h2")), list("#ovFiles dl.dl")]).toEqual(["Files", [["Imports.csv", "Not exported: the grid did not load"]]]);
+    expect(view.querySelectorAll("b").length).toBe(0);
+    // The two sections that start closed: each is a details element whose first child is its summary, with the section's
+    // heading in it; what the section holds comes after, and is out of sight until it is opened.
+    for (const [id, title] of [["ovHowTo", "How to read these files"], ["ovLog", "Diagnostics"]]) {
+      const section = view.querySelector(`#${id}`);
+      expect([section?.localName, section?.hasAttribute("open"), section?.classList.contains("diag"), section?.children.map(child => child.localName), text(section?.querySelector("summary h2")),
+        section?.querySelector("summary")?.focusable, section?.querySelector(".diag-body")?.inClosedDetails], id).toEqual(["details", false, true, ["summary", "div"], title, true, true]);
+    }
+    expect(list("#ovHowTo dl.dl")).toEqual([["Layout", "Each file is laid out as Anaplan's own export."], ["Line Items", "Each module's row sits above its line items."]]);
+    // The log line for line, with the button that copies it above it, so that it is in sight as soon as the section is open.
     expect(view.querySelector("#diagLog")?.textContent).toBe("14:02:05 first line\nplain line\n14:02:07 last line");
-    expect(view.querySelectorAll(".diag [data-act]").map(button => [button.dataset.act, text(button)])).toEqual([["copy-diag", "Copy diagnostic log"]]);
-    // Without a log there is no Diagnostics block, and nothing to copy.
-    const bare = parseMarkup(detailsHtml([{ section: "Model", rows: [["Model", "Model one"]] }], []));
-    expect([bare.querySelectorAll(".diag").length, bare.querySelectorAll("[data-act]").length, text(bare.querySelector("h1"))]).toEqual([0, 0, "Details"]);
+    expect(view.querySelector("#ovLog .diag-body")?.children.map(child => child.querySelector("button") ? "button" : child.localName)).toEqual(["button", "pre"]);
+    expect(view.querySelectorAll("#ovLog [data-act]").map(button => [button.localName, button.dataset.act, text(button)])).toEqual([["button", "copy-diag", "Copy diagnostic log"]]);
+    // Each part is there only when it has something to say: without a log there is no Diagnostics section, and nothing to copy.
+    const bare = parseMarkup(overviewHtml(overviewWith({ about: [["Model", "Model one"]] })));
+    expect([bare.children.map(child => child.id || child.localName), bare.querySelectorAll("details").length, bare.querySelectorAll("[data-act]").length, text(bare.querySelector("h1"))])
+      .toEqual([["h1", "div", "ovAbout"], 0, 0, "Overview"]);
   });
 });

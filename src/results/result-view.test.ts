@@ -123,7 +123,14 @@ describe("What the results page reads out of a result", () => {
       tiles: [{ label: "Pages", count: 4 }, { label: "Cards", count: 6 }, { label: "Filters", count: 0 }],
       cardTypes: [["Grid", 2], ["KPI", 2], ["Chart", 1], ["Text", 1]],
       models: [{ model: "Demo model", workspace: "Main", modelId: "0123456789ABCDEF0123456789ABCDEF" }, { model: "Other model", workspace: "Old", modelId: "FEDCBA9876543210FEDCBA9876543210" }],
-      notes: ["Legacy archive: Not published", "Names: Demo model: the model is closed, so IDs are shown instead of names."], facts: [],
+      notes: ["Legacy archive: Not published", "Names: Demo model: the model is closed, so IDs are shown instead of names."],
+      // What the Details file says besides: what was read, in the file's order; the files whose row says something else than
+      // the file's own number of rows (here the Details file was written for fewer rows); how to read them; and the log.
+      about: [["App", "Demo app"], ["App ID", "01234567-89ab-cdef-0123-456789abcdef"], ["Cards", "3"], ["Exported on", "2026-10-03 14:02 UTC"], ["Exported with", "Cardigan dev"],
+        ["Anaplan host", "us1a.app.anaplan.com"]],
+      files: [["Pages.csv", "2 rows"], ["Cards.csv", "3 rows"]],
+      howToRead: [["Page and Card #", "Identify a card in every file."]],
+      log: diagnosticLog(appDetails),
     });
   });
 
@@ -162,7 +169,44 @@ describe("What the results page reads out of a result", () => {
     const modules: ResultTable = { file: "Modules.csv", label: "Modules", headers: ["", "Card type", "Model"], rows: [["REP01", "x", "y"]], guard: false };
     expect(overviewOf(result("model", [modelDetails, lineItems, modules], ["Line Items: 2 rows", "Modules: 1 rows"]))).toEqual({
       tiles: [{ label: "Modules", count: 1 }, { label: "Line Items", count: 2 }], cardTypes: [], models: [],
-      notes: ["Actions: the Actions list came without Notes; the Diagnostics rows list the columns it had."], facts: [] });
+      notes: ["Actions: the Actions list came without Notes; the Diagnostics rows list the columns it had."],
+      about: [["Model", "Model one"], ["Workspace", "Main"], ["Exported on", "2026-10-03 09:30 UTC"], ["Exported with", "Cardigan dev"], ["Anaplan host", "eu2a.app.anaplan.com"]],
+      files: [["Line Items.csv", "120 rows"], ["Imports.csv", "Not exported: the grid did not load"]], howToRead: [], log: [] });
+  });
+
+  it("holds on the overview every row of the Details file: none is dropped, and a file's row is left to its tile only when it says the tile's count", () => {
+    const lineItems: ResultTable = { file: "Line Items.csv", label: "Line Items", headers: ["", "Formula"], rows: Array.from({ length: 120 }, (_, index) => [`Line item ${index}`, ""]), guard: false };
+    const imports: ResultTable = { file: "Imports.csv", label: "Imports", headers: ["", "Source"], rows: [["Load", "a"], ["Other", "b"]], guard: false };
+    const details = detailsTable("Model Details.csv", [
+      ["Model", "Model", "Model one"], ["Model", "Workspace", "Main"], ["Model", "Model ID", "0123456789ABCDEF0123456789ABCDEF"],
+      ...exportRows("eu2a.app.anaplan.com", new Date(Date.UTC(2026, 9, 3, 9, 30, 0))),
+      ["Files", "Line Items.csv", "120 rows"], ["Files", "Imports.csv", "2 rows (2 matched in the Actions list)"], ["Files", "Source Models.csv", "Not exported: no such axis"],
+      ["Notes", "Actions", "the Actions list came without Notes."], ["Something new", "A detail", "its value"],
+      ["How to read", "Layout", "As Anaplan's own export."], ...diagnosticRows(LOG),
+    ]);
+    const overview = overviewOf(result("model", [details, lineItems, imports]));
+    // The file whose row says only how many rows it has is the tile; the others are said, with what they say.
+    expect([overview.tiles, overview.files]).toEqual([[{ label: "Line Items", count: 120 }, { label: "Imports", count: 2 }],
+      [["Imports.csv", "2 rows (2 matched in the Actions list)"], ["Source Models.csv", "Not exported: no such axis"]]]);
+    // A section the page does not know is part of what the export is about: its rows are there too.
+    expect(overview.about.slice(-1)).toEqual([["A detail", "its value"]]);
+    // Every row of the Details file is somewhere on the overview.
+    const held = (row: Cell[]): boolean => {
+      const [section, detail, value] = row.map(String);
+      const pair = ([first, second]: readonly [string, string]) => first === detail && second === value;
+      if (section === "Diagnostics") return overview.log.includes(detail ? `${detail} ${value}` : value);
+      if (section === "Notes") return overview.notes.includes(`${detail}: ${value}`);
+      if (section === "How to read") return overview.howToRead.some(pair);
+      if (section === "Files") return overview.files.some(pair) || overview.tiles.some(tile => `${tile.label}.csv` === detail && `${tile.count} rows` === value);
+      return overview.about.some(pair);
+    };
+    expect([details.rows.length, details.rows.filter(row => !held(row))]).toEqual([16, []]);
+    // The same for the app's Details file, whose Files rows are said too where they differ from the files.
+    const app = overviewOf(result("app", [appDetails]));
+    expect([app.about.length, app.files.length, app.notes.length, app.howToRead.length, app.log.length]).toEqual([6, 2, 2, 1, 4]);
+    expect(app.about.length + app.files.length + app.notes.length + app.howToRead.length + app.log.length).toBe(appDetails.rows.length);
+    // Without a Details file the overview has none of it.
+    expect(overviewOf(result("model", [lineItems]))).toMatchObject({ about: [], files: [], howToRead: [], log: [] });
   });
 
   it("lists a model's files in the order of Anaplan's Model settings, and an app's as the result has them", () => {
@@ -242,9 +286,15 @@ describe("What the results page reads out of a result", () => {
     // Nothing for an app, for a model without the file, and for a file without those columns.
     expect([modelFacts(result("app", [appDetails, calendar()])), modelFacts(result("model", [modelDetails])),
       modelFacts(result("model", [{ ...calendar(), headers: ["Section", "Name", "Value"] }]))]).toEqual([[], [], []]);
-    // The overview has the facts, and counts for the file's tile the rows its table lists.
+    // The overview says the facts with what the Details file says about the export, after its rows, and none of them twice:
+    // the model's name and its workspace are in the Details file already.
     const overview = overviewOf(result("model", [modelDetails, calendar()], ["Model Calendar: 31 rows"]));
-    expect([overview.facts, overview.tiles]).toEqual([[["Workspace", "Main"], ["Model", "Model one"], ["Captured on", "2026-10-03"]], [{ label: "Model Calendar", count: 26 }]]);
+    expect([overview.about, overview.tiles]).toEqual([[["Model", "Model one"], ["Workspace", "Main"], ["Exported on", "2026-10-03 09:30 UTC"], ["Exported with", "Cardigan dev"],
+      ["Anaplan host", "eu2a.app.anaplan.com"], ["Captured on", "2026-10-03"]], [{ label: "Model Calendar", count: 26 }]]);
+    // A fact that says something else than the Details file is said as well.
+    expect(overviewOf(result("model", [modelDetails, calendar("Another workspace")])).about.slice(-2)).toEqual([["Workspace", "Another workspace"], ["Captured on", "2026-10-03"]]);
+    // Without a Details file the facts are all the overview has about the export.
+    expect(overviewOf(result("model", [calendar()])).about).toEqual([["Workspace", "Main"], ["Model", "Model one"], ["Captured on", "2026-10-03"]]);
     // The summary's line that says how many rows the file has is still no note: it counts the file, as the CSV has it.
     expect(overview.notes).toEqual(["Actions: the Actions list came without Notes; the Diagnostics rows list the columns it had."]);
   });

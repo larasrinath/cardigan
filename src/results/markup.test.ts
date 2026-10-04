@@ -4,12 +4,12 @@ import { HEADERS } from "../report.js";
 import type { AnalysisResult, Cell, ResultTable } from "../result-types.js";
 import { cardsOf, columnsOf, rowKeys, type Column } from "./columns.js";
 import {
-  cardDrawerHtml, cardDrawerSubHtml, cellHtml, colChooserHtml, colFilterHtml, crumbsHtml, detailsHtml, esc, headerMetaHtml, idPill,
+  cardDrawerHtml, cardDrawerSubHtml, cellHtml, colChooserHtml, colFilterHtml, crumbsHtml, esc, headerMetaHtml, idPill,
   MOON_ICON, navHtml, overviewHtml, pagerHtml, rowCellHtml, rowDrawerHtml, rowDrawerSubHtml, runBannerHtml, runHtml, SUN_ICON, tableHtml, tableParts, type Links, type TableView,
 } from "./markup.js";
 import { parseMarkup } from "./dom.test-support.js";
 import { decode, readMarkup, shownValues, structure } from "./markup.test-support.js";
-import { analysedOf, cardSections, detailSections, detailsOf, diagnosticLog, overviewOf } from "./result-view.js";
+import { analysedOf, cardSections, detailsOf, overviewOf, type Overview } from "./result-view.js";
 import { pageOf, selectRows, valueCounts } from "./table-engine.js";
 
 /** What an Anaplan user can type into a card title, a text card, a name or a formula. */
@@ -50,6 +50,8 @@ const NO_LINKS: Links = { page: false, card: false };
 const column = (index: number, label: string, kind: Column["kind"] = "text", extra: Partial<Column> = {}): Column =>
   ({ index, label, kind, num: false, filter: false, hidden: false, ...extra });
 const KINDS: Column["kind"][] = ["text", "id", "tag", "page", "card"];
+/** An overview that holds nothing but what a test gives it. */
+const overviewWith = (parts: Partial<Overview>): Overview => ({ tiles: [], cardTypes: [], models: [], notes: [], about: [], files: [], howToRead: [], log: [], ...parts });
 const tagNames = (html: string) => [...new Set(readMarkup(html).tags.map(tag => tag.name))].sort();
 const attributeNames = (html: string) => [...new Set(readMarkup(html).tags.flatMap(tag => [...tag.attributes.keys()]))].sort();
 
@@ -90,7 +92,8 @@ describe("The results page's escaping", () => {
       headerMetaHtml({ name: QUOTED, kind: "App", host: QUOTED, exportedOn: QUOTED }),
       navHtml([{ id: "overview", label: "Overview" }, { id: "1", label: QUOTED, count: 2 }], "1"),
       crumbsHtml(QUOTED, QUOTED),
-      overviewHtml({ tiles: [{ label: QUOTED, count: 1 }], cardTypes: [[QUOTED, 1]], models: [{ model: QUOTED, workspace: QUOTED, modelId: QUOTED }], notes: [QUOTED], facts: [[QUOTED, QUOTED]] }),
+      overviewHtml({ tiles: [{ label: QUOTED, count: 1 }], cardTypes: [[QUOTED, 1]], models: [{ model: QUOTED, workspace: QUOTED, modelId: QUOTED }], notes: [QUOTED],
+        about: [[QUOTED, QUOTED]], files: [[QUOTED, QUOTED]], howToRead: [[QUOTED, QUOTED]], log: [QUOTED] }),
       tableHtml(viewOf({ file: "Pages.csv", label: QUOTED, headers: ["Page", QUOTED], rows: [[QUOTED, QUOTED]], guard: true }, LINKS, { search: QUOTED, context: QUOTED })),
       rowDrawerSubHtml(41, QUOTED),
       cardDrawerSubHtml(QUOTED, QUOTED, QUOTED),
@@ -122,8 +125,7 @@ describe("The results page's escaping", () => {
     const pill = readMarkup(idPill(SCRIPT)).tags[0];
     expect([...pill.attributes.keys()]).toEqual(["type", "class", "data-copy", "title", "aria-label"]);
     expect(decode(pill.attributes.get("data-copy") ?? "")).toBe(SCRIPT);
-    expect(detailsHtml([{ section: SCRIPT, rows: [[SCRIPT, SCRIPT]] }], [SCRIPT])).not.toContain("<script");
-    expect(overviewHtml({ tiles: [], cardTypes: [], models: [], notes: [SCRIPT], facts: [[SCRIPT, SCRIPT]] })).not.toContain("<script");
+    expect(overviewHtml(overviewWith({ notes: [SCRIPT], about: [[SCRIPT, SCRIPT]], files: [[SCRIPT, SCRIPT]], howToRead: [[SCRIPT, SCRIPT]], log: [SCRIPT] }))).not.toContain("<script");
   });
 
   it("lets no text change a cell's markup, in any kind of column", () => {
@@ -186,16 +188,20 @@ describe("The results page's escaping", () => {
     expectInert(text => crumbsHtml(text(2), undefined), 0);
   });
 
-  it("lets no text change the overview or the details view", () => {
+  it("lets no text change the overview, which holds what the Details file says as well", () => {
     expectInert(text => overviewHtml({
       tiles: [{ label: text(0), count: 3 }, { label: text(1), count: 1 }], cardTypes: [[text(2), 4], [text(3), 1]],
       models: [{ model: text(4), workspace: text(5), modelId: text(6) }, { model: text(7), workspace: text(8), modelId: text(9) }],
-      notes: [text(10), text(11), text(12)], facts: [[text(13), text(14)], [text(15), text(16)]],
+      notes: [text(10), text(11), text(12)], about: [[text(13), text(14)], [text(15), text(16)]], files: [[text(17), text(18)]],
+      howToRead: [[text(19), text(20)], [text(21), text(22)]], log: [text(23), text(24), text(25)],
     }), 7);
-    // The notes alone, and a model's facts alone, each of the texts in turn.
-    expectInert(text => overviewHtml({ tiles: [], cardTypes: [], models: [], notes: HOSTILE.map((_, index) => text(index)), facts: [] }), 7);
-    expectInert(text => overviewHtml({ tiles: [], cardTypes: [], models: [], notes: [], facts: HOSTILE.map((_, index) => [text(index), text(index + 1)]) }), 7);
-    expectInert(text => detailsHtml([{ section: text(0), rows: [[text(1), text(2)], [text(3), text(4)]] }, { section: text(5), rows: [[text(6), text(7)]] }], [text(8), text(9), text(10)]), 7);
+    // Each part alone, with each of the texts in turn: the notes, what the export is about, its files, how to read them, the log.
+    const each = <T>(make: (text: Texts, index: number) => T) => (text: Texts): T[] => HOSTILE.map((_, index) => make(text, index));
+    expectInert(text => overviewHtml(overviewWith({ notes: each((texts, index) => texts(index))(text) })), 7);
+    expectInert(text => overviewHtml(overviewWith({ about: each((texts, index): [string, string] => [texts(index), texts(index + 1)])(text) })), 7);
+    expectInert(text => overviewHtml(overviewWith({ files: each((texts, index): [string, string] => [texts(index), texts(index + 1)])(text) })), 7);
+    expectInert(text => overviewHtml(overviewWith({ howToRead: each((texts, index): [string, string] => [texts(index), texts(index + 1)])(text) })), 7);
+    expectInert(text => overviewHtml(overviewWith({ log: each((texts, index) => texts(index))(text) })), 7);
   });
 
   it("lets no text change a table: its name, its headers, its cells, the search box, the page a jump keeps", () => {
@@ -322,7 +328,7 @@ describe("The results page's escaping", () => {
     const copies = (html: string) => parseMarkup(html).querySelectorAll("button").map(button => [button.dataset.act, button.textContent.trim(), button.hidden]);
     expect(copies(runHtml())).toEqual([["copy-run-log", "Copy diagnostic log", false]]);
     expect(copies(runBannerHtml())).toEqual([["copy-run-log", "Copy diagnostic log", true]]);
-    expect(copies(detailsHtml([], ["a line"]))).toEqual([["copy-diag", "Copy diagnostic log", false]]);
+    expect(copies(overviewHtml(overviewWith({ log: ["a line"] })))).toEqual([["copy-diag", "Copy diagnostic log", false]]);
   });
 });
 
@@ -362,9 +368,9 @@ describe("A result whose every text is hostile, through every view of the page",
     };
     const pieces = [
       headerMetaHtml(analysedOf(result)),
-      navHtml([{ id: "overview", label: "Overview" }, ...tables.map((table, index) => ({ id: String(index + 1), label: table.label, count: table.rows.length })), { id: "details", label: "Details" }], "overview"),
+      navHtml([{ id: "overview", label: "Overview" }, ...tables.map((table, index) => ({ id: String(index + 1), label: table.label, count: table.rows.length })), ], "overview", true),
+      // The overview holds what the Details file says, too: there is no view of it apart.
       overviewHtml(overviewOf(result)),
-      detailsHtml(detailSections(details), diagnosticLog(details)),
       // The run's own view and its banner hold no text of a result, but they are the page's markup too.
       runHtml(),
       runBannerHtml(),
@@ -411,14 +417,14 @@ describe("A result whose every text is hostile, through every view of the page",
           if (name === "class") expect(value, "a class").toMatch(/^[a-z0-9 -]*$/);
           if (/^data-(sort|colfilter|col|fval|page)$/.test(name)) expect(value, name).toMatch(/^-?\d+$/);
           if (name === "data-act") expect(["page", "card", "row", "reset", "clear-search", "clear-context", "copy-diag", "copy-run-log"]).toContain(value);
-          if (name === "data-nav") expect(value).toMatch(/^(overview|details|map|\d+)$/);
+          if (name === "data-nav") expect(value).toMatch(/^(overview|map|\d+)$/);
           if (name === "id") expect(value).toMatch(/^[A-Za-z]+$/);
         }
       }
     }
     // Every style on the page is one of the design's own; the only part that varies is a bar's width, a number.
-    expect([...styles].sort()).toEqual(["display:block;width:N%", "font-family:var(--mono);font-size:11px", "font-size:12px;color:var(--text-3);margin:4px 0 0",
-      "margin-bottom:12px", "margin-left:auto", "margin-left:auto;flex:none", "overflow:hidden;text-overflow:ellipsis"]);
+    expect([...styles].sort()).toEqual(["display:block;width:N%", "font-family:var(--mono);font-size:11px", "font-size:12px;color:var(--text-3);margin:4px 0 0", "font:inherit",
+      "margin-bottom:10px", "margin-bottom:12px", "margin-left:auto", "margin-left:auto;flex:none", "overflow:hidden;text-overflow:ellipsis"]);
   });
 
   it("shows each hostile text as it was typed, somewhere on the page", () => {
@@ -448,8 +454,10 @@ describe("A result whose every text is hostile, through every view of the page",
     const overview = overviewOf({ kind: "app", name: "App", id: "id", zipName: "App.zip", summary: ["A note."], tables: [
       { file: "Pages.csv", label: "Pages", headers: ["Page", "Model", "Workspace", "Model ID"], rows: [["Overview", "Model one", "Main", "id-1"]], guard: true },
       { file: "Cards.csv", label: "Cards", headers: ["Page", "Card type", "Card ID"], rows: [["Overview", "Grid", "card-a"]], guard: true }] });
-    expect(headings(overviewHtml(overview))).toEqual(["1 Overview", "2 Cards by type", "2 Models", "2 Notes"]);
-    expect(headings(detailsHtml([{ section: "App", rows: [["App", "Demo"]] }, { section: "Export", rows: [] }], ["a line"]))).toEqual(["1 Details", "2 App", "2 Export"]);
+    expect(headings(overviewHtml(overview))).toEqual(["1 Overview", "2 Notes", "2 Cards by type", "2 Models"]);
+    // With what the Details file says: each part under a heading of its own, the two that start closed among them.
+    expect(headings(overviewHtml({ ...overview, about: [["App", "Demo"]], files: [["Imports.csv", "Not exported"]], howToRead: [["Layout", "As Anaplan's export."]], log: ["a line"] })))
+      .toEqual(["1 Overview", "2 About this export", "2 Notes", "2 Cards by type", "2 Models", "2 Files", "2 How to read these files", "2 Diagnostics"]);
     const table: ResultTable = { file: "Cards.csv", label: "Cards", headers: ["Page"], rows: [["Overview"]], guard: true };
     expect(headings(tableHtml(viewOf(table, LINKS)))).toEqual(["1 Cards"]);
     expect(headings(runHtml())).toEqual(["1 "]);
@@ -465,7 +473,7 @@ describe("A result whose every text is hostile, through every view of the page",
   });
 
   it("gives the diagnostic log, which the keyboard can scroll, a role and a name", () => {
-    for (const html of [runHtml(), detailsHtml([], ["a line"])]) {
+    for (const html of [runHtml(), overviewHtml(overviewWith({ log: ["a line"] }))]) {
       const log = parseMarkup(html).querySelector("#diagLog");
       expect([log?.localName, log?.getAttribute("tabindex"), log?.getAttribute("role"), log?.getAttribute("aria-label")]).toEqual(["pre", "0", "region", "Diagnostic log"]);
     }

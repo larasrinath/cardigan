@@ -3,7 +3,8 @@ import { APP_FILES, columnIndex } from "./columns.js";
 import { cellText, compareText, NONE } from "./table-engine.js";
 
 /** What the results page reads out of a result besides its tables: the Details file's sections, the diagnostic log, and
- * the overview's counts and notes. Everything is taken from cells as they stand: nothing is split out of a joined text. */
+ * what the overview says: its counts and notes, and everything the Details file holds, which has no view of its own.
+ * Everything is taken from cells as they stand: nothing is split out of a joined text. */
 
 /** The one file about the export itself (App Details.csv, Model Details.csv): rows of Section, Detail, Value. */
 export const detailsOf = (result: AnalysisResult): ResultTable | undefined => result.tables.find(table => table.details === true);
@@ -11,6 +12,8 @@ export const detailsOf = (result: AnalysisResult): ResultTable | undefined => re
 /** The sections details.ts and the two exports write that the page treats on their own. */
 const DIAGNOSTICS = "Diagnostics";
 const NOTES = "Notes";
+const FILES = "Files";
+const HOW_TO_READ = "How to read";
 
 export interface DetailSection { section: string; rows: [detail: string, value: string][] }
 
@@ -197,8 +200,17 @@ export interface Overview {
   models: ModelRow[];
   /** The result's notes (`resultNotes`). */
   notes: string[];
-  /** A model's own facts, which its Model Calendar file holds (`modelFacts`). */
-  facts: [setting: string, value: string][];
+  /** About this export: the Details file's rows of every section but its files, its notes, how to read them and the log,
+   * in the file's order; then what a model's Model Calendar file says about the model (`modelFacts`), without what those
+   * rows have said already. */
+  about: [detail: string, value: string][];
+  /** The Details file's rows about files, as far as a file's tile does not say the same: a file that was not exported,
+   * and a count that comes with a remark. A row that says only how many rows a file of the result has is left to the tile. */
+  files: [file: string, value: string][];
+  /** How to read these files: the Details file's rows of that section. */
+  howToRead: [detail: string, value: string][];
+  /** The diagnostic log the result carries (`diagnosticLog`). */
+  log: string[];
 }
 
 export function overviewOf(result: AnalysisResult): Overview {
@@ -226,5 +238,14 @@ export function overviewOf(result: AnalysisResult): Overview {
       if (!models.has(key)) models.set(key, entry);
     }
   }
-  return { tiles, cardTypes, models: [...models.values()], notes: resultNotes(result), facts: modelFacts(result) };
+  const sections = detailSections(detailsOf(result));
+  const rowsOf = (name: string) => sections.find(section => section.section === name)?.rows ?? [];
+  const about = sections.filter(section => ![FILES, NOTES, HOW_TO_READ].includes(section.section)).flatMap(section => section.rows);
+  for (const fact of modelFacts(result)) {
+    if (!about.some(([detail, value]) => detail === fact[0] && value === fact[1])) about.push(fact);
+  }
+  // The Details file says "1 rows" too: a count is the file's number of rows and the word, whatever the number.
+  const onlyCounted = new Map(result.tables.map(table => [table.file, `${table.rows.length} rows`]));
+  const files = rowsOf(FILES).filter(([file, value]) => onlyCounted.get(file) !== value);
+  return { tiles, cardTypes, models: [...models.values()], notes: resultNotes(result), about, files, howToRead: rowsOf(HOW_TO_READ), log: diagnosticLog(detailsOf(result)) };
 }
