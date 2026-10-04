@@ -1,10 +1,14 @@
 import { textOf } from "./result-plain.js";
+import { VERSION } from "./version.js";
 
 /** How a run says what it is doing: the step it is on, and lines for the diagnostic log. Whoever starts the run stamps each
  * line with its time (details.ts `stampLine`) and shows or sends both. And how it says why it failed. */
 
 export type Log = (line: string) => void;
 export interface Progress { status(text: string): void; log: Log }
+
+/** The first line of a run's diagnostic log: the build, what is read and on which Anaplan host. */
+export const firstLine = (kind: "app" | "model", id: string, host: string): string => `Cardigan ${VERSION}: ${kind} ${id} on ${host}`;
 
 /** What a run asks before each further read: it throws once the run was asked to stop. An AbortSignal is one. */
 export type Stop = Pick<AbortSignal, "throwIfAborted">;

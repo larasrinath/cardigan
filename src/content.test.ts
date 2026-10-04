@@ -260,6 +260,59 @@ describe("The content scripts on an Anaplan page", () => {
     expect(listeners).toHaveLength(1);
   });
 
+  it("begins the export's own log with the build, the model and the host on a classic model page opened on its own, and not inside Model Building", async () => {
+    // A page's classic client that knows one grid, Versions; every other file is reported as not exported.
+    const client = () => {
+      const answer = { rowCount: 1, columnCount: 1, rowLabelPages: [{ start: 0, count: 1, entityLongIds: [[107000000001]], labels: [["Actual"]] }],
+        columnLabelPages: [{ start: 0, count: 1, entityLongIds: [[4000000301]], labels: [["Is Actual"]] }], dataPages: [{ startRow: 0, rows: [["true"]] }] };
+      const aggregator = { isDirty: () => false, post: (_request: unknown, _flag: boolean, ok: (response: unknown) => boolean) => {
+        queueMicrotask(() => ok({ result: { viewRequestResults: [answer] } }));
+        return true;
+      } };
+      const cache = { getModelName: () => "Model one", getWorkspaceInfo: () => ({ name: "Workspace one" }), getAllCurrenciesLabelPage: () => undefined };
+      const helper = { getAxesForViewDefinition: (rows: string[], columns: string[]) => ({ rowAxis: rows[0], columnAxis: columns[0] }) };
+      const constants = { SYSTEM_AXIS_IDENTIFIER_VERSION_ALL_IDENTIFIER: "VERSIONS", SYSTEM_AXIS_IDENTIFIER_VERSION_PROPERTY_IDENTIFIER: "VERSION PROPERTIES" };
+      class RequestGenerator { getRequest() { return { requestType: "VIEW_REQUEST_SET", submissions: [], systemActions: [] }; } }
+      class DataPage { contains() { return true; } getIndex() { return 0; } getCellText() { return "true"; } getOriginalText() { return "true"; } }
+      return { workspaceId: WS, modelId: MODEL,
+        require: (_modules: string[], loaded: (...modules: unknown[]) => void) => loaded(cache, aggregator, helper, {}, constants, RequestGenerator, DataPage, {}) };
+    };
+    /** The Diagnostics rows of Model Details.csv in the last result a window was sent. */
+    const diagnostics = (sent: unknown[]) => {
+      const done = sent.filter((message): message is { result: AnalysisResult } => (message as { type: string }).type === "done").at(-1);
+      return done?.result.tables[0].rows.filter(row => row[0] === "Diagnostics").map(row => row.slice(1));
+    };
+    at("/core-webapp/anaplan/framework.jsp", "eu2a.app.anaplan.com");
+
+    // Opened on its own: the main-world script serves this same window, whose content script asks it to export.
+    Object.assign(page, client());
+    await import("./model-content.js");
+    vi.advanceTimersByTime(1000);
+    hear({ protocol: PROTOCOL, type: "run", nonce: "own" }, CORE, page);
+    await vi.advanceTimersByTimeAsync(0);
+    // As 0.6.1 began the file's log on such a page, in the words the results page's log begins with now.
+    expect(diagnostics(posted)!.slice(0, 2)).toEqual([["01:59:10", `Cardigan dev: model ${MODEL} on eu2a.app.anaplan.com`], ["01:59:10", "Loading the model page's client…"]]);
+    // The line is not sent to the page as well: the content script writes the same one into the log it shows.
+    expect(posted.filter(message => (message as { type: string }).type === "log").map(message => (message as { text: string }).text)).not.toContainEqual(expect.stringContaining("Cardigan"));
+    // A page that no longer names its model gets no line that would name none.
+    delete page.modelId;
+    hear({ protocol: PROTOCOL, type: "run", nonce: "own again" }, CORE, page);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(posted.filter(message => (message as { type: string }).type === "done")).toHaveLength(2);
+    expect(diagnostics(posted)![0]).toEqual(["01:59:10", "Loading the model page's client…"]);
+
+    // Inside Model Building the frame's log, and so the file, has never had that line.
+    vi.resetModules();
+    const heard: Listener[] = [];
+    const top = { posted: [] as unknown[], postMessage(message: unknown) { this.posted.push(message); } };
+    vi.stubGlobal("window", { ...client(), addEventListener: (_type: string, listener: Listener) => { heard.push(listener); }, removeEventListener: () => undefined, top });
+    await import("./model-content.js");
+    vi.advanceTimersByTime(1000);
+    for (const listener of [...heard]) listener({ data: { protocol: PROTOCOL, type: "run", nonce: "frame" }, origin: SHELL, source: top });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(diagnostics(top.posted)![0]).toEqual(["01:59:11", "Loading the model page's client…"]);
+  });
+
   it("stays inert on a page without a classic model, and stops looking after ten minutes", async () => {
     at("/a/home");
     await import("./model-content.js");
