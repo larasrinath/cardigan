@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { describeProbe, exportInCore, NO_MODEL, probeFrame, PROTOCOL, QUIET, runInCore, serveCore, UNREADABLE, watchCore, watchProbes, type CoreHandle, type Endpoint,
   type FrameProbe } from "./bridge.js";
 import { NOT_SCOPE_IDS, SCOPE_IDS } from "./guards.test-support.js";
-import { Failure, UNEXPECTED, type Progress } from "./progress.js";
+import { Failure, UNEXPECTED, type Progress, type Stop } from "./progress.js";
 import type { AnalysisResult, Cell } from "./result-types.js";
 
 /** Two windows that talk like browser windows: posting to a window as another window holds it delivers a cloned message
@@ -53,7 +53,7 @@ const exported = (rows: Cell[][] = [["Revenue", "=Units * Price"], ["Units", ""]
   tables: [{ file: "Model Details.csv", label: "Model Details", headers: ["Section", "Detail", "Value"], rows: [["Model", "Model", "Model one"]], guard: true, details: true },
     { file: "Line Items.csv", label: "Line Items", headers: ["", "Formula"], rows, guard: false }] });
 /** A shell page and a core frame that has announced itself to it. */
-async function connected(exporter: (progress: Progress, diagnostics: () => string) => Promise<AnalysisResult>) {
+async function connected(exporter: (progress: Progress, diagnostics: () => string, stop: Stop) => Promise<AnalysisResult>) {
   const shell = new FakeWindow(SHELL);
   const core = new FakeWindow(CORE);
   let found: CoreHandle | undefined;
