@@ -941,7 +941,7 @@ describe("The results page's script, on the page", () => {
     expect([file.rows.length, file.rows.filter(row => row[0] === "Model").length]).toEqual([31, 5]);
     // The overview: the file's tile counts the rows its table lists. What the file says about the model stands with what
     // the Details file says about the export, after it, and without the model's name, which that has said.
-    expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Model Calendar", "26", "rows"], ["Modules", "2", "rows"], ["Line Items", "120", "rows"]]);
+    expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Model Calendar", "26", "rows", "31 rows in the CSV"], ["Modules", "2", "rows"], ["Line Items", "120", "rows"]]);
     expect([page.texts("#ovAbout h2"), page.texts("#ovAbout dt"), page.texts("#ovAbout dd")])
       .toEqual([["About this export"], ["Model", "Anaplan host", "Workspace", "Captured on"], ["Model one", "us1a.app.anaplan.com", "Main", "2026-10-03"]]);
     // The navigation counts the same rows.
@@ -1108,8 +1108,9 @@ describe("What a click, a key and typing do on the results page", () => {
   it("shows a model's Line Items table as line items only, each with its module and the dimensions it has; the counts are the table's, the downloads the file's", async () => {
     await openWith(BLUEPRINT);
     const file = BLUEPRINT.tables[1];
-    // The overview's tile and the navigation count the line items, not the file's rows, three of which are modules' own.
-    expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Modules", "3", "rows"], ["Line Items", "5", "rows"]]);
+    // The overview's tile and the navigation count the line items, not the file's rows, three of which are modules' own:
+    // the tile says how many rows the CSV has under that.
+    expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Modules", "3", "rows"], ["Line Items", "5", "rows", "8 rows in the CSV"]]);
     expect(page.all("#navList .nav-item").filter(item => item.querySelector(".cnt")).map(item => item.children.map(child => child.textContent))).toEqual([["Modules", "3"], ["Line Items", "5"]]);
 
     goTo(1);
@@ -1677,8 +1678,13 @@ describe("What a click, a key and typing do on the results page", () => {
   it("says on the overview everything the Details file holds, for an app and for a model: no row is dropped", async () => {
     /** Every text the overview shows, with its closed sections' as well. */
     const texts = () => [...page.texts("#view dt"), ...page.texts("#view dd"), ...page.texts("#view .warn-list li"), ...page.id("diagLog").textContent.split("\n")];
-    /** Each file's tile, by the file's own name, which is its entry's in the navigation: the tiles stand in the same order. */
-    const tiles = () => page.all("#navList .nav-item").filter(item => item.querySelector(".cnt")).map((item, index) => `${item.children[0].textContent}.csv: ${page.all("#view .stat .s-num")[index].textContent} rows`);
+    /** What each file's tile says of its rows, by the file's own name, which is its entry's in the navigation (the tiles
+     * stand in the same order): the number its table lists, and under it the number the CSV has where that is another. */
+    const tiles = () => page.all("#navList .nav-item").filter(item => item.querySelector(".cnt")).flatMap((item, index) => {
+      const tile = page.all("#view .stat")[index];
+      const file = `${item.children[0].textContent}.csv`;
+      return [`${file}: ${tile.querySelector(".s-num")?.textContent} rows`, ...tile.querySelectorAll(".s-sub").slice(1).map(line => `${file}: ${line.textContent.replace(/ in the CSV$/, "")}`)];
+    });
     /** The rows of a result's Details file that the overview does not say: a detail and its value, a note, a line of the log, or a file's tile. */
     const unsaid = (result: AnalysisResult) => {
       const shown = texts();
@@ -1705,6 +1711,20 @@ describe("What a click, a key and typing do on the results page", () => {
     expect([model.tables[0].rows.length, unsaid(model)]).toEqual([7, []]);
     expect([page.texts("#view h2"), page.texts("#ovFiles dt"), page.texts("#ovFiles dd")]).toEqual([["About this export", "Files", "How to read these files", "Diagnostics"],
       ["Modules.csv", "Source Models.csv"], ["2 rows (as listed)", "Not exported: This model page has no REMOTE_MODEL axis."]]);
+
+    // A model two of whose tables list fewer rows than their files have: the Line Items grid with its modules' own rows,
+    // and the calendar with its rows about the model. The Details file counts the CSV's rows, 8 and 31.
+    const left: AnalysisResult = { ...BLUEPRINT, summary: ["Line Items: 8 rows", "Modules: 3 rows", "Model Calendar: 31 rows"], tables: [...BLUEPRINT.tables, WITH_CALENDAR.tables[3]] };
+    const counted = withFiles(left);
+    expect(counted.tables[0].rows.filter(row => row[0] === "Files")).toEqual([["Files", "Line Items.csv", "8 rows"], ["Files", "Modules.csv", "3 rows"], ["Files", "Model Calendar.csv", "31 rows"]]);
+    page.id("runAgain").press();
+    sendResult(ports[0], counted);
+    // The tiles count what the tables list, 5 line items and 26 settings, and say the CSV's 8 and 31 under that: neither
+    // count of the Details file is lost, and no row of it is.
+    expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Model Calendar", "26", "rows", "31 rows in the CSV"], ["Modules", "3", "rows"],
+      ["Line Items", "5", "rows", "8 rows in the CSV"]]);
+    expect([tiles(), unsaid(counted), page.has("#ovFiles"), page.has("#view .warn-list")]).toEqual([["Model Calendar.csv: 26 rows", "Model Calendar.csv: 31 rows", "Modules.csv: 3 rows",
+      "Line Items.csv: 5 rows", "Line Items.csv: 8 rows"], [], false, false]);
   });
 
   it("says what was copied as text, whatever the ID holds", async () => {

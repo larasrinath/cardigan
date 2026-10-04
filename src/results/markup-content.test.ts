@@ -271,6 +271,17 @@ describe("What the results page's markup shows", () => {
     expect([one.querySelectorAll(".panel h2").map(text), one.querySelector(".tb-fill")?.getAttribute("style")]).toEqual([["Cards by type"], "display:block;width:100%"]);
   });
 
+  it("says on a tile how many rows the CSV has, under the rows its table lists, where the two are not the same number", () => {
+    const view = parseMarkup(overviewHtml(overviewWith({ tiles: [{ label: "Line Items", count: 3511, inCsv: 3632 }, { label: "Model Calendar", count: 0, inCsv: 1 }, { label: "Modules", count: 121 },
+      { label: "Odd", count: 1, inCsv: 0 }] })));
+    // The number in large is the table's; the line under it says the file's, each with its own word for one row and for several.
+    expect(view.querySelectorAll(".stat").map(tile => tile.children.map(text))).toEqual([["Line Items", "3511", "rows", "3632 rows in the CSV"], ["Model Calendar", "0", "rows", "1 row in the CSV"],
+      ["Modules", "121", "rows"], ["Odd", "1", "row", "0 rows in the CSV"]]);
+    // Both lines under the number are the tile's small lines: the second needs no style of its own.
+    expect(view.querySelectorAll(".stat").map(tile => tile.children.map(child => [...["s-lab", "s-num", "s-sub"]].find(name => child.classList.contains(name))))).toEqual([
+      ["s-lab", "s-num", "s-sub", "s-sub"], ["s-lab", "s-num", "s-sub", "s-sub"], ["s-lab", "s-num", "s-sub"], ["s-lab", "s-num", "s-sub", "s-sub"]]);
+  });
+
   it("shows in a row's drawer, after a cell that is said in words, the text the CSV has in its place, named as the CSV's", () => {
     const columns = [column(0, "Name"), column(1, "Format"), column(2, "Formula"), column(3, "Summary", "tag")];
     const row = ["Margin %", "Number, 2 decimal places, %", "Margin / Revenue", "Ratio = Margin / Revenue"];

@@ -210,6 +210,33 @@ describe("What the results page reads out of a result", () => {
     expect(overviewOf(result("model", [lineItems]))).toMatchObject({ about: [], files: [], howToRead: [], log: [] });
   });
 
+  it("says both numbers on the tile of a file whose table lists fewer rows than the file has: the Details file's count for it is not lost", () => {
+    // A model as the export writes it: the Line Items grid with its modules' own rows, and the calendar with its rows about
+    // the model. The Details file and the summary count each file's rows as the CSV has them.
+    const blueprint: ResultTable = { file: "Line Items.csv", label: "Line Items", guard: false, headers: ["", "Formula", "Applies To", "Module Name"], rows: [
+      ["Revenue", "", "Products, Time", ""], ["Units", "", "-", "Revenue"], ["Price", "Units * 2", "Products", "Revenue"], ["Costs", "", "Regions", ""], ["Rent", "", "-", "Costs"]] };
+    const modules: ResultTable = { file: MODULES_FILE, label: "Modules", headers: ["", "Applies To"], rows: [["Revenue", "Products, Time"], ["Costs", "Regions"]], guard: false };
+    const details = detailsTable("Model Details.csv", [["Model", "Model", "Model one"],
+      ["Files", "Line Items.csv", "5 rows"], ["Files", "Modules.csv", "2 rows"], ["Files", "Model Calendar.csv", "31 rows"], ["Files", "Imports.csv", "Not exported: the grid did not load"]]);
+    const model = result("model", [details, blueprint, modules, calendar()], ["Line Items: 5 rows", "Modules: 2 rows", "Model Calendar: 31 rows", "Imports: not read"]);
+    const overview = overviewOf(model);
+    // The table lists 26 of the calendar's 31 rows and 3 line items of the grid's 5: each tile counts what its table lists,
+    // and says how many rows the CSV has. A file whose table lists every row says one number.
+    expect(overview.tiles).toEqual([{ label: "Model Calendar", count: 26, inCsv: 31 }, { label: "Modules", count: 2 }, { label: "Line Items", count: 3, inCsv: 5 }]);
+    // So the three rows that only count a file are left to the tiles, and the three summary lines that only count one are no notes.
+    expect([overview.files, overview.notes]).toEqual([[["Imports.csv", "Not exported: the grid did not load"]], ["Imports: not read"]]);
+    // Every count the Details file gives is on the overview: under Files, or on the file's tile, as one of its two numbers.
+    const counted = details.rows.filter(row => row[0] === "Files").map(row => [String(row[1]), String(row[2])]);
+    const onTile = ([file, value]: string[]) => overview.tiles.some(tile => `${tile.label}.csv` === file && [tile.count, tile.inCsv].some(number => `${number} rows` === value));
+    expect(counted.map(row => (overview.files.some(([file, value]) => file === row[0] && value === row[1]) ? "Files" : onTile(row) ? "tile" : "lost"))).toEqual(["tile", "tile", "tile", "Files"]);
+    // A count in the Details file that is not the file's own stays under Files, whatever the tile says.
+    const other = overviewOf(result("model", [detailsTable("Model Details.csv", [["Files", "Line Items.csv", "3 rows"], ["Files", "Model Calendar.csv", "26 rows"]]), blueprint, calendar()]));
+    expect([other.tiles, other.files]).toEqual([[{ label: "Model Calendar", count: 26, inCsv: 31 }, { label: "Line Items", count: 3, inCsv: 5 }], [["Line Items.csv", "3 rows"], ["Model Calendar.csv", "26 rows"]]]);
+    // An app's tables list every row: no tile of an app says a second number, a Where Used table by object neither.
+    expect(overviewOf(result("app", [appDetails, appTable("Pages.csv", [{ Page: "Overview" }]), appTable("Where Used.csv", [{ Page: "Overview" }, { Page: "Overview" }])])).tiles)
+      .toEqual([{ label: "Pages", count: 1 }, { label: "Where Used", count: 2 }]);
+  });
+
   it("lists a model's files in the order of Anaplan's Model settings, and an app's as the result has them", () => {
     expect(MODEL_FILE_ORDER).toEqual(["Model Calendar.csv", "Time Ranges.csv", "Versions.csv", "General Lists.csv", "Line Item Subsets.csv", "Modules.csv", "Line Items.csv",
       "Processes.csv", "Imports.csv", "Import Data Sources.csv", "Exports.csv", "Other Actions.csv", "Source Models.csv"]);
@@ -309,7 +336,7 @@ describe("What the results page reads out of a result", () => {
     expect([fileView(result("app", [appDetails, blueprint]), blueprint), fileView(model, renamed), fileView(model, flat)]).toEqual([{ table: blueprint }, { table: renamed }, { table: flat }]);
     expect(fileView(model, flat).table).toBe(flat);
     // The overview's tile counts the line items, as the navigation does; the modules' tile is the Modules file's.
-    expect(overviewOf(model).tiles).toEqual([{ label: "Modules", count: 3 }, { label: "Line Items", count: 4 }]);
+    expect(overviewOf(model).tiles).toEqual([{ label: "Modules", count: 3 }, { label: "Line Items", count: 4, inCsv: 7 }]);
   });
 
   it("says a model's definitions in words in the table's place, and keeps the CSV's text for each cell it says so", () => {
@@ -382,7 +409,7 @@ describe("What the results page reads out of a result", () => {
     expect([...shown.exported ?? []].map(([row, texts]) => [shown.table.rows.findIndex(candidate => candidate === row), [...texts]]))
       .toEqual([[0, [[2, NUMBER], [3, '{"summaryMethod":"SUM","timeSummaryMethod":"SUM"}']]], [1, [[2, NUMBER], [3, RATIO]]]]);
     // The words change no row: the tile counts the line items, as before.
-    expect(overviewOf(model).tiles).toEqual([{ label: "Line Items", count: 2 }]);
+    expect(overviewOf(model).tiles).toEqual([{ label: "Line Items", count: 2, inCsv: 3 }]);
     expect(blueprint.rows[1]).toEqual(["Units", NUMBER, '{"summaryMethod":"SUM","timeSummaryMethod":"SUM"}', "-", "Revenue", "", ""]);
   });
 
@@ -403,7 +430,7 @@ describe("What the results page reads out of a result", () => {
     // the model's name and its workspace are in the Details file already.
     const overview = overviewOf(result("model", [modelDetails, calendar()], ["Model Calendar: 31 rows"]));
     expect([overview.about, overview.tiles]).toEqual([[["Model", "Model one"], ["Workspace", "Main"], ["Exported on", "2026-10-03 09:30 UTC"], ["Exported with", "Cardigan dev"],
-      ["Anaplan host", "eu2a.app.anaplan.com"], ["Captured on", "2026-10-03"]], [{ label: "Model Calendar", count: 26 }]]);
+      ["Anaplan host", "eu2a.app.anaplan.com"], ["Captured on", "2026-10-03"]], [{ label: "Model Calendar", count: 26, inCsv: 31 }]]);
     // A fact that says something else than the Details file is said as well.
     expect(overviewOf(result("model", [modelDetails, calendar("Another workspace")])).about.slice(-2)).toEqual([["Workspace", "Another workspace"], ["Captured on", "2026-10-03"]]);
     // Without a Details file the facts are all the overview has about the export.
