@@ -100,7 +100,8 @@ export class ResultsClient {
   private pending: AnalysisResult | undefined;
 
   constructor(private readonly options: ClientOptions) {
-    this.asked = options.autoRun;
+    // Without a tab there is nothing to ask: the icon's click is no analysis asked for, and the run control stays "Run".
+    this.asked = options.autoRun && options.connect !== undefined;
   }
 
   /** Connects to the tab. On a page the icon has just opened, an app or a model is analysed as soon as the tab says it
@@ -113,7 +114,7 @@ export class ResultsClient {
    * new port, which asks the tab afresh what it shows and then analyses it. Ignored while a run is in progress. */
   runAgain(): void {
     if (this.state.phase === "running") return;
-    this.asked = true;
+    this.asked = this.options.connect !== undefined;
     const usable = this.port !== undefined && this.subject !== undefined && this.subject.kind !== "none";
     if (!usable || !this.run()) this.open();
   }
