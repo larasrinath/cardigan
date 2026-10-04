@@ -137,6 +137,10 @@ describe("The results page's script, on the page", () => {
   const goTo = (table: number) => page.find(`#navList [data-nav="${table}"]`).press();
   /** The rows on screen, by the text of their first cell. */
   const firstCells = () => page.all("#tableWrap tbody tr").map(row => row.children[0].textContent.trim());
+  /** The column headings that offer a filter, by the column's name. */
+  const filterable = () => page.all("#tableWrap thead th").filter(heading => heading.querySelector("[data-colfilter]")).map(heading => heading.querySelector(".th-sort")?.textContent.trim());
+  /** The open filter's choices: each one's text, its count, and whether it is ticked. */
+  const choices = () => page.all("#popover .pop-opt").map(option => [option.children[1].textContent, option.querySelector(".po-cnt")?.textContent, option.children[0].checked]);
   /** The pager's buttons: each one's words, with a mark on the current page and brackets around one that is disabled. */
   const pagerButtons = () => page.all("#pager .pg-btn").map(button => {
     const words = button.textContent.trim();
@@ -461,6 +465,27 @@ describe("The results page's script, on the page", () => {
     page.find('[data-act="clear-search"]').press();
     expect(page.id("tblSearch")).toBe(box);
     expect([box.value, page.document.activeElement === box, page.id("rowCount").textContent]).toEqual(["", true, "1–50 of 120 rows"]);
+  });
+
+  it("offers a filter in a model's table on each column that holds few different values, and filters by it", async () => {
+    await openWith(MODEL);
+    goTo(1);
+    // Format holds three values and Module two; every name and every formula is different.
+    expect(filterable()).toEqual(["Format", "Module"]);
+    page.find('[data-colfilter="3"]').press();
+    expect(choices()).toEqual([["Cost", "60", true], ["Revenue", "60", true]]);
+    page.all("#popover input")[0].tick();
+    expect([page.id("rowCount").textContent, firstCells()[0], page.find('[data-colfilter="3"]').classList.contains("active")]).toEqual(["1–50 of 60 rows (filtered from 120)", "Line item 1", true]);
+    // A second column's filter narrows what the first left.
+    page.find('[data-colfilter="1"]').press();
+    expect(choices()).toEqual([["Boolean", "40", true], ["Number", "40", true], ["Text", "40", true]]);
+    page.all("#popover input")[0].tick();
+    page.all("#popover input")[2].tick();
+    expect([page.id("rowCount").textContent, firstCells().slice(0, 3)]).toEqual(["1–20 of 20 rows (filtered from 120)", ["Line item 1", "Line item 4", "Line item 7"]]);
+    // The Modules table: two rows, two areas.
+    page.key("Escape");
+    goTo(2);
+    expect(filterable()).toEqual(["Name", "Functional Area"]);
   });
 
   it("keeps the focus on the control the user has just used when the table is drawn again", async () => {
