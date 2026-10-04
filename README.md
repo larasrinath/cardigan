@@ -146,7 +146,7 @@ The zip, `<model> - Model Export - <date>.zip`, has one CSV per Model settings g
 
 | File | Model settings grid |
 | --- | --- |
-| `Line Items.csv` | Modules → Line Items, all modules. Two columns follow Anaplan's own: **Ratio Numerator** and **Ratio Denominator** name the line items a Ratio summary divides (the Summary cell gives only their IDs) |
+| `Line Items.csv` | Modules → Line Items, all modules. Three columns follow Anaplan's own. **Ratio Numerator** and **Ratio Denominator** name the line items a Ratio summary divides (the Summary cell gives only their IDs). **Format List** names the list of a line item formatted as a list (the Format cell gives only its ID), as `General Lists.csv` names it. It is empty for any other format, for a list that is not a row of General Lists, such as a list subset or a line item subset, and when General Lists could not be read |
 | `Modules.csv` | Modules → Modules |
 | `General Lists.csv` | General Lists |
 | `Processes.csv` | Actions → Actions, the rows under the **Processes** heading: definition, last run (start time and duration), notes, the processes that use each action (**Used in Processes**) and the dashboards it appears on |
@@ -161,8 +161,8 @@ The zip, `<model> - Model Export - <date>.zip`, has one CSV per Model settings g
 The results page shows three things otherwise than the files hold them. The files stay as described above, and under the name of a table that lists fewer rows than its file a line says how many are in the CSV only:
 
 - **Model Calendar** lists the calendar's own rows. The rows about the model (its workspace, its name, when it was captured) are on the Overview. `Model Calendar.csv` keeps every row.
-- **Line Items** lists line items only, each with its module next to its name. **Applies To** shows the dimensions a line item has, its module's when it has none of its own, and **Applies To from** says which. A row counts as a module's own when its Module Name, Format, Formula and Summary are all empty and its name is a module's: the Modules file lists it, or a line item names it as its module. Any other row with an empty Module Name stays in the table as a line item whose module is not known, and the line under the table's name counts them. `Line Items.csv` keeps Anaplan's layout, with each module's row.
-- A format, a summary and an action's definition are said in words, such as "Number, 0 decimal places". The CSV keeps the JSON, and a row opened in full shows both. The search, the filters and the sorting go by the words, which are what the table shows.
+- **Line Items** lists line items only, each with its module next to its name. **Applies To** shows the dimensions a line item has, its module's when it has none of its own, and **Applies To from** says which. A row counts as a module's own when its Module Name, Format, Formula and Summary are all empty and its name is a module's: the Modules file lists it, or a line item names it as its module. Any other row with an empty Module Name stays in the table as a line item whose module is not known, and the line under the table's name counts them. When the Modules file was not exported or lists nothing, no name can be checked: every row with those four empty counts as a module's own, and the line says so. `Line Items.csv` keeps Anaplan's layout, with each module's row.
+- A format, a summary and an action's definition are said in words, such as "Number, 0 decimal places". A line item's list format says its list by the name in **Format List**, such as "List: Products", and by the list's ID where that column is empty. The CSV keeps the JSON, and a row opened in full shows both. The search, the filters and the sorting go by the words, which are what the table shows.
 
 How it reads:
 
