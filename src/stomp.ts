@@ -121,6 +121,8 @@ export class StompConnection {
       signal?.addEventListener("abort", stop, { once: true });
       timer = setTimeout(() => finish(new StompError("Timed out connecting to the model data service.")), timeoutMs);
       socket.addEventListener("open", () => {
+        // The opening has ended already (stopped, or timed out) and the socket was closed: nothing is sent on it.
+        if (settled) return;
         log("socket open; sending CONNECT");
         connection.send({ command: "CONNECT", headers: { "accept-version": "1.2,1.1,1.0", "heart-beat": "20000,0", ...connectHeaders }, body: "" });
       });

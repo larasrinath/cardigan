@@ -1010,7 +1010,7 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
       `filter context items: 1 asked of dimension ${REGIONS} in module ${MODULE}, 1 named (answer: 1 entries of {itemId, label})`,
       "filter context items: 1 of 1 named"]);
 
-    // The service does not answer: after half a minute the next dimension is asked, and after two such reads no more are.
+    // The service does not answer: after ten seconds the next dimension is asked, and after two such reads no more are.
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
     ScriptedSocket.sockets = [];
     serveModel({ [at(`/modules/${MODULE}/lineItems`)]: lineItems, [at("/dimensions")]: dimensionsOf([LIST, ...others]),
@@ -1018,9 +1018,12 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     const unanswered = run(fixed);
     let outcome: unknown = "reading";
     unanswered.result.then(done => { outcome = done.notes; }, error => { outcome = error; });
-    await vi.advanceTimersByTimeAsync(59_000);
+    await vi.advanceTimersByTimeAsync(9_999);
+    expect([outcome, asked()]).toEqual(["reading", others.slice(0, 1)]);
+    await vi.advanceTimersByTimeAsync(10_000);
     expect([outcome, asked()]).toEqual(["reading", others.slice(0, 2)]);
-    await vi.advanceTimersByTimeAsync(2_000);
+    // Twenty seconds after the first: the run goes on at once, to its end.
+    await vi.advanceTimersByTimeAsync(101);
     expect([outcome, asked()]).toEqual([[], others.slice(0, 2)]);
     expect(unanswered.log.filter(line => line.startsWith("filter "))).toEqual([
       ...others.slice(0, 2).map(dimension => `filter context items: 1 asked of dimension ${dimension} in module ${MODULE}: Timed out waiting for ${at(`/modules/${MODULE}/dimensions/${dimension}`)}.`),
@@ -1050,6 +1053,116 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
       `filter context items: 0 of 33 named; left as IDs: ${crowd.slice(0, 30).join(", ")} and 3 more`,
       ...crowd.slice(0, 30).map(item => `filter rule with an unnamed item (card card-1): unnamed ${item}, line item ${ROLE} of module ${MODULE}`),
       "filter rules with an unnamed item: 3 more are not listed"]);
+  });
+
+  it("gives the naming of filter items thirty seconds in all: no read is made once they are over, the one that waits is given up, and an item that was not reached keeps its ID as if the model had no name for it", async () => {
+    /** Makes the model slow to name items: each read of item labels, and the question which modules have a list, is answered only after `wait`. */
+    const slowly = (wait: number) => {
+      const reply = ScriptedSocket.reply;
+      ScriptedSocket.reply = (socket, frame) => {
+        const naming = frame.command === "SEND" && /\/(dimensions\/\d+|applicableModules)$/.test(frame.headers.destination);
+        if (naming) setTimeout(() => reply(socket, frame), wait); else reply(socket, frame);
+      };
+    };
+    const timers = ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] as const;
+
+    // A module of twelve dimensions, none of which has the item a rule is fixed to. The first never answers, and each of the
+    // others says after three seconds that it has no name: no read waits ten seconds but the first, so neither the forty
+    // reads nor the two unanswered ones end the asking.
+    vi.useFakeTimers({ toFake: [...timers] });
+    const places = Array.from({ length: 12 }, (_, index) => String(101000000940 + index));
+    const lineItems = (id: string) => update(id, { data: [{ lineItemId: ROLE, lineItemLabel: "Role", ...listFormat(ROLES) }] });
+    const dimensionsOf = (ids: string[]) => (id: string) => update(id, { modules: { [MODULE]: { dimensions: ids.map(dimension => ({ id: dimension, label: `Dimension ${dimension}` })) } } });
+    const fixed = ruled(rule(["20000000003", ITEM(358, 0), ROLE], ["true"]));
+    serveModel({ [at(`/modules/${MODULE}/lineItems`)]: lineItems, [at("/dimensions")]: dimensionsOf(places), [at(`/modules/${MODULE}/dimensions/${places[0]}`)]: () => "" });
+    slowly(3_000);
+    const slow = run(fixed);
+    const asked = () => destinations().slice(5).map(destination => destination.replace(at(`/modules/${MODULE}/dimensions/`), ""));
+    let outcome: unknown = "reading";
+    slow.result.then(done => { outcome = [done.notes, [...done.catalog.listItems]]; }, error => { outcome = error; });
+    // The eighth read is made 28 seconds after the first and would be answered after 31: until the thirty are over it waits.
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect([outcome, asked()]).toEqual(["reading", places.slice(0, 8)]);
+    // Then it is given up, no ninth is made, and the run goes on to its end: the item has no name, and no note is added.
+    await vi.advanceTimersByTimeAsync(101);
+    expect([outcome, asked()]).toEqual([[[], []], places.slice(0, 8)]);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(asked()).toEqual(places.slice(0, 8));
+    expect(slow.statuses.at(-1)).toBe("Reading filter item names in Synthetic model…");
+    // The log says so, with what was asked, what was named and what was left unasked. A read that was given up because the
+    // time was up is not one of the two that may go unanswered.
+    const waited = (place: string) => `filter context items: 1 asked of dimension ${place} in module ${MODULE}: Timed out waiting for ${at(`/modules/${MODULE}/dimensions/${place}`)}.`;
+    expect(slow.log.filter(line => line.startsWith("filter "))).toEqual([waited(places[0]),
+      ...places.slice(1, 7).map(place => `filter context items: 1 asked of dimension ${place} in module ${MODULE}, 0 named (answer: 0 entries)`), waited(places[7]),
+      `filter context items: 0 of 1 named; left as IDs: ${ITEM(358, 0)}`,
+      "filter item names: the 30 seconds allowed for them ran out after 8 reads: 1 items asked for, 0 named, the asking of 1 not finished",
+      `filter rule with an unnamed item (card card-1): dimension 20000000003, unnamed ${ITEM(358, 0)}, line item ${ROLE} of module ${MODULE}`]);
+
+    // The read that is given up may be the last there was to make, and the only one that asked for an item. Four places
+    // that take nine seconds each: the third names the item a rule is fixed to, and the fourth is the list Status is
+    // formatted as. The item Status is compared with was asked for all the same, and not to the end.
+    ScriptedSocket.sockets = [];
+    serveModel({ [at(`/modules/${MODULE}/lineItems`)]: id => update(id, { data: [{ lineItemId: ROLE, lineItemLabel: "Role", ...listFormat(ROLES) },
+      { lineItemId: STATUS, lineItemLabel: "Status", ...listFormat(places[3]) }] }), [at("/dimensions")]: dimensionsOf(places.slice(0, 4)),
+    [at(`/modules/${MODULE}/dimensions/${places[2]}`)]: labels({ [ITEM(358, 0)]: "All regions" }), [at(`/modules/${MODULE}/dimensions/${places[3]}`)]: labels({ [ITEM(318, 1)]: "Open" }) });
+    slowly(9_000);
+    const last = run(ruled(rule(["20000000003", ITEM(358, 0), ROLE], ["true"]), rule([STATUS], [ITEM(318, 1)])));
+    await vi.advanceTimersByTimeAsync(30_100);
+    expect([[...(await last.result).catalog.listItems], asked()]).toEqual([[[ITEM(358, 0), "All regions"]], places.slice(0, 4)]);
+    expect(last.log.filter(line => line.startsWith("filter ")).slice(-4)).toEqual([
+      `filter values: 1 asked of dimension ${places[3]} in module ${MODULE}: Timed out waiting for ${at(`/modules/${MODULE}/dimensions/${places[3]}`)}.`,
+      "filter context items: 1 of 1 named", `filter values: 0 of 1 named; left as IDs: ${ITEM(318, 1)}`,
+      "filter item names: the 30 seconds allowed for them ran out after 4 reads: 2 items asked for, 1 named, the asking of 1 not finished"]);
+
+    // The time may also be up between two reads, with none waiting: here the clock is 31 seconds further on when the first
+    // place has answered, as after the computer slept. The next place is not asked, and the log says the same.
+    ScriptedSocket.sockets = [];
+    serveModel({ [at(`/modules/${MODULE}/lineItems`)]: lineItems, [at("/dimensions")]: dimensionsOf(places.slice(0, 3)),
+      [at(`/modules/${MODULE}/dimensions/${places[0]}`)]: id => { vi.setSystemTime(Date.now() + 31_000); return update(id, { data: [] }); } });
+    const slept = run(fixed);
+    await vi.advanceTimersByTimeAsync(100);
+    expect([(await slept.result).notes, asked()]).toEqual([[], places.slice(0, 1)]);
+    expect(slept.log.filter(line => line.startsWith("filter "))).toEqual([`filter context items: 1 asked of dimension ${places[0]} in module ${MODULE}, 0 named (answer: 0 entries)`,
+      `filter context items: 0 of 1 named; left as IDs: ${ITEM(358, 0)}`,
+      "filter item names: the 30 seconds allowed for them ran out after 1 reads: 1 items asked for, 0 named, the asking of 1 not finished",
+      `filter rule with an unnamed item (card card-1): dimension 20000000003, unnamed ${ITEM(358, 0)}, line item ${ROLE} of module ${MODULE}`]);
+
+    // An app whose model takes nine seconds over each such read: the item a rule is fixed to is named after 18 seconds, the
+    // two that Status is compared with after 27, and the thirty are over before the model has said where Role's list is.
+    const names = { [at(`/modules/${MODULE}/dimensions/${REGIONS}`)]: labels({ [ITEM(358, 0)]: "All regions" }),
+      [at(`/modules/${MODULE}/dimensions/${STATUSES}`)]: labels({ [ITEM(318, 1)]: "Open", [ITEM(318, 2)]: "Closed" }) };
+    const lines: string[] = [];
+    const analyse = () => analyseApp(GOLDEN_APP, { status: () => undefined, log: line => { lines.push(line); } }, () => "");
+    vi.setSystemTime(new Date(Date.UTC(2026, 8, 28, 12, 30, 10)));
+    serveStaffApp(names);
+    slowly(9_000);
+    let late: Awaited<ReturnType<typeof analyse>> | undefined;
+    void analyse().then(result => { late = result; });
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect(late).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(101);
+    expect(late).toBeDefined();
+    expect(lines.filter(line => /^(filter |modules with)/.test(line))).toEqual([
+      `filter context items: 1 asked of dimension ${LIST_2} in module ${MODULE}, 0 named (answer: 0 entries)`,
+      `filter context items: 1 asked of dimension ${REGIONS} in module ${MODULE}, 1 named (answer: 1 entries of {itemId, label})`,
+      `filter line item ${STATUS}: format {dataType, hierarchyEntityLongId}, data type ENTITY, items of dimension ${STATUSES}`,
+      `filter values: 2 asked of dimension ${STATUSES} in module ${MODULE}, 2 named (answer: 2 entries of {itemId, label})`,
+      `filter line item ${ROLE}: format {dataType, hierarchyEntityLongId}, data type ENTITY, items of dimension ${ROLES}`,
+      `modules with dimension ${ROLES}: Timed out waiting for ${at("/applicableModules")}.`,
+      "filter context items: 1 of 1 named", `filter values: 2 of 3 named; left as IDs: ${ITEM(404, 3)}`,
+      "filter item names: the 30 seconds allowed for them ran out after 4 reads: 3 items asked for, 3 named, the asking of 1 not finished"]);
+    // The files have the names that were found in time, and the ID of the item that was not reached.
+    const filters = late!.tables.find(table => table.file === "Filters.csv")!;
+    expect(filters.rows.map(row => ["Condition line item", "Value", "Condition context"].map(header => row[filters.headers.indexOf(header)]))).toEqual([
+      ["Status", "Closed", NONE], ["Status", "Open", NONE], ["Status", "Closed, Open", "Territory = current"], ["Role", ITEM(404, 3), "Time = current; All regions"]]);
+    // They are, file for file, what they are when the model answers at once and has no name for that item.
+    vi.useRealTimers();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(Date.UTC(2026, 8, 28, 12, 30, 10)));
+    serveStaffApp(names);
+    const unnamed = await analyse();
+    expect(unnamed.tables.find(table => table.file === "Filters.csv")!.rows.at(-1)).toContain(ITEM(404, 3));
+    expect([late!.tables, late!.summary, late!.zipName]).toEqual([unnamed.tables, unnamed.summary, unnamed.zipName]);
   });
 
   it("ends the socket work at once when the run is stopped, the model closes or the connection fails while filter items are named", async () => {
