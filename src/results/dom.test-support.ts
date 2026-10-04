@@ -11,7 +11,7 @@ import { decode, readMarkup } from "./markup.test-support.js";
 /** Elements that hold nothing and have no end tag. */
 const VOID = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"]);
 /** Elements the keyboard reaches without a tabindex. */
-const FOCUSABLE = new Set(["a", "button", "input", "select", "summary", "textarea"]);
+const FOCUSABLE = new Set(["a", "button", "input", "select", "textarea"]);
 
 export interface FakeEvent {
   type: string;
@@ -287,10 +287,22 @@ export class FakeElement {
   /** Whether the element can take focus now: on the page, shown, enabled, outside anything inert, and a control or an
    * element with a tabindex. */
   get focusable(): boolean {
-    if (!FOCUSABLE.has(this.localName) && !this.attributes.has("tabindex")) return false;
+    if (!FOCUSABLE.has(this.localName) && !this.attributes.has("tabindex") && !this.opensDetails) return false;
     if (this.disabled || !this.isConnected) return false;
     for (let node: FakeElement | null = this; node; node = node.parentElement) if (node.hidden || node.inert) return false;
-    return true;
+    return !this.inClosedDetails;
+  }
+  /** Whether this is the summary of a details element: the one thing of it that is shown while it is closed, which takes
+   * the focus and opens and closes it. */
+  private get opensDetails(): boolean {
+    return this.localName === "summary" && this.parentElement?.localName === "details" && this.parentElement.children.find(child => child.localName === "summary") === this;
+  }
+  /** Whether the element is inside a details element that is closed, outside its summary: the browser does not show it. */
+  get inClosedDetails(): boolean {
+    for (let node: FakeElement = this; node.parentElement; node = node.parentElement) {
+      if (node.parentElement.localName === "details" && !node.parentElement.attributes.has("open") && !node.opensDetails) return true;
+    }
+    return false;
   }
   focus(): void { if (this.focusable) this.page.focused = this; }
   /** The script's own click: on a link with a download name it saves the link's address under that name. */
@@ -306,6 +318,7 @@ export class FakeElement {
     for (let node: FakeElement | null = this; node; node = node.parentElement) {
       if (node.hidden || node.inert) throw new Error(`A user cannot get at <${this.localName}>: <${node.localName}> is ${node.hidden ? "hidden" : "inert"}`);
     }
+    if (this.inClosedDetails) throw new Error(`A user cannot get at <${this.localName}>: it is in a closed <details>`);
     if (!this.isConnected) throw new Error(`A user cannot get at <${this.localName}>: it is not on the page`);
   }
   /** A click, or Enter on a focused control: focus goes to the element or to the nearest thing around it that takes focus. */
@@ -315,7 +328,14 @@ export class FakeElement {
     let taker: FakeElement | null = this;
     while (taker && !taker.focusable) taker = taker.parentElement;
     this.page.focused = taker;
-    this.dispatch("click");
+    const event = this.dispatch("click");
+    // A click on a summary, or Enter or Space on it, opens or closes its details element, unless the script took the click.
+    let summary: FakeElement | null = this;
+    while (summary && !summary.opensDetails) summary = summary.parentElement;
+    const details = summary?.parentElement;
+    if (details && !event.defaultPrevented) {
+      if (details.attributes.has("open")) details.attributes.delete("open"); else details.attributes.set("open", "");
+    }
   }
   /** Ticks or unticks a checkbox. */
   tick(): void {

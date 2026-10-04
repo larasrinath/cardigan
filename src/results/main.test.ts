@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { CALENDAR_HEADERS, CALENDAR_PROPERTIES, calendarRows } from "../model/calendar.js";
 import { FRESH_MS, PORT_NAME, RESULTS_PAGE, type TabMessage } from "../protocol.js";
 import type { AnalysisResult, Cell } from "../result-types.js";
 import { resultZip, tableCsv } from "../result-zip.js";
@@ -74,6 +75,14 @@ const MODEL: AnalysisResult = {
     { file: "Line Items.csv", label: "Line Items", headers: ["", "Format", "Formula", "Module"], rows: LINES, guard: false },
     { file: "Modules.csv", label: "Modules", headers: ["", "Functional Area"], rows: [["Revenue", "Sales"], ["Cost", "Finance"]], guard: false },
   ],
+};
+
+/** The same model with its Model Calendar file as the export writes it: the assessment template's rows, the first five of
+ * them about the model. */
+const WITH_CALENDAR: AnalysisResult = {
+  ...MODEL, summary: [...MODEL.summary, "Model Calendar: 31 rows"],
+  tables: [...MODEL.tables, { file: "Model Calendar.csv", label: "Model Calendar", headers: [...CALENDAR_HEADERS], guard: false,
+    rows: calendarRows({ workspace: "Main", model: "Model one", capturedOn: "2026-10-03", values: new Map([[CALENDAR_PROPERTIES["Calendar Type"], "Calendar Months/Quarters/Years"]]) }) }],
 };
 
 // The page under test, and what stands in for the browser around it. A test loads the page with `open`.
@@ -216,15 +225,14 @@ describe("The results page's script, on the page", () => {
     expect(page.find("#hdMeta .meta-sub").textContent).toContain("us1a.app.anaplan.com");
     // The notes are a panel of the overview, one line each: the summary, and the Notes rows of the Details file. The banner
     // area holds none of them.
-    expect([page.texts("#view .panel h2"), page.texts("#view .warn-list li")]).toEqual([["Cards by type", "Notes"], ["1 of 1 pages analysed, 2 cards.", "Archive: Not published"]]);
+    expect([page.texts("#view .panel h2"), page.texts("#view .warn-list li")]).toEqual([["Notes", "Cards by type"], ["1 of 1 pages analysed, 2 cards.", "Archive: Not published"]]);
     expect(page.id("banners").children).toEqual([]);
-    // One navigation entry per file, the Details file as Details, and the model map as coming later.
-    expect(page.all("#navList [data-nav]").map(entry => entry.dataset.nav)).toEqual(["overview", "1", "2", "details", "map"]);
-    expect(page.find('#navList [data-nav="map"]').title).toBe("Model map is coming in a later version");
+    // One navigation entry per file. The Details file has none: the overview says what it holds. An app has no model map.
+    expect(page.all("#navList [data-nav]").map(entry => entry.dataset.nav)).toEqual(["overview", "1", "2"]);
     expect(page.texts("#view h1")).toEqual(["Overview"]);
     expect(page.id("sidenav").hidden).toBe(false);
-    // Downloads and Run again are there now; "this table" has no table on the overview.
-    expect(disabled("runAgain", "dlAll", "dlCsv")).toEqual([false, false, true]);
+    // Downloads and Run again are there now; on the overview "this table" is the Details file, which the overview shows.
+    expect([disabled("runAgain", "dlAll", "dlCsv"), page.id("dlCsv").title]).toEqual([[false, false, false], "Download App Details.csv"]);
   });
 
   it("starts nothing by itself when the icon did not open it just now: it says what the tab shows, and Run analyses it", async () => {
@@ -312,8 +320,8 @@ describe("The results page's script, on the page", () => {
     // What is saved is the result's own zip and files, as they are.
     expect(await bytes(saved[0])).toEqual(resultZip(named, NOW));
     expect([await saved[1].text(), await saved[2].text()]).toEqual([named.tables[1], named.tables[2]].map(table => tableCsv(table).replace(/^\ufeff/, "")));
-    // A plain name is used as it is.
-    page.find('#navList [data-nav="details"]').press();
+    // A plain name is used as it is: on the overview, the Details file's.
+    page.find('#navList [data-nav="overview"]').press();
     expect(page.id("dlCsv").title).toBe("Download App Details.csv");
     page.id("dlCsv").press();
     expect(page.downloads[3].name).toBe("App Details.csv");
@@ -336,7 +344,7 @@ describe("The results page's script, on the page", () => {
     // The earlier result is all still there: its name, its navigation, the table and the row the user was reading.
     const earlier = () => [page.document.title, page.texts("#hdMeta .meta-app"), page.all("#navList [data-nav]").length, page.texts("#view h1"), firstCells().length,
       page.id("drawer").hidden, page.texts("#drawerBody dd")[2]];
-    expect(earlier()).toEqual(["Cardigan — Demo <img src=x onerror=alert(1)> app", ["Demo <img src=x onerror=alert(1)> app"], 5, ["Cards"], 2, false, "=Margin"]);
+    expect(earlier()).toEqual(["Cardigan — Demo <img src=x onerror=alert(1)> app", ["Demo <img src=x onerror=alert(1)> app"], 3, ["Cards"], 2, false, "=Margin"]);
     expect(disabled("runAgain", "dlAll", "dlCsv")).toEqual([true, false, false]);
     // And it is what the downloads give, with the time it was complete at.
     vi.setSystemTime(new Date(Date.UTC(2026, 9, 3, 15, 0, 0)));
@@ -354,7 +362,7 @@ describe("The results page's script, on the page", () => {
       tables: [RESULT.tables[0], RESULT.tables[1], { ...RESULT.tables[2], rows: [["Overview", 1, "Only card", "Grid", "card-z"]] }] };
     ports[0].send({ type: "result", result: { ...next, tables: next.tables.map(table => ({ ...table, rows: [] })) } });
     next.tables.forEach((table, index) => ports[0].send({ type: "rows", table: index, rows: table.rows }));
-    expect([earlier().slice(0, 5), banner().slice(0, 3)]).toEqual([["Cardigan — Demo <img src=x onerror=alert(1)> app", ["Demo <img src=x onerror=alert(1)> app"], 5, ["Cards"], 2],
+    expect([earlier().slice(0, 5), banner().slice(0, 3)]).toEqual([["Cardigan — Demo <img src=x onerror=alert(1)> app", ["Demo <img src=x onerror=alert(1)> app"], 3, ["Cards"], 2],
       ["note", "Analysing", "Receiving the result…"]]);
     ports[0].send({ type: "done" });
     // Now the page is the new result's: its overview, without the banner, and without the drawer that showed a row of the old one.
@@ -362,7 +370,7 @@ describe("The results page's script, on the page", () => {
       .toEqual(["Cardigan — Demo app, second run", ["Overview"], ["1", "1"], [], false]);
     // The focus was in that drawer: it is on the new view now, not on nothing.
     expect(page.document.activeElement).toBe(page.id("view"));
-    expect(disabled("runAgain", "dlAll", "dlCsv")).toEqual([false, false, true]);
+    expect(disabled("runAgain", "dlAll", "dlCsv")).toEqual([false, false, false]);
     // The downloads are the new result's from now on, with its own time.
     page.id("dlAll").press();
     expect(page.downloads[2].name).toBe("Second.zip");
@@ -437,8 +445,9 @@ describe("The results page's script, on the page", () => {
     ports[0].drop();
     expect(banner().slice(0, 3)).toEqual(["warn", "The analysis stopped", "The Anaplan tab was closed or left the page before the analysis finished."]);
     expect(shown()).toEqual(first);
-    // The Details view still shows, and copies, the log the result carries.
-    page.find('#navList [data-nav="details"]').press();
+    // The overview still shows, and copies, the log the result carries.
+    page.find('#navList [data-nav="overview"]').press();
+    page.find("#ovLog summary").press();
     page.find('#view [data-act="copy-diag"]').press();
     await settle();
     expect(copied[1]).toBe("14:02:05 app: 1 page");
@@ -448,12 +457,12 @@ describe("The results page's script, on the page", () => {
     await openWith(NAMED);
     page.find('#navList [data-nav="2"]').press();
     expect(page.texts("#view h1")).toEqual([`Cards ${TAG}`]);
-    // A click on a row, outside its links, opens the row. The drawer's title is the row's own name, its first cell, and
-    // the line under it says which row of which table it is.
+    // A click on a row, outside its links, opens the row. The drawer's title is the row's own name, which for a card is
+    // its title, and the line under it says which row of which table it is.
     page.find("#tableWrap tbody tr .tag").press();
     expect(page.id("drawer").hidden).toBe(false);
-    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual(["Overview", `Row 1 of Cards ${TAG}`]);
-    expect(page.id("drawerSub").children).toEqual([]);
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual([`Sales ${TAG}`, `Row 1 of Cards ${TAG}`]);
+    expect([page.id("drawerTitle").children, page.id("drawerSub").children]).toEqual([[], []]);
     expect(page.texts("#drawerBody dd")).toContain(`Sales ${TAG}`);
     // A card's number opens the card. The drawer's title is the card's own title.
     page.id("drawerClose").press();
@@ -705,11 +714,37 @@ describe("The results page's script, on the page", () => {
     // The row's button opens the row, not the card and not the page's cards.
     page.all('#tableWrap tbody [data-act="row"]')[1].press();
     expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent, page.texts("#drawerBody h3"), page.texts("#drawerBody dd")])
-      .toEqual(["Overview", "Row 2 of Cards", ["All columns"], ["Overview", "2", "=Margin", "KPI", "card-b"]]);
+      .toEqual(["=Margin", "Row 2 of Cards", ["All columns"], ["Overview", "2", "=Margin", "KPI", "card-b"]]);
     page.key("Escape");
     // And the page's name still shows that page's cards.
     page.find('#tableWrap tbody [data-act="page"]').press();
     expect(page.texts("#crumbs .ctx")).toEqual(["Page: Overview"]);
+  });
+
+  it("heads a row's drawer by the row's own name: the column that names the file's rows, and the first cell that says something where there is none", async () => {
+    // The app's files, the Pages and the Action Buttons among them, and a card without a title.
+    const app: AnalysisResult = { ...APP, tables: [...APP.tables.map((table, index) => (index === 2 ? { ...table, rows: [...table.rows, ["Overview", 3, "—", "Text", "card-c"], ["Overview", 4, "", "Text", "card-d"]] } : table)),
+      { file: "Action Buttons.csv", label: "Action Buttons", headers: ["Page", "Card #", "Button label", "Action type", "Card ID"], guard: true, rows: [["Overview", 1, "Reload plan", "Import", "card-a"]] }] };
+    await openWith(app);
+    /** The heading and the line under it of the drawer that a row's button opens. */
+    const heading = (table: number, row: number) => {
+      goTo(table);
+      page.all('#tableWrap tbody [data-act="row"]')[row].press();
+      const title = [page.id("drawerTitle").textContent, page.id("drawerSub").textContent];
+      page.key("Escape");
+      return title;
+    };
+    // Pages: the page, not the app that every row begins with. Cards: the card's title, not its page.
+    expect([heading(1, 0), heading(1, 1)]).toEqual([["Overview", "Row 1 of Pages"], ["Overview (copy)", "Row 2 of Pages"]]);
+    expect([heading(2, 1), heading(2, 3)]).toEqual([["Margin", "Row 2 of Cards"], ["Margin, copied", "Row 4 of Cards"]]);
+    // The other files: what the row is about. A grid section's source module, an object's name, a button's label.
+    expect([heading(3, 2), heading(4, 1), heading(5, 0)]).toEqual([["REP02 Gone", "Row 3 of Grid Sections"], ["REP09 Copy", "Row 2 of Where Used"], ["Reload plan", "Row 1 of Action Buttons"]]);
+    // A card without a title, a dash or nothing in its place: the first cell of the row that says something.
+    expect([heading(2, 4), heading(2, 5)]).toEqual([["Overview", "Row 5 of Cards"], ["Overview", "Row 6 of Cards"]]);
+    // A model's rows are named by their first column, as they were.
+    page.id("runAgain").press();
+    sendResult(ports[0], MODEL);
+    expect([heading(1, 2), heading(2, 1)]).toEqual([["Line item 3", "Row 3 of Line Items"], ["Cost", "Row 2 of Modules"]]);
   });
 
   it("keeps the keyboard inside the open drawer: what lies behind it is inert until it closes, however it closes", async () => {
@@ -761,10 +796,8 @@ describe("The results page's script, on the page", () => {
     await openWith();
     /** The levels of the headings inside a part of the page, in the order they stand. */
     const levels = (part: string) => page.all(`${part} h1, ${part} h2, ${part} h3, ${part} h4, ${part} h5, ${part} h6`).map(heading => Number(heading.localName[1]));
-    // The overview and the details: the view's heading, then its panels and sections one level under it.
-    expect([levels("#main"), page.texts("#main h2")]).toEqual([[1, 2, 2], ["Cards by type", "Notes"]]);
-    page.find('#navList [data-nav="details"]').press();
-    expect([levels("#main"), page.texts("#main h2")]).toEqual([[1, 2, 2], ["Export", "Notes"]]);
+    // The overview: the view's heading, then its panels and sections one level under it, the one that starts closed too.
+    expect([levels("#main"), page.texts("#main h2")]).toEqual([[1, 2, 2, 2, 2], ["About this export", "Notes", "Cards by type", "Diagnostics"]]);
     // A table has its one heading. The drawer's own heading is an h2, and its sections stand one level under that.
     goTo(2);
     expect(levels("#main")).toEqual([1]);
@@ -838,11 +871,58 @@ describe("The results page's script, on the page", () => {
     expect([page.id("popover").hidden, active() === page.id("tblSearch")]).toEqual([true, true]);
   });
 
+  it("lists the calendar's rows only in a model's Model Calendar table and says so, with the model's facts on the overview; the downloads hold every row", async () => {
+    await openWith(WITH_CALENDAR);
+    const file = WITH_CALENDAR.tables[3];
+    expect([file.rows.length, file.rows.filter(row => row[0] === "Model").length]).toEqual([31, 5]);
+    // The overview: the file's tile counts the rows its table lists. What the file says about the model stands with what
+    // the Details file says about the export, after it, and without the model's name, which that has said.
+    expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Model Calendar", "26", "rows"], ["Modules", "2", "rows"], ["Line Items", "120", "rows"]]);
+    expect([page.texts("#ovAbout h2"), page.texts("#ovAbout dt"), page.texts("#ovAbout dd")])
+      .toEqual([["About this export"], ["Model", "Anaplan host", "Workspace", "Captured on"], ["Model one", "us1a.app.anaplan.com", "Main", "2026-10-03"]]);
+    // The navigation counts the same rows.
+    expect(page.all("#navList .nav-item").filter(item => item.querySelector(".cnt")).map(item => item.children.map(child => child.textContent)))
+      .toEqual([["Model Calendar", "26"], ["Modules", "2"], ["Line Items", "120"]]);
+
+    // The table: the calendar's settings, none of the rows about the model, and a line that says where those are.
+    goTo(3);
+    const settings = () => page.all("#tableWrap tbody tr").map(row => row.children[1].textContent.trim());
+    expect([page.texts("#view .view-note"), page.id("rowCount").textContent, page.id("live").textContent])
+      .toEqual([["5 rows about the model are in the CSV only."], "1–26 of 26 rows", "Model Calendar: 26 rows"]);
+    expect([firstCells().every(section => section === "Model Calendar"), settings().slice(0, 2), settings().filter(setting => ["Workspace", "Model", "Captured on"].includes(setting))])
+      .toEqual([true, ["Calendar Type", "Fiscal Year Starts"], []]);
+    // The search reads the rows listed and no others: the calendar's type finds its row, the model's name finds none.
+    const note = page.find("#view .view-note");
+    page.id("tblSearch").type("quarters");
+    expect([settings(), page.id("rowCount").textContent]).toEqual([["Calendar Type"], "1–1 of 1 row (filtered from 26)"]);
+    page.id("tblSearch").type("Model one");
+    expect([settings(), page.id("rowCount").textContent]).toEqual([[], "No rows (filtered from 26)"]);
+    page.id("tblSearch").type("");
+    // The line under the name was not written again meanwhile. Section holds one text in the rows listed: it offers no filter.
+    expect([page.find("#view .view-note") === note, filterable().includes("Section")]).toEqual([true, false]);
+    // A row's drawer says its place among the rows the table lists.
+    page.all('#tableWrap tbody [data-act="row"]')[0].press();
+    expect([page.id("drawerSub").textContent, page.texts("#drawerBody dd").slice(0, 3)]).toEqual(["Row 1 of Model Calendar", ["Model Calendar", "Calendar Type", "Calendar Months/Quarters/Years"]]);
+    page.key("Escape");
+
+    // "Download this table" saves the file whole, the rows about the model first; "Download all" saves the result's zip as it is.
+    page.id("dlCsv").press();
+    const csv = tableCsv(file);
+    expect([page.downloads[0].name, await saved[0].text(), csv.charCodeAt(0)]).toEqual(["Model Calendar.csv", csv.slice(1), 0xfeff]);
+    expect((await saved[0].text()).split("\r\n").filter(line => line.startsWith("Model,")).map(line => line.split(",")[1])).toEqual(["Workspace", "Model", "Model size (GB)", "Captured on", "Captured by"]);
+    page.id("dlAll").press();
+    expect(await bytes(saved[1])).toEqual(resultZip(WITH_CALENDAR, NOW));
+
+    // Another table lists every row of its file, and says nothing under its name.
+    goTo(1);
+    expect([page.all("#view .view-note").length, page.id("rowCount").textContent]).toEqual([0, "1–50 of 120 rows"]);
+  });
+
   it("shows no Notes panel for a model whose summary only says how many rows each file has", async () => {
     await openWith(MODEL);
-    expect([page.texts("#view h1"), page.texts("#view .s-lab"), page.has("#view .warn-list"), page.id("banners").children]).toEqual([["Overview"], ["Line Items", "Modules"], false, []]);
-    // A model's tiles carry its files' own names; the navigation does too.
-    expect(page.texts("#navList .nav-item span").filter(text => !/^\d+$/.test(text)).slice(1, 3)).toEqual(["Line Items", "Modules"]);
+    expect([page.texts("#view h1"), page.texts("#view .s-lab"), page.has("#view .warn-list"), page.id("banners").children]).toEqual([["Overview"], ["Modules", "Line Items"], false, []]);
+    // A model's tiles carry its files' own names; the navigation does too, in the same order.
+    expect(page.texts("#navList .nav-item span").filter(text => !/^\d+$/.test(text)).slice(1, 3)).toEqual(["Modules", "Line Items"]);
     // A table's view has no notes either: they are on the overview only.
     goTo(1);
     expect([page.has(".warn-list"), page.id("banners").children]).toEqual([false, []]);
@@ -852,9 +932,15 @@ describe("The results page's script, on the page", () => {
     await open("");
     expect(connects).toEqual([]);
     expect([page.id("runTitle").textContent, page.id("runStatus").textContent]).toEqual(["No Anaplan tab", "This page was opened without an Anaplan tab to read."]);
-    expect(page.id("runAgain").disabled).toBe(true);
+    expect([page.id("runAgain").disabled, runControl().slice(0, 2)]).toEqual([true, ["Run", "Analyse the Anaplan tab"]]);
     page.id("runAgain").press();
     expect(connects).toEqual([]);
+    // The same when the icon's click is in the address but no tab that can be read: no analysis was asked for, so the
+    // control, which is off, does not say "again".
+    for (const search of [`?opened=${NOW.getTime() - 1500}`, `?tab=x&opened=${NOW.getTime() - 1500}`]) {
+      await open(search);
+      expect([connects, page.id("runTitle").textContent, page.id("runAgain").disabled, runControl().slice(0, 2)], search).toEqual([[], "No Anaplan tab", true, ["Run", "Analyse the Anaplan tab"]]);
+    }
   });
 
   it("says it cannot reach the tab when Chrome closes the port at once, with Chrome's reason in the log, and reconnects on Run again", async () => {
@@ -920,37 +1006,87 @@ describe("What a click, a key and typing do on the results page", () => {
   const shows = () => [page.texts("#view h1")[0], page.texts('#navList [aria-current="page"] span')[0], page.texts("#crumbs strong")[0]];
   /** The headings of the columns on screen. */
   const headings = () => page.all("#tableWrap thead .th-sort").map(button => button.textContent.trim().replace(/[▲▼]$/, ""));
-  /** The rows on screen, by the text of one column. */
-  const column = (place: number) => page.all("#tableWrap tbody tr").map(row => row.children[place].textContent.trim());
-  /** The links of the rows on screen that open a card: two a row, its number and its title. */
+  /** The rows on screen, by the text of one column, which is named by its heading. */
+  const column = (heading: string) => page.all("#tableWrap tbody tr").map(row => row.children[headings().indexOf(heading)].textContent.trim());
+  /** The links of the rows on screen that open a card. In the Cards table that is each row's title; a card's number is
+   * one too, in the tables that have it, once the column is shown. */
   const cardLinks = () => page.all('#tableWrap tbody [data-act="card"]');
+  /** Ticks or unticks a column in the chooser, by its name, and closes the chooser. */
+  const toggleColumn = (name: string) => {
+    page.id("colBtn").press();
+    page.all("#popover .pop-opt").find(option => option.children[1].textContent === name)?.children[0].tick();
+    page.key("Escape");
+  };
 
-  it("opens the table the navigation names, the overview and the details, and says that the model map is to come", async () => {
+  it("opens the table the navigation names, and the overview; an app's navigation is in the result's order, without a Details entry or a model map", async () => {
     await openWith(APP);
     expect(shows()).toEqual(["Overview", "Overview", "Overview"]);
+    expect([page.all("#navList .nav-item").map(item => item.children[0].textContent), page.has('#navList [data-nav="map"]'), page.texts("#view .s-lab")])
+      .toEqual([["Overview", "Pages", "Cards", "Grid Sections", "Where Used"], false, ["Pages", "Cards", "Grid sections", "Where Used"]]);
     for (const [table, label, rows] of [[1, "Pages", 2], [2, "Cards", 4], [3, "Grid Sections", 3], [4, "Where Used", 2]] as const) {
       goTo(table);
       expect([shows(), firstCells().length, page.id("dlCsv").title]).toEqual([[label, label, label], rows, `Download ${label}.csv`]);
     }
-    page.find('#navList [data-nav="details"]').press();
-    expect([shows(), page.has("#tableWrap")]).toEqual([["Details", "Details", "Details"], false]);
     // The breadcrumb's Overview goes back to the overview.
     page.find('#crumbs [data-nav="overview"]').press();
     expect(shows()).toEqual(["Overview", "Overview", "Overview"]);
-    // The model map is listed as to come: a click says so, for a moment, and the view stays.
-    page.find('#navList [data-nav="map"]').press();
-    expect([page.id("toast").textContent, page.id("toast").classList.contains("show"), shows()[0]]).toEqual(["Model map is coming in a later version", true, "Overview"]);
+    // There is no Details view. A link that still names it, as the navigation's entry did, leads to the overview, which
+    // holds what that view held; so does any name that is not a file's place.
+    goTo(2);
+    page.id("banners").innerHTML = '<button type="button" data-nav="details">Details</button><button type="button" data-nav="nowhere">Nowhere</button>';
+    page.find('#banners [data-nav="details"]').press();
+    expect([shows(), page.has("#tableWrap"), page.texts("#view h2").slice(0, 1), page.document.activeElement === page.id("view")]).toEqual([["Overview", "Overview", "Overview"], false, ["About this export"], true]);
+    goTo(2);
+    page.find('#banners [data-nav="nowhere"]').press();
+    expect(shows()).toEqual(["Overview", "Overview", "Overview"]);
+  });
+
+  it("lists a model's files in the order of Anaplan's Model settings, whatever order the result has them in, and the model map last", async () => {
+    /** A model's result with these files after its Details file, in this order; each has as many rows as its place in the result. */
+    const model = (...files: string[]): AnalysisResult => ({ ...MODEL, summary: [], tables: [MODEL.tables[0], ...files.map((file, index) =>
+      ({ file: `${file}.csv`, label: file, headers: ["", "Value"], rows: Array.from({ length: index + 1 }, (_, row): Cell[] => [`${file} ${row + 1}`, "x"]), guard: false }))] });
+    /** The navigation's entries, by their words, and the overview's tiles. */
+    const entries = () => page.all("#navList .nav-item").map(item => item.children[0].textContent);
+    const tiles = () => page.texts("#view .s-lab");
+    // The order the export writes its files in (model/export.ts), and the order the page lists them in.
+    const written = ["Line Items", "Modules", "General Lists", "Processes", "Imports", "Import Data Sources", "Exports", "Other Actions", "Time Ranges", "Versions", "Source Models", "Model Calendar"];
+    const ordered = ["Model Calendar", "Time Ranges", "Versions", "General Lists", "Modules", "Line Items", "Processes", "Imports", "Import Data Sources", "Exports", "Other Actions", "Source Models"];
+    await openWith(model(...written));
+    expect([entries(), tiles()]).toEqual([["Overview", ...ordered, "Model map"], ordered]);
+    // Each entry still opens its own file: its name in the navigation is the file's place in the result, and its count the file's.
+    expect(page.all("#navList .nav-item").slice(1, 4).map(item => [item.dataset.nav, item.children[1].textContent])).toEqual([["12", "12"], ["9", "9"], ["10", "10"]]);
+    goTo(9);
+    expect([shows(), page.id("rowCount").textContent, firstCells()[0]]).toEqual([["Time Ranges", "Time Ranges", "Time Ranges"], "1–9 of 9 rows", "Time Ranges 1"]);
+    // The model map is the last entry and still to come: it says so, a click says so for a moment, and the view stays.
+    const map = page.all("#navList .nav-item")[13];
+    expect([map.dataset.nav, map.getAttribute("aria-disabled"), map.title, map.children.map(child => child.textContent)]).toEqual(["map", "true", "Model map is coming in a later version", ["Model map", "coming soon"]]);
+    map.press();
+    expect([page.id("toast").textContent, page.id("toast").classList.contains("show"), shows()[0]]).toEqual(["Model map is coming in a later version", true, "Time Ranges"]);
     vi.advanceTimersByTime(2199);
     expect(page.id("toast").classList.contains("show")).toBe(true);
     vi.advanceTimersByTime(1);
     expect(page.id("toast").classList.contains("show")).toBe(false);
+    // Only the page's list is ordered: the zip is the result's own, with its files as the result has them.
+    page.id("dlAll").press();
+    expect(await bytes(saved[0])).toEqual(resultZip(model(...written), NOW));
+
+    // A result without some of the files lists the ones it has, in the same order.
+    page.id("runAgain").press();
+    sendResult(ports[0], model("Imports", "Line Items", "Versions"));
+    expect([entries(), tiles()]).toEqual([["Overview", "Versions", "Line Items", "Imports", "Model map"], ["Versions", "Line Items", "Imports"]]);
+    // A file the order does not name comes after the ones it names, in the result's order: none goes missing. Line Item
+    // Subsets, which the export does not write yet, has its place between General Lists and Modules.
+    page.id("runAgain").press();
+    sendResult(ports[0], model("Dashboards", "Line Items", "Line Item Subsets", "Users", "Modules", "General Lists"));
+    expect([entries(), tiles()]).toEqual([["Overview", "General Lists", "Line Item Subsets", "Modules", "Line Items", "Dashboards", "Users", "Model map"],
+      ["General Lists", "Line Item Subsets", "Modules", "Line Items", "Dashboards", "Users"]]);
   });
 
-  it("saves with Download this table the table on screen, whole, and the Details file on the details view", async () => {
+  it("saves with Download this table the table on screen, whole, and the Details file on the overview", async () => {
     await openWith(APP);
     const last = async () => [page.downloads[page.downloads.length - 1].name, saved[saved.length - 1].type, await saved[saved.length - 1].text()];
     const csv = (file: string) => tableCsv(APP.tables.find(table => table.file === file)!).replace(/^\ufeff/, "");
-    for (const [where, file] of [[3, "Grid Sections.csv"], [1, "Pages.csv"], ["details", "App Details.csv"], [4, "Where Used.csv"], [2, "Cards.csv"]] as const) {
+    for (const [where, file] of [[3, "Grid Sections.csv"], [1, "Pages.csv"], ["overview", "App Details.csv"], [4, "Where Used.csv"], [2, "Cards.csv"]] as const) {
       page.find(`#navList [data-nav="${where}"]`).press();
       page.id("dlCsv").press();
       expect(await last(), file).toEqual([file, "text/csv;charset=utf-8", csv(file)]);
@@ -964,27 +1100,27 @@ describe("What a click, a key and typing do on the results page", () => {
     expect(firstCells().length).toBe(2);
     page.id("dlCsv").press();
     expect((await last())[2]).toBe(csv("Cards.csv"));
-    // On the overview there is no table on screen: the button is off, and a click saves nothing.
+    // On the overview the file is the Details file, which is what the overview shows: the button says so.
     page.find('#navList [data-nav="overview"]').press();
-    const before = saved.length;
-    page.id("dlCsv").press();
-    expect([page.id("dlCsv").disabled, page.id("dlCsv").title, saved.length]).toEqual([true, "Open a table to download it", before]);
+    expect([page.id("dlCsv").disabled, page.id("dlCsv").title]).toEqual([false, "Download App Details.csv"]);
   });
 
   it("opens the row that was clicked, not its neighbour, on a click anywhere in the row but on a control", async () => {
     await openWith(APP);
     goTo(3);
+    expect(headings()).toEqual(["Page", "Section layout", "Source module"]);
     for (const [index, row] of APP.tables[3].rows.entries()) {
       // On a plain cell of the row: its section layout.
-      page.all("#tableWrap tbody tr")[index].children[3].press();
+      page.all("#tableWrap tbody tr")[index].children[1].press();
       expect([page.all("#drawerBody dd").map(value => value.textContent), page.id("drawerSub").textContent], `row ${index + 1}`).toEqual([row.map(String), `Row ${index + 1} of Grid Sections`]);
       page.key("Escape");
     }
     // On the cell itself, beside its text, as well as on the text.
-    page.all("#tableWrap tbody tr")[1].children[4].querySelector(".cell-t")?.press();
+    page.all("#tableWrap tbody tr")[1].children[2].querySelector(".cell-t")?.press();
     expect(page.texts("#drawerBody dd")[4]).toBe("REP09 Copy");
     page.key("Escape");
-    // A control in a row does what it does and does not open the row: the ID's pill copies the ID.
+    // A control in a row does what it does and does not open the row: the ID's pill, once its column is shown, copies the ID.
+    toggleColumn("Card ID");
     page.all("#tableWrap tbody .id-pill")[1].press();
     await settle();
     expect([copied, page.id("toast").textContent, drawerShown()]).toEqual([["card-a"], "Copied card-a", false]);
@@ -998,28 +1134,47 @@ describe("What a click, a key and typing do on the results page", () => {
     goTo(2);
     /** The card in the drawer: its heading, its page, its sections, and the grid sections listed for it. */
     const card = () => [page.id("drawerTitle").textContent, page.texts("#drawerSub .link")[0], page.texts("#drawerBody h3"), page.texts("#drawerBody .mini td").slice(0, 3)];
-    // The second page is a copy of the first and kept its cards' IDs: a card is the one of its own page.
-    cardLinks()[4].press();
+    // In the Cards table a card's title opens it: one link a row. The second page is a copy of the first and kept its
+    // cards' IDs: a card is the one of its own page.
+    expect(cardLinks().map(link => link.textContent)).toEqual(["Sales", "Margin", "Sales, copied", "Margin, copied"]);
+    cardLinks()[2].press();
     expect(card()).toEqual(["Card 1 — Sales, copied", "Overview (copy)", ["Card details", "Grid sections (1)"], ["1", "Own rows and columns", "REP09 Copy"]]);
     expect(page.texts("#drawerBody .d-dl dd")).toEqual(["Overview (copy)", "1", "Sales, copied", "Grid", "card-a"]);
     page.key("Escape");
-    // The title is a link as much as the number.
-    cardLinks()[1].press();
+    cardLinks()[0].press();
     expect(card()).toEqual(["Card 1 — Sales", "Overview", ["Card details", "Grid sections (1)"], ["1", "Own rows and columns", "REP01 Sales"]]);
     page.key("Escape");
     // A card without grid sections says so.
-    cardLinks()[2].press();
+    cardLinks()[1].press();
     expect([card().slice(0, 3), page.texts("#drawerBody p")]).toEqual([["Card 2 — Margin", "Overview", ["Card details", "Grid sections (0)"]], ["No grid sections on this card."]]);
     page.key("Escape");
+    // The card's number, once its column is shown, is a link as much as the title.
+    toggleColumn("Card #");
+    expect(cardLinks().slice(0, 2).map(link => link.textContent)).toEqual(["1", "Sales"]);
+    cardLinks()[0].press();
+    expect(card().slice(0, 2)).toEqual(["Card 1 — Sales", "Overview"]);
+    page.key("Escape");
 
-    // From another table, the card's number opens the card of that row, by the row's page and Card ID.
+    // Another table has no card's title, and its card's number starts hidden: no cell on screen opens a card. The row's
+    // drawer shows the number, and there it opens the card of that row, by the row's page and Card ID.
     goTo(3);
+    expect([headings(), cardLinks()]).toEqual([["Page", "Section layout", "Source module"], []]);
+    const rowButton = () => page.all('#tableWrap tbody [data-act="row"]')[1];
+    rowButton().press();
+    expect([page.id("drawerSub").textContent, page.texts("#drawerBody dt").slice(0, 3), page.all('#drawerBody [data-act="card"]').map(link => [link.textContent, link.title])])
+      .toEqual(["Row 2 of Grid Sections", ["Page", "Card #", "Section #"], [["1", "Open card details"]]]);
+    page.find('#drawerBody [data-act="card"]').press();
+    expect(card()).toEqual(["Card 1 — Sales, copied", "Overview (copy)", ["Card details", "Grid sections (1)"], ["1", "Own rows and columns", "REP09 Copy"]]);
+    // Inside the card's drawer, a card's link opens that card too: here the same one again, by its title.
+    page.all('#drawerBody [data-act="card"]')[1].press();
+    expect(card().slice(0, 2)).toEqual(["Card 1 — Sales, copied", "Overview (copy)"]);
+    // The drawer then closes back to what opened it from the table, not to a link inside it, which is gone.
+    page.key("Escape");
+    expect(page.document.activeElement).toBe(rowButton());
+    // With the column shown, the number opens the card from the table as well.
+    toggleColumn("Card #");
     cardLinks()[1].press();
     expect(card().slice(0, 2)).toEqual(["Card 1 — Sales, copied", "Overview (copy)"]);
-    // Inside the drawer, a card's link opens that card too: here the same one again, by its title.
-    page.find('#drawerBody [data-act="card"]').press();
-    expect(card().slice(0, 2)).toEqual(["Card 1 — Sales, copied", "Overview (copy)"]);
-    // The drawer then closes back to what opened it from the table, not to the link inside it, which is gone.
     page.key("Escape");
     expect(page.document.activeElement).toBe(cardLinks()[1]);
     // A row whose card the export does not have: a word about it, and no drawer.
@@ -1029,7 +1184,7 @@ describe("What a click, a key and typing do on the results page", () => {
 
   it("shows a page's cards on a click on the page's name, wherever the Page column stands, and from the drawer", async () => {
     await openWith(APP);
-    const jumped = () => [shows(), page.texts("#crumbs .ctx"), column(2), page.id("rowCount").textContent];
+    const jumped = () => [shows(), page.texts("#crumbs .ctx"), column("Card title"), page.id("rowCount").textContent];
     const copies = [["Cards", "Cards", "Cards"], ["Page: Overview (copy)"], ["Sales, copied", "Margin, copied"], "1–2 of 2 rows (filtered from 4)"];
     // Where Used: the page is its fourth column.
     goTo(4);
@@ -1050,33 +1205,34 @@ describe("What a click, a key and typing do on the results page", () => {
     expect([jumped().slice(1, 3), drawerShown()]).toEqual([[["Page: Overview"], ["Sales", "Margin"]], false]);
     // The jump is a view of the Cards table: a search narrows it further, and the navigation's Cards shows them all again.
     page.id("tblSearch").type("sales");
-    expect(column(2)).toEqual(["Sales"]);
+    expect(column("Card title")).toEqual(["Sales"]);
     goTo(2);
-    expect([page.has("#crumbs .ctx"), column(2).length, page.id("tblSearch").value]).toEqual([false, 4, ""]);
+    expect([page.has("#crumbs .ctx"), column("Card title").length, page.id("tblSearch").value]).toEqual([false, 4, ""]);
   });
 
   it("sorts by a column on its button: ascending, descending, then the file's order again; another column starts ascending", async () => {
     await openWith(APP);
     goTo(2);
     const sorted = () => page.all("#tableWrap thead th").map(heading => heading.getAttribute("aria-sort")).filter(direction => direction !== "none").length;
-    expect([column(2), sorted()]).toEqual([["Sales", "Margin", "Sales, copied", "Margin, copied"], 0]);
+    const titles = () => column("Card title");
+    expect([titles(), sorted()]).toEqual([["Sales", "Margin", "Sales, copied", "Margin, copied"], 0]);
     page.find('[data-sort="2"]').press();
-    expect([column(2), page.find('[data-sort="2"]').closest("th")?.getAttribute("aria-sort"), sorted()]).toEqual([["Margin", "Margin, copied", "Sales", "Sales, copied"], "ascending", 1]);
+    expect([titles(), page.find('[data-sort="2"]').closest("th")?.getAttribute("aria-sort"), sorted()]).toEqual([["Margin", "Margin, copied", "Sales", "Sales, copied"], "ascending", 1]);
     page.find('[data-sort="2"]').press();
-    expect([column(2), page.find('[data-sort="2"]').closest("th")?.getAttribute("aria-sort")]).toEqual([["Sales, copied", "Sales", "Margin, copied", "Margin"], "descending"]);
-    // Another column, while this one is descending: that column, ascending, and only it. Rows that sort the same keep the file's order.
-    page.find('[data-sort="1"]').press();
-    expect([column(2), page.find('[data-sort="1"]').closest("th")?.getAttribute("aria-sort"), sorted()]).toEqual([["Sales", "Sales, copied", "Margin", "Margin, copied"], "ascending", 1]);
-    page.find('[data-sort="1"]').press();
-    expect(column(2)).toEqual(["Margin", "Margin, copied", "Sales", "Sales, copied"]);
-    page.find('[data-sort="1"]').press();
-    expect([column(2), sorted(), page.id("resetBtn").hidden]).toEqual([["Sales", "Margin", "Sales, copied", "Margin, copied"], 0, true]);
+    expect([titles(), page.find('[data-sort="2"]').closest("th")?.getAttribute("aria-sort")]).toEqual([["Sales, copied", "Sales", "Margin, copied", "Margin"], "descending"]);
+    // Another column, the card's type, while this one is descending: that column, ascending, and only it. Rows that sort the same keep the file's order.
+    page.find('[data-sort="3"]').press();
+    expect([titles(), page.find('[data-sort="3"]').closest("th")?.getAttribute("aria-sort"), sorted()]).toEqual([["Sales", "Sales, copied", "Margin", "Margin, copied"], "ascending", 1]);
+    page.find('[data-sort="3"]').press();
+    expect(titles()).toEqual(["Margin", "Margin, copied", "Sales", "Sales, copied"]);
+    page.find('[data-sort="3"]').press();
+    expect([titles(), sorted(), page.id("resetBtn").hidden]).toEqual([["Sales", "Margin", "Sales, copied", "Margin, copied"], 0, true]);
   });
 
   it("filters a column by the boxes ticked, and has no filter left once every box is ticked again", async () => {
     await openWith(APP);
     goTo(2);
-    const state = () => [column(2), page.find('[data-colfilter="3"]').classList.contains("active"), page.id("resetBtn").hidden, page.id("rowCount").textContent];
+    const state = () => [column("Card title"), page.find('[data-colfilter="3"]').classList.contains("active"), page.id("resetBtn").hidden, page.id("rowCount").textContent];
     page.find('[data-colfilter="3"]').press();
     expect(choices()).toEqual([["Grid", "2", true], ["KPI", "2", true]]);
     page.all("#popover input")[1].tick();
@@ -1097,7 +1253,7 @@ describe("What a click, a key and typing do on the results page", () => {
     page.find('[data-colfilter="0"]').press();
     expect(choices()).toEqual([["Overview", "2", true], ["Overview (copy)", "2", true]]);
     page.all("#popover input")[0].tick();
-    expect(column(2)).toEqual(["Margin, copied"]);
+    expect(column("Card title")).toEqual(["Margin, copied"]);
   });
 
   it("clears the search, the filters, the sort and the jump with Reset", async () => {
@@ -1109,7 +1265,7 @@ describe("What a click, a key and typing do on the results page", () => {
     page.find('[data-colfilter="3"]').press();
     page.all("#popover input")[0].tick();
     page.key("Escape");
-    const inForce = () => [column(2), page.has("#crumbs .ctx"), page.id("tblSearch").value, page.all(".th-filter.active").length,
+    const inForce = () => [column("Card title"), page.has("#crumbs .ctx"), page.id("tblSearch").value, page.all(".th-filter.active").length,
       page.all("#tableWrap thead th").filter(heading => heading.getAttribute("aria-sort") !== "none").length, page.id("resetBtn").hidden];
     expect(inForce()).toEqual([["Margin, copied"], true, "copied", 1, 1, false]);
     page.id("resetBtn").press();
@@ -1123,24 +1279,40 @@ describe("What a click, a key and typing do on the results page", () => {
     await openWith(APP);
     goTo(2);
     const boxes = () => page.all("#popover .pop-opt").map(option => `${option.children[1].textContent}${option.children[0].checked ? " ✓" : ""}`);
-    expect(headings()).toEqual(["Page", "Card #", "Card title", "Card type"]);
+    // The card's number and its ID start hidden. Both are in the chooser, unticked; the ID is marked as one.
+    expect(headings()).toEqual(["Page", "Card title", "Card type"]);
     page.id("colBtn").press();
-    expect(boxes()).toEqual(["Page ✓", "Card # ✓", "Card title ✓", "Card type ✓", "Card ID"]);
-    // An ID that starts hidden is shown, a column that is shown is hidden: each box acts on its own column.
+    expect(boxes()).toEqual(["Page ✓", "Card #", "Card title ✓", "Card type ✓", "Card ID"]);
+    expect(page.all("#popover .pop-opt").map(option => option.querySelector(".po-cnt")?.textContent ?? "")).toEqual(["", "", "", "", "ID"]);
+    // A column that starts hidden is shown, a column that is shown is hidden: each box acts on its own column.
     page.all("#popover input")[4].tick();
-    expect([headings(), column(4)]).toEqual([["Page", "Card #", "Card title", "Card type", "Card ID"], ["card-a", "card-b", "card-a", "card-b"]]);
+    expect([headings(), column("Card ID")]).toEqual([["Page", "Card title", "Card type", "Card ID"], ["card-a", "card-b", "card-a", "card-b"]]);
     page.all("#popover input")[1].tick();
-    expect([headings(), column(1), boxes()]).toEqual([["Page", "Card title", "Card type", "Card ID"], ["Sales", "Margin", "Sales, copied", "Margin, copied"],
-      ["Page ✓", "Card #", "Card title ✓", "Card type ✓", "Card ID ✓"]]);
+    expect([headings(), column("Card #")]).toEqual([["Page", "Card #", "Card title", "Card type", "Card ID"], ["1", "2", "1", "2"]]);
+    page.all("#popover input")[3].tick();
+    expect([headings(), column("Card title"), boxes()]).toEqual([["Page", "Card #", "Card title", "Card ID"], ["Sales", "Margin", "Sales, copied", "Margin, copied"],
+      ["Page ✓", "Card # ✓", "Card title ✓", "Card type", "Card ID ✓"]]);
     // The choice is the table's own: another table is as it was, and this one is as it was left.
     page.key("Escape");
     goTo(3);
-    expect(headings()).toEqual(["Page", "Card #", "Section #", "Section layout", "Source module", "Card ID"]);
+    expect(headings()).toEqual(["Page", "Section layout", "Source module"]);
+    page.id("colBtn").press();
+    expect(boxes()).toEqual(["Page ✓", "Card #", "Section #", "Section layout ✓", "Source module ✓", "Card ID"]);
+    page.key("Escape");
+    // The search reads the columns that are not shown as well: a card's ID finds its row.
+    page.id("tblSearch").type("card-gone");
+    expect([column("Source module"), page.id("rowCount").textContent]).toEqual([["REP02 Gone"], "1–1 of 1 row (filtered from 3)"]);
     goTo(2);
-    expect(headings()).toEqual(["Page", "Card title", "Card type", "Card ID"]);
+    expect(headings()).toEqual(["Page", "Card #", "Card title", "Card ID"]);
     page.id("colBtn").press();
     page.find('#popover [data-popact="defaults"]').press();
-    expect([headings(), page.id("popover").hidden]).toEqual([["Page", "Card #", "Card title", "Card type"], true]);
+    expect([headings(), page.id("popover").hidden]).toEqual([["Page", "Card title", "Card type"], true]);
+    // Where Used keeps its card's number out of sight too; there it is a number only, in the row's drawer as well.
+    goTo(4);
+    expect(headings()).toEqual(["Object type", "Object name", "Object's module", "Page", "Used as"]);
+    page.all('#tableWrap tbody [data-act="row"]')[0].press();
+    expect([page.texts("#drawerBody dt"), page.texts("#drawerBody dd")[4], page.all('#drawerBody [data-act="card"]')])
+      .toEqual([["Object type", "Object name", "Object's module", "Page", "Card #", "Used as", "Object ID"], "1", []]);
   });
 
   it("turns a table's pages and changes how many rows a page holds, with the rows that belong there", async () => {
@@ -1164,6 +1336,29 @@ describe("What a click, a key and typing do on the results page", () => {
     expect(range()).toEqual(["Line item 1", "Line item 100", "1–100 of 120 rows", "(‹) [1] 2 ›"]);
     goTo(2);
     expect(page.id("pageSize").value).toBe("100");
+  });
+
+  it("keeps the pager in the toolbar above the table, after the count, through every draw; nothing stands under the table", async () => {
+    await openWith(MODEL);
+    goTo(1);
+    /** What the view holds, in order, and what the toolbar holds: each element by its ID, or its kind. */
+    const places = () => [page.id("view").children.map(child => child.id || child.localName), page.find(".toolbar").children.map(child => child.id)];
+    const expected = [["h1", "div", "tableWrap"], ["searchWrap", "colBtn", "resetBtn", "rowCount", "pager"]];
+    expect(places()).toEqual(expected);
+    expect([page.id("rowCount").textContent, pagerButtons().join(" "), page.id("pager").contains(page.id("pageSize")), page.id("pageSize").value]).toEqual(["1–50 of 120 rows", "(‹) [1] 2 3 ›", true, "50"]);
+    // A page turn, another number of rows per page and a search draw the pager again, where it stands.
+    const pager = page.id("pager");
+    page.find('.pg-btn[aria-label="Next page"]').press();
+    page.id("pageSize").choose("25");
+    page.id("tblSearch").type("item 1");
+    expect([places(), page.id("pager") === pager, page.id("rowCount").textContent, pagerButtons().join(" ")]).toEqual([expected, true, "1–25 of 32 rows (filtered from 120)", "(‹) [1] 2 ›"]);
+    // A table of one page has its count, its one page and the list of page sizes there as well.
+    goTo(2);
+    expect([places(), page.id("rowCount").textContent, pagerButtons().join(" "), page.id("pager").contains(page.id("pageSize")), page.id("pageSize").value])
+      .toEqual([expected, "1–2 of 2 rows", "(‹) [1] (›)", true, "25"]);
+    // With no row to show, the count says so and the pager is there, empty.
+    page.id("tblSearch").type("no such module");
+    expect([places(), page.id("rowCount").textContent, page.id("pager").children]).toEqual([expected, "No rows (filtered from 2)", []]);
   });
 
   it("takes the slash key to the search box, and leaves a slash that is typed into a box alone", async () => {
@@ -1202,36 +1397,49 @@ describe("What a click, a key and typing do on the results page", () => {
     // Opened again before it has slid out, it stays.
     cardLinks()[0].press();
     page.key("Escape");
-    cardLinks()[2].press();
+    cardLinks()[1].press();
     vi.advanceTimersByTime(500);
     expect([drawerShown(), page.id("drawer").hidden, page.id("drawerTitle").textContent]).toEqual([true, false, "Card 2 — Margin"]);
   });
 
-  it("opens and closes the navigation of a narrow window with its button, with Escape and with a click beside it", async () => {
+  it("takes the focus into the navigation of a narrow window when its button opens it, and keeps the page behind out of reach until it closes", async () => {
     await openWith(APP);
     const navigation = () => [page.id("sidenav").classList.contains("open"), page.id("navToggle").getAttribute("aria-expanded"), page.id("scrim").hidden];
-    expect(navigation()).toEqual([false, "false", true]);
+    /** What the open navigation lies over: the link that skips to the results, the header, the banner area and the view. */
+    const behind = () => [page.find(".skip"), page.find(".hd"), page.id("banners"), page.id("main")].map(part => part.inert);
+    const open = [true, true, true, true];
+    const closed = [false, false, false, false];
+    expect([navigation(), behind()]).toEqual([[false, "false", true], closed]);
+    goTo(2);
     page.id("navToggle").press();
-    expect(navigation()).toEqual([true, "true", false]);
-    // Escape closes it and gives the focus back to its button.
-    page.id("navList").children[1].focus();
+    // Open: the focus is on the entry of the view shown. Nothing behind the navigation takes the focus, its own button
+    // neither, which it covers; every entry does.
+    expect([navigation(), behind(), page.document.activeElement === page.find('#navList [data-nav="2"]')]).toEqual([[true, "true", false], open, true]);
+    expect([page.id("navToggle"), page.id("runAgain"), page.id("tblSearch"), page.find(".skip")].map(control => control.focusable)).toEqual([false, false, false, false]);
+    expect(page.all("#navList .nav-item").map(item => item.focusable)).toEqual([true, true, true, true, true]);
+    // Escape closes it: the page takes part again, and the focus is back on the button.
     page.key("Escape");
-    expect([navigation(), page.document.activeElement === page.id("navToggle")]).toEqual([[false, "false", true], true]);
-    // The button closes it again; the scrim goes once it has faded.
-    page.id("navToggle").press();
-    page.id("navToggle").press();
-    expect(navigation().slice(0, 2)).toEqual([false, "false"]);
-    vi.advanceTimersByTime(210);
-    expect(page.id("scrim").hidden).toBe(true);
-    // A click beside it, on the scrim, closes it; so does choosing a table, which is then shown.
+    expect([navigation(), behind(), page.document.activeElement === page.id("navToggle")]).toEqual([[false, "false", true], closed, true]);
+    // A click beside it, on the scrim, does the same; the scrim goes once it has faded.
     page.id("navToggle").press();
     page.id("scrim").press();
+    expect([navigation().slice(0, 2), behind(), page.document.activeElement === page.id("navToggle")]).toEqual([[false, "false"], closed, true]);
     vi.advanceTimersByTime(210);
-    expect(navigation()).toEqual([false, "false", true]);
+    expect(page.id("scrim").hidden).toBe(true);
+    // Choosing an entry closes it and shows that table, whose view takes the focus.
     page.id("navToggle").press();
     goTo(3);
     vi.advanceTimersByTime(210);
-    expect([navigation(), shows()[0]]).toEqual([[false, "false", true], "Grid Sections"]);
+    expect([navigation(), behind(), shows()[0], page.document.activeElement === page.id("view")]).toEqual([[false, "false", true], closed, "Grid Sections", true]);
+    // A new result that takes the page while the navigation is open closes it: the overview it shows is within reach.
+    page.id("runAgain").press();
+    page.id("navToggle").press();
+    expect([navigation().slice(0, 2), behind()]).toEqual([[true, "true"], open]);
+    sendResult(ports[0], APP);
+    expect([navigation().slice(0, 2), behind(), shows()[0]]).toEqual([[false, "false"], closed, "Overview"]);
+    // On the overview the focus goes to the overview's entry.
+    page.id("navToggle").press();
+    expect(page.document.activeElement).toBe(page.find('#navList [data-nav="overview"]'));
   });
 
   it("follows the system's colour theme until one is chosen, and keeps the choice", async () => {
@@ -1258,20 +1466,67 @@ describe("What a click, a key and typing do on the results page", () => {
     expect(theme()[0]).toBe("dark");
   });
 
-  it("copies the result's diagnostic log line for line from the details view", async () => {
+  it("opens the overview's closed sections from the keyboard, and copies the result's diagnostic log line for line", async () => {
     await openWith(APP);
-    page.find('#navList [data-nav="details"]').press();
     const log = "14:02:05 Cardigan dev: app 01234567 on us1a.app.anaplan.com\n14:02:06 app: 2 pages\na line without a time";
-    expect(page.id("diagLog").textContent).toBe(log);
-    page.find('#view [data-act="copy-diag"]').press();
+    const section = page.find("#ovLog");
+    const summary = page.find("#ovLog summary");
+    const copy = page.find('#view [data-act="copy-diag"]');
+    // Diagnostics starts closed: its summary takes the focus with the Tab key, and what it holds is out of reach.
+    expect([section.localName, section.hasAttribute("open"), summary.focusable, summary.textContent.trim(), copy.focusable, page.id("diagLog").focusable]).toEqual(["details", false, true, "Diagnostics", false, false]);
+    expect(() => copy.press()).toThrow("it is in a closed <details>");
+    // Enter on the summary opens it: the log is there line for line, and the button that copies it can be chosen.
+    summary.focus();
+    page.document.activeElement.press();
+    expect([section.hasAttribute("open"), copy.focusable, page.id("diagLog").focusable, page.id("diagLog").textContent]).toEqual([true, true, true, log]);
+    copy.press();
     await settle();
     expect([copied, page.id("toast").textContent]).toEqual([[log], "Copied the diagnostic log"]);
+    // Enter again closes it. The page's own keys leave the section alone: Escape and the slash do nothing to it.
+    summary.press();
+    expect(section.hasAttribute("open")).toBe(false);
+    summary.press();
+    expect([page.key("Escape").defaultPrevented, page.key("/").defaultPrevented, section.hasAttribute("open")]).toEqual([false, false, true]);
+  });
+
+  it("says on the overview everything the Details file holds, for an app and for a model: no row is dropped", async () => {
+    /** Every text the overview shows, with its closed sections' as well. */
+    const texts = () => [...page.texts("#view dt"), ...page.texts("#view dd"), ...page.texts("#view .warn-list li"), ...page.id("diagLog").textContent.split("\n")];
+    /** Each file's tile, by the file's own name, which is its entry's in the navigation: the tiles stand in the same order. */
+    const tiles = () => page.all("#navList .nav-item").filter(item => item.querySelector(".cnt")).map((item, index) => `${item.children[0].textContent}.csv: ${page.all("#view .stat .s-num")[index].textContent} rows`);
+    /** The rows of a result's Details file that the overview does not say: a detail and its value, a note, a line of the log, or a file's tile. */
+    const unsaid = (result: AnalysisResult) => {
+      const shown = texts();
+      return result.tables[0].rows.map(row => row.map(String)).filter(([section, detail, value]) => {
+        if (section === "Diagnostics") return !shown.includes(detail ? `${detail} ${value}` : value);
+        if (section === "Notes") return !shown.includes(`${detail}: ${value}`);
+        if (section === "Files" && /^\d+ rows$/.test(value)) return !tiles().includes(`${detail}: ${value}`);
+        return !(shown.includes(detail) && shown.includes(value));
+      });
+    };
+    const withFiles = (result: AnalysisResult, ...more: Cell[][]): AnalysisResult => ({ ...result, tables: [{ ...result.tables[0], rows: [...result.tables[0].rows,
+      ...result.tables.slice(1).map((table): Cell[] => ["Files", table.file, `${table.rows.length} rows`]), ...more] }, ...result.tables.slice(1)] });
+    // An app: what it is and how it was exported, a note, and how to read the files.
+    const app = withFiles(APP, ["Notes", "Archive", "Not published"], ["How to read", "Page and Card #", "Identify a card in every file."]);
+    await openWith(app);
+    expect([app.tables[0].rows.length, unsaid(app)]).toEqual([11, []]);
+    expect(page.texts("#view h2")).toEqual(["About this export", "Notes", "Cards by type", "How to read these files", "Diagnostics"]);
+    expect([page.texts("#ovAbout dt"), page.has("#ovFiles")]).toEqual([["App", "Anaplan host"], false]);
+    // A model, one of whose files was not exported and another counted with a remark: those two are said under Files.
+    const model = withFiles(MODEL, ["Files", "Source Models.csv", "Not exported: This model page has no REMOTE_MODEL axis."], ["How to read", "Layout", "As Anaplan's own export."]);
+    model.tables[0].rows[4] = ["Files", "Modules.csv", "2 rows (as listed)"];
+    page.id("runAgain").press();
+    sendResult(ports[0], model);
+    expect([model.tables[0].rows.length, unsaid(model)]).toEqual([7, []]);
+    expect([page.texts("#view h2"), page.texts("#ovFiles dt"), page.texts("#ovFiles dd")]).toEqual([["About this export", "Files", "How to read these files", "Diagnostics"],
+      ["Modules.csv", "Source Models.csv"], ["2 rows (as listed)", "Not exported: This model page has no REMOTE_MODEL axis."]]);
   });
 
   it("says what was copied as text, whatever the ID holds", async () => {
     // An ID is a cell like any other: it can hold what an Anaplan user typed.
     await openWith({ ...APP, tables: APP.tables.map((table, index) => (index === 3 ? { ...table, rows: [["Overview", 1, 1, "Own rows and columns", "REP01 Sales", `card ${TAG}`]] } : table)) });
     goTo(3);
+    toggleColumn("Card ID");
     page.find("#tableWrap tbody .id-pill").press();
     await settle();
     expect([copied, page.id("toast").textContent, page.id("toast").children, page.has("img")]).toEqual([[`card ${TAG}`], `Copied card ${TAG}`, [], false]);
@@ -1286,6 +1541,7 @@ describe("What a click, a key and typing do on the results page", () => {
   it("copies through a text box when the clipboard refuses, and says so when that fails too", async () => {
     await openWith(APP);
     goTo(3);
+    toggleColumn("Card ID");
     clipboardRefuses = true;
     page.commandWorks = true;
     page.find("#tableWrap tbody .id-pill").press();

@@ -2,21 +2,21 @@ import { PORT_NAME } from "../protocol.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
 import { resultZip, tableCsv } from "../result-zip.js";
 import { VERSION } from "../version.js";
-import { cardsOf, columnIndex, columnsOf, rowKeys, type CardsTable, type Column, type RowKeys } from "./columns.js";
+import { cardsOf, columnIndex, columnsOf, rowKeys, rowNameIndex, type CardsTable, type Column, type RowKeys } from "./columns.js";
 import { describeState, openedJustNow, ResultsClient, runLabel, tabIdFrom, withoutOpened, type RunState } from "./connection.js";
 import { CSV_FALLBACK, downloadName, ZIP_FALLBACK } from "./file-name.js";
 import {
-  cardDrawerHtml, cardDrawerSubHtml, colChooserHtml, colFilterHtml, crumbsHtml, detailsHtml, headerMetaHtml, MOON_ICON, navHtml,
+  cardDrawerHtml, cardDrawerSubHtml, colChooserHtml, colFilterHtml, crumbsHtml, headerMetaHtml, MOON_ICON, navHtml,
   overviewHtml, rowDrawerHtml, rowDrawerSubHtml, runBannerHtml, runHtml, SUN_ICON, tableHtml, tableParts, type Links, type NavEntry, type TableView,
 } from "./markup.js";
 import type { PageId } from "./page-ids.js";
-import { analysedOf, cardSections, detailSections, detailsOf, diagnosticLog, overviewOf } from "./result-view.js";
+import { analysedOf, cardSections, detailsOf, diagnosticLog, fileView, listedTables, overviewOf } from "./result-view.js";
 import { cellText, NONE, pageOf, rememberingSelect, rowName, valueCounts, type Row, type Sort, type TableQuery } from "./table-engine.js";
 
 /** The results page (results.html): the design's script, on the real result. It connects to the Anaplan tab the address
  * names and says what that tab shows. The analysis starts by itself when the icon has just opened the page, and otherwise
- * with the run control. The page shows its progress and then the result: an overview, one table per file, the details
- * and the downloads. The markup is built in markup.ts and the data work is done in the modules beside it; this file
+ * with the run control. The page shows its progress and then the result: an overview, which also holds what the Details
+ * file says, one table per file, and the downloads. The markup is built in markup.ts and the data work is done in the modules beside it; this file
  * only holds what the user chose and puts the pieces on the page. */
 
 const el = <T extends HTMLElement = HTMLElement>(id: PageId): T => document.getElementById(id) as T;
@@ -78,11 +78,17 @@ function downloadFile(name: string, data: BlobPart, type: string): void {
 }
 
 /* ================= state ================= */
-/** One file of the result as the page shows it: its columns, and what the user chose for it. */
+/** One file of the result as the page shows it: its columns, and what the user chose for it. The files are kept in the
+ * order the navigation lists them in (result-view.ts `listedTables`). */
 interface Shown {
   /** Its place in the result's tables, which is also its name in the navigation. */
   index: number;
+  /** The file as the result holds it: what a download gives. */
+  file: ResultTable;
+  /** The file as the page shows it: the same, unless the file has a rule of its own (result-view.ts `fileView`). Then it
+   * is the table the rule gives, and `note` is the line under the table's name that says so. */
   table: ResultTable;
+  note: string | undefined;
   columns: Column[];
   keys: RowKeys;
   links: Links;
@@ -92,7 +98,7 @@ interface Shown {
   sort: Sort | undefined;
   page: number;
 }
-type View = "overview" | "details" | number;
+type View = "overview" | number;
 
 let result: AnalysisResult | undefined;
 /** When the result was complete: its zip carries this time, so downloading it twice gives the same bytes. */
@@ -115,8 +121,9 @@ let select = rememberingSelect();
 
 const defaultHidden = (columns: readonly Column[]): Set<number> => new Set(columns.filter(column => column.hidden).map(column => column.index));
 const currentEntry = (): Shown | undefined => (typeof state.view === "number" ? shown.get(state.view) : undefined);
-/** The file "Download this table" gives: the table shown, or the Details file on the details view. */
-const currentTable = (): ResultTable | undefined => (state.view === "details" ? details : currentEntry()?.table);
+/** The file "Download this table" gives: the file of the table shown, whole; on the overview, the Details file, which
+ * is what the overview shows. */
+const currentTable = (): ResultTable | undefined => currentEntry()?.file ?? (state.view === "overview" ? details : undefined);
 
 /* ================= header / theme ================= */
 function currentTheme(): "dark" | "light" {
@@ -155,7 +162,7 @@ function updateActions(): void {
   const table = currentTable();
   const csv = el<HTMLButtonElement>("dlCsv");
   csv.disabled = !table;
-  csv.title = table ? `Download ${downloadName(table.file, ".csv", CSV_FALLBACK)}` : result ? "Open a table to download it" : "";
+  csv.title = table ? `Download ${downloadName(table.file, ".csv", CSV_FALLBACK)}` : "";
 }
 
 /* ================= views ================= */
@@ -163,7 +170,6 @@ function navEntries(): NavEntry[] {
   return [
     { id: "overview", label: "Overview" },
     ...[...shown.values()].map(entry => ({ id: String(entry.index), label: cellText(entry.table.label), count: entry.table.rows.length })),
-    ...(details ? [{ id: "details", label: "Details" }] : []),
   ];
 }
 
@@ -181,7 +187,8 @@ function tableView(entry: Shown): TableView {
   entry.page = page.page;
   currentSlice = page.rows;
   return {
-    label: cellText(entry.table.label), columns: entry.columns.filter(column => !entry.hidden.has(column.index)), rows: page.rows,
+    label: cellText(entry.table.label), note: entry.note,
+    columns: entry.columns.filter(column => !entry.hidden.has(column.index)), rows: page.rows,
     page: page.page, pages: page.pages, pageSize: state.pageSize, from: page.from, to: page.to, total: page.total, all: entry.table.rows.length,
     search: state.search, sort: entry.sort, filtered: new Set(entry.filters.keys()), context: state.context, links: entry.links,
   };
@@ -234,11 +241,10 @@ function updateTable(entry: Shown): void {
 function renderAll(): void {
   if (!result) return;
   const entry = currentEntry();
-  if (!entry && state.view !== "details") state.view = "overview";
-  el("navList").innerHTML = navHtml(navEntries(), String(state.view));
-  el("crumbs").innerHTML = crumbsHtml(entry ? cellText(entry.table.label) : state.view === "details" ? "Details" : undefined, entry ? state.context : undefined);
+  if (!entry) state.view = "overview";
+  el("navList").innerHTML = navHtml(navEntries(), String(state.view), result.kind === "model");
+  el("crumbs").innerHTML = crumbsHtml(entry ? cellText(entry.table.label) : undefined, entry ? state.context : undefined);
   if (entry) renderTable(entry);
-  else if (state.view === "details") el("view").innerHTML = detailsHtml(detailSections(details), diagnosticLog(details));
   else el("view").innerHTML = overviewHtml(overviewOf(result));
   updateActions();
 }
@@ -260,16 +266,17 @@ function showResult(next: AnalysisResult, at: Date): void {
   details = detailsOf(next);
   cards = cardsOf(next);
   shown = new Map();
-  next.tables.forEach((table, index) => {
-    if (table === details) return;
+  for (const { index, table: file } of listedTables(next)) {
+    // What the page counts, filters and searches is the table as it shows it: the columns' filters follow its rows too.
+    const { table, note } = fileView(next, file);
     const columns = columnsOf(table);
     const keys = rowKeys(table);
     const page = cards !== undefined && keys.page !== undefined;
     shown.set(index, {
-      index, table, columns, keys, links: { page, card: page && keys.cardId !== undefined },
+      index, file, table, note, columns, keys, links: { page, card: page && keys.cardId !== undefined },
       filters: new Map(), hidden: defaultHidden(columns), sort: undefined, page: 0,
     });
-  });
+  }
   state.view = "overview";
   state.search = "";
   state.context = undefined;
@@ -435,6 +442,34 @@ function settleScrim(): void {
 function setBehindDrawer(inert: boolean): void {
   for (const part of [find(".skip"), find(".hd"), el("banners"), find(".shell")]) if (part) part.inert = inert;
 }
+/** What lies behind the open navigation of a narrow window, where it slides over the page: the link that skips to the
+ * results, the header, the banner area and the view. While the navigation is open these are inert, so the Tab key stays
+ * among its entries and a screen reader does not read on into the page behind it. */
+function setBehindNav(inert: boolean): void {
+  for (const part of [find(".skip"), find(".hd"), el("banners"), find("#main")]) if (part) part.inert = inert;
+}
+/** Opens the navigation of a narrow window and takes the focus into it: to the entry of the view shown. */
+function openNav(): void {
+  el("sidenav").classList.add("open");
+  el("navToggle").setAttribute("aria-expanded", "true");
+  const scrim = el("scrim");
+  scrim.hidden = false;
+  requestAnimationFrame(() => scrim.classList.add("show"));
+  setBehindNav(true);
+  focusOn('#navList [aria-current="page"]', "#navList .nav-item");
+}
+/** Closes it, when it is open. `back` gives the focus back to the button that opens it: after Escape and after a click
+ * beside it. An entry that is chosen takes the focus to its view instead. */
+function closeNav(back: boolean): void {
+  if (!el("sidenav").classList.contains("open")) return;
+  el("sidenav").classList.remove("open");
+  el("navToggle").setAttribute("aria-expanded", "false");
+  el("scrim").classList.remove("show");
+  setTimeout(settleScrim, 210);
+  // The page behind takes part again before the focus goes back into it.
+  setBehindNav(false);
+  if (back) el("navToggle").focus();
+}
 /** Shows the drawer. The title is a text and is set as one; the line under it and the body are markup.ts' markup. What
  * the focus goes back to afterwards is what opened the drawer from the page: a link inside the drawer that opens another
  * card does not last, so it leaves that as it is. */
@@ -462,8 +497,7 @@ function closeDrawer(): void {
   const scrim = el("scrim");
   drawer.classList.remove("show");
   scrim.classList.remove("show");
-  el("sidenav").classList.remove("open");
-  el("navToggle").setAttribute("aria-expanded", "false");
+  closeNav(false);
   clearTimeout(drawerTimer);
   drawerTimer = setTimeout(() => {
     drawer.hidden = true;
@@ -474,12 +508,16 @@ function closeDrawer(): void {
   if (state.lastFocus instanceof HTMLElement && document.contains(state.lastFocus)) state.lastFocus.focus();
   state.lastFocus = null;
 }
-/** Any row, in full. Its heading is the row's own name; the line under it says which row of which table it is, by its
- * place in the file, which a search, a filter or a sort does not change. */
+/** Any row, in full. Its heading is the row's own name: the cell of the column that names the file's rows (columns.ts
+ * `ROW_NAME_COLUMNS`), or, where the page knows no such column or the cell says nothing, the first cell that does. The
+ * line under it says which row of which table it is, by its place among the rows the table lists, which a search, a
+ * filter or a sort does not change. */
 function openRowDrawer(entry: Shown, row: Row, opener: Element): void {
   drawerRow = { entry, row };
   const position = entry.table.rows.findIndex(candidate => candidate === row) + 1;
-  openDrawer(rowName(row) || `Row ${position}`, rowDrawerSubHtml(position, cellText(entry.table.label)), rowDrawerHtml(entry.columns, row, entry.links), opener);
+  const named = rowNameIndex(entry.table);
+  const name = (named === undefined ? "" : rowName([row[named] ?? ""])) || rowName(row) || `Row ${position}`;
+  openDrawer(name, rowDrawerSubHtml(position, cellText(entry.table.label)), rowDrawerHtml(entry.columns, row, entry.links), opener);
 }
 /** A card: its row of the Cards file, and the rows of the other files that carry its Card ID on its page. */
 function openCardDrawer(page: string, cardId: string, opener: Element): void {
@@ -520,11 +558,9 @@ function navTo(view: View, context?: string): void {
   state.search = "";
   state.context = context;
   renderAll();
+  // The navigation of a narrow window closes on a choice, before the view takes the focus: until then the view is behind it.
+  closeNav(false);
   el("view").focus({ preventScroll: true });
-  el("sidenav").classList.remove("open");
-  el("navToggle").setAttribute("aria-expanded", "false");
-  el("scrim").classList.remove("show");
-  setTimeout(settleScrim, 210);
   window.scrollTo({ top: 0 });
 }
 /** The cards of one page: the Cards table, kept to that page. The drawer closes first when the jump starts in it: the page
@@ -597,7 +633,7 @@ document.addEventListener("click", event => {
         box?.focus();
         return;
       }
-      // The log a result carries, on its Details view; and the log of the run the page follows or last followed.
+      // The log a result carries, under Diagnostics on the overview; and the log of the run the page follows or last followed.
       case "copy-diag":
         void copyText(diagnosticLog(details).join("\n"), "the diagnostic log");
         return;
@@ -613,8 +649,10 @@ document.addEventListener("click", event => {
       toast("Model map is coming in a later version");
       return;
     }
+    // A file is named by its place in the result. Any other name leads to the overview: its own, and "details", the
+    // name of the view whose content the overview now holds.
     const id = nav.dataset.nav ?? "";
-    navTo(id === "overview" || id === "details" ? id : Number(id));
+    navTo(/^\d+$/.test(id) ? Number(id) : "overview");
     return;
   }
 
@@ -690,11 +728,8 @@ document.addEventListener("keydown", event => {
       return;
     }
     if (el("sidenav").classList.contains("open")) {
-      el("sidenav").classList.remove("open");
-      el("scrim").classList.remove("show");
+      closeNav(true);
       el("scrim").hidden = true;
-      el("navToggle").setAttribute("aria-expanded", "false");
-      el("navToggle").focus();
     }
     return;
   }
@@ -704,18 +739,14 @@ document.addEventListener("keydown", event => {
   }
 });
 el("drawerClose").addEventListener("click", closeDrawer);
-el("scrim").addEventListener("click", closeDrawer);
+// A click beside what is open closes it: the navigation of a narrow window, or the drawer.
+el("scrim").addEventListener("click", () => {
+  if (el("sidenav").classList.contains("open")) closeNav(true);
+  else closeDrawer();
+});
 el("navToggle").addEventListener("click", () => {
-  const open = el("sidenav").classList.toggle("open");
-  el("navToggle").setAttribute("aria-expanded", String(open));
-  const scrim = el("scrim");
-  if (open) {
-    scrim.hidden = false;
-    requestAnimationFrame(() => scrim.classList.add("show"));
-  } else {
-    scrim.classList.remove("show");
-    setTimeout(settleScrim, 210);
-  }
+  if (el("sidenav").classList.contains("open")) closeNav(true);
+  else openNav();
 });
 el("themeToggle").addEventListener("click", toggleTheme);
 el("dlAll").addEventListener("click", () => {
