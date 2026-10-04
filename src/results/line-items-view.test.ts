@@ -62,6 +62,8 @@ const SHORT = ["", "Format", "Applies To", "Start of Section", "Module Name", "R
 const SHORT_VIEW = ["", "Module Name", "Format", "Applies To", "Applies To from", "Start of Section", "Ratio Numerator"];
 const moduleRow = (name: string, appliesTo = ""): Cell[] => [name, "", appliesTo, "", "", ""];
 const lineItem = (name: string, inModule: string, appliesTo = "-", startOfSection = "false"): Cell[] => [name, NUMBER, appliesTo, startOfSection, inModule, ""];
+// And one with both of the columns that hold what every line item has and a module's own row has not.
+const BOTH = ["", "Format", "Summary", "Applies To", "Module Name"];
 
 const column = (shown: ResultTable, header: string): Cell[] => shown.rows.map(row => row[shown.headers.indexOf(header)]);
 /** What the view says of each line item: its name, its module, its Applies To and where that came from. */
@@ -268,24 +270,93 @@ describe("The Line Items table as the results page shows it", () => {
     // A module's name is matched whole and as it is written.
     const near = lineItemsView(table(SHORT, [moduleRow("Sales", "Products"), lineItem("Lower", "sales"), lineItem("Longer", "Sales Plan"), lineItem("Spaced", "Sales ")]));
     expect(column(near.table, APPLIES_TO_FROM)).toEqual(["Module (not found)", "Module (not found)", "Module (not found)"]);
-    expect(near.emptyModules).toBe(1);
   });
 
-  it("takes a row for a module's own by its empty Module Name alone", () => {
-    const view = lineItemsView(table(SHORT, [
-      // Whatever else the row holds: a row with a format and no module, or only spaces for one, is left out and counted like any module's row.
-      ["Unnamed", NUMBER, "-", "false", "", ""], ["Spaces", NUMBER, "-", "false", "  ", ""],
-      // And a row with a module is a line item, whatever it lacks: a format, or a name of its own.
-      ["Sales", "", "Products", "", "", ""], ["No Format", "", "-", "", "Sales", ""], ["", NUMBER, "-", "false", "Sales", ""]]));
-    expect(view.table.rows).toEqual([["No Format", "Sales", "", "Products", "Module", "", ""], ["", "Sales", NUMBER, "Products", "Module", "false", ""]]);
-    expect([view.moduleRows, view.emptyModules]).toEqual([3, 2]);
-    // Such a row among a module's line items ends the module for the ones after it: they keep their dash and say that
-    // their module was not found. A line item that lost its Module Name shows up so, and never under a wrong Applies To.
-    const broken = lineItemsView(table(SHORT, [moduleRow("Sales", "Products"), lineItem("Units", "Sales"), ["Lost", NUMBER, "-", "false", "", ""], lineItem("Price", "Sales")]));
-    expect(said(broken)).toEqual([["Units", "Sales", "Products", "Module"], ["Price", "Sales", "-", "Module (not found)"]]);
-    expect([broken.moduleRows, broken.emptyModules]).toEqual([2, 1]);
-    // A row too short to have the cell has an empty one, as everywhere on the page.
+  it("keeps a line item that has no Module Name: it is a line item whose module is not known, not a module's own row", () => {
+    // One module with three line items, as a read that lost a cell gives it: the second names no module, and has a Format.
+    const view = lineItemsView(table(HEADERS, [
+      real({ "": REVENUE, "Applies To": "Products, Regions", "Time Scale": "Month", Versions: "All" }),
+      real({ "": "Units", ...measure(REVENUE) }),
+      real({ "": "Price", ...measure(REVENUE), "Module Name": "" }),
+      real({ "": "Revenue", ...measure(REVENUE), Formula: "Units * Price" })]));
+    // It stays where the file has it, with its dash as it is: whose Applies To the dash stands for is not known. The line
+    // item after it is its module's, as the one before it.
+    expect(said(view)).toEqual([["Units", REVENUE, "Products, Regions", "Module"], ["Price", "", "-", "Module (not found)"], ["Revenue", REVENUE, "Products, Regions", "Module"]]);
+    // One row is left out, the module's own, and nothing says that the module has no line items.
+    expect([view.moduleRows, view.emptyModules, view.table.rows.length]).toEqual([1, 0, 3]);
+    expect(view.note).toBe("1 module row is in the CSV only; each line item shows its module, except 1 whose module is not known: it has no Module Name in the file.");
+  });
+
+  it("keeps a line item's row that is cut short before its Module Name the same way", () => {
+    const cut = real({ "": "Price", ...measure(REVENUE) }).slice(0, HEADERS.indexOf(APPLIES_TO) + 1);
+    expect(cut).toEqual(["Price", NUMBER, "", SUM, "-"]);
+    const view = lineItemsView(table(HEADERS, [
+      real({ "": REVENUE, "Applies To": "Products, Regions", "Time Scale": "Month", Versions: "All" }),
+      real({ "": "Units", ...measure(REVENUE) }), cut, real({ "": "Revenue", ...measure(REVENUE), Formula: "Units * Price" })]));
+    expect(said(view)).toEqual([["Units", REVENUE, "Products, Regions", "Module"], ["Price", "", "-", "Module (not found)"], ["Revenue", REVENUE, "Products, Regions", "Module"]]);
+    // The cells the row does not have are empty ones in the view, as everywhere on the page.
+    const shown: Record<string, Cell> = { "": "Price", Format: NUMBER, Summary: SUM, "Applies To": "-", "Applies To from": "Module (not found)" };
+    expect(view.table.rows[1]).toEqual(VIEW_HEADERS.map(header => (Object.hasOwn(shown, header) ? shown[header] : "")));
+    expect([view.moduleRows, view.emptyModules, view.table.rows.length]).toEqual([1, 0, 3]);
+    expect(view.note).toBe("1 module row is in the CSV only; each line item shows its module, except 1 whose module is not known: it has no Module Name in the file.");
+  });
+
+  it("takes a row for a module's own only when it names no module and has neither a Format nor a Summary", () => {
+    const view = lineItemsView(table(BOTH, [
+      ["Sales", "", "", "Products", ""],
+      // No module named, but a Format, a Summary or both: a line item whose module is not known. Its dash stays.
+      ["Both", NUMBER, SUM, "-", ""], ["Format only", NUMBER, "", "-", ""], ["Summary only", "", SUM, "-", ""], ["Spaces", NUMBER, SUM, "-", "  "],
+      // An Applies To of its own is its own, as any line item's.
+      ["Own", NUMBER, SUM, "Regions", ""],
+      // A module named: a line item, whatever it lacks, a name of its own included. The rows above did not end its module.
+      ["Bare", "", "", "-", "Sales"], ["", NUMBER, SUM, "-", "Sales"],
+      // No module named and neither of the two, also when only spaces stand in those cells: a module's own row.
+      ["Stock", " ", "  ", "Warehouses", " "], ["Cover", NUMBER, SUM, "-", "Stock"],
+      // A row with nothing but its name is one too: it cannot be told from a module that has no line items.
+      ["Lost"]]));
+    expect(said(view)).toEqual([
+      ["Both", "", "-", "Module (not found)"], ["Format only", "", "-", "Module (not found)"], ["Summary only", "", "-", "Module (not found)"], ["Spaces", "  ", "-", "Module (not found)"],
+      ["Own", "", "Regions", "Line item"],
+      ["Bare", "Sales", "Products", "Module"], ["", "Sales", "Products", "Module"],
+      ["Cover", "Stock", "Warehouses", "Module"]]);
+    expect([view.moduleRows, view.emptyModules]).toEqual([3, 1]);
+    expect(view.note).toBe("3 module rows are in the CSV only; each line item shows its module, except 5 whose module is not known: they have no Module Name in the file. "
+      + "1 module has no line items, so it is not in this table.");
+    // A line item that names no module is no module's, not even of a module's row that has no name.
+    const nameless = lineItemsView(table(BOTH, [["", "", "", "Products", ""], ["Lost", NUMBER, SUM, "-", ""]]));
+    expect(said(nameless)).toEqual([["Lost", "", "-", "Module (not found)"]]);
+    // A module's own row that is cut short is still one: a cell a row does not have is an empty one.
     expect(lineItemsView(table(SHORT, [["Sales", "", "Products"], lineItem("Units", "Sales")])).table.rows).toEqual([["Units", "Sales", NUMBER, "Products", "Module", "false", ""]]);
+  });
+
+  it("reads the one of Format and Summary the table has, and takes any row that names no module for a module's own when it has neither", () => {
+    const formatOnly = lineItemsView(table(SHORT, [moduleRow("Sales", "Products"), ["Lost", NUMBER, "-", "false", "", ""], lineItem("Units", "Sales")]));
+    expect(said(formatOnly)).toEqual([["Lost", "", "-", "Module (not found)"], ["Units", "Sales", "Products", "Module"]]);
+    const summaryOnly = lineItemsView(table(["", "Summary", "Applies To", "Module Name"], [["Sales", "", "Products", ""], ["Lost", SUM, "-", ""], ["Units", SUM, "-", "Sales"]]));
+    expect(said(summaryOnly)).toEqual([["Lost", "", "-", "Module (not found)"], ["Units", "Sales", "Products", "Module"]]);
+    // Neither column: nothing in the table tells such a row from a module's own, and it is taken for one, as before. The
+    // line item after it then names a module that is not the row above it.
+    const neither = lineItemsView(table(["", "Formula", "Applies To", "Module Name"], [["Sales", "", "Products", ""], ["Lost", "Units * 2", "-", ""], ["Units", "", "-", "Sales"]]));
+    expect([said(neither), neither.moduleRows]).toEqual([[["Units", "Sales", "-", "Module (not found)"]], 2]);
+    // The first column is the row's name whatever its header says: one headed Format is not the grid's Format.
+    const headed = lineItemsView(table(["Format", "Applies To", "Module Name"], [["Sales", "Products", ""], ["Units", "-", "Sales"]]));
+    expect([said(headed), headed.moduleRows]).toEqual([[["Units", "Sales", "Products", "Module"]], 1]);
+  });
+
+  it("says that a module has no line items only when none stands under its row", () => {
+    const view = lineItemsView(table(BOTH, [
+      // Every line item of this module lost its Module Name: they stand under its row, so it is not said to have none.
+      ["Sales", "", "", "Products", ""], ["Units", NUMBER, SUM, "-", ""], ["Price", NUMBER, SUM, "Regions", ""],
+      ["Stock", "", "", "Warehouses", ""], ["Cover", NUMBER, SUM, "-", "Stock"],
+      ["------ Archive ------", "", "", "", ""]]));
+    expect(said(view)).toEqual([["Units", "", "-", "Module (not found)"], ["Price", "", "Regions", "Line item"], ["Cover", "Stock", "Warehouses", "Module"]]);
+    expect([view.moduleRows, view.emptyModules]).toEqual([3, 1]);
+    expect(view.note).toBe("3 module rows are in the CSV only; each line item shows its module, except 2 whose module is not known: they have no Module Name in the file. "
+      + "1 module has no line items, so it is not in this table.");
+    // Nor when the line items under its row name another module: whose they are is not known, so nothing is said.
+    const foreign = lineItemsView(table(BOTH, [["Sales", "", "", "Products", ""], ["Units", NUMBER, SUM, "-", "Stock"], ["Empty", "", "", "Regions", ""], ["Costs", "", "", "", ""]]));
+    expect([said(foreign), foreign.moduleRows, foreign.emptyModules]).toEqual([[["Units", "Stock", "-", "Module (not found)"]], 3, 2]);
+    expect(foreign.note).toBe("3 module rows are in the CSV only; each line item shows its module. 2 modules have no line items, so they are not in this table.");
   });
 
   it("returns the table as it is, with no note, when it lacks a column the view reads, or any module's own row", () => {
@@ -298,7 +369,9 @@ describe("The Line Items table as the results page shows it", () => {
       // No row is a module's own: only line items, or modules' rows that name themselves as their module. Such a table is not
       // the grid as the view knows it, and no line item's module could be found in it.
       table(SHORT, [lineItem("Units", "Sales"), lineItem("Price", "Sales", "Products")]),
-      table(SHORT, [["Sales", "", "Products", "", "Sales", ""], lineItem("Units", "Sales")])]) {
+      table(SHORT, [["Sales", "", "Products", "", "Sales", ""], lineItem("Units", "Sales")]),
+      // Nor is a line item that names no module one.
+      table(BOTH, [["Units", NUMBER, SUM, "-", ""], ["Price", NUMBER, SUM, "Products", "Sales"]])]) {
       const view = lineItemsView(given);
       expect(view, given.headers.join("|")).toEqual(asItIs(given));
       expect(view.table, given.headers.join("|")).toBe(given);

@@ -136,9 +136,18 @@ const CUSTOM_SHOWN = labels(["CUSTOM_PREFIX", "prefix"], ["CUSTOM_SUFFIX", "suff
 /** For units of a kind this module does not know, only "NONE" is known to say nothing. */
 const OTHER_SHOWN = labels(["NONE", ""]);
 
-/** Custom units as they were typed. The client stores them with &, <, > and " escaped (DataType.js `_buildNumberFormat`),
- * and undoes that in this order to show them (anaplan/utils/FormatHelper.js `unescapeHTML`). */
-const typed = (stored: string): string => stored.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, "\"");
+/** The four characters the client escapes in custom units, by what it writes for each. It escapes "&" first, then "<", ">"
+ * and the double quote (DataType.js `_buildNumberFormat`, with anaplan/utils/FormatHelper.js `escapeHTML`). */
+const ESCAPED: ReadonlyMap<string, string> = new Map([["&amp;", "&"], ["&lt;", "<"], ["&gt;", ">"], ["&quot;", "\""]]);
+
+/** Custom units as they were typed: each character the client escaped, undone exactly once. One pass over the text does
+ * it, so that an "&" that comes out of "&amp;" is never read again as the start of another entity. Units typed as
+ * "&lt;b&gt;" are stored as "&amp;lt;b&amp;gt;" and come back as "&lt;b&gt;". The caller escapes what this module returns
+ * once for the page: undone twice, those units would show as "<b>", which is another unit, and with "&amp;" undone before
+ * only some of the others, as "&lt;b>". The client's own `unescapeHTML` undoes "&amp;" first and so reads them back as
+ * "<b>"; that order is not followed here. Entity text the client does not write ("&apos;", "&#60;", "&LT;") is text like
+ * any other, and stays. */
+const typed = (stored: string): string => stored.replace(/&(?:amp|lt|gt|quot);/g, entity => ESCAPED.get(entity) ?? entity);
 
 /** A number's units, the dialog's Units group (DataType.js `_buildNumberFormat`; its labels in anaplan/nls/dataType): None
  * is said as nothing, Percentage as "%", Currency with its code, Multi Currency, and Other with its Custom Units. Units of a
