@@ -8,6 +8,8 @@ import { UNSENT } from "../tab-port.js";
 import { parseCsv, sameBytes, unzipText } from "../zip.test-support.js";
 import { FakeElement, FakeInput, FakePage, FakeSelect } from "./dom.test-support.js";
 import { APP_HOST, GOLDEN_APP, goldenApp, serveEngine, type EngineRun } from "./engine.test-support.js";
+import { analysedLine } from "./keep-notes.js";
+import { KEPT_PREFIX } from "./keep-result.js";
 import { FakeTab } from "./port-pair.test-support.js";
 
 // The results page itself against the engine: the page's script on results.html at one end of the port, the content
@@ -50,6 +52,8 @@ describe("The results page itself against the engine in the Anaplan tab", () => 
   let page: FakePage;
   let connects: unknown[][];
   let saved: Blob[];
+  /** What the tab's session storage holds, which a refresh of the page leaves as it is. Each test has its own. */
+  let session: Map<string, string>;
 
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ["Date"] });
@@ -66,6 +70,9 @@ describe("The results page itself against the engine in the Anaplan tab", () => 
     } });
     vi.stubGlobal("window", { matchMedia: () => ({ matches: false, addEventListener: () => undefined }), scrollTo: () => undefined, innerWidth: 1280, innerHeight: 800 });
     vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => undefined });
+    const held = session = new Map<string, string>();
+    vi.stubGlobal("sessionStorage", { get length() { return held.size; }, key: (index: number) => [...held.keys()][index] ?? null, getItem: (key: string) => held.get(key) ?? null,
+      setItem: (key: string, value: string) => { held.set(key, value); }, removeItem: (key: string) => { held.delete(key); } });
     vi.stubGlobal("Element", FakeElement);
     vi.stubGlobal("HTMLElement", FakeElement);
     vi.stubGlobal("HTMLInputElement", FakeInput);
@@ -195,5 +202,47 @@ describe("The results page itself against the engine in the Anaplan tab", () => 
     await until(shown("Planning: app"), "the result on the page");
     expect([tab.ports[0].tab.heard, runs.length, page.id("runAgain").textContent.trim()]).toEqual([[{ type: "run" }], 1, "Run again"]);
     expectSameZip((await downloadAll())[1], resultZip(runs[0].result!, NOW));
+  });
+  it("brings the engine's result back after a refresh of the page, without asking the engine, and saves the same zip", async () => {
+    await open(clicked);
+    await until(shown("Planning: app"), "the result on the page");
+    // The page keeps the result once it has drawn it; the storage holds nothing but the keeper's own keys.
+    const head = (): string | undefined => session.get(`${KEPT_PREFIX}head`);
+    await until(head, "the result to be kept");
+    const first = head();
+    expect([...session.keys()].filter(key => !key.startsWith(KEPT_PREFIX))).toEqual([]);
+    const [name, before] = await downloadAll();
+    expectSameZip(before, resultZip(runs[0].result!, NOW));
+
+    // A refresh, ten minutes later: the page's address holds no time of a click any more.
+    const later = new Date(NOW.getTime() + 600_000);
+    vi.setSystemTime(later);
+    await open("?tab=42");
+    await until(shown("Planning: app"), "the result to come back");
+    await tab.quiet();
+    // The engine made one result, and was asked for no second: the new page connected and sent nothing; nothing was read.
+    const reads = service.reads.length;
+    expect([runs.length, tab.ports.length, tab.ports[1].tab.heard, tab.ports[1].page.types()]).toEqual([1, 2, [], ["subject"]]);
+    // The page shows the engine's tables again, under a line that says when they were analysed.
+    const result = runs[0].result!;
+    expect(navigation()).toEqual(result.tables.filter(table => table.details !== true).map(table => [table.label, String(table.rows.length)]));
+    expect([page.id("noteText").textContent, page.id("runAgain").textContent.trim()]).toEqual([analysedLine(NOW, later), "Run again"]);
+    // "Download all" saves the same bytes as before the refresh: the engine's result, with the time it was complete at.
+    const [again, after] = await downloadAll();
+    expect(again).toBe(name);
+    expectSameZip(after, before);
+    expect(files(after, DETAILS_FILE)).toEqual(files(APP_ZIP_0_6_1, DETAILS_FILE));
+    expect(service.reads).toHaveLength(reads);
+
+    // Run again asks the engine, on the port the page opened when it loaded, and the new result takes the kept one's place.
+    service.name = "Planning: app, renamed";
+    page.id("runAgain").press();
+    await until(shown("Planning: app, renamed"), "the second result on the page");
+    expect([runs.length, tab.ports.length, tab.ports[1].tab.heard, page.id("banners").children]).toEqual([2, 2, [{ type: "run" }], []]);
+    await until(() => head() !== undefined && head() !== first, "the second result to be kept");
+    await open("?tab=42");
+    await until(shown("Planning: app, renamed"), "the second result to come back");
+    expectSameZip((await downloadAll())[1], resultZip(runs[1].result!, later));
+    expect(runs).toHaveLength(2);
   });
 });

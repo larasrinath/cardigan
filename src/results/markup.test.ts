@@ -5,7 +5,7 @@ import type { AnalysisResult, Cell, ResultTable } from "../result-types.js";
 import { cardsOf, columnsOf, rowKeys, type Column } from "./columns.js";
 import {
   cardDrawerHtml, cardDrawerSubHtml, cellHtml, colChooserHtml, colFilterHtml, crumbsHtml, esc, headerMetaHtml, idPill,
-  MOON_ICON, navHtml, overviewHtml, pagerHtml, rowCellHtml, rowDrawerHtml, rowDrawerSubHtml, runBannerHtml, runHtml, SUN_ICON, tableHtml, tableParts, type Links, type TableView,
+  MOON_ICON, navHtml, noteBannerHtml, overviewHtml, pagerHtml, rowCellHtml, rowDrawerHtml, rowDrawerSubHtml, runBannerHtml, runHtml, SUN_ICON, tableHtml, tableParts, type Links, type TableView,
 } from "./markup.js";
 import { parseMarkup } from "./dom.test-support.js";
 import { decode, readMarkup, shownValues, structure } from "./markup.test-support.js";
@@ -332,10 +332,15 @@ describe("The results page's escaping", () => {
     expect(words(runHtml())).toEqual(["Diagnostics", "Copy diagnostic log"]);
     expect(ids(runBannerHtml())).toEqual(["runBanner", "bannerTitle", "bannerText", "bannerHint", "bannerCopy"]);
     expect(words(runBannerHtml())).toEqual(["The results below are from the earlier run.", "Copy diagnostic log"]);
+    // The note above a result is the same: a place for one line, and the button, which waits hidden for a reason to copy.
+    expect([ids(noteBannerHtml()), words(noteBannerHtml())]).toEqual([["noteBanner", "noteText", "noteCopy"], ["Copy diagnostic log"]]);
+    const note = parseMarkup(noteBannerHtml()).querySelector("#noteBanner");
+    expect([note?.classList.contains("banner"), note?.classList.contains("note"), note?.classList.contains("warn"), note?.querySelector("#noteText")?.localName]).toEqual([true, true, false, "span"]);
     // Both copy the log of the run, not the one a result carries; the banner's button waits, hidden, for a first line.
     const copies = (html: string) => parseMarkup(html).querySelectorAll("button").map(button => [button.dataset.act, button.textContent.trim(), button.hidden]);
     expect(copies(runHtml())).toEqual([["copy-run-log", "Copy diagnostic log", false]]);
     expect(copies(runBannerHtml())).toEqual([["copy-run-log", "Copy diagnostic log", true]]);
+    expect(copies(noteBannerHtml())).toEqual([["copy-run-log", "Copy diagnostic log", true]]);
     expect(copies(overviewHtml(overviewWith({ log: ["a line"] })))).toEqual([["copy-diag", "Copy diagnostic log", false]]);
   });
 });
@@ -382,6 +387,7 @@ describe("A result whose every text is hostile, through every view of the page",
       // The run's own view and its banner hold no text of a result, but they are the page's markup too.
       runHtml(),
       runBannerHtml(),
+      noteBannerHtml(),
     ];
     for (const table of tables) {
       const columns = columnsOf(table);

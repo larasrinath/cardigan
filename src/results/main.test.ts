@@ -5,9 +5,13 @@ import { FRESH_MS, PORT_NAME, RESULTS_PAGE, type TabMessage } from "../protocol.
 import type { AnalysisResult, Cell } from "../result-types.js";
 import { resultZip, tableCsv } from "../result-zip.js";
 import { FakeElement, FakeInput, FakePage, FakeSelect } from "./dom.test-support.js";
+import { analysedLine, NOT_KEPT_NOTE, TOO_LARGE_NOTE } from "./keep-notes.js";
+import { KEPT_PREFIX, ResultKeeper, type KeptStorage } from "./keep-result.js";
 
 /** The page as it is packaged: the script runs on results.html itself, read by the stand-in page. */
 const SHELL = readFileSync(new URL(`../../${RESULTS_PAGE}`, import.meta.url), "utf8");
+/** The clock's own timer, taken before any test puts a faked one in its place. */
+const realTimeout = setTimeout;
 
 /** The port chrome.tabs.connect gives the page, with the tab's content script at the other end. */
 class FakePort {
@@ -127,6 +131,10 @@ let lastError: { message?: string } | undefined;
 let location: { search: string; pathname: string; hash: string };
 let replaced: string[];
 let fixedAddress: boolean;
+/** The tab's session storage, which a refresh of the page leaves as it is: what it holds, and the name of the error it
+ * refuses every write with, if it refuses. Each test has its own, so that a result one test's page is still keeping when
+ * the test ends cannot turn up in the next. */
+let session: { held: Map<string, string>; refuses: string; writes: number; storage: KeptStorage };
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -152,6 +160,18 @@ beforeEach(() => {
     scrollTo: () => undefined, innerWidth: 1280, innerHeight: 800,
   });
   vi.stubGlobal("localStorage", { getItem: (key: string) => stored.get(key) ?? null, setItem: (key: string, value: string) => { stored.set(key, value); } });
+  const own = session = { held: new Map<string, string>(), refuses: "", writes: 0, storage: {
+    get length() { return own.held.size; },
+    key: (index: number) => [...own.held.keys()][index] ?? null,
+    getItem: (key: string) => own.held.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      own.writes++;
+      if (own.refuses) throw Object.assign(new Error(`The storage refused to hold ${key}.`), { name: own.refuses });
+      own.held.set(key, value);
+    },
+    removeItem: (key: string) => { own.held.delete(key); },
+  } };
+  vi.stubGlobal("sessionStorage", own.storage);
   // The kinds of element the script tells apart.
   vi.stubGlobal("Element", FakeElement);
   vi.stubGlobal("HTMLElement", FakeElement);
@@ -171,7 +191,8 @@ beforeEach(() => {
 });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
-/** Loads the page at an address: a new page each time, as opening or reloading it gives. */
+/** Loads the page at an address: a new page each time, as opening or reloading it gives. A page that finds no result kept
+ * for it has said so to itself by the time this returns. */
 const open = async (search: string) => {
   vi.resetModules();
   page = new FakePage(SHELL);
@@ -179,6 +200,22 @@ const open = async (search: string) => {
   vi.stubGlobal("document", page.document);
   vi.stubGlobal("location", location);
   await import("./main.js");
+  for (let turn = 0; turn < 5; turn++) await Promise.resolve();
+};
+/** Waits for something the page started off its own thread, such as compressing a result, in real turns of the event loop:
+ * the faked timers neither hold that up nor bring it about. */
+const eventually = async (holds: () => boolean, what: string) => {
+  for (let turn = 0; turn < 3000 && !holds(); turn++) await new Promise(resolve => realTimeout(resolve, 1));
+  if (!holds()) throw new Error(`Waited in vain for ${what}.`);
+};
+/** Lets that many real milliseconds pass, for what must not happen by itself. */
+const pass = (milliseconds: number) => new Promise(resolve => realTimeout(resolve, milliseconds));
+/** Whether a result is kept in the tab's session storage: the keeper's head is there, which it writes last. */
+const kept = () => session.held.has(`${KEPT_PREFIX}head`);
+/** Lets the page keep the result it has just drawn, which it does in a turn of its own after drawing, and waits for that. */
+const letKeep = async () => {
+  vi.advanceTimersByTime(0);
+  await eventually(kept, "the result to be kept");
 };
 /** The address the icon's click gives the page, a second and a half after the click. */
 const clicked = (tab: number) => `?tab=${tab}&opened=${NOW.getTime() - 1500}`;
@@ -1701,5 +1738,250 @@ describe("What a click, a key and typing do on the results page", () => {
     page.find("#tableWrap tbody .id-pill").press();
     await settle();
     expect([page.commands, page.id("toast").textContent, page.has("textarea")]).toEqual([["copy", "copy"], "Copy failed", false]);
+  });
+});
+
+describe("A result kept while the results page is refreshed", () => {
+  /** The page's address once it has taken the time of the icon's click out of it: what a refresh loads. */
+  const refreshed = "?tab=42";
+  /** The note above the result: its line, its kind, and whether it offers the run's log to copy. */
+  const note = () => (page.has("#noteBanner") ? [page.id("noteText").textContent, page.id("noteBanner").classList.contains("warn") ? "warn" : "note", !page.id("noteCopy").hidden] : []);
+  const back = (name: string) => eventually(() => page.document.title === `Cardigan — ${name}`, "the result to come back");
+
+  it("brings the result back after a refresh, under a line that says when it was analysed, and asks the tab nothing; the zip is the same bytes", async () => {
+    await openWith(APP);
+    // The result is drawn first. The page keeps it in a turn of its own after that, and not before.
+    expect([page.texts("#view h1"), session.held.size]).toEqual([["Overview"], 0]);
+    await pass(30);
+    expect(session.held.size).toBe(0);
+    await letKeep();
+    // Kept, under the keeper's own keys, and nothing on the page says so: the result is there as before.
+    expect([page.id("banners").children, [...session.held.keys()].every(key => key.startsWith(KEPT_PREFIX)), page.id("live").textContent]).toEqual([[], true, "Analysis finished: Demo app"]);
+    // Kept once: the moment the page would have waited for a frame passes, and nothing is written again.
+    const writes = session.writes;
+    vi.advanceTimersByTime(5000);
+    await pass(30);
+    expect([session.writes, kept()]).toEqual([writes, true]);
+    page.id("dlAll").press();
+    const before = await bytes(saved[0]);
+
+    // The page is refreshed twenty minutes later. Its address no longer holds the time of the icon's click.
+    expect(location.search).toBe(refreshed);
+    const later = new Date(NOW.getTime() + 20 * 60_000);
+    vi.setSystemTime(later);
+    await open(refreshed);
+    // While the page looks for what it kept, it draws no waiting view and says nothing; it has connected to the tab meanwhile.
+    expect([page.has("#runStatus"), page.id("live").textContent, connects.length]).toEqual([false, "", 2]);
+    await back("Demo app");
+    // The result is on the page as after a run: its overview, its navigation, its tables.
+    expect([page.texts("#view h1"), page.texts("#view .s-lab"), page.all("#navList .nav-item").map(item => item.children[0].textContent), page.id("sidenav").hidden])
+      .toEqual([["Overview"], ["Pages", "Cards", "Grid sections", "Where Used"], ["Overview", "Pages", "Cards", "Grid Sections", "Where Used"], false]);
+    // A line above it says when it was analysed and what reads Anaplan anew. It is a note, with no log to copy, and it is
+    // what the page announces: nothing was analysed just now.
+    const line = analysedLine(NOW, later);
+    expect(line).toMatch(/^Analysed (today|yesterday) at \d\d:\d\d\. Choose Run again to read Anaplan again\.$/);
+    expect([note(), page.id("banners").children.length, page.id("live").textContent]).toEqual([[line, "note", false], 1, `Demo app. ${line}`]);
+    // The run control says "again", and the downloads are there.
+    expect([runControl().slice(0, 2), disabled("runAgain", "dlAll", "dlCsv")]).toEqual([["Run again", "Analyse the Anaplan tab again"], [false, false, false]]);
+    // The page has asked the tab nothing. When the tab says what it shows, nothing changes either: no run starts by itself.
+    expect(ports[1].posted).toEqual([]);
+    ports[1].send({ type: "subject", subject: { kind: "app", id: APP.id } });
+    expect([ports[1].posted, note()[0], page.has("#runBanner"), page.texts("#view h1"), runControl()[0]]).toEqual([[], line, false, ["Overview"], "Run again"]);
+    // The zip carries the time the result was complete at, before the refresh: it is the same bytes as then.
+    page.id("dlAll").press();
+    const after = await bytes(saved[1]);
+    expect([after.length === before.length && after.every((byte, index) => byte === before[index]), page.downloads[0].name]).toEqual([true, APP.zipName]);
+    expect(after).toEqual(resultZip(APP, NOW));
+    // The result's tables work as ever, under the same line.
+    goTo(2);
+    expect([firstCells().length, page.id("rowCount").textContent, note()[0]]).toEqual([4, "1–4 of 4 rows", line]);
+    // On a page left open into the next day, the line says so with the next view: it does not go on saying "today".
+    const nextDay = new Date(NOW.getTime() + 24 * 3_600_000);
+    vi.setSystemTime(nextDay);
+    goTo(1);
+    expect([note(), analysedLine(NOW, nextDay) === line, /^Analysed (yesterday at|on) /.test(analysedLine(NOW, nextDay))]).toEqual([[analysedLine(NOW, nextDay), "note", false], false, true]);
+    vi.setSystemTime(later);
+    goTo(2);
+    expect(note()[0]).toBe(line);
+
+    // It stays kept: a second refresh brings it back again, and a tab that cannot be reached takes nothing from it.
+    await open(refreshed);
+    await back("Demo app");
+    lastError = { message: "Could not establish connection. Receiving end does not exist." };
+    ports[2].drop();
+    expect([ports[2].posted, note(), page.has("#runBanner"), runControl()[0]]).toEqual([[], [line, "note", false], false, "Run again"]);
+  });
+
+  it("takes nothing back on a page the icon has just opened: it analyses anew, and keeps the new result in the old one's place", async () => {
+    await openWith(APP);
+    await letKeep();
+    const first = new Map(session.held);
+    // The icon is clicked again for the same tab: the page that opens shows no earlier result, and runs by itself.
+    await open(clicked(42));
+    await pass(30);
+    expect([page.texts("#view h1"), page.has("#noteBanner"), page.document.title, page.all("#view .stat").length]).toEqual([["Connecting"], false, "Cardigan", 0]);
+    ports[1].send({ type: "subject", subject: { kind: "app", id: RESULT.id } });
+    expect([ports[1].posted, page.id("runTitle").textContent]).toEqual([[{ type: "run" }], "Analysing"]);
+    // What was kept is untouched while the new run goes.
+    expect(new Map(session.held)).toEqual(first);
+    sendResult(ports[1], RESULT);
+    expect([page.document.title, page.id("banners").children]).toEqual(["Cardigan — Demo <img src=x onerror=alert(1)> app", []]);
+    await letKeep();
+    // The new result is the one a refresh brings back now.
+    await open(refreshed);
+    await back("Demo <img src=x onerror=alert(1)> app");
+    expect([page.texts("#view .s-lab"), page.has("img"), page.id("noteText").children]).toEqual([["Pages", "Cards"], false, []]);
+  });
+
+  it("keeps the result that was brought back on the page while Run again reads Anaplan anew, and then keeps the new one", async () => {
+    await openWith(APP);
+    await letKeep();
+    await open(refreshed);
+    await back("Demo app");
+    ports[1].send({ type: "subject", subject: { kind: "app", id: APP.id } });
+    goTo(2);
+    // Run again, an hour later: now the page asks the tab, on the port it opened when it loaded.
+    const again = new Date(NOW.getTime() + 3_600_000);
+    vi.setSystemTime(again);
+    page.id("runAgain").press();
+    expect([ports[1].posted, connects.length]).toEqual([[{ type: "run" }], 2]);
+    // The run's progress stands above the result that was brought back, in the place of the line about it; the result is all still there.
+    ports[1].send({ type: "status", text: "Reading the app…" });
+    expect([banner(), page.has("#noteBanner"), page.id("banners").textContent.includes("The results below are from the earlier run."), firstCells().length, page.document.title])
+      .toEqual([["note", "Analysing", "Reading the app…", "Keep the Anaplan tab open until this finishes."], false, true, 4, "Cardigan — Demo app"]);
+    // And it is still what a refresh would bring back.
+    expect(kept()).toBe(true);
+    // The new result takes its place on the page once it is whole, and in what is kept once it is drawn.
+    const next: AnalysisResult = { ...APP, name: "Demo app, read again", zipName: "Again.zip" };
+    sendResult(ports[1], next);
+    expect([page.document.title, page.id("banners").children, page.id("live").textContent]).toEqual(["Cardigan — Demo app, read again", [], "Analysis finished: Demo app, read again"]);
+    await letKeep();
+    page.id("dlAll").press();
+    const before = await bytes(saved[0]);
+    await open(refreshed);
+    await back("Demo app, read again");
+    const line = analysedLine(again, again);
+    expect([note()[0], line.startsWith("Analysed today at ")]).toEqual([line, true]);
+    page.id("dlAll").press();
+    expect(await bytes(saved[1])).toEqual(before);
+    expect(before).toEqual(resultZip(next, again));
+  });
+
+  it("leaves a result that a run brought meanwhile where it is: the one that was kept is the older", async () => {
+    await openWith(APP);
+    await letKeep();
+    await open(refreshed);
+    // Before the page has what it kept, Run is chosen, and the tab answers at once with a whole result.
+    ports[1].send({ type: "subject", subject: { kind: "app", id: APP.id } });
+    page.id("runAgain").press();
+    sendResult(ports[1], { ...APP, name: "Demo app, read again" });
+    expect([ports[1].posted, page.document.title]).toEqual([[{ type: "run" }], "Cardigan — Demo app, read again"]);
+    await pass(50);
+    expect([page.document.title, page.has("#noteBanner"), page.has("#runBanner"), page.id("live").textContent]).toEqual(["Cardigan — Demo app, read again", false, false, "Analysis finished: Demo app, read again"]);
+  });
+
+  it("puts the run's progress above a result that comes back while a run it was asked for is going", async () => {
+    await openWith(APP);
+    await letKeep();
+    await open(refreshed);
+    ports[1].send({ type: "subject", subject: { kind: "app", id: APP.id } });
+    page.id("runAgain").press();
+    ports[1].send({ type: "status", text: "Reading the app…" });
+    await back("Demo app");
+    expect([banner(), page.has("#noteBanner"), page.texts("#view h1"), page.id("runAgain").disabled])
+      .toEqual([["note", "Analysing", "Reading the app…", "Keep the Anaplan tab open until this finishes."], false, ["Overview"], true]);
+  });
+
+  it("keeps a result after a moment in a window that is not shown, where the frame that draws it does not come", async () => {
+    await open(clicked(42));
+    // A window that is not shown is given no frame.
+    vi.stubGlobal("requestAnimationFrame", () => 0);
+    ports[0].send({ type: "subject", subject: { kind: "app", id: APP.id } });
+    sendResult(ports[0], APP);
+    vi.advanceTimersByTime(999);
+    await pass(30);
+    expect(session.writes).toBe(0);
+    vi.advanceTimersByTime(1);
+    await eventually(kept, "the result to be kept");
+    expect(page.id("banners").children).toEqual([]);
+  });
+
+  it("says once, in a quiet note, that a result is too large to keep, with the reason in the run's log; the result is whole and on the page", async () => {
+    session.refuses = "QuotaExceededError";
+    await openWith(APP);
+    vi.advanceTimersByTime(0);
+    await eventually(() => page.has("#noteBanner"), "the note");
+    // A note, not a failure: the result is there, and so are its downloads. Nothing of it is in the storage.
+    expect(note()).toEqual([TOO_LARGE_NOTE, "note", true]);
+    expect([page.id("banners").children.length, page.id("live").textContent, page.texts("#view h1"), disabled("runAgain", "dlAll", "dlCsv"), session.held.size])
+      .toEqual([1, TOO_LARGE_NOTE, ["Overview"], [false, false, false], 0]);
+    // Why is in the run's log, which the note's button copies, and not on the page.
+    page.id("noteCopy").press();
+    await settle();
+    expect(copied).toHaveLength(1);
+    expect(copied[0]).toMatch(/^\d\d:\d\d:\d\d This result is too large to keep across a refresh: the tab's session storage is full \(The storage refused to hold cardigan-kept:0\.\)\.$/);
+    expect(page.id("banners").textContent).not.toContain("session storage");
+    // It is said once: it stays as it is through the views, and no second note comes.
+    goTo(2);
+    vi.advanceTimersByTime(5000);
+    await pass(30);
+    expect([note(), page.id("banners").children.length]).toEqual([[TOO_LARGE_NOTE, "note", true], 1]);
+    // A refresh finds nothing kept: the page waits for Run, as one that never had a result.
+    await open(refreshed);
+    await pass(30);
+    expect([page.id("runTitle").textContent, page.has("#noteBanner"), runControl()[0]]).toEqual(["Connecting", false, "Run"]);
+  });
+
+  it("says that a result will not survive a refresh when the tab has no session storage, or keeping it fails, with the reason in the log", async () => {
+    vi.stubGlobal("sessionStorage", undefined);
+    await openWith(APP);
+    vi.advanceTimersByTime(0);
+    await eventually(() => page.has("#noteBanner"), "the note");
+    expect([note(), page.id("live").textContent, page.texts("#view h1")]).toEqual([[NOT_KEPT_NOTE, "note", true], NOT_KEPT_NOTE, ["Overview"]]);
+    page.id("noteCopy").press();
+    await settle();
+    expect(copied[0]).toMatch(/^\d\d:\d\d:\d\d This result is not kept across a refresh: the tab's session storage is not available\.$/);
+    // A run after it has its own banner in the note's place, and its result gets a note of its own, with its own reason.
+    vi.stubGlobal("sessionStorage", session.storage);
+    session.refuses = "SecurityError";
+    page.id("runAgain").press();
+    expect([page.has("#noteBanner"), banner().slice(0, 2)]).toEqual([false, ["note", "Analysing"]]);
+    sendResult(ports[0], APP);
+    expect(page.id("banners").children).toEqual([]);
+    vi.advanceTimersByTime(0);
+    await eventually(() => page.has("#noteBanner"), "the second note");
+    expect(note()).toEqual([NOT_KEPT_NOTE, "note", true]);
+    page.id("noteCopy").press();
+    await settle();
+    expect(copied[1]).toMatch(/^\d\d:\d\d:\d\d This result is not kept across a refresh: the tab's session storage refused it \(The storage refused to hold cardigan-kept:0\.\)\.$/);
+  });
+
+  it("says nothing about keeping once the page has gone on to another run: that run's banner stands where the note would", async () => {
+    session.refuses = "QuotaExceededError";
+    await openWith(APP);
+    // Run again is chosen before the page has tried to keep the first result.
+    page.id("runAgain").press();
+    vi.advanceTimersByTime(0);
+    await pass(50);
+    expect([page.has("#noteBanner"), banner().slice(0, 2), page.texts("#view h1")]).toEqual([false, ["note", "Analysing"], ["Overview"]]);
+    // The new run's log has no line about the earlier result either: it is empty, so its banner offers nothing to copy yet.
+    expect(page.id("bannerCopy").hidden).toBe(true);
+  });
+
+  it("shows nothing that was kept for another Anaplan tab, or by another version of the extension: the page waits for Run", async () => {
+    await openWith(APP);
+    await letKeep();
+    // The same results tab, with the address of another Anaplan tab.
+    await open("?tab=43");
+    await pass(30);
+    expect([page.id("runTitle").textContent, page.has("#noteBanner"), page.document.title, session.held.size, connects[1]]).toEqual(["Connecting", false, "Cardigan", 0, [43, { name: PORT_NAME }]]);
+    ports[1].send({ type: "subject", subject: { kind: "app", id: APP.id } });
+    expect([page.id("runTitle").textContent, runControl()[0], ports[1].posted]).toEqual(["Ready to analyse", "Run", []]);
+    // A result that another version kept, for this very tab.
+    expect((await new ResultKeeper({ tabId: 42, version: "0.0.1", storage: session.storage }).keep(APP, NOW)).kept).toBe(true);
+    expect(kept()).toBe(true);
+    await open(refreshed);
+    await pass(30);
+    expect([page.id("runTitle").textContent, page.has("#noteBanner"), session.held.size]).toEqual(["Connecting", false, 0]);
   });
 });
