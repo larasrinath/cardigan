@@ -4,7 +4,7 @@ import type { Cell, ResultTable } from "../result-types.js";
 import { resultZip, tableCsv } from "../result-zip.js";
 import { parseCsv, unzipText } from "../zip.test-support.js";
 import { columnsOf } from "./columns.js";
-import { APPLIES_TO, APPLIES_TO_FROM, APPLIES_TO_SOURCE, LINE_ITEMS_FILE, lineItemsView, MODULE_NAME, START_OF_SECTION, type LineItemsView } from "./line-items-view.js";
+import { APPLIES_TO, APPLIES_TO_FROM, APPLIES_TO_SOURCE, LINE_ITEMS_FILE, lineItemsView, MODULE_NAME, type LineItemsView } from "./line-items-view.js";
 import { selectRows, valueCounts } from "./table-engine.js";
 
 // Made-up names only. The headers are the ones a real model's Line Items table has, in its order: the unnamed column with
@@ -203,40 +203,30 @@ describe("The Line Items table as the results page shows it", () => {
       lineItem("Odd", "Sales", "-- None --"), lineItem("Long dash", "Sales", "—")]));
     expect(said(view)).toEqual([["Price", "Sales", "Products", "Line item"], ["Rate", "Sales", "", "Line item"], ["Quoted", "Sales", "\"Regions, EMEA\", Time", "Line item"],
       ["Spaced", "Sales", "Products, Time", "Module"], ["Odd", "Sales", "-- None --", "Line item"], ["Long dash", "Sales", "—", "Line item"]]);
-    expect(APPLIES_TO_SOURCE).toEqual({ module: "Module", section: "Section", lineItem: "Line item", notFound: "Module (not found)" });
+    expect(APPLIES_TO_SOURCE).toEqual({ module: "Module", lineItem: "Line item", notFound: "Module (not found)" });
     expect(APPLIES_TO_FROM).toBe("Applies To from");
   });
 
-  it("takes a dash from the line item that started the section, when that one has an Applies To of its own", () => {
+  it("takes a dash for the module's Applies To whatever Start of Section says", () => {
+    // Start of Section is a break in how the blueprint shows a module's line items, not a change of dimensions: after a
+    // line item that has it ticked and an Applies To of its own, an empty one too, a dash is still the module's.
     const view = lineItemsView(table(SHORT, [
-      moduleRow("Plan", "Products, Time"),
-      lineItem("Volume", "Plan"),
-      lineItem("Regional Uplift", "Plan", "Regions", "true"), lineItem("Uplift Start", "Plan"),
-      // A line item with its own Applies To that starts no section changes nothing for the ones after it.
-      lineItem("Customer Note", "Plan", "Customers"), lineItem("Uplift End", "Plan"),
-      // A line item that starts a section with a dash takes the module's, and so do the ones after it.
+      moduleRow("Plan", "Products, Time"), lineItem("Volume", "Plan"),
+      lineItem("Regional Uplift", "Plan", "Regions", "true"), lineItem("Uplift Start", "Plan"), lineItem("Uplift End", "Plan"),
+      lineItem("Flat Rate", "Plan", "", "true"), lineItem("Flat Fee", "Plan"),
       lineItem("Totals", "Plan", "-", "true"), lineItem("Total Volume", "Plan"),
-      lineItem("Flat Rate", "Plan", "", "TRUE"), lineItem("Flat Fee", "Plan"),
-      // A section ends with its module.
       moduleRow("Other", "Channels"), lineItem("Sales", "Other")]));
     expect(said(view)).toEqual([
       ["Volume", "Plan", "Products, Time", "Module"],
-      ["Regional Uplift", "Plan", "Regions", "Line item"], ["Uplift Start", "Plan", "Regions", "Section"],
-      ["Customer Note", "Plan", "Customers", "Line item"], ["Uplift End", "Plan", "Regions", "Section"],
+      ["Regional Uplift", "Plan", "Regions", "Line item"], ["Uplift Start", "Plan", "Products, Time", "Module"], ["Uplift End", "Plan", "Products, Time", "Module"],
+      ["Flat Rate", "Plan", "", "Line item"], ["Flat Fee", "Plan", "Products, Time", "Module"],
       ["Totals", "Plan", "Products, Time", "Module"], ["Total Volume", "Plan", "Products, Time", "Module"],
-      ["Flat Rate", "Plan", "", "Line item"], ["Flat Fee", "Plan", "", "Section"],
       ["Sales", "Other", "Channels", "Module"]]);
-    // Nor does a section run on into another module's line items when that module's row is missing.
-    const orphans = lineItemsView(table(SHORT, [moduleRow("Zero", "Time"), lineItem("Uplift", "First", "Regions", "true"), lineItem("Next", "First"), lineItem("Orphan", "Second")]));
-    expect(said(orphans)).toEqual([["Uplift", "First", "Regions", "Line item"], ["Next", "First", "Regions", "Section"], ["Orphan", "Second", "-", "Module (not found)"]]);
-    // A module's row ends the section whatever the module is called: the line items under it start from that row.
-    const again = lineItemsView(table(SHORT, [moduleRow("Plan", "Products"), lineItem("Uplift", "Plan", "Regions", "true"), moduleRow("Plan", "Channels"), lineItem("Sales", "Plan")]));
-    expect(said(again)).toEqual([["Uplift", "Plan", "Regions", "Line item"], ["Sales", "Plan", "Channels", "Module"]]);
-    // A table without the Start of Section column has no sections: a dash is the module's.
-    const headers = ["", "Applies To", "Module Name"];
-    expect(headers).not.toContain(START_OF_SECTION);
-    const plain = lineItemsView(table(headers, [["Plan", "Products", ""], ["Uplift", "Regions", "Plan"], ["After", "-", "Plan"]]));
-    expect(plain.table).toMatchObject({ headers: ["", "Module Name", "Applies To", "Applies To from"], rows: [["Uplift", "Plan", "Regions", "Line item"], ["After", "Plan", "Products", "Module"]] });
+    // The column itself is shown as the file has it, like every other.
+    expect(column(view.table, "Start of Section")).toEqual(["false", "true", "false", "false", "true", "false", "true", "false", "false"]);
+    // After such a line item too, one whose module's row is missing keeps its dash: only its module's row gives it dimensions.
+    const orphans = lineItemsView(table(SHORT, [moduleRow("Zero", "Time"), lineItem("Uplift", "First", "Regions", "true"), lineItem("Next", "First")]));
+    expect(said(orphans)).toEqual([["Uplift", "First", "Regions", "Line item"], ["Next", "First", "-", "Module (not found)"]]);
   });
 
   it("leaves out a module with no line items and counts it apart, at the very end of the table too", () => {
@@ -314,8 +304,9 @@ describe("The Line Items table as the results page shows it", () => {
       expect(view.table, given.headers.join("|")).toBe(given);
       expect("note" in view).toBe(false);
     }
-    // Without Start of Section the view still applies: only the two are needed.
-    expect(lineItemsView(without(START_OF_SECTION)).moduleRows).toBe(1);
+    // Only the two are needed: a table with no other column of the grid is viewed.
+    const least = lineItemsView(table(["", "Applies To", "Module Name"], [["Plan", "Products", ""], ["Uplift", "Regions", "Plan"], ["After", "-", "Plan"]]));
+    expect(least.table).toMatchObject({ headers: ["", "Module Name", "Applies To", "Applies To from"], rows: [["Uplift", "Plan", "Regions", "Line item"], ["After", "Plan", "Products", "Module"]] });
     // The view of a view is the view: no row of it is a module's own.
     const view = lineItemsView(table(SHORT, rows));
     expect(lineItemsView(view.table)).toEqual(asItIs(view.table));
