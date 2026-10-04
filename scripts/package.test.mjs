@@ -5,7 +5,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symli
 import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
-import { packageExtension, pageProblems, ROOT, runtimeFiles } from './package.mjs';
+import { packageExtension, pageProblems, policyProblems, ROOT, runtimeFiles } from './package.mjs';
 
 // Hermetic: packages a temporary copy of the repository's manifest and icons with stand-in bundles and a stand-in results
 // page. It needs no build, never writes into the repository and never uses the network.
@@ -276,6 +276,74 @@ test('refuses a manifest that names a file outside dist/*.js and icons/*.png, or
   }
   assert.throws(() => runtimeFiles({ ...base, content_scripts: [{ ...base.content_scripts[0], css: ['x.css'] }] }), /content_scripts "css" is not known/);
 });
+
+test('takes a content security policy only for the extension\'s own pages, and only one that lets in nothing from outside the package', () => {
+  const base = JSON.parse(readFileSync(path.join(ROOT, 'manifest.json'), 'utf8'));
+  const POLICY = "default-src 'none'; script-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; img-src 'self'; base-uri 'none'; form-action 'none'";
+  const withPolicies = policies => ({ ...base, content_security_policy: policies });
+  const allows = (source, directive) => `allows ${source} in ${directive}, which is not 'self' or 'none'`;
+  const NO_DEFAULT = 'has no default-src, so what it does not list could come from anywhere';
+  // Policies that keep everything inside the package, however they are spelt and spaced. Styles may be written in the page.
+  for (const policy of [POLICY, "default-src 'self'", "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; style-src-elem 'unsafe-inline'",
+    "  default-src 'none' ;script-src   'self';; ", "DEFAULT-SRC 'NONE'; Script-Src 'Self'; Style-Src-Attr 'Unsafe-Inline'",
+    "default-src 'none'; script-src; frame-ancestors 'none'; upgrade-insecure-requests"]) {
+    assert.deepEqual(policyProblems(policy), [], policy);
+    assert.deepEqual(runtimeFiles(withPolicies({ extension_pages: policy })), RUNTIME, policy);
+  }
+  for (const [policy, ...problems] of [
+    // A remote source: an address, a host, a scheme. Reports sent out count too.
+    ["default-src 'none'; script-src 'self' https://cdn.example.com", allows('https://cdn.example.com', 'script-src')],
+    ["default-src 'none'; connect-src api.example.com:443", allows('api.example.com:443', 'connect-src')],
+    ["default-src 'none'; img-src 'self' https:", allows('https:', 'img-src')],
+    ["default-src 'none'; script-src 'self' http://localhost:8000", allows('http://localhost:8000', 'script-src')],
+    ["default-src 'none'; font-src data:; img-src 'self' blob:", allows('data:', 'font-src'), allows('blob:', 'img-src')],
+    ["default-src 'none'; report-uri https://reports.example.com/csp", allows('https://reports.example.com/csp', 'report-uri')],
+    // A wildcard, alone or in a host.
+    ['default-src *', allows('*', 'default-src')],
+    ["default-src 'none'; img-src *", allows('*', 'img-src')],
+    ["default-src 'none'; connect-src https://*.example.com", allows('https://*.example.com', 'connect-src')],
+    // Code that is not a packaged file: text run as code, and scripts written in the page, by any directive that covers scripts.
+    ["default-src 'none'; script-src 'self' 'unsafe-eval'", allows("'unsafe-eval'", 'script-src')],
+    ["default-src 'none'; script-src 'self' 'wasm-unsafe-eval'", allows("'wasm-unsafe-eval'", 'script-src')],
+    ["default-src 'none'; script-src 'self' 'unsafe-inline'", allows("'unsafe-inline'", 'script-src')],
+    ["default-src 'self' 'unsafe-inline'", allows("'unsafe-inline'", 'default-src')],
+    ["default-src 'none'; script-src-elem 'unsafe-inline'; script-src-attr 'UNSAFE-INLINE'", allows("'unsafe-inline'", 'script-src-elem'), allows("'UNSAFE-INLINE'", 'script-src-attr')],
+    ["default-src 'none'; script-src 'self' 'nonce-abc' 'sha256-AAAA' 'strict-dynamic'", allows("'nonce-abc'", 'script-src'), allows("'sha256-AAAA'", 'script-src'), allows("'strict-dynamic'", 'script-src')],
+    // Without default-src, what the policy does not list is open.
+    ["script-src 'self'; style-src 'self'", NO_DEFAULT],
+    // Every problem is named, not only the first.
+    ["script-src 'self' 'unsafe-eval' https://cdn.example.com; img-src *", allows("'unsafe-eval'", 'script-src'), allows('https://cdn.example.com', 'script-src'), allows('*', 'img-src'), NO_DEFAULT],
+  ]) {
+    assert.deepEqual(policyProblems(policy), problems, policy);
+    assert.throws(() => runtimeFiles(withPolicies({ extension_pages: policy })),
+      { message: `Cannot package:\n${problems.map(problem => `manifest.json: content_security_policy "extension_pages" ${problem}`).join('\n')}` }, policy);
+  }
+  // Not a policy at all.
+  for (const policy of [undefined, null, '', '   ', 42, ["default-src 'none'"], { 'default-src': "'none'" }]) {
+    assert.deepEqual(policyProblems(policy), ['is not a policy'], JSON.stringify(policy));
+    assert.throws(() => runtimeFiles(withPolicies({ extension_pages: policy })), /content_security_policy "extension_pages" is not a policy/, JSON.stringify(policy));
+  }
+  // Only the policy of the extension's own pages: no other policy beside it, and nothing in its place.
+  assert.throws(() => runtimeFiles(withPolicies({ extension_pages: POLICY, sandbox: "sandbox allow-scripts; script-src 'self'" })), /content_security_policy "sandbox" is not known to the packager/);
+  for (const policies of [POLICY, null, 42, [], [POLICY], {}, { sandbox: 'sandbox allow-scripts' }]) {
+    assert.throws(() => runtimeFiles(withPolicies(policies)), /manifest\.json: "content_security_policy" does not hold "extension_pages"/, JSON.stringify(policies));
+  }
+});
+
+test('writes nothing when the manifest\'s content security policy is refused', () => withTemp(dir => {
+  const repo = fixture(dir);
+  const manifest = JSON.parse(readFileSync(path.join(repo, 'manifest.json'), 'utf8'));
+  const withPolicy = policy => {
+    write(repo, 'manifest.json', `${JSON.stringify({ ...manifest, content_security_policy: { extension_pages: policy } }, null, 2)}\n`);
+    touch(repo, 'manifest.json', SOURCES_AT);
+  };
+  withPolicy("default-src 'none'; script-src 'self' https://cdn.example.com");
+  assert.throws(() => packageExtension({ dir: repo, outDir: path.join(dir, 'out') }),
+    { message: 'Cannot package:\nmanifest.json: content_security_policy "extension_pages" allows https://cdn.example.com in script-src, which is not \'self\' or \'none\'' });
+  assert.equal(existsSync(path.join(dir, 'out')), false, 'nothing written');
+  withPolicy("default-src 'none'; script-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; img-src 'self'");
+  assert.doesNotThrow(() => packageExtension({ dir: repo, outDir: path.join(dir, 'out') }));
+}));
 
 test('refuses a version mismatch, and a bundle or a results page that is a link', () => withTemp(dir => {
   const repo = fixture(dir);
