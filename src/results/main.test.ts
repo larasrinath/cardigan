@@ -1376,31 +1376,44 @@ describe("What a click, a key and typing do on the results page", () => {
     expect([drawerShown(), page.id("drawer").hidden, page.id("drawerTitle").textContent]).toEqual([true, false, "Card 2 — Margin"]);
   });
 
-  it("opens and closes the navigation of a narrow window with its button, with Escape and with a click beside it", async () => {
+  it("takes the focus into the navigation of a narrow window when its button opens it, and keeps the page behind out of reach until it closes", async () => {
     await openWith(APP);
     const navigation = () => [page.id("sidenav").classList.contains("open"), page.id("navToggle").getAttribute("aria-expanded"), page.id("scrim").hidden];
-    expect(navigation()).toEqual([false, "false", true]);
+    /** What the open navigation lies over: the link that skips to the results, the header, the banner area and the view. */
+    const behind = () => [page.find(".skip"), page.find(".hd"), page.id("banners"), page.id("main")].map(part => part.inert);
+    const open = [true, true, true, true];
+    const closed = [false, false, false, false];
+    expect([navigation(), behind()]).toEqual([[false, "false", true], closed]);
+    goTo(2);
     page.id("navToggle").press();
-    expect(navigation()).toEqual([true, "true", false]);
-    // Escape closes it and gives the focus back to its button.
-    page.id("navList").children[1].focus();
+    // Open: the focus is on the entry of the view shown. Nothing behind the navigation takes the focus, its own button
+    // neither, which it covers; every entry does.
+    expect([navigation(), behind(), page.document.activeElement === page.find('#navList [data-nav="2"]')]).toEqual([[true, "true", false], open, true]);
+    expect([page.id("navToggle"), page.id("runAgain"), page.id("tblSearch"), page.find(".skip")].map(control => control.focusable)).toEqual([false, false, false, false]);
+    expect(page.all("#navList .nav-item").map(item => item.focusable)).toEqual([true, true, true, true, true]);
+    // Escape closes it: the page takes part again, and the focus is back on the button.
     page.key("Escape");
-    expect([navigation(), page.document.activeElement === page.id("navToggle")]).toEqual([[false, "false", true], true]);
-    // The button closes it again; the scrim goes once it has faded.
-    page.id("navToggle").press();
-    page.id("navToggle").press();
-    expect(navigation().slice(0, 2)).toEqual([false, "false"]);
-    vi.advanceTimersByTime(210);
-    expect(page.id("scrim").hidden).toBe(true);
-    // A click beside it, on the scrim, closes it; so does choosing a table, which is then shown.
+    expect([navigation(), behind(), page.document.activeElement === page.id("navToggle")]).toEqual([[false, "false", true], closed, true]);
+    // A click beside it, on the scrim, does the same; the scrim goes once it has faded.
     page.id("navToggle").press();
     page.id("scrim").press();
+    expect([navigation().slice(0, 2), behind(), page.document.activeElement === page.id("navToggle")]).toEqual([[false, "false"], closed, true]);
     vi.advanceTimersByTime(210);
-    expect(navigation()).toEqual([false, "false", true]);
+    expect(page.id("scrim").hidden).toBe(true);
+    // Choosing an entry closes it and shows that table, whose view takes the focus.
     page.id("navToggle").press();
     goTo(3);
     vi.advanceTimersByTime(210);
-    expect([navigation(), shows()[0]]).toEqual([[false, "false", true], "Grid Sections"]);
+    expect([navigation(), behind(), shows()[0], page.document.activeElement === page.id("view")]).toEqual([[false, "false", true], closed, "Grid Sections", true]);
+    // A new result that takes the page while the navigation is open closes it: the overview it shows is within reach.
+    page.id("runAgain").press();
+    page.id("navToggle").press();
+    expect([navigation().slice(0, 2), behind()]).toEqual([[true, "true"], open]);
+    sendResult(ports[0], APP);
+    expect([navigation().slice(0, 2), behind(), shows()[0]]).toEqual([[false, "false"], closed, "Overview"]);
+    // On the overview the focus goes to the overview's entry.
+    page.id("navToggle").press();
+    expect(page.document.activeElement).toBe(page.find('#navList [data-nav="overview"]'));
   });
 
   it("follows the system's colour theme until one is chosen, and keeps the choice", async () => {
