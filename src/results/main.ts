@@ -416,6 +416,12 @@ let drawerTimer: ReturnType<typeof setTimeout> | undefined;
 function settleScrim(): void {
   if (el("drawer").hidden && !el("sidenav").classList.contains("open")) el("scrim").hidden = true;
 }
+/** What lies behind the open drawer: the link that skips to the results, the header, the banner area and the shell. The
+ * drawer says it is modal, so while it is open these are inert: the Tab key stays in the drawer, and a screen reader does
+ * not read on into the page behind it. */
+function setBehindDrawer(inert: boolean): void {
+  for (const part of [find(".skip"), find(".hd"), el("banners"), find(".shell")]) if (part) part.inert = inert;
+}
 /** Shows the drawer. The title is a text and is set as one; the line under it and the body are markup.ts' markup. */
 function openDrawer(title: string, subHtml: string, bodyHtml: string, opener?: Element | null): void {
   clearTimeout(drawerTimer);
@@ -427,6 +433,7 @@ function openDrawer(title: string, subHtml: string, bodyHtml: string, opener?: E
   const scrim = el("scrim");
   drawer.hidden = false;
   scrim.hidden = false;
+  setBehindDrawer(true);
   requestAnimationFrame(() => {
     drawer.classList.add("show");
     scrim.classList.add("show");
@@ -446,6 +453,8 @@ function closeDrawer(): void {
     drawer.hidden = true;
     settleScrim();
   }, 210);
+  // The page behind takes part again before the focus goes back into it.
+  setBehindDrawer(false);
   if (state.lastFocus instanceof HTMLElement && document.contains(state.lastFocus)) state.lastFocus.focus();
   state.lastFocus = null;
 }
