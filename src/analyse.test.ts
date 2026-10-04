@@ -28,6 +28,8 @@ class ScriptedSocket {
   static readonly OPEN = 1;
   static sockets: ScriptedSocket[] = [];
   static reply: (socket: ScriptedSocket, frame: StompFrame) => void = () => undefined;
+  /** When a socket that was closed says so: in a later turn, as a browser's does. A test can hold the event back. */
+  static closing: (fire: () => void) => void = fire => { setTimeout(fire, 0); };
   readyState = 0;
   binaryType = "blob";
   readonly frames: StompFrame[] = [];
@@ -47,7 +49,7 @@ class ScriptedSocket {
   close(code = 1000, reason = "") {
     if (this.readyState === 3) return;
     this.readyState = 3;
-    setTimeout(() => this.emit("close", { code, reason }), 0);
+    ScriptedSocket.closing(() => this.emit("close", { code, reason }));
   }
   emit(type: string, event: { data?: unknown; code?: number; reason?: string }) { for (const listener of this.listeners.get(type) ?? []) listener(event); }
   serve(frame: string) { if (this.readyState === 1) this.emit("message", { data: frame }); }
@@ -97,6 +99,7 @@ const destinations = () => sent("SEND").map(frame => frame.headers.destination);
 describe("Page analyzer name loading against the live socket behaviour", () => {
   beforeEach(() => {
     ScriptedSocket.sockets = [];
+    ScriptedSocket.closing = fire => { setTimeout(fire, 0); };
     vi.stubGlobal("WebSocket", ScriptedSocket);
     vi.stubGlobal("location", { host: FIRST, origin: `https://${FIRST}` });
     vi.stubGlobal("document", { cookie: "other=1; XSRF-TOKEN=xsrf-value" });
@@ -852,6 +855,9 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date(Date.UTC(2026, 8, 28, 12, 30, 10)));
     serveGoldenApp();
+    // The socket to the app's one model says that it has closed only when the test lets it, which is after the result.
+    let closes = (): void => undefined;
+    ScriptedSocket.closing = fire => { closes = fire; };
     // The content script's end of the port, around the analysis; every line the analysis logs is also kept here.
     const logged: string[] = [];
     let connect: (port: chrome.runtime.Port) => void = () => undefined;
@@ -862,8 +868,10 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     connect(page as unknown as chrome.runtime.Port);
     page.say({ type: "run" });
     await vi.waitFor(() => expect(page.types()).toContain("done"));
-    // The socket's close event fires after the result has gone out; the analysis logs it then, to nobody.
-    await vi.waitFor(() => expect(logged.at(-1)).toBe("socket closed code=1000"));
+    // The close event fires after the result has gone out; the socket client logs it then, and it is sent to nobody.
+    expect(logged).not.toContain("socket closed code=1000");
+    closes();
+    expect(logged.at(-1)).toBe("socket closed code=1000");
     expect(page.types().slice(-3)).toEqual(["rows", "rows", "done"]);
     expect(page.received.map(message => (message.type === "log" ? message.text : ""))).not.toContain("12:30:10 socket closed code=1000");
     // What arrived is the whole result: the same zip, and its Diagnostics rows are the log up to the report.
