@@ -2857,4 +2857,50 @@ describe("A result kept while the results page is refreshed", () => {
     await open(refreshed);
     await back("Demo app, read again");
   });
+
+  /** Holds the page's compression of a result until the test lets it go: the stream the keeper compresses with takes the
+   * result's bytes and passes none of them on before that. `asked` counts the results handed over to be compressed. */
+  const holdCompression = () => {
+    const Compression = CompressionStream;
+    const held = { asked: 0, release: (): void => undefined };
+    const released = new Promise<void>(resolve => { held.release = resolve; });
+    vi.stubGlobal("CompressionStream", class {
+      readonly readable: ReadableStream<Uint8Array>;
+      readonly writable: WritableStream<Uint8Array>;
+      constructor(format: CompressionFormat) {
+        held.asked++;
+        const gate = new TransformStream<Uint8Array, Uint8Array>({ transform: async (bytes, controller) => {
+          await released;
+          controller.enqueue(bytes);
+        } });
+        this.writable = gate.writable;
+        this.readable = gate.readable.pipeThrough(new Compression(format));
+      }
+    });
+    return held;
+  };
+
+  it("offers Forget this result under the banner of a run that is going, when the keeping of the result on the page ends meanwhile", async () => {
+    const compression = holdCompression();
+    await openWith(APP);
+    // The page begins to keep the result. Its compression does not end yet: nothing is written, and nothing is offered.
+    vi.advanceTimersByTime(0);
+    await pass(30);
+    expect([compression.asked, session.writes, keptPlace()]).toEqual([1, 0, []]);
+    // Meanwhile Run again is chosen, and that run goes on: its progress stands above the first result, which stays on the page.
+    page.id("runAgain").press();
+    ports[0].send({ type: "status", text: "Reading the app…" });
+    await pass(30);
+    expect([banner(), page.document.title, keptPlace(), session.writes])
+      .toEqual([["note", "Analysing", "Reading the app…", "Keep the Anaplan tab open until this finishes."], "Cardigan — Demo app", [], 0]);
+    // Now the compression ends, and the result is kept. It is still the result on the page, so the overview offers to
+    // forget its copy, under the banner of the run that is going: a run on its way takes nothing from the result under it.
+    compression.release();
+    const control = await offered();
+    expect([keptPlace(), kept(), banner().slice(0, 2), page.id("runAgain").disabled, control.localName, control.focusable, page.document.title])
+      .toEqual([KEPT, true, ["note", "Analysing"], true, "button", true, "Cardigan — Demo app"]);
+    // That run is cut off: the first result stays on the page, and the control for its copy with it.
+    ports[0].drop();
+    expect([banner().slice(0, 2), keptPlace(), kept(), page.document.title]).toEqual([["warn", "The analysis stopped"], KEPT, true, "Cardigan — Demo app"]);
+  });
 });
