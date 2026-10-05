@@ -1,13 +1,13 @@
 # Changelog
 
-## 0.7.2 (4 October 2026)
+## 0.7.2 (5 October 2026)
 
 A wider search for the line items of filter rules, and corrections to **Forget this result**.
 
 - **A filter rule's line item is looked for in the whole model.** A filter rule can use a line item of a module that no card of the app shows. Cardigan looked for it in the first 60 modules that have a dimension of the filtered axis, and a rule whose line item was not among them kept its IDs: the line item, its module, the value and the context all stayed numbers. The search now goes on through the model's other modules, the likeliest first, until every such rule has its line item, for at most 45 seconds per model. A rule whose line item is found is named like any other rule.
 - **What is read for it.** The read is the one used before, a module's line items, made for more modules, a few at a time. A module that has not answered after ten seconds no longer holds up the others, and its answer still counts if it comes within the 45 seconds. No new kind of read is made.
 - **When the 45 seconds run out.** A note says that some filter line items were not found and how many modules were not read, or that the model had not said which modules have the filtered dimension. Such a rule keeps its IDs.
-- **In `App Details.csv`.** The search's reads do not write their frames to the diagnostic log. The search writes a few lines that begin "filter line items": how many modules were read, how long it took, what was found and what was not. `Filters.csv` and `Where Used.csv` change only where a rule that kept its IDs is now named.
+- **In `App Details.csv`.** The search's reads do not write their frames to the diagnostic log. The search writes a few lines that begin "filter line items": how many modules were read, how long it took, what was found and what was not, and how many reads were given up while waiting. `Filters.csv` and `Where Used.csv` change only where a rule that kept its IDs is now named.
 - **Fix: nothing more is asked once the work has ended.** Once the model has reported that it is closed or gone, or the run was stopped, no step sends another read. Before, the step that followed could still send one.
 - **Fix: a redirect during the search.** The modules being read when the model's data moved to another host were taken for unreadable and left out of the search. They are now read again on the new host.
 - **Forget this result says what happened.** When the browser refuses to remove the kept copy, the page says "The copy kept for refreshes could not be removed." and keeps the control; before, it said that the copy was removed. The sentence that the copy is removed is no longer read twice by a screen reader, and the Overview no longer moves when the control arrives.
