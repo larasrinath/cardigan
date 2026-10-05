@@ -462,15 +462,14 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     const closed = "the model is closed";
     const ended = `Synthetic model: names from the model data service were not available (${closed}); IDs are shown instead.`;
     const viewLayout = (id: string) => metadata(id, { rows: [{ dimensionId: LIST, label: "Product" }], cols: [] });
-    // Module dimensions and the filtered dimension's modules log the stop as they log a refused read and go on, so the work
-    // ends at the next read that waits on the socket (there is none after the modules search); item names and saved views
-    // end it at once.
+    // Module dimensions log the stop as they log a refused read and go on, so the work ends at the next read that waits on
+    // the socket; item names, saved views and the filtered dimension's modules end it at once.
     for (const [waiting, notes, last, logged] of [
       [at("/dimensions"), [`Synthetic model: module dimensions were not available (${closed}); context selectors show only those saved on the page.`, ended],
         at(`/modules/${MODULE}/dimensions/${LIST}`), [`module dimensions: ${closed}`]],
       [at(`/modules/${MODULE}/dimensions/${LIST}`), [ended], at(`/modules/${MODULE}/dimensions/${LIST}`), []],
       [at(`/views/${VIEW}`), [ended], at(`/views/${VIEW}`), []],
-      [at("/applicableModules"), [], at("/applicableModules"), [`modules for dimension ${LIST}: ${closed}`]],
+      [at("/applicableModules"), [ended], at("/applicableModules"), []],
     ] as const) {
       ScriptedSocket.sockets = [];
       let status = "";
@@ -1073,16 +1072,58 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
       expect(searched(), note).toEqual(others.slice(0, 8));
       expect(log.filter(line => line.startsWith("filter ")), note).toEqual([]);
     }
+  });
 
-    // The model closes while it is asked which modules have the filtered dimension. That is logged as a refused read, as it
-    // always was. No module's line items are asked for after it, although the model's list has twelve that were not read:
-    // the search ends there as its next read would have ended, with the names reported as not available.
-    ScriptedSocket.sockets = [];
-    serveModel(answers(at("/applicableModules"), () => update(status, { status: "CLOSED" })));
-    const { log, result } = run(withGrid());
-    expect((await result).notes).toEqual([closed]);
-    expect([destinations().at(-1), searched()]).toEqual([at("/applicableModules"), []]);
-    expect(log.filter(line => /^(modules for|filter )/.test(line))).toEqual([`modules for dimension ${LIST}: the model is closed`]);
+  it("asks the model nothing more, in the search for filter line items, once it has reported itself closed", async () => {
+    const closed = "Synthetic model: names from the model data service were not available (the model is closed); IDs are shown instead.";
+    const [others, candidates] = [Array.from({ length: 12 }, (_, index) => other(index + 1)), [1, 2, 3, 4, 5, 6].map(candidate)];
+    const named = { data: candidates.map(module => ({ id: module, label: `Module ${module}` })) };
+    /** A grid whose rows have these dimensions and are filtered by a rule on a line item that no card shows. No item is
+     * shown or hidden and no saved view is used, so nothing is read between the grid's dimensions and the search. */
+    const rowsOf = (...dimensions: string[]) => {
+      const pages = ruled(rule([FILTER_ITEM], ["true"]));
+      (pages[0].cards[0] as Any).grid.regions[0].rows.dimensions = dimensions.map(id => ({ dimension: { kind: "dimension", id } }));
+      return pages;
+    };
+    let status = "";
+    /** The model: its list has twelve modules that were not read, and `answers` are its other answers. */
+    const serve = (answers: Record<string, (id: string, asked: Any) => string>) => {
+      ScriptedSocket.sockets = [];
+      serveModel({ [at("")]: id => { status = id; return update(id, { status: "UNKNOWN" }); }, [MODULE_VIEWS]: moduleList(others), ...answers });
+    };
+    const reportsClosed = () => update(status, { status: "CLOSED" });
+    /** What the search asked: every read after the names, the grid's line items and its dimensions. */
+    const asked = () => sent("SEND").slice(5).map(frame => `${frame.headers.destination.replace(at(""), "")} ${frame.body}`);
+    const question = (dimension: string) => `/applicableModules {"dimensions":[${dimension}]}`;
+    const [LIST_3, lines] = ["101000000903", (log: string[]) => log.filter(line => /^(module dimensions|modules for|filter |line items of)/.test(line))];
+
+    // Three filtered dimensions, and the model closes while it is asked which modules have the first. The two other
+    // questions are not asked, as they were before, and no module's line items are; the names are reported as not available.
+    serve({ [at("/applicableModules")]: reportsClosed });
+    const first = run(rowsOf(LIST, LIST_2, LIST_3));
+    expect((await first.result).notes).toEqual([closed]);
+    expect([asked(), lines(first.log)]).toEqual([[question(LIST)], []]);
+
+    // The first question names six modules, and the model closes while the second is asked: neither the third question
+    // nor any of the six modules is asked for.
+    serve({ [at("/applicableModules")]: (id, body) => (body.dimensions[0] === Number(LIST) ? update(id, named) : reportsClosed()) });
+    const second = run(rowsOf(LIST, LIST_2, LIST_3));
+    expect((await second.result).notes).toEqual([closed]);
+    expect([asked(), lines(second.log)]).toEqual([[question(LIST), question(LIST_2)], []]);
+
+    // The model answers the question and reports itself closed in the same breath: the read has its answer, so nothing
+    // that waits is ended by the report, and still none of the six modules is asked for.
+    serve({ [at("/applicableModules")]: id => update(id, named) + reportsClosed() });
+    const both = run(rowsOf(LIST));
+    expect((await both.result).notes).toEqual([closed]);
+    expect([asked(), lines(both.log)]).toEqual([[question(LIST)], []]);
+
+    // The model closed earlier, while the grid's module dimensions were read: that step logs it as a refused read and goes
+    // on. The search then asks nothing at all, and ends as its first read would have ended.
+    serve({ [at("/dimensions")]: reportsClosed });
+    const earlier = run(rowsOf(LIST, LIST_2));
+    expect((await earlier.result).notes).toEqual(["Synthetic model: module dimensions were not available (the model is closed); context selectors show only those saved on the page.", closed]);
+    expect([asked(), lines(earlier.log)]).toEqual([[], ["module dimensions: the model is closed"]]);
   });
 
   it("reads again, on the model's own host, the modules whose line items were being read when the first host redirected", async () => {
