@@ -1652,6 +1652,49 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     expect(within.log.filter(line => line.includes("had not said"))).toEqual([`filter line items: ${unsaid} when no module of its list was left to read: no answer could name another`]);
   });
 
+  it("does not wait for the read of another module when every ID still looked for is looked for in the named modules only: it is given up, and the search ends", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
+    // The cards show three modules whose line items bear out that a module's line items have an entity type of their own.
+    // The rule's ID has the entity type of the line items of the first of the list's three other modules, which does not
+    // list it; the other two never answer.
+    const [others, WANTED] = [[1, 2, 3].map(other), ITEM(2001, 77)];
+    const lineItemsOf = (lineItemId: string) => (id: string) => update(id, { data: [{ lineItemId, lineItemLabel: `Line item ${lineItemId}` }] });
+    const shown = [{ cards: ruled(rule([WANTED], ["true"]))[0].cards, references: [MODULE, MODULE_3, STAFFING].map(id => ({ kind: "module", id })) }] as unknown as UxPageCardDetails[];
+    const model = { [MODULE_VIEWS]: moduleList(others), [at(`/modules/${MODULE}/lineItems`)]: lineItemsOf(LINE_ITEM), [at(`/modules/${MODULE_3}/lineItems`)]: lineItemsOf(ITEM(1905, 1)),
+      [at(`/modules/${STAFFING}/lineItems`)]: lineItemsOf(ITEM(1909, 1)), [at(`/modules/${other(1)}/lineItems`)]: lineItemsOf(ITEM(2001, 0)), [at(`/modules/${other(3)}/lineItems`)]: () => "" };
+    const lines = (log: string[]) => log.filter(line => /^(filter line items:|line items of)/.test(line));
+
+    // The model names no module. The three are asked for; the first answers, and rules the ID out: it is looked for in the
+    // named modules only from then on, and there are none. The reads of the two others can add nothing: they are not
+    // waited for (they used to be, until the forty-five seconds were over), but given up like any read at the search's end.
+    serveModel({ ...model, [at(`/modules/${other(2)}/lineItems`)]: () => "" });
+    const ended = run(shown);
+    const seen: { notes?: string[] } = {};
+    void ended.result.then(done => { seen.notes = done.notes; });
+    await vi.advanceTimersByTimeAsync(100);
+    expect([seen.notes, searched(), everyReadEnded()]).toEqual([[], [MODULE_3, STAFFING, ...others], true]);
+    const logged = [
+      "filter line items: 1 looked for in 0 of 0 candidate modules that have the filtered dimensions and 1 of 3 other modules, in 0 s, 2 reads given up while waiting: 0 found, 1 not found",
+      "filter line items: the entity-type bracket chose 3 of the 3 modules asked for; in the modules read, module IDs and line item entity types rise together (4 modules with line items)",
+      `filter line items: of the 1 not found, 1 looked for in the candidate modules only: 1 ruled out, each by a module that was read, which has the line items of its entity type and does not list it (${WANTED} by module ${other(1)})`];
+    expect(lines(ended.log)).toEqual(logged);
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect([lines(ended.log), [...(await ended.result).catalog.unreadableModules]]).toEqual([logged, []]);
+
+    // The read of a module that the model names is waited for all the same: a ruled-out ID is still looked for in every
+    // named module. Here the model names the second module, which takes twenty seconds and has the line item after all.
+    ScriptedSocket.sockets = [];
+    serveModel({ ...model, [at("/applicableModules")]: id => update(id, { data: [{ id: other(2), label: "Module" }] }), [at(`/modules/${other(2)}/lineItems`)]: lineItemsOf(WANTED) });
+    slowly(destination => destination === at(`/modules/${other(2)}/lineItems`), 20_000);
+    const waited = run(shown);
+    const after: { done?: Awaited<typeof waited.result> } = {};
+    void waited.result.then(done => { after.done = done; });
+    await vi.advanceTimersByTimeAsync(19_900);
+    expect(after.done).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(200);
+    expect([after.done?.catalog.lineItems.get(WANTED), after.done?.notes]).toEqual([{ name: `Line item ${WANTED}`, moduleId: other(2) }, []]);
+  });
+
   it("adds no note when the search left nothing undone: every module was read, or every rule has its line item, although the time is over", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     const [candidates, others] = [[1, 2, 3, 4, 5, 6, 7, 8].map(candidate), [1, 2, 3, 4].map(other)];
