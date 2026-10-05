@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { RESULTS_PAGE } from "../protocol.js";
+import { parseMarkup } from "./dom.test-support.js";
+import { keptCopyHtml } from "./markup.js";
 import { readMarkup } from "./markup.test-support.js";
 import { PAGE_IDS } from "./page-ids.js";
 
@@ -40,6 +42,19 @@ describe("The results page's files", () => {
     expect(PAGE_IDS.filter(id => ids.filter(found => found === id).length !== 1)).toEqual([]);
     // And no ID twice, the script's or not.
     expect(ids.filter((id, index) => ids.indexOf(id) !== index)).toEqual([]);
+  });
+
+  it("shows nothing of the room the overview holds for a kept copy's line and button: the stylesheet hides what the markup marks as to come", () => {
+    // While a result is being kept the place holds the words of the line and of the button (markup.ts `keptCopyHtml`).
+    // They say that a copy is kept, which is not so yet: each part is marked, and the stylesheet must not show a marked one.
+    const room = parseMarkup(keptCopyHtml("keeping")).children;
+    expect(room.map(part => [part.classList.contains("to-come"), part.textContent])).toEqual([[true, "A copy of this result is kept for a refresh of this page."], [true, "Forget this result"]]);
+    /** The stylesheet's rules whose selector names a class or the like, each as its selector and what it declares. */
+    const rules = (name: string) => [...css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(([, selector, body]) => [selector.trim(), body.trim()]).filter(([selector]) => selector.includes(name));
+    // Unseen, and still taking its room, which `display:none` would not: that room is what it is there for.
+    expect(rules(".to-come")).toEqual([[".ov-kept .to-come", "visibility:hidden"]]);
+    // The place of a result that could not be kept holds nothing, and takes no room.
+    expect(rules(".ov-kept:empty")).toEqual([[".ov-kept:empty", "display:none"]]);
   });
 
   it("carries no demo left from the design: no sample name, no version, no preview control", () => {

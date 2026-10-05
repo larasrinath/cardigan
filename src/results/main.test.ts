@@ -4,10 +4,10 @@ import { CALENDAR_HEADERS, CALENDAR_PROPERTIES, calendarRows } from "../model/ca
 import { FRESH_MS, PORT_NAME, RESULTS_PAGE, type TabMessage } from "../protocol.js";
 import type { AnalysisResult, Cell } from "../result-types.js";
 import { resultZip, tableCsv } from "../result-zip.js";
-import { FakeElement, FakeInput, FakePage, FakeSelect } from "./dom.test-support.js";
+import { FakeElement, FakeInput, FakePage, FakeSelect, parseMarkup } from "./dom.test-support.js";
 import { analysedLine, NOT_KEPT_NOTE, TOO_LARGE_NOTE } from "./keep-notes.js";
 import { KEPT_PREFIX, ResultKeeper, type KeptStorage } from "./keep-result.js";
-import { FORGOTTEN_LINE } from "./markup.js";
+import { FORGOTTEN_LINE, keptCopyHtml, NOT_REMOVED_LINE } from "./markup.js";
 
 /** The page as it is packaged: the script runs on results.html itself, read by the stand-in page. */
 const SHELL = readFileSync(new URL(`../../${RESULTS_PAGE}`, import.meta.url), "utf8");
@@ -2597,10 +2597,14 @@ describe("A result kept while the results page is refreshed", () => {
   /* ---------- forgetting the kept result ---------- */
 
   /** The overview's place for what the tab keeps of the result, element by element: each one's ID, or what a click on it
-   * does, and its text. Nothing on a view that has no such place. */
-  const keptPlace = () => (page.has("#ovKept") ? page.id("ovKept").children.map(child => [child.id || child.dataset.act, child.textContent]) : undefined);
+   * does, or that it only holds the room for what is to come, and its text. Nothing on a view that has no such place. */
+  const keptPlace = () => (page.has("#ovKept")
+    ? page.id("ovKept").children.map(child => [child.id || child.dataset.act || (child.classList.contains("to-come") ? "to come" : ""), child.textContent]) : undefined);
   const KEPT = [["keptLine", "A copy of this result is kept for a refresh of this page."], ["forget", "Forget this result"]];
+  /** While a result is being kept: the room for the line and the control of a kept copy, which holds their words. */
+  const TO_COME = [["to come", "A copy of this result is kept for a refresh of this page."], ["to come", "Forget this result"]];
   const FORGOTTEN = [["keptLine", FORGOTTEN_LINE]];
+  const NOT_REMOVED = [["keptLine", NOT_REMOVED_LINE], ["forget", "Forget this result"]];
   /** The control that forgets the kept result, once the overview offers it. */
   const offered = async () => {
     await eventually(() => page.has('#ovKept [data-act="forget"]'), "the control that forgets the kept result");
@@ -2615,14 +2619,15 @@ describe("A result kept while the results page is refreshed", () => {
     ports[0].send({ type: "subject", subject: { kind: "app", id: APP.id } });
     expect([page.texts("#view h1"), page.has('[data-act="forget"]')]).toEqual([["Analysing"], false]);
     sendResult(ports[0], APP);
-    // The result is on the page, and nothing of it is kept yet: the overview has the place, which holds nothing.
-    expect([page.texts("#view h1"), keptPlace(), page.id("ovKept").textContent, session.held.size]).toEqual([["Overview"], [], "", 0]);
+    // The result is on the page, and nothing of it is kept yet: the overview's place holds the room for what it will say
+    // of a kept copy, and no control.
+    expect([page.texts("#view h1"), keptPlace(), page.has('[data-act="forget"]'), page.all("#ovKept button").length, session.held.size]).toEqual([["Overview"], TO_COME, false, 0, 0]);
     // Meanwhile Diagnostics is opened, from the keyboard.
     const summary = page.find("#ovLog summary");
     summary.focus();
     page.document.activeElement.press();
     await pass(30);
-    expect([keptPlace(), session.held.size, page.find("#ovLog").hasAttribute("open")]).toEqual([[], 0, true]);
+    expect([keptPlace(), session.held.size, page.find("#ovLog").hasAttribute("open")]).toEqual([TO_COME, 0, true]);
 
     await letKeep();
     const control = await offered();
@@ -2710,8 +2715,10 @@ describe("A result kept while the results page is refreshed", () => {
     expect([kept(), session.held.size]).toEqual([false, 0]);
     expect([keptPlace(), page.has('[data-act="forget"]'), control.isConnected]).toEqual([FORGOTTEN, false, false]);
     expect([page.document.activeElement === page.id("keptLine"), page.document.activeElement === page.document.body, page.id("view").contains(page.document.activeElement)]).toEqual([true, false, true]);
-    // The page says the line through its live region. It says nothing else: no banner, no other message.
-    expect([page.id("live").textContent, FORGOTTEN_LINE]).toEqual([FORGOTTEN_LINE, "The copy kept for refreshes is removed. This result stays here until you refresh or close this page."]);
+    // The line is said once: it has the focus, where a screen reader reads it, and the page does not say it through its
+    // live region as well, which says nothing now. The sentence stands on the page once. Nothing else is said: no banner.
+    expect([page.id("keptLine").textContent, page.id("live").textContent, page.find("body").textContent.split(FORGOTTEN_LINE).length - 1])
+      .toEqual(["The copy kept for refreshes is removed. This result stays here until you refresh or close this page.", "", 1]);
     // The result is on the page as it was, every part of it.
     expect(shown()).toEqual(was);
 
@@ -2758,7 +2765,7 @@ describe("A result kept while the results page is refreshed", () => {
     expect([line, keptPlace()]).toEqual([analysedLine(NOW, NOW), KEPT]);
     page.find('#ovKept [data-act="forget"]').press();
     // The line above the result still says when it was analysed, here and in every view: that is as true as before.
-    expect([keptPlace(), kept(), note(), page.id("live").textContent, page.document.activeElement === page.id("keptLine")]).toEqual([FORGOTTEN, false, [line, "note", false], FORGOTTEN_LINE, true]);
+    expect([keptPlace(), kept(), note(), page.id("live").textContent, page.document.activeElement === page.id("keptLine")]).toEqual([FORGOTTEN, false, [line, "note", false], "", true]);
     goTo(2);
     toOverview();
     expect([note()[0], keptPlace(), page.document.title]).toEqual([line, FORGOTTEN, "Cardigan — Demo app"]);
@@ -2768,6 +2775,55 @@ describe("A result kept while the results page is refreshed", () => {
     expect([page.texts("#view h1"), page.has("#noteBanner"), page.document.title, session.held.size]).toEqual([["Connecting"], false, "Cardigan", 0]);
     ports[3].send({ type: "subject", subject: { kind: "app", id: APP.id } });
     expect([page.id("runTitle").textContent, runControl()[0], ports[3].posted]).toEqual(["Ready to analyse", "Run", []]);
+  });
+
+  it("says that the kept copy could not be removed when the tab's storage does not let it go, and keeps the control: nothing says it is removed, and a refresh brings the result back", async () => {
+    await openWith(APP);
+    await letKeep();
+    const control = await offered();
+    const keys = [...session.held.keys()].sort();
+    expect(keys).toEqual([`${KEPT_PREFIX}0`, `${KEPT_PREFIX}head`]);
+    // From now on the tab's storage refuses every removal.
+    const { removeItem } = session.storage;
+    session.storage.removeItem = () => { throw new Error("The storage refused to remove a key."); };
+    control.focus();
+    page.document.activeElement.press();
+    // Nothing is removed: both of the keeper's keys are there.
+    expect([...session.held.keys()].sort()).toEqual(keys);
+    // The page says so in one sentence, in the line beside the control and through its live region. Nowhere does it say
+    // that the copy is removed, and it says nothing else: no banner.
+    expect([keptPlace(), page.id("live").textContent, NOT_REMOVED_LINE]).toEqual([NOT_REMOVED, NOT_REMOVED_LINE, "The copy kept for refreshes could not be removed."]);
+    expect([page.find("body").textContent.includes("is removed"), FORGOTTEN_LINE.includes("is removed"), page.id("banners").children]).toEqual([false, true, []]);
+    // The control is the one that was pressed, where it was, and the focus is on it still, for another try. The line is
+    // no longer its description: the live region has said it.
+    expect([page.find('#ovKept [data-act="forget"]') === control, page.document.activeElement === control, control.focusable, control.hasAttribute("aria-describedby")])
+      .toEqual([true, true, true, false]);
+    // The place holds what the overview writes for a copy that was not removed, to the character, and the overview writes
+    // that when it is shown again. The result is on the page, with its downloads.
+    expect(page.id("ovKept").innerHTML).toBe(parseMarkup(keptCopyHtml("not-removed")).innerHTML);
+    goTo(2);
+    toOverview();
+    expect([keptPlace(), page.document.title, disabled("runAgain", "dlAll", "dlCsv")]).toEqual([NOT_REMOVED, "Cardigan — Demo app", [false, false, false]]);
+
+    // A refresh brings the result back, and nothing said it would not. The line then says that a copy is kept, which is true.
+    await open(refreshed);
+    await back("Demo app");
+    expect([keptPlace(), kept(), note()[0]]).toEqual([KEPT, true, analysedLine(NOW, NOW)]);
+    // Refused again, the page says so again.
+    page.find('#ovKept [data-act="forget"]').press();
+    expect([keptPlace(), kept(), page.id("live").textContent]).toEqual([NOT_REMOVED, true, NOT_REMOVED_LINE]);
+
+    // Now the storage lets go, and the person tries again: the copy is removed, and only now does the page say that.
+    session.storage.removeItem = removeItem;
+    page.find('#ovKept [data-act="forget"]').press();
+    expect([keptPlace(), kept(), session.held.size, page.has('[data-act="forget"]'), page.document.activeElement === page.id("keptLine")]).toEqual([FORGOTTEN, false, 0, false, true]);
+    // The live region no longer says that the copy could not be removed: nothing on the page does.
+    expect([page.id("live").textContent, page.find("body").textContent.includes("could not be removed")]).toEqual(["", false]);
+    // A refresh finds nothing kept.
+    await open(refreshed);
+    await eventually(() => page.has("#runTitle"), "the waiting view");
+    await pass(30);
+    expect([page.texts("#view h1"), page.document.title, session.held.size]).toEqual([["Connecting"], "Cardigan", 0]);
   });
 
   it("keeps the next result as ever after a forgetting, and offers to forget that one: Run again brings the control back", async () => {
@@ -2780,8 +2836,8 @@ describe("A result kept while the results page is refreshed", () => {
     expect([banner().slice(0, 2), keptPlace(), session.held.size]).toEqual([["note", "Analysing"], FORGOTTEN, 0]);
     const next: AnalysisResult = { ...APP, name: "Demo app, read again", zipName: "Again.zip" };
     sendResult(ports[0], next);
-    // The new result is on the page and is not kept yet: the place holds neither the line nor the control.
-    expect([page.document.title, keptPlace(), session.held.size]).toEqual(["Cardigan — Demo app, read again", [], 0]);
+    // The new result is on the page and is not kept yet: the place holds neither the line nor the control, only their room.
+    expect([page.document.title, keptPlace(), session.held.size]).toEqual(["Cardigan — Demo app, read again", TO_COME, 0]);
     await letKeep();
     await offered();
     expect([keptPlace(), kept()]).toEqual([KEPT, true]);
@@ -2792,7 +2848,7 @@ describe("A result kept while the results page is refreshed", () => {
     expect([banner().slice(0, 2), keptPlace(), session.held.size, page.document.title]).toEqual([["note", "Analysing"], FORGOTTEN, 0, "Cardigan — Demo app, read again"]);
     const third: AnalysisResult = { ...APP, name: "Demo app, a third time" };
     sendResult(ports[0], third);
-    expect(keptPlace()).toEqual([]);
+    expect(keptPlace()).toEqual(TO_COME);
     await letKeep();
     await offered();
     // It is that result a refresh brings back, with the control.
@@ -2843,12 +2899,12 @@ describe("A result kept while the results page is refreshed", () => {
     // Before that ends, Run again brings a second result, whole, which takes the first one's place on the page.
     page.id("runAgain").press();
     sendResult(ports[0], { ...APP, name: "Demo app, read again" });
-    expect([page.document.title, keptPlace()]).toEqual(["Cardigan — Demo app, read again", []]);
+    expect([page.document.title, keptPlace()]).toEqual(["Cardigan — Demo app, read again", TO_COME]);
     // Now the first result's keeping ends, and it is kept. The result on the page is the second, of which nothing is kept
     // yet: the page offers nothing.
     await eventually(kept, "the first result's keeping to end");
     await pass(30);
-    expect([page.document.title, keptPlace(), page.has('[data-act="forget"]')]).toEqual(["Cardigan — Demo app, read again", [], false]);
+    expect([page.document.title, keptPlace(), page.has('[data-act="forget"]')]).toEqual(["Cardigan — Demo app, read again", TO_COME, false]);
     // The second result is kept in its own turn, in the first one's place. Then the control is there, and it is that
     // result a refresh brings back.
     vi.advanceTimersByTime(0);
@@ -2856,5 +2912,135 @@ describe("A result kept while the results page is refreshed", () => {
     expect([keptPlace(), kept()]).toEqual([KEPT, true]);
     await open(refreshed);
     await back("Demo app, read again");
+  });
+
+  /** Holds the page's compression of a result until the test lets it go: the stream the keeper compresses with takes the
+   * result's bytes and passes none of them on before that. `asked` counts the results handed over to be compressed.
+   * `only` holds that many of them, from the first, and lets the later ones through as they come. */
+  const holdCompression = (only = Infinity) => {
+    const Compression = CompressionStream;
+    const held = { asked: 0, release: (): void => undefined };
+    const released = new Promise<void>(resolve => { held.release = resolve; });
+    vi.stubGlobal("CompressionStream", class {
+      readonly readable: ReadableStream<Uint8Array>;
+      readonly writable: WritableStream<Uint8Array<ArrayBuffer>>;
+      constructor(format: CompressionFormat) {
+        const waits = ++held.asked <= only;
+        const gate = new TransformStream<Uint8Array<ArrayBuffer>, Uint8Array<ArrayBuffer>>({ transform: async (bytes, controller) => {
+          if (waits) await released;
+          controller.enqueue(bytes);
+        } });
+        this.writable = gate.writable;
+        this.readable = gate.readable.pipeThrough(new Compression(format));
+      }
+    });
+    return held;
+  };
+
+  it("offers Forget this result under the banner of a run that is going, when the keeping of the result on the page ends meanwhile", async () => {
+    const compression = holdCompression();
+    await openWith(APP);
+    // The page begins to keep the result. Its compression does not end yet: nothing is written, and nothing is offered.
+    vi.advanceTimersByTime(0);
+    await pass(30);
+    expect([compression.asked, session.writes, keptPlace()]).toEqual([1, 0, TO_COME]);
+    // Meanwhile Run again is chosen, and that run goes on: its progress stands above the first result, which stays on the page.
+    page.id("runAgain").press();
+    ports[0].send({ type: "status", text: "Reading the app…" });
+    await pass(30);
+    expect([banner(), page.document.title, keptPlace(), session.writes])
+      .toEqual([["note", "Analysing", "Reading the app…", "Keep the Anaplan tab open until this finishes."], "Cardigan — Demo app", TO_COME, 0]);
+    // Now the compression ends, and the result is kept. It is still the result on the page, so the overview offers to
+    // forget its copy, under the banner of the run that is going: a run on its way takes nothing from the result under it.
+    compression.release();
+    const control = await offered();
+    expect([keptPlace(), kept(), banner().slice(0, 2), page.id("runAgain").disabled, control.localName, control.focusable, page.document.title])
+      .toEqual([KEPT, true, ["note", "Analysing"], true, "button", true, "Cardigan — Demo app"]);
+    // That run is cut off: the first result stays on the page, and the control for its copy with it.
+    ports[0].drop();
+    expect([banner().slice(0, 2), keptPlace(), kept(), page.document.title]).toEqual([["warn", "The analysis stopped"], KEPT, true, "Cardigan — Demo app"]);
+  });
+
+  it("takes nothing from the place of the result on the page when an earlier result's keeping ends late and comes to nothing", async () => {
+    // Only the first result's compression is held.
+    const compression = holdCompression(1);
+    await openWith(APP);
+    vi.advanceTimersByTime(0);
+    await pass(30);
+    expect([compression.asked, session.writes]).toEqual([1, 0]);
+    // Run again brings a second result, which takes the page and is kept at once: the overview offers to forget its copy.
+    page.id("runAgain").press();
+    sendResult(ports[0], { ...APP, name: "Demo app, read again" });
+    await letKeep();
+    await offered();
+    expect([page.document.title, keptPlace(), compression.asked]).toEqual(["Cardigan — Demo app, read again", KEPT, 2]);
+    const holds = new Map(session.held);
+    // Only now does the first result's compression end. The second took its place meanwhile, so nothing of the first is
+    // kept. That is not about the result on the page: its control stays, what is kept stays, and the page says nothing.
+    compression.release();
+    await pass(50);
+    expect([keptPlace(), new Map(session.held), page.has("#noteBanner"), page.id("live").textContent]).toEqual([KEPT, holds, false, "Analysis finished: Demo app, read again"]);
+    // It is the second result a refresh brings back.
+    await open(refreshed);
+    await back("Demo app, read again");
+  });
+
+  it("holds the room for the line and the control of a kept copy from the moment a result is drawn, unseen and unsaid, and gives it back when the result cannot be kept", async () => {
+    const compression = holdCompression();
+    await openWith(APP);
+    /** What the place holds, part by part: its kind, its class, whether a screen reader is kept from it, whether it takes
+     * the focus, and whether it has an ID or says what a click on it does. */
+    const parts = () => page.id("ovKept").children.map(part => [part.localName, part.getAttribute("class"), part.getAttribute("aria-hidden"), part.focusable, part.id !== "" || part.hasAttribute("data-act")]);
+    // As the result is drawn, before the page has begun to keep it: the words of the line and of the control, each marked
+    // as to come, which the stylesheet does not show, and kept from a screen reader. The second has the control's look,
+    // and so its size. Neither is a control, or anything the page looks up: nothing here takes the focus or a click.
+    expect([keptPlace(), compression.asked]).toEqual([TO_COME, 0]);
+    expect(parts()).toEqual([["span", "to-come", "true", false, false], ["span", "btn sm to-come", "true", false, false]]);
+    expect([page.has('[data-act="forget"]'), page.has("#keptLine"), page.all("#ovKept button, #ovKept [tabindex]").length]).toEqual([false, false, 0]);
+    const held = page.id("ovKept").textContent;
+    // While it is being kept, the same, also when the overview is drawn again.
+    vi.advanceTimersByTime(0);
+    await pass(30);
+    goTo(2);
+    toOverview();
+    expect([compression.asked, session.writes, keptPlace()]).toEqual([1, 0, TO_COME]);
+    // Kept: the line and the control stand in the room that was held. They are the words it held, in their order, and the
+    // control has the look its room had, so nothing under the place has to move for them. Nothing is left that is to come.
+    compression.release();
+    const control = await offered();
+    expect([keptPlace(), page.id("ovKept").textContent === held, control.getAttribute("class"), page.all("#ovKept .to-come").length]).toEqual([KEPT, true, "btn sm", 0]);
+
+    // A result that cannot be kept has the room as it is drawn, and while the page tries to keep it.
+    session.refuses = "QuotaExceededError";
+    page.id("runAgain").press();
+    sendResult(ports[0], APP);
+    expect(keptPlace()).toEqual(TO_COME);
+    vi.advanceTimersByTime(0);
+    expect(keptPlace()).toEqual(TO_COME);
+    // Once the keeper says that it is not kept, no copy will come: the place holds nothing at all, neither an element
+    // nor a text, so that the stylesheet gives it no room. The note above the result says why.
+    await eventually(() => page.has("#noteBanner"), "the note");
+    expect([keptPlace(), page.id("ovKept").innerHTML, page.id("ovKept").childNodes.length, note()[0]]).toEqual([[], "", 0, TOO_LARGE_NOTE]);
+
+    // The same when the keeping comes to nothing while the next run is going. That run's banner stands where the note
+    // would, so the page says nothing of it; the room is given back all the same, and is not held for as long as the
+    // result stays on the page.
+    page.id("runAgain").press();
+    sendResult(ports[0], APP);
+    page.id("runAgain").press();
+    expect([keptPlace(), banner().slice(0, 2)]).toEqual([TO_COME, ["note", "Analysing"]]);
+    const writes = session.writes;
+    vi.advanceTimersByTime(0);
+    await eventually(() => session.writes > writes, "the keeping to come to nothing");
+    await pass(30);
+    expect([keptPlace(), page.has("#noteBanner"), banner().slice(0, 2)]).toEqual([[], false, ["note", "Analysing"]]);
+
+    // A result that a refresh brings back is kept already: it has the line and the control at once, and no room is held.
+    session.refuses = "";
+    sendResult(ports[0], APP);
+    await letKeep();
+    await open(refreshed);
+    await back("Demo app");
+    expect([keptPlace(), page.all("#ovKept .to-come").length]).toEqual([KEPT, 0]);
   });
 });
