@@ -29,6 +29,8 @@ const FILTER_LINE_ITEMS_BUDGET_MS = 45_000;
 const FILTER_LINE_ITEMS_READ_MS = 10_000;
 /** As many modules as that search reads at a time. */
 const FILTER_LINE_ITEMS_AT_A_TIME = 4;
+/** The step says how far that search is no more often than this: every status is also a line of the diagnostic log. */
+const FILTER_LINE_ITEMS_STATUS_MS = 5_000;
 /** A model that is not open loads on the first data request, which can take minutes. */
 const LOAD_MS = 300_000;
 const LINE_ITEMS_MS = 120_000;
@@ -206,12 +208,13 @@ interface SocketReads {
 
 /** A module whose line items cannot be read is remembered, so the search for filter line items does not ask again. A read
  * that ended with the connection says nothing about its module: after a redirect it is read on the host the model lives on.
- * `timeoutMs` is as long as the read waits for its answer. */
-async function readLineItems(reads: SocketReads, moduleId: string, timeoutMs = LINE_ITEMS_MS): Promise<void> {
+ * `timeoutMs` is as long as the read waits for its answer. A `quiet` read's frames are not written to the diagnostic log
+ * (the search makes hundreds of them, and sums them up in lines of its own); one that fails is logged either way. */
+async function readLineItems(reads: SocketReads, moduleId: string, timeoutMs = LINE_ITEMS_MS, quiet = false): Promise<void> {
   const { scope, connection, catalog, progress } = reads;
   const { workspaceId: ws, modelId: model } = scope;
   try {
-    addLineItems(catalog, moduleId, await connection.subscribe(`core://${ws}:${model}/modules/${moduleId}/lineItems`, { body: {}, timeoutMs }));
+    addLineItems(catalog, moduleId, await connection.subscribe(`core://${ws}:${model}/modules/${moduleId}/lineItems`, { body: {}, timeoutMs, quiet }));
   } catch (error) {
     if (!connection.failed) catalog.unreadableModules.add(moduleId);
     progress.log(`line items of module ${moduleId}: ${message(error)}`);
@@ -326,6 +329,7 @@ async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCar
   const others = [...catalog.modules.keys()].filter(id => unread(id) && !candidates.has(id));
   const pool = [...candidates, ...others];
   progress.status(`Finding filter line items in ${scope.modelName}…`);
+  let said = Date.now();
   const asked = new Set<string>();
   let bracketed = 0;
   const waiting = (modules: Iterable<string>) => [...modules].filter(id => !asked.has(id));
@@ -333,12 +337,15 @@ async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCar
   const next = () => filterLineItemSearch(unresolvedFilterItems(cards, catalog).rules, waiting(candidates), waiting(others), catalog, FILTER_LINE_ITEMS_AT_A_TIME);
   let step = next();
   for (let time = left(); step.modules.length && time > 0; step = next(), time = left()) {
-    if (asked.size) progress.status(`Finding filter line items in ${scope.modelName}: ${asked.size} of ${pool.length} modules…`);
+    if (Date.now() - said >= FILTER_LINE_ITEMS_STATUS_MS) {
+      said = Date.now();
+      progress.status(`Finding filter line items in ${scope.modelName}: ${asked.size} of ${pool.length} modules…`);
+    }
     const batch = step.modules;
     batch.forEach(id => asked.add(id));
     bracketed += step.bracketed;
     const wait = Math.min(FILTER_LINE_ITEMS_READ_MS, time);
-    await ask(() => Promise.all(batch.map(moduleId => readLineItems(reads, moduleId, wait))));
+    await ask(() => Promise.all(batch.map(moduleId => readLineItems(reads, moduleId, wait, true))));
   }
   // How far the search went, for the reader of a live run's log: a rule whose line item it did not find keeps its IDs.
   // Every ID that was looked for is found, or not found, or was the context of a rule that has its line item now.
