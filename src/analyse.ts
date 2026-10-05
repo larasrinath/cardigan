@@ -318,10 +318,11 @@ async function readViewLayouts(reads: SocketReads, refs: readonly UxEntityRef[])
  * left: once the reading has begun without it, it is not waited for when the model's list of modules arrived and every
  * module of that list was read or refused. (Without the list it is waited for as long as the time lasts; and so it is
  * once an answer of this search has named a module that the list does not hold, which shows that the list is not all a
- * question can name.) What is still waiting when the search ends is given up: its subscription is ended, it changes
- * nothing afterwards, it is not remembered as unreadable (it was not refused) and nothing is logged for it. A run that is
- * stopped, a model that reports itself closed and a connection that fails end the search at once, and nothing is asked
- * after them. A rule whose line item was not found keeps its IDs.
+ * question can name.) Nor is a read waited for that can add no line item: one of another module, when every ID that is
+ * still looked for is looked for in the candidates only. What is still waiting when the search ends is given up: its
+ * subscription is ended, it changes nothing afterwards, it is not remembered as unreadable (it was not refused) and
+ * nothing is logged for it. A run that is stopped, a model that reports itself closed and a connection that fails end the
+ * search at once, and nothing is asked after them. A rule whose line item was not found keeps its IDs.
  *
  * The diagnostic log is kept small: the reads of line items write no frame lines, and the step says how far the search is
  * no more often than FILTER_LINE_ITEMS_STATUS_MS. The search's own lines say how far it went, in IDs and counts only, and
@@ -410,9 +411,12 @@ async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCar
         waiting.set(moduleId, { since: now, named: candidates.has(moduleId), answered });
       }
       bracketed += step.bracketed;
-      // Or until nothing is left to start and nothing is waiting: no read, and no question whose answer can still name a
-      // module. Once the reading has begun without their answers, the questions are not waited for when none can.
-      if (!waiting.size && (!questions.size || (begun && whole()))) break;
+      // Or until nothing is left to start and nothing is waiting that can still help. A read can while an ID is looked
+      // for in every module, or when it is a candidate's: for IDs that are looked for in the candidates only, the read of
+      // another module is not waited for. A question can while its answer can still name a module: once the reading has
+      // begun without their answers, the questions are not waited for when none can.
+      const helping = step.everywhere.length ? waiting.size : [...waiting.keys()].filter(id => candidates.has(id)).length;
+      if (!helping && (!questions.size || (begun && whole()))) break;
       // What happens next: an answer; the end of the time; the moment the reading starts without the questions' answers;
       // or, while a module waits for a place, the moment a read has held its place long enough.
       const places = begun && step.toRead > step.modules.length
