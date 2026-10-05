@@ -27,7 +27,8 @@ const FILTER_LINE_ITEMS_BUDGET_MS = 45_000;
 /** As long as one read of that search holds its place among those that are moving: after that another may start, and the
  * read goes on waiting for its answer. A module that does not answer holds nothing up for longer. */
 const FILTER_LINE_ITEMS_READ_MS = 10_000;
-/** As many reads as that search keeps moving at a time. */
+/** As many places as that search has for the reads it keeps moving at a time. (After a late answer the modules it names
+ * have them to themselves, beside the reads of other modules that were asked for before it: twice as many at most.) */
 const FILTER_LINE_ITEMS_AT_A_TIME = 4;
 /** The step says how far that search is no more often than this: every status is also a line of the diagnostic log. */
 const FILTER_LINE_ITEMS_STATUS_MS = 5_000;
