@@ -839,12 +839,12 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     expect(destinations().filter(destination => destination.endsWith("/lineItems"))).toEqual([MODULE, candidate(1), other(1), other(2)].map(module => at(`/modules/${module}/lineItems`)));
   });
 
-  it("reads first the modules between the two whose line items bracket the ID looked for, when the modules read so far bear that order out", async () => {
+  it("reads the modules the model names first, and then, of its other modules, those between the two whose line items bracket the ID looked for, when the modules read so far bear that order out", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     // A model of forty-one modules whose IDs and line item IDs rise together: the line items of the list's nth other module
     // have the entity type 2000 + n. The cards show four of the modules, and a rule's line item is the first of another.
     const others = Array.from({ length: 40 }, (_, index) => other(index + 1));
-    const FAR = ITEM(2027, 0);
+    const FAR = ITEM(2025, 0);
     const shown = [{ cards: ruled(rule([FAR], ["true"]))[0].cards, references: [MODULE, other(1), other(20), other(40)].map(id => ({ kind: "module", id })) }] as unknown as UxPageCardDetails[];
     /** The model, with the line items of these modules given another entity type, or no line items at all. */
     const serve = (types: Record<string, number | undefined>, named: string[] = []) => {
@@ -858,28 +858,30 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     };
     const lines = (log: string[]) => log.filter(line => line.startsWith("filter line items:"));
 
-    // The line item's entity type lies between those of the twentieth and the fortieth module, which the cards show. Four of
-    // the nineteen modules between them are asked for, spread evenly. As each is answered, a read starts in its place: for
-    // the middle one of the modules its answer leaves between the two that bracket the type (the thirty-third is asked
-    // when only the twenty-fourth has answered), and for the first modules the model named once none is left between them.
-    // The twenty-seventh has the line item; the three reads that still wait then are given up.
+    // The line item's entity type lies between those of the twentieth and the fortieth module, which the cards show. The two
+    // modules the model names are asked for first, as they were before the other modules were searched at all, and in the
+    // two places they leave, two of the nineteen modules between the twentieth and the fortieth, spread evenly: the
+    // twenty-seventh and the thirty-third. As each read is answered, another starts in its place: for the middle one of the
+    // modules that are left between the two that bracket the type by then (the thirtieth and the thirty-first are asked
+    // before the twenty-seventh has answered and narrowed them), and for the list's next module once none is left between
+    // them. The twenty-fifth has the line item; the three reads that still wait then are given up.
     serve({}, [other(3), other(5)]);
     const { log, statuses, result } = run(shown);
     const { catalog, notes } = await result;
     expect(notes).toEqual([]);
-    expect(catalog.lineItems.get(FAR)).toEqual({ name: `Line item 0 of ${other(27)}`, moduleId: other(27) });
-    expect(searched()).toEqual([1, 20, 40, 24, 28, 32, 36, 33, 26, 27, 25, 3, 5].map(other));
+    expect(catalog.lineItems.get(FAR)).toEqual({ name: `Line item 0 of ${other(25)}`, moduleId: other(25) });
+    expect(searched()).toEqual([1, 20, 40, 3, 5, 27, 33, 30, 31, 24, 23, 25, 22, 26, 2].map(other));
     expect(statuses.at(-1)).toBe("Finding filter line items in Synthetic model…");
     expect(lines(log)).toEqual([
-      "filter line items: 1 looked for in 0 of 2 candidate modules that have the filtered dimensions and 7 of 35 other modules, in 0 s, 3 reads given up while waiting: "
+      "filter line items: 1 looked for in 2 of 2 candidate modules that have the filtered dimensions and 7 of 35 other modules, in 0 s, 3 reads given up while waiting: "
         + "1 found (0 in candidate modules), 0 not found",
-      "filter line items: the entity-type bracket chose 8 of the 10 modules asked for; in the modules read, module IDs and line item entity types rise together (11 modules with line items)"]);
+      "filter line items: the entity-type bracket chose 9 of the 12 modules asked for; in the modules read, module IDs and line item entity types rise together (13 modules with line items)"]);
 
     // The order holds for the modules the cards show, and not for the module that has the line item: the fifth, whose line
-    // items have the entity type that the twenty-seventh's would have. The bracket is read first and has nothing; then the
-    // list is gone through in its order, and the line item is found there, under the name its own module gives it. The wrong
-    // guess cost eight reads and no name.
-    serve({ [other(5)]: 2027, [other(27)]: undefined });
+    // items have the entity type that the twenty-fifth's would have. The model names no module here, so the bracket is read
+    // first and has nothing; then the list is gone through in its order, and the line item is found there, under the name
+    // its own module gives it. The wrong guess cost eight reads and no name.
+    serve({ [other(5)]: 2025, [other(25)]: undefined });
     const astray = run(shown);
     expect((await astray.result).catalog.lineItems.get(FAR)).toEqual({ name: `Line item 0 of ${other(5)}`, moduleId: other(5) });
     expect(searched()).toEqual([1, 20, 40, 24, 28, 32, 36, 33, 26, 27, 25, 2, 3, 4, 5, 6, 7, 8].map(other));
@@ -892,12 +894,38 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     // fortieth's. The IDs then order nothing: the list is gone through in its order, as far as the line item.
     serve({ [other(20)]: 2090 });
     const unordered = run(shown);
-    expect((await unordered.result).catalog.lineItems.get(FAR)).toEqual({ name: `Line item 0 of ${other(27)}`, moduleId: other(27) });
-    expect(searched()).toEqual([1, 20, 40, ...Array.from({ length: 29 }, (_, index) => index + 2).filter(n => n !== 20)].map(other));
+    expect((await unordered.result).catalog.lineItems.get(FAR)).toEqual({ name: `Line item 0 of ${other(25)}`, moduleId: other(25) });
+    expect(searched()).toEqual([1, 20, 40, ...Array.from({ length: 27 }, (_, index) => index + 2).filter(n => n !== 20)].map(other));
     expect(lines(unordered.log)).toEqual([
-      "filter line items: 1 looked for in 0 of 0 candidate modules that have the filtered dimensions and 25 of 37 other modules, in 0 s, 3 reads given up while waiting: "
+      "filter line items: 1 looked for in 0 of 0 candidate modules that have the filtered dimensions and 23 of 37 other modules, in 0 s, 3 reads given up while waiting: "
         + "1 found (0 in candidate modules), 0 not found",
-      "filter line items: the entity-type bracket chose 0 of the 28 modules asked for; in the modules read, module IDs and line item entity types do not rise together"]);
+      "filter line items: the entity-type bracket chose 0 of the 26 modules asked for; in the modules read, module IDs and line item entity types do not rise together"]);
+  });
+
+  it("reads the modules the model names before any that the entity types point to: a slow model names a rule in the second of them as fast as it did", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
+    // The cards show three modules whose IDs and line item entity types rise together, and the rule's ID has an entity type
+    // above theirs: by that order its module comes after them, where the model's forty other modules are, and the eight
+    // modules it names. Every read of the search takes eleven seconds.
+    const [others, named, WANTED] = [Array.from({ length: 40 }, (_, index) => other(index + 1)), [1, 2, 3, 4, 5, 6, 7, 8].map(candidate), ITEM(1950, 0)];
+    const lineItemsOf = (lineItemId: string) => (id: string) => update(id, { data: [{ lineItemId, lineItemLabel: `Line item ${lineItemId}` }] });
+    serveModel({ [MODULE_VIEWS]: moduleList(others), [at("/applicableModules")]: id => update(id, { data: named.map(module => ({ id: module, label: `Module ${module}` })) }),
+      [at(`/modules/${MODULE}/lineItems`)]: lineItemsOf(LINE_ITEM), [at(`/modules/${MODULE_3}/lineItems`)]: lineItemsOf(ITEM(1905, 1)), [at(`/modules/${STAFFING}/lineItems`)]: lineItemsOf(ITEM(1909, 1)),
+      [at(`/modules/${candidate(2)}/lineItems`)]: lineItemsOf(WANTED) });
+    slowly(destination => [...named, ...others].some(module => destination === at(`/modules/${module}/lineItems`)), 11_000);
+    const slow = run([{ cards: ruled(rule([WANTED], ["true"]))[0].cards, references: [MODULE, MODULE_3, STAFFING].map(id => ({ kind: "module", id })) }] as unknown as UxPageCardDetails[]);
+    // The first four reads are of the first four modules the model names, as they were before the other modules were
+    // searched at all. None is of a module that the entity types point to: those have the places the named modules leave.
+    await vi.advanceTimersByTimeAsync(9_900);
+    expect(searched()).toEqual([MODULE_3, STAFFING, ...named.slice(0, 4)]);
+    // The second has the line item, and the rule is named after eleven seconds. (The next four were asked for after ten.)
+    await vi.advanceTimersByTimeAsync(1_300);
+    const { catalog, notes } = await slow.result;
+    expect([catalog.lineItems.get(WANTED), notes, searched()]).toEqual([{ name: `Line item ${WANTED}`, moduleId: candidate(2) }, [], [MODULE_3, STAFFING, ...named]]);
+    expect(slow.log.filter(line => line.startsWith("filter line items:"))).toEqual([
+      "filter line items: 1 looked for in 2 of 8 candidate modules that have the filtered dimensions and 0 of 40 other modules, in 11 s, 6 reads given up while waiting: "
+        + "1 found (1 in candidate modules), 0 not found",
+      "filter line items: the entity-type bracket chose 0 of the 8 modules asked for; in the modules read, module IDs and line item entity types rise together (4 modules with line items)"]);
   });
 
   it("spares the model's other modules a rule that a module already read rules out, and still looks for its IDs in every module the model names", async () => {
