@@ -351,6 +351,8 @@ export interface FilterLineItemSearch {
   /** The modules to read next, as many as asked for at most: those the bracket chose, then the first of the others.
    * None when nothing is left to read for the IDs. */
   modules: string[];
+  /** How many modules are still to be read for the IDs, those given here among them. */
+  toRead: number;
   /** How many of them the bracket chose. */
   bracketed: number;
   /** For the diagnostic log: what the modules read so far say of the two things taken from the IDs. */
@@ -425,7 +427,8 @@ export function filterLineItemSearch(rules: readonly (readonly string[])[], cand
         : "in the modules read, module IDs and line item entity types do not rise together";
   // Every module not read yet while an ID is looked for everywhere; the candidates alone for the rules with an ID ruled out.
   const rest = everywhere.length ? unread : candidatesOnly.length ? candidates : [];
-  return { everywhere, candidatesOnly, ruledOut, modules: [...chosen, ...rest.filter(id => !chosen.includes(id))].slice(0, size), bracketed: chosen.length, evidence };
+  return { everywhere, candidatesOnly, ruledOut, modules: [...chosen, ...rest.filter(id => !chosen.includes(id))].slice(0, size), toRead: rest.length,
+    bracketed: chosen.length, evidence };
 }
 
 /** The item IDs of filter rules that no read has named yet. */
