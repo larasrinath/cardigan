@@ -121,6 +121,38 @@ describe("Page analyzer socket client", () => {
     connection.close();
   });
 
+  it("keeps a quiet subscription's three frames out of the log, and sends them like any other", async () => {
+    vi.stubGlobal("WebSocket", FakeSocket);
+    const lines: string[] = [];
+    const [connection, socket] = await connected(line => { lines.push(line); });
+    lines.length = 0;
+    const sent = () => socket.frames().slice(1).map(frame => `${frame.command} ${frame.headers.id}`);
+    const answer = (id: string) => socket.serve(`MESSAGE\nsubscription:${id}\nmessage-type:update\n\n{"data":[]}\0`);
+
+    // Two reads at once, one of them quiet. Both are subscribed to, asked for and unsubscribed from, with the same headers;
+    // only the other's frames are logged, as every subscription's were.
+    const quiet = connection.subscribe("core://ws:model/modules/102000000901/lineItems", { body: {}, quiet: true });
+    const other = connection.subscribe("core://ws:model/lists", { body: {} });
+    answer("json-1");
+    answer("json-2");
+    await expect(Promise.all([quiet, other])).resolves.toEqual([{ data: [] }, { data: [] }]);
+    expect(sent()).toEqual(["SUBSCRIBE json-1", "SEND json-1", "SUBSCRIBE json-2", "SEND json-2", "UNSUBSCRIBE json-1", "UNSUBSCRIBE json-2"]);
+    expect(socket.frames()[2].headers).toMatchObject({ destination: "core://ws:model/modules/102000000901/lineItems", "action-type": "update-subscription", "subscription-revision": "00000001" });
+    expect(lines.splice(0)).toEqual(["SUBSCRIBE core://ws:model/lists id=json-2", "SEND core://ws:model/lists id=json-2 action-type=update-subscription", "UNSUBSCRIBE id=json-2"]);
+
+    // A quiet read that the service refuses, or does not answer in its time, is unsubscribed from as quietly: its failure is
+    // its caller's to log, as any read's is.
+    const refused = connection.subscribe("core://ws:model/modules/102000000902/lineItems", { quiet: true });
+    socket.serve('MESSAGE\nsubscription:json-3\nmessage-type:error\n\n{"error":"LINE_ITEMS_UNAVAILABLE"}\0');
+    await expect(refused).rejects.toThrow("LINE_ITEMS_UNAVAILABLE");
+    await expect(connection.subscribe("core://ws:model/modules/102000000903/lineItems", { quiet: true, timeoutMs: 5 })).rejects.toMatchObject({ code: "TIMEOUT" });
+    expect([sent().slice(6), lines]).toEqual([["SUBSCRIBE json-3", "SEND json-3", "UNSUBSCRIBE json-3", "SUBSCRIBE json-4", "SEND json-4", "UNSUBSCRIBE json-4"], []]);
+
+    // Everything else is logged as before.
+    connection.close();
+    expect(lines).toEqual(["DISCONNECT", "socket closed code=1000"]);
+  });
+
   it("reports a refused connection with the server's error", async () => {
     vi.stubGlobal("WebSocket", FakeSocket);
     const opening = StompConnection.open("wss://host.example/ws", {}, log);
