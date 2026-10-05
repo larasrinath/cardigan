@@ -145,7 +145,8 @@ const detailRows = (rows: readonly (readonly [detail: string, value: string])[])
 export type KeptCopy = "none" | "kept" | "not-removed" | "forgotten";
 
 const KEPT_LINE = "A copy of this result is kept for a refresh of this page.";
-/** What the overview says once the kept copy is removed. The page says it through its live region as well. */
+/** What the overview says once the kept copy is removed. The line takes the focus, and a screen reader reads it there:
+ * the page does not say it through its live region as well. */
 export const FORGOTTEN_LINE = "The copy kept for refreshes is removed. This result stays here until you refresh or close this page.";
 /** What the overview says when the kept copy could not be removed: no more than that, for the copy may still be there.
  * The page says it through its live region as well. */

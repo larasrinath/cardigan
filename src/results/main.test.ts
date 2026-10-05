@@ -2711,8 +2711,10 @@ describe("A result kept while the results page is refreshed", () => {
     expect([kept(), session.held.size]).toEqual([false, 0]);
     expect([keptPlace(), page.has('[data-act="forget"]'), control.isConnected]).toEqual([FORGOTTEN, false, false]);
     expect([page.document.activeElement === page.id("keptLine"), page.document.activeElement === page.document.body, page.id("view").contains(page.document.activeElement)]).toEqual([true, false, true]);
-    // The page says the line through its live region. It says nothing else: no banner, no other message.
-    expect([page.id("live").textContent, FORGOTTEN_LINE]).toEqual([FORGOTTEN_LINE, "The copy kept for refreshes is removed. This result stays here until you refresh or close this page."]);
+    // The line is said once: it has the focus, where a screen reader reads it, and the page does not say it through its
+    // live region as well, which says nothing now. The sentence stands on the page once. Nothing else is said: no banner.
+    expect([page.id("keptLine").textContent, page.id("live").textContent, page.find("body").textContent.split(FORGOTTEN_LINE).length - 1])
+      .toEqual(["The copy kept for refreshes is removed. This result stays here until you refresh or close this page.", "", 1]);
     // The result is on the page as it was, every part of it.
     expect(shown()).toEqual(was);
 
@@ -2759,7 +2761,7 @@ describe("A result kept while the results page is refreshed", () => {
     expect([line, keptPlace()]).toEqual([analysedLine(NOW, NOW), KEPT]);
     page.find('#ovKept [data-act="forget"]').press();
     // The line above the result still says when it was analysed, here and in every view: that is as true as before.
-    expect([keptPlace(), kept(), note(), page.id("live").textContent, page.document.activeElement === page.id("keptLine")]).toEqual([FORGOTTEN, false, [line, "note", false], FORGOTTEN_LINE, true]);
+    expect([keptPlace(), kept(), note(), page.id("live").textContent, page.document.activeElement === page.id("keptLine")]).toEqual([FORGOTTEN, false, [line, "note", false], "", true]);
     goTo(2);
     toOverview();
     expect([note()[0], keptPlace(), page.document.title]).toEqual([line, FORGOTTEN, "Cardigan — Demo app"]);
@@ -2811,6 +2813,8 @@ describe("A result kept while the results page is refreshed", () => {
     session.storage.removeItem = removeItem;
     page.find('#ovKept [data-act="forget"]').press();
     expect([keptPlace(), kept(), session.held.size, page.has('[data-act="forget"]'), page.document.activeElement === page.id("keptLine")]).toEqual([FORGOTTEN, false, 0, false, true]);
+    // The live region no longer says that the copy could not be removed: nothing on the page does.
+    expect([page.id("live").textContent, page.find("body").textContent.includes("could not be removed")]).toEqual(["", false]);
     // A refresh finds nothing kept.
     await open(refreshed);
     await eventually(() => page.has("#runTitle"), "the waiting view");
