@@ -1551,15 +1551,16 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     expect([shown.seen.notes, searched()]).toEqual([[], []]);
 
     // When every rule has its line item, a question that went unanswered is nothing to speak of. Here the model answers
-    // for the first of two filtered dimensions, with the module that has the line item, and never for the second.
+    // for the first of two filtered dimensions, with the one other module of its list, which has the line item, and never
+    // for the second.
     ScriptedSocket.sockets = [];
-    serveModel({ [MODULE_VIEWS]: moduleList([]), [at("/applicableModules")]: (id, asked) => (asked.dimensions[0] === Number(LIST) ? update(id, { data: [{ id: candidate(1), label: "Module" }] }) : ""),
-      [at(`/modules/${candidate(1)}/lineItems`)]: id => update(id, { data: [{ lineItemId: FILTER_ITEM, lineItemLabel: "Include?" }] }) });
+    serveModel({ [MODULE_VIEWS]: moduleList([other(1)]), [at("/applicableModules")]: (id, asked) => (asked.dimensions[0] === Number(LIST) ? update(id, { data: [{ id: other(1), label: "Module" }] }) : ""),
+      [at(`/modules/${other(1)}/lineItems`)]: id => update(id, { data: [{ lineItemId: FILTER_ITEM, lineItemLabel: "Include?" }] }) });
     const two = ruled(rule([FILTER_ITEM], ["true"]));
     (two[0].cards[0] as Any).grid.regions[0].rows.dimensions = [LIST, LIST_2].map(id => ({ dimension: { kind: "dimension", id } }));
     const found = run(two);
     await vi.advanceTimersByTimeAsync(10_200);
-    expect((await found.result).catalog.lineItems.get(FILTER_ITEM)).toEqual({ name: "Include?", moduleId: candidate(1) });
+    expect((await found.result).catalog.lineItems.get(FILTER_ITEM)).toEqual({ name: "Include?", moduleId: other(1) });
     expect(lines(found.log)).toEqual([
       "filter line items: 1 looked for in 1 of 1 candidate modules that have the filtered dimensions and 0 of 0 other modules, in 10 s, 0 reads given up while waiting: "
         + "1 found (1 in candidate modules), 0 not found", few(1)]);
