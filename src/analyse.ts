@@ -304,7 +304,9 @@ async function readViewLayouts(reads: SocketReads, refs: readonly UxEntityRef[])
  * than none (a busy model answers late), so no answer is thrown away for being late. The questions which modules have a
  * filtered dimension are asked together and waited for in the same way: the reading starts once they are answered, or
  * after FILTER_LINE_ITEMS_READ_MS with the candidates known by then, and a later answer puts its modules before the other
- * modules still to be read.
+ * modules still to be read. Nor do they wait for a place held by a read that was asked for as another module's: the
+ * candidates have the four places to themselves, so that each is asked for as soon as it was when the questions were
+ * waited for, one after another, and the candidates read four at a time.
  *
  * The whole search has FILTER_LINE_ITEMS_BUDGET_MS in one model, from its first question (after a redirect it starts over,
  * on the host the model lives on). It ends when every rule has its line item, when nothing is left to start and nothing
@@ -342,8 +344,9 @@ async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCar
   const givingUp = new AbortController();
   /** The questions that the model has not answered yet. */
   const questions = new Set<Promise<void>>();
-  /** The modules whose line items were asked for and are not answered yet, each with when it was asked. */
-  const waiting = new Map<string, { since: number; answered: Promise<void> }>();
+  /** The modules whose line items were asked for and are not answered yet, each with when it was asked, and whether as a
+   * candidate. */
+  const waiting = new Map<string, { since: number; named: boolean; answered: Promise<void> }>();
   const asked = new Set<string>();
   const plan = (places: number) => filterLineItemSearch(unresolvedFilterItems(cards, catalog).rules, [...candidates].filter(id => !asked.has(id) && unread(id)),
     others().filter(id => !asked.has(id) && unread(id)), catalog, places);
@@ -368,8 +371,14 @@ async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCar
       const now = Date.now();
       // The reading starts once the questions are answered, or after as long as a read holds its place.
       const begun = !questions.size || now - started >= FILTER_LINE_ITEMS_READ_MS;
-      const held = [...waiting.values()].filter(read => now - read.since < FILTER_LINE_ITEMS_READ_MS).length;
-      step = plan(begun ? FILTER_LINE_ITEMS_AT_A_TIME - held : 0);
+      /** The reads that hold a place: those asked for less than FILTER_LINE_ITEMS_READ_MS ago. */
+      const holding = [...waiting.values()].filter(read => now - read.since < FILTER_LINE_ITEMS_READ_MS);
+      // A candidate does not wait for a place held by a read that was not asked for as a candidate's (but as another
+      // module's, while the model had not yet said which modules have the filtered dimensions): it is asked for as soon as
+      // it was before the other modules were searched at all.
+      const toStart = [...candidates].filter(id => !asked.has(id) && unread(id)).length;
+      const forCandidates = Math.min(toStart, FILTER_LINE_ITEMS_AT_A_TIME - holding.filter(read => read.named).length);
+      step = plan(begun ? Math.max(FILTER_LINE_ITEMS_AT_A_TIME - holding.length, forCandidates) : 0);
       // Until every rule has its line item (what a rule then still holds unnamed is its context, which no module lists),
       // or the time is up.
       if (!(step.everywhere.length + step.candidatesOnly.length) || left() <= 0) break;
@@ -380,7 +389,7 @@ async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCar
       for (const moduleId of step.modules) {
         asked.add(moduleId);
         const answered: Promise<void> = readLineItems(reads, moduleId, givingUp.signal).finally(() => { waiting.delete(moduleId); });
-        waiting.set(moduleId, { since: now, answered });
+        waiting.set(moduleId, { since: now, named: candidates.has(moduleId), answered });
       }
       bracketed += step.bracketed;
       // Or until nothing is left to start and nothing is waiting.

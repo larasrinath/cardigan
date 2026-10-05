@@ -1408,6 +1408,59 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     expect(searched()).toEqual([...ofFirst, ...ofSecond]);
   });
 
+  it("asks for the modules that a late answer names at once: they do not wait for the places that reads of other modules hold", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
+    const others = Array.from({ length: 40 }, (_, index) => other(index + 1));
+    /** A model that says after twelve seconds which modules have the filtered dimension, and takes 10.9 seconds over a
+     * module's line items. The last of the modules it names has the rule's line item. */
+    const serve = (named: string[]) => {
+      ScriptedSocket.sockets = [];
+      serveModel({ [MODULE_VIEWS]: moduleList(others), [at("/applicableModules")]: id => update(id, { data: named.map(module => ({ id: module, label: `Module ${module}` })) }),
+        [at(`/modules/${named.at(-1)}/lineItems`)]: id => update(id, { data: [{ lineItemId: FILTER_ITEM, lineItemLabel: "Include?" }] }) });
+      slowly(destination => destination === at("/applicableModules"), 12_000);
+      slowLineItems(10_900);
+    };
+
+    // Nine modules are named. After ten seconds the reading began with the model's list, and four of its modules hold the
+    // four places when the answer comes. The first four named modules are asked for at once all the same, as soon as they
+    // were when the questions were waited for; the next four ten seconds later.
+    const nine = Array.from({ length: 9 }, (_, index) => candidate(index + 1));
+    serve(nine);
+    const late = run(withGrid());
+    await vi.advanceTimersByTimeAsync(11_900);
+    expect(searched()).toEqual(others.slice(0, 4));
+    await vi.advanceTimersByTimeAsync(200);
+    expect(searched()).toEqual([...others.slice(0, 4), ...nine.slice(0, 4)]);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(searched()).toEqual([...others.slice(0, 4), ...nine.slice(0, 8)]);
+    // The ninth is asked for after thirty-two seconds and has the line item: the rule is named after forty-three. (Had the
+    // named modules waited for the four places, the ninth would have been asked for after forty, and answered when the time
+    // was over.) Seven of the list's modules were asked for in the places it left free, and are given up.
+    await vi.advanceTimersByTimeAsync(21_000);
+    const done = await late.result;
+    expect([done.catalog.lineItems.get(FILTER_ITEM), done.notes, searched()]).toEqual([{ name: "Include?", moduleId: nine[8] }, [], [...others.slice(0, 4), ...nine, ...others.slice(4, 11)]]);
+    expect(late.log.filter(line => line.startsWith("filter line items: 1 looked for"))).toEqual([
+      "filter line items: 1 looked for in 9 of 9 candidate modules that have the filtered dimensions and 4 of 40 other modules, in 43 s, 7 reads given up while waiting: "
+        + "1 found (1 in candidate modules), 0 not found"]);
+
+    // One module is named: it is asked for at once, and no other module with it, for the four places are still held.
+    serve([candidate(1)]);
+    const one = run(withGrid());
+    await vi.advanceTimersByTimeAsync(12_100);
+    expect(searched()).toEqual([...others.slice(0, 4), candidate(1)]);
+    await vi.advanceTimersByTimeAsync(11_000);
+    expect((await one.result).catalog.lineItems.get(FILTER_ITEM)).toEqual({ name: "Include?", moduleId: candidate(1) });
+
+    // Six modules of the list are named, two of them among the four that are being read. The four others are asked for at
+    // once all the same: a read that was asked for as a list module's holds no place against a named module.
+    serve([9, 2, 3, 10, 11, 12].map(other));
+    const mixed = run(withGrid());
+    await vi.advanceTimersByTimeAsync(12_100);
+    expect(searched()).toEqual([...others.slice(0, 4), ...[9, 10, 11, 12].map(other)]);
+    await vi.advanceTimersByTimeAsync(11_000);
+    expect((await mixed.result).catalog.lineItems.get(FILTER_ITEM)).toEqual({ name: "Include?", moduleId: other(12) });
+  });
+
   it("adds no note when the search left nothing undone: every module was read, or every rule has its line item, although the time is over", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     const [candidates, others] = [[1, 2, 3, 4, 5, 6, 7, 8].map(candidate), [1, 2, 3, 4].map(other)];
