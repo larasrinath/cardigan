@@ -10,7 +10,7 @@ import { analysedLine, notKeptNote } from "./keep-notes.js";
 import { ResultKeeper } from "./keep-result.js";
 import {
   cardDrawerHtml, cardDrawerSubHtml, colChooserHtml, colFilterHtml, crumbsHtml, FORGOTTEN_LINE, headerMetaHtml, keptCopyHtml, MOON_ICON, navHtml,
-  noteBannerHtml, objectDrawerHtml, objectDrawerSubHtml, overviewHtml, rowDrawerHtml, rowDrawerSubHtml, runBannerHtml, runHtml, SUN_ICON, tableHtml, tableParts,
+  noteBannerHtml, NOT_REMOVED_LINE, objectDrawerHtml, objectDrawerSubHtml, overviewHtml, rowDrawerHtml, rowDrawerSubHtml, runBannerHtml, runHtml, SUN_ICON, tableHtml, tableParts,
   type KeptCopy, type Links, type NavEntry, type TableView,
 } from "./markup.js";
 import type { PageId } from "./page-ids.js";
@@ -126,8 +126,9 @@ let received = new Date();
 /** Whether the result on the page was brought back after a refresh (keep-result.ts), and not analysed since the page loaded. */
 let broughtBack = false;
 /** What the tab keeps of the result on the page for a refresh: a copy, once the result is kept and when it was brought
- * back; a copy no longer, once the user has had it forgotten; and none while the result is still being kept, or when it
- * could not be kept. The overview says which, and offers to forget a copy that is kept. */
+ * back; a copy no longer, once the user has had it forgotten; a copy that could not be removed, when the user asked for
+ * that and the tab's storage did not let it go; and none while the result is still being kept, or when it could not be
+ * kept. The overview says which, and offers to forget a copy that is kept or could not be removed. */
 let keptCopy: KeptCopy = "none";
 /** True while the page looks for a result it kept before a refresh. Until it knows, it draws no waiting view, which a
  * result that comes back would replace at once. */
@@ -310,6 +311,19 @@ function setKeptCopy(next: KeptCopy): void {
   keptCopy = next;
   const place = find("#ovKept");
   if (place) place.innerHTML = keptCopyHtml(next);
+}
+
+/** The kept copy could not be removed (keep-result.ts `forget`): the overview says so in the line beside the control, and
+ * the page says the same through its live region, which tells a screen reader once. The control stays as it is, with the
+ * focus it has, for another try: the line alone is written again, and it is no longer the control's description, or a
+ * screen reader might be told twice. The place then holds what `keptCopyHtml` writes for a copy that was not removed,
+ * which is what the overview shows when it is drawn again. */
+function showNotRemoved(): void {
+  keptCopy = "not-removed";
+  const line = find("#keptLine");
+  if (line) line.textContent = NOT_REMOVED_LINE;
+  find('#ovKept [data-act="forget"]')?.removeAttribute("aria-describedby");
+  announce(NOT_REMOVED_LINE);
 }
 
 /** A result arrived, complete: the page becomes the design's results page for it. Only now does it take the place of an
@@ -828,9 +842,10 @@ document.addEventListener("click", event => {
         void copyText(client.log.join("\n"), "the diagnostic log");
         return;
       // The copy the tab keeps for a refresh goes, and nothing else does: the result stays on the page, with its
-      // downloads. The control goes with what it removed: the line that says so takes its place and the focus.
+      // downloads. The control goes with what it removed: the line that says so takes its place and the focus. The page
+      // says that only of a copy that is gone. One that could not be removed keeps its control, and the page says so.
       case "forget":
-        keeper.forget();
+        if (!keeper.forget()) return showNotRemoved();
         setKeptCopy("forgotten");
         focusOn("#keptLine", "#view");
         announce(FORGOTTEN_LINE);

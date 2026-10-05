@@ -4,10 +4,10 @@ import { CALENDAR_HEADERS, CALENDAR_PROPERTIES, calendarRows } from "../model/ca
 import { FRESH_MS, PORT_NAME, RESULTS_PAGE, type TabMessage } from "../protocol.js";
 import type { AnalysisResult, Cell } from "../result-types.js";
 import { resultZip, tableCsv } from "../result-zip.js";
-import { FakeElement, FakeInput, FakePage, FakeSelect } from "./dom.test-support.js";
+import { FakeElement, FakeInput, FakePage, FakeSelect, parseMarkup } from "./dom.test-support.js";
 import { analysedLine, NOT_KEPT_NOTE, TOO_LARGE_NOTE } from "./keep-notes.js";
 import { KEPT_PREFIX, ResultKeeper, type KeptStorage } from "./keep-result.js";
-import { FORGOTTEN_LINE } from "./markup.js";
+import { FORGOTTEN_LINE, keptCopyHtml, NOT_REMOVED_LINE } from "./markup.js";
 
 /** The page as it is packaged: the script runs on results.html itself, read by the stand-in page. */
 const SHELL = readFileSync(new URL(`../../${RESULTS_PAGE}`, import.meta.url), "utf8");
@@ -2601,6 +2601,7 @@ describe("A result kept while the results page is refreshed", () => {
   const keptPlace = () => (page.has("#ovKept") ? page.id("ovKept").children.map(child => [child.id || child.dataset.act, child.textContent]) : undefined);
   const KEPT = [["keptLine", "A copy of this result is kept for a refresh of this page."], ["forget", "Forget this result"]];
   const FORGOTTEN = [["keptLine", FORGOTTEN_LINE]];
+  const NOT_REMOVED = [["keptLine", NOT_REMOVED_LINE], ["forget", "Forget this result"]];
   /** The control that forgets the kept result, once the overview offers it. */
   const offered = async () => {
     await eventually(() => page.has('#ovKept [data-act="forget"]'), "the control that forgets the kept result");
@@ -2768,6 +2769,53 @@ describe("A result kept while the results page is refreshed", () => {
     expect([page.texts("#view h1"), page.has("#noteBanner"), page.document.title, session.held.size]).toEqual([["Connecting"], false, "Cardigan", 0]);
     ports[3].send({ type: "subject", subject: { kind: "app", id: APP.id } });
     expect([page.id("runTitle").textContent, runControl()[0], ports[3].posted]).toEqual(["Ready to analyse", "Run", []]);
+  });
+
+  it("says that the kept copy could not be removed when the tab's storage does not let it go, and keeps the control: nothing says it is removed, and a refresh brings the result back", async () => {
+    await openWith(APP);
+    await letKeep();
+    const control = await offered();
+    const keys = [...session.held.keys()].sort();
+    expect(keys).toEqual([`${KEPT_PREFIX}0`, `${KEPT_PREFIX}head`]);
+    // From now on the tab's storage refuses every removal.
+    const { removeItem } = session.storage;
+    session.storage.removeItem = () => { throw new Error("The storage refused to remove a key."); };
+    control.focus();
+    page.document.activeElement.press();
+    // Nothing is removed: both of the keeper's keys are there.
+    expect([...session.held.keys()].sort()).toEqual(keys);
+    // The page says so in one sentence, in the line beside the control and through its live region. Nowhere does it say
+    // that the copy is removed, and it says nothing else: no banner.
+    expect([keptPlace(), page.id("live").textContent, NOT_REMOVED_LINE]).toEqual([NOT_REMOVED, NOT_REMOVED_LINE, "The copy kept for refreshes could not be removed."]);
+    expect([page.find("body").textContent.includes("is removed"), FORGOTTEN_LINE.includes("is removed"), page.id("banners").children]).toEqual([false, true, []]);
+    // The control is the one that was pressed, where it was, and the focus is on it still, for another try. The line is
+    // no longer its description: the live region has said it.
+    expect([page.find('#ovKept [data-act="forget"]') === control, page.document.activeElement === control, control.focusable, control.hasAttribute("aria-describedby")])
+      .toEqual([true, true, true, false]);
+    // The place holds what the overview writes for a copy that was not removed, to the character, and the overview writes
+    // that when it is shown again. The result is on the page, with its downloads.
+    expect(page.id("ovKept").innerHTML).toBe(parseMarkup(keptCopyHtml("not-removed")).innerHTML);
+    goTo(2);
+    toOverview();
+    expect([keptPlace(), page.document.title, disabled("runAgain", "dlAll", "dlCsv")]).toEqual([NOT_REMOVED, "Cardigan — Demo app", [false, false, false]]);
+
+    // A refresh brings the result back, and nothing said it would not. The line then says that a copy is kept, which is true.
+    await open(refreshed);
+    await back("Demo app");
+    expect([keptPlace(), kept(), note()[0]]).toEqual([KEPT, true, analysedLine(NOW, NOW)]);
+    // Refused again, the page says so again.
+    page.find('#ovKept [data-act="forget"]').press();
+    expect([keptPlace(), kept(), page.id("live").textContent]).toEqual([NOT_REMOVED, true, NOT_REMOVED_LINE]);
+
+    // Now the storage lets go, and the person tries again: the copy is removed, and only now does the page say that.
+    session.storage.removeItem = removeItem;
+    page.find('#ovKept [data-act="forget"]').press();
+    expect([keptPlace(), kept(), session.held.size, page.has('[data-act="forget"]'), page.document.activeElement === page.id("keptLine")]).toEqual([FORGOTTEN, false, 0, false, true]);
+    // A refresh finds nothing kept.
+    await open(refreshed);
+    await eventually(() => page.has("#runTitle"), "the waiting view");
+    await pass(30);
+    expect([page.texts("#view h1"), page.document.title, session.held.size]).toEqual([["Connecting"], "Cardigan", 0]);
   });
 
   it("keeps the next result as ever after a forgetting, and offers to forget that one: Run again brings the control back", async () => {
