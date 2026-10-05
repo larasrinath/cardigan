@@ -1386,6 +1386,26 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     expect(lines(late.log)).toEqual([
       "filter line items: 1 looked for in 2 of 2 candidate modules that have the filtered dimensions and 4 of 40 other modules, in 14 s, 3 reads given up while waiting: "
         + "1 found (1 in candidate modules), 0 not found", few(9)]);
+
+    // Two filtered dimensions, each with two modules of its own, and the second question is answered first: the modules are
+    // read in the order of the dimensions all the same, as they were when the questions were asked one after another.
+    ScriptedSocket.sockets = [];
+    const [ofFirst, ofSecond] = [[1, 2].map(candidate), [3, 4].map(candidate)];
+    serveModel({ [MODULE_VIEWS]: moduleList([]),
+      [at("/applicableModules")]: (id, asked) => update(id, { data: (asked.dimensions[0] === Number(LIST) ? ofFirst : ofSecond).map(module => ({ id: module, label: `Module ${module}` })) }) });
+    const reply = ScriptedSocket.reply;
+    ScriptedSocket.reply = (socket, frame) => {
+      const first = frame.command === "SEND" && frame.headers.destination === at("/applicableModules") && JSON.parse(frame.body).dimensions[0] === Number(LIST);
+      if (first) setTimeout(() => reply(socket, frame), 1_000); else reply(socket, frame);
+    };
+    const two = ruled(rule([FILTER_ITEM], ["true"]));
+    (two[0].cards[0] as Any).grid.regions[0].rows.dimensions = [LIST, LIST_2].map(id => ({ dimension: { kind: "dimension", id } }));
+    const ordered = run(two);
+    await vi.advanceTimersByTimeAsync(900);
+    expect([questions().slice(-2), searched()]).toEqual([[LIST, LIST_2], []]);
+    await vi.advanceTimersByTimeAsync(200);
+    await ordered.result;
+    expect(searched()).toEqual([...ofFirst, ...ofSecond]);
   });
 
   it("adds no note when the search left nothing undone: every module was read, or every rule has its line item, although the time is over", async () => {

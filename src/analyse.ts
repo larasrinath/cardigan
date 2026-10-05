@@ -290,8 +290,8 @@ async function readViewLayouts(reads: SocketReads, refs: readonly UxEntityRef[])
 
 /** Filters can use a line item from a module no card shows. It is looked for in the modules whose line items were not read
  * yet, until every such rule has its line item:
- * - first in those that have a dimension of the filtered axis, which the model names (the candidates), in the model's
- *   order: as they were read before the other modules were searched at all;
+ * - first in those that have a dimension of the filtered axis, which the model names (the candidates), dimension by
+ *   dimension, in the model's order: as they were read before the other modules were searched at all;
  * - then in every other module of the model's list, in the list's order.
  * Where the modules read so far bear it out, the entity types of the IDs put the likelier of those other modules first:
  * never before a candidate, so that no candidate is read later for it, however wrong it is. A rule that a module already
@@ -331,9 +331,11 @@ async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCar
   /** What is left of the time for the search. */
   const left = () => started + FILTER_LINE_ITEMS_BUDGET_MS - Date.now();
   const unread = (id: string) => ENTITY_ID.test(id) && !catalog.lineItemModules.has(id) && !catalog.unreadableModules.has(id);
-  /** The modules there are to read: the candidates, as the model names them, and the other modules of its list that were
-   * not read when the search began. */
-  const candidates = new Set<string>();
+  /** The modules there are to read: the candidates, as the model names them for each filtered dimension, in the order of
+   * the dimensions whichever question is answered first (they were asked one after another before); and the other modules
+   * of its list that were not read when the search began. */
+  const named = new Map<string, string[]>();
+  let candidates = new Set<string>();
   const listed = [...catalog.modules.keys()].filter(unread);
   const others = () => listed.filter(id => !candidates.has(id));
   /** Gives up, when the search ends, whatever of it is still waiting. */
@@ -351,8 +353,12 @@ async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCar
   try {
     for (const dimensionId of axisDimensionIds) {
       if (!ENTITY_ID.test(dimensionId)) continue;
+      named.set(dimensionId, []);
       const question: Promise<void> = connection.subscribe(`core://${ws}:${model}/applicableModules`, { body: { dimensions: [Number(dimensionId)] }, signal: givingUp.signal })
-        .then(json => { for (const id of applicableModuleIds(catalog, json)) if (unread(id)) candidates.add(id); },
+        .then(json => {
+          named.set(dimensionId, applicableModuleIds(catalog, json).filter(unread));
+          candidates = new Set([...named.values()].flat());
+        },
           // A question that was given up, or that ended with the connection, is not one the model refused.
           error => { if (!givingUp.signal.aborted && !connection.failed) progress.log(`modules for dimension ${dimensionId}: ${message(error)}`); })
         .finally(() => { questions.delete(question); });
