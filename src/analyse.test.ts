@@ -118,14 +118,23 @@ const destinations = () => sent("SEND").map(frame => frame.headers.destination);
 const moduleList = (modules: readonly string[]) => (id: string) => update(id, { data: [MODULE, ...modules].map(module => ({ id: Number(module), name: `Module ${module}`, views: [] })), dimensions: {} });
 /** The modules whose line items were asked for after the grid's own, in the order they were asked. */
 const searched = () => destinations().flatMap(destination => /\/modules\/(\d+)\/lineItems$/.exec(destination)?.[1] ?? []).filter(module => module !== MODULE);
-/** Makes the model slow to list line items: those of each module but the grid's own are answered only after `wait`. */
-function slowLineItems(wait: number) {
+/** Makes the model slow: its answer to each read that `slow` picks comes only after `wait`. */
+function slowly(slow: (destination: string) => boolean, wait: number) {
   const reply = ScriptedSocket.reply;
   ScriptedSocket.reply = (socket, frame) => {
-    const looking = frame.command === "SEND" && frame.headers.destination.endsWith("/lineItems") && frame.headers.destination !== at(`/modules/${MODULE}/lineItems`);
-    if (looking) setTimeout(() => reply(socket, frame), wait); else reply(socket, frame);
+    if (frame.command === "SEND" && slow(frame.headers.destination)) setTimeout(() => reply(socket, frame), wait); else reply(socket, frame);
   };
 }
+/** A read of line items that the search makes: of any module but the grid's own. */
+const ofTheSearch = (destination: string) => destination.endsWith("/lineItems") && destination !== at(`/modules/${MODULE}/lineItems`);
+/** Makes the model slow to list line items: those of each module but the grid's own are answered only after `wait`. */
+const slowLineItems = (wait: number) => slowly(ofTheSearch, wait);
+/** Every read that was asked for was also ended: unsubscribed from, when it was answered or given up. (All but the watch
+ * on the model's status, which lasts as long as the socket.) */
+const everyReadEnded = () => {
+  const ended = new Set(sent("UNSUBSCRIBE").map(frame => frame.headers.id));
+  return sent("SUBSCRIBE").filter(frame => frame.headers.destination !== at("")).every(frame => ended.has(frame.headers.id));
+};
 
 describe("Page analyzer name loading against the live socket behaviour", () => {
   beforeEach(() => {
@@ -470,11 +479,12 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     const closed = "the model is closed";
     const ended = `Synthetic model: names from the model data service were not available (${closed}); IDs are shown instead.`;
     const viewLayout = (id: string) => metadata(id, { rows: [{ dimensionId: LIST, label: "Product" }], cols: [] });
-    // Module dimensions log the stop as they log a refused read and go on, so the work ends at the next read that waits on
-    // the socket; item names, saved views and the filtered dimension's modules end it at once.
+    // Module dimensions log the stop as they log a refused read and go on, and the work ends at the next step that would
+    // read: its read is not sent, for nothing is asked of a model once the work has ended. (The read of the item names used
+    // to go out before the work ended.) Item names, saved views and the filtered dimension's modules end it at once.
     for (const [waiting, notes, last, logged] of [
       [at("/dimensions"), [`Synthetic model: module dimensions were not available (${closed}); context selectors show only those saved on the page.`, ended],
-        at(`/modules/${MODULE}/dimensions/${LIST}`), [`module dimensions: ${closed}`]],
+        at("/dimensions"), [`module dimensions: ${closed}`]],
       [at(`/modules/${MODULE}/dimensions/${LIST}`), [ended], at(`/modules/${MODULE}/dimensions/${LIST}`), []],
       [at(`/views/${VIEW}`), [ended], at(`/views/${VIEW}`), []],
       [at("/applicableModules"), [ended], at("/applicableModules"), []],
@@ -492,6 +502,42 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
       expect(destinations().at(-1), waiting).toBe(last);
       expect(log.slice(log.indexOf("model status CLOSED")).filter(line => /^(model status|module dimensions|modules for)/.test(line)), waiting)
         .toEqual(["model status CLOSED", ...logged]);
+    }
+  });
+
+  it("sends nothing more once the model has reported itself closed, whichever step would read next", async () => {
+    const ended = "Synthetic model: names from the model data service were not available (the model is closed); IDs are shown instead.";
+    const unavailable = "Synthetic model: module dimensions were not available (the model is closed); context selectors show only those saved on the page.";
+    const dimensions = (id: string) => update(id, { modules: { [MODULE]: { dimensions: [{ id: LIST, label: "Product" }] } } });
+    /** A grid of the module in which no item is shown or hidden, filtered by these rules; and what else the cards use. */
+    const grid = (rules: unknown[], ...references: unknown[]) => [{ cards: ruled(...rules)[0].cards, references: [{ kind: "module", id: MODULE }, ...references] }] as unknown as UxPageCardDetails[];
+    // After the grid's dimensions, the next read is a saved view's layout; or, with a rule that has its line item (the
+    // grid's own) and a context item, the name of that item, which the last step asks the module's dimension for.
+    const [savedView, contextItem] = [grid([], { kind: "view", id: VIEW }), grid([rule([ITEM(358, 2), LINE_ITEM], ["true"])])];
+    const answers = { [at(`/modules/${MODULE}/lineItems`)]: (id: string) => update(id, { data: [{ lineItemId: LINE_ITEM, lineItemLabel: "Volume" }] }),
+      [at(`/views/${VIEW}`)]: (id: string) => metadata(id, { rows: [{ dimensionId: LIST, label: "Product" }], cols: [] }) };
+    let [status, closedAt] = ["", -1];
+    for (const [pages, answer, notes] of [
+      // The model reports itself closed where the grid's dimensions are asked for: that step logs it as a refused read and
+      // goes on.
+      [savedView, () => "", [unavailable, ended]],
+      // The model gives the grid's dimensions and reports itself closed in the same breath: that step has its answer.
+      [savedView, dimensions, [ended]],
+      [contextItem, dimensions, [ended]],
+    ] as const) {
+      ScriptedSocket.sockets = [];
+      serveModel({ ...answers, [at("")]: id => { status = id; return update(id, { status: "UNKNOWN" }); },
+        [at("/dimensions")]: id => { closedAt = sent("SEND").length; return answer(id) + update(status, { status: "CLOSED" }); } });
+      const done = await run(pages).result;
+      await new Promise(resolve => { setTimeout(resolve, 20); });
+      expect([done.notes, destinations().slice(closedAt)]).toEqual([notes, []]);
+    }
+    // (A model that stays open is asked for the saved view's layout, and for the context item.)
+    for (const [pages, asked] of [[savedView, at(`/views/${VIEW}`)], [contextItem, at(`/modules/${MODULE}/dimensions/${LIST}`)]] as const) {
+      ScriptedSocket.sockets = [];
+      serveModel({ ...answers, [at("/dimensions")]: dimensions });
+      expect((await run(pages).result).notes).toEqual([]);
+      expect(destinations().at(-1)).toBe(asked);
     }
   });
 
@@ -731,13 +777,16 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     expect([...catalog.viewLayouts.keys()]).toEqual([VIEW, VIEW_2]);
   });
 
-  it("looks for filter line items in the filtered dimension's modules not yet read, four at a time, until found: every one of them is read, however many", async () => {
+  it("looks for filter line items in the filtered dimension's modules not yet read, four at a time, until found: every one of them is asked, however many", async () => {
     // The clock stands still, so the search takes no time by it.
     vi.useFakeTimers({ toFake: ["Date"] });
-    // Sixty modules were once the most that were read: the sixty-first is read now, and so is the hundred and twenty-seventh.
-    for (const [count, found, read] of [[6, 2, 4], [60, 0, 60], [61, 0, 61], [130, 127, 128]] as const) {
+    // Four reads are kept moving: one starts as another is answered. When the answer comes that has the rule's line item,
+    // the three modules after it have been asked for too, and are given up. Sixty modules were once the most that were
+    // read: the sixty-first is read now, and so is the hundred and twenty-seventh.
+    for (const [count, found] of [[6, 2], [60, 0], [61, 0], [130, 127]] as const) {
       ScriptedSocket.sockets = [];
       const candidates = Array.from({ length: count }, (_, index) => candidate(index + 1));
+      const asked = found ? Math.min(count, found + 3) : count;
       serveModel({
         // A module that was read already, or could not be read, is not a candidate.
         [at(`/modules/${MODULE_3}/lineItems`)]: id => rejected(id, "LINE_ITEMS_UNAVAILABLE"),
@@ -749,22 +798,24 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
       // A line item that no module lists adds no note: every module there was to read was read.
       expect(done.notes, String(count)).toEqual([]);
       expect(destinations().filter(destination => destination.endsWith("/lineItems")), String(count))
-        .toEqual([MODULE, MODULE_3, ...candidates.slice(0, read)].map(module => at(`/modules/${module}/lineItems`)));
+        .toEqual([MODULE, MODULE_3, ...candidates.slice(0, asked)].map(module => at(`/modules/${module}/lineItems`)));
       expect(log).toContain(`line items of module ${MODULE_3}: LINE_ITEMS_UNAVAILABLE`);
       expect(done.catalog.lineItems.has(FILTER_ITEM)).toBe(!!found);
       // The log says how far the search went, in counts only: the IDs looked for, the modules read of those that have the
-      // filtered dimensions and of the model's others (it has none here), the time, what was found and where, and whether
-      // the IDs themselves ordered the search.
+      // filtered dimensions and of the model's others (it has none here), the time, the reads given up while they waited,
+      // what was found and where, and whether the IDs themselves ordered the search.
       expect(log.filter(line => line.startsWith("filter line items:")), String(count)).toEqual([
-        `filter line items: 1 looked for in ${read} of ${count} candidate modules that have the filtered dimensions and 0 of 0 other modules, in 0 s: `
-          + `${found ? "1 found (1 in candidate modules), 0" : "0 found, 1"} not found`,
-        `filter line items: the entity-type bracket chose 0 of the ${read} modules asked for; fewer than 3 modules with line items were read`]);
+        `filter line items: 1 looked for in ${found || count} of ${count} candidate modules that have the filtered dimensions and 0 of 0 other modules, in 0 s, `
+          + `${found ? asked - found : 0} reads given up while waiting: ${found ? "1 found (1 in candidate modules), 0" : "0 found, 1"} not found`,
+        `filter line items: the entity-type bracket chose 0 of the ${asked} modules asked for; fewer than 3 modules with line items were read`]);
+      // A read that was given up was not refused: nothing is logged for it.
+      expect(log.filter(line => line.startsWith("line items of")), String(count)).toEqual([`line items of module ${MODULE_3}: LINE_ITEMS_UNAVAILABLE`]);
     }
   });
 
   it("goes on through the model's other modules, in its list's order, when no module that has the filtered dimensions lists a rule's line item", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
-    const [candidates, others] = [[1, 2, 3, 4, 5].map(candidate), Array.from({ length: 10 }, (_, index) => other(index + 1))];
+    const [candidates, others] = [[1, 2, 3, 4, 5].map(candidate), Array.from({ length: 14 }, (_, index) => other(index + 1))];
     /** The rule's line item is in the seventh of the model's other modules, and the second of them cannot be read. */
     const serve = (answers: Record<string, (id: string, asked: Any) => string>) => {
       ScriptedSocket.sockets = [];
@@ -778,23 +829,25 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     const { catalog, notes } = await result;
     expect(notes).toEqual([]);
     expect(catalog.lineItems.get(FILTER_ITEM)).toEqual({ name: "Include?", moduleId: other(7) });
-    // The modules the model named come first, as they always did, then the others of its list: four at a time, each of
-    // them once, until the rule has its line item. The three modules after that are not read.
-    expect(searched()).toEqual([...candidates, ...others.slice(0, 7)]);
+    // The modules the model named come first, as they always did, then the others of its list: four reads moving, each
+    // module asked once, until the rule has its line item. The three modules after the seventh were asked for by then and
+    // are given up; the four after those are never asked.
+    expect(searched()).toEqual([...candidates, ...others.slice(0, 10)]);
     // The step is shown once: it says how far the search is only every five seconds, and here the clock stands still.
     expect(statuses.filter(line => line.startsWith("Finding filter line items"))).toEqual(["Finding filter line items in Synthetic model…"]);
     // The log tells the two kinds of module apart, and says in which the line item was found. A module that could not be
-    // read is logged as it always was, and is not counted as read.
+    // read is logged as it always was, and is not counted as read; one that was given up is not logged.
     expect(log.filter(line => /^(filter |line items of)/.test(line))).toEqual([`line items of module ${other(2)}: LINE_ITEMS_UNAVAILABLE`,
-      "filter line items: 1 looked for in 5 of 5 candidate modules that have the filtered dimensions and 6 of 10 other modules, in 0 s: 1 found (0 in candidate modules), 0 not found",
-      "filter line items: the entity-type bracket chose 0 of the 12 modules asked for; fewer than 3 modules with line items were read"]);
+      "filter line items: 1 looked for in 5 of 5 candidate modules that have the filtered dimensions and 6 of 14 other modules, in 0 s, 3 reads given up while waiting: "
+        + "1 found (0 in candidate modules), 0 not found",
+      "filter line items: the entity-type bracket chose 0 of the 15 modules asked for; fewer than 3 modules with line items were read"]);
 
     // The model names no module for the filtered dimension, or refuses the question: its list is gone through all the same.
     for (const answer of [(id: string) => update(id, { data: [] }), (id: string) => rejected(id, "MODULES_UNAVAILABLE")]) {
       serve({ [at("/applicableModules")]: answer });
       const unnamed = await run(withGrid()).result;
       expect([unnamed.notes, unnamed.catalog.lineItems.get(FILTER_ITEM)]).toEqual([[], { name: "Include?", moduleId: other(7) }]);
-      expect(searched()).toEqual(others.slice(0, 8));
+      expect(searched()).toEqual(others.slice(0, 10));
     }
 
     // A line item that no module has: every module is asked once, and no note is added, as none was when every module that
@@ -804,8 +857,8 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     expect((await none.result).notes).toEqual([]);
     expect(searched()).toEqual([...candidates, ...others]);
     expect(none.log.filter(line => line.startsWith("filter "))).toEqual([
-      "filter line items: 1 looked for in 5 of 5 candidate modules that have the filtered dimensions and 9 of 10 other modules, in 0 s: 0 found, 1 not found",
-      "filter line items: the entity-type bracket chose 0 of the 15 modules asked for; fewer than 3 modules with line items were read",
+      "filter line items: 1 looked for in 5 of 5 candidate modules that have the filtered dimensions and 13 of 14 other modules, in 0 s, 0 reads given up while waiting: 0 found, 1 not found",
+      "filter line items: the entity-type bracket chose 0 of the 19 modules asked for; fewer than 3 modules with line items were read",
       `filter rule with an unnamed item (card card-1): unnamed ${FILTER_ITEM}`]);
 
     // Without the model's list of modules, which was not available, the modules it names for the dimension are all there is to read.
@@ -823,12 +876,12 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     expect(destinations().filter(destination => destination.endsWith("/lineItems"))).toEqual([MODULE, candidate(1), other(1), other(2)].map(module => at(`/modules/${module}/lineItems`)));
   });
 
-  it("reads first the modules between the two whose line items bracket the ID looked for, when the modules read so far bear that order out", async () => {
+  it("reads the modules the model names first, and then, of its other modules, those between the two whose line items bracket the ID looked for, when the modules read so far bear that order out", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     // A model of forty-one modules whose IDs and line item IDs rise together: the line items of the list's nth other module
     // have the entity type 2000 + n. The cards show four of the modules, and a rule's line item is the first of another.
     const others = Array.from({ length: 40 }, (_, index) => other(index + 1));
-    const FAR = ITEM(2027, 0);
+    const FAR = ITEM(2025, 0);
     const shown = [{ cards: ruled(rule([FAR], ["true"]))[0].cards, references: [MODULE, other(1), other(20), other(40)].map(id => ({ kind: "module", id })) }] as unknown as UxPageCardDetails[];
     /** The model, with the line items of these modules given another entity type, or no line items at all. */
     const serve = (types: Record<string, number | undefined>, named: string[] = []) => {
@@ -842,41 +895,74 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     };
     const lines = (log: string[]) => log.filter(line => line.startsWith("filter line items:"));
 
-    // The line item's entity type lies between those of the twentieth and the fortieth module, which the cards show. Four of
-    // the nineteen modules between them are read, spread evenly; their answers leave three modules between two that bracket
-    // it, and those are read next, with the first module the model named for the filtered dimension to fill the four.
+    // The line item's entity type lies between those of the twentieth and the fortieth module, which the cards show. The two
+    // modules the model names are asked for first, as they were before the other modules were searched at all, and in the
+    // two places they leave, two of the nineteen modules between the twentieth and the fortieth, spread evenly: the
+    // twenty-seventh and the thirty-third. As each read is answered, another starts in its place: for the middle one of the
+    // modules that are left between the two that bracket the type by then (the thirtieth and the thirty-first are asked
+    // before the twenty-seventh has answered and narrowed them), and for the list's next module once none is left between
+    // them. The twenty-fifth has the line item; the three reads that still wait then are given up.
     serve({}, [other(3), other(5)]);
     const { log, statuses, result } = run(shown);
     const { catalog, notes } = await result;
     expect(notes).toEqual([]);
-    expect(catalog.lineItems.get(FAR)).toEqual({ name: `Line item 0 of ${other(27)}`, moduleId: other(27) });
-    expect(searched()).toEqual([1, 20, 40, 24, 28, 32, 36, 25, 26, 27, 3].map(other));
+    expect(catalog.lineItems.get(FAR)).toEqual({ name: `Line item 0 of ${other(25)}`, moduleId: other(25) });
+    expect(searched()).toEqual([1, 20, 40, 3, 5, 27, 33, 30, 31, 24, 23, 25, 22, 26, 2].map(other));
     expect(statuses.at(-1)).toBe("Finding filter line items in Synthetic model…");
     expect(lines(log)).toEqual([
-      "filter line items: 1 looked for in 1 of 2 candidate modules that have the filtered dimensions and 7 of 35 other modules, in 0 s: 1 found (0 in candidate modules), 0 not found",
-      "filter line items: the entity-type bracket chose 7 of the 8 modules asked for; in the modules read, module IDs and line item entity types rise together (12 modules with line items)"]);
+      "filter line items: 1 looked for in 2 of 2 candidate modules that have the filtered dimensions and 7 of 35 other modules, in 0 s, 3 reads given up while waiting: "
+        + "1 found (0 in candidate modules), 0 not found",
+      "filter line items: the entity-type bracket chose 9 of the 12 modules asked for; in the modules read, module IDs and line item entity types rise together (13 modules with line items)"]);
 
     // The order holds for the modules the cards show, and not for the module that has the line item: the fifth, whose line
-    // items have the entity type that the twenty-seventh's would have. The bracket is read first and has nothing; then the
-    // list is gone through in its order, and the line item is found there, under the name its own module gives it. The wrong
-    // guess cost eight reads and no name.
-    serve({ [other(5)]: 2027, [other(27)]: undefined });
+    // items have the entity type that the twenty-fifth's would have. The model names no module here, so the bracket is read
+    // first and has nothing; then the list is gone through in its order, and the line item is found there, under the name
+    // its own module gives it. The wrong guess cost eight reads and no name.
+    serve({ [other(5)]: 2025, [other(25)]: undefined });
     const astray = run(shown);
     expect((await astray.result).catalog.lineItems.get(FAR)).toEqual({ name: `Line item 0 of ${other(5)}`, moduleId: other(5) });
-    expect(searched()).toEqual([1, 20, 40, 24, 28, 32, 36, 25, 26, 27, 2, 3, 4, 5, 6].map(other));
+    expect(searched()).toEqual([1, 20, 40, 24, 28, 32, 36, 33, 26, 27, 25, 2, 3, 4, 5, 6, 7, 8].map(other));
     expect(lines(astray.log)).toEqual([
-      "filter line items: 1 looked for in 0 of 0 candidate modules that have the filtered dimensions and 12 of 37 other modules, in 0 s: 1 found (0 in candidate modules), 0 not found",
-      "filter line items: the entity-type bracket chose 7 of the 12 modules asked for; in the modules read, module IDs and line item entity types do not rise together"]);
+      "filter line items: 1 looked for in 0 of 0 candidate modules that have the filtered dimensions and 12 of 37 other modules, in 0 s, 3 reads given up while waiting: "
+        + "1 found (0 in candidate modules), 0 not found",
+      "filter line items: the entity-type bracket chose 8 of the 15 modules asked for; in the modules read, module IDs and line item entity types do not rise together"]);
 
     // The modules the cards show do not bear the order out: the twentieth's line items have a higher entity type than the
     // fortieth's. The IDs then order nothing: the list is gone through in its order, as far as the line item.
     serve({ [other(20)]: 2090 });
     const unordered = run(shown);
-    expect((await unordered.result).catalog.lineItems.get(FAR)).toEqual({ name: `Line item 0 of ${other(27)}`, moduleId: other(27) });
-    expect(searched()).toEqual([1, 20, 40, ...Array.from({ length: 29 }, (_, index) => index + 2).filter(n => n !== 20)].map(other));
+    expect((await unordered.result).catalog.lineItems.get(FAR)).toEqual({ name: `Line item 0 of ${other(25)}`, moduleId: other(25) });
+    expect(searched()).toEqual([1, 20, 40, ...Array.from({ length: 27 }, (_, index) => index + 2).filter(n => n !== 20)].map(other));
     expect(lines(unordered.log)).toEqual([
-      "filter line items: 1 looked for in 0 of 0 candidate modules that have the filtered dimensions and 28 of 37 other modules, in 0 s: 1 found (0 in candidate modules), 0 not found",
-      "filter line items: the entity-type bracket chose 0 of the 28 modules asked for; in the modules read, module IDs and line item entity types do not rise together"]);
+      "filter line items: 1 looked for in 0 of 0 candidate modules that have the filtered dimensions and 23 of 37 other modules, in 0 s, 3 reads given up while waiting: "
+        + "1 found (0 in candidate modules), 0 not found",
+      "filter line items: the entity-type bracket chose 0 of the 26 modules asked for; in the modules read, module IDs and line item entity types do not rise together"]);
+  });
+
+  it("reads the modules the model names before any that the entity types point to: a slow model names a rule in the second of them as fast as it did", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
+    // The cards show three modules whose IDs and line item entity types rise together, and the rule's ID has an entity type
+    // above theirs: by that order its module comes after them, where the model's forty other modules are, and the eight
+    // modules it names. Every read of the search takes eleven seconds.
+    const [others, named, WANTED] = [Array.from({ length: 40 }, (_, index) => other(index + 1)), [1, 2, 3, 4, 5, 6, 7, 8].map(candidate), ITEM(1950, 0)];
+    const lineItemsOf = (lineItemId: string) => (id: string) => update(id, { data: [{ lineItemId, lineItemLabel: `Line item ${lineItemId}` }] });
+    serveModel({ [MODULE_VIEWS]: moduleList(others), [at("/applicableModules")]: id => update(id, { data: named.map(module => ({ id: module, label: `Module ${module}` })) }),
+      [at(`/modules/${MODULE}/lineItems`)]: lineItemsOf(LINE_ITEM), [at(`/modules/${MODULE_3}/lineItems`)]: lineItemsOf(ITEM(1905, 1)), [at(`/modules/${STAFFING}/lineItems`)]: lineItemsOf(ITEM(1909, 1)),
+      [at(`/modules/${candidate(2)}/lineItems`)]: lineItemsOf(WANTED) });
+    slowly(destination => [...named, ...others].some(module => destination === at(`/modules/${module}/lineItems`)), 11_000);
+    const slow = run([{ cards: ruled(rule([WANTED], ["true"]))[0].cards, references: [MODULE, MODULE_3, STAFFING].map(id => ({ kind: "module", id })) }] as unknown as UxPageCardDetails[]);
+    // The first four reads are of the first four modules the model names, as they were before the other modules were
+    // searched at all. None is of a module that the entity types point to: those have the places the named modules leave.
+    await vi.advanceTimersByTimeAsync(9_900);
+    expect(searched()).toEqual([MODULE_3, STAFFING, ...named.slice(0, 4)]);
+    // The second has the line item, and the rule is named after eleven seconds. (The next four were asked for after ten.)
+    await vi.advanceTimersByTimeAsync(1_300);
+    const { catalog, notes } = await slow.result;
+    expect([catalog.lineItems.get(WANTED), notes, searched()]).toEqual([{ name: `Line item ${WANTED}`, moduleId: candidate(2) }, [], [MODULE_3, STAFFING, ...named]]);
+    expect(slow.log.filter(line => line.startsWith("filter line items:"))).toEqual([
+      "filter line items: 1 looked for in 2 of 8 candidate modules that have the filtered dimensions and 0 of 40 other modules, in 11 s, 6 reads given up while waiting: "
+        + "1 found (1 in candidate modules), 0 not found",
+      "filter line items: the entity-type bracket chose 0 of the 8 modules asked for; in the modules read, module IDs and line item entity types rise together (4 modules with line items)"]);
   });
 
   it("spares the model's other modules a rule that a module already read rules out, and still looks for its IDs in every module the model names", async () => {
@@ -893,8 +979,8 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     /** A rule on these IDs, in an app whose cards show these modules. */
     const showing = (ids: string[], ...modules: string[]) => [{ cards: ruled(rule(ids, ["true"]))[0].cards, references: modules.map(module => ({ kind: "module", id: module })) }] as unknown as UxPageCardDetails[];
     const lines = (log: string[]) => log.filter(line => line.startsWith("filter line items:"));
-    const read = (looked: number, inCandidates: number, inOthers: number, outcome: string) => `filter line items: ${looked} looked for in ${inCandidates} of 6 candidate modules that have the filtered dimensions and `
-      + `${inOthers} of 10 other modules, in 0 s: ${outcome}`;
+    const read = (looked: number, inCandidates: number, inOthers: number, outcome: string, givenUp = 0) => `filter line items: ${looked} looked for in ${inCandidates} of 6 candidate modules that have the filtered dimensions and `
+      + `${inOthers} of 10 other modules, in 0 s, ${givenUp} reads given up while waiting: ${outcome}`;
     const rising = (modules: number) => `in the modules read, module IDs and line item entity types rise together (${modules} modules with line items)`;
     const ruledOut = (count: string, id: string, module: string, beside = "") => `filter line items: of the ${count} not found, ${count} looked for in the candidate modules only: 1 ruled out, `
       + `each by a module that was read, which has the line items of its entity type and does not list it (${id} by module ${module})${beside}`;
@@ -914,11 +1000,12 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
 
     // Nothing proves that two modules never have line items of one entity type. Here the first module the model names has
     // line items of the grid's module's type, the rule's among them: it is read, as it always was, and the rule has its name.
+    // (The three modules asked for with it are given up when its answer comes.)
     serve({ ...shown, [candidate(1)]: [GONE] });
     const twin = run(showing([GONE], MODULE, MODULE_3, STAFFING));
     expect((await twin.result).catalog.lineItems.get(GONE)).toEqual({ name: `Line item ${GONE}`, moduleId: candidate(1) });
     expect(searched()).toEqual([MODULE_3, STAFFING, ...candidates.slice(0, 4)]);
-    expect(lines(twin.log)).toEqual([read(1, 4, 0, "1 found (1 in candidate modules), 0 not found"),
+    expect(lines(twin.log)).toEqual([read(1, 1, 0, "1 found (1 in candidate modules), 0 not found", 3),
       "filter line items: the entity-type bracket chose 0 of the 4 modules asked for; in the modules read, a module's line items do not have one entity type of their own"]);
 
     // A rule holds one line item. When one of its IDs is ruled out, that one was it, and the rule's other ID is its context,
@@ -931,7 +1018,7 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
       `filter line items: the entity-type bracket chose 0 of the 6 modules asked for; ${rising(3)}`, ruledOut("2", GONE, MODULE, ", and 1 in a rule with such an ID")]);
 
     // The same when the search itself reads the module that rules the ID out: the second module the model names has the
-    // line items of its entity type, and does not list it. The two named modules after those four are read, and no other.
+    // line items of its entity type, and does not list it. The named modules after it are read, and no other.
     const LOST = ITEM(1903, 77);
     serve({ [MODULE]: [LINE_ITEM], [candidate(1)]: [ITEM(1902, 1)], [candidate(2)]: [FILTER_ITEM], [candidate(3)]: [ITEM(1904, 1)] });
     const lost = run(showing([LOST], MODULE));
@@ -976,13 +1063,16 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
       const lines: string[] = [];
       return { lines, result: loadCatalog(scope, pages, new Map(), { status: line => { lines.push(line); }, log: line => { lines.push(line); } }) };
     };
-    /** Those of them that the search wrote: from its question about the filtered dimension to its last line. */
-    const ofTheSearch = (lines: string[]) => lines.slice(lines.findIndex(line => line.includes("/applicableModules")),
-      lines.reduce((last, line, index) => (line.startsWith("filter line items:") ? index : last), -1) + 1);
-    // The question is the run's sixth read, after the model's status, its modules, its lists, the grid's line items and its dimensions.
+    const step = "Finding filter line items in Synthetic model…";
+    /** Those of them that the search wrote: from its step to its last line. */
+    const ofSearch = (lines: string[]) => lines.slice(lines.indexOf(step), lines.reduce((last, line, index) => (line.startsWith("filter line items:") ? index : last), -1) + 1);
+    // The search's question is the run's sixth read, after the model's status, its modules, its lists, the grid's line items and its dimensions.
     const question = [`SUBSCRIBE ${at("/applicableModules")} id=json-6`, `SEND ${at("/applicableModules")} id=json-6 action-type=update-subscription`, "UNSUBSCRIBE id=json-6"];
     const few = "fewer than 3 modules with line items were read";
     const pages = () => ruled(rule([FILTER_ITEM], ["true"]));
+    const progress = (lines: string[]) => lines.filter(line => line.startsWith("Finding filter line items"));
+    /** An answer that comes this much later by the clock, which stands still otherwise. */
+    const later = (ms: number) => (id: string) => { vi.setSystemTime(Date.now() + ms); return update(id, { data: [] }); };
 
     // A model of 249 modules that were not read, of which it names a hundred for the filtered dimension. None has the rule's
     // line item, so every one of them is read: 747 frames, and not one line of the log.
@@ -991,10 +1081,9 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     serveModel({ [MODULE_VIEWS]: moduleList(others), [at("/applicableModules")]: id => update(id, { data: others.slice(0, 100).map(module => ({ id: module, label: `Module ${module}` })) }) });
     const whole = written(pages());
     await whole.result;
-    // (Every read is unsubscribed from once it is answered: the four before the search, its question, and its 249.)
-    expect([searched(), sent("SUBSCRIBE").filter(frame => frame.headers.destination.endsWith("/lineItems")).length - 1, sent("UNSUBSCRIBE").length - 5]).toEqual([others, 249, 249]);
-    expect(ofTheSearch(whole.lines)).toEqual([...question, "Finding filter line items in Synthetic model…",
-      "filter line items: 1 looked for in 100 of 100 candidate modules that have the filtered dimensions and 149 of 149 other modules, in 0 s: 0 found, 1 not found",
+    expect([searched(), sent("SUBSCRIBE").filter(frame => ofTheSearch(frame.headers.destination)).length, everyReadEnded()]).toEqual([others, 249, true]);
+    expect(ofSearch(whole.lines)).toEqual([step, ...question,
+      "filter line items: 1 looked for in 100 of 100 candidate modules that have the filtered dimensions and 149 of 149 other modules, in 0 s, 0 reads given up while waiting: 0 found, 1 not found",
       `filter line items: the entity-type bracket chose 0 of the 249 modules asked for; ${few}`]);
     // Every other read is logged as it always was: the grid's own line items, say.
     expect(whole.lines.filter(line => line.includes("/lineItems"))).toEqual([`SUBSCRIBE ${at(`/modules/${MODULE}/lineItems`)} id=json-4`,
@@ -1005,118 +1094,218 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     serveModel({ [MODULE_VIEWS]: moduleList(others.slice(0, 5)), [at(`/modules/${other(3)}/lineItems`)]: id => rejected(id, "LINE_ITEMS_UNAVAILABLE") });
     const refused = written(pages());
     await refused.result;
-    expect(ofTheSearch(refused.lines)).toEqual([...question, "Finding filter line items in Synthetic model…", `line items of module ${other(3)}: LINE_ITEMS_UNAVAILABLE`,
-      "filter line items: 1 looked for in 0 of 0 candidate modules that have the filtered dimensions and 4 of 5 other modules, in 0 s: 0 found, 1 not found",
+    expect(ofSearch(refused.lines)).toEqual([step, ...question, `line items of module ${other(3)}: LINE_ITEMS_UNAVAILABLE`,
+      "filter line items: 1 looked for in 0 of 0 candidate modules that have the filtered dimensions and 4 of 5 other modules, in 0 s, 0 reads given up while waiting: 0 found, 1 not found",
       `filter line items: the entity-type bracket chose 0 of the 5 modules asked for; ${few}`]);
 
-    // A model that takes a second over each four of its sixty modules: the search takes fifteen seconds, and the step says
-    // how far it is after five and after ten. Those are the two lines more.
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
+    // The step says how far the search is once five seconds have passed since it last said anything, and not a millisecond
+    // before: here the first answer comes 4.999 seconds after the search began, the second a millisecond later, and the
+    // third and fourth as long after that again. It says how many modules were asked for, of how many there are to ask.
     ScriptedSocket.sockets = [];
-    serveModel({ [MODULE_VIEWS]: moduleList(others.slice(0, 60)) });
-    slowLineItems(1_000);
-    const slow = written(pages());
-    await vi.advanceTimersByTimeAsync(15_100);
-    await slow.result;
-    expect(ofTheSearch(slow.lines)).toEqual([...question, "Finding filter line items in Synthetic model…",
-      "Finding filter line items in Synthetic model: 20 of 60 modules…", "Finding filter line items in Synthetic model: 40 of 60 modules…",
-      "filter line items: 1 looked for in 0 of 0 candidate modules that have the filtered dimensions and 60 of 60 other modules, in 15 s: 0 found, 1 not found",
-      `filter line items: the entity-type bracket chose 0 of the 60 modules asked for; ${few}`]);
+    serveModel({ [MODULE_VIEWS]: moduleList(others.slice(0, 12)), [at(`/modules/${other(1)}/lineItems`)]: later(4_999), [at(`/modules/${other(2)}/lineItems`)]: later(1),
+      [at(`/modules/${other(3)}/lineItems`)]: later(4_999), [at(`/modules/${other(4)}/lineItems`)]: later(1) });
+    const paced = written(pages());
+    await paced.result;
+    expect(progress(paced.lines)).toEqual([step, "Finding filter line items in Synthetic model: 5 of 12 modules…", "Finding filter line items in Synthetic model: 7 of 12 modules…"]);
+    expect(paced.lines.filter(line => line.startsWith("filter line items: 1 looked for"))).toEqual([
+      "filter line items: 1 looked for in 0 of 0 candidate modules that have the filtered dimensions and 12 of 12 other modules, in 10 s, 0 reads given up while waiting: 0 found, 1 not found"]);
 
-    // The five seconds count from the step's first line. Here the question about the filtered dimension is given up after
-    // ten seconds, the step is shown then, and the twelve modules are read in the three seconds after: nothing more is said.
+    // A rule that a module already read rules out is looked for in the modules the model names only: the step counts
+    // those, and not the model's ten other modules, which are not to be read.
     ScriptedSocket.sockets = [];
-    serveModel({ [MODULE_VIEWS]: moduleList(others.slice(0, 12)), [at("/applicableModules")]: () => "" });
-    slowLineItems(1_000);
-    const late = written(pages());
-    await vi.advanceTimersByTimeAsync(13_100);
-    await late.result;
-    expect(ofTheSearch(late.lines)).toEqual([...question, `modules for dimension ${LIST}: Timed out waiting for ${at("/applicableModules")}.`,
-      "Finding filter line items in Synthetic model…",
-      "filter line items: 1 looked for in 0 of 0 candidate modules that have the filtered dimensions and 12 of 12 other modules, in 13 s: 0 found, 1 not found",
-      `filter line items: the entity-type bracket chose 0 of the 12 modules asked for; ${few}`]);
+    const named = Array.from({ length: 12 }, (_, index) => candidate(index + 1));
+    const lineItemsOf = (lineItemId: string) => (id: string) => update(id, { data: [{ lineItemId, lineItemLabel: `Line item ${lineItemId}` }] });
+    serveModel({ [MODULE_VIEWS]: moduleList(others.slice(0, 10)), [at("/applicableModules")]: id => update(id, { data: named.map(module => ({ id: module, label: `Module ${module}` })) }),
+      [at(`/modules/${MODULE}/lineItems`)]: lineItemsOf(LINE_ITEM), [at(`/modules/${MODULE_3}/lineItems`)]: lineItemsOf(ITEM(1905, 1)), [at(`/modules/${STAFFING}/lineItems`)]: lineItemsOf(ITEM(1909, 1)),
+      [at(`/modules/${candidate(1)}/lineItems`)]: later(4_999), [at(`/modules/${candidate(2)}/lineItems`)]: later(1) });
+    const ruledOut = written([{ cards: ruled(rule([ITEM(1901, 77)], ["true"]))[0].cards, references: [MODULE, MODULE_3, STAFFING].map(id => ({ kind: "module", id })) }] as unknown as UxPageCardDetails[]);
+    await ruledOut.result;
+    expect([searched(), progress(ruledOut.lines)]).toEqual([[MODULE_3, STAFFING, ...named], [step, "Finding filter line items in Synthetic model: 5 of 12 modules…"]]);
   });
 
-  it("gives one read of the search ten seconds, so that a module that does not answer does not end it", async () => {
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
-    const candidates = [1, 2, 3, 4, 5, 6, 7, 8].map(candidate);
-    const named = (id: string) => update(id, { data: [MODULE, ...candidates].map(module => ({ id: module, label: `Module ${module}` })) });
+  describe("keeps four reads of the search moving, and throws no answer away for being late", () => {
+    const timers = ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] as const;
     const lineItem = (id: string) => update(id, { data: [{ lineItemId: FILTER_ITEM, lineItemLabel: "Include?" }] });
-    const few = "fewer than 3 modules with line items were read";
+    const named = (modules: readonly string[]) => (id: string) => update(id, { data: [MODULE, ...modules].map(module => ({ id: module, label: `Module ${module}` })) });
+    const lines = (log: string[]) => log.filter(line => /^(filter |line items of|modules for)/.test(line));
+    const few = (asked: number) => `filter line items: the entity-type bracket chose 0 of the ${asked} modules asked for; fewer than 3 modules with line items were read`;
+    /** Starts a run, under a clock the test moves on, and says what has become of it. */
+    const start = () => {
+      const { log, result } = run(withGrid());
+      const seen: { done?: Awaited<typeof result> } = {};
+      void result.then(done => { seen.done = done; });
+      return { log, seen, named: () => seen.done?.catalog.lineItems.get(FILTER_ITEM) };
+    };
+    /** What the search left behind when it ended: nothing. Every read it asked for was ended, none is remembered as
+     * unreadable, and when the answers it did not wait for come after all, they change nothing and nothing is logged. */
+    const leavesNothingBehind = async ({ log, seen }: ReturnType<typeof start>) => {
+      const [read, logged] = [[...seen.done!.catalog.lineItemModules], lines(log)];
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect([[...seen.done!.catalog.lineItemModules], lines(log), [...seen.done!.catalog.unreadableModules], everyReadEnded()]).toEqual([read, logged, [], true]);
+    };
 
-    // The model names eight modules for the filtered dimension. The first never answers, and the rule's line item is in the fifth.
-    serveModel({ [at("/applicableModules")]: named, [at(`/modules/${candidate(1)}/lineItems`)]: () => "", [at(`/modules/${candidate(5)}/lineItems`)]: lineItem });
-    const hung = run(withGrid());
-    let outcome: unknown = "reading";
-    hung.result.then(done => { outcome = [done.notes, done.catalog.lineItems.get(FILTER_ITEM)]; }, error => { outcome = error; });
-    // The three modules read with the first have answered. The four after them wait for the first to be given up.
-    await vi.advanceTimersByTimeAsync(9_999);
-    expect([outcome, searched()]).toEqual(["reading", candidates.slice(0, 4)]);
-    // After ten seconds it is: the next four are read, and the rule has its line item. The module is logged as one that
-    // could not be read, and no note is added.
-    await vi.advanceTimersByTimeAsync(101);
-    expect([outcome, searched()]).toEqual([[[], { name: "Include?", moduleId: candidate(5) }], candidates]);
-    expect(hung.log.filter(line => /^(filter |line items of)/.test(line))).toEqual([
-      `line items of module ${candidate(1)}: Timed out waiting for ${at(`/modules/${candidate(1)}/lineItems`)}.`,
-      "filter line items: 1 looked for in 7 of 8 candidate modules that have the filtered dimensions and 0 of 0 other modules, in 10 s: 1 found (1 in candidate modules), 0 not found",
-      `filter line items: the entity-type bracket chose 0 of the 8 modules asked for; ${few}`]);
+    it("every read of line items takes eleven seconds, and the rule's is in the second of eight named modules: named after eleven seconds", async () => {
+      vi.useFakeTimers({ toFake: [...timers] });
+      const candidates = [1, 2, 3, 4, 5, 6, 7, 8].map(candidate);
+      serveModel({ [at("/applicableModules")]: named(candidates), [at(`/modules/${candidate(2)}/lineItems`)]: lineItem });
+      slowLineItems(11_000);
+      const slow = start();
+      // After ten seconds the first four have held their places long enough: the next four are asked for, and the first
+      // four go on waiting.
+      await vi.advanceTimersByTimeAsync(9_900);
+      expect(searched()).toEqual(candidates.slice(0, 4));
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect([searched(), slow.named()]).toEqual([candidates, undefined]);
+      // Their answers come after eleven seconds and count like any other: the rule has its line item, and the search is over
+      // at once. The six reads that still wait are given up, and nothing is logged for them.
+      await vi.advanceTimersByTimeAsync(200);
+      expect([slow.named(), slow.seen.done?.notes]).toEqual([{ name: "Include?", moduleId: candidate(2) }, []]);
+      expect(lines(slow.log)).toEqual([
+        "filter line items: 1 looked for in 2 of 8 candidate modules that have the filtered dimensions and 0 of 0 other modules, in 11 s, 6 reads given up while waiting: "
+          + "1 found (1 in candidate modules), 0 not found", few(8)]);
+      await leavesNothingBehind(slow);
+    });
 
-    // The line item is in a module that is read together with the one that does not answer: the four are waited for ten
-    // seconds and no longer, and the run goes on.
-    ScriptedSocket.sockets = [];
-    serveModel({ [at("/applicableModules")]: named, [at(`/modules/${candidate(1)}/lineItems`)]: () => "", [at(`/modules/${candidate(2)}/lineItems`)]: lineItem });
-    const beside = run(withGrid());
-    await vi.advanceTimersByTimeAsync(9_999);
-    expect(searched()).toEqual(candidates.slice(0, 4));
-    await vi.advanceTimersByTimeAsync(101);
-    expect([(await beside.result).catalog.lineItems.get(FILTER_ITEM), searched()]).toEqual([{ name: "Include?", moduleId: candidate(2) }, candidates.slice(0, 4)]);
+    it("the model is busy for fifteen seconds, and the rule's line item is in one of the four modules being read then: named after fifteen seconds", async () => {
+      vi.useFakeTimers({ toFake: [...timers] });
+      const others = Array.from({ length: 40 }, (_, index) => other(index + 1));
+      serveModel({ [MODULE_VIEWS]: moduleList(others), [at(`/modules/${other(10)}/lineItems`)]: lineItem });
+      // From the moment its ninth module is asked for, the model says nothing about line items for fifteen seconds; then it
+      // answers everything it was asked meanwhile.
+      const reply = ScriptedSocket.reply;
+      let busyUntil = 0;
+      ScriptedSocket.reply = (socket, frame) => {
+        if (frame.command === "SEND" && frame.headers.destination === at(`/modules/${other(9)}/lineItems`)) busyUntil = Date.now() + 15_000;
+        if (frame.command === "SEND" && ofTheSearch(frame.headers.destination) && Date.now() < busyUntil) setTimeout(() => reply(socket, frame), busyUntil - Date.now());
+        else reply(socket, frame);
+      };
+      const busy = start();
+      // Eight modules are read at once; the four after them wait. After ten seconds they have held their places long enough:
+      // four more are asked for, which wait too.
+      await vi.advanceTimersByTimeAsync(9_900);
+      expect(searched()).toEqual(others.slice(0, 12));
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect([searched(), busy.named()]).toEqual([others.slice(0, 16), undefined]);
+      // When the model answers again, the answers of the four that waited longest count: the tenth has the line item.
+      await vi.advanceTimersByTimeAsync(200);
+      expect([busy.named(), busy.seen.done?.notes]).toEqual([{ name: "Include?", moduleId: other(10) }, []]);
+      expect(lines(busy.log)).toEqual([
+        "filter line items: 1 looked for in 0 of 0 candidate modules that have the filtered dimensions and 10 of 40 other modules, in 15 s, 6 reads given up while waiting: "
+          + "1 found (0 in candidate modules), 0 not found", few(16)]);
+      await leavesNothingBehind(busy);
+    });
 
-    // The same for the question which modules have the filtered dimension. It is waited for ten seconds, where it was
-    // waited for sixty; then the model's list is gone through all the same.
-    ScriptedSocket.sockets = [];
-    const others = Array.from({ length: 6 }, (_, index) => other(index + 1));
-    serveModel({ [MODULE_VIEWS]: moduleList(others), [at("/applicableModules")]: () => "", [at(`/modules/${other(6)}/lineItems`)]: lineItem });
-    const unsaid = run(withGrid());
-    await vi.advanceTimersByTimeAsync(9_999);
-    expect(destinations().at(-1)).toBe(at("/applicableModules"));
-    await vi.advanceTimersByTimeAsync(101);
-    expect([(await unsaid.result).catalog.lineItems.get(FILTER_ITEM), searched()]).toEqual([{ name: "Include?", moduleId: other(6) }, others]);
-    expect(unsaid.log.filter(line => /^(filter |modules for)/.test(line))).toEqual([`modules for dimension ${LIST}: Timed out waiting for ${at("/applicableModules")}.`,
-      "filter line items: 1 looked for in 0 of 0 candidate modules that have the filtered dimensions and 6 of 6 other modules, in 10 s: 1 found (0 in candidate modules), 0 not found",
-      `filter line items: the entity-type bracket chose 0 of the 6 modules asked for; ${few}`]);
+    it("only the module that has the rule's line item takes twelve seconds: named after twelve seconds, the other modules read meanwhile", async () => {
+      vi.useFakeTimers({ toFake: [...timers] });
+      const candidates = [1, 2, 3, 4, 5, 6, 7, 8].map(candidate);
+      serveModel({ [at("/applicableModules")]: named(candidates), [at(`/modules/${candidate(3)}/lineItems`)]: lineItem });
+      slowly(destination => destination === at(`/modules/${candidate(3)}/lineItems`), 12_000);
+      const one = start();
+      // The seven other modules are read at once, in the three places the slow one leaves. Nothing is left to start, and
+      // the search waits for the one answer it has not got: past the ten seconds, for as long as its own time lasts.
+      await vi.advanceTimersByTimeAsync(11_900);
+      expect([searched(), one.named(), [...one.seen.done?.catalog.lineItemModules ?? []]]).toEqual([candidates, undefined, []]);
+      await vi.advanceTimersByTimeAsync(200);
+      expect([one.named(), one.seen.done?.notes]).toEqual([{ name: "Include?", moduleId: candidate(3) }, []]);
+      expect(lines(one.log)).toEqual([
+        "filter line items: 1 looked for in 8 of 8 candidate modules that have the filtered dimensions and 0 of 0 other modules, in 12 s, 0 reads given up while waiting: "
+          + "1 found (1 in candidate modules), 0 not found", few(8)]);
+      await leavesNothingBehind(one);
+    });
+
+    it("the question which modules have the filtered dimension is answered after twelve seconds, and the model's list of modules did not arrive: named after twelve seconds", async () => {
+      vi.useFakeTimers({ toFake: [...timers] });
+      const candidates = [1, 2].map(candidate);
+      serveModel({ [MODULE_VIEWS]: id => rejected(id, "MODULES_UNAVAILABLE"), [at("/applicableModules")]: named(candidates), [at(`/modules/${candidate(1)}/lineItems`)]: lineItem });
+      slowly(destination => destination === at("/applicableModules"), 12_000);
+      const late = start();
+      // After ten seconds the reading would start with the modules known by then: there are none, and no list to go
+      // through. The question goes on waiting, and its answer counts when it comes: the two modules it names are read.
+      await vi.advanceTimersByTimeAsync(11_900);
+      expect([searched(), late.named()]).toEqual([[], undefined]);
+      await vi.advanceTimersByTimeAsync(200);
+      expect([searched(), late.named(), late.seen.done?.notes]).toEqual([candidates, { name: "Include?", moduleId: candidate(1) },
+        ["Synthetic model: module and saved view names were not available (MODULES_UNAVAILABLE)."]]);
+      expect(lines(late.log)).toEqual([
+        "filter line items: 1 looked for in 1 of 2 candidate modules that have the filtered dimensions and 0 of 0 other modules, in 12 s, 1 reads given up while waiting: "
+          + "1 found (1 in candidate modules), 0 not found", few(2)]);
+      await leavesNothingBehind(late);
+    });
+
+    it("the first of eight named modules never answers, and the rule's line item is in the fifth: named at once", async () => {
+      vi.useFakeTimers({ toFake: [...timers] });
+      const candidates = [1, 2, 3, 4, 5, 6, 7, 8].map(candidate);
+      serveModel({ [at("/applicableModules")]: named(candidates), [at(`/modules/${candidate(1)}/lineItems`)]: () => "", [at(`/modules/${candidate(5)}/lineItems`)]: lineItem });
+      const silent = start();
+      // The silent module holds one place. The three others go on moving: the fifth module is asked for as soon as the
+      // second has answered, and has the line item.
+      await vi.advanceTimersByTimeAsync(100);
+      expect([silent.named(), silent.seen.done?.notes, searched()]).toEqual([{ name: "Include?", moduleId: candidate(5) }, [], candidates.slice(0, 7)]);
+      // No timer of the search is left behind either: each of its waits ends its own.
+      expect(vi.getTimerCount()).toBe(0);
+      expect(lines(silent.log)).toEqual([
+        "filter line items: 1 looked for in 4 of 8 candidate modules that have the filtered dimensions and 0 of 0 other modules, in 0 s, 3 reads given up while waiting: "
+          + "1 found (1 in candidate modules), 0 not found", few(7)]);
+      await leavesNothingBehind(silent);
+    });
+
+    it("five modules never answer, one in every four, and the rule's line item is in the twenty-second: named after ten seconds", async () => {
+      vi.useFakeTimers({ toFake: [...timers] });
+      const candidates = Array.from({ length: 22 }, (_, index) => candidate(index + 1));
+      serveModel({ [at("/applicableModules")]: named(candidates), [at(`/modules/${candidate(22)}/lineItems`)]: lineItem,
+        ...Object.fromEntries([1, 5, 9, 13, 17].map(n => [at(`/modules/${candidate(n)}/lineItems`), () => ""])) });
+      const silent = start();
+      // The modules that answer are read as fast as they answer, until the four places are held by four that do not: the
+      // first, the fifth, the ninth and the thirteenth.
+      await vi.advanceTimersByTimeAsync(9_900);
+      expect([searched(), silent.named()]).toEqual([candidates.slice(0, 13), undefined]);
+      // After ten seconds they have held their places long enough, and the reading goes on, past the fifth silent module,
+      // to the twenty-second. The five that never answered are given up then: they were not refused, and are not logged.
+      await vi.advanceTimersByTimeAsync(300);
+      expect([silent.named(), silent.seen.done?.notes, searched()]).toEqual([{ name: "Include?", moduleId: candidate(22) }, [], candidates]);
+      expect(lines(silent.log)).toEqual([
+        "filter line items: 1 looked for in 17 of 22 candidate modules that have the filtered dimensions and 0 of 0 other modules, in 10 s, 5 reads given up while waiting: "
+          + "1 found (1 in candidate modules), 0 not found", few(22)]);
+      await leavesNothingBehind(silent);
+    });
   });
 
-  it("gives the search for filter line items forty-five seconds in all: no module is read once they are over, the reads that wait are given up, and a note says how many modules were not read", async () => {
+  it("gives the search for filter line items forty-five seconds in all: nothing is asked for once they are over, what still waits is given up, and a note says how many modules were not read", async () => {
     const timers = ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] as const;
     const others = Array.from({ length: 30 }, (_, index) => other(index + 1));
-    const note = (unread: number) => `Synthetic model: some filter line items were not found in the 45 seconds allowed for the search: ${unread} of 30 modules were not read.`;
-    const waited = (module: string) => `line items of module ${module}: Timed out waiting for ${at(`/modules/${module}/lineItems`)}.`;
+    const note = (unread: number, of = 30) => `Synthetic model: some filter line items were not found in the 45 seconds allowed for the search: ${unread} of ${of} modules were not read.`;
     const unnamed = `filter rule with an unnamed item (card card-1): unnamed ${FILTER_ITEM}`;
+    const few = "fewer than 3 modules with line items were read";
 
-    // A model of thirty other modules, none of which has the rule's line item, that takes eight seconds over each four.
+    // A model of thirty other modules, none of which has the rule's line item, that takes eight seconds over each, and
+    // refuses to list the line items of the second.
     vi.useFakeTimers({ toFake: [...timers] });
-    serveModel({ [MODULE_VIEWS]: moduleList(others) });
+    serveModel({ [MODULE_VIEWS]: moduleList(others), [at(`/modules/${other(2)}/lineItems`)]: id => rejected(id, "LINE_ITEMS_UNAVAILABLE") });
     slowLineItems(8_000);
     const slow = run(withGrid());
     let outcome: unknown = "reading";
     slow.result.then(done => { outcome = done.notes; }, error => { outcome = error; });
-    // The sixth four are asked for forty seconds after the first and would be answered after forty-eight: until the
-    // forty-five are over, they are waited for.
-    await vi.advanceTimersByTimeAsync(44_999);
+    // Four are asked for every eight seconds. The sixth four are asked for after forty and would be answered after
+    // forty-eight: until the forty-five are over, they are waited for.
+    await vi.advanceTimersByTimeAsync(44_900);
     expect([outcome, searched()]).toEqual(["reading", others.slice(0, 24)]);
-    // Then they are given up, although a read may wait ten seconds; no seventh four are asked for, and the run goes on to
-    // its end, with a note.
-    await vi.advanceTimersByTimeAsync(101);
-    expect([outcome, searched()]).toEqual([[note(10)], others.slice(0, 24)]);
+    // Then the search is over: the four are given up, no more are asked for, and the run goes on to its end, with a note.
+    // Its numbers are of every module that was not read: the four given up, the six never asked for and the one refused.
+    await vi.advanceTimersByTimeAsync(200);
+    expect([outcome, searched()]).toEqual([[note(11)], others.slice(0, 24)]);
+    // The four were not refused: they are not remembered as unreadable, nothing is logged for them, their subscriptions
+    // are ended, and their answers, which come three seconds later, change nothing.
     await vi.advanceTimersByTimeAsync(60_000);
-    expect(searched()).toEqual(others.slice(0, 24));
+    const { catalog } = await slow.result;
+    expect([searched(), everyReadEnded(), [...catalog.unreadableModules], [...catalog.lineItemModules]])
+      .toEqual([others.slice(0, 24), true, [other(2)], [MODULE, other(1), ...others.slice(2, 20)]]);
     expect(slow.statuses.slice(-6)).toEqual(["Finding filter line items in Synthetic model…",
-      ...[4, 8, 12, 16, 20].map(read => `Finding filter line items in Synthetic model: ${read} of 30 modules…`)]);
-    // The log says that the time ran out and how many modules were left: the four given up and the six never asked for.
-    expect(slow.log.filter(line => /^(filter |line items of)/.test(line))).toEqual([...others.slice(20, 24).map(waited),
-      "filter line items: 1 looked for in 0 of 0 candidate modules that have the filtered dimensions and 20 of 30 other modules, in 45 s: 0 found, 1 not found",
-      "filter line items: the entity-type bracket chose 0 of the 24 modules asked for; fewer than 3 modules with line items were read",
-      "filter line items: the 45 seconds allowed for the search ran out: 10 modules left unread", unnamed]);
+      ...[4, 8, 12, 16, 20].map(asked => `Finding filter line items in Synthetic model: ${asked} of 30 modules…`)]);
+    // The log says how many reads were given up while they waited, that the time ran out, and how many modules were left.
+    expect(slow.log.filter(line => /^(filter |line items of)/.test(line))).toEqual([`line items of module ${other(2)}: LINE_ITEMS_UNAVAILABLE`,
+      "filter line items: 1 looked for in 0 of 0 candidate modules that have the filtered dimensions and 19 of 30 other modules, in 45 s, 4 reads given up while waiting: 0 found, 1 not found",
+      `filter line items: the entity-type bracket chose 0 of the 24 modules asked for; ${few}`,
+      "filter line items: the 45 seconds allowed for the search ran out: 11 modules left unread", unnamed]);
 
     // A rule that a module already read rules out is looked for in the modules the model names only. When the time runs out
     // on those, the note counts them, and not the model's other modules, which were not to be read. Here the cards show
@@ -1130,10 +1319,9 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     const ruledOut = run([{ cards: ruled(rule([GONE], ["true"]))[0].cards, references: [MODULE, MODULE_3, STAFFING].map(id => ({ kind: "module", id })) }] as unknown as UxPageCardDetails[]);
     // (The two other modules the cards show take their eight seconds before the search begins.)
     await vi.advanceTimersByTimeAsync(8_000 + 45_100);
-    expect([(await ruledOut.result).notes, searched()]).toEqual([["Synthetic model: some filter line items were not found in the 45 seconds allowed for the search: 8 of 28 modules were not read."],
-      [MODULE_3, STAFFING, ...named.slice(0, 24)]]);
+    expect([(await ruledOut.result).notes, searched()]).toEqual([[note(8, 28)], [MODULE_3, STAFFING, ...named.slice(0, 24)]]);
     expect(ruledOut.log.filter(line => line.startsWith("filter line items:"))).toEqual([
-      "filter line items: 1 looked for in 20 of 28 candidate modules that have the filtered dimensions and 0 of 10 other modules, in 45 s: 0 found, 1 not found",
+      "filter line items: 1 looked for in 20 of 28 candidate modules that have the filtered dimensions and 0 of 10 other modules, in 45 s, 4 reads given up while waiting: 0 found, 1 not found",
       "filter line items: the entity-type bracket chose 0 of the 24 modules asked for; in the modules read, module IDs and line item entity types rise together (3 modules with line items)",
       `filter line items: of the 1 not found, 1 looked for in the candidate modules only: 1 ruled out, each by a module that was read, which has the line items of its entity type and does not list it (${GONE} by module ${MODULE})`,
       "filter line items: the 45 seconds allowed for the search ran out: 8 modules left unread"]);
@@ -1146,55 +1334,278 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     await vi.advanceTimersByTimeAsync(40_100);
     expect([(await whole.result).notes, searched()]).toEqual([[], others]);
     expect(whole.log.filter(line => line.startsWith("filter "))).toEqual([
-      "filter line items: 1 looked for in 0 of 0 candidate modules that have the filtered dimensions and 30 of 30 other modules, in 40 s: 0 found, 1 not found",
-      "filter line items: the entity-type bracket chose 0 of the 30 modules asked for; fewer than 3 modules with line items were read", unnamed]);
+      "filter line items: 1 looked for in 0 of 0 candidate modules that have the filtered dimensions and 30 of 30 other modules, in 40 s, 0 reads given up while waiting: 0 found, 1 not found",
+      `filter line items: the entity-type bracket chose 0 of the 30 modules asked for; ${few}`, unnamed]);
+
+    // The time is over with its forty-five thousandth millisecond, and not one later. Here the clock stands still but for
+    // the first answer, which comes at that very moment: its place is free and twenty-six modules are left, and no read is
+    // started. The three that were asked for with it are given up.
+    vi.useRealTimers();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    ScriptedSocket.sockets = [];
+    serveModel({ [MODULE_VIEWS]: moduleList(others), [at(`/modules/${other(1)}/lineItems`)]: id => { vi.setSystemTime(Date.now() + 45_000); return update(id, { data: [] }); } });
+    const sharp = run(withGrid());
+    expect([(await sharp.result).notes, searched()]).toEqual([[note(29)], others.slice(0, 4)]);
+    expect(sharp.log.filter(line => line.startsWith("filter line items: 1 looked for"))).toEqual([
+      "filter line items: 1 looked for in 0 of 0 candidate modules that have the filtered dimensions and 1 of 30 other modules, in 45 s, 3 reads given up while waiting: 0 found, 1 not found"]);
   });
 
-  it("counts its questions about the filtered dimensions in the forty-five seconds: none is asked once they are over, and the note says what the model had not said", async () => {
+  it("asks its questions about the filtered dimensions together, starts reading after ten seconds whatever they say, and lets a late answer count", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
-    // Six filtered dimensions, a model that answers none of the questions which modules have them, and three modules to read.
+    // Six filtered dimensions, and a rule on a line item that no card shows. The axis has two more whose IDs are no IDs:
+    // nothing is asked about those.
     const dimensions = [LIST, LIST_2, ...[3, 4, 5, 6].map(n => String(101000000900 + n))];
     const pages = ruled(rule([FILTER_ITEM], ["true"]));
-    (pages[0].cards[0] as Any).grid.regions[0].rows.dimensions = dimensions.map(id => ({ dimension: { kind: "dimension", id } }));
+    (pages[0].cards[0] as Any).grid.regions[0].rows.dimensions = [...dimensions, "versions", "0101000000907"].map(id => ({ dimension: { kind: "dimension", id } }));
     const questions = () => sent("SEND").filter(frame => frame.headers.destination === at("/applicableModules")).map(frame => String(JSON.parse(frame.body).dimensions[0]));
-    const unanswered = (dimension: string) => `modules for dimension ${dimension}: Timed out waiting for ${at("/applicableModules")}.`;
-    const unsaid = "the model had not said which modules have 2 of the filtered dimensions";
+    const unsaid = "the model had not said which modules have 6 of the filtered dimensions";
     const note = (what: string) => `Synthetic model: some filter line items were not found in the 45 seconds allowed for the search: ${what}.`;
+    const lines = (log: string[]) => log.filter(line => /^(filter |modules for|line items of)/.test(line));
+    const few = (asked: number) => `filter line items: the entity-type bracket chose 0 of the ${asked} modules asked for; fewer than 3 modules with line items were read`;
+    const unnamed = `filter rule with an unnamed item (card card-1): unnamed ${FILTER_ITEM}`;
+    const others = Array.from({ length: 40 }, (_, index) => other(index + 1));
 
-    serveModel({ [MODULE_VIEWS]: moduleList([1, 2, 3].map(other)), [at("/applicableModules")]: () => "" });
-    const slow = run(pages);
+    // When each read was asked for, by the clock.
+    const askedAt = new Map<string, number>();
+    const send = ScriptedSocket.prototype.send;
+    vi.spyOn(ScriptedSocket.prototype, "send").mockImplementation(function (this: ScriptedSocket, data: string) {
+      for (const frame of decodeFrames(data).frames) if (frame.command === "SEND" && !askedAt.has(frame.headers.destination)) askedAt.set(frame.headers.destination, Date.now());
+      send.call(this, data);
+    });
+
+    // The model answers none of the six questions, and its list has three other modules, none with the line item.
+    serveModel({ [MODULE_VIEWS]: moduleList(others.slice(0, 3)), [at("/applicableModules")]: () => "" });
+    const silent = run(pages);
     let outcome: unknown = "reading";
-    slow.result.then(done => { outcome = done.notes; }, error => { outcome = error; });
-    // Each question is given up after ten seconds; the fifth, asked after forty, after the five that are left.
-    await vi.advanceTimersByTimeAsync(44_999);
-    expect([outcome, questions()]).toEqual(["reading", dimensions.slice(0, 5)]);
-    // Then the time is over: the sixth question is not asked and no module is read. The log and the note say both.
-    await vi.advanceTimersByTimeAsync(101);
-    expect([outcome, questions(), searched()]).toEqual([[note(`3 of 3 modules were not read, and ${unsaid}`)], dimensions.slice(0, 5), []]);
-    expect(slow.log.filter(line => /^(filter |modules for)/.test(line))).toEqual([...dimensions.slice(0, 5).map(unanswered),
-      "filter line items: 1 looked for in 0 of 0 candidate modules that have the filtered dimensions and 0 of 3 other modules, in 45 s: 0 found, 1 not found",
-      "filter line items: the entity-type bracket chose 0 of the 0 modules asked for; fewer than 3 modules with line items were read",
-      `filter line items: the 45 seconds allowed for the search ran out: 3 modules left unread, and ${unsaid}`,
-      `filter rule with an unnamed item (card card-1): unnamed ${FILTER_ITEM}`]);
+    silent.result.then(done => { outcome = done.notes; }, error => { outcome = error; });
+    // The six are asked at once, and for ten seconds nothing else is.
+    await vi.advanceTimersByTimeAsync(9_900);
+    expect([outcome, questions(), searched()]).toEqual(["reading", dimensions, []]);
+    // Then the reading starts with what is known, ten seconds to the millisecond after the questions were asked: no module
+    // was named, so the model's list is gone through.
+    await vi.advanceTimersByTimeAsync(200);
+    expect(searched()).toEqual(others.slice(0, 3));
+    expect(askedAt.get(at(`/modules/${other(1)}/lineItems`))! - askedAt.get(at("/applicableModules"))!).toBe(10_000);
+    // Every module of the list is read then, and the six questions can name no module that is left: they are not waited
+    // for any longer. The log says of all six that the model had not answered, and nothing was cut short: no note.
+    expect([outcome, questions(), everyReadEnded()]).toEqual([[], dimensions, true]);
+    expect(lines(silent.log)).toEqual([
+      "filter line items: 1 looked for in 0 of 0 candidate modules that have the filtered dimensions and 3 of 3 other modules, in 10 s, 0 reads given up while waiting: 0 found, 1 not found",
+      few(3), "filter line items: the model had not said which modules have 6 of the filtered dimensions when no module of its list was left to read: no answer could name another", unnamed]);
 
-    // Without the model's list of modules there is no module to read, and the time ran out all the same: the log says so,
-    // and a note does too.
+    // Without the model's list of modules any module could be named yet: the six are waited for until the time is up, there
+    // is no module to read at all, and the note says of all six that the model had not answered.
     ScriptedSocket.sockets = [];
     serveModel({ [MODULE_VIEWS]: id => rejected(id, "MODULES_UNAVAILABLE"), [at("/applicableModules")]: () => "" });
     const listless = run(pages);
     await vi.advanceTimersByTimeAsync(45_100);
-    expect((await listless.result).notes).toEqual(["Synthetic model: module and saved view names were not available (MODULES_UNAVAILABLE).", note(unsaid)]);
-    expect([questions(), listless.log.filter(line => line.startsWith("filter line items: the 45"))]).toEqual([dimensions.slice(0, 5),
-      [`filter line items: the 45 seconds allowed for the search ran out: 0 modules left unread, and ${unsaid}`]]);
+    expect([(await listless.result).notes, searched()]).toEqual([["Synthetic model: module and saved view names were not available (MODULES_UNAVAILABLE).", note(unsaid)], []]);
+
+    // One question, answered after twelve seconds, in a model that takes two seconds over a module's line items. The
+    // reading starts after ten seconds with the model's list. The answer names two modules that the list does not have, the
+    // second with the line item: they go to the front of what is left to read.
+    ScriptedSocket.sockets = [];
+    const named = [1, 2].map(candidate);
+    serveModel({ [MODULE_VIEWS]: moduleList(others), [at("/applicableModules")]: id => update(id, { data: named.map(module => ({ id: module, label: `Module ${module}` })) }),
+      [at(`/modules/${named[1]}/lineItems`)]: id => update(id, { data: [{ lineItemId: FILTER_ITEM, lineItemLabel: "Include?" }] }) });
+    slowly(destination => destination === at("/applicableModules"), 12_000);
+    slowLineItems(2_000);
+    const late = run(withGrid());
+    await vi.advanceTimersByTimeAsync(11_900);
+    expect(searched()).toEqual(others.slice(0, 4));
+    await vi.advanceTimersByTimeAsync(200);
+    expect(searched()).toEqual([...others.slice(0, 4), ...named, ...others.slice(4, 6)]);
+    await vi.advanceTimersByTimeAsync(2_000);
+    const done = await late.result;
+    expect([done.notes, done.catalog.lineItems.get(FILTER_ITEM), searched()]).toEqual([[], { name: "Include?", moduleId: named[1] }, [...others.slice(0, 4), ...named, ...others.slice(4, 7)]]);
+    expect(lines(late.log)).toEqual([
+      "filter line items: 1 looked for in 2 of 2 candidate modules that have the filtered dimensions and 4 of 40 other modules, in 14 s, 3 reads given up while waiting: "
+        + "1 found (1 in candidate modules), 0 not found", few(9)]);
+
+    // Two filtered dimensions, each with two modules of its own, and the second question is answered first: the modules are
+    // read in the order of the dimensions all the same, as they were when the questions were asked one after another.
+    ScriptedSocket.sockets = [];
+    const [ofFirst, ofSecond] = [[1, 2].map(candidate), [3, 4].map(candidate)];
+    serveModel({ [MODULE_VIEWS]: moduleList([]),
+      [at("/applicableModules")]: (id, asked) => update(id, { data: (asked.dimensions[0] === Number(LIST) ? ofFirst : ofSecond).map(module => ({ id: module, label: `Module ${module}` })) }) });
+    const reply = ScriptedSocket.reply;
+    ScriptedSocket.reply = (socket, frame) => {
+      const first = frame.command === "SEND" && frame.headers.destination === at("/applicableModules") && JSON.parse(frame.body).dimensions[0] === Number(LIST);
+      if (first) setTimeout(() => reply(socket, frame), 1_000); else reply(socket, frame);
+    };
+    const two = ruled(rule([FILTER_ITEM], ["true"]));
+    (two[0].cards[0] as Any).grid.regions[0].rows.dimensions = [LIST, LIST_2].map(id => ({ dimension: { kind: "dimension", id } }));
+    const ordered = run(two);
+    await vi.advanceTimersByTimeAsync(900);
+    expect([questions().slice(-2), searched()]).toEqual([[LIST, LIST_2], []]);
+    await vi.advanceTimersByTimeAsync(200);
+    await ordered.result;
+    expect(searched()).toEqual([...ofFirst, ...ofSecond]);
   });
 
-  it("adds no note about the time when it cut nothing short: every module was read, or every rule has its line item", async () => {
+  it("asks for the modules that a late answer names at once: they do not wait for the places that reads of other modules hold", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
+    const others = Array.from({ length: 40 }, (_, index) => other(index + 1));
+    /** A model that says after twelve seconds which modules have the filtered dimension, and takes 10.9 seconds over a
+     * module's line items. The last of the modules it names has the rule's line item. */
+    const serve = (named: string[]) => {
+      ScriptedSocket.sockets = [];
+      serveModel({ [MODULE_VIEWS]: moduleList(others), [at("/applicableModules")]: id => update(id, { data: named.map(module => ({ id: module, label: `Module ${module}` })) }),
+        [at(`/modules/${named.at(-1)}/lineItems`)]: id => update(id, { data: [{ lineItemId: FILTER_ITEM, lineItemLabel: "Include?" }] }) });
+      slowly(destination => destination === at("/applicableModules"), 12_000);
+      slowLineItems(10_900);
+    };
+
+    // Nine modules are named. After ten seconds the reading began with the model's list, and four of its modules hold the
+    // four places when the answer comes. The first four named modules are asked for at once all the same, as soon as they
+    // were when the questions were waited for; the next four ten seconds later.
+    const nine = Array.from({ length: 9 }, (_, index) => candidate(index + 1));
+    serve(nine);
+    const late = run(withGrid());
+    await vi.advanceTimersByTimeAsync(11_900);
+    expect(searched()).toEqual(others.slice(0, 4));
+    await vi.advanceTimersByTimeAsync(200);
+    expect(searched()).toEqual([...others.slice(0, 4), ...nine.slice(0, 4)]);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(searched()).toEqual([...others.slice(0, 4), ...nine.slice(0, 8)]);
+    // The ninth is asked for after thirty-two seconds and has the line item: the rule is named after forty-three. (Had the
+    // named modules waited for the four places, the ninth would have been asked for after forty, and answered when the time
+    // was over.) Seven of the list's modules were asked for in the places it left free, and are given up.
+    await vi.advanceTimersByTimeAsync(21_000);
+    const done = await late.result;
+    expect([done.catalog.lineItems.get(FILTER_ITEM), done.notes, searched()]).toEqual([{ name: "Include?", moduleId: nine[8] }, [], [...others.slice(0, 4), ...nine, ...others.slice(4, 11)]]);
+    expect(late.log.filter(line => line.startsWith("filter line items: 1 looked for"))).toEqual([
+      "filter line items: 1 looked for in 9 of 9 candidate modules that have the filtered dimensions and 4 of 40 other modules, in 43 s, 7 reads given up while waiting: "
+        + "1 found (1 in candidate modules), 0 not found"]);
+
+    // One module is named: it is asked for at once, and no other module with it, for the four places are still held.
+    serve([candidate(1)]);
+    const one = run(withGrid());
+    await vi.advanceTimersByTimeAsync(12_100);
+    expect(searched()).toEqual([...others.slice(0, 4), candidate(1)]);
+    await vi.advanceTimersByTimeAsync(11_000);
+    expect((await one.result).catalog.lineItems.get(FILTER_ITEM)).toEqual({ name: "Include?", moduleId: candidate(1) });
+
+    // Six modules of the list are named, two of them among the four that are being read. The four others are asked for at
+    // once all the same: a read that was asked for as a list module's holds no place against a named module.
+    serve([9, 2, 3, 10, 11, 12].map(other));
+    const mixed = run(withGrid());
+    await vi.advanceTimersByTimeAsync(12_100);
+    expect(searched()).toEqual([...others.slice(0, 4), ...[9, 10, 11, 12].map(other)]);
+    await vi.advanceTimersByTimeAsync(11_000);
+    expect((await mixed.result).catalog.lineItems.get(FILTER_ITEM)).toEqual({ name: "Include?", moduleId: other(12) });
+  });
+
+  it("does not wait for a question that can name no module that is left: once every module of the model's list was read or refused, the search ends, and no note says that time ran out", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
+    const others = [1, 2, 3].map(other);
+    const lines = (log: string[]) => log.filter(line => /^(filter |modules for|line items of)/.test(line));
+    const few = (asked: number) => `filter line items: the entity-type bracket chose 0 of the ${asked} modules asked for; fewer than 3 modules with line items were read`;
+    const unnamed = `filter rule with an unnamed item (card card-1): unnamed ${FILTER_ITEM}`;
+    const unanswered = "filter line items: the model had not said which modules have 1 of the filtered dimensions when no module of its list was left to read: no answer could name another";
+    /** Starts a run against a model that never says which modules have the filtered dimension, and says what became of it. */
+    const start = (answers: Record<string, (id: string, asked: Any) => string>) => {
+      ScriptedSocket.sockets = [];
+      serveModel({ [at("/applicableModules")]: () => "", ...answers });
+      const { log, result } = run(withGrid());
+      const seen: { notes?: string[] } = {};
+      void result.then(done => { seen.notes = done.notes; });
+      return { log, seen };
+    };
+
+    // The model's list has three other modules, none with the rule's line item. For ten seconds the question is waited for;
+    // then the reading begins with the list, and is done at once. The question can name no module that is left now: the
+    // search ends there, where it used to wait until its forty-five seconds were over.
+    const whole = start({ [MODULE_VIEWS]: moduleList(others) });
+    await vi.advanceTimersByTimeAsync(9_900);
+    expect([whole.seen.notes, searched()]).toEqual([undefined, []]);
+    await vi.advanceTimersByTimeAsync(200);
+    // The rule keeps its ID, and nothing was cut short: no note. The log says that the model had not answered. The question
+    // is given up like a read that waits: its subscription is ended, and nothing is logged for it, then or later.
+    expect([whole.seen.notes, searched(), everyReadEnded()]).toEqual([[], others, true]);
+    const logged = [
+      "filter line items: 1 looked for in 0 of 0 candidate modules that have the filtered dimensions and 3 of 3 other modules, in 10 s, 0 reads given up while waiting: 0 found, 1 not found",
+      few(3), unanswered, unnamed];
+    expect(lines(whole.log)).toEqual(logged);
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(lines(whole.log)).toEqual(logged);
+
+    // A module whose read still waits is left, and one whose read was refused is not: here the second of the three takes
+    // twenty seconds and the third is refused. The search waits for the second, and ends when it has answered.
+    const slow = start({ [MODULE_VIEWS]: moduleList(others), [at(`/modules/${other(3)}/lineItems`)]: id => rejected(id, "LINE_ITEMS_UNAVAILABLE") });
+    slowly(destination => destination === at(`/modules/${other(2)}/lineItems`), 20_000);
+    await vi.advanceTimersByTimeAsync(29_900);
+    expect(slow.seen.notes).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(200);
+    expect(slow.seen.notes).toEqual([]);
+    expect(lines(slow.log)).toEqual([`line items of module ${other(3)}: LINE_ITEMS_UNAVAILABLE`,
+      "filter line items: 1 looked for in 0 of 0 candidate modules that have the filtered dimensions and 2 of 3 other modules, in 30 s, 0 reads given up while waiting: 0 found, 1 not found",
+      few(3), unanswered, unnamed]);
+
+    // A list whose modules the cards show already leaves nothing to read from the start. The question has its ten seconds
+    // all the same, as every question has: an answer that comes within them is acted on, whatever it names.
+    const shown = start({ [MODULE_VIEWS]: moduleList([]) });
+    await vi.advanceTimersByTimeAsync(9_900);
+    expect(shown.seen.notes).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(200);
+    expect([shown.seen.notes, searched()]).toEqual([[], []]);
+
+    // When every rule has its line item, a question that went unanswered is nothing to speak of. Here the model answers
+    // for the first of two filtered dimensions, with the module that has the line item, and never for the second.
+    ScriptedSocket.sockets = [];
+    serveModel({ [MODULE_VIEWS]: moduleList([]), [at("/applicableModules")]: (id, asked) => (asked.dimensions[0] === Number(LIST) ? update(id, { data: [{ id: candidate(1), label: "Module" }] }) : ""),
+      [at(`/modules/${candidate(1)}/lineItems`)]: id => update(id, { data: [{ lineItemId: FILTER_ITEM, lineItemLabel: "Include?" }] }) });
+    const two = ruled(rule([FILTER_ITEM], ["true"]));
+    (two[0].cards[0] as Any).grid.regions[0].rows.dimensions = [LIST, LIST_2].map(id => ({ dimension: { kind: "dimension", id } }));
+    const found = run(two);
+    await vi.advanceTimersByTimeAsync(10_200);
+    expect((await found.result).catalog.lineItems.get(FILTER_ITEM)).toEqual({ name: "Include?", moduleId: candidate(1) });
+    expect(lines(found.log)).toEqual([
+      "filter line items: 1 looked for in 1 of 1 candidate modules that have the filtered dimensions and 0 of 0 other modules, in 10 s, 0 reads given up while waiting: "
+        + "1 found (1 in candidate modules), 0 not found", few(1)]);
+  });
+
+  it("goes on waiting for a question that can still name a module, as long as the time lasts: when the model's list did not arrive, or holds modules that were not read", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
+    const unsaid = "the model had not said which modules have 1 of the filtered dimensions";
+    const note = `Synthetic model: some filter line items were not found in the 45 seconds allowed for the search: ${unsaid}.`;
+    const ranOut = `filter line items: the 45 seconds allowed for the search ran out: 0 modules left unread, and ${unsaid}`;
+    const said = (log: string[]) => log.filter(line => /ran out|had not said/.test(line));
+
+    // The model's list of modules did not arrive, and the model never says which modules have the filtered dimension: any
+    // module could be named yet. The question is waited for until the forty-five seconds are over, and the note says so.
+    serveModel({ [MODULE_VIEWS]: id => rejected(id, "MODULES_UNAVAILABLE"), [at("/applicableModules")]: () => "" });
+    const listless = run(withGrid());
+    const seen: { listless?: string[]; spared?: string[] } = {};
+    void listless.result.then(done => { seen.listless = done.notes; });
+    await vi.advanceTimersByTimeAsync(44_900);
+    expect(seen.listless).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(200);
+    expect([seen.listless, searched(), said(listless.log)]).toEqual([["Synthetic model: module and saved view names were not available (MODULES_UNAVAILABLE).", note], [], [ranOut]]);
+
+    // The list arrived, but its three modules are not read for this rule: a module the cards show rules its ID out (the
+    // three modules they show bear that out), so it is looked for in the modules the model names only. Which those are,
+    // only the answer can say: it is waited for until the time is over, and the note says so.
+    ScriptedSocket.sockets = [];
+    const GONE = ITEM(1901, 77);
+    const lineItemsOf = (lineItemId: string) => (id: string) => update(id, { data: [{ lineItemId, lineItemLabel: `Line item ${lineItemId}` }] });
+    serveModel({ [MODULE_VIEWS]: moduleList([1, 2, 3].map(other)), [at("/applicableModules")]: () => "",
+      [at(`/modules/${MODULE}/lineItems`)]: lineItemsOf(LINE_ITEM), [at(`/modules/${MODULE_3}/lineItems`)]: lineItemsOf(ITEM(1905, 1)), [at(`/modules/${STAFFING}/lineItems`)]: lineItemsOf(ITEM(1909, 1)) });
+    const spared = run([{ cards: ruled(rule([GONE], ["true"]))[0].cards, references: [MODULE, MODULE_3, STAFFING].map(id => ({ kind: "module", id })) }] as unknown as UxPageCardDetails[]);
+    void spared.result.then(done => { seen.spared = done.notes; });
+    await vi.advanceTimersByTimeAsync(44_900);
+    expect([seen.spared, searched()]).toEqual([undefined, [MODULE_3, STAFFING]]);
+    await vi.advanceTimersByTimeAsync(200);
+    expect([seen.spared, searched(), said(spared.log)]).toEqual([[note], [MODULE_3, STAFFING], [ranOut]]);
+  });
+
+  it("adds no note when the search left nothing undone: every module was read, or every rule has its line item, although the time is over", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     const [candidates, others] = [[1, 2, 3, 4, 5, 6, 7, 8].map(candidate), [1, 2, 3, 4].map(other)];
     /** An answer that comes fifty seconds later by the clock, as after the computer slept. */
     const late = (data: unknown[]) => (id: string) => { vi.setSystemTime(Date.now() + 50_000); return update(id, { data }); };
     const lines = (log: string[]) => log.filter(line => line.startsWith("filter line items:"));
-    const few = "filter line items: the entity-type bracket chose 0 of the 4 modules asked for; fewer than 3 modules with line items were read";
+    const few = (asked: number) => `filter line items: the entity-type bracket chose 0 of the ${asked} modules asked for; fewer than 3 modules with line items were read`;
 
     // The last of the model's four modules answers when the forty-five seconds are over, and none has the rule's line item.
     // Every module was read: no note says that the time ran out, and no line of the log.
@@ -1203,100 +1614,149 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     expect((await whole.result).notes).toEqual([]);
     expect(searched()).toEqual(others);
     expect(lines(whole.log)).toEqual([
-      "filter line items: 1 looked for in 0 of 0 candidate modules that have the filtered dimensions and 4 of 4 other modules, in 50 s: 0 found, 1 not found", few]);
+      "filter line items: 1 looked for in 0 of 0 candidate modules that have the filtered dimensions and 4 of 4 other modules, in 50 s, 0 reads given up while waiting: 0 found, 1 not found", few(4)]);
 
-    // The module that has the rule's line item answers when the forty-five seconds are over. Four of the modules the model
-    // named were not read, and nothing is looked for in them any more: no note either.
+    // The module that has the rule's line item answers when the forty-five seconds are over. Modules the model named were
+    // not read, three of them given up as they waited, and nothing is looked for in them any more: no note either.
     ScriptedSocket.sockets = [];
     serveModel({ [at("/applicableModules")]: id => update(id, { data: candidates.map(module => ({ id: module, label: `Module ${module}` })) }),
       [at(`/modules/${candidate(2)}/lineItems`)]: late([{ lineItemId: FILTER_ITEM, lineItemLabel: "Include?" }]) });
     const found = run(withGrid());
     expect((await found.result).notes).toEqual([]);
-    expect(searched()).toEqual(candidates.slice(0, 4));
+    expect(searched()).toEqual(candidates.slice(0, 5));
     expect(lines(found.log)).toEqual([
-      "filter line items: 1 looked for in 4 of 8 candidate modules that have the filtered dimensions and 0 of 0 other modules, in 50 s: 1 found (1 in candidate modules), 0 not found", few]);
+      "filter line items: 1 looked for in 2 of 8 candidate modules that have the filtered dimensions and 0 of 0 other modules, in 50 s, 3 reads given up while waiting: "
+        + "1 found (1 in candidate modules), 0 not found", few(5)]);
   });
 
   it("ends the search for filter line items at once when the run is stopped, the model closes or the connection fails, and asks for no further module", async () => {
     const stopped = new Error("Stopped: the results page was closed.");
-    const others = Array.from({ length: 12 }, (_, index) => other(index + 1));
+    const others = Array.from({ length: 16 }, (_, index) => other(index + 1));
     const closed = "Synthetic model: names from the model data service were not available (the model is closed); IDs are shown instead.";
     let status = "";
     const answers = (waiting: string, during: (id: string) => string) => ({ [at("")]: (id: string) => { status = id; return update(id, { status: "UNKNOWN" }); },
       [MODULE_VIEWS]: moduleList(others), [waiting]: during });
-    // The model names no module for the filtered dimension, so its list is gone through: the sixth of its other modules, one
-    // of the second four, is the one whose line items are never answered.
+    // The model names no module for the filtered dimension, so its list is gone through, four reads moving. The sixth of
+    // its other modules is the one whose line items are never answered: by the time it is asked, nine modules have been.
     const waiting = at(`/modules/${other(6)}/lineItems`);
+    const failed = (log: string[]) => log.filter(line => /^(filter |line items of)/.test(line));
+    const later = () => new Promise(resolve => { setTimeout(resolve, 20); });
 
-    // Stopped while that read waits: the four it was asked with are the last, the socket is closed, and the stop is what
-    // ends the run.
+    // Stopped while that read waits: no tenth module is asked for, the socket is closed, and the stop is what ends the run.
+    // The reads that waited are given up with the search: nothing is logged for them, then or later.
     const stopping = new AbortController();
     serveModel(answers(waiting, () => { stopping.abort(stopped); return ""; }));
-    await expect(run(withGrid(), scope, stopping.signal).result).rejects.toBe(stopped);
-    expect([searched(), sent("DISCONNECT").length, ScriptedSocket.sockets.map(socket => socket.readyState)]).toEqual([others.slice(0, 8), 1, [3]]);
+    const halted = run(withGrid(), scope, stopping.signal);
+    await expect(halted.result).rejects.toBe(stopped);
+    await later();
+    expect([searched(), sent("DISCONNECT").length, ScriptedSocket.sockets.map(socket => socket.readyState), failed(halted.log)]).toEqual([others.slice(0, 9), 1, [3], []]);
 
-    // The model closes, or the connection fails: the third four are not asked for, the names are reported as not available,
-    // and the search, which did not come to its end, logs nothing of how far it went.
-    for (const [during, note] of [[() => update(status, { status: "CLOSED" }), closed], [() => SERVICE_DOWN, UNAVAILABLE]] as const) {
-      ScriptedSocket.sockets = [];
-      serveModel(answers(waiting, during));
-      const { log, result } = run(withGrid());
-      expect((await result).notes, note).toEqual([note]);
-      expect(searched(), note).toEqual(others.slice(0, 8));
-      expect(log.filter(line => line.startsWith("filter ")), note).toEqual([]);
-    }
+    // The model closes: the same, and the names are reported as not available. The search, which did not come to its end,
+    // logs nothing of how far it went.
+    ScriptedSocket.sockets = [];
+    serveModel(answers(waiting, () => update(status, { status: "CLOSED" })));
+    const shut = run(withGrid());
+    expect((await shut.result).notes).toEqual([closed]);
+    await later();
+    expect([searched(), failed(shut.log)]).toEqual([others.slice(0, 9), []]);
+
+    // The connection fails: the same again. The four reads that ended with it are logged as failed, as they always were,
+    // and are not remembered as unreadable.
+    ScriptedSocket.sockets = [];
+    serveModel(answers(waiting, () => SERVICE_DOWN));
+    const down = run(withGrid());
+    const { notes, catalog } = await down.result;
+    await later();
+    expect([notes, searched(), failed(down.log), [...catalog.unreadableModules]]).toEqual([[UNAVAILABLE], others.slice(0, 9),
+      others.slice(5, 9).map(module => `line items of module ${module}: SERVICE_DOWN`), []]);
   });
 
   it("asks the model nothing more, in the search for filter line items, once it has reported itself closed", async () => {
     const closed = "Synthetic model: names from the model data service were not available (the model is closed); IDs are shown instead.";
     const [others, candidates] = [Array.from({ length: 12 }, (_, index) => other(index + 1)), [1, 2, 3, 4, 5, 6].map(candidate)];
     const named = { data: candidates.map(module => ({ id: module, label: `Module ${module}` })) };
-    /** A grid whose rows have these dimensions and are filtered by a rule on a line item that no card shows. No item is
-     * shown or hidden and no saved view is used, so nothing is read between the grid's dimensions and the search. */
-    const rowsOf = (...dimensions: string[]) => {
-      const pages = ruled(rule([FILTER_ITEM], ["true"]));
+    /** A grid whose rows have these dimensions and are filtered by a rule on these IDs, none of which a card shows. No item
+     * is shown or hidden and no saved view is used, so nothing is read between the grid's dimensions and the search. */
+    const rowsOf = (dimensions: string[], ids = [FILTER_ITEM]) => {
+      const pages = ruled(rule(ids, ["true"]));
       (pages[0].cards[0] as Any).grid.regions[0].rows.dimensions = dimensions.map(id => ({ dimension: { kind: "dimension", id } }));
       return pages;
     };
-    let status = "";
+    let [status, closedAt] = ["", -1];
     /** The model: its list has twelve modules that were not read, and `answers` are its other answers. */
     const serve = (answers: Record<string, (id: string, asked: Any) => string>) => {
       ScriptedSocket.sockets = [];
+      closedAt = -1;
       serveModel({ [at("")]: id => { status = id; return update(id, { status: "UNKNOWN" }); }, [MODULE_VIEWS]: moduleList(others), ...answers });
     };
-    const reportsClosed = () => update(status, { status: "CLOSED" });
-    /** What the search asked: every read after the names, the grid's line items and its dimensions. */
-    const asked = () => sent("SEND").slice(5).map(frame => `${frame.headers.destination.replace(at(""), "")} ${frame.body}`);
+    const reportsClosed = () => { closedAt = sent("SEND").length; return update(status, { status: "CLOSED" }); };
+    const read = (frame: StompFrame) => `${frame.headers.destination.replace(at(""), "")} ${frame.body}`;
+    /** What the search asked: every read after the names, the grid's line items and its dimensions. And what was asked,
+     * by any step, after the model had reported itself closed. */
+    const asked = () => sent("SEND").slice(5).map(read);
+    const afterwards = () => sent("SEND").slice(closedAt).map(read);
     const question = (dimension: string) => `/applicableModules {"dimensions":[${dimension}]}`;
     const [LIST_3, lines] = ["101000000903", (log: string[]) => log.filter(line => /^(module dimensions|modules for|filter |line items of)/.test(line))];
+    const later = () => new Promise(resolve => { setTimeout(resolve, 20); });
 
-    // Three filtered dimensions, and the model closes while it is asked which modules have the first. The two other
-    // questions are not asked, as they were before, and no module's line items are; the names are reported as not available.
+    // Three filtered dimensions: the questions which modules have them are asked together, and the model closes while it
+    // is asked the first. Nothing is asked after that, no module's line items either, and the names are reported as not
+    // available. A question that ended with the socket work is not logged as one the model refused.
     serve({ [at("/applicableModules")]: reportsClosed });
-    const first = run(rowsOf(LIST, LIST_2, LIST_3));
+    const first = run(rowsOf([LIST, LIST_2, LIST_3]));
     expect((await first.result).notes).toEqual([closed]);
-    expect([asked(), lines(first.log)]).toEqual([[question(LIST)], []]);
+    await later();
+    expect([asked(), afterwards(), lines(first.log)]).toEqual([[question(LIST), question(LIST_2), question(LIST_3)], [], []]);
 
-    // The first question names six modules, and the model closes while the second is asked: neither the third question
-    // nor any of the six modules is asked for.
-    serve({ [at("/applicableModules")]: (id, body) => (body.dimensions[0] === Number(LIST) ? update(id, named) : reportsClosed()) });
-    const second = run(rowsOf(LIST, LIST_2, LIST_3));
+    // The first question names six modules, and the model closes as it comes to the second: none of the six is asked for.
+    serve({ [at("/applicableModules")]: (id, body) => (body.dimensions[0] === Number(LIST) ? update(id, named) : body.dimensions[0] === Number(LIST_2) ? reportsClosed() : "") });
+    const second = run(rowsOf([LIST, LIST_2, LIST_3]));
     expect((await second.result).notes).toEqual([closed]);
-    expect([asked(), lines(second.log)]).toEqual([[question(LIST), question(LIST_2)], []]);
+    await later();
+    expect([asked(), afterwards(), lines(second.log)]).toEqual([[question(LIST), question(LIST_2), question(LIST_3)], [], []]);
 
-    // The model answers the question and reports itself closed in the same breath: the read has its answer, so nothing
-    // that waits is ended by the report, and still none of the six modules is asked for.
+    // The model answers the one question and reports itself closed in the same breath: the question has its answer, so
+    // nothing that waits is ended by the report, and still none of the six modules is asked for.
     serve({ [at("/applicableModules")]: id => update(id, named) + reportsClosed() });
-    const both = run(rowsOf(LIST));
+    const both = run(rowsOf([LIST]));
     expect((await both.result).notes).toEqual([closed]);
-    expect([asked(), lines(both.log)]).toEqual([[question(LIST)], []]);
+    await later();
+    expect([asked(), afterwards(), lines(both.log)]).toEqual([[question(LIST)], [], []]);
+
+    // The same with the search's last answer: the one module the model names has the rule's line item, and its answer
+    // comes with the report. (Three modules of the list were asked for with it.) The rule's other ID is its context, which
+    // the next step would ask the module's dimensions for: that step is not reached, and asks nothing.
+    serve({ [at("/applicableModules")]: id => update(id, { data: [{ id: candidate(1), label: "Module" }] }),
+      [at(`/modules/${candidate(1)}/lineItems`)]: id => update(id, { data: [{ lineItemId: FILTER_ITEM, lineItemLabel: "Include?" }] }) + reportsClosed() });
+    const last = run(rowsOf([LIST], [ITEM(358, 2), FILTER_ITEM]));
+    expect((await last.result).notes).toEqual([closed]);
+    await later();
+    expect([asked(), afterwards(), lines(last.log)]).toEqual([[question(LIST), ...[candidate(1), ...others.slice(0, 3)].map(module => `/modules/${module}/lineItems {}`)], [], []]);
+
+    // And with the search's only answer. Here the model names no module and its list has no other, so the search ends with
+    // the answer to its question; and another rule of the grid has its line item and a context item, which the next step
+    // asks the module's dimension for. With the report in the same breath as that answer, the next step is not reached.
+    const own = { [MODULE_VIEWS]: moduleList([]), [at(`/modules/${MODULE}/lineItems`)]: (id: string) => update(id, { data: [{ lineItemId: LINE_ITEM, lineItemLabel: "Volume" }] }),
+      [at("/dimensions")]: (id: string) => update(id, { modules: { [MODULE]: { dimensions: [{ id: LIST, label: "Product" }] } } }) };
+    const twoRules = () => ruled(rule([ITEM(358, 2), LINE_ITEM], ["true"]), rule([FILTER_ITEM], ["true"]));
+    const contextItem = `/modules/${MODULE}/dimensions/${LIST} {"itemIds":["${ITEM(358, 2)}"],"filter":""}`;
+    serve({ ...own, [at("/applicableModules")]: id => update(id, { data: [] }) + reportsClosed() });
+    const only = run(twoRules());
+    expect((await only.result).notes).toEqual([closed]);
+    await later();
+    expect([asked(), afterwards(), lines(only.log)]).toEqual([[question(LIST)], [], []]);
+    // (A model that stays open is asked for the context item, once the search is over.)
+    serve({ ...own });
+    await run(twoRules()).result;
+    expect(asked()).toEqual([question(LIST), contextItem]);
 
     // The model closed earlier, while the grid's module dimensions were read: that step logs it as a refused read and goes
     // on. The search then asks nothing at all, and ends as its first read would have ended.
     serve({ [at("/dimensions")]: reportsClosed });
-    const earlier = run(rowsOf(LIST, LIST_2));
+    const earlier = run(rowsOf([LIST, LIST_2]));
     expect((await earlier.result).notes).toEqual(["Synthetic model: module dimensions were not available (the model is closed); context selectors show only those saved on the page.", closed]);
-    expect([asked(), lines(earlier.log)]).toEqual([[], ["module dimensions: the model is closed"]]);
+    await later();
+    expect([asked(), afterwards(), lines(earlier.log), earlier.statuses.at(-1)]).toEqual([[], [], ["module dimensions: the model is closed"], "Reading module dimensions in Synthetic model…"]);
   });
 
   it("reads again, on the model's own host, the modules whose line items were being read when the first host redirected", async () => {
@@ -1395,9 +1855,9 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
 
     expect(notes).toEqual([]);
     expect([catalog.lineItems.get(FILTER_ITEM), [...catalog.listItems]]).toEqual([{ name: "Include?", moduleId: candidate(2) }, [[ITEM(358, 2), "North"]]]);
-    // The search ends with the batch that found the line item: the item the rule's context is fixed to is no line item, so
-    // the two modules left are not read for it.
-    expect(destinations().filter(destination => destination.endsWith("/lineItems"))).toEqual([MODULE, ...candidates.slice(0, 4)].map(module => at(`/modules/${module}/lineItems`)));
+    // The search ends with the answer that has the line item: the item the rule's context is fixed to is no line item, so
+    // the last module is not asked for it, and the three that were asked for by then are given up.
+    expect(destinations().filter(destination => destination.endsWith("/lineItems"))).toEqual([MODULE, ...candidates.slice(0, 5)].map(module => at(`/modules/${module}/lineItems`)));
     // Then the module's dimensions, and the item from the one the rule neither filters nor leaves to the page.
     expect(lastSent(2)).toEqual([[at("/dimensions"), { moduleIds: [candidate(2)] }], [at(`/modules/${candidate(2)}/dimensions/${REGIONS}`), { itemIds: [ITEM(358, 2)], filter: "" }]]);
     expect(statuses.slice(-2)).toEqual(["Finding filter line items in Synthetic model…", "Reading filter item names in Synthetic model…"]);
@@ -1405,9 +1865,9 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     // the filtered dimension, and what became of each ID. One of the two was the line item; the other is the rule's
     // context, which is no longer looked for once the rule has its line item.
     expect(log.filter(line => /^(filter |dimensions of)/.test(line))).toEqual(["dimensions of 1 of 1 modules",
-      "filter line items: 2 looked for in 4 of 6 candidate modules that have the filtered dimensions and 0 of 0 other modules, in 0 s: 1 found (1 in candidate modules), "
-        + "1 the context of rules that now have their line item, 0 not found",
-      "filter line items: the entity-type bracket chose 0 of the 4 modules asked for; fewer than 3 modules with line items were read",
+      "filter line items: 2 looked for in 2 of 6 candidate modules that have the filtered dimensions and 0 of 0 other modules, in 0 s, 3 reads given up while waiting: "
+        + "1 found (1 in candidate modules), 1 the context of rules that now have their line item, 0 not found",
+      "filter line items: the entity-type bracket chose 0 of the 5 modules asked for; fewer than 3 modules with line items were read",
       "dimensions of 1 modules of filter line items: 1 read",
       `filter context items: 1 asked of dimension ${REGIONS} in module ${candidate(2)}, 1 named (answer: 1 entries of {itemId, label})`,
       "filter context items: 1 of 1 named"]);
@@ -2056,7 +2516,8 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     // The log says where the line item was found, and names nothing.
     const logged = lines.filter(line => line.startsWith("filter "));
     expect(logged).toEqual([
-      "filter line items: 1 looked for in 0 of 0 candidate modules that have the filtered dimensions and 12 of 12 other modules, in 0 s: 1 found (0 in candidate modules), 0 not found",
+      "filter line items: 1 looked for in 0 of 0 candidate modules that have the filtered dimensions and 9 of 12 other modules, in 0 s, 3 reads given up while waiting: "
+        + "1 found (0 in candidate modules), 0 not found",
       "filter line items: the entity-type bracket chose 0 of the 12 modules asked for; fewer than 3 modules with line items were read",
       `filter line item ${APPROVED_BY}: format {dataType, hierarchyEntityLongId}, data type ENTITY, items of dimension ${ROLES}`,
       `filter values: 1 asked of dimension ${ROLES} in module ${STAFFING}, 1 named (answer: 1 entries of {itemId, label})`, "filter values: 1 of 1 named"]);
