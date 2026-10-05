@@ -529,9 +529,18 @@ describe("What the results page's markup shows", () => {
         kept?.children.map(child => [child.localName, child.id || child.dataset.act, text(child)])];
     };
     const where = ["p", "ov-kept", ["div", "ovAbout", "ovKept"]];
-    // Nothing kept, as before a result is kept and for one that cannot be: the place is there and holds nothing at all,
-    // neither an element nor a text, so that the stylesheet can give it no room. That is also the overview by itself.
+    // Nothing kept, as for a result that cannot be kept: the place is there and holds nothing at all, neither an element
+    // nor a text, so that the stylesheet can give it no room. That is also the overview by itself.
     expect([place("none"), place(), overview("none").querySelector("#ovKept")?.innerHTML, keptCopyHtml("none")]).toEqual([[...where, []], [...where, []], "", ""]);
+    // A result that is being kept: the room for the line and the button of a kept copy. It holds their words and the
+    // button's look, so that it is as large as the two will be. Each part is marked as to come, which the stylesheet does
+    // not show, and is kept from a screen reader. Neither is a button, takes the focus, has an ID or says what a click
+    // on it does: nothing is said yet, and nothing can be forgotten yet.
+    expect(place("keeping")).toEqual([...where, [["span", undefined, "A copy of this result is kept for a refresh of this page."], ["span", undefined, "Forget this result"]]]);
+    expect(overview("keeping").querySelectorAll("#ovKept span").map(part => [part.getAttribute("class"), part.getAttribute("aria-hidden"), part.focusable, part.id]))
+      .toEqual([["to-come", "true", false, ""], ["btn sm to-come", "true", false, ""]]);
+    expect([overview("keeping").querySelectorAll("#ovKept button, #ovKept [data-act], #ovKept [tabindex], #ovKept [id]").length, overview("keeping").querySelector("#ovKept")?.textContent])
+      .toEqual([0, overview("kept").querySelector("#ovKept")?.textContent]);
     // A copy is kept: a line that says so, and beside it the button that forgets the copy.
     expect(place("kept")).toEqual([...where, [["span", "keptLine", "A copy of this result is kept for a refresh of this page."], ["button", "forget", "Forget this result"]]]);
     const button = overview("kept").querySelector('#ovKept [data-act="forget"]');
@@ -550,7 +559,7 @@ describe("What the results page's markup shows", () => {
     const again = overview("not-removed").querySelector('#ovKept [data-act="forget"]');
     expect([again?.getAttribute("type"), again?.getAttribute("class"), again?.focusable, again?.hasAttribute("aria-describedby"), overview("not-removed").querySelector("#keptLine")?.hasAttribute("tabindex")])
       .toEqual(["button", "btn sm", true, false, false]);
-    for (const copy of ["none", "kept", "not-removed", "forgotten"] as const) {
+    for (const copy of ["none", "keeping", "kept", "not-removed", "forgotten"] as const) {
       // What the place holds is what the page writes into it when what is kept changes, to the character.
       expect(overview(copy).querySelector("#ovKept")?.innerHTML, copy).toBe(parseMarkup(keptCopyHtml(copy)).innerHTML);
       // Its look is the stylesheet's, and it has no heading: it stands under the one about the export.

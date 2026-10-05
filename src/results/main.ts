@@ -127,8 +127,9 @@ let received = new Date();
 let broughtBack = false;
 /** What the tab keeps of the result on the page for a refresh: a copy, once the result is kept and when it was brought
  * back; a copy no longer, once the user has had it forgotten; a copy that could not be removed, when the user asked for
- * that and the tab's storage did not let it go; and none while the result is still being kept, or when it could not be
- * kept. The overview says which, and offers to forget a copy that is kept or could not be removed. */
+ * that and the tab's storage did not let it go; none yet, while the result is still being kept; and none, when it could
+ * not be kept. The overview says which, and offers to forget a copy that is kept or could not be removed. While the
+ * result is being kept it holds the room for what it says of a kept copy, so that nothing moves when it says it. */
 let keptCopy: KeptCopy = "none";
 /** True while the page looks for a result it kept before a refresh. Until it knows, it draws no waiting view, which a
  * result that comes back would replace at once. */
@@ -344,8 +345,9 @@ function showResult(next: AnalysisResult, at: Date, back = false): void {
   received = at;
   broughtBack = back;
   // A result that was brought back is kept: the tab's storage still holds what it came from. A run's result is not kept
-  // yet: that follows once it is drawn (`keepLater`), and until it has succeeded there is no copy to forget.
-  keptCopy = back ? "kept" : "none";
+  // yet: that follows once it is drawn (`keepLater`), and until it has succeeded there is no copy to forget. The overview
+  // is drawn with the room for what it says of a kept copy, and `keepLater` fills that room or gives it up.
+  keptCopy = back ? "kept" : "keeping";
   details = detailsOf(next);
   cards = cardsOf(next);
   shown = new Map();
@@ -1014,9 +1016,9 @@ const KEEP_WITHOUT_FRAME_MS = 1000;
 
 /** Keeps a finished run's result for a refresh of this page (keep-result.ts), in the place of the one kept before. The
  * result is on screen first: writing it out and compressing it take a moment on the page's own thread, and that must not
- * hold up what the user sees. Once it is kept, the overview offers to forget the copy. A result that cannot be kept is
- * whole and on the page all the same: the page says so once, in a note above it, and the keeper's reason goes into the
- * run's log, which the note's button copies. */
+ * hold up what the user sees. Once it is kept, the overview offers to forget the copy, in the room it held for that
+ * since it was drawn. A result that cannot be kept is whole and on the page all the same: the page says so once, in a
+ * note above it, and the keeper's reason goes into the run's log, which the note's button copies. */
 function keepLater(kept: AnalysisResult, at: Date): void {
   let begun = false;
   const keep = (): void => {
@@ -1029,6 +1031,8 @@ function keepLater(kept: AnalysisResult, at: Date): void {
         if (result === kept) setKeptCopy("kept");
         return;
       }
+      // Not kept: no copy will come, and the overview gives up the room it held for one.
+      if (result === kept) setKeptCopy("none");
       const note = notKeptNote(outcome.reason);
       // Nothing to say for a result that a later one replaced, nor once the page has gone on: to another result, or to a
       // run, whose banner stands where the note would.
