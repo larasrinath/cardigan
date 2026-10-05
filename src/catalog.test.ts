@@ -178,7 +178,7 @@ describe("Page analyzer names from the model data service", () => {
       }
     });
 
-    it("reads first the unread modules between the two whose entity types bracket an ID's, while the modules read bear that order out", () => {
+    it("reads first, of the model's other modules, those between the two whose entity types bracket an ID's, while the modules read bear that order out", () => {
       /** The plan when each ID is a rule of its own and no module is a candidate. */
       const plan = (ids: string[], others: string[], catalog: ReturnType<typeof read>, size: number) => filterLineItemSearch(ids.map(id => [id]), [], others, catalog, size);
       // Module IDs and entity types rise together in three modules that were read: the module of an entity type lies between
@@ -191,10 +191,18 @@ describe("Page analyzer names from the model data service", () => {
       expect(plan([ITEM(315, 0)], all, rising, 6).modules).toEqual(unread(22, 23, 24, 26, 27, 28));
       // They are spread by their IDs, in whatever order the unread modules are given.
       expect(plan([ITEM(315, 0)], unread(29, 44, 21, 25, 1, 23, 27, 22, 28, 12, 24, 26, 5, 35), rising, 4)).toMatchObject({ modules: unread(22, 24, 26, 28), bracketed: 4 });
-      // Fewer modules between the two than are asked for: all of them, then the first of the others, the candidates before
-      // the model's other modules.
+      // Fewer modules between the two than are asked for: all of them, then the first of the others.
       expect(plan([ITEM(305, 3)], all, rising, 4)).toMatchObject({ modules: unread(12, 1, 5, 21), bracketed: 1 });
-      expect(filterLineItemSearch([[ITEM(305, 3)]], unread(44, 21), unread(1, 12, 5), rising, 4)).toMatchObject({ modules: unread(12, 44, 21, 1), bracketed: 1 });
+      // The candidates come before any module the bracket chooses, in the order given, as they were read before the other
+      // modules were searched at all: where the order is wrong, no candidate is read later for it. The bracket chooses among
+      // the other modules only, for the places the candidates leave: here two, then one, then none. A candidate that lies
+      // between the two modules is read as a candidate.
+      expect(filterLineItemSearch([[ITEM(305, 3)]], unread(44, 21), unread(1, 12, 5), rising, 4)).toMatchObject({ modules: unread(44, 21, 12, 1), bracketed: 1 });
+      const between = unread(21, 22, 23, 24, 26, 27, 28, 29);
+      expect(filterLineItemSearch([[ITEM(315, 0)]], unread(44, 25), between, rising, 4)).toMatchObject({ modules: unread(44, 25, 23, 27), toRead: 10, bracketed: 2 });
+      expect(filterLineItemSearch([[ITEM(315, 0)]], unread(44, 25, 1), between, rising, 4)).toMatchObject({ modules: unread(44, 25, 1, 26), toRead: 11, bracketed: 1 });
+      expect(filterLineItemSearch([[ITEM(315, 0)]], unread(44, 25, 1, 5), between, rising, 4)).toMatchObject({ modules: unread(44, 25, 1, 5), toRead: 12, bracketed: 0 });
+      expect(filterLineItemSearch([[ITEM(315, 0)]], unread(44, 25, 1, 5, 35), between, rising, 4)).toMatchObject({ modules: unread(44, 25, 1, 5), toRead: 13, bracketed: 0 });
       // An entity type below every one that was read, or above: the modules before the first, or after the last.
       expect(plan([ITEM(250, 0)], all, rising, 4)).toMatchObject({ modules: unread(1, 5, 12, 21), bracketed: 2 });
       expect(plan([ITEM(400, 0)], all, rising, 1)).toMatchObject({ modules: unread(44), bracketed: 1 });

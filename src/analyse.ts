@@ -290,10 +290,12 @@ async function readViewLayouts(reads: SocketReads, refs: readonly UxEntityRef[])
 
 /** Filters can use a line item from a module no card shows. It is looked for in the modules whose line items were not read
  * yet, until every such rule has its line item:
- * - first in those that have a dimension of the filtered axis, which the model names (the candidates), in the model's order;
+ * - first in those that have a dimension of the filtered axis, which the model names (the candidates), in the model's
+ *   order: as they were read before the other modules were searched at all;
  * - then in every other module of the model's list, in the list's order.
- * Where the modules read so far bear it out, the entity types of the IDs put likelier modules before both, and a rule
- * that a module already read rules out is spared the second: its IDs are looked for in the candidates only (catalog.ts
+ * Where the modules read so far bear it out, the entity types of the IDs put the likelier of those other modules first:
+ * never before a candidate, so that no candidate is read later for it, however wrong it is. A rule that a module already
+ * read rules out is spared the other modules: its IDs are looked for in the candidates only (catalog.ts
  * `filterLineItemSearch`). No module is asked twice, and one whose read is refused is remembered as one that cannot be read.
  *
  * Four reads are kept moving (FILTER_LINE_ITEMS_AT_A_TIME). A read holds one of the four places until it is answered, and
@@ -301,8 +303,8 @@ async function readViewLayouts(reads: SocketReads, refs: readonly UxEntityRef[])
  * answer counts whenever it comes, and with every answer the search looks whether it is done. A late answer is likelier
  * than none (a busy model answers late), so no answer is thrown away for being late. The questions which modules have a
  * filtered dimension are asked together and waited for in the same way: the reading starts once they are answered, or
- * after FILTER_LINE_ITEMS_READ_MS with the candidates known by then, and a later answer puts its modules first among
- * those still to be read.
+ * after FILTER_LINE_ITEMS_READ_MS with the candidates known by then, and a later answer puts its modules before the other
+ * modules still to be read.
  *
  * The whole search has FILTER_LINE_ITEMS_BUDGET_MS in one model, from its first question (after a redirect it starts over,
  * on the host the model lives on). It ends when every rule has its line item, when nothing is left to start and nothing
