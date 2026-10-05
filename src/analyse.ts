@@ -201,7 +201,8 @@ interface SocketReads {
   progress: Progress;
 }
 
-/** A module whose line items cannot be read is remembered, so the search for filter line items does not ask again.
+/** A module whose line items cannot be read is remembered, so the search for filter line items does not ask again. A read
+ * that ended with the connection says nothing about its module: after a redirect it is read on the host the model lives on.
  * `timeoutMs` is as long as the read waits for its answer. */
 async function readLineItems(reads: SocketReads, moduleId: string, timeoutMs = LINE_ITEMS_MS): Promise<void> {
   const { scope, connection, catalog, progress } = reads;
@@ -209,7 +210,7 @@ async function readLineItems(reads: SocketReads, moduleId: string, timeoutMs = L
   try {
     addLineItems(catalog, moduleId, await connection.subscribe(`core://${ws}:${model}/modules/${moduleId}/lineItems`, { body: {}, timeoutMs }));
   } catch (error) {
-    catalog.unreadableModules.add(moduleId);
+    if (!connection.failed) catalog.unreadableModules.add(moduleId);
     progress.log(`line items of module ${moduleId}: ${message(error)}`);
   }
 }

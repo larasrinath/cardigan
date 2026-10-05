@@ -1030,6 +1030,32 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     expect(log.filter(line => /^(modules for|filter )/.test(line))).toEqual([`modules for dimension ${LIST}: the model is closed`]);
   });
 
+  it("reads again, on the model's own host, the modules whose line items were being read when the first host redirected", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const candidates = [1, 2, 3, 4, 5, 6, 7, 8].map(candidate);
+    // The model names eight modules for the filtered dimension, and the rule's line item is in the seventh. The first host
+    // answers the read of the sixth with a redirect: that read, and the two that wait with it, end with the connection.
+    let redirected = false;
+    serveModel({ [at("/applicableModules")]: id => update(id, { data: [MODULE, ...candidates].map(module => ({ id: module, label: `Module ${module}` })) }),
+      [at(`/modules/${candidate(6)}/lineItems`)]: id => {
+        if (redirected) return update(id, { data: [] });
+        redirected = true;
+        return `ERROR\n\n${JSON.stringify({ error: "REDIRECTION_REQUIRED", fqdn: MODEL_HOST })}\0`;
+      },
+      [at(`/modules/${candidate(7)}/lineItems`)]: id => update(id, { data: [{ lineItemId: FILTER_ITEM, lineItemLabel: "Include?" }] }) });
+    const { log, result } = run(withGrid());
+    const { catalog, notes } = await result;
+    expect(notes).toEqual([]);
+    expect(ScriptedSocket.sockets.map(socket => socket.host)).toEqual([FIRST, MODEL_HOST]);
+    // A read that ended with the connection says nothing about its module. On the model's own host those three are read,
+    // the five that the first host had answered are not read again, and the rule has its line item.
+    const read = (socket: ScriptedSocket) => socket.frames.filter(frame => frame.command === "SEND").flatMap(frame => /\/modules\/(\d+)\/lineItems$/.exec(frame.headers.destination)?.[1] ?? []);
+    expect(ScriptedSocket.sockets.map(read)).toEqual([[MODULE, ...candidates], [MODULE, ...candidates.slice(5)]]);
+    expect(catalog.lineItems.get(FILTER_ITEM)).toEqual({ name: "Include?", moduleId: candidate(7) });
+    // Each is still logged as a read that failed, as it always was.
+    expect(log.filter(line => line.startsWith("line items of"))).toEqual(candidates.slice(5).map(module => `line items of module ${module}: REDIRECTION_REQUIRED`));
+  });
+
   it("names the item a filter rule's context is fixed to, and the items a list-formatted line item is compared with", async () => {
     serveModel({
       [MODULE_VIEWS]: id => update(id, { data: [{ id: Number(MODULE), name: "Demand", views: [] }], dimensions: {} }),
