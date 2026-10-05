@@ -418,13 +418,56 @@ describe("A result kept across a refresh of the results tab", () => {
     const keeper = page(storage);
     await keeper.keep(NOISE, AT);
     expect(kept(storage).length).toBeGreaterThan(3);
-    expect(keeper.forget()).toBeUndefined();
+    // It says that the kept result is gone, and it is: no key of it is left.
+    expect(keeper.forget()).toBe(true);
     expect(storage.keys()).toEqual(["cardigan-theme"]);
     expect(await page(storage).takeBack()).toMatchObject({ found: false, reason: "nothing-kept" });
-    // Forgetting when nothing is kept is nothing.
-    keeper.forget();
-    page(new FakeStorage()).forget();
+    // Forgetting when nothing is kept is nothing, and nothing is kept after it.
+    expect([keeper.forget(), page(new FakeStorage()).forget()]).toEqual([true, true]);
     expect(storage.keys()).toEqual(["cardigan-theme"]);
+  });
+
+  it("says that the kept result is gone only when the storage holds none of its keys any more, however a removal went wrong", async () => {
+    /** The storage with removals that go as `removal` says for each key: refused, which a storage says by throwing; passed
+     * over in silence; or done. */
+    const removing = (storage: FakeStorage, removal: (key: string) => "refused" | "passed over" | "done"): KeptStorage => ({
+      get length() { return storage.length; },
+      key: index => storage.key(index),
+      getItem: key => storage.getItem(key),
+      setItem: (key, value) => storage.setItem(key, value),
+      removeItem: key => {
+        const how = removal(key);
+        if (how === "refused") throw new DOMException("The storage refused to remove a key.", "InvalidStateError");
+        if (how === "done") storage.removeItem(key);
+      },
+    });
+    const cases: [what: string, removal: (key: string) => "refused" | "passed over" | "done", left: (keys: string[]) => string[]][] = [
+      ["every removal refused", () => "refused", keys => keys],
+      ["every removal passed over in silence", () => "passed over", keys => keys],
+      // The head goes first. Without it a refresh finds no result, and the result's bytes are in the storage all the same.
+      ["the head removed, and the removal of the second part refused", key => (key === part(1) ? "refused" : "done"), keys => keys.filter(key => key !== HEAD && key !== part(0))],
+      ["the head removed, and the second part passed over", key => (key === part(1) ? "passed over" : "done"), () => [part(1)]],
+      ["the parts removed, and the head passed over", key => (key === HEAD ? "passed over" : "done"), () => [HEAD]],
+    ];
+    for (const [what, removal, left] of cases) {
+      const storage = new FakeStorage({ "cardigan-theme": "dark" });
+      await page(storage).keep(NOISE, AT);
+      const keys = kept(storage);
+      expect(keys.length, what).toBeGreaterThan(3);
+      // It does not say that the result is gone, and does not throw: what the storage still holds is what it was left with.
+      expect(page(removing(storage, removal)).forget(), what).toBe(false);
+      expect(kept(storage).sort(), what).toEqual(left(keys).sort());
+      expect(storage.getItem("cardigan-theme"), what).toBe("dark");
+      // Asked again of a storage that removes as it is told, it is gone, and nothing else is.
+      expect(page(storage).forget(), what).toBe(true);
+      expect(storage.keys(), what).toEqual(["cardigan-theme"]);
+    }
+    // With every removal refused the result is as it was kept: a refresh brings it back.
+    const storage = new FakeStorage();
+    await page(storage).keep(APP, AT);
+    expect(page(removing(storage, () => "refused")).forget()).toBe(false);
+    const back = await page(storage).takeBack();
+    expect(back.found && back.result).toStrictEqual(APP);
   });
 
   it("has nothing to give back on a page where nothing was kept, and removes parts that have no head", async () => {
@@ -953,7 +996,8 @@ describe("The storage a keeper uses", () => {
       const keeper = new ResultKeeper({ tabId: TAB });
       expect(await keeper.keep(APP, AT)).toEqual({ kept: false, reason: "unavailable", message: "This result is not kept across a refresh: the tab's session storage is not available." });
       expect(await keeper.takeBack()).toEqual({ found: false, reason: "unavailable", message: "Nothing is kept: the tab's session storage is not available." });
-      expect(keeper.forget()).toBeUndefined();
+      // A storage it cannot look through may hold a result all the same: it does not say that one is gone.
+      expect(keeper.forget()).toBe(false);
     };
     // None; one that is nothing; and one Chrome refuses to hand out, which it does by throwing.
     vi.stubGlobal("sessionStorage", undefined);
@@ -975,13 +1019,14 @@ describe("The storage a keeper uses", () => {
     const keeper = page(broken);
     expect(await keeper.keep(APP, AT)).toEqual({ kept: false, reason: "failed", message: "This result is not kept across a refresh: keeping it failed (The storage is gone.)." });
     expect(await keeper.takeBack()).toEqual({ found: false, reason: "unavailable", message: "Nothing is given back: the tab's session storage failed (The storage is gone.)." });
-    expect(keeper.forget()).toBeUndefined();
+    expect(keeper.forget()).toBe(false);
     // A storage that reads and does not remove: a kept result of another version cannot be removed, and is still not given back.
     const storage = new FakeStorage();
     await page(storage).keep(APP, AT);
     const stuck: KeptStorage = { get length() { return storage.length; }, key: index => storage.key(index), getItem: key => storage.getItem(key), setItem: refuse, removeItem: refuse };
     expect(await page(stuck, { version: "0.7.1" }).takeBack()).toMatchObject({ found: false, reason: "unavailable" });
     expect(await page(stuck).keep(APP, AT)).toMatchObject({ kept: false, reason: "failed" });
-    expect(page(stuck).forget()).toBeUndefined();
+    // Nor can it be forgotten: the keeper says that it is not gone, and both of its keys are there.
+    expect([page(stuck).forget(), kept(storage).sort()]).toEqual([false, [part(0), HEAD].sort()]);
   });
 });

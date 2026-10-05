@@ -21,7 +21,8 @@ import { crc32 } from "../zip.js";
  *   the page's address, every part is there, the bytes have the head's checksum, and they expand and parse to a result.
  *   Anything else is removed, and the page is told that nothing was kept.
  *
- * No call throws and no promise rejects: each ends in an outcome, with a sentence the page can show or log. */
+ * No call throws and no promise rejects: each ends in an outcome. Keeping and taking back end with a sentence the page can
+ * show or log, and forgetting with whether the kept result is gone. */
 
 /** Every key this module writes or removes starts with this. It touches no other key. */
 export const KEPT_PREFIX = "cardigan-kept:";
@@ -186,6 +187,12 @@ function clear(storage: KeptStorage): void {
   for (const key of keys) storage.removeItem(key);
 }
 
+/** Whether the storage holds a key of the module's: the head, or a part. */
+function holdsKept(storage: KeptStorage): boolean {
+  for (let index = 0; index < storage.length; index++) if (storage.key(index)?.startsWith(KEPT_PREFIX)) return true;
+  return false;
+}
+
 /** Bytes through one of the browser's compression streams, which take them whole and give them back in pieces. */
 async function through(stream: CompressionStream | DecompressionStream, bytes: Bytes): Promise<Bytes> {
   const source = new ReadableStream<Bytes>({
@@ -341,12 +348,21 @@ export class ResultKeeper {
     }
   }
 
-  /** Forgets the kept result, and stops a `keep` that has not finished from keeping its own. */
-  forget(): void {
+  /** Forgets the kept result, and stops a `keep` that has not finished from keeping its own. True when the kept result is
+   * gone: the storage was looked through after the removal, and it holds no key of the module's. False when that cannot be
+   * said: the page has no session storage or may not read it, the storage refused a removal, or one of the keys is still
+   * there. The result may then still be kept, and a refresh may bring it back. */
+  forget(): boolean {
     this.turn++;
     try {
       const storage = this.storage();
-      if (storage) clear(storage);
-    } catch { /* a storage that cannot be read holds nothing the page could take back */ }
+      if (!storage) return false;
+      clear(storage);
+      // A storage may also leave a key where it is without saying so: what it holds now decides.
+      return !holdsKept(storage);
+    } catch {
+      // The storage refused a removal, or could not be looked through.
+      return false;
+    }
   }
 }
