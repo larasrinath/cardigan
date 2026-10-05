@@ -812,6 +812,15 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     serve({ [MODULE_VIEWS]: id => rejected(id, "MODULES_UNAVAILABLE"), [at("/applicableModules")]: named });
     expect((await run(withGrid()).result).notes).toEqual(["Synthetic model: module and saved view names were not available (MODULES_UNAVAILABLE)."]);
     expect(searched()).toEqual(candidates);
+
+    // A module whose ID, in the model's list or among those it names, is no ID is never read: no destination is made of it.
+    const odd = ["abc", `${other(3)}/../../lists`, `0${other(4)}`, `${other(5)}${other(5)}`, `${other(6)} `, `-${other(7)}`];
+    ScriptedSocket.sockets = [];
+    serveModel({ [MODULE_VIEWS]: id => update(id, { data: [{ id: Number(MODULE), name: "Demand", views: [] }, ...odd.map(module => ({ id: module, name: "Odd", views: [] })),
+      { id: other(1), name: "As text", views: [] }, { id: Number(other(2)), name: "As a number", views: [] }], dimensions: {} }),
+    [at("/applicableModules")]: id => update(id, { data: [...odd.slice(0, 2), candidate(1)].map(module => ({ id: module, label: "Named" })) }) });
+    await run(withGrid()).result;
+    expect(destinations().filter(destination => destination.endsWith("/lineItems"))).toEqual([MODULE, candidate(1), other(1), other(2)].map(module => at(`/modules/${module}/lineItems`)));
   });
 
   it("reads first the modules between the two whose line items bracket the ID looked for, when the modules read so far bear that order out", async () => {
@@ -948,6 +957,17 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     expect(searched()).toEqual([MODULE_3, STAFFING, ...candidates, ...others]);
     expect(lines(shared.log)).toEqual([read(1, 6, 10, "0 found, 1 not found"),
       "filter line items: the entity-type bracket chose 0 of the 16 modules asked for; in the modules read, a module's line items do not have one entity type of their own"]);
+
+    // The log lists thirty of the IDs that are ruled out, and counts the rest.
+    for (const count of [30, 33]) {
+      const crowd = Array.from({ length: count }, (_, index) => ITEM(1901, 100 + index));
+      serve(shown);
+      const crowded = run(showing(crowd, MODULE, MODULE_3, STAFFING));
+      await crowded.result;
+      expect(lines(crowded.log).at(-1), String(count)).toBe(`filter line items: of the ${count} not found, ${count} looked for in the candidate modules only: ${count} ruled out, `
+        + `each by a module that was read, which has the line items of its entity type and does not list it (${crowd.slice(0, 30).map(id => `${id} by module ${MODULE}`).join(", ")}`
+        + `${count > 30 ? " and 3 more" : ""})`);
+    }
   });
 
   it("writes six lines to the diagnostic log for a search through 249 modules, none of them for a module it reads, and says how far it is every five seconds", async () => {
@@ -1002,6 +1022,19 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
       "Finding filter line items in Synthetic model: 20 of 60 modules…", "Finding filter line items in Synthetic model: 40 of 60 modules…",
       "filter line items: 1 looked for in 0 of 0 candidate modules that have the filtered dimensions and 60 of 60 other modules, in 15 s: 0 found, 1 not found",
       `filter line items: the entity-type bracket chose 0 of the 60 modules asked for; ${few}`]);
+
+    // The five seconds count from the step's first line. Here the question about the filtered dimension is given up after
+    // ten seconds, the step is shown then, and the twelve modules are read in the three seconds after: nothing more is said.
+    ScriptedSocket.sockets = [];
+    serveModel({ [MODULE_VIEWS]: moduleList(others.slice(0, 12)), [at("/applicableModules")]: () => "" });
+    slowLineItems(1_000);
+    const late = written(pages());
+    await vi.advanceTimersByTimeAsync(13_100);
+    await late.result;
+    expect(ofTheSearch(late.lines)).toEqual([...question, `modules for dimension ${LIST}: Timed out waiting for ${at("/applicableModules")}.`,
+      "Finding filter line items in Synthetic model…",
+      "filter line items: 1 looked for in 0 of 0 candidate modules that have the filtered dimensions and 12 of 12 other modules, in 13 s: 0 found, 1 not found",
+      `filter line items: the entity-type bracket chose 0 of the 12 modules asked for; ${few}`]);
   });
 
   it("gives one read of the search ten seconds, so that a module that does not answer does not end it", async () => {
@@ -1085,6 +1118,26 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
       "filter line items: the entity-type bracket chose 0 of the 24 modules asked for; fewer than 3 modules with line items were read",
       "filter line items: the 45 seconds allowed for the search ran out: 10 modules left unread", unnamed]);
 
+    // A rule that a module already read rules out is looked for in the modules the model names only. When the time runs out
+    // on those, the note counts them, and not the model's other modules, which were not to be read. Here the cards show
+    // three modules, the rule's ID has the entity type of the grid's own line items, and the model names twenty-eight modules.
+    ScriptedSocket.sockets = [];
+    const [named, GONE] = [Array.from({ length: 28 }, (_, index) => candidate(index + 1)), ITEM(1901, 77)];
+    const lineItemsOf = (lineItemId: string) => (id: string) => update(id, { data: [{ lineItemId, lineItemLabel: `Line item ${lineItemId}` }] });
+    serveModel({ [MODULE_VIEWS]: moduleList(others.slice(0, 10)), [at("/applicableModules")]: id => update(id, { data: named.map(module => ({ id: module, label: `Module ${module}` })) }),
+      [at(`/modules/${MODULE}/lineItems`)]: lineItemsOf(LINE_ITEM), [at(`/modules/${MODULE_3}/lineItems`)]: lineItemsOf(ITEM(1905, 1)), [at(`/modules/${STAFFING}/lineItems`)]: lineItemsOf(ITEM(1909, 1)) });
+    slowLineItems(8_000);
+    const ruledOut = run([{ cards: ruled(rule([GONE], ["true"]))[0].cards, references: [MODULE, MODULE_3, STAFFING].map(id => ({ kind: "module", id })) }] as unknown as UxPageCardDetails[]);
+    // (The two other modules the cards show take their eight seconds before the search begins.)
+    await vi.advanceTimersByTimeAsync(8_000 + 45_100);
+    expect([(await ruledOut.result).notes, searched()]).toEqual([["Synthetic model: some filter line items were not found in the 45 seconds allowed for the search: 8 of 28 modules were not read."],
+      [MODULE_3, STAFFING, ...named.slice(0, 24)]]);
+    expect(ruledOut.log.filter(line => line.startsWith("filter line items:"))).toEqual([
+      "filter line items: 1 looked for in 20 of 28 candidate modules that have the filtered dimensions and 0 of 10 other modules, in 45 s: 0 found, 1 not found",
+      "filter line items: the entity-type bracket chose 0 of the 24 modules asked for; in the modules read, module IDs and line item entity types rise together (3 modules with line items)",
+      `filter line items: of the 1 not found, 1 looked for in the candidate modules only: 1 ruled out, each by a module that was read, which has the line items of its entity type and does not list it (${GONE} by module ${MODULE})`,
+      "filter line items: the 45 seconds allowed for the search ran out: 8 modules left unread"]);
+
     // A model that answers within the time is read whole, and a line item that none of its modules has adds no note.
     ScriptedSocket.sockets = [];
     serveModel({ [MODULE_VIEWS]: moduleList(others) });
@@ -1095,6 +1148,73 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     expect(whole.log.filter(line => line.startsWith("filter "))).toEqual([
       "filter line items: 1 looked for in 0 of 0 candidate modules that have the filtered dimensions and 30 of 30 other modules, in 40 s: 0 found, 1 not found",
       "filter line items: the entity-type bracket chose 0 of the 30 modules asked for; fewer than 3 modules with line items were read", unnamed]);
+  });
+
+  it("counts its questions about the filtered dimensions in the forty-five seconds: none is asked once they are over, and the note says what the model had not said", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
+    // Six filtered dimensions, a model that answers none of the questions which modules have them, and three modules to read.
+    const dimensions = [LIST, LIST_2, ...[3, 4, 5, 6].map(n => String(101000000900 + n))];
+    const pages = ruled(rule([FILTER_ITEM], ["true"]));
+    (pages[0].cards[0] as Any).grid.regions[0].rows.dimensions = dimensions.map(id => ({ dimension: { kind: "dimension", id } }));
+    const questions = () => sent("SEND").filter(frame => frame.headers.destination === at("/applicableModules")).map(frame => String(JSON.parse(frame.body).dimensions[0]));
+    const unanswered = (dimension: string) => `modules for dimension ${dimension}: Timed out waiting for ${at("/applicableModules")}.`;
+    const unsaid = "the model had not said which modules have 2 of the filtered dimensions";
+    const note = (what: string) => `Synthetic model: some filter line items were not found in the 45 seconds allowed for the search: ${what}.`;
+
+    serveModel({ [MODULE_VIEWS]: moduleList([1, 2, 3].map(other)), [at("/applicableModules")]: () => "" });
+    const slow = run(pages);
+    let outcome: unknown = "reading";
+    slow.result.then(done => { outcome = done.notes; }, error => { outcome = error; });
+    // Each question is given up after ten seconds; the fifth, asked after forty, after the five that are left.
+    await vi.advanceTimersByTimeAsync(44_999);
+    expect([outcome, questions()]).toEqual(["reading", dimensions.slice(0, 5)]);
+    // Then the time is over: the sixth question is not asked and no module is read. The log and the note say both.
+    await vi.advanceTimersByTimeAsync(101);
+    expect([outcome, questions(), searched()]).toEqual([[note(`3 of 3 modules were not read, and ${unsaid}`)], dimensions.slice(0, 5), []]);
+    expect(slow.log.filter(line => /^(filter |modules for)/.test(line))).toEqual([...dimensions.slice(0, 5).map(unanswered),
+      "filter line items: 1 looked for in 0 of 0 candidate modules that have the filtered dimensions and 0 of 3 other modules, in 45 s: 0 found, 1 not found",
+      "filter line items: the entity-type bracket chose 0 of the 0 modules asked for; fewer than 3 modules with line items were read",
+      `filter line items: the 45 seconds allowed for the search ran out: 3 modules left unread, and ${unsaid}`,
+      `filter rule with an unnamed item (card card-1): unnamed ${FILTER_ITEM}`]);
+
+    // Without the model's list of modules there is no module to read, and the time ran out all the same: the log says so,
+    // and a note does too.
+    ScriptedSocket.sockets = [];
+    serveModel({ [MODULE_VIEWS]: id => rejected(id, "MODULES_UNAVAILABLE"), [at("/applicableModules")]: () => "" });
+    const listless = run(pages);
+    await vi.advanceTimersByTimeAsync(45_100);
+    expect((await listless.result).notes).toEqual(["Synthetic model: module and saved view names were not available (MODULES_UNAVAILABLE).", note(unsaid)]);
+    expect([questions(), listless.log.filter(line => line.startsWith("filter line items: the 45"))]).toEqual([dimensions.slice(0, 5),
+      [`filter line items: the 45 seconds allowed for the search ran out: 0 modules left unread, and ${unsaid}`]]);
+  });
+
+  it("adds no note about the time when it cut nothing short: every module was read, or every rule has its line item", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const [candidates, others] = [[1, 2, 3, 4, 5, 6, 7, 8].map(candidate), [1, 2, 3, 4].map(other)];
+    /** An answer that comes fifty seconds later by the clock, as after the computer slept. */
+    const late = (data: unknown[]) => (id: string) => { vi.setSystemTime(Date.now() + 50_000); return update(id, { data }); };
+    const lines = (log: string[]) => log.filter(line => line.startsWith("filter line items:"));
+    const few = "filter line items: the entity-type bracket chose 0 of the 4 modules asked for; fewer than 3 modules with line items were read";
+
+    // The last of the model's four modules answers when the forty-five seconds are over, and none has the rule's line item.
+    // Every module was read: no note says that the time ran out, and no line of the log.
+    serveModel({ [MODULE_VIEWS]: moduleList(others), [at(`/modules/${other(4)}/lineItems`)]: late([]) });
+    const whole = run(withGrid());
+    expect((await whole.result).notes).toEqual([]);
+    expect(searched()).toEqual(others);
+    expect(lines(whole.log)).toEqual([
+      "filter line items: 1 looked for in 0 of 0 candidate modules that have the filtered dimensions and 4 of 4 other modules, in 50 s: 0 found, 1 not found", few]);
+
+    // The module that has the rule's line item answers when the forty-five seconds are over. Four of the modules the model
+    // named were not read, and nothing is looked for in them any more: no note either.
+    ScriptedSocket.sockets = [];
+    serveModel({ [at("/applicableModules")]: id => update(id, { data: candidates.map(module => ({ id: module, label: `Module ${module}` })) }),
+      [at(`/modules/${candidate(2)}/lineItems`)]: late([{ lineItemId: FILTER_ITEM, lineItemLabel: "Include?" }]) });
+    const found = run(withGrid());
+    expect((await found.result).notes).toEqual([]);
+    expect(searched()).toEqual(candidates.slice(0, 4));
+    expect(lines(found.log)).toEqual([
+      "filter line items: 1 looked for in 4 of 8 candidate modules that have the filtered dimensions and 0 of 0 other modules, in 50 s: 1 found (1 in candidate modules), 0 not found", few]);
   });
 
   it("ends the search for filter line items at once when the run is stopped, the model closes or the connection fails, and asks for no further module", async () => {

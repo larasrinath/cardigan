@@ -296,8 +296,10 @@ async function readViewLayouts(reads: SocketReads, refs: readonly UxEntityRef[])
  * not answer does not end the search. The whole search has FILTER_LINE_ITEMS_BUDGET_MS in one model, from its first read:
  * a read waits no longer than what is left of that either, and once it is over no further read is made. A run that is
  * stopped, a model that reports itself closed and a connection that fails end the search at once, and nothing is asked
- * after them. A rule whose line item was not found keeps its IDs. The log says how far the search went, in IDs and
- * counts only. */
+ * after them. A rule whose line item was not found keeps its IDs.
+ * The diagnostic log is kept small: the reads of line items write no frame lines, and the step says how far the search is
+ * no more often than FILTER_LINE_ITEMS_STATUS_MS. The search's own lines say how far it went, in IDs and counts only, and
+ * a note says so when the time ran out. */
 async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCardDetails[]): Promise<void> {
   const { scope, connection, settle, ended, catalog, notes, progress } = reads;
   const { workspaceId: ws, modelId: model } = scope;
@@ -313,15 +315,19 @@ async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCar
   const ask = <T>(read: () => Promise<T>): Promise<T> => settle(ended() ? new Promise<never>(() => undefined) : read());
   const unread = (id: string) => ENTITY_ID.test(id) && !catalog.lineItemModules.has(id) && !catalog.unreadableModules.has(id);
   const candidates = new Set<string>();
+  /** The filtered dimensions whose modules the model had not named when the time was over: not asked for, or not answered. */
+  let unsaid = 0;
   for (const dimensionId of axisDimensionIds) {
+    if (!ENTITY_ID.test(dimensionId)) continue;
     const time = left();
-    if (!ENTITY_ID.test(dimensionId) || time <= 0) continue;
+    if (time <= 0) { unsaid++; continue; }
     try {
       const json = await ask(() => connection.subscribe(`core://${ws}:${model}/applicableModules`,
         { body: { dimensions: [Number(dimensionId)] }, timeoutMs: Math.min(FILTER_LINE_ITEMS_READ_MS, time) }));
       for (const id of applicableModuleIds(catalog, json)) if (unread(id)) candidates.add(id);
     } catch (error) {
       if (connection.failed || ended()) throw error;
+      if (left() <= 0) unsaid++;
       progress.log(`modules for dimension ${dimensionId}: ${message(error)}`);
     }
   }
@@ -365,13 +371,16 @@ async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCar
       + step.ruledOut.slice(0, MAX_LOGGED).map(({ id, moduleId }) => `${id} by module ${moduleId}`).join(", ")
       + `${step.ruledOut.length > MAX_LOGGED ? ` and ${step.ruledOut.length - MAX_LOGGED} more` : ""})${beside ? `, and ${beside} in a rule with such an ID` : ""}`);
   }
-  // The modules that were still to be read when the search ended: all of them while an ID is looked for everywhere.
-  const due = step.everywhere.length ? pool : step.candidatesOnly.length ? [...candidates] : [];
+  // The time ran out when it is over with an ID still not found and something left undone: modules that were to be read
+  // for it (all of them while an ID is looked for everywhere, else the candidates), or a question about a filtered
+  // dimension. The log and the note say the same.
+  const due = step.everywhere.length ? pool : [...candidates];
   const notRead = due.length - read(due);
-  if (notRead && left() <= 0) {
-    progress.log(`filter line items: the ${FILTER_LINE_ITEMS_BUDGET_MS / 1000} seconds allowed for the search ran out: ${notRead} modules left unread`);
+  if (missing && left() <= 0 && (notRead || unsaid)) {
+    const dimensions = `the model had not said which modules have ${unsaid} of the filtered dimensions`;
+    progress.log(`filter line items: the ${FILTER_LINE_ITEMS_BUDGET_MS / 1000} seconds allowed for the search ran out: ${notRead} modules left unread${unsaid ? `, and ${dimensions}` : ""}`);
     notes.push(`${scope.modelName}: some filter line items were not found in the ${FILTER_LINE_ITEMS_BUDGET_MS / 1000} seconds allowed for the search: `
-      + `${notRead} of ${due.length} modules were not read.`);
+      + `${[...(notRead ? [`${notRead} of ${due.length} modules were not read`] : []), ...(unsaid ? [dimensions] : [])].join(", and ")}.`);
   }
 }
 
