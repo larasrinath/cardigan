@@ -1599,6 +1599,59 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     expect([seen.spared, searched(), said(spared.log)]).toEqual([[note], [MODULE_3, STAFFING], [ranOut]]);
   });
 
+  it("waits for a question after all once an answer has named a module that the model's list does not hold: the list is then not all that a question can name", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
+    const [listed, outside, late] = [[1, 2].map(other), [1, 2, 3].map(candidate), candidate(4)];
+    const unsaid = "the model had not said which modules have 1 of the filtered dimensions";
+    // Two filtered dimensions, and a rule on a line item that no card shows.
+    const pages = ruled(rule([FILTER_ITEM], ["true"]));
+    (pages[0].cards[0] as Any).grid.regions[0].rows.dimensions = [LIST, LIST_2].map(id => ({ dimension: { kind: "dimension", id } }));
+    /** A model whose list has two other modules. It says at once which modules have the first dimension: `first`. For the
+     * second it names one more module, which its list does not hold and which has the rule's line item: after `wait`, or
+     * never. */
+    const start = (first: string[], wait?: number) => {
+      ScriptedSocket.sockets = [];
+      const naming = (modules: string[]) => (id: string) => update(id, { data: modules.map(module => ({ id: module, label: `Module ${module}` })) });
+      serveModel({ [MODULE_VIEWS]: moduleList(listed), [at("/applicableModules")]: (id, asked) => (asked.dimensions[0] === Number(LIST) ? naming(first)(id) : wait ? naming([late])(id) : ""),
+        [at(`/modules/${late}/lineItems`)]: id => update(id, { data: [{ lineItemId: FILTER_ITEM, lineItemLabel: "Include?" }] }) });
+      const reply = ScriptedSocket.reply;
+      ScriptedSocket.reply = (socket, frame) => {
+        const second = frame.command === "SEND" && frame.headers.destination === at("/applicableModules") && JSON.parse(frame.body).dimensions[0] === Number(LIST_2);
+        if (second && wait) setTimeout(() => reply(socket, frame), wait); else reply(socket, frame);
+      };
+      const { log, result } = run(pages);
+      const seen: { done?: Awaited<typeof result> } = {};
+      void result.then(done => { seen.done = done; });
+      return { log, seen };
+    };
+
+    // The first answer names three modules that the list does not hold. After ten seconds they and the list's two are read,
+    // and none has the line item. The search has seen that a question can name a module outside the list, so the second
+    // question is waited for: its answer, after twenty seconds, names the module that has the line item.
+    const named = start(outside, 20_000);
+    await vi.advanceTimersByTimeAsync(19_900);
+    expect([named.seen.done, searched()]).toEqual([undefined, [...outside, ...listed]]);
+    await vi.advanceTimersByTimeAsync(200);
+    expect([named.seen.done?.catalog.lineItems.get(FILTER_ITEM), named.seen.done?.notes, searched()]).toEqual([{ name: "Include?", moduleId: late }, [], [...outside, ...listed, late]]);
+    expect(named.log.filter(line => line.startsWith("filter line items: 1 looked for"))).toEqual([
+      "filter line items: 1 looked for in 4 of 4 candidate modules that have the filtered dimensions and 2 of 2 other modules, in 20 s, 0 reads given up while waiting: "
+        + "1 found (1 in candidate modules), 0 not found"]);
+
+    // When it never answers, it is waited for as long as the time lasts, and the note says so.
+    const silent = start(outside);
+    await vi.advanceTimersByTimeAsync(44_900);
+    expect(silent.seen.done).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(200);
+    expect(silent.seen.done?.notes).toEqual([`Synthetic model: some filter line items were not found in the 45 seconds allowed for the search: ${unsaid}.`]);
+
+    // An answer that names modules of the list only shows no such thing: once they are read, no module of the list is
+    // left, and the second question is not waited for.
+    const within = start(listed);
+    await vi.advanceTimersByTimeAsync(10_200);
+    expect([within.seen.done?.notes, searched()]).toEqual([[], listed]);
+    expect(within.log.filter(line => line.includes("had not said"))).toEqual([`filter line items: ${unsaid} when no module of its list was left to read: no answer could name another`]);
+  });
+
   it("adds no note when the search left nothing undone: every module was read, or every rule has its line item, although the time is over", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     const [candidates, others] = [[1, 2, 3, 4, 5, 6, 7, 8].map(candidate), [1, 2, 3, 4].map(other)];
