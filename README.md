@@ -117,6 +117,7 @@ How to read the files:
 
 - Only published versions are read. Pages that were never published are listed as "Not published" and counted apart: **Pages analysed** reads "93 of 93 (published versions); 3 unpublished, not analysed", so an app whose published pages were all read says so.
 - A saved view's own filters, sorts and show/hide live in the model and are not listed.
+- The search for a filter rule's line item in the model's modules takes at most 45 seconds per model. When that time runs out first, a note in the Details file says that some filter line items were not found and how many modules were not read: a rule that shows IDs in place of names may have its line item in one of those modules.
 - An item in a filter rule, chosen as the filter context or compared with a line item formatted as a list, is shown by its name where the model gives one, and by its ID otherwise. Those names take extra reads of the kind already made for item names: at most 40 for a model and at most 30 seconds for all of them together, and none when no rule has such an item. A single read waits at most 10 seconds, and after two go unanswered no more are made. An item not named in that time keeps its ID, and the diagnostic log says how many were asked for, how many were named and how many were not finished.
 - Buttons whose import, export or process is not found in the model keep their card label. **Name source** says which source was used.
 - Anaplan can change the internal services the extension reads without notice; see [NOTICE.md](NOTICE.md).
