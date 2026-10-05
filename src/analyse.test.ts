@@ -1494,6 +1494,23 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     await later();
     expect([asked(), afterwards(), lines(last.log)]).toEqual([[question(LIST), ...[candidate(1), ...others.slice(0, 3)].map(module => `/modules/${module}/lineItems {}`)], [], []]);
 
+    // And with the search's only answer. Here the model names no module and its list has no other, so the search ends with
+    // the answer to its question; and another rule of the grid has its line item and a context item, which the next step
+    // asks the module's dimension for. With the report in the same breath as that answer, the next step is not reached.
+    const own = { [MODULE_VIEWS]: moduleList([]), [at(`/modules/${MODULE}/lineItems`)]: (id: string) => update(id, { data: [{ lineItemId: LINE_ITEM, lineItemLabel: "Volume" }] }),
+      [at("/dimensions")]: (id: string) => update(id, { modules: { [MODULE]: { dimensions: [{ id: LIST, label: "Product" }] } } }) };
+    const twoRules = () => ruled(rule([ITEM(358, 2), LINE_ITEM], ["true"]), rule([FILTER_ITEM], ["true"]));
+    const contextItem = `/modules/${MODULE}/dimensions/${LIST} {"itemIds":["${ITEM(358, 2)}"],"filter":""}`;
+    serve({ ...own, [at("/applicableModules")]: id => update(id, { data: [] }) + reportsClosed() });
+    const only = run(twoRules());
+    expect((await only.result).notes).toEqual([closed]);
+    await later();
+    expect([asked(), afterwards(), lines(only.log)]).toEqual([[question(LIST)], [], []]);
+    // (A model that stays open is asked for the context item, once the search is over.)
+    serve({ ...own });
+    await run(twoRules()).result;
+    expect(asked()).toEqual([question(LIST), contextItem]);
+
     // The model closed earlier, while the grid's module dimensions were read: that step logs it as a refused read and goes
     // on. The search then asks nothing at all, and ends as its first read would have ended.
     serve({ [at("/dimensions")]: reportsClosed });
