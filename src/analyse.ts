@@ -349,11 +349,11 @@ async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCar
   let candidates = new Set<string>();
   const listed = [...catalog.modules.keys()].filter(unread);
   const others = () => listed.filter(id => !candidates.has(id));
-  /** The modules that an answer of this search named and the model's list does not hold (the list as it was when the
-   * search began: an answer adds the modules it names to the catalog's). One such module shows that the list is not all
-   * that a question can name. */
+  /** The modules that the answers of this search named, and those of them that the model's list does not hold (the list
+   * as it was when the search began: an answer adds the modules it names to the catalog's). One such module shows that
+   * the list is not all that a question can name. */
   const inList = new Set(catalog.modules.keys());
-  const beyond = new Set<string>();
+  const [allNamed, beyond] = [new Set<string>(), new Set<string>()];
   /** Whether the model's list of modules arrived and every module of it was read or refused: a question that is still
    * unanswered then can name no module that is left, as far as this search has seen. (One whose read still waits is left.) */
   const whole = () => catalog.moduleListLoaded && !beyond.size && !listed.some(unread);
@@ -377,7 +377,10 @@ async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCar
       const question: Promise<void> = subscribe(`core://${ws}:${model}/applicableModules`, { body: { dimensions: [Number(dimensionId)] }, signal: givingUp.signal })
         .then(json => {
           const modules = applicableModuleIds(catalog, json).filter(id => ENTITY_ID.test(id));
-          for (const id of modules) if (!inList.has(id)) beyond.add(id);
+          for (const id of modules) {
+            allNamed.add(id);
+            if (!inList.has(id)) beyond.add(id);
+          }
           named.set(dimensionId, modules.filter(unread));
           candidates = new Set([...named.values()].flat());
         },
@@ -444,6 +447,9 @@ async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCar
     + `${read(others())} of ${others().length} other modules, in ${Math.round((Date.now() - started) / 1000)} s, ${givenUp} reads given up while waiting: ${found.length} found`
     + `${found.length ? ` (${found.filter(id => candidates.has(catalog.lineItems.get(id)!.moduleId)).length} in candidate modules)` : ""}`
     + `${context ? `, ${context} the context of rules that now have their line item` : ""}, ${missing} not found`);
+  // Whether the model names, for a filtered dimension, modules that its list of modules does not hold: a live run's log
+  // shows it here. (Nothing is said when the list did not arrive: the summary shows that.)
+  if (catalog.moduleListLoaded && beyond.size) progress.log(`filter line items: ${beyond.size} of the ${allNamed.size} modules the model named are not in its list of modules`);
   progress.log(`filter line items: the entity-type bracket chose ${bracketed} of the ${asked.size} modules asked for; ${step.evidence}`);
   if (step.candidatesOnly.length) {
     const beside = step.candidatesOnly.length - step.ruledOut.length;
