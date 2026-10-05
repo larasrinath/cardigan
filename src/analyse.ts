@@ -4,7 +4,8 @@ import type { UxEntityRef, UxPageCardDetails } from "./card-reader/card-types.js
 import type { UxPageType } from "./card-reader/definition-types.js";
 import {
   addActions, addLineItems, addLists, addModuleDimensions, addModuleViews, addSelections, applicableModuleIds, describeFormat, emptyCatalog, entityType,
-  filterItemNeeds, nameFilterValues, resolveFromCatalog, selectionShape, unnamedFilterRules, unresolvedFilterItems, viewLayoutFromMetadata, type ModelCatalog,
+  filterItemNeeds, filterLineItemSearch, nameFilterValues, resolveFromCatalog, selectionShape, unnamedFilterRules, unresolvedFilterItems, viewLayoutFromMetadata,
+  type ModelCatalog,
 } from "./catalog.js";
 import { DETAILS_HEADERS, diagnosticRows, exportRows, type DetailRow } from "./details.js";
 import { Failure, REFRESH, SEND_LOG, type Log, type Progress } from "./progress.js";
@@ -20,8 +21,11 @@ const ENTITY_ID = /^[1-9]\d{0,17}$/;
 const DEFINITION = "/a/springboard-definition-service/";
 const PAGE_TYPES: UxPageType[] = ["BOARD", "GRID-PAGE", "REPORT"];
 const ROUTE: Record<UxPageType, string> = { BOARD: "boards", "GRID-PAGE": "grid-pages", REPORT: "reports" };
-/** Extra modules read to find filter line items that no card otherwise references. */
-const MAX_EXTRA_MODULES = 60;
+/** As long as the search for filter line items that no card otherwise references may take in one model, all its reads
+ * together, from the first: the names are a help to the reader, and nobody should wait minutes for them. */
+const FILTER_LINE_ITEMS_BUDGET_MS = 45_000;
+/** As many modules as that search reads at a time. */
+const FILTER_LINE_ITEMS_AT_A_TIME = 4;
 /** A model that is not open loads on the first data request, which can take minutes. */
 const LOAD_MS = 300_000;
 const LINE_ITEMS_MS = 120_000;
@@ -197,12 +201,13 @@ interface SocketReads {
   progress: Progress;
 }
 
-/** A module whose line items cannot be read is remembered, so the search for filter line items does not ask again. */
-async function readLineItems(reads: SocketReads, moduleId: string): Promise<void> {
+/** A module whose line items cannot be read is remembered, so the search for filter line items does not ask again.
+ * `timeoutMs` is as long as the read waits for its answer. */
+async function readLineItems(reads: SocketReads, moduleId: string, timeoutMs = LINE_ITEMS_MS): Promise<void> {
   const { scope, connection, catalog, progress } = reads;
   const { workspaceId: ws, modelId: model } = scope;
   try {
-    addLineItems(catalog, moduleId, await connection.subscribe(`core://${ws}:${model}/modules/${moduleId}/lineItems`, { body: {}, timeoutMs: LINE_ITEMS_MS }));
+    addLineItems(catalog, moduleId, await connection.subscribe(`core://${ws}:${model}/modules/${moduleId}/lineItems`, { body: {}, timeoutMs }));
   } catch (error) {
     catalog.unreadableModules.add(moduleId);
     progress.log(`line items of module ${moduleId}: ${message(error)}`);
@@ -273,41 +278,73 @@ async function readViewLayouts(reads: SocketReads, refs: readonly UxEntityRef[])
   }
 }
 
-/** Filters can use a line item from a module no card shows: look through modules that have the filtered dimension. */
+/** Filters can use a line item from a module no card shows. It is looked for in the modules whose line items were not read
+ * yet, FILTER_LINE_ITEMS_AT_A_TIME at a time, until every such rule has its line item:
+ * - first in those that have a dimension of the filtered axis, which the model names (the candidates), in the model's order;
+ * - then in every other module of the model's list, in the list's order.
+ * Where the modules read so far bear it out, the entity types of the IDs put likelier modules before both, and an ID that
+ * no unread module can list is not looked for (catalog.ts `filterLineItemSearch`). No module is read twice, and one that
+ * cannot be read is remembered as one. The whole search has FILTER_LINE_ITEMS_BUDGET_MS in one model, from its first
+ * read: a read waits no longer than what is left of it, and once it is over no further read is made. A rule whose line
+ * item was not found keeps its IDs. The log says how far the search went, in IDs and counts only. */
 async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCardDetails[]): Promise<void> {
-  const { scope, connection, settle, halted, catalog, notes, progress } = reads;
+  const { scope, connection, settle, halted, ended, catalog, notes, progress } = reads;
   const { workspaceId: ws, modelId: model } = scope;
   const cards = pages.flatMap(page => page.cards);
   const { itemIds, axisDimensionIds } = unresolvedFilterItems(cards, catalog);
   if (!itemIds.size) return;
+  const started = Date.now();
+  /** What is left of the time for the search. */
+  const left = () => started + FILTER_LINE_ITEMS_BUDGET_MS - Date.now();
+  const unread = (id: string) => ENTITY_ID.test(id) && !catalog.lineItemModules.has(id) && !catalog.unreadableModules.has(id);
   const candidates = new Set<string>();
   for (const dimensionId of axisDimensionIds) {
-    if (!ENTITY_ID.test(dimensionId)) continue;
+    const time = left();
+    if (!ENTITY_ID.test(dimensionId) || time <= 0) continue;
     try {
-      const json = await settle(connection.subscribe(`core://${ws}:${model}/applicableModules`, { body: { dimensions: [Number(dimensionId)] } }));
-      for (const id of applicableModuleIds(catalog, json)) {
-        if (ENTITY_ID.test(id) && !catalog.lineItemModules.has(id) && !catalog.unreadableModules.has(id)) candidates.add(id);
-      }
+      const json = await settle(connection.subscribe(`core://${ws}:${model}/applicableModules`, { body: { dimensions: [Number(dimensionId)] }, timeoutMs: time }));
+      for (const id of applicableModuleIds(catalog, json)) if (unread(id)) candidates.add(id);
     } catch (error) {
       if (connection.failed || halted()) throw error;
       progress.log(`modules for dimension ${dimensionId}: ${message(error)}`);
     }
   }
-  const extra = [...candidates];
+  // Every module there is to read: the candidates, then the other modules of the model's list.
+  const pool = [...candidates, ...[...catalog.modules.keys()].filter(id => unread(id) && !candidates.has(id))];
   progress.status(`Finding filter line items in ${scope.modelName}…`);
+  const asked = new Set<string>();
+  let bracketed = 0;
   // Until every rule has its line item: what a rule then still holds unnamed is its context, which no module lists.
-  const missing = () => unresolvedFilterItems(cards, catalog).itemIds.size;
-  let read = 0;
-  for (let i = 0; i < Math.min(extra.length, MAX_EXTRA_MODULES); i += 4) {
-    const batch = extra.slice(i, Math.min(i + 4, MAX_EXTRA_MODULES));
-    await settle(inBatches(batch, 4, moduleId => readLineItems(reads, moduleId)));
-    read += batch.length;
-    if (!missing()) break;
+  const next = () => filterLineItemSearch(unresolvedFilterItems(cards, catalog).itemIds, pool.filter(id => !asked.has(id)), catalog, FILTER_LINE_ITEMS_AT_A_TIME);
+  let step = next();
+  for (let time = left(); step.open.length && step.modules.length && time > 0; step = next(), time = left()) {
+    // A model that closed before this, while the candidates were asked for, was logged there as a refused read. Nothing
+    // more is asked of it: the search ends here as its next read would have ended, with what ended the socket work.
+    if (ended()) await settle(new Promise<never>(() => undefined));
+    if (asked.size) progress.status(`Finding filter line items in ${scope.modelName}: ${asked.size} of ${pool.length} modules…`);
+    const batch = step.modules;
+    batch.forEach(id => asked.add(id));
+    bracketed += step.bracketed;
+    await settle(Promise.all(batch.map(moduleId => readLineItems(reads, moduleId, time))));
   }
   // How far the search went, for the reader of a live run's log: a rule whose line item it did not find keeps its IDs.
-  progress.log(`filter line items: ${itemIds.size} looked for in ${read} of ${extra.length} modules that have the filtered dimensions, ${missing()} not found`);
-  if (extra.length > MAX_EXTRA_MODULES && missing()) {
-    notes.push(`${scope.modelName}: some filter line items were not found in the first ${MAX_EXTRA_MODULES} candidate modules.`);
+  const read = (modules: Iterable<string>) => [...modules].filter(id => catalog.lineItemModules.has(id)).length;
+  const found = [...itemIds].filter(id => catalog.lineItems.has(id));
+  const notRead = pool.length - read(pool);
+  progress.log(`filter line items: ${itemIds.size} looked for in ${read(candidates)} of ${candidates.size} candidate modules that have the filtered dimensions and `
+    + `${read(pool) - read(candidates)} of ${pool.length - candidates.size} other modules, in ${Math.round((Date.now() - started) / 1000)} s: ${found.length} found`
+    + `${found.length ? ` (${found.filter(id => candidates.has(catalog.lineItems.get(id)!.moduleId)).length} in candidate modules)` : ""}, `
+    + `${unresolvedFilterItems(cards, catalog).itemIds.size} not found`);
+  progress.log(`filter line items: the entity-type bracket chose ${bracketed} of the ${asked.size} modules asked for; ${step.evidence}`);
+  if (step.ruledOut.length) {
+    progress.log(`filter line items: ${step.ruledOut.length} not looked for, because a module that was read has the line items of their entity type and does not list them: `
+      + step.ruledOut.slice(0, MAX_LOGGED).map(({ id, moduleId }) => `${id} (module ${moduleId})`).join(", ")
+      + (step.ruledOut.length > MAX_LOGGED ? ` and ${step.ruledOut.length - MAX_LOGGED} more` : ""));
+  }
+  if (step.open.length && notRead && left() <= 0) {
+    progress.log(`filter line items: the ${FILTER_LINE_ITEMS_BUDGET_MS / 1000} seconds allowed for the search ran out: ${notRead} modules left unread`);
+    notes.push(`${scope.modelName}: some filter line items were not found in the ${FILTER_LINE_ITEMS_BUDGET_MS / 1000} seconds allowed for the search: `
+      + `${notRead} of ${pool.length} modules were not read.`);
   }
 }
 
