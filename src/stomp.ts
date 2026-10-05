@@ -83,6 +83,9 @@ export interface SubscribeOptions {
   timeoutMs?: number;
   /** Called with each message type received and its top-level keys (never values), for the diagnostic log. */
   onMessage?: (type: string, keys: string[]) => void;
+  /** Keeps this subscription's own three frames (SUBSCRIBE, SEND, UNSUBSCRIBE) out of the diagnostic log: for a read that
+   * is one of many alike, which its caller sums up in a line of its own. The frames are checked and sent like any other. */
+  quiet?: boolean;
 }
 
 export class StompConnection {
@@ -161,10 +164,11 @@ export class StompConnection {
     });
   }
 
-  private send(frame: StompFrame): void {
+  /** `quiet` sends the frame without a line in the log (a subscription's `quiet` option). */
+  private send(frame: StompFrame, quiet = false): void {
     const encoded = encodeFrame(frame, this.escapeHeaders);
     const { destination, id } = frame.headers;
-    this.log(`${frame.command}${destination ? ` ${destination}` : ""}${id ? ` id=${id}` : ""}${frame.headers["action-type"] ? ` action-type=${frame.headers["action-type"]}` : ""}`);
+    if (!quiet) this.log(`${frame.command}${destination ? ` ${destination}` : ""}${id ? ` id=${id}` : ""}${frame.headers["action-type"] ? ` action-type=${frame.headers["action-type"]}` : ""}`);
     this.socket.send(encoded);
   }
 
@@ -190,7 +194,7 @@ export class StompConnection {
         clearTimeout(timer);
         this.handlers.delete(id);
         this.failures.delete(onFailure);
-        if (!this.failure && this.socket.readyState === WebSocket.OPEN) this.send({ command: "UNSUBSCRIBE", headers: { id }, body: "" });
+        if (!this.failure && this.socket.readyState === WebSocket.OPEN) this.send({ command: "UNSUBSCRIBE", headers: { id }, body: "" }, options.quiet);
         if (error) reject(error); else resolve(data);
       };
       this.failures.add(onFailure);
@@ -218,12 +222,12 @@ export class StompConnection {
         try { data = JSON.parse(frame.body); } catch { stop(new StompError(`Unreadable data for ${destination}.`)); return; }
         try { if (until(data)) stop(undefined, data); } catch (error) { stop(error instanceof Error ? error : new StompError(String(error))); }
       });
-      this.send({ command: "SUBSCRIBE", headers: { id, destination, "page-visible": "true", ...(options.accept ? { accept: options.accept } : {}) }, body: "" });
+      this.send({ command: "SUBSCRIBE", headers: { id, destination, "page-visible": "true", ...(options.accept ? { accept: options.accept } : {}) }, body: "" }, options.quiet);
       this.send({
         command: "SEND",
         headers: { destination, "action-type": "update-subscription", "subscription-revision": REVISION, id, "action-id": `action-${this.counter}`, "page-visible": "true" },
         body: JSON.stringify(options.body ?? {}),
-      });
+      }, options.quiet);
     });
   }
 

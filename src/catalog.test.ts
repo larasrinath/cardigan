@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { UxEntityRef } from "./card-reader/card-types.js";
 import {
   addActions, addLineItems, addLists, addModuleDimensions, addModuleViews, addSelections, applicableModuleIds, describeFormat, emptyCatalog, entityType,
-  filterItemNeeds, nameFilterValues, resolveFromCatalog, selectionShape, unnamedFilterRules, unresolvedFilterItems, viewLayoutFromMetadata,
+  filterItemNeeds, filterLineItemSearch, nameFilterValues, resolveFromCatalog, selectionShape, unnamedFilterRules, unresolvedFilterItems, viewLayoutFromMetadata,
 } from "./catalog.js";
 
 // Synthetic IDs only.
@@ -113,6 +113,115 @@ describe("Page analyzer names from the model data service", () => {
     // An item that was named is no longer looked for either.
     addSelections(catalog, { data: [{ itemId: ALL_REGIONS, label: "All regions" }] });
     expect([...unresolvedFilterItems(fixed, catalog).itemIds]).toEqual(["1901000000009"]);
+  });
+
+  describe("the plan of the search for a rule's line item", () => {
+    const module = (n: number) => String(102000000100 + n);
+    /** A catalog in which these modules were read: each with two line items of the entity type given, or with none. */
+    const read = (...modules: [n: number, type?: number][]) => {
+      const catalog = emptyCatalog();
+      for (const [n, type] of modules) addLineItems(catalog, module(n), { data: type === undefined ? [] : [0, 1].map(index => ({ lineItemId: ITEM(type, index), lineItemLabel: `Line item ${index}` })) });
+      return catalog;
+    };
+    const unread = (...numbers: number[]) => numbers.map(module);
+    const few = "fewer than 3 modules with line items were read";
+    const rise = (modules: number) => `in the modules read, module IDs and line item entity types rise together (${modules} modules with line items)`;
+    const fall = "in the modules read, module IDs and line item entity types do not rise together";
+    const mixed = "in the modules read, a module's line items do not have one entity type of their own";
+
+    it("looks for an ID in every module, until a module that was read rules it out: then, with the other IDs of its rule, in the candidate modules only", () => {
+      // Nothing read that says anything: every ID is looked for in every module, the candidates first, as many as asked for.
+      expect(filterLineItemSearch([[ITEM(315, 0), ITEM(250, 4)], [ITEM(315, 0)]], unread(7, 3), unread(9, 1, 5), emptyCatalog(), 4))
+        .toEqual({ everywhere: [ITEM(315, 0), ITEM(250, 4)], candidatesOnly: [], ruledOut: [], modules: unread(7, 3, 9, 1), bracketed: 0, evidence: few });
+      // No rule is without its line item, or no module is left: nothing is read.
+      expect(filterLineItemSearch([], unread(7, 3), unread(9), emptyCatalog(), 4)).toEqual({ everywhere: [], candidatesOnly: [], ruledOut: [], modules: [], bracketed: 0, evidence: few });
+      expect(filterLineItemSearch([[ITEM(315, 0)]], [], [], read([10, 300], [20]), 4)).toEqual({ everywhere: [ITEM(315, 0)], candidatesOnly: [], ruledOut: [], modules: [], bracketed: 0, evidence: few });
+      // A module that is both a candidate and in the list is read once.
+      expect(filterLineItemSearch([[ITEM(315, 0)]], unread(7, 3), unread(3, 9, 7), emptyCatalog(), 4).modules).toEqual(unread(7, 3, 9));
+
+      // The line items of a module share an entity type: an ID of the type of a module that was read, which does not list
+      // it, is ruled out. Nothing proves that no other module has line items of that type, so it is still looked for in the
+      // candidate modules, and only there. An ID too short to have an entity type is never ruled out.
+      const telling = read([10, 300], [20, 330], [30, 320]);
+      expect(filterLineItemSearch([[ITEM(300, 7)], [ITEM(301, 0)], ["7"]], unread(7, 3), unread(9, 1), telling, 4)).toEqual({ everywhere: [ITEM(301, 0), "7"],
+        candidatesOnly: [ITEM(300, 7)], ruledOut: [{ id: ITEM(300, 7), moduleId: module(10) }], modules: unread(7, 3, 9, 1), bracketed: 0, evidence: fall });
+      // With no other ID to look for, only the candidates are read, in their order; and with no candidate left, nothing.
+      expect(filterLineItemSearch([[ITEM(300, 7)]], unread(7, 3, 5), unread(9, 1), telling, 2)).toEqual({ everywhere: [],
+        candidatesOnly: [ITEM(300, 7)], ruledOut: [{ id: ITEM(300, 7), moduleId: module(10) }], modules: unread(7, 3), bracketed: 0, evidence: fall });
+      expect(filterLineItemSearch([[ITEM(300, 7)]], [], unread(9, 1), telling, 4)).toMatchObject({ everywhere: [], candidatesOnly: [ITEM(300, 7)], modules: [] });
+
+      // A rule holds one line item: when one of its IDs is ruled out, that one was it, and the rule's other IDs are its
+      // context. They are looked for in the candidates only too, unless a rule with no ID ruled out holds them as well.
+      expect(filterLineItemSearch([[ITEM(7000, 3), ITEM(300, 7)]], unread(7), unread(9), telling, 4)).toEqual({ everywhere: [],
+        candidatesOnly: [ITEM(7000, 3), ITEM(300, 7)], ruledOut: [{ id: ITEM(300, 7), moduleId: module(10) }], modules: unread(7), bracketed: 0, evidence: fall });
+      expect(filterLineItemSearch([[ITEM(7000, 3), ITEM(300, 7)], [ITEM(7000, 3), ITEM(315, 0)], [ITEM(320, 9), ITEM(300, 7)]], unread(7), unread(9), telling, 4))
+        .toEqual({ everywhere: [ITEM(7000, 3), ITEM(315, 0)], candidatesOnly: [ITEM(300, 7), ITEM(320, 9)],
+          ruledOut: [{ id: ITEM(300, 7), moduleId: module(10) }, { id: ITEM(320, 9), moduleId: module(30) }], modules: unread(7, 9), bracketed: 0, evidence: fall });
+
+      // All of that is taken from three modules with line items, and not from fewer.
+      expect(filterLineItemSearch([[ITEM(7000, 3), ITEM(300, 7)]], unread(7), unread(9), read([10, 300], [20, 330], [40]), 4))
+        .toEqual({ everywhere: [ITEM(7000, 3), ITEM(300, 7)], candidatesOnly: [], ruledOut: [], modules: unread(7, 9), bracketed: 0, evidence: few });
+      // Nor when the modules read say otherwise: two of them have line items of one type, or one has line items of two types,
+      // or a line item's ID is too short to have a type. Then no ID says which module it belongs to: nothing is ruled out,
+      // and the IDs order nothing.
+      const two = read([10, 300], [20, 310], [30, 320]);
+      addLineItems(two, module(40), { data: [{ lineItemId: ITEM(300, 9), lineItemLabel: "Elsewhere" }] });
+      const both = read([10, 300], [20, 310], [30, 320]);
+      addLineItems(both, module(10), { data: [{ lineItemId: ITEM(305, 0), lineItemLabel: "Another type" }] });
+      const short = read([10, 300], [20, 310], [30, 320]);
+      addLineItems(short, module(40), { data: [{ lineItemId: "12", lineItemLabel: "Short" }] });
+      for (const catalog of [two, both, short]) {
+        expect(filterLineItemSearch([[ITEM(300, 7)], [ITEM(315, 0)]], [], unread(25, 1, 2), catalog, 2))
+          .toEqual({ everywhere: [ITEM(300, 7), ITEM(315, 0)], candidatesOnly: [], ruledOut: [], modules: unread(25, 1), bracketed: 0, evidence: mixed });
+      }
+    });
+
+    it("reads first the unread modules between the two whose entity types bracket an ID's, while the modules read bear that order out", () => {
+      /** The plan when each ID is a rule of its own and no module is a candidate. */
+      const plan = (ids: string[], others: string[], catalog: ReturnType<typeof read>, size: number) => filterLineItemSearch(ids.map(id => [id]), [], others, catalog, size);
+      // Module IDs and entity types rise together in three modules that were read: the module of an entity type lies between
+      // the two whose types bracket it. The unread modules there are read first, spread evenly; the others follow in the
+      // order given.
+      const rising = read([10, 300], [20, 310], [30, 320], [15]);
+      const all = unread(1, 5, 12, 21, 22, 23, 24, 25, 26, 27, 28, 29, 35, 44);
+      expect(plan([ITEM(315, 0)], all, rising, 4))
+        .toEqual({ everywhere: [ITEM(315, 0)], candidatesOnly: [], ruledOut: [], modules: unread(22, 24, 26, 28), bracketed: 4, evidence: rise(3) });
+      expect(plan([ITEM(315, 0)], all, rising, 6).modules).toEqual(unread(22, 23, 24, 26, 27, 28));
+      // They are spread by their IDs, in whatever order the unread modules are given.
+      expect(plan([ITEM(315, 0)], unread(29, 44, 21, 25, 1, 23, 27, 22, 28, 12, 24, 26, 5, 35), rising, 4)).toMatchObject({ modules: unread(22, 24, 26, 28), bracketed: 4 });
+      // Fewer modules between the two than are asked for: all of them, then the first of the others, the candidates before
+      // the model's other modules.
+      expect(plan([ITEM(305, 3)], all, rising, 4)).toMatchObject({ modules: unread(12, 1, 5, 21), bracketed: 1 });
+      expect(filterLineItemSearch([[ITEM(305, 3)]], unread(44, 21), unread(1, 12, 5), rising, 4)).toMatchObject({ modules: unread(12, 44, 21, 1), bracketed: 1 });
+      // An entity type below every one that was read, or above: the modules before the first, or after the last.
+      expect(plan([ITEM(250, 0)], all, rising, 4)).toMatchObject({ modules: unread(1, 5, 12, 21), bracketed: 2 });
+      expect(plan([ITEM(400, 0)], all, rising, 1)).toMatchObject({ modules: unread(44), bracketed: 1 });
+      // Several IDs: those between the same two modules share their bracket, and each bracket has its part of the reads.
+      // An ID that is ruled out has no bracket: it is looked for in the candidates only.
+      expect(plan([ITEM(315, 0), ITEM(316, 2), ITEM(400, 0), ITEM(300, 9)], all, rising, 4)).toEqual({ everywhere: [ITEM(315, 0), ITEM(316, 2), ITEM(400, 0)],
+        candidatesOnly: [ITEM(300, 9)], ruledOut: [{ id: ITEM(300, 9), moduleId: module(10) }], modules: unread(24, 27, 35, 44), bracketed: 4, evidence: rise(3) });
+      // Three brackets and four reads: the first has two, the others one each. And two reads: the first two have one each.
+      expect(plan([ITEM(315, 0), ITEM(250, 0), ITEM(400, 0)], all, rising, 4)).toMatchObject({ modules: unread(24, 27, 5, 44), bracketed: 4 });
+      expect(plan([ITEM(315, 0), ITEM(250, 0), ITEM(400, 0)], all, rising, 2)).toMatchObject({ modules: unread(25, 5), bracketed: 2 });
+      // A bracket with no unread module takes no read from one that has some.
+      expect(plan([ITEM(305, 0), ITEM(315, 0)], unread(21, 22, 23, 24, 25, 26, 27, 28, 29, 35), rising, 4)).toMatchObject({ modules: unread(22, 24, 26, 28), bracketed: 4 });
+      // No unread module between the two, or an ID too short to have an entity type: the order given is all there is.
+      expect(plan([ITEM(315, 0)], unread(44, 1, 12), rising, 4)).toMatchObject({ modules: unread(44, 1, 12), bracketed: 0, evidence: rise(3) });
+      expect(plan(["7"], unread(21, 22, 1, 5), rising, 2)).toMatchObject({ everywhere: ["7"], modules: unread(21, 22), bracketed: 0 });
+
+      // The modules read do not bear the order out, or are too few to: the IDs order nothing.
+      expect(plan([ITEM(315, 0)], all, read([10, 300], [20, 330], [30, 320]), 4)).toMatchObject({ modules: unread(1, 5, 12, 21), bracketed: 0, evidence: fall });
+      expect(plan([ITEM(315, 0)], all, read([10, 300], [30, 320]), 4)).toMatchObject({ modules: unread(1, 5, 12, 21), bracketed: 0, evidence: few });
+
+      // IDs are put in the order of their numbers without being read as numbers: these two are one number to JavaScript, and
+      // a longer ID is a greater one whatever its first digit.
+      const [low, high, longer] = ["900000000000000001", "900000000000000002", "1000000000000000000"];
+      const long = emptyCatalog();
+      for (const [moduleId, type] of [["99", 300], [low, 310], [longer, 320]] as const) addLineItems(long, moduleId, { data: [{ lineItemId: ITEM(type, 0), lineItemLabel: "Line item" }] });
+      expect(Number(low)).toBe(Number(high));
+      expect(plan([ITEM(315, 0)], ["98", high, "100", "2000000000000000000"], long, 4)).toMatchObject({ modules: [high, "98", "100", "2000000000000000000"], bracketed: 1 });
+      expect(plan([ITEM(305, 0)], ["98", high, "100", "2000000000000000000"], long, 4)).toMatchObject({ modules: ["100", "98", high, "2000000000000000000"], bracketed: 1 });
+    });
   });
 
   it("keeps what the line items listing says of a line item's format: its data type and the list of a list format, never another value", () => {
