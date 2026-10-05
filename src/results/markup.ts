@@ -138,23 +138,36 @@ export function crumbsHtml(label: string | undefined, context: string | undefine
 /** Details beside their values, as the design's details list holds them. */
 const detailRows = (rows: readonly (readonly [detail: string, value: string])[]): string => rows.map(([detail, value]) => `<dt>${esc(detail)}</dt><dd>${esc(value)}</dd>`).join("");
 
-/** What the page keeps of the result on it for a refresh of the page (keep-result.ts), as the overview says it: "kept"
- * while a copy is kept for the tab, "forgotten" once the user has had that copy removed, and "none" otherwise: before the
- * result is kept, and for one that could not be kept. */
-export type KeptCopy = "none" | "kept" | "forgotten";
+/** What the page keeps of the result on it for a refresh of the page (keep-result.ts), as the overview says it: "keeping"
+ * while the result is being kept and there is no copy yet, "kept" while a copy is kept for the tab, "forgotten" once the
+ * user has had that copy removed, "not-removed" when the user asked for that and the copy could not be removed, and
+ * "none" otherwise: for a result that could not be kept. */
+export type KeptCopy = "none" | "keeping" | "kept" | "not-removed" | "forgotten";
 
 const KEPT_LINE = "A copy of this result is kept for a refresh of this page.";
-/** What the overview says once the kept copy is removed. The page says it through its live region as well. */
+/** What the overview says once the kept copy is removed. The line takes the focus, and a screen reader reads it there:
+ * the page does not say it through its live region as well. */
 export const FORGOTTEN_LINE = "The copy kept for refreshes is removed. This result stays here until you refresh or close this page.";
+/** What the overview says when the kept copy could not be removed: no more than that, for the copy may still be there.
+ * The page says it through its live region as well. */
+export const NOT_REMOVED_LINE = "The copy kept for refreshes could not be removed.";
 
 /** What stands in the overview's place for the kept copy (`#ovKept`). While a copy is kept: a line that says so, and the
  * button that forgets it, which the line describes. Once it is forgotten: the line that says so, which takes the focus the
- * button had. Otherwise nothing at all, so that the place is empty and takes no room. Every word is the page's own: the
- * place holds nothing of a result. */
+ * button had. When it could not be removed: the line that says so, and the button still, for another try. That line is
+ * news of what the button did, which the page's live region tells a screen reader once, so it is not the button's
+ * description as well. Otherwise nothing at all, so that the place is empty and takes no room. Every word is the page's
+ * own: the place holds nothing of a result.
+ *
+ * While the result is being kept, which ends a moment after it is drawn, the place holds the room for the line and the
+ * button of a kept copy, so that what stands under it does not move when the two are shown. The room is their own words,
+ * in the button's look, marked `to-come`: the stylesheet shows nothing of what is so marked, and a screen reader is told
+ * nothing of it. It says nothing yet, for no copy is kept yet, and it is no control: there is nothing to forget. */
 export function keptCopyHtml(copy: KeptCopy): string {
-  if (copy === "kept") {
-    return `<span id="keptLine">${esc(KEPT_LINE)}</span><button type="button" class="btn sm" data-act="forget" aria-describedby="keptLine">Forget this result</button>`;
-  }
+  const forget = (attributes = ""): string => `<button type="button" class="btn sm" data-act="forget"${attributes}>Forget this result</button>`;
+  if (copy === "keeping") return `<span class="to-come" aria-hidden="true">${esc(KEPT_LINE)}</span><span class="btn sm to-come" aria-hidden="true">Forget this result</span>`;
+  if (copy === "kept") return `<span id="keptLine">${esc(KEPT_LINE)}</span>${forget(' aria-describedby="keptLine"')}`;
+  if (copy === "not-removed") return `<span id="keptLine">${esc(NOT_REMOVED_LINE)}</span>${forget()}`;
   return copy === "forgotten" ? `<span id="keptLine" tabindex="-1">${esc(FORGOTTEN_LINE)}</span>` : "";
 }
 
