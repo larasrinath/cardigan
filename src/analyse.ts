@@ -313,10 +313,13 @@ async function readViewLayouts(reads: SocketReads, refs: readonly UxEntityRef[])
  *
  * The whole search has FILTER_LINE_ITEMS_BUDGET_MS in one model, from its first question (after a redirect it starts over,
  * on the host the model lives on). It ends when every rule has its line item, when nothing is left to start and nothing
- * is waiting, or when that time is up. What is still waiting then is given up: its subscription is ended, it changes
- * nothing afterwards, it is not remembered as unreadable (it was not refused) and nothing is logged for it. A run that is
- * stopped, a model that reports itself closed and a connection that fails end the search at once, and nothing is asked
- * after them. A rule whose line item was not found keeps its IDs.
+ * is waiting, or when that time is up. A question counts as waiting only while its answer can name a module that is
+ * left: once the reading has begun without it, it is not waited for when the model's list of modules arrived and every
+ * module of that list was read or refused. (Without the list it is waited for as long as the time lasts.) What is still
+ * waiting when the search ends is given up: its subscription is ended, it changes nothing afterwards, it is not
+ * remembered as unreadable (it was not refused) and nothing is logged for it. A run that is stopped, a model that reports
+ * itself closed and a connection that fails end the search at once, and nothing is asked after them. A rule whose line
+ * item was not found keeps its IDs.
  *
  * The diagnostic log is kept small: the reads of line items write no frame lines, and the step says how far the search is
  * no more often than FILTER_LINE_ITEMS_STATUS_MS. The search's own lines say how far it went, in IDs and counts only, and
@@ -343,6 +346,9 @@ async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCar
   let candidates = new Set<string>();
   const listed = [...catalog.modules.keys()].filter(unread);
   const others = () => listed.filter(id => !candidates.has(id));
+  /** Whether the model's list of modules arrived and every module of it was read or refused: a question that is still
+   * unanswered then can name no module that is left. (One whose read still waits is left.) */
+  const whole = () => catalog.moduleListLoaded && !listed.some(unread);
   /** Gives up, when the search ends, whatever of it is still waiting. */
   const givingUp = new AbortController();
   /** The questions that the model has not answered yet. */
@@ -353,7 +359,7 @@ async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCar
   const asked = new Set<string>();
   const plan = (places: number) => filterLineItemSearch(unresolvedFilterItems(cards, catalog).rules, [...candidates].filter(id => !asked.has(id) && unread(id)),
     others().filter(id => !asked.has(id) && unread(id)), catalog, places);
-  let [bracketed, givenUp, unsaid, said] = [0, 0, 0, started];
+  let [bracketed, givenUp, unsaid, spared, said] = [0, 0, 0, 0, started];
   let step = plan(0);
   progress.status(`Finding filter line items in ${scope.modelName}…`);
   try {
@@ -395,8 +401,9 @@ async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCar
         waiting.set(moduleId, { since: now, named: candidates.has(moduleId), answered });
       }
       bracketed += step.bracketed;
-      // Or until nothing is left to start and nothing is waiting.
-      if (!waiting.size && !questions.size) break;
+      // Or until nothing is left to start and nothing is waiting: no read, and no question whose answer can still name a
+      // module. Once the reading has begun without their answers, the questions are not waited for when none can.
+      if (!waiting.size && (!questions.size || (begun && whole()))) break;
       // What happens next: an answer; the end of the time; the moment the reading starts without the questions' answers;
       // or, while a module waits for a place, the moment a read has held its place long enough.
       const places = begun && step.toRead > step.modules.length
@@ -409,7 +416,8 @@ async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCar
         clearTimeout(timer);
       }
     }
-    [givenUp, unsaid] = [waiting.size, questions.size];
+    // The questions still unanswered: those whose answers could have named a module that was left, and those that could not.
+    [givenUp, unsaid, spared] = [waiting.size, whole() ? 0 : questions.size, whole() ? questions.size : 0];
   } finally {
     givingUp.abort();
   }
@@ -431,10 +439,16 @@ async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCar
       + step.ruledOut.slice(0, MAX_LOGGED).map(({ id, moduleId }) => `${id} by module ${moduleId}`).join(", ")
       + `${step.ruledOut.length > MAX_LOGGED ? ` and ${step.ruledOut.length - MAX_LOGGED} more` : ""})${beside ? `, and ${beside} in a rule with such an ID` : ""}`);
   }
+  // A question the model had not answered when no module of its list was left to read is no case of the time running out:
+  // the log says so, and no note.
+  if (missing && spared) {
+    progress.log(`filter line items: the model had not said which modules have ${spared} of the filtered dimensions when no module of its list was left to read: no answer could name another`);
+  }
   // The search was cut short when it ended with an ID still not found and something left undone: a module that was to be
   // read for it (every module while an ID is looked for everywhere, else the candidates) and was neither read nor refused,
-  // because it was never asked for or was given up while waiting; or a question the model had not answered. Only the end
-  // of the time leaves such a thing. The log and the note say the same, and count every module that was not read.
+  // because it was never asked for or was given up while waiting; or a question the model had not answered, whose answer
+  // could have named a module that was left. Only the end of the time leaves such a thing. The log and the note say the
+  // same, and count every module that was not read.
   const due = step.everywhere.length ? [...candidates, ...others()] : [...candidates];
   if (missing && (due.some(unread) || unsaid)) {
     const notRead = due.length - read(due);
