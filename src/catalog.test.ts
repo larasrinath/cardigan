@@ -200,8 +200,9 @@ describe("Page analyzer names from the model data service", () => {
       // An ID that is ruled out has no bracket: it is looked for in the candidates only.
       expect(plan([ITEM(315, 0), ITEM(316, 2), ITEM(400, 0), ITEM(300, 9)], all, rising, 4)).toEqual({ everywhere: [ITEM(315, 0), ITEM(316, 2), ITEM(400, 0)],
         candidatesOnly: [ITEM(300, 9)], ruledOut: [{ id: ITEM(300, 9), moduleId: module(10) }], modules: unread(24, 27, 35, 44), bracketed: 4, evidence: rise(3) });
-      // Three brackets and four reads: the first has two, the others one each.
+      // Three brackets and four reads: the first has two, the others one each. And two reads: the first two have one each.
       expect(plan([ITEM(315, 0), ITEM(250, 0), ITEM(400, 0)], all, rising, 4)).toMatchObject({ modules: unread(24, 27, 5, 44), bracketed: 4 });
+      expect(plan([ITEM(315, 0), ITEM(250, 0), ITEM(400, 0)], all, rising, 2)).toMatchObject({ modules: unread(25, 5), bracketed: 2 });
       // A bracket with no unread module takes no read from one that has some.
       expect(plan([ITEM(305, 0), ITEM(315, 0)], unread(21, 22, 23, 24, 25, 26, 27, 28, 29, 35), rising, 4)).toMatchObject({ modules: unread(22, 24, 26, 28), bracketed: 4 });
       // No unread module between the two, or an ID too short to have an entity type: the order given is all there is.

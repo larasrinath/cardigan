@@ -389,8 +389,9 @@ export function filterLineItemSearch(rules: readonly (readonly string[])[], cand
   const known = [...typeOf].sort(([a], [b]) => byNumber(a, b));
   const telling = own && known.length >= TELLING_MODULES;
   const rising = known.every(([, type], index) => index === 0 || byNumber(known[index - 1][1], type) < 0);
-  /** The module that rules an ID out, when one does. */
-  const rulesOut = (id: string): string | undefined => (telling && LONG_ID.test(id) ? moduleOf.get(entityType(id)) : undefined);
+  /** The module that rules an ID out, when one does. (An ID too short to have an entity type is never ruled out: while
+   * every module has a type of its own, every line item read has an ID long enough to have one.) */
+  const rulesOut = (id: string): string | undefined => (telling ? moduleOf.get(entityType(id)) : undefined);
   const idsOf = (some: readonly (readonly string[])[]) => [...new Set(some.flat())];
   const everywhere = idsOf(rules.filter(rule => !rule.some(id => rulesOut(id))));
   const candidatesOnly = idsOf(rules.filter(rule => rule.some(id => rulesOut(id)))).filter(id => !everywhere.includes(id));
@@ -411,7 +412,8 @@ export function filterLineItemSearch(rules: readonly (readonly string[])[], cand
       const between = sorted.filter(id => (!lower || byNumber(id, lower) > 0) && (!upper || byNumber(id, upper) < 0));
       if (between.length) brackets.set(`${lower}|${upper}`, between);
     }
-    const lists = [...brackets.values()].slice(0, size);
+    // Each bracket has its part of the reads, the first ones one more while the reads do not divide evenly.
+    const lists = [...brackets.values()];
     lists.forEach((between, index) => {
       const count = Math.min(between.length, Math.floor(size / lists.length) + (index < size % lists.length ? 1 : 0));
       for (let k = 1; k <= count; k++) chosen.push(between[Math.floor(k * between.length / (count + 1))]);
