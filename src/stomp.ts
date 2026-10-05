@@ -86,6 +86,9 @@ export interface SubscribeOptions {
   /** Keeps this subscription's own three frames (SUBSCRIBE, SEND, UNSUBSCRIBE) out of the diagnostic log: for a read that
    * is one of many alike, which its caller sums up in a line of its own. The frames are checked and sent like any other. */
   quiet?: boolean;
+  /** Gives the subscription up when it aborts: it is unsubscribed from at once and rejects with the code GIVEN_UP, and an
+   * answer that still arrives for it is not read. Under a signal that has aborted already, nothing is sent. */
+  signal?: AbortSignal;
 }
 
 export class StompConnection {
@@ -182,22 +185,27 @@ export class StompConnection {
 
   subscribe(destination: string, options: SubscribeOptions = {}): Promise<unknown> {
     if (this.failure) return Promise.reject(this.failure);
+    const givenUp = () => new StompError(`Gave up waiting for ${destination}.`, "GIVEN_UP");
+    if (options.signal?.aborted) return Promise.reject(givenUp());
     const id = `json-${++this.counter}`;
     const until = options.until ?? (() => true);
     return new Promise<unknown>((resolve, reject) => {
       let done = false;
       const timer = setTimeout(() => stop(new StompError(`Timed out waiting for ${destination}.`, "TIMEOUT")), options.timeoutMs ?? 60_000);
       const onFailure = (error: Error) => stop(error);
+      const onAbort = () => stop(givenUp());
       const stop = (error: Error | undefined, data?: unknown) => {
         if (done) return;
         done = true;
         clearTimeout(timer);
         this.handlers.delete(id);
         this.failures.delete(onFailure);
+        options.signal?.removeEventListener("abort", onAbort);
         if (!this.failure && this.socket.readyState === WebSocket.OPEN) this.send({ command: "UNSUBSCRIBE", headers: { id }, body: "" }, options.quiet);
         if (error) reject(error); else resolve(data);
       };
       this.failures.add(onFailure);
+      options.signal?.addEventListener("abort", onAbort, { once: true });
       this.handlers.set(id, frame => {
         const type = frame.headers["message-type"];
         if (type === "error") { stop(errorFromBody(frame.body, `The data service rejected ${destination}.`)); return; }
