@@ -291,10 +291,12 @@ async function readViewLayouts(reads: SocketReads, refs: readonly UxEntityRef[])
  * `filterLineItemSearch`). No module is read twice, and one that cannot be read is remembered as one.
  * A read of the search waits FILTER_LINE_ITEMS_READ_MS for its answer and is then given up, so that a module that does
  * not answer does not end the search. The whole search has FILTER_LINE_ITEMS_BUDGET_MS in one model, from its first read:
- * a read waits no longer than what is left of that either, and once it is over no further read is made. A rule whose
- * line item was not found keeps its IDs. The log says how far the search went, in IDs and counts only. */
+ * a read waits no longer than what is left of that either, and once it is over no further read is made. A run that is
+ * stopped, a model that reports itself closed and a connection that fails end the search at once, and nothing is asked
+ * after them. A rule whose line item was not found keeps its IDs. The log says how far the search went, in IDs and
+ * counts only. */
 async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCardDetails[]): Promise<void> {
-  const { scope, connection, settle, halted, ended, catalog, notes, progress } = reads;
+  const { scope, connection, settle, ended, catalog, notes, progress } = reads;
   const { workspaceId: ws, modelId: model } = scope;
   const cards = pages.flatMap(page => page.cards);
   const { itemIds, axisDimensionIds } = unresolvedFilterItems(cards, catalog);
@@ -302,17 +304,21 @@ async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCar
   const started = Date.now();
   /** What is left of the time for the search. */
   const left = () => started + FILTER_LINE_ITEMS_BUDGET_MS - Date.now();
+  /** Every read of the search is made here. Nothing is asked of a model once the socket work has ended: the read is not
+   * made, and what ended the work is thrown, as a read that waits throws it. A model that closed earlier, while its module
+   * dimensions were read, is only logged there; and one can report itself closed in the same breath as an answer. */
+  const ask = <T>(read: () => Promise<T>): Promise<T> => settle(ended() ? new Promise<never>(() => undefined) : read());
   const unread = (id: string) => ENTITY_ID.test(id) && !catalog.lineItemModules.has(id) && !catalog.unreadableModules.has(id);
   const candidates = new Set<string>();
   for (const dimensionId of axisDimensionIds) {
     const time = left();
     if (!ENTITY_ID.test(dimensionId) || time <= 0) continue;
     try {
-      const json = await settle(connection.subscribe(`core://${ws}:${model}/applicableModules`,
+      const json = await ask(() => connection.subscribe(`core://${ws}:${model}/applicableModules`,
         { body: { dimensions: [Number(dimensionId)] }, timeoutMs: Math.min(FILTER_LINE_ITEMS_READ_MS, time) }));
       for (const id of applicableModuleIds(catalog, json)) if (unread(id)) candidates.add(id);
     } catch (error) {
-      if (connection.failed || halted()) throw error;
+      if (connection.failed || ended()) throw error;
       progress.log(`modules for dimension ${dimensionId}: ${message(error)}`);
     }
   }
@@ -327,15 +333,12 @@ async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCar
   const next = () => filterLineItemSearch(unresolvedFilterItems(cards, catalog).rules, waiting(candidates), waiting(others), catalog, FILTER_LINE_ITEMS_AT_A_TIME);
   let step = next();
   for (let time = left(); step.modules.length && time > 0; step = next(), time = left()) {
-    // A model that closed before this, while the candidates were asked for, was logged there as a refused read. Nothing
-    // more is asked of it: the search ends here as its next read would have ended, with what ended the socket work.
-    if (ended()) await settle(new Promise<never>(() => undefined));
     if (asked.size) progress.status(`Finding filter line items in ${scope.modelName}: ${asked.size} of ${pool.length} modules…`);
     const batch = step.modules;
     batch.forEach(id => asked.add(id));
     bracketed += step.bracketed;
     const wait = Math.min(FILTER_LINE_ITEMS_READ_MS, time);
-    await settle(Promise.all(batch.map(moduleId => readLineItems(reads, moduleId, wait))));
+    await ask(() => Promise.all(batch.map(moduleId => readLineItems(reads, moduleId, wait))));
   }
   // How far the search went, for the reader of a live run's log: a rule whose line item it did not find keeps its IDs.
   // Every ID that was looked for is found, or not found, or was the context of a rule that has its line item now.
