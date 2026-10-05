@@ -24,6 +24,9 @@ const ROUTE: Record<UxPageType, string> = { BOARD: "boards", "GRID-PAGE": "grid-
 /** As long as the search for filter line items that no card otherwise references may take in one model, all its reads
  * together, from the first: the names are a help to the reader, and nobody should wait minutes for them. */
 const FILTER_LINE_ITEMS_BUDGET_MS = 45_000;
+/** As long as one read of that search waits for its answer: a module that does not answer holds up the three read with it
+ * for this long, and not for the rest of the time. */
+const FILTER_LINE_ITEMS_READ_MS = 10_000;
 /** As many modules as that search reads at a time. */
 const FILTER_LINE_ITEMS_AT_A_TIME = 4;
 /** A model that is not open loads on the first data request, which can take minutes. */
@@ -285,10 +288,11 @@ async function readViewLayouts(reads: SocketReads, refs: readonly UxEntityRef[])
  * - then in every other module of the model's list, in the list's order.
  * Where the modules read so far bear it out, the entity types of the IDs put likelier modules before both, and a rule
  * that a module already read rules out is spared the second: its IDs are looked for in the candidates only (catalog.ts
- * `filterLineItemSearch`). No module is read twice, and one that
- * cannot be read is remembered as one. The whole search has FILTER_LINE_ITEMS_BUDGET_MS in one model, from its first
- * read: a read waits no longer than what is left of it, and once it is over no further read is made. A rule whose line
- * item was not found keeps its IDs. The log says how far the search went, in IDs and counts only. */
+ * `filterLineItemSearch`). No module is read twice, and one that cannot be read is remembered as one.
+ * A read of the search waits FILTER_LINE_ITEMS_READ_MS for its answer and is then given up, so that a module that does
+ * not answer does not end the search. The whole search has FILTER_LINE_ITEMS_BUDGET_MS in one model, from its first read:
+ * a read waits no longer than what is left of that either, and once it is over no further read is made. A rule whose
+ * line item was not found keeps its IDs. The log says how far the search went, in IDs and counts only. */
 async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCardDetails[]): Promise<void> {
   const { scope, connection, settle, halted, ended, catalog, notes, progress } = reads;
   const { workspaceId: ws, modelId: model } = scope;
@@ -304,7 +308,8 @@ async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCar
     const time = left();
     if (!ENTITY_ID.test(dimensionId) || time <= 0) continue;
     try {
-      const json = await settle(connection.subscribe(`core://${ws}:${model}/applicableModules`, { body: { dimensions: [Number(dimensionId)] }, timeoutMs: time }));
+      const json = await settle(connection.subscribe(`core://${ws}:${model}/applicableModules`,
+        { body: { dimensions: [Number(dimensionId)] }, timeoutMs: Math.min(FILTER_LINE_ITEMS_READ_MS, time) }));
       for (const id of applicableModuleIds(catalog, json)) if (unread(id)) candidates.add(id);
     } catch (error) {
       if (connection.failed || halted()) throw error;
@@ -329,7 +334,8 @@ async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCar
     const batch = step.modules;
     batch.forEach(id => asked.add(id));
     bracketed += step.bracketed;
-    await settle(Promise.all(batch.map(moduleId => readLineItems(reads, moduleId, time))));
+    const wait = Math.min(FILTER_LINE_ITEMS_READ_MS, time);
+    await settle(Promise.all(batch.map(moduleId => readLineItems(reads, moduleId, wait))));
   }
   // How far the search went, for the reader of a live run's log: a rule whose line item it did not find keeps its IDs.
   // Every ID that was looked for is found, or not found, or was the context of a rule that has its line item now.
