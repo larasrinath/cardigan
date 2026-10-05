@@ -864,65 +864,84 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
       "filter line items: the entity-type bracket chose 0 of the 28 modules asked for; in the modules read, module IDs and line item entity types do not rise together"]);
   });
 
-  it("does not look for an ID that no unread module can list, because a module that was read has the line items of its entity type", async () => {
+  it("spares the model's other modules a rule that a module already read rules out, and still looks for its IDs in every module the model names", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
-    const candidates = [1, 2, 3, 4, 5, 6].map(candidate);
-    /** A model whose modules have these line items; it names the six candidates for the filtered dimension. */
+    const [candidates, others] = [[1, 2, 3, 4, 5, 6].map(candidate), Array.from({ length: 10 }, (_, index) => other(index + 1))];
+    /** A model whose modules have these line items. It names the six candidates for the filtered dimension, and its list
+     * has ten other modules. */
     const serve = (lineItems: Record<string, string[]>) => {
       ScriptedSocket.sockets = [];
-      serveModel({ [at("/applicableModules")]: id => update(id, { data: [MODULE, ...candidates].map(module => ({ id: module, label: `Module ${module}` })) }),
+      serveModel({ [MODULE_VIEWS]: moduleList(others), [at("/applicableModules")]: id => update(id, { data: [MODULE, ...candidates].map(module => ({ id: module, label: `Module ${module}` })) }),
         ...Object.fromEntries(Object.entries(lineItems).map(([module, ids]) => [at(`/modules/${module}/lineItems`),
           (id: string) => update(id, { data: ids.map(lineItemId => ({ lineItemId, lineItemLabel: `Line item ${lineItemId}` })) })])) });
     };
-    /** A rule on this ID, in an app whose cards show these modules. */
-    const showing = (id: string, ...modules: string[]) => [{ cards: ruled(rule([id], ["true"]))[0].cards, references: modules.map(module => ({ kind: "module", id: module })) }] as unknown as UxPageCardDetails[];
+    /** A rule on these IDs, in an app whose cards show these modules. */
+    const showing = (ids: string[], ...modules: string[]) => [{ cards: ruled(rule(ids, ["true"]))[0].cards, references: modules.map(module => ({ kind: "module", id: module })) }] as unknown as UxPageCardDetails[];
     const lines = (log: string[]) => log.filter(line => line.startsWith("filter line items:"));
-    const ruledOut = (id: string, module: string) => `filter line items: 1 not looked for, because a module that was read has the line items of their entity type and does not list them: ${id} (module ${module})`;
+    const read = (looked: number, inCandidates: number, inOthers: number, outcome: string) => `filter line items: ${looked} looked for in ${inCandidates} of 6 candidate modules that have the filtered dimensions and `
+      + `${inOthers} of 10 other modules, in 0 s: ${outcome}`;
+    const rising = (modules: number) => `in the modules read, module IDs and line item entity types rise together (${modules} modules with line items)`;
+    const ruledOut = (count: string, id: string, module: string, beside = "") => `filter line items: of the ${count} not found, ${count} looked for in the candidate modules only: 1 ruled out, `
+      + `each by a module that was read, which has the line items of its entity type and does not list it (${id} by module ${module})${beside}`;
+    /** The three modules the cards show, each with line items of an entity type of its own. */
+    const shown = { [MODULE]: [LINE_ITEM], [MODULE_3]: [ITEM(1905, 1)], [STAFFING]: [ITEM(1909, 1)] };
 
     // A rule on a line item that the grid's own module no longer has: its ID has the entity type of that module's line items.
-    // The cards show three modules, each with line items of an entity type of its own. The model is asked which modules have
-    // the filtered dimension, as it always was, and none of them is read.
+    // The six modules the model names are read all the same, as they always were, and none of the ten others is.
     const GONE = ITEM(1901, 77);
-    serve({ [MODULE]: [LINE_ITEM], [MODULE_3]: [ITEM(1905, 1)], [STAFFING]: [ITEM(1909, 1)] });
-    const gone = run(showing(GONE, MODULE, MODULE_3, STAFFING));
+    serve(shown);
+    const gone = run(showing([GONE], MODULE, MODULE_3, STAFFING));
     expect((await gone.result).notes).toEqual([]);
-    expect([destinations().at(-1), searched(), gone.statuses.at(-1)]).toEqual([at("/applicableModules"), [MODULE_3, STAFFING], "Finding filter line items in Synthetic model…"]);
-    expect(lines(gone.log)).toEqual([
-      "filter line items: 1 looked for in 0 of 6 candidate modules that have the filtered dimensions and 0 of 0 other modules, in 0 s: 0 found, 1 not found",
-      "filter line items: the entity-type bracket chose 0 of the 0 modules asked for; in the modules read, module IDs and line item entity types rise together (3 modules with line items)",
-      ruledOut(GONE, MODULE)]);
+    expect(searched()).toEqual([MODULE_3, STAFFING, ...candidates]);
+    // The log's counts add up: one ID looked for, none found, one not found, and that one in the candidate modules only.
+    expect(lines(gone.log)).toEqual([read(1, 6, 0, "0 found, 1 not found"),
+      `filter line items: the entity-type bracket chose 0 of the 6 modules asked for; ${rising(3)}`, ruledOut("1", GONE, MODULE)]);
 
-    // The same when the search itself reads that module: the second module the model names has the line items of the ID's
-    // entity type, and does not list it. The search ends with those four: the two modules after them are not read.
+    // Nothing proves that two modules never have line items of one entity type. Here the first module the model names has
+    // line items of the grid's module's type, the rule's among them: it is read, as it always was, and the rule has its name.
+    serve({ ...shown, [candidate(1)]: [GONE] });
+    const twin = run(showing([GONE], MODULE, MODULE_3, STAFFING));
+    expect((await twin.result).catalog.lineItems.get(GONE)).toEqual({ name: `Line item ${GONE}`, moduleId: candidate(1) });
+    expect(searched()).toEqual([MODULE_3, STAFFING, ...candidates.slice(0, 4)]);
+    expect(lines(twin.log)).toEqual([read(1, 4, 0, "1 found (1 in candidate modules), 0 not found"),
+      "filter line items: the entity-type bracket chose 0 of the 4 modules asked for; in the modules read, a module's line items do not have one entity type of their own"]);
+
+    // A rule holds one line item. When one of its IDs is ruled out, that one was it, and the rule's other ID is its context,
+    // which no module lists: the other modules are spared that one too.
+    serve(shown);
+    const whole = run(showing([GONE, ITEM(7000, 3)], MODULE, MODULE_3, STAFFING));
+    await whole.result;
+    expect(searched()).toEqual([MODULE_3, STAFFING, ...candidates]);
+    expect(lines(whole.log)).toEqual([read(2, 6, 0, "0 found, 2 not found"),
+      `filter line items: the entity-type bracket chose 0 of the 6 modules asked for; ${rising(3)}`, ruledOut("2", GONE, MODULE, ", and 1 in a rule with such an ID")]);
+
+    // The same when the search itself reads the module that rules the ID out: the second module the model names has the
+    // line items of its entity type, and does not list it. The two named modules after those four are read, and no other.
     const LOST = ITEM(1903, 77);
     serve({ [MODULE]: [LINE_ITEM], [candidate(1)]: [ITEM(1902, 1)], [candidate(2)]: [FILTER_ITEM], [candidate(3)]: [ITEM(1904, 1)] });
-    const lost = run(showing(LOST, MODULE));
+    const lost = run(showing([LOST], MODULE));
     expect((await lost.result).notes).toEqual([]);
-    expect(searched()).toEqual(candidates.slice(0, 4));
-    expect(lines(lost.log)).toEqual([
-      "filter line items: 1 looked for in 4 of 6 candidate modules that have the filtered dimensions and 0 of 0 other modules, in 0 s: 0 found, 1 not found",
-      "filter line items: the entity-type bracket chose 0 of the 4 modules asked for; in the modules read, module IDs and line item entity types rise together (4 modules with line items)",
-      ruledOut(LOST, candidate(2))]);
-
-    // That is taken from three modules with line items, and not from fewer: with the grid's module alone, every module the
-    // model names is read, as it always was.
-    serve({ [MODULE]: [LINE_ITEM] });
-    const alone = run(showing(GONE, MODULE));
-    await alone.result;
     expect(searched()).toEqual(candidates);
-    expect(lines(alone.log)).toEqual([
-      "filter line items: 1 looked for in 6 of 6 candidate modules that have the filtered dimensions and 0 of 0 other modules, in 0 s: 0 found, 1 not found",
-      "filter line items: the entity-type bracket chose 0 of the 6 modules asked for; fewer than 3 modules with line items were read"]);
+    expect(lines(lost.log)).toEqual([read(1, 6, 0, "0 found, 1 not found"),
+      `filter line items: the entity-type bracket chose 0 of the 6 modules asked for; ${rising(4)}`, ruledOut("1", LOST, candidate(2))]);
+
+    // All of that is taken from three modules with line items, and not from fewer: with the grid's module alone, every
+    // module is read, the ten others too.
+    serve({ [MODULE]: [LINE_ITEM] });
+    const alone = run(showing([GONE], MODULE));
+    await alone.result;
+    expect(searched()).toEqual([...candidates, ...others]);
+    expect(lines(alone.log)).toEqual([read(1, 6, 10, "0 found, 1 not found"),
+      "filter line items: the entity-type bracket chose 0 of the 16 modules asked for; fewer than 3 modules with line items were read"]);
 
     // Nor when two of the modules read have line items of one entity type: an ID then does not say which module it belongs
     // to. Nothing is ruled out, and every module is read.
-    serve({ [MODULE]: [LINE_ITEM], [MODULE_3]: [ITEM(1901, 2)], [STAFFING]: [ITEM(1909, 1)] });
-    const shared = run(showing(GONE, MODULE, MODULE_3, STAFFING));
+    serve({ ...shown, [MODULE_3]: [ITEM(1901, 2)] });
+    const shared = run(showing([GONE], MODULE, MODULE_3, STAFFING));
     await shared.result;
-    expect(searched()).toEqual([MODULE_3, STAFFING, ...candidates]);
-    expect(lines(shared.log)).toEqual([
-      "filter line items: 1 looked for in 6 of 6 candidate modules that have the filtered dimensions and 0 of 0 other modules, in 0 s: 0 found, 1 not found",
-      "filter line items: the entity-type bracket chose 0 of the 6 modules asked for; in the modules read, a module's line items do not have one entity type of their own"]);
+    expect(searched()).toEqual([MODULE_3, STAFFING, ...candidates, ...others]);
+    expect(lines(shared.log)).toEqual([read(1, 6, 10, "0 found, 1 not found"),
+      "filter line items: the entity-type bracket chose 0 of the 16 modules asked for; in the modules read, a module's line items do not have one entity type of their own"]);
   });
 
   it("gives the search for filter line items forty-five seconds in all: no module is read once they are over, the reads that wait are given up, and a note says how many modules were not read", async () => {
@@ -1133,10 +1152,11 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     expect(lastSent(2)).toEqual([[at("/dimensions"), { moduleIds: [candidate(2)] }], [at(`/modules/${candidate(2)}/dimensions/${REGIONS}`), { itemIds: [ITEM(358, 2)], filter: "" }]]);
     expect(statuses.slice(-2)).toEqual(["Finding filter line items in Synthetic model…", "Reading filter item names in Synthetic model…"]);
     // The log says how far the search went: the IDs of the rule that had no line item, the modules read of those that have
-    // the filtered dimension, and what was found and not found. One of the two IDs was the line item; the other is the
-    // rule's context, which is no longer looked for once the rule has its line item.
+    // the filtered dimension, and what became of each ID. One of the two was the line item; the other is the rule's
+    // context, which is no longer looked for once the rule has its line item.
     expect(log.filter(line => /^(filter |dimensions of)/.test(line))).toEqual(["dimensions of 1 of 1 modules",
-      "filter line items: 2 looked for in 4 of 6 candidate modules that have the filtered dimensions and 0 of 0 other modules, in 0 s: 1 found (1 in candidate modules), 0 not found",
+      "filter line items: 2 looked for in 4 of 6 candidate modules that have the filtered dimensions and 0 of 0 other modules, in 0 s: 1 found (1 in candidate modules), "
+        + "1 the context of rules that now have their line item, 0 not found",
       "filter line items: the entity-type bracket chose 0 of the 4 modules asked for; fewer than 3 modules with line items were read",
       "dimensions of 1 modules of filter line items: 1 read",
       `filter context items: 1 asked of dimension ${REGIONS} in module ${candidate(2)}, 1 named (answer: 1 entries of {itemId, label})`,

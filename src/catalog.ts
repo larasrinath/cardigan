@@ -319,17 +319,19 @@ function ruleItems(condition: Obj, catalog: ModelCatalog): { lineItems: string[]
 
 /** IDs in filter rules that may be line items of a module not read yet, with the dimensions of the axis each rule filters.
  * A rule has one line item: once that is known, anything else unnamed in the rule is its context, not a line item to
- * look for. */
-export function unresolvedFilterItems(cards: readonly unknown[], catalog: ModelCatalog): { itemIds: Set<string>; axisDimensionIds: Set<string> } {
+ * look for. `rules` are the same IDs, rule by rule. */
+export function unresolvedFilterItems(cards: readonly unknown[], catalog: ModelCatalog): { itemIds: Set<string>; axisDimensionIds: Set<string>; rules: string[][] } {
   const itemIds = new Set<string>();
   const axisDimensionIds = new Set<string>();
+  const rules: string[][] = [];
   for (const { condition, axis } of filterRules(cards)) {
     const { lineItems, unknown } = ruleItems(condition, catalog);
     if (lineItems.length || !unknown.length) continue;
     unknown.forEach(id => itemIds.add(id));
+    rules.push(unknown);
     for (const entry of list(axis.dimensions)) if (entry.dimension?.id) axisDimensionIds.add(String(entry.dimension.id));
   }
-  return { itemIds, axisDimensionIds };
+  return { itemIds, axisDimensionIds, rules };
 }
 
 /** IDs and entity types, which are digits without a leading zero, in the order of their numbers. They are not read as
@@ -340,11 +342,14 @@ const TELLING_MODULES = 3;
 
 /** How the search for the line items of filter rules goes on (analyse.ts `findFilterLineItems`). */
 export interface FilterLineItemSearch {
-  /** Those of the IDs that a module not read yet may still list as a line item. */
-  open: string[];
-  /** Those that none can: each with the module that has the line items of its entity type and does not list it. */
+  /** The IDs that are looked for in every module not read yet. */
+  everywhere: string[];
+  /** The IDs that are looked for in the candidate modules only: those of the rules that hold an ID that is ruled out. */
+  candidatesOnly: string[];
+  /** The IDs that are ruled out: each with the module that has the line items of its entity type and does not list it. */
   ruledOut: { id: string; moduleId: string }[];
-  /** The modules to read next, as many as asked for at most: those the bracket chose, then the first of the others. */
+  /** The modules to read next, as many as asked for at most: those the bracket chose, then the first of the others.
+   * None when nothing is left to read for the IDs. */
   modules: string[];
   /** How many of them the bracket chose. */
   bracketed: number;
@@ -352,18 +357,24 @@ export interface FilterLineItemSearch {
   evidence: string;
 }
 
-/** Where to look next for the IDs in filter rules that may be line items (`unresolvedFilterItems`). `unread` are the modules
- * whose line items were not read yet, likeliest first. Two things are taken from the IDs themselves (an ID is an entity
- * type and an index, `entityType`). No capture confirms either, so each is used only as far as the modules read so far
- * bear it out, and never on fewer than TELLING_MODULES modules that have line items; the diagnostic log says what they show.
+/** Where to look next for the IDs in filter rules that may be line items. `rules` are those IDs rule by rule
+ * (`unresolvedFilterItems`). `candidates` and `others` are the modules whose line items were not read yet: those the model
+ * names for the filtered dimensions, and the other modules of its list, each in its order.
+ * Two things are taken from the IDs themselves (an ID is an entity type and an index, `entityType`). No capture confirms
+ * either, so each is used only as far as the modules read so far bear it out, and never on fewer than TELLING_MODULES
+ * modules that have line items; the diagnostic log says what they show.
  * - The line items of a module share an entity type that no other module's have. While every module read shows that, an ID
- *   whose entity type is that of a module read, which does not list it, is a line item of no module: it is not looked for.
+ *   whose entity type is that of a module read, which does not list it, is ruled out: it should be a line item of no
+ *   module. A rule holds one line item, so the other IDs of a rule that holds such an ID are its context. Nothing proves
+ *   that two modules never share an entity type, so this only spares the other modules: the IDs of such a rule are still
+ *   looked for in every candidate module, where they were looked for before the other modules were searched at all.
  * - Module IDs and those entity types rise together, as they would if both were numbered as the model's objects are made.
  *   While the modules read show that too, the module of an entity type lies between the two of them whose types bracket
  *   it: the unread modules there are read first, spread evenly so that each answer narrows the bracket.
  * The second only orders the search: where it is wrong, the module is found later, among the others. Neither names
  * anything: a name comes only from a listing that holds the very ID. */
-export function filterLineItemSearch(itemIds: ReadonlySet<string>, unread: readonly string[], catalog: ModelCatalog, size: number): FilterLineItemSearch {
+export function filterLineItemSearch(rules: readonly (readonly string[])[], candidates: readonly string[], others: readonly string[], catalog: ModelCatalog,
+  size: number): FilterLineItemSearch {
   // The module of each entity type among the line items read, and back, and whether every module has one type of its own.
   const moduleOf = new Map<string, string>();
   const typeOf = new Map<string, string>();
@@ -378,18 +389,23 @@ export function filterLineItemSearch(itemIds: ReadonlySet<string>, unread: reado
   const known = [...typeOf].sort(([a], [b]) => byNumber(a, b));
   const telling = own && known.length >= TELLING_MODULES;
   const rising = known.every(([, type], index) => index === 0 || byNumber(known[index - 1][1], type) < 0);
-  const ruledOut = [...itemIds].flatMap(id => {
-    const moduleId = telling && LONG_ID.test(id) ? moduleOf.get(entityType(id)) : undefined;
+  /** The module that rules an ID out, when one does. */
+  const rulesOut = (id: string): string | undefined => (telling && LONG_ID.test(id) ? moduleOf.get(entityType(id)) : undefined);
+  const idsOf = (some: readonly (readonly string[])[]) => [...new Set(some.flat())];
+  const everywhere = idsOf(rules.filter(rule => !rule.some(id => rulesOut(id))));
+  const candidatesOnly = idsOf(rules.filter(rule => rule.some(id => rulesOut(id)))).filter(id => !everywhere.includes(id));
+  const ruledOut = candidatesOnly.flatMap(id => {
+    const moduleId = rulesOut(id);
     return moduleId ? [{ id, moduleId }] : [];
   });
-  const open = [...itemIds].filter(id => !ruledOut.some(out => out.id === id));
 
+  const unread = [...new Set([...candidates, ...others])];
   const chosen: string[] = [];
   if (telling && rising) {
     const sorted = [...unread].sort(byNumber);
     // The unread modules between each pair of neighbours, among the modules read, that an entity type looked for falls between.
     const brackets = new Map<string, string[]>();
-    for (const type of new Set(open.filter(id => LONG_ID.test(id)).map(entityType))) {
+    for (const type of new Set(everywhere.filter(id => LONG_ID.test(id)).map(entityType))) {
       const above = known.findIndex(([, other]) => byNumber(other, type) > 0);
       const [lower, upper] = [(above < 0 ? known.at(-1) : known[above - 1])?.[0], known[above]?.[0]];
       const between = sorted.filter(id => (!lower || byNumber(id, lower) > 0) && (!upper || byNumber(id, upper) < 0));
@@ -405,7 +421,9 @@ export function filterLineItemSearch(itemIds: ReadonlySet<string>, unread: reado
     : !telling ? `fewer than ${TELLING_MODULES} modules with line items were read`
       : rising ? `in the modules read, module IDs and line item entity types rise together (${known.length} modules with line items)`
         : "in the modules read, module IDs and line item entity types do not rise together";
-  return { open, ruledOut, modules: [...chosen, ...unread.filter(id => !chosen.includes(id))].slice(0, size), bracketed: chosen.length, evidence };
+  // Every module not read yet while an ID is looked for everywhere; the candidates alone for the rules with an ID ruled out.
+  const rest = everywhere.length ? unread : candidatesOnly.length ? candidates : [];
+  return { everywhere, candidatesOnly, ruledOut, modules: [...chosen, ...rest.filter(id => !chosen.includes(id))].slice(0, size), bracketed: chosen.length, evidence };
 }
 
 /** The item IDs of filter rules that no read has named yet. */

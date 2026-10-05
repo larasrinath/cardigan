@@ -283,8 +283,9 @@ async function readViewLayouts(reads: SocketReads, refs: readonly UxEntityRef[])
  * yet, FILTER_LINE_ITEMS_AT_A_TIME at a time, until every such rule has its line item:
  * - first in those that have a dimension of the filtered axis, which the model names (the candidates), in the model's order;
  * - then in every other module of the model's list, in the list's order.
- * Where the modules read so far bear it out, the entity types of the IDs put likelier modules before both, and an ID that
- * no unread module can list is not looked for (catalog.ts `filterLineItemSearch`). No module is read twice, and one that
+ * Where the modules read so far bear it out, the entity types of the IDs put likelier modules before both, and a rule
+ * that a module already read rules out is spared the second: its IDs are looked for in the candidates only (catalog.ts
+ * `filterLineItemSearch`). No module is read twice, and one that
  * cannot be read is remembered as one. The whole search has FILTER_LINE_ITEMS_BUDGET_MS in one model, from its first
  * read: a read waits no longer than what is left of it, and once it is over no further read is made. A rule whose line
  * item was not found keeps its IDs. The log says how far the search went, in IDs and counts only. */
@@ -311,14 +312,16 @@ async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCar
     }
   }
   // Every module there is to read: the candidates, then the other modules of the model's list.
-  const pool = [...candidates, ...[...catalog.modules.keys()].filter(id => unread(id) && !candidates.has(id))];
+  const others = [...catalog.modules.keys()].filter(id => unread(id) && !candidates.has(id));
+  const pool = [...candidates, ...others];
   progress.status(`Finding filter line items in ${scope.modelName}…`);
   const asked = new Set<string>();
   let bracketed = 0;
+  const waiting = (modules: Iterable<string>) => [...modules].filter(id => !asked.has(id));
   // Until every rule has its line item: what a rule then still holds unnamed is its context, which no module lists.
-  const next = () => filterLineItemSearch(unresolvedFilterItems(cards, catalog).itemIds, pool.filter(id => !asked.has(id)), catalog, FILTER_LINE_ITEMS_AT_A_TIME);
+  const next = () => filterLineItemSearch(unresolvedFilterItems(cards, catalog).rules, waiting(candidates), waiting(others), catalog, FILTER_LINE_ITEMS_AT_A_TIME);
   let step = next();
-  for (let time = left(); step.open.length && step.modules.length && time > 0; step = next(), time = left()) {
+  for (let time = left(); step.modules.length && time > 0; step = next(), time = left()) {
     // A model that closed before this, while the candidates were asked for, was logged there as a refused read. Nothing
     // more is asked of it: the search ends here as its next read would have ended, with what ended the socket work.
     if (ended()) await settle(new Promise<never>(() => undefined));
@@ -329,23 +332,30 @@ async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCar
     await settle(Promise.all(batch.map(moduleId => readLineItems(reads, moduleId, time))));
   }
   // How far the search went, for the reader of a live run's log: a rule whose line item it did not find keeps its IDs.
+  // Every ID that was looked for is found, or not found, or was the context of a rule that has its line item now.
   const read = (modules: Iterable<string>) => [...modules].filter(id => catalog.lineItemModules.has(id)).length;
   const found = [...itemIds].filter(id => catalog.lineItems.has(id));
-  const notRead = pool.length - read(pool);
+  const missing = step.everywhere.length + step.candidatesOnly.length;
+  const context = itemIds.size - found.length - missing;
   progress.log(`filter line items: ${itemIds.size} looked for in ${read(candidates)} of ${candidates.size} candidate modules that have the filtered dimensions and `
-    + `${read(pool) - read(candidates)} of ${pool.length - candidates.size} other modules, in ${Math.round((Date.now() - started) / 1000)} s: ${found.length} found`
-    + `${found.length ? ` (${found.filter(id => candidates.has(catalog.lineItems.get(id)!.moduleId)).length} in candidate modules)` : ""}, `
-    + `${unresolvedFilterItems(cards, catalog).itemIds.size} not found`);
+    + `${read(others)} of ${others.length} other modules, in ${Math.round((Date.now() - started) / 1000)} s: ${found.length} found`
+    + `${found.length ? ` (${found.filter(id => candidates.has(catalog.lineItems.get(id)!.moduleId)).length} in candidate modules)` : ""}`
+    + `${context ? `, ${context} the context of rules that now have their line item` : ""}, ${missing} not found`);
   progress.log(`filter line items: the entity-type bracket chose ${bracketed} of the ${asked.size} modules asked for; ${step.evidence}`);
-  if (step.ruledOut.length) {
-    progress.log(`filter line items: ${step.ruledOut.length} not looked for, because a module that was read has the line items of their entity type and does not list them: `
-      + step.ruledOut.slice(0, MAX_LOGGED).map(({ id, moduleId }) => `${id} (module ${moduleId})`).join(", ")
-      + (step.ruledOut.length > MAX_LOGGED ? ` and ${step.ruledOut.length - MAX_LOGGED} more` : ""));
+  if (step.candidatesOnly.length) {
+    const beside = step.candidatesOnly.length - step.ruledOut.length;
+    progress.log(`filter line items: of the ${missing} not found, ${step.candidatesOnly.length} looked for in the candidate modules only: ${step.ruledOut.length} ruled out, `
+      + "each by a module that was read, which has the line items of its entity type and does not list it ("
+      + step.ruledOut.slice(0, MAX_LOGGED).map(({ id, moduleId }) => `${id} by module ${moduleId}`).join(", ")
+      + `${step.ruledOut.length > MAX_LOGGED ? ` and ${step.ruledOut.length - MAX_LOGGED} more` : ""})${beside ? `, and ${beside} in a rule with such an ID` : ""}`);
   }
-  if (step.open.length && notRead && left() <= 0) {
+  // The modules that were still to be read when the search ended: all of them while an ID is looked for everywhere.
+  const due = step.everywhere.length ? pool : step.candidatesOnly.length ? [...candidates] : [];
+  const notRead = due.length - read(due);
+  if (notRead && left() <= 0) {
     progress.log(`filter line items: the ${FILTER_LINE_ITEMS_BUDGET_MS / 1000} seconds allowed for the search ran out: ${notRead} modules left unread`);
     notes.push(`${scope.modelName}: some filter line items were not found in the ${FILTER_LINE_ITEMS_BUDGET_MS / 1000} seconds allowed for the search: `
-      + `${notRead} of ${pool.length} modules were not read.`);
+      + `${notRead} of ${due.length} modules were not read.`);
   }
 }
 
