@@ -348,9 +348,11 @@ export interface FilterLineItemSearch {
   candidatesOnly: string[];
   /** The IDs that are ruled out: each with the module that has the line items of its entity type and does not list it. */
   ruledOut: { id: string; moduleId: string }[];
-  /** The modules to read next, as many as asked for at most: those the bracket chose, then the first of the others.
-   * None when nothing is left to read for the IDs. */
+  /** The modules to read next, as many as asked for at most: the candidates, then those of the other modules that the
+   * bracket chose, then the first of the rest. None when nothing is left to read for the IDs. */
   modules: string[];
+  /** How many modules are still to be read for the IDs, those given here among them. */
+  toRead: number;
   /** How many of them the bracket chose. */
   bracketed: number;
   /** For the diagnostic log: what the modules read so far say of the two things taken from the IDs. */
@@ -370,9 +372,11 @@ export interface FilterLineItemSearch {
  *   looked for in every candidate module, where they were looked for before the other modules were searched at all.
  * - Module IDs and those entity types rise together, as they would if both were numbered as the model's objects are made.
  *   While the modules read show that too, the module of an entity type lies between the two of them whose types bracket
- *   it: the unread modules there are read first, spread evenly so that each answer narrows the bracket.
- * The second only orders the search: where it is wrong, the module is found later, among the others. Neither names
- * anything: a name comes only from a listing that holds the very ID. */
+ *   it: of the other modules, the unread ones there are read first, spread evenly so that each answer narrows the bracket.
+ * The second only orders the search, and only its second part: the candidates are read before any module it chooses, in
+ * the model's order, as they were read before the other modules were searched at all. Where it is wrong, the module is
+ * found later among the other modules, and no candidate is read later for it. Neither names anything: a name comes only
+ * from a listing that holds the very ID. */
 export function filterLineItemSearch(rules: readonly (readonly string[])[], candidates: readonly string[], others: readonly string[], catalog: ModelCatalog,
   size: number): FilterLineItemSearch {
   // The module of each entity type among the line items read, and back, and whether every module has one type of its own.
@@ -401,9 +405,12 @@ export function filterLineItemSearch(rules: readonly (readonly string[])[], cand
   });
 
   const unread = [...new Set([...candidates, ...others])];
+  // The bracket chooses among the other modules, for the places that the candidates leave.
+  const named = new Set(candidates);
+  const places = size - named.size;
   const chosen: string[] = [];
-  if (telling && rising) {
-    const sorted = [...unread].sort(byNumber);
+  if (telling && rising && places > 0) {
+    const sorted = unread.filter(id => !named.has(id)).sort(byNumber);
     // The unread modules between each pair of neighbours, among the modules read, that an entity type looked for falls between.
     const brackets = new Map<string, string[]>();
     for (const type of new Set(everywhere.filter(id => LONG_ID.test(id)).map(entityType))) {
@@ -415,7 +422,7 @@ export function filterLineItemSearch(rules: readonly (readonly string[])[], cand
     // Each bracket has its part of the reads, the first ones one more while the reads do not divide evenly.
     const lists = [...brackets.values()];
     lists.forEach((between, index) => {
-      const count = Math.min(between.length, Math.floor(size / lists.length) + (index < size % lists.length ? 1 : 0));
+      const count = Math.min(between.length, Math.floor(places / lists.length) + (index < places % lists.length ? 1 : 0));
       for (let k = 1; k <= count; k++) chosen.push(between[Math.floor(k * between.length / (count + 1))]);
     });
   }
@@ -425,7 +432,9 @@ export function filterLineItemSearch(rules: readonly (readonly string[])[], cand
         : "in the modules read, module IDs and line item entity types do not rise together";
   // Every module not read yet while an ID is looked for everywhere; the candidates alone for the rules with an ID ruled out.
   const rest = everywhere.length ? unread : candidatesOnly.length ? candidates : [];
-  return { everywhere, candidatesOnly, ruledOut, modules: [...chosen, ...rest.filter(id => !chosen.includes(id))].slice(0, size), bracketed: chosen.length, evidence };
+  const ahead = [...rest.filter(id => named.has(id)), ...chosen];
+  return { everywhere, candidatesOnly, ruledOut, modules: [...ahead, ...rest.filter(id => !named.has(id) && !chosen.includes(id))].slice(0, size), toRead: rest.length,
+    bracketed: chosen.length, evidence };
 }
 
 /** The item IDs of filter rules that no read has named yet. */

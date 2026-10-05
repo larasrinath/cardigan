@@ -21,13 +21,14 @@ const ENTITY_ID = /^[1-9]\d{0,17}$/;
 const DEFINITION = "/a/springboard-definition-service/";
 const PAGE_TYPES: UxPageType[] = ["BOARD", "GRID-PAGE", "REPORT"];
 const ROUTE: Record<UxPageType, string> = { BOARD: "boards", "GRID-PAGE": "grid-pages", REPORT: "reports" };
-/** As long as the search for filter line items that no card otherwise references may take in one model, all its reads
- * together, from the first: the names are a help to the reader, and nobody should wait minutes for them. */
+/** As long as the search for filter line items that no card otherwise references may take in one model, its questions and
+ * reads together, from the first: the names are a help to the reader, and nobody should wait minutes for them. */
 const FILTER_LINE_ITEMS_BUDGET_MS = 45_000;
-/** As long as one read of that search waits for its answer: a module that does not answer holds up the three read with it
- * for this long, and not for the rest of the time. */
+/** As long as one read of that search holds its place among those that are moving: after that another may start, and the
+ * read goes on waiting for its answer. A module that does not answer holds nothing up for longer. */
 const FILTER_LINE_ITEMS_READ_MS = 10_000;
-/** As many modules as that search reads at a time. */
+/** As many places as that search has for the reads it keeps moving at a time. (After a late answer the modules it names
+ * have them to themselves, beside the reads of other modules that were asked for before it: twice as many at most.) */
 const FILTER_LINE_ITEMS_AT_A_TIME = 4;
 /** The step says how far that search is no more often than this: every status is also a line of the diagnostic log. */
 const FILTER_LINE_ITEMS_STATUS_MS = 5_000;
@@ -192,12 +193,15 @@ async function readActionNames(scope: ModelScope, refs: readonly UxEntityRef[], 
   return { notes, failedActionTypes };
 }
 
-/** What loadCatalog's socket reads share. `settle` ends every step that waits on the socket: a failed connection is rethrown.
- * `halted` is true once the run was asked to stop: a step that logs a refused read and goes on ends instead. `ended` is true
- * once the socket work was ended for any reason, a model that is closed or gone included. */
+/** What loadCatalog's socket reads share. `subscribe` makes every read of every step: once the socket work has ended it
+ * sends nothing, whichever step asks, and such a read waits for no answer. `settle` ends every step that waits on the
+ * socket: a failed connection is rethrown. `halted` is true once the run was asked to stop: a step that logs a refused read
+ * and goes on ends instead. `ended` is true once the socket work was ended for any reason, a model that is closed or gone
+ * included. */
 interface SocketReads {
   scope: ModelScope;
   connection: StompConnection;
+  subscribe: StompConnection["subscribe"];
   settle: <T>(work: Promise<T>) => Promise<T>;
   halted: () => boolean;
   ended: () => boolean;
@@ -208,14 +212,17 @@ interface SocketReads {
 
 /** A module whose line items cannot be read is remembered, so the search for filter line items does not ask again. A read
  * that ended with the connection says nothing about its module: after a redirect it is read on the host the model lives on.
- * `timeoutMs` is as long as the read waits for its answer. A `quiet` read's frames are not written to the diagnostic log
- * (the search makes hundreds of them, and sums them up in lines of its own); one that fails is logged either way. */
-async function readLineItems(reads: SocketReads, moduleId: string, timeoutMs = LINE_ITEMS_MS, quiet = false): Promise<void> {
-  const { scope, connection, catalog, progress } = reads;
+ * `givingUp` is the search's own: a read of the search writes no frame lines to the diagnostic log (the search makes
+ * hundreds of them, and sums them up in lines of its own), and it is given up when the signal aborts. That is no refusal:
+ * the module is not remembered, and nothing is logged. A read that is refused is logged either way. */
+async function readLineItems(reads: SocketReads, moduleId: string, givingUp?: AbortSignal): Promise<void> {
+  const { scope, connection, subscribe, catalog, progress } = reads;
   const { workspaceId: ws, modelId: model } = scope;
   try {
-    addLineItems(catalog, moduleId, await connection.subscribe(`core://${ws}:${model}/modules/${moduleId}/lineItems`, { body: {}, timeoutMs, quiet }));
+    addLineItems(catalog, moduleId, await subscribe(`core://${ws}:${model}/modules/${moduleId}/lineItems`,
+      { body: {}, timeoutMs: LINE_ITEMS_MS, ...(givingUp ? { quiet: true, signal: givingUp } : {}) }));
   } catch (error) {
+    if (givingUp?.aborted) return;
     if (!connection.failed) catalog.unreadableModules.add(moduleId);
     progress.log(`line items of module ${moduleId}: ${message(error)}`);
   }
@@ -223,12 +230,12 @@ async function readLineItems(reads: SocketReads, moduleId: string, timeoutMs = L
 
 /** Context selectors: each section's module dimensions, the list Page Builder's grid section settings read. */
 async function readModuleDimensions(reads: SocketReads, modules: ReadonlySet<string>): Promise<void> {
-  const { scope, connection, settle, halted, catalog, notes, progress } = reads;
+  const { scope, connection, subscribe, settle, halted, catalog, notes, progress } = reads;
   const { workspaceId: ws, modelId: model } = scope;
   if (modules.size) {
     progress.status(`Reading module dimensions in ${scope.modelName}…`);
     try {
-      const read = addModuleDimensions(catalog, await settle(connection.subscribe(`core://${ws}:${model}/dimensions`,
+      const read = addModuleDimensions(catalog, await settle(subscribe(`core://${ws}:${model}/dimensions`,
         { body: { moduleIds: [...modules] }, timeoutMs: LOAD_MS })));
       progress.log(`dimensions of ${read.length} of ${modules.size} modules`);
     } catch (error) {
@@ -241,13 +248,13 @@ async function readModuleDimensions(reads: SocketReads, modules: ReadonlySet<str
 
 /** Names of shown and hidden items, as Page Builder's show/hide chips read them. */
 async function readItemNames(reads: SocketReads, items: readonly { moduleId: string; dimensionId: string; itemIds: string[] }[]): Promise<void> {
-  const { scope, connection, settle, catalog, progress } = reads;
+  const { scope, subscribe, settle, catalog, progress } = reads;
   const { workspaceId: ws, modelId: model } = scope;
   if (items.length) {
     progress.status(`Reading item names in ${scope.modelName}…`);
     await settle(inBatches(items, 4, async ({ moduleId, dimensionId, itemIds }) => {
       try {
-        const named = addSelections(catalog, await connection.subscribe(`core://${ws}:${model}/modules/${moduleId}/dimensions/${dimensionId}`,
+        const named = addSelections(catalog, await subscribe(`core://${ws}:${model}/modules/${moduleId}/dimensions/${dimensionId}`,
           { accept: "widget/selection", body: { itemIds, filter: "" }, timeoutMs: LINE_ITEMS_MS }), { moduleId, dimensionId });
         progress.log(`items of dimension ${dimensionId} in module ${moduleId}: ${named} of ${itemIds.length} named`);
       } catch (error) {
@@ -260,14 +267,14 @@ async function readItemNames(reads: SocketReads, items: readonly { moduleId: str
 /** Saved views: rows, columns and context selectors from the metadata Page Builder's grid receives (exploratory: the message
  * types and top-level keys are logged so a live run shows what the service sends). */
 async function readViewLayouts(reads: SocketReads, refs: readonly UxEntityRef[]): Promise<void> {
-  const { scope, connection, settle, catalog, notes, progress } = reads;
+  const { scope, subscribe, settle, catalog, notes, progress } = reads;
   const { workspaceId: ws, modelId: model } = scope;
   const viewIds = [...new Set(refs.filter(ref => ref.kind === "view").map(ref => entityId(ref.id)).filter((id): id is string => !!id))];
   if (viewIds.length) {
     progress.status(`Reading saved view layouts in ${scope.modelName}…`);
     await settle(inBatches(viewIds, 4, async viewId => {
       try {
-        const metadata = await connection.subscribe(`core://${ws}:${model}/views/${viewId}`, {
+        const metadata = await subscribe(`core://${ws}:${model}/views/${viewId}`, {
           accept: "widget/grid", messageType: "metadata", timeoutMs: 60_000,
           body: { transforms: [], expandCollapseTransforms: [], clientQueryOptions: { useCellIdTemplate: false, canHandleDedupedAuxData: false, canHandleNullColumnWidths: false } },
           onMessage: (type, keys) => progress.log(`view ${viewId}: ${type} {${keys.join(", ")}}`),
@@ -286,72 +293,134 @@ async function readViewLayouts(reads: SocketReads, refs: readonly UxEntityRef[])
 }
 
 /** Filters can use a line item from a module no card shows. It is looked for in the modules whose line items were not read
- * yet, FILTER_LINE_ITEMS_AT_A_TIME at a time, until every such rule has its line item:
- * - first in those that have a dimension of the filtered axis, which the model names (the candidates), in the model's order;
+ * yet, until every such rule has its line item:
+ * - first in those that have a dimension of the filtered axis, which the model names (the candidates), dimension by
+ *   dimension, in the model's order: as they were read before the other modules were searched at all;
  * - then in every other module of the model's list, in the list's order.
- * Where the modules read so far bear it out, the entity types of the IDs put likelier modules before both, and a rule
- * that a module already read rules out is spared the second: its IDs are looked for in the candidates only (catalog.ts
- * `filterLineItemSearch`). No module is read twice, and one that cannot be read is remembered as one.
- * A read of the search waits FILTER_LINE_ITEMS_READ_MS for its answer and is then given up, so that a module that does
- * not answer does not end the search. The whole search has FILTER_LINE_ITEMS_BUDGET_MS in one model, from its first read:
- * a read waits no longer than what is left of that either, and once it is over no further read is made. A run that is
- * stopped, a model that reports itself closed and a connection that fails end the search at once, and nothing is asked
- * after them. A rule whose line item was not found keeps its IDs.
+ * Where the modules read so far bear it out, the entity types of the IDs put the likelier of those other modules first:
+ * never before a candidate, so that no candidate is read later for it, however wrong it is. A rule that a module already
+ * read rules out is spared the other modules: its IDs are looked for in the candidates only (catalog.ts
+ * `filterLineItemSearch`). No module is asked twice, and one whose read is refused is remembered as one that cannot be read.
+ *
+ * Four reads are kept moving (FILTER_LINE_ITEMS_AT_A_TIME). A read holds one of the four places until it is answered, and
+ * for FILTER_LINE_ITEMS_READ_MS at most: after that another read may start in its place, and it goes on waiting. Its
+ * answer counts whenever it comes, and with every answer the search looks whether it is done. A late answer is likelier
+ * than none (a busy model answers late), so no answer is thrown away for being late. The questions which modules have a
+ * filtered dimension are asked together and waited for in the same way: the reading starts once they are answered, or
+ * after FILTER_LINE_ITEMS_READ_MS with the candidates known by then, and a later answer puts its modules before the other
+ * modules still to be read. Nor do they wait for a place held by a read that was asked for as another module's: the
+ * candidates have the four places to themselves, so that each is asked for as soon as it was when the questions were
+ * waited for, one after another, and the candidates read four at a time.
+ *
+ * The whole search has FILTER_LINE_ITEMS_BUDGET_MS in one model, from its first question (after a redirect it starts over,
+ * on the host the model lives on). It ends when every rule has its line item, when nothing is left to start and nothing
+ * is waiting, or when that time is up. A question counts as waiting only while its answer can name a module that is
+ * left: once the reading has begun without it, it is not waited for when the model's list of modules arrived and every
+ * module of that list was read or refused. (Without the list it is waited for as long as the time lasts.) What is still
+ * waiting when the search ends is given up: its subscription is ended, it changes nothing afterwards, it is not
+ * remembered as unreadable (it was not refused) and nothing is logged for it. A run that is stopped, a model that reports
+ * itself closed and a connection that fails end the search at once, and nothing is asked after them. A rule whose line
+ * item was not found keeps its IDs.
+ *
  * The diagnostic log is kept small: the reads of line items write no frame lines, and the step says how far the search is
  * no more often than FILTER_LINE_ITEMS_STATUS_MS. The search's own lines say how far it went, in IDs and counts only, and
- * a note says so when the time ran out. */
+ * a note says so when it ended with a rule still without its line item and something left undone. */
 async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCardDetails[]): Promise<void> {
-  const { scope, connection, settle, ended, catalog, notes, progress } = reads;
+  const { scope, connection, subscribe, settle, ended, catalog, notes, progress } = reads;
   const { workspaceId: ws, modelId: model } = scope;
   const cards = pages.flatMap(page => page.cards);
   const { itemIds, axisDimensionIds } = unresolvedFilterItems(cards, catalog);
   if (!itemIds.size) return;
+  // A model that closed earlier, while its module dimensions were read, is only logged there. The search does not begin
+  // for it: it shows no step and counts nothing, and what ended the work is thrown, as a read that waits throws it
+  // (nothing would be sent in any case: `subscribe`). After this, every wait of the search is one that the end of the
+  // work ends at once (`settle`), before an answer that came in the same breath is acted on.
+  if (ended()) await settle(new Promise<never>(() => undefined));
   const started = Date.now();
   /** What is left of the time for the search. */
   const left = () => started + FILTER_LINE_ITEMS_BUDGET_MS - Date.now();
-  /** Every read of the search is made here. Nothing is asked of a model once the socket work has ended: the read is not
-   * made, and what ended the work is thrown, as a read that waits throws it. A model that closed earlier, while its module
-   * dimensions were read, is only logged there; and one can report itself closed in the same breath as an answer. */
-  const ask = <T>(read: () => Promise<T>): Promise<T> => settle(ended() ? new Promise<never>(() => undefined) : read());
   const unread = (id: string) => ENTITY_ID.test(id) && !catalog.lineItemModules.has(id) && !catalog.unreadableModules.has(id);
-  const candidates = new Set<string>();
-  /** The filtered dimensions whose modules the model had not named when the time was over: not asked for, or not answered. */
-  let unsaid = 0;
-  for (const dimensionId of axisDimensionIds) {
-    if (!ENTITY_ID.test(dimensionId)) continue;
-    const time = left();
-    if (time <= 0) { unsaid++; continue; }
-    try {
-      const json = await ask(() => connection.subscribe(`core://${ws}:${model}/applicableModules`,
-        { body: { dimensions: [Number(dimensionId)] }, timeoutMs: Math.min(FILTER_LINE_ITEMS_READ_MS, time) }));
-      for (const id of applicableModuleIds(catalog, json)) if (unread(id)) candidates.add(id);
-    } catch (error) {
-      if (connection.failed || ended()) throw error;
-      if (left() <= 0) unsaid++;
-      progress.log(`modules for dimension ${dimensionId}: ${message(error)}`);
-    }
-  }
-  // Every module there is to read: the candidates, then the other modules of the model's list.
-  const others = [...catalog.modules.keys()].filter(id => unread(id) && !candidates.has(id));
-  const pool = [...candidates, ...others];
-  progress.status(`Finding filter line items in ${scope.modelName}…`);
-  let said = Date.now();
+  /** The modules there are to read: the candidates, as the model names them for each filtered dimension, in the order of
+   * the dimensions whichever question is answered first (they were asked one after another before); and the other modules
+   * of its list that were not read when the search began. */
+  const named = new Map<string, string[]>();
+  let candidates = new Set<string>();
+  const listed = [...catalog.modules.keys()].filter(unread);
+  const others = () => listed.filter(id => !candidates.has(id));
+  /** Whether the model's list of modules arrived and every module of it was read or refused: a question that is still
+   * unanswered then can name no module that is left. (One whose read still waits is left.) */
+  const whole = () => catalog.moduleListLoaded && !listed.some(unread);
+  /** Gives up, when the search ends, whatever of it is still waiting. */
+  const givingUp = new AbortController();
+  /** The questions that the model has not answered yet. */
+  const questions = new Set<Promise<void>>();
+  /** The modules whose line items were asked for and are not answered yet, each with when it was asked, and whether as a
+   * candidate. */
+  const waiting = new Map<string, { since: number; named: boolean; answered: Promise<void> }>();
   const asked = new Set<string>();
-  let bracketed = 0;
-  const waiting = (modules: Iterable<string>) => [...modules].filter(id => !asked.has(id));
-  // Until every rule has its line item: what a rule then still holds unnamed is its context, which no module lists.
-  const next = () => filterLineItemSearch(unresolvedFilterItems(cards, catalog).rules, waiting(candidates), waiting(others), catalog, FILTER_LINE_ITEMS_AT_A_TIME);
-  let step = next();
-  for (let time = left(); step.modules.length && time > 0; step = next(), time = left()) {
-    if (Date.now() - said >= FILTER_LINE_ITEMS_STATUS_MS) {
-      said = Date.now();
-      progress.status(`Finding filter line items in ${scope.modelName}: ${asked.size} of ${pool.length} modules…`);
+  const plan = (places: number) => filterLineItemSearch(unresolvedFilterItems(cards, catalog).rules, [...candidates].filter(id => !asked.has(id) && unread(id)),
+    others().filter(id => !asked.has(id) && unread(id)), catalog, places);
+  let [bracketed, givenUp, unsaid, spared, said] = [0, 0, 0, 0, started];
+  let step = plan(0);
+  progress.status(`Finding filter line items in ${scope.modelName}…`);
+  try {
+    for (const dimensionId of axisDimensionIds) {
+      if (!ENTITY_ID.test(dimensionId)) continue;
+      named.set(dimensionId, []);
+      const question: Promise<void> = subscribe(`core://${ws}:${model}/applicableModules`, { body: { dimensions: [Number(dimensionId)] }, signal: givingUp.signal })
+        .then(json => {
+          named.set(dimensionId, applicableModuleIds(catalog, json).filter(unread));
+          candidates = new Set([...named.values()].flat());
+        },
+          // A question that was given up, or that ended with the connection, is not one the model refused.
+          error => { if (!givingUp.signal.aborted && !connection.failed) progress.log(`modules for dimension ${dimensionId}: ${message(error)}`); })
+        .finally(() => { questions.delete(question); });
+      questions.add(question);
     }
-    const batch = step.modules;
-    batch.forEach(id => asked.add(id));
-    bracketed += step.bracketed;
-    const wait = Math.min(FILTER_LINE_ITEMS_READ_MS, time);
-    await ask(() => Promise.all(batch.map(moduleId => readLineItems(reads, moduleId, wait, true))));
+    for (;;) {
+      const now = Date.now();
+      // The reading starts once the questions are answered, or after as long as a read holds its place.
+      const begun = !questions.size || now - started >= FILTER_LINE_ITEMS_READ_MS;
+      /** The reads that hold a place: those asked for less than FILTER_LINE_ITEMS_READ_MS ago. */
+      const holding = [...waiting.values()].filter(read => now - read.since < FILTER_LINE_ITEMS_READ_MS);
+      // A candidate does not wait for a place held by a read that was not asked for as a candidate's (but as another
+      // module's, while the model had not yet said which modules have the filtered dimensions): it is asked for as soon as
+      // it was before the other modules were searched at all.
+      const toStart = [...candidates].filter(id => !asked.has(id) && unread(id)).length;
+      const forCandidates = Math.min(toStart, FILTER_LINE_ITEMS_AT_A_TIME - holding.filter(read => read.named).length);
+      step = plan(begun ? Math.max(FILTER_LINE_ITEMS_AT_A_TIME - holding.length, forCandidates) : 0);
+      // Until every rule has its line item (what a rule then still holds unnamed is its context, which no module lists),
+      // or the time is up.
+      if (!(step.everywhere.length + step.candidatesOnly.length) || left() <= 0) break;
+      if (now - said >= FILTER_LINE_ITEMS_STATUS_MS) {
+        said = now;
+        progress.status(`Finding filter line items in ${scope.modelName}: ${asked.size} of ${asked.size + step.toRead} modules…`);
+      }
+      for (const moduleId of step.modules) {
+        asked.add(moduleId);
+        const answered: Promise<void> = readLineItems(reads, moduleId, givingUp.signal).finally(() => { waiting.delete(moduleId); });
+        waiting.set(moduleId, { since: now, named: candidates.has(moduleId), answered });
+      }
+      bracketed += step.bracketed;
+      // Or until nothing is left to start and nothing is waiting: no read, and no question whose answer can still name a
+      // module. Once the reading has begun without their answers, the questions are not waited for when none can.
+      if (!waiting.size && (!questions.size || (begun && whole()))) break;
+      // What happens next: an answer; the end of the time; the moment the reading starts without the questions' answers;
+      // or, while a module waits for a place, the moment a read has held its place long enough.
+      const places = begun && step.toRead > step.modules.length
+        ? [...waiting.values()].filter(read => now - read.since < FILTER_LINE_ITEMS_READ_MS).map(read => read.since + FILTER_LINE_ITEMS_READ_MS - now) : [];
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const moment = new Promise<void>(resolve => { timer = setTimeout(resolve, Math.min(left(), ...places, ...(begun ? [] : [started + FILTER_LINE_ITEMS_READ_MS - now]))); });
+      try {
+        await settle(Promise.race([moment, ...questions, ...[...waiting.values()].map(read => read.answered)]));
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+    // The questions still unanswered: those whose answers could have named a module that was left, and those that could not.
+    [givenUp, unsaid, spared] = [waiting.size, whole() ? 0 : questions.size, whole() ? questions.size : 0];
+  } finally {
+    givingUp.abort();
   }
   // How far the search went, for the reader of a live run's log: a rule whose line item it did not find keeps its IDs.
   // Every ID that was looked for is found, or not found, or was the context of a rule that has its line item now.
@@ -360,7 +429,7 @@ async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCar
   const missing = step.everywhere.length + step.candidatesOnly.length;
   const context = itemIds.size - found.length - missing;
   progress.log(`filter line items: ${itemIds.size} looked for in ${read(candidates)} of ${candidates.size} candidate modules that have the filtered dimensions and `
-    + `${read(others)} of ${others.length} other modules, in ${Math.round((Date.now() - started) / 1000)} s: ${found.length} found`
+    + `${read(others())} of ${others().length} other modules, in ${Math.round((Date.now() - started) / 1000)} s, ${givenUp} reads given up while waiting: ${found.length} found`
     + `${found.length ? ` (${found.filter(id => candidates.has(catalog.lineItems.get(id)!.moduleId)).length} in candidate modules)` : ""}`
     + `${context ? `, ${context} the context of rules that now have their line item` : ""}, ${missing} not found`);
   progress.log(`filter line items: the entity-type bracket chose ${bracketed} of the ${asked.size} modules asked for; ${step.evidence}`);
@@ -371,12 +440,19 @@ async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCar
       + step.ruledOut.slice(0, MAX_LOGGED).map(({ id, moduleId }) => `${id} by module ${moduleId}`).join(", ")
       + `${step.ruledOut.length > MAX_LOGGED ? ` and ${step.ruledOut.length - MAX_LOGGED} more` : ""})${beside ? `, and ${beside} in a rule with such an ID` : ""}`);
   }
-  // The time ran out when it is over with an ID still not found and something left undone: modules that were to be read
-  // for it (all of them while an ID is looked for everywhere, else the candidates), or a question about a filtered
-  // dimension. The log and the note say the same.
-  const due = step.everywhere.length ? pool : [...candidates];
-  const notRead = due.length - read(due);
-  if (missing && left() <= 0 && (notRead || unsaid)) {
+  // A question the model had not answered when no module of its list was left to read is no case of the time running out:
+  // the log says so, and no note.
+  if (missing && spared) {
+    progress.log(`filter line items: the model had not said which modules have ${spared} of the filtered dimensions when no module of its list was left to read: no answer could name another`);
+  }
+  // The search was cut short when it ended with an ID still not found and something left undone: a module that was to be
+  // read for it (every module while an ID is looked for everywhere, else the candidates) and was neither read nor refused,
+  // because it was never asked for or was given up while waiting; or a question the model had not answered, whose answer
+  // could have named a module that was left. Only the end of the time leaves such a thing. The log and the note say the
+  // same, and count every module that was not read.
+  const due = step.everywhere.length ? [...candidates, ...others()] : [...candidates];
+  if (missing && (due.some(unread) || unsaid)) {
+    const notRead = due.length - read(due);
     const dimensions = `the model had not said which modules have ${unsaid} of the filtered dimensions`;
     progress.log(`filter line items: the ${FILTER_LINE_ITEMS_BUDGET_MS / 1000} seconds allowed for the search ran out: ${notRead} modules left unread${unsaid ? `, and ${dimensions}` : ""}`);
     notes.push(`${scope.modelName}: some filter line items were not found in the ${FILTER_LINE_ITEMS_BUDGET_MS / 1000} seconds allowed for the search: `
@@ -399,7 +475,7 @@ async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCar
  * how much of it was named, in IDs only, and when the time ran out, how much was left unasked.
  * `asked` are the modules whose dimensions were asked for with the grids'. */
 async function readFilterItemNames(reads: SocketReads, pages: readonly UxPageCardDetails[], asked: ReadonlySet<string>): Promise<void> {
-  const { scope, connection, settle, ended, catalog, progress } = reads;
+  const { scope, connection, subscribe, settle, ended, catalog, progress } = reads;
   const { workspaceId: ws, modelId: model } = scope;
   const needs = filterItemNeeds(pages.flatMap(page => page.cards), catalog);
   for (const { lineItemId, values } of needs.unsaid) {
@@ -427,7 +503,7 @@ async function readFilterItemNames(reads: SocketReads, pages: readonly UxPageCar
     left--;
     itemIds.forEach(id => sent.add(id));
     try {
-      progress.log(`${what}${done(await settle(connection.subscribe(destination, { ...options, timeoutMs: Math.min(FILTER_ITEM_READ_MS, time) })))}`);
+      progress.log(`${what}${done(await settle(subscribe(destination, { ...options, timeoutMs: Math.min(FILTER_ITEM_READ_MS, time) })))}`);
     } catch (error) {
       if (connection.failed || ended()) throw error;
       // Given up because the time for all of them was up, a read is not one that went unanswered for as long as a read may.
@@ -571,15 +647,20 @@ export async function loadCatalog(scope: ModelScope, pages: readonly UxPageCardD
         if (connection.failed) throw connection.failed;
         return result;
       };
-      const reads: SocketReads = { scope, connection, settle, halted: () => signal?.aborted === true, ended: () => ended, catalog, notes, progress };
+      // Every read of every step is made here. Once the socket work has ended nothing more is sent, whichever step asks: one
+      // that comes after a step which logged the end as a refused read and went on, or after an answer that came in the
+      // same breath as the end. Such a read waits for no answer, and the step's own `settle` ends it. (The watch on the
+      // model's status above is no read of a step: it is what says that the model closed.)
+      const subscribe: StompConnection["subscribe"] = (destination, options) => (ended ? new Promise<never>(() => undefined) : connection.subscribe(destination, options));
+      const reads: SocketReads = { scope, connection, subscribe, settle, halted: () => signal?.aborted === true, ended: () => ended, catalog, notes, progress };
       const started = Date.now();
       const waiting = setInterval(() => progress.status(`Reading names in ${scope.modelName}: ${Math.round((Date.now() - started) / 1000)} s, `
         + `model status ${status}. A model that is not open can take a few minutes to load…`), 5_000);
       try {
         progress.status(`Reading names in ${scope.modelName}…`);
         const [views, lists] = await settle(Promise.allSettled([
-          connection.subscribe(`core:/${ws}:${model}/moduleViews`, { body: {}, timeoutMs: LOAD_MS }),
-          connection.subscribe(`core://${ws}:${model}/lists`, { body: {}, timeoutMs: LOAD_MS }),
+          subscribe(`core:/${ws}:${model}/moduleViews`, { body: {}, timeoutMs: LOAD_MS }),
+          subscribe(`core://${ws}:${model}/lists`, { body: {}, timeoutMs: LOAD_MS }),
         ]));
         clearInterval(waiting);
         if (views.status === "fulfilled") addModuleViews(catalog, views.value); else notes.push(`${scope.modelName}: module and saved view names were not available (${message(views.reason)}).`);
