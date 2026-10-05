@@ -192,12 +192,15 @@ async function readActionNames(scope: ModelScope, refs: readonly UxEntityRef[], 
   return { notes, failedActionTypes };
 }
 
-/** What loadCatalog's socket reads share. `settle` ends every step that waits on the socket: a failed connection is rethrown.
- * `halted` is true once the run was asked to stop: a step that logs a refused read and goes on ends instead. `ended` is true
- * once the socket work was ended for any reason, a model that is closed or gone included. */
+/** What loadCatalog's socket reads share. `subscribe` makes every read of every step: once the socket work has ended it
+ * sends nothing, whichever step asks, and such a read waits for no answer. `settle` ends every step that waits on the
+ * socket: a failed connection is rethrown. `halted` is true once the run was asked to stop: a step that logs a refused read
+ * and goes on ends instead. `ended` is true once the socket work was ended for any reason, a model that is closed or gone
+ * included. */
 interface SocketReads {
   scope: ModelScope;
   connection: StompConnection;
+  subscribe: StompConnection["subscribe"];
   settle: <T>(work: Promise<T>) => Promise<T>;
   halted: () => boolean;
   ended: () => boolean;
@@ -212,10 +215,10 @@ interface SocketReads {
  * hundreds of them, and sums them up in lines of its own), and it is given up when the signal aborts. That is no refusal:
  * the module is not remembered, and nothing is logged. A read that is refused is logged either way. */
 async function readLineItems(reads: SocketReads, moduleId: string, givingUp?: AbortSignal): Promise<void> {
-  const { scope, connection, catalog, progress } = reads;
+  const { scope, connection, subscribe, catalog, progress } = reads;
   const { workspaceId: ws, modelId: model } = scope;
   try {
-    addLineItems(catalog, moduleId, await connection.subscribe(`core://${ws}:${model}/modules/${moduleId}/lineItems`,
+    addLineItems(catalog, moduleId, await subscribe(`core://${ws}:${model}/modules/${moduleId}/lineItems`,
       { body: {}, timeoutMs: LINE_ITEMS_MS, ...(givingUp ? { quiet: true, signal: givingUp } : {}) }));
   } catch (error) {
     if (givingUp?.aborted) return;
@@ -226,12 +229,12 @@ async function readLineItems(reads: SocketReads, moduleId: string, givingUp?: Ab
 
 /** Context selectors: each section's module dimensions, the list Page Builder's grid section settings read. */
 async function readModuleDimensions(reads: SocketReads, modules: ReadonlySet<string>): Promise<void> {
-  const { scope, connection, settle, halted, catalog, notes, progress } = reads;
+  const { scope, connection, subscribe, settle, halted, catalog, notes, progress } = reads;
   const { workspaceId: ws, modelId: model } = scope;
   if (modules.size) {
     progress.status(`Reading module dimensions in ${scope.modelName}…`);
     try {
-      const read = addModuleDimensions(catalog, await settle(connection.subscribe(`core://${ws}:${model}/dimensions`,
+      const read = addModuleDimensions(catalog, await settle(subscribe(`core://${ws}:${model}/dimensions`,
         { body: { moduleIds: [...modules] }, timeoutMs: LOAD_MS })));
       progress.log(`dimensions of ${read.length} of ${modules.size} modules`);
     } catch (error) {
@@ -244,13 +247,13 @@ async function readModuleDimensions(reads: SocketReads, modules: ReadonlySet<str
 
 /** Names of shown and hidden items, as Page Builder's show/hide chips read them. */
 async function readItemNames(reads: SocketReads, items: readonly { moduleId: string; dimensionId: string; itemIds: string[] }[]): Promise<void> {
-  const { scope, connection, settle, catalog, progress } = reads;
+  const { scope, subscribe, settle, catalog, progress } = reads;
   const { workspaceId: ws, modelId: model } = scope;
   if (items.length) {
     progress.status(`Reading item names in ${scope.modelName}…`);
     await settle(inBatches(items, 4, async ({ moduleId, dimensionId, itemIds }) => {
       try {
-        const named = addSelections(catalog, await connection.subscribe(`core://${ws}:${model}/modules/${moduleId}/dimensions/${dimensionId}`,
+        const named = addSelections(catalog, await subscribe(`core://${ws}:${model}/modules/${moduleId}/dimensions/${dimensionId}`,
           { accept: "widget/selection", body: { itemIds, filter: "" }, timeoutMs: LINE_ITEMS_MS }), { moduleId, dimensionId });
         progress.log(`items of dimension ${dimensionId} in module ${moduleId}: ${named} of ${itemIds.length} named`);
       } catch (error) {
@@ -263,14 +266,14 @@ async function readItemNames(reads: SocketReads, items: readonly { moduleId: str
 /** Saved views: rows, columns and context selectors from the metadata Page Builder's grid receives (exploratory: the message
  * types and top-level keys are logged so a live run shows what the service sends). */
 async function readViewLayouts(reads: SocketReads, refs: readonly UxEntityRef[]): Promise<void> {
-  const { scope, connection, settle, catalog, notes, progress } = reads;
+  const { scope, subscribe, settle, catalog, notes, progress } = reads;
   const { workspaceId: ws, modelId: model } = scope;
   const viewIds = [...new Set(refs.filter(ref => ref.kind === "view").map(ref => entityId(ref.id)).filter((id): id is string => !!id))];
   if (viewIds.length) {
     progress.status(`Reading saved view layouts in ${scope.modelName}…`);
     await settle(inBatches(viewIds, 4, async viewId => {
       try {
-        const metadata = await connection.subscribe(`core://${ws}:${model}/views/${viewId}`, {
+        const metadata = await subscribe(`core://${ws}:${model}/views/${viewId}`, {
           accept: "widget/grid", messageType: "metadata", timeoutMs: 60_000,
           body: { transforms: [], expandCollapseTransforms: [], clientQueryOptions: { useCellIdTemplate: false, canHandleDedupedAuxData: false, canHandleNullColumnWidths: false } },
           onMessage: (type, keys) => progress.log(`view ${viewId}: ${type} {${keys.join(", ")}}`),
@@ -319,15 +322,15 @@ async function readViewLayouts(reads: SocketReads, refs: readonly UxEntityRef[])
  * no more often than FILTER_LINE_ITEMS_STATUS_MS. The search's own lines say how far it went, in IDs and counts only, and
  * a note says so when it ended with a rule still without its line item and something left undone. */
 async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCardDetails[]): Promise<void> {
-  const { scope, connection, settle, ended, catalog, notes, progress } = reads;
+  const { scope, connection, subscribe, settle, ended, catalog, notes, progress } = reads;
   const { workspaceId: ws, modelId: model } = scope;
   const cards = pages.flatMap(page => page.cards);
   const { itemIds, axisDimensionIds } = unresolvedFilterItems(cards, catalog);
   if (!itemIds.size) return;
-  // Nothing is asked of a model once the socket work has ended. A model that closed earlier, while its module dimensions
-  // were read, is only logged there: the search then asks nothing, and what ended the work is thrown, as a read that
-  // waits throws it. After this, every wait of the search is one that the end of the work ends at once (`settle`), before
-  // an answer that came in the same breath is acted on.
+  // A model that closed earlier, while its module dimensions were read, is only logged there. The search does not begin
+  // for it: it shows no step and counts nothing, and what ended the work is thrown, as a read that waits throws it
+  // (nothing would be sent in any case: `subscribe`). After this, every wait of the search is one that the end of the
+  // work ends at once (`settle`), before an answer that came in the same breath is acted on.
   if (ended()) await settle(new Promise<never>(() => undefined));
   const started = Date.now();
   /** What is left of the time for the search. */
@@ -357,7 +360,7 @@ async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCar
     for (const dimensionId of axisDimensionIds) {
       if (!ENTITY_ID.test(dimensionId)) continue;
       named.set(dimensionId, []);
-      const question: Promise<void> = connection.subscribe(`core://${ws}:${model}/applicableModules`, { body: { dimensions: [Number(dimensionId)] }, signal: givingUp.signal })
+      const question: Promise<void> = subscribe(`core://${ws}:${model}/applicableModules`, { body: { dimensions: [Number(dimensionId)] }, signal: givingUp.signal })
         .then(json => {
           named.set(dimensionId, applicableModuleIds(catalog, json).filter(unread));
           candidates = new Set([...named.values()].flat());
@@ -457,7 +460,7 @@ async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCar
  * how much of it was named, in IDs only, and when the time ran out, how much was left unasked.
  * `asked` are the modules whose dimensions were asked for with the grids'. */
 async function readFilterItemNames(reads: SocketReads, pages: readonly UxPageCardDetails[], asked: ReadonlySet<string>): Promise<void> {
-  const { scope, connection, settle, ended, catalog, progress } = reads;
+  const { scope, connection, subscribe, settle, ended, catalog, progress } = reads;
   const { workspaceId: ws, modelId: model } = scope;
   const needs = filterItemNeeds(pages.flatMap(page => page.cards), catalog);
   for (const { lineItemId, values } of needs.unsaid) {
@@ -485,7 +488,7 @@ async function readFilterItemNames(reads: SocketReads, pages: readonly UxPageCar
     left--;
     itemIds.forEach(id => sent.add(id));
     try {
-      progress.log(`${what}${done(await settle(connection.subscribe(destination, { ...options, timeoutMs: Math.min(FILTER_ITEM_READ_MS, time) })))}`);
+      progress.log(`${what}${done(await settle(subscribe(destination, { ...options, timeoutMs: Math.min(FILTER_ITEM_READ_MS, time) })))}`);
     } catch (error) {
       if (connection.failed || ended()) throw error;
       // Given up because the time for all of them was up, a read is not one that went unanswered for as long as a read may.
@@ -629,15 +632,20 @@ export async function loadCatalog(scope: ModelScope, pages: readonly UxPageCardD
         if (connection.failed) throw connection.failed;
         return result;
       };
-      const reads: SocketReads = { scope, connection, settle, halted: () => signal?.aborted === true, ended: () => ended, catalog, notes, progress };
+      // Every read of every step is made here. Once the socket work has ended nothing more is sent, whichever step asks: one
+      // that comes after a step which logged the end as a refused read and went on, or after an answer that came in the
+      // same breath as the end. Such a read waits for no answer, and the step's own `settle` ends it. (The watch on the
+      // model's status above is no read of a step: it is what says that the model closed.)
+      const subscribe: StompConnection["subscribe"] = (destination, options) => (ended ? new Promise<never>(() => undefined) : connection.subscribe(destination, options));
+      const reads: SocketReads = { scope, connection, subscribe, settle, halted: () => signal?.aborted === true, ended: () => ended, catalog, notes, progress };
       const started = Date.now();
       const waiting = setInterval(() => progress.status(`Reading names in ${scope.modelName}: ${Math.round((Date.now() - started) / 1000)} s, `
         + `model status ${status}. A model that is not open can take a few minutes to load…`), 5_000);
       try {
         progress.status(`Reading names in ${scope.modelName}…`);
         const [views, lists] = await settle(Promise.allSettled([
-          connection.subscribe(`core:/${ws}:${model}/moduleViews`, { body: {}, timeoutMs: LOAD_MS }),
-          connection.subscribe(`core://${ws}:${model}/lists`, { body: {}, timeoutMs: LOAD_MS }),
+          subscribe(`core:/${ws}:${model}/moduleViews`, { body: {}, timeoutMs: LOAD_MS }),
+          subscribe(`core://${ws}:${model}/lists`, { body: {}, timeoutMs: LOAD_MS }),
         ]));
         clearInterval(waiting);
         if (views.status === "fulfilled") addModuleViews(catalog, views.value); else notes.push(`${scope.modelName}: module and saved view names were not available (${message(views.reason)}).`);

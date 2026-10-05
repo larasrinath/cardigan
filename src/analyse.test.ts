@@ -479,11 +479,12 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     const closed = "the model is closed";
     const ended = `Synthetic model: names from the model data service were not available (${closed}); IDs are shown instead.`;
     const viewLayout = (id: string) => metadata(id, { rows: [{ dimensionId: LIST, label: "Product" }], cols: [] });
-    // Module dimensions log the stop as they log a refused read and go on, so the work ends at the next read that waits on
-    // the socket; item names, saved views and the filtered dimension's modules end it at once.
+    // Module dimensions log the stop as they log a refused read and go on, and the work ends at the next step that would
+    // read: its read is not sent, for nothing is asked of a model once the work has ended. (The read of the item names used
+    // to go out before the work ended.) Item names, saved views and the filtered dimension's modules end it at once.
     for (const [waiting, notes, last, logged] of [
       [at("/dimensions"), [`Synthetic model: module dimensions were not available (${closed}); context selectors show only those saved on the page.`, ended],
-        at(`/modules/${MODULE}/dimensions/${LIST}`), [`module dimensions: ${closed}`]],
+        at("/dimensions"), [`module dimensions: ${closed}`]],
       [at(`/modules/${MODULE}/dimensions/${LIST}`), [ended], at(`/modules/${MODULE}/dimensions/${LIST}`), []],
       [at(`/views/${VIEW}`), [ended], at(`/views/${VIEW}`), []],
       [at("/applicableModules"), [ended], at("/applicableModules"), []],
@@ -501,6 +502,42 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
       expect(destinations().at(-1), waiting).toBe(last);
       expect(log.slice(log.indexOf("model status CLOSED")).filter(line => /^(model status|module dimensions|modules for)/.test(line)), waiting)
         .toEqual(["model status CLOSED", ...logged]);
+    }
+  });
+
+  it("sends nothing more once the model has reported itself closed, whichever step would read next", async () => {
+    const ended = "Synthetic model: names from the model data service were not available (the model is closed); IDs are shown instead.";
+    const unavailable = "Synthetic model: module dimensions were not available (the model is closed); context selectors show only those saved on the page.";
+    const dimensions = (id: string) => update(id, { modules: { [MODULE]: { dimensions: [{ id: LIST, label: "Product" }] } } });
+    /** A grid of the module in which no item is shown or hidden, filtered by these rules; and what else the cards use. */
+    const grid = (rules: unknown[], ...references: unknown[]) => [{ cards: ruled(...rules)[0].cards, references: [{ kind: "module", id: MODULE }, ...references] }] as unknown as UxPageCardDetails[];
+    // After the grid's dimensions, the next read is a saved view's layout; or, with a rule that has its line item (the
+    // grid's own) and a context item, the name of that item, which the last step asks the module's dimension for.
+    const [savedView, contextItem] = [grid([], { kind: "view", id: VIEW }), grid([rule([ITEM(358, 2), LINE_ITEM], ["true"])])];
+    const answers = { [at(`/modules/${MODULE}/lineItems`)]: (id: string) => update(id, { data: [{ lineItemId: LINE_ITEM, lineItemLabel: "Volume" }] }),
+      [at(`/views/${VIEW}`)]: (id: string) => metadata(id, { rows: [{ dimensionId: LIST, label: "Product" }], cols: [] }) };
+    let [status, closedAt] = ["", -1];
+    for (const [pages, answer, notes] of [
+      // The model reports itself closed where the grid's dimensions are asked for: that step logs it as a refused read and
+      // goes on.
+      [savedView, () => "", [unavailable, ended]],
+      // The model gives the grid's dimensions and reports itself closed in the same breath: that step has its answer.
+      [savedView, dimensions, [ended]],
+      [contextItem, dimensions, [ended]],
+    ] as const) {
+      ScriptedSocket.sockets = [];
+      serveModel({ ...answers, [at("")]: id => { status = id; return update(id, { status: "UNKNOWN" }); },
+        [at("/dimensions")]: id => { closedAt = sent("SEND").length; return answer(id) + update(status, { status: "CLOSED" }); } });
+      const done = await run(pages).result;
+      await new Promise(resolve => { setTimeout(resolve, 20); });
+      expect([done.notes, destinations().slice(closedAt)]).toEqual([notes, []]);
+    }
+    // (A model that stays open is asked for the saved view's layout, and for the context item.)
+    for (const [pages, asked] of [[savedView, at(`/views/${VIEW}`)], [contextItem, at(`/modules/${MODULE}/dimensions/${LIST}`)]] as const) {
+      ScriptedSocket.sockets = [];
+      serveModel({ ...answers, [at("/dimensions")]: dimensions });
+      expect((await run(pages).result).notes).toEqual([]);
+      expect(destinations().at(-1)).toBe(asked);
     }
   });
 
