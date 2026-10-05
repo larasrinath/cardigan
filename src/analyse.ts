@@ -316,11 +316,13 @@ async function readViewLayouts(reads: SocketReads, refs: readonly UxEntityRef[])
  * on the host the model lives on). It ends when every rule has its line item, when nothing is left to start and nothing
  * is waiting, or when that time is up. A question counts as waiting only while its answer can name a module that is
  * left: once the reading has begun without it, it is not waited for when the model's list of modules arrived and every
- * module of that list was read or refused. (Without the list it is waited for as long as the time lasts.) What is still
- * waiting when the search ends is given up: its subscription is ended, it changes nothing afterwards, it is not
- * remembered as unreadable (it was not refused) and nothing is logged for it. A run that is stopped, a model that reports
- * itself closed and a connection that fails end the search at once, and nothing is asked after them. A rule whose line
- * item was not found keeps its IDs.
+ * module of that list was read or refused. (Without the list it is waited for as long as the time lasts; and so it is
+ * once an answer of this search has named a module that the list does not hold, which shows that the list is not all a
+ * question can name.) Nor is a read waited for that can add no line item: one of another module, when every ID that is
+ * still looked for is looked for in the candidates only. What is still waiting when the search ends is given up: its
+ * subscription is ended, it changes nothing afterwards, it is not remembered as unreadable (it was not refused) and
+ * nothing is logged for it. A run that is stopped, a model that reports itself closed and a connection that fails end the
+ * search at once, and nothing is asked after them. A rule whose line item was not found keeps its IDs.
  *
  * The diagnostic log is kept small: the reads of line items write no frame lines, and the step says how far the search is
  * no more often than FILTER_LINE_ITEMS_STATUS_MS. The search's own lines say how far it went, in IDs and counts only, and
@@ -347,9 +349,14 @@ async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCar
   let candidates = new Set<string>();
   const listed = [...catalog.modules.keys()].filter(unread);
   const others = () => listed.filter(id => !candidates.has(id));
+  /** The modules that the answers of this search named, and those of them that the model's list does not hold (the list
+   * as it was when the search began: an answer adds the modules it names to the catalog's). One such module shows that
+   * the list is not all that a question can name. */
+  const inList = new Set(catalog.modules.keys());
+  const [allNamed, beyond] = [new Set<string>(), new Set<string>()];
   /** Whether the model's list of modules arrived and every module of it was read or refused: a question that is still
-   * unanswered then can name no module that is left. (One whose read still waits is left.) */
-  const whole = () => catalog.moduleListLoaded && !listed.some(unread);
+   * unanswered then can name no module that is left, as far as this search has seen. (One whose read still waits is left.) */
+  const whole = () => catalog.moduleListLoaded && !beyond.size && !listed.some(unread);
   /** Gives up, when the search ends, whatever of it is still waiting. */
   const givingUp = new AbortController();
   /** The questions that the model has not answered yet. */
@@ -369,7 +376,12 @@ async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCar
       named.set(dimensionId, []);
       const question: Promise<void> = subscribe(`core://${ws}:${model}/applicableModules`, { body: { dimensions: [Number(dimensionId)] }, signal: givingUp.signal })
         .then(json => {
-          named.set(dimensionId, applicableModuleIds(catalog, json).filter(unread));
+          const modules = applicableModuleIds(catalog, json).filter(id => ENTITY_ID.test(id));
+          for (const id of modules) {
+            allNamed.add(id);
+            if (!inList.has(id)) beyond.add(id);
+          }
+          named.set(dimensionId, modules.filter(unread));
           candidates = new Set([...named.values()].flat());
         },
           // A question that was given up, or that ended with the connection, is not one the model refused.
@@ -402,9 +414,12 @@ async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCar
         waiting.set(moduleId, { since: now, named: candidates.has(moduleId), answered });
       }
       bracketed += step.bracketed;
-      // Or until nothing is left to start and nothing is waiting: no read, and no question whose answer can still name a
-      // module. Once the reading has begun without their answers, the questions are not waited for when none can.
-      if (!waiting.size && (!questions.size || (begun && whole()))) break;
+      // Or until nothing is left to start and nothing is waiting that can still help. A read can while an ID is looked
+      // for in every module, or when it is a candidate's: for IDs that are looked for in the candidates only, the read of
+      // another module is not waited for. A question can while its answer can still name a module: once the reading has
+      // begun without their answers, the questions are not waited for when none can.
+      const helping = step.everywhere.length ? waiting.size : [...waiting.keys()].filter(id => candidates.has(id)).length;
+      if (!helping && (!questions.size || (begun && whole()))) break;
       // What happens next: an answer; the end of the time; the moment the reading starts without the questions' answers;
       // or, while a module waits for a place, the moment a read has held its place long enough.
       const places = begun && step.toRead > step.modules.length
@@ -432,6 +447,9 @@ async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCar
     + `${read(others())} of ${others().length} other modules, in ${Math.round((Date.now() - started) / 1000)} s, ${givenUp} reads given up while waiting: ${found.length} found`
     + `${found.length ? ` (${found.filter(id => candidates.has(catalog.lineItems.get(id)!.moduleId)).length} in candidate modules)` : ""}`
     + `${context ? `, ${context} the context of rules that now have their line item` : ""}, ${missing} not found`);
+  // Whether the model names, for a filtered dimension, modules that its list of modules does not hold: a live run's log
+  // shows it here. (Nothing is said when the list did not arrive: the summary shows that.)
+  if (catalog.moduleListLoaded && beyond.size) progress.log(`filter line items: ${beyond.size} of the ${allNamed.size} modules the model named are not in its list of modules`);
   progress.log(`filter line items: the entity-type bracket chose ${bracketed} of the ${asked.size} modules asked for; ${step.evidence}`);
   if (step.candidatesOnly.length) {
     const beside = step.candidatesOnly.length - step.ruledOut.length;
