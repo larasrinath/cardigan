@@ -9,7 +9,7 @@ import { CSV_FALLBACK, downloadName, ZIP_FALLBACK } from "./file-name.js";
 import { analysedLine, notKeptNote } from "./keep-notes.js";
 import { ResultKeeper } from "./keep-result.js";
 import {
-  cardDrawerHtml, cardDrawerSubHtml, colChooserHtml, colFilterHtml, crumbsHtml, FORGOTTEN_LINE, headerMetaHtml, keptCopyHtml, MOON_ICON, navHtml,
+  cardDrawerHtml, cardDrawerSubHtml, colChooserHtml, colFilterHtml, crumbsHtml, headerMetaHtml, keptCopyHtml, MOON_ICON, navHtml,
   noteBannerHtml, NOT_REMOVED_LINE, objectDrawerHtml, objectDrawerSubHtml, overviewHtml, rowDrawerHtml, rowDrawerSubHtml, runBannerHtml, runHtml, SUN_ICON, tableHtml, tableParts,
   type KeptCopy, type Links, type NavEntry, type TableView,
 } from "./markup.js";
@@ -844,11 +844,14 @@ document.addEventListener("click", event => {
       // The copy the tab keeps for a refresh goes, and nothing else does: the result stays on the page, with its
       // downloads. The control goes with what it removed: the line that says so takes its place and the focus. The page
       // says that only of a copy that is gone. One that could not be removed keeps its control, and the page says so.
+      // A screen reader reads the line where the focus now is. The live region does not say it too, or it would be read
+      // twice: it is emptied, so that it does not go on saying what it said last, which may be that the copy could not
+      // be removed.
       case "forget":
         if (!keeper.forget()) return showNotRemoved();
         setKeptCopy("forgotten");
         focusOn("#keptLine", "#view");
-        announce(FORGOTTEN_LINE);
+        announce("");
         return;
     }
   }
