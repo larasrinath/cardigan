@@ -2126,6 +2126,33 @@ describe("The room the map's picture has", () => {
     env.settle();
     expect([boxes().size, status(), act("whole").hidden, size() > 150]).toEqual([24, "24 sections · 0 links", true, true]);
   });
+  it("measures the room beside a selection with the foot as it will be: without the line that a whole picture does not need", () => {
+    mount(sectionsOf(170));
+    layOut({
+      ".map-canvas": [0, 0, 1200, 800],
+      ".map-free": () => (root().classList.contains("map-has-inspector") ? [10, 56, 864, 790] : [10, 56, 1190, 790]),
+      ".map-legend": [10, 700, 60, 750],
+      // The foot has one row beside a whole picture, and is much higher where the line of what is shown stands over the
+      // bar of what is traced.
+      ".map-dock": () => (part(".map-tracebar").hidden || part(".map-status").hidden ? [10, 760, 864, 790] : [10, 300, 864, 790]),
+      ".map-corner": CORNER,
+    });
+    map.show();
+    env.resize(1200, 800);
+    env.settle();
+    const opened = [...boxes().values()][0].w;
+    expect([boxes().size, status(), part(".map-status").hidden]).toEqual([170, "170 sections · 0 links", false]);
+    // A section selected. With the line still at the foot there would be no room for the whole picture at a size its
+    // names can be read at; without it there is, and the line is not needed: the picture is whole, and the line gone.
+    const first = [...boxes()][0];
+    click(first[1].x + first[1].w / 2, first[1].y + first[1].h / 2);
+    env.settle();
+    const after = [...boxes().values()];
+    expect([after.length, part(".map-status").hidden, part(".map-tracebar").hidden, blankBoxes()]).toEqual([170, true, false, 0]);
+    expect([after[0].w < opened, after[0].w / 232 >= 13 / 48.5]).toEqual([true, true]);
+    for (const box of after) expect([box.x + box.w <= 864, box.y + box.h <= 760]).toEqual([true, true]);
+  });
+
   it("lets the panel that opens close the other where the two would leave the picture no room at all", () => {
     openLaidOut(sectionsOf(6));
     // The notes laid out so that, with the legend, nothing of the graph's room is left.
