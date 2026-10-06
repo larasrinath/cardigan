@@ -44,9 +44,14 @@ describe("The map's camera", () => {
     expect(Number.isFinite(fitCamera({ x: 0, y: 0, w: 0, h: 0 }, 1000, 800, NONE).ox)).toBe(true);
   });
 
-  it("keeps a least room when the panels would leave none", () => {
-    const camera = fitCamera({ x: 0, y: 0, w: 160, h: 150 }, 200, 200, { l: 150, r: 150, t: 150, b: 150 });
-    expect(camera.k).toBe(1);
+  it("keeps to a small room, and counts with a least one only where the panels would leave none", () => {
+    // A room of 600 by 90, as a narrow map has between its bar and the details: the picture is fitted into it.
+    const low = fitCamera({ x: 0, y: 0, w: 1000, h: 900 }, 800, 500, { l: 100, r: 100, t: 200, b: 210 });
+    expect(low.k).toBe(0.1);
+    expect([toScreen(low, 0, 0)[1], toScreen(low, 0, 900)[1]]).toEqual([200, 290]);
+    // No room at all: forty pixels each way, so that the picture still has a size.
+    const none = fitCamera({ x: 0, y: 0, w: 160, h: 80 }, 200, 200, { l: 150, r: 150, t: 150, b: 150 });
+    expect(none.k).toBe(0.25);
   });
 
   it("fits into the room that shows the box largest", () => {
@@ -187,13 +192,17 @@ describe("The room for a graph among the panels", () => {
 describe("What a reader has in view", () => {
   const nodes = [node(0, 0, 0), node(1, 300, 0), node(2, 600, 0), node(3, 300, 900)];
 
-  it("counts the boxes whose middle is on the canvas, of those that are shown", () => {
+  it("counts the boxes whose middle is in the part of the canvas the panels leave, of those that are shown", () => {
     const camera: Camera = { ox: 0, oy: 0, k: 1 };
-    expect(countInView(nodes, all, camera, 1000, 600)).toBe(3);
-    expect(countInView(nodes, all, camera, 340, 600)).toBe(1);
-    expect(countInView(nodes, index => index !== 0, camera, 1000, 600)).toBe(2);
-    expect(countInView(nodes, all, { ox: 0, oy: -700, k: 1 }, 1000, 600)).toBe(1);
-    expect(countInView(nodes, all, { ox: 0, oy: 0, k: 0.5 }, 1000, 600)).toBe(4);
+    const whole = { left: 0, top: 0, right: 1000, bottom: 600 };
+    expect(countInView(nodes, all, camera, whole)).toBe(3);
+    expect(countInView(nodes, all, camera, { ...whole, right: 340 })).toBe(1);
+    expect(countInView(nodes, index => index !== 0, camera, whole)).toBe(2);
+    expect(countInView(nodes, all, { ox: 0, oy: -700, k: 1 }, whole)).toBe(1);
+    expect(countInView(nodes, all, { ox: 0, oy: 0, k: 0.5 }, whole)).toBe(4);
+    // A box under the bar, or under the details at the right, is not in view.
+    expect(countInView(nodes, all, camera, { left: 0, top: 80, right: 1000, bottom: 600 })).toBe(0);
+    expect(countInView(nodes, all, camera, { left: 0, top: 0, right: 600, bottom: 600 })).toBe(2);
   });
 
   it("brings a box of the graph into the room: where it is, moved just far enough, or further away, never nearer", () => {

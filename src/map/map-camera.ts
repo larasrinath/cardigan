@@ -26,10 +26,14 @@ export function defaultInsets(width: number, height: number, inspector: boolean)
   return { l: 32, r: inspector ? 348 : 32, t: 82, b: 32 };
 }
 
-/** The camera that shows a box whole, in the middle of what the insets leave of a canvas. */
+/** The least room a fit counts with, each way: where the insets leave less, or nothing, the picture still has a size. */
+const LEAST_ROOM = 40;
+
+/** The camera that shows a box whole, in the middle of what the insets leave of a canvas. A room that is small is
+ * kept to: the picture is fitted into it, however small that makes it, and not laid over what stands around it. */
 export function fitCamera(box: Box, width: number, height: number, insets: Insets, maxZoom = FIT_ZOOM): Camera {
-  const roomX = Math.max(160, width - insets.l - insets.r);
-  const roomY = Math.max(150, height - insets.t - insets.b);
+  const roomX = Math.max(LEAST_ROOM, width - insets.l - insets.r);
+  const roomY = Math.max(LEAST_ROOM, height - insets.t - insets.b);
   const k = clamp(Math.min(roomX / Math.max(box.w, 1), roomY / Math.max(box.h, 1), maxZoom), MIN_ZOOM, MAX_ZOOM);
   return { ox: insets.l + (roomX - box.w * k) / 2 - box.x * k, oy: insets.t + (roomY - box.h * k) / 2 - box.y * k, k };
 }
@@ -127,14 +131,15 @@ export function minimapTransform(bounds: Box, width: number, height: number): Mi
 
 export type Direction = "left" | "right" | "up" | "down";
 
-/** How many of the nodes shown have their middle on the canvas: what a reader has in view. */
-export function countInView(nodes: readonly ViewNode[], shown: (index: number) => boolean, camera: Camera, width: number, height: number): number {
+/** How many of the nodes shown have their middle in a part of the canvas: what a reader has in view, where the part is
+ * what the panels leave of it. */
+export function countInView(nodes: readonly ViewNode[], shown: (index: number) => boolean, camera: Camera, area: Area): number {
   let count = 0;
   for (const node of nodes) {
     if (!shown(node.index)) continue;
     const x = (node.x + node.w / 2) * camera.k + camera.ox;
     const y = (node.y + node.h / 2) * camera.k + camera.oy;
-    if (x >= 0 && x <= width && y >= 0 && y <= height) count++;
+    if (x >= area.left && x <= area.right && y >= area.top && y <= area.bottom) count++;
   }
   return count;
 }
