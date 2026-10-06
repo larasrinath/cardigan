@@ -102,6 +102,14 @@ describe("The stand-in page", () => {
     // A key goes to where the focus is, and a listener can prevent what the browser would do with it.
     page.document.addEventListener("keydown", event => { if (event.key === "/") event.preventDefault(); });
     expect([page.key("/").defaultPrevented, page.key("a").defaultPrevented, page.key("/").target.id]).toEqual([true, false, "view"]);
+    // The way up is settled before the first listener hears the event, as in a browser: a listener that takes the element
+    // off the page does not keep the event from those above it, which hear it with an element that is no longer there.
+    heard.length = 0;
+    const header = page.find("header");
+    page.document.addEventListener("click", event => heard.push(`on the page: ${event.target.isConnected}`));
+    page.id("go").addEventListener("click", () => { header.innerHTML = ""; });
+    page.id("go").press();
+    expect(heard).toEqual(["button", "header", "document: go", "on the page: false"]);
   });
 
   it("gives focus only to what can take it: a control or a tabindex, shown, enabled, on the page and not inert", () => {
