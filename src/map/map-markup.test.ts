@@ -5,7 +5,7 @@ import type { InspectLink, Inspection } from "./map-inspect.js";
 import {
   crumbsHtml, emptyHtml, esc, inspectorHtml, legendHtml, LIST_CAP, listHtml, moduleOptionsHtml, notesHtml, resultsHtml, sectionOptionsHtml, shellHtml, statsHtml, TIP_FORMULA, tooltipHtml, tracebarHtml,
 } from "./map-markup.js";
-import { HOSTILE } from "./map.test-support.js";
+import { HOSTILE } from "./map-fakes.test-support.js";
 
 /** Texts for one build of a piece of markup: the hostile ones in turn, or a harmless word in their place. */
 type Texts = (index: number) => string;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { formatCells, formatCount, lineWidth, plural, shorten, splitName, wrapLines } from "./map-text.js";
-import { HALF_EM } from "./map.test-support.js";
+import { HALF_EM } from "./map-fakes.test-support.js";
 
 describe("The map's names and numbers", () => {
   it("splits a module's name at the first dash between spaces, and leaves any other name whole", () => {

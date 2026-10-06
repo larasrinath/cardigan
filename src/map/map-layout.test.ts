@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { moduleGraph, modulesGraph, sectionsGraph, type ViewGraph, type ViewNode } from "./map-graphs.js";
 import { boundsOf, components, layoutGraph } from "./map-layout.js";
 import { indexModel } from "./map-model.js";
-import { GraphMaker } from "./map.test-support.js";
+import { GraphMaker } from "./map-fakes.test-support.js";
 
 /** A model of one section whose modules are linked as given: each pair is a module read and the module that reads it. */
 function modulesOf(count: number, pairs: readonly (readonly [number, number])[]): ViewGraph {

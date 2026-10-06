@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ModelGraph } from "./graph-types.js";
 import { indexModel, isAccess, UNGROUPED } from "./map-model.js";
-import { GraphMaker } from "./map.test-support.js";
+import { GraphMaker } from "./map-fakes.test-support.js";
 
 /** Two sections, three modules, one of them above the first heading. */
 function sample() {
