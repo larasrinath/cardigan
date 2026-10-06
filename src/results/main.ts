@@ -766,11 +766,27 @@ function rowFor(element: Element): { entry: Shown; row: Row } | undefined {
 /** A line for the run's log about a call into the map that threw: which call, and the error's own words. */
 const mapFailure = (call: string, error: unknown): string => `Model map: ${call} failed (${error instanceof Error ? `${error.name}: ${error.message}` : textOf(error)}).`;
 
+/** A line for the run's log about a map that was drawn and stopped by itself later: the reason the map gives, kept to
+ * the one line. A map that gives none has the line without it. */
+const mapStopped = (reason: unknown): string => {
+  const why = textOf(reason).replace(/\s+/g, " ").trim();
+  return `Model map: stopped after it was drawn${why === "" ? "" : ` (${why})`}.`;
+};
+
 /** What the page tells the map about the model: its name, which is the result's, and its workspace's, which the Details
- * file has under Model (model/export.ts). A dash there says that the export found none. */
+ * file has under Model (model/export.ts). A dash there says that the export found none.
+ * And what the map tells the page: a map that was drawn and can no longer be drawn stops by itself and says so in its
+ * own place (graph-types.ts `onFailure`). The page puts the reason into the run's log, once for a map however often the
+ * map tells it, and changes nothing else: the map stays where it is, with its own words. */
 function mapOptions(model: AnalysisResult): ModelMapOptions {
   const workspace = detailValue(detailsOf(model), "Model", "Workspace")?.trim() ?? "";
-  return { modelName: cellText(model.name), ...(workspace === "" || workspace === NONE ? {} : { workspaceName: workspace }) };
+  let told = false;
+  const onFailure = (reason: string): void => {
+    if (told) return;
+    told = true;
+    client.note(mapStopped(reason));
+  };
+  return { modelName: cellText(model.name), ...(workspace === "" || workspace === NONE ? {} : { workspaceName: workspace }), onFailure };
 }
 
 /** Tells the mounted map that it is hidden, that the theme has changed, or that it is to go. The map is another module's

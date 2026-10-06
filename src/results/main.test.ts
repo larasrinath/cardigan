@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ModelMapOptions } from "../map/graph-types.js";
 import { CALENDAR_HEADERS, CALENDAR_PROPERTIES, calendarRows } from "../model/calendar.js";
 import { FRESH_MS, PORT_NAME, RESULTS_PAGE, type TabMessage } from "../protocol.js";
 import type { AnalysisResult, Cell } from "../result-types.js";
@@ -3154,8 +3155,9 @@ describe("A model's map on the results page", () => {
     // That very graph is mounted, in the page's place for the map. The map finds the place shown and empty, and the
     // view's room given up, so that it has its size from the first moment; it is told to draw only after that.
     expect([mapMounts.length, mapMounts[0].graph === mapBuilds[0].graph, mapMounts[0].host === host(), mapMounts[0].found]).toEqual([1, true, true, [false, 0, "Model map"]]);
-    // The model's name is the result's, and its workspace's is the Details file's.
-    expect(mapMounts[0].options).toEqual({ modelName: "Model one", workspaceName: "Planning" });
+    // The model's name is the result's, and its workspace's is the Details file's. With them the map is given the way to
+    // tell the page that it has stopped.
+    expect(mapMounts[0].options).toEqual({ modelName: "Model one", workspaceName: "Planning", onFailure: expect.any(Function) });
     // What the map made is in its place, and nowhere else on the page.
     expect([host().children.length, host().contains(mapMounts[0].button), page.all("button").filter(button => button === mapMounts[0].button).length]).toEqual([1, true, 1]);
 
@@ -3166,7 +3168,7 @@ describe("A model's map on the results page", () => {
       sendResult(ports[0], result);
       toMap();
       const { options } = mapMounts[mapMounts.length - 1];
-      expect([options, "workspaceName" in (options as object)], what).toEqual([{ modelName: "Model one" }, false]);
+      expect([options, "workspaceName" in (options as object)], what).toEqual([{ modelName: "Model one", onFailure: expect.any(Function) }, false]);
     }
   });
 
@@ -3374,7 +3376,7 @@ describe("A model's map on the results page", () => {
       .toEqual([["destroy 2"], true, 0, ["Overview", "Overview", "Overview"], "Cardigan — Model two", true]);
     // The new result's map is its own: built from its tables when its entry is chosen.
     toMap();
-    expect([mapAsked.slice(8), mapBuilds[2].tables, mapMounts[2].options]).toEqual([["build", "mount 3", "show 3"], next.tables, { modelName: "Model two", workspaceName: "Planning" }]);
+    expect([mapAsked.slice(8), mapBuilds[2].tables, mapMounts[2].options]).toEqual([["build", "mount 3", "show 3"], next.tables, { modelName: "Model two", workspaceName: "Planning", onFailure: expect.any(Function) }]);
     // A run that starts while another view is shown ends the map too, and leaves that view where it is.
     goTo(1);
     page.id("runAgain").press();
@@ -3436,7 +3438,7 @@ describe("A model's map on the results page", () => {
     toMap();
     // Its map is built from the tables that came back, which are the result's, with the names the Details file gives.
     expect([mapAsked, mapBuilds[0].tables, mapMounts[0].options, mapMounts[0].host === host(), mapMounts[0].found, host().hidden])
-      .toEqual([["build", "mount 1", "show 1"], model.tables, { modelName: "Model one", workspaceName: "Planning" }, true, [false, 0, "Model map"], false]);
+      .toEqual([["build", "mount 1", "show 1"], model.tables, { modelName: "Model one", workspaceName: "Planning", onFailure: expect.any(Function) }, true, [false, 0, "Model map"], false]);
     // It is shown and hidden as any other, under the same line, and the tab has still been asked nothing.
     toOverview();
     toMap();
@@ -3555,6 +3557,62 @@ describe("A model's map on the results page", () => {
     sendResult(ports[0], { ...MODEL, name: "Model two" });
     expect([mapAsked.slice(11), page.document.title, shows()[0], host().hidden, host().childNodes.length, page.id("banners").children])
       .toEqual([["build", "mount 3", "show 3", "destroy 3"], "Cardigan — Model two", "Overview", true, 0, []]);
+  });
+
+  it("puts the reason into the run's log when a map that was drawn stops by itself: one line for a map, and the page changes nothing else", async () => {
+    // A result that could not be kept has a note above it, whose button copies the run's log: here the log can be read
+    // while the map stays as it is.
+    session.refuses = "SecurityError";
+    const noted = async () => {
+      vi.advanceTimersByTime(0);
+      await eventually(() => page.has("#noteBanner"), "the note");
+    };
+    /** The run's log as the note's button copies it, line by line. */
+    const log = async () => {
+      page.id("noteCopy").press();
+      await settle();
+      return copied[copied.length - 1].split("\n");
+    };
+    /** A mounted map tells the page that it has stopped, and why, as its contract has it (graph-types.ts `onFailure`). */
+    const stops = (map: number, reason: string) => (mapMounts[map].options as ModelMapOptions).onFailure?.(reason);
+    await openWith(MODEL);
+    await noted();
+    toMap();
+    const before = await log();
+    expect(before).toHaveLength(1);
+
+    // The map was drawn, and stops later, by itself. Its reason is one line of the run's log, after the lines the log
+    // had, with its time.
+    stops(0, "Cannot read properties of undefined (reading 'x')");
+    const after = await log();
+    expect([after.length, after[0]]).toEqual([2, before[0]]);
+    expect(after[1]).toMatch(/^\d\d:\d\d:\d\d Model map: stopped after it was drawn \(Cannot read properties of undefined \(reading 'x'\)\)\.$/);
+    // Nothing else changes. The map says in its own place that it has stopped: it is still mounted and shown there, the
+    // page asks nothing of it and says no sentence of its own, to the eye or to a screen reader, and the note above the
+    // result is as it was.
+    expect([mapAsked, host().hidden, host().children.length, notDrawn(), shows(), page.id("noteText").textContent, page.id("live").textContent])
+      .toEqual([["build", "mount 1", "show 1"], false, 1, [], ["Model map", "Model map", "Model map"], NOT_KEPT_NOTE, "Model map"]);
+    // Told again, the page writes nothing more: one line for a map.
+    stops(0, "And once more.");
+    expect(await log()).toEqual(after);
+    // A map that has stopped is hidden and shown as any other: what it shows is its own.
+    goTo(1);
+    toMap();
+    expect([mapAsked.slice(3), host().hidden, notDrawn()]).toEqual([["hide 1", "show 1"], false, []]);
+
+    // Each map has its line. A reason that runs over several lines is kept to the one, and a map that gives no reason
+    // has the line without one. The run that brought the new result began the log anew.
+    for (const [reason, line] of [["The canvas was lost.\n    at draw (map-view.js:1:1)", "Model map: stopped after it was drawn (The canvas was lost. at draw (map-view.js:1:1))."],
+      ["  ", "Model map: stopped after it was drawn."]]) {
+      page.id("runAgain").press();
+      sendResult(ports[0], MODEL);
+      await noted();
+      toMap();
+      stops(mapMounts.length - 1, reason);
+      const lines = (await log()).map(each => each.replace(/^\d\d:\d\d:\d\d /, ""));
+      expect([lines.length, lines[1]], reason).toEqual([2, line]);
+    }
+    expect(mapMounts).toHaveLength(3);
   });
 
   it("leaves a key alone while the focus is inside the map, and a click there too: the page's own shortcuts and marks are for the rest of the page", async () => {
