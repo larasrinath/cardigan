@@ -31,7 +31,8 @@ export interface MapEnvironment {
 }
 
 /** The browser as the map's surroundings. Where it lacks something (a page that is not a browser's), the map goes
- * without: it then keeps the size it was given first, draws in the colours it has by itself, and moves nothing. */
+ * without: it then keeps the size it was given first, draws in the colours it has by itself, and moves nothing. A
+ * canvas that cannot be drawn on is the one thing it cannot go without (see `mountModelMapIn`). */
 export function browserEnvironment(): MapEnvironment {
   return {
     pen: canvas => (typeof canvas.getContext === "function" ? canvas.getContext("2d") : null),
@@ -55,7 +56,9 @@ export function browserEnvironment(): MapEnvironment {
 
 /** Puts the model map into `host`, an empty element the page gives it, and returns the handle the page drives it with.
  * The map makes its own elements inside the host and nowhere else, is sized by the host, and starts hidden: nothing is
- * drawn until `show`. Its styles are in map.css. */
+ * drawn until `show`. Its styles are in map.css.
+ * It throws where the canvas gives no drawing context: a map that cannot draw is no map, and the page says so in its
+ * own words. The host is then left as it was. */
 export function mountModelMap(host: HTMLElement, graph: ModelGraph, options: ModelMapOptions): ModelMap {
   return mountModelMapIn(host, graph, options, browserEnvironment());
 }
@@ -107,7 +110,12 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   const tooltip = part(".map-tooltip");
   const live = part(".map-live");
 
-  const pen = env.pen(canvas);
+  const given = env.pen(canvas);
+  if (!given) {
+    root.remove();
+    throw new Error("the canvas gave no context");
+  }
+  const pen: Pen = given;
   const miniPen = env.pen(miniCanvas);
 
   /* ---------- what the map holds ---------- */
@@ -165,7 +173,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
 
   function draw(time: number): void {
     frame = undefined;
-    if (!shown || destroyed || !pen || !fonts || !onScreen || width <= 0 || height <= 0) return;
+    if (!shown || destroyed || !fonts || !onScreen || width <= 0 || height <= 0) return;
     let moving = false;
     if (heading) {
       const step = easeCamera(camera, heading, lastFrame ? time - lastFrame : 1000 / 60);
@@ -189,7 +197,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
 
   /** Something on the canvas changed: one picture is drawn before the next is shown. Nothing while the map is hidden. */
   function invalidate(): void {
-    if (!shown || destroyed || !pen || frame !== undefined) return;
+    if (!shown || destroyed || frame !== undefined) return;
     frame = env.requestFrame(draw);
   }
 
@@ -201,7 +209,6 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
 
   /** A value of the styles as a colour the canvas takes; nothing when it is no colour. The canvas itself says. */
   function colour(value: string): string | undefined {
-    if (!pen) return value;
     pen.fillStyle = NO_COLOUR;
     pen.fillStyle = value;
     const taken = pen.fillStyle;
@@ -213,7 +220,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     const before = palette;
     palette = readPalette(token => env.token(root, token), colour);
     // The words measured so far stay good while the fonts are the same: a theme changes colours.
-    if (pen && (!fonts || palette.sans !== before.sans || palette.mono !== before.mono)) fonts = createFonts(pen, palette);
+    if (!fonts || palette.sans !== before.sans || palette.mono !== before.mono) fonts = createFonts(pen, palette);
   }
 
   function sizeCanvases(): void {
@@ -266,7 +273,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   }
 
   function go(to: Camera, animate: boolean): void {
-    if (animate && shown && pen && motion()) heading = to;
+    if (animate && shown && motion()) heading = to;
     else {
       camera = to;
       heading = undefined;
@@ -678,15 +685,22 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   }
 
   root.addEventListener("click", event => {
+    if (!shown) return;
     const target = (event.target as Element | null)?.closest<HTMLElement>("[data-map-act]");
-    if (!target || !shown) return;
-    const focused = hasFocus();
-    const details = inspector.contains(target);
-    act(target);
-    // What was clicked may be gone with what it stood in: the focus then stays in the map.
-    if (focused && !hasFocus()) {
+    const details = target ? inspector.contains(target) : false;
+    if (target) act(target);
+    // The focus stays in the map, so that its keys go on working: what was clicked may be gone with what it stood in,
+    // and a click on a part that takes no focus (a panel's edge, the small picture) would leave it with the page.
+    if (!hasFocus()) {
       if (details) focusDetails(); else focusOn(canvas);
     }
+  });
+
+  // Focus that goes on from the search to something else closes the results, as a press elsewhere does.
+  root.addEventListener("focusout", event => {
+    const from = event.target as Element | null;
+    const to = (event as FocusEvent).relatedTarget as Element | null;
+    if (from?.closest(".map-searchwrap") && to && !to.closest(".map-searchwrap")) closeResults();
   });
 
   root.addEventListener("change", event => {
