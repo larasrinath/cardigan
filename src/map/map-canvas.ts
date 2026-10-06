@@ -53,10 +53,14 @@ const WORDS_KEPT = 60000;
 const DASH_UP = [7, 5];
 const DASH_DOWN = [2, 4];
 const DASH_SPEED = 24;
-/** Up to this many links each is drawn in full strength, which stands 3 to 1 against the canvas. Beyond it they are
- * thinned, down to a fifth: thousands of links at full strength are one dark mass that hides the boxes' order. */
-const LINKS_IN_FULL = 300;
+/** How strongly a link is drawn, by how many links the picture has. A dozen are each in full strength, which stands 3
+ * to 1 against the canvas. The more there are, the lighter each one, falling as the root of their number and never
+ * below a fifth: at full strength a few dozen links between a dozen boxes already fill the gutters with dark bands. */
+const FULL_UP_TO = 12;
 const THINNEST = 0.2;
+export const linkStrength = (links: number): number => Math.min(1, Math.max(THINNEST, Math.sqrt(FULL_UP_TO / Math.max(1, links))));
+/** A trace's links are in full strength up to this many, and thinned beyond. Those of the box selected always are. */
+const TRACE_IN_FULL = 300;
 
 /** The zoom from which every box of a graph holds at least a line of letters: a view fitted smaller than that would be
  * boxes nobody can read. */
@@ -168,11 +172,13 @@ function drawGrid(pen: Pen, scene: Scene): void {
 function drawEdges(pen: Pen, scene: Scene): boolean {
   const { graph, camera, width, height, shown, trace, matches, palette } = scene;
   const { k, ox, oy } = camera;
-  const thin = (count: number, from: number): number => (count <= from ? 1 : Math.max(THINNEST, from / count));
-  const idle = thin(graph.edges.length, LINKS_IN_FULL);
+  // The links the picture has: those between two boxes that are shown, wherever the camera is.
+  let drawn = 0;
+  for (const edge of graph.edges) if (shown[edge.s] && shown[edge.t]) drawn++;
+  const idle = linkStrength(drawn);
   let marked = 0;
   if (trace) for (let index = 0; index < trace.edges.length; index++) if (trace.edges[index]) marked++;
-  const strong = thin(marked, LINKS_IN_FULL);
+  const strong = marked <= TRACE_IN_FULL ? 1 : Math.max(THINNEST, TRACE_IN_FULL / marked);
   const head = Math.max(6.5, Math.min(10, 9 * k));
   let traced = false;
   for (let index = 0; index < graph.edges.length; index++) {
@@ -189,7 +195,9 @@ function drawEdges(pen: Pen, scene: Scene): boolean {
     const reach = 70 * k;
     if ((fromRight < -reach && toRight < -reach) || (fromLeft > width + reach && toLeft > width + reach) || (y1 < -reach && y2 < -reach) || (y1 > height + reach && y2 > height + reach)) continue;
     const way = trace ? trace.edges[index] : 0;
-    let alpha = trace ? (way ? strong : 0.12) : idle;
+    // The links of the box selected are in full strength, however many the trace has.
+    const own = trace !== undefined && (edge.s === trace.selected || edge.t === trace.selected);
+    let alpha = trace ? (way ? (own ? 1 : strong) : 0.12) : idle;
     if (matches && !matches[edge.s] && !matches[edge.t]) alpha *= 0.25;
     const colour = way === 1 ? palette.traceUp : way === 2 ? palette.traceDown : palette.edge;
     pen.globalAlpha = alpha;
@@ -270,7 +278,8 @@ function drawText(pen: Pen, scene: Scene, fonts: Fonts, node: ViewNode, x: numbe
     node.lines.forEach((line, index) => pen.fillText(line, left, top + step * index + step * 0.74));
     return;
   }
-  if (height < LEAST_HEIGHT) return;
+  // A box at the very zoom that leaves it the least height holds its line: a hair under it is the arithmetic's.
+  if (height < LEAST_HEIGHT - 1e-6) return;
   const padLeft = Math.max(6, (item ? ITEM.padLeft : CARD.padLeft) * k);
   const room = width - padLeft - Math.max(4, 8 * k);
   const lines = Math.floor((height - 3) / (SMALL_TYPE + 2));
