@@ -246,12 +246,14 @@ async function openWith(result: AnalysisResult): Promise<void> {
   expect(page.document.title).toBe(`Cardigan — ${result.name}`);
 }
 
-/** Chooses an entry of the page's navigation by its words, as a user does. */
-const choose = (words: string): void => {
-  const entry = page.all("#navList .nav-item").find(item => item.children[0].textContent === words);
-  if (!entry) throw new Error(`The navigation has no entry ${words}`);
-  entry.press();
+/** An entry of the page's navigation, by its words. */
+const entry = (words: string): FakeElement => {
+  const found = page.all("#navList .nav-item").find(item => item.children[0].textContent === words);
+  if (!found) throw new Error(`The navigation has no entry ${words}`);
+  return found;
 };
+/** Chooses an entry of the page's navigation, as a user does. */
+const choose = (words: string): void => entry(words).press();
 /** Chooses "Model map", and lets the browser lay the map out and draw it. */
 const toMap = (): void => {
   choose("Model map");
@@ -428,6 +430,19 @@ describe("A model's result on the results page, with the map's real graph and th
     expect(page.document.activeElement).toBe(part(".map-canvas"));
     // Its entry chosen again while it is shown takes nothing from it, and gives it the focus back from the entry.
     choose("Model map");
+    expect([host().children[0] === root, left(), page.document.activeElement === part(".map-canvas")]).toEqual([true, was, true]);
+
+    // Another view chosen while the focus is still inside the map, as a click that a script makes leaves it: here on the
+    // heading of the details. The browser goes on naming that heading as the one with the focus after the map is hidden,
+    // until it next draws the page. The view has the focus all the same, at once and when the page is drawn.
+    part(".map-insp-name").press();
+    const heading = page.document.activeElement;
+    expect([heading === part(".map-insp-name"), heading.textContent]).toEqual([true, "Margin %"]);
+    entry("Line Items").dispatch("click");
+    expect([host().hidden, heading.isConnected, page.texts("#view h1"), page.document.activeElement === page.id("view")]).toEqual([true, true, ["Line Items"], true]);
+    page.frame();
+    expect(page.document.activeElement).toBe(page.id("view"));
+    toMap();
     expect([host().children[0] === root, left(), page.document.activeElement === part(".map-canvas")]).toEqual([true, was, true]);
 
     // Run again: the map of the result on the page goes as the run starts, and the overview stands in its place.

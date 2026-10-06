@@ -162,7 +162,8 @@ let select = rememberingSelect();
 /** A model's map (src/map), for the result on the page. Its graph is built and it is mounted the first time its entry is
  * chosen, not before: that takes a moment for a large model, and many a result is never looked at as a map. From then on
  * the page shows and hides it as the navigation goes, and it keeps what was done in it. "failed" once it could not be
- * drawn for this result: the view says so, and the page does not try again until the map is dropped (`dropMap`). */
+ * drawn for this result, or was drawn and then stopped by itself: the view says so, and the page does not try again
+ * until the map is dropped (`dropMap`). */
 let modelMap: ModelMap | "failed" | undefined;
 /** True while a run is going, so that a run that starts is told from one that goes on. */
 let running = false;
@@ -766,30 +767,69 @@ function rowFor(element: Element): { entry: Shown; row: Row } | undefined {
 /** A line for the run's log about a call into the map that threw: which call, and the error's own words. */
 const mapFailure = (call: string, error: unknown): string => `Model map: ${call} failed (${error instanceof Error ? `${error.name}: ${error.message}` : textOf(error)}).`;
 
+/** A line for the run's log about a map that was drawn and stopped by itself later: the reason the map gives, kept to
+ * the one line. A map that gives none has the line without it. */
+const mapStopped = (reason: unknown): string => {
+  const why = textOf(reason).replace(/\s+/g, " ").trim();
+  return `Model map: stopped after it was drawn${why === "" ? "" : ` (${why})`}.`;
+};
+
 /** What the page tells the map about the model: its name, which is the result's, and its workspace's, which the Details
- * file has under Model (model/export.ts). A dash there says that the export found none. */
-function mapOptions(model: AnalysisResult): ModelMapOptions {
+ * file has under Model (model/export.ts). A dash there says that the export found none. With them goes the way for the
+ * map to tell the page that it has stopped (graph-types.ts `onFailure`). */
+function mapOptions(model: AnalysisResult, onFailure: (reason: string) => void): ModelMapOptions {
   const workspace = detailValue(detailsOf(model), "Model", "Workspace")?.trim() ?? "";
-  return { modelName: cellText(model.name), ...(workspace === "" || workspace === NONE ? {} : { workspaceName: workspace }) };
+  return { modelName: cellText(model.name), ...(workspace === "" || workspace === NONE ? {} : { workspaceName: workspace }), onFailure };
 }
 
-/** Tells the mounted map that it is hidden, that the theme has changed, or that it is to go. The map is another module's
- * work: a call that throws is noted in the run's log and passed over, so that the page works on. */
-function tellMap(call: "hide" | "themeChanged" | "destroy"): void {
-  if (!modelMap || modelMap === "failed") return;
-  try { modelMap[call](); } catch (error) { client.note(mapFailure(call, error)); }
+/** Tells a map that it is hidden, that the theme has changed, or that it is to go: the mounted one, unless another is
+ * given. The map is another module's work: a call that throws is noted in the run's log and passed over, so that the
+ * page works on. */
+function tellMap(call: "hide" | "themeChanged" | "destroy", map = modelMap): void {
+  if (!map || map === "failed") return;
+  try { map[call](); } catch (error) { client.note(mapFailure(call, error)); }
 }
 
 /** Takes the map of the result on the page away. A new result, a run that starts and a result that is forgotten each end
  * it: its entry builds it afresh when it is next chosen. The host is left as the page had it at first, hidden and empty,
- * whatever the map left in it. A page whose shell lacks the host is passed over, as in `clearResult`. */
+ * whatever the map left in it. A page whose shell lacks the host is passed over, as in `clearResult`.
+ * The map is no longer the page's from before it is told to go: what it tells the page while it goes is not heard. */
 function dropMap(): void {
-  tellMap("destroy");
+  const map = modelMap;
   modelMap = undefined;
+  tellMap("destroy", map);
   const host = document.getElementById("mapHost" satisfies PageId);
   if (!host) return;
   host.hidden = true;
   host.innerHTML = "";
+}
+
+/** The map of the result on the page could not be drawn, or was drawn and has stopped by itself. What there is of it
+ * is taken away, and the page remembers the failure for this result: the map's entry says so in one sentence (markup.ts
+ * `MAP_FAILED`) and tries nothing again until the map is dropped. */
+function failMap(): void {
+  dropMap();
+  modelMap = "failed";
+}
+
+/** A map that was drawn tells the page that it has stopped, and why. The reason goes into the run's log, and the map is
+ * taken for one that could not be drawn: every failure of the map has the one look, with the button that copies the log
+ * beside it. Where the map is the view on screen, the view says so at once. Under another view nothing is seen to
+ * change: the map's entry says so when it is next chosen.
+ * The map is taken away while it is still telling, so its own words for its stop are not seen, and a click or a key that
+ * ended it comes to the page afterwards with the map gone. */
+function mapStoppedByItself(reason: string): void {
+  client.note(mapStopped(reason));
+  // Where the focus is, asked before the map is taken away. Inside the map it goes with the map: the view takes it
+  // then. So it does where the focus is on nothing, as it is when the map had it and has written its own place anew.
+  // On anything else of the page it stays.
+  const focused = document.activeElement;
+  const elsewhere = focused !== null && focused !== document.body && !el("mapHost").contains(focused);
+  failMap();
+  if (state.view !== "map") return;
+  el("view").innerHTML = mapHtml(true);
+  announce(MAP_FAILED);
+  if (!elsewhere) el("view").focus({ preventScroll: true });
 }
 
 /** Leaves the map, for another view or to be shown anew (`navTo`): the map is told that it is hidden, and its host gives
@@ -806,7 +846,8 @@ function leaveMap(): void {
  * gives up its room first and the host is shown, so that the map finds the size it has to fill, both when it is put into
  * the host and when it draws.
  * A call that throws leaves no map: the view says so in one sentence (markup.ts `MAP_FAILED`), the reason goes to the
- * run's log, which the view's button copies, and the rest of the page works on. */
+ * run's log, which the view's button copies, and the rest of the page works on. A map that stops by itself later ends
+ * the same way (`mapStoppedByItself`). */
 function enterMap(model: AnalysisResult): void {
   const host = el("mapHost");
   el("view").innerHTML = mapHtml(modelMap === "failed");
@@ -817,14 +858,18 @@ function enterMap(model: AnalysisResult): void {
       if (!modelMap) {
         const graph = buildModelGraph(model.tables);
         call = "mountModelMap";
-        modelMap = mountModelMap(host, graph, mapOptions(model));
+        // Only the map the page holds is heard when it tells of its stop. One that is still being mounted is not: it
+        // fails by throwing. Nor is one that the page has taken away, or has heard once already.
+        const held: { map?: ModelMap } = {};
+        held.map = modelMap = mountModelMap(host, graph, mapOptions(model, reason => {
+          if (held.map !== undefined && modelMap === held.map) mapStoppedByItself(reason);
+        }));
       }
       call = "show";
       modelMap.show();
     } catch (error) {
       client.note(mapFailure(call, error));
-      dropMap();
-      modelMap = "failed";
+      failMap();
       el("view").innerHTML = mapHtml(true);
     }
   }
@@ -857,15 +902,21 @@ function navTo(view: View, context?: string): void {
   // coming back to it: choosing the entry took the focus out of the map, to the entry, and the map's keys with it, and
   // a map that is shown anew takes the focus as it did when it was first shown. A map that still has the focus is left
   // as it is.
-  if (!el("mapHost").contains(document.activeElement)) leaveMap();
+  // Whether the focus is in the map is asked here, while the map is as the user left it. A browser goes on naming an
+  // element as the one with the focus after the element was hidden, until it next draws the page: asked once the view
+  // is drawn, a focus that was in a map now hidden would still seem to be in it.
+  const host = el("mapHost");
+  if (!host.contains(document.activeElement)) leaveMap();
   state.view = view;
   state.search = "";
   state.context = context;
   renderAll();
   // The navigation of a narrow window closes on a choice, before the view takes the focus: until then the view is behind it.
   closeNav(false);
-  // A map that took the focus as it was shown keeps it: its keys are its own from the first one.
-  if (!el("mapHost").contains(document.activeElement)) el("view").focus({ preventScroll: true });
+  // The view takes the focus, unless a map that is shown has it: one that took it as it was shown, whose keys are its
+  // own from the first one, or one that kept it through a choice of its own entry. A map that is hidden has no focus to
+  // keep, whatever element the browser still names: so only a map that is shown is asked.
+  if (host.hidden || !host.contains(document.activeElement)) el("view").focus({ preventScroll: true });
   window.scrollTo({ top: 0 });
 }
 /** The cards of one page: the Cards table, kept to that page. The drawer closes first when the jump starts in it: the page
@@ -883,7 +934,9 @@ document.addEventListener("click", event => {
   if (!(event.target instanceof Element)) return;
   const target = event.target;
   // What is clicked inside the map is the map's own: the page reads nothing there, whatever an element is marked with.
-  if (el("mapHost").contains(target)) return;
+  // Nor does it read what is no longer on the page when the click gets here: a click that ended the map still comes up
+  // to the page, with the map taken away.
+  if (!target.isConnected || el("mapHost").contains(target)) return;
   const popover = el("popover");
   const anchorish = target.closest("[data-colfilter], #colBtn");
   if (!popover.hidden && !popover.contains(target) && !anchorish) closePopover();
