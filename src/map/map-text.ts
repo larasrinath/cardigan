@@ -2,10 +2,18 @@
  * room a node gives it. Widths are in em, multiples of the font size, so that one measurement of a word serves every
  * zoom: the canvas (map-canvas.ts) supplies the measurements. */
 
-/** A module's name as its code and the rest, where it is written "CODE - Name"; otherwise the whole name is the label. */
+/** A first word that is a code by its look: capitals and digits with at least one of each, as in SYS01, C3 or REV01.2. */
+const CODE = /^[A-Z][A-Z0-9]*[0-9][A-Z0-9]*(?:[._][A-Z0-9]+)?$/;
+
+/** A module's name as its code and the rest. A code is one word at the start: the word before a dash ("REV01 - Revenue"),
+ * or a word of capitals and digits before a space ("SYS01 Time Settings"). Any other name is the label whole.
+ * Both patterns start at the name's start with a word of a few characters, so that neither has a choice of where a run
+ * of spaces begins: a name of a hundred thousand spaces is read in the time it takes to pass over it once. */
 export function splitName(name: string): { code: string; label: string } {
-  const match = /^(.+?)\s+-\s+(.+)$/.exec(name);
-  return match ? { code: match[1], label: match[2] } : { code: "", label: name };
+  const dashed = /^(\S{1,12})\s+[-\u2013\u2014]\s+(\S.*)$/.exec(name);
+  if (dashed) return { code: dashed[1], label: dashed[2] };
+  const spaced = /^(\S{2,12})\s+(\S.*)$/.exec(name);
+  return spaced && CODE.test(spaced[1]) ? { code: spaced[1], label: spaced[2] } : { code: "", label: name };
 }
 
 /** A count with its thousands apart: 12,345. */
@@ -68,7 +76,9 @@ export function wrapLines(text: string, width: number, maxLines: number, measure
   const lines: string[] = [];
   let line = "";
   let used = 0;
-  for (const word of words(text)) {
+  for (const [word] of text.matchAll(/\S+/g)) {
+    // The last line is full and more: whatever follows is cut with it, and need not be read.
+    if (lines.length === limit - 1 && used > width) break;
     const wide = measure.word(word);
     if (line !== "" && lines.length < limit - 1 && used + measure.space + wide > width) {
       lines.push(line);
