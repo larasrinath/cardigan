@@ -73,6 +73,8 @@ export interface PenCall {
   globalAlpha: number;
   font: string;
   dash: number[];
+  /** Where the dashes start: what moves them along a line. */
+  dashOffset: number;
   lineWidth: number;
 }
 
@@ -99,7 +101,7 @@ export class FakePen {
   set strokeStyle(value: string) { if (isColour(value)) this.strokeColour = value; }
 
   private note(name: string, args: unknown[]): void {
-    this.calls.push({ name, args, fillStyle: this.fillColour, strokeStyle: this.strokeColour, globalAlpha: this.globalAlpha, font: this.font, dash: [...this.dash], lineWidth: this.lineWidth });
+    this.calls.push({ name, args, fillStyle: this.fillColour, strokeStyle: this.strokeColour, globalAlpha: this.globalAlpha, font: this.font, dash: [...this.dash], dashOffset: this.lineDashOffset, lineWidth: this.lineWidth });
   }
   setTransform(...args: number[]): void { this.note("setTransform", args); }
   clearRect(...args: number[]): void { this.note("clearRect", args); }
