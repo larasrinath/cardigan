@@ -153,12 +153,16 @@ let mapAsked: string[];
 /** The tables each graph was built from, with the graph given for them. */
 let mapBuilds: { tables: unknown; graph: object }[];
 /** Each map that was mounted: what the page handed over, what the map found in its host and in the view at that moment,
- * and the button the map put into its host, which can take the focus. */
-let mapMounts: { host: FakeElement; graph: unknown; options: unknown; found: unknown[]; button: FakeElement }[];
+ * the button the map put into its host, which can take the focus, and the map's way of telling the page that it has
+ * stopped by itself, and why, as its contract has it (graph-types.ts `onFailure`). */
+let mapMounts: { host: FakeElement; graph: unknown; options: unknown; found: unknown[]; button: FakeElement; stops(reason: string): void }[];
 /** What the stand-in throws when it is asked for one of these, in the place of doing it: nothing unless a test sets it. */
 let mapThrows: Partial<Record<"build" | "mount" | "show" | "hide" | "themeChanged" | "destroy", unknown>>;
 /** Whether the stand-in takes the focus into itself, to its button, each time it is shown. */
 let mapTakesFocus: boolean;
+/** What the stand-in tells the page of its stop while it is asked for one of these, or while it hears a click or a key
+ * inside it: the reason it gives. Nothing unless a test sets it. */
+let mapTells: Partial<Record<"mount" | "show" | "hide" | "themeChanged" | "destroy" | "click" | "keydown", string>>;
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -168,6 +172,7 @@ beforeEach(() => {
   mapMounts = [];
   mapThrows = {};
   mapTakesFocus = false;
+  mapTells = {};
   const asked = (what: keyof typeof mapThrows, said: string) => {
     mapAsked.push(said);
     if (what in mapThrows) throw mapThrows[what];
@@ -187,17 +192,27 @@ beforeEach(() => {
     const button = page.document.createElement("button");
     root.append(button);
     host.append(root);
-    asked("mount", `mount ${number}`);
-    mapMounts.push({ host, graph, options, found, button });
+    const stops = (reason: string): void => (options as ModelMapOptions).onFailure?.(reason);
+    const tells = (when: keyof typeof mapTells): void => {
+      const reason = mapTells[when];
+      if (reason !== undefined) stops(reason);
+    };
+    // What the map hears inside it, as its own listeners hear it before the page does.
+    for (const type of ["click", "keydown"] as const) root.addEventListener(type, () => tells(type));
+    mapAsked.push(`mount ${number}`);
+    tells("mount");
+    if ("mount" in mapThrows) throw mapThrows.mount;
+    mapMounts.push({ host, graph, options, found, button, stops });
     return {
       // A map that is told to draw while its host is not shown has no size to draw at.
       show: () => {
         asked("show", `show ${number}${host.hidden ? " in a hidden host" : ""}`);
         if (mapTakesFocus) button.focus();
+        tells("show");
       },
-      hide: () => asked("hide", `hide ${number}`),
-      themeChanged: () => asked("themeChanged", `themeChanged ${number} ${page.document.documentElement.dataset.theme}`),
-      destroy: () => { asked("destroy", `destroy ${number}`); root.remove(); },
+      hide: () => { asked("hide", `hide ${number}`); tells("hide"); },
+      themeChanged: () => { asked("themeChanged", `themeChanged ${number} ${page.document.documentElement.dataset.theme}`); tells("themeChanged"); },
+      destroy: () => { asked("destroy", `destroy ${number}`); root.remove(); tells("destroy"); },
     };
   };
   ports = [];
@@ -3559,60 +3574,216 @@ describe("A model's map on the results page", () => {
       .toEqual([["build", "mount 3", "show 3", "destroy 3"], "Cardigan — Model two", "Overview", true, 0, []]);
   });
 
-  it("puts the reason into the run's log when a map that was drawn stops by itself: one line for a map, and the page changes nothing else", async () => {
-    // A result that could not be kept has a note above it, whose button copies the run's log: here the log can be read
-    // while the map stays as it is.
-    session.refuses = "SecurityError";
-    const noted = async () => {
-      vi.advanceTimersByTime(0);
-      await eventually(() => page.has("#noteBanner"), "the note");
-    };
-    /** The run's log as the note's button copies it, line by line. */
-    const log = async () => {
-      page.id("noteCopy").press();
-      await settle();
-      return copied[copied.length - 1].split("\n");
-    };
-    /** A mounted map tells the page that it has stopped, and why, as its contract has it (graph-types.ts `onFailure`). */
-    const stops = (map: number, reason: string) => (mapMounts[map].options as ModelMapOptions).onFailure?.(reason);
-    await openWith(MODEL);
-    await noted();
+  it("takes a map that stops by itself for one that could not be drawn: its reason is in the run's log, the view says so beside the button that copies the log, and it is not tried again", async () => {
+    mapTakesFocus = true;
+    await open(clicked(42));
+    ports[0].send({ type: "subject", subject: { kind: "model", id: MODEL.id } });
+    ports[0].send({ type: "log", text: "09:30:00 Line Items: 120 rows" });
+    sendResult(ports[0], MODEL);
     toMap();
-    const before = await log();
-    expect(before).toHaveLength(1);
+    const button = mapMounts[0].button;
+    expect([mapAsked, host().hidden, notDrawn(), page.document.activeElement === button]).toEqual([["build", "mount 1", "show 1"], false, [], true]);
 
-    // The map was drawn, and stops later, by itself. Its reason is one line of the run's log, after the lines the log
-    // had, with its time.
-    stops(0, "Cannot read properties of undefined (reading 'x')");
-    const after = await log();
-    expect([after.length, after[0]]).toEqual([2, before[0]]);
-    expect(after[1]).toMatch(/^\d\d:\d\d:\d\d Model map: stopped after it was drawn \(Cannot read properties of undefined \(reading 'x'\)\)\.$/);
-    // Nothing else changes. The map says in its own place that it has stopped: it is still mounted and shown there, the
-    // page asks nothing of it and says no sentence of its own, to the eye or to a screen reader, and the note above the
-    // result is as it was.
-    expect([mapAsked, host().hidden, host().children.length, notDrawn(), shows(), page.id("noteText").textContent, page.id("live").textContent])
-      .toEqual([["build", "mount 1", "show 1"], false, 1, [], ["Model map", "Model map", "Model map"], NOT_KEPT_NOTE, "Model map"]);
-    // Told again, the page writes nothing more: one line for a map.
-    stops(0, "And once more.");
-    expect(await log()).toEqual(after);
-    // A map that has stopped is hidden and shown as any other: what it shows is its own.
+    // The map was drawn. Later it stops by itself, and tells the page why (graph-types.ts `onFailure`). The page takes it
+    // away as it does a map that could not be drawn: the map is told to go, and its place is hidden and empty. The view
+    // says so under its heading, in the page's one sentence, and the page says it to a screen reader. The navigation
+    // and the breadcrumb are the map's still.
+    mapMounts[0].stops("Cannot read properties of undefined (reading 'x')");
+    expect([mapAsked.slice(3), host().hidden, host().childNodes.length, button.isConnected, shows(), notDrawn(), page.id("live").textContent])
+      .toEqual([["destroy 1"], true, 0, false, ["Model map", "Model map", "Model map"], [MAP_FAILED], MAP_FAILED]);
+    // The focus was inside the map, which is gone: the view has it, at once and when the page is drawn.
+    expect(page.document.activeElement).toBe(page.id("view"));
+    page.frame();
+    expect(page.document.activeElement).toBe(page.id("view"));
+    // Why is not on the page. It is one line of the run's log, after the run's own, with its time, and the button the
+    // sentence names copies the log with it.
+    expect(page.find("body").textContent).not.toContain("Cannot read");
+    const copy = page.find('#view [data-act="copy-run-log"]');
+    expect([copy.localName, copy.textContent.trim(), copy.focusable]).toEqual(["button", "Copy diagnostic log", true]);
+    copy.press();
+    await settle();
+    expect([copied.length, copied[0].split("\n")[0], page.id("toast").textContent]).toEqual([1, "09:30:00 Line Items: 120 rows", "Copied the diagnostic log"]);
+    expect(copied[0].split("\n")[1]).toMatch(/^\d\d:\d\d:\d\d Model map: stopped after it was drawn \(Cannot read properties of undefined \(reading 'x'\)\)\.$/);
+    expect(copied[0].split("\n")).toHaveLength(2);
+
+    // The rest of the page works on: the files are there to download, the same bytes as ever, and the tables open.
+    expect(disabled("runAgain", "dlAll", "dlCsv")).toEqual([false, false, true]);
+    page.id("dlAll").press();
+    expect([page.downloads[0].name, await bytes(saved[0])]).toEqual([MODEL.zipName, resultZip(MODEL, NOW)]);
     goTo(1);
+    expect([shows()[0], firstCells().length, page.has("#view .banner")]).toEqual(["Line Items", 50, false]);
+    page.id("dlCsv").press();
+    expect(`\ufeff${await saved[1].text()}`).toBe(tableCsv(MODEL.tables[1]));
+    // The failure is remembered for this result, as one of building the graph is: the entry, chosen again, says the same
+    // without another try. A map that was taken away is not heard any more, whatever it tells: the log has its one line.
+    mapMounts[0].stops("And once more.");
     toMap();
-    expect([mapAsked.slice(3), host().hidden, notDrawn()]).toEqual([["hide 1", "show 1"], false, []]);
+    expect([notDrawn(), mapAsked, host().hidden, page.id("live").textContent]).toEqual([[MAP_FAILED], ["build", "mount 1", "show 1", "destroy 1"], true, MAP_FAILED]);
+    page.find('#view [data-act="copy-run-log"]').press();
+    await settle();
+    expect(copied[1]).toBe(copied[0]);
 
-    // Each map has its line. A reason that runs over several lines is kept to the one, and a map that gives no reason
-    // has the line without one. The run that brought the new result began the log anew.
+    // A new result is tried anew, and its map is drawn. Each map has its own line: a reason that runs over several
+    // lines is kept to the one, and a map that gives no reason has the line without one. The run that brought the new
+    // result began the log anew.
     for (const [reason, line] of [["The canvas was lost.\n    at draw (map-view.js:1:1)", "Model map: stopped after it was drawn (The canvas was lost. at draw (map-view.js:1:1))."],
       ["  ", "Model map: stopped after it was drawn."]]) {
       page.id("runAgain").press();
       sendResult(ports[0], MODEL);
-      await noted();
       toMap();
-      stops(mapMounts.length - 1, reason);
-      const lines = (await log()).map(each => each.replace(/^\d\d:\d\d:\d\d /, ""));
-      expect([lines.length, lines[1]], reason).toEqual([2, line]);
+      expect([mapAsked.slice(-3).map(asked => asked.replace(/ \d+$/, "")), notDrawn(), host().hidden, page.id("live").textContent], reason).toEqual([["build", "mount", "show"], [], false, "Model map"]);
+      mapMounts[mapMounts.length - 1].stops(reason);
+      page.find('#view [data-act="copy-run-log"]').press();
+      await settle();
+      expect(copied[copied.length - 1].split("\n").map(each => each.replace(/^\d\d:\d\d:\d\d /, "")), reason).toEqual([line]);
     }
     expect(mapMounts).toHaveLength(3);
+  });
+
+  it("says that the map could not be drawn when its entry is next chosen, where the map stops under another view; and leaves the focus where it is on something else of the page", async () => {
+    await openWith(MODEL);
+    toMap();
+    goTo(1);
+    page.id("tblSearch").type("item 1");
+    const table = () => [shows(), firstCells(), page.id("rowCount").textContent, page.id("live").textContent, page.id("tblSearch").value];
+    const before = table();
+    // The map stops while a table is on screen. It is taken away at once, and nothing that is seen changes: the table
+    // is as it was, the page says nothing, and the focus stays in the search box.
+    mapMounts[0].stops("The canvas was lost.");
+    expect([mapAsked.slice(3), host().hidden, host().childNodes.length]).toEqual([["hide 1", "destroy 1"], true, 0]);
+    expect([table(), page.document.activeElement.id, page.has("#view .banner"), page.id("banners").children.length]).toEqual([before, "tblSearch", false, 0]);
+    // The sentence is what the user finds at the map's entry, with the log to copy, which holds the reason. Nothing is
+    // built or mounted again.
+    toMap();
+    expect([notDrawn(), mapAsked.length, host().hidden, page.id("live").textContent, page.document.activeElement === page.id("view")]).toEqual([[MAP_FAILED], 5, true, MAP_FAILED, true]);
+    page.find('#view [data-act="copy-run-log"]').press();
+    await settle();
+    expect(copied[0]).toMatch(/^\d\d:\d\d:\d\d Model map: stopped after it was drawn \(The canvas was lost\.\)\.$/);
+
+    // With the map on screen, the focus on something else of the page stays there: here on the theme's button.
+    page.id("runAgain").press();
+    sendResult(ports[0], MODEL);
+    toMap();
+    page.id("themeToggle").focus();
+    mapMounts[1].stops("Lost again.");
+    expect([notDrawn(), host().hidden, page.document.activeElement.id]).toEqual([[MAP_FAILED], true, "themeToggle"]);
+    // The focus on nothing goes to the view, as the focus inside the map does. It is on nothing when the map had it and
+    // has written its own place anew before it tells the page.
+    mapTakesFocus = true;
+    page.id("runAgain").press();
+    sendResult(ports[0], MODEL);
+    toMap();
+    mapMounts[2].button.remove();
+    expect(page.document.activeElement).toBe(page.document.body);
+    mapMounts[2].stops("And again.");
+    expect([notDrawn(), host().hidden, page.document.activeElement === page.id("view")]).toEqual([[MAP_FAILED], true, true]);
+  });
+
+  it("takes the map away in the same way when the map tells of its stop while the page tells it something, or from a click or a key inside it", async () => {
+    await openWith(MODEL);
+    toMap();
+    // While it is told of the theme: the page has its new theme, the map is told to go, and the view says so. The focus
+    // stays on the theme's button.
+    mapTells = { themeChanged: "No colours." };
+    page.id("themeToggle").press();
+    expect([page.document.documentElement.dataset.theme, mapAsked, notDrawn(), host().hidden, host().childNodes.length, page.document.activeElement.id])
+      .toEqual(["dark", ["build", "mount 1", "show 1", "themeChanged 1 dark", "destroy 1"], [MAP_FAILED], true, 0, "themeToggle"]);
+
+    // While it is hidden for another view: that view is drawn as it was chosen, with the focus, and says nothing of the
+    // map. The map is told to go once, and its entry says afterwards that it could not be drawn.
+    mapTells = {};
+    page.id("runAgain").press();
+    sendResult(ports[0], MODEL);
+    toMap();
+    mapTells = { hide: "Still drawing." };
+    goTo(1);
+    expect([mapAsked.slice(5), shows()[0], firstCells().length, host().hidden, page.has("#view .banner"), page.document.activeElement === page.id("view")])
+      .toEqual([["build", "mount 2", "show 2", "hide 2", "destroy 2"], "Line Items", 50, true, false, true]);
+    toMap();
+    expect([notDrawn(), mapAsked.length, page.id("live").textContent]).toEqual([[MAP_FAILED], 10, MAP_FAILED]);
+
+    // While it is shown again on coming back to it: the view says so, and has the focus.
+    mapTells = {};
+    page.id("runAgain").press();
+    sendResult(ports[0], MODEL);
+    toMap();
+    goTo(1);
+    mapTells = { show: "Nothing to draw on." };
+    toMap();
+    expect([mapAsked.slice(10), notDrawn(), host().hidden, host().childNodes.length, page.id("live").textContent, page.document.activeElement === page.id("view")])
+      .toEqual([["build", "mount 3", "show 3", "hide 3", "show 3", "destroy 3"], [MAP_FAILED], true, 0, MAP_FAILED, true]);
+
+    // From a click inside it, as when the map's own listener fails: the click still comes up to the page, with the map
+    // gone. The page reads nothing of it, whatever the element that was clicked is marked with: no view is opened and
+    // nothing is copied.
+    mapTells = {};
+    mapTakesFocus = true;
+    page.id("runAgain").press();
+    sendResult(ports[0], MODEL);
+    toMap();
+    const button = mapMounts[3].button;
+    button.setAttribute("data-nav", "1");
+    button.setAttribute("data-copy", "a text the page would copy");
+    mapTells = { click: "The click failed." };
+    button.press();
+    await settle();
+    expect([mapAsked.slice(16), shows()[0], notDrawn(), host().hidden, copied, page.id("toast").textContent, page.document.activeElement === page.id("view")])
+      .toEqual([["build", "mount 4", "show 4", "destroy 4"], "Model map", [MAP_FAILED], true, [], "", true]);
+
+    // From a key inside it: the key comes up to the page with the focus on the view by then, and does nothing there.
+    mapTells = {};
+    page.id("runAgain").press();
+    sendResult(ports[0], MODEL);
+    toMap();
+    mapTells = { keydown: "The key failed." };
+    expect([page.document.activeElement === mapMounts[4].button, page.key("/").defaultPrevented]).toEqual([true, false]);
+    expect([mapAsked.slice(20), shows()[0], notDrawn(), host().hidden, page.document.activeElement === page.id("view")]).toEqual([["build", "mount 5", "show 5", "destroy 5"], "Model map", [MAP_FAILED], true, true]);
+    // Each of the five has its line in the log of its run: here the last one's.
+    page.find('#view [data-act="copy-run-log"]').press();
+    await settle();
+    expect(copied[0].split("\n").map(each => each.replace(/^\d\d:\d\d:\d\d /, ""))).toEqual(["Model map: stopped after it was drawn (The key failed.)."]);
+  });
+
+  it("does not hear a map that is not the page's: one that is still being mounted, one that is told to go, and one of an earlier result", async () => {
+    /** The run's log, by the button of the view that says the map could not be drawn, without the times. */
+    const log = async () => {
+      page.find('#view [data-act="copy-run-log"]').press();
+      await settle();
+      return copied[copied.length - 1].split("\n").map(each => each.replace(/^\d\d:\d\d:\d\d /, ""));
+    };
+    // A map that tells of a stop while it is being mounted is not heard: one that cannot be mounted throws, and the
+    // page says of that what it says of any call that throws.
+    mapTells = { mount: "Not yet." };
+    mapThrows.mount = new Error("No canvas.");
+    await openWith(MODEL);
+    toMap();
+    expect([mapAsked, notDrawn(), host().hidden, host().childNodes.length]).toEqual([["build", "mount 1"], [MAP_FAILED], true, 0]);
+    expect(await log()).toEqual(["Model map: mountModelMap failed (Error: No canvas.)."]);
+    // One that tells so and is mounted all the same is the map from then on, drawn as any other. (The stand-in numbers
+    // the maps that were mounted: the one that threw is not among them.)
+    delete mapThrows.mount;
+    page.id("runAgain").press();
+    sendResult(ports[0], MODEL);
+    toMap();
+    expect([mapAsked.slice(2), mapMounts.length, notDrawn(), host().hidden, host().children.length, page.id("live").textContent]).toEqual([["build", "mount 1", "show 1"], 1, [], false, 1, "Model map"]);
+
+    // A map that is told to go is no longer the page's: what it tells while it goes is not heard, and it is told to go
+    // once. Here a run starts: the result it brings has its own map, tried anew.
+    mapTells = { destroy: "Too late." };
+    page.id("runAgain").press();
+    expect([mapAsked.slice(5), host().hidden, host().childNodes.length, shows()[0]]).toEqual([["destroy 1"], true, 0, "Overview"]);
+    mapTells = {};
+    sendResult(ports[0], MODEL);
+    toMap();
+    expect([mapAsked.slice(6), notDrawn(), host().hidden]).toEqual([["build", "mount 2", "show 2"], [], false]);
+    // Nor is the map of the earlier result heard, when it tells of itself after its result has gone: the map on the
+    // page stays as it is.
+    mapMounts[0].stops("From an earlier result.");
+    expect([mapAsked.length, notDrawn(), host().hidden, host().children.length, shows()[0]]).toEqual([9, [], false, 1, "Model map"]);
+    // The log of this run has none of those lines: only that of its own map, once that stops.
+    mapMounts[1].stops("This one.");
+    expect([mapAsked.slice(9), notDrawn()]).toEqual([["destroy 2"], [MAP_FAILED]]);
+    expect(await log()).toEqual(["Model map: stopped after it was drawn (This one.)."]);
   });
 
   it("leaves a key alone while the focus is inside the map, and a click there too: the page's own shortcuts and marks are for the rest of the page", async () => {
