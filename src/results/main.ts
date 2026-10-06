@@ -12,7 +12,7 @@ import { CSV_FALLBACK, downloadName, ZIP_FALLBACK } from "./file-name.js";
 import { analysedLine, notKeptNote } from "./keep-notes.js";
 import { ResultKeeper } from "./keep-result.js";
 import {
-  cardDrawerHtml, cardDrawerSubHtml, colChooserHtml, colFilterHtml, crumbsHtml, headerMetaHtml, keptCopyHtml, MAP_FAILED, MAP_LABEL, mapHtml, MOON_ICON, navHtml,
+  cardDrawerHtml, cardDrawerSubHtml, colChooserHtml, colFilterHtml, crumbsHtml, headerMetaHtml, keptCopyHtml, MAP_FAILED, MAP_LABEL, MAP_NO_FILE, mapHtml, MOON_ICON, navHtml,
   noteBannerHtml, NOT_REMOVED_LINE, objectDrawerHtml, objectDrawerSubHtml, overviewHtml, rowDrawerHtml, rowDrawerSubHtml, runBannerHtml, runHtml, SUN_ICON, tableHtml, tableParts,
   type KeptCopy, type Links, type NavEntry, type TableView,
 } from "./markup.js";
@@ -215,7 +215,12 @@ function updateActions(): void {
   const table = currentTable();
   const csv = el<HTMLButtonElement>("dlCsv");
   csv.disabled = !table;
-  csv.title = table ? `Download ${downloadName(table.file, ".csv", CSV_FALLBACK)}` : "";
+  // The map is no table, so there is none to save while it is the view. The control says why it is off where it says
+  // what it saves otherwise: in its title, and in the same words as its description for a screen reader.
+  const why = result && state.view === "map" ? MAP_NO_FILE : "";
+  csv.title = table ? `Download ${downloadName(table.file, ".csv", CSV_FALLBACK)}` : why;
+  if (why) csv.setAttribute("aria-description", why);
+  else csv.removeAttribute("aria-description");
 }
 
 /* ================= views ================= */
@@ -787,7 +792,8 @@ function dropMap(): void {
   host.innerHTML = "";
 }
 
-/** Leaves the map for another view: the map is told that it is hidden, and its host gives the room back. */
+/** Leaves the map, for another view or to be shown anew (`navTo`): the map is told that it is hidden, and its host gives
+ * the room back. */
 function leaveMap(): void {
   const host = el("mapHost");
   if (host.hidden) return;
@@ -846,6 +852,12 @@ function navTo(view: View, context?: string): void {
   // so it is shown from its first page when the user comes back to it.
   const left = currentEntry();
   if (left && (state.search.trim() !== "" || state.context !== undefined)) left.page = 0;
+  // A choice made with the focus outside the map leaves the map before the view is drawn. For another view that is
+  // all there is to it. For the map's own entry, chosen again while the map is shown, it has the map shown anew, as on
+  // coming back to it: choosing the entry took the focus out of the map, to the entry, and the map's keys with it, and
+  // a map that is shown anew takes the focus as it did when it was first shown. A map that still has the focus is left
+  // as it is.
+  if (!el("mapHost").contains(document.activeElement)) leaveMap();
   state.view = view;
   state.search = "";
   state.context = context;
