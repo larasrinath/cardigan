@@ -467,7 +467,8 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   function renderStatus(): void {
     if (!onScreen) return;
     countedFor = camera;
-    inView = width > 0 && height > 0 ? countInView(onScreen.nodes, isShown, heading ?? camera, width, height) : shownCount;
+    // In view is what stands in the graph's own room: a box under the bar or the details is not.
+    inView = width > 0 && height > 0 ? countInView(onScreen.nodes, isShown, heading ?? camera, areaOf(free) ?? { left: 0, top: 0, right: width, bottom: height }) : shownCount;
     const said = statusWords(onScreen, shownCount, inView);
     if (stats.textContent !== said) stats.textContent = said;
     wholeButton.hidden = inView >= shownCount;
