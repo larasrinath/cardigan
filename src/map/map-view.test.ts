@@ -2258,8 +2258,7 @@ describe("The room the map's picture has", () => {
     map.show();
     env.resize(1200, 800);
     env.settle();
-    if (part(".map-legend").hidden) act("legend").press();
-    env.settle();
+    // Sixty sections are shown whole with the legend open, as the map opens.
     expect([part(".map-legend").hidden, status(), act("whole").hidden]).toEqual([false, "60 sections · 0 links", true]);
     act("zoom-in").press();
     act("zoom-in").press();
