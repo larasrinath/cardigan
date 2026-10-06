@@ -326,6 +326,8 @@ describe("The model map's graph, from the tables of a model export", () => {
       "list Seasons -> subset Seasonal (subset)"]));
     expect(unresolved(graph)).toEqual(["Brands: Referenced in Applies To: Depots", "Brands: Referenced in Applies To: Seasonal", "Brands: Referenced in Applies To: Brands.Code",
       "Brands: Referenced as Format: Sales plan", "Brands: Referenced as Format: Depots", "Brands: Referenced in Formula: Sales plan", "Brands: Referenced in Formula: Seasonal"]);
+    // The list's column names Volume, and that is the link. Volume's own Format says it is a number: it is formatted as no list.
+    expect([node(graph, "Volume").format, node(graph, "Volume").formatList]).toEqual(["NUMBER", undefined]);
   });
 
   it("takes a row of Line Items that names no module for a heading or a module, and a row that names one for its line item", () => {
@@ -1017,6 +1019,17 @@ describe("The model map's graph, from the tables of a model export", () => {
     // A file with neither is said to lack the column by the shorter name.
     expect(buildModelGraph([file("General Lists", ["", "Item Count", "Notes", "Display Name Property"], [["Products", "5", "", ""]])]).limitations.slice(6, 7))
       .toEqual(["General Lists has no Top Level and Numbered columns: lists come without them."]);
+  });
+
+  it("reads the first table of a file's name, the first column of a header, and names a node's file as the table is labelled", () => {
+    const graph = buildModelGraph([
+      { ...generalLists(list("Products"), list("Regions")), label: "Lists" },
+      generalLists(list("Channels")),
+      // Two columns under one header: the first is the column.
+      file("Line Items", ["", "Module Name", "Applies To", "Applies To"], [["REV01 Revenue", "", "Products", "Regions"], ["Units", "REV01 Revenue", "-", "Regions"]])]);
+    expect(graph.nodes.map(each => `${each.kind} ${each.name} in ${each.file}`)).toEqual(["list Products in Lists", "list Regions in Lists", "module REV01 Revenue in Line Items",
+      "lineItem Units in Line Items"]);
+    expect(links(graph)).toEqual(anyOrder(["Products -> REV01 Revenue (applies)", "Products -> REV01 Revenue.Units (applies)"]));
   });
 
   it("makes nothing of a table without rows, and says nothing of the columns it lacks", () => {
