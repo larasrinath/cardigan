@@ -64,26 +64,26 @@ Open the model in Model Building; the classic model page opened on its own works
 
 #### Model map
 
-**Model map**, the last entry in a model's navigation, draws the model: its sections, modules and line items, and what feeds what. It is made from the tables above and from nothing else, so it reads nothing more from Anaplan.
+**Model map**, the last entry in a model's navigation, draws the model: its sections, modules and line items, and what feeds what. It is made from the tables above and nothing else, so it reads nothing more from Anaplan.
 
-![The model map with every module of a model as a box: one module is selected, the modules that feed it are outlined in blue, the modules it feeds in red, and its details stand in a panel on the right](docs/images/map-modules.png)
+![The model map on the modules of one section: one module is selected, the modules that feed it stand at its left marked in blue, the modules it feeds at its right marked in red, and its details are in a panel on the right](docs/images/map-modules.png)
 
-- The map opens on the model's sections. A section is the modules under one heading: a module whose name starts with `--`, such as `-- Inputs --`. Modules under no heading form the section **Ungrouped**.
-- Double-click a section to see its modules, and a module to see its line items. **Show all modules** shows every module at once. `Esc` goes back a step.
-- A line runs from what is read to what is worked out from it.
-- Click a box to trace it: the map marks everything that feeds it and everything it feeds, and fades the rest.
-- The panel on the right gives the details of the box you clicked. For a line item they include its formula, what it depends on and what uses it.
-- The map's search finds sections, modules and line items by name. Click an entry in the legend to hide its boxes, and again to show them. **Access drivers** adds the links from read and write access drivers.
-- Drag to move, scroll to zoom, and press `F` to bring the whole picture back into view. The map follows the page's theme.
+- The map opens on the model's sections. A section is the modules under one heading: a module whose name starts with `--`, such as `-- Inputs --`. Without headings it opens on the modules.
+- Double-click a section to open its modules, and a module to open its line items. **Show all modules** shows every module. `Esc` goes back a step.
+- An arrow from A to B means B reads A.
+- Click a box to see everything that feeds it and everything it feeds, directly or through others. The rest fades; **Only these** hides it.
+- The panel on the right gives the box's details: for a line item its formula, format and summary in words, what feeds it and what it feeds directly, and its row in the CSV file.
+- The search finds sections, modules and line items by name. In the **Legend**, click an entry to hide or show its boxes. **Access drivers** adds a link from each access driver to what it controls.
+- Drag to move, scroll to zoom, press `F` for the whole map. **About this map** lists the keys. The map follows the page's theme.
 
 <table>
   <tr>
     <td width="50%" valign="top">
-      <a href="docs/images/map-sections.png"><img src="docs/images/map-sections.png" width="400" alt="The model map as it opens: the eight sections of a model as boxes, with lines between the sections that feed one another and the list of sections on the left"></a><br>
+      <a href="docs/images/map-sections.png"><img src="docs/images/map-sections.png" width="400" alt="The model map as it opens: the eight sections of a model as boxes, with arrows between the sections that feed one another and the legend of the sections at the lower left"></a><br>
       The map opens on the model's sections.
     </td>
     <td width="50%" valign="top">
-      <a href="docs/images/map-line-items.png"><img src="docs/images/map-line-items.png" width="400" alt="The model map in the dark theme: one module's line items between the modules they read and the modules they feed, with one line item selected and its formula in the panel on the right"></a><br>
+      <a href="docs/images/map-line-items.png"><img src="docs/images/map-line-items.png" width="400" alt="The model map in the dark theme: one module's line items beside the modules they read and the modules they feed, with one line item selected and its formula at the top of the panel on the right"></a><br>
       One module's line items, in the dark theme.
     </td>
   </tr>
@@ -134,6 +134,7 @@ Closing the results page stops the reading.
 - **Not connected**: refresh the Anaplan tab, then click the icon again. A tab that was open before Cardigan was installed, updated or reloaded needs this once.
 - **Nothing to analyse**: the tab shows an Anaplan page that is neither an app nor a model. Open one there, let it load, then choose **Run again**.
 - When a reading stops, the page says what happened and what to do. **Copy diagnostic log** copies the log, to send with a report. It holds request paths, statuses and counts, and no cookies, tokens or cell values.
+- If the model map cannot be drawn, the page says so in the map's place. The tables and the downloads are not affected, and **Copy diagnostic log** beside the message copies the reason.
 
 ## Privacy and permissions
 
@@ -157,9 +158,9 @@ Closing the results page stops the reading.
 - A Model settings grid of more than 250,000 rows is not exported; the Overview says which.
 - The model map takes each link from a column of the export that names another object, such as **Referenced By**. It shows formulas as text and does not work them out.
 - The map draws sections, modules, line items and the lists that formulas name. Processes and actions are not drawn; a module's details name the imports that load into it.
-- **What this map leaves out**, at the top left of the map, says what the map does not show and what it could not place for this model, such as a line item named twice in one module.
-- A view with many boxes opens zoomed out, and a box shows its name only when it is large enough. Zoom in, or point at the box.
-- The map's view is not kept: a refresh, **Run again** or **Forget this result** starts it again from the sections.
+- **About this map**, at the foot of the map, says what the map leaves out and could not place for this model, such as a line item named twice in one module.
+- A large view is shown whole with names cut short: point at a box to read its name. One too large even for that opens on its start, and **Whole map** shows all of it.
+- The map's view is not kept: a refresh, **Run again** or **Forget this result** starts it afresh.
 - A result over 64 MB as JSON, or 9 MB compressed, is not kept for a refresh; the page says so.
 - Anaplan can change the internal services Cardigan reads without notice: see [NOTICE.md](NOTICE.md).
 
