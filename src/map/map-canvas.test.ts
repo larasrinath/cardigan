@@ -99,6 +99,28 @@ describe("The map's picture", () => {
     expect(widths[0]).toBeGreaterThan(widths[1]);
   });
 
+  it("draws each link fainter where there are many hundreds of them, so that they do not make one dark patch", () => {
+    const linked = (count: number): ViewGraph => {
+      const make = new GraphMaker();
+      const items = Array.from({ length: count }, (_, index) => make.item(make.module(`M${index}`, "01: Main"), "Value"));
+      for (let from = 0; from < count; from++) for (let to = from + 1; to < count; to++) make.link(items[from], items[to]);
+      const graph = modulesGraph(indexModel(make.graph()), undefined, false);
+      layoutGraph(graph);
+      return graph;
+    };
+    const strength = (graph: ViewGraph): number => draw(sceneOf(graph, { width: 100000, height: 100000 })).pen.named("stroke").find(call => call.strokeStyle === FALLBACK.edge)!.globalAlpha;
+    // 45 links, 780 links, and 4,950 links: full strength, less, and never less than about a third.
+    expect(strength(linked(10))).toBeCloseTo(0.3, 5);
+    expect(strength(linked(40))).toBeCloseTo(0.3 * 600 / 780, 5);
+    expect(strength(linked(100))).toBeCloseTo(0.3 * 0.35, 5);
+    // A trace of many links is thinned the same way, from 250 on.
+    const many = linked(40);
+    const trace = traceNode(many, indexModel(new GraphMaker().graph()), 0, false);
+    const traced = draw(sceneOf(many, { trace, width: 100000, height: 100000 })).pen.named("stroke").filter(call => call.strokeStyle === FALLBACK.traceDown && call.lineWidth !== 1.4);
+    expect(traced).toHaveLength(780);
+    expect(traced[0].globalAlpha).toBeCloseTo(0.85 * 0.35, 5);
+  });
+
   it("leaves out a node that is not shown, and every link to it", () => {
     const { graph } = sample();
     const shown = new Uint8Array(graph.nodes.length).fill(1);
@@ -108,6 +130,13 @@ describe("The map's picture", () => {
     expect(pen.texts()).not.toContain("Second Module");
     // Of the three links only the one between the two nodes that are both shown is drawn.
     expect(pen.named("bezierCurveTo")).toHaveLength(1);
+  });
+
+  it("draws the nodes in the order it is given, so that a node brought forward lies over the others", () => {
+    const { graph } = sample();
+    const forward = draw(sceneOf(graph, { order: [1, 2, 3, 0] })).pen;
+    expect(forward.named("roundRect").map(call => call.args.slice(0, 2))).toEqual([1, 2, 3, 0].map(place => [graph.nodes[place].x, graph.nodes[place].y]));
+    expect(forward.texts().slice(-3)).toEqual(["OUT", "Outside", "1 line item"]);
   });
 
   it("draws nothing of a node or a link that is off the canvas", () => {

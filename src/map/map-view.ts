@@ -132,6 +132,8 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   let onlyTrace = false;
   const hiddenLayers = new Set<string>();
   let shownNodes = new Uint8Array(0);
+  /** The order the nodes are drawn in, once a node was dragged: it is drawn last, so that it lies over the others. */
+  let order: number[] | undefined;
   let typed = "";
   let matches: Uint8Array | undefined;
   let hits: SearchHit[] = [];
@@ -171,7 +173,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
       if (step.done) heading = undefined; else moving = true;
     }
     const moves = motion();
-    const scene = { graph: onScreen, camera, width, height, palette, shown: shownNodes, trace, matches, time: moves ? time : undefined };
+    const scene = { graph: onScreen, camera, width, height, palette, shown: shownNodes, trace, matches, order, time: moves ? time : undefined };
     pen.setTransform(ratio, 0, 0, ratio, 0, 0);
     const traced = drawScene(pen, scene, fonts);
     if (miniPen) {
@@ -208,8 +210,10 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   }
 
   function readTheme(): void {
+    const before = palette;
     palette = readPalette(token => env.token(root, token), colour);
-    fonts = pen ? createFonts(pen, palette) : undefined;
+    // The words measured so far stay good while the fonts are the same: a theme changes colours.
+    if (pen && (!fonts || palette.sans !== before.sans || palette.mono !== before.mono)) fonts = createFonts(pen, palette);
   }
 
   function sizeCanvases(): void {
@@ -455,6 +459,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     onScreen = view === "drill" && moduleId !== undefined ? moduleGraph(model, moduleId, expanded, access)
       : grouped && section === undefined ? sectionsGraph(model, access) : modulesGraph(model, section, access);
     layoutGraph(onScreen);
+    order = undefined;
     selected = selected && onScreen.byId.get(selected.id);
     trace = selected ? traceNode(onScreen, model, selected.index, access) : undefined;
     if (!selected) onlyTrace = false;
@@ -784,7 +789,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   canvas.addEventListener("pointerdown", event => {
     if (event.button !== 0 || !onScreen) return;
     const [x, y] = place(event);
-    const node = hitNode(onScreen.nodes, isShown, camera, x, y);
+    const node = hitNode(onScreen.nodes, isShown, camera, x, y, order);
     heading = undefined;
     drag = { pointer: event.pointerId, node, x, y, ox: camera.ox, oy: camera.oy, nodeX: node?.x ?? 0, nodeY: node?.y ?? 0, moved: false };
     // The canvas keeps the pointer while it is down, so that a drag goes on outside it. A pointer the browser does not
@@ -803,13 +808,20 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
       if (Math.hypot(dx, dy) > 4) drag.moved = true;
       if (!drag.moved) return;
       if (drag.node) {
+        // The node dragged lies over the others from now on: where it is let go, it is not under another.
+        const index = drag.node.index;
+        order ??= onScreen.nodes.map(node => node.index);
+        if (order[order.length - 1] !== index) {
+          order.splice(order.indexOf(index), 1);
+          order.push(index);
+        }
         drag.node.x = drag.nodeX + dx / camera.k;
         drag.node.y = drag.nodeY + dy / camera.k;
       } else camera = { ox: drag.ox + dx, oy: drag.oy + dy, k: camera.k };
       invalidate();
       return;
     }
-    const node = hitNode(onScreen.nodes, isShown, camera, x, y);
+    const node = hitNode(onScreen.nodes, isShown, camera, x, y, order);
     canvas.classList.toggle("map-over-node", node !== undefined);
     if (node) showTip(node, x, y); else hideTip();
   });

@@ -113,6 +113,13 @@ describe("What is under a point of the map", () => {
     expect(hitNode(nodes, all, camera, 0, 0)).toBeUndefined();
   });
 
+  it("goes by the order the nodes are drawn in, where a node was brought over the others", () => {
+    // Drawn in the order 1, 2, 0: the first node now lies over the third where they overlap.
+    expect(hitNode(nodes, all, camera, 10 + 2 * 60, 10 + 2 * 30, [1, 2, 0])?.index).toBe(0);
+    expect(hitNode(nodes, all, camera, 10 + 2 * 60, 10 + 2 * 30, [0, 1, 2])?.index).toBe(2);
+    expect(hitNode(nodes, index => index !== 0, camera, 10 + 2 * 60, 10 + 2 * 30, [1, 2, 0])?.index).toBe(2);
+  });
+
   it("takes a node's edges as part of it, and passes over a node that is not shown", () => {
     expect(hitNode(nodes, all, camera, 10, 10)?.index).toBe(0);
     expect(hitNode(nodes, all, camera, 10 + 2 * 100, 10 + 2 * 40)?.index).toBe(2);
