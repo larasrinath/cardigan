@@ -1,5 +1,8 @@
+import { buildModelGraph } from "../map/build-graph.js";
+import type { ModelMap, ModelMapOptions } from "../map/graph-types.js";
+import { mountModelMap } from "../map/map-view.js";
 import { PORT_NAME } from "../protocol.js";
-import { plainResult } from "../result-plain.js";
+import { plainResult, textOf } from "../result-plain.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
 import { resultZip, tableCsv } from "../result-zip.js";
 import { VERSION } from "../version.js";
@@ -9,20 +12,20 @@ import { CSV_FALLBACK, downloadName, ZIP_FALLBACK } from "./file-name.js";
 import { analysedLine, notKeptNote } from "./keep-notes.js";
 import { ResultKeeper } from "./keep-result.js";
 import {
-  cardDrawerHtml, cardDrawerSubHtml, colChooserHtml, colFilterHtml, crumbsHtml, headerMetaHtml, keptCopyHtml, MOON_ICON, navHtml,
+  cardDrawerHtml, cardDrawerSubHtml, colChooserHtml, colFilterHtml, crumbsHtml, headerMetaHtml, keptCopyHtml, MAP_FAILED, MAP_LABEL, mapHtml, MOON_ICON, navHtml,
   noteBannerHtml, NOT_REMOVED_LINE, objectDrawerHtml, objectDrawerSubHtml, overviewHtml, rowDrawerHtml, rowDrawerSubHtml, runBannerHtml, runHtml, SUN_ICON, tableHtml, tableParts,
   type KeptCopy, type Links, type NavEntry, type TableView,
 } from "./markup.js";
 import type { PageId } from "./page-ids.js";
-import { analysedOf, cardParts, detailsOf, diagnosticLog, fileView, listedTables, overviewOf, type FileView } from "./result-view.js";
+import { analysedOf, cardParts, detailsOf, detailValue, diagnosticLog, fileView, listedTables, overviewOf, type FileView } from "./result-view.js";
 import { cellText, NONE, pageOf, rememberingSelect, rowName, valueCounts, type Row, type Sort, type TableQuery } from "./table-engine.js";
 import { objectOf, WHERE_USED_FILE, whereUsedView, type WhereUsedObject, type WhereUsedView } from "./where-used-view.js";
 
 /** The results page (results.html): the design's script, on the real result. It connects to the Anaplan tab the address
  * names and says what that tab shows. The analysis starts by itself when the icon has just opened the page, and otherwise
  * with the run control. The page shows its progress and then the result: an overview, which also holds what the Details
- * file says, one table per file, and the downloads. The markup is built in markup.ts and the data work is done in the modules beside it; this file
- * only holds what the user chose and puts the pieces on the page. */
+ * file says, one table per file, for a model its map, and the downloads. The markup is built in markup.ts and the data work is done in the modules beside it; this file
+ * only holds what the user chose and puts the pieces on the page. The map is src/map's: the page gives it a place and tells it when it is shown. */
 
 const el = <T extends HTMLElement = HTMLElement>(id: PageId): T => document.getElementById(id) as T;
 const find = <T extends HTMLElement = HTMLElement>(selector: string): T | null => document.querySelector<T>(selector);
@@ -117,7 +120,8 @@ interface Shown {
    * each row whose card the result has. The card's number is a link in those rows. */
   cardIds?: ReadonlyMap<Row, string>;
 }
-type View = "overview" | number;
+/** What the page shows of the result: its overview, a model's map, or one of its files, named by its place in the result. */
+type View = "overview" | "map" | number;
 
 let result: AnalysisResult | undefined;
 /** When the result was complete: its zip carries this time, so downloading it twice gives the same bytes. A result that
@@ -155,6 +159,13 @@ let drawerObject: { view: WhereUsedView; object: WhereUsedObject; all: boolean }
  * is open, through other tables and through a new result. */
 let everyUse = false;
 let select = rememberingSelect();
+/** A model's map (src/map), for the result on the page. Its graph is built and it is mounted the first time its entry is
+ * chosen, not before: that takes a moment for a large model, and many a result is never looked at as a map. From then on
+ * the page shows and hides it as the navigation goes, and it keeps what was done in it. "failed" once it could not be
+ * drawn for this result: the view says so, and the page does not try again until the map is dropped (`dropMap`). */
+let modelMap: ModelMap | "failed" | undefined;
+/** True while a run is going, so that a run that starts is told from one that goes on. */
+let running = false;
 
 const defaultHidden = (columns: readonly Column[]): Set<number> => new Set(columns.filter(column => column.hidden).map(column => column.index));
 const currentEntry = (): Shown | undefined => (typeof state.view === "number" ? shown.get(state.view) : undefined);
@@ -173,6 +184,8 @@ function applyTheme(theme: "dark" | "light"): void {
   document.documentElement.dataset.theme = theme;
   el("themeToggle").innerHTML = theme === "dark" ? SUN_ICON : MOON_ICON;
   el("themeToggle").title = theme === "dark" ? "Switch to light theme" : "Switch to dark theme";
+  // A mounted map draws with the page's colours: it reads them again, whether it is shown now or not.
+  tellMap("themeChanged");
 }
 function toggleTheme(): void {
   const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
@@ -210,6 +223,8 @@ function navEntries(): NavEntry[] {
   return [
     { id: "overview", label: "Overview" },
     ...[...shown.values()].map(entry => ({ id: String(entry.index), label: cellText(entry.table.label), count: entry.listed })),
+    // A model's map, after its files. An app has none.
+    ...(result?.kind === "model" ? [{ id: "map", label: MAP_LABEL }] : []),
   ];
 }
 
@@ -282,10 +297,15 @@ function updateTable(entry: Shown): void {
 function renderAll(): void {
   if (!result) return;
   const entry = currentEntry();
-  if (!entry) state.view = "overview";
-  el("navList").innerHTML = navHtml(navEntries(), String(state.view), result.kind === "model");
-  el("crumbs").innerHTML = crumbsHtml(entry ? cellText(entry.table.label) : undefined, entry ? state.context : undefined);
+  // The map is a model's. Any other view that is no file of the result is the overview.
+  const onMap = state.view === "map" && result.kind === "model";
+  if (!entry && !onMap) state.view = "overview";
+  el("navList").innerHTML = navHtml(navEntries(), String(state.view));
+  el("crumbs").innerHTML = crumbsHtml(entry ? cellText(entry.table.label) : onMap ? MAP_LABEL : undefined, entry ? state.context : undefined);
+  // The map gives its room back before another view is drawn, which measures the room it has.
+  if (!onMap) leaveMap();
   if (entry) renderTable(entry);
+  else if (onMap) enterMap(result);
   else el("view").innerHTML = overviewHtml(overviewOf(result), keptCopy);
   // The line above a result that was brought back says "today" by the clock: each view says it anew, so that it is still
   // true on a page left open past midnight.
@@ -328,14 +348,16 @@ function showNotRemoved(): void {
 }
 
 /** A result arrived, complete: the page becomes the design's results page for it. Only now does it take the place of an
- * earlier result, of which nothing is kept: not the rows on the page, the drawer's row, the last selection, or the banner
- * of the run that has just ended. `back` is for a result the page kept before it was refreshed and has now brought back:
+ * earlier result, of which nothing is kept: not the rows on the page, the drawer's row, the last selection, its map, or the
+ * banner of the run that has just ended. `back` is for a result the page kept before it was refreshed and has now brought back:
  * it is shown like any other, under a line that says when it was analysed. */
 function showResult(next: AnalysisResult, at: Date, back = false): void {
   // Focus that is inside what the new result replaces moves to the new view; anywhere else, in the header, it stays.
-  const replaced = [el("view"), el("drawer"), el("popover")].some(part => part.contains(document.activeElement));
+  const replaced = [el("view"), el("mapHost"), el("drawer"), el("popover")].some(part => part.contains(document.activeElement));
   closePopover();
   closeDrawer();
+  // The earlier result's map goes with it: the new result's is built when its entry is chosen.
+  dropMap();
   currentSlice = [];
   drawerRow = undefined;
   drawerObject = undefined;
@@ -410,6 +432,7 @@ const TITLE = document.title;
 /** Takes the page back to having no result, after `showResult` began to put one on it and could not: what it set, and
  * what it drew. Whatever made that fail may be in the way here too, so a part of the page that is not there is passed over. */
 function clearResult(): void {
+  dropMap();
   result = undefined;
   details = undefined;
   cards = undefined;
@@ -734,6 +757,88 @@ function rowFor(element: Element): { entry: Shown; row: Row } | undefined {
   return row ? { entry, row } : undefined;
 }
 
+/* ================= model map ================= */
+/** A line for the run's log about a call into the map that threw: which call, and the error's own words. */
+const mapFailure = (call: string, error: unknown): string => `Model map: ${call} failed (${error instanceof Error ? `${error.name}: ${error.message}` : textOf(error)}).`;
+
+/** What the page tells the map about the model: its name, which is the result's, and its workspace's, which the Details
+ * file has under Model (model/export.ts). A dash there says that the export found none. */
+function mapOptions(model: AnalysisResult): ModelMapOptions {
+  const workspace = detailValue(detailsOf(model), "Model", "Workspace")?.trim() ?? "";
+  return { modelName: cellText(model.name), ...(workspace === "" || workspace === NONE ? {} : { workspaceName: workspace }) };
+}
+
+/** Tells the mounted map that it is hidden, that the theme has changed, or that it is to go. The map is another module's
+ * work: a call that throws is noted in the run's log and passed over, so that the page works on. */
+function tellMap(call: "hide" | "themeChanged" | "destroy"): void {
+  if (!modelMap || modelMap === "failed") return;
+  try { modelMap[call](); } catch (error) { client.note(mapFailure(call, error)); }
+}
+
+/** Takes the map of the result on the page away. A new result, a run that starts and a result that is forgotten each end
+ * it: its entry builds it afresh when it is next chosen. The host is left as the page had it at first, hidden and empty,
+ * whatever the map left in it. A page whose shell lacks the host is passed over, as in `clearResult`. */
+function dropMap(): void {
+  tellMap("destroy");
+  modelMap = undefined;
+  const host = document.getElementById("mapHost" satisfies PageId);
+  if (!host) return;
+  host.hidden = true;
+  host.innerHTML = "";
+}
+
+/** Leaves the map for another view: the map is told that it is hidden, and its host gives the room back. */
+function leaveMap(): void {
+  const host = el("mapHost");
+  if (host.hidden) return;
+  tellMap("hide");
+  host.hidden = true;
+}
+
+/** Shows a model's map in the view's place. The first time for a result, the graph is built from the result's tables
+ * and the map is mounted: now, and not before. Coming back to a mounted map shows it again as it was left. The view
+ * gives up its room first and the host is shown, so that the map finds the size it has to fill, both when it is put into
+ * the host and when it draws.
+ * A call that throws leaves no map: the view says so in one sentence (markup.ts `MAP_FAILED`), the reason goes to the
+ * run's log, which the view's button copies, and the rest of the page works on. */
+function enterMap(model: AnalysisResult): void {
+  const host = el("mapHost");
+  el("view").innerHTML = mapHtml(modelMap === "failed");
+  if (modelMap !== "failed" && host.hidden) {
+    host.hidden = false;
+    let call = "buildModelGraph";
+    try {
+      if (!modelMap) {
+        const graph = buildModelGraph(model.tables);
+        call = "mountModelMap";
+        modelMap = mountModelMap(host, graph, mapOptions(model));
+      }
+      call = "show";
+      modelMap.show();
+    } catch (error) {
+      client.note(mapFailure(call, error));
+      dropMap();
+      modelMap = "failed";
+      el("view").innerHTML = mapHtml(true);
+    }
+  }
+  // The navigation has less height while the map is shown, and the map's entry is its last: it stays in sight.
+  find('#navList [aria-current="page"]')?.scrollIntoView({ block: "nearest" });
+  announce(modelMap === "failed" ? MAP_FAILED : MAP_LABEL);
+}
+
+/** A run has started: the map of the result on the page ends with it, as it will with the result the run brings. Where
+ * the map was the view shown, the overview takes its place under the run's banner, and focus that was inside the map
+ * goes to it. The map's entry stays: it builds the map afresh from the result that is still on the page. */
+function endMapForRun(): void {
+  const inside = el("mapHost").contains(document.activeElement);
+  dropMap();
+  if (state.view !== "map") return;
+  state.view = "overview";
+  renderAll();
+  if (inside) el("view").focus({ preventScroll: true });
+}
+
 /* ================= view switching ================= */
 function navTo(view: View, context?: string): void {
   closePopover();
@@ -747,7 +852,8 @@ function navTo(view: View, context?: string): void {
   renderAll();
   // The navigation of a narrow window closes on a choice, before the view takes the focus: until then the view is behind it.
   closeNav(false);
-  el("view").focus({ preventScroll: true });
+  // A map that took the focus as it was shown keeps it: its keys are its own from the first one.
+  if (!el("mapHost").contains(document.activeElement)) el("view").focus({ preventScroll: true });
   window.scrollTo({ top: 0 });
 }
 /** The cards of one page: the Cards table, kept to that page. The drawer closes first when the jump starts in it: the page
@@ -764,6 +870,8 @@ function gotoPage(page: string): void {
 document.addEventListener("click", event => {
   if (!(event.target instanceof Element)) return;
   const target = event.target;
+  // What is clicked inside the map is the map's own: the page reads nothing there, whatever an element is marked with.
+  if (el("mapHost").contains(target)) return;
   const popover = el("popover");
   const anchorish = target.closest("[data-colfilter], #colBtn");
   if (!popover.hidden && !popover.contains(target) && !anchorish) closePopover();
@@ -843,14 +951,16 @@ document.addEventListener("click", event => {
       case "copy-run-log":
         void copyText(client.log.join("\n"), "the diagnostic log");
         return;
-      // The copy the tab keeps for a refresh goes, and nothing else does: the result stays on the page, with its
-      // downloads. The control goes with what it removed: the line that says so takes its place and the focus. The page
+      // The copy the tab keeps for a refresh goes: the result stays on the page, with its tables and its downloads. A
+      // model's map that was built from it goes with the copy, and its entry builds it afresh when it is next chosen.
+      // The control goes with what it removed: the line that says so takes its place and the focus. The page
       // says that only of a copy that is gone. One that could not be removed keeps its control, and the page says so.
       // A screen reader reads the line where the focus now is. The live region does not say it too, or it would be read
       // twice: it is emptied, so that it does not go on saying what it said last, which may be that the copy could not
       // be removed.
       case "forget":
         if (!keeper.forget()) return showNotRemoved();
+        dropMap();
         setKeptCopy("forgotten");
         focusOn("#keptLine", "#view");
         announce("");
@@ -860,14 +970,10 @@ document.addEventListener("click", event => {
 
   const nav = target.closest<HTMLElement>("[data-nav]");
   if (nav) {
-    if (nav.classList.contains("disabled")) {
-      toast("Model map is coming in a later version");
-      return;
-    }
-    // A file is named by its place in the result. Any other name leads to the overview: its own, and "details", the
-    // name of the view whose content the overview now holds.
+    // A file is named by its place in the result, and a model's map by its own name. Any other name leads to the
+    // overview: its own, and "details", the name of the view whose content the overview now holds.
     const id = nav.dataset.nav ?? "";
-    navTo(/^\d+$/.test(id) ? Number(id) : "overview");
+    navTo(/^\d+$/.test(id) ? Number(id) : id === "map" ? "map" : "overview");
     return;
   }
 
@@ -944,6 +1050,8 @@ document.addEventListener("change", event => {
   }
 });
 document.addEventListener("keydown", event => {
+  // While the focus is inside the map, a key is the map's: the page's own shortcuts leave it alone.
+  if (el("mapHost").contains(document.activeElement)) return;
   if (event.key === "Escape") {
     if (!el("popover").hidden) {
       closePopover(true);
@@ -1057,6 +1165,9 @@ const client = new ResultsClient({
   autoRun: byIcon,
   closeReason: () => chrome.runtime.lastError?.message,
   onState: next => {
+    // Only a run that starts ends the map: one that goes on says "running" again with each step.
+    if (next.phase === "running" && !running) endMapForRun();
+    running = next.phase === "running";
     if (next.phase !== "done") return showRun(next);
     // Only a run's result is kept, and only once it is drawn: a result that was brought back is kept already.
     showResult(next.result, next.received);

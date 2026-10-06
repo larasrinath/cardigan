@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { RESULTS_PAGE } from "../protocol.js";
-import { parseMarkup } from "./dom.test-support.js";
+import { FakePage, parseMarkup } from "./dom.test-support.js";
 import { keptCopyHtml } from "./markup.js";
 import { readMarkup } from "./markup.test-support.js";
 import { PAGE_IDS } from "./page-ids.js";
@@ -29,7 +29,7 @@ describe("The results page's files", () => {
 
   it("loads nothing from outside the extension", () => {
     const addresses = opening.flatMap(tag => ["src", "href", "action", "data", "poster", "srcset"].flatMap(name => (tag.attributes.has(name) ? [`${tag.name} ${name}=${tag.attributes.get(name)}`] : [])));
-    expect(addresses).toEqual(["link href=icons/32.png", "link href=results.css", "a href=#view", "script src=dist/results.js"]);
+    expect(addresses).toEqual(["link href=icons/32.png", "link href=results.css", "link href=map.css", "a href=#view", "script src=dist/results.js"]);
     for (const text of [html, css]) {
       expect(text).not.toMatch(/https?:|\/\//i);
       expect(text).not.toMatch(/url\(|@import|@font-face/i);
@@ -44,13 +44,41 @@ describe("The results page's files", () => {
     expect(ids.filter((id, index) => ids.indexOf(id) !== index)).toEqual([]);
   });
 
+  /** The stylesheet's rules whose selector names a class or the like, each as its selector and what it declares. */
+  const rules = (name: string) => [...css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(([, selector, body]) => [selector.trim(), body.trim()]).filter(([selector]) => selector.includes(name));
+
+  it("holds the place of a model's map beside the view, empty and hidden, and loads the map's stylesheet after its own", () => {
+    // The map's styles use the page's tokens, so the page's stylesheet comes first.
+    expect(opening.filter(tag => tag.name === "link" && tag.attributes.get("rel") === "stylesheet").map(tag => tag.attributes.get("href"))).toEqual(["results.css", "map.css"]);
+    // The place is the last thing in the main area, after the view, which stays where it is while the map is shown. The
+    // page gives it a name to find it by and nothing else: no class, no role, no style.
+    const page = new FakePage(html);
+    const host = page.id("mapHost");
+    expect([page.id("main").children.map(child => child.id), host.localName, [...host.attributes.keys()], host.hidden, host.childNodes.length]).toEqual([["crumbs", "view", "mapHost"], "div", ["id", "hidden"], true, 0]);
+  });
+
+  it("gives the map's place the height the window leaves while it is shown, and no look of its own", () => {
+    // The place itself takes the room that is left and is never lower than 320px. What stands in it is placed from it
+    // and stacked within it, and is not cut off: a map that needs more height than the place has shows whole. How the
+    // map looks is the map's own: the page gives its place no colour, border, padding or type.
+    expect(rules("#mapHost").filter(([selector]) => selector === "#mapHost")).toEqual([["#mapHost", "position:relative;flex:1 1 0;min-height:320px;isolation:isolate"]]);
+    // The page is as high as the window only while the place is shown: every other rule about it says so of each box it
+    // sizes, from the page down to the main area, and a hidden place changes nothing on the page.
+    expect(rules("#mapHost").filter(([selector]) => selector !== "#mapHost")).toEqual([
+      ["body:has(#mapHost:not([hidden]))", "display:flex;flex-direction:column;height:100dvh"],
+      ["body:has(#mapHost:not([hidden])) > .banners,body:has(#mapHost:not([hidden])) > .shell", "width:100%"],
+      ["body:has(#mapHost:not([hidden])) > .shell", "flex:1 1 0;min-height:0;padding-bottom:12px"],
+      ["body:has(#mapHost:not([hidden])) .sidenav", "max-height:100%"],
+      ["main:has(> #mapHost:not([hidden]))", "align-self:stretch;display:flex;flex-direction:column"],
+    ]);
+    expect(rules("[hidden]")[0]).toEqual(["[hidden]", "display:none !important"]);
+  });
+
   it("shows nothing of the room the overview holds for a kept copy's line and button: the stylesheet hides what the markup marks as to come", () => {
     // While a result is being kept the place holds the words of the line and of the button (markup.ts `keptCopyHtml`).
     // They say that a copy is kept, which is not so yet: each part is marked, and the stylesheet must not show a marked one.
     const room = parseMarkup(keptCopyHtml("keeping")).children;
     expect(room.map(part => [part.classList.contains("to-come"), part.textContent])).toEqual([[true, "A copy of this result is kept for a refresh of this page."], [true, "Forget this result"]]);
-    /** The stylesheet's rules whose selector names a class or the like, each as its selector and what it declares. */
-    const rules = (name: string) => [...css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(([, selector, body]) => [selector.trim(), body.trim()]).filter(([selector]) => selector.includes(name));
     // Unseen, and still taking its room, which `display:none` would not: that room is what it is there for.
     expect(rules(".to-come")).toEqual([[".ov-kept .to-come", "visibility:hidden"]]);
     // The place of a result that could not be kept holds nothing, and takes no room.
