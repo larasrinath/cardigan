@@ -857,15 +857,21 @@ function navTo(view: View, context?: string): void {
   // coming back to it: choosing the entry took the focus out of the map, to the entry, and the map's keys with it, and
   // a map that is shown anew takes the focus as it did when it was first shown. A map that still has the focus is left
   // as it is.
-  if (!el("mapHost").contains(document.activeElement)) leaveMap();
+  // Whether the focus is in the map is asked here, while the map is as the user left it. A browser goes on naming an
+  // element as the one with the focus after the element was hidden, until it next draws the page: asked once the view
+  // is drawn, a focus that was in a map now hidden would still seem to be in it.
+  const host = el("mapHost");
+  if (!host.contains(document.activeElement)) leaveMap();
   state.view = view;
   state.search = "";
   state.context = context;
   renderAll();
   // The navigation of a narrow window closes on a choice, before the view takes the focus: until then the view is behind it.
   closeNav(false);
-  // A map that took the focus as it was shown keeps it: its keys are its own from the first one.
-  if (!el("mapHost").contains(document.activeElement)) el("view").focus({ preventScroll: true });
+  // The view takes the focus, unless a map that is shown has it: one that took it as it was shown, whose keys are its
+  // own from the first one, or one that kept it through a choice of its own entry. A map that is hidden has no focus to
+  // keep, whatever element the browser still names: so only a map that is shown is asked.
+  if (host.hidden || !host.contains(document.activeElement)) el("view").focus({ preventScroll: true });
   window.scrollTo({ top: 0 });
 }
 /** The cards of one page: the Cards table, kept to that page. The drawer closes first when the jump starts in it: the page
