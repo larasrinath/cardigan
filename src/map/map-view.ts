@@ -410,7 +410,8 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     const nothing = onScreen.nodes.length === 0;
     empty.hidden = !nothing;
     if (!nothing) empty.innerHTML = "";
-    else if (model.modules.length === 0) empty.innerHTML = emptyHtml("No modules to map", graph.limitations[0] ?? "The export holds no module.");
+    // The export's own sentence about its modules says why, where it has one: a file that was not exported, for one.
+    else if (model.modules.length === 0) empty.innerHTML = emptyHtml("No modules to map", graph.limitations.find(each => /\bmodules?\b/i.test(each)) ?? graph.limitations[0] ?? "The export holds no module.");
     else empty.innerHTML = emptyHtml("Nothing to show here", onScreen.kind === "drill" ? "This module has no line items." : "This section has no modules.");
   }
 

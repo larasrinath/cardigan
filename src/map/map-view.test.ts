@@ -618,7 +618,8 @@ describe("The map's views", () => {
 
     const bare = new GraphMaker();
     bare.list("Products");
-    bare.limitations.push("The Line Items file was not exported: the map has no modules to show.");
+    // Of what the graph could not hold, the sentence about the modules is the one that says why there is nothing to map.
+    bare.limitations.push("The export gives the number of items in each list, not the items.", "The Line Items file was not exported: the map has no modules to show.");
     open(bare.graph());
     expect([text(".map-empty-title"), text(".map-empty-text")]).toEqual(["No modules to map", "The Line Items file was not exported: the map has no modules to show."]);
     expect(tab("drill").disabled).toBe(true);
