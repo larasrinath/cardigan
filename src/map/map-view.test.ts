@@ -298,18 +298,29 @@ describe("The map in the place the page gives it", () => {
     expect(host.children).toEqual([]);
   });
 
-  it("works with what a browser gives it, and without what a page that is no browser lacks", () => {
-    // No canvas to draw on, no sizes, no styles, no frames: the map still mounts, shows, takes clicks and goes.
-    const plain = mountModelMap(host as unknown as HTMLElement, sample().graph, { modelName: "Demand Plan" });
-    plain.show();
-    expect(root().hidden).toBe(false);
-    expect(text(".map-here")).toBe("Demand Plan");
-    act("group").press();
-    expect(text(".map-here")).toBe("All modules");
-    plain.themeChanged();
-    plain.hide();
-    plain.destroy();
+  it("refuses to mount where the canvas cannot be drawn on, and leaves the host as it was", () => {
+    // The stand-in page's canvas gives no drawing context, as a browser's may refuse one.
+    expect(() => mountModelMap(host as unknown as HTMLElement, sample().graph, { modelName: "Demand Plan" })).toThrow("the canvas gave no context");
     expect(host.children).toEqual([]);
+    class NoPen extends FakeSurroundings {
+      override pen(): Pen { return null as unknown as Pen; }
+    }
+    const without = new NoPen();
+    expect(() => mountModelMapIn(host as unknown as HTMLElement, sample().graph, { modelName: "Demand Plan" }, without)).toThrow("the canvas gave no context");
+    expect([host.children.length, without.requested, without.stopped]).toEqual([0, 0, 0]);
+  });
+
+  it("goes without the small picture where only that canvas cannot be drawn on", () => {
+    class NoSmallPen extends FakeSurroundings {
+      override pen(canvas: HTMLCanvasElement): Pen { return ((canvas as unknown as FakeElement).classList.contains("map-minimap") ? null : this.main) as unknown as Pen; }
+    }
+    env = new NoSmallPen();
+    open();
+    expect(env.main.named("fillRect").length).toBeGreaterThan(0);
+    expect(env.mini.calls).toEqual([]);
+    // A press on the small picture that was never drawn does nothing.
+    pointer("pointerdown", 20, 20, part(".map-minimap"));
+    expect(env.waiting).toBe(0);
   });
 });
 
@@ -929,6 +940,35 @@ describe("The map's keys", () => {
     // The arrows are the canvas's alone: on a button they are not taken.
     act("fit").focus();
     expect(key("ArrowRight").defaultPrevented).toBe(false);
+  });
+
+  it("keeps the focus in the map after a press on a part of it that takes none", () => {
+    open();
+    canvas().focus();
+    // A panel's own surface is no control: in a browser a press on it would leave the focus with the page.
+    part(".map-legend-title").press();
+    expect(page.document.activeElement).toBe(canvas());
+    part(".map-stats").press();
+    expect(page.document.activeElement).toBe(canvas());
+    key("f");
+    expect(env.waiting).toBe(1);
+    // A press on a control leaves the focus on the control.
+    act("fit").press();
+    expect(page.document.activeElement).toBe(act("fit"));
+  });
+
+  it("closes the search's results when the focus goes on to something else in the map", () => {
+    open();
+    part(".map-search").type("in");
+    expect(part(".map-results").hidden).toBe(false);
+    // The focus moves within the search: the results stay.
+    part(".map-search").dispatch("focusout", { relatedTarget: parts(".map-result")[0] } as unknown as { key?: string });
+    expect(part(".map-results").hidden).toBe(false);
+    // It leaves the window altogether: they stay too, for when it comes back.
+    part(".map-search").dispatch("focusout", { relatedTarget: null } as unknown as { key?: string });
+    expect(part(".map-results").hidden).toBe(false);
+    part(".map-search").dispatch("focusout", { relatedTarget: act("fit") } as unknown as { key?: string });
+    expect(part(".map-results").hidden).toBe(true);
   });
 
   it("keeps the focus in the map when what had it goes", () => {
