@@ -26,12 +26,15 @@ export interface ViewNode {
   readonly index: number;
   readonly kind: ViewNodeKind;
   readonly layer: string;
-  /** The small line above the label; "" for none. */
+  /** Its code, where its name starts with one; "" for none. The code and `meta` make the small line above the name. */
   readonly code: string;
+  /** Its name without the code. */
   readonly label: string;
   readonly fullName: string;
-  /** The small line under the label; "" for none. */
+  /** What the small line says after the code: how much it holds, or where it belongs; "" for nothing. */
   readonly meta: string;
+  /** The name's lines at full zoom, once the boxes are sized (map-layout.ts). */
+  lines: string[];
   /** The object the node stands for. A section is no object of the export. */
   readonly raw?: GraphNode;
   /** A section node's place among the model's sections. */
@@ -44,8 +47,8 @@ export interface ViewNode {
   readonly side?: "in" | "out" | "both";
   x: number;
   y: number;
-  readonly w: number;
-  readonly h: number;
+  w: number;
+  h: number;
 }
 
 export interface ViewEdge {
@@ -58,6 +61,8 @@ export interface ViewEdge {
   readonly refs?: readonly GraphEdge[];
 }
 
+/** A layer of the legend: what its nodes are, and how many there are. In the graph of sections a layer is one section,
+ * and its count is the section's modules. */
 export interface ViewLayer { key: string; label: string; count: number }
 export interface Box { x: number; y: number; w: number; h: number }
 
@@ -72,14 +77,16 @@ export interface ViewGraph {
   readonly in: readonly (readonly number[])[];
   /** The layers its nodes are in, in the order they first appear. */
   readonly layers: readonly ViewLayer[];
-  /** In a module's graph, how many of its nodes are the module's own line items. */
+  /** How many of its nodes are what the graph is of: a module's own line items, a section's own modules. The others
+   * stand beside them: what they read and feed elsewhere. */
   readonly local: number;
   /** What its nodes cover, once laid out (map-layout.ts). */
   bounds: Box;
 }
 
+/** A box's size before its name is measured (map-layout.ts `sizeNodes` gives the real one). */
 const SIZE: Record<ViewNodeKind, readonly [width: number, height: number]> = {
-  section: [260, 82], lineItem: [216, 46], module: [248, 76], externalModule: [248, 76], externalItem: [248, 76], list: [248, 76], property: [248, 76],
+  section: [232, 49], lineItem: [216, 32], module: [232, 49], externalModule: [232, 49], externalItem: [232, 49], list: [232, 49], property: [232, 49],
 };
 
 /** A node before it has its place in a graph. */
@@ -99,17 +106,18 @@ interface Draft {
 }
 interface Link { s: string; t: string; w: number; refs?: GraphEdge[] }
 
-const LAYER_LABELS: Record<string, string> = { [LAYER.lineItem]: "Line item", [LAYER.heading]: "Heading", [LAYER.list]: "List / subset", [LAYER.property]: "List property" };
+const LAYER_LABELS: Record<string, string> = { [LAYER.lineItem]: "Line items", [LAYER.heading]: "No Data line items (headings)", [LAYER.list]: "Lists and subsets", [LAYER.property]: "List properties" };
 
-/** What the external layer holds says what it is called. */
-function externalLabel(nodes: readonly Draft[]): string {
+/** What the layer of what stands beside the graph is called: by what it holds, and by the graph it stands beside. */
+function externalLabel(kind: ViewGraph["kind"], nodes: readonly Draft[]): string {
   const kinds = new Set(nodes.filter(node => node.layer === LAYER.external).map(node => node.kind));
-  if (kinds.size === 1 && kinds.has("externalItem")) return "External line item";
-  return [...kinds].every(kind => kind === "module" || kind === "externalModule") ? "External module" : "External";
+  if (kinds.size === 1 && kinds.has("externalItem")) return "Line items of other modules";
+  if (![...kinds].every(each => each === "module" || each === "externalModule")) return "Other objects";
+  return kind === "drill" ? "Other modules" : "Modules of other sections";
 }
 
 function finish(model: MapModel, kind: ViewGraph["kind"], name: string, drafts: readonly Draft[], links: readonly Link[], local = 0): ViewGraph {
-  const nodes: ViewNode[] = drafts.map((draft, index) => ({ ...draft, index, x: 0, y: 0, w: SIZE[draft.kind][0], h: SIZE[draft.kind][1] }));
+  const nodes: ViewNode[] = drafts.map((draft, index) => ({ ...draft, index, lines: [draft.label], x: 0, y: 0, w: SIZE[draft.kind][0], h: SIZE[draft.kind][1] }));
   const byId = new Map(nodes.map(node => [node.id, node]));
   const out: number[][] = nodes.map(() => []);
   const into: number[][] = nodes.map(() => []);
@@ -128,12 +136,14 @@ function finish(model: MapModel, kind: ViewGraph["kind"], name: string, drafts: 
     let layer = layerOf.get(node.layer);
     if (!layer) {
       const section = /^s(\d+)$/.exec(node.layer);
-      const label = section ? model.sections[Number(section[1])] ?? node.layer : node.layer === LAYER.external ? externalLabel(drafts) : LAYER_LABELS[node.layer] ?? node.layer;
+      // The modules of a model that has one section, or none, are one layer: it is named for what they are.
+      const ofSection = section ? (kind === "modules" && model.sections.length <= 1 ? "Modules" : model.sections[Number(section[1])] ?? node.layer) : undefined;
+      const label = ofSection ?? (node.layer === LAYER.external ? externalLabel(kind, drafts) : LAYER_LABELS[node.layer] ?? node.layer);
       layer = { key: node.layer, label, count: 0 };
       layerOf.set(node.layer, layer);
       layers.push(layer);
     }
-    layer.count++;
+    layer.count += node.kind === "section" ? node.members?.length ?? 0 : 1;
   }
   return { kind, name, nodes, edges, byId, out, in: into, layers, local, bounds: { x: 0, y: 0, w: 1, h: 1 } };
 }
@@ -171,10 +181,12 @@ function moduleLinks(model: MapModel, access: boolean): Link[] {
   });
 }
 
-function moduleDraft(model: MapModel, raw: GraphNode, external: boolean): Draft {
+/** A module's box. Its small line says how many line items it has, or its section where the graph holds modules of
+ * more than one (`inSection`): there the section is said in words, and not by the box's colour alone. */
+function moduleDraft(model: MapModel, raw: GraphNode, external: boolean, inSection = false): Draft {
   return {
     id: String(raw.id), kind: "module", layer: external ? LAYER.external : sectionLayer(model.sectionIndex(model.sectionOf(raw))),
-    ...splitName(raw.name), fullName: raw.name, meta: plural(model.itemsOf(raw.id).length, "line item"), raw, external,
+    ...splitName(raw.name), fullName: raw.name, meta: inSection ? model.sectionOf(raw) : plural(model.itemsOf(raw.id).length, "line item"), raw, external,
   };
 }
 
@@ -183,11 +195,9 @@ export function sectionsGraph(model: MapModel, access: boolean): ViewGraph {
   const drafts: Draft[] = model.sections.map((section, index) => {
     const members = model.modules.filter(module => model.sectionOf(module) === section);
     const lineItems = members.reduce((count, module) => count + model.itemsOf(module.id).length, 0);
-    const number = /^\d+/.exec(section)?.[0];
     return {
-      id: `section${index}`, kind: "section", layer: sectionLayer(index), section: index,
-      code: `${number === undefined ? "" : `${number} · `}${plural(members.length, "MODULE", "MODULES")}`,
-      label: section.replace(/^\d+\s*:\s*/, "") || section, fullName: section, meta: plural(lineItems, "line item"),
+      id: `section${index}`, kind: "section", layer: sectionLayer(index), section: index, code: "",
+      label: section, fullName: section, meta: `${plural(members.length, "module")} · ${plural(lineItems, "line item")}`,
       members: members.map(module => module.id), external: false,
     };
   });
@@ -195,7 +205,7 @@ export function sectionsGraph(model: MapModel, access: boolean): ViewGraph {
     const module = model.node(model.moduleOf(node));
     return module ? `section${model.sectionIndex(model.sectionOf(module))}` : undefined;
   });
-  return finish(model, "sections", "Model sections", drafts, links);
+  return finish(model, "sections", "Model sections", drafts, links, drafts.length);
 }
 
 /** The modules of one section, or all modules when no section is named. */
@@ -208,8 +218,9 @@ export function modulesGraph(model: MapModel, section: string | undefined, acces
     shown.add(Number(link.s));
     shown.add(Number(link.t));
   }
-  const drafts = model.modules.filter(module => shown.has(module.id)).map(module => moduleDraft(model, module, !own.has(module.id)));
-  return finish(model, "modules", section ?? "All modules", drafts, links);
+  // Among all modules every box says its section; among one section's, the boxes from other sections say theirs.
+  const drafts = model.modules.filter(module => shown.has(module.id)).map(module => moduleDraft(model, module, !own.has(module.id), section === undefined ? model.sections.length > 1 : !own.has(module.id)));
+  return finish(model, "modules", section ?? "All modules", drafts, links, own.size);
 }
 
 /** The line items of one module and what they read and feed outside it. `expanded` shows the line items of other
@@ -281,7 +292,7 @@ export function moduleGraph(model: MapModel, moduleId: number, expanded: boolean
     read.add(link.s);
   }
   for (const draft of drafts.values()) {
-    if (draft.kind === "externalModule") draft.meta = plural(draft.members!.length, "referenced line item");
+    if (draft.kind === "externalModule") draft.meta = `${plural(draft.members!.length, "line item")} linked`;
     if (draft.external) draft.side = fed.has(draft.id) && read.has(draft.id) ? "both" : fed.has(draft.id) ? "out" : "in";
   }
   return finish(model, "drill", module?.name ?? "", [...drafts.values()], [...links.values()], owned.length);

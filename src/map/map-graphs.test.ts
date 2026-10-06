@@ -38,16 +38,16 @@ describe("The graph of a model's sections", () => {
     const { model, volumes, prices } = sample();
     const graph = sectionsGraph(model, false);
     expect(graph.kind).toBe("sections");
+    // A section's name is its whole heading: a number before it is no code of its own.
     expect(graph.nodes.map(node => [node.id, node.kind, node.code, node.label, node.fullName, node.meta])).toEqual([
-      ["section0", "section", "01 · 2 MODULES", "Inputs", "01: Inputs", "3 line items"],
-      ["section1", "section", "02 · 2 MODULES", "Calculations", "02: Calculations", "5 line items"],
-      // A heading without a number has none before its count, and one module is one MODULE.
-      ["section2", "section", "1 MODULE", "Reporting", "Reporting", "2 line items"],
+      ["section0", "section", "", "01: Inputs", "01: Inputs", "2 modules \u00b7 3 line items"],
+      ["section1", "section", "", "02: Calculations", "02: Calculations", "2 modules \u00b7 5 line items"],
+      ["section2", "section", "", "Reporting", "Reporting", "1 module \u00b7 2 line items"],
     ]);
     expect(graph.nodes[0].members).toEqual([volumes, prices]);
     expect(graph.nodes.map(node => [node.section, node.layer, node.external])).toEqual([[0, "s0", false], [1, "s1", false], [2, "s2", false]]);
+    expect(graph.local).toBe(3);
   });
-
   it("counts together the links between two sections, and drops those inside one", () => {
     const { model } = sample();
     // Units and Price feed Gross: two links from Inputs to Calculations. Net feeds Total: one on to Reporting.
@@ -56,11 +56,10 @@ describe("The graph of a model's sections", () => {
     expect(links(sectionsGraph(model, true))).toEqual(["section0>section1:4", "section1>section2:1"]);
   });
 
-  it("names each layer after its section, with one node in each", () => {
+  it("names each layer after its section, and counts the section's modules", () => {
     const { model } = sample();
-    expect(sectionsGraph(model, false).layers).toEqual([{ key: "s0", label: "01: Inputs", count: 1 }, { key: "s1", label: "02: Calculations", count: 1 }, { key: "s2", label: "Reporting", count: 1 }]);
+    expect(sectionsGraph(model, false).layers).toEqual([{ key: "s0", label: "01: Inputs", count: 2 }, { key: "s1", label: "02: Calculations", count: 2 }, { key: "s2", label: "Reporting", count: 1 }]);
   });
-
   it("holds the lists its nodes read and feed, by their places", () => {
     const { model } = sample();
     const graph = sectionsGraph(model, false);
@@ -74,17 +73,17 @@ describe("The graph of a section's modules", () => {
   it("shows the section's modules, and beside them the modules of other sections they read or feed", () => {
     const { model, volumes, prices, revenue, margin, board } = sample();
     const graph = modulesGraph(model, "02: Calculations", false);
-    expect(graph.name).toBe("02: Calculations");
+    expect([graph.name, graph.local]).toEqual(["02: Calculations", 2]);
     // In the model's order, whichever section a module is of.
     expect(ids(graph)).toEqual([volumes, prices, revenue, margin, board].map(String));
     expect(graph.nodes.map(node => [node.code, node.label, node.external, node.layer])).toEqual([
       ["INP01", "Volumes", true, LAYER.external], ["INP02", "Prices", true, LAYER.external],
       ["CAL01", "Revenue", false, sectionLayer(1)], ["", "Margin Workings", false, sectionLayer(1)], ["REP01", "Board", true, LAYER.external],
     ]);
-    expect(graph.nodes.map(node => node.meta)).toEqual(["2 line items", "1 line item", "3 line items", "2 line items", "2 line items"]);
-    expect(graph.layers).toEqual([{ key: LAYER.external, label: "External module", count: 3 }, { key: "s1", label: "02: Calculations", count: 2 }]);
+    // The section's own modules say how much they hold; a module of another section says which section it is of.
+    expect(graph.nodes.map(node => node.meta)).toEqual(["01: Inputs", "01: Inputs", "3 line items", "2 line items", "Reporting"]);
+    expect(graph.layers).toEqual([{ key: LAYER.external, label: "Modules of other sections", count: 3 }, { key: "s1", label: "02: Calculations", count: 2 }]);
   });
-
   it("counts the links between two modules together, each way apart, and drops a module's links to itself", () => {
     const { model, volumes, prices, revenue, margin, board } = sample();
     expect(links(modulesGraph(model, "02: Calculations", false))).toEqual([
@@ -101,14 +100,26 @@ describe("The graph of a section's modules", () => {
     expect(graph.nodes.map(node => node.external)).toEqual([false, false, true]);
   });
 
-  it("shows every module as its own section's when no section is named", () => {
+  it("shows every module as its own section's when no section is named, each saying its section in words", () => {
     const { model } = sample();
     const graph = modulesGraph(model, undefined, false);
-    expect(graph.name).toBe("All modules");
-    expect(graph.nodes.map(node => [node.external, node.layer])).toEqual([[false, "s0"], [false, "s0"], [false, "s1"], [false, "s1"], [false, "s2"]]);
+    expect([graph.name, graph.local]).toEqual(["All modules", 5]);
+    expect(graph.nodes.map(node => [node.external, node.layer, node.meta])).toEqual([
+      [false, "s0", "01: Inputs"], [false, "s0", "01: Inputs"], [false, "s1", "02: Calculations"], [false, "s1", "02: Calculations"], [false, "s2", "Reporting"],
+    ]);
     expect(graph.edges).toHaveLength(5);
   });
 
+  it("says how much each module holds where the model has one section, which every box would only repeat", () => {
+    const make = new GraphMaker();
+    const first = make.module("INP01 - Volumes", "Ungrouped");
+    make.module("INP02 - Prices", "Ungrouped");
+    make.item(first, "Units");
+    const graph = modulesGraph(indexModel(make.graph()), undefined, false);
+    expect(graph.nodes.map(node => node.meta)).toEqual(["1 line item", "0 line items"]);
+    // And its legend has one entry for them, named for what they are: a heading nobody wrote is no section.
+    expect(graph.layers).toEqual([{ key: "s0", label: "Modules", count: 2 }]);
+  });
   it("gives an empty graph for a section without modules", () => {
     const { model } = sample();
     const graph = modulesGraph(model, "No such section", false);
@@ -126,11 +137,11 @@ describe("The graph of a module's line items", () => {
     ]);
     const groups = graph.nodes.filter(node => node.kind === "externalModule");
     expect(groups.map(node => [node.id, node.code, node.label, node.meta, node.external, node.layer, node.side])).toEqual(expect.arrayContaining([
-      [`external${volumes}`, "INP01", "Volumes", "1 referenced line item", true, LAYER.external, "in"],
-      [`external${prices}`, "INP02", "Prices", "1 referenced line item", true, LAYER.external, "in"],
+      [`external${volumes}`, "INP01", "Volumes", "1 line item linked", true, LAYER.external, "in"],
+      [`external${prices}`, "INP02", "Prices", "1 line item linked", true, LAYER.external, "in"],
       // Margin Workings reads Gross and feeds Net: it is on both sides.
-      [`external${margin}`, "", "Margin Workings", "2 referenced line items", true, LAYER.external, "both"],
-      [`external${board}`, "REP01", "Board", "1 referenced line item", true, LAYER.external, "out"],
+      [`external${margin}`, "", "Margin Workings", "2 line items linked", true, LAYER.external, "both"],
+      [`external${board}`, "REP01", "Board", "1 line item linked", true, LAYER.external, "out"],
     ]));
     expect(groups).toHaveLength(4);
     expect(graph.byId.get(`external${volumes}`)?.members).toEqual([units]);
@@ -149,7 +160,7 @@ describe("The graph of a module's line items", () => {
     // The list itself is named by no formula of the module: it is not there.
     expect(graph.byId.has(String(products))).toBe(false);
     expect(graph.layers.map(layer => [layer.key, layer.label, layer.count])).toEqual([
-      [LAYER.heading, "Heading", 1], [LAYER.lineItem, "Line item", 2], [LAYER.external, "External module", 4], [LAYER.list, "List / subset", 1], [LAYER.property, "List property", 1],
+      [LAYER.heading, "No Data line items (headings)", 1], [LAYER.lineItem, "Line items", 2], [LAYER.external, "Other modules", 4], [LAYER.list, "Lists and subsets", 1], [LAYER.property, "List properties", 1],
     ]);
   });
 
@@ -178,8 +189,23 @@ describe("The graph of a module's line items", () => {
     // A module without a code gives its whole name.
     expect(graph.byId.get(String(cost))).toMatchObject({ code: "Margin Workings", side: "in" });
     expect(graph.byId.get(String(marginPct))?.side).toBe("out");
-    expect(graph.layers.find(layer => layer.key === LAYER.external)?.label).toBe("External line item");
+    expect(graph.layers.find(layer => layer.key === LAYER.external)?.label).toBe("Line items of other modules");
     expect(graph.local).toBe(3);
+  });
+
+  it("names what stands beside the line items by what it is: modules, their line items, or both kinds of thing", () => {
+    const make = new GraphMaker();
+    const plan = make.module("PLN01 - Plan", "Planning");
+    const review = make.module("PLN02 - Review", "Planning");
+    const summary = make.module("PLN03 - Summary", "Planning");
+    const units = make.item(plan, "Units");
+    const seen = make.item(review, "Seen", { formula: "PLN01 - Plan.Units" });
+    // The export can name a module where it says what a line item is referenced by.
+    make.link(units, seen).link(units, summary);
+    const model = indexModel(make.graph());
+    const beside = (expanded: boolean) => moduleGraph(model, plan, expanded, false).layers.find(layer => layer.key === LAYER.external);
+    expect(beside(false)).toEqual({ key: LAYER.external, label: "Other modules", count: 2 });
+    expect(beside(true)).toEqual({ key: LAYER.external, label: "Other objects", count: 2 });
   });
 
   it("keeps a line item's link to itself, which a formula that reads its own line item makes", () => {
@@ -198,11 +224,13 @@ describe("The graph of a module's line items", () => {
     expect([moduleGraph(model, 77, false, false).nodes.length, moduleGraph(model, 77, false, false).name]).toEqual([0, ""]);
   });
 
-  it("gives every node a size by its kind", () => {
+  it("gives every node its name as one line and a size by its kind, until its name is measured", () => {
     const { model, revenue } = sample();
-    const sizes = new Map(moduleGraph(model, revenue, false, false).nodes.map(node => [node.kind, [node.w, node.h]]));
-    expect([sizes.get("lineItem"), sizes.get("externalModule"), sizes.get("list"), sizes.get("property")]).toEqual([[216, 46], [248, 76], [248, 76], [248, 76]]);
-    expect(sectionsGraph(model, false).nodes.map(node => [node.w, node.h])[0]).toEqual([260, 82]);
-    expect(modulesGraph(model, undefined, false).nodes.map(node => [node.w, node.h])[0]).toEqual([248, 76]);
+    const graph = moduleGraph(model, revenue, false, false);
+    const sizes = new Map(graph.nodes.map(node => [node.kind, [node.w, node.h]]));
+    expect([sizes.get("lineItem"), sizes.get("externalModule"), sizes.get("list"), sizes.get("property")]).toEqual([[216, 32], [232, 49], [232, 49], [232, 49]]);
+    expect(sectionsGraph(model, false).nodes.map(node => [node.w, node.h])[0]).toEqual([232, 49]);
+    expect(modulesGraph(model, undefined, false).nodes.map(node => [node.w, node.h])[0]).toEqual([232, 49]);
+    expect(graph.nodes.every(node => node.lines.length === 1 && node.lines[0] === node.label)).toBe(true);
   });
 });
