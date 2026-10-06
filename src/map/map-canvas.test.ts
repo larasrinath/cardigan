@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Camera } from "./map-camera.js";
-import { createFonts, drawMinimap, drawScene, legibleFrom, type Pen, type Scene } from "./map-canvas.js";
+import { createFonts, drawMinimap, drawScene, legibleFrom, linkStrength, type Pen, type Scene } from "./map-canvas.js";
 import { moduleGraph, modulesGraph, type ViewGraph, type ViewNode } from "./map-graphs.js";
 import { CARD, FULL_CARD_ZOOM, FULL_ITEM_ZOOM, ITEM, layoutGraph, sizeNodes, type Room } from "./map-layout.js";
 import { indexModel } from "./map-model.js";
@@ -258,19 +258,36 @@ describe("A link in the map's picture", () => {
     expect(triangles(pen, FALLBACK.edge)[0][0]).toEqual([node.x, middle(node)]);
   });
 
-  it("draws each link lighter where there are more than three hundred of them, so that they do not hide the boxes", () => {
+  it("draws each link lighter the more links the picture has, falling gradually, so that they do not fill the gutters", () => {
     const complete = (count: number) => linked(count, Array.from({ length: count }, (_, from) => Array.from({ length: count - from - 1 }, (_, step) => [from, from + step + 1] as const)).flat());
-    const strength = (graph: ViewGraph): number => linkStrokes(draw(sceneOf(graph, { width: 100000, height: 100000 })).pen)[0].globalAlpha;
-    // 45 links, 780 links, and 4,950 links: full strength, less, and never less than a fifth.
-    expect(strength(complete(10).graph)).toBe(1);
-    expect(strength(complete(40).graph)).toBeCloseTo(300 / 780, 5);
-    expect(strength(complete(100).graph)).toBeCloseTo(0.2, 5);
-    // A trace of many links is thinned the same way; one of a few is in full strength, and the rest stand back.
+    const strength = (graph: ViewGraph, extra: Partial<Scene> = {}): number => linkStrokes(draw(sceneOf(graph, { width: 100000, height: 100000, ...extra })).pen)[0].globalAlpha;
+    // A dozen links are each in full strength; from there the strength falls as the root of their number, with no step,
+    // and never below a fifth.
+    expect([1, 6, 12, 13, 27, 48, 108, 300, 1200, 5000].map(count => Math.round(linkStrength(count) * 1000) / 1000)).toEqual([1, 1, 1, 0.961, 0.667, 0.5, 0.333, 0.2, 0.2, 0.2]);
+    for (let count = 1; count < 400; count++) expect(linkStrength(count) - linkStrength(count + 1), `from ${count} links`).toBeLessThan(0.04);
+    // 10 links, 45 links and 780 links, as the picture draws them.
+    expect(strength(complete(5).graph)).toBe(1);
+    expect(strength(complete(10).graph)).toBeCloseTo(Math.sqrt(12 / 45), 5);
+    expect(strength(complete(40).graph)).toBeCloseTo(0.2, 5);
+    // What counts is the links the picture has: with all but six of the boxes hidden, the fifteen links left are stronger.
+    const some = complete(40).graph;
+    const shown = new Uint8Array(some.nodes.length);
+    shown.fill(1, 0, 6);
+    expect(strength(some, { shown })).toBeCloseTo(Math.sqrt(12 / 15), 5);
+    // And not where the camera is: the same links seen from near are as strong as from far.
+    expect(strength(complete(10).graph, { camera: { ox: 0, oy: 0, k: 3 } })).toBeCloseTo(Math.sqrt(12 / 45), 5);
+    // A trace keeps its strength: its links are in full strength up to three hundred and thinned beyond, and the links
+    // of the box selected are in full strength however many the trace has.
     const many = complete(40);
     const traced = linkStrokes(draw(sceneOf(many.graph, { trace: traceNode(many.graph, many.model, 0, false), width: 100000, height: 100000 })).pen);
     expect(traced).toHaveLength(780);
     expect(new Set(traced.map(call => call.strokeStyle))).toEqual(new Set([FALLBACK.traceDown]));
-    expect(traced[0].globalAlpha).toBeCloseTo(300 / 780, 5);
+    const ofSelected = many.graph.edges.map((edge, index) => (edge.s === 0 || edge.t === 0 ? index : -1)).filter(index => index >= 0);
+    expect(ofSelected).toHaveLength(39);
+    expect(new Set(ofSelected.map(index => traced[index].globalAlpha))).toEqual(new Set([1]));
+    const others = traced.filter((_, index) => !ofSelected.includes(index));
+    expect(others[0].globalAlpha).toBeCloseTo(300 / 780, 5);
+    expect(new Set(others.map(call => call.globalAlpha)).size).toBe(1);
     const few = linked(4, [[0, 1], [1, 2], [0, 3]]);
     const strokes = linkStrokes(draw(sceneOf(few.graph, { trace: traceNode(few.graph, few.model, place(few.graph, "M2"), false) })).pen);
     expect(strokes.map(call => [call.strokeStyle, call.globalAlpha])).toEqual([[FALLBACK.traceUp, 1], [FALLBACK.edge, 0.12], [FALLBACK.traceUp, 1]]);
@@ -299,7 +316,8 @@ describe("The map's picture from far away and from near", () => {
     const { graph } = sample();
     const least = legibleFrom(graph);
     expect(least).toBeCloseTo(13 / 48.5, 10);
-    const lowest = draw(sceneOf(graph, { camera: { ox: 0, oy: 0, k: least + 1e-6 } })).pen;
+    // At that very zoom: a box whose height comes out a hair under thirteen pixels by the arithmetic holds its line.
+    const lowest = draw(sceneOf(graph, { camera: { ox: 0, oy: 0, k: least } })).pen;
     expect(lowest.texts()).toHaveLength(4);
     // One low line: half a pixel smaller, cut to its box and saying so.
     expect(new Set(lowest.named("fillText").map(call => call.font))).toEqual(new Set(["600 9.5px sans-serif"]));
