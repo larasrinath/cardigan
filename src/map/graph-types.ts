@@ -68,7 +68,8 @@ export interface GraphNode {
 
 /** What a link says, read from its first node to its second:
  * - `reference`: the second's formula refers to the first (the first's Referenced By names the second).
- * - `list_formula`: the second's formula names the list or subset (the list's Referenced in Formula names the second).
+ * - `list_formula`: the second's formula names the list or subset (the list's Referenced in Formula names the second,
+ *   a line item or a list's property).
  * - `applies`: the list or subset is a dimension of the module or line item.
  * - `format`: the list or subset is the format of the line item.
  * - `read_access`, `write_access`: the first drives who may read or write the second.
@@ -85,8 +86,8 @@ export type EdgeKind = "reference" | "list_formula" | "applies" | "format" | "re
 
 export type GraphEdge = readonly [from: number, to: number, kind: EdgeKind];
 
-/** A name in the export that matched no object of a kind its column can name: the node whose row holds it, the column,
- * and the name as written. It is recorded once for the cell that holds it: a name that line items take from their
+/** A name in the export that matched no object of a kind its column can name, or more than one with nothing to tell
+ * them apart: the node whose row holds it, the column, and the name as written. It is recorded once for the cell that holds it: a name that line items take from their
  * module's row is the module's. For a list that an action's definition names by its ID, `field` is the definition's field
  * and `reference` the ID. */
 export interface Unresolved {
