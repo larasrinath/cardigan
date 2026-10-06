@@ -29,7 +29,7 @@ describe("The results page's files", () => {
 
   it("loads nothing from outside the extension", () => {
     const addresses = opening.flatMap(tag => ["src", "href", "action", "data", "poster", "srcset"].flatMap(name => (tag.attributes.has(name) ? [`${tag.name} ${name}=${tag.attributes.get(name)}`] : [])));
-    expect(addresses).toEqual(["link href=icons/32.png", "link href=results.css", "a href=#view", "script src=dist/results.js"]);
+    expect(addresses).toEqual(["link href=icons/32.png", "link href=results.css", "link href=map.css", "a href=#view", "script src=dist/results.js"]);
     for (const text of [html, css]) {
       expect(text).not.toMatch(/https?:|\/\//i);
       expect(text).not.toMatch(/url\(|@import|@font-face/i);
