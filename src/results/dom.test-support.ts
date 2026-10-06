@@ -211,6 +211,7 @@ export class FakeElement {
   private replaceChildren(nodes: (FakeElement | FakeText)[]): void {
     for (const node of this.childNodes) node.parentElement = null;
     this.childNodes = [];
+    this.page.taken();
     this.append(...nodes);
   }
   append(...nodes: (FakeElement | FakeText | string)[]): void {
@@ -229,6 +230,7 @@ export class FakeElement {
     const parent = this.parentElement;
     if (parent) parent.childNodes = parent.childNodes.filter(node => node !== this);
     this.parentElement = null;
+    this.page.taken();
   }
 
   getAttribute(name: string): string | null { return this.attributes.get(name) ?? null; }
@@ -315,9 +317,11 @@ export class FakeElement {
     this.dispatch("click");
   }
 
-  /* What a user does. A disabled control ignores it; an element the user cannot get at is the test's mistake. */
+  /* What a user does. A disabled control ignores it; an element the user cannot get at is the test's mistake. A user
+   * acts on the page as the browser last drew it. */
 
   private reach(): void {
+    this.page.frame();
     for (let node: FakeElement | null = this; node; node = node.parentElement) {
       if (node.hidden || node.inert) throw new Error(`A user cannot get at <${this.localName}>: <${node.localName}> is ${node.hidden ? "hidden" : "inert"}`);
     }
@@ -374,7 +378,9 @@ export class FakeSelect extends FakeElement {}
 export class FakePage {
   /** Above <html>: where the document's own listeners are. */
   readonly root: FakeElement;
-  /** The element that has focus, if it can still hold it. */
+  /** The element that has the focus, as Chrome has it (154, measured). One that is taken out of its place has lost it
+   * at once (`taken`). One that can no longer hold it, being hidden, disabled, inert or in a closed details element,
+   * has it until the browser next draws the page (`frame`). */
   focused: FakeElement | null = null;
   /** What the script saved through a link: the file's name and the address of its content. */
   readonly downloads: { name: string; href: string }[] = [];
@@ -405,7 +411,7 @@ export class FakePage {
     const body = this.find("body");
     this.document = {
       title: this.root.querySelector("title")?.textContent ?? "",
-      get activeElement() { return page.focused?.focusable ? page.focused : body; },
+      get activeElement() { return page.focused ?? body; },
       documentElement,
       body,
       getElementById: id => this.root.querySelectorAll("[id]").find(element => element.id === id) ?? null,
@@ -440,8 +446,19 @@ export class FakePage {
   id(id: string): FakeElement { return this.find(`#${id}`); }
   /** The text of each element a selector finds, without the space around it. */
   texts(selector: string): string[] { return this.all(selector).map(element => element.textContent.trim()); }
+  /** An element was taken out of its place, to go or to be put elsewhere: the focus that was on it, or inside it, is
+   * lost at once, and does not come back with the element. */
+  taken(): void { if (this.focused && !this.focused.isConnected) this.focused = null; }
+  /** The browser draws the page, which it does once the script's work is done and not before: the focus leaves an
+   * element that can no longer hold it, for the body. Until then the document goes on naming that element as the one
+   * with the focus: a script that hides what has the focus and then asks where the focus is hears of the hidden
+   * element. What is shown again before the page is drawn keeps the focus. */
+  frame(): void { if (!this.focused?.focusable) this.focused = null; }
   /** A key pressed where the focus is. */
-  key(key: string): FakeEvent { return this.document.activeElement.dispatch("keydown", { key }); }
+  key(key: string): FakeEvent {
+    this.frame();
+    return this.document.activeElement.dispatch("keydown", { key });
+  }
 }
 
 /** A piece of markup as elements, for a test that reads what a function wrote. */
