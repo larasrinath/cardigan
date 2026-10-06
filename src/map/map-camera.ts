@@ -1,5 +1,7 @@
 import type { Box, ViewNode } from "./map-graphs.js";
-import { boundsOf } from "./map-layout.js";
+import { boundsOf, FIT_ZOOM } from "./map-layout.js";
+
+export { FIT_ZOOM };
 
 /** Where the map is looked at from, and what is under a point of it. A node has a place in the graph ("world"); the
  * camera says where that is in the canvas ("screen", in CSS pixels from the canvas's top left corner): screen = world
@@ -11,25 +13,27 @@ export interface Insets { l: number; r: number; t: number; b: number }
 
 export const MIN_ZOOM = 0.025;
 export const MAX_ZOOM = 3;
-/** A fit never enlarges a small graph beyond this. */
-export const FIT_ZOOM = 1.15;
 
 const clamp = (value: number, low: number, high: number): number => Math.min(high, Math.max(low, value));
 
 export const toScreen = (camera: Camera, x: number, y: number): [number, number] => [x * camera.k + camera.ox, y * camera.k + camera.oy];
 export const toWorld = (camera: Camera, x: number, y: number): [number, number] => [(x - camera.ox) / camera.k, (y - camera.oy) / camera.k];
 
-/** The room for the graph where the page cannot be measured: what the panels take in the wide layout and in the narrow
- * one (map.css), with the inspector open or not. */
+/** The room for the graph where the page cannot be measured: what the bar takes at the top and the details at the right
+ * in the wide layout, and at the foot in the narrow one (map.css). */
 export function defaultInsets(width: number, height: number, inspector: boolean): Insets {
-  if (width < 760) return { l: 18, r: 18, t: 230, b: inspector ? Math.min(height * 0.5, 440) : 90 };
-  return { l: Math.min(225, width * 0.16), r: inspector ? 330 : 55, t: 166, b: 100 };
+  if (width < 760) return { l: 30, r: 30, t: 170, b: inspector ? Math.min(height * 0.45, 440) : 30 };
+  return { l: 32, r: inspector ? 348 : 32, t: 82, b: 32 };
 }
 
-/** The camera that shows a box whole, in the middle of what the insets leave of a canvas. */
+/** The least room a fit counts with, each way: where the insets leave less, or nothing, the picture still has a size. */
+const LEAST_ROOM = 40;
+
+/** The camera that shows a box whole, in the middle of what the insets leave of a canvas. A room that is small is
+ * kept to: the picture is fitted into it, however small that makes it, and not laid over what stands around it. */
 export function fitCamera(box: Box, width: number, height: number, insets: Insets, maxZoom = FIT_ZOOM): Camera {
-  const roomX = Math.max(160, width - insets.l - insets.r);
-  const roomY = Math.max(150, height - insets.t - insets.b);
+  const roomX = Math.max(LEAST_ROOM, width - insets.l - insets.r);
+  const roomY = Math.max(LEAST_ROOM, height - insets.t - insets.b);
   const k = clamp(Math.min(roomX / Math.max(box.w, 1), roomY / Math.max(box.h, 1), maxZoom), MIN_ZOOM, MAX_ZOOM);
   return { ox: insets.l + (roomX - box.w * k) / 2 - box.x * k, oy: insets.t + (roomY - box.h * k) / 2 - box.y * k, k };
 }
@@ -37,19 +41,31 @@ export function fitCamera(box: Box, width: number, height: number, insets: Inset
 /** A part of the canvas, in CSS pixels from its top left corner. */
 export interface Area { left: number; top: number; right: number; bottom: number }
 
-/** What a free part of the canvas leaves when small panels stand in its corners: either what is above them all, or what
- * is between them, those in the left half on the one side and the others on the other. A panel that does not reach
- * into the free part changes nothing. A graph is fitted into whichever shows it larger (`fitCameraIn`). */
+/** The rooms a free part of the canvas leaves beside the panels that stand in it. Each panel is kept clear of either by
+ * its side (the room ends where the panel begins, left or right of it) or by its height (above or below it), whichever
+ * half of the free part it stands in; every way of doing that for every panel is a room. A panel that does not reach
+ * into the free part changes nothing. A graph is fitted into whichever room shows it largest (`fitCameraIn`). */
 export function roomsBeside(free: Area, panels: readonly Area[]): Area[] {
-  const inWay = panels.filter(panel => panel.right > free.left && panel.left < free.right && panel.bottom > free.top && panel.top < free.bottom);
-  if (!inWay.length) return [free];
-  const above = { ...free, bottom: Math.min(free.bottom, ...inWay.map(panel => panel.top)) };
-  const between = { ...free };
-  for (const panel of inWay) {
-    if ((panel.left + panel.right) / 2 < (free.left + free.right) / 2) between.left = Math.max(between.left, panel.right);
-    else between.right = Math.min(between.right, panel.left);
+  const inWay = panels.filter(panel => panel.right > free.left && panel.left < free.right && panel.bottom > free.top && panel.top < free.bottom).slice(0, 5);
+  const middleX = (free.left + free.right) / 2;
+  const middleY = (free.top + free.bottom) / 2;
+  const rooms: Area[] = [];
+  const seen = new Set<string>();
+  for (let choice = 0; choice < 1 << inWay.length; choice++) {
+    const room = { ...free };
+    inWay.forEach((panel, index) => {
+      if (choice & (1 << index)) {
+        if ((panel.left + panel.right) / 2 < middleX) room.left = Math.max(room.left, panel.right); else room.right = Math.min(room.right, panel.left);
+      } else if ((panel.top + panel.bottom) / 2 < middleY) room.top = Math.max(room.top, panel.bottom);
+      else room.bottom = Math.min(room.bottom, panel.top);
+    });
+    const key = `${room.left},${room.top},${room.right},${room.bottom}`;
+    if (room.right > room.left && room.bottom > room.top && !seen.has(key)) {
+      seen.add(key);
+      rooms.push(room);
+    }
   }
-  return [above, between].filter(room => room.right > room.left && room.bottom > room.top);
+  return rooms;
 }
 
 /** What an area leaves of a canvas at each side, with a margin kept inside the area. */
@@ -114,6 +130,33 @@ export function minimapTransform(bounds: Box, width: number, height: number): Mi
 }
 
 export type Direction = "left" | "right" | "up" | "down";
+
+/** How many of the nodes shown have their middle in a part of the canvas: what a reader has in view, where the part is
+ * what the panels leave of it. */
+export function countInView(nodes: readonly ViewNode[], shown: (index: number) => boolean, camera: Camera, area: Area): number {
+  let count = 0;
+  for (const node of nodes) {
+    if (!shown(node.index)) continue;
+    const x = (node.x + node.w / 2) * camera.k + camera.ox;
+    const y = (node.y + node.h / 2) * camera.k + camera.oy;
+    if (x >= area.left && x <= area.right && y >= area.top && y <= area.bottom) count++;
+  }
+  return count;
+}
+
+/** The camera that has a box of the graph whole inside what the insets leave of the canvas: where it is when the box
+ * is there already, moved just far enough when the box fits at the zoom it has, and otherwise further away, as far as
+ * the box needs. It never comes closer. */
+export function bringIntoView(camera: Camera, box: Box, width: number, height: number, insets: Insets): Camera {
+  const roomX = width - insets.l - insets.r;
+  const roomY = height - insets.t - insets.b;
+  if (box.w * camera.k > roomX || box.h * camera.k > roomY) return fitCamera(box, width, height, insets, camera.k);
+  const left = box.x * camera.k + camera.ox;
+  const top = box.y * camera.k + camera.oy;
+  const dx = left < insets.l ? insets.l - left : Math.min(0, width - insets.r - (left + box.w * camera.k));
+  const dy = top < insets.t ? insets.t - top : Math.min(0, height - insets.b - (top + box.h * camera.k));
+  return dx === 0 && dy === 0 ? camera : { ox: camera.ox + dx, oy: camera.oy + dy, k: camera.k };
+}
 
 /** The node the selection moves to for an arrow key: from the node selected, the nearest shown node that lies that way,
  * one straight ahead before one off to the side. With nothing selected, the shown node nearest to a point (the middle
