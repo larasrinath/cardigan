@@ -37,8 +37,9 @@ export const BESIDE_SAYS = "Among a module's line items, a box that stands for a
 export interface ShellIds { results: string; hints: string; legend: string; about: string; access: string }
 
 /** Everything the map puts into its element, empty of the model but for its name: the view fills the parts as it goes.
- * The canvas comes first, under the panels; then one bar (the view's switch, where the map is, the view's controls and
- * the search), the details of the node selected, and what stands over the canvas itself: at its foot on the left the
+ * The canvas comes first, under the panels; then one bar (the view's switch, where the map is, and the view's controls
+ * with the search, which take a second line together where one is too short), the details of the box selected, and
+ * what stands over the canvas itself: at its foot on the left the
  * line that says what is shown, and over that line the legend and the notes about the map, both closed until asked
  * for; at its foot on the right the small picture with the zoom.
  * The canvas is a picture to a screen reader, with a name, and the keys' list is its description. The notes can be
@@ -52,11 +53,12 @@ export function shellHtml(ids: ShellIds, modelName: string): string {
       <button type="button" class="map-tab" data-map-act="view" data-map-view="drill" aria-pressed="false">Line items</button>
     </div>
     <nav class="map-crumbs" aria-label="Map breadcrumb"></nav>
+    <div class="map-tools">
     <div class="map-controls" role="group" aria-label="Map controls">
       <button type="button" class="map-btn" data-map-act="group">Show all modules</button>
       <select class="map-select map-section-select" aria-label="Model section"></select>
       <select class="map-select map-module-select" aria-label="Module for line items" hidden></select>
-      <button type="button" class="map-btn" data-map-act="external" hidden>Expand external items</button>
+      <button type="button" class="map-btn" data-map-act="external" hidden>Show line items of other modules</button>
       <label class="map-check" title="${esc(ACCESS_SAYS)}"><input type="checkbox" class="map-access" aria-describedby="${esc(ids.access)}">Access drivers</label>
       <span class="map-sr-only" id="${esc(ids.access)}">${esc(ACCESS_SAYS)}</span>
     </div>
@@ -69,8 +71,9 @@ export function shellHtml(ids: ShellIds, modelName: string): string {
       </div>
       <div class="map-panel map-results" id="${esc(ids.results)}" role="group" aria-label="Search results" hidden></div>
     </div>
+    </div>
   </div>
-  <aside class="map-panel map-inspector" aria-label="Selected node details" hidden></aside>
+  <aside class="map-panel map-inspector" aria-label="Details of the box selected" hidden></aside>
   <div class="map-free">
     <div class="map-foot">
     <div class="map-over">
@@ -91,9 +94,9 @@ export function shellHtml(ids: ShellIds, modelName: string): string {
     </div>
     <div class="map-dock">
       <div class="map-panel map-status"><span class="map-stats"></span><button type="button" class="map-btn map-small" data-map-act="whole" hidden>Whole map</button></div>
-      <div class="map-panel map-tracebar" hidden></div>
       <button type="button" class="map-btn map-dock-btn" data-map-act="legend" aria-expanded="false" aria-controls="${esc(ids.legend)}">Legend</button>
       <button type="button" class="map-btn map-dock-btn" data-map-act="about" aria-expanded="false" aria-controls="${esc(ids.about)}">About this map</button>
+      <div class="map-panel map-tracebar" hidden></div>
     </div>
     </div>
     <div class="map-corner">
@@ -119,12 +122,15 @@ function leftOutHtml(lines: readonly string[]): string {
 }
 
 /** What the notes about the map say of this model: how large it is, and what the graph could not hold, as the export's
- * own sentences say it, with how many names matched no object, or more than one. */
-export function notesHtml(model: { name: string; workspace?: string; modules: number; lineItems: number }, limitations: readonly string[], unresolved: number): string {
+ * own sentences say it, with how many names matched no object, or more than one. `headings` is how many heading rows
+ * stand among the model's modules: the page's Modules table counts each as a row, and the map counts none as a module,
+ * so the two numbers differ by them, and the notes say why. */
+export function notesHtml(model: { name: string; workspace?: string; modules: number; lineItems: number; headings?: number }, limitations: readonly string[], unresolved: number): string {
   const lines = [...limitations, ...(unresolved > 0 ? [`${formatCount(unresolved)} ${unresolved === 1 ? "name" : "names"} in the export matched no object, or more than one. A box's details list its own.`] : [])];
-  const { modules, lineItems } = model;
+  const { modules, lineItems, headings = 0 } = model;
   const where = model.workspace !== undefined && model.workspace.trim() !== "" ? `, in the workspace ${esc(model.workspace)}` : "";
-  return `<h3 class="map-about-title">This model</h3><p class="map-about-line">${esc(model.name)}${where}: ${esc(formatCount(modules))} ${modules === 1 ? "module" : "modules"} · ${esc(formatCount(lineItems))} ${lineItems === 1 ? "line item" : "line items"}</p>${leftOutHtml(lines)}`;
+  const rows = headings <= 0 ? "" : `<p class="map-about-line">${esc(formatCount(headings))} heading ${headings === 1 ? "row stands" : "rows stand"} among the modules. The map counts ${headings === 1 ? "it" : "them"} as no module, and the page's Modules table counts ${headings === 1 ? "it as a row" : "each as a row"}: that table has more rows than the map has modules.</p>`;
+  return `<h3 class="map-about-title">This model</h3><p class="map-about-line">${esc(model.name)}${where}: ${esc(formatCount(modules))} ${modules === 1 ? "module" : "modules"} · ${esc(formatCount(lineItems))} ${lineItems === 1 ? "line item" : "line items"}</p>${rows}${leftOutHtml(lines)}`;
 }
 
 /** Where the map is: the workspace where the page names it, the model, and under it the section or the module on
@@ -142,12 +148,10 @@ export interface Crumbs {
 export function crumbsHtml(crumbs: Crumbs): string {
   const sep = '<span class="map-sep" aria-hidden="true">›</span>';
   const parts: string[] = [];
-  // The workspace and the mark after it are one piece: where there is no room for the workspace, both go. It says how
-  // much stands after it, for the stylesheet: before the model alone it has the most room (`map-crumb-ws-alone`), and
-  // before a model, a section and a module the least (`map-crumb-ws-deep`, map.css).
+  // The workspace and the mark after it are one piece: where the bar has no room for the workspace, both go, before any
+  // other name is cut (map-view.ts `fitCrumbs`).
   const named = crumbs.workspace !== undefined && crumbs.workspace.trim() !== "";
-  const depth = crumbs.here === undefined ? " map-crumb-ws-alone" : crumbs.section ? " map-crumb-ws-deep" : "";
-  const workspace = named ? `<span class="map-crumb-ws${depth}" title="Workspace: ${esc(crumbs.workspace)}"><span class="map-crumb-ws-name">${esc(crumbs.workspace)}</span>${sep}</span>` : "";
+  const workspace = named ? `<span class="map-crumb-ws" title="Workspace: ${esc(crumbs.workspace)}"><span class="map-crumb-ws-name">${esc(crumbs.workspace)}</span>${sep}</span>` : "";
   // The model's name says its workspace on hover too: a narrow bar has no room to write it.
   const said = named ? `${crumbs.model} (workspace: ${crumbs.workspace})` : crumbs.model;
   parts.push(crumbs.here === undefined
@@ -170,15 +174,19 @@ export function legendHtml(title: string, layers: readonly ViewLayer[], hidden: 
   }).join("")}<p class="map-legend-note">${esc(LINK_SAYS)}</p>`;
 }
 
+/** What the first button of the trace's bar does, in full: its face is short, for the bar to keep to one row. */
+const ONLY_SAYS = "Show only these boxes";
+const ALL_SAYS = "Show all boxes";
+
 /** The bar that says what is traced, as the picture runs, from left to right: how many boxes feed the node, the node,
- * and how many it feeds. Each side has its colour and the sign its boxes carry on the canvas. `focused` says the view
- * keeps to the trace. */
+ * and how many it feeds. Each side has its colour and the sign its boxes carry on the canvas. Its first button keeps
+ * the picture to those boxes, and shows all of them again: `focused` says which the picture does now. */
 export function tracebarHtml(name: string, words: TraceWords, focused: boolean): string {
   return `<span class="map-trace-count map-trace-up">${SIGN}${esc(words.feeds)}</span>
     <span class="map-trace-name" title="${esc(name)}">${esc(name)}</span>
     <span class="map-trace-count map-trace-down">${SIGN}${esc(words.fed)}</span>
-    <button type="button" class="map-btn map-small" data-map-act="focus">${focused ? "Show full graph" : "Focus trace"}</button>
-    <button type="button" class="map-btn map-small" data-map-act="clear">Clear</button>`;
+    <span class="map-trace-acts"><button type="button" class="map-btn map-small" data-map-act="focus" aria-label="${focused ? ALL_SAYS : ONLY_SAYS}" title="${focused ? ALL_SAYS : ONLY_SAYS}">${focused ? "All boxes" : "Only these"}</button>
+    <button type="button" class="map-btn map-small" data-map-act="clear" aria-label="Clear the selection" title="Clear the selection">Clear</button></span>`;
 }
 
 export interface Tip { layer: string; kind: string; name: string; lines: readonly string[]; formula?: string }

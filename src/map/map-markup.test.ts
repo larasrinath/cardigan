@@ -170,7 +170,7 @@ describe("The map's own markup", () => {
       if (control.localName === "button") expect(control.getAttribute("type")).toBe("button");
     }
     expect(names).toEqual([
-      "Modules", "Line items", "Show all modules", "Model section", "Module for line items", "Expand external items", "Access drivers", "Search all sections, modules and line items",
+      "Modules", "Line items", "Show all modules", "Model section", "Module for line items", "Show line items of other modules", "Access drivers", "Search all sections, modules and line items",
       "Whole map", "Legend", "About this map", "Zoom out", "Zoom in", "Fit",
     ]);
     expect(shell.querySelector(".map-search")?.getAttribute("aria-controls")).toBe("map-results-1");
@@ -190,7 +190,9 @@ describe("The map's own markup", () => {
 
   it("names the panels, and has a place that speaks politely", () => {
     const shell = parseMarkup(shellHtml(IDS, "Demand Plan"));
-    expect(shell.querySelector(".map-inspector")?.getAttribute("aria-label")).toBe("Selected node details");
+    expect(shell.querySelector(".map-inspector")?.getAttribute("aria-label")).toBe("Details of the box selected");
+    // No name a screen reader says, and no word on the map, calls a box a node.
+    expect(shell.textContent + shell.querySelectorAll("[aria-label], [title]").map(named => `${named.getAttribute("aria-label") ?? ""} ${named.getAttribute("title") ?? ""}`).join(" ")).not.toMatch(/\bnodes?\b/i);
     expect(shell.querySelector(".map-crumbs")?.localName).toBe("nav");
     expect(shell.querySelector(".map-crumbs")?.getAttribute("aria-label")).toBe("Map breadcrumb");
     expect(shell.querySelector(".map-live")?.getAttribute("aria-live")).toBe("polite");
@@ -222,14 +224,32 @@ describe("The map's own markup", () => {
     expect(shell.querySelectorAll(".map-tab").map(tab => [tab.textContent, tab.dataset.mapView, tab.getAttribute("aria-pressed")])).toEqual([["Modules", "modules", "true"], ["Line items", "drill", "false"]]);
     // The line of what is shown and the small picture stand over the graph's own room, with the bar above it.
     expect(shell.querySelector(".map-chrome")?.children.map(child => child.getAttribute("class"))).toEqual(["map-panel map-bar", "map-panel map-inspector", "map-free"]);
+    // In the bar the controls and the search are one group, which takes a second line as one where the first is too short.
+    expect(shell.querySelector(".map-bar")?.children.map(child => child.getAttribute("class"))).toEqual(["map-tabs", "map-crumbs", "map-tools"]);
+    expect(shell.querySelector(".map-tools")?.children.map(child => child.getAttribute("class"))).toEqual(["map-controls", "map-searchwrap"]);
     expect(shell.querySelector(".map-free")?.children.map(child => child.getAttribute("class"))).toEqual(["map-foot", "map-corner", "map-empty"]);
     // The legend and the notes stand over the line at the foot, whatever its height.
     expect(shell.querySelector(".map-foot")?.children.map(child => child.getAttribute("class"))).toEqual(["map-over", "map-dock"]);
+    // At the foot: the line of what is shown with the two buttons beside it, and under them the bar of what is traced.
+    expect(shell.querySelector(".map-dock")?.children.map(child => child.getAttribute("class"))).toEqual(["map-panel map-status", "map-btn map-dock-btn", "map-btn map-dock-btn", "map-panel map-tracebar"]);
     expect(shell.querySelector(".map-over")?.children.map(child => child.getAttribute("class"))).toEqual(["map-panel map-legend", "map-panel map-about"]);
   });
 });
 
 describe("The map's panels", () => {
+  it("says in the notes why the page's Modules table has more rows than the map has modules, where the model has heading rows", () => {
+    const model = { name: "Demand Plan", modules: 4, lineItems: 10 };
+    const lines = (headings?: number): string[] => parseMarkup(`<div>${notesHtml({ ...model, ...(headings === undefined ? {} : { headings }) }, [], 0)}</div>`).querySelectorAll(".map-about-line").map(line => line.textContent);
+    // The first line is the model's size, and ends with it, whatever follows.
+    expect(lines(3)).toEqual([
+      "Demand Plan: 4 modules · 10 line items",
+      "3 heading rows stand among the modules. The map counts them as no module, and the page's Modules table counts each as a row: that table has more rows than the map has modules.",
+    ]);
+    expect(lines(1)[1]).toBe("1 heading row stands among the modules. The map counts it as no module, and the page's Modules table counts it as a row: that table has more rows than the map has modules.");
+    // A model without heading rows has nothing to explain.
+    expect([lines(0), lines()]).toEqual([["Demand Plan: 4 modules · 10 line items"], ["Demand Plan: 4 modules · 10 line items"]]);
+  });
+
   it("says in the notes how large the model is, and in which workspace where the page names one", () => {
     const notes = parseMarkup(`<div>${notesHtml({ name: "Demand Plan", workspace: "Sandbox", modules: 250, lineItems: 5000 }, [], 0)}</div>`);
     expect(notes.querySelectorAll("h3").map(title => title.textContent)).toEqual(["This model"]);
@@ -284,12 +304,12 @@ describe("The map's panels", () => {
     // The model's name is the map's heading. It says its workspace on hover, where a narrow bar has no room to write it.
     const here = root.querySelector("[aria-current]")!;
     expect([here.localName, here.getAttribute("class"), here.textContent, here.getAttribute("aria-current"), here.getAttribute("title")]).toEqual(["h2", "map-title-name map-here", "Demand Plan", "location", "Demand Plan (workspace: Sandbox)"]);
-    // The workspace and the mark after it are one piece, so that the mark goes when the workspace does. Before the model
-    // alone it says so: the stylesheet gives it room there that it has not before a section and a module.
+    // The workspace and the mark after it are one piece, so that the mark goes when the workspace does: it is the first
+    // thing to go where the bar is short of room.
     const workspace = root.querySelector(".map-crumb-ws")!;
     expect([workspace.getAttribute("title"), workspace.children.map(child => [child.getAttribute("class"), child.textContent]), workspace.querySelector(".map-sep")?.getAttribute("aria-hidden")])
       .toEqual(["Workspace: Sandbox", [["map-crumb-ws-name", "Sandbox"], ["map-sep", "›"]], "true"]);
-    expect(root.querySelector("nav")?.children.map(child => child.getAttribute("class"))).toEqual(["map-crumb-ws map-crumb-ws-alone", "map-title-name map-here"]);
+    expect(root.querySelector("nav")?.children.map(child => child.getAttribute("class"))).toEqual(["map-crumb-ws", "map-title-name map-here"]);
 
     const section = parseMarkup(`<nav>${crumbsHtml({ model: "Demand Plan", here: "01: Inputs" })}</nav>`);
     expect(section.querySelectorAll("button").map(button => [button.textContent, button.dataset.mapAct, button.dataset.mapCrumb, button.getAttribute("title"), button.closest("h2")?.getAttribute("class")])).toEqual([["Demand Plan", "crumb", "root", "Demand Plan", "map-title-name"]]);
@@ -302,9 +322,8 @@ describe("The map's panels", () => {
     expect(module.querySelectorAll("button").map(button => [button.textContent, button.dataset.mapCrumb, button.dataset.mapSection])).toEqual([["Demand Plan", "root", undefined], ["04: Planning", "section", "3"]]);
     expect(module.querySelector("[aria-current]")?.textContent).toBe("PLN01 - Plan");
     expect(module.querySelectorAll(".map-sep")).toHaveLength(3);
-    // The workspace says how much stands after it: the stylesheet gives it room accordingly.
-    expect([module.querySelector(".map-crumb-ws")?.getAttribute("class"), section.querySelector(".map-crumb-ws")]).toEqual(["map-crumb-ws map-crumb-ws-deep", null]);
-    expect(parseMarkup(`<nav>${crumbsHtml({ model: "Demand Plan", workspace: "Sandbox", here: "All modules" })}</nav>`).querySelector(".map-crumb-ws")?.getAttribute("class")).toBe("map-crumb-ws");
+    // The workspace is the same piece before every view's names: whether it has the room is the view's to measure.
+    expect([module.querySelector(".map-crumb-ws")?.getAttribute("class"), section.querySelector(".map-crumb-ws")]).toEqual(["map-crumb-ws", null]);
     // A section is named only on the way to a module.
     expect(parseMarkup(`<nav>${crumbsHtml({ model: "Demand Plan", section: { index: 3, name: "04: Planning" } })}</nav>`).querySelectorAll("button")).toEqual([]);
   });
@@ -321,14 +340,21 @@ describe("The map's panels", () => {
 
   it("says what is traced as the picture runs: what feeds the node, the node, what it feeds, each side with its sign", () => {
     const bar = parseMarkup(`<div>${tracebarHtml("CAL01 - Revenue", TRACED, false)}</div>`);
-    expect(bar.querySelector("div")?.children.map(child => child.getAttribute("class"))).toEqual(["map-trace-count map-trace-up", "map-trace-name", "map-trace-count map-trace-down", "map-btn map-small", "map-btn map-small"]);
+    // Its two buttons are one piece: where the bar is too short for one row, they take the second together.
+    expect(bar.querySelector("div")?.children.map(child => child.getAttribute("class"))).toEqual(["map-trace-count map-trace-up", "map-trace-name", "map-trace-count map-trace-down", "map-trace-acts"]);
+    expect(bar.querySelector(".map-trace-acts")?.children.map(child => child.getAttribute("class"))).toEqual(["map-btn map-small", "map-btn map-small"]);
     expect([bar.querySelector(".map-trace-name")?.textContent, bar.querySelector(".map-trace-name")?.getAttribute("title")]).toEqual(["CAL01 - Revenue", "CAL01 - Revenue"]);
     expect(bar.querySelectorAll(".map-trace-count").map(count => count.textContent)).toEqual(["1,200 boxes feed it", "it feeds 1 box"]);
     // The sign is a picture beside the words, not a word: a screen reader hears the words alone.
     expect(bar.querySelectorAll(".map-sign").map(sign => [sign.localName, sign.getAttribute("aria-hidden"), sign.parentElement?.getAttribute("class")])).toEqual([["svg", "true", "map-trace-count map-trace-up"], ["svg", "true", "map-trace-count map-trace-down"]]);
-    expect(bar.querySelectorAll("button").map(button => [button.textContent, button.dataset.mapAct])).toEqual([["Focus trace", "focus"], ["Clear", "clear"]]);
-    // While the view keeps to the trace, the same button leads back.
-    expect(parseMarkup(`<div>${tracebarHtml("CAL01 - Revenue", TRACED, true)}</div>`).querySelectorAll("button").map(button => [button.textContent, button.dataset.mapAct])).toEqual([["Show full graph", "focus"], ["Clear", "clear"]]);
+    // The first button keeps the picture to the boxes the bar has just counted. Its face is short, so that the bar keeps
+    // to one row; its name to a screen reader and on hover says it in full, and holds the words on its face.
+    const buttons = (focused: boolean): (string | undefined)[][] => parseMarkup(`<div>${tracebarHtml("CAL01 - Revenue", TRACED, focused)}</div>`).querySelectorAll("button")
+      .map(button => [button.textContent, button.dataset.mapAct, button.getAttribute("aria-label") ?? undefined, button.getAttribute("title") ?? undefined]);
+    expect(buttons(false)).toEqual([["Only these", "focus", "Show only these boxes", "Show only these boxes"], ["Clear", "clear", "Clear the selection", "Clear the selection"]]);
+    // While the picture keeps to them, the same button leads back.
+    expect(buttons(true)).toEqual([["All boxes", "focus", "Show all boxes", "Show all boxes"], ["Clear", "clear", "Clear the selection", "Clear the selection"]]);
+    for (const [face, , name] of [...buttons(false), ...buttons(true)]) expect(name?.toLowerCase()).toContain(face?.toLowerCase());
   });
 
   it("cuts a long formula short in the tooltip, and leaves out lines that say nothing", () => {

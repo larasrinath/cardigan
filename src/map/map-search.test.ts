@@ -68,6 +68,8 @@ describe("The map's search", () => {
     const kinds = (outcome: { hits: { kind: string }[] }): string[] => [...new Set(outcome.hits.map(hit => hit.kind))];
     expect(kinds(all("in"))).toContain("section");
     expect(kinds(none("in"))).not.toContain("section");
+    // Nor does a module say which section it is of, where there are none to tell apart.
+    expect([all("inp0").hits.find(hit => hit.kind === "module")?.context, none("inp0").hits.find(hit => hit.kind === "module")?.context]).toEqual(["Module · 01: Inputs", "Module"]);
     expect(none("in").total).toBe(all("in").total - all("in").hits.filter(hit => hit.kind === "section").length);
   });
 

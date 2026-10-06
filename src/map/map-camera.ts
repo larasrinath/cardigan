@@ -41,26 +41,33 @@ export function fitCamera(box: Box, width: number, height: number, insets: Inset
 /** A part of the canvas, in CSS pixels from its top left corner. */
 export interface Area { left: number; top: number; right: number; bottom: number }
 
-/** The rooms a free part of the canvas leaves beside the panels that stand in it. Each panel is kept clear of either by
- * its side (the room ends where the panel begins, left or right of it) or by its height (above or below it), whichever
- * half of the free part it stands in; every way of doing that for every panel is a room. A panel that does not reach
- * into the free part changes nothing. A graph is fitted into whichever room shows it largest (`fitCameraIn`). */
+/** The rooms a free part of the canvas leaves beside the panels that stand in it. A room keeps clear of each panel in
+ * one of four ways: it ends above the panel or begins below it, or it ends at the panel's left or begins at its right.
+ * Every way of doing that for every panel is a room, as long as it is large enough to fit anything into. The ways are
+ * tried in a fixed order, the side of the free part a panel stands in first: over a panel in its lower half, beside a
+ * panel in its right half. A panel that does not reach into the free part changes nothing. A graph is fitted into
+ * whichever room shows it largest (`fitCameraIn`). */
 export function roomsBeside(free: Area, panels: readonly Area[]): Area[] {
   const inWay = panels.filter(panel => panel.right > free.left && panel.left < free.right && panel.bottom > free.top && panel.top < free.bottom).slice(0, 5);
   const middleX = (free.left + free.right) / 2;
   const middleY = (free.top + free.bottom) / 2;
+  type Way = (room: Area, panel: Area) => void;
+  const above: Way = (room, panel) => { room.bottom = Math.min(room.bottom, panel.top); };
+  const below: Way = (room, panel) => { room.top = Math.max(room.top, panel.bottom); };
+  const leftOf: Way = (room, panel) => { room.right = Math.min(room.right, panel.left); };
+  const rightOf: Way = (room, panel) => { room.left = Math.max(room.left, panel.right); };
+  const ways = inWay.map((panel): Way[] => {
+    const upper = (panel.top + panel.bottom) / 2 < middleY;
+    const lefthand = (panel.left + panel.right) / 2 < middleX;
+    return [upper ? below : above, lefthand ? rightOf : leftOf, upper ? above : below, lefthand ? leftOf : rightOf];
+  });
   const rooms: Area[] = [];
   const seen = new Set<string>();
-  for (let choice = 0; choice < 1 << inWay.length; choice++) {
+  for (let choice = 0; choice < 4 ** inWay.length; choice++) {
     const room = { ...free };
-    inWay.forEach((panel, index) => {
-      if (choice & (1 << index)) {
-        if ((panel.left + panel.right) / 2 < middleX) room.left = Math.max(room.left, panel.right); else room.right = Math.min(room.right, panel.left);
-      } else if ((panel.top + panel.bottom) / 2 < middleY) room.top = Math.max(room.top, panel.bottom);
-      else room.bottom = Math.min(room.bottom, panel.top);
-    });
+    inWay.forEach((panel, index) => ways[index][Math.floor(choice / 4 ** index) % 4](room, panel));
     const key = `${room.left},${room.top},${room.right},${room.bottom}`;
-    if (room.right > room.left && room.bottom > room.top && !seen.has(key)) {
+    if (room.right - room.left >= LEAST_ROOM && room.bottom - room.top >= LEAST_ROOM && !seen.has(key)) {
       seen.add(key);
       rooms.push(room);
     }
@@ -131,15 +138,16 @@ export function minimapTransform(bounds: Box, width: number, height: number): Mi
 
 export type Direction = "left" | "right" | "up" | "down";
 
-/** How many of the nodes shown have their middle in a part of the canvas: what a reader has in view, where the part is
- * what the panels leave of it. */
-export function countInView(nodes: readonly ViewNode[], shown: (index: number) => boolean, camera: Camera, area: Area): number {
+/** How many of the nodes shown the reader has in view: those whose middle is in a part of the canvas (what the bar and
+ * the details leave of it) and under none of the panels that stand in that part. */
+export function countInView(nodes: readonly ViewNode[], shown: (index: number) => boolean, camera: Camera, area: Area, covered: readonly Area[] = []): number {
   let count = 0;
   for (const node of nodes) {
     if (!shown(node.index)) continue;
     const x = (node.x + node.w / 2) * camera.k + camera.ox;
     const y = (node.y + node.h / 2) * camera.k + camera.oy;
-    if (x >= area.left && x <= area.right && y >= area.top && y <= area.bottom) count++;
+    if (x < area.left || x > area.right || y < area.top || y > area.bottom) continue;
+    if (!covered.some(panel => x >= panel.left && x <= panel.right && y >= panel.top && y <= panel.bottom)) count++;
   }
   return count;
 }

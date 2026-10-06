@@ -117,6 +117,8 @@ describe("The graph of a section's modules", () => {
     make.item(first, "Units");
     const graph = modulesGraph(indexModel(make.graph()), undefined, false);
     expect(graph.nodes.map(node => node.meta)).toEqual(["1 line item", "0 line items"]);
+    // And its legend has one entry for them, named for what they are: a heading nobody wrote is no section.
+    expect(graph.layers).toEqual([{ key: "s0", label: "Modules", count: 2 }]);
   });
   it("gives an empty graph for a section without modules", () => {
     const { model } = sample();
