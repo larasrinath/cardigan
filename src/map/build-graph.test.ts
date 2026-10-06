@@ -294,18 +294,19 @@ describe("The model map's graph, from the tables of a model export", () => {
         item("COST01 Costs, direct", "Rate", { "Applies To": "Products" })),
       generalLists(
         list("Products", { "Referenced in Applies To": "REV01 Revenue, 'COST01 Costs, direct'.Rate, Old module", "Referenced as Format": "REV01 Revenue.Product, Customers.Favourite",
-          "Referenced in Formula": "REV01 Revenue.Units, REV01 Revenue.'Gone item'" }),
+          "Referenced in Formula": "REV01 Revenue.Units, REV01 Revenue.'Gone item', Customers.Spend" }),
         list("Customers", { Properties: "Favourite: Products, Spend: NUMBER" })),
     ]);
     expect(links(graph)).toEqual(anyOrder([
-      // What the list's own columns name. The module's Applies To says the first of these too: it is one link.
+      // What the list's own columns name. The module's Applies To says the first of these too: it is one link. A list's
+      // property has a format and may have a formula, as a line item has.
       "Products -> REV01 Revenue (applies)", "Products -> COST01 Costs, direct.Rate (applies)",
       "Products -> REV01 Revenue.Product (format)", "Products -> Customers.Favourite (format)",
-      "Products -> REV01 Revenue.Units (list_formula)",
+      "Products -> REV01 Revenue.Units (list_formula)", "Products -> Customers.Spend (list_formula)",
       // And the two line items that have their module's dimensions.
       "Products -> REV01 Revenue.Product (applies)", "Products -> REV01 Revenue.Units (applies)",
     ]));
-    expect(links(graph)).toHaveLength(7);
+    expect(links(graph)).toHaveLength(8);
     expect(unresolved(graph)).toEqual(["Products: Referenced in Applies To: Old module", "Products: Referenced in Formula: REV01 Revenue.'Gone item'"]);
     // The list's Referenced as Format names the line item, so the line item's list is known.
     expect(node(graph, "Product").formatList).toBe(node(graph, "Products").id);
@@ -315,19 +316,19 @@ describe("The model map's graph, from the tables of a model export", () => {
     const graph = buildModelGraph([
       lineItems(moduleRow("Sales plan"), item("Sales plan", "Volume")),
       generalLists(
-        // A list applies to a module or a line item: not to a list, a subset or a list's property. It is the format of a
-        // line item or a list's property: not of a module, a list or a subset. And the formula that names it is a line
-        // item's: the contract gives that link no other end.
+        // A list applies to a module or a line item: not to a list, a subset or a list's property. It is the format, or in
+        // the formula, of a line item or a list's property: not of a module, a list or a subset.
         list("Brands", { Properties: "Code: TEXT", "Referenced in Applies To": "Depots, Seasonal, Brands.Code, Sales plan",
           "Referenced as Format": "Sales plan, Depots, Sales plan.Volume, Brands.Code", "Referenced in Formula": "Sales plan, Seasonal, Brands.Code, Sales plan.Volume" }),
         list("Depots"),
         list("Seasons", { Subsets: "Seasonal" })),
     ]);
     expect(kindLinks(graph)).toEqual(anyOrder(["list Brands -> module Sales plan (applies)", "list Brands -> lineItem Sales plan.Volume (format)", "list Brands -> property Brands.Code (format)",
-      "list Brands -> lineItem Sales plan.Volume (list_formula)", "list Seasons -> subset Seasonal (subset)"]));
+      "list Brands -> lineItem Sales plan.Volume (list_formula)", "list Brands -> property Brands.Code (list_formula)", "list Seasons -> subset Seasonal (subset)"]));
     expect(unresolved(graph)).toEqual(["Brands: Referenced in Applies To: Depots", "Brands: Referenced in Applies To: Seasonal", "Brands: Referenced in Applies To: Brands.Code",
-      "Brands: Referenced as Format: Sales plan", "Brands: Referenced as Format: Depots", "Brands: Referenced in Formula: Sales plan", "Brands: Referenced in Formula: Seasonal",
-      "Brands: Referenced in Formula: Brands.Code"]);
+      "Brands: Referenced as Format: Sales plan", "Brands: Referenced as Format: Depots", "Brands: Referenced in Formula: Sales plan", "Brands: Referenced in Formula: Seasonal"]);
+    // No module here is named as a list is, so no name fits two objects.
+    expect(counted(graph)).toEqual([]);
     // The list's column names Volume, and that is the link. Volume's own Format says it is a number: it is formatted as no list.
     expect([node(graph, "Volume").format, node(graph, "Volume").formatList]).toEqual(["NUMBER", undefined]);
   });
@@ -563,7 +564,7 @@ describe("The model map's graph, from the tables of a model export", () => {
     expect(unresolved(graph)).toEqual([]);
   });
 
-  it("takes a bare name for a line item of the row's own module first, and a name that two objects share for neither", () => {
+  it("takes a bare name for a line item of the row's own module first, and a dimension that a list and a subset both name for neither", () => {
     const graph = buildModelGraph([
       lineItems(
         moduleRow("ACC01 Access"),
@@ -573,28 +574,70 @@ describe("The model map's graph, from the tables of a model export", () => {
         item("ACC01 Access", "Own", { "Read Access Driver": "Shared", "Referenced By": "Shared" }),
         // A list and a subset of one name: the dimension is neither's.
         moduleRow("Shared", { "Applies To": "Shared, Core" }),
-        item("Shared", "Shared"),
         moduleRow("REP01 Report"),
-        // In a module with no line item of the name, a bare name in Referenced By is the module. Behind a dot the name is
-        // that module's line item for a driver, which a property cannot be. In Referenced By it is the line item or the
-        // list's property of the same two names, and nothing tells which.
-        item("REP01 Report", "Other", { "Write Access Driver": "Shared.Shared", "Referenced By": "Shared, Shared.Shared, Regions.Code" })),
+        // In a module with no line item of the name, a bare name in Referenced By is the module, and a driver, which is
+        // a line item, is nothing.
+        item("REP01 Report", "Other", { "Write Access Driver": "Shared", "Referenced By": "Shared" })),
       generalLists(
-        list("Shared", { Subsets: "Core", Properties: "Shared: TEXT" }),
-        // A parent that a list and a subset both have the name of is neither. A list's own columns name the module of the
-        // name, and behind a dot the line item or the property, which here are two.
-        list("Regions", { Subsets: "Shared", Properties: "Code: TEXT", "Parent Hierarchy": "Shared", "Referenced in Applies To": "Shared", "Referenced as Format": "Shared.Shared, Regions.Code" })),
+        list("Shared", { Subsets: "Core" }),
+        // A parent that a list and a subset both have the name of is neither. A list's own columns name the module of the name.
+        list("Regions", { Subsets: "Shared", "Parent Hierarchy": "Shared", "Referenced in Applies To": "Shared" })),
     ]);
     expect(kindLinks(graph)).toEqual(anyOrder([
       "list Shared -> subset Core (subset)", "list Regions -> subset Shared (subset)",
       "lineItem ACC01 Access.Shared -> lineItem ACC01 Access.Own (read_access)", "lineItem ACC01 Access.Own -> lineItem ACC01 Access.Shared (reference)",
-      "subset Core -> module Shared (applies)", "subset Core -> lineItem Shared.Shared (applies)",
-      "lineItem Shared.Shared -> lineItem REP01 Report.Other (write_access)",
-      "lineItem REP01 Report.Other -> module Shared (reference)", "lineItem REP01 Report.Other -> property Regions.Code (reference)",
-      "list Regions -> module Shared (applies)", "list Regions -> property Regions.Code (format)"]));
+      "subset Core -> module Shared (applies)",
+      "lineItem REP01 Report.Other -> module Shared (reference)",
+      "list Regions -> module Shared (applies)"]));
     expect([node(graph, "Regions").parent, names(graph, node(graph, "Shared", "module").dimensions)]).toEqual([undefined, ["Core"]]);
-    expect(unresolved(graph)).toEqual(["Regions: Parent Hierarchy: Shared", "Regions: Referenced as Format: Shared.Shared", "Shared: Applies To: Shared",
-      "REP01 Report.Other: Referenced By: Shared.Shared"]);
+    expect(unresolved(graph)).toEqual(["Regions: Parent Hierarchy: Shared", "Shared: Applies To: Shared", "REP01 Report.Other: Write Access Driver: Shared"]);
+    expect(counted(graph)).toEqual([]);
+  });
+
+  it("takes a name that fits both a module's line item and a list's property for the line item, and counts each such name", () => {
+    // A module named as its list is, with line items named as the list's properties are.
+    const graph = buildModelGraph([
+      lineItems(
+        moduleRow("Products"),
+        item("Products", "Code"),
+        item("Products", "Price"),
+        item("Products", "Margin"),
+        moduleRow("REP01 Report"),
+        // Behind a dot, Products.Code is the module's line item and the list's property. It is the line item in a
+        // Referenced By, however it is written and however often. Products.Label is the property's alone, and
+        // Products.Margin the line item's alone.
+        item("REP01 Report", "Total", { "Referenced By": "Products.Code, 'Products'.Code, Products.'Code', Products.Label, Products.Margin", "Read Access Driver": "Products.Price" }),
+        item("REP01 Report", "Detail", { "Referenced By": "Products.Code" })),
+      generalLists(
+        list("Products", { Properties: "Code: TEXT, Price: NUMBER, Label: TEXT" }),
+        // And so in a list's Referenced as Format and Referenced in Formula.
+        list("Regions", { "Referenced as Format": "Products.Code, Products.Label", "Referenced in Formula": "Products.Price, Products.Label" })),
+    ]);
+    expect(kindLinks(graph)).toEqual(anyOrder([
+      "lineItem REP01 Report.Total -> lineItem Products.Code (reference)", "lineItem REP01 Report.Total -> property Products.Label (reference)",
+      "lineItem REP01 Report.Total -> lineItem Products.Margin (reference)", "lineItem REP01 Report.Detail -> lineItem Products.Code (reference)",
+      "lineItem Products.Price -> lineItem REP01 Report.Total (read_access)",
+      "list Regions -> lineItem Products.Code (format)", "list Regions -> property Products.Label (format)",
+      "list Regions -> lineItem Products.Price (list_formula)", "list Regions -> property Products.Label (list_formula)"]));
+    expect(graph.unresolved).toEqual([]);
+    // Two names fit both: Products.Code, said in four cells, and Products.Price, said in one. Each is counted once.
+    const TWO = "2 names fit both a line item and a list property of the same name, and are taken for the line item.";
+    expect(counted(graph)).toEqual([TWO]);
+    // The sentence stands after what was left out and before what the map always says.
+    expect(graph.limitations).toEqual([NO_MODULES_FILE, ...NO_ACTIONS, TWO, LIST_ITEMS, LINKS]);
+
+    // One such name is said as one.
+    const one = buildModelGraph([lineItems(moduleRow("Plan"), item("Plan", "Code", { "Referenced By": "Plan.Code" })), generalLists(list("Plan", { Properties: "Code: TEXT" }))]);
+    expect([kindLinks(one), counted(one)]).toEqual([["lineItem Plan.Code -> lineItem Plan.Code (reference)"],
+      ["1 name fits both a line item and a list property of the same name, and is taken for the line item."]]);
+    // A name is counted only where it is read in a column that could mean the property. A driver is a line item, and a
+    // list applies to a line item: there the name fits one object, and nothing is said.
+    const certain = buildModelGraph([lineItems(moduleRow("Plan"), item("Plan", "Code"), item("Plan", "Units", { "Read Access Driver": "Plan.Code" })),
+      generalLists(list("Plan", { Properties: "Code: TEXT", "Referenced in Applies To": "Plan.Code" }))]);
+    expect([kindLinks(certain), counted(certain), certain.unresolved]).toEqual([anyOrder(["lineItem Plan.Code -> lineItem Plan.Units (read_access)", "list Plan -> lineItem Plan.Code (applies)"]), [], []]);
+    // And a module and a list of one name whose line items and properties share no name give nothing to count.
+    const apart = buildModelGraph([lineItems(moduleRow("Plan"), item("Plan", "Units", { "Referenced By": "Plan.Code, Plan.Units" })), generalLists(list("Plan", { Properties: "Code: TEXT" }))]);
+    expect([kindLinks(apart), counted(apart)]).toEqual([anyOrder(["lineItem Plan.Units -> property Plan.Code (reference)", "lineItem Plan.Units -> lineItem Plan.Units (reference)"]), []]);
   });
 
   it("matches names written in quotes, with commas, dots, apostrophes and doubled quotes inside", () => {
@@ -805,7 +848,7 @@ describe("The model map's graph, from the tables of a model export", () => {
       PROCESS_ORDER, LINKS, IMPORT_SOURCES]);
   });
 
-  it("links an import to the module or the list its Target Object names, of the kind its Target Type says", () => {
+  it("links an import to the module or the list its Target Object names, of the kind its Target Type says by the word it holds", () => {
     const graph = buildModelGraph([
       lineItems(moduleRow("Prices"), moduleRow("Plan"), moduleRow("Versions"), moduleRow("'Quoted'"), moduleRow("Quoted"), moduleRow("Prices, net")),
       generalLists(list("Regions"), list("Plan"), list("It's new")),
@@ -816,15 +859,25 @@ describe("The model map's graph, from the tables of a model export", () => {
         // A module and a list of one name: Target Type says which.
         action("Load plan list", { "Target Object": "Plan", "Target Type": "LIST" }),
         action("Load plan module", { "Target Object": "Plan", "Target Type": "Module" }),
-        // Without a type, a name that only one of the two has is that one's, and a name both have is neither's.
+        // A type says list or module by the word it holds, whatever else it holds and whatever stands between its words.
+        action("Load regions numbered", { "Target Object": "Regions", "Target Type": "Numbered List" }),
+        action("Load regions coded", { "Target Object": "Regions", "Target Type": "NUMBERED_LIST" }),
+        action("Load plan numbered", { "Target Object": "Plan", "Target Type": "numbered list" }),
+        action("Load prices now", { "Target Object": "Prices", "Target Type": "Module (current)" }),
+        // Without a type, a name that only one of the two has is that one's, and a name both have is neither's. A cell of
+        // nothing but spaces is no type.
         action("Load prices untyped", { "Target Object": "Prices" }),
-        action("Load regions untyped", { "Target Object": "Regions" }),
+        action("Load regions untyped", { "Target Object": "Regions", "Target Type": "  " }),
         action("Load plan untyped", { "Target Object": "Plan" }),
-        // A type that says neither a module nor a list is of a target the map does not have, though a module has the name.
+        // A type that holds neither word says neither: it is of a target the map does not have, though a module or a list
+        // has the name. A longer word that only has "list" in it is another word. And a type that holds both words does
+        // not say which.
         action("Load versions", { "Target Object": "Versions", "Target Type": "VERSIONS" }),
-        action("Load regions numbered", { "Target Object": "Regions", "Target Type": "NUMBERED LIST" }),
-        // A target of another kind than its type says, and one that nothing has the name of.
+        action("Load regions listed", { "Target Object": "Regions", "Target Type": "Listing" }),
+        action("Load plan both", { "Target Object": "Plan", "Target Type": "Module list" }),
+        // The word decides the kind: under "module" a list of the name is not looked for, nor a module under "list".
         action("Load regions as a module", { "Target Object": "Regions", "Target Type": "MODULE" }),
+        action("Load versions as a list", { "Target Object": "Versions", "Target Type": "Users List" }),
         action("Load users", { "Target Object": "Users", "Target Type": "LIST" }),
         // A target is the name as the cell writes it, and out of its quotes only where nothing has it as written.
         action("Load quoted", { "Target Object": "'Quoted'", "Target Type": "MODULE" }),
@@ -837,10 +890,12 @@ describe("The model map's graph, from the tables of a model export", () => {
     expect(kindLinks(graph)).toEqual(anyOrder([
       "action Load prices -> module Prices (import_target)", "action Load regions -> list Regions (import_target)",
       "action Load plan list -> list Plan (import_target)", "action Load plan module -> module Plan (import_target)",
+      "action Load regions numbered -> list Regions (import_target)", "action Load regions coded -> list Regions (import_target)",
+      "action Load plan numbered -> list Plan (import_target)", "action Load prices now -> module Prices (import_target)",
       "action Load prices untyped -> module Prices (import_target)", "action Load regions untyped -> list Regions (import_target)",
       "action Load quoted -> module 'Quoted' (import_target)", "action Load net -> module Prices, net (import_target)", "action Load new -> list It's new (import_target)"]));
-    expect(unresolved(graph)).toEqual(["Load plan untyped: Target Object: Plan", "Load versions: Target Object: Versions", "Load regions numbered: Target Object: Regions",
-      "Load regions as a module: Target Object: Regions", "Load users: Target Object: Users"]);
+    expect(unresolved(graph)).toEqual(["Load plan untyped: Target Object: Plan", "Load versions: Target Object: Versions", "Load regions listed: Target Object: Regions",
+      "Load plan both: Target Object: Plan", "Load regions as a module: Target Object: Regions", "Load versions as a list: Target Object: Versions", "Load users: Target Object: Users"]);
     expect(counted(graph)).toEqual(["2 imports are linked to no module or list: their Target Object cell is empty."]);
   });
 
