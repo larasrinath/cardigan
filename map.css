@@ -1,1 +1,270 @@
 /* The model map (src/map/map-view.ts). Loaded by results.html after results.css, whose tokens it uses. */
+
+/* ---------- tokens ---------- */
+/* The map's own colours, for both themes. Panels, text, borders, the accent and the fonts are the results page's tokens;
+   these are what a map needs on top of them. They are set on the map's own element, so nothing outside it changes, and
+   the canvas reads them from there (map-palette.ts names each one).
+   - The eight section colours are one set of hues in a fixed order, stepped for each theme. A model with more than
+     eight sections starts again at the first; a section's name always stands with its colour.
+   - A node is a panel on the canvas: its fill, border and text are the page's panel, border and text. Text on a node is
+     never in a section's colour, so it has the page's own contrast in both themes. */
+.map-root{
+  --map-canvas-bg:#f6f4ee; --map-grid:rgba(25,25,25,.1);
+  --map-node-fill:var(--panel); --map-node-fill-selected:var(--panel-2); --map-node-border:var(--border-strong);
+  --map-node-text:var(--text); --map-node-text-2:var(--text-2);
+  --map-edge:var(--text-2);
+  --map-section-1:#2a78d6; --map-section-2:#eb6834; --map-section-3:#1baf7a; --map-section-4:#eda100;
+  --map-section-5:#e87ba4; --map-section-6:#008300; --map-section-7:#4a3aa7; --map-section-8:#e34948;
+  --map-line-item:#4a3aa7; --map-heading:#b3b0a5; --map-external:#898781; --map-list:#1baf7a; --map-property:#eb6834;
+  --map-trace-up:#2a78d6; --map-trace-down:#e34948;
+}
+:root[data-theme="dark"] .map-root{
+  --map-canvas-bg:#111110; --map-grid:rgba(250,249,245,.08);
+  --map-node-fill-selected:var(--panel-3);
+  --map-section-1:#3987e5; --map-section-2:#d95926; --map-section-3:#199e70; --map-section-4:#c98500;
+  --map-section-5:#d55181; --map-section-6:#008300; --map-section-7:#9085e9; --map-section-8:#e66767;
+  --map-line-item:#9085e9; --map-heading:#5f5d55; --map-external:#898781; --map-list:#199e70; --map-property:#d95926;
+  --map-trace-up:#3987e5; --map-trace-down:#e66767;
+}
+
+/* ---------- the map's element ---------- */
+/* It fills the element the page gives it and never grows out of it: the canvas lies under everything, and the panels
+   stand over it in a grid. Its own size, not the window's, decides how the panels are arranged (the queries below).
+   A page that gives it no height still gets a map, 320px high. */
+.map-root{
+  position:relative; box-sizing:border-box; width:100%; height:100%; min-height:320px; overflow:hidden; isolation:isolate;
+  container:map / size;
+  background:var(--map-canvas-bg); color:var(--text); font:13px/1.45 var(--sans);
+  border:1px solid var(--border); border-radius:var(--r-md);
+}
+/* While the focus is anywhere in the map its keys work, and its edge says so, for a mouse as for the keyboard. The
+   canvas in focus from the keyboard has the page's own ring as well (below). */
+.map-root:focus-within{border-color:color-mix(in srgb,var(--ring) 60%,var(--border-strong))}
+.map-root[hidden],.map-root [hidden]{display:none !important}
+.map-root *,.map-root *::before,.map-root *::after{box-sizing:border-box}
+:where(.map-root) button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+:where(.map-root) :is(input,select){font:inherit;color:inherit}
+:where(.map-root) :is(h2,h3,h4){font-weight:600;margin:0}
+:where(.map-root) :focus-visible{outline:2px solid var(--ring);outline-offset:2px;border-radius:var(--r-xs)}
+.map-sr-only{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+
+.map-canvas{position:absolute;inset:0;display:block;width:100%;height:100%;cursor:grab;touch-action:none}
+.map-canvas.map-over-node{cursor:pointer}
+.map-canvas.map-dragging{cursor:grabbing}
+/* The ring of the canvas in focus lies inside it: outside, the map's own edge would cut it off. */
+.map-root .map-canvas:focus-visible{outline-offset:-3px;border-radius:var(--r-md)}
+
+/* ---------- the panels' places ---------- */
+/* Three columns: the model and the legend, the middle that is left to the graph, the search and the details. The row of
+   controls reaches across all three. `map-free` is the part of the middle no panel covers: the view fits the graph into
+   it, and it reaches under the details' column while no node is selected. */
+.map-chrome{
+  position:absolute;inset:0;padding:12px;display:grid;gap:10px 12px;pointer-events:none;
+  grid-template-columns:minmax(0,256px) minmax(0,1fr) minmax(0,304px);
+  grid-template-rows:auto auto minmax(0,1fr) auto;
+  grid-template-areas:"title head search" "ctrl ctrl ctrl" "left free right" "left trace right";
+}
+.map-panel{
+  pointer-events:auto;background:var(--panel);border:1px solid var(--border);border-radius:var(--r-md);
+  box-shadow:0 1px 2px rgba(0,0,0,.05),0 4px 14px rgba(0,0,0,.07);
+}
+.map-title{grid-area:title;align-self:start;justify-self:start;min-width:0;max-width:100%;padding:10px 14px}
+.map-head{grid-area:head;display:flex;flex-direction:column;align-items:center;gap:8px;min-width:0}
+.map-controls{grid-area:ctrl;justify-self:center;max-width:100%}
+.map-searchwrap{grid-area:search;align-self:start;position:relative;z-index:5;min-width:0}
+.map-left{grid-area:left;display:flex;flex-direction:column;align-items:flex-start;gap:10px;min-width:0;min-height:0}
+.map-right{grid-area:right;display:flex;flex-direction:column;align-items:flex-end;gap:10px;min-width:0;min-height:0}
+.map-tracebar{grid-area:trace;justify-self:center}
+.map-free{grid-area:free;display:grid;place-items:center;min-width:0;min-height:0}
+.map-root:not(.map-has-inspector) .map-free{grid-column:2 / 4}
+
+/* ---------- the model's name ---------- */
+.map-title-name{font-size:14px;font-weight:650;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.map-title-sub{font-size:12px;color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.map-stats{margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:12px;line-height:1.6;color:var(--text-2);font-variant-numeric:tabular-nums}
+.map-stats > div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.map-stats b{color:var(--text);font-weight:600}
+.map-notes{margin-top:8px;font-size:12px;color:var(--text-2)}
+.map-notes summary{cursor:pointer;color:var(--accent);border-radius:var(--r-xs)}
+.map-notes ul{margin:6px 0 0;padding-left:16px;max-height:150px;overflow:auto;overflow-wrap:anywhere}
+.map-notes li + li{margin-top:4px}
+
+/* ---------- the view's switch, the breadcrumb, the controls ---------- */
+.map-tabs{display:flex;gap:2px;padding:3px;border-radius:999px}
+.map-tab{padding:5px 14px;border-radius:999px;font-size:12.5px;font-weight:550;color:var(--text-2);white-space:nowrap;transition:background .15s,color .15s}
+.map-tab:hover:not(:disabled){background:var(--panel-2);color:var(--text)}
+/* The view shown is said by more than its colour: its name is heavier, and the button is pressed. */
+.map-tab.map-active{background:var(--accent-soft);color:var(--accent-ink);font-weight:650}
+.map-tab:disabled{opacity:.45;cursor:not-allowed}
+
+.map-crumbs{display:flex;align-items:center;gap:6px;max-width:100%;min-width:0;padding:4px 12px;border-radius:999px;font-size:12px;color:var(--text-2);white-space:nowrap}
+/* Where the names do not fit, the workspace gives way first and what is on screen last. */
+.map-crumbs > *{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.map-crumb{flex:0 2 auto;max-width:220px;color:var(--accent);border-radius:var(--r-xs)}
+.map-crumb[data-map-crumb="root"]{flex-shrink:5}
+.map-crumb:hover{text-decoration:underline}
+.map-crumb-ws{flex:0 9 auto;max-width:160px}
+.map-here{flex:0 1 auto;color:var(--text);font-weight:600}
+.map-crumbs .map-sep{flex:none;color:var(--text-3);overflow:visible}
+
+.map-controls{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:6px;padding:5px 8px;border-radius:19px}
+.map-btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:6px;height:28px;padding:0 12px;border-radius:999px;
+  border:1px solid var(--border-strong);background:var(--panel);color:var(--text);
+  font-size:12px;font-weight:550;white-space:nowrap;transition:background .15s,border-color .15s;
+}
+.map-btn:hover:not(:disabled){background:var(--panel-2)}
+.map-btn:disabled{opacity:.45;cursor:not-allowed}
+.map-btn.map-icon{width:28px;padding:0;font-size:15px;line-height:1}
+.map-btn.map-small{height:24px;padding:0 10px}
+.map-select{height:28px;max-width:200px;padding:0 8px;border:1px solid var(--border-strong);border-radius:999px;background:var(--panel);font-size:12px;text-overflow:ellipsis}
+.map-check{display:inline-flex;align-items:center;gap:6px;padding:0 4px;font-size:12px;color:var(--text-2);white-space:nowrap;cursor:pointer}
+.map-check input{margin:0;accent-color:var(--accent)}
+
+/* ---------- search ---------- */
+.map-searchbox{display:flex;align-items:center;gap:7px;height:34px;padding:0 8px 0 12px;border-radius:999px;border-color:var(--border-strong);color:var(--text-3)}
+.map-searchbox:focus-within{border-color:var(--ring);box-shadow:0 0 0 2px color-mix(in srgb,var(--ring) 30%,transparent)}
+.map-searchbox svg{flex:none}
+.map-search{flex:1;min-width:0;padding:0;border:0;background:none;color:var(--text);font-size:12.5px}
+.map-root .map-search:focus-visible{outline:none}
+.map-search-count{font-family:var(--mono);font-size:11px;color:var(--text-2)}
+.map-searchbox kbd{font-family:var(--mono);font-size:10.5px;color:var(--text-3);border:1px solid var(--border);border-bottom-width:2px;border-radius:4px;padding:0 5px;background:var(--panel-2)}
+/* The results hang under the search box, over whatever is there, and are never wider or higher than the map. */
+.map-results{
+  position:absolute;right:0;top:calc(100% + 6px);width:370px;max-width:calc(100cqw - 24px);max-height:min(62cqh,460px);
+  overflow:auto;padding:5px;border-color:var(--border-strong);box-shadow:var(--shadow);
+}
+.map-result{display:block;width:100%;padding:7px 10px;border-radius:var(--r-sm);text-align:left;font-size:12.5px;overflow-wrap:anywhere}
+.map-result:hover,.map-result:focus-visible{background:var(--panel-2)}
+.map-result small{display:block;margin-top:1px;font-size:11.5px;color:var(--text-2)}
+.map-results-note{margin:0;padding:8px 10px;font-size:12px;color:var(--text-2)}
+
+/* ---------- colours of the layers ---------- */
+/* A dot beside a name says the layer's colour. What is outside the graph has no colour of its own: its dot is hollow
+   and dashed, as its node is. */
+.map-dot{flex:none;width:9px;height:9px;border-radius:3px}
+.map-swatch{display:inline-block;width:9px;height:9px;border-radius:2px}
+.map-c-s1{background:var(--map-section-1)} .map-c-s2{background:var(--map-section-2)} .map-c-s3{background:var(--map-section-3)} .map-c-s4{background:var(--map-section-4)}
+.map-c-s5{background:var(--map-section-5)} .map-c-s6{background:var(--map-section-6)} .map-c-s7{background:var(--map-section-7)} .map-c-s8{background:var(--map-section-8)}
+.map-c-lineitem{background:var(--map-line-item)} .map-c-heading{background:var(--map-heading)} .map-c-list{background:var(--map-list)} .map-c-property{background:var(--map-property)}
+.map-c-external{border:1.5px dashed var(--map-external)}
+.map-c-up{background:var(--map-trace-up)} .map-c-down{background:var(--map-trace-down)}
+
+/* ---------- legend, hints ---------- */
+.map-legend{flex:0 1 auto;width:100%;max-width:212px;min-height:0;overflow-y:auto;padding:8px}
+.map-legend-title{padding:4px 8px 6px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text-3)}
+.map-legend-item{display:flex;align-items:center;gap:8px;width:100%;padding:5px 8px;border-radius:var(--r-sm);text-align:left;font-size:12.5px;transition:background .12s}
+.map-legend-item:hover{background:var(--panel-2)}
+.map-legend-name{flex:1;min-width:0;line-height:1.35;overflow-wrap:anywhere}
+.map-legend-count{font-family:var(--mono);font-size:11px;color:var(--text-2);background:var(--panel-2);border-radius:999px;padding:1px 7px}
+/* A hidden layer: its name is struck through, not only paler. */
+.map-legend-item.map-off .map-legend-name{text-decoration:line-through;color:var(--text-3)}
+.map-legend-item.map-off .map-dot{opacity:.35}
+.map-hints{flex:none;margin-top:auto;max-width:100%;padding:8px 12px;font-size:11.5px;line-height:1.7;color:var(--text-2)}
+.map-hints b{color:var(--text);font-weight:600}
+
+/* ---------- details of the node selected ---------- */
+.map-inspector{flex:0 1 auto;width:100%;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:14px}
+/* For a moment after a press on a node opened them, the details let presses through to the canvas (map-view.ts). */
+.map-arriving .map-inspector{pointer-events:none}
+.map-insp-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
+.map-kind{display:inline-flex;align-items:center;gap:6px;padding:2px 8px;border:1px solid var(--border);border-radius:var(--r-xs);background:var(--panel-2);font-size:11px;font-weight:600;letter-spacing:.07em;color:var(--text-2)}
+.map-icon-btn{display:inline-flex;align-items:center;justify-content:center;flex:none;width:28px;height:28px;border-radius:999px;border:1px solid var(--border-strong);background:var(--panel);color:var(--text-2);transition:background .15s}
+.map-icon-btn:hover{background:var(--panel-2);color:var(--text)}
+.map-insp-name{margin-bottom:10px;font-size:15px;font-weight:650;line-height:1.3;overflow-wrap:anywhere}
+.map-dl{display:grid;grid-template-columns:minmax(0,104px) minmax(0,1fr);margin:0 0 10px;border:1px solid var(--border);border-radius:var(--r-sm);overflow:hidden}
+.map-dl dt{padding:6px 10px;font-size:11.5px;color:var(--text-2);background:var(--panel-2);border-bottom:1px solid var(--border)}
+.map-dl dd{margin:0;padding:6px 10px;font-size:12.5px;border-bottom:1px solid var(--border);overflow-wrap:anywhere}
+.map-dl dt:last-of-type,.map-dl dd:last-of-type{border-bottom:0}
+.map-primary{
+  display:block;width:100%;margin-bottom:10px;padding:8px 12px;border-radius:var(--r-sm);text-align:left;
+  background:var(--accent-soft);color:var(--accent-ink);border:1px solid color-mix(in srgb,var(--accent) 35%,transparent);
+  font-size:12.5px;font-weight:600;transition:border-color .15s;
+}
+.map-primary:hover{border-color:var(--accent)}
+.map-insp-sec{margin:12px 0 6px;font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--text-3)}
+/* A formula shows as it was exported: its line breaks and spaces are kept, and a long line wraps. */
+.map-formula{margin:0 0 10px;padding:9px 11px;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--panel-2);font-family:var(--mono);font-size:11.5px;line-height:1.6;white-space:pre-wrap;word-break:break-word}
+.map-insp-note{margin:8px 0;font-size:12px;line-height:1.55;color:var(--text-2);overflow-wrap:anywhere}
+.map-details{padding:8px 0 4px;border-top:1px solid var(--border)}
+.map-details summary{padding:2px 0 4px;border-radius:var(--r-xs);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--text-2);cursor:pointer}
+.map-link{display:flex;align-items:flex-start;gap:8px;width:100%;padding:5px 6px;border-radius:var(--r-sm);text-align:left;font-size:12.5px;line-height:1.4;overflow-wrap:anywhere;transition:background .12s}
+.map-link:hover{background:var(--panel-2)}
+.map-link .map-dot{margin-top:4px}
+.map-link-text{min-width:0}
+.map-link small{display:block;font-size:11.5px;color:var(--text-2)}
+.map-more{margin:2px 0 4px;padding:4px 6px;border-radius:var(--r-xs);font-size:12px;color:var(--accent)}
+.map-more:hover{text-decoration:underline}
+.map-lines{margin:2px 0 6px;padding-left:18px;font-size:12px;line-height:1.55;color:var(--text-2);overflow-wrap:anywhere}
+.map-source{margin-top:12px;padding-top:10px;border-top:1px solid var(--border);font-family:var(--mono);font-size:11px;color:var(--text-2);overflow-wrap:anywhere}
+.map-tracekey{margin-top:10px;font-size:11.5px;line-height:1.7;color:var(--text-2)}
+
+/* ---------- what is traced, the small picture, the tooltip, the empty map ---------- */
+.map-tracebar{display:flex;align-items:center;gap:14px;max-width:100%;padding:6px 8px 6px 16px;border-radius:999px;font-size:12px;white-space:nowrap}
+.map-trace-name{flex:0 1 auto;min-width:48px;max-width:220px;overflow:hidden;text-overflow:ellipsis;font-weight:600}
+.map-trace-count{flex:none;color:var(--text-2);font-variant-numeric:tabular-nums}
+.map-trace-count .map-swatch{margin-right:6px}
+.map-minimap-wrap{flex:none;margin-top:auto;padding:7px;line-height:0}
+.map-minimap{display:block;width:196px;height:128px;border-radius:var(--r-xs);background:var(--map-canvas-bg);cursor:crosshair}
+.map-tooltip{
+  position:absolute;left:0;top:0;z-index:50;max-width:280px;padding:8px 11px;pointer-events:none;
+  background:var(--panel);border:1px solid var(--border-strong);border-radius:var(--r-sm);box-shadow:var(--shadow);
+  opacity:0;visibility:hidden;transition:opacity .15s;
+}
+.map-tooltip.map-show{opacity:1;visibility:visible}
+.map-tip-kind{display:flex;align-items:center;gap:6px;margin-bottom:2px;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--text-2)}
+.map-tip-name{font-size:12.5px;font-weight:600;overflow-wrap:anywhere}
+.map-tip-meta{margin-top:3px;font-size:11.5px;line-height:1.6;color:var(--text-2)}
+.map-tip-formula{max-height:140px;margin-top:6px;padding-top:6px;overflow:hidden;border-top:1px solid var(--border);font-family:var(--mono);font-size:11px;line-height:1.55;color:var(--text-2);white-space:pre-wrap;word-break:break-word}
+.map-empty{max-width:420px;padding:20px;text-align:center;color:var(--text-2)}
+.map-empty-title{margin-bottom:6px;font-size:14px;font-weight:600;color:var(--text)}
+.map-empty-text{font-size:12.5px}
+
+/* ---------- a smaller map ---------- */
+/* Up to 1040px wide the middle is narrow: the breadcrumb leaves the workspace to the panel beside it, and the bar of
+   what is traced shows its arrows and counts without their words (a screen reader still reads them). */
+@container map (max-width:1040px){
+  .map-crumb-ws,.map-crumb-ws + .map-sep{display:none}
+  .map-trace-word{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+  .map-tracebar{gap:10px}
+  .map-trace-name{max-width:150px}
+}
+/* Up to 900px wide the legend goes, and the graph takes its place. */
+@container map (max-width:900px){
+  .map-chrome{grid-template-columns:minmax(0,236px) minmax(0,1fr) minmax(0,264px)}
+  .map-legend{display:none}
+  .map-free{grid-column:1 / 3}
+  .map-root:not(.map-has-inspector) .map-free{grid-column:1 / 4}
+}
+/* Up to 760px wide everything stands in one column over the graph, and the details come up from the foot, over at most
+   46% of the height. The small picture goes while they are open, and the hints go altogether. */
+@container map (max-width:760px){
+  .map-chrome{
+    padding:10px;gap:8px;grid-template-columns:auto minmax(0,1fr);grid-template-rows:auto auto auto auto minmax(0,1fr) auto;
+    grid-template-areas:"title title" "tabs search" "crumbs crumbs" "ctrl ctrl" "free free" "trace trace";
+  }
+  .map-title{justify-self:stretch;padding:8px 12px}
+  .map-title-sub{display:none}
+  .map-stats{margin-top:5px;padding-top:5px}
+  .map-head{display:contents}
+  .map-tabs{grid-area:tabs;justify-self:start}
+  .map-crumbs{grid-area:crumbs;justify-self:start}
+  .map-controls{justify-self:stretch;justify-content:flex-start;border-radius:var(--r-md)}
+  .map-select{max-width:170px}
+  .map-left{display:none}
+  .map-free,.map-root:not(.map-has-inspector) .map-free{grid-column:1 / 3}
+  .map-right{position:absolute;left:10px;right:10px;bottom:10px;height:46%;justify-content:flex-end;align-items:stretch}
+  .map-minimap-wrap{align-self:flex-end;transform:scale(.7);transform-origin:bottom right}
+  .map-has-inspector .map-minimap-wrap{display:none}
+  .map-has-inspector .map-free{margin-bottom:calc(46cqh - 8px)}
+  .map-has-inspector .map-tracebar{margin-bottom:46cqh}
+  .map-tracebar{gap:8px;padding-left:12px}
+  .map-trace-name{max-width:110px}
+}
+/* A low map keeps its height for the graph and the details: the small picture and the hints go. */
+@container map (max-height:560px){
+  .map-minimap-wrap,.map-hints{display:none}
+}
+@media (prefers-reduced-motion:reduce){
+  .map-root *,.map-root *::before,.map-root *::after{transition:none !important;animation:none !important}
+}
