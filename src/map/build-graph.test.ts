@@ -464,6 +464,19 @@ describe("The model map's graph, from the tables of a model export", () => {
     const named = buildModelGraph([lineItems(...rows.map(row => (row["Module Name"] ? { ...row, "Format List": "Products" } : row))), lists]);
     expect(named.nodes.filter(each => each.kind === "lineItem").map(each => each.formatList)).toEqual([0, 0, 0]);
     expect(named.limitations.filter(line => line.includes("list ID"))).toEqual([]);
+    // Unless Format List itself gives the ID to two lists. Each line item still has the list its own row names, and
+    // the ID, which an action would name its list by, is neither's.
+    const twice = buildModelGraph([
+      lineItems(rows[0], { ...rows[1], "Format List": "Products" }, { ...rows[2], "Format List": "Old products" }, { ...rows[3], "Format List": "" }),
+      generalLists(list("Products"), list("Old products")),
+      otherActions(action("Delete old products", { Action: '{"actionType":"DELETE_BY_SELECTION","hierarchyIdentifier":"_101000000001_"}' }))]);
+    expect(twice.nodes.filter(each => each.kind === "lineItem").map(each => each.formatList)).toEqual([0, 1, undefined]);
+    expect([twice.limitations.filter(line => line.includes("list ID")), unresolved(twice)]).toEqual([
+      ["1 list ID stands for more than one list in the export, and names none on the map."], ["Delete old products: hierarchyIdentifier: 101000000001"]]);
+    const three = buildModelGraph([lineItems(rows[0], { ...rows[1], Format: listFormat(101000000002) }, rows[2], { ...rows[3], Format: listFormat(101000000002) }),
+      generalLists(list("Products", { "Referenced as Format": "REV01 Revenue.Product, REV01 Revenue.'Second product'" }),
+        list("Old products", { "Referenced as Format": "REV01 Revenue.'Second product', REV01 Revenue.'Third product'" }), list("Regions", { "Referenced as Format": "REV01 Revenue.Product" }))]);
+    expect(three.limitations).toContain("2 list IDs each stand for more than one list in the export, and name none on the map.");
   });
 
   it("tells a module's own row from a line item's row of which only the name was read, by the Modules table's names, as the page does", () => {
@@ -566,6 +579,13 @@ describe("The model map's graph, from the tables of a model export", () => {
       "1 import is linked to no module or list: its Target Object cell is empty.",
       "1 export is linked to no module or list: what it takes could not be read from its Action cell.",
       ...STANDING, IMPORT_SOURCES]);
+    // A target written in quotes is the name inside them, where nothing has the name with its quotes. And whichever file
+    // an action is in, an Action cell that says "Import into" names what the action loads into.
+    const worded = buildModelGraph([lineItems(moduleRow("Prices, net"), moduleRow("It's new")),
+      importsFile(action("Load prices", { "Target Object": "'Prices, net'", "Target Type": "MODULE" }), action("Load new", { "Target Object": "'It''s new'" })),
+      otherActions(action("Reload prices", { Action: "Import into 'Prices, net'" }))]);
+    expect([links(worded), unresolved(worded)]).toEqual([anyOrder(["Load prices -> Prices, net (import_target)", "Load new -> It's new (import_target)",
+      "Reload prices -> Prices, net (import_target)"]), []]);
     const several = buildModelGraph([importsFile(action("Old import"), action("Older import"), action("Load prices", { "Target Object": "Prices" })),
       exportsFile(action("Send grid", { Action: '{"exportType":"GRID_CURRENT_PAGE"}' }), action("Send plan"), action("Send prices", { Action: "Export from 'Prices'" }))]);
     expect(several.limitations.filter(line => /^\d/.test(line))).toEqual(["2 imports are linked to no module or list: their Target Object cell is empty.",
