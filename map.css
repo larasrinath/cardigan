@@ -57,8 +57,8 @@
 .map-root .map-canvas:focus-visible{outline-offset:-2px;border-radius:var(--r-md)}
 
 /* ---------- the panels' places ---------- */
-/* One bar across the top holds everything that steers the map; the rest of the canvas is the graph's. The details of a
-   node selected take a column at the right. `map-free` is what is left: the view fits the graph into it, clear of the
+/* One bar across the top holds everything that steers the map; the rest of the canvas is the graph's. The details of
+   the box selected take a column at the right. `map-free` is what is left: the view fits the graph into it, clear of the
    few things that stand in its corners (the line of what is shown, the small picture, and the legend and the notes
    while they are open). */
 .map-chrome{
@@ -71,7 +71,9 @@
   pointer-events:auto;background:var(--panel);border:1px solid var(--border);border-radius:var(--r-md);
   box-shadow:0 1px 2px rgba(0,0,0,.05),0 4px 14px rgba(0,0,0,.07);
 }
-.map-bar{grid-area:bar;display:flex;align-items:center;gap:6px 10px;min-width:0;padding:5px 8px;border-radius:21px}
+/* The bar keeps to one line where its parts fit with every name whole. Where they do not, the controls and the search
+   take a second line together and leave the first to where the map is. */
+.map-bar{grid-area:bar;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;min-width:0;padding:5px 8px;border-radius:16px}
 .map-free{grid-area:free;position:relative;min-width:0;min-height:0}
 .map-inspector{grid-area:details}
 
@@ -83,21 +85,28 @@
 .map-tab.map-active{background:var(--accent-soft);color:var(--accent-ink);font-weight:650}
 .map-tab:disabled{opacity:.45;cursor:not-allowed}
 
-/* Where the names do not fit, the model and the section give way, down to a few letters each so that they can still be
-   pressed, and what is on screen last. The workspace is all there or not there: its mark goes with it. */
-.map-crumbs{display:flex;flex:1 1 120px;align-items:center;gap:6px;min-width:0;padding:0 4px;font-size:12.5px;color:var(--text-2);white-space:nowrap}
+/* Where the map is. It is as wide as its names, and shares the first line with the view's switch (which the 210px are
+   left for) whatever else fits there. Where a whole line is too short for the names, the workspace goes first, mark and
+   all (map-view.ts `fitCrumbs`); then the model and the section give way, down to a few letters each so that they can
+   still be pressed; what is on screen, the last name, is cut last. */
+.map-crumbs{display:flex;flex:1 1 auto;align-items:center;gap:6px;min-width:0;max-width:calc(100% - 210px);padding:0 4px;font-size:12.5px;color:var(--text-2);white-space:nowrap}
 .map-crumbs > *{min-width:0;overflow:hidden;text-overflow:ellipsis}
-.map-crumb-ws{display:flex;flex:0 2 auto;gap:6px;max-width:190px}
-.map-crumb-ws-name{min-width:0;overflow:hidden;text-overflow:ellipsis}
-.map-title-name{flex:0 100 auto;min-width:4.5em;font-size:12.5px;font-weight:650;color:var(--text)}
+.map-crumbs > .map-crumb-ws{display:flex;flex:none;gap:6px;overflow:visible}
+.map-title-name{flex:0 1000 auto;min-width:3em;font-size:12.5px;font-weight:650;color:var(--text)}
+.map-title-name.map-here{flex-shrink:1}
 .map-crumb{max-width:100%;overflow:hidden;text-overflow:ellipsis;color:var(--accent);font-weight:inherit;border-radius:var(--r-xs);vertical-align:bottom}
-.map-crumbs > .map-crumb{flex:0 40 auto;min-width:4.5em}
+.map-crumbs > .map-crumb{flex:0 1000 auto;min-width:3em}
 .map-crumb:hover{text-decoration:underline}
 .map-crumbs > span.map-here{flex:0 1 auto;color:var(--text);font-weight:600}
 .map-sep{flex:none;color:var(--text-3)}
 .map-crumbs > .map-sep{overflow:visible}
 
-.map-controls{display:flex;flex:none;align-items:center;gap:6px;min-width:0}
+/* The controls and the search are one group: they stay together on whichever line they stand, at its right end, and
+   break into lines of their own only where a whole line is too short for them. The search is as wide as the line
+   leaves it, from 120px, which is all it asks for before the group takes a line of its own, to 210px. (Its box asks
+   for no width of its own: a text box's usual width would count as the group's.) */
+.map-tools{display:flex;flex-wrap:wrap;flex:1 1 auto;justify-content:flex-end;align-items:center;gap:6px 10px;min-width:0}
+.map-controls{display:flex;flex-wrap:wrap;flex:0 1 auto;align-items:center;gap:6px;min-width:0}
 .map-btn{
   display:inline-flex;align-items:center;justify-content:center;gap:6px;height:28px;padding:0 11px;border-radius:999px;
   border:1px solid var(--border-strong);background:var(--panel);color:var(--text);
@@ -108,15 +117,15 @@
 .map-btn.map-icon{width:28px;padding:0;font-size:15px;line-height:1}
 .map-btn.map-small{height:24px;padding:0 10px}
 .map-btn[aria-expanded="true"]{background:var(--accent-soft);color:var(--accent-ink);border-color:color-mix(in srgb,var(--accent) 35%,transparent)}
-.map-select{height:28px;max-width:170px;padding:0 8px;border:1px solid var(--border-strong);border-radius:999px;background:var(--panel);font-size:12px;text-overflow:ellipsis}
+.map-select{height:28px;max-width:280px;padding:0 8px;border:1px solid var(--border-strong);border-radius:999px;background:var(--panel);font-size:12px;text-overflow:ellipsis}
 .map-check{display:inline-flex;align-items:center;gap:6px;padding:0 2px;font-size:12px;color:var(--text-2);white-space:nowrap;cursor:pointer}
 .map-check input{margin:0;accent-color:var(--accent)}
 
-.map-searchwrap{position:relative;z-index:5;flex:0 1 210px;min-width:120px;pointer-events:auto}
+.map-searchwrap{position:relative;z-index:5;flex:1 1 120px;max-width:210px;min-width:120px;pointer-events:auto}
 .map-searchbox{display:flex;align-items:center;gap:7px;height:30px;padding:0 8px 0 11px;border:1px solid var(--border-strong);border-radius:999px;background:var(--panel);color:var(--text-3)}
 .map-searchbox:focus-within{border-color:var(--ring);box-shadow:0 0 0 2px color-mix(in srgb,var(--ring) 30%,transparent)}
 .map-searchbox svg{flex:none}
-.map-search{flex:1;min-width:0;padding:0;border:0;background:none;color:var(--text);font-size:12.5px}
+.map-search{flex:1;width:0;min-width:0;padding:0;border:0;background:none;color:var(--text);font-size:12.5px}
 .map-root .map-search:focus-visible{outline:none}
 .map-search-count{font-family:var(--mono);font-size:11px;color:var(--text-2)}
 .map-searchbox kbd{font-family:var(--mono);font-size:10.5px;color:var(--text-3);border:1px solid var(--border);border-bottom-width:2px;border-radius:4px;padding:0 5px;background:var(--panel-2)}
@@ -146,16 +155,19 @@
 .map-sign{flex:none}
 
 /* ---------- what stands over the canvas itself ---------- */
-/* The line of what is shown, with the buttons of the legend and the notes, at the foot on the left; the small picture
-   and the zoom at the foot on the right; the legend and the notes, while they are open, over the line, however many
-   rows the line takes. */
+/* The line of what is shown, with the buttons of the legend and the notes, at the foot on the left, and under them the
+   bar of what is traced; the small picture and the zoom at the foot on the right; the legend and the notes, while they
+   are open, over the line, however many rows the foot takes. */
 .map-foot{position:absolute;inset:0 auto 0 0;max-width:calc(100% - 232px);display:flex;flex-direction:column;justify-content:flex-end;gap:8px;pointer-events:none}
 .map-over{display:flex;flex:0 1 auto;align-items:flex-end;gap:10px;min-height:0}
 .map-dock{display:flex;flex:none;flex-wrap:wrap;align-items:center;gap:6px}
 .map-dock > *{pointer-events:auto}
 .map-status{display:flex;align-items:center;gap:8px;min-width:0;min-height:30px;padding:3px 6px 3px 12px;border-radius:15px;font-size:12px;color:var(--text-2);font-variant-numeric:tabular-nums}
 .map-stats{min-width:0;padding-right:6px;overflow-wrap:anywhere}
-.map-tracebar{display:flex;align-items:center;gap:10px;min-width:0;max-width:100%;min-height:30px;padding:3px 4px 3px 12px;border-radius:15px;font-size:12px;color:var(--text-2);font-variant-numeric:tabular-nums}
+/* The bar of what is traced gives its two buttons a second row, together, where one row is too short for it: nothing
+   of it is cut. */
+.map-tracebar{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;min-width:0;max-width:100%;min-height:30px;padding:3px 4px 3px 12px;border-radius:15px;font-size:12px;color:var(--text-2);font-variant-numeric:tabular-nums}
+.map-trace-acts{display:inline-flex;flex:none;gap:6px}
 .map-trace-name{flex:0 1 auto;min-width:0;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;color:var(--text)}
 .map-trace-count{flex:none}
 .map-corner{position:absolute;right:0;bottom:0;display:flex;flex-direction:column;align-items:flex-end;gap:6px;pointer-events:none}
@@ -256,38 +268,23 @@
 .map-root .map-broken:focus-visible{outline-offset:-4px;border-radius:var(--r-md)}
 
 /* ---------- a smaller map ---------- */
-/* The bar has room for the workspace as far as what stands after it leaves some: before a model, a section and a
-   module only in a map wider than 1500px, before a model and what is on screen up to 1300px, and before the model alone
-   up to 1100px. The model's name says its workspace on hover, and the notes about the map name it. */
-@container map (max-width:1500px){
-  .map-crumb-ws-deep{display:none}
-}
+/* Up to 1300px wide the bar of what is traced keeps to its counts: the details beside it name what is selected. */
 @container map (max-width:1300px){
-  .map-crumb-ws:not(.map-crumb-ws-alone){display:none}
-}
-/* Up to 1100px wide the bar of what is traced keeps to its counts: the details beside it name what is selected. */
-@container map (max-width:1100px){
-  .map-crumb-ws{display:none}
-  .map-select{max-width:150px}
   .map-trace-name{display:none}
 }
-/* Up to 940px wide the bar takes two lines: the view's switch, where the map is and the search on the first, the
-   controls on the second. The details' column is narrower. */
+/* Up to 940px wide the details' column is narrower. */
 @container map (max-width:940px){
-  .map-bar{flex-wrap:wrap;border-radius:var(--r-md)}
-  .map-controls{order:5;flex:1 1 100%;flex-wrap:wrap}
   .map-chrome{grid-template-columns:minmax(0,1fr) minmax(0,280px)}
 }
 /* Up to 760px wide the details come up from the foot, over at most two fifths of the height, in a row of their own:
-   they cover neither the bar nor the graph's room. Where the map is, and the controls, share the bar's second line
-   while they fit. The small picture goes while the details are open. */
+   they cover neither the bar nor the graph's room. The controls and the search have the bar's second line to
+   themselves, and the search takes what the controls leave of it. The small picture goes while the details are open. */
 @container map (max-width:760px){
   .map-chrome{padding:8px;grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(96px,1fr) auto;grid-template-areas:"bar" "free" "details"}
   .map-has-inspector .map-chrome{grid-template-areas:"bar" "free" "details"}
   .map-inspector{max-height:40cqh}
-  .map-searchwrap{flex:1 1 150px}
-  .map-crumbs{order:4;flex:1 1 140px}
-  .map-controls{flex:0 1 auto}
+  .map-tools{flex:1 1 100%;justify-content:flex-start}
+  .map-searchwrap{max-width:none}
   .map-has-inspector .map-corner{display:none}
   .map-foot{max-width:100%}
   .map-root:not(.map-has-inspector) .map-foot{max-width:calc(100% - 150px)}

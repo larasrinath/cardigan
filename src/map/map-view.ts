@@ -1,7 +1,7 @@
 import type { GraphNode, ModelGraph, ModelMap, ModelMapOptions } from "./graph-types.js";
 import { boxAround, bringIntoView, centreOn, countInView, defaultInsets, easeCamera, fitCameraIn, hitNode, insetsOf, roomsBeside, stepFrom, toWorld, zoomAt, type Area, type Camera, type Direction, type Insets, type MinimapTransform } from "./map-camera.js";
 import { createFonts, drawMinimap, drawScene, legibleFrom, type Fonts, type Pen } from "./map-canvas.js";
-import { moduleGraph, modulesGraph, sectionsGraph, type ViewGraph, type ViewNode } from "./map-graphs.js";
+import { moduleGraph, modulesGraph, sectionsGraph, type Box, type ViewGraph, type ViewNode } from "./map-graphs.js";
 import { inspect, statusWords, traceWords, viewSentence, type Inspection, type TraceWords } from "./map-inspect.js";
 import { boundsOf, fullFrom, layoutGraph, sizeNodes } from "./map-layout.js";
 import { brokenHtml, crumbsHtml, emptyHtml, inspectorHtml, legendHtml, listHtml, moduleOptionsHtml, notesHtml, resultsHtml, sectionOptionsHtml, shellHtml, tooltipHtml, tracebarHtml, type Tip } from "./map-markup.js";
@@ -78,13 +78,32 @@ const TELLING_ZOOM = 0.62;
 /** How long a trace's dashes move after a node is selected, in milliseconds: long enough to show which way the links
  * run, and then they stand still. */
 const TRACE_MOVES = 1400;
-/** Up to this width of the map the legend and the notes about the map do not fit side by side (map.css puts the details
- * under the graph from the same width down). */
+/** Up to this width of the map the legend and the notes about the map are not shown side by side (map.css puts the
+ * details under the graph from the same width down). */
 const NARROW = 760;
+/** The least width of the search's text box, in CSS pixels, that the workspace in the breadcrumb leaves it. */
+const SEARCH_AT_EASE = 96;
+/** What the graph files a module under that has no heading row above it (graph-types.ts `group`). */
+const NO_HEADING = "Ungrouped";
 /** A colour no token holds: what a canvas still answers after a value it did not take was a colour. */
 const NO_COLOUR = "#010203";
 
 let mounted = 0;
+
+/** A failure's own words: as the map says them in its own place, and as the page's log takes them, with the kind of
+ * error before them. A value that cannot be made a text, or an error whose words cannot be read, has none. */
+function reasonOf(error: unknown): { said: string; logged: string } {
+  try {
+    if (error instanceof Error) {
+      const message = String(error.message ?? "");
+      return { said: message, logged: `${String(error.name || "Error")}: ${message}` };
+    }
+    const text = String(error ?? "");
+    return { said: text, logged: text === "" ? "no reason given" : text };
+  } catch {
+    return { said: "", logged: "a failure that cannot be put into words" };
+  }
+}
 
 /** `mountModelMap` with the surroundings handed in. */
 export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: ModelMapOptions, env: MapEnvironment): ModelMap {
@@ -103,6 +122,8 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   const wholeButton = part<HTMLButtonElement>('[data-map-act="whole"]');
   const notes = part(".map-notes");
   const crumbs = part(".map-crumbs");
+  const tabs = part(".map-tabs");
+  const tools = part(".map-tools");
   const groupToggle = part<HTMLButtonElement>('[data-map-act="group"]');
   const sectionSelect = part<HTMLSelectElement>(".map-section-select");
   const moduleSelect = part<HTMLSelectElement>(".map-module-select");
@@ -150,8 +171,13 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   let camera: Camera = { ox: 0, oy: 0, k: 1 };
   /** Where the camera is going, while it is on its way. */
   let heading: Camera | undefined;
-  /** Whether the camera shows the graph as it was fitted, the user not having moved it: it then follows the room. */
-  let atFit = false;
+  /** Whether the picture is to show the whole graph: it was fitted so as it opened, or the user asked for the whole of
+   * it (F, Fit, Whole map), and has not moved it since. It is then fitted again whenever its room changes, as far as
+   * its names stay readable, and when a selection that moved it is cleared. */
+  let wantsWhole = false;
+  /** For a picture that is not to show the whole graph: where the camera stood before a selection moved it. It goes
+   * back there when the selection is cleared, unless the user has moved it since. */
+  let rest: Camera | undefined;
   /** Whether a node was dragged: the graph then keeps its places when the room changes. */
   let moved = false;
   let selected: ViewNode | undefined;
@@ -173,7 +199,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   let hovered: ViewNode | undefined;
   /** Whether the user opened or closed the legend: until then it is open where the picture has the room for it. */
   let legendWanted: boolean | undefined;
-  let drag: { pointer: number; node: ViewNode | undefined; x: number; y: number; ox: number; oy: number; nodeX: number; nodeY: number; moved: boolean } | undefined;
+  let drag: { pointer: number; node: ViewNode | undefined; x: number; y: number; ox: number; oy: number; nodeX: number; nodeY: number; moved: boolean; home?: { wantsWhole: boolean; rest: Camera | undefined } } | undefined;
   /** The last press on a node that was no drag: a second one at the same place soon after goes into that node. */
   let lastPress: { node: ViewNode; time: number; x: number; y: number } | undefined;
   /** The timer that lets presses through the details for a moment after a press opened them. */
@@ -226,15 +252,15 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
       miniPen.setTransform(ratio, 0, 0, ratio, 0, 0);
       minimap = drawMinimap(miniPen, scene, MINIMAP.width, MINIMAP.height);
     }
+    // The line at the foot says what is in view where the camera has come to rest: it is written for where the camera
+    // is going as soon as it sets out (`go`), and here for a camera the user has moved.
+    if (!moving && countedFor !== camera && !drag) renderStatus();
     // Another picture is asked for only while something moves: the camera on its way, or a trace's dashes for a moment
     // after a selection. A picture that has settled is never drawn again by itself.
     if (moving || (tracing && moves && time < traceMovesUntil)) {
       lastFrame = time;
       frame = env.requestFrame(drawFrame);
-    } else {
-      lastFrame = 0;
-      if (countedFor !== camera && !drag) renderStatus();
-    }
+    } else lastFrame = 0;
   }
 
   /** A picture the browser asked back for: nobody called it who could be told of a failure. */
@@ -258,8 +284,11 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     settle();
     endDrag();
     stopWatching();
-    root.innerHTML = brokenHtml(error instanceof Error ? error.message : String(error ?? ""));
+    const reason = reasonOf(error);
+    root.innerHTML = brokenHtml(reason.said);
     if (inside) focusOn(root.querySelector<HTMLElement>(".map-broken"));
+    // The page hears of it once, for its log. What the page then does is its own, and so is a failure of that.
+    try { options.onFailure?.(reason.logged); } catch { /* the page's */ }
   }
 
   /** Runs a step that has no caller to tell of a failure. A map that has stopped runs none. */
@@ -309,14 +338,17 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     ratio = nextRatio;
     if (width <= 0 || height <= 0) return;
     sizeCanvases();
-    // A picture that was fitted is fitted again, laid out for the new room, so that it grows and shrinks with its place.
-    // One the user has moved keeps its middle where it was.
-    if (needsFit || !laidOut || (atFit && !moved)) arrange();
-    else if (atFit) fit(false);
+    // The bar may take one line or two at the new width: it is settled first, for the graph's room is what it leaves.
+    fitCrumbs();
+    // A picture that shows the whole graph is laid out for the new room and fitted again, so that it grows and shrinks
+    // with its place; one in which a box was dragged keeps its places. One the user has moved keeps its middle where it was.
+    if (needsFit || !laidOut || (wantsWhole && !moved)) arrange();
+    else if (wantsWhole) reframe(false);
     else {
       const shift = (to: Camera): Camera => ({ ox: to.ox + (width - laidOut!.width) / 2, oy: to.oy + (height - laidOut!.height) / 2, k: to.k });
       camera = shift(camera);
       if (heading) heading = shift(heading);
+      if (rest) rest = shift(rest);
     }
     laidOut = { width, height };
     // A canvas that changes its size is cleared: it is drawn again at once, before the cleared one could be shown.
@@ -336,45 +368,117 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     return { left: box.left - outer.left, top: box.top - outer.top, right: box.right - outer.left, bottom: box.bottom - outer.top };
   }
 
-  /** The rooms a graph can be fitted into, measured where the page is laid out: the part of the canvas under the bar and
-   * beside the details (`map-free`), clear of what stands in it: the legend and the notes while they are open, the line
-   * of what is shown, and the small picture. */
-  function rooms(): Insets[] {
+  /** The rooms the panels leave the picture, measured where the page is laid out: the part of the canvas under the bar
+   * and beside the details (`map-free`), clear of what stands in it: the legend and the notes while they are open, the
+   * line of what is shown, and the small picture. None where the panels leave no room worth the name; nothing where
+   * the page is not laid out. */
+  function freeRooms(): Insets[] | undefined {
     const freeArea = areaOf(free);
-    if (!freeArea || freeArea.right - freeArea.left <= 2 * FIT_MARGIN || freeArea.bottom - freeArea.top <= 2 * FIT_MARGIN) return [defaultInsets(width, height, selected !== undefined)];
+    if (!freeArea || freeArea.right - freeArea.left <= 2 * FIT_MARGIN || freeArea.bottom - freeArea.top <= 2 * FIT_MARGIN) return undefined;
     const panels = [areaOf(legend), areaOf(about), areaOf(dock), areaOf(corner)].filter((area): area is Area => area !== undefined);
-    const found = roomsBeside(freeArea, panels).map(room => insetsOf(room, width, height, FIT_MARGIN)).filter(room => width - room.l - room.r > 80 && height - room.t - room.b > 60);
-    return found.length ? found : [insetsOf(freeArea, width, height, FIT_MARGIN)];
+    return roomsBeside(freeArea, panels).map(room => insetsOf(room, width, height, FIT_MARGIN)).filter(room => width - room.l - room.r > 80 && height - room.t - room.b > 60);
   }
 
-  function go(to: Camera, animate: boolean, fitted = false): void {
+  /** The rooms a graph can be fitted into: those the panels leave it, or the whole free part where they leave none. */
+  function rooms(): Insets[] {
+    const found = freeRooms();
+    if (!found) return [defaultInsets(width, height, selected !== undefined)];
+    const freeArea = areaOf(free);
+    return found.length || !freeArea ? found : [insetsOf(freeArea, width, height, FIT_MARGIN)];
+  }
+
+  /** Sets where the picture is seen from, at once or over a few frames. The line at the foot says from that moment what
+   * is in view where the camera comes to rest. */
+  function go(to: Camera, animate: boolean): void {
     if (animate && shown && motion()) heading = to;
     else {
       camera = to;
       heading = undefined;
     }
-    atFit = fitted;
     hideTip();
+    renderStatus();
     invalidate();
   }
 
-  /** Shows the whole graph, as large as the room lets it be. */
+  /** The user has taken the camera somewhere: it stays where they put it. */
+  function ownCamera(): void {
+    wantsWhole = false;
+    rest = undefined;
+  }
+
+  /** What the whole picture covers: every box of the graph, or those of the trace while the view keeps to it. */
+  function wholeBox(current: ViewGraph): Box {
+    return (onlyTrace ? boxAround(current.nodes.filter(node => isShown(node.index))) : undefined) ?? current.bounds;
+  }
+
+  /** The least zoom a refit goes to: the zoom from which every box of the graph holds a readable line. A picture the
+   * user has taken further away than that is taken no further. */
+  const leastZoom = (current: ViewGraph, from: Camera): number => Math.min(legibleFrom(current), from.k) - 1e-9;
+
+  /** Shows the whole picture at once, as the user asks for it (F, Fit, Whole map), however small that makes it. */
   function fit(animate: boolean): void {
     if (!onScreen || width <= 0 || height <= 0) {
       needsFit = true;
       return;
     }
     needsFit = false;
-    go(fitCameraIn(onScreen.bounds, width, height, rooms()), animate, true);
+    wantsWhole = true;
+    rest = undefined;
+    go(fitCameraIn(wholeBox(onScreen), width, height, rooms()), animate);
   }
 
-  /** Lays the graph out for the room it has and shows it. Until the user says otherwise, the legend is open where the
-   * picture still shows every box in full beside it, or loses next to nothing by it, and closed where it would cost the
-   * picture its names.
+  /** Opens or closes the legend for the room there is now, until the user says which they want: open where every box is
+   * drawn in full beside it, or where it costs the whole picture next to nothing and none of its names; closed
+   * otherwise, so that in a small room the legend goes before the names do. `fitted` says how large the whole picture
+   * is fitted into some rooms; where it also lays the graph out for them, each state of the legend is tried with its
+   * own layout. Gives the rooms that are left. Focus that was in a legend that goes is kept in the map, on its button. */
+  function settleLegend(current: ViewGraph, floor: number, fitted: (list: Insets[]) => number): Insets[] {
+    const held = legend.contains(page.activeElement) ? (page.activeElement as HTMLElement) : undefined;
+    let list: Insets[];
+    if (legendWanted !== undefined || current.layers.length === 0) {
+      legend.hidden = !(legendWanted === true && current.layers.length > 0);
+      list = rooms();
+      fitted(list);
+    } else {
+      legend.hidden = true;
+      const closed = fitted(rooms());
+      legend.hidden = false;
+      list = rooms();
+      const open = fitted(list);
+      if (!(open >= fullFrom(current) || (open >= closed * 0.94 && open >= floor))) {
+        legend.hidden = true;
+        list = rooms();
+        fitted(list);
+      }
+    }
+    legendButton.setAttribute("aria-expanded", String(!legend.hidden));
+    if (held) focusOn(legend.hidden ? legendButton : held);
+    return list;
+  }
+
+  /** The camera that has a box of the graph in view in one of the rooms, from where the camera is: moved no further
+   * than it must be and brought no nearer, with the boxes it has links with where those fit as well, and never further
+   * away than `floor`. Where not even the box alone fits so, the camera stays. */
+  function beside(current: ViewGraph, node: ViewNode, list: readonly Insets[], from: Camera, floor: number): Camera {
+    const linked = [node, ...current.in[node.index].map(index => current.nodes[index]), ...current.out[node.index].map(index => current.nodes[index])].filter(each => isShown(each.index));
+    const cost = (to: Camera): number => (from.k - to.k) * 1e6 + Math.abs(to.ox - from.ox) + Math.abs(to.oy - from.oy);
+    for (const box of [boxAround(linked, 8), boxAround([node], 8)]) {
+      if (!box) continue;
+      let best: Camera | undefined;
+      for (const room of list) {
+        const to = bringIntoView(from, box, width, height, room);
+        if (to.k >= floor && (!best || cost(to) < cost(best))) best = to;
+      }
+      if (best) return best;
+    }
+    return from;
+  }
+
+  /** Lays the graph out for the room it has and shows it, as a view opens and as its place changes size.
    *
    * A graph that would be fitted too small for every box to hold a readable line is not shown whole: it opens on its
-   * start at the zoom that shows every box in full, the line of what is shown says how much of it that is, and one
-   * press shows it whole. */
+   * start at the zoom that shows every box in full, the line at the foot says how much of it that is, and one press
+   * shows it whole. This is the rule every later move of the camera keeps to (`reframe`). */
   function arrange(): void {
     if (!onScreen) return;
     if (width <= 0 || height <= 0) {
@@ -383,70 +487,86 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     }
     needsFit = false;
     const current = onScreen;
-    const plan = (): Insets[] => {
-      const list = rooms();
-      layoutGraph(current, list.map(room => ({ width: width - room.l - room.r, height: height - room.t - room.b })));
-      return list;
-    };
-    const zoomIn = (list: Insets[]): number => fitCameraIn(current.bounds, width, height, list).k;
-    let list: Insets[];
-    if (legendWanted === undefined && current.layers.length > 0) {
-      legend.hidden = true;
-      const closed = zoomIn(plan());
-      legend.hidden = false;
-      list = plan();
-      const open = zoomIn(list);
-      if (open < fullFrom(current) && open < closed * 0.94) {
-        legend.hidden = true;
-        list = plan();
-      }
-    } else {
-      legend.hidden = !(legendWanted === true && current.layers.length > 0);
-      list = plan();
-    }
-    legendButton.setAttribute("aria-expanded", String(!legend.hidden));
+    const floor = legibleFrom(current) - 1e-9;
+    // The room is measured with the foot as it is beside a whole picture: with a box selected, the line of what is
+    // shown gives way to the bar of what is traced.
+    status.hidden = selected !== undefined;
+    let list = settleLegend(current, floor, each => {
+      layoutGraph(current, each.map(room => ({ width: width - room.l - room.r, height: height - room.t - room.b })));
+      return fitCameraIn(current.bounds, width, height, each).k;
+    });
     order = undefined;
     moved = false;
-    const fitted = fitCameraIn(current.bounds, width, height, list);
-    if (fitted.k >= legibleFrom(current)) go(fitted, false, true);
-    else {
-      // The start of the graph, in the largest room, at the zoom that shows every box in full: what is read first is
-      // at its top left.
-      const room = list.reduce((best, each) => ((width - each.l - each.r) * (height - each.t - each.b) > (width - best.l - best.r) * (height - best.t - best.b) ? each : best));
-      const k = fullFrom(current);
-      go({ ox: room.l - current.bounds.x * k, oy: room.t - current.bounds.y * k, k }, false);
+    rest = undefined;
+    const whole = fitCameraIn(wholeBox(current), width, height, list);
+    wantsWhole = whole.k >= floor;
+    if (wantsWhole) {
+      go(whole, false);
+      return;
     }
+    // The start of the graph, in the largest room, at the zoom that shows every box in full: what is read first is at
+    // its top left. A box that is selected is brought into view from there. The line at the foot will say how much
+    // is in view: the room is measured with it.
+    status.hidden = false;
+    list = rooms();
+    const room = list.reduce((best, each) => ((width - each.l - each.r) * (height - each.t - each.b) > (width - best.l - best.r) * (height - best.t - best.b) ? each : best));
+    const k = fullFrom(current);
+    const start: Camera = { ox: room.l - current.bounds.x * k, oy: room.t - current.bounds.y * k, k };
+    const to = selected ? beside(current, selected, list, start, floor) : start;
+    if (to !== start) rest = start;
+    go(to, false);
+  }
+
+  /** Puts the camera where the picture is to be seen from, for the room there is now: after a selection, and after the
+   * details or a panel opened or closed. The opening's rule holds every time: the picture is never taken so far away
+   * that a box no longer holds a readable line.
+   * - A picture that is to show the whole graph is fitted whole where that can be read; in a room too small for it the
+   *   legend closes first, where the user has not asked for it.
+   * - Otherwise, with a box selected, the camera moves just far enough to have it in view beside the details, with the
+   *   boxes it has links with where those fit too. With none selected, it goes back to where it stood before a
+   *   selection moved it.
+   * The line at the foot says how much of the graph is then in view. */
+  function reframe(animate: boolean): void {
+    if (!onScreen) return;
+    if (width <= 0 || height <= 0) {
+      needsFit = true;
+      return;
+    }
+    const current = onScreen;
+    const from = heading ?? camera;
+    const floor = leastZoom(current, from);
+    if (wantsWhole) {
+      // Beside a whole picture the line at the foot gives way to the bar of what is traced: the room is measured so.
+      status.hidden = selected !== undefined;
+      const list = settleLegend(current, floor, each => fitCameraIn(wholeBox(current), width, height, each).k);
+      const whole = fitCameraIn(wholeBox(current), width, height, list);
+      if (whole.k >= floor) {
+        go(whole, animate);
+        return;
+      }
+    }
+    if (selected) {
+      // Not whole: the line may have to say how much is in view. The room is measured with it at the foot.
+      status.hidden = false;
+      const to = beside(current, selected, rooms(), from, floor);
+      if (to === from) renderStatus();
+      else {
+        if (!wantsWhole) rest ??= from;
+        go(to, animate);
+      }
+    } else if (rest) {
+      const back = rest;
+      rest = undefined;
+      go(back, animate);
+    } else renderStatus();
   }
 
   function zoom(factor: number, x = width / 2, y = height / 2): void {
     camera = zoomAt(camera, factor, x, y);
     heading = undefined;
-    atFit = false;
+    ownCamera();
     hideTip();
     invalidate();
-  }
-
-  /** After the details opened or closed, or a node was selected: the picture is brought beside the details. A picture
-   * that was fitted is fitted again into the room that is left. Otherwise the camera moves just far enough that the node
-   * selected and the boxes it has links with are in view, and no nearer. */
-  function keepInView(): void {
-    if (!onScreen || width <= 0 || height <= 0) return;
-    if (atFit) {
-      go(fitCameraIn(onScreen.bounds, width, height, rooms()), true, true);
-      return;
-    }
-    if (!selected) return;
-    const near = [selected, ...onScreen.in[selected.index].map(index => onScreen!.nodes[index]), ...onScreen.out[selected.index].map(index => onScreen!.nodes[index])].filter(node => isShown(node.index));
-    const box = boxAround(near.length ? near : [selected], 8);
-    if (!box) return;
-    const from = heading ?? camera;
-    let best: Camera | undefined;
-    for (const room of rooms()) {
-      const to = bringIntoView(from, box, width, height, room);
-      const cost = (each: Camera): number => (from.k - each.k) * 1e6 + Math.abs(each.ox - from.ox) + Math.abs(each.oy - from.oy);
-      if (!best || cost(to) < cost(best)) best = to;
-    }
-    if (best && best !== from) go(best, true);
   }
 
   /* ---------- the panels ---------- */
@@ -466,23 +586,28 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   }
 
   /** The line that says what is shown, counted now: what the graph holds, how much of it is drawn, and how much of
-   * that is in view where the camera is, or is going. With part of it out of view, one press shows it whole. */
+   * that is in view where the camera is, or where it is going: the line says at once what will be true when the camera
+   * has come to rest. With part of the graph out of view, one press shows it whole. */
   function renderStatus(): void {
     if (!onScreen) return;
-    countedFor = camera;
-    // In view is what stands in the graph's own room: a box under the bar or the details is not.
-    inView = width > 0 && height > 0 ? countInView(onScreen.nodes, isShown, heading ?? camera, areaOf(free) ?? { left: 0, top: 0, right: width, bottom: height }) : shownCount;
-    const said = statusWords(onScreen, shownCount, inView);
+    const at = heading ?? camera;
+    countedFor = at;
+    // In view is what stands in the graph's own room: a box under the bar or the details is not, nor is one under the
+    // legend, the notes or the small picture.
+    const covered = [areaOf(legend), areaOf(about), areaOf(corner)].filter((area): area is Area => area !== undefined);
+    inView = width > 0 && height > 0 ? countInView(onScreen.nodes, isShown, at, areaOf(free) ?? { left: 0, top: 0, right: width, bottom: height }, covered) : shownCount;
+    // Beside a selection the bar of what is traced stands in the line's place, unless the line has more to say than what
+    // the graph holds: that part of it is not drawn, or is out of view. It then says that alone.
+    const said = statusWords(onScreen, shownCount, inView, selected !== undefined);
     if (stats.textContent !== said) stats.textContent = said;
     wholeButton.hidden = inView >= shownCount;
-    // Beside a selection the bar of what is traced stands in the line's place, unless the line has more to say than what
-    // the graph holds: that part of it is not drawn, or is out of view.
     status.hidden = selected !== undefined && shownCount >= onScreen.nodes.length && inView >= shownCount;
   }
 
   function renderLegend(): void {
     if (!onScreen) return;
-    legend.innerHTML = legendHtml(onScreen.kind === "drill" ? "On this map" : "Sections", onScreen.layers, hiddenLayers);
+    // A model that has no sections to show has none in its legend either: its modules are one entry, as what they are.
+    legend.innerHTML = legendHtml(onScreen.kind === "drill" || single ? "On this map" : "Sections", onScreen.layers, hiddenLayers);
     legendButton.hidden = onScreen.layers.length === 0;
   }
 
@@ -497,6 +622,23 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
       ...(home !== undefined && model.sectionIndex(home) >= 0 ? { section: { index: model.sectionIndex(home), name: home } } : {}),
       ...(whole ? {} : { here: onScreen.name }),
     });
+  }
+
+  /** Whether the workspace stands before the model's name. It is the first thing to go where the bar is short of room:
+   * it stays where the bar keeps to one line with it, cuts no name and leaves the search its width; and where the bar
+   * takes a second line with it or without, and has the room for it there. Measured where the page is laid out; where
+   * it is not, the workspace stays. */
+  function fitCrumbs(): void {
+    const workspace = crumbs.querySelector<HTMLElement>(".map-crumb-ws");
+    if (!workspace) return;
+    const wrapped = (): boolean => tools.offsetTop > tabs.offsetTop + 4;
+    const cut = (): boolean => [...crumbs.querySelectorAll<HTMLElement>("h2, button, span")].some(each => each.scrollWidth > each.clientWidth + 1);
+    const squeezed = (): boolean => searchInput.offsetWidth < SEARCH_AT_EASE;
+    workspace.hidden = false;
+    const [wrappedWithIt, cutWithIt] = [wrapped(), cut()];
+    if (!wrappedWithIt && !cutWithIt && !squeezed()) return;
+    workspace.hidden = true;
+    if (wrappedWithIt && wrapped() && !cutWithIt) workspace.hidden = false;
   }
 
   function renderControls(): void {
@@ -515,7 +657,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     moduleSelect.hidden = view !== "drill";
     moduleSelect.value = moduleId === undefined ? "" : String(moduleId);
     externalToggle.hidden = view !== "drill";
-    externalToggle.textContent = expanded ? "Group external items" : "Expand external items";
+    externalToggle.textContent = expanded ? "Group by module" : "Show line items of other modules";
     accessToggle.checked = access;
   }
 
@@ -560,6 +702,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     renderLegend();
     renderCrumbs();
     renderControls();
+    fitCrumbs();
     renderInspector();
     renderEmpty();
     renderStatus();
@@ -648,25 +791,35 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     traceMovesUntil = env.now() + TRACE_MOVES;
     refreshShown();
     renderInspector();
-    renderControls();
-    renderStatus();
     if (node && traced) announce(traced.sentence);
     else if (had) announce("Selection cleared.");
     invalidate();
-    if (node || had) keepInView();
+    // The details opened or closed, or another box is selected: the picture is brought beside them.
+    if (node || had) reframe(true);
+    else renderStatus();
   }
 
-  /** Selects a node of the graph on screen by its name there. Where the picture is too small to tell the node, or the
-   * node is out of view, the camera goes to it and the boxes it has links with. */
+  /** Selects a box of the graph on screen by its name there: from the search, or from a link of the details. Where the
+   * picture is too far away to tell the box, the camera comes to it: with the boxes it has links with where all of them
+   * are then drawn in full, and otherwise to the box alone, drawn in full. */
   function pick(id: string): void {
-    const node = onScreen?.byId.get(id);
-    if (!node || !onScreen) return;
+    const current = onScreen;
+    const node = current?.byId.get(id);
+    if (!node || !current) return;
     select(node);
-    if (atFit && (heading ?? camera).k < TELLING_ZOOM) {
-      const near = [node, ...onScreen.in[node.index].map(index => onScreen!.nodes[index]), ...onScreen.out[node.index].map(index => onScreen!.nodes[index])];
-      const box = boxAround(near, 24);
-      if (box) go(fitCameraIn(box, width, height, rooms(), 1), true);
+    const from = heading ?? camera;
+    if (from.k >= TELLING_ZOOM || width <= 0 || height <= 0) return;
+    const full = fullFrom(current);
+    const list = rooms();
+    const linked = boxAround([node, ...current.in[node.index].map(index => current.nodes[index]), ...current.out[node.index].map(index => current.nodes[index])], 24);
+    let to = linked ? fitCameraIn(linked, width, height, list, 1) : undefined;
+    if (!to || to.k < full) {
+      const alone = boxAround([node], 24);
+      if (!alone) return;
+      to = fitCameraIn(alone, width, height, list, full);
     }
+    if (!wantsWhole) rest ??= from;
+    go(to, true);
   }
 
   function openSection(index: number): void {
@@ -712,12 +865,14 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     onlyTrace = on;
     refreshShown();
     renderTracebar();
-    renderStatus();
-    announce(on ? `Showing only the trace: ${plural(shownCount, "box", "boxes")}.` : "Showing the full graph.");
-    if (on) {
-      const box = boxAround(onScreen.nodes.filter(node => isShown(node.index)));
-      if (box) go(fitCameraIn(box, width, height, rooms()), true);
-    } else fit(true);
+    announce(on ? `Showing only what feeds it and what it feeds: ${plural(shownCount, "box", "boxes")}.` : "Showing all boxes.");
+    const from = heading ?? camera;
+    // The boxes that are left, all in view at once where every one of them then holds its name.
+    const kept = on && !wantsWhole && width > 0 && height > 0 ? fitCameraIn(wholeBox(onScreen), width, height, rooms()) : undefined;
+    if (kept && kept.k >= leastZoom(onScreen, from)) {
+      rest ??= from;
+      go(kept, true);
+    } else reframe(true);
     invalidate();
   }
 
@@ -760,12 +915,19 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     focusDetails();
   }
 
-  /** Opens or closes one of the two panels that stand over the canvas. A picture that was fitted is fitted again into
-   * the room that is left. */
-  function setPanel(panel: HTMLElement, button: HTMLElement, open: boolean): void {
-    panel.hidden = !open;
-    button.setAttribute("aria-expanded", String(open));
-    if (atFit) fit(true);
+  /** Opens or closes one of the two panels that stand over the canvas: the legend, or the notes about the map. Where
+   * the map has no room for both (a narrow map, or one in which the two would leave the picture none), the one that
+   * opens closes the other. The picture is then brought into the room that is left, as far as its names stay readable. */
+  function setPanel(panel: HTMLElement, open: boolean): void {
+    const show = (which: HTMLElement, shown: boolean): void => {
+      which.hidden = !shown;
+      (which === legend ? legendButton : aboutButton).setAttribute("aria-expanded", String(shown));
+      if (which === legend) legendWanted = shown;
+    };
+    show(panel, open);
+    const other = panel === legend ? about : legend;
+    if (open && !other.hidden && (width <= NARROW || freeRooms()?.length === 0)) show(other, false);
+    reframe(true);
   }
 
   /* ---------- focus ---------- */
@@ -818,23 +980,11 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
           renderTracebar();
         }
         fit(true);
-        renderStatus();
         break;
       case "zoom-in": zoom(1.3); break;
       case "zoom-out": zoom(1 / 1.3); break;
-      case "legend":
-        legendWanted = legend.hidden;
-        // A narrow map has room for one of the two panels: the one that opens closes the other.
-        if (legendWanted && width <= NARROW && !about.hidden) setPanel(about, aboutButton, false);
-        setPanel(legend, legendButton, legendWanted);
-        break;
-      case "about":
-        if (about.hidden && width <= NARROW && !legend.hidden) {
-          legendWanted = false;
-          setPanel(legend, legendButton, false);
-        }
-        setPanel(about, aboutButton, about.hidden);
-        break;
+      case "legend": setPanel(legend, legend.hidden); break;
+      case "about": setPanel(about, about.hidden); break;
       case "layer": {
         const layer = data.mapLayer ?? "";
         if (hiddenLayers.has(layer)) hiddenLayers.delete(layer); else hiddenLayers.add(layer);
@@ -958,16 +1108,14 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     const key = event.key;
     if (key === "Escape" && !about.hidden && (about.contains(target) || target === aboutButton)) {
       // The notes about the map were opened to be read: Escape from them closes them, and goes no step back.
-      setPanel(about, aboutButton, false);
+      setPanel(about, false);
       focusOn(aboutButton);
     } else if (key === "Escape") {
       const focused = hasFocus();
       used = back();
       if (focused && !hasFocus()) focusOn(canvas);
-    } else if (key === "f" || key === "F") {
-      fit(true);
-      renderStatus();
-    } else if (key === "+" || key === "=") zoom(1.2);
+    } else if (key === "f" || key === "F") fit(true);
+    else if (key === "+" || key === "=") zoom(1.2);
     else if (key === "-") zoom(1 / 1.2);
     else if (key === "/") focusOn(searchInput);
     else if (target === canvas && ARROWS[key]) {
@@ -999,11 +1147,14 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     if (event.button !== 0 || !onScreen) return;
     const [x, y] = place(event);
     const node = hitNode(onScreen.nodes, isShown, camera, x, y, order);
+    // A press stops a camera that is on its way, where it is. Should the press turn out to be a click and no drag, the
+    // picture is still to go where it was going: what it was to show is kept for that.
+    const home = heading ? { wantsWhole, rest } : undefined;
     if (heading) {
       heading = undefined;
-      atFit = false;
+      ownCamera();
     }
-    drag = { pointer: event.pointerId, node, x, y, ox: camera.ox, oy: camera.oy, nodeX: node?.x ?? 0, nodeY: node?.y ?? 0, moved: false };
+    drag = { pointer: event.pointerId, node, x, y, ox: camera.ox, oy: camera.oy, nodeX: node?.x ?? 0, nodeY: node?.y ?? 0, moved: false, ...(home ? { home } : {}) };
     // The canvas keeps the pointer while it is down, so that a drag goes on outside it. A pointer the browser does not
     // know cannot be kept, and the drag then ends at the canvas's edge.
     try { canvas.setPointerCapture?.(event.pointerId); } catch { /* not kept */ }
@@ -1032,7 +1183,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
         moved = true;
       } else {
         camera = { ox: drag.ox + dx, oy: drag.oy + dy, k: camera.k };
-        atFit = false;
+        ownCamera();
       }
       invalidate();
       return;
@@ -1081,6 +1232,8 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
       lastPress = undefined;
       return;
     }
+    // A click, and no drag: a camera it stopped on its way keeps what it was to show.
+    if (held.home) ({ wantsWhole, rest } = held.home);
     // A second press at the same place soon after the first goes into the node the first one was on, whatever is under
     // the pointer by now: the first press may have moved the camera.
     const now = env.now();
@@ -1117,6 +1270,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     const scale = box.width > 0 ? MINIMAP.width / box.width : 1;
     const worldX = ((event.clientX - box.left) * scale - minimap.ox) / minimap.s;
     const worldY = ((event.clientY - box.top) * scale - minimap.oy) / minimap.s;
+    ownCamera();
     go(centreOn(camera, worldX, worldY, width, height), true);
   }));
 
@@ -1146,7 +1300,9 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     grouped = !single;
     sectionSelect.innerHTML = sectionOptionsHtml(model.sections);
     moduleSelect.innerHTML = moduleOptionsHtml(model.modules);
-    notes.innerHTML = notesHtml({ name: options.modelName, workspace: options.workspaceName, modules: model.modules.length, lineItems: model.lineItems.length }, graph.limitations, graph.unresolved.length);
+    // A heading row is a section of the map: the name the graph files modules under where they have none is no heading.
+    const headings = model.sections.filter(name => name !== NO_HEADING).length;
+    notes.innerHTML = notesHtml({ name: options.modelName, workspace: options.workspaceName, modules: model.modules.length, lineItems: model.lineItems.length, headings }, graph.limitations, graph.unresolved.length);
     build();
   }
 
