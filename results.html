@@ -6,11 +6,13 @@
 <title>Cardigan</title>
 <!--
   Cardigan results page: the extension page the toolbar icon opens next to an Anaplan tab.
-  The markup and results.css are the design's (design/results-page.html); the script is src/results, built into
+  The markup and results.css are the owner's design; the script is src/results, built into
   dist/results.js. Nothing here is loaded from outside the extension, and no script or handler is written inline.
+  map.css styles a model's map (src/map), which the script puts into #mapHost. It comes after results.css, whose tokens it uses.
 -->
 <link rel="icon" href="icons/32.png">
 <link rel="stylesheet" href="results.css">
+<link rel="stylesheet" href="map.css">
 </head>
 <body>
 <a class="skip" href="#view">Skip to results</a>
@@ -54,6 +56,7 @@
   <main id="main">
     <nav class="crumbs" id="crumbs" aria-label="Breadcrumb"></nav>
     <div id="view" tabindex="-1"></div>
+    <div id="mapHost" hidden></div>
   </main>
 </div>
 

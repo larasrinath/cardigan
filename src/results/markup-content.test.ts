@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { Cell, ResultTable } from "../result-types.js";
 import { columnsOf, type Column } from "./columns.js";
 import { parseMarkup, type FakeElement } from "./dom.test-support.js";
-import { cardDrawerSubHtml, cellHtml, colChooserHtml, colFilterHtml, FORGOTTEN_LINE, keptCopyHtml, navHtml, NOT_REMOVED_LINE, objectDrawerHtml, objectDrawerSubHtml, overviewHtml, pagerHtml, rowDrawerHtml, tableHtml,
-  USES_AT_FIRST, type KeptCopy, type Links, type TableView } from "./markup.js";
+import { cardDrawerSubHtml, cellHtml, colChooserHtml, colFilterHtml, FORGOTTEN_LINE, keptCopyHtml, MAP_FAILED, MAP_LABEL, mapHtml, navHtml, NOT_REMOVED_LINE, objectDrawerHtml, objectDrawerSubHtml, overviewHtml, pagerHtml,
+  rowDrawerHtml, tableHtml, USES_AT_FIRST, type KeptCopy, type Links, type TableView } from "./markup.js";
 import type { Overview } from "./result-view.js";
 import { pageOf, selectRows } from "./table-engine.js";
 import type { WhereUsedObject } from "./where-used-view.js";
@@ -463,19 +463,37 @@ describe("What the results page's markup shows", () => {
     expect([plain.children.map(child => child.id || child.localName), plain.querySelectorAll(".view-note").length]).toEqual([["h1", "div", "tableWrap"], 0]);
   });
 
-  it("writes the navigation's entries in the order given, and the model map after them only when asked for it", () => {
-    const entries = [{ id: "overview", label: "Overview" }, { id: "12", label: "Model Calendar", count: 26 }, { id: "1", label: "Line Items", count: 120 }, { id: "details", label: "Details" }];
-    /** Each entry: its name in the navigation, its words, its count, and whether it is the current one or off. */
-    const items = (map: boolean) => parseMarkup(navHtml(entries, "12", map)).querySelectorAll(".nav-item").map(item =>
-      [item.dataset.nav, text(item.children[0]), text(item.querySelector(".cnt")), item.getAttribute("aria-current") ?? (item.classList.contains("disabled") ? "off" : "")]);
-    const listed = [["overview", "Overview", "", ""], ["12", "Model Calendar", "26", "page"], ["1", "Line Items", "120", ""], ["details", "Details", "", ""]];
-    expect(items(false)).toEqual(listed);
-    expect(items(true)).toEqual([...listed, ["map", "Model map", "", "off"]]);
-    // The model map is a button like the others, so the Tab key reaches it in its place, and it says that it is to come.
-    const map = parseMarkup(navHtml(entries, "overview", true)).querySelectorAll(".nav-item")[4];
-    expect([map.localName, map.getAttribute("aria-disabled"), map.title, text(map.querySelector(".soon"))]).toEqual(["button", "true", "Model map is coming in a later version", "coming soon"]);
+  it("writes the navigation's entries in the order given, a model's map among them as an entry like the others", () => {
+    const entries = [{ id: "overview", label: "Overview" }, { id: "12", label: "Model Calendar", count: 26 }, { id: "1", label: "Line Items", count: 120 }, { id: "details", label: "Details" },
+      { id: "map", label: MAP_LABEL }];
+    /** Each entry: its name in the navigation, its words, its count, and whether it is the current one. */
+    const items = (current: string) => parseMarkup(navHtml(entries, current)).querySelectorAll(".nav-item").map(item =>
+      [item.dataset.nav, text(item.children[0]), text(item.querySelector(".cnt")), item.getAttribute("aria-current") ?? ""]);
+    expect(items("12")).toEqual([["overview", "Overview", "", ""], ["12", "Model Calendar", "26", "page"], ["1", "Line Items", "120", ""], ["details", "Details", "", ""], ["map", "Model map", "", ""]]);
+    // The map's entry is written as every other: a button the Tab key reaches, which nothing marks as off or as still to
+    // come, and the current one when its view is shown.
+    const written = parseMarkup(navHtml(entries, "map")).querySelectorAll(".nav-item").map(item => [item.localName, item.getAttribute("type"), item.getAttribute("class"), item.focusable,
+      [...item.attributes.keys()].filter(name => !["type", "class", "data-nav", "aria-current"].includes(name))]);
+    expect(written).toEqual(Array(5).fill(["button", "button", "nav-item", true, []]));
+    expect([items("map")[4], items("map").filter(item => item[3] !== "").length, parseMarkup(navHtml(entries, "map")).textContent.includes("coming")]).toEqual([["map", "Model map", "", "page"], 1, false]);
     // Nothing stands between the entries: no divider, no group.
-    expect(parseMarkup(navHtml(entries, "overview", true)).children.every(child => child.classList.contains("nav-item"))).toBe(true);
+    expect(parseMarkup(navHtml(entries, "overview")).children.every(child => child.classList.contains("nav-item"))).toBe(true);
+  });
+
+  it("writes for a model's map a view that holds its heading alone, and when the map could not be drawn one sentence with the button that copies the log", () => {
+    // Shown: the map stands in its own place beside the view, so the view has the heading only, for a screen reader.
+    const shown = parseMarkup(mapHtml(false));
+    expect(shown.children.map(child => [child.localName, child.getAttribute("class"), text(child)])).toEqual([["h1", "sr-only", "Model map"]]);
+    // Not drawn: the heading as every view has it, then the sentence, which says what happened and what to do, and names
+    // the button beside it as that reads.
+    const failed = parseMarkup(mapHtml(true));
+    expect(failed.children.map(child => [child.localName, child.getAttribute("class")])).toEqual([["h1", "view-title"], ["div", "banner warn"]]);
+    expect([text(failed.querySelector("h1")), failed.querySelectorAll(".banner div").map(text)]).toEqual(["Model map", [MAP_FAILED]]);
+    expect(MAP_FAILED).toBe("The model map could not be drawn: download the files as usual, then choose Copy diagnostic log and send the log.");
+    const button = failed.querySelector(".banner button");
+    expect([button?.dataset.act, text(button), button?.getAttribute("type"), button?.focusable, MAP_FAILED.includes(`choose ${text(button)} `)]).toEqual(["copy-run-log", "Copy diagnostic log", "button", true, true]);
+    // The sentence is one sentence, and its icon is not read out.
+    expect([MAP_FAILED.split(". ").length, MAP_FAILED.endsWith("."), failed.querySelector(".banner svg")?.getAttribute("aria-hidden")]).toEqual([1, true, "true"]);
   });
 
   it("shows on the overview what the Details file says: what was read first, then the files that say more than their tile, and two sections that start closed", () => {

@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.8.0 (6 October 2026)
+
+The model map: a picture of a model's modules and line items and of what feeds what, on the results page.
+
+- **Model map.** A model's navigation ends with **Model map**. It draws the model from the tables of the export and from nothing else, so nothing more is read from Anaplan. It opens on the model's sections, which are the heading rows of the Line Items list, goes into a section's modules or all modules, and into one module's line items. A model without headings opens on its modules. An arrow from A to B means that B reads A.
+- **Trace, details and search.** Click a box to mark everything that feeds it and everything it feeds. The details beside it give a line item's formula, its format and summary in the words the Line Items table uses, what feeds it directly and what it feeds directly, and the file and row it comes from. Search finds sections, modules and line items. The legend hides and shows layers, and **Access drivers** adds the links of read and write access drivers.
+- **Readable at its size.** A view opens with every name whole where the names fit. A larger view opens at a readable size on its start, says how many boxes are in view and offers **Whole map**. The map follows the page's light and dark themes. A trace's dashes move for a moment and then stand still, and nothing moves when the system asks for less motion.
+- **What it leaves out.** **About this map** lists what the map could not hold for this export, such as a file or a column that was not exported, a name that matched no object or a row that was left out, and what no export says. Formulas are shown as text and are never worked out; every link comes from a column of the export that names another object.
+- **If it cannot be drawn.** The page says so in the map's place, the reason goes to the diagnostic log, and the tables and downloads work as before.
+- **README.** Rewritten as the front page of the tool, with pictures of an invented app and model.
+- **NOTICE.** It says that the model map reads and sends nothing, and that the socket client also opens and closes its connection.
+- **What stays the same.** What is read from Anaplan, and the zip with its CSV files: apart from the version number they hold the bytes 0.7.2 writes for the same input. The manifest is unchanged apart from the version. The release zip holds twelve files: `map.css` joined.
+
 ## 0.7.2 (5 October 2026)
 
 A wider search for the line items of filter rules, and corrections to **Forget this result**.
