@@ -1,13 +1,26 @@
 # Changelog
 
+## 0.7.2 (5 October 2026)
+
+A wider search for the line items of filter rules, and corrections to **Forget this result**.
+
+- **A filter rule's line item is looked for in the whole model.** A filter rule can use a line item of a module that no card of the app shows. Cardigan looked for it in the first 60 modules that have a dimension of the filtered axis, and a rule whose line item was not among them kept its IDs: the line item, its module, the value and the context all stayed numbers. The search now goes on through the model's other modules, the likeliest first, until every such rule has its line item, for at most 45 seconds per model. A rule whose line item is found is named like any other rule.
+- **What is read for it.** The read is the one used before, a module's line items, made for more modules, a few at a time. A module that has not answered after ten seconds no longer holds up the others, and its answer still counts if it comes within the 45 seconds. No new kind of read is made.
+- **When the 45 seconds run out.** A note says that some filter line items were not found and how many modules were not read, or that the model had not said which modules have the filtered dimension. Such a rule keeps its IDs.
+- **In `App Details.csv`.** The search's reads do not write their frames to the diagnostic log. The search writes a few lines that begin "filter line items": how many modules were read, how long it took, what was found and what was not, and how many reads were given up while waiting. `Filters.csv` and `Where Used.csv` change only where a rule that kept its IDs is now named.
+- **Fix: nothing more is asked once the work has ended.** Once the model has reported that it is closed or gone, or the run was stopped, no step sends another read. Before, the step that followed could still send one.
+- **Fix: a redirect during the search.** The modules being read when the model's data moved to another host were taken for unreadable and left out of the search. They are now read again on the new host.
+- **Forget this result says what happened.** When the browser refuses to remove the kept copy, the page says "The copy kept for refreshes could not be removed." and keeps the control; before, it said that the copy was removed. The sentence that the copy is removed is no longer read twice by a screen reader, and the Overview no longer moves when the control arrives.
+- **What stays the same.** Apart from the version number, a model's files are, byte for byte, what 0.7.1 writes, and so are an app's when no filter rule's line item had to be looked for. The manifest is unchanged apart from the version.
+
 ## 0.7.1 (4 October 2026)
 
-Two additions to 0.7.0. Version 0.7.0 was merged but not published, so 0.7.1 is the first release with the results page.
+Two additions to 0.7.0.
 
 - **A new column in `Line Items.csv`.** A model's `Line Items.csv` has one more column, after **Ratio Denominator**: **Format List**. For a line item formatted as a list it holds the list's name, as `General Lists.csv` names it; the Format cell gives the list only by its ID. It is empty for any other format, for a list that is not a row of General Lists, such as a list subset or a line item subset, and when General Lists could not be read. No read is added for it: the names come from the General Lists grid the export already reads. The results page says such a format with the name, as "List: Products", and with the list's ID where the column is empty. The file's other columns hold what 0.7.0 wrote. In `Model Details.csv` the **How to read** row about Line Items now says what each of the three added columns holds; the model's other files are unchanged.
 - **Forget this result.** On the Overview, under what was analysed, a line says that a copy of the result is kept for a refresh of the page, with **Forget this result** beside it. It removes the kept copy at once; the result stays on the page, with its downloads, until the page is refreshed or closed. The control shows only while a copy is kept, and comes back when **Run again** keeps a new result. [NOTICE.md](NOTICE.md) says where the copy is kept.
 - **Line Items without a Modules file.** When a model's Modules file was not exported, or lists no modules, the line under the Line Items table says so: a row with only a name is then taken for a module's row.
-- **What stays the same.** An app's files are, byte for byte, what 0.7.0 writes, and so are a model's apart from the column and the row above. Nothing new is read from Anaplan, and the manifest is unchanged apart from the version.
+- **What stays the same.** Apart from the version number, an app's files are, byte for byte, what 0.7.0 writes, and so are a model's apart from the column and the row above. Nothing new is read from Anaplan, and the manifest is unchanged apart from the version.
 
 ## 0.7.0 (4 October 2026)
 
