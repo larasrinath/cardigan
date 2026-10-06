@@ -135,6 +135,8 @@ export class FakeElement {
   selectionEnd = 0;
   /** How often the script itself clicked the element, as it does to start a download. */
   clicks = 0;
+  /** How often the script asked for the element to be brought into sight. */
+  broughtIntoSight = 0;
   private readonly listeners = new Map<string, Listener[]>();
   /** What was typed or chosen, and whether the box was ticked, once that differs from the markup. */
   private entered: string | undefined;
@@ -266,6 +268,7 @@ export class FakeElement {
     return { left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 };
   }
   select(): void { /* nothing is laid out, so nothing is selected */ }
+  scrollIntoView(): void { this.broughtIntoSight++; }
 
   addEventListener(type: string, listener: Listener): void {
     this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]);
