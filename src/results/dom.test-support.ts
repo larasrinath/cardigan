@@ -275,7 +275,9 @@ export class FakeElement {
   addEventListener(type: string, listener: Listener): void {
     this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]);
   }
-  /** Sends an event from this element up to the document, as the browser does for a click, a key or typing. */
+  /** Sends an event from this element up to the document, as the browser does for a click, a key or typing. The way up
+   * is settled before the first listener hears the event, as in a browser: a listener that takes the element off the
+   * page does not keep the event from those above it. */
   dispatch(type: string, init: { key?: string } = {}): FakeEvent {
     let stopped = false;
     const event: FakeEvent = {
@@ -283,7 +285,10 @@ export class FakeElement {
       preventDefault() { event.defaultPrevented = true; },
       stopPropagation() { stopped = true; },
     };
-    for (let node: FakeElement | null = this; node && !stopped; node = node.parentElement) {
+    const way: FakeElement[] = [];
+    for (let node: FakeElement | null = this; node; node = node.parentElement) way.push(node);
+    for (const node of way) {
+      if (stopped) break;
       for (const listener of node.listeners.get(type) ?? []) listener(event);
     }
     return event;
