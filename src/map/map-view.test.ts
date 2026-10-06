@@ -2153,30 +2153,125 @@ describe("The room the map's picture has", () => {
     for (const box of after) expect([box.x + box.w <= 864, box.y + box.h <= 760]).toEqual([true, true]);
   });
 
-  it("measures the room for a selection that cannot be shown with the whole picture with the line at the foot, which will say so", () => {
-    // The picture is whole only just: beside the details it cannot be, at a size its names can be read at.
-    mount(sectionsOf(354));
-    const tall: Place = [10, 300, 864, 790];
+  /** A map whose foot is narrow, as in a small window: the line of what is in view, with its button, takes the foot to
+   * more rows, and it stands high. Beside a whole picture the foot has one row. */
+  const HIGH_FOOT: Place = [10, 300, 864, 790];
+  function openWithNarrowFoot(graph: ModelGraph): void {
+    mount(graph);
     layOut({
       ".map-canvas": [0, 0, 1200, 800],
       ".map-free": () => (root().classList.contains("map-has-inspector") ? [10, 56, 864, 790] : [10, 56, 1190, 790]),
       ".map-legend": [10, 700, 70, 750],
-      ".map-dock": () => (part(".map-tracebar").hidden || part(".map-status").hidden ? [10, 760, 864, 790] : tall),
+      ".map-dock": () => (!part(".map-status").hidden && !act("whole").hidden && / in view\.$/.test(status()) ? HIGH_FOOT : [10, 760, 864, 790]),
       ".map-corner": CORNER,
     });
     map.show();
     env.resize(1200, 800);
     env.settle();
-    expect(status()).toBe("354 sections · 0 links");
+  }
+
+  it("measures the room for a selection that cannot be shown with the whole picture with the line at the foot, which will say so", () => {
+    // The picture is whole only just: beside the details it cannot be, at a size its names can be read at.
+    openWithNarrowFoot(sectionsOf(354));
+    const opened = boxes();
+    expect([status(), act("whole").hidden, opened.size]).toEqual(["354 sections · 0 links", true, 354]);
     // A box in the lower half, left of where the details will open: it is in view as it stands, but for the foot, which
-    // is high once the line of what is in view stands over the bar of what is traced.
-    const low = [...boxes()].filter(([, box]) => box.y > 450 && box.y < 700 && box.x > 100 && box.x + box.w < 800)[0];
+    // is high once the line of what is in view stands in it with its button.
+    const low = [...opened].filter(([, box]) => box.y > 450 && box.y < 700 && box.x > 100 && box.x + box.w < 800)[0];
     click(low[1].x + low[1].w / 2, low[1].y + low[1].h / 2);
     env.settle();
     const selected = boxes().get(low[0])!;
-    expect([part(".map-status").hidden, /^\d+ of 354 boxes in view\.$/.test(status()), selected.w]).toEqual([false, true, low[1].w]);
+    expect([part(".map-status").hidden, act("whole").hidden, /^\d+ of 354 boxes in view\.$/.test(status()), selected.w]).toEqual([false, false, true, low[1].w]);
     // The box selected stands over that foot, not under it.
-    expect([overlaps(selected, tall), selected.y + selected.h <= 300]).toEqual([false, true]);
+    expect([overlaps(selected, HIGH_FOOT), selected.y + selected.h <= 300]).toEqual([false, true]);
+    // The selection cleared: the room is measured with the foot of a whole picture, which is low again, and the picture
+    // is whole as it opened.
+    act("clear").press();
+    env.settle();
+    expect([status(), act("whole").hidden]).toEqual(["354 sections · 0 links", true]);
+    expect(boxes()).toEqual(opened);
+  });
+
+  it("fits the whole picture, when asked for it, for the foot a whole picture has", () => {
+    openWithNarrowFoot(sectionsOf(354));
+    const opened = boxes();
+    // Nearer, part of the graph is out of view: the line says so, and the foot stands high.
+    act("zoom-in").press();
+    act("zoom-in").press();
+    env.settle();
+    expect([/^354 sections · 0 links\. \d+ of 354 boxes in view\.$/.test(status()), act("whole").hidden]).toEqual([true, false]);
+    // Whole again: into the room there is once the line has no more to say, not into the little that the high foot left.
+    act("whole").press();
+    env.settle();
+    expect([status(), act("whole").hidden]).toEqual(["354 sections · 0 links", true]);
+    expect(boxes()).toEqual(opened);
+  });
+
+  it("opens a view whole where it can be, measured with the foot a whole picture has and not the one the view before left", () => {
+    openWithNarrowFoot(sectionsOf(354));
+    act("zoom-in").press();
+    act("zoom-in").press();
+    env.settle();
+    expect(act("whole").hidden).toBe(false);
+    // All modules: as many boxes, as large. The foot was high when the view was asked for.
+    act("group").press();
+    env.settle();
+    expect([status(), act("whole").hidden, boxes().size, blankBoxes()]).toEqual(["354 modules · 0 links", true, 354, 0]);
+  });
+
+  it("brings a box that stays selected over the high foot when its view is built again", () => {
+    // Too many sections to show whole: the picture opens on its start, and the line says how much of it is in view.
+    openWithNarrowFoot(sectionsOf(400));
+    expect(act("whole").hidden).toBe(false);
+    const low = [...boxes()].filter(([, box]) => box.y > 450 && box.y < 700 && box.x > 100 && box.x + box.w < 800)[0];
+    click(low[1].x + low[1].w / 2, low[1].y + low[1].h / 2);
+    env.settle();
+    expect(boxes().get(low[0])!.y + low[1].h).toBeLessThanOrEqual(300);
+    // The same view with other links: it is laid out and placed again, on its start, where the box stands low.
+    part(".map-access").tick();
+    env.settle();
+    const again = boxes().get(low[0])!;
+    expect([text(".map-insp-name"), overlaps(again, HIGH_FOOT), again.y + again.h <= 300, again.w]).toEqual([low[0], false, true, low[1].w]);
+    expect(status()).toMatch(/^\d+ of 400 boxes in view\.$/);
+  });
+
+  it("measures the room for a box the search comes to with the line at the foot, which will say how much is in view", () => {
+    // The picture is whole beside the details too, but too far away to tell a box: the search comes close to the one
+    // found, which has no links and is shown by itself at full size.
+    openWithNarrowFoot(sectionsOf(170));
+    expect([...boxes().values()][0].w / 232).toBeLessThan(0.62);
+    part(".map-search").type("section 90");
+    key("Enter");
+    env.settle();
+    const found = boxes().get("90: Section 90")!;
+    expect([text(".map-insp-name"), found.w, part(".map-status").hidden, act("whole").hidden]).toEqual(["90: Section 90", 232, false, false]);
+    expect(status()).toMatch(/^\d+ of 170 boxes in view\.$/);
+    expect([overlaps(found, HIGH_FOOT), found.y + found.h <= 300, found.x + found.w <= 864]).toEqual([false, true, true]);
+  });
+
+  it("counts what is in view with the legend where the line's own button leaves it", () => {
+    // A narrow foot again: with the line's button it takes another row, and the legend, which stands on it, stands higher.
+    const lower: Place = [10, 620, 400, 750];
+    const higher: Place = [10, 420, 400, 750];
+    mount(sectionsOf(60));
+    layOut({ ".map-canvas": [0, 0, 1200, 800], ".map-free": [10, 56, 1190, 790], ".map-legend": () => (act("whole").hidden ? lower : higher), ".map-dock": DOCK, ".map-corner": CORNER });
+    map.show();
+    env.resize(1200, 800);
+    env.settle();
+    if (part(".map-legend").hidden) act("legend").press();
+    env.settle();
+    expect([part(".map-legend").hidden, status(), act("whole").hidden]).toEqual([false, "60 sections · 0 links", true]);
+    act("zoom-in").press();
+    act("zoom-in").press();
+    env.settle();
+    // In view by the picture itself: the boxes whose middle is in the graph's room, under neither the legend nor the
+    // small picture. With the legend where it stood before the line had its button, more of them would be.
+    const inView = (legend: Place): number => [...boxes().values()].filter(box => {
+      const [x, y] = [box.x + box.w / 2, box.y + box.h / 2];
+      return x >= 10 && x <= 1190 && y >= 56 && y <= 790 && ![legend, CORNER].some(([left, top, right, bottom]) => x >= left && x <= right && y >= top && y <= bottom);
+    }).length;
+    expect(inView(higher)).toBeLessThan(inView(lower));
+    expect([act("whole").hidden, status()]).toEqual([false, `60 sections · 0 links. ${inView(higher)} of 60 boxes in view.`]);
   });
 
   it("lets the panel that opens close the other where the two would leave the picture no room at all", () => {

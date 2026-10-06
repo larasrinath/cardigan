@@ -424,6 +424,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     needsFit = false;
     wantsWhole = true;
     rest = undefined;
+    footFor(true);
     go(fitCameraIn(wholeBox(onScreen), width, height, rooms()), animate);
   }
 
@@ -490,7 +491,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     const floor = legibleFrom(current) - 1e-9;
     // The room is measured with the foot as it is beside a whole picture: with a box selected, the line of what is
     // shown gives way to the bar of what is traced.
-    status.hidden = selected !== undefined;
+    footFor(true);
     let list = settleLegend(current, floor, each => {
       layoutGraph(current, each.map(room => ({ width: width - room.l - room.r, height: height - room.t - room.b })));
       return fitCameraIn(current.bounds, width, height, each).k;
@@ -507,7 +508,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     // The start of the graph, in the largest room, at the zoom that shows every box in full: what is read first is at
     // its top left. A box that is selected is brought into view from there. The line at the foot will say how much
     // is in view: the room is measured with it.
-    status.hidden = false;
+    footFor(false);
     list = rooms();
     const room = list.reduce((best, each) => ((width - each.l - each.r) * (height - each.t - each.b) > (width - best.l - best.r) * (height - best.t - best.b) ? each : best));
     const k = fullFrom(current);
@@ -537,7 +538,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     const floor = leastZoom(current, from);
     if (wantsWhole) {
       // Beside a whole picture the line at the foot gives way to the bar of what is traced: the room is measured so.
-      status.hidden = selected !== undefined;
+      footFor(true);
       const list = settleLegend(current, floor, each => fitCameraIn(wholeBox(current), width, height, each).k);
       const whole = fitCameraIn(wholeBox(current), width, height, list);
       if (whole.k >= floor) {
@@ -547,7 +548,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     }
     if (selected) {
       // Not whole: the line may have to say how much is in view. The room is measured with it at the foot.
-      status.hidden = false;
+      footFor(false);
       const to = beside(current, selected, rooms(), from, floor);
       if (to === from) renderStatus();
       else {
@@ -592,16 +593,37 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     if (!onScreen) return;
     const at = heading ?? camera;
     countedFor = at;
-    // In view is what stands in the graph's own room: a box under the bar or the details is not, nor is one under the
-    // legend, the notes or the small picture.
-    const covered = [areaOf(legend), areaOf(about), areaOf(corner)].filter((area): area is Area => area !== undefined);
-    inView = width > 0 && height > 0 ? countInView(onScreen.nodes, isShown, at, areaOf(free) ?? { left: 0, top: 0, right: width, bottom: height }, covered) : shownCount;
-    // Beside a selection the bar of what is traced stands in the line's place, unless the line has more to say than what
-    // the graph holds: that part of it is not drawn, or is out of view. It then says that alone.
-    const said = statusWords(onScreen, shownCount, inView, selected !== undefined);
+    // The line's own words can move what it counts by: in a narrow foot a longer line, or its button, takes the foot to
+    // another row, and the legend and the notes stand on the foot. So the count is made again with the foot as the line
+    // has left it, until the two agree: at once wherever the foot keeps its height.
+    let counted: string | undefined;
+    for (let pass = 0; pass < 3; pass++) {
+      // In view is what stands in the graph's own room: a box under the bar or the details is not, nor is one under the
+      // legend, the notes or the small picture.
+      const covered = [areaOf(legend), areaOf(about), areaOf(corner)].filter((area): area is Area => area !== undefined);
+      const places = covered.map(area => `${area.left} ${area.top} ${area.right} ${area.bottom}`).join(", ");
+      if (places === counted) break;
+      counted = places;
+      inView = width > 0 && height > 0 ? countInView(onScreen.nodes, isShown, at, areaOf(free) ?? { left: 0, top: 0, right: width, bottom: height }, covered) : shownCount;
+      // Beside a selection the bar of what is traced stands in the line's place, unless the line has more to say than
+      // what the graph holds: that part of it is not drawn, or is out of view. It then says that alone.
+      const said = statusWords(onScreen, shownCount, inView, selected !== undefined);
+      if (stats.textContent !== said) stats.textContent = said;
+      wholeButton.hidden = inView >= shownCount;
+      status.hidden = selected !== undefined && shownCount >= onScreen.nodes.length && inView >= shownCount;
+    }
+  }
+
+  /** Puts the line at the foot as it will stand beside a picture that is whole, or beside one that is not, before the
+   * room for the picture is measured: the line's words and its button can take the foot to another row, and the legend
+   * and the notes stand on the foot. Once the camera is chosen, `renderStatus` says what is counted. */
+  function footFor(whole: boolean): void {
+    if (!onScreen) return;
+    // Not whole: the longest the line can be, with one box out of view.
+    const said = statusWords(onScreen, shownCount, whole ? shownCount : Math.max(0, shownCount - 1), selected !== undefined);
     if (stats.textContent !== said) stats.textContent = said;
-    wholeButton.hidden = inView >= shownCount;
-    status.hidden = selected !== undefined && shownCount >= onScreen.nodes.length && inView >= shownCount;
+    wholeButton.hidden = whole;
+    status.hidden = whole && selected !== undefined && shownCount >= onScreen.nodes.length;
   }
 
   function renderLegend(): void {
@@ -810,13 +832,14 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     const from = heading ?? camera;
     if (from.k >= TELLING_ZOOM || width <= 0 || height <= 0) return;
     const full = fullFrom(current);
+    // The camera comes close: part of the graph will be out of view, and the line at the foot will say so.
+    footFor(false);
     const list = rooms();
     const linked = boxAround([node, ...current.in[node.index].map(index => current.nodes[index]), ...current.out[node.index].map(index => current.nodes[index])], 24);
     let to = linked ? fitCameraIn(linked, width, height, list, 1) : undefined;
     if (!to || to.k < full) {
       const alone = boxAround([node], 24);
-      if (!alone) return;
-      to = fitCameraIn(alone, width, height, list, full);
+      to = alone ? fitCameraIn(alone, width, height, list, full) : from;
     }
     if (!wantsWhole) rest ??= from;
     go(to, true);
