@@ -294,18 +294,18 @@ describe("The model map's graph, from the tables of a model export", () => {
         item("COST01 Costs, direct", "Rate", { "Applies To": "Products" })),
       generalLists(
         list("Products", { "Referenced in Applies To": "REV01 Revenue, 'COST01 Costs, direct'.Rate, Old module", "Referenced as Format": "REV01 Revenue.Product, Customers.Favourite",
-          "Referenced in Formula": "REV01 Revenue.Units, REV01 Revenue.'Gone item', Customers.Spend" }),
+          "Referenced in Formula": "REV01 Revenue.Units, REV01 Revenue.'Gone item'" }),
         list("Customers", { Properties: "Favourite: Products, Spend: NUMBER" })),
     ]);
     expect(links(graph)).toEqual(anyOrder([
       // What the list's own columns name. The module's Applies To says the first of these too: it is one link.
       "Products -> REV01 Revenue (applies)", "Products -> COST01 Costs, direct.Rate (applies)",
       "Products -> REV01 Revenue.Product (format)", "Products -> Customers.Favourite (format)",
-      "Products -> REV01 Revenue.Units (list_formula)", "Products -> Customers.Spend (list_formula)",
+      "Products -> REV01 Revenue.Units (list_formula)",
       // And the two line items that have their module's dimensions.
       "Products -> REV01 Revenue.Product (applies)", "Products -> REV01 Revenue.Units (applies)",
     ]));
-    expect(links(graph)).toHaveLength(8);
+    expect(links(graph)).toHaveLength(7);
     expect(unresolved(graph)).toEqual(["Products: Referenced in Applies To: Old module", "Products: Referenced in Formula: REV01 Revenue.'Gone item'"]);
     // The list's Referenced as Format names the line item, so the line item's list is known.
     expect(node(graph, "Product").formatList).toBe(node(graph, "Products").id);
@@ -315,17 +315,19 @@ describe("The model map's graph, from the tables of a model export", () => {
     const graph = buildModelGraph([
       lineItems(moduleRow("Sales plan"), item("Sales plan", "Volume")),
       generalLists(
-        // A list applies to a module or a line item: not to a list, a subset or a list's property. It is the format, or in
-        // the formula, of a line item or a list's property: not of a module, a list or a subset.
-        list("Brands", { Properties: "Code: TEXT", "Referenced in Applies To": "Depots, Seasonal, Brands.Code, Sales plan", "Referenced as Format": "Sales plan, Depots, Sales plan.Volume",
-          "Referenced in Formula": "Sales plan, Seasonal, Brands.Code" }),
+        // A list applies to a module or a line item: not to a list, a subset or a list's property. It is the format of a
+        // line item or a list's property: not of a module, a list or a subset. And the formula that names it is a line
+        // item's: the contract gives that link no other end.
+        list("Brands", { Properties: "Code: TEXT", "Referenced in Applies To": "Depots, Seasonal, Brands.Code, Sales plan",
+          "Referenced as Format": "Sales plan, Depots, Sales plan.Volume, Brands.Code", "Referenced in Formula": "Sales plan, Seasonal, Brands.Code, Sales plan.Volume" }),
         list("Depots"),
         list("Seasons", { Subsets: "Seasonal" })),
     ]);
-    expect(kindLinks(graph)).toEqual(anyOrder(["list Brands -> module Sales plan (applies)", "list Brands -> lineItem Sales plan.Volume (format)", "list Brands -> property Brands.Code (list_formula)",
-      "list Seasons -> subset Seasonal (subset)"]));
+    expect(kindLinks(graph)).toEqual(anyOrder(["list Brands -> module Sales plan (applies)", "list Brands -> lineItem Sales plan.Volume (format)", "list Brands -> property Brands.Code (format)",
+      "list Brands -> lineItem Sales plan.Volume (list_formula)", "list Seasons -> subset Seasonal (subset)"]));
     expect(unresolved(graph)).toEqual(["Brands: Referenced in Applies To: Depots", "Brands: Referenced in Applies To: Seasonal", "Brands: Referenced in Applies To: Brands.Code",
-      "Brands: Referenced as Format: Sales plan", "Brands: Referenced as Format: Depots", "Brands: Referenced in Formula: Sales plan", "Brands: Referenced in Formula: Seasonal"]);
+      "Brands: Referenced as Format: Sales plan", "Brands: Referenced as Format: Depots", "Brands: Referenced in Formula: Sales plan", "Brands: Referenced in Formula: Seasonal",
+      "Brands: Referenced in Formula: Brands.Code"]);
     // The list's column names Volume, and that is the link. Volume's own Format says it is a number: it is formatted as no list.
     expect([node(graph, "Volume").format, node(graph, "Volume").formatList]).toEqual(["NUMBER", undefined]);
   });

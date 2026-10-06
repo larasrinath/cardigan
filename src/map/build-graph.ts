@@ -163,9 +163,10 @@ interface Names {
 }
 
 /** A list's columns that name what uses it, each with the link from the list to what the column names, and with what
- * it can name beside a line item: a list applies to a module, and is the format, or in the formula, of a list's property. */
+ * it can name beside a line item: a list applies to a module, and is the format of a list's property. The formula that
+ * names a list is a line item's: that is the one end the contract gives the link (graph-types.ts `list_formula`). */
 const LIST_REFERENCES = [["Referenced in Applies To", "applies", { module: true }], ["Referenced as Format", "format", { property: true }],
-  ["Referenced in Formula", "list_formula", { property: true }]] as const;
+  ["Referenced in Formula", "list_formula", {}]] as const;
 
 /** The columns that name what drives who may read and who may write a module or a line item, each with its link. A
  * driver is a line item. */
