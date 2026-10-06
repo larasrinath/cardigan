@@ -1,25 +1,68 @@
 import type { Box, ViewGraph, ViewNode } from "./map-graphs.js";
+import { wrapLines, type TextMeasure } from "./map-text.js";
 
-/** Where the nodes of a graph stand. Sections stand in a grid, in their order. Modules and line items stand in columns
- * from left to right, what is read before what reads it: nodes that read each other in a circle share a column, and the
- * nodes of a column are ordered to keep their links short. A graph too large for that, or one whose columns would make
- * a strip many times wider than it is high, is packed into columns of equal length in the same order: a long chain
- * would otherwise be fitted so small that no name on it could be read. The same graph always gets the same places. */
+/** How large the map's boxes are and where they stand.
+ *
+ * A box is as high as its name needs: the name is wrapped at the size it has at full zoom, so that a box shows its
+ * whole name whenever the zoom leaves the letters large enough to read.
+ *
+ * The places are chosen for the room the picture has: among the ways to lay a graph out, the one that fits that room at
+ * the largest zoom wins, because a picture fitted small is one nobody can read. Sections stand in a grid. Modules and
+ * line items stand in columns from left to right, what is read before what reads it, with circles sharing a column
+ * ("ranks"); where that comes out too small to read they are packed into columns of equal length in the same order.
+ * The same graph in the same room always gets the same places. */
 
-const SECTION_COLUMNS = 5;
-const SECTION_STEP_X = 340;
-const SECTION_STEP_Y = 132;
-/** A column's width with the room beside it, and the room between two ranks. */
-const COLUMN = 288;
-const RANK_GAP = 120;
-/** Above this many nodes the ranks give way to packed columns. So they do for a graph of more than `STRIP_ABOVE` nodes
- * that the ranks would lay out more than `STRIP_ASPECT` times wider than high. */
-const PACK_ABOVE = 55;
-const STRIP_ABOVE = 12;
-const STRIP_ASPECT = 4;
-const PACK_STEP_X = 340;
-const PACK_GAP = 26;
+/** A box that holds a small line and a name: a section, a module, a list. Sizes are in pixels at full zoom. A name
+ * has up to four lines, which hold about a hundred and thirty letters: longer than that it is cut, with the mark. */
+export const CARD = { width: 232, padLeft: 14, padRight: 10, top: 9, small: 12, gap: 3, line: 15.5, bottom: 9, font: 12.5, smallFont: 9.5, maxLines: 4 } as const;
+/** A line item's box: its name alone. */
+export const ITEM = { width: 216, padLeft: 13, padRight: 8, top: 9, line: 14, bottom: 9, font: 11.5, maxLines: 4 } as const;
+
+/** A fit never enlarges a small graph beyond this. */
+export const FIT_ZOOM = 1.15;
+/** From this zoom on a box is drawn in full, its name at the size it was wrapped for: the letters of a name are then
+ * 9.5 pixels or more. Below it only the name is written, in letters that stay readable (map-canvas.ts). A line item's
+ * letters are smaller than a card's, so its box is drawn in full from a larger zoom. */
+export const FULL_CARD_ZOOM = 0.76;
+export const FULL_ITEM_ZOOM = 0.83;
+/** The zoom from which every box of a graph is drawn in full. */
+export const fullFrom = (graph: ViewGraph): number => (graph.nodes.some(node => node.kind === "lineItem") ? FULL_ITEM_ZOOM : FULL_CARD_ZOOM);
+
+/** The room a picture is laid out for, in CSS pixels. */
+export interface Room { width: number; height: number }
+const DEFAULT_ROOM: Room = { width: 900, height: 600 };
+
+/** The room between two columns, where the links run, and between two boxes of a column. */
+const COLUMN_GAP = 64;
+const ROW_GAP = 14;
+/** Between two ranks, and between two columns of one rank. */
+const RANK_GAP = 88;
+const RANK_COLUMN_GAP = 28;
+const SECTION_GAP_X = 56;
+const SECTION_GAP_Y = 30;
 const ORDER_PASSES = 8;
+/** How many rows a rank may have before it breaks into columns: each is tried, the most first, so that of two ways that
+ * fit equally large the one with its ranks whole is kept. */
+const RANK_ROWS = [40, 24, 16, 12, 8, 6, 4, 3];
+const MOST_COLUMNS = 48;
+
+/** Whether a box has a small line above its name. */
+export const hasSmallLine = (node: ViewNode): boolean => node.kind !== "lineItem" && (node.code !== "" || node.meta !== "");
+
+/** Gives every box its name's lines and the size that holds them. `label` measures a box's name, `item` a line item's. */
+export function sizeNodes(graph: ViewGraph, label: TextMeasure, item: TextMeasure): void {
+  for (const node of graph.nodes) {
+    if (node.kind === "lineItem") {
+      node.lines = wrapLines(node.label, (ITEM.width - ITEM.padLeft - ITEM.padRight) / ITEM.font, ITEM.maxLines, item);
+      node.w = ITEM.width;
+      node.h = ITEM.top + Math.max(1, node.lines.length) * ITEM.line + ITEM.bottom;
+    } else {
+      node.lines = wrapLines(node.label, (CARD.width - CARD.padLeft - CARD.padRight) / CARD.font, CARD.maxLines, label);
+      node.w = CARD.width;
+      node.h = CARD.top + (hasSmallLine(node) ? CARD.small + CARD.gap : 0) + Math.max(1, node.lines.length) * CARD.line + CARD.bottom;
+    }
+  }
+}
 
 /** What a set of nodes covers; a box of 1 by 1 at the origin for none. */
 export function boundsOf(nodes: readonly ViewNode[]): Box {
@@ -157,55 +200,105 @@ function rankedBands(graph: ViewGraph): ViewNode[][] {
   return order.map(at => bands.get(at)!);
 }
 
-/** Gives every node of the graph its place, and the graph its bounds. */
-export function layoutGraph(graph: ViewGraph): void {
-  const { nodes } = graph;
-  if (graph.kind === "sections") {
-    nodes.forEach((node, index) => {
-      node.x = (index % SECTION_COLUMNS) * SECTION_STEP_X;
-      node.y = Math.floor(index / SECTION_COLUMNS) * SECTION_STEP_Y;
+/** Columns of boxes side by side, each column's boxes one under another, the columns' middles in one line where asked. */
+function placeColumns(columns: readonly (readonly ViewNode[])[], starts: readonly number[], rowGap: number, centred: boolean): void {
+  const heightOf = (column: readonly ViewNode[]): number => column.reduce((height, node) => height + node.h, 0) + rowGap * Math.max(0, column.length - 1);
+  const highest = centred ? Math.max(0, ...columns.map(heightOf)) : 0;
+  columns.forEach((column, index) => {
+    let y = centred ? (highest - heightOf(column)) / 2 : 0;
+    for (const node of column) {
+      node.x = starts[index];
+      node.y = y;
+      y += node.h + rowGap;
+    }
+  });
+}
+
+/** The ranks from left to right; a rank of more than `maxRows` boxes breaks into columns of equal length. */
+function placeRanked(bands: readonly (readonly ViewNode[])[], maxRows: number): void {
+  const columns: ViewNode[][] = [];
+  const starts: number[] = [];
+  let x = 0;
+  for (const band of bands) {
+    const rows = Math.ceil(band.length / Math.ceil(band.length / maxRows));
+    const width = Math.max(...band.map(node => node.w));
+    for (let start = 0; start < band.length; start += rows) {
+      columns.push(band.slice(start, start + rows));
+      starts.push(x);
+      x += width + RANK_COLUMN_GAP;
+    }
+    x += RANK_GAP - RANK_COLUMN_GAP;
+  }
+  placeColumns(columns, starts, ROW_GAP + 2, true);
+}
+
+/** The boxes in their order, packed into a number of columns of equal length. */
+function placePacked(ordered: readonly ViewNode[], count: number, gapX: number, gapY: number): void {
+  const rows = Math.ceil(ordered.length / count);
+  const width = Math.max(...ordered.map(node => node.w));
+  const columns: ViewNode[][] = [];
+  for (let start = 0; start < ordered.length; start += rows) columns.push(ordered.slice(start, start + rows));
+  placeColumns(columns, columns.map((_, index) => index * (width + gapX)), gapY, false);
+}
+
+/** Sections in rows of a number of boxes, in their order: the boxes of a row are as high as its highest. */
+function placeGrid(nodes: readonly ViewNode[], count: number): void {
+  const width = Math.max(...nodes.map(node => node.w));
+  let y = 0;
+  for (let start = 0; start < nodes.length; start += count) {
+    const row = nodes.slice(start, start + count);
+    row.forEach((node, index) => {
+      node.x = index * (width + SECTION_GAP_X);
+      node.y = y;
     });
-  } else {
-    const bands = rankedBands(graph);
-    // A rank of many nodes breaks into columns of at most this many, each centred on the highest column of all.
-    const drill = graph.kind === "drill";
-    const maxRows = drill ? 14 : 12;
-    const gap = drill ? 30 : 32;
-    const columnsOf = (band: readonly ViewNode[]): ViewNode[][] => {
-      const rows = Math.ceil(band.length / Math.ceil(band.length / maxRows));
-      const columns: ViewNode[][] = [];
-      for (let start = 0; start < band.length; start += rows) columns.push(band.slice(start, start + rows));
-      return columns;
-    };
-    const heightOf = (column: readonly ViewNode[]): number => column.reduce((height, node) => height + node.h, 0) + gap * (column.length - 1);
-    const ranked = bands.map(columnsOf);
-    const highest = Math.max(0, ...ranked.flat().map(heightOf));
-    const across = ranked.reduce((width, columns) => width + columns.length * COLUMN, 0) + RANK_GAP * Math.max(0, ranked.length - 1);
-    if (nodes.length > PACK_ABOVE || (nodes.length > STRIP_ABOVE && across > STRIP_ASPECT * highest)) {
-      const ordered = bands.flat();
-      const columns = Math.max(4, Math.ceil(Math.sqrt(ordered.length * 0.42)));
-      const rows = Math.ceil(ordered.length / columns);
-      const heights = new Float64Array(columns);
-      ordered.forEach((node, index) => {
-        const column = Math.floor(index / rows);
-        node.x = column * PACK_STEP_X;
-        node.y = heights[column];
-        heights[column] += node.h + PACK_GAP;
-      });
-    } else {
-      let x = 0;
-      for (const columns of ranked) {
-        columns.forEach((column, index) => {
-          let y = (highest - heightOf(column)) / 2;
-          for (const node of column) {
-            node.x = x + index * COLUMN;
-            node.y = y;
-            y += node.h + gap;
-          }
-        });
-        x += columns.length * COLUMN + RANK_GAP;
+    y += Math.max(...row.map(node => node.h)) + SECTION_GAP_Y;
+  }
+}
+
+/** Gives every node of the graph its place, and the graph its bounds. `rooms` are the rooms the picture may be fitted
+ * into (map-camera.ts): the layout that fits one of them largest is taken. Says how the graph was laid out. */
+export function layoutGraph(graph: ViewGraph, rooms: readonly Room[] = [DEFAULT_ROOM]): "grid" | "ranked" | "packed" | "empty" {
+  const { nodes } = graph;
+  if (!nodes.length) {
+    graph.bounds = boundsOf(nodes);
+    return "empty";
+  }
+  const zoomOf = (): number => {
+    const box = boundsOf(nodes);
+    let best = 0;
+    for (const room of rooms.length ? rooms : [DEFAULT_ROOM]) best = Math.max(best, Math.min(room.width / box.w, room.height / box.h, FIT_ZOOM));
+    return best;
+  };
+  /** Tries each way and keeps the first that fits largest: `ways` are in the order they are preferred in. */
+  const best = (ways: readonly (() => void)[]): { way: () => void; zoom: number } => {
+    let chosen = ways[0];
+    let zoom = -1;
+    for (const way of ways) {
+      way();
+      const fitted = zoomOf();
+      if (fitted > zoom + 1e-9) {
+        chosen = way;
+        zoom = fitted;
       }
     }
+    return { way: chosen, zoom };
+  };
+  const most = Math.min(nodes.length, MOST_COLUMNS);
+  // More columns come first: of two grids that fit equally large, the wider reads more like the model's own order.
+  const counts = Array.from({ length: most }, (_, index) => most - index);
+  let how: "grid" | "ranked" | "packed";
+  if (graph.kind === "sections") {
+    best(counts.map(count => () => placeGrid(nodes, count))).way();
+    how = "grid";
+  } else {
+    const bands = rankedBands(graph);
+    const ordered = bands.flat();
+    const ranked = best(RANK_ROWS.map(rows => () => placeRanked(bands, rows)));
+    const packed = best(counts.map(count => () => placePacked(ordered, count, COLUMN_GAP, ROW_GAP)));
+    // The ranks show what feeds what at a glance: they are kept while every name on them can be read in full.
+    how = ranked.zoom >= fullFrom(graph) || ranked.zoom >= packed.zoom ? "ranked" : "packed";
+    (how === "ranked" ? ranked : packed).way();
   }
   graph.bounds = boundsOf(nodes);
+  return how;
 }

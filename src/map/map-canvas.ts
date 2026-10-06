@@ -1,7 +1,8 @@
 import { minimapTransform, toWorld, type Camera, type MinimapTransform } from "./map-camera.js";
 import type { ViewGraph, ViewNode } from "./map-graphs.js";
+import { CARD, FULL_CARD_ZOOM, FULL_ITEM_ZOOM, hasSmallLine, ITEM } from "./map-layout.js";
 import { layerColour, type MapPalette } from "./map-palette.js";
-import { formatCells, shorten, wrapLines, type TextMeasure } from "./map-text.js";
+import { shorten, wrapLines, type TextMeasure } from "./map-text.js";
 import type { Trace } from "./map-trace.js";
 
 /** The map's drawing: one picture of a graph as the camera sees it, and the small picture of the whole graph beside it.
@@ -24,7 +25,7 @@ export interface Scene {
   /** The order the nodes are drawn in, by their places: a node that was dragged is drawn last, over the others. Nothing
    * for the order of the graph. */
   order?: readonly number[];
-  /** The time in milliseconds that moves a trace's dashes. Nothing where nothing may move: a trace is then a solid line. */
+  /** The time in milliseconds that moves a trace's dashes. Nothing where nothing moves: the dashes then stand still. */
   time?: number;
 }
 
@@ -34,19 +35,43 @@ export type Pen = CanvasRenderingContext2D;
 const GRID = 26;
 /** Below this zoom a node is a patch of its colour: no border, no text. */
 const PATCH_BELOW = 0.1;
-const TEXT_FROM = 0.24;
+/** The letters of a name in a box too small to be drawn in full; in a box with room for one low line only they are
+ * half a pixel smaller, and that is the smallest a name is ever written. The least height of a box that holds a line. */
+const SMALL_TYPE = 10;
+const LEAST_TYPE = 9.5;
+const LEAST_HEIGHT = 13;
+/** The small line of a box drawn in full never has letters smaller than this, however small the box. */
+const SMALL_LINE_LEAST = 9;
 /** The size widths are measured at. A system font is set wider, for its size, when it is small: measured small, a word
  * never comes out wider than it was measured. */
 const MEASURED_AT = 10;
 /** A word is taken to be this much wider than measured, for the fonts that do not keep to the rule above. */
 const SPARE = 1.02;
 const WORDS_KEPT = 60000;
-const DASH = [7, 6];
-const DASH_LENGTH = 13;
-const DASH_SPEED = 25;
+/** A trace's dashes: long for what leads to the node, short for what leads on from it, so that the two are told apart
+ * without their colours. */
+const DASH_UP = [7, 5];
+const DASH_DOWN = [2, 4];
+const DASH_SPEED = 24;
+/** How strongly a link is drawn, by how many links the picture has. A dozen are each in full strength, which stands 3
+ * to 1 against the canvas. The more there are, the lighter each one, falling as the root of their number and never
+ * below a fifth: at full strength a few dozen links between a dozen boxes already fill the gutters with dark bands. */
+const FULL_UP_TO = 12;
+const THINNEST = 0.2;
+export const linkStrength = (links: number): number => Math.min(1, Math.max(THINNEST, Math.sqrt(FULL_UP_TO / Math.max(1, links))));
+/** A trace's links are in full strength up to this many, and thinned beyond. Those of the box selected always are. */
+const TRACE_IN_FULL = 300;
 
-type Role = "label" | "item" | "code" | "meta";
-const WEIGHT: Record<Role, number> = { label: 600, item: 500, code: 500, meta: 400 };
+/** The zoom from which every box of a graph holds at least a line of letters: a view fitted smaller than that would be
+ * boxes nobody can read. */
+export function legibleFrom(graph: ViewGraph): number {
+  let lowest = Infinity;
+  for (const node of graph.nodes) lowest = Math.min(lowest, node.h);
+  return Number.isFinite(lowest) ? LEAST_HEIGHT / lowest : 0;
+}
+
+type Role = "label" | "item" | "code";
+const WEIGHT: Record<Role, number> = { label: 600, item: 500, code: 500 };
 
 /** The fonts of the map's texts, and what measures a text in each. */
 export interface Fonts {
@@ -55,7 +80,7 @@ export interface Fonts {
 }
 
 export function createFonts(pen: Pen, palette: MapPalette): Fonts {
-  const family = (role: Role): string => (role === "code" || role === "meta" ? palette.mono : palette.sans);
+  const family = (role: Role): string => (role === "code" ? palette.mono : palette.sans);
   const css = (role: Role, size: number): string => `${WEIGHT[role]} ${size}px ${family(role)}`;
   const measures = new Map<Role, TextMeasure>();
   const measure = (role: Role): TextMeasure => {
@@ -107,6 +132,17 @@ function rail(pen: Pen, x: number, y: number, width: number, height: number, rad
   pen.closePath();
 }
 
+/** A filled arrowhead with its tip at a point, pointing right or left. */
+function arrowhead(pen: Pen, x: number, y: number, length: number, left: boolean): void {
+  const back = left ? x + length : x - length;
+  pen.beginPath();
+  pen.moveTo(x, y);
+  pen.lineTo(back, y - length * 0.42);
+  pen.lineTo(back, y + length * 0.42);
+  pen.closePath();
+  pen.fill();
+}
+
 function drawGrid(pen: Pen, scene: Scene): void {
   const { camera, width, height } = scene;
   const step = GRID * camera.k;
@@ -127,115 +163,161 @@ function drawGrid(pen: Pen, scene: Scene): void {
   pen.setLineDash([]);
 }
 
-/** Draws the links, and says whether one of them is a trace on screen: only then is there anything to keep moving. */
+/** Draws the links, and says whether one of them is a trace on screen: only then is there anything to keep moving.
+ *
+ * A link leaves the right of what is read and ends, with an arrowhead, at what reads it: at its left where that stands
+ * further right, as most do. Between two boxes of one column it runs round the column's right side, and to a box
+ * further left it runs straight back; both end at the right of the box, with the arrowhead pointing left. So no link
+ * has to cross the column it starts in. */
 function drawEdges(pen: Pen, scene: Scene): boolean {
   const { graph, camera, width, height, shown, trace, matches, palette } = scene;
   const { k, ox, oy } = camera;
-  // Many links over each other make one dark patch: beyond a few hundred each is drawn fainter, down to a third.
-  const thin = (count: number, from: number): number => Math.min(1, Math.max(0.35, from / Math.max(1, count)));
-  const idle = (graph.kind === "sections" ? 0.22 : 0.3) * thin(graph.edges.length, 600);
+  // The links the picture has: those between two boxes that are shown, wherever the camera is.
+  let drawn = 0;
+  for (const edge of graph.edges) if (shown[edge.s] && shown[edge.t]) drawn++;
+  const idle = linkStrength(drawn);
   let marked = 0;
   if (trace) for (let index = 0; index < trace.edges.length; index++) if (trace.edges[index]) marked++;
-  const strong = 0.85 * thin(marked, 250);
-  const head = Math.max(2, Math.min(5 * k, 6));
+  const strong = marked <= TRACE_IN_FULL ? 1 : Math.max(THINNEST, TRACE_IN_FULL / marked);
+  const head = Math.max(6.5, Math.min(10, 9 * k));
   let traced = false;
   for (let index = 0; index < graph.edges.length; index++) {
     const edge = graph.edges[index];
     if (!shown[edge.s] || !shown[edge.t]) continue;
     const from = graph.nodes[edge.s];
     const to = graph.nodes[edge.t];
-    const x1 = (from.x + from.w) * k + ox;
-    const y1 = (from.y + from.h / 2) * k + oy;
-    const x2 = to.x * k + ox;
-    const y2 = (to.y + to.h / 2) * k + oy;
-    if ((x1 < 0 && x2 < 0) || (x1 > width && x2 > width) || (y1 < 0 && y2 < 0) || (y1 > height && y2 > height)) continue;
+    const fromLeft = from.x * k + ox;
+    const fromRight = fromLeft + from.w * k;
+    const toLeft = to.x * k + ox;
+    const toRight = toLeft + to.w * k;
+    let y1 = (from.y + from.h / 2) * k + oy;
+    let y2 = (to.y + to.h / 2) * k + oy;
+    const reach = 70 * k;
+    if ((fromRight < -reach && toRight < -reach) || (fromLeft > width + reach && toLeft > width + reach) || (y1 < -reach && y2 < -reach) || (y1 > height + reach && y2 > height + reach)) continue;
     const way = trace ? trace.edges[index] : 0;
-    let alpha = trace ? (way ? strong : 0.05) : idle;
+    // The links of the box selected are in full strength, however many the trace has.
+    const own = trace !== undefined && (edge.s === trace.selected || edge.t === trace.selected);
+    let alpha = trace ? (way ? (own ? 1 : strong) : 0.12) : idle;
     if (matches && !matches[edge.s] && !matches[edge.t]) alpha *= 0.25;
-    pen.beginPath();
-    pen.moveTo(x1, y1);
-    if (x2 >= x1) {
-      const bend = Math.max(Math.abs(x2 - x1) * 0.38, 40 * k);
-      pen.bezierCurveTo(x1 + bend, y1, x2 - bend, y2, x2, y2);
-    } else if (Math.abs(y1 - y2) > 8 * k) {
-      pen.bezierCurveTo(x1 + 70 * k, y1, x2 - 70 * k, y2, x2, y2);
-    } else {
-      // Back to a node at the same height, or to the node itself: over the top.
-      const over = Math.min(y1, y2) - 65 * k;
-      pen.bezierCurveTo(x1 + 55 * k, y1, x1 + 55 * k, over, x1, over);
-      pen.lineTo(x2, over);
-      pen.bezierCurveTo(x2 - 55 * k, over, x2 - 55 * k, y2, x2, y2);
-    }
     const colour = way === 1 ? palette.traceUp : way === 2 ? palette.traceDown : palette.edge;
     pen.globalAlpha = alpha;
     pen.strokeStyle = colour;
-    pen.lineWidth = Math.max(0.6, Math.min(4.5, 0.8 + Math.log2(1 + edge.w) * 0.45) * Math.min(k, 1.4));
+    pen.fillStyle = colour;
+    pen.lineWidth = Math.max(1, Math.min(3, 0.8 + Math.log2(1 + edge.w) * 0.35) * Math.min(k, 1.2));
+    let tip = toLeft;
+    let pointsLeft = false;
+    pen.beginPath();
+    if (from === to) {
+      // A line item that reads itself: over its own top, from its right to its left.
+      const over = from.y * k + oy - 14 * k;
+      pen.moveTo(fromRight, y1);
+      pen.bezierCurveTo(fromRight + 26 * k, y1, fromRight + 26 * k, over, fromRight - 6 * k, over);
+      pen.lineTo(fromLeft + 6 * k, over);
+      pen.bezierCurveTo(fromLeft - 26 * k, over, fromLeft - 26 * k, y1, fromLeft - head + 1, y1);
+    } else if (Math.abs(from.x - to.x) < 2) {
+      const down = to.y > from.y ? 1 : -1;
+      y1 += down * Math.min(7 * k, from.h * k * 0.22);
+      y2 -= down * Math.min(7 * k, to.h * k * 0.22);
+      const bulge = Math.min(50 * k, 16 * k + 0.18 * Math.abs(y2 - y1));
+      tip = toRight;
+      pointsLeft = true;
+      pen.moveTo(fromRight, y1);
+      pen.bezierCurveTo(fromRight + bulge, y1, toRight + bulge + head, y2, toRight + head - 1, y2);
+    } else if (toLeft < fromLeft) {
+      const bend = Math.max((fromLeft - toRight) * 0.38, 30 * k);
+      tip = toRight;
+      pointsLeft = true;
+      pen.moveTo(fromLeft, y1);
+      pen.bezierCurveTo(fromLeft - bend, y1, toRight + bend, y2, toRight + head - 1, y2);
+    } else {
+      const bend = Math.max((toLeft - fromRight) * 0.38, 30 * k);
+      pen.moveTo(fromRight, y1);
+      pen.bezierCurveTo(fromRight + bend, y1, toLeft - bend, y2, toLeft - head + 1, y2);
+    }
     if (way) {
       traced = true;
-      if (scene.time !== undefined) {
-        pen.setLineDash(DASH);
-        pen.lineDashOffset = -((scene.time / 1000 * DASH_SPEED) % DASH_LENGTH);
-      }
+      const dash = way === 1 ? DASH_UP : DASH_DOWN;
+      pen.setLineDash(dash);
+      pen.lineDashOffset = scene.time === undefined ? 0 : -((scene.time / 1000 * DASH_SPEED) % (dash[0] + dash[1]));
     }
     pen.stroke();
-    if (way && scene.time !== undefined) pen.setLineDash([]);
-    if (k > 0.16) {
-      pen.beginPath();
-      pen.moveTo(x2, y2);
-      pen.lineTo(x2 - head * 1.6, y2 - head * 0.72);
-      pen.lineTo(x2 - head * 1.6, y2 + head * 0.72);
-      pen.closePath();
-      pen.fillStyle = colour;
-      pen.fill();
-    }
+    if (way) pen.setLineDash([]);
+    arrowhead(pen, tip, y2, head, pointsLeft);
   }
   pen.globalAlpha = 1;
   return traced;
 }
 
-const KIND_LINE: Record<ViewNode["kind"], string> = { section: "SECTION", module: "MODULE", lineItem: "LINE ITEM", externalModule: "EXTERNAL MODULE", externalItem: "EXTERNAL", list: "LIST", property: "PROPERTY" };
-
+/** A box's text. From `FULL_CARD_ZOOM` on (`FULL_ITEM_ZOOM` for a line item) it is the box in full: the small line (its
+ * code, and what it holds or where it belongs) and the name as it was wrapped at full zoom, growing and shrinking with
+ * the box; the small line stops shrinking where it would stop being readable, and is cut to its room. Below that zoom
+ * the name's letters would be too small to read, so only the name is written, code and all, in letters that stay
+ * readable, on as many lines as the box has room for; and nothing in a box too low for a line. */
 function drawText(pen: Pen, scene: Scene, fonts: Fonts, node: ViewNode, x: number, y: number, width: number, height: number): void {
   const { palette } = scene;
   const k = scene.camera.k;
-  const pad = Math.max(9, 14 * k);
-  const room = Math.max(0, width - pad - 8);
-  if (node.kind === "lineItem") {
-    const size = Math.max(10, 11.5 * k);
-    if (height < size + 4) return;
-    const lines = wrapLines(node.label, room / size, height > 2 * (size + 2) + 4 ? 2 : 1, fonts.measure("item"));
-    pen.font = fonts.css("item", size);
-    pen.fillStyle = node.layer === "heading" ? palette.nodeTextMuted : palette.nodeText;
-    const step = size + 2;
-    const first = y + height / 2 - (lines.length - 1) * step / 2 + size * 0.35;
-    lines.forEach((line, index) => pen.fillText(line, x + pad, first + index * step));
+  const item = node.kind === "lineItem";
+  const role: Role = item ? "item" : "label";
+  const quiet = node.external || node.layer === "heading";
+  if (k >= (item ? FULL_ITEM_ZOOM : FULL_CARD_ZOOM)) {
+    const left = x + (item ? ITEM.padLeft : CARD.padLeft) * k;
+    let top = y + (item ? ITEM.top : CARD.top) * k;
+    if (!item && hasSmallLine(node)) {
+      const size = Math.max(SMALL_LINE_LEAST, CARD.smallFont * k);
+      // The line is cut before the pen is given its font: measuring a word sets the pen's font to the measure's own.
+      const small = shorten([node.code, node.meta].filter(part => part !== "").join(" · "), (CARD.width - CARD.padLeft - CARD.padRight) * k / size, fonts.measure("code"));
+      pen.font = fonts.css("code", size);
+      pen.fillStyle = palette.nodeTextMuted;
+      pen.fillText(small, left, top + 9 * k);
+      top += (CARD.small + CARD.gap) * k;
+    }
+    const size = (item ? ITEM.font : CARD.font) * k;
+    const step = (item ? ITEM.line : CARD.line) * k;
+    pen.font = fonts.css(role, size);
+    pen.fillStyle = quiet ? palette.nodeTextMuted : palette.nodeText;
+    node.lines.forEach((line, index) => pen.fillText(line, left, top + step * index + step * 0.74));
     return;
   }
-  const size = Math.max(10.5, 12.5 * k);
-  if (height < 34) {
-    // Too low for two lines: the whole name on one, which says more than a code alone.
-    pen.font = fonts.css("label", size);
-    pen.fillStyle = node.external ? palette.nodeTextMuted : palette.nodeText;
-    pen.fillText(shorten(node.fullName, room / size, fonts.measure("label")), x + pad, y + height / 2 + size * 0.35);
-    return;
+  // A box at the very zoom that leaves it the least height holds its line: a hair under it is the arithmetic's.
+  if (height < LEAST_HEIGHT - 1e-6) return;
+  const padLeft = Math.max(6, (item ? ITEM.padLeft : CARD.padLeft) * k);
+  const room = width - padLeft - Math.max(4, 8 * k);
+  const lines = Math.floor((height - 3) / (SMALL_TYPE + 2));
+  // A box with room for one line only may be a little lower than a line of the small letters: they are then set half a
+  // pixel smaller.
+  const size = lines >= 1 ? SMALL_TYPE : LEAST_TYPE;
+  const written = wrapLines(node.fullName, room / size, Math.max(1, lines), fonts.measure(role));
+  pen.font = fonts.css(role, size);
+  pen.fillStyle = quiet ? palette.nodeTextMuted : palette.nodeText;
+  const step = size + 2;
+  const first = y + (height - written.length * step) / 2 + size * 0.86;
+  written.forEach((line, index) => pen.fillText(line, x + padLeft, first + index * step));
+}
+
+/** The sign of a box of a trace: an arrowhead on the edge the trace's links use. A box that feeds the node selected has
+ * it at its right edge, where its links leave; a box the node feeds has it at its left edge, where they arrive. A box
+ * in a circle with the node has both. The two sides are told apart by where the sign stands, not only by its colour. */
+function drawSigns(pen: Pen, palette: MapPalette, x: number, y: number, width: number, height: number, feeds: boolean, fed: boolean, k: number): void {
+  const size = Math.max(4.5, Math.min(7, 6 * k));
+  const middle = y + height / 2;
+  if (feeds) {
+    pen.fillStyle = palette.traceUp;
+    pen.beginPath();
+    pen.moveTo(x + width + 2, middle - size);
+    pen.lineTo(x + width + 2 + size * 1.25, middle);
+    pen.lineTo(x + width + 2, middle + size);
+    pen.closePath();
+    pen.fill();
   }
-  const small = k < 0.8;
-  const codeSize = Math.max(9, 9.5 * k);
-  pen.font = fonts.css("code", codeSize);
-  pen.fillStyle = palette.nodeTextMuted;
-  pen.fillText(shorten(node.code || KIND_LINE[node.kind], room / codeSize, fonts.measure("code")), x + pad, y + Math.max(11, 16 * k));
-  const lines = wrapLines(node.label, room / size, small && height <= 44 ? 1 : 2, fonts.measure("label"));
-  pen.font = fonts.css("label", size);
-  pen.fillStyle = node.external ? palette.nodeTextMuted : palette.nodeText;
-  const first = y + Math.max(24, 34 * k);
-  lines.forEach((line, index) => pen.fillText(line, x + pad, first + index * (size + 2)));
-  if (small) return;
-  const meta = node.meta || (node.raw?.cells !== undefined ? `${formatCells(node.raw.cells)} cells` : "");
-  if (meta === "") return;
-  const metaSize = Math.max(9, 9.5 * k);
-  pen.font = fonts.css("meta", metaSize);
-  pen.fillStyle = palette.nodeTextMuted;
-  pen.fillText(shorten(meta, room / metaSize, fonts.measure("meta")), x + pad, y + height - 10 * k);
+  if (fed) {
+    pen.fillStyle = palette.traceDown;
+    pen.beginPath();
+    pen.moveTo(x - 2 - size * 1.25, middle - size);
+    pen.lineTo(x - 2, middle);
+    pen.lineTo(x - 2 - size * 1.25, middle + size);
+    pen.closePath();
+    pen.fill();
+  }
 }
 
 function drawNodes(pen: Pen, scene: Scene, fonts: Fonts): void {
@@ -257,8 +339,9 @@ function drawNodes(pen: Pen, scene: Scene, fonts: Fonts): void {
     let colour = colours.get(node.layer);
     if (colour === undefined) colours.set(node.layer, colour = layerColour(palette, node.layer));
     const selected = trace?.selected === index;
-    const way = !trace || selected ? 0 : trace.up.has(index) ? 1 : trace.down.has(index) ? 2 : 0;
-    let alpha = trace && !selected && !way ? 0.18 : 1;
+    const feeds = !!trace && !selected && trace.up.has(index);
+    const fed = !!trace && !selected && trace.down.has(index);
+    let alpha = trace && !selected && !feeds && !fed ? 0.18 : 1;
     if (matches && !matches[index]) alpha = Math.min(alpha, 0.18);
 
     if (k < PATCH_BELOW) {
@@ -281,21 +364,29 @@ function drawNodes(pen: Pen, scene: Scene, fonts: Fonts): void {
         pen.fill();
       }
     }
-    if (selected || way) {
-      roundedRect(pen, x - 2, y - 2, w + 4, h + 4, radius + 2);
-      pen.globalAlpha = alpha * 0.7;
-      pen.strokeStyle = selected ? palette.select : way === 1 ? palette.traceUp : palette.traceDown;
+    if (selected || feeds || fed) {
+      pen.globalAlpha = alpha * 0.8;
       pen.lineWidth = 1.4;
+      roundedRect(pen, x - 2, y - 2, w + 4, h + 4, radius + 2);
+      pen.strokeStyle = selected ? palette.select : feeds ? palette.traceUp : palette.traceDown;
       pen.stroke();
+      if (feeds && fed) {
+        // In a circle with the node: a second ring, of the other side's colour.
+        roundedRect(pen, x - 4.5, y - 4.5, w + 9, h + 9, radius + 4.5);
+        pen.strokeStyle = palette.traceDown;
+        pen.stroke();
+      }
+      pen.globalAlpha = alpha;
+      if (k >= PATCH_BELOW) drawSigns(pen, palette, x, y, w, h, feeds, fed, k);
     }
     if (matches?.[index]) {
       roundedRect(pen, x - 3, y - 3, w + 6, h + 6, radius + 3);
-      pen.globalAlpha = alpha * 0.75;
+      pen.globalAlpha = alpha * 0.8;
       pen.strokeStyle = palette.match;
-      pen.lineWidth = 1.4;
+      pen.lineWidth = 1.6;
       pen.stroke();
     }
-    if (k >= TEXT_FROM) {
+    if (k >= PATCH_BELOW) {
       pen.globalAlpha = alpha;
       drawText(pen, scene, fonts, node, x, y, w, h);
     }
@@ -315,8 +406,9 @@ export function drawScene(pen: Pen, scene: Scene, fonts: Fonts): boolean {
   return traced;
 }
 
-/** Draws the whole graph small, each node a patch of its colour, with a frame around what the camera shows. Gives back
- * how the graph was scaled, so that a click on the small picture can be read as a place in the graph. */
+/** Draws the whole graph small, each node a patch of its colour, with a frame around what the camera shows where that
+ * is less than everything. Gives back how the graph was scaled, so that a click on the small picture can be read as a
+ * place in the graph. */
 export function drawMinimap(pen: Pen, scene: Scene, width: number, height: number): MinimapTransform | undefined {
   pen.globalAlpha = 1;
   pen.clearRect(0, 0, width, height);
@@ -334,12 +426,24 @@ export function drawMinimap(pen: Pen, scene: Scene, width: number, height: numbe
     pen.globalAlpha = trace?.selected === node.index ? 1 : 0.7;
     pen.fillRect(ox + node.x * s, oy + node.y * s, Math.max(node.w * s, 2), Math.max(node.h * s, 2));
   }
-  const [left, top] = toWorld(scene.camera, 0, 0);
-  const [right, bottom] = toWorld(scene.camera, scene.width, scene.height);
-  pen.globalAlpha = 0.55;
-  pen.strokeStyle = palette.select;
-  pen.lineWidth = 1;
-  pen.strokeRect(ox + left * s, oy + top * s, (right - left) * s, (bottom - top) * s);
+  const [worldLeft, worldTop] = toWorld(scene.camera, 0, 0);
+  const [worldRight, worldBottom] = toWorld(scene.camera, scene.width, scene.height);
+  // The frame says which part of the graph is on screen. With the whole graph on screen there is nothing to say, and a
+  // frame cut off at the small picture's edge would be a stray line: it is drawn only around a part.
+  const bounds = graph.bounds;
+  const whole = worldLeft <= bounds.x && worldTop <= bounds.y && worldRight >= bounds.x + bounds.w && worldBottom >= bounds.y + bounds.h;
+  if (!whole) {
+    const left = Math.max(1, ox + worldLeft * s);
+    const top = Math.max(1, oy + worldTop * s);
+    const right = Math.min(width - 1, ox + worldRight * s);
+    const bottom = Math.min(height - 1, oy + worldBottom * s);
+    if (right > left && bottom > top) {
+      pen.globalAlpha = 0.6;
+      pen.strokeStyle = palette.select;
+      pen.lineWidth = 1;
+      pen.strokeRect(left, top, right - left, bottom - top);
+    }
+  }
   pen.globalAlpha = 1;
   return transform;
 }

@@ -102,6 +102,14 @@ describe("The stand-in page", () => {
     // A key goes to where the focus is, and a listener can prevent what the browser would do with it.
     page.document.addEventListener("keydown", event => { if (event.key === "/") event.preventDefault(); });
     expect([page.key("/").defaultPrevented, page.key("a").defaultPrevented, page.key("/").target.id]).toEqual([true, false, "view"]);
+    // The way up is settled before the first listener hears the event, as in a browser: a listener that takes the element
+    // off the page does not keep the event from those above it, which hear it with an element that is no longer there.
+    heard.length = 0;
+    const header = page.find("header");
+    page.document.addEventListener("click", event => heard.push(`on the page: ${event.target.isConnected}`));
+    page.id("go").addEventListener("click", () => { header.innerHTML = ""; });
+    page.id("go").press();
+    expect(heard).toEqual(["button", "header", "document: go", "on the page: false"]);
   });
 
   it("gives focus only to what can take it: a control or a tabindex, shown, enabled, on the page and not inert", () => {
@@ -123,26 +131,78 @@ describe("The stand-in page", () => {
     expect(document.activeElement.id).toBe("view");
     page.find("header").press();
     expect(document.activeElement).toBe(document.body);
-    // Focus does not stay on an element that goes away, is hidden, or ends up inside something inert.
-    page.id("go").focus();
-    page.find("header").inert = true;
-    expect(document.activeElement).toBe(document.body);
-    page.find("header").inert = false;
-    page.id("go").focus();
-    page.id("go").disabled = true;
-    page.id("go").press();
-    page.id("go").focus();
-    expect(document.activeElement).toBe(document.body);
-    page.id("close").focus();
+    // What a user cannot get at, a test cannot click either: something hidden, inert or no longer on the page.
     const close = page.id("close");
     close.remove();
-    expect([document.activeElement, document.contains(page.id("drawer")), page.has("#close")]).toEqual([document.body, true, false]);
-    // What a user cannot get at, a test cannot click either: something hidden, inert or no longer on the page.
+    expect([document.contains(page.id("drawer")), page.has("#close")]).toEqual([true, false]);
     page.id("drawer").hidden = true;
     page.find("main").inert = true;
     expect(() => page.id("drawer").press()).toThrow("A user cannot get at <div>: <div> is hidden");
     expect(() => page.id("view").type("x")).toThrow("A user cannot get at <div>: <main> is inert");
     expect(() => close.press()).toThrow("A user cannot get at <button>: it is not on the page");
+  });
+
+  it("names the element with the focus as Chrome does: one that can no longer hold it until the page is next drawn, one that is taken out of its place no longer", () => {
+    const page = new FakePage(PAGE);
+    const { document } = page;
+    page.id("drawer").hidden = false;
+    // An element that can no longer hold the focus, being hidden, disabled or inside something inert, is still named as
+    // the one with the focus while the script works on, as Chrome names it. The focus falls to the body when the browser
+    // next draws the page, and not while a script asks where it is.
+    const header = page.find("header");
+    page.id("go").focus();
+    header.hidden = true;
+    expect([document.activeElement.id, header.contains(document.activeElement), page.id("go").focusable]).toEqual(["go", true, false]);
+    // Another element takes the focus meanwhile, and the hidden one does not take it back.
+    page.id("view").focus();
+    page.id("go").focus();
+    expect(document.activeElement.id).toBe("view");
+    header.hidden = false;
+    page.id("go").focus();
+    header.inert = true;
+    expect(document.activeElement.id).toBe("go");
+    page.frame();
+    expect(document.activeElement).toBe(document.body);
+    // The focus does not come back when the element can hold it again.
+    header.inert = false;
+    expect(document.activeElement).toBe(document.body);
+    // What is hidden and shown again before the page is drawn keeps the focus.
+    page.id("go").focus();
+    header.hidden = true;
+    header.hidden = false;
+    page.frame();
+    expect(document.activeElement.id).toBe("go");
+    // A user acts on the page as it was last drawn: a key goes to the body once the control with the focus is disabled,
+    // and a press on that control does nothing.
+    page.id("go").disabled = true;
+    expect(document.activeElement.id).toBe("go");
+    expect(page.key("a").target).toBe(document.body);
+    page.id("go").focus();
+    page.id("go").press();
+    page.id("go").focus();
+    expect(document.activeElement).toBe(document.body);
+    // What a details element holds is the same, once the element is closed.
+    page.id("view").innerHTML = '<details id="more" open><summary>More</summary><button id="inner">Inner</button></details>';
+    page.id("inner").focus();
+    page.id("more").removeAttribute("open");
+    expect([document.activeElement.id, page.id("inner").focusable]).toEqual(["inner", false]);
+    page.frame();
+    expect(document.activeElement).toBe(document.body);
+    // An element that is taken off the page loses the focus at once, and so does one that is put elsewhere on it.
+    // The focus does not come back with the element.
+    const close = page.id("close");
+    close.focus();
+    expect(document.activeElement.id).toBe("close");
+    close.remove();
+    expect([document.activeElement, page.has("#close")]).toEqual([document.body, false]);
+    page.id("drawer").append(close);
+    expect([page.has("#close"), document.activeElement]).toEqual([true, document.body]);
+    close.focus();
+    page.id("view").append(close);
+    expect([page.id("view").contains(close), close.focusable, document.activeElement]).toEqual([true, true, document.body]);
+    close.focus();
+    page.id("view").innerHTML = "";
+    expect([document.activeElement, close.isConnected]).toEqual([document.body, false]);
   });
 
   it("shows of a closed details element only its summary, which takes the focus and opens and closes it", () => {
