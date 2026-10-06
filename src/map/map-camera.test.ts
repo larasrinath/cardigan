@@ -156,6 +156,27 @@ describe("The room for a graph among the panels", () => {
     expect(roomsBeside(free, [upper])).toEqual([{ left: 200, top: 300, right: 1000, bottom: 700 }, { left: 420, top: 100, right: 1000, bottom: 700 }]);
   });
 
+  it("offers the room at either side of a panel that stands in the middle, and over and under it", () => {
+    const free = { left: 0, top: 0, right: 1000, bottom: 600 };
+    // A panel from the foot up, a little right of the middle: there is room at its left and at its right, and over it.
+    const panel = { left: 400, top: 100, right: 700, bottom: 600 };
+    expect(roomsBeside(free, [panel])).toEqual([
+      { left: 0, top: 0, right: 1000, bottom: 100 }, { left: 0, top: 0, right: 400, bottom: 600 }, { left: 700, top: 0, right: 1000, bottom: 600 },
+    ]);
+    // With a second panel in the lower left corner, the room at the right of the first is still offered whole.
+    const corner = { left: 0, top: 300, right: 230, bottom: 600 };
+    expect(roomsBeside(free, [corner, panel])).toContainEqual({ left: 700, top: 0, right: 1000, bottom: 600 });
+    expect(roomsBeside(free, [corner, panel])).toContainEqual({ left: 0, top: 0, right: 400, bottom: 300 });
+  });
+
+  it("offers no room smaller than a picture can be fitted into", () => {
+    const free = { left: 0, top: 0, right: 1000, bottom: 600 };
+    // A panel that leaves 30 pixels at its right and 20 under it: neither is a room.
+    expect(roomsBeside(free, [{ left: 500, top: 300, right: 970, bottom: 580 }])).toEqual([{ left: 0, top: 0, right: 1000, bottom: 300 }, { left: 0, top: 0, right: 500, bottom: 600 }]);
+    // Panels that cover the free part but for slivers leave none at all.
+    expect(roomsBeside(free, [{ left: 10, top: 10, right: 990, bottom: 590 }])).toEqual([]);
+  });
+
   it("offers no room that a panel leaves nothing of", () => {
     const free = { left: 0, top: 0, right: 400, bottom: 300 };
     // A panel as wide as the free part: only the room above it is one.
@@ -203,6 +224,10 @@ describe("What a reader has in view", () => {
     // A box under the bar, or under the details at the right, is not in view.
     expect(countInView(nodes, all, camera, { left: 0, top: 80, right: 1000, bottom: 600 })).toBe(0);
     expect(countInView(nodes, all, camera, { left: 0, top: 0, right: 600, bottom: 600 })).toBe(2);
+    // Nor is a box under a panel that stands in that part: the legend, the notes, the small picture.
+    expect(countInView(nodes, all, camera, whole, [{ left: 280, top: 0, right: 560, bottom: 60 }])).toBe(2);
+    expect(countInView(nodes, all, camera, whole, [{ left: 0, top: 0, right: 300, bottom: 600 }, { left: 600, top: 0, right: 1000, bottom: 600 }])).toBe(1);
+    expect(countInView(nodes, all, camera, whole, [{ left: 0, top: 300, right: 1000, bottom: 600 }])).toBe(3);
   });
 
   it("brings a box of the graph into the room: where it is, moved just far enough, or further away, never nearer", () => {

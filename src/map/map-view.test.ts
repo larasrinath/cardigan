@@ -206,6 +206,26 @@ function doubleClick(name: string): void {
   pointer("pointerup", x, y);
 }
 
+/** Many modules that nothing links: fitted whole into the map's place they are small, and still hold their names. */
+const manyModules = (count: number): ModelGraph => {
+  const make = new GraphMaker();
+  for (let index = 0; index < count; index++) make.item(make.module(`M${index} - Module ${index}`, `${index % 4}: Section ${index % 4}`), "Value");
+  return make.graph();
+};
+/** How many boxes of the last picture hold no name: a box is drawn, and no text is written in it. */
+function blankBoxes(): number {
+  const calls = lastPicture();
+  const texts = calls.filter(call => call.name === "fillText").map(call => call.args as [string, number, number]);
+  let blank = 0;
+  calls.forEach((call, index) => {
+    if (call.name !== "roundRect" || calls[index + 1]?.name !== "fill") return;
+    const [x, y, w, h] = call.args as number[];
+    if (x + w < 0 || y + h < 0 || x > 1200 || y > 800) return;
+    if (!texts.some(([, tx, ty]) => tx >= x && tx <= x + w && ty >= y && ty <= y + h + 2)) blank++;
+  });
+  return blank;
+}
+
 describe("The map in the place the page gives it", () => {
   it("puts one element of its own into the host, hidden, and draws nothing until it is shown", () => {
     mount();
@@ -697,6 +717,65 @@ describe("A map that fails", () => {
     expect(page.document.activeElement.id).toBe("outside");
   });
 
+  it("tells the page once, with the reason, when a map that was drawn stops", () => {
+    const heard: string[] = [];
+    const mountHearing = (onFailure: (reason: string) => void = reason => { heard.push(reason); }): void => {
+      env = new FakeSurroundings();
+      map = mountModelMapIn(host as unknown as HTMLElement, sample().graph, { modelName: "Demand Plan", onFailure }, env);
+      map.show();
+      env.resize(1200, 800);
+      env.settle();
+    };
+    mountHearing();
+    expect(heard).toEqual([]);
+    env.main.fillRect = (): never => { throw new RangeError("the canvas is gone"); };
+    canvas().focus();
+    key("f");
+    env.settle();
+    // The kind of error and its words, as the page's own lines about the map have them.
+    expect(heard).toEqual(["RangeError: the canvas is gone"]);
+    // Nothing that happens to the stopped map is told again.
+    map.themeChanged();
+    env.resize(900, 700);
+    map.hide();
+    map.show();
+    expect(heard).toEqual(["RangeError: the canvas is gone"]);
+    map.destroy();
+
+    // What is thrown is no error: its text is the reason. And a value that cannot be made a text has a reason all the same.
+    mountHearing();
+    env.main.fillRect = (): never => { throw "a string was thrown"; };
+    env.resize(1000, 700);
+    expect(heard.slice(1)).toEqual(["a string was thrown"]);
+    map.destroy();
+    mountHearing();
+    env.main.fillRect = (): never => { throw Object.create(null); };
+    expect(() => env.resize(1000, 700)).not.toThrow();
+    expect(heard.slice(2)).toEqual(["a failure that cannot be put into words"]);
+    expect(text(".map-broken .map-empty-text")).toBe("Drawing it failed, and the map has stopped. The tables of this result are not affected.");
+    map.destroy();
+    mountHearing();
+    env.main.fillRect = (): never => { throw Object.defineProperty(new Error("x"), "message", { get: (): string => { throw new Error("no words"); } }); };
+    expect(() => env.resize(1000, 700)).not.toThrow();
+    expect(heard.slice(3)).toEqual(["a failure that cannot be put into words"]);
+    map.destroy();
+
+    // A page whose own listener fails is the page's affair: the map has said its sentence and stopped.
+    mountHearing(() => { throw new Error("the page's log is full"); });
+    env.main.fillRect = (): never => { throw new Error("the canvas is gone"); };
+    expect(() => env.resize(1000, 700)).not.toThrow();
+    expect(text(".map-broken .map-empty-title")).toBe("The map could not be drawn");
+    map.destroy();
+
+    // A first picture that cannot be drawn is thrown to the page, which says so itself: nothing is told a second way.
+    env = new FakeSurroundings();
+    map = mountModelMapIn(host as unknown as HTMLElement, sample().graph, { modelName: "Demand Plan", onFailure: reason => { heard.push(`first: ${reason}`); } }, env);
+    canvas().getBoundingClientRect = () => ({ left: 0, top: 0, right: 1200, bottom: 800, width: 1200, height: 800 });
+    env.main.fillRect = (): never => { throw new Error("no picture can be drawn"); };
+    expect(() => map.show()).toThrow("no picture can be drawn");
+    expect(heard.filter(reason => reason.startsWith("first"))).toEqual([]);
+  });
+
   it("writes the failure's words as text, whatever they are", () => {
     open();
     env.main.fillRect = failing(HOSTILE[0]);
@@ -714,7 +793,7 @@ describe("The map's views", () => {
     // The model's name is the map's heading and the start of its breadcrumb, after the workspace.
     expect([part(".map-title-name").localName, text(".map-title-name"), part(".map-title-name").getAttribute("aria-current"), part(".map-title-name").getAttribute("title")]).toEqual(["h2", "Demand Plan", "location", "Demand Plan (workspace: Sandbox)"]);
     expect(parts(".map-crumbs button")).toEqual([]);
-    expect([text(".map-crumb-ws-name"), part(".map-crumb-ws").getAttribute("class"), text(".map-here")]).toEqual(["Sandbox", "map-crumb-ws map-crumb-ws-alone", "Demand Plan"]);
+    expect([text(".map-crumb-ws-name"), part(".map-crumb-ws").hidden, text(".map-here")]).toEqual(["Sandbox", false, "Demand Plan"]);
     expect([status(), part(".map-status").hidden, act("whole").hidden]).toEqual(["3 sections · 2 links", false, true]);
     expect(text(".map-legend-title")).toBe("Sections");
     // Each section's entry counts the section's modules.
@@ -734,9 +813,9 @@ describe("The map's views", () => {
     map.destroy();
     open();
     expect(text(".map-notes .map-about-line")).toBe("Demand Plan, in the workspace Sandbox: 5 modules · 9 line items");
-    // Before a section or a module the workspace has less room than before the model alone, and says so to the stylesheet.
+    // Where nothing of the page is measured, the workspace stands before every view's names.
     act("group").press();
-    expect(part(".map-crumb-ws").getAttribute("class")).toBe("map-crumb-ws");
+    expect([text(".map-crumb-ws-name"), part(".map-crumb-ws").hidden]).toEqual(["Sandbox", false]);
   });
   it("opens a model whose modules stand under one heading on its modules: it has no sections to show", () => {
     const make = new GraphMaker();
@@ -761,7 +840,9 @@ describe("The map's views", () => {
     part(".map-search").type("ungrouped");
     expect([text(".map-search-count"), parts(".map-result").length]).toEqual(["0", 0]);
     part(".map-search").type("inp");
-    expect(parts(".map-result").map(result => [result.querySelector("span")?.textContent, result.querySelector("small")?.textContent])).toEqual([["INP01 - Volumes", "Module · Ungrouped"], ["Units", "INP01 - Volumes"]]);
+    expect(parts(".map-result").map(result => [result.querySelector("span")?.textContent, result.querySelector("small")?.textContent])).toEqual([["INP01 - Volumes", "Module"], ["Units", "INP01 - Volumes"]]);
+    // Its legend names what is on the map, and no section: the modules are one entry.
+    expect([text(".map-legend-title"), parts(".map-legend-item").map(item => item.textContent)]).toEqual(["On this map", ["Modules2"]]);
     key("Enter");
     expect([text(".map-here"), text(".map-insp-name"), locate().size]).toEqual(["Demand Plan", "INP01 - Volumes", 2]);
     map.destroy();
@@ -788,6 +869,11 @@ describe("The map's views", () => {
     expect([part(".map-about").hidden, act("about").getAttribute("aria-expanded")]).toEqual([false, "true"]);
     expect(parts(".map-about h3").map(title => title.textContent)).toEqual(["This model", "What this map leaves out · 1", "How to read the map", "Mouse and keys"]);
     expect(parts(".map-notes li").map(line => line.textContent)).toEqual(["List members are not in the export."]);
+    // The model has three heading rows among its modules: the notes say why the page's Modules table has more rows.
+    expect(parts(".map-notes .map-about-line").map(line => line.textContent)).toEqual([
+      "Demand Plan, in the workspace Sandbox: 5 modules · 9 line items",
+      "3 heading rows stand among the modules. The map counts them as no module, and the page's Modules table counts each as a row: that table has more rows than the map has modules.",
+    ]);
     // Escape from the notes closes them, and steps nowhere back.
     expect(key("Escape").defaultPrevented).toBe(true);
     expect([part(".map-about").hidden, act("about").getAttribute("aria-expanded"), text(".map-here"), page.document.activeElement === act("about")]).toEqual([true, "false", "INP01 - Volumes", true]);
@@ -830,11 +916,70 @@ describe("The map's views", () => {
     expect(parts(".map-notes ul")).toHaveLength(1);
     expect(parts(".map-notes li").map(line => line.textContent)).toEqual([...dozen, "2 names in the export matched no object, or more than one. A box's details list its own."]);
     map.destroy();
-    // A graph that lacks nothing has no such heading.
+    // A graph that lacks nothing has no such heading. Its one heading row is said as one.
     const whole = new GraphMaker();
     whole.item(whole.module("INP01 - Volumes", "01: Inputs"), "Units");
     open(whole.graph());
     expect(parts(".map-notes h3").map(title => title.textContent)).toEqual(["This model"]);
+    expect(parts(".map-notes .map-about-line")[1].textContent).toMatch(/^1 heading row stands among the modules\. /);
+    map.destroy();
+    // Modules that stand under no heading are filed under a name the graph gives them: that is no heading row.
+    const bare = new GraphMaker();
+    bare.item(bare.module("INP01 - Volumes", "Ungrouped"), "Units");
+    open(bare.graph());
+    expect(parts(".map-notes .map-about-line").map(line => line.textContent)).toEqual(["Demand Plan, in the workspace Sandbox: 1 module · 1 line item"]);
+  });
+
+  it("lets the workspace go first where the bar is short of room, and keeps it where it costs no name and no line", () => {
+    mount();
+    // What a browser would measure: the bar takes a second line while `wraps` says so, and a name is cut while `cuts` does.
+    let wraps = (_withWorkspace: boolean): boolean => false;
+    let cuts = (_withWorkspace: boolean): boolean => false;
+    const workspace = (): FakeElement => part(".map-crumb-ws");
+    const shown = (): boolean => !workspace().hidden;
+    Object.defineProperty(part(".map-tabs"), "offsetTop", { get: () => 5 });
+    Object.defineProperty(part(".map-tools"), "offsetTop", { get: () => (wraps(shown()) ? 41 : 5) });
+    const measure = (): void => {
+      for (const name of parts(".map-crumbs h2, .map-crumbs button, .map-crumbs span")) {
+        Object.defineProperty(name, "clientWidth", { configurable: true, get: () => 100 });
+        Object.defineProperty(name, "scrollWidth", { configurable: true, get: () => (cuts(shown()) && name.classList.contains("map-title-name") ? 160 : 100) });
+      }
+    };
+    map.show();
+    env.resize(1200, 800);
+    env.settle();
+    /** Shows another view, with its names measured, and settles the bar as a new size does. */
+    const again = (): boolean => {
+      act("group").press();
+      measure();
+      env.resize(1200 + (shown() ? 1 : 2), 800);
+      env.resize(1200, 800);
+      return shown();
+    };
+    // Room for everything on one line: the workspace stands before the model's name.
+    expect(again()).toBe(true);
+    // With it the bar would take a second line, and without it one: it goes, mark and all.
+    wraps = withWorkspace => withWorkspace;
+    expect([again(), workspace().querySelector(".map-sep") !== null, text(".map-title-name")]).toEqual([false, true, "Demand Plan"]);
+    // The bar takes two lines with it or without, and cuts no name: it may as well stay.
+    wraps = () => true;
+    expect(again()).toBe(true);
+    // One line, no name cut, and the search squeezed by it: it goes.
+    wraps = () => false;
+    Object.defineProperty(part(".map-search"), "offsetWidth", { configurable: true, get: () => (shown() ? 60 : 130) });
+    expect(again()).toBe(false);
+    Object.defineProperty(part(".map-search"), "offsetWidth", { configurable: true, get: () => 130 });
+    expect(again()).toBe(true);
+    wraps = () => true;
+    // A name is cut with it: it goes, whether or not that saves the name.
+    cuts = withWorkspace => withWorkspace;
+    expect(again()).toBe(false);
+    wraps = () => false;
+    cuts = () => true;
+    expect(again()).toBe(false);
+    // Room again: it is back.
+    cuts = () => false;
+    expect(again()).toBe(true);
   });
 
   it("goes from the sections to all modules and back with the grouping button", () => {
@@ -918,10 +1063,11 @@ describe("The map's views", () => {
     open();
     tab("drill").press();
     part(".map-module-select").choose(String(sample().revenue));
-    expect(act("external").textContent).toBe("Expand external items");
+    // The button says what it shows in the legend's own words.
+    expect([act("external").textContent, parts(".map-legend-name").map(name => name.textContent)]).toEqual(["Show line items of other modules", expect.arrayContaining(["Other modules"])]);
     expect([...locate().keys()]).toContain("INP01 - Volumes");
     act("external").press();
-    expect(act("external").textContent).toBe("Group external items");
+    expect(act("external").textContent).toBe("Group by module");
     const names = [...locate().keys()];
     expect(names).toEqual(expect.arrayContaining(["Units", "Price", "Cost", "Margin %", "Total", "Gross"]));
     expect(names).not.toContain("INP01 - Volumes");
@@ -998,7 +1144,7 @@ describe("Selecting a node on the map", () => {
     expect(parts(".map-dl dd").map(value => value.textContent)).toEqual(["2", "5"]);
     expect([part(".map-tracebar").hidden, text(".map-trace-name"), parts(".map-tracebar .map-trace-count").map(count => count.textContent)]).toEqual([false, "02: Calculations", ["1 box feeds it", "it feeds 1 box"]]);
     expect(text(".map-insp-trace")).toBe("On the map, directly or through others: 1 box feeds it, it feeds 1 box.");
-    expect([act("focus").textContent, root().classList.contains("map-has-inspector")]).toEqual(["Focus trace", true]);
+    expect([act("focus").textContent, root().classList.contains("map-has-inspector"), part(".map-inspector").getAttribute("aria-label")]).toEqual(["Only these", true, "Details of the box selected"]);
     expect(text(".map-live")).toBe("Section 02: Calculations selected. On the map 1 box feeds it and it feeds 1 box, directly or through others.");
     // The bar of what is traced stands where the line of what is shown stood: that line has nothing more to say.
     expect(part(".map-status").hidden).toBe(true);
@@ -1087,33 +1233,32 @@ describe("Selecting a node on the map", () => {
     expect(page.document.activeElement).toBe(items().querySelectorAll(".map-link")[100]);
     expect(items().hasAttribute("open")).toBe(true);
   });
-  it("keeps the view to the trace and shows the full graph again", () => {
+  it("keeps the view to the boxes of a trace, and shows all boxes again", () => {
     open();
     act("group").press();
     clickNode("INP02 - Prices");
-    expect(act("focus").textContent).toBe("Focus trace");
+    expect(act("focus").textContent).toBe("Only these");
     act("focus").press();
     env.settle();
-    expect(act("focus").textContent).toBe("Show full graph");
+    expect(act("focus").textContent).toBe("All boxes");
     // Prices feeds Revenue, which feeds Margin Workings and the Board: Volumes has no part in that.
     expect([...locate().keys()].sort()).toEqual(["CAL01 - Revenue", "INP02 - Prices", "Margin Workings", "REP01 - Board"]);
     act("focus").press();
     env.settle();
-    expect(act("focus").textContent).toBe("Focus trace");
+    expect(act("focus").textContent).toBe("Only these");
     expect(locate().size).toBe(5);
     act("focus").press();
     act("fit").press();
     env.settle();
-    expect([act("focus").textContent, locate().size]).toEqual(["Focus trace", 5]);
+    expect([act("focus").textContent, locate().size]).toEqual(["Only these", 5]);
   });
-
   it("keeps to the trace of a line item that has nowhere to go into", () => {
     open();
     tab("drill").press();
     part(".map-module-select").choose(String(sample().revenue));
     doubleClick("Net");
     env.settle();
-    expect([text(".map-here"), text(".map-insp-name"), act("focus").textContent]).toEqual(["CAL01 - Revenue", "Net", "Show full graph"]);
+    expect([text(".map-here"), text(".map-insp-name"), act("focus").textContent]).toEqual(["CAL01 - Revenue", "Net", "All boxes"]);
     expect([...locate().keys()]).not.toContain("Workings");
   });
 
@@ -1139,10 +1284,10 @@ describe("Selecting a node on the map", () => {
     expect(part(".map-status").hidden).toBe(true);
     // Kept to the trace, the line comes back to say how much of the graph that is, and it is said aloud.
     act("focus").press();
-    expect([part(".map-status").hidden, status(), text(".map-live")]).toEqual([false, "5 modules · 5 links. Showing 4 of 5 boxes.", "Showing only the trace: 4 boxes."]);
+    expect([part(".map-status").hidden, status(), text(".map-live")]).toEqual([false, "Showing 4 of 5 boxes.", "Showing only what feeds it and what it feeds: 4 boxes."]);
     expect(locate().size).toBe(4);
     act("focus").press();
-    expect([part(".map-status").hidden, text(".map-live"), locate().size]).toEqual([true, "Showing the full graph.", 5]);
+    expect([part(".map-status").hidden, text(".map-live"), locate().size]).toEqual([true, "Showing all boxes.", 5]);
   });
 
   it("fits the picture again beside the details when a node is selected, so that they cover nothing of it", () => {
@@ -1188,10 +1333,12 @@ describe("Selecting a node on the map", () => {
     expect(moved.w).toBeCloseTo(reporting.w, 6);
     expect(moved.x + moved.w).toBeCloseTo(852 - 8 * (reporting.w / 232), 4);
     expect(moved.y).toBeCloseTo(reporting.y, 6);
-    // What is in the room already moves nothing: the same node again, after the selection was cleared.
+    // The selection cleared: the picture is back where the user had it before the selection moved it.
     click(20, 780);
     env.settle();
-    click(moved.x + 20, moved.y + moved.h / 2);
+    expect(boxes().get("Reporting")).toEqual(reporting);
+    // The same box again: the same move.
+    click(reporting.x + 20, reporting.y + reporting.h / 2);
     env.settle();
     expect(boxes().get("Reporting")).toEqual(moved);
     // The section in the middle has links with both others: the three do not fit the room at this size, so the camera
@@ -1209,6 +1356,232 @@ describe("Selecting a node on the map", () => {
     expect(all.get("Reporting")!.x + all.get("Reporting")!.w).toBeGreaterThan(820);
   });
 
+  it("never takes the picture so far away for a selection that its boxes lose their names: it keeps its size, and says how much of it is in view", () => {
+    open(manyModules(420));
+    act("group").press();
+    env.settle();
+    // Fitted whole, every one of the 420 boxes holds its name, though only just: the letters are as small as they get.
+    const before = boxes();
+    const size = [...before.values()][0].w;
+    expect([before.size, blankBoxes(), status(), act("whole").hidden]).toEqual([420, 0, "420 modules · 0 links", true]);
+    expect(size / 232).toBeGreaterThan(13 / 48.5);
+    expect(size / 232 * (820 / 1136)).toBeLessThan(13 / 48.5);
+    // A box at the right, where the details will open. The whole picture beside the details would be too small to read.
+    const far = [...before].sort((a, b) => b[1].x - a[1].x || a[1].y - b[1].y)[0];
+    click(far[1].x + far[1].w / 2, far[1].y + far[1].h / 2);
+    env.settle();
+    const after = boxes();
+    const selected = after.get(far[0])!;
+    // So it is not fitted again: the boxes are the size they were, and none of those on the canvas is blank.
+    expect([text(".map-insp-name"), selected.w, blankBoxes()]).toEqual([far[0], size, 0]);
+    // The box selected has come into the room beside the details, and the picture has moved no further than that.
+    expect(selected.x + selected.w).toBeLessThanOrEqual(852);
+    expect(selected.x + selected.w).toBeGreaterThan(852 - 12);
+    expect(Math.abs(selected.y - far[1].y)).toBeLessThan(4);
+    // The line at the foot says how much of the graph is in view now, and offers the whole of it in one press.
+    const said = /^(\d+) of 420 boxes in view\.$/.exec(status());
+    expect([part(".map-status").hidden, said !== null, act("whole").hidden]).toEqual([false, true, false]);
+    expect(Number(said![1])).toBeGreaterThan(200);
+    expect(Number(said![1])).toBeLessThan(420);
+    // Another box selected from there: the same size still.
+    const [otherName, other] = [...after].find(([name, box]) => name !== far[0] && box.x > 40 && box.x + box.w < 800 && box.y > 100 && box.y < 700)!;
+    click(other.x + other.w / 2, other.y + other.h / 2);
+    env.settle();
+    expect([text(".map-insp-name"), boxes().get(otherName)!.w, blankBoxes()]).toEqual([otherName, size, 0]);
+    // The details closed: the view that was there before the selection is back, whole.
+    act("close").press();
+    env.settle();
+    expect([boxes().get(far[0]), status(), act("whole").hidden, blankBoxes()]).toEqual([far[1], "420 modules · 0 links", true, 0]);
+  });
+
+  it("fits the whole picture again beside the details while its boxes still hold their names there", () => {
+    open(manyModules(120));
+    act("group").press();
+    env.settle();
+    const before = boxes();
+    const size = [...before.values()][0].w;
+    const [name, box] = [...before][60];
+    click(box.x + box.w / 2, box.y + box.h / 2);
+    env.settle();
+    // Smaller, and whole: all 120 boxes are in view beside the details, each with its name.
+    const after = boxes();
+    expect([after.size, blankBoxes(), part(".map-status").hidden, text(".map-insp-name")]).toEqual([120, 0, true, name]);
+    expect(after.get(name)!.w).toBeLessThan(size);
+    expect(after.get(name)!.w / 232).toBeGreaterThanOrEqual(13 / 48.5);
+    for (const each of after.values()) expect(each.x + each.w).toBeLessThanOrEqual(852 + 1e-6);
+    act("clear").press();
+    env.settle();
+    expect(boxes().get(name)).toEqual(box);
+  });
+
+  it("takes a picture the user asked for whole no further away for a selection, and brings it back whole", () => {
+    open(manyModules(900));
+    act("group").press();
+    env.settle();
+    // Too many boxes to read when fitted: the picture opens on its start, and the user asks for the whole of it.
+    expect(act("whole").hidden).toBe(false);
+    act("whole").press();
+    env.settle();
+    const whole = boxes();
+    const size = [...whole.values()][0].w;
+    expect([whole.size, status(), size / 232 < 13 / 48.5]).toEqual([900, "900 modules · 0 links", true]);
+    // A box at the right selected: the picture keeps the size the user gave it, and moves to have the box in view.
+    const far = [...whole].sort((a, b) => b[1].x - a[1].x || a[1].y - b[1].y)[0];
+    click(far[1].x + far[1].w / 2, far[1].y + far[1].h / 2);
+    env.settle();
+    const selected = boxes().get(far[0])!;
+    expect(selected.w).toBe(size);
+    expect(selected.x + selected.w).toBeLessThanOrEqual(852);
+    // Cleared: whole again, as the user had it.
+    act("clear").press();
+    env.settle();
+    expect([boxes().get(far[0]), status()]).toEqual([far[1], "900 modules · 0 links"]);
+  });
+
+  it("does not go further away for the boxes a selection has links with than its names can be read from", () => {
+    // A module of 400 line items, the first of which every other reads: fitted whole it could not be read, so it opens
+    // on its start, in full.
+    const make = new GraphMaker();
+    const hub = make.module("HUB01 - Everything", "01: All");
+    const first = make.item(hub, "Read By All");
+    for (let index = 1; index < 400; index++) make.link(first, make.item(hub, `Reader ${index}`, { formula: "Read By All" }));
+    open(make.graph());
+    tab("drill").press();
+    env.settle();
+    const before = boxes().get("Read By All")!;
+    expect([before.w / 216, status().includes("of 400 boxes in view")]).toEqual([0.83, true]);
+    // It is selected. Everything it has links with is the whole graph, which does not fit beside the details at a size
+    // its names can be read at: the camera stays as near as it was, and every box on the canvas keeps its name.
+    click(before.x + before.w / 2, before.y + before.h / 2);
+    env.settle();
+    const after = boxes().get("Read By All")!;
+    expect([after.w, blankBoxes(), text(".map-insp-name")]).toEqual([before.w, 0, "Read By All"]);
+    expect(after.x + after.w).toBeLessThanOrEqual(852);
+    expect(status()).toMatch(/^\d+ of 400 boxes in view\.$/);
+    // Kept to what it feeds, which is every box there is: they are not all fitted in at once, blank. And shown all again.
+    act("focus").press();
+    env.settle();
+    expect([act("focus").textContent, boxes().get("Read By All")!.w, blankBoxes()]).toEqual(["All boxes", before.w, 0]);
+    act("focus").press();
+    env.settle();
+    expect([act("focus").textContent, boxes().get("Read By All")!.w, blankBoxes()]).toEqual(["Only these", before.w, 0]);
+    // A reader has links with the first line item alone: the two fit, and the camera goes no further than it must.
+    const reader = [...boxes()].find(([name, box]) => name.startsWith("Reader") && box.x > 300 && box.x + box.w < 800 && box.y > 120 && box.y < 600)!;
+    click(reader[1].x + reader[1].w / 2, reader[1].y + reader[1].h / 2);
+    env.settle();
+    const both = boxes();
+    expect([text(".map-insp-name"), both.has("Read By All"), blankBoxes()]).toEqual([reader[0], true, 0]);
+    expect(both.get(reader[0])!.w / 216).toBeGreaterThanOrEqual(13 / 32 - 1e-9);
+    for (const name of [reader[0], "Read By All"]) expect([both.get(name)!.x >= 32, both.get(name)!.x + both.get(name)!.w <= 852, both.get(name)!.y >= 82]).toEqual([true, true, true]);
+  });
+
+  it("keeps what the picture was to show when a second press stops the camera on its way", () => {
+    env.reduced = false;
+    open(manyModules(120));
+    act("group").press();
+    env.settle();
+    const before = boxes();
+    const [first, second] = [[...before][10], [...before][40]];
+    // A box selected: the camera sets out for the room beside the details. A second box is pressed while it is on its way.
+    click(first[1].x + first[1].w / 2, first[1].y + first[1].h / 2);
+    env.frame();
+    env.frame();
+    const onItsWay = boxes().get(second[0])!;
+    click(onItsWay.x + onItsWay.w / 2, onItsWay.y + onItsWay.h / 2);
+    expect(text(".map-insp-name")).toBe(second[0]);
+    let frames = 0;
+    while (env.waiting && frames++ < 400) env.frame();
+    // The picture went on to where it was going: whole beside the details. And cleared, it is whole as it opened.
+    const beside = boxes();
+    expect(beside.size).toBe(120);
+    for (const box of beside.values()) expect(box.x + box.w).toBeLessThanOrEqual(852 + 1e-6);
+    act("clear").press();
+    frames = 0;
+    while (env.waiting && frames++ < 400) env.frame();
+    expect(boxes().get(first[0])).toEqual(first[1]);
+  });
+
+  it("goes back, when a selection is cleared, to where a picture that opened on its start stood before the selection moved it", () => {
+    const make = new GraphMaker();
+    const big = make.module("BIG01 - Everything", "01: All");
+    for (let index = 0; index < 600; index++) make.item(big, `Line Item ${index}`);
+    open(make.graph());
+    tab("drill").press();
+    env.settle();
+    const start = boxes();
+    const first = start.get("Line Item 0")!;
+    expect([first.x, first.y]).toEqual([32, 82]);
+    // A line item at the right edge of what is in view: the details would open over it.
+    const far = [...start].filter(([, box]) => box.x + box.w <= 1200 && box.y > 100 && box.y < 600).sort((a, b) => b[1].x - a[1].x)[0];
+    expect(far[1].x + far[1].w).toBeGreaterThan(852);
+    click(far[1].x + far[1].w / 2, far[1].y + far[1].h / 2);
+    env.settle();
+    const moved = boxes();
+    expect([moved.get(far[0])!.w, moved.get(far[0])!.x + moved.get(far[0])!.w <= 852, blankBoxes()]).toEqual([far[1].w, true, 0]);
+    expect(moved.get("Line Item 0")?.x).not.toBe(32);
+    act("close").press();
+    env.settle();
+    expect(boxes().get("Line Item 0")).toEqual(first);
+    // A camera the user has moved since stays where they put it when the selection is cleared.
+    click(far[1].x + far[1].w / 2, far[1].y + far[1].h / 2);
+    env.settle();
+    act("zoom-out").press();
+    env.settle();
+    const own = boxes().get(far[0])!;
+    expect(own.w).toBeLessThan(far[1].w);
+    act("close").press();
+    env.settle();
+    expect(boxes().get(far[0])).toEqual(own);
+  });
+
+  it("says in the line at the foot, as soon as a box is selected, what is in view once the camera has come to rest", () => {
+    env.reduced = false;
+    open(manyModules(420));
+    act("group").press();
+    env.settle();
+    const far = [...boxes()].sort((a, b) => b[1].x - a[1].x || a[1].y - b[1].y)[0];
+    click(far[1].x + far[1].w / 2, far[1].y + far[1].h / 2);
+    // The camera has not moved yet, and the dashes of the trace have a second and more to run.
+    const atOnce = [status(), part(".map-status").hidden, act("whole").hidden];
+    expect(env.waiting).toBe(1);
+    let frames = 0;
+    while (env.waiting && frames++ < 400) env.frame();
+    expect([status(), part(".map-status").hidden, act("whole").hidden]).toEqual(atOnce);
+    expect(atOnce[0]).toMatch(/^\d+ of 420 boxes in view\.$/);
+    // And the same when the selection is cleared: whole at once, in words.
+    act("clear").press();
+    expect([status(), act("whole").hidden]).toEqual(["420 modules · 0 links", true]);
+  });
+
+  it("comes to a box found by the search and draws it in full, where the picture is too far away to tell it", () => {
+    // One section, so that the search leads to a module among all the others. One module reads sixty that stand all over.
+    const make = new GraphMaker();
+    const items = Array.from({ length: 420 }, (_, index) => make.item(make.module(`M${index} - Module ${index}`, "0: All"), "Value"));
+    for (let index = 0; index < 60; index++) make.link(items[index * 7], items[137]);
+    open(make.graph());
+    const fonts = (name: string): string[] => lastPicture().filter(call => call.name === "fillText" && String(call.args[0]).includes(name)).map(call => call.font);
+    const found = (name: string): { x: number; y: number; w: number; h: number } => boxes().get(name)!;
+    expect([...boxes().values()][0].w / 232).toBeLessThan(0.62);
+
+    // A module with no links: it is shown by itself, at full size.
+    part(".map-search").type("module 300");
+    key("Enter");
+    env.settle();
+    expect([text(".map-insp-name"), found("M300 - Module 300").w, fonts("Module 300")]).toEqual(["M300 - Module 300", 232, ["600 12.5px sans-serif"]]);
+    expect([found("M300 - Module 300").x >= 32, found("M300 - Module 300").x + 232 <= 852]).toEqual([true, true]);
+    expect(status()).toMatch(/^\d+ of 420 boxes in view\.$/);
+    // The module that reads sixty others: they do not all fit beside it with every name in full, so it is shown alone,
+    // at the smallest size that draws a box in full.
+    part(".map-search").type("module 137");
+    key("Enter");
+    env.settle();
+    expect([text(".map-insp-name"), found("M137 - Module 137").w / 232, fonts("Module 137")]).toEqual(["M137 - Module 137", 0.76, ["600 9.5px sans-serif"]]);
+    expect(blankBoxes()).toBe(0);
+    // The details closed: the whole picture again, as it opened.
+    act("close").press();
+    env.settle();
+    expect([status(), act("whole").hidden, boxes().size]).toEqual(["420 modules · 60 links", true, 420]);
+  });
   it("hides a layer and shows it again from the legend, and says which is hidden in more than its colour", () => {
     open();
     act("group").press();
@@ -1477,7 +1850,7 @@ describe("The map's keys", () => {
     // The button that keeps the view to the trace is written anew when it is pressed: the focus stays on it.
     clickNode("01: Inputs");
     act("focus").press();
-    expect([act("focus").textContent, page.document.activeElement === act("focus")]).toEqual(["Show full graph", true]);
+    expect([act("focus").textContent, page.document.activeElement === act("focus")]).toEqual(["All boxes", true]);
   });
 });
 
@@ -1671,6 +2044,266 @@ describe("The room the map's picture has", () => {
     openLaidOut(sectionsOf(12));
     expect(part(".map-legend").hidden).toBe(false);
     expect(Math.min(...widths())).toBeGreaterThanOrEqual(232 * 0.76);
+  });
+
+  it("closes the legend first where the details make the room small, and opens it again with the room; a legend the user opened stays", () => {
+    const high: Place = [10, 380, 236, 750];
+    openLaidOut(sectionsOf(24), high);
+    const size = (): number => [...boxes().values()][0].w;
+    const names = (): number => lastPicture().filter(call => call.name === "fillText" && /^\d+: Section \d+$/.test(String(call.args[0]))).length;
+    const opened = size();
+    expect([part(".map-legend").hidden, act("legend").getAttribute("aria-expanded"), names()]).toEqual([false, "true", 24]);
+    // A section selected: the details take a column, and beside both them and the legend the picture would lose its
+    // small lines. The legend goes instead, and the picture is no smaller than it was.
+    const [x, y] = at("1: Section 1");
+    click(x, y);
+    env.settle();
+    expect([part(".map-legend").hidden, act("legend").getAttribute("aria-expanded"), names(), size() >= opened]).toEqual([true, "false", 24, true]);
+    // The selection cleared: the legend is back, and the picture as it opened.
+    act("clear").press();
+    env.settle();
+    expect([part(".map-legend").hidden, size()]).toEqual([false, opened]);
+    // The user closes the legend and opens it: it is theirs now, and stays beside a selection. The picture is fitted
+    // beside both, smaller, with every name still in its box.
+    act("legend").press();
+    act("legend").press();
+    click(...at("1: Section 1"));
+    env.settle();
+    expect([part(".map-legend").hidden, names(), size() < opened, size() / 232 >= 13 / 48.5]).toEqual([false, 24, true, true]);
+    for (const box of boxes().values()) expect([overlaps(box, high), box.x + box.w <= 864]).toEqual([false, true]);
+  });
+
+  it("opens with the legend closed where the picture cannot be shown whole, and keeps every name when the notes are opened beside a selection", () => {
+    // Too many sections to read when fitted into this room: the picture opens on its start, and the legend stays shut.
+    openLaidOut(sectionsOf(400));
+    expect([part(".map-legend").hidden, act("whole").hidden]).toEqual([true, false]);
+    expect(status()).toMatch(/^400 sections · 0 links\. \d+ of 400 boxes in view\.$/);
+    map.destroy();
+
+    // A picture that is whole only just, and a small legend that would cost it a few hundredths of its size: next to
+    // nothing, but the last of the room its names need. The legend stays shut, and the picture opens whole.
+    env = new FakeSurroundings();
+    openLaidOut(sectionsOf(354), [10, 700, 70, 750]);
+    const fitted = [...boxes().values()][0].w / 232;
+    expect([part(".map-legend").hidden, status(), act("whole").hidden, boxes().size, blankBoxes()]).toEqual([true, "354 sections · 0 links", true, 354, 0]);
+    expect([fitted >= 13 / 48.5, fitted < 13 / 48.5 / 0.94]).toEqual([true, true]);
+    map.destroy();
+
+    // Twenty-four sections, one selected, and the notes about the map opened: a panel from the top of the graph's room
+    // to its foot, which leaves a strip beside the details.
+    let high: Place = [10, 380, 236, 750];
+    let notes: Place = [246, 66, 606, 750];
+    env = new FakeSurroundings();
+    openLaidOut(sectionsOf(24), high);
+    layOut({ ".map-about": () => notes, ".map-legend": () => high });
+    const size = (): number => [...boxes().values()][0].w;
+    const least = 232 * 13 / 48.5 - 1e-6;
+    click(...at("12: Section 12"));
+    env.settle();
+    act("about").press();
+    env.settle();
+    // The whole picture is fitted into the strip: small, and no smaller than its names can be read at. Every box holds
+    // its name, and none lies under the notes or the details.
+    expect([part(".map-about").hidden, boxes().size, blankBoxes(), size() >= least]).toEqual([false, 24, 0, true]);
+    for (const box of boxes().values()) expect([overlaps(box, notes), box.x + box.w <= 864]).toEqual([false, true]);
+    // The notes wider and the legend higher, opened by the user: the two leave the whole picture no readable room. The
+    // picture is not shrunk to fit: it keeps its size, the box selected is brought into what room there is, and the
+    // line at the foot says how much of the graph is in view.
+    notes = [246, 66, 860, 750];
+    high = [10, 200, 236, 750];
+    act("legend").press();
+    act("legend").press();
+    env.settle();
+    expect([part(".map-legend").hidden, part(".map-about").hidden, blankBoxes(), size() >= least]).toEqual([false, false, 0, true]);
+    const selected = boxes().get("12: Section 12")!;
+    expect([overlaps(selected, notes), overlaps(selected, high), selected.x >= 10, selected.x + selected.w <= 864, selected.y >= 56]).toEqual([false, false, true, true, true]);
+    expect([part(".map-status").hidden, act("whole").hidden]).toEqual([false, false]);
+    expect(status()).toMatch(/^\d+ of 24 boxes in view\.$/);
+    // Both closed and the selection cleared: the picture is whole again, in letters as large as it opened with.
+    act("about").press();
+    act("legend").press();
+    act("clear").press();
+    env.settle();
+    expect([boxes().size, status(), act("whole").hidden, size() > 150]).toEqual([24, "24 sections · 0 links", true, true]);
+  });
+  it("measures the room beside a selection with the foot as it will be: without the line that a whole picture does not need", () => {
+    mount(sectionsOf(170));
+    layOut({
+      ".map-canvas": [0, 0, 1200, 800],
+      ".map-free": () => (root().classList.contains("map-has-inspector") ? [10, 56, 864, 790] : [10, 56, 1190, 790]),
+      ".map-legend": [10, 700, 60, 750],
+      // The foot has one row beside a whole picture, and is much higher where the line of what is shown stands over the
+      // bar of what is traced.
+      ".map-dock": () => (part(".map-tracebar").hidden || part(".map-status").hidden ? [10, 760, 864, 790] : [10, 300, 864, 790]),
+      ".map-corner": CORNER,
+    });
+    map.show();
+    env.resize(1200, 800);
+    env.settle();
+    const opened = [...boxes().values()][0].w;
+    expect([boxes().size, status(), part(".map-status").hidden]).toEqual([170, "170 sections · 0 links", false]);
+    // A section selected. With the line still at the foot there would be no room for the whole picture at a size its
+    // names can be read at; without it there is, and the line is not needed: the picture is whole, and the line gone.
+    const first = [...boxes()][0];
+    click(first[1].x + first[1].w / 2, first[1].y + first[1].h / 2);
+    env.settle();
+    const after = [...boxes().values()];
+    expect([after.length, part(".map-status").hidden, part(".map-tracebar").hidden, blankBoxes()]).toEqual([170, true, false, 0]);
+    expect([after[0].w < opened, after[0].w / 232 >= 13 / 48.5]).toEqual([true, true]);
+    for (const box of after) expect([box.x + box.w <= 864, box.y + box.h <= 760]).toEqual([true, true]);
+  });
+
+  /** A map whose foot is narrow, as in a small window: the line of what is in view, with its button, takes the foot to
+   * more rows, and it stands high. Beside a whole picture the foot has one row. */
+  const HIGH_FOOT: Place = [10, 300, 864, 790];
+  function openWithNarrowFoot(graph: ModelGraph): void {
+    mount(graph);
+    layOut({
+      ".map-canvas": [0, 0, 1200, 800],
+      ".map-free": () => (root().classList.contains("map-has-inspector") ? [10, 56, 864, 790] : [10, 56, 1190, 790]),
+      ".map-legend": [10, 700, 70, 750],
+      ".map-dock": () => (!part(".map-status").hidden && !act("whole").hidden && / in view\.$/.test(status()) ? HIGH_FOOT : [10, 760, 864, 790]),
+      ".map-corner": CORNER,
+    });
+    map.show();
+    env.resize(1200, 800);
+    env.settle();
+  }
+
+  it("measures the room for a selection that cannot be shown with the whole picture with the line at the foot, which will say so", () => {
+    // The picture is whole only just: beside the details it cannot be, at a size its names can be read at.
+    openWithNarrowFoot(sectionsOf(354));
+    const opened = boxes();
+    expect([status(), act("whole").hidden, opened.size]).toEqual(["354 sections · 0 links", true, 354]);
+    // A box in the lower half, left of where the details will open: it is in view as it stands, but for the foot, which
+    // is high once the line of what is in view stands in it with its button.
+    const low = [...opened].filter(([, box]) => box.y > 450 && box.y < 700 && box.x > 100 && box.x + box.w < 800)[0];
+    click(low[1].x + low[1].w / 2, low[1].y + low[1].h / 2);
+    env.settle();
+    const selected = boxes().get(low[0])!;
+    expect([part(".map-status").hidden, act("whole").hidden, /^\d+ of 354 boxes in view\.$/.test(status()), selected.w]).toEqual([false, false, true, low[1].w]);
+    // The box selected stands over that foot, not under it.
+    expect([overlaps(selected, HIGH_FOOT), selected.y + selected.h <= 300]).toEqual([false, true]);
+    // The selection cleared: the room is measured with the foot of a whole picture, which is low again, and the picture
+    // is whole as it opened.
+    act("clear").press();
+    env.settle();
+    expect([status(), act("whole").hidden]).toEqual(["354 sections · 0 links", true]);
+    expect(boxes()).toEqual(opened);
+  });
+
+  it("fits the whole picture, when asked for it, for the foot a whole picture has", () => {
+    openWithNarrowFoot(sectionsOf(354));
+    const opened = boxes();
+    // Nearer, part of the graph is out of view: the line says so, and the foot stands high.
+    act("zoom-in").press();
+    act("zoom-in").press();
+    env.settle();
+    expect([/^354 sections · 0 links\. \d+ of 354 boxes in view\.$/.test(status()), act("whole").hidden]).toEqual([true, false]);
+    // Whole again: into the room there is once the line has no more to say, not into the little that the high foot left.
+    act("whole").press();
+    env.settle();
+    expect([status(), act("whole").hidden]).toEqual(["354 sections · 0 links", true]);
+    expect(boxes()).toEqual(opened);
+  });
+
+  it("opens a view whole where it can be, measured with the foot a whole picture has and not the one the view before left", () => {
+    openWithNarrowFoot(sectionsOf(354));
+    act("zoom-in").press();
+    act("zoom-in").press();
+    env.settle();
+    expect(act("whole").hidden).toBe(false);
+    // All modules: as many boxes, as large. The foot was high when the view was asked for.
+    act("group").press();
+    env.settle();
+    expect([status(), act("whole").hidden, boxes().size, blankBoxes()]).toEqual(["354 modules · 0 links", true, 354, 0]);
+  });
+
+  it("brings a box that stays selected over the high foot when its view is built again", () => {
+    // Too many sections to show whole: the picture opens on its start, and the line says how much of it is in view.
+    openWithNarrowFoot(sectionsOf(400));
+    expect(act("whole").hidden).toBe(false);
+    const low = [...boxes()].filter(([, box]) => box.y > 450 && box.y < 700 && box.x > 100 && box.x + box.w < 800)[0];
+    click(low[1].x + low[1].w / 2, low[1].y + low[1].h / 2);
+    env.settle();
+    expect(boxes().get(low[0])!.y + low[1].h).toBeLessThanOrEqual(300);
+    // The same view with other links: it is laid out and placed again, on its start, where the box stands low.
+    part(".map-access").tick();
+    env.settle();
+    const again = boxes().get(low[0])!;
+    expect([text(".map-insp-name"), overlaps(again, HIGH_FOOT), again.y + again.h <= 300, again.w]).toEqual([low[0], false, true, low[1].w]);
+    expect(status()).toMatch(/^\d+ of 400 boxes in view\.$/);
+  });
+
+  it("measures the room for a box the search comes to with the line at the foot, which will say how much is in view", () => {
+    // The picture is whole beside the details too, but too far away to tell a box: the search comes close to the one
+    // found, which has no links and is shown by itself at full size.
+    openWithNarrowFoot(sectionsOf(170));
+    expect([...boxes().values()][0].w / 232).toBeLessThan(0.62);
+    part(".map-search").type("section 90");
+    key("Enter");
+    env.settle();
+    const found = boxes().get("90: Section 90")!;
+    expect([text(".map-insp-name"), found.w, part(".map-status").hidden, act("whole").hidden]).toEqual(["90: Section 90", 232, false, false]);
+    expect(status()).toMatch(/^\d+ of 170 boxes in view\.$/);
+    expect([overlaps(found, HIGH_FOOT), found.y + found.h <= 300, found.x + found.w <= 864]).toEqual([false, true, true]);
+  });
+
+  it("counts what is in view with the legend where the line's own button leaves it", () => {
+    // A narrow foot again: with the line's button it takes another row, and the legend, which stands on it, stands higher.
+    const lower: Place = [10, 620, 400, 750];
+    const higher: Place = [10, 420, 400, 750];
+    mount(sectionsOf(60));
+    layOut({ ".map-canvas": [0, 0, 1200, 800], ".map-free": [10, 56, 1190, 790], ".map-legend": () => (act("whole").hidden ? lower : higher), ".map-dock": DOCK, ".map-corner": CORNER });
+    map.show();
+    env.resize(1200, 800);
+    env.settle();
+    // Sixty sections are shown whole with the legend open, as the map opens.
+    expect([part(".map-legend").hidden, status(), act("whole").hidden]).toEqual([false, "60 sections · 0 links", true]);
+    act("zoom-in").press();
+    act("zoom-in").press();
+    env.settle();
+    // In view by the picture itself: the boxes whose middle is in the graph's room, under neither the legend nor the
+    // small picture. With the legend where it stood before the line had its button, more of them would be.
+    const inView = (legend: Place): number => [...boxes().values()].filter(box => {
+      const [x, y] = [box.x + box.w / 2, box.y + box.h / 2];
+      return x >= 10 && x <= 1190 && y >= 56 && y <= 790 && ![legend, CORNER].some(([left, top, right, bottom]) => x >= left && x <= right && y >= top && y <= bottom);
+    }).length;
+    expect(inView(higher)).toBeLessThan(inView(lower));
+    expect([act("whole").hidden, status()]).toEqual([false, `60 sections · 0 links. ${inView(higher)} of 60 boxes in view.`]);
+  });
+
+  it("lets the panel that opens close the other where the two would leave the picture no room at all", () => {
+    openLaidOut(sectionsOf(6));
+    // The notes laid out so that, with the legend, nothing of the graph's room is left.
+    layOut({ ".map-about": [240, 60, 1186, 750], ".map-legend": [10, 60, 236, 750] });
+    act("about").press();
+    expect([part(".map-about").hidden, part(".map-legend").hidden, act("legend").getAttribute("aria-expanded")]).toEqual([false, true, "false"]);
+    act("legend").press();
+    expect([part(".map-about").hidden, part(".map-legend").hidden, act("about").getAttribute("aria-expanded")]).toEqual([true, false, "false"]);
+  });
+
+  it("keeps the focus in the map when the legend closes under it as the map's place shrinks", () => {
+    let legendBox: Place = LEGEND;
+    mount(sectionsOf(24));
+    layOut({ ".map-canvas": [0, 0, 1200, 800], ".map-free": [10, 56, 1190, 790], ".map-legend": () => legendBox, ".map-dock": DOCK, ".map-corner": CORNER });
+    map.show();
+    env.resize(1200, 800);
+    env.settle();
+    const item = parts(".map-legend-item")[3];
+    item.focus();
+    expect([part(".map-legend").hidden, page.document.activeElement === item]).toEqual([false, true]);
+    // The same size told again changes nothing, and leaves the focus where it is.
+    env.resize(1200, 800);
+    expect(page.document.activeElement).toBe(item);
+    // A smaller place, in which the legend would cost the picture its names: it closes, and its button has the focus.
+    legendBox = [10, 100, 900, 750];
+    env.resize(1190, 790);
+    expect([part(".map-legend").hidden, page.document.activeElement === act("legend")]).toEqual([true, true]);
+    // A place with room for it again: it opens by itself, and the focus stays on the button.
+    legendBox = LEGEND;
+    env.resize(1200, 800);
+    expect([part(".map-legend").hidden, page.document.activeElement === act("legend")]).toEqual([false, true]);
   });
 
   it("lays the picture out again for a new room while it is still as it was fitted, so that it grows with its place", () => {

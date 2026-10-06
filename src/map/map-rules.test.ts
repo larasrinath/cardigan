@@ -74,7 +74,7 @@ describe("The map's sources", () => {
     expect(new Set(asked)).toEqual(new Set(["createElement", "activeElement"]));
     // Lookups are from the map's element down.
     const lookedIn = [...view.matchAll(/(\w+)\.querySelector(?:All)?[<(]/g)].map(match => match[1]);
-    for (const owner of lookedIn) expect(["root", "inspector", "results", "holder", "tracebar"]).toContain(owner);
+    for (const owner of lookedIn) expect(["root", "inspector", "results", "holder", "tracebar", "crumbs"]).toContain(owner);
   });
 
   it("write markup only through the functions that escape it", () => {

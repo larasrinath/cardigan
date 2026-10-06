@@ -139,7 +139,8 @@ function inspectSection(model: MapModel, graph: ViewGraph, node: ViewNode): Insp
 function inspectModule(model: MapModel, graph: ViewGraph, node: ViewNode, raw: GraphNode): Inspection {
   const owned = model.itemsOf(raw.id);
   const rows: [string, string][] = [];
-  row(rows, "Section", model.sectionOf(raw));
+  // A model whose modules stand under one heading, or under none, has no sections to tell them apart by.
+  if (model.sections.length > 1) row(rows, "Section", model.sectionOf(raw));
   row(rows, "Line items", formatCount(owned.length));
   row(rows, "Applies To", appliesTo(model, raw));
   row(rows, "Cell Count", raw.cells === undefined ? undefined : formatCount(raw.cells));
@@ -205,7 +206,8 @@ export function inspect(model: MapModel, graph: ViewGraph, node: ViewNode, acces
   const unresolved = model.unresolvedOf(raw.id);
   if (unresolved.length) inspection.texts.push({ key: "unresolved", title: `Names not matched to one object · ${formatCount(unresolved.length)}`, lines: unresolved.map(entry => `${entry.field}: ${entry.reference}`) });
   if (raw.notes !== undefined && raw.notes !== "") inspection.notes = raw.notes;
-  inspection.source = `${raw.file}.csv, row ${formatCount(raw.row)}`;
+  // The row as a spreadsheet numbers it: a plain number, with nothing between its digits.
+  inspection.source = `${raw.file}.csv, row ${raw.row}`;
   return inspection;
 }
 
@@ -229,15 +231,17 @@ function boxesOf(graph: ViewGraph, count: number, kind: "own" | "others"): strin
 
 /** The line that says what the map shows: the boxes of the graph, what stands beside them, and the links. `shown` is
  * how many boxes are drawn (fewer than the graph has when a layer is hidden or the view keeps to a trace), `inView` how
- * many of those the reader has on screen. Every number is of what is there now. */
-export function statusWords(graph: ViewGraph, shown: number, inView: number): string {
+ * many of those the reader has on screen. Every number is of what is there now. `brief` leaves out what the graph
+ * holds and says only how much of it is drawn and in view: beside a selection, whose own bar stands under the line. */
+export function statusWords(graph: ViewGraph, shown: number, inView: number, brief = false): string {
   const total = graph.nodes.length;
   const others = total - graph.local;
   const parts = [boxesOf(graph, graph.local, "own"), ...(others > 0 ? [boxesOf(graph, others, "others")] : []), plural(graph.edges.length, "link")];
   const said = parts.join(" · ");
   if (total === 0) return said;
-  if (shown < total) return `${said}. Showing ${formatCount(shown)} of ${plural(total, "box", "boxes")}${inView < shown ? `, ${formatCount(inView)} in view` : ""}.`;
-  return inView < total ? `${said}. ${formatCount(inView)} of ${plural(total, "box", "boxes")} in view.` : said;
+  const more = shown < total ? `Showing ${formatCount(shown)} of ${plural(total, "box", "boxes")}${inView < shown ? `, ${formatCount(inView)} in view` : ""}.`
+    : inView < total ? `${formatCount(inView)} of ${plural(total, "box", "boxes")} in view.` : "";
+  return more === "" ? said : brief ? more : `${said}. ${more}`;
 }
 
 /** What the map says aloud when a view opens: what it is of and how much it holds. */
