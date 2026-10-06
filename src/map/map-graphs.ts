@@ -136,7 +136,9 @@ function finish(model: MapModel, kind: ViewGraph["kind"], name: string, drafts: 
     let layer = layerOf.get(node.layer);
     if (!layer) {
       const section = /^s(\d+)$/.exec(node.layer);
-      const label = section ? model.sections[Number(section[1])] ?? node.layer : node.layer === LAYER.external ? externalLabel(kind, drafts) : LAYER_LABELS[node.layer] ?? node.layer;
+      // The modules of a model that has one section, or none, are one layer: it is named for what they are.
+      const ofSection = section ? (kind === "modules" && model.sections.length <= 1 ? "Modules" : model.sections[Number(section[1])] ?? node.layer) : undefined;
+      const label = ofSection ?? (node.layer === LAYER.external ? externalLabel(kind, drafts) : LAYER_LABELS[node.layer] ?? node.layer);
       layer = { key: node.layer, label, count: 0 };
       layerOf.set(node.layer, layer);
       layers.push(layer);
