@@ -12,10 +12,11 @@ import { wrapLines, type TextMeasure } from "./map-text.js";
  * ("ranks"); where that comes out too small to read they are packed into columns of equal length in the same order.
  * The same graph in the same room always gets the same places. */
 
-/** A box that holds a small line and a name: a section, a module, a list. Sizes are in pixels at full zoom. */
-export const CARD = { width: 232, padLeft: 14, padRight: 10, top: 9, small: 12, gap: 3, line: 15.5, bottom: 9, font: 12.5, smallFont: 9.5, maxLines: 3 } as const;
+/** A box that holds a small line and a name: a section, a module, a list. Sizes are in pixels at full zoom. A name
+ * has up to four lines, which hold about a hundred and thirty letters: longer than that it is cut, with the mark. */
+export const CARD = { width: 232, padLeft: 14, padRight: 10, top: 9, small: 12, gap: 3, line: 15.5, bottom: 9, font: 12.5, smallFont: 9.5, maxLines: 4 } as const;
 /** A line item's box: its name alone. */
-export const ITEM = { width: 216, padLeft: 13, padRight: 8, top: 9, line: 14, bottom: 9, font: 11.5, maxLines: 3 } as const;
+export const ITEM = { width: 216, padLeft: 13, padRight: 8, top: 9, line: 14, bottom: 9, font: 11.5, maxLines: 4 } as const;
 
 /** A fit never enlarges a small graph beyond this. */
 export const FIT_ZOOM = 1.15;

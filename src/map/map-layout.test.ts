@@ -59,7 +59,7 @@ describe("The circles of a graph", () => {
 });
 
 describe("How large the map's boxes are", () => {
-  it("makes a module's box as high as its name needs at full size, up to three lines", () => {
+  it("makes a module's box as high as its name needs at full size, up to four lines", () => {
     const make = new GraphMaker();
     make.module("REV01 - Revenue", "01: All");
     make.module("REV02 - Regional Revenue Planning by Product Family and Sales Channel", "01: All");
@@ -67,10 +67,10 @@ describe("How large the map's boxes are", () => {
     const graph = modulesGraph(indexModel(make.graph()), undefined, false);
     sizeNodes(graph, HALF_EM, HALF_EM);
     // A small line of 12 and 3 under it, then the name's lines of 15.5, between 9 above and 9 below.
-    expect(graph.nodes.map(node => [node.lines.length, node.w, node.h])).toEqual([[1, 232, 48.5], [2, 232, 64], [3, 232, 79.5]]);
+    expect(graph.nodes.map(node => [node.lines.length, node.w, node.h])).toEqual([[1, 232, 48.5], [2, 232, 64], [4, 232, 95]]);
     expect(graph.nodes[1].lines).toEqual(["Regional Revenue Planning by", "Product Family and Sales Channel"]);
-    // What three lines do not hold is cut on the last, with the mark.
-    expect(graph.nodes[2].lines[2].endsWith("…")).toBe(true);
+    // What four lines do not hold is cut on the last, with the mark.
+    expect(graph.nodes[2].lines[3].endsWith("…")).toBe(true);
     expect(graph.nodes[2].lines[0]).toBe("Word0 Word1 Word2 Word3 Word4 Word5");
   });
 
@@ -83,7 +83,8 @@ describe("How large the map's boxes are", () => {
     // The line item's measure is asked, not the box's: here it counts every letter twice as wide.
     const wide = { word: (text: string) => [...text].length, char: () => 1, space: 0.5, ellipsis: 1 };
     sizeNodes(graph, HALF_EM, wide);
-    expect(graph.nodes.map(node => [node.lines.length, node.w, node.h])).toEqual([[1, 216, 32], [3, 216, 60]]);
+    expect(graph.nodes.map(node => [node.lines.length, node.w, node.h])).toEqual([[1, 216, 32], [4, 216, 74]]);
+    expect(graph.nodes[1].lines).toEqual(["Units Sold Before", "Returns and", "Allowances by", "Region"]);
     sizeNodes(graph, wide, HALF_EM);
     expect(graph.nodes.map(node => [node.lines, node.h])).toEqual([[["Units"], 32], [["Units Sold Before Returns and", "Allowances by Region"], 46]]);
   });
