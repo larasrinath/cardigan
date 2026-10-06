@@ -88,12 +88,13 @@ export function easeCamera(camera: Camera, target: Camera, elapsedMs: number): {
   return done ? { camera: target, done } : { camera: next, done };
 }
 
-/** The node under a point of the canvas: the one drawn last where two overlap, and none that is not shown. */
-export function hitNode(nodes: readonly ViewNode[], shown: (index: number) => boolean, camera: Camera, x: number, y: number): ViewNode | undefined {
+/** The node under a point of the canvas: the one drawn last where two overlap, and none that is not shown. `order` is
+ * the order the nodes are drawn in, by their places, where that is not the order of the graph. */
+export function hitNode(nodes: readonly ViewNode[], shown: (index: number) => boolean, camera: Camera, x: number, y: number, order?: readonly number[]): ViewNode | undefined {
   const [worldX, worldY] = toWorld(camera, x, y);
-  for (let index = nodes.length - 1; index >= 0; index--) {
-    const node = nodes[index];
-    if (worldX >= node.x && worldX <= node.x + node.w && worldY >= node.y && worldY <= node.y + node.h && shown(index)) return node;
+  for (let at = nodes.length - 1; at >= 0; at--) {
+    const node = nodes[order ? order[at] : at];
+    if (worldX >= node.x && worldX <= node.x + node.w && worldY >= node.y && worldY <= node.y + node.h && shown(node.index)) return node;
   }
   return undefined;
 }

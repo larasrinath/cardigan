@@ -21,6 +21,9 @@ export interface Scene {
   trace?: Trace;
   /** For each node: 1 where the search names it. Nothing when nothing is searched. */
   matches?: Uint8Array;
+  /** The order the nodes are drawn in, by their places: a node that was dragged is drawn last, over the others. Nothing
+   * for the order of the graph. */
+  order?: readonly number[];
   /** The time in milliseconds that moves a trace's dashes. Nothing where nothing may move: a trace is then a solid line. */
   time?: number;
 }
@@ -128,7 +131,12 @@ function drawGrid(pen: Pen, scene: Scene): void {
 function drawEdges(pen: Pen, scene: Scene): boolean {
   const { graph, camera, width, height, shown, trace, matches, palette } = scene;
   const { k, ox, oy } = camera;
-  const idle = graph.kind === "sections" ? 0.22 : 0.3;
+  // Many links over each other make one dark patch: beyond a few hundred each is drawn fainter, down to a third.
+  const thin = (count: number, from: number): number => Math.min(1, Math.max(0.35, from / Math.max(1, count)));
+  const idle = (graph.kind === "sections" ? 0.22 : 0.3) * thin(graph.edges.length, 600);
+  let marked = 0;
+  if (trace) for (let index = 0; index < trace.edges.length; index++) if (trace.edges[index]) marked++;
+  const strong = 0.85 * thin(marked, 250);
   const head = Math.max(2, Math.min(5 * k, 6));
   let traced = false;
   for (let index = 0; index < graph.edges.length; index++) {
@@ -142,7 +150,7 @@ function drawEdges(pen: Pen, scene: Scene): boolean {
     const y2 = (to.y + to.h / 2) * k + oy;
     if ((x1 < 0 && x2 < 0) || (x1 > width && x2 > width) || (y1 < 0 && y2 < 0) || (y1 > height && y2 > height)) continue;
     const way = trace ? trace.edges[index] : 0;
-    let alpha = trace ? (way ? 0.85 : 0.05) : idle;
+    let alpha = trace ? (way ? strong : 0.05) : idle;
     if (matches && !matches[edge.s] && !matches[edge.t]) alpha *= 0.25;
     pen.beginPath();
     pen.moveTo(x1, y1);
@@ -237,7 +245,8 @@ function drawNodes(pen: Pen, scene: Scene, fonts: Fonts): void {
   const radius = Math.min(8, 8 * k);
   pen.textAlign = "left";
   pen.textBaseline = "alphabetic";
-  for (const node of graph.nodes) {
+  for (let at = 0; at < graph.nodes.length; at++) {
+    const node = graph.nodes[scene.order ? scene.order[at] : at];
     const index = node.index;
     if (!shown[index]) continue;
     const x = node.x * k + ox;

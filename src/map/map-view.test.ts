@@ -409,6 +409,17 @@ describe("Showing, hiding and ending the map", () => {
     expect(env.main.named("fillRect")[0].fillStyle).toBe("#fafafa");
     // What is no colour is drawn in the map's own colour for it.
     expect(env.main.named("fill").some(call => call.fillStyle === FALLBACK.nodeFill)).toBe(true);
+    // The fonts are the same: no word is measured again for the new colours.
+    const measured = env.main.measured.length;
+    env.tokens = { "--map-canvas-bg": "#fafafa", "--sans": "Inter, sans-serif" };
+    map.themeChanged();
+    env.settle();
+    expect(env.main.measured.length).toBeGreaterThan(measured);
+    const again = env.main.measured.length;
+    env.tokens = { "--map-canvas-bg": "#eeeeee", "--sans": "Inter, sans-serif" };
+    map.themeChanged();
+    env.settle();
+    expect(env.main.measured.length).toBe(again);
     // Hidden, a change of theme is read when the map is next shown.
     map.hide();
     const hiddenReads = env.tokenReads;
@@ -783,6 +794,30 @@ describe("Selecting a node on the map", () => {
     const panned = locate();
     expect(panned.get("01: Inputs")).toEqual([otherX + 50, otherY - 40]);
     expect(part(".map-inspector").hidden).toBe(true);
+  });
+
+  it("lays a node that is dragged over the others, and keeps it there", () => {
+    open();
+    const places = locate();
+    const [x, y] = places.get("01: Inputs")!;
+    const [onX, onY] = places.get("02: Calculations")!;
+    // The first section is dragged onto the second, which is drawn after it.
+    pointer("pointerdown", x, y);
+    pointer("pointermove", onX + 10, onY + 6);
+    pointer("pointerup", onX + 10, onY + 6);
+    env.main.clear();
+    env.settle();
+    pointer("pointermove", onX + 4, onY + 2);
+    expect(part(".map-tip-name").textContent).toBe("01: Inputs");
+    // It is the last box of the picture.
+    const boxes = env.main.calls.filter((call, index) => call.name === "roundRect" && env.main.calls[index + 1].name === "fill");
+    expect([boxes.at(-1)!.args[0], boxes.at(-1)!.args[1]]).toEqual([onX + 10 - (boxes.at(-1)!.args[2] as number) / 2, onY + 6 - (boxes.at(-1)!.args[3] as number) / 2]);
+    // A press there selects it, and another view starts in the graph's own order again.
+    click(onX + 4, onY + 2);
+    expect(text(".map-insp-name")).toBe("01: Inputs");
+    act("group").press();
+    act("group").press();
+    expect([...locate().keys()]).toEqual(["01: Inputs", "02: Calculations", "Reporting"]);
   });
 
   it("zooms about the pointer with the wheel, and from the middle with the buttons", () => {
