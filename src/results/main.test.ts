@@ -3240,24 +3240,34 @@ describe("A model's map on the results page", () => {
     page.find('#navList [data-nav="map"]').dispatch("click");
     expect([mapAsked.length, page.document.activeElement === button, host().hidden, shows()[0]]).toEqual([7, true, false, "Model map"]);
     // Another view chosen by such a click leaves the map as any choice of that view does: the map is hidden once, and
-    // the view that is shown has the focus.
+    // the view that is shown has the focus. The page gives it the focus although the browser, asked at that moment,
+    // still names the map's button as the one with the focus: a browser names a hidden element so until it next draws
+    // the page, and then leaves the focus on nothing. The view has it at once, and still has it when the page is drawn.
     page.find('#navList [data-nav="1"]').dispatch("click");
     expect([mapAsked.slice(7), host().hidden, shows()[0], page.document.activeElement === page.id("view")]).toEqual([["hide 1"], true, "Line Items", true]);
+    page.frame();
+    expect([page.document.activeElement === page.id("view"), button.focusable]).toEqual([true, false]);
     // From another view the map is shown once, as ever: it was hidden when that view was chosen.
     toMap();
     expect([mapAsked.slice(8), page.document.activeElement === button]).toEqual([["show 1"], true]);
+    // The breadcrumb's Overview, by a click that a script makes with the focus inside the map, is such a choice too.
+    page.find('#crumbs [data-nav="overview"]').dispatch("click");
+    page.frame();
+    expect([mapAsked.slice(9), host().hidden, shows()[0], page.document.activeElement === page.id("view")]).toEqual([["hide 1"], true, "Overview", true]);
+    toMap();
+    expect([mapAsked.slice(10), page.document.activeElement === button]).toEqual([["show 1"], true]);
 
     // A map that does not take the focus is shown anew as well, and the view has the focus then, as after its first choice.
     mapTakesFocus = false;
     toMap();
-    expect([mapAsked.slice(9), page.document.activeElement === page.id("view"), host().hidden]).toEqual([["hide 1", "show 1"], true, false]);
+    expect([mapAsked.slice(11), page.document.activeElement === page.id("view"), host().hidden]).toEqual([["hide 1", "show 1"], true, false]);
     // A map that cannot draw when it is shown anew is taken away, and the view says so, as when it cannot be shown at first.
     mapThrows.show = new Error("Nothing to draw on.");
     toMap();
-    expect([mapAsked.slice(11), notDrawn(), host().hidden]).toEqual([["hide 1", "show 1", "destroy 1"], [MAP_FAILED], true]);
+    expect([mapAsked.slice(13), notDrawn(), host().hidden]).toEqual([["hide 1", "show 1", "destroy 1"], [MAP_FAILED], true]);
     // Its entry, chosen again, has no map to show anew: nothing is asked, and the view says the same.
     toMap();
-    expect([mapAsked.length, notDrawn(), page.document.activeElement === page.id("view")]).toEqual([14, [MAP_FAILED], true]);
+    expect([mapAsked.length, notDrawn(), page.document.activeElement === page.id("view")]).toEqual([16, [MAP_FAILED], true]);
   });
 
   it("says on Download this table why it is off while the map is the view: the map has no file of its own", async () => {
