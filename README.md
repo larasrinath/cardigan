@@ -1,6 +1,6 @@
 # Cardigan
 
-Cardigan is a Chrome extension for Anaplan. Open an app or a model, click the Cardigan icon, and it reads what the app's pages or the model's settings hold. The result opens on a page of its own, where you can search, sort and filter each table and download it as CSV.
+Cardigan is a Chrome extension for Anaplan. Open an app or a model, click the Cardigan icon, and it reads what the app's pages or the model's settings hold. The result opens on a page of its own, where you can search, sort and filter each table and download it as CSV. For a model, the page also draws a map of what feeds what.
 
 Cardigan only reads, with your own signed-in session, and nothing it reads leaves your browser. It is an independent project, not affiliated with Anaplan: see [NOTICE.md](NOTICE.md).
 
@@ -49,8 +49,6 @@ Open the model in Model Building; the classic model page opened on its own works
 - **Processes**, **Exports** and **Other Actions** are the Actions list, split at its headings. **Imports** joins each import's source and target with its last run, notes and processes.
 - **Model Calendar** follows an assessment template. **Model size (GB)** and **Captured by** are left for you to fill in.
 
-The navigation also lists **Model map**, as coming in a later version.
-
 <table>
   <tr>
     <td width="50%" valign="top">
@@ -60,6 +58,33 @@ The navigation also lists **Model map**, as coming in a later version.
     <td width="50%" valign="top">
       <a href="docs/images/model-line-items.png"><img src="docs/images/model-line-items.png" width="400" alt="A model's Line Items table in the dark theme: each line item with its module, its format in words, its formula and its summary"></a><br>
       Line Items, in the dark theme.
+    </td>
+  </tr>
+</table>
+
+#### Model map
+
+**Model map**, the last entry in a model's navigation, draws the model: its sections, modules and line items, and what feeds what. It is made from the tables above and from nothing else, so it reads nothing more from Anaplan.
+
+![The model map with every module of a model as a box: one module is selected, the modules that feed it are outlined in blue, the modules it feeds in red, and its details stand in a panel on the right](docs/images/map-modules.png)
+
+- The map opens on the model's sections. A section is the modules under one heading: a module whose name starts with `--`, such as `-- Inputs --`. Modules under no heading form the section **Ungrouped**.
+- Double-click a section to see its modules, and a module to see its line items. **Show all modules** shows every module at once. `Esc` goes back a step.
+- A line runs from what is read to what is worked out from it.
+- Click a box to trace it: the map marks everything that feeds it and everything it feeds, and fades the rest.
+- The panel on the right gives the details of the box you clicked. For a line item they include its formula, what it depends on and what uses it.
+- The map's search finds sections, modules and line items by name. Click an entry in the legend to hide its boxes, and again to show them. **Access drivers** adds the links from read and write access drivers.
+- Drag to move, scroll to zoom, and press `F` to bring the whole picture back into view. The map follows the page's theme.
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="docs/images/map-sections.png"><img src="docs/images/map-sections.png" width="400" alt="The model map as it opens: the eight sections of a model as boxes, with lines between the sections that feed one another and the list of sections on the left"></a><br>
+      The map opens on the model's sections.
+    </td>
+    <td width="50%" valign="top">
+      <a href="docs/images/map-line-items.png"><img src="docs/images/map-line-items.png" width="400" alt="The model map in the dark theme: one module's line items between the modules they read and the modules they feed, with one line item selected and its formula in the panel on the right"></a><br>
+      One module's line items, in the dark theme.
     </td>
   </tr>
 </table>
@@ -93,7 +118,7 @@ Closing the results page stops the reading.
 ### Downloads
 
 - **Download all (.zip)** saves every table as CSV, in `<app> - App Export - <date>.zip` or `<model> - Model Export - <date>.zip`.
-- **Download this table (.csv)** saves the whole table on screen: every row and column, whatever is searched, filtered or hidden. On the Overview it saves the details file, `App Details.csv` or `Model Details.csv`, which also holds the notes and the diagnostic log.
+- **Download this table (.csv)** saves the whole table on screen: every row and column, whatever is searched, filtered or hidden. On the Overview it saves the details file, `App Details.csv` or `Model Details.csv`, which also holds the notes and the diagnostic log. On the Model map it is off: the map has no file of its own.
 
 **How to read these files**, on the Overview, has the notes for reading them. One to know: "(not in the model)" after an ID marks a module or line item that a card points at and the model no longer has, or that you cannot see.
 
@@ -130,6 +155,11 @@ Closing the results page stops the reading.
 - A button whose import, export or process is not in the model keeps its card label; **Name source** says so.
 - Where two pages share a name, a count in **Where Used** can read "2+" (at least 2), and some links are plain text.
 - A Model settings grid of more than 250,000 rows is not exported; the Overview says which.
+- The model map takes each link from a column of the export that names another object, such as **Referenced By**. It shows formulas as text and does not work them out.
+- The map draws sections, modules, line items and the lists that formulas name. Processes and actions are not drawn; a module's details name the imports that load into it.
+- **What this map leaves out**, at the top left of the map, says what the map does not show and what it could not place for this model, such as a line item named twice in one module.
+- A view with many boxes opens zoomed out, and a box shows its name only when it is large enough. Zoom in, or point at the box.
+- The map's view is not kept: a refresh, **Run again** or **Forget this result** starts it again from the sections.
 - A result over 64 MB as JSON, or 9 MB compressed, is not kept for a refresh; the page says so.
 - Anaplan can change the internal services Cardigan reads without notice: see [NOTICE.md](NOTICE.md).
 
@@ -149,7 +179,7 @@ You need Node 20.19+, 22.12+ or 24+.
 
 To run from source, choose **Load unpacked** and select the repository root. After a rebuild, reload the extension and refresh the Anaplan tab. `dist/` is not in Git: build after every pull.
 
-In the Anaplan tab, `src/content.ts` and `src/analyse.ts` read an app, and `src/model-content.ts` and `src/model/` export a model through the page's own client. `src/background.ts` opens the results page: `results.html`, `results.css` and `src/results/`. `src/protocol.ts` lists the messages between the page and the tab.
+In the Anaplan tab, `src/content.ts` and `src/analyse.ts` read an app, and `src/model-content.ts` and `src/model/` export a model through the page's own client. `src/background.ts` opens the results page: `results.html`, `results.css` and `src/results/`. `src/map/` builds a model's map from the tables of its export and draws it on the page, styled by `map.css`. `src/protocol.ts` lists the messages between the page and the tab.
 
 ### Release
 
@@ -159,7 +189,7 @@ In the Anaplan tab, `src/content.ts` and `src/analyse.ts` read an app, and `src/
 4. Run `npm run package`. It writes `release/cardigan-<version>.zip` and prints its SHA-256.
 5. Publish the zip with its SHA-256.
 
-The zip holds the eleven files Chrome loads: `manifest.json`, four bundles, four icons, `results.html` and `results.css`. The same files always give the same bytes. The packager refuses a version that differs between `manifest.json` and `package.json`, a missing or stale bundle, a results page that loads a file outside the zip, and a manifest that asks for a permission or has no content security policy that keeps everything inside the package.
+The zip holds the twelve files Chrome loads: `manifest.json`, four bundles, four icons, `results.html`, `results.css` and `map.css`. The same files always give the same bytes. The packager refuses a version that differs between `manifest.json` and `package.json`, a missing or stale bundle, a results page that loads a file outside the zip, and a manifest that asks for a permission or has no content security policy that keeps everything inside the package.
 
 ### The card reader
 
