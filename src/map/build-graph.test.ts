@@ -349,16 +349,18 @@ describe("The model map's graph, from the tables of a model export", () => {
     const from = { file: "Line Items" };
     expect(graph.nodes).toEqual([
       { id: 0, kind: "module", name: "SYS00 Settings", ...from, row: 2, group: "Ungrouped", notes: "Model settings", cells: 3, timeScale: "Not Applicable", versions: "Not Applicable" },
-      { id: 1, kind: "lineItem", name: "Horizon", ...from, row: 3, module: 0, group: "Ungrouped", format: "NUMBER", cells: 3, notes: "Years planned", style: "Normal",
-        timeScale: "Not Applicable", versions: "Not Applicable", code: "H1", summary: "NONE", inheritsDimensions: true },
+      // A line item says its format and its summary in a word, and keeps both cells as the export holds them.
+      { id: 1, kind: "lineItem", name: "Horizon", ...from, row: 3, module: 0, group: "Ungrouped", format: "NUMBER", formatCell: NUMBER, cells: 3, notes: "Years planned", style: "Normal",
+        timeScale: "Not Applicable", versions: "Not Applicable", code: "H1", summary: "NONE", summaryCell: NO_SUMMARY, inheritsDimensions: true },
       { id: 2, kind: "module", name: "REV01 Revenue", ...from, row: 5, group: "01 : REVENUE", cells: 2400, timeScale: "Month", timeRange: "Model Calendar", versions: "All" },
-      { id: 3, kind: "lineItem", name: "Revenue", ...from, row: 6, module: 2, group: "01 : REVENUE", formula: "Units * Price", format: "NUMBER", cells: 1200, timeScale: "Month",
-        versions: "All", summary: "SUM", inheritsDimensions: true },
-      { id: 4, kind: "lineItem", name: "--- Checks ---", ...from, row: 7, module: 2, group: "01 : REVENUE", format: "NONE", style: "Heading 1", summary: "NONE", inheritsDimensions: true },
+      { id: 3, kind: "lineItem", name: "Revenue", ...from, row: 6, module: 2, group: "01 : REVENUE", formula: "Units * Price", format: "NUMBER", formatCell: NUMBER, cells: 1200,
+        timeScale: "Month", versions: "All", summary: "SUM", summaryCell: SUM, inheritsDimensions: true },
+      { id: 4, kind: "lineItem", name: "--- Checks ---", ...from, row: 7, module: 2, group: "01 : REVENUE", format: "NONE", formatCell: NO_DATA, style: "Heading 1", summary: "NONE",
+        summaryCell: NO_SUMMARY, inheritsDimensions: true },
       // A heading of nothing but dashes ends the group above it and names none.
       { id: 5, kind: "module", name: "REV02 Margin", ...from, row: 9, group: "Ungrouped" },
       { id: 6, kind: "module", name: "COST01 Costs", ...from, row: 11, group: "02 : COSTS" },
-      { id: 7, kind: "lineItem", name: "Late", ...from, row: 13, module: 2, group: "01 : REVENUE", format: "NUMBER", summary: "SUM", inheritsDimensions: true },
+      { id: 7, kind: "lineItem", name: "Late", ...from, row: 13, module: 2, group: "01 : REVENUE", format: "NUMBER", formatCell: NUMBER, summary: "SUM", summaryCell: SUM, inheritsDimensions: true },
     ]);
     // The groups that a module is in, in the file's order, each once. A heading with no module under it is no section.
     expect(graph.sections).toEqual(["Ungrouped", "01 : REVENUE", "02 : COSTS"]);
@@ -394,9 +396,41 @@ describe("The model map's graph, from the tables of a model export", () => {
       ...summaries.map(([cell], index) => item("REV01 Revenue", `Summary ${index}`, { Summary: cell })))]);
     expect(formats.map((_, index) => node(graph, `Format ${index}`).format)).toEqual(formats.map(([, format]) => format));
     expect(summaries.map((_, index) => node(graph, `Summary ${index}`).summary)).toEqual(summaries.map(([, summary]) => summary));
+    // Beside the word, the node keeps each cell exactly as the export holds it, whatever the cell is: the map says a format
+    // and a summary in the page's words from the cells. Only an empty cell is not kept.
+    expect(formats.map((_, index) => node(graph, `Format ${index}`).formatCell)).toEqual(formats.map(([cell]) => cell || undefined));
+    expect(summaries.map((_, index) => node(graph, `Summary ${index}`).summaryCell)).toEqual(summaries.map(([cell]) => cell || undefined));
     // A detail that says nothing is not on the node at all.
-    expect(Object.keys(node(graph, "Format 12"))).toEqual(["id", "kind", "name", "file", "row", "module", "group", "summary", "inheritsDimensions"]);
-    expect("format" in node(graph, "Format 13") || "summary" in node(graph, "Summary 2")).toBe(false);
+    expect(Object.keys(node(graph, "Format 12"))).toEqual(["id", "kind", "name", "file", "row", "module", "group", "summary", "summaryCell", "inheritsDimensions"]);
+    expect("format" in node(graph, "Format 13") || "summary" in node(graph, "Summary 2") || "formatCell" in node(graph, "Format 12") || "summaryCell" in node(graph, "Summary 3")).toBe(false);
+  });
+
+  it("keeps the names of the two line items a Ratio summary divides, from the export's own columns, where they are filled", () => {
+    const RATIO = JSON.stringify({ summaryMethod: "RATIO", timeSummaryMethod: "RATIO", ratioNumeratorIdentifier: "_1901000000002_", ratioDenominatorIdentifier: "_1901000000003_" });
+    const rows = lineItems(
+      // A module's own row has neither cell, and no ratio.
+      moduleRow("REV01 Revenue", { "Ratio Numerator": "Profit" }),
+      item("REV01 Revenue", "Margin %", { Summary: RATIO, "Ratio Numerator": "Profit", "Ratio Denominator": "Revenue" }),
+      // A name the export could not give is not there, and nothing is put in its place.
+      item("REV01 Revenue", "Share %", { Summary: RATIO, "Ratio Denominator": "Revenue" }),
+      item("REV01 Revenue", "Profit"),
+      item("REV01 Revenue", "Revenue"));
+    const graph = buildModelGraph([rows]);
+    const ratio = (among: ModelGraph, name: string) => [node(among, name).summary, node(among, name).summaryCell, node(among, name).ratioNumerator, node(among, name).ratioDenominator];
+    expect([ratio(graph, "Margin %"), ratio(graph, "Share %"), ratio(graph, "Profit")]).toEqual([["RATIO", RATIO, "Profit", "Revenue"], ["RATIO", RATIO, undefined, "Revenue"], ["SUM", SUM, undefined, undefined]]);
+    expect(Object.keys(node(graph, "REV01 Revenue"))).toEqual(["id", "kind", "name", "file", "row", "group"]);
+    // The names are kept as text: they are no links, and a name that is no line item's is not unresolved.
+    expect([graph.edges, graph.unresolved]).toEqual([[], []]);
+    // A file without the two columns, as the export wrote it before it had them, gives the same without the names, and
+    // the map says nothing of the columns.
+    const before = buildModelGraph([without(rows, "Ratio Numerator", "Ratio Denominator")]);
+    expect([ratio(before, "Margin %"), before.limitations]).toEqual([["RATIO", RATIO, undefined, undefined], graph.limitations]);
+    // Without the Format and Summary columns there are no cells to keep, and the map says which columns it lacks.
+    const bare = buildModelGraph([without(rows, "Format", "Summary")]);
+    expect([node(bare, "Margin %").formatCell, node(bare, "Margin %").summaryCell, node(bare, "Margin %").ratioNumerator]).toEqual([undefined, undefined, "Profit"]);
+    expect(bare.limitations.filter(line => line.startsWith("Line Items has no"))).toEqual([
+      "Line Items has no Format column: line items come without their format, and the list of one formatted as a list is known only where the Format List column names it.",
+      "Line Items has no Summary column: modules and line items come without it."]);
   });
 
   it("gives a line item with a dash under Applies To its module's dimensions, and says that they are the module's", () => {

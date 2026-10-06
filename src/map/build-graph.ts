@@ -79,8 +79,9 @@ const LINE_ITEMS = {
     ["Write Access Driver", "the map has no write access links"],
     ["Referenced By", "the map has no links from a line item to what refers to it"],
     ["Formula"], ["Summary"], ["Notes"], ["Cell Count"], ["Time Scale"], ["Time Range"], ["Versions"], ["Style"], ["Code"],
-    // The export's own column (model/lineitems.ts). A file from before the export had it is read by the prototype's rule.
-    ["Format List", null]],
+    // The export's own columns (model/lineitems.ts). A file from before the export had Format List is read by the
+    // prototype's rule; the two that name what a Ratio summary divides only say more of a line item, where they are there.
+    ["Format List", null], ["Ratio Numerator", null], ["Ratio Denominator", null]],
 } as const satisfies Reads<string>;
 type LineItemColumn = (typeof LINE_ITEMS)["columns"][number][0];
 
@@ -472,11 +473,13 @@ function readLineItems(draft: Draft, tables: readonly ResultTable[]): LineItemsR
     }
     const formatCell = table.cell(row, "Format");
     const format = definitionOf(formatCell);
-    // Its group is its module's, whatever heading stands nearest above its own row.
+    const summaryCell = table.cell(row, "Summary");
+    // Its group is its module's, whatever heading stands nearest above its own row. Its Format and Summary are also kept
+    // as the cells hold them, with the names of what a Ratio divides: the map says them in the page's words from those.
     const id = draft.add({ kind: "lineItem", name, file: table.label, row: rowNumber(index) }, { module: owner, group: draft.nodes[owner].group, formula: table.cell(row, "Formula"),
-      format: fieldOf(format, "dataType", formatCell), cells: integer(table.cell(row, "Cell Count")), notes: table.cell(row, "Notes"), style: table.cell(row, "Style"),
+      format: fieldOf(format, "dataType", formatCell), formatCell, cells: integer(table.cell(row, "Cell Count")), notes: table.cell(row, "Notes"), style: table.cell(row, "Style"),
       timeScale: table.cell(row, "Time Scale"), timeRange: table.cell(row, "Time Range"), versions: table.cell(row, "Versions"), code: table.cell(row, "Code"),
-      summary: fieldOf(definitionOf(table.cell(row, "Summary")), "summaryMethod", "") });
+      summary: fieldOf(definitionOf(summaryCell), "summaryMethod", ""), summaryCell, ratioNumerator: table.cell(row, "Ratio Numerator"), ratioDenominator: table.cell(row, "Ratio Denominator") });
     ofModule.set(name, id);
     rows.set(id, row);
     // Only a list format names a list (model/lineitems.ts): an ID that another format still carries is no one's.
