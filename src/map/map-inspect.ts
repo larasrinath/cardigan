@@ -200,8 +200,10 @@ export function inspect(model: MapModel, graph: ViewGraph, node: ViewNode, acces
   const raw = node.raw;
   if (!raw) return inspectSection(model, graph, node);
   const inspection = raw.kind === "module" ? inspectModule(model, graph, node, raw) : inspectObject(model, node, raw, access);
+  // What the export names in this object's row that the graph could not take for one object: none of that name, or
+  // more than one with nothing to tell them apart.
   const unresolved = model.unresolvedOf(raw.id);
-  if (unresolved.length) inspection.texts.push({ key: "unresolved", title: `Names not found in the export · ${formatCount(unresolved.length)}`, lines: unresolved.map(entry => `${entry.field}: ${entry.reference}`) });
+  if (unresolved.length) inspection.texts.push({ key: "unresolved", title: `Names not matched to one object · ${formatCount(unresolved.length)}`, lines: unresolved.map(entry => `${entry.field}: ${entry.reference}`) });
   if (raw.notes !== undefined && raw.notes !== "") inspection.notes = raw.notes;
   inspection.source = `${raw.file}.csv, row ${formatCount(raw.row)}`;
   return inspection;

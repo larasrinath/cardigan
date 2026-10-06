@@ -110,9 +110,9 @@ function leftOutHtml(lines: readonly string[]): string {
 }
 
 /** What the notes about the map say of this model: how large it is, and what the graph could not hold, as the export's
- * own sentences say it, with how many names matched no object. */
+ * own sentences say it, with how many names matched no object, or more than one. */
 export function notesHtml(model: { name: string; workspace?: string; modules: number; lineItems: number }, limitations: readonly string[], unresolved: number): string {
-  const lines = [...limitations, ...(unresolved > 0 ? [`${formatCount(unresolved)} ${unresolved === 1 ? "name" : "names"} in the export matched no object. A box's details list its own.`] : [])];
+  const lines = [...limitations, ...(unresolved > 0 ? [`${formatCount(unresolved)} ${unresolved === 1 ? "name" : "names"} in the export matched no object, or more than one. A box's details list its own.`] : [])];
   const { modules, lineItems } = model;
   const where = model.workspace !== undefined && model.workspace.trim() !== "" ? `, in the workspace ${esc(model.workspace)}` : "";
   return `<h3 class="map-about-title">This model</h3><p class="map-about-line">${esc(model.name)}${where}: ${esc(formatCount(modules))} ${modules === 1 ? "module" : "modules"} · ${esc(formatCount(lineItems))} ${lineItems === 1 ? "line item" : "line items"}</p>${leftOutHtml(lines)}`;

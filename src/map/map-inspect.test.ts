@@ -73,7 +73,7 @@ describe("What the details say of a module", () => {
     const inspection = inspect(model, graph, byName(graph, "INP01 - Volumes"), false);
     expect(inspection.texts).toEqual([
       { key: "actions", title: "Actions · 2", lines: ["Load Volumes (Import)", "Tidy Volumes"] },
-      { key: "unresolved", title: "Names not found in the export · 1", lines: ["Applies To: Old Regions"] },
+      { key: "unresolved", title: "Names not matched to one object · 1", lines: ["Applies To: Old Regions"] },
     ]);
   });
 
@@ -168,7 +168,7 @@ describe("What the details say of a line item", () => {
     const graph = moduleGraph(model, revenue, false, false);
     const gross = inspect(model, graph, byName(graph, "Gross"), false);
     expect(gross.source).toMatch(/^Line Items\.csv, row \d+$/);
-    expect(gross.texts).toEqual([{ key: "unresolved", title: "Names not found in the export · 1", lines: ["Referenced By: Retired.Total"] }]);
+    expect(gross.texts).toEqual([{ key: "unresolved", title: "Names not matched to one object · 1", lines: ["Referenced By: Retired.Total"] }]);
     const units = moduleGraph(model, volumes, false, false);
     expect(inspect(model, units, byName(units, "Units"), false).source).toBe("Line Items.csv, row 12");
     // A row in the thousands is written as the page writes its counts.
