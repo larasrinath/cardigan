@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { modulesGraph } from "./map-graphs.js";
+import { moduleGraph, modulesGraph, sectionsGraph } from "./map-graphs.js";
 import { indexModel } from "./map-model.js";
 import { createSearch, matchNodes, SEARCH_LIMIT, searchText } from "./map-search.js";
 import { GraphMaker } from "./map-fakes.test-support.js";
@@ -61,12 +61,40 @@ describe("The map's search", () => {
     expect(search("line", 5).hits.map(hit => hit.name)).toEqual(["line", "BIG - Many Lines", "Line 0", "Line 1", "Line 2"]);
   });
 
-  it("marks the nodes on screen that the text names, by name or by code", () => {
+  it("finds no sections where it is told the map shows none", () => {
+    const { model } = sample();
+    const all = createSearch(model);
+    const none = createSearch(model, false);
+    const kinds = (outcome: { hits: { kind: string }[] }): string[] => [...new Set(outcome.hits.map(hit => hit.kind))];
+    expect(kinds(all("in"))).toContain("section");
+    expect(kinds(none("in"))).not.toContain("section");
+    expect(none("in").total).toBe(all("in").total - all("in").hits.filter(hit => hit.kind === "section").length);
+  });
+
+  it("marks the boxes on screen that the text names, by name or by code", () => {
     const { model } = sample();
     const graph = modulesGraph(model, undefined, false);
-    expect([...matchNodes(graph, "cal01")!]).toEqual([0, 1]);
-    expect([...matchNodes(graph, "VOLUMES")!]).toEqual([1, 0]);
-    expect([...matchNodes(graph, "zzz")!]).toEqual([0, 0]);
-    expect(matchNodes(graph, "  ")).toBeUndefined();
+    expect([...matchNodes(graph, model, "cal01")!]).toEqual([0, 1]);
+    expect([...matchNodes(graph, model, "VOLUMES")!]).toEqual([1, 0]);
+    expect(matchNodes(graph, model, "  ")).toBeUndefined();
+  });
+
+  it("marks the box that holds what the text names: a line item's module, and its section", () => {
+    const { model, revenue } = sample();
+    // "Units" is a line item of the first module, which is in the first section.
+    expect([...matchNodes(modulesGraph(model, undefined, false), model, "units")!]).toEqual([1, 0]);
+    expect([...matchNodes(sectionsGraph(model, false), model, "units")!]).toEqual([1, 0]);
+    // A module's name marks its section.
+    expect([...matchNodes(sectionsGraph(model, false), model, "cal01")!]).toEqual([0, 1]);
+    // In a module's own graph a line item is marked by its own name, and another module's box by the line items it stands for.
+    const drill = moduleGraph(model, revenue, false, false);
+    expect(drill.nodes.filter((_, index) => matchNodes(drill, model, "net")![index]).map(node => node.fullName)).toEqual(["Net"]);
+  });
+
+  it("marks nothing, and so fades nothing, when no box on screen is meant", () => {
+    const { model } = sample();
+    expect(matchNodes(modulesGraph(model, undefined, false), model, "zzz")).toBeUndefined();
+    // A list is found on no box of the modules.
+    expect(matchNodes(sectionsGraph(model, false), model, "revenue types")).toBeUndefined();
   });
 });

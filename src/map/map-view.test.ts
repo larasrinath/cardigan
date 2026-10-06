@@ -4,7 +4,7 @@ import type { ModelGraph, ModelMap } from "./graph-types.js";
 import type { Pen } from "./map-canvas.js";
 import { FALLBACK } from "./map-palette.js";
 import { mountModelMap, mountModelMapIn, type MapEnvironment } from "./map-view.js";
-import { FakePen, GraphMaker, HOSTILE } from "./map-fakes.test-support.js";
+import { FakePen, GraphMaker, HOSTILE, type PenCall } from "./map-fakes.test-support.js";
 
 /** A page with a control outside the map, and the place the map is put into. */
 const SHELL = '<!DOCTYPE html><html lang="en" data-theme="light"><head><title>Page</title></head><body><button type="button" id="outside">Outside</button><main id="main"><div id="host"></div></main></body></html>';
@@ -136,30 +136,55 @@ const parts = (selector: string): FakeElement[] => root().querySelectorAll(selec
 const text = (selector: string): string => part(selector).textContent.replace(/\s+/g, " ").trim();
 const canvas = (): FakeElement => part(".map-canvas");
 const act = (name: string): FakeElement => part(`[data-map-act="${name}"]`);
+/** The line that says what the map shows. */
+const status = (): string => text(".map-stats");
+/** The links of the last picture: the lines drawn that end a curve. */
+function linksDrawn(): PenCall[] {
+  const calls = lastPicture();
+  return calls.filter((call, index) => {
+    if (call.name !== "stroke") return false;
+    for (let at = index - 1; at >= 0 && calls[at].name !== "beginPath"; at--) if (calls[at].name === "bezierCurveTo") return true;
+    return false;
+  });
+}
+/** The boxes of the last picture, each as how strongly it is drawn. */
+const boxStrengths = (): number[] => {
+  const calls = lastPicture();
+  return calls.filter((call, index) => call.name === "fill" && calls[index - 1]?.name === "roundRect").map(call => call.globalAlpha);
+};
 const tab = (view: string): FakeElement => part(`[data-map-view="${view}"]`);
 const pointer = (type: string, x: number, y: number, target: FakeElement = canvas()): void => { target.dispatch(type, { clientX: x, clientY: y, button: 0, pointerId: 1 } as unknown as { key?: string }); };
 const key = (name: string, extra: Record<string, unknown> = {}) => page.document.activeElement.dispatch("keydown", { key: name, ...extra });
 
-/** Where each node is on the canvas: the middle of each box of the last picture, and the name the tooltip says when the
- * pointer is there. So a place comes from what was drawn, and a name from what the map itself says is under the pointer. */
-function locate(): Map<string, [number, number]> {
-  // A trace that moves never stops asking for frames: one frame is then enough for a picture.
-  if (env.reduced) env.settle(); else env.frame();
+/** The calls of the last picture drawn on the canvas: from the fill of the whole canvas on. */
+function lastPicture(): PenCall[] {
   const calls = env.main.calls;
   let from = calls.length - 1;
   while (from > 0 && !(calls[from].name === "fillRect" && calls[from].args[0] === 0 && calls[from].args[1] === 0 && calls[from - 1]?.name !== "roundRect")) from--;
-  const found = new Map<string, [number, number]>();
+  return calls.slice(Math.max(0, from));
+}
+
+/** Where each node is on the canvas: each box of the last picture, by the name the tooltip says when the pointer is at
+ * its middle. So a place comes from what was drawn, and a name from what the map itself says is under the pointer. */
+function boxes(): Map<string, { x: number; y: number; w: number; h: number }> {
+  // A picture that still moves asks for frame after frame: one frame is then enough for a picture.
+  if (env.reduced) env.settle(); else env.frame();
+  const calls = lastPicture();
+  const found = new Map<string, { x: number; y: number; w: number; h: number }>();
   const tip = part(".map-tooltip");
-  for (let index = from; index < calls.length - 1; index++) {
+  for (let index = 0; index < calls.length - 1; index++) {
     // A node's box is filled; the rings around a node are only drawn as lines.
     if (calls[index].name !== "roundRect" || calls[index + 1].name !== "fill") continue;
-    const [x, y, width, height] = calls[index].args as number[];
-    const middle: [number, number] = [x + width / 2, y + height / 2];
-    pointer("pointermove", ...middle);
-    if (tip.classList.contains("map-show")) found.set(tip.querySelector(".map-tip-name")?.textContent ?? "", middle);
+    const [x, y, w, h] = calls[index].args as number[];
+    pointer("pointermove", x + w / 2, y + h / 2);
+    if (tip.classList.contains("map-show")) found.set(tip.querySelector(".map-tip-name")?.textContent ?? "", { x, y, w, h });
   }
   canvas().dispatch("pointerleave");
   return found;
+}
+/** The middle of each box of the last picture. */
+function locate(): Map<string, [number, number]> {
+  return new Map([...boxes()].map(([name, box]) => [name, [box.x + box.w / 2, box.y + box.h / 2]]));
 }
 function at(name: string): [number, number] {
   const point = locate().get(name);
@@ -310,6 +335,15 @@ describe("The map in the place the page gives it", () => {
     expect([host.children.length, without.requested, without.stopped]).toEqual([0, 0, 0]);
   });
 
+  it("refuses to mount where its size cannot be watched, and leaves the host as it was", () => {
+    class NoWatching extends FakeSurroundings {
+      override watchSize(): () => void { throw new Error("no observer here"); }
+    }
+    const without = new NoWatching();
+    expect(() => mountModelMapIn(host as unknown as HTMLElement, sample().graph, { modelName: "Demand Plan" }, without)).toThrow("no observer here");
+    expect([host.children.length, without.requested]).toEqual([0, 0]);
+  });
+
   it("goes without the small picture where only that canvas cannot be drawn on", () => {
     class NoSmallPen extends FakeSurroundings {
       override pen(canvas: HTMLCanvasElement): Pen { return ((canvas as unknown as FakeElement).classList.contains("map-minimap") ? null : this.main) as unknown as Pen; }
@@ -444,6 +478,117 @@ describe("Showing, hiding and ending the map", () => {
     expect(env.main.named("fillRect")[0].fillStyle).toBe("#303030");
   });
 
+  it("sizes its canvas and draws one picture for each show, whether its size is told in whole pixels or in fractions", () => {
+    mount();
+    // A canvas as a browser lays it out, at a height that is no whole number of pixels.
+    canvas().getBoundingClientRect = () => ({ left: 0, top: 0, right: 1200, bottom: 735.6, width: 1200, height: 735.6 });
+    let sized = 0;
+    let wide = 0;
+    Object.defineProperty(canvas(), "width", { get: () => wide, set: (value: number) => { wide = value; sized++; } });
+    const pictures = (): number => env.main.calls.filter(call => call.name === "fillRect" && call.args[0] === 0 && call.args[1] === 0 && call.args[2] === 1200).length;
+    map.show();
+    // The browser then tells the size it watched: the same one, in fractions, and rounded by another source.
+    env.resize(1200, 735.6);
+    env.resize(1200, 736);
+    env.settle();
+    expect([pictures(), sized, wide]).toEqual([1, 1, 1200]);
+    // A size that really is another is followed.
+    env.resize(1200, 700);
+    env.settle();
+    expect([pictures(), sized]).toEqual([2, 2]);
+    env.resize(1200, 735.6);
+    env.settle();
+    // Shown again at the size it had: one picture, and the canvas keeps its size.
+    map.hide();
+    env.resize(0, 0);
+    map.show();
+    env.resize(1200, 735.6);
+    env.settle();
+    expect([pictures(), sized]).toEqual([4, 3]);
+  });
+
+  it("ends a drag, closes the tooltip and the search's results, and forgets a first press when it is hidden", () => {
+    open();
+    act("group").press();
+    // The pointer over a node: its tooltip, and the hand.
+    const [x, y] = at("CAL01 - Revenue");
+    pointer("pointermove", x, y);
+    expect([part(".map-tooltip").classList.contains("map-show"), canvas().classList.contains("map-over-node")]).toEqual([true, true]);
+    map.hide();
+    expect([part(".map-tooltip").classList.contains("map-show"), canvas().classList.contains("map-over-node")]).toEqual([false, false]);
+    map.show();
+    env.settle();
+    // A search with its results open, and the picture marked for it.
+    part(".map-search").type("revenue");
+    env.settle();
+    expect([part(".map-results").hidden, boxStrengths().some(strength => strength < 1)]).toEqual([false, true]);
+    map.hide();
+    expect(part(".map-results").hidden).toBe(true);
+    map.show();
+    env.settle();
+    expect([part(".map-search").value, boxStrengths()]).toEqual(["revenue", [1, 1, 1, 1, 1]]);
+    // A node in the middle of being dragged: the canvas no longer says so, and the pointer that comes back moves nothing.
+    const before = boxes();
+    const from = before.get("INP02 - Prices")!;
+    pointer("pointerdown", from.x + 20, from.y + 10);
+    pointer("pointermove", from.x + 80, from.y + 90);
+    expect(canvas().classList.contains("map-dragging")).toBe(true);
+    map.hide();
+    expect(canvas().classList.contains("map-dragging")).toBe(false);
+    map.show();
+    env.settle();
+    const dropped = boxes().get("INP02 - Prices")!;
+    pointer("pointermove", from.x + 200, from.y + 200);
+    pointer("pointerup", from.x + 200, from.y + 200);
+    env.settle();
+    expect(boxes().get("INP02 - Prices")).toEqual(dropped);
+    expect(part(".map-inspector").hidden).toBe(true);
+    // A first press, and the map hidden before the second: shown again, a press at the same place is a first press.
+    const [nodeX, nodeY] = at("CAL01 - Revenue");
+    click(nodeX, nodeY);
+    map.hide();
+    map.show();
+    env.settle();
+    act("clear").press();
+    const [againX, againY] = at("CAL01 - Revenue");
+    env.time += 100;
+    pointer("pointerdown", againX, againY);
+    pointer("pointerup", againX, againY);
+    expect([text(".map-here"), text(".map-insp-name")]).toEqual(["All modules", "CAL01 - Revenue"]);
+  });
+
+  it("stops the timer of a press when it is ended", () => {
+    vi.useFakeTimers();
+    open();
+    clickNode("02: Calculations");
+    expect([root().classList.contains("map-arriving"), vi.getTimerCount()]).toEqual([true, 1]);
+    map.destroy();
+    expect(vi.getTimerCount()).toBe(0);
+    vi.advanceTimersByTime(1000);
+    expect(host.children).toEqual([]);
+  });
+
+  it("draws again when the browser gives a lost canvas back, and only while it is shown", () => {
+    open();
+    const pictures = (): number => env.main.calls.filter(call => call.name === "fillRect" && call.args[0] === 0 && call.args[1] === 0 && call.args[2] === 1200).length;
+    const before = pictures();
+    canvas().dispatch("contextrestored");
+    expect(env.waiting).toBe(1);
+    env.settle();
+    expect(pictures()).toBe(before + 1);
+    // The small picture's canvas too: the two are drawn together.
+    part(".map-minimap").dispatch("contextrestored");
+    env.settle();
+    expect(pictures()).toBe(before + 2);
+    map.hide();
+    canvas().dispatch("contextrestored");
+    expect([env.waiting, pictures()]).toEqual([0, before + 2]);
+    // Shown again, the picture is drawn as at any show.
+    map.show();
+    env.settle();
+    expect(pictures()).toBe(before + 3);
+  });
+
   it("takes its element out of the host and stops everything when it is ended", () => {
     open();
     clickNode("02: Calculations");
@@ -477,51 +622,230 @@ describe("Showing, hiding and ending the map", () => {
   });
 });
 
+describe("A map that fails", () => {
+  const failing = (words: string) => (): never => { throw new Error(words); };
+  const SENTENCE = (reason: string): string => `Drawing it failed (${reason}), and the map has stopped. The tables of this result are not affected.`;
+
+  it("lets a failure of the first picture go to the page that asked for it to be shown", () => {
+    mount();
+    canvas().getBoundingClientRect = () => ({ left: 0, top: 0, right: 1200, bottom: 800, width: 1200, height: 800 });
+    env.main.fillRect = failing("no picture can be drawn");
+    // The page shows its own sentence then, and takes the map away.
+    expect(() => map.show()).toThrow("no picture can be drawn");
+    map.destroy();
+    expect([host.children.length, env.waiting, env.stopped]).toEqual([0, 0, 1]);
+  });
+
+  it("stops and says in its own place that it could not be drawn, when a picture drawn later fails", () => {
+    open();
+    clickNode("02: Calculations");
+    canvas().focus();
+    env.main.fillRect = failing("the canvas is gone");
+    key("f");
+    expect(env.waiting).toBe(1);
+    // Nothing is thrown at the browser: the picture was asked for by the map itself.
+    expect(() => env.settle()).not.toThrow();
+    expect([part(".map-broken").getAttribute("role"), text(".map-broken .map-empty-title"), text(".map-broken .map-empty-text")]).toEqual(["alert", "The map could not be drawn", SENTENCE("the canvas is gone")]);
+    // Nothing of the map is left around the sentence, and the focus that was in the map is on it.
+    expect([root().children.length, root().querySelector("canvas"), root().querySelector("button")]).toEqual([1, null, null]);
+    expect(page.document.activeElement).toBe(part(".map-broken"));
+    expect([env.waiting, env.stopped]).toEqual([0, 1]);
+    // Whatever it is told or sent from now on, it draws nothing and asks for nothing.
+    const [requested, drawn] = [env.requested, env.main.calls.length];
+    map.themeChanged();
+    env.resize(900, 700);
+    key("f");
+    key("Escape");
+    part(".map-broken").press();
+    expect([env.requested, env.main.calls.length, text(".map-empty-title")]).toEqual([requested, drawn, "The map could not be drawn"]);
+    // The page still hides it, shows it and takes it away.
+    map.hide();
+    expect(root().hidden).toBe(true);
+    map.show();
+    expect([root().hidden, text(".map-empty-title"), env.requested]).toEqual([false, "The map could not be drawn", requested]);
+    map.destroy();
+    expect(host.children).toEqual([]);
+  });
+
+  it("stops in the same way when what the user does fails, and when a size it is told cannot be drawn at", () => {
+    open();
+    // A press that builds another view, whose names cannot be measured.
+    env.main.measureText = failing("no text can be measured");
+    expect(() => act("group").press()).not.toThrow();
+    expect(text(".map-broken .map-empty-text")).toBe(SENTENCE("no text can be measured"));
+    expect(env.waiting).toBe(0);
+    map.destroy();
+
+    env = new FakeSurroundings();
+    open();
+    env.main.fillRect = failing("no room");
+    expect(() => env.resize(1000, 700)).not.toThrow();
+    expect(text(".map-broken .map-empty-text")).toBe(SENTENCE("no room"));
+    map.destroy();
+
+    // A press on the canvas, and what is thrown is no Error.
+    env = new FakeSurroundings();
+    open();
+    const [x, y] = at("02: Calculations");
+    env.main.roundRect = () => { throw "a string was thrown"; };
+    env.reduced = false;
+    page.id("outside").focus();
+    click(x, y);
+    expect(() => env.frame()).not.toThrow();
+    expect(text(".map-broken .map-empty-text")).toBe(SENTENCE("a string was thrown"));
+    // The focus was not in the map: it is not taken.
+    expect(page.document.activeElement.id).toBe("outside");
+  });
+
+  it("writes the failure's words as text, whatever they are", () => {
+    open();
+    env.main.fillRect = failing(HOSTILE[0]);
+    canvas().focus();
+    key("f");
+    env.settle();
+    expect(text(".map-broken .map-empty-text")).toBe(SENTENCE(HOSTILE[0]));
+    expect(parts("img, script, iframe, a")).toEqual([]);
+  });
+});
+
 describe("The map's views", () => {
   it("opens on the model's sections, under the model's name", () => {
     open();
-    expect([text(".map-title-name"), text(".map-title-sub")]).toEqual(["Demand Plan", "Workspace: Sandbox"]);
-    expect(parts(".map-stats div").map(line => line.textContent)).toEqual(["5 modules · 9 line items", "3 sections · 2 links"]);
+    // The model's name is the map's heading and the start of its breadcrumb, after the workspace.
+    expect([part(".map-title-name").localName, text(".map-title-name"), part(".map-title-name").getAttribute("aria-current"), part(".map-title-name").getAttribute("title")]).toEqual(["h2", "Demand Plan", "location", "Demand Plan (workspace: Sandbox)"]);
     expect(parts(".map-crumbs button")).toEqual([]);
-    expect([text(".map-crumb-ws"), text(".map-here")]).toEqual(["Sandbox", "Demand Plan"]);
-    expect(text(".map-legend-title")).toBe("Exported sections");
-    expect(parts(".map-legend-name").map(name => name.textContent)).toEqual(["01: Inputs", "02: Calculations", "Reporting"]);
+    expect([text(".map-crumb-ws-name"), part(".map-crumb-ws").getAttribute("class"), text(".map-here")]).toEqual(["Sandbox", "map-crumb-ws map-crumb-ws-alone", "Demand Plan"]);
+    expect([status(), part(".map-status").hidden, act("whole").hidden]).toEqual(["3 sections · 2 links", false, true]);
+    expect(text(".map-legend-title")).toBe("Sections");
+    // Each section's entry counts the section's modules.
+    expect(parts(".map-legend-item").map(item => [item.querySelector(".map-legend-name")?.textContent, item.querySelector(".map-legend-count")?.textContent])).toEqual([["01: Inputs", "2"], ["02: Calculations", "2"], ["Reporting", "1"]]);
     expect([...locate().keys()].sort()).toEqual(["01: Inputs", "02: Calculations", "Reporting"]);
     expect([tab("modules").getAttribute("aria-pressed"), tab("drill").getAttribute("aria-pressed"), act("group").textContent]).toEqual(["true", "false", "Show all modules"]);
-    expect([part(".map-module-select").hidden, act("external").hidden, part(".map-section-select").hidden, act("focus").disabled]).toEqual([true, true, false, true]);
-    expect(text(".map-notes summary")).toBe("What this map leaves out · 1");
+    expect([part(".map-module-select").hidden, act("external").hidden, part(".map-section-select").hidden, part(".map-tracebar").hidden, part(".map-inspector").hidden]).toEqual([true, true, false, true, true]);
+    // A section's box says how much the section holds.
+    expect(lastPicture().filter(call => call.name === "fillText").map(call => call.args[0])).toEqual(["2 modules · 3 line items", "01: Inputs", "2 modules · 5 line items", "02: Calculations", "1 module · 1 line item", "Reporting"]);
   });
-
-  it("shows no workspace where the page names none", () => {
+  it("shows no workspace where the page names none, and names it in the notes about the map where it does", () => {
     mount(undefined, { modelName: "Demand Plan", workspaceName: undefined });
     map.show();
-    expect(text(".map-title-sub")).toBe("Model map");
     expect(root().querySelector(".map-crumb-ws")).toBeNull();
+    expect(part(".map-title-name").getAttribute("title")).toBe("Demand Plan");
+    expect(text(".map-notes .map-about-line")).toBe("Demand Plan: 5 modules · 9 line items");
+    map.destroy();
+    open();
+    expect(text(".map-notes .map-about-line")).toBe("Demand Plan, in the workspace Sandbox: 5 modules · 9 line items");
+    // Before a section or a module the workspace has less room than before the model alone, and says so to the stylesheet.
+    act("group").press();
+    expect(part(".map-crumb-ws").getAttribute("class")).toBe("map-crumb-ws");
+  });
+  it("opens a model whose modules stand under one heading on its modules: it has no sections to show", () => {
+    const make = new GraphMaker();
+    const units = make.item(make.module("INP01 - Volumes", "Ungrouped"), "Units");
+    const gross = make.item(make.module("CAL01 - Revenue", "Ungrouped"), "Gross");
+    make.link(units, gross);
+    open(make.graph());
+    expect([...locate().keys()].sort()).toEqual(["CAL01 - Revenue", "INP01 - Volumes"]);
+    // The model whole: its name alone in the breadcrumb, and nothing that leads to sections.
+    expect([text(".map-here"), parts(".map-crumbs button").length, act("group").hidden, part(".map-section-select").hidden]).toEqual(["Demand Plan", 0, true, true]);
+    expect(status()).toBe("2 modules · 1 link");
+    // A box says how much its module holds: the one heading would be the same on every box.
+    expect(lastPicture().filter(call => call.name === "fillText").map(call => call.args[0])).toEqual(["INP01 · 1 line item", "Volumes", "CAL01 · 1 line item", "Revenue"]);
+    // Into a module and back: the breadcrumb and Escape lead to the modules, and no further.
+    doubleClick("CAL01 - Revenue");
+    expect([text(".map-here"), parts(".map-crumbs button").map(crumb => crumb.textContent)]).toEqual(["CAL01 - Revenue", ["Demand Plan"]]);
+    canvas().focus();
+    expect(key("Escape").defaultPrevented).toBe(true);
+    expect([text(".map-here"), locate().size, act("group").hidden]).toEqual(["Demand Plan", 2, true]);
+    expect(key("Escape").defaultPrevented).toBe(false);
+    // The search finds modules and line items, and no section: there is none to go to.
+    part(".map-search").type("ungrouped");
+    expect([text(".map-search-count"), parts(".map-result").length]).toEqual(["0", 0]);
+    part(".map-search").type("inp");
+    expect(parts(".map-result").map(result => [result.querySelector("span")?.textContent, result.querySelector("small")?.textContent])).toEqual([["INP01 - Volumes", "Module · Ungrouped"], ["Units", "INP01 - Volumes"]]);
+    key("Enter");
+    expect([text(".map-here"), text(".map-insp-name"), locate().size]).toEqual(["Demand Plan", "INP01 - Volumes", 2]);
+    map.destroy();
+    // A model of two sections still opens on them.
+    open();
+    expect([...locate().keys()]).toContain("01: Inputs");
+  });
+
+  it("opens and closes the legend and the notes about the map with their buttons, and says which is open", () => {
+    open();
+    // In the stand-in page nothing is measured, so the legend costs the picture nothing: it starts open.
+    expect([part(".map-legend").hidden, act("legend").getAttribute("aria-expanded")]).toEqual([false, "true"]);
+    act("legend").press();
+    expect([part(".map-legend").hidden, act("legend").getAttribute("aria-expanded")]).toEqual([true, "false"]);
+    // What the user chose holds from view to view.
+    act("group").press();
+    expect(part(".map-legend").hidden).toBe(true);
+    act("legend").press();
+    tab("drill").press();
+    expect([part(".map-legend").hidden, act("legend").getAttribute("aria-expanded"), text(".map-legend-title")]).toEqual([false, "true", "On this map"]);
+    // The notes about the map are closed until asked for.
+    expect([part(".map-about").hidden, act("about").getAttribute("aria-expanded")]).toEqual([true, "false"]);
+    act("about").press();
+    expect([part(".map-about").hidden, act("about").getAttribute("aria-expanded")]).toEqual([false, "true"]);
+    expect(parts(".map-about h3").map(title => title.textContent)).toEqual(["This model", "What this map leaves out · 1", "How to read the map", "Mouse and keys"]);
+    expect(parts(".map-notes li").map(line => line.textContent)).toEqual(["List members are not in the export."]);
+    // Escape from the notes closes them, and steps nowhere back.
+    expect(key("Escape").defaultPrevented).toBe(true);
+    expect([part(".map-about").hidden, act("about").getAttribute("aria-expanded"), text(".map-here"), page.document.activeElement === act("about")]).toEqual([true, "false", "INP01 - Volumes", true]);
+    expect(key("Escape").defaultPrevented).toBe(true);
+    expect(text(".map-here")).toBe("All modules");
+    // From inside the notes too, where they take the focus to be scrolled.
+    act("about").press();
+    part(".map-about").focus();
+    key("Escape");
+    expect([part(".map-about").hidden, text(".map-here")]).toEqual([true, "All modules"]);
+  });
+
+  it("lists everything the map leaves out, a dozen sentences as well as one", () => {
+    const make = new GraphMaker();
+    const item = make.item(make.module("INP01 - Volumes", "01: Inputs"), "Units");
+    const dozen = Array.from({ length: 12 }, (_, index) => `Line Items has no column number ${index + 1}: line items come without what it would say.`);
+    make.limitations.push(...dozen);
+    make.unresolved.push({ source: item, field: "Applies To", reference: "Old Regions" }, { source: item, field: "Referenced By", reference: "Retired.Total" });
+    open(make.graph());
+    act("about").press();
+    expect(text(".map-notes .map-about-line")).toBe("Demand Plan, in the workspace Sandbox: 1 module · 1 line item");
+    expect(parts(".map-notes h3").map(title => title.textContent)).toEqual(["This model", "What this map leaves out · 13"]);
+    expect(parts(".map-notes ul")).toHaveLength(1);
+    expect(parts(".map-notes li").map(line => line.textContent)).toEqual([...dozen, "2 names in the export matched no object. A box's details list its own."]);
+    map.destroy();
+    // A graph that lacks nothing has no such heading.
+    const whole = new GraphMaker();
+    whole.item(whole.module("INP01 - Volumes", "01: Inputs"), "Units");
+    open(whole.graph());
+    expect(parts(".map-notes h3").map(title => title.textContent)).toEqual(["This model"]);
   });
 
   it("goes from the sections to all modules and back with the grouping button", () => {
     open();
     act("group").press();
-    expect([text(".map-here"), act("group").textContent, parts(".map-stats div")[1].textContent]).toEqual(["All modules", "Group by section", "5 visible modules · 5 links"]);
+    expect([text(".map-here"), act("group").textContent, status()]).toEqual(["All modules", "Group by section", "5 modules · 5 links"]);
     expect([...locate().keys()].sort()).toEqual(["CAL01 - Revenue", "INP01 - Volumes", "INP02 - Prices", "Margin Workings", "REP01 - Board"]);
     expect(parts(".map-crumbs button").map(crumb => crumb.textContent)).toEqual(["Demand Plan"]);
+    // Among all modules each box says its section in words: its colour alone would not.
+    expect(lastPicture().filter(call => call.name === "fillText").map(call => call.args[0])).toEqual(expect.arrayContaining(["INP01 · 01: Inputs", "CAL01 · 02: Calculations", "02: Calculations", "REP01 · Reporting"]));
+    expect(text(".map-live")).toBe("All modules: 5 modules, 5 links.");
     act("group").press();
-    expect([text(".map-here"), act("group").textContent]).toEqual(["Demand Plan", "Show all modules"]);
+    expect([text(".map-here"), act("group").textContent, text(".map-live")]).toEqual(["Demand Plan", "Show all modules", "Sections of Demand Plan: 3 sections, 2 links."]);
   });
-
   it("shows one section's modules from the list of sections, with the modules of other sections beside them", () => {
     open();
     expect(parts(".map-section-select option").map(option => [option.getAttribute("value"), option.textContent])).toEqual([["", "All sections"], ["0", "01: Inputs"], ["1", "02: Calculations"], ["2", "Reporting"]]);
     part(".map-section-select").choose("1");
     expect([text(".map-here"), part(".map-section-select").value, act("group").textContent]).toEqual(["02: Calculations", "1", "Group by section"]);
-    expect(parts(".map-legend-item").map(item => item.textContent)).toEqual(["External module3", "02: Calculations2"]);
+    expect(parts(".map-legend-item").map(item => item.textContent)).toEqual(["Modules of other sections3", "02: Calculations2"]);
     expect(locate().size).toBe(5);
+    // The section's own modules are counted apart from those that stand beside them, on screen and aloud.
+    expect([status(), text(".map-live")]).toEqual(["2 modules · 3 modules of other sections · 5 links", "02: Calculations: 2 modules, with 3 modules of other sections, 5 links."]);
     part(".map-section-select").choose("");
     expect(text(".map-here")).toBe("All modules");
     act("group").press();
     expect(text(".map-here")).toBe("Demand Plan");
   });
-
   it("goes into a section by a double press, by the details' button, and by Enter", () => {
     open();
     doubleClick("02: Calculations");
@@ -529,7 +853,7 @@ describe("The map's views", () => {
     act("crumb").press();
     expect(text(".map-here")).toBe("Demand Plan");
     clickNode("01: Inputs");
-    expect(act("open").textContent).toBe("Open modules →");
+    expect(act("open").textContent).toBe("Open its 2 modules →");
     act("open").press();
     expect(text(".map-here")).toBe("01: Inputs");
     act("crumb").press();
@@ -548,11 +872,11 @@ describe("The map's views", () => {
     expect([text(".map-here"), part(".map-module-select").value, tab("drill").getAttribute("aria-pressed"), tab("modules").getAttribute("aria-pressed")]).toEqual(["INP01 - Volumes", String(volumes), "true", "false"]);
     expect([part(".map-module-select").hidden, act("external").hidden, part(".map-section-select").hidden, act("group").hidden]).toEqual([false, false, true, true]);
     expect(parts(".map-module-select option").map(option => option.textContent)).toEqual(["INP01 - Volumes", "INP02 - Prices", "CAL01 - Revenue", "Margin Workings", "REP01 - Board"]);
-    expect(text(".map-legend-title")).toBe("Node types");
+    expect(text(".map-legend-title")).toBe("On this map");
     part(".map-module-select").choose(String(revenue));
     expect(text(".map-here")).toBe("CAL01 - Revenue");
-    expect(parts(".map-stats div")[1].textContent).toBe("3 local · 5 external nodes");
-    expect(parts(".map-legend-name").map(name => name.textContent)).toEqual(["Heading", "Line item", "List / subset", "External module"]);
+    expect([status(), text(".map-live")]).toEqual(["3 line items · 5 outside the module · 7 links", "Line items of CAL01 - Revenue: 3 line items, with 5 outside the module, 7 links."]);
+    expect(parts(".map-legend-name").map(name => name.textContent)).toEqual(["No Data line items (headings)", "Line items", "Lists and subsets", "Other modules"]);
     // Back to the modules, and into a module by a double press: the Line items view remembers the module.
     tab("modules").press();
     act("group").press();
@@ -562,7 +886,6 @@ describe("The map's views", () => {
     tab("drill").press();
     expect(text(".map-here")).toBe("Margin Workings");
   });
-
   it("names the module's section between the model and the module, as the way to that section's modules", () => {
     open();
     tab("drill").press();
@@ -585,49 +908,66 @@ describe("The map's views", () => {
     const names = [...locate().keys()];
     expect(names).toEqual(expect.arrayContaining(["Units", "Price", "Cost", "Margin %", "Total", "Gross"]));
     expect(names).not.toContain("INP01 - Volumes");
-    expect(parts(".map-legend-name").map(name => name.textContent)).toContain("External line item");
+    expect(parts(".map-legend-name").map(name => name.textContent)).toContain("Line items of other modules");
     act("external").press();
     expect([...locate().keys()]).toContain("INP01 - Volumes");
   });
 
-  it("counts who may read and write among the links when asked to, and keeps what is selected", () => {
+  it("draws the links of read and write access drivers when asked to, says so, and keeps what is selected", () => {
     open();
     tab("drill").press();
     part(".map-module-select").choose(String(sample().revenue));
     clickNode("Net");
-    expect(parts(".map-details summary").map(summary => summary.textContent)).toEqual(["Depends on · 2", "Used by · 1"]);
+    expect(parts(".map-details summary").map(summary => summary.textContent)).toEqual(["Feeds it directly · 2", "It feeds directly · 1"]);
     part(".map-access").tick();
     expect(part(".map-access").checked).toBe(true);
     expect(text(".map-insp-name")).toBe("Net");
-    expect(parts(".map-details summary").map(summary => summary.textContent)).toEqual(["Depends on · 3", "Used by · 1"]);
-    expect(parts(".map-link small").map(small => small.textContent)).toContain("write access");
+    expect(parts(".map-details summary").map(summary => summary.textContent)).toEqual(["Feeds it directly · 3", "It feeds directly · 1"]);
+    expect(parts(".map-link small").map(small => small.textContent)).toContain("write access driver");
+    expect(text(".map-live")).toBe("Access driver links are drawn. Line items of CAL01 - Revenue: 3 line items, with 5 outside the module, 8 links.");
     part(".map-access").tick();
-    expect(parts(".map-details summary")[0].textContent).toBe("Depends on · 2");
+    expect(parts(".map-details summary")[0].textContent).toBe("Feeds it directly · 2");
+    expect(text(".map-live")).toBe("Access driver links are not drawn. Line items of CAL01 - Revenue: 3 line items, with 5 outside the module, 7 links.");
+    // What the switch does is said where it is switched.
+    expect(part(".map-access").closest("label")?.getAttribute("title")).toBe("Also draws a link from each read access driver and write access driver to what it controls.");
   });
-
-  it("says a view that has nothing to draw, and a model without modules", () => {
+  it("says a view that has nothing to draw", () => {
     const make = new GraphMaker();
     make.module("EMPTY - Nothing Yet", "01: Inputs");
     open(make.graph());
     expect(part(".map-empty").hidden).toBe(true);
     tab("drill").press();
     expect([part(".map-empty").hidden, text(".map-empty-title"), text(".map-empty-text")]).toEqual([false, "Nothing to show here", "This module has no line items."]);
+    expect(root().querySelector(".map-empty ul")).toBeNull();
+    expect(status()).toBe("0 line items · 0 links");
     tab("modules").press();
-    expect(part(".map-empty").hidden).toBe(true);
-    map.destroy();
+    expect([part(".map-empty").hidden, part(".map-empty").innerHTML]).toEqual([true, ""]);
+  });
 
+  it("says in its own words that an export holds no modules to draw, and lists under it everything the map leaves out", () => {
     const bare = new GraphMaker();
     bare.list("Products");
-    // Of what the graph could not hold, the sentence about the modules is the one that says why there is nothing to map.
-    bare.limitations.push("The export gives the number of items in each list, not the items.", "The Line Items file was not exported: the map has no modules to show.");
+    // Whatever the graph's sentences say and whichever comes first: none of them is taken for the reason.
+    const sentences = ["A link between two objects is drawn only where the export names both.", "Modules was not exported.", "List members are not in the export."];
+    bare.limitations.push(...sentences);
     open(bare.graph());
-    expect([text(".map-empty-title"), text(".map-empty-text")]).toEqual(["No modules to map", "The Line Items file was not exported: the map has no modules to show."]);
+    expect([part(".map-empty").hidden, text(".map-empty-title"), text(".map-empty-text")]).toEqual([false, "No modules to draw", "This export holds no modules, so there is nothing to map."]);
+    expect(text(".map-empty .map-about-title")).toBe("What this map leaves out · 3");
+    expect(parts(".map-empty li").map(line => line.textContent)).toEqual(sentences);
     expect(tab("drill").disabled).toBe(true);
-    expect(part(".map-legend").hidden).toBe(true);
+    expect([part(".map-legend").hidden, act("legend").hidden, act("group").hidden, part(".map-section-select").hidden]).toEqual([true, true, true, true]);
+    expect(status()).toBe("0 modules · 0 links");
+    // Nothing on it can be selected, and the keys say so.
     tab("modules").press();
     key("f");
+    canvas().focus();
     key("ArrowRight");
     expect(root().querySelector(".map-insp-name")).toBeNull();
+    expect(text(".map-live")).toBe("No box on the map.");
+    map.destroy();
+    // An export that says nothing at all of what it lacks has nothing listed.
+    open(new GraphMaker().graph());
+    expect([text(".map-empty-text"), root().querySelector(".map-empty ul")]).toEqual(["This export holds no modules, so there is nothing to map.", null]);
   });
 });
 
@@ -635,41 +975,45 @@ describe("Selecting a node on the map", () => {
   it("opens the details of a node that is pressed, and says what feeds it and what it feeds", () => {
     open();
     clickNode("02: Calculations");
-    expect([part(".map-inspector").hidden, text(".map-kind"), text(".map-insp-name")]).toEqual([false, "MODEL SECTION", "02: Calculations"]);
-    expect(parts(".map-dl dt").map(term => term.textContent)).toEqual(["modules", "contents"]);
-    expect(parts(".map-dl dd").map(value => value.textContent)).toEqual(["2", "5 line items"]);
-    expect([part(".map-tracebar").hidden, text(".map-trace-name"), parts(".map-trace-count").map(count => count.textContent)]).toEqual([false, "02: Calculations", ["↑ 1 upstream", "↓ 1 downstream"]]);
-    expect([act("focus").disabled, root().classList.contains("map-has-inspector")]).toEqual([false, true]);
-    expect(text(".map-live")).toBe("Model section 02: Calculations selected: 1 upstream, 1 downstream.");
+    expect([part(".map-inspector").hidden, text(".map-kind"), text(".map-insp-name")]).toEqual([false, "SECTION", "02: Calculations"]);
+    expect(parts(".map-dl dt").map(term => term.textContent)).toEqual(["Modules", "Line items"]);
+    expect(parts(".map-dl dd").map(value => value.textContent)).toEqual(["2", "5"]);
+    expect([part(".map-tracebar").hidden, text(".map-trace-name"), parts(".map-tracebar .map-trace-count").map(count => count.textContent)]).toEqual([false, "02: Calculations", ["1 box feeds it", "it feeds 1 box"]]);
+    expect(text(".map-insp-trace")).toBe("On the map, directly or through others: 1 box feeds it, it feeds 1 box.");
+    expect([act("focus").textContent, root().classList.contains("map-has-inspector")]).toEqual(["Focus trace", true]);
+    expect(text(".map-live")).toBe("Section 02: Calculations selected. On the map 1 box feeds it and it feeds 1 box, directly or through others.");
+    // The bar of what is traced stands where the line of what is shown stood: that line has nothing more to say.
+    expect(part(".map-status").hidden).toBe(true);
   });
-
   it("clears the selection by a press on the node selected, beside every node, with the details' button and with the bar's", () => {
     open();
     for (const clear of [() => clickNode("02: Calculations"), () => click(20, 780), () => act("close").press(), () => act("clear").press()]) {
       clickNode("02: Calculations");
       expect(part(".map-inspector").hidden).toBe(false);
       clear();
-      expect([part(".map-inspector").hidden, part(".map-tracebar").hidden, act("focus").disabled, root().classList.contains("map-has-inspector")]).toEqual([true, true, true, false]);
-      expect(part(".map-inspector").innerHTML).toBe("");
+      expect([part(".map-inspector").hidden, part(".map-tracebar").hidden, part(".map-status").hidden, root().classList.contains("map-has-inspector")]).toEqual([true, true, false, false]);
+      expect([part(".map-inspector").innerHTML, part(".map-tracebar").innerHTML]).toEqual(["", ""]);
     }
     expect(text(".map-live")).toBe("Selection cleared.");
   });
-
-  it("shows a line item's details: its module, its formula, what it depends on and what uses it, and where it comes from", () => {
+  it("shows a line item's details: its formula, its module, what feeds it and what it feeds, and where it comes from", () => {
     open();
     tab("drill").press();
     part(".map-module-select").choose(String(sample().revenue));
     clickNode("Gross");
     expect([text(".map-kind"), text(".map-insp-name"), text(".map-formula")]).toEqual(["LINE ITEM", "Gross", "Units * Price"]);
+    expect(parts(".map-dl dt").map(term => term.textContent)).toEqual(["Module", "Format", "Applies To"]);
     expect(parts(".map-dl dd")[0].textContent).toBe("CAL01 - Revenue");
-    expect(parts(".map-details summary").map(summary => summary.textContent)).toEqual(["Depends on · 3", "Used by · 2"]);
+    expect(parts(".map-details summary").map(summary => summary.textContent)).toEqual(["Feeds it directly · 3", "It feeds directly · 2"]);
     expect(parts(".map-link").map(link => link.querySelector(".map-link-text")?.childNodes[0].textContent)).toEqual(["Products", "Units", "Price", "Net", "Margin %"]);
-    expect(text(".map-source")).toMatch(/^Line Items · row \d+$/);
-    expect(parts(".map-trace-count").map(count => count.textContent)).toEqual(["↑ 3 upstream", "↓ 3 downstream"]);
+    // The file's name as it is saved, and the row a spreadsheet shows.
+    expect(text(".map-source")).toMatch(/^Line Items\.csv, row \d+$/);
+    expect(parts(".map-tracebar .map-trace-count").map(count => count.textContent)).toEqual(["3 boxes feed it", "it feeds 3 boxes"]);
+    // It is among its module's line items already: the details offer no way that leads nowhere.
+    expect(root().querySelector('[data-map-act="open"]')).toBeNull();
     clickNode("Workings");
-    expect(parts(".map-insp-note").map(note => note.textContent)).toEqual(["Exported heading; no formula."]);
+    expect(parts(".map-insp-note").map(note => note.textContent)).toEqual(["No formula. Its format is No Data: a heading among the line items."]);
   });
-
   it("goes to an object the details name, wherever it is: a module among its section's, a line item in its own module", () => {
     const { volumes } = sample();
     open();
@@ -691,31 +1035,31 @@ describe("Selecting a node on the map", () => {
     expect([text(".map-here"), text(".map-insp-name"), text(".map-kind")]).toEqual(["CAL01 - Revenue", "Products", "LIST"]);
   });
 
-  it("selects a node on screen from the details of a module, and opens a line item's module with it selected", () => {
-    const { revenue } = sample();
+  it("selects a node on screen from the details of a module, and opens the module of a line item that stands beside another's", () => {
+    const { revenue, units } = sample();
     open();
     act("group").press();
     clickNode("CAL01 - Revenue");
-    expect(parts(".map-details summary").map(summary => summary.textContent)).toEqual(["Depends on · 3", "Used by · 2", "All line items · 3"]);
+    expect(parts(".map-details summary").map(summary => summary.textContent)).toEqual(["Feeds it directly · 3", "It feeds directly · 2", "All its line items · 3"]);
     part('[data-map-node]').press();
     expect([text(".map-here"), text(".map-kind")]).toEqual(["All modules", "MODULE"]);
     expect(text(".map-insp-name")).not.toBe("CAL01 - Revenue");
     clickNode("CAL01 - Revenue");
-    expect([act("open").textContent, act("open").dataset.mapModule]).toEqual(["Open 3 line items →", String(revenue)]);
+    expect([act("open").textContent, act("open").dataset.mapModule]).toEqual(["Open its 3 line items →", String(revenue)]);
     act("open").press();
     expect(text(".map-here")).toBe("CAL01 - Revenue");
-    clickNode("Net");
-    expect([act("open").textContent, act("open").dataset.mapSelect]).toEqual(["Open containing module →", String(sample().net)]);
+    // With the line items of other modules shown one by one, each leads to its own module.
+    act("external").press();
+    clickNode("Units");
+    expect([act("open").textContent, act("open").dataset.mapSelect]).toEqual(["Open its module with it selected →", String(units)]);
     act("open").press();
-    expect([text(".map-here"), text(".map-insp-name")]).toEqual(["CAL01 - Revenue", "Net"]);
+    expect([text(".map-here"), text(".map-insp-name")]).toEqual(["INP01 - Volumes", "Units"]);
   });
-
   it("lists the rest of a long list when asked to, and goes on from the first of the rest", () => {
     const make = new GraphMaker();
     const module = make.module("BIG - Many Lines", "01: All");
     for (let index = 0; index < 130; index++) make.item(module, `Line ${index}`);
     open(make.graph());
-    act("group").press();
     clickNode("BIG - Many Lines");
     const items = (): FakeElement => parts(".map-details").find(details => details.dataset.mapList === "items")!;
     items().querySelector("summary")!.press();
@@ -725,7 +1069,6 @@ describe("Selecting a node on the map", () => {
     expect(page.document.activeElement).toBe(items().querySelectorAll(".map-link")[100]);
     expect(items().hasAttribute("open")).toBe(true);
   });
-
   it("keeps the view to the trace and shows the full graph again", () => {
     open();
     act("group").press();
@@ -765,6 +1108,89 @@ describe("Selecting a node on the map", () => {
     expect([text(".map-here"), text(".map-insp-name")]).toEqual(["INP01 - Volumes", "Units"]);
   });
 
+  it("counts what is shown truly while a layer is hidden and while the view keeps to a trace", () => {
+    open();
+    act("group").press();
+    expect(status()).toBe("5 modules · 5 links");
+    // The two modules of the first section are hidden: the graph still has five, and three of them are drawn.
+    parts(".map-legend-item")[0].press();
+    expect(status()).toBe("5 modules · 5 links. Showing 3 of 5 boxes.");
+    parts(".map-legend-item")[0].press();
+    expect(status()).toBe("5 modules · 5 links");
+    clickNode("INP02 - Prices");
+    expect(part(".map-status").hidden).toBe(true);
+    // Kept to the trace, the line comes back to say how much of the graph that is, and it is said aloud.
+    act("focus").press();
+    expect([part(".map-status").hidden, status(), text(".map-live")]).toEqual([false, "5 modules · 5 links. Showing 4 of 5 boxes.", "Showing only the trace: 4 boxes."]);
+    expect(locate().size).toBe(4);
+    act("focus").press();
+    expect([part(".map-status").hidden, text(".map-live"), locate().size]).toEqual([true, "Showing the full graph.", 5]);
+  });
+
+  it("fits the picture again beside the details when a node is selected, so that they cover nothing of it", () => {
+    open();
+    act("group").press();
+    // Fitted into the whole width, the last module stands where the details will open.
+    const before = boxes().get("REP01 - Board")!;
+    expect(before.x + before.w).toBeGreaterThan(852);
+    click(before.x + before.w / 2, before.y + before.h / 2);
+    const after = boxes();
+    expect(after.size).toBe(5);
+    // The details take the right 316 pixels and a margin: every box is left of them, and none is under the bar.
+    for (const [name, box] of after) {
+      expect(box.x, name).toBeGreaterThanOrEqual(32);
+      expect(box.x + box.w, name).toBeLessThanOrEqual(852 + 1e-6);
+      expect(box.y, name).toBeGreaterThanOrEqual(82);
+    }
+    expect(text(".map-insp-name")).toBe("REP01 - Board");
+    // Cleared, the picture has the whole width again.
+    act("clear").press();
+    const again = boxes().get("REP01 - Board")!;
+    expect([again.x, again.w]).toEqual([before.x, before.w]);
+  });
+
+  it("brings what is selected and the boxes it has links with into view beside the details, moving no further than it must and coming no nearer", () => {
+    open();
+    // Zoomed in by the user: the last section stands at the right edge, where the details will open.
+    act("zoom-in").press();
+    env.settle();
+    const reporting = boxes().get("Reporting")!;
+    expect(reporting.x + reporting.w).toBeGreaterThan(1100);
+    click(reporting.x + 20, reporting.y + reporting.h / 2);
+    env.settle();
+    const after = boxes();
+    // Reporting and the section that feeds it are both whole in the room that is left.
+    for (const name of ["Reporting", "02: Calculations"]) {
+      const box = after.get(name)!;
+      expect(box.x, name).toBeGreaterThanOrEqual(32);
+      expect(box.x + box.w, name).toBeLessThanOrEqual(852);
+    }
+    // At the size it had: the camera moved just far enough to clear the details, with a little room around the boxes.
+    const moved = after.get("Reporting")!;
+    expect(moved.w).toBeCloseTo(reporting.w, 6);
+    expect(moved.x + moved.w).toBeCloseTo(852 - 8 * (reporting.w / 232), 4);
+    expect(moved.y).toBeCloseTo(reporting.y, 6);
+    // What is in the room already moves nothing: the same node again, after the selection was cleared.
+    click(20, 780);
+    env.settle();
+    click(moved.x + 20, moved.y + moved.h / 2);
+    env.settle();
+    expect(boxes().get("Reporting")).toEqual(moved);
+    // The section in the middle has links with both others: the three do not fit the room at this size, so the camera
+    // goes back until they do, and no further.
+    const calculations = boxes().get("02: Calculations")!;
+    click(calculations.x + 20, calculations.y + calculations.h / 2);
+    env.settle();
+    const all = boxes();
+    expect(all.size).toBe(3);
+    for (const [name, box] of all) {
+      expect(box.x, name).toBeGreaterThanOrEqual(32);
+      expect(box.x + box.w, name).toBeLessThanOrEqual(852);
+    }
+    expect(all.get("Reporting")!.w).toBeLessThan(moved.w);
+    expect(all.get("Reporting")!.x + all.get("Reporting")!.w).toBeGreaterThan(820);
+  });
+
   it("hides a layer and shows it again from the legend, and says which is hidden in more than its colour", () => {
     open();
     act("group").press();
@@ -797,7 +1223,8 @@ describe("Selecting a node on the map", () => {
     // A drag selects nothing, and the other nodes stay where they were.
     expect(part(".map-inspector").hidden).toBe(true);
     const moved = locate();
-    expect(moved.get("02: Calculations")).toEqual([x + 90, y + 140]);
+    expect(moved.get("02: Calculations")![0]).toBeCloseTo(x + 90, 6);
+    expect(moved.get("02: Calculations")![1]).toBeCloseTo(y + 140, 6);
     expect(moved.get("01: Inputs")).toEqual([otherX, otherY]);
     pointer("pointerdown", 30, 700);
     pointer("pointermove", 80, 660);
@@ -943,6 +1370,39 @@ describe("The map's keys", () => {
     expect(key("ArrowRight").defaultPrevented).toBe(false);
   });
 
+  it("says so when no box lies the way an arrow key points", () => {
+    open();
+    clickNode("Reporting");
+    canvas().focus();
+    // The sections stand in one row, and Reporting is the last of it.
+    for (const [name, said] of [["ArrowRight", "No box to the right of Reporting."], ["ArrowUp", "No box above Reporting."], ["ArrowDown", "No box below Reporting."]]) {
+      expect(key(name).defaultPrevented).toBe(true);
+      expect([text(".map-live"), text(".map-insp-name")]).toEqual([said, "Reporting"]);
+    }
+    key("ArrowLeft");
+    expect(text(".map-insp-name")).toBe("02: Calculations");
+    key("ArrowLeft");
+    key("ArrowLeft");
+    expect([text(".map-live"), text(".map-insp-name")]).toEqual(["No box to the left of 01: Inputs.", "01: Inputs"]);
+  });
+
+  it("takes the pointer's hand and the tooltip away when the picture changes under the pointer", () => {
+    open();
+    const [x, y] = at("02: Calculations");
+    const over = (): boolean[] => [canvas().classList.contains("map-over-node"), part(".map-tooltip").classList.contains("map-show")];
+    pointer("pointermove", x, y);
+    expect(over()).toEqual([true, true]);
+    // The picture is fitted again: what was under the pointer may no longer be.
+    canvas().focus();
+    key("f");
+    expect(over()).toEqual([false, false]);
+    pointer("pointermove", x, y);
+    expect(over()).toEqual([true, true]);
+    // Another view altogether.
+    act("group").press();
+    expect(over()).toEqual([false, false]);
+  });
+
   it("keeps the focus in the map after a press on a part of it that takes none", () => {
     open();
     canvas().focus();
@@ -973,6 +1433,7 @@ describe("The map's keys", () => {
   });
 
   it("keeps the focus in the map when what had it goes", () => {
+    const { volumes } = sample();
     open();
     clickNode("02: Calculations");
     act("close").focus();
@@ -984,9 +1445,9 @@ describe("The map's keys", () => {
     expect(page.document.activeElement).toBe(canvas());
     // A link of the details leads to other details: the focus goes to their heading.
     clickNode("01: Inputs");
-    parts(".map-link")[0].focus();
-    parts(".map-link")[0].press();
-    expect(page.document.activeElement).toBe(part(".map-insp-name"));
+    part(`[data-map-raw="${volumes}"]`).focus();
+    part(`[data-map-raw="${volumes}"]`).press();
+    expect([text(".map-insp-name"), page.document.activeElement === part(".map-insp-name")]).toEqual(["INP01 - Volumes", true]);
     parts(".map-crumbs button")[0].focus();
     parts(".map-crumbs button")[0].press();
     expect(page.document.activeElement).toBe(canvas());
@@ -995,6 +1456,10 @@ describe("The map's keys", () => {
     act("open").focus();
     key("Escape");
     expect(page.document.activeElement).toBe(canvas());
+    // The button that keeps the view to the trace is written anew when it is pressed: the focus stays on it.
+    clickNode("01: Inputs");
+    act("focus").press();
+    expect([act("focus").textContent, page.document.activeElement === act("focus")]).toEqual(["Show full graph", true]);
   });
 });
 
@@ -1018,6 +1483,55 @@ describe("The map's search", () => {
     expect([part(".map-results").hidden, text(".map-search-count")]).toEqual([true, ""]);
   });
 
+  it("marks the picture only while the results are open: a search that is left leaves the map as it was", () => {
+    open();
+    act("group").press();
+    const rings = (): number => lastPicture().filter(call => call.name === "stroke" && call.strokeStyle === FALLBACK.match).length;
+    part(".map-search").type("revenue");
+    env.settle();
+    expect([rings(), boxStrengths().filter(strength => strength < 1).length]).toEqual([1, 4]);
+    // Left with Escape: the text stays in the box, and nothing on the map is faded or ringed.
+    key("Escape");
+    env.settle();
+    expect([part(".map-search").value, part(".map-results").hidden, rings(), boxStrengths()]).toEqual(["revenue", true, 0, [1, 1, 1, 1, 1]]);
+    // Back in the box, the search is taken up where it was left.
+    part(".map-search").focus();
+    part(".map-search").dispatch("focusin");
+    env.settle();
+    expect([part(".map-results").hidden, rings()]).toEqual([false, 1]);
+    // Left by a press on the map, and by the focus going on to another control.
+    pointer("pointerdown", 40, 700);
+    pointer("pointerup", 40, 700);
+    env.settle();
+    expect([rings(), boxStrengths()]).toEqual([0, [1, 1, 1, 1, 1]]);
+    part(".map-search").dispatch("focusin");
+    part(".map-search").dispatch("focusout", { relatedTarget: act("fit") } as unknown as { key?: string });
+    env.settle();
+    expect([part(".map-results").hidden, rings(), boxStrengths()]).toEqual([true, 0, [1, 1, 1, 1, 1]]);
+  });
+
+  it("marks the box that holds what is searched for, and fades nothing when no box on screen is meant", () => {
+    open();
+    const rings = (): number => lastPicture().filter(call => call.name === "stroke" && call.strokeStyle === FALLBACK.match).length;
+    // Among the sections, a line item is in the section of its module: Gross is a line item of the Calculations.
+    part(".map-search").type("gross");
+    env.settle();
+    expect([text(".map-search-count"), rings(), boxStrengths()]).toEqual(["1", 1, [0.18, 1, 0.18]]);
+    // A module's name marks its section.
+    part(".map-search").type("inp02");
+    env.settle();
+    expect([rings(), boxStrengths()]).toEqual([1, [1, 0.18, 0.18]]);
+    // Nothing found: the picture is not faded as a whole.
+    part(".map-search").type("zzz");
+    env.settle();
+    expect([text(".map-search-count"), rings(), boxStrengths()]).toEqual(["0", 0, [1, 1, 1]]);
+    // Among one module's line items, a line item of another module marks nothing here.
+    tab("drill").press();
+    part(".map-search").type("price");
+    env.settle();
+    expect([text(".map-here"), rings(), boxStrengths().every(strength => strength === 1)]).toEqual(["INP01 - Volumes", 0, true]);
+  });
+
   it("goes to the first hit with Enter, and to any hit by a press on it, and puts the focus on its details", () => {
     open();
     part(".map-search").type("gross");
@@ -1031,7 +1545,7 @@ describe("The map's search", () => {
     // A section is found too, and shown among the model's sections.
     part(".map-search").type("report");
     key("Enter");
-    expect([text(".map-here"), text(".map-insp-name"), text(".map-kind")]).toEqual(["Demand Plan", "Reporting", "MODEL SECTION"]);
+    expect([text(".map-here"), text(".map-insp-name"), text(".map-kind")]).toEqual(["Demand Plan", "Reporting", "SECTION"]);
   });
 
   it("goes into the results with the down arrow, through them with the arrows, and back out with Escape", () => {
@@ -1068,8 +1582,168 @@ describe("The map's search", () => {
   });
 });
 
+describe("The room the map's picture has", () => {
+  const NOWHERE = { left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 };
+  type Place = [left: number, top: number, right: number, bottom: number];
+  /** Gives parts of the map the boxes a browser would lay them out at: a part that is hidden, or in something hidden, has none. */
+  function layOut(places: Record<string, Place | (() => Place)>): void {
+    for (const [selector, place] of Object.entries(places)) {
+      const element = part(selector);
+      element.getBoundingClientRect = () => {
+        for (let node: FakeElement | null = element; node && node !== host; node = node.parentElement) if (node.hidden) return NOWHERE;
+        const [left, top, right, bottom] = typeof place === "function" ? place() : place;
+        return { left, top, right, bottom, width: right - left, height: bottom - top };
+      };
+    }
+  }
+  const LEGEND: Place = [10, 520, 236, 750];
+  const DOCK: Place = [10, 760, 330, 790];
+  const CORNER: Place = [982, 622, 1190, 790];
+  /** A map of 1200 by 800 laid out as its stylesheet lays it out: the bar across the top, the graph's room under it, the
+   * details in a column at the right, the legend over the foot's line at the left, the small picture at the right. */
+  function openLaidOut(graph?: ModelGraph, legend: Place = LEGEND): void {
+    mount(graph);
+    layOut({
+      ".map-canvas": [0, 0, 1200, 800],
+      ".map-free": () => (root().classList.contains("map-has-inspector") ? [10, 56, 864, 790] : [10, 56, 1190, 790]),
+      ".map-legend": legend, ".map-dock": DOCK, ".map-corner": CORNER,
+    });
+    map.show();
+    env.resize(1200, 800);
+    env.settle();
+  }
+  const sectionsOf = (count: number): ModelGraph => {
+    const make = new GraphMaker();
+    for (let index = 0; index < count; index++) make.item(make.module(`M${index} - Module ${index}`, `${index + 1}: Section ${index + 1}`), "Value");
+    return make.graph();
+  };
+  const overlaps = (box: { x: number; y: number; w: number; h: number }, [left, top, right, bottom]: Place): boolean => box.x < right && box.x + box.w > left && box.y < bottom && box.y + box.h > top;
+
+  it("fits the picture into what is free of the canvas: under the bar, and clear of the legend, the line at the foot and the small picture", () => {
+    openLaidOut();
+    const drawn = boxes();
+    expect(drawn.size).toBe(3);
+    for (const [name, box] of drawn) {
+      // Inside the graph's room, with a margin, and under none of what stands in it.
+      expect([box.x >= 30, box.x + box.w <= 1170, box.y >= 76, box.y + box.h <= 770], name).toEqual([true, true, true, true]);
+      for (const panel of [LEGEND, DOCK, CORNER]) expect(overlaps(box, panel), name).toBe(false);
+    }
+    // Three sections fit at full size in a row above the legend: the legend stays open.
+    expect([part(".map-legend").hidden, act("legend").getAttribute("aria-expanded")]).toEqual([false, "true"]);
+    expect([...drawn.values()].map(box => Math.round(box.w * 1000) / 1000)).toEqual([266.8, 266.8, 266.8]);
+  });
+
+  it("opens with the legend closed where the legend would cost the picture its names, and leaves it to the user from then on", () => {
+    // A legend so large that, beside it, twelve sections fit only one under another, too small to be drawn in full.
+    openLaidOut(sectionsOf(12), [10, 80, 900, 750]);
+    expect([part(".map-legend").hidden, act("legend").getAttribute("aria-expanded")]).toEqual([true, "false"]);
+    const widths = (): number[] => [...boxes().values()].map(box => box.w);
+    const closed = widths();
+    expect(closed).toHaveLength(12);
+    expect(Math.min(...closed)).toBeGreaterThanOrEqual(232 * 0.76);
+    // The user opens it: it stays open, here and in the next view, and the picture is fitted into the room that is left.
+    act("legend").press();
+    expect(part(".map-legend").hidden).toBe(false);
+    expect(Math.max(...widths())).toBeLessThan(Math.min(...closed));
+    for (const box of boxes().values()) expect(overlaps(box, [10, 80, 900, 750])).toBe(false);
+    act("group").press();
+    expect([part(".map-legend").hidden, act("legend").getAttribute("aria-expanded")]).toEqual([false, "true"]);
+    map.destroy();
+    // Beside a legend of the usual size the same twelve are drawn in full: it is open from the start.
+    openLaidOut(sectionsOf(12));
+    expect(part(".map-legend").hidden).toBe(false);
+    expect(Math.min(...widths())).toBeGreaterThanOrEqual(232 * 0.76);
+  });
+
+  it("lays the picture out again for a new room while it is still as it was fitted, so that it grows with its place", () => {
+    const make = new GraphMaker();
+    const items = Array.from({ length: 12 }, (_, index) => make.item(make.module(`M${index} - Module ${index}`, "01: All"), "Value"));
+    for (let index = 0; index < 11; index++) make.link(items[index], items[index + 1]);
+    open(make.graph(), 700, 500);
+    const columns = (): number => new Set([...boxes().values()].map(box => Math.round(box.x))).size;
+    // A small place: the chain of twelve is packed into two columns of six, smaller than full size.
+    expect(columns()).toBe(2);
+    const small = boxes().get("M0 - Module 0")!.w;
+    expect(small).toBeLessThan(232);
+    env.resize(2200, 900);
+    // A large one: six columns of two, the most that still fit at the largest size a fit gives.
+    expect([columns(), Math.round(boxes().get("M0 - Module 0")!.w * 10) / 10]).toEqual([6, 266.8]);
+    env.resize(700, 500);
+    expect([columns(), boxes().get("M0 - Module 0")!.w]).toEqual([2, small]);
+    // Once the user has moved the picture, it keeps its places and its size, and only its middle follows the room.
+    pointer("pointerdown", 30, 450);
+    pointer("pointermove", 60, 430);
+    pointer("pointerup", 60, 430);
+    env.settle();
+    const moved = boxes().get("M0 - Module 0")!;
+    env.resize(2200, 900);
+    const kept = boxes().get("M0 - Module 0")!;
+    expect([columns(), kept.w, kept.x, kept.y]).toEqual([2, moved.w, moved.x + 750, moved.y + 200]);
+  });
+
+  it("keeps the places of a picture in which a box was dragged, and fits it again", () => {
+    open(undefined, 1200, 800);
+    const [x, y] = at("02: Calculations");
+    pointer("pointerdown", x, y);
+    pointer("pointermove", x + 40, y + 200);
+    pointer("pointerup", x + 40, y + 200);
+    env.settle();
+    env.resize(1400, 900);
+    const after = boxes();
+    // The box is still under the row it was dragged out of: the graph was not laid out anew.
+    expect(after.get("02: Calculations")!.y).toBeGreaterThan(after.get("01: Inputs")!.y + 100);
+    expect(after.size).toBe(3);
+  });
+
+  it("opens a graph too large to be read when fitted on its start, at a size that shows every name, and says how much of it that is", () => {
+    const make = new GraphMaker();
+    const big = make.module("BIG01 - Everything", "01: All");
+    for (let index = 0; index < 600; index++) make.item(big, `Line Item ${index}`);
+    open(make.graph());
+    tab("drill").press();
+    env.settle();
+    const said = /^600 line items · 0 links\. (\d+) of 600 boxes in view\.$/.exec(status());
+    expect(said, status()).not.toBeNull();
+    const inView = Number(said![1]);
+    expect(inView).toBeGreaterThan(40);
+    expect(inView).toBeLessThan(200);
+    // Every box drawn has its name in full, in letters of nine and a half pixels.
+    const written = lastPicture().filter(call => call.name === "fillText");
+    expect(written.length).toBeGreaterThanOrEqual(inView);
+    expect(new Set(written.map(call => call.font))).toEqual(new Set([`500 ${11.5 * 0.83}px sans-serif`]));
+    expect(written.every(call => /^Line Item \d+$/.test(String(call.args[0])))).toBe(true);
+    // The graph's first line item stands at the start of the picture's room, under the bar.
+    const first = boxes().get("Line Item 0")!;
+    expect([first.x, first.y]).toEqual([32, 82]);
+    // One press shows the whole picture, and the line says no more than what it holds.
+    expect([act("whole").hidden, act("whole").textContent]).toEqual([false, "Whole map"]);
+    act("whole").press();
+    env.settle();
+    expect([status(), act("whole").hidden]).toEqual(["600 line items · 0 links", true]);
+    // And the line follows the camera: zoomed in again, part of the graph is out of view.
+    act("zoom-in").press();
+    act("zoom-in").press();
+    env.settle();
+    expect(status()).toMatch(/^600 line items · 0 links\. \d+ of 600 boxes in view\.$/);
+    expect(act("whole").hidden).toBe(false);
+  });
+
+  it("shows a graph whole that can be read when fitted, however many boxes it has", () => {
+    const make = new GraphMaker();
+    for (let index = 0; index < 120; index++) make.item(make.module(`M${index} - Module ${index}`, `${index % 4}: Section ${index % 4}`), "Value");
+    open(make.graph());
+    act("group").press();
+    env.settle();
+    expect([status(), act("whole").hidden]).toEqual(["120 modules · 0 links", true]);
+    // Every one of the 120 boxes has at least a line of its name, in letters of ten pixels or nearly.
+    const written = lastPicture().filter(call => call.name === "fillText");
+    expect(written.length).toBeGreaterThanOrEqual(120);
+    for (const call of written) expect(parseFloat(/([\d.]+)px/.exec(call.font)![1])).toBeGreaterThanOrEqual(9);
+  });
+});
+
 describe("What moves on the map", () => {
-  it("moves nothing for a user who asked for less motion: the camera is where it goes at once, and a trace is a solid line", () => {
+  it("moves nothing for a user who asked for less motion: the camera is where it goes at once, and a trace's dashes stand still", () => {
     env.reduced = true;
     open();
     act("group").press();
@@ -1079,21 +1753,48 @@ describe("What moves on the map", () => {
     expect(env.settle()).toBe(1);
     env.time += 5000;
     expect(env.waiting).toBe(0);
-    expect(env.main.named("setLineDash").filter(call => (call.args[0] as number[])[0] === 7)).toEqual([]);
+    // The dashes are drawn all the same, long towards the node and short on from it: they say which way a link runs.
+    // Each starts where its line starts, in every picture.
+    const traced = linksDrawn().filter(call => call.dash.length === 2);
+    expect(new Set(traced.map(call => call.dash.join()))).toEqual(new Set(["7,5", "2,4"]));
+    expect(new Set(traced.map(call => call.dashOffset))).toEqual(new Set([0]));
   });
-
-  it("keeps drawing only while a trace is on screen, and stops when it is cleared or the map is hidden", () => {
+  it("moves a trace's dashes for a moment after a node is selected, and then lets them stand", () => {
     env.reduced = false;
     open();
     expect(env.waiting).toBe(0);
     clickNode("02: Calculations");
-    for (let frame = 0; frame < 5; frame++) expect(env.frame()).toBe(1);
-    expect(env.waiting).toBe(1);
-    expect(env.main.named("setLineDash").some(call => (call.args[0] as number[])[0] === 7)).toBe(true);
-    act("clear").press();
-    expect(env.settle()).toBe(1);
-    env.time += 5000;
+    const offsets = (): number[] => linksDrawn().filter(call => call.dash.length === 2).map(call => call.dashOffset);
+    env.frame();
+    const first = offsets();
+    env.frame();
+    expect(offsets()).not.toEqual(first);
+    // About a second and a half of frames, and then no more: nothing on the map moves without end.
+    let frames = 2;
+    while (env.waiting && frames < 1000) {
+      env.frame();
+      frames++;
+    }
+    expect(frames).toBeGreaterThan(60);
+    expect(frames).toBeLessThan(110);
+    const stopped = offsets();
+    expect(stopped).toHaveLength(2);
+    env.time += 60000;
     expect(env.waiting).toBe(0);
+    // A picture drawn later for another reason has the dashes where they stopped.
+    map.themeChanged();
+    expect(env.settle()).toBe(1);
+    expect(offsets()).toEqual(stopped);
+    // Another node selected, and they move again for a moment.
+    clickNode("01: Inputs");
+    env.frame();
+    const again = offsets();
+    env.frame();
+    expect(offsets()).not.toEqual(again);
+    expect(env.waiting).toBe(1);
+    // Cleared or hidden, nothing more is drawn.
+    act("clear").press();
+    expect(env.settle()).toBeLessThan(40);
     clickNode("02: Calculations");
     env.frame();
     expect(env.waiting).toBe(1);
@@ -1102,7 +1803,6 @@ describe("What moves on the map", () => {
     env.time += 5000;
     expect(env.frame()).toBe(0);
   });
-
   it("takes the camera to a fit over a few frames, and then asks for no more", () => {
     env.reduced = false;
     open();
@@ -1159,8 +1859,9 @@ describe("A model's texts on the map", () => {
       for (const control of parts("[data-map-act]")) expect(["button"]).toContain(control.localName);
     };
     check();
-    expect([text(".map-title-name"), part(".map-title-name").title, text(".map-here")]).toEqual([closers.trim(), closers, closers.trim()]);
-    expect(parts(".map-notes li")[0].textContent).toBe(img);
+    expect([text(".map-title-name"), part(".map-title-name").title, text(".map-here"), part(".map-crumb-ws-name").textContent]).toEqual([closers.trim(), `${closers} (workspace: ${breakOut})`, closers.trim(), breakOut]);
+    expect(part(".map-canvas").getAttribute("aria-label")).toContain(`Map of ${closers}: `);
+    expect([text(".map-notes .map-about-line"), parts(".map-notes li")[0].textContent]).toEqual([`${closers}, in the workspace ${breakOut}: 2 modules · 2 line items`.replace(/\s+/g, " ").trim(), img]);
     expect(parts(".map-section-select option").map(option => option.textContent)).toEqual(["All sections", quoted, entity]);
     expect(parts(".map-legend-name").map(name => name.textContent)).toEqual([quoted, entity]);
     clickNode(quoted);
@@ -1174,7 +1875,8 @@ describe("A model's texts on the map", () => {
     clickNode(script);
     check();
     expect([text(".map-insp-name"), part(".map-formula").textContent, parts(".map-insp-note").map(note => note.textContent)]).toEqual([script, closers, [breakOut]]);
-    expect(parts(".map-lines li").map(line => line.textContent)).toEqual([`${quoted}: ${script}`]);
+    expect(parts(".map-inspector .map-lines li").map(line => line.textContent)).toEqual([`${quoted}: ${script}`]);
+    expect(parts(".map-notes li").map(line => line.textContent)).toEqual([img, "1 name in the export matched no object. A box's details list its own."]);
     expect(parts(".map-link").map(link => link.querySelector(".map-link-text")?.childNodes[0].textContent)).toEqual([closers, single]);
     part(".map-search").type("alert");
     check();

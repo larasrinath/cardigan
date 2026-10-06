@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  boxAround, centreOn, defaultInsets, easeCamera, fitCamera, fitCameraIn, FIT_ZOOM, hitNode, insetsOf, MAX_ZOOM, MIN_ZOOM, minimapTransform, reveal, roomsBeside, stepFrom, toScreen, toWorld, zoomAt,
+  boxAround, bringIntoView, centreOn, countInView, defaultInsets, easeCamera, fitCamera, fitCameraIn, FIT_ZOOM, hitNode, insetsOf, MAX_ZOOM, MIN_ZOOM, minimapTransform, reveal, roomsBeside, stepFrom, toScreen, toWorld, zoomAt,
   type Camera, type Insets,
 } from "./map-camera.js";
 import type { ViewNode } from "./map-graphs.js";
@@ -140,9 +140,21 @@ describe("The room for a graph among the panels", () => {
     const free = { left: 200, top: 100, right: 1000, bottom: 700 };
     const corner = { left: 780, top: 550, right: 990, bottom: 690 };
     expect(roomsBeside(free, [corner])).toEqual([{ left: 200, top: 100, right: 1000, bottom: 550 }, { left: 200, top: 100, right: 780, bottom: 700 }]);
-    // A panel in each lower corner: above both, or between them.
+    // A panel in each lower corner: above both, beside both, or above one and beside the other.
     const other = { left: 210, top: 600, right: 440, bottom: 690 };
-    expect(roomsBeside(free, [corner, other])).toEqual([{ left: 200, top: 100, right: 1000, bottom: 550 }, { left: 440, top: 100, right: 780, bottom: 700 }]);
+    expect(roomsBeside(free, [corner, other])).toEqual([
+      { left: 200, top: 100, right: 1000, bottom: 550 }, { left: 200, top: 100, right: 780, bottom: 600 },
+      { left: 440, top: 100, right: 1000, bottom: 550 }, { left: 440, top: 100, right: 780, bottom: 700 },
+    ]);
+    // A panel in the upper left corner is kept clear of by the room under it, or the room to its right.
+    const upper = { left: 200, top: 100, right: 420, bottom: 300 };
+    expect(roomsBeside(free, [upper])).toEqual([{ left: 200, top: 300, right: 1000, bottom: 700 }, { left: 420, top: 100, right: 1000, bottom: 700 }]);
+  });
+
+  it("offers no room that a panel leaves nothing of", () => {
+    const free = { left: 0, top: 0, right: 400, bottom: 300 };
+    // A panel as wide as the free part: only the room above it is one.
+    expect(roomsBeside(free, [{ left: 0, top: 200, right: 400, bottom: 300 }])).toEqual([{ left: 0, top: 0, right: 400, bottom: 200 }]);
   });
 
   it("leaves the room as it is for a panel that does not reach into it", () => {
@@ -157,11 +169,10 @@ describe("The room for a graph among the panels", () => {
   });
 
   it("has a room of its own for a page it cannot measure, smaller with the details open", () => {
-    expect(defaultInsets(1200, 800, false)).toEqual({ l: 192, r: 55, t: 166, b: 100 });
-    expect(defaultInsets(1200, 800, true).r).toBe(330);
-    expect(defaultInsets(1600, 900, false).l).toBe(225);
+    expect(defaultInsets(1200, 800, false)).toEqual({ l: 32, r: 32, t: 82, b: 32 });
+    expect(defaultInsets(1200, 800, true).r).toBe(348);
     const narrow = defaultInsets(600, 800, true);
-    expect([narrow.l, narrow.r, narrow.b]).toEqual([18, 18, 400]);
+    expect([narrow.l, narrow.r, narrow.b]).toEqual([30, 30, 360]);
   });
 
   it("shows the whole graph small in the corner, in the middle of the small picture", () => {
@@ -170,6 +181,35 @@ describe("The room for a graph among the panels", () => {
     // 180 by 56 in a picture of 196 by 128.
     expect([transform.ox + -100 * transform.s, transform.oy]).toEqual([8, 36]);
     expect(Number.isFinite(minimapTransform({ x: 0, y: 0, w: 0, h: 0 }, 196, 128).s)).toBe(true);
+  });
+});
+
+describe("What a reader has in view", () => {
+  const nodes = [node(0, 0, 0), node(1, 300, 0), node(2, 600, 0), node(3, 300, 900)];
+
+  it("counts the boxes whose middle is on the canvas, of those that are shown", () => {
+    const camera: Camera = { ox: 0, oy: 0, k: 1 };
+    expect(countInView(nodes, all, camera, 1000, 600)).toBe(3);
+    expect(countInView(nodes, all, camera, 340, 600)).toBe(1);
+    expect(countInView(nodes, index => index !== 0, camera, 1000, 600)).toBe(2);
+    expect(countInView(nodes, all, { ox: 0, oy: -700, k: 1 }, 1000, 600)).toBe(1);
+    expect(countInView(nodes, all, { ox: 0, oy: 0, k: 0.5 }, 1000, 600)).toBe(4);
+  });
+
+  it("brings a box of the graph into the room: where it is, moved just far enough, or further away, never nearer", () => {
+    const room: Insets = { l: 100, r: 300, t: 50, b: 50 };
+    const camera: Camera = { ox: 0, oy: 0, k: 1 };
+    // Whole inside the room already.
+    expect(bringIntoView(camera, { x: 200, y: 100, w: 300, h: 200 }, 1000, 600, room)).toBe(camera);
+    // It fits at this zoom, and is moved in from the right and from under the foot.
+    expect(bringIntoView(camera, { x: 600, y: 400, w: 300, h: 200 }, 1000, 600, room)).toEqual({ ox: -200, oy: -50, k: 1 });
+    expect(bringIntoView(camera, { x: 0, y: 0, w: 300, h: 200 }, 1000, 600, room)).toEqual({ ox: 100, oy: 50, k: 1 });
+    // Too large for the room at this zoom: the camera goes back until it fits, and no further.
+    const far = bringIntoView(camera, { x: 0, y: 0, w: 1200, h: 500 }, 1000, 600, room);
+    expect(far.k).toBe(0.5);
+    expect(toScreen(far, 0, 0)).toEqual([100, 175]);
+    // A box that would fit larger is not brought nearer.
+    expect(bringIntoView({ ox: 0, oy: 0, k: 0.25 }, { x: 0, y: 0, w: 400, h: 200 }, 1000, 600, room).k).toBe(0.25);
   });
 });
 
