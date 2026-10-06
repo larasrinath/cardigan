@@ -22,7 +22,10 @@ import type { EdgeKind, GraphEdge, GraphNode, ModelGraph, Unresolved } from "./g
  * A link never lands on an object the export does not name. The prototype looked a name up among every kind of object,
  * and took the first it found. Here a column's names are looked up only among what that column can name (a driver is a
  * line item, a dimension a list or a subset), a name that two such objects share is no one's, and a cell that reads two
- * ways is not read. Each of those is unresolved, as a name that matches nothing is.
+ * ways is not read. Each of those is unresolved, as a name that matches nothing is. One shared name is read all the same,
+ * and counted: a name behind another and a dot that is both a module's line item and a list's property is the line
+ * item's. A module is often named as its list is, formulas of line items far outnumber those of properties, and left
+ * unresolved such a model would lose formula links that are there.
  *
  * The prototype stops at what it takes for impossible: a name that occurs twice, a line item whose module has no row, a
  * definition that is no JSON object. An export can hold each of those, so here the first of a name is kept, what cannot
@@ -163,10 +166,9 @@ interface Names {
 }
 
 /** A list's columns that name what uses it, each with the link from the list to what the column names, and with what
- * it can name beside a line item: a list applies to a module, and is the format of a list's property. The formula that
- * names a list is a line item's: that is the one end the contract gives the link (graph-types.ts `list_formula`). */
+ * it can name beside a line item: a list applies to a module, and is the format, or in the formula, of a list's property. */
 const LIST_REFERENCES = [["Referenced in Applies To", "applies", { module: true }], ["Referenced as Format", "format", { property: true }],
-  ["Referenced in Formula", "list_formula", {}]] as const;
+  ["Referenced in Formula", "list_formula", { property: true }]] as const;
 
 /** The columns that name what drives who may read and who may write a module or a line item, each with its link. A
  * driver is a line item. */
@@ -291,6 +293,8 @@ class Draft {
   readonly processes = new Map<string, number>();
   readonly items = new Map<string, Map<string, number>>();
   readonly properties = new Map<string, Map<string, number>>();
+  /** The line items taken for a name that a list's property has as well: see `resolve`. Each is one such name. */
+  readonly sharedWithProperty = new Set<number>();
   private readonly edges = new Map<string, GraphEdge>();
   private readonly missed = new Set<string>();
 
@@ -324,8 +328,10 @@ class Draft {
   }
 
   /** What a reference names, among what its column can name. A bare name is a line item of the row's own module, or
-   * else a module. A name behind another and a dot is that module's line item, or that list's property. A reference of
-   * more parts names nothing. */
+   * else a module. A name behind another and a dot is that module's line item, or that list's property. Where a module
+   * and a list have the first name, and a line item of the one and a property of the other the second, it is the line
+   * item, and the name is kept to be counted: nothing in the export tells the two apart. A reference of more parts
+   * names nothing. */
   resolve(reference: string, can: Names): number | undefined {
     const parts = splitOutside(reference, ".");
     if (parts.length === 1) {
@@ -335,7 +341,10 @@ class Draft {
     }
     if (parts.length === 2) {
       const [owner, name] = parts.map(unquote);
-      return only(this.items.get(owner)?.get(name), can.property ? this.properties.get(owner)?.get(name) : undefined);
+      const item = this.items.get(owner)?.get(name);
+      const property = can.property ? this.properties.get(owner)?.get(name) : undefined;
+      if (item !== undefined && property !== undefined) this.sharedWithProperty.add(item);
+      return item ?? property;
     }
     return undefined;
   }
@@ -738,16 +747,20 @@ function readActions(draft: Draft, tables: readonly ResultTable[], reads: Reads<
   return { says, usedIn: table.rows.length > 0 && table.has("Used in Processes"), sources: table.rows.length > 0 && SOURCE_COLUMNS.some(column => table.has(column)) };
 }
 
-/** An import's target, from the Imports tab's own columns. Target Type says whether it is a module or a list, and then
- * only one of that kind is looked for. A type that says neither is of a target the map does not have: nothing is linked,
- * though a module or a list has the name. Without a type, the name is the one object's that has it, and no one's where a
- * module and a list both do. A dash is an empty cell. */
+/** An import's target, from the Imports tab's own columns. Target Type says whether it is a module or a list, by the
+ * word it holds, in capitals or not ("LIST", "Numbered List"), and then only one of that kind is looked for. A type that
+ * holds neither word, or both, says neither: it is of a target the map does not have, and nothing is linked, though a
+ * module or a list has the name. Without a type, the name is the one object's that has it, and no one's where a module
+ * and a list both do. A dash is an empty cell. */
 const targetOfImport: TargetOf = (draft, action, table, row) => {
   const written = table.cell(row, "Target Object");
   if (nothing(written)) return !table.has("Target Object");
-  const type = table.cell(row, "Target Type").trim().toLowerCase();
+  const type = table.cell(row, "Target Type");
+  // The type's words: what stands between anything that is no letter.
+  const words = type.toLowerCase().split(/[^a-z]+/);
+  const [saysModule, saysList] = [words.includes("module"), words.includes("list")];
   const among = (name: string): (number | undefined)[] =>
-    (type === "module" ? [draft.modules.get(name)] : type === "list" ? [draft.lists.get(name)] : type === "" ? [draft.modules.get(name), draft.lists.get(name)] : []);
+    (saysModule !== saysList ? [saysModule ? draft.modules.get(name) : draft.lists.get(name)] : type.trim() === "" ? [draft.modules.get(name), draft.lists.get(name)] : []);
   const target = onlyNamed(written, among);
   if (target === undefined) draft.missing(action, "Target Object", written);
   else draft.link(action, target, "import_target");
@@ -789,6 +802,10 @@ const targetInAction = (listOfId: ReadonlyMap<string, number>): TargetOf => (dra
   return named;
 };
 
+/** What the map says of the names that fit both a module's line item and a list's property, each taken for the line item. */
+const sharedNames = (amount: number): string =>
+  `${count(amount, "name fits both a line item and a list property of the same name, and is", "names fit both a line item and a list property of the same name, and are")} taken for the line item.`;
+
 function build(tables: readonly ResultTable[]): ModelGraph {
   const draft = new Draft();
   // In the prototype's order. A column that names objects is read once every object it can name is there.
@@ -806,6 +823,7 @@ function build(tables: readonly ResultTable[]): ModelGraph {
   // Many of the other actions work on no list: one that names none is as it should be.
   const otherActions = readActions(draft, tables, OTHER_ACTIONS, processes.known, { target: targetInAction(ids.listOfId) });
   const actions = [imports, exportActions, otherActions];
+  const shared = draft.sharedWithProperty.size;
   return {
     nodes: draft.nodes,
     edges: draft.links(),
@@ -813,8 +831,10 @@ function build(tables: readonly ResultTable[]): ModelGraph {
     // The module sections, in the file's order: each group that a module is in.
     sections: [...new Set(draft.nodes.flatMap(node => (node.kind === "module" && node.group !== undefined ? [node.group] : [])))],
     limitations: [
-      // What each file lacks and what was left out of it, in the files' order; then the links the export gives no name for.
+      // What each file lacks and what was left out of it, in the files' order; then the links the export gives no name
+      // for, and the names it gives to two objects of which the map takes one.
       ...lists.says, ...lineItems.says, ...processes.says, ...actions.flatMap(read => read.says), ...ids.says, ...unnamedLists,
+      ...(shared ? [sharedNames(shared)] : []),
       // Then what no export says, each of an export that has what the sentence is about.
       ...(lists.table?.rows.length ? [lists.table.has("Item Count") ? LIST_ITEMS : NO_LIST_ITEMS] : []),
       ...(actions.some(read => read.usedIn) ? [PROCESS_ORDER] : []),
