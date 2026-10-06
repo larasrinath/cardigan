@@ -267,6 +267,29 @@ describe("Model export: Model settings grids to tables", () => {
     expect([bare.headers, bare.rows]).toEqual([["", "Formula", "Ratio Numerator", "Ratio Denominator", "Format List"], [[list(101000000007), list(101000000007), "", "", ""]]]);
   });
 
+  it("leaves Format List empty for a list format that carries a module's or a line item's ID, or says its data type in lower case, and writes a list's name with the spaces it has", () => {
+    const format = (hierarchyEntityLongId: number, dataType = "ENTITY"): string => JSON.stringify({ hierarchyEntityLongId, entityFormatFilter: null, dataType });
+    const lists: Grid = { columns: [{ ids: [4000000101], labels: ["Top Level Item"] }], rows: [
+      { ids: [101000000007], labels: ["Products"], cells: [""] },
+      { ids: [101000000010], labels: [" Padded "], cells: [""] }] };
+    const grid: Grid = { columns: [{ ids: [4000000212], labels: ["Format"] }], rows: [
+      { ids: [102000000001], labels: ["Orders"], cells: [""] },
+      { ids: [1901000000001], labels: ["Units"], cells: ['{"dataType":"NUMBER"}'] },
+      // An ID this very grid has a row for, the module's own and a line item's, is no list's. The grid's rows name the line
+      // items of a Ratio summary; a list's name comes from General Lists alone.
+      { ids: [1901000000002], labels: ["By module"], cells: [format(102000000001)] },
+      { ids: [1901000000003], labels: ["By line item"], cells: [format(1901000000001)] },
+      // A name with a space at each end is written with both: the cell holds the name as General Lists has it.
+      { ids: [1901000000004], labels: ["Spaced out"], cells: [format(101000000010)] },
+      // The data type is read as Anaplan writes it, in capitals: in lower case the format is not taken for a list's.
+      { ids: [1901000000005], labels: ["Lower case"], cells: [format(101000000007, "entity")] },
+      { ids: [1901000000006], labels: ["Product"], cells: [format(101000000007)] }] };
+    const table = lineItemsTable(grid, lists);
+    expect(table.headers).toEqual(["", "Format", "Ratio Numerator", "Ratio Denominator", "Format List"]);
+    expect(table.rows.map(row => [row[0], row[4]])).toEqual([["Orders", ""], ["Units", ""], ["By module", ""], ["By line item", ""], ["Spaced out", " Padded "], ["Lower case", ""],
+      ["Product", "Products"]]);
+  });
+
   it("reads a large grid in row pages through the page's client, sending reads only", async () => {
     const total = 7;
     const columns = ["Formula", "Format"];

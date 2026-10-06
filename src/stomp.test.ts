@@ -121,6 +121,83 @@ describe("Page analyzer socket client", () => {
     connection.close();
   });
 
+  it("keeps a quiet subscription's three frames out of the log, and sends them like any other", async () => {
+    vi.stubGlobal("WebSocket", FakeSocket);
+    const lines: string[] = [];
+    const [connection, socket] = await connected(line => { lines.push(line); });
+    lines.length = 0;
+    const sent = () => socket.frames().slice(1).map(frame => `${frame.command} ${frame.headers.id}`);
+    const answer = (id: string) => socket.serve(`MESSAGE\nsubscription:${id}\nmessage-type:update\n\n{"data":[]}\0`);
+
+    // Two reads at once, one of them quiet. Both are subscribed to, asked for and unsubscribed from, with the same headers;
+    // only the other's frames are logged, as every subscription's were.
+    const quiet = connection.subscribe("core://ws:model/modules/102000000901/lineItems", { body: {}, quiet: true });
+    const other = connection.subscribe("core://ws:model/lists", { body: {} });
+    answer("json-1");
+    answer("json-2");
+    await expect(Promise.all([quiet, other])).resolves.toEqual([{ data: [] }, { data: [] }]);
+    expect(sent()).toEqual(["SUBSCRIBE json-1", "SEND json-1", "SUBSCRIBE json-2", "SEND json-2", "UNSUBSCRIBE json-1", "UNSUBSCRIBE json-2"]);
+    expect(socket.frames()[2].headers).toMatchObject({ destination: "core://ws:model/modules/102000000901/lineItems", "action-type": "update-subscription", "subscription-revision": "00000001" });
+    expect(lines.splice(0)).toEqual(["SUBSCRIBE core://ws:model/lists id=json-2", "SEND core://ws:model/lists id=json-2 action-type=update-subscription", "UNSUBSCRIBE id=json-2"]);
+
+    // A quiet read that the service refuses, or does not answer in its time, is unsubscribed from as quietly: its failure is
+    // its caller's to log, as any read's is.
+    const refused = connection.subscribe("core://ws:model/modules/102000000902/lineItems", { quiet: true });
+    socket.serve('MESSAGE\nsubscription:json-3\nmessage-type:error\n\n{"error":"LINE_ITEMS_UNAVAILABLE"}\0');
+    await expect(refused).rejects.toThrow("LINE_ITEMS_UNAVAILABLE");
+    await expect(connection.subscribe("core://ws:model/modules/102000000903/lineItems", { quiet: true, timeoutMs: 5 })).rejects.toMatchObject({ code: "TIMEOUT" });
+    expect([sent().slice(6), lines]).toEqual([["SUBSCRIBE json-3", "SEND json-3", "UNSUBSCRIBE json-3", "SUBSCRIBE json-4", "SEND json-4", "UNSUBSCRIBE json-4"], []]);
+
+    // Everything else is logged as before.
+    connection.close();
+    expect(lines).toEqual(["DISCONNECT", "socket closed code=1000"]);
+  });
+
+  it("gives a subscription up when its signal aborts: unsubscribed from at once, rejected, and deaf to an answer that still comes", async () => {
+    vi.stubGlobal("WebSocket", FakeSocket);
+    const lines: string[] = [];
+    const [connection, socket] = await connected(line => { lines.push(line); });
+    lines.length = 0;
+    const unsubscribed = () => socket.frames().filter(frame => frame.command === "UNSUBSCRIBE").map(frame => frame.headers.id);
+    const answer = (id: string, data: unknown[]) => socket.serve(`MESSAGE\nsubscription:${id}\nmessage-type:update\n\n${JSON.stringify({ data })}\0`);
+    const outcomes: string[] = [];
+    const watch = (name: string, read: Promise<unknown>) => read.then(data => { outcomes.push(`${name} answered ${JSON.stringify(data)}`); },
+      (error: unknown) => { outcomes.push(`${name} ${(error as StompError).code}: ${(error as StompError).message}`); });
+
+    // Three reads wait under one signal, one of them quiet, and a fourth without it.
+    const givingUp = new AbortController();
+    const first = watch("first", connection.subscribe("core://ws:model/a", { signal: givingUp.signal }));
+    const second = watch("second", connection.subscribe("core://ws:model/b", { signal: givingUp.signal, quiet: true }));
+    const third = watch("third", connection.subscribe("core://ws:model/c", { signal: givingUp.signal }));
+    const other = watch("other", connection.subscribe("core://ws:model/d"));
+    // The first is answered before the signal aborts: it is done with, and the abort is nothing to it.
+    answer("json-1", ["a"]);
+    await first;
+    givingUp.abort();
+    await Promise.all([second, third]);
+    expect(outcomes).toEqual(['first answered {"data":["a"]}', "second GIVEN_UP: Gave up waiting for core://ws:model/b.", "third GIVEN_UP: Gave up waiting for core://ws:model/c."]);
+    // Each was unsubscribed from once: the first when it was answered, the two others when they were given up. The quiet
+    // one's frame is not logged, like its others.
+    expect(unsubscribed()).toEqual(["json-1", "json-2", "json-3"]);
+    expect(lines.filter(line => line.startsWith("UNSUBSCRIBE"))).toEqual(["UNSUBSCRIBE id=json-1", "UNSUBSCRIBE id=json-3"]);
+
+    // An answer that still comes for a read that was given up is not read, and the read without the signal goes on.
+    answer("json-2", ["late"]);
+    answer("json-4", ["d"]);
+    await other;
+    expect(outcomes.slice(3)).toEqual(['other answered {"data":["d"]}']);
+    expect(unsubscribed()).toEqual(["json-1", "json-2", "json-3", "json-4"]);
+
+    // Under a signal that has aborted already, a read sends nothing and is rejected at once.
+    const frames = socket.sent.length;
+    await expect(connection.subscribe("core://ws:model/e", { signal: givingUp.signal })).rejects.toMatchObject({ code: "GIVEN_UP" });
+    expect(socket.sent.length).toBe(frames);
+    // The next read has the next number: none was used up for the one that was not made.
+    void connection.subscribe("core://ws:model/f").catch(() => undefined);
+    expect(socket.frames().at(-1)?.headers.id).toBe("json-5");
+    connection.close();
+  });
+
   it("reports a refused connection with the server's error", async () => {
     vi.stubGlobal("WebSocket", FakeSocket);
     const opening = StompConnection.open("wss://host.example/ws", {}, log);
