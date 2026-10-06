@@ -12,7 +12,7 @@ import { CSV_FALLBACK, downloadName, ZIP_FALLBACK } from "./file-name.js";
 import { analysedLine, notKeptNote } from "./keep-notes.js";
 import { ResultKeeper } from "./keep-result.js";
 import {
-  cardDrawerHtml, cardDrawerSubHtml, colChooserHtml, colFilterHtml, crumbsHtml, headerMetaHtml, keptCopyHtml, MAP_FAILED, MAP_LABEL, mapHtml, MOON_ICON, navHtml,
+  cardDrawerHtml, cardDrawerSubHtml, colChooserHtml, colFilterHtml, crumbsHtml, headerMetaHtml, keptCopyHtml, MAP_FAILED, MAP_LABEL, MAP_NO_FILE, mapHtml, MOON_ICON, navHtml,
   noteBannerHtml, NOT_REMOVED_LINE, objectDrawerHtml, objectDrawerSubHtml, overviewHtml, rowDrawerHtml, rowDrawerSubHtml, runBannerHtml, runHtml, SUN_ICON, tableHtml, tableParts,
   type KeptCopy, type Links, type NavEntry, type TableView,
 } from "./markup.js";
@@ -215,7 +215,12 @@ function updateActions(): void {
   const table = currentTable();
   const csv = el<HTMLButtonElement>("dlCsv");
   csv.disabled = !table;
-  csv.title = table ? `Download ${downloadName(table.file, ".csv", CSV_FALLBACK)}` : "";
+  // The map is no table, so there is none to save while it is the view. The control says why it is off where it says
+  // what it saves otherwise: in its title, and in the same words as its description for a screen reader.
+  const why = result && state.view === "map" ? MAP_NO_FILE : "";
+  csv.title = table ? `Download ${downloadName(table.file, ".csv", CSV_FALLBACK)}` : why;
+  if (why) csv.setAttribute("aria-description", why);
+  else csv.removeAttribute("aria-description");
 }
 
 /* ================= views ================= */
