@@ -800,6 +800,23 @@ describe("The map's views", () => {
     expect([part(".map-about").hidden, text(".map-here")]).toEqual([true, "All modules"]);
   });
 
+  it("shows one of the legend and the notes at a time on a narrow map, which has no room for both", () => {
+    open(undefined, 700, 600);
+    expect([part(".map-legend").hidden, part(".map-about").hidden]).toEqual([false, true]);
+    act("about").press();
+    expect([part(".map-legend").hidden, act("legend").getAttribute("aria-expanded"), part(".map-about").hidden, act("about").getAttribute("aria-expanded")]).toEqual([true, "false", false, "true"]);
+    act("legend").press();
+    expect([part(".map-legend").hidden, act("legend").getAttribute("aria-expanded"), part(".map-about").hidden, act("about").getAttribute("aria-expanded")]).toEqual([false, "true", true, "false"]);
+    // Closing one opens nothing.
+    act("legend").press();
+    expect([part(".map-legend").hidden, part(".map-about").hidden]).toEqual([true, true]);
+    map.destroy();
+    // A wide map has both side by side.
+    open();
+    act("about").press();
+    expect([part(".map-legend").hidden, part(".map-about").hidden]).toEqual([false, false]);
+  });
+
   it("lists everything the map leaves out, a dozen sentences as well as one", () => {
     const make = new GraphMaker();
     const item = make.item(make.module("INP01 - Volumes", "01: Inputs"), "Units");
@@ -939,9 +956,10 @@ describe("The map's views", () => {
     tab("drill").press();
     expect([part(".map-empty").hidden, text(".map-empty-title"), text(".map-empty-text")]).toEqual([false, "Nothing to show here", "This module has no line items."]);
     expect(root().querySelector(".map-empty ul")).toBeNull();
-    expect(status()).toBe("0 line items · 0 links");
+    // Nothing to zoom, and no small picture of nothing.
+    expect([status(), part(".map-corner").hidden]).toEqual(["0 line items · 0 links", true]);
     tab("modules").press();
-    expect([part(".map-empty").hidden, part(".map-empty").innerHTML]).toEqual([true, ""]);
+    expect([part(".map-empty").hidden, part(".map-empty").innerHTML, part(".map-corner").hidden]).toEqual([true, "", false]);
   });
 
   it("says in its own words that an export holds no modules to draw, and lists under it everything the map leaves out", () => {

@@ -3,7 +3,7 @@ import { parseMarkup } from "../results/dom.test-support.js";
 import { decode, readMarkup, shownValues, structure } from "../results/markup.test-support.js";
 import type { InspectLink, Inspection, TraceWords } from "./map-inspect.js";
 import {
-  ACCESS_SAYS, brokenHtml, crumbsHtml, emptyHtml, esc, inspectorHtml, legendHtml, LINK_SAYS, LIST_CAP, listHtml, moduleOptionsHtml, notesHtml, resultsHtml, sectionOptionsHtml, shellHtml, TIP_FORMULA, tooltipHtml, tracebarHtml,
+  ACCESS_SAYS, BESIDE_SAYS, brokenHtml, crumbsHtml, emptyHtml, esc, inspectorHtml, legendHtml, LINK_SAYS, LIST_CAP, listHtml, moduleOptionsHtml, notesHtml, resultsHtml, sectionOptionsHtml, shellHtml, TIP_FORMULA, tooltipHtml, tracebarHtml,
   type ShellIds,
 } from "./map-markup.js";
 import { HOSTILE } from "./map-fakes.test-support.js";
@@ -205,9 +205,13 @@ describe("The map's own markup", () => {
     const about = shell.querySelector(".map-about")!;
     expect([about.id, about.hidden, about.getAttribute("tabindex")]).toEqual(["map-about-1", true, "0"]);
     // What is of this model comes first in the notes, then how any map is read.
-    expect(about.children.map(child => child.getAttribute("class"))).toEqual(["map-notes", "map-about-title", "map-about-line", "map-about-title", "map-hints"]);
+    expect(about.children.map(child => child.getAttribute("class"))).toEqual(["map-notes", "map-about-title", "map-about-line", "map-about-line", "map-about-title", "map-hints"]);
     expect(about.querySelectorAll(".map-about-title").map(title => title.textContent)).toEqual(["How to read the map", "Mouse and keys"]);
     expect(about.querySelector(".map-about-line")?.textContent).toContain(LINK_SAYS);
+    // What a sign means, and why a box beside a module's line items can carry one with no coloured link to it.
+    expect(about.querySelectorAll(".map-about-line").map(line => line.textContent)).toEqual([
+      `${LINK_SAYS} Click a box to see everything that feeds it and everything it feeds:  at a box's right edge means it feeds the box selected,  at its left edge means the box selected feeds it.`, BESIDE_SAYS,
+    ]);
     expect(LINK_SAYS).toBe("An arrow from A to B: B reads A.");
   });
 
@@ -218,7 +222,10 @@ describe("The map's own markup", () => {
     expect(shell.querySelectorAll(".map-tab").map(tab => [tab.textContent, tab.dataset.mapView, tab.getAttribute("aria-pressed")])).toEqual([["Modules", "modules", "true"], ["Line items", "drill", "false"]]);
     // The line of what is shown and the small picture stand over the graph's own room, with the bar above it.
     expect(shell.querySelector(".map-chrome")?.children.map(child => child.getAttribute("class"))).toEqual(["map-panel map-bar", "map-panel map-inspector", "map-free"]);
-    expect(shell.querySelector(".map-free")?.children.map(child => child.getAttribute("class"))).toEqual(["map-panel map-legend", "map-panel map-about", "map-dock", "map-corner", "map-empty"]);
+    expect(shell.querySelector(".map-free")?.children.map(child => child.getAttribute("class"))).toEqual(["map-foot", "map-corner", "map-empty"]);
+    // The legend and the notes stand over the line at the foot, whatever its height.
+    expect(shell.querySelector(".map-foot")?.children.map(child => child.getAttribute("class"))).toEqual(["map-over", "map-dock"]);
+    expect(shell.querySelector(".map-over")?.children.map(child => child.getAttribute("class"))).toEqual(["map-panel map-legend", "map-panel map-about"]);
   });
 });
 
@@ -295,7 +302,9 @@ describe("The map's panels", () => {
     expect(module.querySelectorAll("button").map(button => [button.textContent, button.dataset.mapCrumb, button.dataset.mapSection])).toEqual([["Demand Plan", "root", undefined], ["04: Planning", "section", "3"]]);
     expect(module.querySelector("[aria-current]")?.textContent).toBe("PLN01 - Plan");
     expect(module.querySelectorAll(".map-sep")).toHaveLength(3);
-    expect(module.querySelector(".map-crumb-ws")?.getAttribute("class")).toBe("map-crumb-ws");
+    // The workspace says how much stands after it: the stylesheet gives it room accordingly.
+    expect([module.querySelector(".map-crumb-ws")?.getAttribute("class"), section.querySelector(".map-crumb-ws")]).toEqual(["map-crumb-ws map-crumb-ws-deep", null]);
+    expect(parseMarkup(`<nav>${crumbsHtml({ model: "Demand Plan", workspace: "Sandbox", here: "All modules" })}</nav>`).querySelector(".map-crumb-ws")?.getAttribute("class")).toBe("map-crumb-ws");
     // A section is named only on the way to a module.
     expect(parseMarkup(`<nav>${crumbsHtml({ model: "Demand Plan", section: { index: 3, name: "04: Planning" } })}</nav>`).querySelectorAll("button")).toEqual([]);
   });
