@@ -103,9 +103,10 @@
 
 /* The controls and the search are one group: they stay together on whichever line they stand, at its right end, and
    break into lines of their own only where a whole line is too short for them. The search is as wide as the line
-   leaves it, from 120px, which is all it asks for before the group takes a line of its own, to 210px. (Its box asks
-   for no width of its own: a text box's usual width would count as the group's.) */
-.map-tools{display:flex;flex-wrap:wrap;flex:1 1 auto;justify-content:flex-end;align-items:center;gap:6px 10px;min-width:0}
+   leaves it, from 120px, which is all it asks for before the group takes a line of its own, to 210px: of what a line
+   has to spare, the group takes three parts in four, for the search. (The search's box asks for no width of its own:
+   a text box's usual width would count as the group's.) */
+.map-tools{display:flex;flex-wrap:wrap;flex:3 1 auto;justify-content:flex-end;align-items:center;gap:6px 10px;min-width:0}
 .map-controls{display:flex;flex-wrap:wrap;flex:0 1 auto;align-items:center;gap:6px;min-width:0}
 .map-btn{
   display:inline-flex;align-items:center;justify-content:center;gap:6px;height:28px;padding:0 11px;border-radius:999px;
