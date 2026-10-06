@@ -113,6 +113,10 @@ export interface ModelGraph {
 export interface ModelMapOptions {
   modelName: string;
   workspaceName?: string;
+  /** Called once, with the reason as text, when a map that was drawn stops because it can no longer be drawn. The map
+   * says so in its own place; this is for the page's diagnostic log. (A map that cannot draw its first picture throws
+   * from `show` or from the mounting itself, and the page says so in its own words.) */
+  onFailure?: (reason: string) => void;
 }
 
 /** The mounted map (map-view.ts). The page shows and hides it as its navigation goes: while hidden it draws nothing and
