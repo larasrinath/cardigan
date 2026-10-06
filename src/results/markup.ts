@@ -100,19 +100,14 @@ export function headerMetaHtml(analysed: Analysed): string {
 
 export interface NavEntry { id: string; label: string; count?: number }
 
-/** The navigation: one entry for each view, in the order given. `map` adds the model map as the last entry, which is for
- * a model only and still to come: it is listed, off, and says so. */
-export function navHtml(entries: readonly NavEntry[], current: string, map: boolean): string {
-  const items = entries.map(entry => {
+/** The navigation: one entry for each view, in the order given. A model's map is an entry like the others, which the page
+ * lists last (main.ts `navEntries`). */
+export function navHtml(entries: readonly NavEntry[], current: string): string {
+  return entries.map(entry => {
     const cur = entry.id === current ? ' aria-current="page"' : "";
     const cnt = entry.count === undefined ? "" : `<span class="cnt">${esc(entry.count)}</span>`;
     return `<button type="button" class="nav-item" data-nav="${esc(entry.id)}"${cur}><span>${esc(entry.label)}</span>${cnt}</button>`;
-  });
-  if (map) {
-    items.push(`<button type="button" class="nav-item disabled" aria-disabled="true" data-nav="map" title="Model map is coming in a later version">
-    <span>Model map</span><span class="soon">coming soon</span></button>`);
-  }
-  return items.join("");
+  }).join("");
 }
 
 /** The breadcrumb: the overview alone, or the view under it with the page a jump keeps. */
@@ -273,6 +268,31 @@ export function noteBannerHtml(): string {
   return `<div class="banner note" id="noteBanner">${INFO_ICON}
       <div><span id="noteText"></span></div>
       ${copyLogButton("copy-run-log", ' id="noteCopy" style="margin-left:auto;flex:none" hidden')}</div>`;
+}
+
+/* ---------- the model map ---------- */
+
+/** What a model's map is called: in the navigation, in the breadcrumb and as its view's heading. */
+export const MAP_LABEL = "Model map";
+/** What the view says when the map could not be drawn: one sentence, with what to do. It names the button beside it as
+ * that reads; the reason is in the log the button copies. */
+export const MAP_FAILED = "The model map could not be drawn: download the files as usual, then choose Copy diagnostic log and send the log.";
+/** Why "Download this table" is off while the map is the view: the control says so itself, in its title and as its
+ * description for a screen reader. */
+export const MAP_NO_FILE = "The model map has no file of its own: the tables it is made from are under their own entries.";
+
+/** The view while a model's map is shown. The map itself stands in a place of its own beside the view (results.html
+ * `#mapHost`), which takes all the room there is. So the view holds its heading and no more, for a screen reader only:
+ * to the eye the breadcrumb says the same. When the map could not be drawn (`failed`) the view says so instead, under
+ * the heading, with the button that copies the run's log, where the reason is. Every word is the page's own: the view
+ * holds nothing of a result. */
+export function mapHtml(failed: boolean): string {
+  if (!failed) return `<h1 class="sr-only">${MAP_LABEL}</h1>`;
+  return `
+    <h1 class="view-title">${MAP_LABEL}</h1>
+    <div class="banner warn">${INFO_ICON}
+      <div>${MAP_FAILED}</div>
+      ${copyLogButton("copy-run-log", ' style="margin-left:auto;flex:none"')}</div>`;
 }
 
 /* ---------- table ---------- */

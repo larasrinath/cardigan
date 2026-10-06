@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ModelMapOptions } from "../map/graph-types.js";
 import { CALENDAR_HEADERS, CALENDAR_PROPERTIES, calendarRows } from "../model/calendar.js";
 import { FRESH_MS, PORT_NAME, RESULTS_PAGE, type TabMessage } from "../protocol.js";
 import type { AnalysisResult, Cell } from "../result-types.js";
@@ -7,7 +8,16 @@ import { resultZip, tableCsv } from "../result-zip.js";
 import { FakeElement, FakeInput, FakePage, FakeSelect, parseMarkup } from "./dom.test-support.js";
 import { analysedLine, NOT_KEPT_NOTE, TOO_LARGE_NOTE } from "./keep-notes.js";
 import { KEPT_PREFIX, ResultKeeper, type KeptStorage } from "./keep-result.js";
-import { FORGOTTEN_LINE, keptCopyHtml, NOT_REMOVED_LINE } from "./markup.js";
+import { FORGOTTEN_LINE, keptCopyHtml, MAP_FAILED, MAP_NO_FILE, NOT_REMOVED_LINE } from "./markup.js";
+
+/** What stands in for the model map (src/map). The page calls its two functions and drives what the second returns; how
+ * a graph is built and a map drawn is not the page's, and is tested with them. Each test is given its own stand-ins. */
+const mapStandIn = vi.hoisted(() => ({
+  build: (_tables: unknown): unknown => { throw new Error("No test has set up the model map's stand-in."); },
+  mount: (_host: unknown, _graph: unknown, _options: unknown): unknown => { throw new Error("No test has set up the model map's stand-in."); },
+}));
+vi.mock("../map/build-graph.js", () => ({ buildModelGraph: (tables: unknown) => mapStandIn.build(tables) }));
+vi.mock("../map/map-view.js", () => ({ mountModelMap: (host: unknown, graph: unknown, options: unknown) => mapStandIn.mount(host, graph, options) }));
 
 /** The page as it is packaged: the script runs on results.html itself, read by the stand-in page. */
 const SHELL = readFileSync(new URL(`../../${RESULTS_PAGE}`, import.meta.url), "utf8");
@@ -136,10 +146,75 @@ let fixedAddress: boolean;
  * refuses every write with, if it refuses. Each test has its own, so that a result one test's page is still keeping when
  * the test ends cannot turn up in the next. */
 let session: { held: Map<string, string>; refuses: string; writes: number; storage: KeptStorage };
+/** What the page asked of the model map's stand-in, in order: "build", then for each map by its number, counted from the
+ * first one mounted, "mount 1", "show 1", "hide 1", "themeChanged 1 dark" (with the page's theme at that moment) and
+ * "destroy 1". */
+let mapAsked: string[];
+/** The tables each graph was built from, with the graph given for them. */
+let mapBuilds: { tables: unknown; graph: object }[];
+/** Each map that was mounted: what the page handed over, what the map found in its host and in the view at that moment,
+ * the button the map put into its host, which can take the focus, and the map's way of telling the page that it has
+ * stopped by itself, and why, as its contract has it (graph-types.ts `onFailure`). */
+let mapMounts: { host: FakeElement; graph: unknown; options: unknown; found: unknown[]; button: FakeElement; stops(reason: string): void }[];
+/** What the stand-in throws when it is asked for one of these, in the place of doing it: nothing unless a test sets it. */
+let mapThrows: Partial<Record<"build" | "mount" | "show" | "hide" | "themeChanged" | "destroy", unknown>>;
+/** Whether the stand-in takes the focus into itself, to its button, each time it is shown. */
+let mapTakesFocus: boolean;
+/** What the stand-in tells the page of its stop while it is asked for one of these, or while it hears a click or a key
+ * inside it: the reason it gives. Nothing unless a test sets it. */
+let mapTells: Partial<Record<"mount" | "show" | "hide" | "themeChanged" | "destroy" | "click" | "keydown", string>>;
 
 beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(NOW);
+  mapAsked = [];
+  mapBuilds = [];
+  mapMounts = [];
+  mapThrows = {};
+  mapTakesFocus = false;
+  mapTells = {};
+  const asked = (what: keyof typeof mapThrows, said: string) => {
+    mapAsked.push(said);
+    if (what in mapThrows) throw mapThrows[what];
+  };
+  mapStandIn.build = tables => {
+    asked("build", "build");
+    const graph = { nodes: [], edges: [], unresolved: [], sections: [], limitations: [] };
+    mapBuilds.push({ tables, graph });
+    return graph;
+  };
+  mapStandIn.mount = (given, graph, options) => {
+    const host = given as FakeElement;
+    const number = mapMounts.length + 1;
+    const found = [host.hidden, host.childNodes.length, page.id("view").textContent];
+    // The map's own elements, inside its host and nowhere else. They are there before a mount that fails gives up.
+    const root = page.document.createElement("div");
+    const button = page.document.createElement("button");
+    root.append(button);
+    host.append(root);
+    const stops = (reason: string): void => (options as ModelMapOptions).onFailure?.(reason);
+    const tells = (when: keyof typeof mapTells): void => {
+      const reason = mapTells[when];
+      if (reason !== undefined) stops(reason);
+    };
+    // What the map hears inside it, as its own listeners hear it before the page does.
+    for (const type of ["click", "keydown"] as const) root.addEventListener(type, () => tells(type));
+    mapAsked.push(`mount ${number}`);
+    tells("mount");
+    if ("mount" in mapThrows) throw mapThrows.mount;
+    mapMounts.push({ host, graph, options, found, button, stops });
+    return {
+      // A map that is told to draw while its host is not shown has no size to draw at.
+      show: () => {
+        asked("show", `show ${number}${host.hidden ? " in a hidden host" : ""}`);
+        if (mapTakesFocus) button.focus();
+        tells("show");
+      },
+      hide: () => { asked("hide", `hide ${number}`); tells("hide"); },
+      themeChanged: () => { asked("themeChanged", `themeChanged ${number} ${page.document.documentElement.dataset.theme}`); tells("themeChanged"); },
+      destroy: () => { asked("destroy", `destroy ${number}`); root.remove(); tells("destroy"); },
+    };
+  };
   ports = [];
   connects = [];
   saved = [];
@@ -365,7 +440,12 @@ describe("The results page's script, on the page", () => {
     const expected = resultZip(RESULT, NOW);
     expect(await bytes(saved[0])).toEqual(expected);
     expect(await bytes(saved[1])).toEqual(expected);
-    expect(page.id("toast").textContent).toBe(`Downloaded ${RESULT.zipName}`);
+    // The page says so for a moment, counted from the last download.
+    expect([page.id("toast").textContent, page.id("toast").classList.contains("show")]).toEqual([`Downloaded ${RESULT.zipName}`, true]);
+    vi.advanceTimersByTime(2199);
+    expect(page.id("toast").classList.contains("show")).toBe(true);
+    vi.advanceTimersByTime(1);
+    expect(page.id("toast").classList.contains("show")).toBe(false);
   });
 
   it("gives a download a fixed name when the result's own name is not a plain file name, and the same content", async () => {
@@ -1277,15 +1357,9 @@ describe("What a click, a key and typing do on the results page", () => {
     expect(page.all("#navList .nav-item").slice(1, 4).map(item => [item.dataset.nav, item.children[1].textContent])).toEqual([["12", "12"], ["9", "9"], ["10", "10"]]);
     goTo(9);
     expect([shows(), page.id("rowCount").textContent, firstCells()[0]]).toEqual([["Time Ranges", "Time Ranges", "Time Ranges"], "1–9 of 9 rows", "Time Ranges 1"]);
-    // The model map is the last entry and still to come: it says so, a click says so for a moment, and the view stays.
+    // The model map is the last entry, named as its own view and not as a file: it has no place in the result, and no count.
     const map = page.all("#navList .nav-item")[13];
-    expect([map.dataset.nav, map.getAttribute("aria-disabled"), map.title, map.children.map(child => child.textContent)]).toEqual(["map", "true", "Model map is coming in a later version", ["Model map", "coming soon"]]);
-    map.press();
-    expect([page.id("toast").textContent, page.id("toast").classList.contains("show"), shows()[0]]).toEqual(["Model map is coming in a later version", true, "Time Ranges"]);
-    vi.advanceTimersByTime(2199);
-    expect(page.id("toast").classList.contains("show")).toBe(true);
-    vi.advanceTimersByTime(1);
-    expect(page.id("toast").classList.contains("show")).toBe(false);
+    expect([map.dataset.nav, map.children.map(child => child.textContent)]).toEqual(["map", ["Model map"]]);
     // Only the page's list is ordered: the zip is the result's own, with its files as the result has them.
     page.id("dlAll").press();
     expect(await bytes(saved[0])).toEqual(resultZip(model(...written), NOW));
@@ -3042,5 +3116,709 @@ describe("A result kept while the results page is refreshed", () => {
     await open(refreshed);
     await back("Demo app");
     expect([keptPlace(), page.all("#ovKept .to-come").length]).toEqual([KEPT, 0]);
+  });
+});
+
+describe("A model's map on the results page", () => {
+  /** What the view, the navigation and the breadcrumb each say is shown. */
+  const shows = () => [page.texts("#view h1")[0], page.texts('#navList [aria-current="page"] span')[0], page.texts("#crumbs strong")[0]];
+  /** The page's place for the map. */
+  const host = () => page.id("mapHost");
+  const toMap = () => page.find('#navList [data-nav="map"]').press();
+  const toOverview = () => page.find('#navList [data-nav="overview"]').press();
+  /** What the view says where the map could not be drawn: nothing while it is drawn. */
+  const notDrawn = () => page.texts("#view .banner div");
+  /** MODEL with what its Details file says of its workspace, as the model's export writes it. */
+  const inWorkspace = (workspace: string): AnalysisResult => ({ ...MODEL,
+    tables: [{ ...MODEL.tables[0], rows: [MODEL.tables[0].rows[0], ["Model", "Workspace", workspace], ...MODEL.tables[0].rows.slice(1)] }, ...MODEL.tables.slice(1)] });
+
+  it("lists Model map last in a model's navigation, as an entry like any other, and builds nothing for it; an app has none", async () => {
+    await openWith(MODEL);
+    const entries = () => page.all("#navList .nav-item");
+    expect(entries().map(item => item.children.map(child => child.textContent))).toEqual([["Overview"], ["Modules", "2"], ["Line Items", "120"], ["Model map"]]);
+    // An entry like the others: a button the Tab key reaches, which nothing marks as off or as still to come.
+    const entry = entries()[3];
+    expect([entry.localName, entry.getAttribute("type"), entry.getAttribute("class"), entry.dataset.nav, entry.focusable, entry.hasAttribute("aria-disabled"), entry.hasAttribute("title")])
+      .toEqual(["button", "button", "nav-item", "map", true, false, false]);
+    expect(page.find("body").textContent).not.toMatch(/coming/i);
+    // Listing it builds nothing, and the page's place for the map is hidden and empty.
+    expect([mapAsked, host().hidden, host().childNodes.length]).toEqual([[], true, 0]);
+
+    // An app has no map: no entry, and a link that names one leads to the overview, as any name that is no file's does.
+    page.id("runAgain").press();
+    sendResult(ports[0], APP);
+    expect([page.has('#navList [data-nav="map"]'), entries().map(item => item.children[0].textContent)]).toEqual([false, ["Overview", "Pages", "Cards", "Grid Sections", "Where Used"]]);
+    goTo(2);
+    page.id("banners").innerHTML = '<button type="button" data-nav="map">Map</button>';
+    page.find('#banners [data-nav="map"]').press();
+    expect([shows(), host().hidden, mapAsked]).toEqual([["Overview", "Overview", "Overview"], true, []]);
+  });
+
+  it("builds the graph and mounts the map when its entry is first chosen, not before: from the result's tables, in the page's place for it, with the model's name and its workspace's", async () => {
+    const model = inWorkspace("Planning");
+    await openWith(model);
+    // Not when the result arrives, and not for any other view.
+    goTo(1);
+    goTo(2);
+    toOverview();
+    expect([mapAsked, host().hidden]).toEqual([[], true]);
+
+    toMap();
+    // The graph is built once, from the result's own tables: the files as the export wrote them, not as the page lists them.
+    expect(mapAsked).toEqual(["build", "mount 1", "show 1"]);
+    expect([mapBuilds.length, mapBuilds[0].tables]).toEqual([1, model.tables]);
+    // That very graph is mounted, in the page's place for the map. The map finds the place shown and empty, and the
+    // view's room given up, so that it has its size from the first moment; it is told to draw only after that.
+    expect([mapMounts.length, mapMounts[0].graph === mapBuilds[0].graph, mapMounts[0].host === host(), mapMounts[0].found]).toEqual([1, true, true, [false, 0, "Model map"]]);
+    // The model's name is the result's, and its workspace's is the Details file's. With them the map is given the way to
+    // tell the page that it has stopped.
+    expect(mapMounts[0].options).toEqual({ modelName: "Model one", workspaceName: "Planning", onFailure: expect.any(Function) });
+    // What the map made is in its place, and nowhere else on the page.
+    expect([host().children.length, host().contains(mapMounts[0].button), page.all("button").filter(button => button === mapMounts[0].button).length]).toEqual([1, true, 1]);
+
+    // A dash where the workspace's name would be, which the export writes when it found none, is no name. Nor is an
+    // empty cell, or a Details file without that row.
+    for (const [what, result] of [["a dash", inWorkspace("—")], ["nothing", inWorkspace("")], ["no row", MODEL]] as const) {
+      page.id("runAgain").press();
+      sendResult(ports[0], result);
+      toMap();
+      const { options } = mapMounts[mapMounts.length - 1];
+      expect([options, "workspaceName" in (options as object)], what).toEqual([{ modelName: "Model one", onFailure: expect.any(Function) }, false]);
+    }
+  });
+
+  it("shows the map in the view's place and hides it for another view; coming back shows it as it was left, without building it again", async () => {
+    await openWith(MODEL);
+    goTo(1);
+    page.id("tblSearch").type("item 11");
+    toMap();
+    // The view holds its heading alone, for a screen reader; the page's place for the map is shown; the navigation and
+    // the breadcrumb say where the user is, and the breadcrumb leads back to the overview.
+    expect([shows(), host().hidden, page.id("view").children.map(child => [child.localName, child.getAttribute("class")]), page.has("#tableWrap"), page.texts("#crumbs button")])
+      .toEqual([["Model map", "Model map", "Model map"], false, [["h1", "sr-only"]], false, ["Overview"]]);
+    // The view takes the focus, as every view does, and the page says what it shows. No table is shown, so there is
+    // none to download; the result's zip is there as ever.
+    expect([page.document.activeElement === page.id("view"), page.id("live").textContent, disabled("dlAll", "dlCsv")]).toEqual([true, "Model map", [false, true]]);
+    // The navigation gives up height to the map while it is shown, and the map's entry is its last: the page brings
+    // the entry into sight, where the navigation has to scroll for that.
+    expect(page.all("#navList .nav-item").map(item => item.broughtIntoSight)).toEqual([0, 0, 0, 1]);
+    // A map that takes the focus into itself as it is shown keeps it: the page does not take it back to the view.
+    toOverview();
+    mapTakesFocus = true;
+    toMap();
+    expect([mapAsked.slice(3), page.document.activeElement === mapMounts[0].button, page.id("live").textContent]).toEqual([["hide 1", "show 1"], true, "Model map"]);
+    mapTakesFocus = false;
+
+    // Another view: the map is told that it is hidden, and its place gives the room back. The table is as any table
+    // that was left: whole again.
+    goTo(1);
+    expect([mapAsked.slice(5), host().hidden, shows(), page.id("rowCount").textContent, page.id("dlCsv").disabled]).toEqual([["hide 1"], true, ["Line Items", "Line Items", "Line Items"], "1–50 of 120 rows", false]);
+    // What the map made stays in its place, out of reach while it is hidden, and the view that is shown has the focus.
+    expect([host().children.length, mapMounts[0].button.isConnected, mapMounts[0].button.focusable, page.document.activeElement === page.id("view")]).toEqual([1, true, false, true]);
+    // Going on from view to view asks nothing of a map that is hidden.
+    goTo(2);
+    toOverview();
+    expect(mapAsked).toHaveLength(6);
+
+    // Back to the map: the same one is shown again, in its place that is shown first. Nothing is built or mounted anew.
+    toMap();
+    expect([mapAsked.slice(6), mapBuilds.length, mapMounts.length, host().hidden, mapMounts[0].button.focusable, shows()[0], page.document.activeElement === page.id("view")])
+      .toEqual([["show 1"], 1, 1, false, true, "Model map", true]);
+    // The breadcrumb's Overview leaves the map as the navigation does.
+    page.find('#crumbs [data-nav="overview"]').press();
+    expect([mapAsked.slice(7), host().hidden, shows()]).toEqual([["hide 1"], true, ["Overview", "Overview", "Overview"]]);
+
+    // The downloads are the result's own, with the map shown or not: the zip is the same bytes.
+    toMap();
+    page.id("dlAll").press();
+    toOverview();
+    page.id("dlAll").press();
+    expect([await bytes(saved[0]), await bytes(saved[1])]).toEqual([resultZip(MODEL, NOW), resultZip(MODEL, NOW)]);
+  });
+
+  it("gives the map the focus back when its entry is chosen again while it is shown: the map is shown anew, and is not built again", async () => {
+    mapTakesFocus = true;
+    await openWith(MODEL);
+    toMap();
+    const button = mapMounts[0].button;
+    // The first choice: the map takes the focus as it is shown, and the page leaves it there.
+    expect([mapAsked, page.document.activeElement === button]).toEqual([["build", "mount 1", "show 1"], true]);
+    // The entry is chosen again, with the mouse or with Enter. Either way the focus is on the entry by then, out of the
+    // map, and the map's keys with it. The page leaves the map and shows it anew, as on coming back to it, so the map
+    // takes the focus as it did the first time. Nothing is built or mounted again, and the view is the map's still.
+    toMap();
+    expect([mapAsked.slice(3), page.document.activeElement === button, mapBuilds.length, mapMounts.length, host().hidden, shows()])
+      .toEqual([["hide 1", "show 1"], true, 1, 1, false, ["Model map", "Model map", "Model map"]]);
+    // As often as it is chosen.
+    toMap();
+    expect([mapAsked.slice(5), page.document.activeElement === button]).toEqual([["hide 1", "show 1"], true]);
+    // A choice that leaves the focus inside the map, as a click that a script makes does, takes nothing from the map:
+    // the page asks nothing of it, and the focus stays where it is.
+    page.find('#navList [data-nav="map"]').dispatch("click");
+    expect([mapAsked.length, page.document.activeElement === button, host().hidden, shows()[0]]).toEqual([7, true, false, "Model map"]);
+    // Another view chosen by such a click leaves the map as any choice of that view does: the map is hidden once, and
+    // the view that is shown has the focus. The page gives it the focus although the browser, asked at that moment,
+    // still names the map's button as the one with the focus: a browser names a hidden element so until it next draws
+    // the page, and then leaves the focus on nothing. The view has it at once, and still has it when the page is drawn.
+    page.find('#navList [data-nav="1"]').dispatch("click");
+    expect([mapAsked.slice(7), host().hidden, shows()[0], page.document.activeElement === page.id("view")]).toEqual([["hide 1"], true, "Line Items", true]);
+    page.frame();
+    expect([page.document.activeElement === page.id("view"), button.focusable]).toEqual([true, false]);
+    // From another view the map is shown once, as ever: it was hidden when that view was chosen.
+    toMap();
+    expect([mapAsked.slice(8), page.document.activeElement === button]).toEqual([["show 1"], true]);
+    // The breadcrumb's Overview, by a click that a script makes with the focus inside the map, is such a choice too.
+    page.find('#crumbs [data-nav="overview"]').dispatch("click");
+    page.frame();
+    expect([mapAsked.slice(9), host().hidden, shows()[0], page.document.activeElement === page.id("view")]).toEqual([["hide 1"], true, "Overview", true]);
+    toMap();
+    expect([mapAsked.slice(10), page.document.activeElement === button]).toEqual([["show 1"], true]);
+
+    // A map that does not take the focus is shown anew as well, and the view has the focus then, as after its first choice.
+    mapTakesFocus = false;
+    toMap();
+    expect([mapAsked.slice(11), page.document.activeElement === page.id("view"), host().hidden]).toEqual([["hide 1", "show 1"], true, false]);
+    // A map that cannot draw when it is shown anew is taken away, and the view says so, as when it cannot be shown at first.
+    mapThrows.show = new Error("Nothing to draw on.");
+    toMap();
+    expect([mapAsked.slice(13), notDrawn(), host().hidden]).toEqual([["hide 1", "show 1", "destroy 1"], [MAP_FAILED], true]);
+    // Its entry, chosen again, has no map to show anew: nothing is asked, and the view says the same.
+    toMap();
+    expect([mapAsked.length, notDrawn(), page.document.activeElement === page.id("view")]).toEqual([16, [MAP_FAILED], true]);
+  });
+
+  it("says on Download this table why it is off while the map is the view: the map has no file of its own", async () => {
+    /** The control: whether it is off, its title, and its description for a screen reader. */
+    const control = () => [page.id("dlCsv").disabled, page.id("dlCsv").title, page.id("dlCsv").getAttribute("aria-description")];
+    await open("?tab=42");
+    // Before there is a result the control is off as every download is, and that needs no saying. Nor does a link that
+    // names the map make it say so, where there is no result to have a map.
+    expect(control()).toEqual([true, "", null]);
+    page.id("banners").innerHTML = '<button type="button" data-nav="map">Map</button>';
+    page.find('#banners [data-nav="map"]').press();
+    ports[0].send({ type: "subject", subject: { kind: "model", id: MODEL.id } });
+    expect([page.id("runTitle").textContent, control(), mapAsked]).toEqual(["Ready to analyse", [true, "", null], []]);
+    page.id("runAgain").press();
+    sendResult(ports[0], MODEL);
+    // On the overview it saves the Details file, and its title says so.
+    expect(control()).toEqual([false, "Download Model Details.csv", null]);
+
+    toMap();
+    // On the map it is off, and says why on itself, in the page's own words: in its title, for whoever points at it,
+    // and as its description, for a screen reader. Its name is as ever, and the result's zip is there to download.
+    expect(MAP_NO_FILE).toBe("The model map has no file of its own: the tables it is made from are under their own entries.");
+    expect(control()).toEqual([true, MAP_NO_FILE, MAP_NO_FILE]);
+    expect([page.id("dlCsv").textContent.trim(), page.id("dlAll").disabled, page.id("dlCsv").focusable]).toEqual(["Download this table (.csv)", false, false]);
+    // It saves nothing there.
+    page.id("dlCsv").press();
+    expect([page.downloads, saved]).toEqual([[], []]);
+    // The entry chosen again leaves the control as it is.
+    toMap();
+    expect(control()).toEqual([true, MAP_NO_FILE, MAP_NO_FILE]);
+
+    // A table, and the overview: it saves a file again, says which, and nothing of the reason is left on it.
+    goTo(1);
+    expect(control()).toEqual([false, "Download Line Items.csv", null]);
+    page.id("dlCsv").press();
+    expect(page.downloads.map(download => download.name)).toEqual(["Line Items.csv"]);
+    toMap();
+    toOverview();
+    expect(control()).toEqual([false, "Download Model Details.csv", null]);
+    // A run that starts while the map is shown puts the overview in its place: the control is the overview's again.
+    toMap();
+    expect(control()).toEqual([true, MAP_NO_FILE, MAP_NO_FILE]);
+    page.id("runAgain").press();
+    expect([shows()[0], control()]).toEqual(["Overview", [false, "Download Model Details.csv", null]]);
+
+    // A map that could not be drawn has no file either: its view says so on the control in the same words.
+    mapThrows.build = new Error("No graph.");
+    sendResult(ports[0], MODEL);
+    toMap();
+    expect([notDrawn(), control()]).toEqual([[MAP_FAILED], [true, MAP_NO_FILE, MAP_NO_FILE]]);
+    // An app has no map, and its control never says so.
+    page.id("runAgain").press();
+    sendResult(ports[0], APP);
+    expect(control()).toEqual([false, "Download App Details.csv", null]);
+  });
+
+  it("tells a mounted map that the theme has changed, shown or hidden, once the page has the new theme; a map that is not mounted is told nothing", async () => {
+    await openWith(MODEL);
+    toMap();
+    // The system's theme changes, and the page follows it while no theme was chosen here: the map is told.
+    systemListeners[0]({ matches: true });
+    expect([mapAsked.slice(3), page.document.documentElement.dataset.theme]).toEqual([["themeChanged 1 dark"], "dark"]);
+    // The page's own switch.
+    page.id("themeToggle").press();
+    expect(mapAsked.slice(4)).toEqual(["themeChanged 1 light"]);
+    // A map that is hidden is told as well: it is shown again in the theme the page then has.
+    goTo(1);
+    page.id("themeToggle").press();
+    expect(mapAsked.slice(5)).toEqual(["hide 1", "themeChanged 1 dark"]);
+    // A change of the system's theme that the page does not follow, a theme having been chosen, is nothing to tell.
+    systemListeners[0]({ matches: false });
+    expect([mapAsked.length, page.document.documentElement.dataset.theme]).toEqual([7, "dark"]);
+    // Once the map is gone, the switch changes the page's theme and tells nothing.
+    page.id("runAgain").press();
+    expect(mapAsked.slice(7)).toEqual(["destroy 1"]);
+    page.id("themeToggle").press();
+    expect([mapAsked.length, page.document.documentElement.dataset.theme]).toEqual([8, "light"]);
+  });
+
+  it("removes the map when a run starts and when a new result takes the page; its entry then builds it afresh", async () => {
+    await openWith(MODEL);
+    toMap();
+    // Run again while the map is shown: the map goes at once, its place is hidden and empty, and the overview stands in
+    // its place under the run's banner.
+    page.id("runAgain").press();
+    expect([mapAsked.slice(3), host().hidden, host().childNodes.length, shows(), banner().slice(0, 2)]).toEqual([["destroy 1"], true, 0, ["Overview", "Overview", "Overview"], ["note", "Analysing"]]);
+    // The earlier result stays on the page while the run goes, and its map's entry with it: chosen now, it builds the
+    // map afresh from that result.
+    ports[0].send({ type: "status", text: "Reading the model…" });
+    toMap();
+    expect([mapAsked.slice(4), mapBuilds[1].tables, mapMounts[1].found, host().hidden, shows()[0]]).toEqual([["build", "mount 2", "show 2"], MODEL.tables, [false, 0, "Model map"], false, "Model map"]);
+    // A run that goes on takes nothing away: only its start did.
+    ports[0].send({ type: "status", text: "Reading line items…" });
+    ports[0].send({ type: "log", text: "14:02:09 Line Items: 120 rows" });
+    expect([mapAsked.length, host().hidden, banner()[2]]).toEqual([7, false, "Reading line items…"]);
+
+    // The new result takes the page: the earlier one's map goes with it, and the focus, which was inside the map, is on
+    // the new result's view and not on nothing.
+    mapMounts[1].button.focus();
+    expect(page.document.activeElement).toBe(mapMounts[1].button);
+    const next: AnalysisResult = { ...inWorkspace("Planning"), name: "Model two", zipName: "Model two - Model Export - 2026-10-03.zip" };
+    sendResult(ports[0], next);
+    expect([mapAsked.slice(7), host().hidden, host().childNodes.length, shows(), page.document.title, page.document.activeElement === page.id("view")])
+      .toEqual([["destroy 2"], true, 0, ["Overview", "Overview", "Overview"], "Cardigan — Model two", true]);
+    // The new result's map is its own: built from its tables when its entry is chosen.
+    toMap();
+    expect([mapAsked.slice(8), mapBuilds[2].tables, mapMounts[2].options]).toEqual([["build", "mount 3", "show 3"], next.tables, { modelName: "Model two", workspaceName: "Planning", onFailure: expect.any(Function) }]);
+    // A run that starts while another view is shown ends the map too, and leaves that view where it is.
+    goTo(1);
+    page.id("runAgain").press();
+    expect([mapAsked.slice(11), host().childNodes.length, shows()[0], firstCells().length]).toEqual([["hide 3", "destroy 3"], 0, "Line Items", 50]);
+  });
+
+  it("keeps the map when Run again cannot reach the tab: only a run that starts ends it", async () => {
+    await openWith(MODEL);
+    toMap();
+    // The Anaplan tab was closed after the analysis: Run again finds nothing to run on.
+    ports[0].drop();
+    lastError = { message: "Could not establish connection. Receiving end does not exist." };
+    page.id("runAgain").press();
+    ports[1].drop();
+    lastError = undefined;
+    expect([banner().slice(0, 2), mapAsked, host().hidden, shows()[0]]).toEqual([["warn", "Not connected"], ["build", "mount 1", "show 1"], false, "Model map"]);
+    // Run again once more, and this time the tab answers. Until it has said what it shows there is no run: the map is
+    // still there, and the focus goes into it meanwhile.
+    page.id("runAgain").press();
+    mapMounts[0].button.focus();
+    expect([mapAsked.length, page.document.activeElement === mapMounts[0].button]).toEqual([3, true]);
+    // Now the run starts: the map goes, and the focus is on the overview that takes its place.
+    ports[2].send({ type: "subject", subject: { kind: "model", id: MODEL.id } });
+    expect([ports[2].posted, mapAsked.slice(3), host().hidden, host().childNodes.length, shows(), banner().slice(0, 2), page.document.activeElement === page.id("view")])
+      .toEqual([[{ type: "run" }], ["destroy 1"], true, 0, ["Overview", "Overview", "Overview"], ["note", "Analysing"], true]);
+  });
+
+  it("removes the map when the result is forgotten, and not when its kept copy could not be removed", async () => {
+    await openWith(MODEL);
+    await letKeep();
+    await eventually(() => page.has('#ovKept [data-act="forget"]'), "the control that forgets the kept result");
+    toMap();
+    toOverview();
+    expect(mapAsked).toEqual(["build", "mount 1", "show 1", "hide 1"]);
+    // The tab's storage does not let the copy go: nothing is forgotten, and the map stays as it is.
+    const { removeItem } = session.storage;
+    session.storage.removeItem = () => { throw new Error("The storage refused to remove a key."); };
+    page.find('#ovKept [data-act="forget"]').press();
+    expect([page.id("live").textContent, kept(), mapAsked.length, host().children.length]).toEqual([NOT_REMOVED_LINE, true, 4, 1]);
+    // Now it does. The copy goes, and the map that was built from the result with it. The result stays on the page, and
+    // its entry builds the map afresh.
+    session.storage.removeItem = removeItem;
+    page.find('#ovKept [data-act="forget"]').press();
+    expect([kept(), mapAsked.slice(4), host().hidden, host().childNodes.length, page.document.title, shows()[0]]).toEqual([false, ["destroy 1"], true, 0, "Cardigan — Model one", "Overview"]);
+    toMap();
+    expect([mapAsked.slice(5), mapBuilds[1].tables, host().hidden]).toEqual([["build", "mount 2", "show 2"], MODEL.tables, false]);
+  });
+
+  it("opens the map of a result that was kept across a refresh like any other's", async () => {
+    const model = inWorkspace("Planning");
+    await openWith(model);
+    await letKeep();
+    // The page is refreshed: it brings the result back, and asks the tab nothing.
+    await open("?tab=42");
+    await eventually(() => page.document.title === "Cardigan — Model one", "the result to come back");
+    // The result is there under the line that says when it was analysed, with its map's entry. Nothing is built yet.
+    expect([page.id("noteText").textContent, page.all("#navList .nav-item").map(item => item.children[0].textContent), mapAsked, host().hidden])
+      .toEqual([analysedLine(NOW, NOW), ["Overview", "Modules", "Line Items", "Model map"], [], true]);
+    toMap();
+    // Its map is built from the tables that came back, which are the result's, with the names the Details file gives.
+    expect([mapAsked, mapBuilds[0].tables, mapMounts[0].options, mapMounts[0].host === host(), mapMounts[0].found, host().hidden])
+      .toEqual([["build", "mount 1", "show 1"], model.tables, { modelName: "Model one", workspaceName: "Planning", onFailure: expect.any(Function) }, true, [false, 0, "Model map"], false]);
+    // It is shown and hidden as any other, under the same line, and the tab has still been asked nothing.
+    toOverview();
+    toMap();
+    expect([mapAsked.slice(3), shows()[0], page.id("noteText").textContent, ports[1].posted]).toEqual([["hide 1", "show 1"], "Model map", analysedLine(NOW, NOW), []]);
+    // Run again reads Anaplan anew: the map of the result that was brought back ends with that run's start.
+    ports[1].send({ type: "subject", subject: { kind: "model", id: MODEL.id } });
+    expect(mapAsked).toHaveLength(5);
+    page.id("runAgain").press();
+    expect([ports[1].posted, mapAsked.slice(5), shows()[0]]).toEqual([[{ type: "run" }], ["destroy 1"], "Overview"]);
+  });
+
+  it("says in one sentence that the map could not be drawn when its graph cannot be built, puts the reason in the run's log, and works on", async () => {
+    mapThrows.build = new TypeError("Cannot read properties of undefined (reading 'rows')");
+    await open(clicked(42));
+    ports[0].send({ type: "subject", subject: { kind: "model", id: MODEL.id } });
+    ports[0].send({ type: "log", text: "09:30:00 Line Items: 120 rows" });
+    sendResult(ports[0], MODEL);
+    goTo(1);
+    toMap();
+    // The view says so under its heading, in one sentence that says what to do, and the page says it to a screen reader.
+    // The page's place for the map is hidden and empty, and nothing was mounted.
+    expect([shows(), notDrawn(), page.id("live").textContent, host().hidden, host().childNodes.length, mapAsked])
+      .toEqual([["Model map", "Model map", "Model map"], [MAP_FAILED], MAP_FAILED, true, 0, ["build"]]);
+    expect(MAP_FAILED).toBe("The model map could not be drawn: download the files as usual, then choose Copy diagnostic log and send the log.");
+    // Why is not on the page. It is in the run's log, after the run's own lines, and the button the sentence names copies that.
+    expect(page.find("body").textContent).not.toContain("Cannot read");
+    const copy = page.find('#view [data-act="copy-run-log"]');
+    expect([copy.localName, copy.textContent.trim(), copy.focusable]).toEqual(["button", "Copy diagnostic log", true]);
+    copy.press();
+    await settle();
+    expect([copied.length, copied[0].split("\n")[0], page.id("toast").textContent]).toEqual([1, "09:30:00 Line Items: 120 rows", "Copied the diagnostic log"]);
+    expect(copied[0].split("\n")[1]).toMatch(/^\d\d:\d\d:\d\d Model map: buildModelGraph failed \(TypeError: Cannot read properties of undefined \(reading 'rows'\)\)\.$/);
+    expect(copied[0].split("\n")).toHaveLength(2);
+
+    // The rest of the page works on: the files are there to download, the same bytes as ever, and the tables open.
+    expect(disabled("runAgain", "dlAll", "dlCsv")).toEqual([false, false, true]);
+    page.id("dlAll").press();
+    expect([page.downloads[0].name, await bytes(saved[0])]).toEqual([MODEL.zipName, resultZip(MODEL, NOW)]);
+    goTo(1);
+    expect([shows()[0], firstCells().length, page.has("#view .banner")]).toEqual(["Line Items", 50, false]);
+    page.id("dlCsv").press();
+    expect(`\ufeff${await saved[1].text()}`).toBe(tableCsv(MODEL.tables[1]));
+    // Chosen again, the entry says the same without another try: the graph is not built twice for one result, and the
+    // log has its one line.
+    toMap();
+    expect([notDrawn(), mapAsked, host().hidden]).toEqual([[MAP_FAILED], ["build"], true]);
+    page.find('#view [data-act="copy-run-log"]').press();
+    await settle();
+    expect(copied[1]).toBe(copied[0]);
+
+    // A new result is tried anew, and its map is drawn when it can be.
+    delete mapThrows.build;
+    page.id("runAgain").press();
+    sendResult(ports[0], MODEL);
+    toMap();
+    expect([mapAsked, notDrawn(), host().hidden, page.id("live").textContent]).toEqual([["build", "build", "mount 1", "show 1"], [], false, "Model map"]);
+  });
+
+  it("says the same when the map cannot be mounted or cannot be shown, and takes away what it had put into its place", async () => {
+    // Mounting fails part of the way, with something that is no error: the map had put its elements into the host.
+    mapThrows.mount = "the canvas gave no context";
+    await openWith(MODEL);
+    toMap();
+    expect([notDrawn(), host().hidden, host().childNodes.length, mapAsked, shows()[0]]).toEqual([[MAP_FAILED], true, 0, ["build", "mount 1"], "Model map"]);
+    page.find('#view [data-act="copy-run-log"]').press();
+    await settle();
+    expect(copied[0]).toMatch(/^\d\d:\d\d:\d\d Model map: mountModelMap failed \(the canvas gave no context\)\.$/);
+
+    // Mounted, and then it cannot draw: the map is told to go, and its place is hidden and empty again.
+    delete mapThrows.mount;
+    mapThrows.show = new RangeError("The host has no size.");
+    page.id("runAgain").press();
+    sendResult(ports[0], MODEL);
+    toMap();
+    expect([notDrawn(), host().hidden, host().childNodes.length, mapAsked.slice(2)]).toEqual([[MAP_FAILED], true, 0, ["build", "mount 1", "show 1", "destroy 1"]]);
+    page.find('#view [data-act="copy-run-log"]').press();
+    await settle();
+    expect(copied[1]).toMatch(/^\d\d:\d\d:\d\d Model map: show failed \(RangeError: The host has no size\.\)\.$/);
+    // The page is whole: its other views, and the result's files.
+    goTo(2);
+    expect([shows()[0], firstCells()]).toEqual(["Modules", ["Revenue", "Cost"]]);
+    page.id("dlAll").press();
+    expect(await bytes(saved[0])).toEqual(resultZip(MODEL, NOW));
+  });
+
+  it("works on when the map itself fails as it is told of the theme, hidden or removed: each reason is in the run's log", async () => {
+    await openWith(MODEL);
+    toMap();
+    // Told of the theme: the page has its new theme all the same.
+    mapThrows.themeChanged = new Error("No colours.");
+    page.id("themeToggle").press();
+    expect([page.document.documentElement.dataset.theme, page.id("themeToggle").title]).toEqual(["dark", "Switch to light theme"]);
+    // Hidden: the view the user asked for is drawn, and the map's place gives its room back.
+    mapThrows.hide = new Error("Still drawing.");
+    goTo(1);
+    expect([shows()[0], firstCells().length, host().hidden]).toEqual(["Line Items", 50, true]);
+    // Shown again, it cannot draw, and told to go it fails once more, before it has taken its elements away: the page
+    // empties the place itself, and the view says that the map could not be drawn.
+    mapThrows.show = new Error("Nothing to draw on.");
+    mapThrows.destroy = new Error("Nothing to remove.");
+    toMap();
+    expect([mapAsked, notDrawn(), host().hidden, host().childNodes.length]).toEqual([["build", "mount 1", "show 1", "themeChanged 1 dark", "hide 1", "show 1", "destroy 1"], [MAP_FAILED], true, 0]);
+    page.find('#view [data-act="copy-run-log"]').press();
+    await settle();
+    expect(copied[0].split("\n").map(line => line.replace(/^\d\d:\d\d:\d\d /, ""))).toEqual(["Model map: themeChanged failed (Error: No colours.).", "Model map: hide failed (Error: Still drawing.).",
+      "Model map: show failed (Error: Nothing to draw on.).", "Model map: destroy failed (Error: Nothing to remove.)."]);
+
+    // A map that cannot be removed stops neither a run nor the result it brings: each takes the page as ever.
+    delete mapThrows.show;
+    page.id("runAgain").press();
+    sendResult(ports[0], MODEL);
+    toMap();
+    page.id("runAgain").press();
+    expect([mapAsked.slice(7), shows()[0], banner().slice(0, 2), host().hidden, host().childNodes.length]).toEqual([["build", "mount 2", "show 2", "destroy 2"], "Overview", ["note", "Analysing"], true, 0]);
+    toMap();
+    sendResult(ports[0], { ...MODEL, name: "Model two" });
+    expect([mapAsked.slice(11), page.document.title, shows()[0], host().hidden, host().childNodes.length, page.id("banners").children])
+      .toEqual([["build", "mount 3", "show 3", "destroy 3"], "Cardigan — Model two", "Overview", true, 0, []]);
+  });
+
+  it("takes a map that stops by itself for one that could not be drawn: its reason is in the run's log, the view says so beside the button that copies the log, and it is not tried again", async () => {
+    mapTakesFocus = true;
+    await open(clicked(42));
+    ports[0].send({ type: "subject", subject: { kind: "model", id: MODEL.id } });
+    ports[0].send({ type: "log", text: "09:30:00 Line Items: 120 rows" });
+    sendResult(ports[0], MODEL);
+    toMap();
+    const button = mapMounts[0].button;
+    expect([mapAsked, host().hidden, notDrawn(), page.document.activeElement === button]).toEqual([["build", "mount 1", "show 1"], false, [], true]);
+
+    // The map was drawn. Later it stops by itself, and tells the page why (graph-types.ts `onFailure`). The page takes it
+    // away as it does a map that could not be drawn: the map is told to go, and its place is hidden and empty. The view
+    // says so under its heading, in the page's one sentence, and the page says it to a screen reader. The navigation
+    // and the breadcrumb are the map's still.
+    mapMounts[0].stops("Cannot read properties of undefined (reading 'x')");
+    expect([mapAsked.slice(3), host().hidden, host().childNodes.length, button.isConnected, shows(), notDrawn(), page.id("live").textContent])
+      .toEqual([["destroy 1"], true, 0, false, ["Model map", "Model map", "Model map"], [MAP_FAILED], MAP_FAILED]);
+    // The focus was inside the map, which is gone: the view has it, at once and when the page is drawn.
+    expect(page.document.activeElement).toBe(page.id("view"));
+    page.frame();
+    expect(page.document.activeElement).toBe(page.id("view"));
+    // Why is not on the page. It is one line of the run's log, after the run's own, with its time, and the button the
+    // sentence names copies the log with it.
+    expect(page.find("body").textContent).not.toContain("Cannot read");
+    const copy = page.find('#view [data-act="copy-run-log"]');
+    expect([copy.localName, copy.textContent.trim(), copy.focusable]).toEqual(["button", "Copy diagnostic log", true]);
+    copy.press();
+    await settle();
+    expect([copied.length, copied[0].split("\n")[0], page.id("toast").textContent]).toEqual([1, "09:30:00 Line Items: 120 rows", "Copied the diagnostic log"]);
+    expect(copied[0].split("\n")[1]).toMatch(/^\d\d:\d\d:\d\d Model map: stopped after it was drawn \(Cannot read properties of undefined \(reading 'x'\)\)\.$/);
+    expect(copied[0].split("\n")).toHaveLength(2);
+
+    // The rest of the page works on: the files are there to download, the same bytes as ever, and the tables open.
+    expect(disabled("runAgain", "dlAll", "dlCsv")).toEqual([false, false, true]);
+    page.id("dlAll").press();
+    expect([page.downloads[0].name, await bytes(saved[0])]).toEqual([MODEL.zipName, resultZip(MODEL, NOW)]);
+    goTo(1);
+    expect([shows()[0], firstCells().length, page.has("#view .banner")]).toEqual(["Line Items", 50, false]);
+    page.id("dlCsv").press();
+    expect(`\ufeff${await saved[1].text()}`).toBe(tableCsv(MODEL.tables[1]));
+    // The failure is remembered for this result, as one of building the graph is: the entry, chosen again, says the same
+    // without another try. A map that was taken away is not heard any more, whatever it tells: the log has its one line.
+    mapMounts[0].stops("And once more.");
+    toMap();
+    expect([notDrawn(), mapAsked, host().hidden, page.id("live").textContent]).toEqual([[MAP_FAILED], ["build", "mount 1", "show 1", "destroy 1"], true, MAP_FAILED]);
+    page.find('#view [data-act="copy-run-log"]').press();
+    await settle();
+    expect(copied[1]).toBe(copied[0]);
+
+    // A new result is tried anew, and its map is drawn. Each map has its own line: a reason that runs over several
+    // lines is kept to the one, and a map that gives no reason has the line without one. The run that brought the new
+    // result began the log anew.
+    for (const [reason, line] of [["The canvas was lost.\n    at draw (map-view.js:1:1)", "Model map: stopped after it was drawn (The canvas was lost. at draw (map-view.js:1:1))."],
+      ["  ", "Model map: stopped after it was drawn."]]) {
+      page.id("runAgain").press();
+      sendResult(ports[0], MODEL);
+      toMap();
+      expect([mapAsked.slice(-3).map(asked => asked.replace(/ \d+$/, "")), notDrawn(), host().hidden, page.id("live").textContent], reason).toEqual([["build", "mount", "show"], [], false, "Model map"]);
+      mapMounts[mapMounts.length - 1].stops(reason);
+      page.find('#view [data-act="copy-run-log"]').press();
+      await settle();
+      expect(copied[copied.length - 1].split("\n").map(each => each.replace(/^\d\d:\d\d:\d\d /, "")), reason).toEqual([line]);
+    }
+    expect(mapMounts).toHaveLength(3);
+  });
+
+  it("says that the map could not be drawn when its entry is next chosen, where the map stops under another view; and leaves the focus where it is on something else of the page", async () => {
+    await openWith(MODEL);
+    toMap();
+    goTo(1);
+    page.id("tblSearch").type("item 1");
+    const table = () => [shows(), firstCells(), page.id("rowCount").textContent, page.id("live").textContent, page.id("tblSearch").value];
+    const before = table();
+    // The map stops while a table is on screen. It is taken away at once, and nothing that is seen changes: the table
+    // is as it was, the page says nothing, and the focus stays in the search box.
+    mapMounts[0].stops("The canvas was lost.");
+    expect([mapAsked.slice(3), host().hidden, host().childNodes.length]).toEqual([["hide 1", "destroy 1"], true, 0]);
+    expect([table(), page.document.activeElement.id, page.has("#view .banner"), page.id("banners").children.length]).toEqual([before, "tblSearch", false, 0]);
+    // The sentence is what the user finds at the map's entry, with the log to copy, which holds the reason. Nothing is
+    // built or mounted again.
+    toMap();
+    expect([notDrawn(), mapAsked.length, host().hidden, page.id("live").textContent, page.document.activeElement === page.id("view")]).toEqual([[MAP_FAILED], 5, true, MAP_FAILED, true]);
+    page.find('#view [data-act="copy-run-log"]').press();
+    await settle();
+    expect(copied[0]).toMatch(/^\d\d:\d\d:\d\d Model map: stopped after it was drawn \(The canvas was lost\.\)\.$/);
+
+    // With the map on screen, the focus on something else of the page stays there: here on the theme's button.
+    page.id("runAgain").press();
+    sendResult(ports[0], MODEL);
+    toMap();
+    page.id("themeToggle").focus();
+    mapMounts[1].stops("Lost again.");
+    expect([notDrawn(), host().hidden, page.document.activeElement.id]).toEqual([[MAP_FAILED], true, "themeToggle"]);
+    // The focus on nothing goes to the view, as the focus inside the map does. It is on nothing when the map had it and
+    // has written its own place anew before it tells the page.
+    mapTakesFocus = true;
+    page.id("runAgain").press();
+    sendResult(ports[0], MODEL);
+    toMap();
+    mapMounts[2].button.remove();
+    expect(page.document.activeElement).toBe(page.document.body);
+    mapMounts[2].stops("And again.");
+    expect([notDrawn(), host().hidden, page.document.activeElement === page.id("view")]).toEqual([[MAP_FAILED], true, true]);
+  });
+
+  it("takes the map away in the same way when the map tells of its stop while the page tells it something, or from a click or a key inside it", async () => {
+    await openWith(MODEL);
+    toMap();
+    // While it is told of the theme: the page has its new theme, the map is told to go, and the view says so. The focus
+    // stays on the theme's button.
+    mapTells = { themeChanged: "No colours." };
+    page.id("themeToggle").press();
+    expect([page.document.documentElement.dataset.theme, mapAsked, notDrawn(), host().hidden, host().childNodes.length, page.document.activeElement.id])
+      .toEqual(["dark", ["build", "mount 1", "show 1", "themeChanged 1 dark", "destroy 1"], [MAP_FAILED], true, 0, "themeToggle"]);
+
+    // While it is hidden for another view: that view is drawn as it was chosen, with the focus, and says nothing of the
+    // map. The map is told to go once, and its entry says afterwards that it could not be drawn.
+    mapTells = {};
+    page.id("runAgain").press();
+    sendResult(ports[0], MODEL);
+    toMap();
+    mapTells = { hide: "Still drawing." };
+    goTo(1);
+    expect([mapAsked.slice(5), shows()[0], firstCells().length, host().hidden, page.has("#view .banner"), page.document.activeElement === page.id("view")])
+      .toEqual([["build", "mount 2", "show 2", "hide 2", "destroy 2"], "Line Items", 50, true, false, true]);
+    toMap();
+    expect([notDrawn(), mapAsked.length, page.id("live").textContent]).toEqual([[MAP_FAILED], 10, MAP_FAILED]);
+
+    // While it is shown again on coming back to it: the view says so, and has the focus.
+    mapTells = {};
+    page.id("runAgain").press();
+    sendResult(ports[0], MODEL);
+    toMap();
+    goTo(1);
+    mapTells = { show: "Nothing to draw on." };
+    toMap();
+    expect([mapAsked.slice(10), notDrawn(), host().hidden, host().childNodes.length, page.id("live").textContent, page.document.activeElement === page.id("view")])
+      .toEqual([["build", "mount 3", "show 3", "hide 3", "show 3", "destroy 3"], [MAP_FAILED], true, 0, MAP_FAILED, true]);
+
+    // From a click inside it, as when the map's own listener fails: the click still comes up to the page, with the map
+    // gone. The page reads nothing of it, whatever the element that was clicked is marked with: no view is opened and
+    // nothing is copied.
+    mapTells = {};
+    mapTakesFocus = true;
+    page.id("runAgain").press();
+    sendResult(ports[0], MODEL);
+    toMap();
+    const button = mapMounts[3].button;
+    button.setAttribute("data-nav", "1");
+    button.setAttribute("data-copy", "a text the page would copy");
+    mapTells = { click: "The click failed." };
+    button.press();
+    await settle();
+    expect([mapAsked.slice(16), shows()[0], notDrawn(), host().hidden, copied, page.id("toast").textContent, page.document.activeElement === page.id("view")])
+      .toEqual([["build", "mount 4", "show 4", "destroy 4"], "Model map", [MAP_FAILED], true, [], "", true]);
+
+    // From a key inside it: the key comes up to the page with the focus on the view by then, and does nothing there.
+    mapTells = {};
+    page.id("runAgain").press();
+    sendResult(ports[0], MODEL);
+    toMap();
+    mapTells = { keydown: "The key failed." };
+    expect([page.document.activeElement === mapMounts[4].button, page.key("/").defaultPrevented]).toEqual([true, false]);
+    expect([mapAsked.slice(20), shows()[0], notDrawn(), host().hidden, page.document.activeElement === page.id("view")]).toEqual([["build", "mount 5", "show 5", "destroy 5"], "Model map", [MAP_FAILED], true, true]);
+    // Each of the five has its line in the log of its run: here the last one's.
+    page.find('#view [data-act="copy-run-log"]').press();
+    await settle();
+    expect(copied[0].split("\n").map(each => each.replace(/^\d\d:\d\d:\d\d /, ""))).toEqual(["Model map: stopped after it was drawn (The key failed.)."]);
+  });
+
+  it("does not hear a map that is not the page's: one that is still being mounted, one that is told to go, and one of an earlier result", async () => {
+    /** The run's log, by the button of the view that says the map could not be drawn, without the times. */
+    const log = async () => {
+      page.find('#view [data-act="copy-run-log"]').press();
+      await settle();
+      return copied[copied.length - 1].split("\n").map(each => each.replace(/^\d\d:\d\d:\d\d /, ""));
+    };
+    // A map that tells of a stop while it is being mounted is not heard: one that cannot be mounted throws, and the
+    // page says of that what it says of any call that throws.
+    mapTells = { mount: "Not yet." };
+    mapThrows.mount = new Error("No canvas.");
+    await openWith(MODEL);
+    toMap();
+    expect([mapAsked, notDrawn(), host().hidden, host().childNodes.length]).toEqual([["build", "mount 1"], [MAP_FAILED], true, 0]);
+    expect(await log()).toEqual(["Model map: mountModelMap failed (Error: No canvas.)."]);
+    // One that tells so and is mounted all the same is the map from then on, drawn as any other. (The stand-in numbers
+    // the maps that were mounted: the one that threw is not among them.)
+    delete mapThrows.mount;
+    page.id("runAgain").press();
+    sendResult(ports[0], MODEL);
+    toMap();
+    expect([mapAsked.slice(2), mapMounts.length, notDrawn(), host().hidden, host().children.length, page.id("live").textContent]).toEqual([["build", "mount 1", "show 1"], 1, [], false, 1, "Model map"]);
+
+    // A map that is told to go is no longer the page's: what it tells while it goes is not heard, and it is told to go
+    // once. Here a run starts: the result it brings has its own map, tried anew.
+    mapTells = { destroy: "Too late." };
+    page.id("runAgain").press();
+    expect([mapAsked.slice(5), host().hidden, host().childNodes.length, shows()[0]]).toEqual([["destroy 1"], true, 0, "Overview"]);
+    mapTells = {};
+    sendResult(ports[0], MODEL);
+    toMap();
+    expect([mapAsked.slice(6), notDrawn(), host().hidden]).toEqual([["build", "mount 2", "show 2"], [], false]);
+    // Nor is the map of the earlier result heard, when it tells of itself after its result has gone: the map on the
+    // page stays as it is.
+    mapMounts[0].stops("From an earlier result.");
+    expect([mapAsked.length, notDrawn(), host().hidden, host().children.length, shows()[0]]).toEqual([9, [], false, 1, "Model map"]);
+    // The log of this run has none of those lines: only that of its own map, once that stops.
+    mapMounts[1].stops("This one.");
+    expect([mapAsked.slice(9), notDrawn()]).toEqual([["destroy 2"], [MAP_FAILED]]);
+    expect(await log()).toEqual(["Model map: stopped after it was drawn (This one.)."]);
+  });
+
+  it("leaves a key alone while the focus is inside the map, and a click there too: the page's own shortcuts and marks are for the rest of the page", async () => {
+    await openWith(MODEL);
+    toMap();
+    const button = mapMounts[0].button;
+    button.focus();
+    expect(page.document.activeElement).toBe(button);
+    // The slash and Escape, which the page takes elsewhere, and any other key: none is taken, and the focus stays where
+    // it is. Nothing is asked of the map either: its keys are its own to hear.
+    for (const key of ["/", "Escape", "Enter", "a"]) expect([key, page.key(key).defaultPrevented, page.document.activeElement === button]).toEqual([key, false, true]);
+    expect([mapAsked.length, shows()[0]]).toEqual([3, "Model map"]);
+    // A click inside the map is the map's as well. The page reads what it marks its own controls with only outside the
+    // map: here neither a name of a view nor a text to copy.
+    button.setAttribute("data-nav", "1");
+    button.setAttribute("data-copy", "a text the page would copy");
+    button.press();
+    await settle();
+    expect([shows()[0], host().hidden, copied, page.id("toast").textContent, mapAsked.length]).toEqual(["Model map", false, [], "", 3]);
+
+    // The rule is the place's, not the view's. To show that, the focus is put into the map's place while a table is on
+    // screen, which the page itself never does: there the slash would go to the table's search, and Escape would close
+    // a popover. Inside the map's place both are left alone; outside it the page takes them as ever.
+    goTo(1);
+    host().hidden = false;
+    button.focus();
+    expect([page.key("/").defaultPrevented, page.document.activeElement === button]).toEqual([false, true]);
+    page.id("view").focus();
+    expect([page.key("/").defaultPrevented, page.document.activeElement === page.id("tblSearch")]).toEqual([true, true]);
+    page.id("colBtn").press();
+    button.focus();
+    page.key("Escape");
+    expect(page.id("popover").hidden).toBe(false);
+    page.id("colBtn").focus();
+    page.key("Escape");
+    expect(page.id("popover").hidden).toBe(true);
   });
 });

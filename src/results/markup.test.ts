@@ -4,7 +4,7 @@ import { HEADERS } from "../report.js";
 import type { AnalysisResult, Cell, ResultTable } from "../result-types.js";
 import { cardsOf, columnsOf, rowKeys, type Column } from "./columns.js";
 import {
-  cardDrawerHtml, cardDrawerSubHtml, cellHtml, colChooserHtml, colFilterHtml, crumbsHtml, esc, FORGOTTEN_LINE, headerMetaHtml, idPill, keptCopyHtml,
+  cardDrawerHtml, cardDrawerSubHtml, cellHtml, colChooserHtml, colFilterHtml, crumbsHtml, esc, FORGOTTEN_LINE, headerMetaHtml, idPill, keptCopyHtml, MAP_LABEL, mapHtml,
   MOON_ICON, navHtml, noteBannerHtml, NOT_REMOVED_LINE, objectDrawerHtml, objectDrawerSubHtml, overviewHtml, pagerHtml, rowCellHtml, rowDrawerHtml, rowDrawerSubHtml, runBannerHtml, runHtml, SUN_ICON, tableHtml, tableParts,
   type KeptCopy, type Links, type TableView,
 } from "./markup.js";
@@ -477,16 +477,19 @@ describe("A result whose every text is hostile, through every view of the page",
     };
     const pieces = [
       headerMetaHtml(analysedOf(result)),
-      navHtml([{ id: "overview", label: "Overview" }, ...tables.map((table, index) => ({ id: String(index + 1), label: table.label, count: table.rows.length })), ], "overview", true),
+      navHtml([{ id: "overview", label: "Overview" }, ...tables.map((table, index) => ({ id: String(index + 1), label: table.label, count: table.rows.length })), { id: "map", label: MAP_LABEL }], "overview"),
       // The overview holds what the Details file says, too: there is no view of it apart. And it says what the page keeps
       // of the result for a refresh: nothing yet, a copy, or a copy no longer.
       overviewHtml(overviewOf(result)),
       overviewHtml(overviewOf(result), "kept"),
       overviewHtml(overviewOf(result), "forgotten"),
-      // The run's own view and its banner hold no text of a result, but they are the page's markup too.
+      // The run's own view and its banner hold no text of a result, but they are the page's markup too. So is the view
+      // of a model's map, shown and not drawn: the map itself is not the page's markup.
       runHtml(),
       runBannerHtml(),
       noteBannerHtml(),
+      mapHtml(false),
+      mapHtml(true),
     ];
     for (const table of tables) {
       const columns = columnsOf(table);

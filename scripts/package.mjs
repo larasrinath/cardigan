@@ -1,6 +1,6 @@
 // Packages the built extension as release/cardigan-<version>.zip and prints its SHA-256.
 // The zip holds only the files Chrome loads: manifest.json, the bundles it names under dist/, the icons it names under
-// icons/, and the results page with its stylesheet and its bundle; a page that loads any other file is refused, and so is a
+// icons/, and the results page with its stylesheets and its bundle; a page that loads any other file is refused, and so is a
 // content security policy that would let one in from outside the package, or a manifest that declares no policy at all.
 // Entries are sorted, carry fixed timestamps and attributes and are stored uncompressed, so the same files give the same
 // bytes on every run, machine and Node version.
@@ -32,10 +32,13 @@ const PACKAGED_SOURCES = new Set(["'self'", "'none'"]);
 const INLINE_STYLE_DIRECTIVES = new Set(['style-src', 'style-src-elem', 'style-src-attr']);
 /** The only places a file the manifest names may come from: built bundles and icons. Never src, tests, docs or node_modules. */
 const RUNTIME_PATH = /^(?:dist\/[A-Za-z0-9][A-Za-z0-9._-]*\.js|icons\/[A-Za-z0-9][A-Za-z0-9._-]*\.png)$/;
-/** The results page, its stylesheet and its bundle. The manifest names none of them: the service worker opens the page by
- * name (RESULTS_PAGE in src/protocol.ts), and the page loads the other two. */
-const PAGE_FILES = ['results.html', 'results.css', 'dist/results.js'];
-const [PAGE, PAGE_STYLES, PAGE_BUNDLE] = PAGE_FILES;
+/** The results page, its stylesheets and its bundle. The manifest names none of them: the service worker opens the page by
+ * name (RESULTS_PAGE in src/protocol.ts), and the page loads the others. The second stylesheet is the model map's
+ * (src/map); the map's code is part of the page's bundle, so it brings no file but this one. */
+const PAGE_FILES = ['results.html', 'results.css', 'map.css', 'dist/results.js'];
+const [PAGE, PAGE_STYLES, MAP_STYLES, PAGE_BUNDLE] = PAGE_FILES;
+/** The stylesheets among them: what each loads is held to the package as the page's own loads are. */
+export const PAGE_SHEETS = [PAGE_STYLES, MAP_STYLES];
 /** A start tag with its attributes, and one attribute with its value: in either quotes, or bare. */
 const TAG = /<([a-z][a-z0-9-]*)((?:[^>"']|"[^"]*"|'[^']*')*)>/gi;
 const ATTRIBUTE = /([^\s"'=<>/]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/g;
@@ -153,15 +156,16 @@ function styleLoads(styles) {
   return [...styles.matchAll(STYLE_LOAD)].map(match => match.slice(1).find(address => address !== undefined)).filter(loadsFile);
 }
 
-/** What keeps the results page out of a package, given its text, its stylesheet's and the packaged `files`. Every file the
- * two load must be packaged, under the name it is packaged by, so that nothing the page needs is left out and nothing comes
- * from the network. And the page must load its own stylesheet and bundle, so that neither is packaged unused. */
+/** What keeps the results page out of a package, given its text, the text of each of its stylesheets by the stylesheet's
+ * name (`PAGE_SHEETS`) and the packaged `files`. Every file the page and its stylesheets load must be packaged, under the
+ * name it is packaged by, so that nothing the page needs is left out and nothing comes from the network. And the page must
+ * load its own stylesheets and bundle, so that none of them is packaged unused. */
 export function pageProblems(page, styles, files) {
-  const loads = { [PAGE]: [...markupLoads(page), ...styleLoads(page)], [PAGE_STYLES]: styleLoads(styles) };
+  const loads = { [PAGE]: [...markupLoads(page), ...styleLoads(page)], ...Object.fromEntries(PAGE_SHEETS.map(name => [name, styleLoads(styles[name] ?? '')])) };
   return [
     ...Object.entries(loads).flatMap(([name, loaded]) => [...new Set(loaded)].filter(file => !files.includes(file))
       .map(file => `${name} loads ${JSON.stringify(file)}, which is not packaged`)),
-    ...[PAGE_STYLES, PAGE_BUNDLE].filter(file => !loads[PAGE].includes(file)).map(file => `${PAGE} does not load ${file}`),
+    ...[...PAGE_SHEETS, PAGE_BUNDLE].filter(file => !loads[PAGE].includes(file)).map(file => `${PAGE} does not load ${file}`),
   ];
 }
 
@@ -231,7 +235,7 @@ export function packageExtension({ dir = ROOT, outDir = path.join(dir, 'release'
     return { name, data: readFileSync(full) };
   });
   const text = name => entries.find(entry => entry.name === name).data.toString('utf8');
-  const problems = pageProblems(text(PAGE), text(PAGE_STYLES), files);
+  const problems = pageProblems(text(PAGE), Object.fromEntries(PAGE_SHEETS.map(name => [name, text(name)])), files);
   if (problems.length) throw new Error(`Cannot package:\n${problems.join('\n')}`);
   const zip = createZip(entries);
   mkdirSync(outDir, { recursive: true });
