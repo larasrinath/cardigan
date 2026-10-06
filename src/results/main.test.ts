@@ -3185,9 +3185,6 @@ describe("A model's map on the results page", () => {
     // The navigation gives up height to the map while it is shown, and the map's entry is its last: the page brings
     // the entry into sight, where the navigation has to scroll for that.
     expect(page.all("#navList .nav-item").map(item => item.broughtIntoSight)).toEqual([0, 0, 0, 1]);
-    // Chosen again while it is shown, the entry asks nothing more of the map.
-    toMap();
-    expect([mapAsked, host().hidden]).toEqual([["build", "mount 1", "show 1"], false]);
     // A map that takes the focus into itself as it is shown keeps it: the page does not take it back to the view.
     toOverview();
     mapTakesFocus = true;
@@ -3220,6 +3217,44 @@ describe("A model's map on the results page", () => {
     toOverview();
     page.id("dlAll").press();
     expect([await bytes(saved[0]), await bytes(saved[1])]).toEqual([resultZip(MODEL, NOW), resultZip(MODEL, NOW)]);
+  });
+
+  it("gives the map the focus back when its entry is chosen again while it is shown: the map is shown anew, and is not built again", async () => {
+    mapTakesFocus = true;
+    await openWith(MODEL);
+    toMap();
+    const button = mapMounts[0].button;
+    // The first choice: the map takes the focus as it is shown, and the page leaves it there.
+    expect([mapAsked, page.document.activeElement === button]).toEqual([["build", "mount 1", "show 1"], true]);
+    // The entry is chosen again, with the mouse or with Enter. Either way the focus is on the entry by then, out of the
+    // map, and the map's keys with it. The page leaves the map and shows it anew, as on coming back to it, so the map
+    // takes the focus as it did the first time. Nothing is built or mounted again, and the view is the map's still.
+    toMap();
+    expect([mapAsked.slice(3), page.document.activeElement === button, mapBuilds.length, mapMounts.length, host().hidden, shows()])
+      .toEqual([["hide 1", "show 1"], true, 1, 1, false, ["Model map", "Model map", "Model map"]]);
+    // As often as it is chosen.
+    toMap();
+    expect([mapAsked.slice(5), page.document.activeElement === button]).toEqual([["hide 1", "show 1"], true]);
+    // A choice that leaves the focus inside the map, as a click that a script makes does, takes nothing from the map:
+    // the page asks nothing of it, and the focus stays where it is.
+    page.find('#navList [data-nav="map"]').dispatch("click");
+    expect([mapAsked.length, page.document.activeElement === button, host().hidden, shows()[0]]).toEqual([7, true, false, "Model map"]);
+
+    // A map that does not take the focus is shown anew as well, and the view has the focus then, as after its first choice.
+    mapTakesFocus = false;
+    toMap();
+    expect([mapAsked.slice(7), page.document.activeElement === page.id("view"), host().hidden]).toEqual([["hide 1", "show 1"], true, false]);
+    // From another view the map is shown once, as ever: it was hidden when that view was chosen.
+    goTo(1);
+    toMap();
+    expect(mapAsked.slice(9)).toEqual(["hide 1", "show 1"]);
+    // A map that cannot draw when it is shown anew is taken away, and the view says so, as when it cannot be shown at first.
+    mapThrows.show = new Error("Nothing to draw on.");
+    toMap();
+    expect([mapAsked.slice(11), notDrawn(), host().hidden]).toEqual([["hide 1", "show 1", "destroy 1"], [MAP_FAILED], true]);
+    // Its entry, chosen again, has no map to show anew: nothing is asked, and the view says the same.
+    toMap();
+    expect([mapAsked.length, notDrawn(), page.document.activeElement === page.id("view")]).toEqual([14, [MAP_FAILED], true]);
   });
 
   it("tells a mounted map that the theme has changed, shown or hidden, once the page has the new theme; a map that is not mounted is told nothing", async () => {
