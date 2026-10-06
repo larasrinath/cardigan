@@ -167,6 +167,15 @@ describe("The map's colours in the stylesheet", () => {
     }
   });
 
+  it("draws a link in a colour that stands out from the canvas (3 to 1), in both themes, and lets nothing through it", () => {
+    for (const theme of themes) {
+      const palette = paletteOf(theme);
+      expect(on(palette.edge, palette.canvas), `${theme}: a link on the canvas`).toBeGreaterThanOrEqual(3);
+      expect(parseColor(palette.edge)?.a, theme).toBe(1);
+    }
+    expect(on(FALLBACK.edge, FALLBACK.canvas)).toBeGreaterThanOrEqual(3);
+  });
+
   it("makes every layer's colour seen on a node and on a panel, where a name always stands beside it", () => {
     for (const theme of themes) {
       const palette = paletteOf(theme);

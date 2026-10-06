@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { InspectLink } from "./map-inspect.js";
-import { crumbsHtml, emptyHtml, inspectorHtml, legendHtml, LIST_CAP, notesHtml, resultsHtml, shellHtml, statsHtml, tooltipHtml, tracebarHtml } from "./map-markup.js";
+import { brokenHtml, crumbsHtml, emptyHtml, inspectorHtml, legendHtml, LIST_CAP, notesHtml, resultsHtml, shellHtml, tooltipHtml, tracebarHtml } from "./map-markup.js";
 
 /** What the map may not do, checked in its own files: the stylesheet and the sources that are bundled. These are the
  * rules the map was built to; a change that breaks one fails here rather than on the page. */
@@ -34,12 +34,19 @@ function selectors(styles: string): string[] {
 }
 
 describe("The map's sources", () => {
-  it("are the map's own files, and take nothing from the rest of the extension but the contract", () => {
+  it("are the map's own files, and take nothing from the rest of the extension but the contract and the page's words for a cell", () => {
     expect(SOURCES).toEqual(["map-camera.ts", "map-canvas.ts", "map-graphs.ts", "map-inspect.ts", "map-layout.ts", "map-markup.ts", "map-model.ts", "map-palette.ts", "map-search.ts", "map-text.ts", "map-trace.ts", "map-view.ts"]);
+    const outside: string[] = [];
     for (const name of SOURCES) {
       const imports = [...source(name).matchAll(/from "([^"]+)"/g)].map(match => match[1]);
-      for (const from of imports) expect(from, name).toMatch(/^\.\/(graph-types|map-[\w-]+)\.js$/);
+      for (const from of imports) if (!/^\.\/(graph-types|map-[\w-]+)\.js$/.test(from)) outside.push(`${name} < ${from}`);
     }
+    // The details say a line item's Format and Summary as the page's Line Items table says them: one reader for both.
+    expect(outside).toEqual(["map-inspect.ts < ../results/readable-cells.js"]);
+    // That reader is text in and text out: it brings nothing of the page with it.
+    const reader = readFileSync(new URL("../results/readable-cells.ts", import.meta.url), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+    expect(reader.match(/^\s*(?:import|export \* from|export \{[^}]*\} from)\b.*$/gm) ?? []).toEqual([]);
+    expect(found(reader, /\bdocument\b|\bwindow\b|innerHTML|querySelector|addEventListener|\bfetch\(|\bchrome\./)).toEqual([]);
   });
 
   it("keep everything that needs no page out of the view: only the view and the canvas touch the browser", () => {
@@ -67,15 +74,16 @@ describe("The map's sources", () => {
     expect(new Set(asked)).toEqual(new Set(["createElement", "activeElement"]));
     // Lookups are from the map's element down.
     const lookedIn = [...view.matchAll(/(\w+)\.querySelector(?:All)?[<(]/g)].map(match => match[1]);
-    for (const owner of lookedIn) expect(["root", "inspector", "results", "holder"]).toContain(owner);
+    for (const owner of lookedIn) expect(["root", "inspector", "results", "holder", "tracebar"]).toContain(owner);
   });
 
   it("write markup only through the functions that escape it", () => {
     const view = code("map-view.ts");
     const written = [...view.matchAll(/\.innerHTML = ([^;]+);/g)].map(match => match[1].trim());
     expect(written.length).toBeGreaterThan(10);
-    for (const value of written) expect(value).toMatch(/^(?:""|leftOut|\w+Html\()/);
-    expect(view).toContain("const leftOut = notesHtml(");
+    for (const value of written) expect(value).toMatch(/^(?:""|\w+Html\()/);
+    // What is no markup is written as text: the line of what is shown, the search's count, what is said aloud.
+    expect(found(view, /\b(?:stats|searchCount|live)\.innerHTML/)).toEqual([]);
     expect(found(view, /insertAdjacentHTML|outerHTML|document\.write|\.setAttribute\("(?:style|on\w+|href|src)"/)).toEqual([]);
     for (const name of SOURCES) expect(found(code(name), /\beval\(|new Function|setInterval|import\(/), name).toEqual([]);
     // The markup module writes no style and no address.
@@ -99,6 +107,19 @@ describe("The map's sources", () => {
     expect(view).toMatch(/clearTimeout\(arriving\)/);
     expect(view).toMatch(/env\.cancelFrame\(frame\)/);
     expect(view).toMatch(/stopWatching\(\)/);
+  });
+
+  it("let no failure of a listener, a frame or a told size go uncaught", () => {
+    const view = code("map-view.ts");
+    // Every listener is wrapped in the guard that stops the map and says so in its place.
+    const listeners = found(view, /\w+\.addEventListener\("\w+", [^\n]{0,12}/);
+    expect(listeners.length).toBeGreaterThanOrEqual(14);
+    for (const listener of listeners) expect(listener).toMatch(/addEventListener\("\w+", guarded\(/);
+    // A picture the browser asks back for is drawn through the guard, and so is a size the browser tells.
+    expect(found(view, /env\.requestFrame\((?!drawFrame\))[^)]*\)/)).toEqual([]);
+    expect(view).toMatch(/const drawFrame = \(time: number\): void => guard\(\(\) => draw\(time\)\);/);
+    expect(view).toMatch(/env\.watchSize\(canvas, \(nextWidth, nextHeight\) => \{\s*if \(shown\) guard\(\(\) => resize\(nextWidth, nextHeight\)\);/);
+    expect(found(view, /env\.watchSize\(/)).toHaveLength(1);
   });
 });
 
@@ -158,15 +179,18 @@ describe("The map's stylesheet", () => {
     // The classes of the markup: every class of everything it writes, with every part it can write and every colour.
     const layers = [...Array.from({ length: 8 }, (_, place) => `s${place}`), "lineitem", "heading", "external", "list", "property"];
     const links: InspectLink[] = Array.from({ length: LIST_CAP + 1 }, (_, index) => ({ raw: index, name: "Line", sub: "Module", caption: "read access", layer: layers[index % layers.length] }));
+    const words = { feeds: "1 box feeds it", fed: "it feeds 2 boxes", sentence: "Line item Node selected." };
     const everything = [
-      shellHtml({ results: "map-results-1", hints: "map-hints-1" }, "Model", "Workspace"), statsHtml(1, 2, [[3, "sections"]]), notesHtml(["A sentence."], 1),
-      crumbsHtml({ model: "Model", workspace: "Workspace", section: { index: 0, name: "Section" }, here: "Module" }), crumbsHtml({ model: "Model" }),
-      legendHtml("Layers", layers.map(key => ({ key, label: key, count: 1 })), new Set(["external"])), tracebarHtml("Node", 1, 2),
+      shellHtml({ results: "map-results-1", hints: "map-hints-1", legend: "map-legend-1", about: "map-about-1", access: "map-access-1" }, "Model"),
+      notesHtml({ name: "Model", workspace: "Workspace", modules: 2, lineItems: 3 }, ["A sentence."], 1),
+      crumbsHtml({ model: "Model", workspace: "Workspace", section: { index: 0, name: "Section" }, here: "Module" }), crumbsHtml({ model: "Model", workspace: "Workspace" }),
+      legendHtml("Sections", layers.map(key => ({ key, label: key, count: 1 })), new Set(["external"])), tracebarHtml("Node", words, false), tracebarHtml("Node", words, true),
       tooltipHtml({ layer: "s0", kind: "kind", name: "Node", lines: ["a line"], formula: "A + B" }),
       resultsHtml({ hits: [{ kind: "module", name: "Module", context: "Section" }], total: 2 }), resultsHtml({ hits: [], total: 0 }),
-      inspectorHtml({ kind: "LINE ITEM", layer: "lineitem", name: "Node", rows: [["module", "Module"]], action: { label: "Open", module: 1 }, formula: "A + B", lists: [{ key: "depends", title: "Depends on", open: true, links }],
-        texts: [{ key: "actions", title: "Actions", lines: ["An action"] }], notes: "A note.", source: "Line Items · row 2" }),
-      inspectorHtml({ kind: "LINE ITEM", layer: "heading", name: "Node", rows: [], remark: "No formula.", lists: [], texts: [] }), emptyHtml("Nothing", "Nothing here."),
+      inspectorHtml({ kind: "LINE ITEM", layer: "lineitem", name: "Node", rows: [["Module", "Module"]], action: { label: "Open", module: 1 }, formula: "A + B", lists: [{ key: "depends", title: "Feeds it directly", open: true, links }],
+        texts: [{ key: "actions", title: "Actions", lines: ["An action"] }], notes: "A note.", source: "Line Items.csv, row 2" }, words),
+      inspectorHtml({ kind: "LINE ITEM", layer: "heading", name: "Node", rows: [], remark: "No formula.", lists: [], texts: [] }), emptyHtml("Nothing", "Nothing here.", ["A sentence."]),
+      brokenHtml("A reason."),
     ].join("");
     for (const [, value] of everything.matchAll(/class="([^"]*)"/g)) for (const name of value.split(/\s+/)) if (name !== "") written.add(name);
     expect(written.size).toBeGreaterThan(80);
