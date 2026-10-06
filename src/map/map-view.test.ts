@@ -2153,6 +2153,32 @@ describe("The room the map's picture has", () => {
     for (const box of after) expect([box.x + box.w <= 864, box.y + box.h <= 760]).toEqual([true, true]);
   });
 
+  it("measures the room for a selection that cannot be shown with the whole picture with the line at the foot, which will say so", () => {
+    // The picture is whole only just: beside the details it cannot be, at a size its names can be read at.
+    mount(sectionsOf(354));
+    const tall: Place = [10, 300, 864, 790];
+    layOut({
+      ".map-canvas": [0, 0, 1200, 800],
+      ".map-free": () => (root().classList.contains("map-has-inspector") ? [10, 56, 864, 790] : [10, 56, 1190, 790]),
+      ".map-legend": [10, 700, 70, 750],
+      ".map-dock": () => (part(".map-tracebar").hidden || part(".map-status").hidden ? [10, 760, 864, 790] : tall),
+      ".map-corner": CORNER,
+    });
+    map.show();
+    env.resize(1200, 800);
+    env.settle();
+    expect(status()).toBe("354 sections · 0 links");
+    // A box in the lower half, left of where the details will open: it is in view as it stands, but for the foot, which
+    // is high once the line of what is in view stands over the bar of what is traced.
+    const low = [...boxes()].filter(([, box]) => box.y > 450 && box.y < 700 && box.x > 100 && box.x + box.w < 800)[0];
+    click(low[1].x + low[1].w / 2, low[1].y + low[1].h / 2);
+    env.settle();
+    const selected = boxes().get(low[0])!;
+    expect([part(".map-status").hidden, /^\d+ of 354 boxes in view\.$/.test(status()), selected.w]).toEqual([false, true, low[1].w]);
+    // The box selected stands over that foot, not under it.
+    expect([overlaps(selected, tall), selected.y + selected.h <= 300]).toEqual([false, true]);
+  });
+
   it("lets the panel that opens close the other where the two would leave the picture no room at all", () => {
     openLaidOut(sectionsOf(6));
     // The notes laid out so that, with the legend, nothing of the graph's room is left.
