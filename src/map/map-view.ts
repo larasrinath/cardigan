@@ -78,6 +78,9 @@ const TELLING_ZOOM = 0.62;
 /** How long a trace's dashes move after a node is selected, in milliseconds: long enough to show which way the links
  * run, and then they stand still. */
 const TRACE_MOVES = 1400;
+/** Up to this width of the map the legend and the notes about the map do not fit side by side (map.css puts the details
+ * under the graph from the same width down). */
+const NARROW = 760;
 /** A colour no token holds: what a canvas still answers after a value it did not take was a colour. */
 const NO_COLOUR = "#010203";
 
@@ -545,6 +548,8 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     if (!model || !onScreen) return;
     const nothing = onScreen.nodes.length === 0;
     empty.hidden = !nothing;
+    // With nothing drawn there is nothing to zoom, and no small picture of it.
+    corner.hidden = nothing;
     if (!nothing) empty.innerHTML = "";
     // Why there are none is the graph's to say, in whichever of its sentences: all of them are listed under the map's own.
     else if (model.modules.length === 0) empty.innerHTML = emptyHtml("No modules to draw", "This export holds no modules, so there is nothing to map.", graph.limitations);
@@ -819,9 +824,17 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
       case "zoom-out": zoom(1 / 1.3); break;
       case "legend":
         legendWanted = legend.hidden;
+        // A narrow map has room for one of the two panels: the one that opens closes the other.
+        if (legendWanted && width <= NARROW && !about.hidden) setPanel(about, aboutButton, false);
         setPanel(legend, legendButton, legendWanted);
         break;
-      case "about": setPanel(about, aboutButton, about.hidden); break;
+      case "about":
+        if (about.hidden && width <= NARROW && !legend.hidden) {
+          legendWanted = false;
+          setPanel(legend, legendButton, false);
+        }
+        setPanel(about, aboutButton, about.hidden);
+        break;
       case "layer": {
         const layer = data.mapLayer ?? "";
         if (hiddenLayers.has(layer)) hiddenLayers.delete(layer); else hiddenLayers.add(layer);

@@ -147,8 +147,11 @@
 
 /* ---------- what stands over the canvas itself ---------- */
 /* The line of what is shown, with the buttons of the legend and the notes, at the foot on the left; the small picture
-   and the zoom at the foot on the right; the legend and the notes, while they are open, above the line. */
-.map-dock{position:absolute;left:0;bottom:0;display:flex;flex-wrap:wrap;align-items:center;gap:6px;max-width:calc(100% - 232px);pointer-events:none}
+   and the zoom at the foot on the right; the legend and the notes, while they are open, over the line, however many
+   rows the line takes. */
+.map-foot{position:absolute;inset:0 auto 0 0;max-width:calc(100% - 232px);display:flex;flex-direction:column;justify-content:flex-end;gap:8px;pointer-events:none}
+.map-over{display:flex;flex:0 1 auto;align-items:flex-end;gap:10px;min-height:0}
+.map-dock{display:flex;flex:none;flex-wrap:wrap;align-items:center;gap:6px}
 .map-dock > *{pointer-events:auto}
 .map-status{display:flex;align-items:center;gap:8px;min-width:0;min-height:30px;padding:3px 6px 3px 12px;border-radius:15px;font-size:12px;color:var(--text-2);font-variant-numeric:tabular-nums}
 .map-stats{min-width:0;padding-right:6px;overflow-wrap:anywhere}
@@ -161,13 +164,11 @@
 .map-minimap-wrap{padding:6px;line-height:0}
 .map-minimap{display:block;width:196px;height:128px;border-radius:var(--r-xs);background:var(--map-canvas-bg);cursor:crosshair}
 
-.map-legend,.map-about{position:absolute;left:0;bottom:40px;max-height:calc(100% - 48px);overflow-y:auto;overscroll-behavior:contain}
-.map-legend{width:226px;padding:8px}
-.map-about{width:360px;max-width:100%;padding:12px 14px}
+.map-legend,.map-about{max-height:100%;overflow-y:auto;overscroll-behavior:contain}
+.map-legend{flex:none;width:226px;max-width:100%;padding:8px}
+.map-about{flex:0 1 360px;min-width:0;padding:12px 14px}
 /* The notes take the focus to be scrolled by the keyboard: the ring lies inside, where the panel's edge does not cut it. */
 .map-root :is(.map-about,.map-empty-box):focus-visible{outline-offset:-3px;border-radius:var(--r-md)}
-/* Both open: the notes stand beside the legend. */
-.map-legend:not([hidden]) ~ .map-about{left:236px}
 .map-legend-title,.map-about-title,.map-insp-sec{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--text-3)}
 .map-legend-title{padding:4px 8px 6px}
 .map-legend-item{display:flex;align-items:center;gap:8px;width:100%;padding:5px 8px;border-radius:var(--r-sm);text-align:left;font-size:12.5px;transition:background .12s}
@@ -255,14 +256,20 @@
 .map-root .map-broken:focus-visible{outline-offset:-4px;border-radius:var(--r-md)}
 
 /* ---------- a smaller map ---------- */
-/* Up to 1300px wide the bar has room for the workspace only before the model alone, not before a section and a module
-   as well; up to 1100px it has none. The model's name says its workspace on hover, and the notes about the map name it. */
+/* The bar has room for the workspace as far as what stands after it leaves some: before a model, a section and a
+   module only in a map wider than 1500px, before a model and what is on screen up to 1300px, and before the model alone
+   up to 1100px. The model's name says its workspace on hover, and the notes about the map name it. */
+@container map (max-width:1500px){
+  .map-crumb-ws-deep{display:none}
+}
 @container map (max-width:1300px){
   .map-crumb-ws:not(.map-crumb-ws-alone){display:none}
 }
+/* Up to 1100px wide the bar of what is traced keeps to its counts: the details beside it name what is selected. */
 @container map (max-width:1100px){
   .map-crumb-ws{display:none}
   .map-select{max-width:150px}
+  .map-trace-name{display:none}
 }
 /* Up to 940px wide the bar takes two lines: the view's switch, where the map is and the search on the first, the
    controls on the second. The details' column is narrower. */
@@ -271,22 +278,20 @@
   .map-controls{order:5;flex:1 1 100%;flex-wrap:wrap}
   .map-chrome{grid-template-columns:minmax(0,1fr) minmax(0,280px)}
 }
-/* Up to 760px wide the details come up from the foot, over at most 45% of the height, in a row of their own: they cover
-   neither the bar nor the graph's room. The small picture goes while they are open, and the trace's bar keeps to its
-   counts. */
+/* Up to 760px wide the details come up from the foot, over at most two fifths of the height, in a row of their own:
+   they cover neither the bar nor the graph's room. Where the map is, and the controls, share the bar's second line
+   while they fit. The small picture goes while the details are open. */
 @container map (max-width:760px){
   .map-chrome{padding:8px;grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(96px,1fr) auto;grid-template-areas:"bar" "free" "details"}
   .map-has-inspector .map-chrome{grid-template-areas:"bar" "free" "details"}
-  .map-inspector{max-height:45cqh}
+  .map-inspector{max-height:40cqh}
   .map-searchwrap{flex:1 1 150px}
-  .map-crumbs{order:4;flex:1 1 100%}
+  .map-crumbs{order:4;flex:1 1 140px}
+  .map-controls{flex:0 1 auto}
   .map-has-inspector .map-corner{display:none}
-  .map-dock{max-width:100%}
-  .map-root:not(.map-has-inspector) .map-dock{max-width:calc(100% - 150px)}
+  .map-foot{max-width:100%}
+  .map-root:not(.map-has-inspector) .map-foot{max-width:calc(100% - 150px)}
   .map-minimap-wrap{transform:scale(.66);transform-origin:bottom right;margin:-44px 0 0 -67px}
-  .map-trace-name{display:none}
-  .map-legend,.map-about{max-width:100%}
-  .map-legend:not([hidden]) ~ .map-about{left:0}
 }
 /* A low map keeps its height for the graph and the details: the small picture goes, the zoom stays. */
 @container map (max-height:520px){

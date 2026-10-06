@@ -29,14 +29,18 @@ export const LIST_CAP = 100;
 export const ACCESS_SAYS = "Also draws a link from each read access driver and write access driver to what it controls.";
 /** What a line on the map means. */
 export const LINK_SAYS = "An arrow from A to B: B reads A.";
+/** Why a box beside a module's line items can be marked as part of a trace with no coloured link leading to it: there
+ * the trace follows the model from line item to line item (map-trace.ts), and draws only the links of this module. */
+export const BESIDE_SAYS = "Among a module's line items, a box that stands for another module can carry a sign without a coloured link: it feeds the line item selected, or is fed by it, by way of line items that are not on this map.";
 
 /** The names the view gives the elements that others point at. */
 export interface ShellIds { results: string; hints: string; legend: string; about: string; access: string }
 
 /** Everything the map puts into its element, empty of the model but for its name: the view fills the parts as it goes.
  * The canvas comes first, under the panels; then one bar (the view's switch, where the map is, the view's controls and
- * the search), the details of the node selected, and what stands over the canvas itself: the legend and the notes
- * about the map, both closed until asked for, the line that says what is shown, and the small picture with the zoom.
+ * the search), the details of the node selected, and what stands over the canvas itself: at its foot on the left the
+ * line that says what is shown, and over that line the legend and the notes about the map, both closed until asked
+ * for; at its foot on the right the small picture with the zoom.
  * The canvas is a picture to a screen reader, with a name, and the keys' list is its description. The notes can be
  * longer than the map is high: they scroll, and take the focus so that the keyboard scrolls them too. */
 export function shellHtml(ids: ShellIds, modelName: string): string {
@@ -68,11 +72,14 @@ export function shellHtml(ids: ShellIds, modelName: string): string {
   </div>
   <aside class="map-panel map-inspector" aria-label="Selected node details" hidden></aside>
   <div class="map-free">
+    <div class="map-foot">
+    <div class="map-over">
     <div class="map-panel map-legend" id="${esc(ids.legend)}" role="group" aria-label="Legend: shows and hides layers" hidden></div>
     <div class="map-panel map-about" id="${esc(ids.about)}" role="group" aria-label="About this map" tabindex="0" hidden>
       <div class="map-notes"></div>
       <h3 class="map-about-title">How to read the map</h3>
       <p class="map-about-line">${esc(LINK_SAYS)} Click a box to see everything that feeds it and everything it feeds: ${SIGN} at a box's right edge means it feeds the box selected, ${SIGN} at its left edge means the box selected feeds it.</p>
+      <p class="map-about-line">${esc(BESIDE_SAYS)}</p>
       <h3 class="map-about-title">Mouse and keys</h3>
       <p class="map-hints" id="${esc(ids.hints)}">
         <b>Click</b> a box: what feeds it and what it feeds · <b>Double-click</b>: open it<br>
@@ -81,11 +88,13 @@ export function shellHtml(ids: ShellIds, modelName: string): string {
         <b>Arrows</b> next box · <b>Enter</b> open it
       </p>
     </div>
+    </div>
     <div class="map-dock">
       <div class="map-panel map-status"><span class="map-stats"></span><button type="button" class="map-btn map-small" data-map-act="whole" hidden>Whole map</button></div>
       <div class="map-panel map-tracebar" hidden></div>
       <button type="button" class="map-btn map-dock-btn" data-map-act="legend" aria-expanded="false" aria-controls="${esc(ids.legend)}">Legend</button>
       <button type="button" class="map-btn map-dock-btn" data-map-act="about" aria-expanded="false" aria-controls="${esc(ids.about)}">About this map</button>
+    </div>
     </div>
     <div class="map-corner">
       <div class="map-zoom" role="group" aria-label="Zoom">
@@ -133,10 +142,12 @@ export interface Crumbs {
 export function crumbsHtml(crumbs: Crumbs): string {
   const sep = '<span class="map-sep" aria-hidden="true">›</span>';
   const parts: string[] = [];
-  // The workspace and the mark after it are one piece: where there is no room for the workspace, both go. Before the
-  // model alone it has more room than before a section and a module (`map-crumb-ws-alone`, map.css).
+  // The workspace and the mark after it are one piece: where there is no room for the workspace, both go. It says how
+  // much stands after it, for the stylesheet: before the model alone it has the most room (`map-crumb-ws-alone`), and
+  // before a model, a section and a module the least (`map-crumb-ws-deep`, map.css).
   const named = crumbs.workspace !== undefined && crumbs.workspace.trim() !== "";
-  const workspace = named ? `<span class="map-crumb-ws${crumbs.here === undefined ? " map-crumb-ws-alone" : ""}" title="Workspace: ${esc(crumbs.workspace)}"><span class="map-crumb-ws-name">${esc(crumbs.workspace)}</span>${sep}</span>` : "";
+  const depth = crumbs.here === undefined ? " map-crumb-ws-alone" : crumbs.section ? " map-crumb-ws-deep" : "";
+  const workspace = named ? `<span class="map-crumb-ws${depth}" title="Workspace: ${esc(crumbs.workspace)}"><span class="map-crumb-ws-name">${esc(crumbs.workspace)}</span>${sep}</span>` : "";
   // The model's name says its workspace on hover too: a narrow bar has no room to write it.
   const said = named ? `${crumbs.model} (workspace: ${crumbs.workspace})` : crumbs.model;
   parts.push(crumbs.here === undefined
