@@ -8,9 +8,11 @@
   Cardigan results page: the extension page the toolbar icon opens next to an Anaplan tab.
   The markup and results.css are the design's (design/results-page.html); the script is src/results, built into
   dist/results.js. Nothing here is loaded from outside the extension, and no script or handler is written inline.
+  map.css styles a model's map (src/map). It comes after results.css, whose tokens it uses.
 -->
 <link rel="icon" href="icons/32.png">
 <link rel="stylesheet" href="results.css">
+<link rel="stylesheet" href="map.css">
 </head>
 <body>
 <a class="skip" href="#view">Skip to results</a>
