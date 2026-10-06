@@ -253,8 +253,11 @@
   .map-head{display:contents}
   .map-tabs{grid-area:tabs;justify-self:start}
   .map-crumbs{grid-area:crumbs;justify-self:start}
-  .map-controls{justify-self:stretch;justify-content:flex-start;border-radius:var(--r-md)}
-  .map-select{max-width:170px}
+  .map-controls{justify-self:stretch;justify-content:flex-start;gap:4px;border-radius:var(--r-md)}
+  .map-btn{padding:0 9px}
+  .map-btn.map-icon{padding:0}
+  .map-select{max-width:150px}
+  .map-check{padding:0 2px}
   .map-left{display:none}
   .map-free,.map-root:not(.map-has-inspector) .map-free{grid-column:1 / 3}
   .map-right{position:absolute;left:10px;right:10px;bottom:10px;height:42%;justify-content:flex-end;align-items:stretch}
