@@ -31,6 +31,13 @@ export interface GraphNode {
   format?: string;
   /** For a line item formatted as a list that the export names: that list's node. */
   formatList?: number;
+  /** A line item's Format and Summary cells as the export holds them (Anaplan's JSON), so that the map can say them in
+   * the words the page's Line Items table uses (results/readable-cells.ts); and the names of the two line items a Ratio
+   * summary divides, from the export's Ratio Numerator and Ratio Denominator columns. */
+  formatCell?: string;
+  summaryCell?: string;
+  ratioNumerator?: string;
+  ratioDenominator?: string;
   /** A module's and a line item's cell count. */
   cells?: number;
   /** A list's item count. */
