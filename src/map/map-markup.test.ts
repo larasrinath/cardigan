@@ -243,8 +243,8 @@ describe("The map's panels", () => {
     expect(many.querySelectorAll("h3")[1].textContent).toBe("What this map leaves out · 13");
     expect(many.querySelectorAll("ul")).toHaveLength(1);
     // Every sentence is its own line, in the graph's order, and the count of names comes last.
-    expect(many.querySelectorAll("li").map(line => line.textContent)).toEqual([...dozen, "12 names in the export matched no object. A box's details list its own."]);
-    expect(parseMarkup(`<div>${notesHtml(model, [], 1)}</div>`).querySelectorAll("li").map(line => line.textContent)).toEqual(["1 name in the export matched no object. A box's details list its own."]);
+    expect(many.querySelectorAll("li").map(line => line.textContent)).toEqual([...dozen, "12 names in the export matched no object, or more than one. A box's details list its own."]);
+    expect(parseMarkup(`<div>${notesHtml(model, [], 1)}</div>`).querySelectorAll("li").map(line => line.textContent)).toEqual(["1 name in the export matched no object, or more than one. A box's details list its own."]);
   });
 
   it("says in the middle of a map with nothing to draw what is missing, and lists under it what the map leaves out", () => {
@@ -358,7 +358,7 @@ describe("The details' markup", () => {
       { key: "depends", title: "Feeds it directly · 2", open: true, links: [{ raw: 5, name: "Units", sub: "INP01 - Volumes", caption: "read access driver", layer: "lineitem" }, { node: "external7", name: "INP02 - Prices", layer: "external" }] },
       { key: "used", title: "It feeds directly · 0", open: false, links: [] },
     ],
-    texts: [{ key: "unresolved", title: "Names not found in the export · 1", lines: ["Referenced By: Retired.Total"] }],
+    texts: [{ key: "unresolved", title: "Names not matched to one object · 1", lines: ["Referenced By: Retired.Total"] }],
     notes: "Before discounts.", source: "Line Items.csv, row 42",
   };
 
@@ -406,7 +406,7 @@ describe("The details' markup", () => {
   it("makes each thing that feeds it a button: to an object of the model, or to a node on screen", () => {
     const panel = parseMarkup(inspectorHtml(inspection));
     const lists = panel.querySelectorAll(".map-details");
-    expect(lists.map(list => [list.dataset.mapList, list.hasAttribute("open"), list.querySelector("summary")?.textContent])).toEqual([["depends", true, "Feeds it directly · 2"], ["used", false, "It feeds directly · 0"], [undefined, false, "Names not found in the export · 1"]]);
+    expect(lists.map(list => [list.dataset.mapList, list.hasAttribute("open"), list.querySelector("summary")?.textContent])).toEqual([["depends", true, "Feeds it directly · 2"], ["used", false, "It feeds directly · 0"], [undefined, false, "Names not matched to one object · 1"]]);
     expect(lists[0].querySelectorAll(".map-link").map(each => [each.localName, each.dataset.mapAct, each.dataset.mapRaw, each.dataset.mapNode, each.querySelectorAll("small").map(small => small.textContent)]))
       .toEqual([["button", "raw", "5", undefined, ["INP01 - Volumes", "read access driver"]], ["button", "node", undefined, "external7", []]]);
     expect(lists[2].querySelectorAll("li").map(line => line.textContent)).toEqual(["Referenced By: Retired.Total"]);

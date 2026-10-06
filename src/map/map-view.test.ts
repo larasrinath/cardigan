@@ -811,7 +811,7 @@ describe("The map's views", () => {
     expect(text(".map-notes .map-about-line")).toBe("Demand Plan, in the workspace Sandbox: 1 module · 1 line item");
     expect(parts(".map-notes h3").map(title => title.textContent)).toEqual(["This model", "What this map leaves out · 13"]);
     expect(parts(".map-notes ul")).toHaveLength(1);
-    expect(parts(".map-notes li").map(line => line.textContent)).toEqual([...dozen, "2 names in the export matched no object. A box's details list its own."]);
+    expect(parts(".map-notes li").map(line => line.textContent)).toEqual([...dozen, "2 names in the export matched no object, or more than one. A box's details list its own."]);
     map.destroy();
     // A graph that lacks nothing has no such heading.
     const whole = new GraphMaker();
@@ -1876,7 +1876,7 @@ describe("A model's texts on the map", () => {
     check();
     expect([text(".map-insp-name"), part(".map-formula").textContent, parts(".map-insp-note").map(note => note.textContent)]).toEqual([script, closers, [breakOut]]);
     expect(parts(".map-inspector .map-lines li").map(line => line.textContent)).toEqual([`${quoted}: ${script}`]);
-    expect(parts(".map-notes li").map(line => line.textContent)).toEqual([img, "1 name in the export matched no object. A box's details list its own."]);
+    expect(parts(".map-notes li").map(line => line.textContent)).toEqual([img, "1 name in the export matched no object, or more than one. A box's details list its own."]);
     expect(parts(".map-link").map(link => link.querySelector(".map-link-text")?.childNodes[0].textContent)).toEqual([closers, single]);
     part(".map-search").type("alert");
     check();
