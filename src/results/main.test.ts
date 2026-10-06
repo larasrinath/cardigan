@@ -7,7 +7,7 @@ import { resultZip, tableCsv } from "../result-zip.js";
 import { FakeElement, FakeInput, FakePage, FakeSelect, parseMarkup } from "./dom.test-support.js";
 import { analysedLine, NOT_KEPT_NOTE, TOO_LARGE_NOTE } from "./keep-notes.js";
 import { KEPT_PREFIX, ResultKeeper, type KeptStorage } from "./keep-result.js";
-import { FORGOTTEN_LINE, keptCopyHtml, MAP_FAILED, NOT_REMOVED_LINE } from "./markup.js";
+import { FORGOTTEN_LINE, keptCopyHtml, MAP_FAILED, MAP_NO_FILE, NOT_REMOVED_LINE } from "./markup.js";
 
 /** What stands in for the model map (src/map). The page calls its two functions and drives what the second returns; how
  * a graph is built and a map drawn is not the page's, and is tested with them. Each test is given its own stand-ins. */
@@ -3181,7 +3181,7 @@ describe("A model's map on the results page", () => {
       .toEqual([["Model map", "Model map", "Model map"], false, [["h1", "sr-only"]], false, ["Overview"]]);
     // The view takes the focus, as every view does, and the page says what it shows. No table is shown, so there is
     // none to download; the result's zip is there as ever.
-    expect([page.document.activeElement === page.id("view"), page.id("live").textContent, disabled("dlAll", "dlCsv"), page.id("dlCsv").title]).toEqual([true, "Model map", [false, true], ""]);
+    expect([page.document.activeElement === page.id("view"), page.id("live").textContent, disabled("dlAll", "dlCsv")]).toEqual([true, "Model map", [false, true]]);
     // The navigation gives up height to the map while it is shown, and the map's entry is its last: the page brings
     // the entry into sight, where the navigation has to scroll for that.
     expect(page.all("#navList .nav-item").map(item => item.broughtIntoSight)).toEqual([0, 0, 0, 1]);
@@ -3255,6 +3255,60 @@ describe("A model's map on the results page", () => {
     // Its entry, chosen again, has no map to show anew: nothing is asked, and the view says the same.
     toMap();
     expect([mapAsked.length, notDrawn(), page.document.activeElement === page.id("view")]).toEqual([14, [MAP_FAILED], true]);
+  });
+
+  it("says on Download this table why it is off while the map is the view: the map has no file of its own", async () => {
+    /** The control: whether it is off, its title, and its description for a screen reader. */
+    const control = () => [page.id("dlCsv").disabled, page.id("dlCsv").title, page.id("dlCsv").getAttribute("aria-description")];
+    await open("?tab=42");
+    // Before there is a result the control is off as every download is, and that needs no saying. Nor does a link that
+    // names the map make it say so, where there is no result to have a map.
+    expect(control()).toEqual([true, "", null]);
+    page.id("banners").innerHTML = '<button type="button" data-nav="map">Map</button>';
+    page.find('#banners [data-nav="map"]').press();
+    ports[0].send({ type: "subject", subject: { kind: "model", id: MODEL.id } });
+    expect([page.id("runTitle").textContent, control(), mapAsked]).toEqual(["Ready to analyse", [true, "", null], []]);
+    page.id("runAgain").press();
+    sendResult(ports[0], MODEL);
+    // On the overview it saves the Details file, and its title says so.
+    expect(control()).toEqual([false, "Download Model Details.csv", null]);
+
+    toMap();
+    // On the map it is off, and says why on itself, in the page's own words: in its title, for whoever points at it,
+    // and as its description, for a screen reader. Its name is as ever, and the result's zip is there to download.
+    expect(MAP_NO_FILE).toBe("The model map has no file of its own: the tables it is made from are under their own entries.");
+    expect(control()).toEqual([true, MAP_NO_FILE, MAP_NO_FILE]);
+    expect([page.id("dlCsv").textContent.trim(), page.id("dlAll").disabled, page.id("dlCsv").focusable]).toEqual(["Download this table (.csv)", false, false]);
+    // It saves nothing there.
+    page.id("dlCsv").press();
+    expect([page.downloads, saved]).toEqual([[], []]);
+    // The entry chosen again leaves the control as it is.
+    toMap();
+    expect(control()).toEqual([true, MAP_NO_FILE, MAP_NO_FILE]);
+
+    // A table, and the overview: it saves a file again, says which, and nothing of the reason is left on it.
+    goTo(1);
+    expect(control()).toEqual([false, "Download Line Items.csv", null]);
+    page.id("dlCsv").press();
+    expect(page.downloads.map(download => download.name)).toEqual(["Line Items.csv"]);
+    toMap();
+    toOverview();
+    expect(control()).toEqual([false, "Download Model Details.csv", null]);
+    // A run that starts while the map is shown puts the overview in its place: the control is the overview's again.
+    toMap();
+    expect(control()).toEqual([true, MAP_NO_FILE, MAP_NO_FILE]);
+    page.id("runAgain").press();
+    expect([shows()[0], control()]).toEqual(["Overview", [false, "Download Model Details.csv", null]]);
+
+    // A map that could not be drawn has no file either: its view says so on the control in the same words.
+    mapThrows.build = new Error("No graph.");
+    sendResult(ports[0], MODEL);
+    toMap();
+    expect([notDrawn(), control()]).toEqual([[MAP_FAILED], [true, MAP_NO_FILE, MAP_NO_FILE]]);
+    // An app has no map, and its control never says so.
+    page.id("runAgain").press();
+    sendResult(ports[0], APP);
+    expect(control()).toEqual([false, "Download App Details.csv", null]);
   });
 
   it("tells a mounted map that the theme has changed, shown or hidden, once the page has the new theme; a map that is not mounted is told nothing", async () => {
