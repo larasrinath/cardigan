@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Cell, ResultTable } from "../result-types.js";
 import { buildModelGraph } from "./build-graph.js";
-import { definitionOf, idOf, integer, knownSequence, separator, splitOutside, stripChars, unquote } from "./graph-names.js";
+import { definitionOf, idOf, integer, knownNames, knownSequence, nothing, separator, splitOutside, stripChars, unquote } from "./graph-names.js";
 import type { EdgeKind, GraphNode, ModelGraph } from "./graph-types.js";
 
 // Made-up names only: nothing here comes from a real model. The tables are written by hand in the shape of the export's
@@ -31,6 +31,11 @@ const processesFile = filled("Processes", ACTION_HEADERS);
 const importsFile = filled("Imports", IMPORT_HEADERS);
 const exportsFile = filled("Exports", ACTION_HEADERS);
 const otherActions = filled("Other Actions", ACTION_HEADERS);
+/** A table without one of its columns. */
+const without = (table: ResultTable, ...headers: string[]): ResultTable => {
+  const kept = table.headers.map((header, index) => (headers.includes(header) ? -1 : index)).filter(index => index >= 0);
+  return { ...table, headers: kept.map(index => table.headers[index]), rows: table.rows.map(row => kept.map(index => row[index])) };
+};
 
 const NUMBER = '{"minimumSignificantDigits":4,"decimalPlaces":-1,"dataType":"NUMBER"}';
 const BOOLEAN = '{"dataType":"BOOLEAN"}';
@@ -49,12 +54,11 @@ const moduleRow = (name: string, cells: Cells = {}): Cells => ({ "": name, ...ce
 const item = (inModule: string, name: string, cells: Cells = {}): Cells => ({ "": name, "Module Name": inModule, Format: NUMBER, Summary: SUM, "Applies To": "-", ...cells });
 const action = (name: string, cells: Cells = {}): Cells => ({ "": name, ...cells });
 
-/** What the map always says: what no export says, word for word. */
-const STANDING = [
-  "The export gives the number of items in each list, not the items.",
-  "The export says which processes use an action, not the order in which a process runs its actions.",
-  "Every link comes from a column of the export that names another object: formulas are kept as text and are not worked out.",
-];
+/** What the map says of every export it is true of, word for word. */
+const LIST_ITEMS = "The export gives the number of items in each list, not the items.";
+const NO_LIST_ITEMS = "The export does not give the items of a list.";
+const PROCESS_ORDER = "The export says which processes use an action, not the order in which a process runs its actions.";
+const LINKS = "Every link comes from a column of the export that names another object: formulas are kept as text and are not worked out.";
 const IMPORT_SOURCES = "Where an import takes its data from is in the Imports table, not on the map.";
 const NO_MODULES_FILE = "Modules was not exported, so a row of Line Items that holds only a name is taken for a module's own row.";
 const NOT_EXPORTED = {
@@ -77,6 +81,10 @@ const anyOrder = (lines: readonly string[]): string[] => [...lines].sort();
 /** The graph's links in words, in any order; of these kinds only, where kinds are given. */
 const links = (graph: ModelGraph, ...kinds: EdgeKind[]): string[] =>
   anyOrder(graph.edges.filter(([, , kind]) => !kinds.length || kinds.includes(kind)).map(([from, to, kind]) => `${called(graph, from)} -> ${called(graph, to)} (${kind})`));
+/** The same with each node's kind before its name, for where two objects have one name. */
+const kindLinks = (graph: ModelGraph, ...kinds: EdgeKind[]): string[] =>
+  anyOrder(graph.edges.filter(([, , kind]) => !kinds.length || kinds.includes(kind))
+    .map(([from, to, kind]) => `${graph.nodes[from].kind} ${called(graph, from)} -> ${graph.nodes[to].kind} ${called(graph, to)} (${kind})`));
 const unresolved = (graph: ModelGraph): string[] => graph.unresolved.map(entry => `${called(graph, entry.source)}: ${entry.field}: ${entry.reference}`);
 const node = (graph: ModelGraph, name: string, kind?: GraphNode["kind"]): GraphNode => {
   const found = graph.nodes.filter(candidate => candidate.name === name && (kind === undefined || candidate.kind === kind));
@@ -84,6 +92,20 @@ const node = (graph: ModelGraph, name: string, kind?: GraphNode["kind"]): GraphN
   return found[0];
 };
 const names = (graph: ModelGraph, ids: readonly number[] | undefined): string[] | undefined => ids?.map(id => called(graph, id));
+/** The sentences that count what was left out or could not be linked: those that start with a number. */
+const counted = (graph: ModelGraph): string[] => graph.limitations.filter(line => /^\d/.test(line));
+
+/** A generator of the same numbers every run, so that a case that fails can be made again. */
+function seeded(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let mixed = state;
+    mixed = Math.imul(mixed ^ (mixed >>> 15), mixed | 1);
+    mixed ^= mixed + Math.imul(mixed ^ (mixed >>> 7), mixed | 61);
+    return ((mixed ^ (mixed >>> 14)) >>> 0) / 4294967296;
+  };
+}
 
 describe("The names in a cell of a model export", () => {
   it("takes a row for a heading when its name starts with two dashes or is nothing but spaces, dots and dashes", () => {
@@ -98,12 +120,16 @@ describe("The names in a cell of a model export", () => {
     expect(["Revenue", "'REV01 Revenue, net'", "'It''s a ''plan'''", " 'Padded' ", "''", "'a'b'"].map(unquote)).toEqual(["Revenue", "REV01 Revenue, net", "It's a 'plan'", "Padded", "", "a'b"]);
     // A quote at one end only is part of the name, and one quote alone is a name.
     expect(["'Unclosed", "Closed only'", "'", "It's"].map(unquote)).toEqual(["'Unclosed", "Closed only'", "'", "It's"]);
+    // A cell that names one thing names nothing when it is empty or holds the dash the export writes for "none".
+    expect(["", " ", "-", " - "].map(nothing)).toEqual([true, true, true, true]);
+    expect(["--", "- -", "Prices", "'-'", "0"].map(nothing)).toEqual([false, false, false, false, false]);
   });
 
   it("splits a cell of names only outside single quotes, and leaves out an empty part and a dash", () => {
     expect(splitOutside("Products, 'Regions, north & south',Channels")).toEqual(["Products", "'Regions, north & south'", "Channels"]);
     // Two single quotes inside a quoted name end nothing: the comma after them is still inside.
     expect(splitOutside("'It''s, here', 'O''Brien''s', x")).toEqual(["'It''s, here'", "'O''Brien''s'", "x"]);
+    expect(splitOutside("'a'',''b', c")).toEqual(["'a'',''b'", "c"]);
     expect([splitOutside(""), splitOutside("-"), splitOutside(" - ,, -, Products , ")]).toEqual([[], [], ["Products"]]);
     // A quote that is never closed keeps the rest of the cell together.
     expect(splitOutside("Products, 'Regions, north, Channels")).toEqual(["Products", "'Regions, north, Channels"]);
@@ -111,20 +137,96 @@ describe("The names in a cell of a model export", () => {
     expect(splitOutside("'Plan v1.2'.'Rate, net (50%)'", ".")).toEqual(["'Plan v1.2'", "'Rate, net (50%)'"]);
     expect([splitOutside("REV01 Revenue.Units", "."), splitOutside("Units", "."), splitOutside("A..B", "."), splitOutside("A.-", "."), splitOutside(".", ".")])
       .toEqual([["REV01 Revenue", "Units"], ["Units"], ["A", "B"], ["A"], []]);
+    // Where a cell writes a format after each name, a comma inside brackets is the format's, and only there.
+    expect(splitOutside("Rate: NUMBER (2 dp, %), Code: TEXT", ",", true)).toEqual(["Rate: NUMBER (2 dp, %)", "Code: TEXT"]);
+    expect(splitOutside("Rate: NUMBER (2 dp, %), Code: TEXT")).toEqual(["Rate: NUMBER (2 dp", "%)", "Code: TEXT"]);
+    expect(splitOutside("a [b, {c, d}], e), f, '(', g", ",", true)).toEqual(["a [b, {c, d}]", "e)", "f", "'('", "g"]);
   });
 
-  it("finds the known names in a cell that writes them without quotes, the longest first, and takes what is left for names as written", () => {
-    const known = new Set(["Nightly load", "Nightly load, full", "Weekly"]);
-    const longest = "Nightly load, full".length;
-    const sequence = (text: string): string[] => knownSequence(text, known, longest);
-    expect(sequence("Nightly load, Nightly load, full, Weekly")).toEqual(["Nightly load", "Nightly load, full", "Weekly"]);
-    expect([sequence("Nightly load, full"), sequence("Nightly load"), sequence(" Weekly "), sequence("")]).toEqual([["Nightly load, full"], ["Nightly load"], ["Weekly"], []]);
-    // A name that is not known ends at the next comma and space, and is given as it is written.
-    expect(sequence("Gone, Weekly, Old, load")).toEqual(["Gone", "Weekly", "Old", "load"]);
+  it("finds the known names in a cell that writes them without quotes, and gives what is left as it is written", () => {
+    const read = (text: string, ...known: string[]): string[] | undefined => knownSequence(text, knownNames(known))?.map(part => (part.known ? part.name : `?${part.name}`));
+    const loads = ["Nightly load", "Nightly load, full", "Weekly"];
+    // A name may hold a comma and a space: "Nightly load, full" is one process, where no process is called "full".
+    expect(read("Nightly load, Nightly load, full, Weekly", ...loads)).toEqual(["Nightly load", "Nightly load, full", "Weekly"]);
+    expect([read("Nightly load, full", ...loads), read("Nightly load", ...loads), read(" Weekly ", ...loads)]).toEqual([["Nightly load, full"], ["Nightly load"], ["Weekly"]]);
+    // A part that is no known name ends at the next comma and space, and is given as it is written.
+    expect(read("Gone, Weekly, Old, load", ...loads)).toEqual(["?Gone", "Weekly", "?Old", "?load"]);
     // A known name counts only where it ends at the cell's end or before a comma and a space.
-    expect([sequence("Weekly load"), sequence("Weekly,Nightly load"), sequence("Weekly,  Weekly")]).toEqual([["Weekly load"], ["Weekly,Nightly load"], ["Weekly", "Weekly"]]);
-    // Without known names every part is a name as written, and an empty part is one too: the caller finds it matches nothing.
-    expect(knownSequence("a, , b", new Set(), 0)).toEqual(["a", "", "b"]);
+    expect([read("Weekly load", ...loads), read("Weekly,Nightly load", ...loads), read("Weekly,  Weekly", ...loads)]).toEqual([["?Weekly load"], ["?Weekly,Nightly load"], ["Weekly", "? Weekly"]]);
+    // An empty cell and a dash name nothing, and neither does an empty part, a dash or a stray comma among the names.
+    expect([read("", ...loads), read("-", ...loads), read(" - ", ...loads), read("Weekly, , -, Weekly", ...loads), read("a, , b")]).toEqual([[], [], [], ["Weekly", "Weekly"], ["?a", "?b"]]);
+    expect([read(",", ...loads), read("Weekly, ,", ...loads), read(", ,, Weekly,", ...loads)]).toEqual([[], ["Weekly"], ["?Weekly,"]]);
+    // The cell is read as known names wherever it can be: the way that leaves the fewest parts over. Taking the longest
+    // name first, as the prototype did, would leave C over.
+    expect(read("A, B, C", "A", "A, B", "B, C")).toEqual(["A", "B, C"]);
+    expect(read("A, B, C", "A, B")).toEqual(["A, B", "?C"]);
+  });
+
+  it("does not choose between two ways to read a cell: a name that is two other names with a comma between", () => {
+    const read = (text: string, ...known: string[]): string[] | undefined => knownSequence(text, knownNames(known))?.map(part => (part.known ? part.name : `?${part.name}`));
+    const times = ["Daily", "Weekly", "Daily, Weekly"];
+    // Daily and Weekly, or the one process "Daily, Weekly": the cell does not say.
+    expect(read("Daily, Weekly", ...times)).toBeUndefined();
+    expect([read("Monthly, Daily, Weekly", ...times), read("Daily, Weekly, Daily", ...times)]).toEqual([undefined, undefined]);
+    // Each alone is read, and so is the pair where only one way is all known names.
+    expect([read("Daily", ...times), read("Weekly, Daily", ...times), read("Daily, Weekly", "Daily", "Daily, Weekly"), read("Daily, Weekly", "Daily, Weekly")])
+      .toEqual([["Daily"], ["Weekly", "Daily"], ["Daily, Weekly"], ["Daily, Weekly"]]);
+    // Two ways that each leave one part over are two ways as well.
+    expect([read("A, B, C", "A, B", "B, C"), read("A, A, A", "A, A")]).toEqual([undefined, undefined]);
+  });
+
+  it("reads a cell of names as the one best way to cut it at its commas, checked against every way to cut it", () => {
+    const random = seeded(20261006);
+    const pick = <T>(from: readonly T[]): T => from[Math.floor(random() * from.length)];
+    const upTo = (most: number): number => Math.floor(random() * (most + 1));
+    let twoWays = 0;
+    for (let round = 0; round < 4000; round++) {
+      // Few parts to make names and cells of, so that a name is often the start of another and a cell often reads two ways.
+      const known = new Set(Array.from({ length: 1 + upTo(5) }, () => Array.from({ length: 1 + upTo(2) }, () => pick(["a", "a", "b", "a b"])).join(", ")));
+      const cell = Array.from({ length: upTo(8) }, () => pick(["a", "a", "a", "b", "b", "a b", "c", "", "-", ","])).join(", ");
+      // A part that says nothing: empty, a dash, or nothing but a comma.
+      const silent = (part: string): boolean => nothing(stripChars(part, ", "));
+      const parts = silent(cell) ? [] : cell.trim().split(", ");
+      // Every way to cut the cell: at each part, either a known name starts there, or the part alone is no known name.
+      const ways: { over: number; names: string[] }[] = [];
+      const cut = (at: number, over: number, soFar: string[]): void => {
+        if (at === parts.length) {
+          ways.push({ over, names: soFar });
+          return;
+        }
+        cut(at + 1, over + (silent(parts[at]) ? 0 : 1), silent(parts[at]) ? soFar : [...soFar, `?${parts[at]}`]);
+        for (let end = at + 1; end <= parts.length; end++) {
+          const name = parts.slice(at, end).join(", ");
+          if (known.has(name)) cut(end, over, [...soFar, name]);
+        }
+      };
+      cut(0, 0, []);
+      const fewest = Math.min(...ways.map(way => way.over));
+      const best = ways.filter(way => way.over === fewest);
+      if (best.length > 1) twoWays++;
+      const read = knownSequence(cell, knownNames(known))?.map(part => (part.known ? part.name : `?${part.name}`));
+      expect(read, `${JSON.stringify([...known])} in ${JSON.stringify(cell)}`).toEqual(best.length === 1 ? best[0].names : undefined);
+    }
+    // Both outcomes are well among the cases: about 200 of the 4,000 cells read two ways.
+    expect(twoWays).toBeGreaterThan(100);
+    expect(twoWays).toBeLessThan(1000);
+  });
+
+  it("reads a long cell in a time that grows with the cell, however long a known name is", () => {
+    // One name of 3,000 characters, and one as long that is made of the cell's own parts.
+    for (const long of ["p".repeat(3000), Array.from({ length: 750 }, () => "ab").join(", ")]) {
+      const known = knownNames([long, "Weekly"]);
+      const cell = [...Array.from({ length: 1000 }, () => "ab"), "Weekly"].join(", ");
+      const started = performance.now();
+      let read: ReturnType<typeof knownSequence>;
+      for (let times = 0; times < 300; times++) read = knownSequence(cell, known);
+      const took = performance.now() - started;
+      // The long name of one part is found nowhere, and Weekly at the end. The long name of many parts is found at 251
+      // places, each as good as the next, so the cell reads many ways.
+      expect(read === undefined ? undefined : [read.length, read[read.length - 1]]).toEqual(long.includes(",") ? undefined : [1001, { name: "Weekly", known: true }]);
+      // Loosely: 300 such cells take some tens of milliseconds. Looked up prefix by prefix they took minutes.
+      expect(took).toBeLessThan(2_000);
+    }
   });
 
   it("reads a count, a definition and an ID, and nothing from a cell that holds none", () => {
@@ -142,34 +244,42 @@ describe("The model map's graph, from the tables of a model export", () => {
   it("makes a list, its subsets and its properties from General Lists, under the heading rows above them", () => {
     const graph = buildModelGraph([generalLists(
       heading("-- ORGANISATION --"),
-      list("Regions", { "Top Level": "All Regions", "Item Count": "12", Subsets: "Active Regions, 'North, coastal'", Properties: "Code: TEXT, Manager: Users, Opened: Date: DATE, Odd",
-        Notes: "Sales regions" }),
+      list("Regions", { "Top Level": "All Regions", "Item Count": "12", Subsets: "Active Regions, 'North, coastal'", Notes: "Sales regions",
+        Properties: "Code: TEXT, 'Opened, on': DATE, Rate: NUMBER (2 dp, %), Opened: Date: DATE, Odd, Tag:TEXT" }),
       list("Countries", { "Parent Hierarchy": "Regions", "Item Count": "1,204" }),
       list("Outlets", { "Parent Hierarchy": "Active Regions", "Item Count": "0" }),
+      list("Docks", { "Parent Hierarchy": "'North, coastal'" }),
       heading("--- Products"),
-      list("Products", { "Top Level": "All Products", "Item Count": "n/a" }),
+      list("Products", { "Top Level": "All Products", "Item Count": "n/a", "Parent Hierarchy": "-" }),
       list("Orders", { Numbered: "true", "Display Name Property": "Label", Properties: "Label: TEXT", "Parent Hierarchy": "Tastes" }),
     )]);
     const from = { file: "General Lists" };
-    // The lists in the file's order, each with its row counted from 1, heading rows included. Then each list's subsets and
-    // properties, which carry their list's row and group. A subset is named as the cell writes it, quotes and all; a
-    // property's name ends at the last colon that a space follows; "Odd" names no format and is no property.
+    // The lists in the file's order. A row is numbered as a spreadsheet numbers it: the header is row 1, the first heading
+    // row 2. Then each list's subsets and properties, which carry their list's row and group. A subset and a property
+    // are named out of their quotes, as what refers to them names them. A property's name ends at the last colon that a
+    // space follows, and a comma in brackets is its format's.
     expect(graph.nodes).toEqual([
-      { id: 0, kind: "list", name: "Regions", ...from, row: 2, group: "ORGANISATION", topLevel: "All Regions", count: 12, numbered: false, notes: "Sales regions" },
-      { id: 1, kind: "list", name: "Countries", ...from, row: 3, group: "ORGANISATION", count: 1204, numbered: false, parent: 0 },
-      { id: 2, kind: "list", name: "Outlets", ...from, row: 4, group: "ORGANISATION", count: 0, numbered: false, parent: 5 },
-      { id: 3, kind: "list", name: "Products", ...from, row: 6, group: "Products", topLevel: "All Products", numbered: false },
-      { id: 4, kind: "list", name: "Orders", ...from, row: 7, group: "Products", numbered: true, displayName: "Label" },
-      { id: 5, kind: "subset", name: "Active Regions", ...from, row: 2, group: "ORGANISATION", parent: 0 },
-      { id: 6, kind: "subset", name: "'North, coastal'", ...from, row: 2, group: "ORGANISATION", parent: 0 },
-      { id: 7, kind: "property", name: "Code", ...from, row: 2, group: "ORGANISATION", parent: 0, format: "TEXT" },
-      { id: 8, kind: "property", name: "Manager", ...from, row: 2, group: "ORGANISATION", parent: 0, format: "Users" },
-      { id: 9, kind: "property", name: "Opened: Date", ...from, row: 2, group: "ORGANISATION", parent: 0, format: "DATE" },
-      { id: 10, kind: "property", name: "Label", ...from, row: 7, group: "Products", parent: 4, format: "TEXT" },
+      { id: 0, kind: "list", name: "Regions", ...from, row: 3, group: "ORGANISATION", topLevel: "All Regions", count: 12, numbered: false, notes: "Sales regions" },
+      { id: 1, kind: "list", name: "Countries", ...from, row: 4, group: "ORGANISATION", count: 1204, numbered: false, parent: 0 },
+      { id: 2, kind: "list", name: "Outlets", ...from, row: 5, group: "ORGANISATION", count: 0, numbered: false, parent: 6 },
+      { id: 3, kind: "list", name: "Docks", ...from, row: 6, group: "ORGANISATION", numbered: false, parent: 7 },
+      { id: 4, kind: "list", name: "Products", ...from, row: 8, group: "Products", topLevel: "All Products", numbered: false },
+      { id: 5, kind: "list", name: "Orders", ...from, row: 9, group: "Products", numbered: true, displayName: "Label" },
+      { id: 6, kind: "subset", name: "Active Regions", ...from, row: 3, group: "ORGANISATION", parent: 0 },
+      { id: 7, kind: "subset", name: "North, coastal", ...from, row: 3, group: "ORGANISATION", parent: 0 },
+      { id: 8, kind: "property", name: "Code", ...from, row: 3, group: "ORGANISATION", parent: 0, format: "TEXT" },
+      { id: 9, kind: "property", name: "Opened, on", ...from, row: 3, group: "ORGANISATION", parent: 0, format: "DATE" },
+      { id: 10, kind: "property", name: "Rate", ...from, row: 3, group: "ORGANISATION", parent: 0, format: "NUMBER (2 dp, %)" },
+      { id: 11, kind: "property", name: "Opened: Date", ...from, row: 3, group: "ORGANISATION", parent: 0, format: "DATE" },
+      { id: 12, kind: "property", name: "Label", ...from, row: 9, group: "Products", parent: 5, format: "TEXT" },
     ]);
-    // A list's parent is a list or a subset; one that is neither is a name that matched nothing.
-    expect(graph.edges).toEqual([[0, 1, "parent"], [0, 5, "subset"], [0, 6, "subset"], [5, 2, "parent"]]);
-    expect(graph.unresolved).toEqual([{ source: 4, field: "Parent Hierarchy", reference: "Tastes" }]);
+    // A list's parent is a list or a subset, as the cell writes it or out of its quotes. A dash is no parent, and a name
+    // that is neither a list's nor a subset's matched nothing.
+    expect(graph.edges).toEqual([[0, 1, "parent"], [0, 6, "subset"], [0, 7, "subset"], [6, 2, "parent"], [7, 3, "parent"]]);
+    expect(graph.unresolved).toEqual([{ source: 5, field: "Parent Hierarchy", reference: "Tastes" }]);
+    // "Odd" names no format, and "Tag:TEXT" has no space after its colon: neither is a property, and the map says so.
+    expect(counted(graph)).toEqual(['2 parts of Properties cells do not read as "name: format" and are left out.']);
+    expect(counted(buildModelGraph([generalLists(list("Regions", { Properties: "Odd" }))]))).toEqual(['1 part of a Properties cell does not read as "name: format" and is left out.']);
     // The sections are the modules', and there is no module.
     expect(graph.sections).toEqual([]);
   });
@@ -184,21 +294,38 @@ describe("The model map's graph, from the tables of a model export", () => {
         item("COST01 Costs, direct", "Rate", { "Applies To": "Products" })),
       generalLists(
         list("Products", { "Referenced in Applies To": "REV01 Revenue, 'COST01 Costs, direct'.Rate, Old module", "Referenced as Format": "REV01 Revenue.Product, Customers.Favourite",
-          "Referenced in Formula": "REV01 Revenue.Units, REV01 Revenue.'Gone item'" }),
-        list("Customers", { Properties: "Favourite: Products" })),
+          "Referenced in Formula": "REV01 Revenue.Units, REV01 Revenue.'Gone item', Customers.Spend" }),
+        list("Customers", { Properties: "Favourite: Products, Spend: NUMBER" })),
     ]);
     expect(links(graph)).toEqual(anyOrder([
       // What the list's own columns name. The module's Applies To says the first of these too: it is one link.
       "Products -> REV01 Revenue (applies)", "Products -> COST01 Costs, direct.Rate (applies)",
       "Products -> REV01 Revenue.Product (format)", "Products -> Customers.Favourite (format)",
-      "Products -> REV01 Revenue.Units (list_formula)",
+      "Products -> REV01 Revenue.Units (list_formula)", "Products -> Customers.Spend (list_formula)",
       // And the two line items that have their module's dimensions.
       "Products -> REV01 Revenue.Product (applies)", "Products -> REV01 Revenue.Units (applies)",
     ]));
-    expect(links(graph)).toHaveLength(7);
+    expect(links(graph)).toHaveLength(8);
     expect(unresolved(graph)).toEqual(["Products: Referenced in Applies To: Old module", "Products: Referenced in Formula: REV01 Revenue.'Gone item'"]);
     // The list's Referenced as Format names the line item, so the line item's list is known.
     expect(node(graph, "Product").formatList).toBe(node(graph, "Products").id);
+  });
+
+  it("links a list's Referenced columns only to what each can name, and leaves any other name unresolved", () => {
+    const graph = buildModelGraph([
+      lineItems(moduleRow("Sales plan"), item("Sales plan", "Volume")),
+      generalLists(
+        // A list applies to a module or a line item: not to a list, a subset or a list's property. It is the format, or in
+        // the formula, of a line item or a list's property: not of a module, a list or a subset.
+        list("Brands", { Properties: "Code: TEXT", "Referenced in Applies To": "Depots, Seasonal, Brands.Code, Sales plan", "Referenced as Format": "Sales plan, Depots, Sales plan.Volume",
+          "Referenced in Formula": "Sales plan, Seasonal, Brands.Code" }),
+        list("Depots"),
+        list("Seasons", { Subsets: "Seasonal" })),
+    ]);
+    expect(kindLinks(graph)).toEqual(anyOrder(["list Brands -> module Sales plan (applies)", "list Brands -> lineItem Sales plan.Volume (format)", "list Brands -> property Brands.Code (list_formula)",
+      "list Seasons -> subset Seasonal (subset)"]));
+    expect(unresolved(graph)).toEqual(["Brands: Referenced in Applies To: Depots", "Brands: Referenced in Applies To: Seasonal", "Brands: Referenced in Applies To: Brands.Code",
+      "Brands: Referenced as Format: Sales plan", "Brands: Referenced as Format: Depots", "Brands: Referenced in Formula: Sales plan", "Brands: Referenced in Formula: Seasonal"]);
   });
 
   it("takes a row of Line Items that names no module for a heading or a module, and a row that names one for its line item", () => {
@@ -206,7 +333,8 @@ describe("The model map's graph, from the tables of a model export", () => {
       moduleRow("SYS00 Settings", { "Time Scale": "Not Applicable", Versions: "Not Applicable", "Cell Count": "3", Notes: "Model settings" }),
       item("SYS00 Settings", "Horizon", { Summary: NO_SUMMARY, "Cell Count": "3", Code: "H1", Style: "Normal", Notes: "Years planned", "Time Scale": "Not Applicable", Versions: "Not Applicable" }),
       heading("-- 01 : REVENUE --"),
-      moduleRow("REV01 Revenue", { "Time Scale": "Month", "Time Range": "Model Calendar", Versions: "All", "Cell Count": "2,400" }),
+      // A Module Name, a Format, a Formula and a Summary of nothing but spaces say nothing: the row is the module's own.
+      moduleRow("REV01 Revenue", { "Time Scale": "Month", "Time Range": "Model Calendar", Versions: "All", "Cell Count": "2,400", "Module Name": " ", Format: " ", Formula: "  ", Summary: " " }),
       item("REV01 Revenue", "Revenue", { Formula: "Units * Price", "Cell Count": "1200", "Time Scale": "Month", Versions: "All" }),
       // A line item that divides its module's line items is a line item: it names its module.
       item("REV01 Revenue", "--- Checks ---", { Format: NO_DATA, Summary: NO_SUMMARY, Style: "Heading 1" }),
@@ -215,23 +343,37 @@ describe("The model map's graph, from the tables of a model export", () => {
       heading("-- 02 : COSTS --"),
       moduleRow("COST01 Costs"),
       heading("-- 03 : ARCHIVE --"),
+      // A line item's group is its module's, whatever heading stands nearest above its own row.
+      item("REV01 Revenue", "Late"),
     )]);
     const from = { file: "Line Items" };
     expect(graph.nodes).toEqual([
-      { id: 0, kind: "module", name: "SYS00 Settings", ...from, row: 1, group: "Ungrouped", notes: "Model settings", cells: 3, timeScale: "Not Applicable", versions: "Not Applicable" },
-      { id: 1, kind: "lineItem", name: "Horizon", ...from, row: 2, module: 0, group: "Ungrouped", format: "NUMBER", cells: 3, notes: "Years planned", style: "Normal",
+      { id: 0, kind: "module", name: "SYS00 Settings", ...from, row: 2, group: "Ungrouped", notes: "Model settings", cells: 3, timeScale: "Not Applicable", versions: "Not Applicable" },
+      { id: 1, kind: "lineItem", name: "Horizon", ...from, row: 3, module: 0, group: "Ungrouped", format: "NUMBER", cells: 3, notes: "Years planned", style: "Normal",
         timeScale: "Not Applicable", versions: "Not Applicable", code: "H1", summary: "NONE", inheritsDimensions: true },
-      { id: 2, kind: "module", name: "REV01 Revenue", ...from, row: 4, group: "01 : REVENUE", cells: 2400, timeScale: "Month", timeRange: "Model Calendar", versions: "All" },
-      { id: 3, kind: "lineItem", name: "Revenue", ...from, row: 5, module: 2, group: "01 : REVENUE", formula: "Units * Price", format: "NUMBER", cells: 1200, timeScale: "Month",
+      { id: 2, kind: "module", name: "REV01 Revenue", ...from, row: 5, group: "01 : REVENUE", cells: 2400, timeScale: "Month", timeRange: "Model Calendar", versions: "All" },
+      { id: 3, kind: "lineItem", name: "Revenue", ...from, row: 6, module: 2, group: "01 : REVENUE", formula: "Units * Price", format: "NUMBER", cells: 1200, timeScale: "Month",
         versions: "All", summary: "SUM", inheritsDimensions: true },
-      { id: 4, kind: "lineItem", name: "--- Checks ---", ...from, row: 6, module: 2, group: "01 : REVENUE", format: "NONE", style: "Heading 1", summary: "NONE", inheritsDimensions: true },
+      { id: 4, kind: "lineItem", name: "--- Checks ---", ...from, row: 7, module: 2, group: "01 : REVENUE", format: "NONE", style: "Heading 1", summary: "NONE", inheritsDimensions: true },
       // A heading of nothing but dashes ends the group above it and names none.
-      { id: 5, kind: "module", name: "REV02 Margin", ...from, row: 8, group: "Ungrouped" },
-      { id: 6, kind: "module", name: "COST01 Costs", ...from, row: 10, group: "02 : COSTS" },
+      { id: 5, kind: "module", name: "REV02 Margin", ...from, row: 9, group: "Ungrouped" },
+      { id: 6, kind: "module", name: "COST01 Costs", ...from, row: 11, group: "02 : COSTS" },
+      { id: 7, kind: "lineItem", name: "Late", ...from, row: 13, module: 2, group: "01 : REVENUE", format: "NUMBER", summary: "SUM", inheritsDimensions: true },
     ]);
     // The groups that a module is in, in the file's order, each once. A heading with no module under it is no section.
     expect(graph.sections).toEqual(["Ungrouped", "01 : REVENUE", "02 : COSTS"]);
-    expect([graph.edges, graph.unresolved]).toEqual([[], []]);
+    expect([graph.edges, graph.unresolved, counted(graph)]).toEqual([[], [], []]);
+  });
+
+  it("takes a row with no Module Name for a line item, and leaves it out, when it has a format, a formula or a summary", () => {
+    // Each of the three alone marks the row: a module's own row has none of them.
+    const marked = (cells: Cells): string[] => {
+      const graph = buildModelGraph([lineItems(moduleRow("REV01 Revenue"), { "": "Margin", ...cells }, item("REV01 Revenue", "Units"))]);
+      return [graph.nodes.map(each => each.name).join(", "), ...counted(graph)];
+    };
+    const leftOut = ["REV01 Revenue, Units", "1 row of Line Items is no module's own and names no module: it is left out."];
+    expect([marked({ Format: NUMBER }), marked({ Formula: "Units * 2" }), marked({ Summary: SUM })]).toEqual([leftOut, leftOut, leftOut]);
+    expect(marked({ Notes: "Only a note" })).toEqual(["REV01 Revenue, Margin, Units"]);
   });
 
   it("reads a line item's format and summary from the cell's JSON, and keeps a Format that is no JSON as it is", () => {
@@ -260,78 +402,97 @@ describe("The model map's graph, from the tables of a model export", () => {
   it("gives a line item with a dash under Applies To its module's dimensions, and says that they are the module's", () => {
     const graph = buildModelGraph([
       lineItems(
-        moduleRow("REV01 Revenue", { "Applies To": "Products, 'Regions, north', Users" }),
+        moduleRow("REV01 Revenue", { "Applies To": "Products, 'Regions, north', Users, Time" }),
         item("REV01 Revenue", "Units"),
         item("REV01 Revenue", "Price", { "Applies To": "Products" }),
         item("REV01 Revenue", "Rate", { "Applies To": "" }),
-        item("REV01 Revenue", "Core flag", { "Applies To": "Core Products" }),
-        moduleRow("SYS00 Settings"),
+        item("REV01 Revenue", "Core flag", { "Applies To": "Core Products, Users, Users" }),
+        item("REV01 Revenue", "Volume"),
+        // A dash on a module's own row is no dimension, and the module has nothing to take them from.
+        moduleRow("SYS00 Settings", { "Applies To": "-" }),
         item("SYS00 Settings", "Horizon")),
       generalLists(list("Products", { Subsets: "Core Products" }), list("Regions, north")),
     ]);
     const dimensions = (name: string) => [names(graph, node(graph, name).dimensions), node(graph, name).inheritsDimensions];
     expect(dimensions("REV01 Revenue")).toEqual([["Products", "Regions, north"], undefined]);
     // The module's, in the module's order.
-    expect(dimensions("Units")).toEqual([["Products", "Regions, north"], true]);
+    expect([dimensions("Units"), dimensions("Volume")]).toEqual([[["Products", "Regions, north"], true], [["Products", "Regions, north"], true]]);
     // Its own: a list, a subset, or none at all, which an empty cell says and a dash does not.
     expect([dimensions("Price"), dimensions("Core flag"), dimensions("Rate")]).toEqual([[["Products"], undefined], [["Core Products"], undefined], [undefined, undefined]]);
     // A module without dimensions gives none, and the line item still has its module's.
     expect([dimensions("SYS00 Settings"), dimensions("Horizon")]).toEqual([[undefined, undefined], [undefined, true]]);
     expect(links(graph, "applies")).toEqual(anyOrder([
       "Products -> REV01 Revenue (applies)", "Regions, north -> REV01 Revenue (applies)", "Products -> REV01 Revenue.Units (applies)", "Regions, north -> REV01 Revenue.Units (applies)",
+      "Products -> REV01 Revenue.Volume (applies)", "Regions, north -> REV01 Revenue.Volume (applies)",
       "Products -> REV01 Revenue.Price (applies)", "Core Products -> REV01 Revenue.Core flag (applies)"]));
-    // A dimension that is no list of General Lists is unresolved for the module, and for each line item that has the module's.
-    expect(unresolved(graph)).toEqual(["REV01 Revenue: Applies To: Users", "REV01 Revenue.Units: Applies To: Users"]);
+    // A dimension that is no list of General Lists is unresolved once, for the cell that holds it: the module's for the two
+    // line items that take theirs from it, and a line item's own once though its cell says it twice.
+    expect(unresolved(graph)).toEqual(["REV01 Revenue: Applies To: Users", "REV01 Revenue: Applies To: Time", "REV01 Revenue.Core flag: Applies To: Users"]);
   });
 
   it("links what drives who may read and write a module or a line item, and gives a line item with a dash its module's driver", () => {
-    const graph = buildModelGraph([lineItems(
-      moduleRow("ACC01 Access"),
-      item("ACC01 Access", "Can read", { Format: BOOLEAN }),
-      item("ACC01 Access", "Can write", { Format: BOOLEAN }),
-      moduleRow("REV01 Revenue", { "Read Access Driver": "'ACC01 Access'.Can read" }),
-      item("REV01 Revenue", "Units", { "Read Access Driver": "-", "Write Access Driver": "ACC01 Access.Can write" }),
-      // A bare name is a line item of the same module. The module has no write driver to give.
-      item("REV01 Revenue", "Price", { "Read Access Driver": "Local flag", "Write Access Driver": "-" }),
-      // An empty cell is no dash: nothing is taken from the module.
-      item("REV01 Revenue", "Local flag", { Format: BOOLEAN }),
-      item("REV01 Revenue", "Broken", { "Read Access Driver": "Gone.Driver" }),
-    )]);
-    expect(links(graph)).toEqual(anyOrder([
+    const graph = buildModelGraph([
+      lineItems(
+        moduleRow("ACC01 Access"),
+        item("ACC01 Access", "Can read", { Format: BOOLEAN }),
+        item("ACC01 Access", "Can write", { Format: BOOLEAN }),
+        // A dash on a module's own row is no driver.
+        moduleRow("REV01 Revenue", { "Read Access Driver": "'ACC01 Access'.Can read", "Write Access Driver": "-" }),
+        item("REV01 Revenue", "Units", { "Read Access Driver": "-", "Write Access Driver": "ACC01 Access.Can write" }),
+        // A bare name is a line item of the same module. The module has no write driver to give.
+        item("REV01 Revenue", "Price", { "Read Access Driver": "Local flag", "Write Access Driver": "-" }),
+        // An empty cell is no dash: nothing is taken from the module.
+        item("REV01 Revenue", "Local flag", { Format: BOOLEAN }),
+        item("REV01 Revenue", "Broken", { "Read Access Driver": "Gone.Driver" }),
+        // A driver is a line item. A list, a module, a subset and a list's property of the name are none.
+        item("REV01 Revenue", "By list", { "Read Access Driver": "Open periods", "Write Access Driver": "ACC01 Access" }),
+        item("REV01 Revenue", "By subset", { "Read Access Driver": "Seasonal", "Write Access Driver": "Seasons.Code" }),
+        // A driver that names nothing on a module's row is the module's to say, not each line item's that has it by a dash.
+        moduleRow("COST01 Costs", { "Write Access Driver": "Gone.Flag" }),
+        item("COST01 Costs", "Rent", { "Write Access Driver": "-" }),
+        item("COST01 Costs", "Rates", { "Write Access Driver": "-" })),
+      generalLists(list("Open periods"), list("Seasons", { Subsets: "Seasonal", Properties: "Code: TEXT" })),
+    ]);
+    expect(links(graph, "read_access", "write_access")).toEqual(anyOrder([
       "ACC01 Access.Can read -> REV01 Revenue (read_access)", "ACC01 Access.Can read -> REV01 Revenue.Units (read_access)",
       "ACC01 Access.Can write -> REV01 Revenue.Units (write_access)", "REV01 Revenue.Local flag -> REV01 Revenue.Price (read_access)"]));
-    expect(unresolved(graph)).toEqual(["REV01 Revenue.Broken: Read Access Driver: Gone.Driver"]);
+    expect(unresolved(graph)).toEqual(["REV01 Revenue.Broken: Read Access Driver: Gone.Driver",
+      "REV01 Revenue.By list: Read Access Driver: Open periods", "REV01 Revenue.By list: Write Access Driver: ACC01 Access",
+      "REV01 Revenue.By subset: Read Access Driver: Seasonal", "REV01 Revenue.By subset: Write Access Driver: Seasons.Code",
+      "COST01 Costs: Write Access Driver: Gone.Flag"]);
   });
 
   it("links a line item to what its Referenced By names, as a formula link, or as an access link where that one names it as its driver", () => {
     const graph = buildModelGraph([
       lineItems(
-        moduleRow("REV01 Revenue"),
+        // A module's own row has no Referenced By: a cell that holds one all the same is not read.
+        moduleRow("REV01 Revenue", { "Referenced By": "Units" }),
         item("REV01 Revenue", "Units", { "Referenced By": "Revenue, 'COST01 Costs'.Share", "Write Access Driver": "Open" }),
         item("REV01 Revenue", "Price", { "Referenced By": "Revenue" }),
-        // A line item of another module, a list's property, a name that matches nothing, and a module by its bare name.
-        item("REV01 Revenue", "Revenue", { "Referenced By": "'REP01 Report, monthly'.'Revenue, net', Customers.Spend, Gone.Item, 'REP01 Report, monthly'" }),
+        // A line item of another module, a list's property, a name that matches nothing, a module by its bare name, and a
+        // name of three parts, which names nothing though its first two are a line item's.
+        item("REV01 Revenue", "Revenue", { "Referenced By": "'REP01 Report, monthly'.'Revenue, net', Customers.Spend, Gone.Item, 'REP01 Report, monthly', REV01 Revenue.Units.more" }),
         // Units names it as its write driver and nothing more; Price's formula refers to it.
         item("REV01 Revenue", "Open", { Format: BOOLEAN, "Referenced By": "Units, Price" }),
-        // A formula may refer to its own line item.
-        item("REV01 Revenue", "Stock", { "Referenced By": "Stock, Stock" }),
+        // A formula may refer to its own line item. A list and a subset have no formula, and are not what refers to one.
+        item("REV01 Revenue", "Stock", { "Referenced By": "Stock, Stock, Customers, Loyal" }),
         moduleRow("COST01 Costs"),
         item("COST01 Costs", "Share"),
         moduleRow("REP01 Report, monthly"),
         item("REP01 Report, monthly", "Revenue, net")),
-      generalLists(list("Customers", { Properties: "Spend: NUMBER" })),
+      generalLists(list("Customers", { Properties: "Spend: NUMBER", Subsets: "Loyal" })),
     ]);
-    expect(links(graph)).toEqual(anyOrder([
+    expect(links(graph, "reference", "read_access", "write_access")).toEqual(anyOrder([
       "REV01 Revenue.Units -> REV01 Revenue.Revenue (reference)", "REV01 Revenue.Units -> COST01 Costs.Share (reference)", "REV01 Revenue.Price -> REV01 Revenue.Revenue (reference)",
       "REV01 Revenue.Revenue -> REP01 Report, monthly.Revenue, net (reference)", "REV01 Revenue.Revenue -> Customers.Spend (reference)",
       "REV01 Revenue.Revenue -> REP01 Report, monthly (reference)",
       "REV01 Revenue.Open -> REV01 Revenue.Units (write_access)", "REV01 Revenue.Open -> REV01 Revenue.Price (reference)",
       "REV01 Revenue.Stock -> REV01 Revenue.Stock (reference)"]));
-    expect(links(graph)).toHaveLength(9);
-    expect(unresolved(graph)).toEqual(["REV01 Revenue.Revenue: Referenced By: Gone.Item"]);
+    expect(unresolved(graph)).toEqual(["REV01 Revenue.Revenue: Referenced By: Gone.Item", "REV01 Revenue.Revenue: Referenced By: REV01 Revenue.Units.more",
+      "REV01 Revenue.Stock: Referenced By: Customers", "REV01 Revenue.Stock: Referenced By: Loyal"]);
   });
 
-  it("reads the driver of what refers to a line item in that one's own module, and only from its own cell", () => {
+  it("draws the access link alone for what a line item drives, also where the driver is the module's, taken through a dash", () => {
     const graph = buildModelGraph([lineItems(
       moduleRow("ACC01 Access"),
       // Total's formula refers to this Flag. Total's driver is the Flag of its own module, which is another line item.
@@ -339,47 +500,63 @@ describe("The model map's graph, from the tables of a model export", () => {
       moduleRow("REP01 Report", { "Read Access Driver": "ACC01 Access.Flag" }),
       item("REP01 Report", "Flag", { Format: BOOLEAN, "Referenced By": "Total" }),
       item("REP01 Report", "Total", { "Read Access Driver": "Flag" }),
-      // Detail has the module's driver. Its own cell names none, so what its Referenced By says stays a formula link.
+      // Detail has the module's driver, which is the first Flag: that is why the first Flag's Referenced By names it.
       item("REP01 Report", "Detail", { "Read Access Driver": "-" }),
     )]);
     expect(links(graph)).toEqual(anyOrder([
       "ACC01 Access.Flag -> REP01 Report.Total (reference)",
-      "ACC01 Access.Flag -> REP01 Report.Detail (reference)", "ACC01 Access.Flag -> REP01 Report.Detail (read_access)",
+      "ACC01 Access.Flag -> REP01 Report.Detail (read_access)",
       "ACC01 Access.Flag -> REP01 Report (read_access)",
       "REP01 Report.Flag -> REP01 Report.Total (read_access)"]));
     expect(unresolved(graph)).toEqual([]);
   });
 
-  it("takes a name that several objects have for the nearest of them: a line item of the same module, then a module, a list, a subset", () => {
+  it("reads a module's driver in that module: a line item of another module with the driver's name does not drive it", () => {
+    const graph = buildModelGraph([lineItems(
+      moduleRow("Access A"),
+      // Report B's formula... a module has none: the export names the module here, and that is a formula link to it.
+      item("Access A", "Flag", { Format: BOOLEAN, "Referenced By": "Report B" }),
+      // The module's own row names its driver by a bare name, which is its own line item Flag.
+      moduleRow("Report B", { "Read Access Driver": "Flag" }),
+      item("Report B", "Flag", { Format: BOOLEAN, "Referenced By": "Report B" }),
+      item("Report B", "Total"),
+    )]);
+    expect(links(graph)).toEqual(anyOrder(["Access A.Flag -> Report B (reference)", "Report B.Flag -> Report B (read_access)"]));
+    expect(unresolved(graph)).toEqual([]);
+  });
+
+  it("takes a bare name for a line item of the row's own module first, and a name that two objects share for neither", () => {
     const graph = buildModelGraph([
       lineItems(
         moduleRow("ACC01 Access"),
         item("ACC01 Access", "Shared", { Format: BOOLEAN }),
-        // A bare name is a line item of the row's own module where the module has one of that name.
-        item("ACC01 Access", "Own", { "Read Access Driver": "Shared" }),
-        // A dimension is a list before it is a subset, and never a module or a line item.
-        moduleRow("Shared", { "Applies To": "Shared" }),
-        item("Shared", "Shared", { "Applies To": "Core" }),
+        // A bare name is a line item of the row's own module where the module has one of that name, though a module, a
+        // list and a subset have the name too.
+        item("ACC01 Access", "Own", { "Read Access Driver": "Shared", "Referenced By": "Shared" }),
+        // A list and a subset of one name: the dimension is neither's.
+        moduleRow("Shared", { "Applies To": "Shared, Core" }),
+        item("Shared", "Shared"),
         moduleRow("REP01 Report"),
-        // In a module with no line item of the name, the bare name is the module. Behind a dot it is that module's line item.
-        item("REP01 Report", "Other", { "Read Access Driver": "Shared", "Write Access Driver": "Shared.Shared" })),
+        // In a module with no line item of the name, a bare name in Referenced By is the module. Behind a dot the name is
+        // that module's line item for a driver, which a property cannot be. In Referenced By it is the line item or the
+        // list's property of the same two names, and nothing tells which.
+        item("REP01 Report", "Other", { "Write Access Driver": "Shared.Shared", "Referenced By": "Shared, Shared.Shared, Regions.Code" })),
       generalLists(
         list("Shared", { Subsets: "Core", Properties: "Shared: TEXT" }),
-        // A parent is a list before it is a subset. A list's own columns name a module before a list, and a module's line
-        // item before a list's property; a list with no module of its name is named for its property.
+        // A parent that a list and a subset both have the name of is neither. A list's own columns name the module of the
+        // name, and behind a dot the line item or the property, which here are two.
         list("Regions", { Subsets: "Shared", Properties: "Code: TEXT", "Parent Hierarchy": "Shared", "Referenced in Applies To": "Shared", "Referenced as Format": "Shared.Shared, Regions.Code" })),
     ]);
-    const id = (name: string, kind: GraphNode["kind"]): number => node(graph, name, kind).id;
-    const [sharedList, sharedSubset, sharedModule, sharedItem] = [id("Shared", "list"), id("Shared", "subset"), id("Shared", "module"),
-      graph.nodes.findIndex(each => each.kind === "lineItem" && each.name === "Shared" && each.module === id("Shared", "module"))];
-    const accessFlag = graph.nodes.findIndex(each => each.kind === "lineItem" && each.name === "Shared" && each.module === id("ACC01 Access", "module"));
-    expect(graph.edges.filter(([, , kind]) => kind === "read_access" || kind === "write_access")).toEqual([
-      [accessFlag, id("Own", "lineItem"), "read_access"], [sharedModule, id("Other", "lineItem"), "read_access"], [sharedItem, id("Other", "lineItem"), "write_access"]]);
-    expect([graph.nodes[sharedModule].dimensions, graph.nodes[sharedItem].dimensions, node(graph, "Regions").parent]).toEqual([[sharedList], [id("Core", "subset")], sharedList]);
-    expect(graph.edges.filter(([from]) => from === id("Regions", "list"))).toEqual([
-      [id("Regions", "list"), sharedSubset, "subset"], [id("Regions", "list"), sharedModule, "applies"], [id("Regions", "list"), sharedItem, "format"],
-      [id("Regions", "list"), id("Code", "property"), "format"]].sort((a, b) => Number(a[1]) - Number(b[1])));
-    expect(graph.unresolved).toEqual([]);
+    expect(kindLinks(graph)).toEqual(anyOrder([
+      "list Shared -> subset Core (subset)", "list Regions -> subset Shared (subset)",
+      "lineItem ACC01 Access.Shared -> lineItem ACC01 Access.Own (read_access)", "lineItem ACC01 Access.Own -> lineItem ACC01 Access.Shared (reference)",
+      "subset Core -> module Shared (applies)", "subset Core -> lineItem Shared.Shared (applies)",
+      "lineItem Shared.Shared -> lineItem REP01 Report.Other (write_access)",
+      "lineItem REP01 Report.Other -> module Shared (reference)", "lineItem REP01 Report.Other -> property Regions.Code (reference)",
+      "list Regions -> module Shared (applies)", "list Regions -> property Regions.Code (format)"]));
+    expect([node(graph, "Regions").parent, names(graph, node(graph, "Shared", "module").dimensions)]).toEqual([undefined, ["Core"]]);
+    expect(unresolved(graph)).toEqual(["Regions: Parent Hierarchy: Shared", "Regions: Referenced as Format: Shared.Shared", "Shared: Applies To: Shared",
+      "REP01 Report.Other: Referenced By: Shared.Shared"]);
   });
 
   it("matches names written in quotes, with commas, dots, apostrophes and doubled quotes inside", () => {
@@ -387,20 +564,22 @@ describe("The model map's graph, from the tables of a model export", () => {
     const quotedPlan = "'It''s a ''plan'', v1.2'";
     const graph = buildModelGraph([
       lineItems(
-        moduleRow(PLAN, { "Applies To": "'Regions, north & south', 'O''Brien''s', Products" }),
-        item(PLAN, "Rate, net (50%)", { "Referenced By": "REP01 Report.Total, 'Margin.net'" }),
+        moduleRow(PLAN, { "Applies To": "'Regions, north & south', 'O''Brien''s', Products, 'Top, sellers'" }),
+        item(PLAN, "Rate, net (50%)", { "Referenced By": "REP01 Report.Total, 'Margin.net', Products.'Launch, first'" }),
         item(PLAN, "Margin.net", { "Read Access Driver": `${quotedPlan}.'Rate, net (50%)'` }),
         moduleRow("REP01 Report"),
         item("REP01 Report", "Total", { "Referenced By": `${quotedPlan}.'Rate, net (50%)', ${quotedPlan}.Margin.net`, "Write Access Driver": `${quotedPlan}.'Margin.net'` })),
       generalLists(
         list("Regions, north & south", { "Referenced in Applies To": quotedPlan, "Referenced in Formula": `${quotedPlan}.'Rate, net (50%)'` }),
         list("O'Brien's"),
-        list("Products")),
+        // A subset and a property written in quotes are found by what names them.
+        list("Products", { Subsets: "'Top, sellers'", Properties: "'Launch, first': DATE" })),
     ]);
-    expect(names(graph, node(graph, PLAN).dimensions)).toEqual(["Regions, north & south", "O'Brien's", "Products"]);
+    expect(names(graph, node(graph, PLAN).dimensions)).toEqual(["Regions, north & south", "O'Brien's", "Products", "Top, sellers"]);
     expect(links(graph, "reference", "read_access", "write_access", "list_formula")).toEqual(anyOrder([
       `Regions, north & south -> ${PLAN}.Rate, net (50%) (list_formula)`,
       `${PLAN}.Rate, net (50%) -> REP01 Report.Total (reference)`,
+      `${PLAN}.Rate, net (50%) -> Products.Launch, first (reference)`,
       // Margin.net names Rate as its read driver, and is named in Rate's Referenced By: the access link, and no other.
       `${PLAN}.Rate, net (50%) -> ${PLAN}.Margin.net (read_access)`,
       `REP01 Report.Total -> ${PLAN}.Rate, net (50%) (reference)`,
@@ -413,7 +592,7 @@ describe("The model map's graph, from the tables of a model export", () => {
     const rows = [
       moduleRow("REV01 Revenue"),
       item("REV01 Revenue", "Product", { Format: listFormat(101000000001), "Format List": "Products" }),
-      // No name in Format List: the list is the one whose Referenced as Format names a line item with this ID.
+      // No name in Format List: the list is the one whose Referenced as Format names the line item, or one with this ID.
       item("REV01 Revenue", "Region", { Format: listFormat(101000000002) }),
       item("REV01 Revenue", "Other region", { Format: listFormat(101000000002) }),
       // Named by Format List alone: no list's Referenced as Format names it.
@@ -424,27 +603,44 @@ describe("The model map's graph, from the tables of a model export", () => {
       item("REV01 Revenue", "Subset pick", { Format: listFormat(109000000004) }),
       // A number format that still carries a list's ID is formatted as no list.
       item("REV01 Revenue", "Stale", { Format: '{"hierarchyEntityLongId":101000000001,"dataType":"NUMBER"}' }),
-      // A name in Format List that is no list of General Lists is unresolved, and nothing is put in its place.
+      // A name in Format List that is no list of General Lists is unresolved, and nothing is put in its place: not the
+      // list of the ID, and not a subset of the name.
       item("REV01 Revenue", "Flavour", { Format: listFormat(101000000002), "Format List": "Tastes" }),
+      item("REV01 Revenue", "Core pick", { Format: listFormat(101000000001), "Format List": "Core" }),
     ];
-    const lists = generalLists(list("Products", { "Referenced as Format": "REV01 Revenue.Product" }), list("Regions", { "Referenced as Format": "REV01 Revenue.Region" }), list("Channels"));
+    const lists = generalLists(list("Products", { Subsets: "Core", "Referenced as Format": "REV01 Revenue.Product" }), list("Regions", { "Referenced as Format": "REV01 Revenue.Region" }),
+      list("Channels"));
     const deleteChannels = otherActions(action("Delete old channels", { Action: '{"actionType":"DELETE_BY_SELECTION","hierarchyIdentifier":"_101000000003_"}' }));
     const graph = buildModelGraph([lineItems(...rows), lists, deleteChannels]);
+    const all = ["Product", "Region", "Other region", "Channel", "Channel as text", "Subset pick", "Stale", "Flavour", "Core pick"];
     const listOf = (among: ModelGraph, name: string): string | undefined => names(among, [node(among, name).formatList].flatMap(id => (id === undefined ? [] : [id])))?.[0];
-    expect(["Product", "Region", "Other region", "Channel", "Channel as text", "Subset pick", "Stale", "Flavour"].map(name => listOf(graph, name)))
-      .toEqual(["Products", "Regions", "Regions", "Channels", "Channels", undefined, undefined, undefined]);
+    expect(all.map(name => listOf(graph, name))).toEqual(["Products", "Regions", "Regions", "Channels", "Channels", undefined, undefined, undefined, undefined]);
     expect(links(graph, "format")).toEqual(anyOrder(["Products -> REV01 Revenue.Product (format)", "Regions -> REV01 Revenue.Region (format)", "Regions -> REV01 Revenue.Other region (format)",
       "Channels -> REV01 Revenue.Channel (format)", "Channels -> REV01 Revenue.Channel as text (format)"]));
     // An action names its list by the same ID.
     expect(links(graph, "action_target")).toEqual(["Delete old channels -> Channels (action_target)"]);
-    expect(unresolved(graph)).toEqual(["REV01 Revenue.Flavour: Format List: Tastes"]);
+    expect(unresolved(graph)).toEqual(["REV01 Revenue.Flavour: Format List: Tastes", "REV01 Revenue.Core pick: Format List: Core"]);
+    // The line item whose list the export does not name is counted: nothing links it to a list.
+    expect(counted(graph)).toEqual(["1 line item is formatted as a list that the export does not name, and has no list on the map."]);
 
     // A file from before the export had the column: the prototype's rule alone. Channels' ID is then known from nothing.
-    const before = buildModelGraph([file("Line Items", LINE_HEADERS.slice(0, -1), lineItems(...rows).rows.map(row => row.slice(0, -1))), lists, deleteChannels]);
-    expect(["Product", "Region", "Other region", "Channel", "Channel as text", "Subset pick", "Stale", "Flavour"].map(name => listOf(before, name)))
-      .toEqual(["Products", "Regions", "Regions", undefined, undefined, undefined, undefined, "Regions"]);
+    const before = buildModelGraph([without(lineItems(...rows), "Format List"), lists, deleteChannels]);
+    expect(all.map(name => listOf(before, name))).toEqual(["Products", "Regions", "Regions", undefined, undefined, undefined, undefined, "Regions", "Products"]);
     expect(unresolved(before)).toEqual(["Delete old channels: hierarchyIdentifier: 101000000003"]);
-    expect(before.limitations).toEqual(graph.limitations);
+    expect(counted(before)).toEqual(["3 line items are formatted as a list that the export does not name, and have no list on the map."]);
+  });
+
+  it("learns a list's ID only from what the list is the format of, not from what it applies to or what names it in a formula", () => {
+    const graph = buildModelGraph([
+      lineItems(
+        moduleRow("Stock", { "Applies To": "Depots" }),
+        item("Stock", "Product", { Format: listFormat(101000000002) }),
+        item("Stock", "Other product", { Format: listFormat(101000000002) })),
+      // Depots applies to Product and is named in its formula. Product is formatted as Products, and so is the ID.
+      generalLists(list("Depots", { "Referenced in Applies To": "Stock, Stock.Product", "Referenced in Formula": "Stock.Product" }), list("Products", { "Referenced as Format": "Stock.Product" })),
+    ]);
+    expect(links(graph, "format")).toEqual(anyOrder(["Products -> Stock.Product (format)", "Products -> Stock.Other product (format)"]));
+    expect([node(graph, "Product").formatList, node(graph, "Other product").formatList, counted(graph)]).toEqual([node(graph, "Products").id, node(graph, "Products").id, []]);
   });
 
   it("gives an ID that two lists claim to neither, and says so", () => {
@@ -456,14 +652,17 @@ describe("The model map's graph, from the tables of a model export", () => {
     ];
     const lists = generalLists(list("Products", { "Referenced as Format": "REV01 Revenue.Product" }), list("Old products", { "Referenced as Format": "REV01 Revenue.'Second product'" }));
     const graph = buildModelGraph([lineItems(...rows), lists]);
-    // What each list's own column names is still linked: that is what the export says. The ID settles nothing more.
+    // What each list's own column names is that list's: that is what the export says. The ID settles nothing more, and
+    // the third line item, which only the ID could give a list, has none.
     expect(links(graph)).toEqual(anyOrder(["Products -> REV01 Revenue.Product (format)", "Old products -> REV01 Revenue.Second product (format)"]));
-    expect(graph.nodes.map(each => each.formatList)).toEqual([undefined, undefined, undefined, undefined, undefined, undefined]);
-    expect(graph.limitations).toContain("1 list ID stands for more than one list in the export, and names none on the map.");
+    expect(graph.nodes.filter(each => each.kind === "lineItem").map(each => each.formatList)).toEqual([0, 1, undefined]);
+    // The sentence about the ID stands before the one that counts the line item, and both before what the map always says.
+    expect(graph.limitations).toEqual([NO_MODULES_FILE, ...NO_ACTIONS, "1 list ID stands for more than one list in the export, and names none on the map.",
+      "1 line item is formatted as a list that the export does not name, and has no list on the map.", LIST_ITEMS, LINKS]);
     // Format List says which list the ID is, and that settles it.
     const named = buildModelGraph([lineItems(...rows.map(row => (row["Module Name"] ? { ...row, "Format List": "Products" } : row))), lists]);
     expect(named.nodes.filter(each => each.kind === "lineItem").map(each => each.formatList)).toEqual([0, 0, 0]);
-    expect(named.limitations.filter(line => line.includes("list ID"))).toEqual([]);
+    expect(counted(named)).toEqual([]);
     // Unless Format List itself gives the ID to two lists. Each line item still has the list its own row names, and
     // the ID, which an action would name its list by, is neither's.
     const twice = buildModelGraph([
@@ -471,12 +670,18 @@ describe("The model map's graph, from the tables of a model export", () => {
       generalLists(list("Products"), list("Old products")),
       otherActions(action("Delete old products", { Action: '{"actionType":"DELETE_BY_SELECTION","hierarchyIdentifier":"_101000000001_"}' }))]);
     expect(twice.nodes.filter(each => each.kind === "lineItem").map(each => each.formatList)).toEqual([0, 1, undefined]);
-    expect([twice.limitations.filter(line => line.includes("list ID")), unresolved(twice)]).toEqual([
-      ["1 list ID stands for more than one list in the export, and names none on the map."], ["Delete old products: hierarchyIdentifier: 101000000001"]]);
+    expect([counted(twice), unresolved(twice)]).toEqual([
+      ["1 list ID stands for more than one list in the export, and names none on the map.", "1 line item is formatted as a list that the export does not name, and has no list on the map."],
+      ["Delete old products: hierarchyIdentifier: 101000000001"]]);
+    // A line item that two lists' columns both name is neither's.
+    const both = buildModelGraph([lineItems(rows[0], rows[1]), generalLists(list("Products", { "Referenced as Format": "REV01 Revenue.Product" }),
+      list("Old products", { "Referenced as Format": "REV01 Revenue.Product" }))]);
+    expect([both.nodes.filter(each => each.kind === "lineItem").map(each => each.formatList), links(both), counted(both)]).toEqual([[undefined],
+      anyOrder(["Products -> REV01 Revenue.Product (format)", "Old products -> REV01 Revenue.Product (format)"]), ["1 list ID stands for more than one list in the export, and names none on the map."]]);
     const three = buildModelGraph([lineItems(rows[0], { ...rows[1], Format: listFormat(101000000002) }, rows[2], { ...rows[3], Format: listFormat(101000000002) }),
       generalLists(list("Products", { "Referenced as Format": "REV01 Revenue.Product, REV01 Revenue.'Second product'" }),
         list("Old products", { "Referenced as Format": "REV01 Revenue.'Second product', REV01 Revenue.'Third product'" }), list("Regions", { "Referenced as Format": "REV01 Revenue.Product" }))]);
-    expect(three.limitations).toContain("2 list IDs each stand for more than one list in the export, and name none on the map.");
+    expect(counted(three)).toEqual(["2 list IDs each stand for more than one list in the export, and name none on the map."]);
   });
 
   it("tells a module's own row from a line item's row of which only the name was read, by the Modules table's names, as the page does", () => {
@@ -493,9 +698,9 @@ describe("The model map's graph, from the tables of a model export", () => {
       moduleRow("NEW01 Added"),
       item("NEW01 Added", "Note"));
     const graph = buildModelGraph([rows, modulesFile("REV01 Revenue", "ARC01 Archive")]);
-    expect(graph.nodes.map(each => `${each.kind} ${each.name} row ${each.row}`)).toEqual(["module REV01 Revenue row 1", "lineItem Units row 2", "module ARC01 Archive row 5",
-      "module NEW01 Added row 6", "lineItem Note row 7"]);
-    expect(graph.limitations.slice(1, 2)).toEqual(["2 rows of Line Items are no module's own and name no module: they are left out."]);
+    expect(graph.nodes.map(each => `${each.kind} ${each.name} row ${each.row}`)).toEqual(["module REV01 Revenue row 2", "lineItem Units row 3", "module ARC01 Archive row 6",
+      "module NEW01 Added row 7", "lineItem Note row 8"]);
+    expect(counted(graph)).toEqual(["2 rows of Line Items are no module's own and name no module: they are left out."]);
 
     // Without the Modules table, or with one that lists nothing, a row with only a name is taken for a module's own.
     for (const [tables, why] of [[[rows], NO_MODULES_FILE], [[rows, modulesFile()], NO_MODULES_FILE.replace("Modules was not exported", "Modules lists no modules")]] as const) {
@@ -509,110 +714,185 @@ describe("The model map's graph, from the tables of a model export", () => {
     expect([headed.nodes.map(each => each.name), headed.sections]).toEqual([["REV01 Revenue"], ["INPUTS"]]);
   });
 
-  it("makes the processes and the actions from their four tables, and links each action to its processes and to what it works on", () => {
+  it("makes the processes and the actions from their four tables, and links each action to the processes that use it", () => {
     const run = { "Start Date and Time (UTC)": "2026-03-12 23:19:56", "Most recent duration (ms)": "1,582", Notes: "From the hub" };
     const graph = buildModelGraph([
-      lineItems(
-        moduleRow("Prices"), moduleRow("Plan"), moduleRow("REV01 Revenue"),
-        item("REV01 Revenue", "Region", { Format: listFormat(101000000002), "Format List": "Regions" })),
-      generalLists(list("Regions"), list("Plan")),
-      processesFile(action("Nightly load", { Notes: "Runs at 2am" }), heading("-- LOADS --"), action("Nightly load, full"), action("Weekly")),
+      processesFile(action("Nightly load", { Notes: "Runs at 2am" }), heading("-- LOADS --"), action("Nightly load, full"), action("Weekly"), action("Daily"), action("Daily, Weekly")),
       importsFile(
-        action("Load prices", { "Target Object": "Prices", "Target Type": "MODULE", "Used in Processes": "Nightly load, Nightly load, full", ...run }),
-        action("Load regions", { "Target Object": "Regions", "Target Type": "LIST", "Used in Processes": "Nightly load, full, Gone process" }),
-        // A module and a list of one name: Target Type says which, and without it the module comes first.
+        action("Load prices", { "Used in Processes": "Nightly load, Nightly load, full", ...run }),
+        action("Load regions", { "Used in Processes": "Nightly load, full, Gone process, Gone process" }),
+        // Daily and Weekly, or the one process "Daily, Weekly": the cell reads two ways, and the whole of it is unresolved.
+        action("Load plan", { "Used in Processes": "Nightly load, Daily, Weekly" }),
+        heading("--- old imports ---"),
+        // A dash is an empty cell.
+        action("Old import", { "Used in Processes": "-" })),
+      exportsFile(action("Send prices", { Action: "Export from 'Prices'", "Used in Processes": "Weekly" }), action("Send grid", { Action: '{"exportType":"GRID_CURRENT_PAGE"}' })),
+      otherActions(
+        action("Delete old regions", { Action: '{"actionType":"DELETE_BY_SELECTION","hierarchyIdentifier":"_101000000002_"}', "Used in Processes": "Daily, Weekly, Daily" }),
+        action("Open the review", { Action: "Open Dashboard" }),
+        heading("-- OLD --"),
+        heading("........"),
+        action("No kind", { Action: '{"hierarchyIdentifier":"","sourceHierarchyIdentifier":0}' })),
+    ]);
+    // Each row is numbered in its own table, the header as row 1. A row named as a heading is no node.
+    expect(graph.nodes).toEqual([
+      { id: 0, kind: "process", name: "Nightly load", file: "Processes", row: 2, notes: "Runs at 2am" },
+      { id: 1, kind: "process", name: "Nightly load, full", file: "Processes", row: 4 },
+      { id: 2, kind: "process", name: "Weekly", file: "Processes", row: 5 },
+      { id: 3, kind: "process", name: "Daily", file: "Processes", row: 6 },
+      { id: 4, kind: "process", name: "Daily, Weekly", file: "Processes", row: 7 },
+      { id: 5, kind: "action", name: "Load prices", file: "Imports", row: 2, actionType: "Import", notes: "From the hub", lastRun: "2026-03-12 23:19:56", durationMs: 1582 },
+      { id: 6, kind: "action", name: "Load regions", file: "Imports", row: 3, actionType: "Import" },
+      { id: 7, kind: "action", name: "Load plan", file: "Imports", row: 4, actionType: "Import" },
+      { id: 8, kind: "action", name: "Old import", file: "Imports", row: 6, actionType: "Import" },
+      { id: 9, kind: "action", name: "Send prices", file: "Exports", row: 2, actionType: "Export", action: "Export from 'Prices'" },
+      { id: 10, kind: "action", name: "Send grid", file: "Exports", row: 3, actionType: "Export", action: '{"exportType":"GRID_CURRENT_PAGE"}' },
+      // Another action's kind is what its definition says, and "Other" where it says none.
+      { id: 11, kind: "action", name: "Delete old regions", file: "Other Actions", row: 2, actionType: "DELETE_BY_SELECTION", action: '{"actionType":"DELETE_BY_SELECTION","hierarchyIdentifier":"_101000000002_"}' },
+      { id: 12, kind: "action", name: "Open the review", file: "Other Actions", row: 3, actionType: "Other", action: "Open Dashboard" },
+      { id: 13, kind: "action", name: "No kind", file: "Other Actions", row: 6, actionType: "Other", action: '{"hierarchyIdentifier":"","sourceHierarchyIdentifier":0}' }]);
+    // The processes of an action are written without quotes: "Nightly load, full" is one process, not two.
+    expect(links(graph)).toEqual(anyOrder(["Nightly load -> Load prices (process_action)", "Nightly load, full -> Load prices (process_action)",
+      "Nightly load, full -> Load regions (process_action)", "Weekly -> Send prices (process_action)"]));
+    // A name that is no process is unresolved once, though the cell says it twice.
+    expect(unresolved(graph)).toEqual(["Load regions: Used in Processes: Gone process", "Load plan: Used in Processes: Nightly load, Daily, Weekly", "Send prices: Action: 'Prices'",
+      "Delete old regions: Used in Processes: Daily, Weekly, Daily", "Delete old regions: hierarchyIdentifier: 101000000002"]);
+    // The rows named as headings are counted for each table that has them, after what the table lacks.
+    expect(graph.limitations).toEqual([NOT_EXPORTED.lists, NOT_EXPORTED.lineItems,
+      "1 row of Processes is named as a heading is and is left out.",
+      "1 row of Imports is named as a heading is and is left out.",
+      "4 imports are linked to no module or list: their Target Object cell is empty.",
+      "1 export is linked to no module or list: what it takes could not be read from its Action cell.",
+      "2 rows of Other Actions are named as headings are and are left out.",
+      PROCESS_ORDER, LINKS, IMPORT_SOURCES]);
+  });
+
+  it("links an import to the module or the list its Target Object names, of the kind its Target Type says", () => {
+    const graph = buildModelGraph([
+      lineItems(moduleRow("Prices"), moduleRow("Plan"), moduleRow("Versions"), moduleRow("'Quoted'"), moduleRow("Quoted"), moduleRow("Prices, net")),
+      generalLists(list("Regions"), list("Plan"), list("It's new")),
+      importsFile(
+        action("Load prices", { "Target Object": "Prices", "Target Type": "MODULE" }),
+        // The type is read whatever its case and the spaces round it.
+        action("Load regions", { "Target Object": "Regions", "Target Type": " list " }),
+        // A module and a list of one name: Target Type says which.
         action("Load plan list", { "Target Object": "Plan", "Target Type": "LIST" }),
         action("Load plan module", { "Target Object": "Plan", "Target Type": "Module" }),
-        action("Load plan", { "Target Object": "Plan" }),
-        // A target that is neither a module nor a list of the export, one of another kind than its type says, and none.
-        action("Load users", { "Target Object": "Users", "Target Type": "USERS" }),
+        // Without a type, a name that only one of the two has is that one's, and a name both have is neither's.
+        action("Load prices untyped", { "Target Object": "Prices" }),
+        action("Load regions untyped", { "Target Object": "Regions" }),
+        action("Load plan untyped", { "Target Object": "Plan" }),
+        // A type that says neither a module nor a list is of a target the map does not have, though a module has the name.
+        action("Load versions", { "Target Object": "Versions", "Target Type": "VERSIONS" }),
+        action("Load regions numbered", { "Target Object": "Regions", "Target Type": "NUMBERED LIST" }),
+        // A target of another kind than its type says, and one that nothing has the name of.
         action("Load regions as a module", { "Target Object": "Regions", "Target Type": "MODULE" }),
-        action("Old import")),
+        action("Load users", { "Target Object": "Users", "Target Type": "LIST" }),
+        // A target is the name as the cell writes it, and out of its quotes only where nothing has it as written.
+        action("Load quoted", { "Target Object": "'Quoted'", "Target Type": "MODULE" }),
+        action("Load net", { "Target Object": "'Prices, net'", "Target Type": "MODULE" }),
+        action("Load new", { "Target Object": "'It''s new'" }),
+        // An empty cell and a dash name no target.
+        action("Old import"),
+        action("Older import", { "Target Object": "-", "Target Type": "MODULE" })),
+    ]);
+    expect(kindLinks(graph)).toEqual(anyOrder([
+      "action Load prices -> module Prices (import_target)", "action Load regions -> list Regions (import_target)",
+      "action Load plan list -> list Plan (import_target)", "action Load plan module -> module Plan (import_target)",
+      "action Load prices untyped -> module Prices (import_target)", "action Load regions untyped -> list Regions (import_target)",
+      "action Load quoted -> module 'Quoted' (import_target)", "action Load net -> module Prices, net (import_target)", "action Load new -> list It's new (import_target)"]));
+    expect(unresolved(graph)).toEqual(["Load plan untyped: Target Object: Plan", "Load versions: Target Object: Versions", "Load regions numbered: Target Object: Regions",
+      "Load regions as a module: Target Object: Regions", "Load users: Target Object: Users"]);
+    expect(counted(graph)).toEqual(["2 imports are linked to no module or list: their Target Object cell is empty."]);
+  });
+
+  it("links an export and another action to what its Action cell names, in words or by a list's ID", () => {
+    const graph = buildModelGraph([
+      lineItems(moduleRow("Prices"), moduleRow("Depots"), moduleRow("It's new"), moduleRow("REV01 Revenue"),
+        item("REV01 Revenue", "Region", { Format: listFormat(101000000002), "Format List": "Regions" })),
+      generalLists(list("Regions"), list("Depots")),
       exportsFile(
-        action("Send prices", { Action: "Export from 'Prices'", "Used in Processes": "Weekly" }),
+        action("Send prices", { Action: "Export from 'Prices'" }),
+        // The words name a module or a list. A name that both have is neither's: nothing tells which the export takes.
+        action("Send regions", { Action: "Export from 'Regions'" }),
+        action("Send depots", { Action: "Export from 'Depots'" }),
+        // In quotes, the name is read out of them, two single quotes for one; a name nothing has is unresolved.
+        action("Send new", { Action: "Export from 'It''s new'" }),
+        action("Send gone", { Action: "Export from 'Gone'" }),
+        // Without quotes, the words are a target only where they are a name.
+        action("Send prices plainly", { Action: "Export from Prices" }),
+        action("Send depots plainly", { Action: "Export from Depots" }),
+        action("Send from the hub", { Action: "Export from the hub" }),
+        // The words are the whole cell: more before them or after the name is no target.
+        action("Send late", { Action: "Export from 'Prices' nightly" }),
+        action("Send early", { Action: "Now Export from 'Prices'" }),
+        action("Send lines", { Action: "Export from 'Prices'\nnightly" }),
+        action("Send lower", { Action: "export from 'Prices'" }),
+        // A definition names a list by its ID, and an export that names one so is read.
+        action("Send list", { Action: '{"exportType":"GRID_CURRENT_PAGE","hierarchyIdentifier":"_101000000002_"}' }),
         action("Send grid", { Action: '{"exportType":"GRID_CURRENT_PAGE"}' }),
-        action("Send gone", { Action: "Export from 'Gone'" })),
+        // Quotes with nothing between them name nothing, and neither does an empty cell.
+        action("Send no name", { Action: "Export from ''" }),
+        action("Send nothing")),
       otherActions(
         action("Delete old regions", { Action: '{"actionType":"DELETE_BY_SELECTION","hierarchyIdentifier":"_101000000002_"}' }),
         action("Copy regions", { Action: '{"actionType":"BULK_COPY","sourceHierarchyIdentifier":101000000002,"targetHierarchyIdentifier":"_101000000009_"}' }),
-        action("Open the review", { Action: "Open Dashboard" }),
-        heading("-- OLD --"),
-        action("No kind", { Action: '{"hierarchyIdentifier":"","sourceHierarchyIdentifier":0}' })),
+        // Whichever file an action is in, an Action cell that says "Import into" names what the action loads into.
+        action("Reload prices", { Action: "Import into 'Prices'" }),
+        action("Open the review", { Action: "Open Dashboard" })),
     ]);
-    // A heading row among the processes or the actions is no node. Each row is counted in its own table.
-    expect(graph.nodes.filter(each => each.kind === "process")).toEqual([
-      { id: 6, kind: "process", name: "Nightly load", file: "Processes", row: 1, notes: "Runs at 2am" },
-      { id: 7, kind: "process", name: "Nightly load, full", file: "Processes", row: 3 },
-      { id: 8, kind: "process", name: "Weekly", file: "Processes", row: 4 }]);
-    expect(graph.nodes.filter(each => each.kind === "action")).toEqual([
-      { id: 9, kind: "action", name: "Load prices", file: "Imports", row: 1, actionType: "Import", notes: "From the hub", lastRun: "2026-03-12 23:19:56", durationMs: 1582 },
-      { id: 10, kind: "action", name: "Load regions", file: "Imports", row: 2, actionType: "Import" },
-      { id: 11, kind: "action", name: "Load plan list", file: "Imports", row: 3, actionType: "Import" },
-      { id: 12, kind: "action", name: "Load plan module", file: "Imports", row: 4, actionType: "Import" },
-      { id: 13, kind: "action", name: "Load plan", file: "Imports", row: 5, actionType: "Import" },
-      { id: 14, kind: "action", name: "Load users", file: "Imports", row: 6, actionType: "Import" },
-      { id: 15, kind: "action", name: "Load regions as a module", file: "Imports", row: 7, actionType: "Import" },
-      { id: 16, kind: "action", name: "Old import", file: "Imports", row: 8, actionType: "Import" },
-      { id: 17, kind: "action", name: "Send prices", file: "Exports", row: 1, actionType: "Export", action: "Export from 'Prices'" },
-      { id: 18, kind: "action", name: "Send grid", file: "Exports", row: 2, actionType: "Export", action: '{"exportType":"GRID_CURRENT_PAGE"}' },
-      { id: 19, kind: "action", name: "Send gone", file: "Exports", row: 3, actionType: "Export", action: "Export from 'Gone'" },
-      // Another action's kind is what its definition says, and "Other" where it says none.
-      { id: 20, kind: "action", name: "Delete old regions", file: "Other Actions", row: 1, actionType: "DELETE_BY_SELECTION", action: '{"actionType":"DELETE_BY_SELECTION","hierarchyIdentifier":"_101000000002_"}' },
-      { id: 21, kind: "action", name: "Copy regions", file: "Other Actions", row: 2, actionType: "BULK_COPY",
-        action: '{"actionType":"BULK_COPY","sourceHierarchyIdentifier":101000000002,"targetHierarchyIdentifier":"_101000000009_"}' },
-      { id: 22, kind: "action", name: "Open the review", file: "Other Actions", row: 3, actionType: "Other", action: "Open Dashboard" },
-      { id: 23, kind: "action", name: "No kind", file: "Other Actions", row: 5, actionType: "Other", action: '{"hierarchyIdentifier":"","sourceHierarchyIdentifier":0}' }]);
-    // The processes of an action are written without quotes: "Nightly load, full" is one process, not two.
-    expect(links(graph, "process_action")).toEqual(anyOrder(["Nightly load -> Load prices (process_action)", "Nightly load, full -> Load prices (process_action)",
-      "Nightly load, full -> Load regions (process_action)", "Weekly -> Send prices (process_action)"]));
-    const [planModule, planList] = [node(graph, "Plan", "module").id, node(graph, "Plan", "list").id];
-    expect(graph.edges.filter(([, , kind]) => kind === "import_target")).toEqual([[9, node(graph, "Prices").id, "import_target"], [10, node(graph, "Regions").id, "import_target"],
-      [11, planList, "import_target"], [12, planModule, "import_target"], [13, planModule, "import_target"]]);
-    // An export says what it takes in words; another action names its lists by their IDs, in a definition.
-    expect(links(graph, "export_source", "action_target")).toEqual(anyOrder(["Prices -> Send prices (export_source)", "Delete old regions -> Regions (action_target)",
-      "Copy regions -> Regions (action_target)"]));
-    expect(unresolved(graph)).toEqual(["Load regions: Used in Processes: Gone process", "Load users: Target Object: Users", "Load regions as a module: Target Object: Regions",
-      "Send gone: Action: Gone", "Copy regions: targetHierarchyIdentifier: 101000000009"]);
-    // No row was left out. An import and an export that name no target are said, since nothing links them to one; another
-    // action that names none is as it should be.
-    expect(graph.limitations).toEqual([NO_MODULES_FILE,
-      "1 import is linked to no module or list: its Target Object cell is empty.",
-      "1 export is linked to no module or list: what it takes could not be read from its Action cell.",
-      ...STANDING, IMPORT_SOURCES]);
-    // A target written in quotes is the name inside them, where nothing has the name with its quotes. And whichever file
-    // an action is in, an Action cell that says "Import into" names what the action loads into.
-    const worded = buildModelGraph([lineItems(moduleRow("Prices, net"), moduleRow("It's new")),
-      importsFile(action("Load prices", { "Target Object": "'Prices, net'", "Target Type": "MODULE" }), action("Load new", { "Target Object": "'It''s new'" })),
-      otherActions(action("Reload prices", { Action: "Import into 'Prices, net'" }))]);
-    expect([links(worded), unresolved(worded)]).toEqual([anyOrder(["Load prices -> Prices, net (import_target)", "Load new -> It's new (import_target)",
-      "Reload prices -> Prices, net (import_target)"]), []]);
-    const several = buildModelGraph([importsFile(action("Old import"), action("Older import"), action("Load prices", { "Target Object": "Prices" })),
-      exportsFile(action("Send grid", { Action: '{"exportType":"GRID_CURRENT_PAGE"}' }), action("Send plan"), action("Send prices", { Action: "Export from 'Prices'" }))]);
-    expect(several.limitations.filter(line => /^\d/.test(line))).toEqual(["2 imports are linked to no module or list: their Target Object cell is empty.",
-      "2 exports are linked to no module or list: what they take could not be read from their Action cell."]);
+    expect(kindLinks(graph, "export_source", "import_target", "action_target")).toEqual(anyOrder([
+      "module Prices -> action Send prices (export_source)", "list Regions -> action Send regions (export_source)", "module It's new -> action Send new (export_source)",
+      "module Prices -> action Send prices plainly (export_source)",
+      "action Send list -> list Regions (action_target)", "action Delete old regions -> list Regions (action_target)", "action Copy regions -> list Regions (action_target)",
+      "action Reload prices -> module Prices (import_target)"]));
+    expect(unresolved(graph)).toEqual(["Send depots: Action: 'Depots'", "Send gone: Action: 'Gone'", "Send depots plainly: Action: Depots", "Copy regions: targetHierarchyIdentifier: 101000000009"]);
+    // The exports whose Action says no target the map can read are counted. Another action that names none is as it should be.
+    expect(counted(graph)).toEqual(["8 exports are linked to no module or list: what they take could not be read from their Action cell."]);
+    expect(counted(buildModelGraph([exportsFile(action("Send grid", { Action: '{"exportType":"GRID_CURRENT_PAGE"}' })), importsFile(action("Old import"))]))).toEqual([
+      "1 import is linked to no module or list: its Target Object cell is empty.", "1 export is linked to no module or list: what it takes could not be read from its Action cell."]);
+  });
+
+  it("says of an export only what is true of it: nothing of lists, of processes or of an import's source where it has none", () => {
+    // No tables at all: no file is there to give anything. Only what holds of every export is said.
+    expect(buildModelGraph([])).toEqual({ nodes: [], edges: [], unresolved: [], sections: [],
+      limitations: [NOT_EXPORTED.lists, NOT_EXPORTED.lineItems, ...NO_ACTIONS, LINKS] });
+    // Another export's tables are none of the map's.
+    expect(buildModelGraph([file("Cards", ["Page", "Card #"], [["Sales", 1]]), file("Model Details", ["Section", "Detail", "Value"], [["Model", "Model", "Plan"]])]).limitations)
+      .toEqual([NOT_EXPORTED.lists, NOT_EXPORTED.lineItems, ...NO_ACTIONS, LINKS]);
+    const standing = (...tables: ResultTable[]): string[] => buildModelGraph(tables).limitations.filter(line => [LIST_ITEMS, NO_LIST_ITEMS, PROCESS_ORDER, LINKS, IMPORT_SOURCES].includes(line));
+    // The number of items is given by a General Lists table with that column, and by no other.
+    expect(standing(generalLists(list("Products", { "Item Count": "5" })))).toEqual([LIST_ITEMS, LINKS]);
+    expect(standing(without(generalLists(list("Products")), "Item Count"))).toEqual([NO_LIST_ITEMS, LINKS]);
+    expect(standing(generalLists())).toEqual([LINKS]);
+    // Which processes use an action is said by an action's table with that column, whichever of the three it is.
+    expect(standing(processesFile(action("Weekly")))).toEqual([LINKS]);
+    expect(standing(exportsFile(action("Send prices")))).toEqual([PROCESS_ORDER, LINKS]);
+    expect(standing(otherActions(action("Tidy up")))).toEqual([PROCESS_ORDER, LINKS]);
+    expect(standing(without(otherActions(action("Tidy up")), "Used in Processes"), exportsFile())).toEqual([LINKS]);
+    // Where an import takes its data from is in an Imports table that has one of the source's columns, and rows.
+    expect(standing(importsFile(action("Load prices")))).toEqual([PROCESS_ORDER, LINKS, IMPORT_SOURCES]);
+    expect(standing(without(importsFile(action("Load prices")), "Source Label", "Source Type"))).toEqual([PROCESS_ORDER, LINKS, IMPORT_SOURCES]);
+    expect(standing(without(importsFile(action("Load prices")), "Source Label", "Source Object", "Source Type"))).toEqual([PROCESS_ORDER, LINKS]);
+    expect(standing(file("Imports", [""], [["Load prices"]]))).toEqual([LINKS]);
+    expect(standing(importsFile())).toEqual([LINKS]);
   });
 
   it("says what each table that was not exported leaves out, and builds from the tables there are", () => {
-    expect(buildModelGraph([])).toEqual({ nodes: [], edges: [], unresolved: [], sections: [],
-      limitations: [NOT_EXPORTED.lists, NOT_EXPORTED.lineItems, ...NO_ACTIONS, ...STANDING] });
-    // Another export's tables are none of the map's.
-    expect(buildModelGraph([file("Cards", ["Page", "Card #"], [["Sales", 1]]), file("Model Details", ["Section", "Detail", "Value"], [["Model", "Model", "Plan"]])]).limitations)
-      .toEqual([NOT_EXPORTED.lists, NOT_EXPORTED.lineItems, ...NO_ACTIONS, ...STANDING]);
-
     // Line Items alone: the modules and line items, with the lists they name unresolved.
     const alone = buildModelGraph([lineItems(moduleRow("REV01 Revenue", { "Applies To": "Products" }), item("REV01 Revenue", "Units", { "Referenced By": "Revenue" }), item("REV01 Revenue", "Revenue"))]);
     expect([alone.nodes.map(each => each.name), links(alone), unresolved(alone)]).toEqual([["REV01 Revenue", "Units", "Revenue"], ["REV01 Revenue.Units -> REV01 Revenue.Revenue (reference)"],
-      ["REV01 Revenue: Applies To: Products", "REV01 Revenue.Units: Applies To: Products", "REV01 Revenue.Revenue: Applies To: Products"]]);
-    expect(alone.limitations).toEqual([NOT_EXPORTED.lists, NO_MODULES_FILE, ...NO_ACTIONS, ...STANDING]);
+      ["REV01 Revenue: Applies To: Products"]]);
+    expect(alone.limitations).toEqual([NOT_EXPORTED.lists, NO_MODULES_FILE, ...NO_ACTIONS, LINKS]);
 
     // General Lists alone, and the actions alone.
     const lists = buildModelGraph([generalLists(list("Products", { Subsets: "Core Products", "Referenced in Applies To": "REV01 Revenue" }))]);
     expect([lists.nodes.map(each => each.name), links(lists), unresolved(lists)]).toEqual([["Products", "Core Products"], ["Products -> Core Products (subset)"],
       ["Products: Referenced in Applies To: REV01 Revenue"]]);
-    expect(lists.limitations).toEqual([NOT_EXPORTED.lineItems, ...NO_ACTIONS, ...STANDING]);
+    expect(lists.limitations).toEqual([NOT_EXPORTED.lineItems, ...NO_ACTIONS, LIST_ITEMS, LINKS]);
     const actions = buildModelGraph([processesFile(action("Weekly")), importsFile(action("Load prices", { "Target Object": "Prices", "Target Type": "MODULE", "Used in Processes": "Weekly" }))]);
     expect([links(actions), unresolved(actions)]).toEqual([["Weekly -> Load prices (process_action)"], ["Load prices: Target Object: Prices"]]);
-    expect(actions.limitations).toEqual([NOT_EXPORTED.lists, NOT_EXPORTED.lineItems, NOT_EXPORTED.exports, NOT_EXPORTED.otherActions, ...STANDING, IMPORT_SOURCES]);
+    expect(actions.limitations).toEqual([NOT_EXPORTED.lists, NOT_EXPORTED.lineItems, NOT_EXPORTED.exports, NOT_EXPORTED.otherActions, PROCESS_ORDER, LINKS, IMPORT_SOURCES]);
   });
 
   it("says what each column a table lacks leaves out, and builds from the columns there are", () => {
@@ -626,13 +906,13 @@ describe("The model map's graph, from the tables of a model export", () => {
       file("Other Actions", [""], [["Delete old regions"]])]);
     expect(bare.nodes).toEqual([
       // Without the Numbered column a list is not said to be unnumbered.
-      { id: 0, kind: "list", name: "Products", file: "General Lists", row: 1, group: "Ungrouped" },
-      { id: 1, kind: "module", name: "REV01 Revenue", file: "Line Items", row: 1, group: "Ungrouped" },
-      { id: 2, kind: "lineItem", name: "Units", file: "Line Items", row: 2, module: 1, group: "Ungrouped" },
-      { id: 3, kind: "process", name: "Weekly", file: "Processes", row: 1 },
-      { id: 4, kind: "action", name: "Load prices", file: "Imports", row: 1, actionType: "Import" },
-      { id: 5, kind: "action", name: "Send prices", file: "Exports", row: 1, actionType: "Export" },
-      { id: 6, kind: "action", name: "Delete old regions", file: "Other Actions", row: 1, actionType: "Other" }]);
+      { id: 0, kind: "list", name: "Products", file: "General Lists", row: 2, group: "Ungrouped" },
+      { id: 1, kind: "module", name: "REV01 Revenue", file: "Line Items", row: 2, group: "Ungrouped" },
+      { id: 2, kind: "lineItem", name: "Units", file: "Line Items", row: 3, module: 1, group: "Ungrouped" },
+      { id: 3, kind: "process", name: "Weekly", file: "Processes", row: 2 },
+      { id: 4, kind: "action", name: "Load prices", file: "Imports", row: 2, actionType: "Import" },
+      { id: 5, kind: "action", name: "Send prices", file: "Exports", row: 2, actionType: "Export" },
+      { id: 6, kind: "action", name: "Delete old regions", file: "Other Actions", row: 2, actionType: "Other" }]);
     expect([bare.edges, bare.unresolved]).toEqual([[], []]);
     expect(bare.limitations).toEqual([
       "General Lists has no Subsets column: the map has no list subsets.",
@@ -659,18 +939,16 @@ describe("The model map's graph, from the tables of a model export", () => {
       "Other Actions has no Action column: the other actions come without their kind and their definition, and the map does not say which list one works on.",
       "Other Actions has no Used in Processes column: the map does not say which processes run one of the other actions.",
       "Other Actions has no Notes, Start Date and Time (UTC) and Most recent duration (ms) columns: the other actions come without them.",
-      ...STANDING, IMPORT_SOURCES]);
+      NO_LIST_ITEMS, LINKS]);
 
     // One column less than the export has: one sentence, and everything else as it is.
     const whole = [lineItems(moduleRow("REV01 Revenue", { "Applies To": "Products" }), item("REV01 Revenue", "Units", { "Referenced By": "Revenue", Notes: "Sold" }), item("REV01 Revenue", "Revenue")),
       generalLists(list("Products"))];
-    const without = (table: ResultTable, header: string): ResultTable => {
-      const at = table.headers.indexOf(header);
-      return { ...table, headers: table.headers.filter((_, index) => index !== at), rows: table.rows.map(row => row.filter((_, index) => index !== at)) };
-    };
-    const lacking = (header: string): ModelGraph => buildModelGraph([without(whole[0], header), whole[1]]);
-    expect(buildModelGraph(whole).limitations).toEqual([NO_MODULES_FILE, ...NO_ACTIONS, ...STANDING]);
-    expect(lacking("Notes").limitations).toEqual(["Line Items has no Notes column: modules and line items come without it.", NO_MODULES_FILE, ...NO_ACTIONS, ...STANDING]);
+    const lacking = (...headers: string[]): ModelGraph => buildModelGraph([without(whole[0], ...headers), whole[1]]);
+    expect(buildModelGraph(whole).limitations).toEqual([NO_MODULES_FILE, ...NO_ACTIONS, LIST_ITEMS, LINKS]);
+    expect(lacking("Notes").limitations).toEqual(["Line Items has no Notes column: modules and line items come without it.", NO_MODULES_FILE, ...NO_ACTIONS, LIST_ITEMS, LINKS]);
+    // Two columns are named with "and" between them.
+    expect(lacking("Notes", "Style").limitations[0]).toBe("Line Items has no Notes and Style columns: modules and line items come without them.");
     expect([links(lacking("Referenced By")), links(lacking("Notes")).length, node(lacking("Notes"), "Units").notes, node(buildModelGraph(whole), "Units").notes]).toEqual([
       anyOrder(["Products -> REV01 Revenue (applies)", "Products -> REV01 Revenue.Units (applies)", "Products -> REV01 Revenue.Revenue (applies)"]), 4, undefined, "Sold"]);
     // Without Module Name no row says its module: the rows that hold more than a name are left out, and counted.
@@ -680,17 +958,36 @@ describe("The model map's graph, from the tables of a model export", () => {
       "2 rows of Line Items are no module's own and name no module: they are left out."]]);
     // The Format List column is the export's own, and a file without it lacks nothing the map says.
     expect(lacking("Format List").limitations).toEqual(buildModelGraph(whole).limitations);
-    // The Imports tab alone, as the export writes it when the Actions list could not be read.
-    const tabOnly = buildModelGraph([file("Imports", IMPORT_HEADERS.slice(0, 7), [["Load prices", "prices.csv", "-", "FILE", "Prices", "MODULE", "false"]])]);
+    // The Imports tab alone, as the export writes it when the Actions list could not be read. What the table lacks is
+    // said beside the import that names no target, not in its place.
+    const tabOnly = buildModelGraph([file("Imports", IMPORT_HEADERS.slice(0, 7), [["Load prices", "prices.csv", "-", "FILE", "Prices", "MODULE", "false"], ["Old import", "", "", "", "", "", ""]])]);
     expect(tabOnly.limitations).toEqual([NOT_EXPORTED.lists, NOT_EXPORTED.lineItems, NOT_EXPORTED.processes,
       "Imports has no Used in Processes column: the map does not say which processes run an import.",
       "Imports has no Notes, Start Date and Time (UTC) and Most recent duration (ms) columns: imports come without them.",
-      NOT_EXPORTED.exports, NOT_EXPORTED.otherActions, ...STANDING, IMPORT_SOURCES]);
+      "1 import is linked to no module or list: its Target Object cell is empty.",
+      NOT_EXPORTED.exports, NOT_EXPORTED.otherActions, LINKS, IMPORT_SOURCES]);
+  });
+
+  it("reads a list's top level item and whether it is numbered under either of the two headers a file may have", () => {
+    const headed = (topLevel: string, numbered: string): ModelGraph => buildModelGraph([file("General Lists", ["", topLevel, numbered, "Item Count"], [["Products", "All Products", "true", "5"],
+      ["Regions", "", "false", "12"]])]);
+    const nodes = [{ id: 0, kind: "list", name: "Products", file: "General Lists", row: 2, group: "Ungrouped", topLevel: "All Products", count: 5, numbered: true },
+      { id: 1, kind: "list", name: "Regions", file: "General Lists", row: 3, group: "Ungrouped", count: 12, numbered: false }];
+    for (const graph of [headed("Top Level", "Numbered"), headed("Top Level Item", "Numbered List"), headed("Top Level Item", "Numbered"), headed("Top Level", "Numbered List")]) {
+      expect(graph.nodes).toEqual(nodes);
+      expect(graph.limitations.filter(line => /Top Level|Numbered/.test(line))).toEqual([]);
+    }
+    // Where a file has both, the header the prototype read is the column.
+    const both = buildModelGraph([file("General Lists", ["", "Top Level Item", "Top Level", "Numbered List", "Numbered"], [["Products", "Longer", "Shorter", "false", "true"]])]);
+    expect([both.nodes[0].topLevel, both.nodes[0].numbered]).toEqual(["Shorter", true]);
+    // A file with neither is said to lack the column by the shorter name.
+    expect(buildModelGraph([file("General Lists", ["", "Item Count", "Notes", "Display Name Property"], [["Products", "5", "", ""]])]).limitations.slice(6, 7))
+      .toEqual(["General Lists has no Top Level and Numbered columns: lists come without them."]);
   });
 
   it("makes nothing of a table without rows, and says nothing of the columns it lacks", () => {
     const empty = [lineItems(), modulesFile(), generalLists(), processesFile(), importsFile(), exportsFile(), otherActions()];
-    expect(buildModelGraph(empty)).toEqual({ nodes: [], edges: [], unresolved: [], sections: [], limitations: [...STANDING, IMPORT_SOURCES] });
+    expect(buildModelGraph(empty)).toEqual({ nodes: [], edges: [], unresolved: [], sections: [], limitations: [LINKS] });
     // Not even headers.
     const blank = ["Line Items", "Modules", "General Lists", "Processes", "Imports", "Exports", "Other Actions"].map(label => file(label, [], []));
     expect(buildModelGraph(blank)).toEqual(buildModelGraph(empty));
@@ -717,7 +1014,8 @@ describe("The model map's graph, from the tables of a model export", () => {
         item("LATE01 Late", "Early"),
         moduleRow("LATE01 Late")),
       generalLists(
-        list("Products", { Subsets: "Core, Core", "Item Count": "5" }),
+        // The same subset written with quotes and without is one name.
+        list("Products", { Subsets: "Core, 'Core'", "Item Count": "5" }),
         list("Regions", { Subsets: "Core, Northern" }),
         list("Products", { Subsets: "Second", "Item Count": "9" })),
       processesFile(action("Nightly", { Notes: "First" }), action("Nightly", { Notes: "Second" }), action("Nightly")),
@@ -725,9 +1023,9 @@ describe("The model map's graph, from the tables of a model export", () => {
       otherActions(action("Tidy up"), action("Tidy up")),
     ]);
     expect(graph.nodes.map(each => `${each.kind} ${each.name} row ${each.row}`)).toEqual([
-      "list Products row 1", "list Regions row 2", "subset Core row 1", "subset Northern row 2",
-      "module REV01 Revenue row 1", "lineItem Units row 2", "module COST01 Costs row 4", "lineItem Units row 5", "lineItem Margin row 8", "module LATE01 Late row 13",
-      "process Nightly row 1", "action Tidy up row 1", "action Tidy up row 2"]);
+      "list Products row 2", "list Regions row 3", "subset Core row 2", "subset Northern row 3",
+      "module REV01 Revenue row 2", "lineItem Units row 3", "module COST01 Costs row 5", "lineItem Units row 6", "lineItem Margin row 9", "module LATE01 Late row 14",
+      "process Nightly row 2", "action Tidy up row 2", "action Tidy up row 3"]);
     expect([node(graph, "Products").count, node(graph, "Nightly").notes, graph.nodes[5].formula, node(graph, "REV01 Revenue").notes, node(graph, "Margin").module])
       .toEqual([5, "First", "1", undefined, node(graph, "REV01 Revenue").id]);
     expect(graph.limitations).toEqual([
@@ -740,15 +1038,15 @@ describe("The model map's graph, from the tables of a model export", () => {
       "2 line items have the name of a line item above them in the same module and are left out.",
       "2 rows of Processes repeat the name of a process above them and are left out.",
       NOT_EXPORTED.imports, NOT_EXPORTED.exports,
-      ...STANDING]);
+      LIST_ITEMS, PROCESS_ORDER, LINKS]);
     // One of each is said as one.
     const one = buildModelGraph([lineItems(moduleRow("REV01 Revenue"), item("REV01 Revenue", "Units"), item("REV01 Revenue", "Units"), item("OLD01 Gone", "Left over")),
       generalLists(list("Products", { Subsets: "Core, Core" })), processesFile(action("Nightly"), action("Nightly"))]);
-    expect(one.limitations.slice(0, 6)).toEqual([
-      "1 list subset has the name of a subset before it and is left out.", NO_MODULES_FILE,
+    expect(counted(one)).toEqual([
+      "1 list subset has the name of a subset before it and is left out.",
       "1 line item names a module that has no row above it in Line Items and is left out.",
       "1 line item has the name of a line item above it in the same module and is left out.",
-      "1 row of Processes repeats the name of a process above it and is left out.", NOT_EXPORTED.imports]);
+      "1 row of Processes repeats the name of a process above it and is left out."]);
   });
 
   it("never throws, whatever the tables hold", () => {
@@ -756,17 +1054,23 @@ describe("The model map's graph, from the tables of a model export", () => {
     const numbers = buildModelGraph([file("Line Items", ["", "Module Name", "Cell Count", "Applies To"], [[2026, "", 1200, 7], ["Units", 2026, 12.5, "-"]]),
       file("General Lists", ["", "Item Count", "Numbered"], [[7, 40, "true"]])]);
     expect(numbers.nodes).toEqual([
-      { id: 0, kind: "list", name: "7", file: "General Lists", row: 1, group: "Ungrouped", count: 40, numbered: true },
-      { id: 1, kind: "module", name: "2026", file: "Line Items", row: 1, group: "Ungrouped", cells: 1200, dimensions: [0] },
-      { id: 2, kind: "lineItem", name: "Units", file: "Line Items", row: 2, module: 1, group: "Ungrouped", inheritsDimensions: true, dimensions: [0] }]);
+      { id: 0, kind: "list", name: "7", file: "General Lists", row: 2, group: "Ungrouped", count: 40, numbered: true },
+      { id: 1, kind: "module", name: "2026", file: "Line Items", row: 2, group: "Ungrouped", cells: 1200, dimensions: [0] },
+      { id: 2, kind: "lineItem", name: "Units", file: "Line Items", row: 3, module: 1, group: "Ungrouped", inheritsDimensions: true, dimensions: [0] }]);
     // A line item without a name is a line item all the same, and keeps the name it has.
     const unnamed = buildModelGraph([lineItems(moduleRow("REV01 Revenue"), item("REV01 Revenue", "", { Format: "", Summary: "", "Applies To": "" }))]);
-    expect(unnamed.nodes[1]).toEqual({ id: 1, kind: "lineItem", name: "", file: "Line Items", row: 2, module: 0, group: "Ungrouped" });
-    // A table of the wrong shape altogether: what can be read of it is read.
-    const odd = [null, { file: "Line Items.csv", label: "Line Items", headers: null, rows: [null, ["REV01 Revenue"], 5, [null], [{ name: "x" }]] },
+    expect(unnamed.nodes[1]).toEqual({ id: 1, kind: "lineItem", name: "", file: "Line Items", row: 3, module: 0, group: "Ungrouped" });
+    // A table of the wrong shape altogether: what can be read of it is read. A cell that cannot be made text is written
+    // as any other object is.
+    const odd = [null, { file: "Line Items.csv", label: "Line Items", headers: null, rows: [null, ["REV01 Revenue"], 5, [null], [{ name: "x" }], [Object.create(null)]] },
       { file: "General Lists.csv", label: "General Lists", headers: ["", "Subsets"], rows: "none" }, { file: "Processes.csv" }, "Imports.csv"] as unknown as ResultTable[];
     expect(() => buildModelGraph(odd)).not.toThrow();
-    expect(buildModelGraph(odd).nodes.map(each => each.name)).toEqual(["REV01 Revenue", "[object Object]"]);
+    expect([buildModelGraph(odd).nodes.map(each => each.name), counted(buildModelGraph(odd))]).toEqual([["REV01 Revenue", "[object Object]"],
+      ["1 row of Line Items repeats the name of a module above it and is left out."]]);
+    // A hole among the rows is a row with nothing in it, as the CSV writes it.
+    const holed = lineItems(moduleRow("REV01 Revenue"), item("REV01 Revenue", "Units"), item("REV01 Revenue", "Price"));
+    delete holed.rows[1];
+    expect(buildModelGraph([holed, modulesFile("REV01 Revenue")]).nodes.map(each => `${each.name} row ${each.row}`)).toEqual(["REV01 Revenue row 2", "Price row 4"]);
     // Definitions that are JSON of another shape than Anaplan writes.
     const shapes = buildModelGraph([
       lineItems(moduleRow("REV01 Revenue"), item("REV01 Revenue", "Units", { Format: '{"dataType":"ENTITY","hierarchyEntityLongId":{"id":1}}', Summary: '{"summaryMethod":{"a":1}}' }),
@@ -792,13 +1096,15 @@ describe("The model map's graph, from the tables of a model export", () => {
       importsFile(action("Load prices", { "Target Object": "REV01 Revenue", "Target Type": "MODULE", "Used in Processes": "Weekly" })),
       processesFile(action("Weekly")),
       generalLists(
-        list("Products", { Subsets: "Core Products", "Referenced in Applies To": "REV01 Revenue, REV01 Revenue, REV01 Revenue.Units", "Referenced in Formula": "REV01 Revenue.Units, REV01 Revenue.Units" }),
-        list("Regions", { "Parent Hierarchy": "Products", "Referenced as Format": "REV01 Revenue.Region" })),
+        // Products is in Units' formula, which is read before Units' own row says that Products is among its dimensions:
+        // the two links between the same two nodes still come in the order of their kinds.
+        list("Products", { Subsets: "Core Products", "Referenced in Applies To": "REV01 Revenue, REV01 Revenue", "Referenced in Formula": "REV01 Revenue.Units, REV01 Revenue.Units" }),
+        list("Regions", { "Parent Hierarchy": "Products", "Referenced as Format": "REV01 Revenue.Region", "Referenced in Formula": "REV01 Revenue.Region" })),
       lineItems(
         moduleRow("REV01 Revenue", { "Applies To": "Products, Products, Core Products" }),
         // The same reference twice, and one that the other end says as well.
-        item("REV01 Revenue", "Units", { "Referenced By": "Revenue, Revenue, 'REV01 Revenue'.Revenue", "Read Access Driver": "Open" }),
-        item("REV01 Revenue", "Region", { Format: listFormat(101000000002), "Format List": "Regions" }),
+        item("REV01 Revenue", "Units", { "Referenced By": "Revenue, Revenue, 'REV01 Revenue'.Revenue", "Read Access Driver": "Open", "Write Access Driver": "Open" }),
+        item("REV01 Revenue", "Region", { Format: listFormat(101000000002), "Format List": "Regions", "Applies To": "Regions" }),
         item("REV01 Revenue", "Revenue", { "Referenced By": "Units" }),
         item("REV01 Revenue", "Open", { Format: BOOLEAN, "Referenced By": "Units" })),
     ];
@@ -808,10 +1114,10 @@ describe("The model map's graph, from the tables of a model export", () => {
       "lineItem Revenue", "lineItem Open", "process Weekly", "action Load prices", "action Delete old regions"]);
     // By the first node, then the second, then the kind; no link twice, though the tables say several of them twice.
     expect(graph.edges).toEqual([
-      [0, 1, "parent"], [0, 2, "subset"], [0, 3, "applies"], [0, 4, "applies"], [0, 4, "list_formula"], [0, 5, "applies"], [0, 6, "applies"], [0, 7, "applies"],
-      [1, 5, "format"],
-      [2, 3, "applies"], [2, 4, "applies"], [2, 5, "applies"], [2, 6, "applies"], [2, 7, "applies"],
-      [4, 6, "reference"], [6, 4, "reference"], [7, 4, "read_access"],
+      [0, 1, "parent"], [0, 2, "subset"], [0, 3, "applies"], [0, 4, "applies"], [0, 4, "list_formula"], [0, 6, "applies"], [0, 7, "applies"],
+      [1, 5, "applies"], [1, 5, "format"], [1, 5, "list_formula"],
+      [2, 3, "applies"], [2, 4, "applies"], [2, 6, "applies"], [2, 7, "applies"],
+      [4, 6, "reference"], [6, 4, "reference"], [7, 4, "read_access"], [7, 4, "write_access"],
       [8, 9, "process_action"], [8, 10, "process_action"], [9, 3, "import_target"], [10, 1, "action_target"]]);
     expect(new Set(graph.edges.map(edge => edge.join(" "))).size).toBe(graph.edges.length);
     // What the module's Applies To names twice is twice among its dimensions, as the cell has it.
@@ -835,7 +1141,7 @@ describe("The model map's graph, from the tables of a model export", () => {
     const rows: Cells[] = [];
     for (let module = 0; module < 250; module++) {
       if (module % 25 === 0) rows.push(heading(`-- ${String(module / 25).padStart(2, "0")} : SECTION --`));
-      rows.push(moduleRow(moduleName(module), { "Applies To": `List ${module % LISTS}, List ${(module + 7) % LISTS}`, "Cell Count": "48000" }));
+      rows.push(moduleRow(moduleName(module), { "Applies To": `List ${module % LISTS}, List ${(module + 7) % LISTS}, Users`, "Cell Count": "48000" }));
       for (let line = 0; line < PER_MODULE; line++) {
         // Each line item is referred to by the next one of its module, and by two line items of other modules.
         const referencedBy = [lineName((line + 1) % PER_MODULE), written((module + 1) % 250, line), written((module + 113) % 250, (line + 5) % PER_MODULE)].join(", ");
@@ -864,12 +1170,28 @@ describe("The model map's graph, from the tables of a model export", () => {
     const kinds = (kind: GraphNode["kind"]): number => graph.nodes.filter(each => each.kind === kind).length;
     expect([kinds("module"), kinds("lineItem"), kinds("list"), kinds("subset"), kinds("property"), kinds("process"), kinds("action")]).toEqual([250, 5000, 40, 40, 40, 30, 200]);
     const linked = (kind: EdgeKind): number => graph.edges.filter(edge => edge[2] === kind).length;
-    // Three references for each line item, less the 250 that are a driver's and so an access link.
-    expect([linked("reference"), linked("read_access"), linked("format"), linked("import_target"), linked("process_action"), graph.unresolved.length]).toEqual([14750, 250, 250, 200, 400, 0]);
+    // Three references for each line item, less the 250 that are a driver's and so an access link. The dimension that
+    // is no list is unresolved once for each module's row, not for each of the line items that take theirs from it.
+    expect([linked("reference"), linked("read_access"), linked("format"), linked("import_target"), linked("process_action"), graph.unresolved.length]).toEqual([14750, 250, 250, 200, 400, 250]);
     expect(graph.edges.length).toBeGreaterThan(25_000);
     expect(graph.sections).toHaveLength(10);
-    expect(graph.limitations).toEqual([NOT_EXPORTED.exports, NOT_EXPORTED.otherActions, ...STANDING, IMPORT_SOURCES]);
+    expect(graph.limitations).toEqual([NOT_EXPORTED.exports, NOT_EXPORTED.otherActions, LIST_ITEMS, PROCESS_ORDER, LINKS, IMPORT_SOURCES]);
     // Loosely: the same build takes some tens of milliseconds on a laptop.
     expect(took).toBeLessThan(1_000);
+  });
+
+  it("does not hang on long cells of names: 300 actions, each with 4,000 characters of processes, and a process name as long", () => {
+    const cell = Array.from({ length: 1000 }, () => "ab").join(", ");
+    for (const long of ["p".repeat(3000), Array.from({ length: 750 }, () => "ab").join(", ")]) {
+      const tables = [processesFile(action(long), action("Weekly")), otherActions(...Array.from({ length: 300 }, (_, index) => action(`Tidy ${index}`, { "Used in Processes": `Weekly, ${cell}` })))];
+      const started = performance.now();
+      const graph = buildModelGraph(tables);
+      const took = performance.now() - started;
+      // One entry for each cell: the part that is no process, or the whole cell where it reads many ways.
+      expect([graph.nodes.length, graph.unresolved.length]).toEqual([302, 300]);
+      expect(graph.edges.length).toBe(long.includes(",") ? 0 : 300);
+      // Loosely: it takes some tens of milliseconds. Looked up prefix by prefix it took minutes.
+      expect(took).toBeLessThan(2_000);
+    }
   });
 });
