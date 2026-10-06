@@ -3239,15 +3239,18 @@ describe("A model's map on the results page", () => {
     // the page asks nothing of it, and the focus stays where it is.
     page.find('#navList [data-nav="map"]').dispatch("click");
     expect([mapAsked.length, page.document.activeElement === button, host().hidden, shows()[0]]).toEqual([7, true, false, "Model map"]);
+    // Another view chosen by such a click leaves the map as any choice of that view does: the map is hidden once, and
+    // the view that is shown has the focus.
+    page.find('#navList [data-nav="1"]').dispatch("click");
+    expect([mapAsked.slice(7), host().hidden, shows()[0], page.document.activeElement === page.id("view")]).toEqual([["hide 1"], true, "Line Items", true]);
+    // From another view the map is shown once, as ever: it was hidden when that view was chosen.
+    toMap();
+    expect([mapAsked.slice(8), page.document.activeElement === button]).toEqual([["show 1"], true]);
 
     // A map that does not take the focus is shown anew as well, and the view has the focus then, as after its first choice.
     mapTakesFocus = false;
     toMap();
-    expect([mapAsked.slice(7), page.document.activeElement === page.id("view"), host().hidden]).toEqual([["hide 1", "show 1"], true, false]);
-    // From another view the map is shown once, as ever: it was hidden when that view was chosen.
-    goTo(1);
-    toMap();
-    expect(mapAsked.slice(9)).toEqual(["hide 1", "show 1"]);
+    expect([mapAsked.slice(9), page.document.activeElement === page.id("view"), host().hidden]).toEqual([["hide 1", "show 1"], true, false]);
     // A map that cannot draw when it is shown anew is taken away, and the view says so, as when it cannot be shown at first.
     mapThrows.show = new Error("Nothing to draw on.");
     toMap();
