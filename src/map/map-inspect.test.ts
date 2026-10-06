@@ -83,7 +83,8 @@ describe("What the details say of a module", () => {
     const model = indexModel(make.graph());
     const graph = modulesGraph(model, undefined, false);
     const inspection = inspect(model, graph, graph.nodes[0], false);
-    expect(inspection.rows).toEqual([["Section", "01: All"], ["Line items", "0"], ["Applies To", "None"]]);
+    // A model of one section has no sections to tell its modules apart by: the details do not name one.
+    expect(inspection.rows).toEqual([["Line items", "0"], ["Applies To", "None"]]);
     expect(inspection.action).toBeUndefined();
     expect(inspection.lists).toEqual([]);
     expect(inspection.notes).toBeUndefined();
@@ -171,12 +172,12 @@ describe("What the details say of a line item", () => {
     expect(gross.texts).toEqual([{ key: "unresolved", title: "Names not matched to one object · 1", lines: ["Referenced By: Retired.Total"] }]);
     const units = moduleGraph(model, volumes, false, false);
     expect(inspect(model, units, byName(units, "Units"), false).source).toBe("Line Items.csv, row 12");
-    // A row in the thousands is written as the page writes its counts.
+    // A row in the thousands is written as a spreadsheet numbers it: its digits, with nothing between them.
     const make = new GraphMaker();
     const plan = make.module("PLN01 - Plan", "01: All");
     make.item(plan, "Far Down", { row: 12345 });
     const far = moduleGraph(indexModel(make.graph()), plan, false, false);
-    expect(inspect(indexModel(make.graph()), far, far.nodes[0], false).source).toBe("Line Items.csv, row 12,345");
+    expect(inspect(indexModel(make.graph()), far, far.nodes[0], false).source).toBe("Line Items.csv, row 12345");
   });
 });
 
@@ -305,6 +306,10 @@ describe("The line that says what the map shows", () => {
     expect(statusWords(drill, 4, 3)).toBe("4 line items · 3 outside the module · 4 links. Showing 4 of 7 boxes, 3 in view.");
     expect(statusWords(drill, 7, 5)).toBe("4 line items · 3 outside the module · 4 links. 5 of 7 boxes in view.");
     expect(statusWords(drill, 0, 0)).toBe("4 line items · 3 outside the module · 4 links. Showing 0 of 7 boxes.");
+    // Beside a selection, whose own bar stands under the line, the line says only what it has more to say than that.
+    expect([statusWords(drill, 4, 3, true), statusWords(drill, 7, 5, true), statusWords(drill, 4, 4, true)]).toEqual(["Showing 4 of 7 boxes, 3 in view.", "5 of 7 boxes in view.", "Showing 4 of 7 boxes."]);
+    // With nothing more to say it is the line as ever (the view then shows the bar in its place).
+    expect(statusWords(drill, 7, 7, true)).toBe("4 line items · 3 outside the module · 4 links");
   });
 
   it("says of an empty graph only what it would hold", () => {
