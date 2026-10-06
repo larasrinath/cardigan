@@ -787,7 +787,8 @@ function dropMap(): void {
   host.innerHTML = "";
 }
 
-/** Leaves the map for another view: the map is told that it is hidden, and its host gives the room back. */
+/** Leaves the map, for another view or to be shown anew (`navTo`): the map is told that it is hidden, and its host gives
+ * the room back. */
 function leaveMap(): void {
   const host = el("mapHost");
   if (host.hidden) return;
@@ -846,6 +847,12 @@ function navTo(view: View, context?: string): void {
   // so it is shown from its first page when the user comes back to it.
   const left = currentEntry();
   if (left && (state.search.trim() !== "" || state.context !== undefined)) left.page = 0;
+  // A choice made with the focus outside the map leaves the map before the view is drawn. For another view that is
+  // all there is to it. For the map's own entry, chosen again while the map is shown, it has the map shown anew, as on
+  // coming back to it: choosing the entry took the focus out of the map, to the entry, and the map's keys with it, and
+  // a map that is shown anew takes the focus as it did when it was first shown. A map that still has the focus is left
+  // as it is.
+  if (!el("mapHost").contains(document.activeElement)) leaveMap();
   state.view = view;
   state.search = "";
   state.context = context;
