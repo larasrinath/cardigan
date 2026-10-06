@@ -4,7 +4,7 @@ import type { ModelGraph, ModelMap } from "./graph-types.js";
 import type { Pen } from "./map-canvas.js";
 import { FALLBACK } from "./map-palette.js";
 import { mountModelMap, mountModelMapIn, type MapEnvironment } from "./map-view.js";
-import { FakePen, GraphMaker, HOSTILE } from "./map.test-support.js";
+import { FakePen, GraphMaker, HOSTILE } from "./map-fakes.test-support.js";
 
 /** A page with a control outside the map, and the place the map is put into. */
 const SHELL = '<!DOCTYPE html><html lang="en" data-theme="light"><head><title>Page</title></head><body><button type="button" id="outside">Outside</button><main id="main"><div id="host"></div></main></body></html>';

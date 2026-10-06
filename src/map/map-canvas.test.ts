@@ -7,7 +7,7 @@ import { indexModel } from "./map-model.js";
 import { FALLBACK } from "./map-palette.js";
 import { lineWidth } from "./map-text.js";
 import { traceNode } from "./map-trace.js";
-import { FakePen, GraphMaker, HOSTILE } from "./map.test-support.js";
+import { FakePen, GraphMaker, HOSTILE } from "./map-fakes.test-support.js";
 
 const PLAIN: Camera = { ox: 0, oy: 0, k: 1 };
 

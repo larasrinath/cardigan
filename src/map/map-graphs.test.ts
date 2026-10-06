@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { LAYER, moduleGraph, modulesGraph, sectionLayer, sectionsGraph, type ViewGraph } from "./map-graphs.js";
 import { indexModel } from "./map-model.js";
-import { GraphMaker } from "./map.test-support.js";
+import { GraphMaker } from "./map-fakes.test-support.js";
 
 /** Three sections. Inputs feed Calculations, Calculations feed Reporting and read each other, and a flag of the inputs
  * drives who may write a calculation. */

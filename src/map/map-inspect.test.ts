@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { LAYER, moduleGraph, modulesGraph, sectionsGraph, type ViewGraph, type ViewNode } from "./map-graphs.js";
 import { inspect, isHeading, layerOfObject, selectionSentence } from "./map-inspect.js";
 import { indexModel } from "./map-model.js";
-import { GraphMaker } from "./map.test-support.js";
+import { GraphMaker } from "./map-fakes.test-support.js";
 
 function sample() {
   const make = new GraphMaker();

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { modulesGraph } from "./map-graphs.js";
 import { indexModel } from "./map-model.js";
 import { createSearch, matchNodes, SEARCH_LIMIT, searchText } from "./map-search.js";
-import { GraphMaker } from "./map.test-support.js";
+import { GraphMaker } from "./map-fakes.test-support.js";
 
 function sample() {
   const make = new GraphMaker();

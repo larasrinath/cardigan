@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { moduleGraph, modulesGraph, sectionsGraph, type ViewGraph } from "./map-graphs.js";
 import { indexModel } from "./map-model.js";
 import { inTrace, traceNode } from "./map-trace.js";
-import { GraphMaker } from "./map.test-support.js";
+import { GraphMaker } from "./map-fakes.test-support.js";
 
 const names = (graph: ViewGraph, places: ReadonlySet<number>): string[] => [...places].map(place => graph.nodes[place].fullName).sort();
 const place = (graph: ViewGraph, name: string): number => graph.nodes.findIndex(node => node.fullName === name);
