@@ -54,7 +54,8 @@ export type RunState =
   | { phase: "failed"; message: string }
   /** The port closed during a run: the tab was closed or went to another page. */
   | { phase: "interrupted" }
-  /** `received` is when the result was complete: the one time its zip is stamped with, however often it is downloaded. */
+  /** `received` is when the result was complete: the time the page says a result was analysed at, once a refresh has
+   * brought it back. */
   | { phase: "done"; result: AnalysisResult; received: Date };
 
 export interface ClientOptions {

@@ -43,8 +43,6 @@ export interface Inspection {
   lists: InspectList[];
   texts: InspectText[];
   notes?: string;
-  /** The file and the row the object comes from. */
-  source?: string;
 }
 
 const KIND_NAMES: Record<GraphNode["kind"], string> = { list: "LIST", subset: "LIST SUBSET", property: "LIST PROPERTY", module: "MODULE", lineItem: "LINE ITEM", process: "PROCESS", action: "ACTION" };
@@ -206,8 +204,6 @@ export function inspect(model: MapModel, graph: ViewGraph, node: ViewNode, acces
   const unresolved = model.unresolvedOf(raw.id);
   if (unresolved.length) inspection.texts.push({ key: "unresolved", title: `Names not matched to one object · ${formatCount(unresolved.length)}`, lines: unresolved.map(entry => `${entry.field}: ${entry.reference}`) });
   if (raw.notes !== undefined && raw.notes !== "") inspection.notes = raw.notes;
-  // The row as a spreadsheet numbers it: a plain number, with nothing between its digits.
-  inspection.source = `${raw.file}.csv, row ${raw.row}`;
   return inspection;
 }
 

@@ -265,7 +265,7 @@ describe("The results page's escaping", () => {
     // A table with no rows, and one whose search finds nothing.
     expectInert(text => tableHtml(viewOf({ ...table(text), rows: [] }, NO_LINKS)), 6);
     expectInert(text => tableHtml(viewOf(table(text), LINKS, { rows: [], total: 0, from: 0, to: 0, search: text(2), context: text(3), filtered: new Set([1]) })), 6);
-    // A table whose file's rows are all left to the CSV: what it says in the rows' place, each of the texts in turn.
+    // A table that lists none of the rows that were read for it: what it says in the rows' place, each of the texts in turn.
     for (const [index] of HOSTILE.entries()) expectInert(text => tableHtml(viewOf({ ...table(harmless), rows: [] }, NO_LINKS, { note: text(index), none: text(index + 1) })), 0);
     for (const entry of HOSTILE) expect(shownValues(tableHtml(viewOf({ ...table(harmless), rows: [] }, NO_LINKS, { none: entry }))), entry).toContain(entry);
   });
@@ -396,7 +396,7 @@ describe("The results page's escaping", () => {
     const columns = (text: Texts) => KINDS.map((kind, index) => column(index, text(index), kind));
     const row = (text: Texts): Cell[] => KINDS.map((_, index) => text(index + 2));
     expectInert(text => rowDrawerHtml(columns(text), row(text), LINKS), 7);
-    // With the CSV's text for the cells said in words, under each kind of column; and each of the texts in turn as such a
+    // With the text that was read for the cells said in words, under each kind of column; and each of the texts in turn as such a
     // text: it stands there as it was typed, and changes nothing else.
     expectInert(text => rowDrawerHtml(columns(text), row(text), LINKS, new Map(KINDS.map((_, index) => [index, text(index + 4)]))), 7);
     const withText = (exported: string) => rowDrawerHtml(columns(harmless), row(harmless), NO_LINKS, new Map([[1, exported]]));
@@ -595,8 +595,8 @@ describe("A result whose every text is hostile, through every view of the page",
       { file: "Cards.csv", label: "Cards", headers: ["Page", "Card type", "Card ID"], rows: [["Overview", "Grid", "card-a"]], guard: true }] });
     expect(headings(overviewHtml(overview))).toEqual(["1 Overview", "2 Notes", "2 Cards by type", "2 Models"]);
     // With what the Details file says: each part under a heading of its own, the two that start closed among them.
-    expect(headings(overviewHtml({ ...overview, about: [["App", "Demo"]], files: [["Imports.csv", "Not exported"]], howToRead: [["Layout", "As Anaplan's export."]], log: ["a line"] })))
-      .toEqual(["1 Overview", "2 About this export", "2 Notes", "2 Cards by type", "2 Models", "2 Files", "2 How to read these files", "2 Diagnostics"]);
+    expect(headings(overviewHtml({ ...overview, about: [["App", "Demo"]], files: [["Imports", "Not exported"]], howToRead: [["Layout", "As Anaplan's export."]], log: ["a line"] })))
+      .toEqual(["1 Overview", "2 About this export", "2 Notes", "2 Cards by type", "2 Models", "2 Tables", "2 How to read these tables", "2 Diagnostics"]);
     const table: ResultTable = { file: "Cards.csv", label: "Cards", headers: ["Page"], rows: [["Overview"]], guard: true };
     expect(headings(tableHtml(viewOf(table, LINKS)))).toEqual(["1 Cards"]);
     expect(headings(runHtml())).toEqual(["1 "]);

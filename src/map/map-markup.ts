@@ -223,7 +223,7 @@ export function listHtml(list: InspectList, all: boolean): string {
 
 /** The details of the node selected, in the order a modeller asks: what it is and its name, what the trace found, the
  * button that goes into it, its formula, its settings under the names of the Line Items table's columns, what feeds it
- * and what it feeds directly, and the file and row it comes from. */
+ * and what it feeds directly, and its notes. */
 export function inspectorHtml(inspection: Inspection, trace?: TraceWords): string {
   const rows = inspection.rows.length ? `<dl class="map-dl">${inspection.rows.map(([label, value]) => `<dt>${esc(label)}</dt><dd>${esc(value)}</dd>`).join("")}</dl>` : "";
   const action = inspection.action;
@@ -235,9 +235,8 @@ export function inspectorHtml(inspection: Inspection, trace?: TraceWords): strin
   const lists = inspection.lists.map(list => `<details class="map-details" data-map-list="${esc(list.key)}"${list.open ? " open" : ""}>${listHtml(list, false)}</details>`).join("");
   const texts = inspection.texts.map(text => `<details class="map-details"><summary>${esc(text.title)}</summary><ul class="map-lines">${text.lines.map(line => `<li>${esc(line)}</li>`).join("")}</ul></details>`).join("");
   const notes = inspection.notes === undefined ? "" : `<h4 class="map-insp-sec">Notes</h4><p class="map-insp-note">${esc(inspection.notes)}</p>`;
-  const source = inspection.source === undefined ? "" : `<div class="map-source">${esc(inspection.source)}</div>`;
   return `<div class="map-insp-head"><span class="map-kind">${dot(inspection.layer)}${esc(inspection.kind)}</span><button type="button" class="map-icon-btn" data-map-act="close" aria-label="Close details" title="Close details">${CLOSE_ICON}</button></div>
-    <h3 class="map-insp-name" tabindex="-1">${esc(inspection.name)}</h3>${traced}${button}${formula}${rows}${lists}${texts}${notes}${source}`;
+    <h3 class="map-insp-name" tabindex="-1">${esc(inspection.name)}</h3>${traced}${button}${formula}${rows}${lists}${texts}${notes}`;
 }
 
 /** What a map that stopped after a failure says in its own place: that it could not be drawn, the failure's own words

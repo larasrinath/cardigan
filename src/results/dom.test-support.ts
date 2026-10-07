@@ -12,6 +12,12 @@ import { decode, readMarkup } from "./markup.test-support.js";
 const VOID = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"]);
 /** Elements the keyboard reaches without a tabindex. */
 const FOCUSABLE = new Set(["a", "button", "input", "select", "textarea"]);
+/** The attributes by which an element says something to its user: what a pointer shows over it, what stands in an empty
+ * box, and what a screen reader calls it or says of it. An attribute that holds another element's ID, as aria-labelledby
+ * and aria-controls do, says nothing itself. */
+const SAYS = /^(?:title|placeholder|alt|label|aria-(?:label|description|placeholder|roledescription|valuetext))$/;
+/** The attributes by which an element leads somewhere, or saves what it leads to. */
+const LEADS = /^(?:href|src|download)$/;
 
 export interface FakeEvent {
   type: string;
@@ -133,8 +139,6 @@ export class FakeElement {
   offsetHeight = 0;
   selectionStart = 0;
   selectionEnd = 0;
-  /** How often the script itself clicked the element, as it does to start a download. */
-  clicks = 0;
   /** How often the script asked for the element to be brought into sight. */
   broughtIntoSight = 0;
   private readonly listeners = new Map<string, Listener[]>();
@@ -183,11 +187,14 @@ export class FakeElement {
   get inert(): boolean { return this.flag("inert"); }
   set inert(on: boolean) { this.flag("inert", on); }
   get title(): string { return this.attributes.get("title") ?? ""; }
-  set title(value: string) { this.attributes.set("title", value); }
+  set title(value: string) { this.setAttribute("title", value); }
+  /** Where the element leads, and the name it saves that under: each is its attribute, as a browser has them. */
   get href(): string { return this.attributes.get("href") ?? ""; }
-  set href(value: string) { this.attributes.set("href", value); }
+  set href(value: string) { this.setAttribute("href", value); }
+  get src(): string { return this.attributes.get("src") ?? ""; }
+  set src(value: string) { this.setAttribute("src", value); }
   get download(): string { return this.attributes.get("download") ?? ""; }
-  set download(value: string) { this.attributes.set("download", value); }
+  set download(value: string) { this.setAttribute("download", value); }
   get checked(): boolean { return this.ticked ?? this.attributes.has("checked"); }
   set checked(on: boolean) { this.ticked = on; }
   /** A text box holds what was typed; a list holds the value of the option chosen, or of the one the markup selects. */
@@ -220,6 +227,10 @@ export class FakeElement {
       if (node instanceof FakeElement) node.remove();
       node.parentElement = this;
       this.childNodes.push(node);
+      // What the page has for its user from now on: a text, and what an element of the markup is named or described
+      // by, with where it leads.
+      if (node instanceof FakeText) this.page.says(node.textContent);
+      else for (const [name, value] of node.attributes) node.tells(name, value);
     }
   }
   appendChild<T extends FakeElement | FakeText>(node: T): T {
@@ -235,7 +246,15 @@ export class FakeElement {
 
   getAttribute(name: string): string | null { return this.attributes.get(name) ?? null; }
   hasAttribute(name: string): boolean { return this.attributes.has(name); }
-  setAttribute(name: string, value: string): void { this.attributes.set(name, String(value)); }
+  setAttribute(name: string, value: string): void {
+    this.attributes.set(name, String(value));
+    this.tells(name, String(value));
+  }
+  /** The page is told what an attribute says to the user, and where one leads. */
+  private tells(name: string, value: string): void {
+    if (SAYS.test(name)) this.page.says(value);
+    if (LEADS.test(name)) this.page.leads(this.localName, name, value);
+  }
   removeAttribute(name: string): void { this.attributes.delete(name); }
 
   contains(other: unknown): boolean {
@@ -315,12 +334,6 @@ export class FakeElement {
     return false;
   }
   focus(): void { if (this.focusable) this.page.focused = this; }
-  /** The script's own click: on a link with a download name it saves the link's address under that name. */
-  click(): void {
-    this.clicks++;
-    if (this.localName === "a" && this.attributes.has("download") && this.isConnected) this.page.downloads.push({ name: this.download, href: this.href });
-    this.dispatch("click");
-  }
 
   /* What a user does. A disabled control ignores it; an element the user cannot get at is the test's mistake. A user
    * acts on the page as the browser last drew it. */
@@ -387,13 +400,15 @@ export class FakePage {
    * at once (`taken`). One that can no longer hold it, being hidden, disabled, inert or in a closed details element,
    * has it until the browser next draws the page (`frame`). */
   focused: FakeElement | null = null;
-  /** What the script saved through a link: the file's name and the address of its content. */
-  readonly downloads: { name: string; href: string }[] = [];
   /** The elements the script made itself. */
   readonly created: FakeElement[] = [];
   /** What document.execCommand was asked, and what it answers. */
   readonly commands: string[] = [];
   commandWorks = false;
+  /** Every word the page has had for its user since it was made (`words`), and every place an element of it has led
+   * to (`addresses`). */
+  private readonly said = new Set<string>();
+  private readonly led: [element: string, attribute: string, value: string][] = [];
   readonly document: {
     title: string;
     readonly activeElement: FakeElement;
@@ -414,8 +429,13 @@ export class FakePage {
     build(this, this.root, html, true);
     const documentElement = this.find("html");
     const body = this.find("body");
+    let title = this.root.querySelector("title")?.textContent ?? "";
     this.document = {
-      title: this.root.querySelector("title")?.textContent ?? "",
+      get title() { return title; },
+      set title(words: string) {
+        title = words;
+        page.says(words);
+      },
       get activeElement() { return page.focused ?? body; },
       documentElement,
       body,
@@ -451,6 +471,18 @@ export class FakePage {
   id(id: string): FakeElement { return this.find(`#${id}`); }
   /** The text of each element a selector finds, without the space around it. */
   texts(selector: string): string[] { return this.all(selector).map(element => element.textContent.trim()); }
+  /** An element has this address or this `download` attribute from now on. */
+  leads(element: string, attribute: string, value: string): void { this.led.push([element, attribute, value]); }
+  /** Every address an element has had since the page was made, and every `download` attribute, whatever became of the
+   * element: the element's name, the attribute's, and its value. */
+  addresses(): [element: string, attribute: string, value: string][] { return [...this.led]; }
+  /** The page has this for its user from now on: a text put on it, or what an element is named or described by. */
+  says(words: string): void { if (words.trim() !== "") this.said.add(words); }
+  /** Every word the page has had for its user since it was made, each once, whatever became of it: the markup it was
+   * made of and all a script has written to it since, as text, as the tab's title, or as what an element is named or
+   * described by for a pointer, an empty box or a screen reader (`SAYS`). A text is as it was written: what stands in
+   * several elements side by side is several texts. */
+  words(): string[] { return [...this.said]; }
   /** An element was taken out of its place, to go or to be put elsewhere: the focus that was on it, or inside it, is
    * lost at once, and does not come back with the element. */
   taken(): void { if (this.focused && !this.focused.isConnected) this.focused = null; }

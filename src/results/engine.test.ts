@@ -7,7 +7,7 @@ import { againstMap } from "../model/access.test-support.js";
 import { Failure, firstLine } from "../progress.js";
 import { ROWS_MAX, type Subject } from "../protocol.js";
 import type { AnalysisResult } from "../result-types.js";
-import { resultZip } from "../result-zip.js";
+import { resultZip } from "../result-zip.test-support.js";
 import { BUSY, NOTHING_TO_ANALYSE, SIGNED_OUT, UNSENT } from "../tab-port.js";
 import { parseCsv, sameBytes, unzipText } from "../zip.test-support.js";
 import { APP_FILES } from "./columns.js";
@@ -69,9 +69,9 @@ function resultsPage(tab: FakeTab, justOpened = true) {
 type Page = ReturnType<typeof resultsPage>;
 const done = (page: Page) => (): boolean => page.client.state.phase === "done";
 
-/** What every finished run comes to: the page holds the result the engine made, cell for cell, and the zip it gives for
- * download is that result's zip for the same time, byte for byte. The rows are compared one by one, so that a difference
- * shows as the first row that differs: two tables of thousands of rows told apart as a whole take minutes to print. */
+/** What every finished run comes to: the page holds the result the engine made, cell for cell, and written as a zip
+ * for the same time the two are the same bytes. The rows are compared one by one, so that a difference shows as the
+ * first row that differs: two tables of thousands of rows told apart as a whole take minutes to print. */
 function expectEngineResult(page: Page, run: EngineRun): void {
   const { result, received } = page.held();
   const made = run.result;
@@ -178,8 +178,9 @@ describe("The results page against the engine in the Anaplan tab", () => {
     // The files are the ones the page knows an app's files by, the Details file first.
     expect(result.tables.map(table => table.file)).toEqual([DETAILS_FILE, ...Object.values(TAB_FILES)]);
     expect(result.tables.map(table => table.file)).toEqual([detailsOf(result)?.file, ...Object.values(APP_FILES)]);
-    // What the page would give for download is, file for file, the zip 0.6.1 wrote for this app, but for the one row of the
-    // Details file that is deliberately reworded since (APP_ROW_REWORDED in golden-0.6.1.test-support.ts).
+    // Written as a zip, what the page holds is, file for file, the zip 0.6.1 wrote for this app, but for the four rows of
+    // the Details file that are deliberately written otherwise since (APP_ROW_REWORDED and APP_ROWS_FOR_THE_PAGE in
+    // golden-0.6.1.test-support.ts).
     expect(files(resultZip(result, ZIPPED_AT), DETAILS_FILE)).toEqual(files(APP_ZIP_REWORDED, DETAILS_FILE));
     expect([result.kind, result.name, result.zipName, result.summary]).toEqual(["app", "Planning: app", "Planning app - App Export - 2026-09-28.zip",
       ["1 of 1 pages analysed; 1 unpublished, not analysed, 3 cards."]]);
@@ -205,31 +206,31 @@ describe("The results page against the engine in the Anaplan tab", () => {
     // The log the result carries is the frame's own, which begins with the export: inside Model Building it has neither
     // of the two lines the content script wrote before it asked the frame. From there on the two logs are the same.
     expect(diagnosticLog(detailsOf(result))).toEqual(page.client.log.slice(2));
-    // What the page would give for download is, file for file, the zip 0.6.1 wrote for this model, but for the column of Line
+    // Written as a zip, what the page holds is, file for file, the zip 0.6.1 wrote for this model, but for the column of Line
     // Items.csv and the rows of Model Details.csv that are deliberately written otherwise since (MODEL_COLUMN_ADDED,
-    // MODEL_ROW_REWORDED and MODEL_FILE_ADDED in golden-0.6.1.test-support.ts).
+    // MODEL_ROW_REWORDED, MODEL_ROWS_FOR_THE_PAGE and MODEL_FILE_ADDED in golden-0.6.1.test-support.ts).
     expect(files(resultZip(result, ZIPPED_AT), "Model Details.csv")).toEqual(files(MODEL_ZIP_AS_NAMED, "Model Details.csv"));
     expect([result.kind, result.name, result.zipName]).toEqual(["model", "Demand: plan", "Demand plan - Model Export - 2026-09-28.zip"]);
     // The page's one rule about a model's file fits the file the export writes: its name, its Section column, and the
     // template's five rows about the model, of which the export fills in three.
     const calendar = result.tables.find(table => table.file === MODEL_CALENDAR_FILE);
     expect([calendar?.rows.length, calendar && fileView(result, calendar).note, calendar && fileView(result, calendar).table.rows.length, modelFacts(result)])
-      .toEqual([31, "5 rows about the model are in the CSV only.", 26, [["Workspace", "Workspace one"], ["Model", "Demand: plan"], ["Captured on", "2026-09-28"]]]);
+      .toEqual([31, "5 rows about the model are not listed here: 3 hold a value, which the Overview has under About this export.", 26, [["Workspace", "Workspace one"], ["Model", "Demand: plan"], ["Captured on", "2026-09-28"]]]);
     // The overview loses none of the counts the export's Details file gives. Each row that only counts a file is said by
-    // the file's tile: as the rows its table lists, or, for the calendar, whose table lists 26 of its 31, as the CSV's rows.
+    // the file's tile: as the rows its table lists, or, for the calendar, whose table lists 26 of its 31, as the rows in all.
     const overview = overviewOf(result);
     const counts = (detailsOf(result)?.rows ?? []).filter(row => row[0] === "Files" && /^\d+ rows$/.test(String(row[2]))).map(row => `${String(row[1]).replace(/\.csv$/, "")}: ${row[2]}`);
-    const onTiles = overview.tiles.flatMap(tile => [tile.count, ...(tile.inCsv === undefined ? [] : [tile.inCsv])].map(rows => `${tile.label}: ${rows} rows`));
-    expect([counts.length, counts.filter(line => !onTiles.includes(line)), overview.tiles.find(tile => tile.label === "Model Calendar")]).toEqual([10, [], { label: "Model Calendar", count: 26, inCsv: 31 }]);
+    const onTiles = overview.tiles.flatMap(tile => [tile.count, ...(tile.inAll === undefined ? [] : [tile.inAll])].map(rows => `${tile.label}: ${rows} rows`));
+    expect([counts.length, counts.filter(line => !onTiles.includes(line)), overview.tiles.find(tile => tile.label === "Model Calendar")]).toEqual([10, [], { label: "Model Calendar", count: 26, inAll: 31 }]);
     // The export says three things both in its summary and in a Files row: how many imports it matched, and that two files
     // were not exported, the source models and Dynamic Cell Access, which it makes from Line Items and for which this
-    // model's Line Items grid lacks the three columns it is made from. The overview says each once, with the files, and
-    // none among the notes.
+    // model's Line Items grid lacks the three columns it is made from. The overview says each once, with the tables and
+    // by the table's name, and none among the notes.
     const NO_ACCESS = "Line Items has no Module Name, Read Access Driver and Write Access Driver columns.";
     expect(result.summary.filter(line => !/^[A-Za-z ]+: \d+ rows$/.test(line))).toEqual(["Imports: 3 rows (2 matched in the Actions list)",
       `Dynamic Cell Access: not exported (${NO_ACCESS}).`, "Source Models: not exported (This model page has no REMOTE_MODEL axis.)."]);
-    expect([overview.notes, overview.files]).toEqual([[], [["Dynamic Cell Access.csv", `Not exported: ${NO_ACCESS}`], ["Imports.csv", "3 rows (2 matched in the Actions list)"],
-      ["Source Models.csv", "Not exported: This model page has no REMOTE_MODEL axis."]]]);
+    expect([overview.notes, overview.files]).toEqual([[], [["Dynamic Cell Access", `Not exported: ${NO_ACCESS}`], ["Imports", "3 rows (2 matched in the Actions list)"],
+      ["Source Models", "Not exported: This model page has no REMOTE_MODEL axis."]]]);
     // The page orders a model's files by their names. Every file the export knows, written or not (its Details file names
     // each one), is in that order; the one name in the order that the export does not know yet is Line Item Subsets.
     const known = (detailsOf(result)?.rows ?? []).filter(row => row[0] === "Files").map(row => String(row[1]));
@@ -242,8 +243,8 @@ describe("The results page against the engine in the Anaplan tab", () => {
       "Time Ranges", "Versions", "Model Calendar"]);
     expect(result.summary.at(-1)).toBe("Source Models: not exported (This model page has no REMOTE_MODEL axis.).");
     // The page says the export's definitions in words. A line item's Summary, where a Ratio is said with the two names the
-    // export wrote beside it; an action's definition; and an export's, which the words are not known for, stays as the
-    // CSV has it. The table the result holds, which the CSV is written from, keeps Anaplan's text.
+    // export wrote beside it; an action's definition; and an export's, which the words are not known for, stays as it
+    // was read. The table the result holds keeps Anaplan's text.
     const cells = (file: string, header: string): unknown[][] => {
       const table = result.tables.find(candidate => candidate.file === file);
       if (!table) throw new Error(`The export wrote no ${file}.`);
@@ -297,8 +298,9 @@ describe("The results page against the engine in the Anaplan tab", () => {
     const steps = (zip: Uint8Array): string[] => parseCsv(unzipText(zip).get("Model Details.csv") ?? "").filter(row => row[0] === "Diagnostics").map(row => row[2]);
     expect(diagnosticLog(detailsOf(result)).map(line => line.slice(9))).toEqual(steps(ACCESS_ZIP_0_8_1));
     expect(page.statuses().filter(status => status.includes("Dynamic Cell Access"))).toEqual([]);
-    // What the page would give for download is, file for file, the zip 0.8.1 wrote for this model with the file put in
-    // after Line Items.csv and its two rows in Model Details.csv (ACCESS_FILE_ADDED).
+    // Written as a zip, what the page holds is, file for file, the zip 0.8.1 wrote for this model with the file put in
+    // after Line Items.csv and its two rows in Model Details.csv (ACCESS_FILE_ADDED), and with the three rows of "How to
+    // read" that are deliberately written otherwise since (ACCESS_ROWS_FOR_THE_PAGE in golden-0.8.1.test-support.ts).
     expect(files(resultZip(result, ZIPPED_AT), "Model Details.csv")).toEqual(files(ACCESS_ZIP_WITH_FILE, "Model Details.csv"));
     // The page lists the file where the zip has it, after Line Items, which the order of Anaplan's settings puts after Modules.
     expect(listedTables(result).map(({ table }) => table.label)).toEqual(["Model Calendar", "Time Ranges", "Versions", "General Lists", "Modules", "Line Items", "Dynamic Cell Access",
@@ -311,7 +313,7 @@ describe("The results page against the engine in the Anaplan tab", () => {
     const shown = fileView(result, file);
     const COUNTED = "12 rows (2 with a driver that could not be matched)";
     expect([shown.table === file, shown.opensFrom, file.rows.length, file.rows.filter(row => row[0] === "").map(row => row[1]), shown.note]).toEqual([true, 1, 12, ["Gone.Flag", "'Old access'.Can write"],
-      `${ACCESS_LINE} 2 rows have a driver that could not be matched to a line item: they come last, with the driver as Line Items writes it and no Driver Module.`]);
+      `${ACCESS_LINE} 2 rows have a driver that could not be matched to a line item: they come last, with the driver as Line Items has it and no Driver Module.`]);
     expect(result.summary.slice(0, 3)).toEqual(["Line Items: 16 rows", `Dynamic Cell Access: ${COUNTED}`, "Modules: 5 rows"]);
     // The page makes the model map from the tables it holds. The file's rows are that map's access links, each once,
     // and then the two driver cells the map could match to no line item. The map places every row of this model.
@@ -319,7 +321,7 @@ describe("The results page against the engine in the Anaplan tab", () => {
     expect([held.placed, held.beyond, held.map.map(part => part.length)]).toEqual([held.map, [], [10, 2]]);
     // The overview has a tile for the file with its number of rows, and says the export's count with the files, once.
     const overview = overviewOf(result);
-    expect([overview.tiles.find(tile => tile.label === "Dynamic Cell Access"), overview.notes, overview.files[0]]).toEqual([{ label: "Dynamic Cell Access", count: 12 }, [], ["Dynamic Cell Access.csv", COUNTED]]);
+    expect([overview.tiles.find(tile => tile.label === "Dynamic Cell Access"), overview.notes, overview.files[0]]).toEqual([{ label: "Dynamic Cell Access", count: 12 }, [], ["Dynamic Cell Access", COUNTED]]);
   });
 
   it("lists a driver named in a row of Line Items that the model map leaves out, and counts on the page the rows the export counted", async () => {
@@ -339,7 +341,7 @@ describe("The results page against the engine in the Anaplan tab", () => {
     const file = result.tables.find(table => table.file === ACCESS_FILE);
     if (!file) throw new Error("The export wrote no Dynamic Cell Access.csv.");
     // Each of the four driver cells that say something is a row. The two of the line item the map leaves out are among
-    // them, the row as Line Items writes it: its read driver matched, and its write driver, which names a line item of a
+    // them, the row as Line Items has it: its read driver matched, and its write driver, which names a line item of a
     // module the map has no line items of, as it is written.
     expect(file.rows).toEqual([["Flags", "Open", "Read", "-- Archive 2025", "Old units"], ["Flags", "Open", "Write", "Sales", "Units"],
       ["", "Locked", "Write", "-- Archive 2025", "Old units"], ["", "'-- Archive 2025'.Locked", "Read", "Sales", "Units"]]);
@@ -348,8 +350,8 @@ describe("The results page against the engine in the Anaplan tab", () => {
     const COUNTED = "4 rows (2 with a driver that could not be matched)";
     const overview = overviewOf(result);
     expect([result.summary[1], overview.files[0], overview.tiles.find(tile => tile.label === "Dynamic Cell Access"), fileView(result, file).note]).toEqual([`Dynamic Cell Access: ${COUNTED}`,
-      ["Dynamic Cell Access.csv", COUNTED], { label: "Dynamic Cell Access", count: 4 },
-      `${ACCESS_LINE} 2 rows have a driver that could not be matched to a line item: they come last, with the driver as Line Items writes it and no Driver Module.`]);
+      ["Dynamic Cell Access", COUNTED], { label: "Dynamic Cell Access", count: 4 },
+      `${ACCESS_LINE} 2 rows have a driver that could not be matched to a line item: they come last, with the driver as Line Items has it and no Driver Module.`]);
     // The map of the same tables has a link for one of the four rows and an unmatched name for another: on those the
     // file and the map agree. The two rows beyond them are the cells of the line item the map left out, as it says.
     const held = againstMap(file.rows, result.tables);

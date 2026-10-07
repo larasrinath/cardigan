@@ -1,19 +1,19 @@
 import type { AnalysisResult, Cell, ResultTable } from "./result-types.js";
 
 /** A result leaves the place that made it as plain data: a window message from the model's core frame, then JSON on the port
- * to the results page. These keep it to what both carry unchanged, so the CSV written from the tables is the same on
- * either side. */
+ * to the results page. These keep it to what both carry unchanged, so a table is the same on either side, cell for
+ * cell. */
 
 /** A value as text, the way String makes it. String cannot convert an object whose own toString and valueOf are not
  * functions, and both JSON and a message from another window can hold one: it is written as any other object is. */
 export const textOf = (value: unknown): string => { try { return String(value); } catch { return "[object Object]"; } };
 
-/** A cell as text or a finite number, which JSON keeps as they are. Anything else becomes the text toCsv writes for it
- * (nothing for null and undefined), so the CSV does not change. */
+/** A cell as text or a finite number, which JSON keeps as they are. Anything else becomes its text, as `String` makes it
+ * (nothing for null and undefined): what the page shows for the cell is the same before and after. */
 export const plainCell = (value: unknown): Cell =>
   typeof value === "string" || (typeof value === "number" && Number.isFinite(value)) ? value : value === null || value === undefined ? "" : textOf(value);
 
-/** Rows of plain cells. A hole in a row is a cell that is not there, which toCsv writes as nothing: `map` would keep the hole,
+/** Rows of plain cells. A hole in a row is a cell that is not there, and is the empty text: `map` would keep the hole,
  * and JSON would turn it into null. */
 export const plainRows = (rows: readonly (readonly unknown[])[]): Cell[][] => rows.map(row => Array.from(row, plainCell));
 

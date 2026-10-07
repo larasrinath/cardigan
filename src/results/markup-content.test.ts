@@ -194,19 +194,19 @@ describe("What the results page's markup shows", () => {
     expect(empty({ search: "x", filtered: new Set([0, 3]), context: "Stores" })[1]).toBe("Nothing in Cards matches the current search and column filters and page selection.");
     // With rows to show there is no such message.
     expect(parseMarkup(tableHtml(viewOf(CARDS, LINKS))).querySelectorAll(".empty")).toEqual([]);
-    // A table whose file has rows, all of them left to the CSV, does not say that nothing was found: it says that none of
-    // the rows is its own, in the words it is given, as text. The line under its name says how many rows the CSV has.
-    const left = { all: 0, note: "5 rows about the model are in the CSV only.", none: "Every row of the file is <b>about</b> the model." };
-    expect(empty(left)).toEqual(["Cards has no rows of its own", "Every row of the file is <b>about</b> the model.", [], 0, ""]);
+    // A table whose file has rows, none of which it lists, does not say that nothing was found: it says that none of
+    // the rows is its own, in the words it is given, as text. The line under its name says how many rows there are.
+    const left = { all: 0, note: "5 rows about the model are not listed here: 3 hold a value, which the Overview has under About this export.", none: "Every row is <b>about</b> the model." };
+    expect(empty(left)).toEqual(["Cards has no rows of its own", "Every row is <b>about</b> the model.", [], 0, ""]);
     const view = parseMarkup(tableHtml(viewOf(CARDS, LINKS, { rows: [], total: 0, from: 0, to: 0, ...left })));
-    expect([view.querySelectorAll(".view-note").map(text), view.querySelectorAll(".empty b").length, view.textContent.includes("Nothing was found")]).toEqual([["5 rows about the model are in the CSV only."], 0, false]);
+    expect([view.querySelectorAll(".view-note").map(text), view.querySelectorAll(".empty b").length, view.textContent.includes("Nothing was found")]).toEqual([["5 rows about the model are not listed here: 3 hold a value, which the Overview has under About this export."], 0, false]);
     // Those words are for a table without rows only: one that a search leaves empty says so as ever.
     expect(empty({ search: "x", none: left.none }).slice(0, 2)).toEqual(["No results", "Nothing in Cards matches the current search."]);
     // A table whose file has no rows may have a sentence of its own for that, said as text in the place of the usual one.
     const own = "No card of this app has a <b>title</b>.";
     expect(empty({ all: 0, empty: own })).toEqual(["Cards has no rows", own, [], 0, ""]);
     expect(parseMarkup(tableHtml(viewOf(CARDS, LINKS, { rows: [], total: 0, from: 0, to: 0, all: 0, empty: own }))).querySelectorAll(".empty b")).toEqual([]);
-    // It is for a file without rows: where the file has rows that are all left to the CSV, that is what the table says,
+    // It is for a file without rows: where the file has rows of which the table lists none, that is what the table says,
     // and a search that leaves the table empty says so as ever. With rows to show it is not said at all.
     expect(empty({ ...left, empty: own }).slice(0, 2)).toEqual(["Cards has no rows of its own", left.none]);
     expect(empty({ search: "x", empty: own }).slice(0, 2)).toEqual(["No results", "Nothing in Cards matches the current search."]);
@@ -305,27 +305,28 @@ describe("What the results page's markup shows", () => {
     expect([one.querySelectorAll(".panel h2").map(text), one.querySelector(".tb-fill")?.getAttribute("style")]).toEqual([["Cards by type"], "display:block;width:100%"]);
   });
 
-  it("says on a tile how many rows the CSV has, under the rows its table lists, where the two are not the same number", () => {
-    const view = parseMarkup(overviewHtml(overviewWith({ tiles: [{ label: "Line Items", count: 3511, inCsv: 3632 }, { label: "Model Calendar", count: 0, inCsv: 1 }, { label: "Modules", count: 121 },
-      { label: "Odd", count: 1, inCsv: 0 }] })));
-    // The number in large is the table's; the line under it says the file's, each with its own word for one row and for several.
-    expect(view.querySelectorAll(".stat").map(tile => tile.children.map(text))).toEqual([["Line Items", "3511", "rows", "3632 rows in the CSV"], ["Model Calendar", "0", "rows", "1 row in the CSV"],
-      ["Modules", "121", "rows"], ["Odd", "1", "row", "0 rows in the CSV"]]);
+  it("says on a tile how many rows there are in all, under the rows its table lists, where the two are not the same number", () => {
+    const view = parseMarkup(overviewHtml(overviewWith({ tiles: [{ label: "Line Items", count: 3511, inAll: 3632 }, { label: "Model Calendar", count: 0, inAll: 1 }, { label: "Modules", count: 121 },
+      { label: "Odd", count: 1, inAll: 0 }] })));
+    // The number in large is the table's; the line under it says how many there are in all, each with its own word for one row and
+    // for several. It does not say that they were read: a table's rows may be a template's, as a Model Calendar's are.
+    expect(view.querySelectorAll(".stat").map(tile => tile.children.map(text))).toEqual([["Line Items", "3511", "rows", "3632 rows in all"], ["Model Calendar", "0", "rows", "1 row in all"],
+      ["Modules", "121", "rows"], ["Odd", "1", "row", "0 rows in all"]]);
     // Both lines under the number are the tile's small lines: the second needs no style of its own.
     expect(view.querySelectorAll(".stat").map(tile => tile.children.map(child => [...["s-lab", "s-num", "s-sub"]].find(name => child.classList.contains(name))))).toEqual([
       ["s-lab", "s-num", "s-sub", "s-sub"], ["s-lab", "s-num", "s-sub", "s-sub"], ["s-lab", "s-num", "s-sub"], ["s-lab", "s-num", "s-sub", "s-sub"]]);
   });
 
-  it("shows in a row's drawer, after a cell that is said in words, the text the CSV has in its place, named as the CSV's", () => {
+  it("shows in a row's drawer, after a cell that is said in words, the text that was read in its place, named as that", () => {
     const columns = [column(0, "Name"), column(1, "Format"), column(2, "Formula"), column(3, "Summary", "tag")];
     const row = ["Margin %", "Number, 2 decimal places, %", "Margin / Revenue", "Ratio = Margin / Revenue"];
     const format = '{"decimalPlaces":2,"unitsType":"PERCENTAGE","dataType":"NUMBER"}';
     const summary = '{"summaryMethod":"RATIO"} <b>bold</b>\n  second line';
     const drawer = parseMarkup(rowDrawerHtml(columns, row, NO_LINKS, new Map([[1, format], [3, summary]])));
-    // Each column's name beside its cell as the table shows it; after a cell said in words, the CSV's text under "in the CSV".
-    expect(drawer.querySelectorAll("dt").map(name => name.textContent)).toEqual(["Name", "Format", "Format in the CSV", "Formula", "Summary", "Summary in the CSV"]);
+    // Each column's name beside its cell as the table shows it; after a cell said in words, the text that was read under "as read".
+    expect(drawer.querySelectorAll("dt").map(name => name.textContent)).toEqual(["Name", "Format", "Format as read", "Formula", "Summary", "Summary as read"]);
     expect(drawer.querySelectorAll("dd").map(value => value.textContent)).toEqual(["Margin %", "Number, 2 decimal places, %", format, "Margin / Revenue", "Ratio = Margin / Revenue", summary]);
-    // The CSV's text is a text, whole: in the element that keeps its line breaks and spaces, whatever the column's kind, and never an element.
+    // The text that was read is a text, whole: in the element that keeps its line breaks and spaces, whatever the column's kind, and never an element.
     expect(drawer.querySelectorAll("dd").map(value => [value.children.map(child => child.classList.contains("cell-t") || child.classList.contains("tag")), value.querySelector(".cell-t")?.textContent]))
       .toEqual([[[true], "Margin %"], [[true], "Number, 2 decimal places, %"], [[true], format], [[true], "Margin / Revenue"], [[true], "Ratio = Margin / Revenue"], [[true], summary]]);
     expect([drawer.querySelectorAll("b").length, drawer.querySelectorAll("h3").map(text)]).toEqual([0, ["All columns"]]);
@@ -398,7 +399,7 @@ describe("What the results page's markup shows", () => {
   it("says of an object with uses on a page name that pages share that its counts are the least they can be, why, and which uses those are", () => {
     // Two pages are called Overview, and the file has only a page's name: this object's three uses there may be on either.
     const open: WhereUsedObject = { type: "Dimension", name: "Time", module: "—", model: "Model one", pages: 2, pagesMost: 3, cards: 3, cardsMost: 4, id: "20000000003",
-      note: 'It has 3 uses on a page name that more than one page has: "Overview <b>north</b>" (2 pages). The CSV has only the name of a use\'s page, so which of those pages a use is on is not known. It is on 2 or 3 pages and on 3 or 4 cards.',
+      note: 'It has 3 uses on a page name that more than one page has: "Overview <b>north</b>" (2 pages). The table has only the name of a use\'s page, so which of those pages a use is on is not known. It is on 2 or 3 pages and on 3 or 4 cards.',
       roles: [["Column dimension", 3], ["Context selector", 1]], uses: [
         { row: 1, page: "Overview <b>north</b>", card: 1, usedAs: "Column dimension", pagesOfName: 2 },
         { row: 2, page: "Overview <b>north</b>", card: 1, usedAs: "Context selector", pagesOfName: 2 },
@@ -462,10 +463,10 @@ describe("What the results page's markup shows", () => {
     }
   });
 
-  it("says under a table's name what the table leaves to the CSV, as text, and nothing for a table that lists every row", () => {
-    const noted = parseMarkup(tableHtml(viewOf(CARDS, LINKS, { note: "5 rows about the model <i>are</i> in the CSV only." })));
+  it("says under a table's name what the table leaves out, as text, and nothing for a table that lists every row", () => {
+    const noted = parseMarkup(tableHtml(viewOf(CARDS, LINKS, { note: "5 rows about the model <i>are</i> not listed here." })));
     expect([noted.children.map(child => child.id || child.localName), noted.querySelectorAll(".view-note").map(text), noted.querySelectorAll("i").length])
-      .toEqual([["h1", "p", "div", "tableWrap"], ["5 rows about the model <i>are</i> in the CSV only."], 0]);
+      .toEqual([["h1", "p", "div", "tableWrap"], ["5 rows about the model <i>are</i> not listed here."], 0]);
     // Its look is the stylesheet's, by its class.
     expect([noted.querySelector("p")?.classList.contains("view-note"), noted.querySelector("p")?.hasAttribute("style")]).toEqual([true, false]);
     const plain = parseMarkup(tableHtml(viewOf(CARDS, LINKS)));
@@ -489,28 +490,28 @@ describe("What the results page's markup shows", () => {
     expect(parseMarkup(navHtml(entries, "overview")).children.every(child => child.classList.contains("nav-item"))).toBe(true);
   });
 
-  it("writes for a model's map a view that holds its heading alone, and when the map could not be drawn one sentence with the button that copies the log", () => {
+  it("writes for a model's map a view that holds its heading alone, and when the map could not be drawn says so in plain statements, with the button that copies the log", () => {
     // Shown: the map stands in its own place beside the view, so the view has the heading only, for a screen reader.
     const shown = parseMarkup(mapHtml(false));
     expect(shown.children.map(child => [child.localName, child.getAttribute("class"), text(child)])).toEqual([["h1", "sr-only", "Model map"]]);
-    // Not drawn: the heading as every view has it, then the sentence, which says what happened and what to do, and names
-    // the button beside it as that reads.
+    // Not drawn: the heading as every view has it, then what happened, that the tables are not affected, and what to do,
+    // each a plain statement of its own. The last names the button beside it as that reads.
     const failed = parseMarkup(mapHtml(true));
     expect(failed.children.map(child => [child.localName, child.getAttribute("class")])).toEqual([["h1", "view-title"], ["div", "banner warn"]]);
     expect([text(failed.querySelector("h1")), failed.querySelectorAll(".banner div").map(text)]).toEqual(["Model map", [MAP_FAILED]]);
-    expect(MAP_FAILED).toBe("The model map could not be drawn: download the files as usual, then choose Copy diagnostic log and send the log.");
+    expect(MAP_FAILED).toBe("The model map could not be drawn. The tables are not affected. Choose Copy diagnostic log and send the log.");
     const button = failed.querySelector(".banner button");
-    expect([button?.dataset.act, text(button), button?.getAttribute("type"), button?.focusable, MAP_FAILED.includes(`choose ${text(button)} `)]).toEqual(["copy-run-log", "Copy diagnostic log", "button", true, true]);
-    // The sentence is one sentence, and its icon is not read out.
-    expect([MAP_FAILED.split(". ").length, MAP_FAILED.endsWith("."), failed.querySelector(".banner svg")?.getAttribute("aria-hidden")]).toEqual([1, true, "true"]);
+    expect([button?.dataset.act, text(button), button?.getAttribute("type"), button?.focusable, MAP_FAILED.includes(`Choose ${text(button)} `)]).toEqual(["copy-run-log", "Copy diagnostic log", "button", true, true]);
+    // Three statements, none hung on another by "then" or "as usual", and the icon is not read out.
+    expect([MAP_FAILED.split(". ").length, MAP_FAILED.endsWith("."), /\bthen\b|as usual/.test(MAP_FAILED), failed.querySelector(".banner svg")?.getAttribute("aria-hidden")]).toEqual([3, true, false, "true"]);
   });
 
-  it("shows on the overview what the Details file says: what was read first, then the files that say more than their tile, and two sections that start closed", () => {
+  it("shows on the overview what the Details file says: what was read first, then the tables that say more than their tile, and two sections that start closed", () => {
     const view = parseMarkup(overviewHtml(overviewWith({
       tiles: [{ label: "Pages", count: 7 }], cardTypes: [["Grid", 8]], models: [{ model: "Model one", workspace: "Main", modelId: "id-1" }], notes: ["A note."],
       about: [["App", "Demo <b>app</b>"], ["Cards", "3"], ["Exported on", "2026-10-03 14:02 UTC"]],
-      files: [["Imports.csv", "Not exported: the grid did not load"]],
-      howToRead: [["Layout", "Each file is laid out as Anaplan's own export."], ["Line Items", "Each module's row sits above its line items."]],
+      files: [["Imports", "Not exported: the grid did not load"]],
+      howToRead: [["Layout", "Each table is laid out as the grid of the same name."], ["Line Items", "Line items only: each names its module."]],
       log: ["14:02:05 first line", "plain line", "14:02:07 last line"],
     })));
     /** A list of details: each detail beside its value. */
@@ -519,20 +520,20 @@ describe("What the results page's markup shows", () => {
       return names.map((name, index) => [name, text(view.querySelectorAll(`${selector} dd`)[index])]);
     };
     // The order under the heading: the tiles, what was read, the place for what the page keeps of it, the notes, an app's
-    // panels, the files, how to read them, the log.
+    // panels, the tables that say more than their tile, how to read them, the log.
     expect(view.children.map(child => child.id || (child.classList.contains("panel") ? "notes" : child.classList.contains("ov-grid") ? "tiles" : child.classList.contains("ov-cols") ? "panels" : child.localName)))
       .toEqual(["h1", "tiles", "ovAbout", "ovKept", "notes", "panels", "ovFiles", "ovHowTo", "ovLog"]);
     expect([text(view.querySelector("#ovAbout h2")), list("#ovAbout dl.dl")]).toEqual(["About this export", [["App", "Demo <b>app</b>"], ["Cards", "3"], ["Exported on", "2026-10-03 14:02 UTC"]]]);
-    expect([text(view.querySelector("#ovFiles h2")), list("#ovFiles dl.dl")]).toEqual(["Files", [["Imports.csv", "Not exported: the grid did not load"]]]);
+    expect([text(view.querySelector("#ovFiles h2")), list("#ovFiles dl.dl")]).toEqual(["Tables", [["Imports", "Not exported: the grid did not load"]]]);
     expect(view.querySelectorAll("b").length).toBe(0);
     // The two sections that start closed: each is a details element whose first child is its summary, with the section's
     // heading in it; what the section holds comes after, and is out of sight until it is opened.
-    for (const [id, title] of [["ovHowTo", "How to read these files"], ["ovLog", "Diagnostics"]]) {
+    for (const [id, title] of [["ovHowTo", "How to read these tables"], ["ovLog", "Diagnostics"]]) {
       const section = view.querySelector(`#${id}`);
       expect([section?.localName, section?.hasAttribute("open"), section?.classList.contains("diag"), section?.children.map(child => child.localName), text(section?.querySelector("summary h2")),
         section?.querySelector("summary")?.focusable, section?.querySelector(".diag-body")?.inClosedDetails], id).toEqual(["details", false, true, ["summary", "div"], title, true, true]);
     }
-    expect(list("#ovHowTo dl.dl")).toEqual([["Layout", "Each file is laid out as Anaplan's own export."], ["Line Items", "Each module's row sits above its line items."]]);
+    expect(list("#ovHowTo dl.dl")).toEqual([["Layout", "Each table is laid out as the grid of the same name."], ["Line Items", "Line items only: each names its module."]]);
     // The log line for line, with the button that copies it above it, so that it is in sight as soon as the section is open.
     expect(view.querySelector("#diagLog")?.textContent).toBe("14:02:05 first line\nplain line\n14:02:07 last line");
     expect(view.querySelector("#ovLog .diag-body")?.children.map(child => child.localName)).toEqual(["button", "pre"]);

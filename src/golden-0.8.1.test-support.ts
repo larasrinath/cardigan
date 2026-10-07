@@ -1,6 +1,5 @@
-import { MODEL_FILE_ADDED, withRowsAdded, ZIPPED_AT } from "./golden-0.6.1.test-support.js";
-import { zipStore } from "./zip.js";
-import { zipEntries } from "./zip.test-support.js";
+import { MODEL_FILE_ADDED, MODEL_ROW_REWORDED, MODEL_ROWS_FOR_THE_PAGE, withRowsAdded, withRowsReworded, ZIPPED_AT } from "./golden-0.6.1.test-support.js";
+import { zipEntries, zipStore } from "./zip.test-support.js";
 
 /** A made-up model whose line items drive who may read and write one another, and the zip exactly as version 0.8.1
  * (commit d55eaff) wrote it for that model, kept here as base64. 0.8.1 is the last version whose export did not make
@@ -12,7 +11,10 @@ import { zipEntries } from "./zip.test-support.js";
  *
  * Made once by running 0.8.1's own exportModel on the model, with the clock at 2026-09-28 12:30:10 UTC, the export's
  * steps and log lines kept as the model's frame keeps them and given to it as its log (bridge.ts `serveCore`), and
- * `ZIPPED_AT` on every entry of the zip. Never regenerate it from newer code: a difference means the export changed. */
+ * `ZIPPED_AT` on every entry of the zip. Never regenerate it from newer code: a difference means the export changed.
+ *
+ * Cardigan no longer writes a zip: a result is read on the results page, which makes no file of it. The tests write the
+ * engine's tables as the files they were (result-zip.test-support.ts) and hold them against this zip all the same. */
 
 /** A Model settings grid as the page's client serves it to a test: its columns' labels, and each row with its IDs, its
  * labels and its cells (model/model.test.ts `FakeGrid`). */
@@ -242,11 +244,12 @@ export const ACCESS_ZIP_0_8_1 = bytes([
 export const ACCESS_READS_0_8_1 = ["LINE ITEMS 0+1", "LINE ITEMS 0+16", "MODULES 0+1", "MODULES 0+5", "LISTS 0+1", "LISTS 0+2", "ACTIONS 0+1", "ACTIONS 0+10", "IMPORTS 0+1", "IMPORTS 0+2",
   "DATA SOURCES 0+1", "TIME RANGES 0+1", "VERSIONS 0+1", "VERSIONS 0+2", "CALENDAR 0+1", "CALENDAR 0+10"];
 
-/** What is deliberately not what 0.8.1 wrote for this model: the file itself, which stands right after Line Items.csv in
- * the zip, and the two rows of Model Details.csv about it, each as the row's whole line of the file with the line it
- * stands after. `written` gives the file's number of rows and how many of them have a driver that could not be matched,
- * right after the row for Line Items.csv; `howToRead` is the row every model's Model Details.csv has gained. Besides the
- * build's name (see `APP_ROW_REWORDED` in golden-0.6.1.test-support.ts), nothing else differs. */
+/** What is deliberately not what 0.8.1 wrote for this model because the export has gained a file: the file itself, which
+ * stands right after Line Items.csv in the zip, and the two rows of Model Details.csv about it, each as the row's whole
+ * line of the file with the line it stands after. `written` gives the file's number of rows and how many of them have a
+ * driver that could not be matched, right after the row for Line Items.csv; `howToRead` is the row every model's Model
+ * Details.csv has gained. Besides these, the three rows named after them (`ACCESS_ROWS_FOR_THE_PAGE`) and the build's
+ * name (see `APP_ROW_REWORDED` in golden-0.6.1.test-support.ts), nothing differs. */
 export const ACCESS_FILE_ADDED = {
   file: MODEL_FILE_ADDED.file,
   after: "Line Items.csv",
@@ -256,11 +259,25 @@ export const ACCESS_FILE_ADDED = {
   howToRead: MODEL_FILE_ADDED.howToRead,
 } as const;
 
-/** 0.8.1's text of this model's Model Details.csv with those two rows. */
-export const withAccessRows = (csv: string): string => withRowsAdded(csv, [ACCESS_FILE_ADDED.written, ACCESS_FILE_ADDED.howToRead]);
+/** The three rows of "How to read" in Model Details.csv that are deliberately not what 0.8.1 wrote since the results
+ * page stopped offering a result for download, each as the row's whole line of the file. They are read on the page's
+ * overview, and are to say what the page shows: why each is written as it is now is said where the same rows are named
+ * for 0.6.1's zip (`MODEL_ROWS_FOR_THE_PAGE` and `MODEL_ROW_REWORDED` in golden-0.6.1.test-support.ts). The rows on the
+ * layout and on the calendar are 0.6.1's own in this zip; the row on Line Items is as 0.8.1 wrote it, which already
+ * named the three columns after Anaplan's own. The three are in the file's order. */
+export const ACCESS_ROWS_FOR_THE_PAGE = [
+  MODEL_ROWS_FOR_THE_PAGE.layout,
+  { was: `How to read,Line Items,"Each module's row sits above its line items. Anaplan's own columns come first and are unchanged, and three columns follow them. Ratio Numerator and Ratio Denominator name the line items a Ratio summary divides: the Summary JSON gives only their IDs. Format List names the list of a line item formatted as a list, as General Lists.csv names it: the Format JSON gives only the list's ID. It is empty for any other format, for a list that is not in General Lists.csv, such as a list subset or a line item subset, and when General Lists.csv was not exported."\r\n`,
+    now: MODEL_ROW_REWORDED.now },
+  MODEL_ROWS_FOR_THE_PAGE.calendar,
+] as const;
 
-/** The model's zip as 0.8.1 wrote it but for that: every file's bytes as they are in `ACCESS_ZIP_0_8_1`, with the two
- * lines added to Model Details.csv and the file put in after Line Items.csv, written by zipStore with the same time on
+/** 0.8.1's text of this model's Model Details.csv as the file is written now: those three rows in their present words,
+ * and the two rows about the file added. */
+export const withAccessRows = (csv: string): string => withRowsAdded(withRowsReworded(csv, ACCESS_ROWS_FOR_THE_PAGE), [ACCESS_FILE_ADDED.written, ACCESS_FILE_ADDED.howToRead]);
+
+/** The model's zip as 0.8.1 wrote it but for that: every file's bytes as they are in `ACCESS_ZIP_0_8_1`, with three lines
+ * of Model Details.csv replaced and two added, and the file put in after Line Items.csv, written by zipStore with the same time on
  * every entry. model/model.test.ts pins that zipStore writes `ACCESS_ZIP_0_8_1` itself, byte for byte, from the files
  * as they are, so what differs from this zip differs from 0.8.1. */
 export const ACCESS_ZIP_WITH_FILE = zipStore(zipEntries(ACCESS_ZIP_0_8_1).flatMap(entry => {

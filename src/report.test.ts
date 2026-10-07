@@ -4,7 +4,7 @@ import { nameCardDetails } from "./card-reader/card-naming.js";
 import { addDerivedContextSelectors, gridNeeds } from "./analyse.js";
 import { addActions, addLineItems, addLists, addModuleDimensions, addModuleViews, addSelections, emptyCatalog, resolveFromCatalog } from "./catalog.js";
 import { buildReport, HEADERS, type PageInput, type TabName } from "./report.js";
-import { toCsv } from "./zip.js";
+import { toCsv } from "./zip.test-support.js";
 
 // Synthetic IDs and names only, shaped like a captured board (see card-details.test.ts).
 type Obj = Record<string, any>;

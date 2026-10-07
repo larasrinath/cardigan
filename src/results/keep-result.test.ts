@@ -1,7 +1,7 @@
 import { gzipSync } from "node:zlib";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AnalysisResult, Cell } from "../result-types.js";
-import { resultZip } from "../result-zip.js";
+import { resultZip } from "../result-zip.test-support.js";
 import { VERSION } from "../version.js";
 import { bytesToText, KEPT_PREFIX, MAX_JSON_BYTES, MAX_PACKED_BYTES, PART_CHARS, ResultKeeper, textToBytes, type KeeperOptions, type KeptStorage } from "./keep-result.js";
 
@@ -287,7 +287,7 @@ describe("A result kept across a refresh of the results tab", () => {
     expect(lastCell(back.result)).toBe(0.125);
     expect(back.received).toBeInstanceOf(Date);
     expect(back.received.getTime()).toBe(AT.getTime());
-    // The zip is stamped with that time: after the refresh a download has the bytes it had before.
+    // The time is the one it was kept with: a zip of the result stamped with it has the bytes it had before the refresh.
     expect(sameBytes(resultZip(back.result, back.received), resultZip(APP, AT))).toBe(true);
     expect(sameBytes(resultZip(back.result, back.received), resultZip(APP, new Date(AT.getTime() + 2000)))).toBe(false);
   });

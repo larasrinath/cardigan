@@ -1,19 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { UxPageCardDetails } from "./card-reader/card-types.js";
 import { analyseApp, DETAILS_FILE, loadCatalog, TAB_FILES } from "./analyse.js";
-import { APP_ROW_REWORDED, APP_ZIP_0_6_1, APP_ZIP_REWORDED, ZIPPED_AT } from "./golden-0.6.1.test-support.js";
+import { APP_ROW_REWORDED, APP_ROWS_FOR_THE_PAGE, APP_ZIP_0_6_1, APP_ZIP_REWORDED, withAppRowsSince, ZIPPED_AT } from "./golden-0.6.1.test-support.js";
 import { ANAPLAN_HOSTS, NOT_SCOPE_IDS, OTHER_HOSTS, SCOPE_IDS } from "./guards.test-support.js";
 import { assemble } from "./pieces.test-support.js";
 import { Failure } from "./progress.js";
 import * as report from "./report.js";
 import { NONE } from "./report.js";
 import * as rest from "./rest.js";
-import { resultZip } from "./result-zip.js";
+import { resultZip } from "./result-zip.test-support.js";
 import { decodeFrames, type StompFrame } from "./stomp.js";
 import { serveTab } from "./tab-port.js";
 import { EXTENSION, FakePort } from "./tab-port.test-support.js";
-import { toCsv, zipStore } from "./zip.js";
-import { parseCsv, sameBytes, unzipText, zipEntries } from "./zip.test-support.js";
+import { parseCsv, sameBytes, toCsv, unzipText, zipEntries, zipStore } from "./zip.test-support.js";
 
 // Synthetic IDs only. The flow replays the first live run (28 Sep 2026): the model status stays UNKNOWN, and the first
 // host answers REDIRECTION_REQUIRED naming the host the model lives on.
@@ -2500,34 +2499,46 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     expect([(noApp as Failure).message, (noApp as Failure).detail]).toEqual(["Open an app first: the address has no app ID.", undefined]);
   });
 
-  it("writes the zip 0.6.1 wrote for the same app, byte for byte but for one reworded row of App Details.csv, and returns each file as a table", async () => {
+  it("writes the zip 0.6.1 wrote for the same app, byte for byte but for four rows of App Details.csv that are named, and returns each file as a table", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date(Date.UTC(2026, 8, 28, 12, 30, 10)));
     const result = await analyseGoldenApp();
+    // The engine writes no zip: the result's tables are written as the files they were (result-zip.test-support.ts), and
+    // held against the zip 0.6.1 wrote.
     const zip = resultZip(result, ZIPPED_AT);
-    // One row of App Details.csv is deliberately not what 0.6.1 wrote: the "How to read" row on a filter's context, which now
-    // says how the items of a filter are shown (APP_ROW_REWORDED; the two other known differences, the build's name in the
-    // "Exported with" row and in the first Diagnostics line, do not show here). Everything else is what 0.6.1 wrote, byte
-    // for byte.
+    // Four rows of App Details.csv are deliberately not what 0.6.1 wrote, all of them "How to read" rows, and each is
+    // named (golden-0.6.1.test-support.ts). The row on a filter's context says how the items of a filter are shown
+    // (APP_ROW_REWORDED). And since the results page is where a result is read, with no file of it to download, three
+    // rows speak of the page's tables (APP_ROWS_FOR_THE_PAGE): two say "table" where they said "file" and named a file,
+    // and the one on how long IDs are written for Excel is gone. (The two other known differences, the build's name in
+    // the "Exported with" row and in the first Diagnostics line, do not show here.) Everything else is what 0.6.1
+    // wrote, byte for byte.
     // File by file first, so that a difference shows as text: 0.6.1's files in their order, each with its text, and of
-    // App Details.csv every line but that one, which stood there once.
+    // App Details.csv every line but those four, each of which stood there once.
     const [written, before] = [unzipText(zip), unzipText(APP_ZIP_0_6_1)];
     expect([...written.keys()]).toEqual([...before.keys()]);
-    const lines = before.get(DETAILS_FILE)!.split(APP_ROW_REWORDED.was);
-    expect(lines).toHaveLength(2);
-    for (const [file, text] of before) expect(written.get(file), file).toBe(file === DETAILS_FILE ? lines.join(APP_ROW_REWORDED.now) : text);
+    for (const [file, text] of before) expect(written.get(file), file).toBe(file === DETAILS_FILE ? withAppRowsSince(text) : text);
+    // Row by row: the rows of 0.6.1's file that are no longer there are the four named, in the file's order, and the
+    // rows that 0.6.1's file did not have are the three they are written as now. The fourth is written as nothing.
+    const named = [APP_ROWS_FOR_THE_PAGE[0], APP_ROWS_FOR_THE_PAGE[1], APP_ROW_REWORDED, APP_ROWS_FOR_THE_PAGE[2]];
+    const [details, detailsBefore] = [parseCsv(written.get(DETAILS_FILE)!), parseCsv(before.get(DETAILS_FILE)!)].map(rows => rows.map(row => row.join("\n")));
+    expect(detailsBefore.filter(row => !details.includes(row))).toEqual(named.map(row => parseCsv(row.was)[0].join("\n")));
+    expect(details.filter(row => !detailsBefore.includes(row))).toEqual(named.slice(0, 3).map(row => parseCsv(row.now)[0].join("\n")));
+    expect([named[3].now, detailsBefore.length - details.length, details.filter(row => row.startsWith("How to read\n")).length]).toEqual(["", 1, 5]);
+    // No "How to read" row names a file, a CSV or a zip, or says to download one: the overview lists these rows as they are.
+    expect(details.filter(row => row.startsWith("How to read\n") && /\.csv|\bCSV\b|\bzip\b|\bfiles?\b|download|Excel/i.test(row))).toEqual([]);
     // Then every byte. Of the eight files, only App Details.csv has other bytes than 0.6.1's.
     const [files, golden] = [zipEntries(zip), zipEntries(APP_ZIP_0_6_1)];
     expect(files.filter((file, index) => !sameBytes(file.data, golden[index].data)).map(file => file.name)).toEqual([DETAILS_FILE]);
     // The zip around the files is written as 0.6.1 wrote it: from 0.6.1's own files, it is 0.6.1's zip.
     expect(sameBytes(zipStore(golden, ZIPPED_AT), APP_ZIP_0_6_1)).toBe(true);
-    // So this run's zip is, byte for byte, 0.6.1's zip with that one row reworded.
+    // So this run's zip is, byte for byte, 0.6.1's zip with those four rows written as they are named.
     expect(sameBytes(zip, APP_ZIP_REWORDED)).toBe(true);
 
     expect([result.kind, result.name, result.id, result.zipName]).toEqual(["app", "Planning: app", GOLDEN_APP, "Planning app - App Export - 2026-09-28.zip"]);
     expect(result.summary).toEqual(["1 of 1 pages analysed; 1 unpublished, not analysed, 3 cards."]);
     expect(result.tables.map(table => [table.file, table.label, table.guard, table.details, table.rows.length])).toEqual([
-      ["App Details.csv", "App Details", true, true, 28], ["Pages.csv", "Pages", true, undefined, 2], ["Cards.csv", "Cards", true, undefined, 3],
+      ["App Details.csv", "App Details", true, true, 27], ["Pages.csv", "Pages", true, undefined, 2], ["Cards.csv", "Cards", true, undefined, 3],
       ["Grid Sections.csv", "Grid Sections", true, undefined, 1], ["Filters.csv", "Filters", true, undefined, 1],
       ["Conditional Formatting.csv", "Conditional Formatting", true, undefined, 1], ["Action Buttons.csv", "Action Buttons", true, undefined, 2],
       ["Where Used.csv", "Where Used", true, undefined, 10]]);

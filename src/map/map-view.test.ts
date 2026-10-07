@@ -1170,8 +1170,8 @@ describe("Selecting a node on the map", () => {
     expect(parts(".map-dl dd")[0].textContent).toBe("CAL01 - Revenue");
     expect(parts(".map-details summary").map(summary => summary.textContent)).toEqual(["Feeds it directly · 3", "It feeds directly · 2"]);
     expect(parts(".map-link").map(link => link.querySelector(".map-link-text")?.childNodes[0].textContent)).toEqual(["Products", "Units", "Price", "Net", "Margin %"]);
-    // The file's name as it is saved, and the row a spreadsheet shows.
-    expect(text(".map-source")).toMatch(/^Line Items\.csv, row \d+$/);
+    // The details name no file and no row of one.
+    expect(part(".map-inspector").textContent).not.toMatch(/\.csv|\brow \d/);
     expect(parts(".map-tracebar .map-trace-count").map(count => count.textContent)).toEqual(["3 boxes feed it", "it feeds 3 boxes"]);
     // It is among its module's line items already: the details offer no way that leads nowhere.
     expect(root().querySelector('[data-map-act="open"]')).toBeNull();

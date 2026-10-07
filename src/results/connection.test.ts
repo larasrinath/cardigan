@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FRESH_MS, ROWS_MAX, type TabMessage } from "../protocol.js";
 import type { AnalysisResult, Cell } from "../result-types.js";
-import { resultZip } from "../result-zip.js";
+import { resultZip } from "../result-zip.test-support.js";
 import { describeState, MAX_LOG_LINES, NO_REASON, openedJustNow, ResultsClient, runLabel, tabIdFrom, UNREADABLE, withoutOpened, type RunState, type TabPort } from "./connection.js";
 
 /** A port as the page holds it. What the page posts arrives as a copy, as Chrome delivers it, and so does what the tab sends. */
@@ -143,10 +143,10 @@ describe("The results page's connection to the Anaplan tab", () => {
 
     expect(client.state).toEqual({ phase: "done", result: expected, received: NOW });
     expect(states[states.length - 1]).toEqual({ phase: "done", result: expected, received: NOW });
-    // What the page downloads is what the tab's own result gives, byte for byte.
+    // What the page holds is the tab's own result: written as a zip, the two are the same bytes.
     if (client.state.phase !== "done") throw new Error("no result");
     expect(resultZip(client.state.result, NOW)).toEqual(resultZip(expected, NOW));
-    // The result keeps the one time it was complete at, so its zip is the same bytes however late it is downloaded.
+    // The result keeps the one time it was complete at, however late it is asked for: a zip stamped with it is the same bytes.
     const { result, received } = client.state;
     const first = resultZip(result, received);
     vi.setSystemTime(new Date(Date.UTC(2026, 9, 3, 16, 30, 0)));

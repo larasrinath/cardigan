@@ -3,8 +3,8 @@ import { APP_FILES, columnIndex, columnsOf, type Column } from "./columns.js";
 import { cellText, compareText, NONE, type Row } from "./table-engine.js";
 
 /** An app's Where used file, turned round. The file has one row per use, in page and card order: an object, the card that
- * uses it and what the card uses it as. That answers "what does this card use?", and it is what the CSV holds: the file is
- * read here and never changed. The view answers "where is this object used?": one row per object, which says on how many
+ * uses it and what the card uses it as. That answers "what does this card use?", and it is what the page lists as every
+ * use: the file is read here and never changed. The view answers "where is this object used?": one row per object, which says on how many
  * pages and cards it is used and as what, with its uses listed under it. Plain data in, plain data out: every cell is a
  * text or a number, and the page escapes it as it does any other.
  *
@@ -24,6 +24,10 @@ import { cellText, compareText, NONE, type Row } from "./table-engine.js";
 
 /** The file the view is made of. */
 export const WHERE_USED_FILE = APP_FILES["Where used"];
+
+/** What the page calls the table's other way, which lists the file's own rows, one use a row: the words on the button
+ * that chooses it (main.ts). The view's note names the button by them. */
+export const EVERY_USE = "Every use";
 
 /** The view's columns. Pages and Cards are numbers, so they sort as numbers. A count that the file leaves open is the
  * least it can be, as text with a plus sign after it ("41+"): the page's sort puts it by its number, straight after the
@@ -343,7 +347,7 @@ function namesText(names: readonly (readonly [name: string, shared: SharedName])
 function objectNote(uses: number, names: readonly (readonly [name: string, shared: SharedName])[], open: readonly (readonly [least: number, most: number, word: string])[]): string {
   const ranges = open.map(([least, most, word]) => `${least} ${most === least + 1 ? "or" : "to"} ${most} ${word}`);
   return `It has ${count(uses, "use")} on ${names.length === 1 ? "a page name" : "page names"} that more than one page has: ${namesText(names)}. `
-    + "The CSV has only the name of a use's page, so which of those pages a use is on is not known."
+    + "The table has only the name of a use's page, so which of those pages a use is on is not known."
     + (ranges.length ? ` It is on ${ranges.join(" and on ")}.` : "");
 }
 
@@ -366,17 +370,18 @@ function inIndexOrder(a: WhereUsedObject, b: WhereUsedObject): number {
     || byText(a.name, b.name) || byText(a.module, b.module) || byText(a.model, b.model) || byText(a.id, b.id);
 }
 
-/** What the page says about the view: how much it lists, then what the file left open, where it did. */
+/** What the page says about the view: how much it lists and where each use is listed by itself (the table's other way,
+ * `EVERY_USE`), then what the file left open, where it did. */
 function noteOf(uses: number, objects: number, modelUnknown: number, shared: readonly (readonly [name: string, shared: SharedName])[], marked: boolean): string {
-  if (uses === 0) return "No uses. The CSV has no rows.";
-  const said = [`${count(uses, "use")} of ${count(objects, "object")}. The CSV lists every use.`];
+  if (uses === 0) return "No uses.";
+  const said = [`${count(uses, "use")} of ${count(objects, "object")}. Choose ${EVERY_USE} to list each one.`];
   if (modelUnknown > 0) {
     said.push(`${count(modelUnknown, "use")} ${modelUnknown === 1 ? "is" : "are"} on a page whose model is not known, so `
       + `${modelUnknown === 1 ? "its object is" : "their objects are"} listed without a model.`);
   }
   if (shared.length > 0) {
     said.push(`${count(shared.length, "page name")} ${shared.length === 1 ? "is" : "are each"} shared by more than one page: ${namesText(shared)}. `
-      + "The CSV has only the name of a use's page, so the uses on those pages cannot be told apart.");
+      + "The table has only the name of a use's page, so the uses on those pages cannot be told apart.");
     if (marked) said.push('A count with "+" is at least that number.');
   }
   return said.join(" ");

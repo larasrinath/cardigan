@@ -45,8 +45,6 @@ describe("What the details say of a section", () => {
     const reader = inspect(model, graph, graph.nodes[1], false);
     expect(reader.action).toEqual({ label: "Open its 1 module", section: 1 });
     expect(reader.lists.map(list => [list.key, list.title])).toEqual([["depends", "Feeds it directly · 1"], ["modules", "Its modules · 1"]]);
-    // A section is no object of the export: it has no file and row.
-    expect(inspection.source).toBeUndefined();
   });
 });
 
@@ -164,20 +162,18 @@ describe("What the details say of a line item", () => {
     expect(inspect(model, graph, byName(graph, "Manual Adjustment"), false).remark).toBe("No formula.");
   });
 
-  it("says which file and row it comes from, as a spreadsheet would find it, and which names of its row matched no object", () => {
+  it("says which names of its row matched no object, and names no file and no row of one", () => {
     const { model, revenue, volumes } = sample();
     const graph = moduleGraph(model, revenue, false, false);
     const gross = inspect(model, graph, byName(graph, "Gross"), false);
-    expect(gross.source).toMatch(/^Line Items\.csv, row \d+$/);
     expect(gross.texts).toEqual([{ key: "unresolved", title: "Names not matched to one object · 1", lines: ["Referenced By: Retired.Total"] }]);
+    // The graph knows the table and the row each node comes from. The details say neither: the row is counted as a
+    // spreadsheet counts a file's rows, and the page has no file for the user to open.
     const units = moduleGraph(model, volumes, false, false);
-    expect(inspect(model, units, byName(units, "Units"), false).source).toBe("Line Items.csv, row 12");
-    // A row in the thousands is written as a spreadsheet numbers it: its digits, with nothing between them.
-    const make = new GraphMaker();
-    const plan = make.module("PLN01 - Plan", "01: All");
-    make.item(plan, "Far Down", { row: 12345 });
-    const far = moduleGraph(indexModel(make.graph()), plan, false, false);
-    expect(inspect(indexModel(make.graph()), far, far.nodes[0], false).source).toBe("Line Items.csv, row 12345");
+    for (const inspection of [gross, inspect(model, units, byName(units, "Units"), false)]) {
+      expect(inspection).not.toHaveProperty("source");
+      expect(JSON.stringify(inspection)).not.toMatch(/\.csv|\brow \d/);
+    }
   });
 });
 
@@ -237,7 +233,9 @@ describe("What the details say of a list, a subset and a property", () => {
     const { model, revenue, gross, net } = sample();
     const graph = moduleGraph(model, revenue, false, false);
     const subset = inspect(model, graph, byName(graph, "Active Products"), false);
-    expect(subset).toMatchObject({ kind: "LIST SUBSET", layer: LAYER.list, rows: [["List", "Products"]], source: "General Lists.csv, row 4" });
+    expect(subset).toMatchObject({ kind: "LIST SUBSET", layer: LAYER.list, rows: [["List", "Products"]] });
+    // The details name no file and no row: the page has no file for the user to look a row up in.
+    expect(subset).not.toHaveProperty("source");
     expect(subset.lists).toEqual([{ key: "used", title: "It feeds directly · 1", open: true, links: [{ raw: gross, name: "Gross", layer: LAYER.lineItem, sub: "CAL01 - Revenue" }] }]);
     expect(subset.action).toBeUndefined();
     expect(subset.remark).toBeUndefined();

@@ -5,8 +5,7 @@ import type { Cell } from "../result-types.js";
 
 export type Row = readonly Cell[];
 
-/** A cell as the page shows it: its text as it stands, and nothing for a missing value. This is the text the CSV writes
- * before its guards for spreadsheets (zip.ts `toCsv`). */
+/** A cell as the page shows it: its text as it stands, and nothing for a missing value. */
 export const cellText = (cell: unknown): string => (cell === null || cell === undefined ? "" : String(cell));
 
 /** The dash the app export writes where there is nothing to say (report.ts `NONE`). The page shows it greyed, as text. */

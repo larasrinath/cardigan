@@ -38,6 +38,15 @@ describe("The results page's files", () => {
     expect(opening.map(tag => tag.name).filter(name => ["iframe", "img", "object", "embed", "base", "form", "style"].includes(name))).toEqual([]);
   });
 
+  it("offers nothing to download: its header holds the run control and the theme's button, and the page no link that saves a file", () => {
+    // A result is shown on the page and saved nowhere. The header's controls are these two, the page's one link leads
+    // to a place in the page, and no word of it names a download, a zip or a CSV.
+    const shell = new FakePage(html);
+    expect(shell.find(".hd-actions").children.map(child => [child.localName, child.id])).toEqual([["button", "runAgain"], ["button", "themeToggle"]]);
+    expect(opening.filter(tag => tag.name === "a" || tag.attributes.has("download")).map(tag => [...tag.attributes])).toEqual([[["class", "skip"], ["href", "#view"]]]);
+    expect(html).not.toMatch(/download|\.zip|\.csv/i);
+  });
+
   it("holds each element the script looks up, once", () => {
     const ids = opening.flatMap(tag => (tag.attributes.has("id") ? [tag.attributes.get("id")] : []));
     expect(PAGE_IDS.filter(id => ids.filter(found => found === id).length !== 1)).toEqual([]);
@@ -114,7 +123,7 @@ describe("The results page's files", () => {
   });
 
   it("keeps prose to a measure where the navigation stands beside the content, and only there; each thing it names is what the page writes", () => {
-    // In a window as wide as it likes, a note, a paragraph of how to read the files and the words of an empty state
+    // In a window as wide as it likes, a note, a paragraph of how to read the tables and the words of an empty state
     // would run to lines of any length. They keep to the measure; the line under a table's name may be twice as long.
     const measured = mediaRules("(width > 1120px)").filter(([, body]) => body.includes("--measure"));
     expect(measured).toEqual([
@@ -129,16 +138,16 @@ describe("The results page's files", () => {
     const uses = (text: string): number => text.split("var(--measure)").length - 1;
     expect([uses(css.replace(/\/\*[\s\S]*?\*\//g, "")), uses(measured.map(([, body]) => body).join(";"))]).toEqual([4, 4]);
     expect(mediaRules("(max-width:1120px)").filter(([, body]) => body.includes("--measure"))).toEqual([]);
-    // The page's script writes what these rules name: an overview with a note and with how to read the files, the view
+    // The page's script writes what these rules name: an overview with a note and with how to read the tables, the view
     // of a run, and a table with a line under its name and no row.
-    const written = parseMarkup(overviewHtml({ tiles: [], cardTypes: [], models: [], notes: ["A note."], about: [], files: [], howToRead: [["Layout", "How each file is laid out."]], log: [] })
+    const written = parseMarkup(overviewHtml({ tiles: [], cardTypes: [], models: [], notes: ["A note."], about: [], files: [], howToRead: [["Layout", "How each table is laid out."]], log: [] })
       + runHtml()
       + tableHtml({ label: "Line Items", note: "A line under the name.", columns: [], rows: [], page: 0, pages: 1, pageSize: 50, from: 0, to: 0, total: 0, all: 0, search: "", sort: undefined,
         filtered: new Set(), context: undefined, links: { page: false, card: false } }));
     const named = measured.flatMap(([selector]) => selector.split(","));
     expect(named.map(selector => [selector, written.querySelectorAll(selector).length > 0])).toEqual(named.map(selector => [selector, true]));
     expect([written.querySelector("#ovHowTo .dl dd")?.textContent, written.querySelector(".warn-list li")?.textContent, written.querySelector(".view-note")?.textContent])
-      .toEqual(["How each file is laid out.", "A note.", "A line under the name."]);
+      .toEqual(["How each table is laid out.", "A note.", "A line under the name."]);
   });
 
   it("puts the navigation of a wide window away where the page's root says so, by one rule that takes it out of sight, of the Tab key's way and of a screen reader's", () => {
