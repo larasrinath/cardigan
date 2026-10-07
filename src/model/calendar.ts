@@ -39,7 +39,7 @@ const TEMPLATE: Row[] = [
   ["Model Calendar", "Half-Year Label", "Text", "Where shown", "Leave blank if the model does not show it."],
 ];
 
-/** Native calendar property IDs (Time2/TimeDataTransform, as SAM's Model Builder reads them) for each template setting. */
+/** Native calendar property IDs (Time2/TimeDataTransform) for each template setting. */
 export const CALENDAR_PROPERTIES: Record<string, number> = {
   "Calendar Type": 4000000806, "Fiscal Year Starts": 4000000800, "Week Grouping into Months / Qtrs": 4000000812,
   "End of Fiscal Year is": 4000000809, "End of Fiscal Year - day": 4000000811, "End of Fiscal Year - month": 4000000810,
