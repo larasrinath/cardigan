@@ -7,7 +7,8 @@ import { zipEntries } from "./zip.test-support.js";
  * Dynamic Cell Access.csv, a file the export makes from Line Items.csv and reads nothing for (model/access.ts). The zip
  * pins that the file is all an export gained with it: model/model.test.ts exports the same model and compares with this
  * zip but for what is named below, as it compares another model with 0.6.1's zip (golden-0.6.1.test-support.ts), whose
- * Line Items grid has no driver columns and which gets no such file. Tests only. Every name is made up.
+ * Line Items grid has none of the columns the file is made from and which gets no such file. Tests only. Every name is
+ * made up.
  *
  * Made once by running 0.8.1's own exportModel on the model, with the clock at 2026-09-28 12:30:10 UTC, the export's
  * steps and log lines kept as the model's frame keeps them and given to it as its log (bridge.ts `serveCore`), and

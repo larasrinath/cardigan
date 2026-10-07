@@ -3,6 +3,7 @@ import { stampLine } from "../details.js";
 import { MODEL_COLUMN_ADDED, MODEL_FILE_ADDED, MODEL_ROW_REWORDED, MODEL_ZIP_0_6_1, MODEL_ZIP_AS_NAMED, withColumnAdded, withDetailsSince, ZIPPED_AT } from "../golden-0.6.1.test-support.js";
 import { ACCESS_CSV, ACCESS_FILE_ADDED, ACCESS_GRIDS, ACCESS_READS_0_8_1, ACCESS_ZIP_0_8_1, ACCESS_ZIP_WITH_FILE, withAccessRows } from "../golden-0.8.1.test-support.js";
 import { NOT_SCOPE_IDS, SCOPE_IDS } from "../guards.test-support.js";
+import { buildModelGraph } from "../map/build-graph.js";
 import { Failure } from "../progress.js";
 import { resultZip, tableCsv } from "../result-zip.js";
 import { toCsv, zipStore } from "../zip.js";
@@ -605,7 +606,8 @@ describe("Model export: Model settings grids to tables", () => {
     // column is empty in every row. The "How to read" row of Model Details.csv about Line Items says what the three
     // columns after Anaplan's own hold, where it named the two there were (MODEL_ROW_REWORDED). And Model Details.csv has
     // two rows more, about a file the export has gained, Dynamic Cell Access.csv (MODEL_FILE_ADDED): this model's Line
-    // Items grid has no driver columns, so the file is not written for it, and the rows say that and how to read the file.
+    // Items grid has none of the columns the file is made from, so the file is not written for it, and the rows say that
+    // and how to read the file.
     // Everything else is what 0.6.1 wrote, byte for byte.
     // File by file first, so that a difference shows as text: 0.6.1's files in their order, each with its text; of Line
     // Items.csv every line with that one cell more at its end, and of Model Details.csv every line but that one, with the
@@ -627,7 +629,7 @@ describe("Model export: Model settings grids to tables", () => {
     const places = added.map(({ row }) => details.findIndex(each => each.join("\n") === row.join("\n")));
     expect(places.map(place => details[place - 1])).toEqual(added.map(({ after }) => after));
     expect(added.map(({ row }) => row.slice(0, 2))).toEqual([["Files", MODEL_FILE_ADDED.file], ["How to read", "Dynamic Cell Access"]]);
-    expect(added[0].row[2]).toBe("Not exported: Line Items has no Read Access Driver and Write Access Driver columns.");
+    expect(added[0].row[2]).toBe("Not exported: Line Items has no Module Name, Read Access Driver and Write Access Driver columns.");
     const kept = details.filter((_, index) => !places.includes(index));
     expect(kept.length).toBe(detailsBefore.length);
     expect(kept.flatMap((row, index) => (row.join("\n") === detailsBefore[index].join("\n") ? [] : [[detailsBefore[index], row]])))
@@ -651,7 +653,7 @@ describe("Model export: Model settings grids to tables", () => {
     // comes right after Line Items, and so before Source Models.
     expect(result.summary).toEqual(["Line Items: 4 rows", "Modules: 2 rows", "General Lists: 2 rows", "Processes: 1 rows",
       "Imports: 3 rows (2 matched in the Actions list)", "Import Data Sources: 1 rows", "Exports: 1 rows", "Other Actions: 1 rows", "Time Ranges: 1 rows",
-      "Versions: 2 rows", "Model Calendar: 31 rows", "Dynamic Cell Access: not exported (Line Items has no Read Access Driver and Write Access Driver columns.).",
+      "Versions: 2 rows", "Model Calendar: 31 rows", "Dynamic Cell Access: not exported (Line Items has no Module Name, Read Access Driver and Write Access Driver columns.).",
       "Source Models: not exported (This model page has no REMOTE_MODEL axis.)."]);
     // Only Model Details.csv guards formula-like cells: a grid is written exactly as Anaplan's own export writes it.
     expect(result.tables.map(table => [table.file, table.label, table.guard, table.details, table.rows.length])).toEqual([
@@ -675,9 +677,10 @@ describe("Model export: Model settings grids to tables", () => {
     const REJECTED = "The model rejected the read.";
     const NO_SOURCE_MODELS = "Source Models: not exported (This model page has no REMOTE_MODEL axis.).";
     // Dynamic Cell Access is made from Line Items, and is no grid: nothing is read for it. This model gets none: its
-    // Line Items grid has no driver columns, and without Line Items there is nothing to make the file from. The file's
-    // row of the Details file and its note stand right after those of Line Items all the same, whichever grid cannot be read.
-    const [NO_DRIVER_COLUMNS, NO_LINE_ITEMS] = ["Line Items has no Read Access Driver and Write Access Driver columns.", "Line Items was not exported."];
+    // Line Items grid has none of the three columns the file is made from, and without Line Items there is nothing to
+    // make it from. The file's row of the Details file and its note stand right after those of Line Items all the same,
+    // whichever grid cannot be read.
+    const [NO_DRIVER_COLUMNS, NO_LINE_ITEMS] = ["Line Items has no Module Name, Read Access Driver and Write Access Driver columns.", "Line Items was not exported."];
     /** The golden model exported while the model rejects the reads of these grids: the reads of the three grids, the first
      * files of the zip, what the Details file's first four Files rows and the summary's first two lines say, and the notes. */
     const exported = async (...rejected: string[]) => {
@@ -798,8 +801,9 @@ describe("Model export: Model settings grids to tables", () => {
 
     // The page builds the model map from these very tables (results/main.ts). The file's rows are that map's access
     // links, each once, and then the two driver cells the map could match to no line item.
+    // The map places every row of this model's Line Items, so the file holds nothing beyond that.
     const held = againstMap(table.rows, result.tables);
-    expect(held.table).toEqual(held.map);
+    expect([held.placed, held.beyond]).toEqual([held.map, []]);
     expect(held.map.map(part => part.length)).toEqual([10, 2]);
     // And the two files can be matched in a spreadsheet. What a row says is controlled is one row of Line Items.csv, by
     // its name and its Module Name, and so is its driver. A driver that was not matched is, to the character, the cell
@@ -816,11 +820,11 @@ describe("Model export: Model settings grids to tables", () => {
     expect(sameBytes(resultZip(received, ZIPPED_AT), ACCESS_ZIP_WITH_FILE)).toBe(true);
   });
 
-  it("writes Dynamic Cell Access.csv without rows for a model that drives no access, and does not write it when Line Items lacks a driver column", async () => {
+  it("writes Dynamic Cell Access.csv without rows for a model that drives no access, and does not write it when Line Items lacks one of the three columns it is made from", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date(Date.UTC(2026, 8, 28, 12, 30, 10)));
     const LINE_ITEMS = "LINE ITEMS × LINE ITEM PROPERTIES";
-    const [READ, WRITE] = ["Read Access Driver", "Write Access Driver"];
+    const [READ, WRITE, MODULE_NAME] = ["Read Access Driver", "Write Access Driver", "Module Name"];
     const grid = ACCESS_GRIDS[LINE_ITEMS];
     /** The model's Line Items grid with nothing in these columns, and without them. */
     const emptied = (...columns: string[]): FakeGrid => ({ ...grid, rows: grid.rows.map(row => ({ ...row, cells: row.cells.map((cell, index) => (columns.includes(grid.columns[index]) ? "" : cell)) })) });
@@ -835,7 +839,7 @@ describe("Model export: Model settings grids to tables", () => {
       const zip = unzipText(resultZip(result, ZIPPED_AT));
       const table = result.tables.find(each => each.file === "Dynamic Cell Access.csv");
       const held = againstMap(table?.rows ?? [], table ? result.tables : []);
-      expect(held.table).toEqual(held.map);
+      expect([held.placed, held.beyond]).toEqual([held.map, []]);
       return { file: zip.get("Dynamic Cell Access.csv"), files: result.tables[0].rows.filter(row => row[0] === "Files").slice(0, 3).map(row => `${row[1]}: ${row[2]}`),
         summary: result.summary.filter(line => line.startsWith("Dynamic Cell Access")), said: said.length, lineItems: parseCsv(zip.get("Line Items.csv") ?? "")[0] };
     };
@@ -850,14 +854,23 @@ describe("Model export: Model settings grids to tables", () => {
     const writes = await exported(emptied(READ));
     expect([writes.file, writes.files[1], writes.summary]).toEqual([[HEADER.trimEnd(), ...ACCESS_CSV.split("\r\n").filter(line => line.includes(",Write,")), ""].join("\r\n"),
       "Dynamic Cell Access.csv: 6 rows (1 with a driver that could not be matched)", ["Dynamic Cell Access: 6 rows (1 with a driver that could not be matched)"]]);
-    // A Line Items grid without one of the two columns, or without both: the file is not written, and its row of the
-    // Details file and the summary say which column is not there. Line Items.csv is written as the grid is, as ever.
+    // A Line Items grid without one of the two driver columns, or without both: the file is not written, and its row of
+    // the Details file and the summary say which column is not there. Line Items.csv is written as the grid is, as ever.
+    // The export reports the steps and the lines it reports of any model: a file that has nothing to be made from is no
+    // failure, and no line of the log.
     const withoutWrite = await exported(lacking(WRITE));
     expect(withoutWrite).toEqual({ file: undefined, files: ["Line Items.csv: 16 rows", "Dynamic Cell Access.csv: Not exported: Line Items has no Write Access Driver column.", "Modules.csv: 5 rows"],
       summary: ["Dynamic Cell Access: not exported (Line Items has no Write Access Driver column.)."], said: 23, lineItems: whole.lineItems.filter(header => header !== WRITE) });
     expect([(await exported(lacking(READ))).files[1], (await exported(lacking(READ, WRITE))).files[1]]).toEqual([
       "Dynamic Cell Access.csv: Not exported: Line Items has no Read Access Driver column.",
       "Dynamic Cell Access.csv: Not exported: Line Items has no Read Access Driver and Write Access Driver columns."]);
+    // Without Module Name no row of Line Items says which module it is in. The file would have rows that name none, or
+    // no rows at all, and say of neither that the grid is at fault: it is not written, with both driver columns there.
+    const withoutModuleName = await exported(lacking(MODULE_NAME));
+    expect(withoutModuleName).toEqual({ file: undefined, files: ["Line Items.csv: 16 rows", "Dynamic Cell Access.csv: Not exported: Line Items has no Module Name column.", "Modules.csv: 5 rows"],
+      summary: ["Dynamic Cell Access: not exported (Line Items has no Module Name column.)."], said: 23, lineItems: whole.lineItems.filter(header => header !== MODULE_NAME) });
+    expect((await exported(lacking(MODULE_NAME, READ, WRITE))).files[1])
+      .toBe("Dynamic Cell Access.csv: Not exported: Line Items has no Module Name, Read Access Driver and Write Access Driver columns.");
   });
 
   it("writes each name in Dynamic Cell Access.csv as Line Items.csv writes it, with nothing before a name that starts with a sign", async () => {
@@ -881,7 +894,67 @@ describe("Model export: Model settings grids to tables", () => {
     expect(result.tables.map(table => table.guard)).toEqual([true, false, false]);
     // The map of these tables has the same two links.
     const held = againstMap(result.tables[2].rows, result.tables);
-    expect([held.table, held.map[0].length]).toEqual([held.map, 2]);
+    expect([held.placed, held.beyond, held.map[0].length]).toEqual([held.map, [], 2]);
+  });
+
+  it("writes a row for every driver cell of Line Items that says something, also in a row the model map leaves out, and counts the rows it wrote", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(Date.UTC(2026, 8, 28, 12, 30, 10)));
+    const [LINE_ITEMS, MODULES] = ["LINE ITEMS × LINE ITEM PROPERTIES", "MODULES × MODULE PROPERTIES"];
+    const COLUMNS = ["Format", "Read Access Driver", "Write Access Driver", "Module Name"];
+    const [NUMBER, FLAG] = ['{"dataType":"NUMBER"}', '{"dataType":"BOOLEAN"}'];
+    type Line = [name: string, format: string, read: string, write: string, moduleName: string];
+    /** A module's own row, a line item that is a tick box, and a line item with its two driver cells. */
+    const own = (name: string, read = "", write = ""): Line => [name, "", read, write, ""];
+    const flag = (inModule: string, name: string): Line => [name, FLAG, "", "", inModule];
+    const line = (inModule: string, name: string, read = "", write = ""): Line => [name, NUMBER, read, write, inModule];
+    /** The model exported from a page that serves these rows as its Line Items grid, in these columns, and these names as
+     * its Modules grid: the rows that name no module and have no format, unless others are given, and no such grid for
+     * `null`. It gives the file's text after its header, what the Details file and the summary say of the file, and the
+     * map's count of the rows it left out. The file's rows are held against the map of the result's tables on the way. */
+    const exported = async (lines: Line[], modules: string[] | null = lines.filter(each => each[1] === "" && each[4] === "").map(each => each[0]), columns = COLUMNS) => {
+      const at = columns.map(column => COLUMNS.indexOf(column) + 1);
+      const grids: Record<string, FakeGrid> = { [LINE_ITEMS]: { columns, rows: lines.map((each, index) => ({ ids: [1901000000001 + index, -1], labels: [each[0], null], cells: at.map(place => each[place]) })) },
+        ...(modules ? { [MODULES]: { columns: ["Applies To"], rows: modules.map((name, index) => row(102000000001 + index, name, "")) } } : {}) };
+      const result = await exportGoldenModel(grids);
+      const table = result.tables.find(each => each.file === "Dynamic Cell Access.csv");
+      const held = againstMap(table?.rows ?? [], table ? result.tables : []);
+      expect([held.placed, held.unexplained, held.vanished]).toEqual([held.map, [], []]);
+      // The Details file and the summary count the rows the file has, and those of them without a Driver Module.
+      const unmatched = table?.rows.filter(each => each[0] === "").length;
+      const counted = table && `${table.rows.length} rows${unmatched ? ` (${unmatched} with a driver that could not be matched)` : ""}`;
+      const said = result.tables[0].rows.find(each => each[0] === "Files" && each[1] === "Dynamic Cell Access.csv")?.[2];
+      if (table) expect([said, result.summary.filter(each => each.startsWith("Dynamic Cell Access"))]).toEqual([counted, [`Dynamic Cell Access: ${counted}`]]);
+      return { rows: unzipText(resultZip(result)).get("Dynamic Cell Access.csv")?.split("\r\n").slice(1, -1), said, beyond: held.beyond.length,
+        leftOut: buildModelGraph(result.tables).limitations.filter(each => /^\d+ .*left out/.test(each)).map(each => each.replace(/^(\d+) .* (is|are) left out.*$/, "$1")) };
+    };
+
+    // A module whose name reads as a heading, with line items: the map takes its row for a heading and leaves its two
+    // line items out. One of them has a read driver and a write driver: both cells are rows, the one that names a line
+    // item the map holds matched, the other, a name alone in a module of which the map holds no line item, as written.
+    expect(await exported([own("Flags"), flag("Flags", "Open"), own("-- Archive 2025"), flag("-- Archive 2025", "Locked"), line("-- Archive 2025", "Old units", "Flags.Open", "Locked"),
+      own("Sales"), line("Sales", "Units", "'-- Archive 2025'.Locked", "Flags.Open")])).toEqual({
+      rows: ["Flags,Open,Read,-- Archive 2025,Old units", "Flags,Open,Write,Sales,Units", ",Locked,Write,-- Archive 2025,Old units", ",'-- Archive 2025'.Locked,Read,Sales,Units"],
+      said: "4 rows (2 with a driver that could not be matched)", beyond: 2, leftOut: ["2"] });
+    // A module named with dots alone, which is a heading to the map too, holds the model's only use of a driver.
+    expect(await exported([own("Flags"), flag("Flags", "Open"), own("..."), line("...", "Units", "Flags.Open")]))
+      .toEqual({ rows: ["Flags,Open,Read,...,Units"], said: "1 rows", beyond: 1, leftOut: ["1"] });
+    // A line item whose Module Name cell is empty, and two that name no row above them: each is listed with its Module
+    // Name cell as it is written, the first with none.
+    expect(await exported([own("Flags"), flag("Flags", "Open"), own("Sales"), line("", "Units", "Flags.Open"), line("Sales ", "Price", "", "Flags.Open"),
+      line("Old sales", "Cost", "Open", "'Flags'.Open")])).toEqual({
+      rows: ["Flags,Open,Read,,Units", "Flags,Open,Write,Sales ,Price", "Flags,Open,Write,Old sales,Cost", ",Open,Read,Old sales,Cost"],
+      said: "4 rows (1 with a driver that could not be matched)", beyond: 4, leftOut: ["1", "2"] });
+    // A Line Items grid with both driver columns and no Module Name column: no row says its module, and no file is written.
+    expect(await exported([own("Flags"), flag("Flags", "Open"), own("Sales"), line("Sales", "Units", "Flags.Open", "Flags.Open")], undefined, COLUMNS.slice(0, 3)))
+      .toEqual({ rows: undefined, said: "Not exported: Line Items has no Module Name column.", beyond: 0, leftOut: ["2"] });
+
+    // The file is made from every table the export holds, as the map is. Stray names no module and has no format: with
+    // the Modules table, which does not list it, it is a line item whose module the file does not say, and is listed as
+    // one. With a Modules table that lists it, and without that table, it is a module's own row.
+    const stray = [own("Flags"), flag("Flags", "Open"), own("Stray", "Flags.Open")];
+    expect([(await exported(stray, ["Flags"])).rows, (await exported(stray, ["Flags", "Stray"])).rows, (await exported(stray, null)).rows])
+      .toEqual([["Flags,Open,Read,,Stray"], ["Flags,Open,Read,Stray,"], ["Flags,Open,Read,Stray,"]]);
   });
 
   it("takes a Dynamic Cell Access table that cannot be made for that file's failure, in the file's place and with no line in the log, and exports the other files as they are", async () => {

@@ -159,21 +159,24 @@ export async function exportModel(progress: Progress, diagnostics: () => string,
 
   if (!tables.length) throw new Failure(NOTHING_READ, notes.join(" ") || undefined);
 
-  // Dynamic Cell Access is no grid's. It is the model map's access links written down (access.ts), so it is made from
-  // the tables above now that every one of them is there: the results page makes its map from these same tables. Nothing
-  // is read for the file and no step is reported: the reads, the steps and the lines of the log are those of an export
-  // without it. Its place is right after Line Items, which stands at the place taken for it: as a table, with its line
-  // of the summary, or, when it could not be exported, as a note; either way with its row of the Details file.
+  // Dynamic Cell Access is no grid's. It is the driver cells of Line Items listed from the driver's side, each read as the
+  // model map reads it (access.ts), so it is made from the tables above now that every one of them is there: the results
+  // page makes its map from these same tables. Nothing is read for the file and no step is reported: the reads, the steps
+  // and the lines of the log are those of an export without it. Its place is right after Line Items, which stands at the
+  // place taken for it: as a table, with its line of the summary, or, when it could not be exported, as a note; either
+  // way with its row of the Details file.
   const exported = tables[lineItemsAt.table]?.label === "Line Items";
   const accessAt = exported
     ? { table: lineItemsAt.table + 1, line: lineItemsAt.line + 1, note: lineItemsAt.note, row: lineItemsAt.row + 1 }
     : { ...lineItemsAt, note: lineItemsAt.note + 1, row: lineItemsAt.row + 1 };
   try {
     const access = accessTable(tables);
-    add(ACCESS_LABEL, access.table, access.unmatched ? `${access.unmatched} with a driver that could not be matched` : undefined, accessAt);
+    // Without Line Items, or without a column of it that the file is made from, there is nothing to make the file from:
+    // the Details file says so, as it does of a grid that could not be read.
+    if ("missing" in access) leftOut(ACCESS_LABEL, access.missing, accessAt);
+    else add(ACCESS_LABEL, access.table, access.unmatched ? `${access.unmatched} with a driver that could not be matched` : undefined, accessAt);
   } catch (error) {
-    // Without Line Items, or without its two driver columns, there is nothing to make the file from: the Details file
-    // says so, as it does of a grid that could not be read.
+    // And so it says of a table that cannot be made for any other reason.
     leftOut(ACCESS_LABEL, message(error), accessAt);
   }
 
