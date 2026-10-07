@@ -1,6 +1,8 @@
 # Cardigan
 
-Cardigan is a Chrome extension for Anaplan. Open an app or a model, click the Cardigan icon, and it reads what the app's pages or the model's settings hold. The result opens on a page of its own, where you can search, sort and filter each table and download it as CSV. For a model, the page also draws a map of what feeds what.
+Cardigan is a Chrome extension for Anaplan. Open an app or a model, click the Cardigan icon, and it reads what the app's pages or the model's settings hold. The result opens on a page of its own, where you can search, sort and filter each table. For a model, the page also draws a map of what feeds what.
+
+Cardigan makes no file and offers no download: the results page is the only place to see a result. The last result is kept for its tab in the browser's session storage, so that a refresh brings it back.
 
 Cardigan only reads, with your own signed-in session, and nothing it reads leaves your browser. It is an independent project, not affiliated with Anaplan: see [NOTICE.md](NOTICE.md).
 
@@ -12,7 +14,7 @@ The pictures on this page show an invented app and model. They leave out the bar
 
 ### For an app
 
-Cardigan reads every published page of the app. The **Overview** counts each table's rows and gives the details of the export. The tables:
+Cardigan reads every published page of the app. The **Overview** counts each table's rows and says what was read and when. The tables:
 
 | Table | One row per |
 | --- | --- |
@@ -32,12 +34,12 @@ Cardigan reads every published page of the app. The **Overview** counts each tab
 
 Open the model in Model Building; the classic model page opened on its own works too. Cardigan reads the Model settings into twelve tables, in Anaplan's order, and makes a thirteenth, Dynamic Cell Access, from Line Items: Model Calendar, Time Ranges, Versions, General Lists, Modules, Line Items, Dynamic Cell Access, Processes, Imports, Import Data Sources, Exports, Other Actions and Source Models.
 
-- Each grid's CSV file is laid out as Anaplan's own export of that grid, with formats and summaries as JSON.
-- **Line Items** covers every module, and its file adds three columns: **Ratio Numerator**, **Ratio Denominator** and **Format List**. The page lists each line item beside its module; module rows stay in the CSV.
+- A table read from a Model settings grid is laid out as Anaplan's own export of that grid: each row's name first, then the grid's columns.
+- **Line Items** covers every module and lists each line item beside its module; a module's own row is not listed. Three columns follow Anaplan's own: **Ratio Numerator**, **Ratio Denominator** and **Format List**.
 - **Dynamic Cell Access** lists each access driver with the line items it controls, one row per use, marked **Read** or **Write**. It is made from the **Read Access Driver** and **Write Access Driver** columns of Line Items, which name a driver only on the line item it controls.
-- The page says a format, a summary or an action's definition in words, such as "Number, 2 decimal places" or "List: Products".
+- The page says a format, a summary or an action's definition in words, such as "Number, 2 decimal places" or "List: Products". Click the row to see the definition as it was read, under **Format as read**, **Summary as read** or **Action as read**.
 - **Processes**, **Exports** and **Other Actions** are the Actions list, split at its headings. **Imports** joins each import's source and target with its last run, notes and processes.
-- **Model Calendar** follows an assessment template. **Model size (GB)** and **Captured by** are left for you to fill in.
+- **Model Calendar** follows an assessment template. The template's rows about the model itself are not listed: those that have a value, such as **Captured on**, are on the Overview, under **About this export**.
 
 ![A model's Dynamic Cell Access table: each access driver with the line items it controls, one row for each use, marked Read or Write](docs/images/model-dynamic-cell-access.png)
 
@@ -50,8 +52,8 @@ Open the model in Model Building; the classic model page opened on its own works
 - The map opens on the model's sections. A section is the modules under one heading: a module whose name starts with `--`, such as `-- Inputs --`. Without headings it opens on the modules.
 - Double-click a section to open its modules, and a module to open its line items. **Show all modules** shows every module. `Esc` goes back a step.
 - An arrow from A to B means B reads A.
-- Click a box to see everything that feeds it and everything it feeds, directly or through others. The rest fades; **Only these** hides it.
-- The panel on the right gives the box's details: for a line item its formula, format and summary in words, what feeds it and what it feeds directly, and its row in the CSV file.
+- Click a box to see everything that feeds it, marked in blue, and everything it feeds, marked in red, directly or through others. The rest fades; **Only these** hides it.
+- The panel on the right gives the box's details: for a line item its formula, format and summary in words, and what feeds it and what it feeds directly.
 - The search finds sections, modules and line items by name. In the **Legend**, click an entry to hide or show its boxes. **Access drivers** adds a link from each access driver to what it controls.
 - Drag to move, scroll to zoom, press `F` for the whole map. **About this map** lists the keys. The map follows the page's theme.
 
@@ -88,15 +90,11 @@ Closing the results page stops the reading.
 - Click a column's name to sort. A column with 2 to 30 different values also has a filter.
 - **Columns** picks the columns shown. An app's ID columns, **Card #** and **Section #** start hidden.
 - Click a row to read every value in full. In an app, a page's name shows that page's cards, and a card's title opens the card with its grid sections, filters, formatting and buttons.
+- Click an ID to copy it.
 - The sun or moon button switches the theme.
 - The page uses the window's whole width. The button beside the Cardigan name hides the navigation, so that a table or the model map takes all of it, and brings it back; your browser remembers the choice.
 
-### Downloads
-
-- **Download all (.zip)** saves every table as CSV, in `<app> - App Export - <date>.zip` or `<model> - Model Export - <date>.zip`.
-- **Download this table (.csv)** saves the whole table on screen: every row and column, whatever is searched, filtered or hidden. On the Overview it saves the details file, `App Details.csv` or `Model Details.csv`, which also holds the notes and the diagnostic log. On the Model map it is off: the map has no file of its own.
-
-**How to read these files**, on the Overview, has the notes for reading them. One to know: "(not in the model)" after an ID marks a module or line item that a card points at and the model no longer has, or that you cannot see.
+**How to read these tables**, on the Overview, has the notes for reading them. One to know: "(not in the model)" after an ID marks a module or line item that a card points at and the model no longer has, or that you cannot see.
 
 ### Run again, refresh and Forget this result
 
@@ -110,13 +108,13 @@ Closing the results page stops the reading.
 - **Not connected**: refresh the Anaplan tab, then click the icon again. A tab that was open before Cardigan was installed, updated or reloaded needs this once.
 - **Nothing to analyse**: the tab shows an Anaplan page that is neither an app nor a model. Open one there, let it load, then choose **Run again**.
 - When a reading stops, the page says what happened and what to do. **Copy diagnostic log** copies the log, to send with a report. It holds request paths, statuses and counts, and no cookies, tokens or cell values.
-- If the model map cannot be drawn, the page says so in the map's place. The tables and the downloads are not affected, and **Copy diagnostic log** beside the message copies the reason.
+- If the model map cannot be drawn, the page says so in the map's place. The tables are not affected, and **Copy diagnostic log** beside the message copies the reason.
 
 ## Privacy and permissions
 
 - Cardigan declares no permissions. Its scripts run only on `https://*.app.anaplan.com` and, for Australia, `https://*.app2.anaplan.com`, and add nothing to those pages.
 - It reads nothing until you click its icon or choose **Run again**. It is read-only by construction: its web requests are GET requests to two Anaplan services, its socket client can only subscribe, and every request to a model is checked to carry no change.
-- Nothing is sent anywhere except those reads. The results page loads nothing from the internet, and the files are built in your browser.
+- Nothing is sent anywhere except those reads, and the results page loads nothing from the internet.
 - The kept result is in the browser's session storage for its tab, compressed and not encrypted.
 
 [NOTICE.md](NOTICE.md) says the rest, including what closing a tab does and does not erase.
@@ -131,15 +129,14 @@ Closing the results page stops the reading.
 - The items a filter rule names are looked up for at most 30 seconds per model. The rest keep their IDs.
 - A button whose import, export or process is not in the model keeps its card label; **Name source** says so.
 - Where two pages share a name, a count in **Where Used** can read "2+" (at least 2), and some links are plain text.
-- A Model settings grid of more than 250,000 rows is not exported; the Overview says which.
-- In **Dynamic Cell Access**, a driver that cannot be matched to a line item is listed last, as Line Items writes it, and the page says how many there are. The table is not made when Line Items was not exported.
-- The model map takes each link from a column of the export that names another object, such as **Referenced By**. It shows formulas as text and does not work them out.
+- A Model settings grid of more than 250,000 rows is not read. The Overview lists it under **Tables** as "Not exported", with the reason.
+- In **Dynamic Cell Access**, a driver that cannot be matched to a line item is listed last, as Line Items has it and with no **Driver Module**, and the page says how many there are. The table is not made when Line Items was not read.
+- The model map takes each link from a column that names another object, such as **Referenced By**. It shows formulas as text and does not work them out.
 - The map draws sections, modules, line items and the lists that formulas name. Processes and actions are not drawn; a module's details name the imports that load into it.
 - **About this map**, at the foot of the map, says what the map leaves out and could not place for this model, such as a line item named twice in one module.
 - A large view is shown whole with names cut short: point at a box to read its name. One too large even for that opens on its start, and **Whole map** shows all of it.
 - The map's view is not kept: a refresh, **Run again** or **Forget this result** starts it afresh.
 - A result over 64 MB as JSON, or 9 MB compressed, is not kept for a refresh; the page says so.
-- In **Dynamic Cell Access**, a driver that cannot be matched to a line item of the export is listed last, written as its cell is, with no Driver Module.
 - Anaplan can change the internal services Cardigan reads without notice: see [NOTICE.md](NOTICE.md).
 
 ## For developers
@@ -157,7 +154,7 @@ You need Node 20.19+, 22.12+ or 24+.
 
 To run from source, choose **Load unpacked** and select the repository root. After a rebuild, reload the extension and refresh the Anaplan tab. `dist/` is not in Git: build after every pull.
 
-In the Anaplan tab, `src/content.ts` and `src/analyse.ts` read an app, and `src/model-content.ts` and `src/model/` export a model through the page's own client. `src/card-reader/` reads a page's cards. `src/background.ts` opens the results page: `results.html`, `results.css` and `src/results/`. `src/map/` builds a model's map from the tables of its export and draws it on the page, styled by `map.css`. `src/protocol.ts` lists the messages between the page and the tab.
+In the Anaplan tab, `src/content.ts` and `src/analyse.ts` read an app, and `src/model-content.ts` and `src/model/` read a model through the page's own client. `src/card-reader/` reads a page's cards. `src/background.ts` opens the results page: `results.html`, `results.css` and `src/results/`. `src/map/` builds a model's map from the model's tables and draws it on the page, styled by `map.css`. `src/protocol.ts` lists the messages between the page and the tab.
 
 ### Release
 
