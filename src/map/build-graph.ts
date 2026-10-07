@@ -175,6 +175,9 @@ const LIST_REFERENCES = [["Referenced in Applies To", "applies", { module: true 
  * two columns from here. */
 export const DRIVERS = [["Read Access Driver", "read_access"], ["Write Access Driver", "write_access"]] as const;
 
+/** Whether a driver cell says something: it is not empty, and not the dash that stands for no driver of the row's own. */
+const drives = (written: string): boolean => written !== "" && written !== "-";
+
 /** The fields of an action's definition that name a list by its ID. */
 const LIST_IDENTIFIERS = ["hierarchyIdentifier", "sourceHierarchyIdentifier", "targetHierarchyIdentifier"] as const;
 
@@ -426,15 +429,18 @@ function moduleNamesOf(tables: readonly ResultTable[]): { names: Set<string> | u
   return { names: rows.length ? new Set(Array.from(rows, row => textOf(Array.isArray(row) ? row[0] : ""))) : undefined, exported: table !== undefined };
 }
 
-/** What was read of Line Items, and for each line item formatted as a list, that list's ID, from the line item's Format. */
-type LineItemsRead = Read<LineItemColumn> & { formatIds: Map<number, string> };
+/** What was read of Line Items, and for each line item formatted as a list, that list's ID, from the line item's Format.
+ * `moduleless` has the numbers of the rows left out as line items whose module the file does not say: among the rows
+ * that name no module, those are the ones that are no module's own (`readAccess`). */
+type LineItemsRead = Read<LineItemColumn> & { formatIds: Map<number, string>; moduleless: Set<number> };
 
 /** Line Items: each module's own row under its heading, then the module's line items. */
 function readLineItems(draft: Draft, tables: readonly ResultTable[]): LineItemsRead {
   const table = tableOf(tables, LINE_ITEMS);
   const rows = new Map<number, Row>();
   const formatIds = new Map<number, string>();
-  if (!table) return { table, rows, formatIds, says: [notExported(LINE_ITEMS_FILE)] };
+  const moduleless = new Set<number>();
+  if (!table) return { table, rows, formatIds, moduleless, says: [notExported(LINE_ITEMS_FILE)] };
   const says = [...table.lacks];
 
   // Whether a name is a module's, as far as the Modules file says: the file lists it, or a line item of this file gives
@@ -457,8 +463,10 @@ function readLineItems(draft: Draft, tables: readonly ResultTable[]): LineItemsR
     const inModule = table.cell(row, "Module Name");
     if (inModule.trim() === "") {
       // A line item whose module the file does not say: it has what only a line item has, or its name is no module's.
-      if (LINE_ITEM_HAS.some(column => table.cell(row, column).trim() !== "") || (moduleNames && !moduleNames.has(name))) left.unknown++;
-      else if (separator(name)) {
+      if (LINE_ITEM_HAS.some(column => table.cell(row, column).trim() !== "") || (moduleNames && !moduleNames.has(name))) {
+        left.unknown++;
+        moduleless.add(rowNumber(index));
+      } else if (separator(name)) {
         group = groupOf(name);
         headings.add(name);
       } else if (draft.modules.has(name)) left.modules++;
@@ -509,7 +517,7 @@ function readLineItems(draft: Draft, tables: readonly ResultTable[]): LineItemsR
   if (left.items) {
     says.push(`${count(left.items, "line item has the name of a line item above it in the same module and is", "line items have the name of a line item above them in the same module and are")} left out.`);
   }
-  return { table, rows, formatIds, says };
+  return { table, rows, formatIds, moduleless, says };
 }
 
 /** A list for a key, among the lists found for it so far. */
@@ -620,7 +628,7 @@ function linkLineItems(draft: Draft, { table, rows, formatIds }: LineItemsRead, 
       let written = table.cell(rows.get(id)!, column);
       const own = !(node.kind === "lineItem" && written === "-");
       if (!own) written = table.cell(rows.get(owner.id)!, column);
-      if (written !== "" && written !== "-") found.push({ kind, column, written, own, target: draft.resolve(written, { inModule: owner.name }) });
+      if (drives(written)) found.push({ kind, column, written, own, target: draft.resolve(written, { inModule: owner.name }) });
     }
     drivers.set(id, found);
     return found;
@@ -807,10 +815,9 @@ const targetInAction = (listOfId: ReadonlyMap<string, number>): TargetOf => (dra
 const sharedNames = (amount: number): string =>
   `${count(amount, "name fits both a line item and a list property of the same name, and is", "names fit both a line item and a list property of the same name, and are")} taken for the line item.`;
 
-/** The graph of a model export's tables, or, thrown, whatever kept it from being made. It is for the export's own table
- * of the access links (model/access.ts): a file must not take a graph of nothing for a model that has no links. The
- * page's map takes `buildModelGraph`, which gives the same graph and never throws. */
-export function graphOf(tables: readonly ResultTable[]): ModelGraph {
+/** The graph of a model export's tables, with what it was made with: the draft, which knows every object by its name,
+ * and what was read of Line Items. It throws whatever keeps a graph from being made. */
+function build(tables: readonly ResultTable[]): { graph: ModelGraph; draft: Draft; lineItems: LineItemsRead } {
   const draft = new Draft();
   // In the prototype's order. A column that names objects is read once every object it can name is there.
   const lists = readLists(draft, tables);
@@ -828,7 +835,7 @@ export function graphOf(tables: readonly ResultTable[]): ModelGraph {
   const otherActions = readActions(draft, tables, OTHER_ACTIONS, processes.known, { target: targetInAction(ids.listOfId) });
   const actions = [imports, exportActions, otherActions];
   const shared = draft.sharedWithProperty.size;
-  return {
+  const graph: ModelGraph = {
     nodes: draft.nodes,
     edges: draft.links(),
     unresolved: draft.unresolved,
@@ -846,6 +853,7 @@ export function graphOf(tables: readonly ResultTable[]): ModelGraph {
       ...(imports.sources ? [IMPORT_SOURCES] : []),
     ],
   };
+  return { graph, draft, lineItems };
 }
 
 /** The graph of a model export's tables (`AnalysisResult.tables` of a model). A table that is missing, or lacks a column
@@ -854,8 +862,79 @@ export function graphOf(tables: readonly ResultTable[]): ModelGraph {
  * tables always give the same graph. */
 export function buildModelGraph(tables: readonly ResultTable[]): ModelGraph {
   try {
-    return graphOf(tables);
+    return build(tables).graph;
   } catch (error) {
     return { nodes: [], edges: [], unresolved: [], sections: [], limitations: [`The map could not be made from this export's tables (${message(error)}).`] };
   }
+}
+
+/** A use of a driver in a row of Line Items that the map leaves out: a line item under a heading, one whose module has
+ * no row above it or is not said, a second line item of a name, a module's second row, a heading. */
+export interface LeftOutDriver {
+  /** The row's number in the Line Items file, counted as a node's `row` is. */
+  row: number;
+  /** What the row is, as the file writes it: a line item by its Module Name cell and its name, and a module's own row,
+   * which names no module and is no line item's, by its name and no line item's. */
+  module: string;
+  lineItem: string;
+  kind: (typeof DRIVERS)[number][1];
+  /** The cell as it is written, and the line item of the graph that it names, if it names one. The cell is read as
+   * that of a row the map places is. A name alone is a line item of the row's own module. A line item with a dash has
+   * its module's driver, where its module's own row stands above it and names one of the graph. */
+  written: string;
+  driver: number | undefined;
+}
+
+/** What the export's Dynamic Cell Access table is made of (model/access.ts): one row for each use of a driver. */
+export interface AccessRead {
+  /** The map's graph of the same tables. For every row of Line Items that the map places, the table's rows are this
+   * graph's `read_access` and `write_access` links and its unresolved driver cells, so the table and the map agree. */
+  graph: ModelGraph;
+  /** Whether the export has a Line Items file, and the columns the table cannot be made without that the file lacks:
+   * the one that says which module a line item is in, and the two that name a driver. */
+  exported: boolean;
+  lacks: string[];
+  /** The uses of a driver in the rows the map leaves out, in the file's order. The map has no link for these, and says
+   * in `limitations` how many rows it left out. The table lists them all the same: no driver cell that says something
+   * is to be in no row of it. */
+  leftOut: LeftOutDriver[];
+}
+
+/** The graph with what the map itself does not show of the drivers: the cells in the rows it leaves out, read by its own
+ * rules. Unlike `buildModelGraph` it throws whatever keeps a graph from being made: a file must not take a graph of
+ * nothing for a model that drives no access. */
+export function readAccess(tables: readonly ResultTable[]): AccessRead {
+  const { graph, draft, lineItems: { table, rows, moduleless } } = build(tables);
+  if (!table) return { graph, exported: false, lacks: [], leftOut: [] };
+  // What the table is not made without: the column that says which module a line item is in, and the two of a driver.
+  const needs: readonly LineItemColumn[] = ["Module Name", ...DRIVERS.map(([column]) => column)];
+  const lacks = needs.filter(column => !table.has(column));
+  const leftOut: LeftOutDriver[] = [];
+  if (lacks.length) return { graph, exported: true, lacks, leftOut };
+  const placed = new Map(Array.from(rows.keys(), id => [draft.nodes[id].row, draft.nodes[id]] as const));
+  /** Each module's own row above the row being read, by the module's name: the first of a name. */
+  const ownRows = new Map<string, Row>();
+  table.rows.forEach((row, index) => {
+    const at = rowNumber(index);
+    const node = placed.get(at);
+    const name = textOf(row[0]);
+    const inModule = table.cell(row, "Module Name");
+    // A row that names no module is a line item's whose module the file does not say, or a module's own: one the map
+    // places, a module's second row, or a heading.
+    const own = node ? node.kind === "module" : inModule.trim() === "" && !moduleless.has(at);
+    if (own && !ownRows.has(name)) ownRows.set(name, row);
+    if (node) return;
+    // A module's own row is read in that module, and a line item's in the module its row names.
+    const [module, lineItem] = own ? [name, ""] : [inModule, name];
+    for (const [column, kind] of DRIVERS) {
+      let written = table.cell(row, column);
+      const ofModule = !own && inModule.trim() !== "" && written === "-" ? ownRows.get(inModule) : undefined;
+      if (ofModule) written = table.cell(ofModule, column);
+      if (!drives(written)) continue;
+      const driver = draft.resolve(written, { inModule: module });
+      // A module's cell that names no line item is the module's row's to say, once: not each line item's that has it.
+      if (driver !== undefined || !ofModule) leftOut.push({ row: at, module, lineItem, kind, written, driver });
+    }
+  });
+  return { graph, exported: true, lacks, leftOut };
 }

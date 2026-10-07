@@ -227,21 +227,22 @@ export function withRowReworded(csv: string): string {
 
 /** The one file the export has gained since 0.6.1: Dynamic Cell Access.csv, which lists a model's access drivers with
  * what each controls (model/access.ts). The export makes it from the Read Access Driver and Write Access Driver columns
- * of Line Items.csv, and reads nothing for it. The model this zip was made from has neither column in its Line Items
- * grid, so the file is not written for it, and its zip holds the twelve files it held. What differs is Model
- * Details.csv, which says of every file the export knows whether it was written and how to read it: it has two rows
- * more, each given here as the row's whole line of the file, with the line it stands after. `notWritten` says that the
- * file was not exported and why, right after the row for Line Items.csv, which is the file's place among the files.
- * `howToRead` says how to read the file, right after the row on Line Items.
+ * of Line Items.csv, by the module its Module Name column gives each line item, and reads nothing for it. The model this
+ * zip was made from has none of the three columns in its Line Items grid, so the file is not written for it, and its
+ * zip holds the twelve files it held. What differs is Model Details.csv, which says of every file the export knows
+ * whether it was written and how to read it: it has two rows more, each given here as the row's whole line of the file,
+ * with the line it stands after. `notWritten` says that the file was not exported and why, right after the row for Line
+ * Items.csv, which is the file's place among the files. `howToRead` says how to read the file, right after the row on
+ * Line Items.
  *
- * A model that has the two columns gets the file. The zip that the last version without it wrote for such a model, and
- * what differs from that zip, are in golden-0.8.1.test-support.ts. */
+ * A model that has the three columns gets the file. The zip that the last version without it wrote for such a model,
+ * and what differs from that zip, are in golden-0.8.1.test-support.ts. */
 export const MODEL_FILE_ADDED = {
   file: "Dynamic Cell Access.csv",
   details: "Model Details.csv",
   notWritten: {
     after: "Files,Line Items.csv,4 rows\r\n",
-    line: "Files,Dynamic Cell Access.csv,Not exported: Line Items has no Read Access Driver and Write Access Driver columns.\r\n",
+    line: `Files,Dynamic Cell Access.csv,"Not exported: Line Items has no Module Name, Read Access Driver and Write Access Driver columns."\r\n`,
   },
   howToRead: {
     after: MODEL_ROW_REWORDED.now,
