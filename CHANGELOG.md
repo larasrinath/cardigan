@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.1 (6 October 2026)
+
+Housekeeping, so that the repository stands on its own.
+
+- **Two error messages reworded.** A page definition that is too large to read is now said to exceed "the bounded JSON traversal" or "the 8 MB character bound". Nothing else in the extension changes.
+- **Repository.** The research notes under `docs/research/` and the script that compared the card reader with a second copy are no longer part of this repository, and the comments in the source say what the code does without pointing elsewhere.
+- **What stays the same.** What is read from Anaplan, and every file written: apart from the version number, and those two messages where one is written into a file, they hold the bytes 0.8.0 writes. The manifest is unchanged apart from the version.
+
 ## 0.8.0 (6 October 2026)
 
 The model map: a picture of a model's modules and line items and of what feeds what, on the results page.
@@ -65,17 +73,17 @@ The results now open on a page of their own, and nothing is added to Anaplan's p
 
 ## 0.6.0 (3 October 2026)
 
-The first release as a standalone project, Cardigan, moved out of SAM (anaplan-sam) with its history. The extension's name stays **Anaplan Analyzer**.
+The first release as a standalone project, Cardigan, moved out of another project with its history. The extension's name stays **Anaplan Analyzer**.
 
-- **Standalone repository.** The extension builds, tests and packages on its own (`npm ci`, `npm run build`, `npm run check`). It carries its own copy of the card reader in `src/card-reader/`, kept byte-for-byte identical to SAM's by `npm run check:card-reader`. GitHub Actions runs `npm run check` on every push and pull request.
+- **Standalone repository.** The extension builds, tests and packages on its own (`npm ci`, `npm run build`, `npm run check`). It carries its own copy of the card reader in `src/card-reader/`, kept byte-for-byte identical to the other project's by `npm run check:card-reader`. GitHub Actions runs `npm run check` on every push and pull request.
 - **Australia.** Both content scripts now also run on `https://*.app2.anaplan.com/*`, where Anaplan's au1 region serves the app (`au1a.app2.anaplan.com`). The host checks already accepted that host; tests now pin it and its lookalikes.
 - **Icons.** 16, 32, 48 and 128 px icons, drawn by `scripts/icons.mjs` (`npm run icons`).
 - **Packaging.** `npm run package` writes `release/cardigan-<version>.zip` with only the runtime files and prints its SHA-256. The zip is deterministic: the same files give the same bytes on every run.
-- The bundles' code is that of 0.5.5, the last version inside SAM; only the version, the banner and the source paths in comments differ.
+- The bundles' code is that of 0.5.5, the last version inside the other project; only the version, the banner and the source paths in comments differ.
 
-## 0.5.2 to 0.5.5 (1 to 3 October 2026), inside SAM
+## 0.5.2 to 0.5.5 (1 to 3 October 2026), inside another project
 
-Developed in SAM as `extension/page-analyzer`, sharing SAM's card reader in `src/domains/ux-designer/`:
+Developed as part of another project, sharing that project's card reader:
 
 - 0.5.2: the first version: the app page analysis (**Analyse app**) and the model export (**Export model**).
 - 0.5.3 and 0.5.4: refactoring with no change in behaviour (shared helpers, named read phases) and many more tests.

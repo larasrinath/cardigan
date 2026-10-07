@@ -25,9 +25,9 @@ export function copyDocument(native: unknown, options: { boundStringsEarly?: boo
   let chars = 0;
   const ancestors = new Set<object>();
   const visit = (value: unknown, depth: number): unknown => {
-    if (++count > MAX_NODES || depth > MAX_DEPTH) fail("DEFINITION_TOO_LARGE", "Page definition exceeds SAM's bounded JSON traversal.");
+    if (++count > MAX_NODES || depth > MAX_DEPTH) fail("DEFINITION_TOO_LARGE", "Page definition exceeds the bounded JSON traversal.");
     if (typeof value === "string") {
-      if (options.boundStringsEarly && (chars += value.length) > MAX_CHARS) fail("DEFINITION_TOO_LARGE", "Page definition exceeds SAM's 8 MB character bound.");
+      if (options.boundStringsEarly && (chars += value.length) > MAX_CHARS) fail("DEFINITION_TOO_LARGE", "Page definition exceeds the 8 MB character bound.");
       return value;
     }
     if (value === null || typeof value === "boolean") return value;
@@ -48,6 +48,6 @@ export function copyDocument(native: unknown, options: { boundStringsEarly?: boo
   };
   const doc = visit(native, 0);
   if (!isObject(doc)) fail("UNSUPPORTED_DEFINITION", "Page definition must be an object.");
-  if (JSON.stringify(doc).length > MAX_CHARS) fail("DEFINITION_TOO_LARGE", "Page definition exceeds SAM's 8 MB character bound.");
+  if (JSON.stringify(doc).length > MAX_CHARS) fail("DEFINITION_TOO_LARGE", "Page definition exceeds the 8 MB character bound.");
   return doc;
 }

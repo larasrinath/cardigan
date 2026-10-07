@@ -5,7 +5,7 @@ import type { AnalysisResult } from "./result-types.js";
 import { SCOPE_ID, sleep } from "./util.js";
 
 /** The Model Building page (`/a/modeling/…/models/{id}`) is a shell; the classic model client runs in a core frame inside it,
- * often on another data centre's host (SAM's Model Builder evaluates only in that core frame). The export must read there,
+ * often on another data centre's host. The export must read there,
  * but the results page talks to the content script of the page the user sees. This bridge links the two with window
  * messages: the core frame announces itself, the shell asks it to export, and the core frame streams progress and finally
  * the result (the export's files as tables) back.

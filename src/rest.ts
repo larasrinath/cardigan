@@ -1,7 +1,7 @@
 import { ANAPLAN_HOST } from "./util.js";
 
 /** GET-only JSON reads on the page's own origin, sent the way the Anaplan web client sends them (same headers and
- * XSRF cookie echo as SAM's UX browser program). Only the two services the analyser reads are allowed. */
+ * XSRF cookie echo). Only the two services the analyser reads are allowed. */
 
 export type RestErrorCode = "INVALID_PATH" | "SIGNED_OUT" | "HTTP_ERROR" | "TIMEOUT" | "NETWORK_ERROR" | "INVALID_RESPONSE" | "TOO_LARGE";
 

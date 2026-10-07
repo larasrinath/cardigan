@@ -4,10 +4,9 @@
  * and this module makes the words. It takes the cell's text and gives plain text back, which the caller escapes. It reads
  * no result and no page, and it never throws: a cell it cannot read gives undefined, and the caller shows the cell as it is.
  *
- * The words are Anaplan's own wherever the classic client's sources settle them. Those sources are archived in the SAM
- * repository under docs/plans/model-building-deep-sources/: the client's modules in core-modules/ (named below as the
- * client names them, anaplan/…), its dialogs' templates in core-assets/dojo.uncompressed.js, and its English labels in
- * core-assets/03f780c272ffd630.js, which is the client's dojo/nls/dojo_en-us.js (named below by bundle, anaplan/nls/…).
+ * The words are Anaplan's own wherever the classic client's sources settle them: the client's modules (named below as the
+ * client names them, anaplan/…), its dialogs' templates, and its English labels in the client's dojo/nls/dojo_en-us.js
+ * (named below by bundle, anaplan/nls/…).
  *
  * What the grid itself shows in such a cell is anaplan/data/DataPageCache/_DataPage.js `_getFormattedCellText` (and the
  * same in anaplan/data/CellItemCache.js). For a format: the data type's label, or for a list its name alone, or for a time

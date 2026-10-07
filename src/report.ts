@@ -2,7 +2,7 @@ import type { UxPageCardDetails } from "./card-reader/card-types.js";
 import { list, type Obj } from "./util.js";
 
 /** The analyser's seven tables, in the format agreed on the template (27 Sep 2026). Input is the named card description
- * SAM's describe_ux_page_cards also returns; everything here is presentation. */
+ * from the card reader (card-reader/); everything here is presentation. */
 
 export type Cell = string | number;
 export interface Table { headers: string[]; rows: Cell[][] }

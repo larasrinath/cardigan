@@ -142,7 +142,7 @@ export async function exportModel(progress: Progress, diagnostics: () => string,
   await step("Model Calendar", async () => {
     const calendar = await readGrid(native, axis(native, "TIMESCALE_PROPERTY"), axis(native, "EMPTY_1_0"), "Model Calendar", log, undefined, true, stop);
     const values = new Map(calendar.rows.map(row => [row.ids[0], row.cells.find(cell => cell !== "") ?? ""] as [number, string]));
-    // Year to date and year to go show only when the time summary setting is on (TimeRangeEditor, as SAM reads it).
+    // Year to date and year to go show only when the time summary setting is on (TimeRangeEditor).
     const flag = native.constants.FEATURE_FLAGS?.TIME_SUMMARY;
     const showsYearToDate = typeof native.cache.getApplicationPropertyEnabledOrNotSet === "function" && typeof flag === "string"
       ? native.cache.getApplicationPropertyEnabledOrNotSet(flag) !== false : undefined;

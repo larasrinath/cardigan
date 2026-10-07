@@ -30,7 +30,7 @@ export interface ModelCatalog {
 }
 
 /** A line item's format as far as naming needs it, from the listing's `lineItemInfo.format`. Page Builder tells line items
- * apart by its `dataType` (docs/research/card-formats-designer.md, sections 1 and 6), in the classic client's words: there
+ * apart by its `dataType`, in the classic client's words: there
  * a line item is formatted as a list when `format.dataType === "ENTITY"`, and the list is `format.hierarchyEntityLongId`.
  * No capture confirms that the listing names the list by that key: the diagnostic log shows the keys it has. */
 export interface LineItemFormat {
@@ -247,7 +247,7 @@ function lookup(ref: UxEntityRef, catalog: ModelCatalog): Found | undefined {
       return pageName ? { name: pageName, kind: "page" } : undefined;
     }
     case "listItem": return listItem(ref.id);
-    // Filter rule items: SAM's resolver order (line items, then lists, then modules), then an item that was named: a rule's
+    // Filter rule items: line items, then lists, then modules, then an item that was named: a rule's
     // context can fix a dimension to one of its items in place of the dimension itself.
     case "unknown": return lineItem(ref.id) ?? dimension(ref.id) ?? module(ref.id) ?? listItem(ref.id);
     default: return undefined;
@@ -265,7 +265,7 @@ function missingFromModel(ref: UxEntityRef, catalog: ModelCatalog): boolean {
   return false;
 }
 
-/** The same result shape as SAM's Integration name resolver, so the shared naming code applies it unchanged. A reference
+/** The result shape the card reader's naming code takes (`UxResolvedNames`), so that code applies it unchanged. A reference
  * that is missing from the model is named `<id> (not in the model)` so broken cards stand out. */
 export function resolveFromCatalog(refs: readonly UxEntityRef[], catalog: ModelCatalog, missingReason = "Not found in the model's metadata."): UxResolvedNames {
   const result: UxResolvedNames = { names: {}, kinds: {}, modules: {}, unresolved: [], warnings: [] };
@@ -309,7 +309,7 @@ function filterRules(cards: readonly unknown[]): { condition: Obj; axis: Obj; ca
 
 /** A rule's selected items against what the catalog names. A rule stores its line item together with its context: a
  * dimension in it follows the page's selection, and an ID that is none of these is taken for one item a dimension is fixed
- * to (docs/research/card-details.md, section 2: the fixed form was not captured). */
+ * to (the fixed form was not captured). */
 function ruleItems(condition: Obj, catalog: ModelCatalog): { lineItems: string[]; dimensions: string[]; unknown: string[] } {
   const ids = list(condition.selectedItems).map(item => String(item.id));
   const dimension = (id: string) => catalog.dimensions.has(id) || id in BUILT_IN_DIMENSIONS;
@@ -451,8 +451,8 @@ export interface FilterItemNeeds {
   unsaid: { lineItemId: string; values: number }[];
 }
 
-/** Those of a rule's values that look like an entity's ID. A rule holds every value as text, a number as much as an item
- * (docs/research/card-details.md, section 2), so only the line item's format tells the two apart. */
+/** Those of a rule's values that look like an entity's ID. A rule holds every value as text, a number as much as an item,
+ * so only the line item's format tells the two apart. */
 const idValues = (condition: Obj): string[] => (Array.isArray(condition.values) ? condition.values as unknown[] : [])
   .flatMap(value => ((typeof value === "string" || typeof value === "number") && LONG_ID.test(String(value)) ? [String(value)] : []));
 

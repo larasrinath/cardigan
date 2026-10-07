@@ -179,7 +179,7 @@ You need Node 20.19+, 22.12+ or 24+.
 
 To run from source, choose **Load unpacked** and select the repository root. After a rebuild, reload the extension and refresh the Anaplan tab. `dist/` is not in Git: build after every pull.
 
-In the Anaplan tab, `src/content.ts` and `src/analyse.ts` read an app, and `src/model-content.ts` and `src/model/` export a model through the page's own client. `src/card-reader/` reads a page's cards, and `docs/research/` holds the notes on the page definition formats it follows. `src/background.ts` opens the results page: `results.html`, `results.css` and `src/results/`. `src/map/` builds a model's map from the tables of its export and draws it on the page, styled by `map.css`. `src/protocol.ts` lists the messages between the page and the tab.
+In the Anaplan tab, `src/content.ts` and `src/analyse.ts` read an app, and `src/model-content.ts` and `src/model/` export a model through the page's own client. `src/card-reader/` reads a page's cards. `src/background.ts` opens the results page: `results.html`, `results.css` and `src/results/`. `src/map/` builds a model's map from the tables of its export and draws it on the page, styled by `map.css`. `src/protocol.ts` lists the messages between the page and the tab.
 
 ### Release
 
