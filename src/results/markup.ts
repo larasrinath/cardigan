@@ -310,6 +310,8 @@ export interface TableView {
   ways?: readonly TableWay[];
   /** For a table that lists no row although its file has rows, which `note` says: what it says in the rows' place. */
   none?: string;
+  /** For a table whose file has no rows: what it says in the rows' place, where a file has a sentence of its own for that. */
+  empty?: string;
   /** The columns shown, in the table's order. */
   columns: readonly Column[];
   /** The rows of the page shown. */
@@ -387,7 +389,7 @@ export function tableParts(view: TableView): TableParts {
     empty = `<div class="empty">
       <svg width="30" height="30" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" aria-hidden="true">${FILTER_PATH}</svg>
       <div class="e-title">${label} has no rows${view.none === undefined ? "" : " of its own"}</div>
-      <div class="e-sub">${view.none === undefined ? "Nothing was found for this table in this analysis." : esc(view.none)}</div>
+      <div class="e-sub">${esc(view.none ?? view.empty ?? "Nothing was found for this table in this analysis.")}</div>
       </div>`;
   } else if (view.total === 0) {
     const what = [...(searching ? ["search"] : []), ...(filtering ? ["column filters"] : []), ...(jumped ? ["page selection"] : [])].join(" and ");

@@ -379,13 +379,16 @@ describe("What the results page reads out of a result", () => {
   });
 
   it("shows a model's Dynamic Cell Access file as it stands, under a line that says what it lists and how many of its rows have a driver that could not be matched", () => {
-    // The file as the export writes it (model/access.ts): one row for each line item a driver controls, the driver first.
+    // The file as the export writes it (model/access.ts): one row for each use of a driver, the driver first.
     const HEADERS = ["Driver Module", "Driver Line Item", "Access", "Controlled Module", "Controlled Line Item"];
     const file: ResultTable = { file: "Dynamic Cell Access.csv", label: "Dynamic Cell Access", guard: false, headers: HEADERS, rows: [
-      ["ACC01 Access", "Can read", "Read", "REV01 Revenue", "Units"], ["ACC01 Access", "Can read", "Read", "REV01 Revenue", "Price"], ["ACC01 Access", "Can write", "Write", "REV01 Revenue", "Units"]] };
+      ["ACC01 Access", "Can read", "Read", "REV01 Revenue", "Units"], ["ACC01 Access", "Can read", "Read", "REV01 Revenue", "Price"], ["ACC01 Access", "Can read", "Write", "REV01 Revenue", "Units"]] };
     expect(ACCESS_FILE).toBe("Dynamic Cell Access.csv");
     const model = result("model", [modelDetails, file]);
-    const WHAT = "The Read Access Driver and Write Access Driver columns of Line Items, listed from the driver's side: one row for each line item a driver controls.";
+    // What the table lists: a use of a driver is a row, so the line item that one driver controls for reading and for
+    // writing is in two.
+    const WHAT = "The Read Access Driver and Write Access Driver columns of Line Items, listed from the driver's side. One row for each use of a driver: the driver, Read or Write, and the line item it controls.";
+    const NO_DRIVERS = "No line item in this model has a read or write access driver.";
     // The table is the file itself, every row and every column; none of its cells is one the page says in words. The line
     // says what the table lists: no grid of Anaplan's has these columns.
     const shown = fileView(model, file);
@@ -399,13 +402,15 @@ describe("What the results page reads out of a result", () => {
       `${WHAT} 1 row has a driver that could not be matched to a line item: it comes last, with the driver as Line Items writes it and no Driver Module.`,
       `${WHAT} 2 rows have a driver that could not be matched to a line item: they come last, with the driver as Line Items writes it and no Driver Module.`]);
     expect(fileView(model, withTwo).table).toBe(withTwo);
-    // The count is read from the file's own rows, by that column wherever it stands and whatever the Details file says.
-    const moved: ResultTable = { ...withTwo, headers: [...HEADERS.slice(1), HEADERS[0]], rows: withTwo.rows.map(row => [...row.slice(1), row[0]]) };
+    // The count is read from the file's own rows, by that column wherever it stands and whatever the Details file says:
+    // a row that names no module under Controlled Module is not counted for that.
+    const moved: ResultTable = { ...withTwo, headers: [...HEADERS.slice(1), HEADERS[0]], rows: [...withTwo.rows.map(row => [...row.slice(1), row[0]]), ["Can read", "Read", "", "Lost", "ACC01 Access"]] };
     expect(fileView(model, moved).note).toBe(fileView(model, withTwo).note);
-    // A model that drives no access has the file without rows: the line says what it would list, and the table says, as
-    // any table without rows does, that nothing was found.
+    // A model that drives no access has the file without rows. The line says what the table would list, and the table
+    // says in the rows' place what an empty file of this kind means: not that nothing was found.
     const empty: ResultTable = { ...file, rows: [] };
-    expect(fileView(model, empty)).toEqual({ table: empty, note: WHAT });
+    expect(fileView(model, empty)).toEqual({ table: empty, note: WHAT, empty: NO_DRIVERS });
+    expect([shown.empty, fileView(model, modelDetails).empty, fileView(model, { ...file, file: "Versions.csv" }).empty]).toEqual([NO_DRIVERS, undefined, undefined]);
     // The tile and the navigation count every row of the file, the unmatched ones among them: the table leaves none to the CSV.
     expect(overviewOf(result("model", [modelDetails, withTwo])).tiles).toEqual([{ label: "Dynamic Cell Access", count: 5 }]);
     // The rule is that file's alone, in a model's result. An app's file of that name, a file of another name, and a file

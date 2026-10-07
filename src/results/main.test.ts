@@ -126,7 +126,7 @@ const BLUEPRINT: AnalysisResult = {
 };
 
 /** The same model with a Dynamic Cell Access file laid out as the export writes one (model/access.ts), in its place after
- * Line Items: one row for each line item a driver controls, the driver first. The last row is one whose driver the
+ * Line Items: one row for each use of a driver, the driver first. The last row is one whose driver the
  * export matched to no line item: it has no Driver Module, and the driver as a cell of Line Items writes it. One name
  * looks like a formula. The rows are written by hand: the page reads the file as it stands, and nothing of it out of the
  * Line Items file above, which has no driver columns. */
@@ -1307,7 +1307,7 @@ describe("What a click, a key and typing do on the results page", () => {
       ["Can read", "Can read", "Can read", "=Can write", "'Old access'.Flag"], ["Units", "Price", "Cost", "Units", "Cost"]]);
     // Under the table's name, one line: what the table is, and how many of its drivers could not be matched.
     expect([page.texts("#view .view-note"), page.id("rowCount").textContent, page.id("live").textContent]).toEqual([
-      ["The Read Access Driver and Write Access Driver columns of Line Items, listed from the driver's side: one row for each line item a driver controls. "
+      ["The Read Access Driver and Write Access Driver columns of Line Items, listed from the driver's side. One row for each use of a driver: the driver, Read or Write, and the line item it controls. "
         + "1 row has a driver that could not be matched to a line item: it comes last, with the driver as Line Items writes it and no Driver Module."],
       "1–5 of 5 rows", "Dynamic Cell Access: 5 rows"]);
 
@@ -1347,13 +1347,19 @@ describe("What a click, a key and typing do on the results page", () => {
     expect(await bytes(saved[1])).toEqual(resultZip(WITH_ACCESS, NOW));
     expect(WITH_ACCESS.tables.map(table => table.file)).toEqual(["Model Details.csv", "Line Items.csv", "Dynamic Cell Access.csv", "Modules.csv"]);
 
-    // A model that drives no access has the file without rows: the line still says what the table would list.
+    // A model that drives no access has the file without rows. The line still says what the table would list, and the
+    // table says in the rows' place what that means, in the place of the page's sentence for a table without rows.
     page.id("runAgain").press();
     sendResult(ports[0], { ...WITH_ACCESS, tables: WITH_ACCESS.tables.map(table => (table === file ? { ...file, rows: [] } : table)) });
     goTo(2);
     expect([page.texts("#view .view-note"), page.texts("#tableWrap .e-title"), page.texts("#tableWrap .e-sub"), page.id("rowCount").textContent]).toEqual([
-      ["The Read Access Driver and Write Access Driver columns of Line Items, listed from the driver's side: one row for each line item a driver controls."],
-      ["Dynamic Cell Access has no rows"], ["Nothing was found for this table in this analysis."], "No rows"]);
+      ["The Read Access Driver and Write Access Driver columns of Line Items, listed from the driver's side. One row for each use of a driver: the driver, Read or Write, and the line item it controls."],
+      ["Dynamic Cell Access has no rows"], ["No line item in this model has a read or write access driver."], "No rows"]);
+    // Any other table without rows says what it said: that nothing was found for it.
+    page.id("runAgain").press();
+    sendResult(ports[0], { ...WITH_ACCESS, tables: WITH_ACCESS.tables.map(table => (table.file === "Modules.csv" ? { ...table, rows: [] } : table)) });
+    goTo(3);
+    expect([page.texts("#tableWrap .e-title"), page.texts("#tableWrap .e-sub")]).toEqual([["Modules has no rows"], ["Nothing was found for this table in this analysis."]]);
   });
 
   it("says a model's Format and Summary in words in the table, for the search, the filter and the sort as well; the row's drawer has the CSV's text too, and the downloads only that", async () => {

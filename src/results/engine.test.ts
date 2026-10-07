@@ -20,6 +20,8 @@ import { ACCESS_FILE, detailsOf, diagnosticLog, fileView, listedTables, MODEL_CA
 // Anaplan answers is scripted; everything between Anaplan and what the page holds at the end is the extension's own code.
 
 const NOW = new Date(Date.UTC(2026, 8, 28, 12, 30, 10));
+/** What the page says under the name of a model's Dynamic Cell Access table, before it counts the unmatched rows. */
+const ACCESS_LINE = "The Read Access Driver and Write Access Driver columns of Line Items, listed from the driver's side. One row for each use of a driver: the driver, Read or Write, and the line item it controls.";
 /** A line of a log as it is stamped at a time; the clock stands still unless a test moves it. */
 const stampedAt = (time: Date) => (line: string): string => `${time.toISOString().slice(11, 19)} ${line}`;
 const stamped = stampedAt(NOW);
@@ -306,8 +308,7 @@ describe("The results page against the engine in the Anaplan tab", () => {
     const shown = fileView(result, file);
     const COUNTED = "12 rows (2 with a driver that could not be matched)";
     expect([shown.table === file, file.rows.length, file.rows.filter(row => row[0] === "").map(row => row[1]), shown.note]).toEqual([true, 12, ["Gone.Flag", "'Old access'.Can write"],
-      "The Read Access Driver and Write Access Driver columns of Line Items, listed from the driver's side: one row for each line item a driver controls. "
-      + "2 rows have a driver that could not be matched to a line item: they come last, with the driver as Line Items writes it and no Driver Module."]);
+      `${ACCESS_LINE} 2 rows have a driver that could not be matched to a line item: they come last, with the driver as Line Items writes it and no Driver Module.`]);
     expect(result.summary.slice(0, 3)).toEqual(["Line Items: 16 rows", `Dynamic Cell Access: ${COUNTED}`, "Modules: 5 rows"]);
     // The page makes the model map from the tables it holds. The file's rows are that map's access links, each once,
     // and then the two driver cells the map could match to no line item.
