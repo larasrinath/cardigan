@@ -100,9 +100,9 @@ const errorCode = (fn: () => unknown, code: string) => {
 const errorText = (fn: () => unknown, code: string, message: string) => {
   try { fn(); throw new Error("Expected a definition error"); } catch (error) { expect(error).toBeInstanceOf(UxDefinitionError); expect(error).toMatchObject({ code, message }); }
 };
-// The bounded copy's wording reaches MCP errors and the page analyzer's export.
-const TRAVERSAL_BOUND = "Page definition exceeds SAM's bounded JSON traversal.";
-const CHARACTER_BOUND = "Page definition exceeds SAM's 8 MB character bound.";
+// The bounded copy's wording reaches the page analyzer's export.
+const TRAVERSAL_BOUND = "Page definition exceeds the bounded JSON traversal.";
+const CHARACTER_BOUND = "Page definition exceeds the 8 MB character bound.";
 const UNSAFE_KEY = "Unsafe object key in page definition.";
 const NO_IDENTITY = "pageGuid must be a nonempty string.";
 const unsafeKey = (key = "__proto__") => JSON.parse(`{"${key}":{"polluted":true}}`);
