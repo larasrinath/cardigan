@@ -178,8 +178,9 @@ describe("The results page against the engine in the Anaplan tab", () => {
     // The files are the ones the page knows an app's files by, the Details file first.
     expect(result.tables.map(table => table.file)).toEqual([DETAILS_FILE, ...Object.values(TAB_FILES)]);
     expect(result.tables.map(table => table.file)).toEqual([detailsOf(result)?.file, ...Object.values(APP_FILES)]);
-    // Written as a zip, what the page holds is, file for file, the zip 0.6.1 wrote for this app, but for the one row of the
-    // Details file that is deliberately reworded since (APP_ROW_REWORDED in golden-0.6.1.test-support.ts).
+    // Written as a zip, what the page holds is, file for file, the zip 0.6.1 wrote for this app, but for the four rows of
+    // the Details file that are deliberately written otherwise since (APP_ROW_REWORDED and APP_ROWS_FOR_THE_PAGE in
+    // golden-0.6.1.test-support.ts).
     expect(files(resultZip(result, ZIPPED_AT), DETAILS_FILE)).toEqual(files(APP_ZIP_REWORDED, DETAILS_FILE));
     expect([result.kind, result.name, result.zipName, result.summary]).toEqual(["app", "Planning: app", "Planning app - App Export - 2026-09-28.zip",
       ["1 of 1 pages analysed; 1 unpublished, not analysed, 3 cards."]]);
@@ -207,7 +208,7 @@ describe("The results page against the engine in the Anaplan tab", () => {
     expect(diagnosticLog(detailsOf(result))).toEqual(page.client.log.slice(2));
     // Written as a zip, what the page holds is, file for file, the zip 0.6.1 wrote for this model, but for the column of Line
     // Items.csv and the rows of Model Details.csv that are deliberately written otherwise since (MODEL_COLUMN_ADDED,
-    // MODEL_ROW_REWORDED and MODEL_FILE_ADDED in golden-0.6.1.test-support.ts).
+    // MODEL_ROW_REWORDED, MODEL_ROWS_FOR_THE_PAGE and MODEL_FILE_ADDED in golden-0.6.1.test-support.ts).
     expect(files(resultZip(result, ZIPPED_AT), "Model Details.csv")).toEqual(files(MODEL_ZIP_AS_NAMED, "Model Details.csv"));
     expect([result.kind, result.name, result.zipName]).toEqual(["model", "Demand: plan", "Demand plan - Model Export - 2026-09-28.zip"]);
     // The page's one rule about a model's file fits the file the export writes: its name, its Section column, and the
@@ -298,7 +299,8 @@ describe("The results page against the engine in the Anaplan tab", () => {
     expect(diagnosticLog(detailsOf(result)).map(line => line.slice(9))).toEqual(steps(ACCESS_ZIP_0_8_1));
     expect(page.statuses().filter(status => status.includes("Dynamic Cell Access"))).toEqual([]);
     // Written as a zip, what the page holds is, file for file, the zip 0.8.1 wrote for this model with the file put in
-    // after Line Items.csv and its two rows in Model Details.csv (ACCESS_FILE_ADDED).
+    // after Line Items.csv and its two rows in Model Details.csv (ACCESS_FILE_ADDED), and with the three rows of "How to
+    // read" that are deliberately written otherwise since (ACCESS_ROWS_FOR_THE_PAGE in golden-0.8.1.test-support.ts).
     expect(files(resultZip(result, ZIPPED_AT), "Model Details.csv")).toEqual(files(ACCESS_ZIP_WITH_FILE, "Model Details.csv"));
     // The page lists the file where the zip has it, after Line Items, which the order of Anaplan's settings puts after Modules.
     expect(listedTables(result).map(({ table }) => table.label)).toEqual(["Model Calendar", "Time Ranges", "Versions", "General Lists", "Modules", "Line Items", "Dynamic Cell Access",
@@ -320,6 +322,16 @@ describe("The results page against the engine in the Anaplan tab", () => {
     // The overview has a tile for the file with its number of rows, and says the export's count with the files, once.
     const overview = overviewOf(result);
     expect([overview.tiles.find(tile => tile.label === "Dynamic Cell Access"), overview.notes, overview.files[0]]).toEqual([{ label: "Dynamic Cell Access", count: 12 }, [], ["Dynamic Cell Access", COUNTED]]);
+    // In its own words the page names no file, no CSV and no zip of this result, and no download: what the overview says,
+    // the log among it, and each table's name, its headings and what it says under its name or in its rows' place. (A
+    // cell may name a file: this model's import reads prices.csv, and a cell is shown as it was read.)
+    const own = [...overview.tiles.map(tile => tile.label), ...[overview.about, overview.files, overview.howToRead].flat(2), ...overview.notes, ...overview.log,
+      ...listedTables(result).flatMap(({ table }) => {
+        const view = fileView(result, table);
+        return [String(view.table.label), ...view.table.headers, view.note ?? "", view.none ?? "", view.empty ?? ""];
+      })];
+    expect(own.flatMap(text => text.match(/.{0,40}(?:\.csv|\bcsv\b|\bzip\b|download|\bfiles?\b).{0,40}/gi) ?? [])).toEqual([]);
+    expect([own.length > 100, own.some(text => text.startsWith("Each table is laid out as Anaplan's own export")), result.tables.some(table => table.rows.flat().includes("prices.csv"))]).toEqual([true, true, true]);
   });
 
   it("lists a driver named in a row of Line Items that the model map leaves out, and counts on the page the rows the export counted", async () => {

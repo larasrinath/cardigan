@@ -169,8 +169,20 @@ describe("The results page itself against the engine in the Anaplan tab", () => 
     const said = overviewSays();
     expect(said).toEqual(overviewFor(result));
     expect([said.about.length, said.howToRead.length > 0, said.log.length > 3, said.files]).toEqual([10, true, true, []]);
-    // And that result is, file for file, the one 0.6.1 wrote as its zip, but for the one row of the Details file that is
-    // deliberately reworded since (APP_ROW_REWORDED in golden-0.6.1.test-support.ts).
+    // No word of it names a file, a CSV or a zip, or a download: the page is where a result is read. That is every cell
+    // of every table, and in each view all the page says and all it names an element by for a pointer or a screen
+    // reader. (A grid card's "CSV export on" is that card's own setting in Anaplan, said as Anaplan names it.)
+    const words = [...tables].flatMap(([name, rows]) => [name, ...rows.flat()]);
+    for (const view of page.all("#navList [data-nav]").map(entry => entry.dataset.nav)) {
+      page.find(`#navList [data-nav="${view}"]`).press();
+      words.push(page.find("body").textContent, ...page.all("[title], [aria-label], [placeholder]").flatMap(named => ["title", "aria-label", "placeholder"].map(name => named.getAttribute(name) ?? "")));
+    }
+    expect(words.flatMap(text => text.replace(/CSV export (on|off)/g, "").match(/.{0,40}(?:\.csv|\bcsv\b|\bzip\b|download|\bfiles?\b).{0,40}/gi) ?? [])).toEqual([]);
+    // What was read there is what a user reads: the engine's own words on how to read the tables, and that setting.
+    expect([words.some(text => text.includes("Search the Where Used table for it to find the cards.")), words.some(text => /CSV export (on|off)/.test(text))]).toEqual([true, true]);
+    page.find('#navList [data-nav="overview"]').press();
+    // And that result is, file for file, the one 0.6.1 wrote as its zip, but for the four rows of the Details file that
+    // are deliberately written otherwise since (APP_ROW_REWORDED and APP_ROWS_FOR_THE_PAGE in golden-0.6.1.test-support.ts).
     expect(files(resultZip(result, NOW), DETAILS_FILE)).toEqual(files(APP_ZIP_REWORDED, DETAILS_FILE));
   });
 
