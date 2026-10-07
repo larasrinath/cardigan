@@ -1348,17 +1348,20 @@ describe("What a click, a key and typing do on the results page", () => {
     /** The navigation's entries, by their words, and the overview's tiles. */
     const entries = () => page.all("#navList .nav-item").map(item => item.children[0].textContent);
     const tiles = () => page.texts("#view .s-lab");
-    // The order the export writes its files in (model/export.ts), and the order the page lists them in.
-    const written = ["Line Items", "Modules", "General Lists", "Processes", "Imports", "Import Data Sources", "Exports", "Other Actions", "Time Ranges", "Versions", "Source Models", "Model Calendar"];
-    const ordered = ["Model Calendar", "Time Ranges", "Versions", "General Lists", "Modules", "Line Items", "Processes", "Imports", "Import Data Sources", "Exports", "Other Actions", "Source Models"];
+    // The order the export writes its files in (model/export.ts), and the order the page lists them in. Dynamic Cell
+    // Access, which the export makes from Line Items, comes right after it in both.
+    const written = ["Line Items", "Dynamic Cell Access", "Modules", "General Lists", "Processes", "Imports", "Import Data Sources", "Exports", "Other Actions", "Time Ranges", "Versions", "Source Models",
+      "Model Calendar"];
+    const ordered = ["Model Calendar", "Time Ranges", "Versions", "General Lists", "Modules", "Line Items", "Dynamic Cell Access", "Processes", "Imports", "Import Data Sources", "Exports", "Other Actions",
+      "Source Models"];
     await openWith(model(...written));
     expect([entries(), tiles()]).toEqual([["Overview", ...ordered, "Model map"], ordered]);
     // Each entry still opens its own file: its name in the navigation is the file's place in the result, and its count the file's.
-    expect(page.all("#navList .nav-item").slice(1, 4).map(item => [item.dataset.nav, item.children[1].textContent])).toEqual([["12", "12"], ["9", "9"], ["10", "10"]]);
-    goTo(9);
-    expect([shows(), page.id("rowCount").textContent, firstCells()[0]]).toEqual([["Time Ranges", "Time Ranges", "Time Ranges"], "1–9 of 9 rows", "Time Ranges 1"]);
+    expect(page.all("#navList .nav-item").slice(1, 4).map(item => [item.dataset.nav, item.children[1].textContent])).toEqual([["13", "13"], ["10", "10"], ["11", "11"]]);
+    goTo(10);
+    expect([shows(), page.id("rowCount").textContent, firstCells()[0]]).toEqual([["Time Ranges", "Time Ranges", "Time Ranges"], "1–10 of 10 rows", "Time Ranges 1"]);
     // The model map is the last entry, named as its own view and not as a file: it has no place in the result, and no count.
-    const map = page.all("#navList .nav-item")[13];
+    const map = page.all("#navList .nav-item")[14];
     expect([map.dataset.nav, map.children.map(child => child.textContent)]).toEqual(["map", ["Model map"]]);
     // Only the page's list is ordered: the zip is the result's own, with its files as the result has them.
     page.id("dlAll").press();

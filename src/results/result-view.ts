@@ -160,6 +160,12 @@ const lineItemsRule: FileRule = (file, result) => {
   return { table: view.table, note: view.note === undefined ? undefined : `${view.note}${where}${unchecked}`, ...none };
 };
 
+/** A model's Dynamic Cell Access file (model/export.ts writes it under this name). It is no grid of Anaplan's: the
+ * export makes it from the Line Items file's Read Access Driver and Write Access Driver columns, which say on each line
+ * item what drives who may read or write it. The file lists the same from the driver's side, one row for each line item
+ * a driver controls (model/access.ts). */
+export const ACCESS_FILE = "Dynamic Cell Access.csv";
+
 /** The files the page shows otherwise than as they stand, each with its rule, by the kind of result and the file's name.
  * No other file is touched: a rule is a file's own, not a filter over all of them. */
 export const FILE_RULES: Record<AnalysisResult["kind"], ReadonlyMap<string, FileRule>> = {
@@ -239,11 +245,12 @@ export function modelFacts(result: AnalysisResult): [setting: string, value: str
 
 /** The order of a model's files in the navigation and among the overview's tiles: the order of Anaplan's own Model
  * settings, with the Actions list's files in the order the owner gave. Each file is known by the name model/export.ts
- * writes it under. Line Item Subsets is not exported yet, and has its place for when it is. A file of a result that is
- * not listed here comes after these, in the result's own order: a file that is renamed, or new, moves to the end and
- * does not go missing. */
+ * writes it under. Dynamic Cell Access is none of Anaplan's settings: it is made from Line Items, and comes right after
+ * it. Line Item Subsets is not exported yet, and has its place for when it is. A file of a result that is not listed
+ * here comes after these, in the result's own order: a file that is renamed, or new, moves to the end and does not go
+ * missing. */
 export const MODEL_FILE_ORDER: readonly string[] = [
-  MODEL_CALENDAR_FILE, "Time Ranges.csv", "Versions.csv", "General Lists.csv", "Line Item Subsets.csv", MODULES_FILE, LINE_ITEMS_FILE,
+  MODEL_CALENDAR_FILE, "Time Ranges.csv", "Versions.csv", "General Lists.csv", "Line Item Subsets.csv", MODULES_FILE, LINE_ITEMS_FILE, ACCESS_FILE,
   "Processes.csv", "Imports.csv", "Import Data Sources.csv", "Exports.csv", "Other Actions.csv", "Source Models.csv",
 ];
 
