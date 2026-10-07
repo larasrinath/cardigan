@@ -819,8 +819,8 @@ function dropMap(): void {
 }
 
 /** The map of the result on the page could not be drawn, or was drawn and has stopped by itself. What there is of it
- * is taken away, and the page remembers the failure for this result: the map's entry says so in one sentence (markup.ts
- * `MAP_FAILED`) and tries nothing again until the map is dropped. */
+ * is taken away, and the page remembers the failure for this result: the map's entry says so in a few plain words
+ * (markup.ts `MAP_FAILED`) and tries nothing again until the map is dropped. */
 function failMap(): void {
   dropMap();
   modelMap = "failed";
@@ -859,8 +859,8 @@ function leaveMap(): void {
  * and the map is mounted: now, and not before. Coming back to a mounted map shows it again as it was left. The view
  * gives up its room first and the host is shown, so that the map finds the size it has to fill, both when it is put into
  * the host and when it draws.
- * A call that throws leaves no map: the view says so in one sentence (markup.ts `MAP_FAILED`), the reason goes to the
- * run's log, which the view's button copies, and the rest of the page works on. A map that stops by itself later ends
+ * A call that throws leaves no map: the view says so (markup.ts `MAP_FAILED`), the reason goes to the run's log,
+ * which the view's button copies, and the rest of the page works on. A map that stops by itself later ends
  * the same way (`mapStoppedByItself`). */
 function enterMap(model: AnalysisResult): void {
   const host = el("mapHost");

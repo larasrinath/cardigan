@@ -224,8 +224,9 @@ export function overviewHtml(overview: Overview, copy: KeptCopy = "none"): strin
     <h1 class="view-title">Overview</h1>
     <div class="ov-grid">
       ${overview.tiles.map(tile => `<div class="stat"><div class="s-lab">${esc(tile.label)}</div><div class="s-num">${esc(tile.count)}</div><div class="s-sub">${tile.count === 1 ? "row" : "rows"}</div>${
-        // A table that does not list every row that was read: the tile counts the rows listed, and says how many were read.
-        tile.read === undefined ? "" : `<div class="s-sub">${esc(tile.read)} ${tile.read === 1 ? "row" : "rows"} read</div>`}</div>`).join("")}
+        // A table that does not list every row of its file: the tile counts the rows listed, and says how many there
+        // are in all. It does not say that they were read: a Model Calendar's rows are a template's, which the export fills in.
+        tile.inAll === undefined ? "" : `<div class="s-sub">${esc(tile.inAll)} ${tile.inAll === 1 ? "row" : "rows"} in all</div>`}</div>`).join("")}
     </div>${about}
     <p class="ov-kept" id="ovKept">${keptCopyHtml(copy)}</p>${notes}${types || models ? `
     <div class="ov-cols">${types}${models}
@@ -275,9 +276,9 @@ export function noteBannerHtml(): string {
 
 /** What a model's map is called: in the navigation, in the breadcrumb and as its view's heading. */
 export const MAP_LABEL = "Model map";
-/** What the view says when the map could not be drawn: one sentence, with what to do. The tables are as they were, each
- * under its own entry. It names the button beside it as that reads; the reason is in the log the button copies. */
-export const MAP_FAILED = "The model map could not be drawn: use the tables as usual, then choose Copy diagnostic log and send the log.";
+/** What the view says when the map could not be drawn: that it could not, that the tables are as they were, each under
+ * its own entry, and what to do. It names the button beside it as that reads; the reason is in the log the button copies. */
+export const MAP_FAILED = "The model map could not be drawn. The tables are not affected. Choose Copy diagnostic log and send the log.";
 
 /** The view while a model's map is shown. The map itself stands in a place of its own beside the view (results.html
  * `#mapHost`), which takes all the room there is. So the view holds its heading and no more, for a screen reader only:
@@ -301,8 +302,8 @@ export interface TableWay { way: string; label: string; chosen: boolean }
 
 export interface TableView {
   label: string;
-  /** A line under the table's name, for a table that does not list every row that was read for it, or that needs a line
-   * to say what it lists. */
+  /** A line under the table's name, for a table that does not list every row of its file, or that needs a line to say
+   * what it lists. */
   note: string | undefined;
   /** The ways the table can be shown, when it has more than one: a switch stands at the head of its toolbar. */
   ways?: readonly TableWay[];
@@ -385,7 +386,7 @@ export function tableParts(view: TableView): TableParts {
   let body = "";
   let empty = "";
   if (view.all === 0) {
-    // A table without rows says that nothing was found, unless rows were read for it that it does not list: the line
+    // A table without rows says that nothing was found, unless its file has rows that the table does not list: the line
     // under its name counts those, and here the table says that none of them is its own.
     empty = `<div class="empty">
       <svg width="30" height="30" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" aria-hidden="true">${FILTER_PATH}</svg>

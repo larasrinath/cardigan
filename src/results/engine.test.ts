@@ -215,13 +215,13 @@ describe("The results page against the engine in the Anaplan tab", () => {
     // template's five rows about the model, of which the export fills in three.
     const calendar = result.tables.find(table => table.file === MODEL_CALENDAR_FILE);
     expect([calendar?.rows.length, calendar && fileView(result, calendar).note, calendar && fileView(result, calendar).table.rows.length, modelFacts(result)])
-      .toEqual([31, "5 rows about the model are not listed here: the Overview has their values, under About this export.", 26, [["Workspace", "Workspace one"], ["Model", "Demand: plan"], ["Captured on", "2026-09-28"]]]);
+      .toEqual([31, "5 rows about the model are not listed here: 3 hold a value, which the Overview has under About this export.", 26, [["Workspace", "Workspace one"], ["Model", "Demand: plan"], ["Captured on", "2026-09-28"]]]);
     // The overview loses none of the counts the export's Details file gives. Each row that only counts a file is said by
-    // the file's tile: as the rows its table lists, or, for the calendar, whose table lists 26 of its 31, as the rows read.
+    // the file's tile: as the rows its table lists, or, for the calendar, whose table lists 26 of its 31, as the rows in all.
     const overview = overviewOf(result);
     const counts = (detailsOf(result)?.rows ?? []).filter(row => row[0] === "Files" && /^\d+ rows$/.test(String(row[2]))).map(row => `${String(row[1]).replace(/\.csv$/, "")}: ${row[2]}`);
-    const onTiles = overview.tiles.flatMap(tile => [tile.count, ...(tile.read === undefined ? [] : [tile.read])].map(rows => `${tile.label}: ${rows} rows`));
-    expect([counts.length, counts.filter(line => !onTiles.includes(line)), overview.tiles.find(tile => tile.label === "Model Calendar")]).toEqual([10, [], { label: "Model Calendar", count: 26, read: 31 }]);
+    const onTiles = overview.tiles.flatMap(tile => [tile.count, ...(tile.inAll === undefined ? [] : [tile.inAll])].map(rows => `${tile.label}: ${rows} rows`));
+    expect([counts.length, counts.filter(line => !onTiles.includes(line)), overview.tiles.find(tile => tile.label === "Model Calendar")]).toEqual([10, [], { label: "Model Calendar", count: 26, inAll: 31 }]);
     // The export says three things both in its summary and in a Files row: how many imports it matched, and that two files
     // were not exported, the source models and Dynamic Cell Access, which it makes from Line Items and for which this
     // model's Line Items grid lacks the three columns it is made from. The overview says each once, with the tables and
