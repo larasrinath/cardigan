@@ -247,7 +247,7 @@ function lookup(ref: UxEntityRef, catalog: ModelCatalog): Found | undefined {
       return pageName ? { name: pageName, kind: "page" } : undefined;
     }
     case "listItem": return listItem(ref.id);
-    // Filter rule items: SAM's resolver order (line items, then lists, then modules), then an item that was named: a rule's
+    // Filter rule items: line items, then lists, then modules, then an item that was named: a rule's
     // context can fix a dimension to one of its items in place of the dimension itself.
     case "unknown": return lineItem(ref.id) ?? dimension(ref.id) ?? module(ref.id) ?? listItem(ref.id);
     default: return undefined;
@@ -265,7 +265,7 @@ function missingFromModel(ref: UxEntityRef, catalog: ModelCatalog): boolean {
   return false;
 }
 
-/** The same result shape as SAM's Integration name resolver, so the shared naming code applies it unchanged. A reference
+/** The result shape the card reader's naming code takes (`UxResolvedNames`), so that code applies it unchanged. A reference
  * that is missing from the model is named `<id> (not in the model)` so broken cards stand out. */
 export function resolveFromCatalog(refs: readonly UxEntityRef[], catalog: ModelCatalog, missingReason = "Not found in the model's metadata."): UxResolvedNames {
   const result: UxResolvedNames = { names: {}, kinds: {}, modules: {}, unresolved: [], warnings: [] };
