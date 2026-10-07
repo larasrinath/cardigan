@@ -845,7 +845,7 @@ describe("Model export: Model settings grids to tables", () => {
     const held = againstMap(table.rows, result.tables);
     expect([held.placed, held.beyond]).toEqual([held.map, []]);
     expect(held.map.map(part => part.length)).toEqual([10, 2]);
-    // And the two files can be matched in a spreadsheet. What a row says is controlled is one row of Line Items.csv, by
+    // And a row of the one table can be found in the other. What a row says is controlled is one row of Line Items.csv, by
     // its name and its Module Name, and so is its driver. A driver that was not matched is, to the character, the cell
     // that row of Line Items.csv has under the driver's column.
     const [lineItems, rows] = [parseCsv(written.get("Line Items.csv")!), parseCsv(written.get(ACCESS_FILE_ADDED.file)!).slice(1)];
