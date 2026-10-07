@@ -96,11 +96,17 @@ Open the model in Model Building; the classic model page opened on its own works
 
 ## Install
 
-Cardigan needs Chrome 111 or later.
+Cardigan needs Chrome 111 or later, on Windows or on a Mac. Nothing else has to be installed.
 
-1. Download `cardigan-<version>.zip` from a release, and check it against the SHA-256 published with it (`shasum -a 256 cardigan-<version>.zip`).
-2. Unzip it into a folder you keep: Chrome loads the extension from there.
-3. Open `chrome://extensions`, turn on **Developer mode**, choose **Load unpacked** and select the folder that holds `manifest.json`.
+1. **Download the extension.** On the [latest release](https://github.com/larasrinath/cardigan/releases/latest), under **Assets**, take `cardigan-<version>.zip`: the entry that shows a file size. Do not take **Source code (zip)** or **Source code (tar.gz)**. GitHub adds those two to every release, the zip one even arrives under the same file name, and they hold the source code, which Chrome cannot load.
+2. **Unzip it into a folder you keep.** Chrome loads the extension from that folder every time it starts. On Windows, right-click the zip and choose **Extract All...**; on a Mac, double-click it.
+3. **Look into the folder.** It must hold `manifest.json` and a `dist` folder with four `.js` files. If it holds `src` and `package.json` instead, it is the source code: go back to step 1.
+4. **Load it in Chrome.** Open `chrome://extensions`, turn on **Developer mode** at the top right, choose **Load unpacked** and select that folder.
+5. **Refresh your Anaplan tabs.** A tab that was open before needs one refresh. Then click the Cardigan icon; the puzzle icon in Chrome's toolbar lets you pin it there.
+
+If Chrome says **Could not load javascript 'dist/content.js' for script** and **Could not load manifest**, the folder you selected has no `dist` folder: it is the source code, or a folder above or below the right one. Start again from step 1.
+
+To check the download, compare it with the SHA-256 published with the release: `shasum -a 256 cardigan-<version>.zip` on a Mac, `certutil -hashfile cardigan-<version>.zip SHA256` on Windows.
 
 To update, unzip the new release over the same folder, click the reload icon on Cardigan's card in `chrome://extensions`, then refresh your Anaplan tabs.
 
