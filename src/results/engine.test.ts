@@ -69,9 +69,9 @@ function resultsPage(tab: FakeTab, justOpened = true) {
 type Page = ReturnType<typeof resultsPage>;
 const done = (page: Page) => (): boolean => page.client.state.phase === "done";
 
-/** What every finished run comes to: the page holds the result the engine made, cell for cell, and the zip it gives for
- * download is that result's zip for the same time, byte for byte. The rows are compared one by one, so that a difference
- * shows as the first row that differs: two tables of thousands of rows told apart as a whole take minutes to print. */
+/** What every finished run comes to: the page holds the result the engine made, cell for cell, and written as a zip
+ * for the same time the two are the same bytes. The rows are compared one by one, so that a difference shows as the
+ * first row that differs: two tables of thousands of rows told apart as a whole take minutes to print. */
 function expectEngineResult(page: Page, run: EngineRun): void {
   const { result, received } = page.held();
   const made = run.result;
@@ -178,7 +178,7 @@ describe("The results page against the engine in the Anaplan tab", () => {
     // The files are the ones the page knows an app's files by, the Details file first.
     expect(result.tables.map(table => table.file)).toEqual([DETAILS_FILE, ...Object.values(TAB_FILES)]);
     expect(result.tables.map(table => table.file)).toEqual([detailsOf(result)?.file, ...Object.values(APP_FILES)]);
-    // What the page would give for download is, file for file, the zip 0.6.1 wrote for this app, but for the one row of the
+    // Written as a zip, what the page holds is, file for file, the zip 0.6.1 wrote for this app, but for the one row of the
     // Details file that is deliberately reworded since (APP_ROW_REWORDED in golden-0.6.1.test-support.ts).
     expect(files(resultZip(result, ZIPPED_AT), DETAILS_FILE)).toEqual(files(APP_ZIP_REWORDED, DETAILS_FILE));
     expect([result.kind, result.name, result.zipName, result.summary]).toEqual(["app", "Planning: app", "Planning app - App Export - 2026-09-28.zip",
@@ -205,7 +205,7 @@ describe("The results page against the engine in the Anaplan tab", () => {
     // The log the result carries is the frame's own, which begins with the export: inside Model Building it has neither
     // of the two lines the content script wrote before it asked the frame. From there on the two logs are the same.
     expect(diagnosticLog(detailsOf(result))).toEqual(page.client.log.slice(2));
-    // What the page would give for download is, file for file, the zip 0.6.1 wrote for this model, but for the column of Line
+    // Written as a zip, what the page holds is, file for file, the zip 0.6.1 wrote for this model, but for the column of Line
     // Items.csv and the rows of Model Details.csv that are deliberately written otherwise since (MODEL_COLUMN_ADDED,
     // MODEL_ROW_REWORDED and MODEL_FILE_ADDED in golden-0.6.1.test-support.ts).
     expect(files(resultZip(result, ZIPPED_AT), "Model Details.csv")).toEqual(files(MODEL_ZIP_AS_NAMED, "Model Details.csv"));
@@ -297,7 +297,7 @@ describe("The results page against the engine in the Anaplan tab", () => {
     const steps = (zip: Uint8Array): string[] => parseCsv(unzipText(zip).get("Model Details.csv") ?? "").filter(row => row[0] === "Diagnostics").map(row => row[2]);
     expect(diagnosticLog(detailsOf(result)).map(line => line.slice(9))).toEqual(steps(ACCESS_ZIP_0_8_1));
     expect(page.statuses().filter(status => status.includes("Dynamic Cell Access"))).toEqual([]);
-    // What the page would give for download is, file for file, the zip 0.8.1 wrote for this model with the file put in
+    // Written as a zip, what the page holds is, file for file, the zip 0.8.1 wrote for this model with the file put in
     // after Line Items.csv and its two rows in Model Details.csv (ACCESS_FILE_ADDED).
     expect(files(resultZip(result, ZIPPED_AT), "Model Details.csv")).toEqual(files(ACCESS_ZIP_WITH_FILE, "Model Details.csv"));
     // The page lists the file where the zip has it, after Line Items, which the order of Anaplan's settings puts after Modules.

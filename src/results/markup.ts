@@ -275,12 +275,9 @@ export function noteBannerHtml(): string {
 
 /** What a model's map is called: in the navigation, in the breadcrumb and as its view's heading. */
 export const MAP_LABEL = "Model map";
-/** What the view says when the map could not be drawn: one sentence, with what to do. It names the button beside it as
- * that reads; the reason is in the log the button copies. */
-export const MAP_FAILED = "The model map could not be drawn: download the files as usual, then choose Copy diagnostic log and send the log.";
-/** Why "Download this table" is off while the map is the view: the control says so itself, in its title and as its
- * description for a screen reader. */
-export const MAP_NO_FILE = "The model map has no file of its own: the tables it is made from are under their own entries.";
+/** What the view says when the map could not be drawn: one sentence, with what to do. The tables are as they were, each
+ * under its own entry. It names the button beside it as that reads; the reason is in the log the button copies. */
+export const MAP_FAILED = "The model map could not be drawn: use the tables as usual, then choose Copy diagnostic log and send the log.";
 
 /** The view while a model's map is shown. The map itself stands in a place of its own beside the view (results.html
  * `#mapHost`), which takes all the room there is. So the view holds its heading and no more, for a screen reader only:

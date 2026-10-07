@@ -233,7 +233,7 @@ describe("The stand-in page", () => {
     expect(page.id("shown").hasAttribute("open")).toBe(true);
   });
 
-  it("types, chooses and ticks as a user does, and saves what the script's own click on a link saves", () => {
+  it("types, chooses and ticks as a user does, and keeps the elements the script makes itself", () => {
     const page = new FakePage(PAGE);
     const heard: string[] = [];
     for (const type of ["input", "change", "click"]) page.document.addEventListener(type, event => heard.push(`${type} ${event.target.localName}`));
@@ -243,14 +243,10 @@ describe("The stand-in page", () => {
     page.id("tick").tick();
     expect([page.id("box").value, page.id("size").value, page.id("tick").checked, page.document.activeElement.id]).toEqual(["sal", "100", false, "tick"]);
     expect(heard).toEqual(["input input", "change select", "click input", "change input"]);
-    const link = page.document.createElement("a");
-    link.href = "blob:1";
-    link.download = "a.csv";
-    link.click();
-    expect(page.downloads).toEqual([]);
-    page.document.body.appendChild(link);
-    link.click();
-    link.remove();
-    expect([page.downloads, link.clicks, page.created]).toEqual([[{ name: "a.csv", href: "blob:1" }], 2, [link]]);
+    // An element the script makes is among those it made, also once it is taken off the page again.
+    const area = page.document.createElement("textarea");
+    page.document.body.appendChild(area);
+    area.remove();
+    expect([page.created, area.isConnected]).toEqual([[area], false]);
   });
 });

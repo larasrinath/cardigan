@@ -498,7 +498,7 @@ describe("What the results page's markup shows", () => {
     const failed = parseMarkup(mapHtml(true));
     expect(failed.children.map(child => [child.localName, child.getAttribute("class")])).toEqual([["h1", "view-title"], ["div", "banner warn"]]);
     expect([text(failed.querySelector("h1")), failed.querySelectorAll(".banner div").map(text)]).toEqual(["Model map", [MAP_FAILED]]);
-    expect(MAP_FAILED).toBe("The model map could not be drawn: download the files as usual, then choose Copy diagnostic log and send the log.");
+    expect(MAP_FAILED).toBe("The model map could not be drawn: use the tables as usual, then choose Copy diagnostic log and send the log.");
     const button = failed.querySelector(".banner button");
     expect([button?.dataset.act, text(button), button?.getAttribute("type"), button?.focusable, MAP_FAILED.includes(`choose ${text(button)} `)]).toEqual(["copy-run-log", "Copy diagnostic log", "button", true, true]);
     // The sentence is one sentence, and its icon is not read out.

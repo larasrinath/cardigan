@@ -4,15 +4,13 @@ import { mountModelMap } from "../map/map-view.js";
 import { PORT_NAME } from "../protocol.js";
 import { plainResult, textOf } from "../result-plain.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
-import { resultZip, tableCsv } from "../result-zip.js";
 import { VERSION } from "../version.js";
 import { cardsNamed, cardsOf, columnIndex, columnsOf, rowKeys, rowNameIndex, type CardsTable, type Column, type RowKeys } from "./columns.js";
 import { describeState, openedJustNow, ResultsClient, runLabel, tabIdFrom, withoutOpened, type RunState } from "./connection.js";
-import { CSV_FALLBACK, downloadName, ZIP_FALLBACK } from "./file-name.js";
 import { analysedLine, notKeptNote } from "./keep-notes.js";
 import { ResultKeeper } from "./keep-result.js";
 import {
-  cardDrawerHtml, cardDrawerSubHtml, colChooserHtml, colFilterHtml, crumbsHtml, headerMetaHtml, keptCopyHtml, MAP_FAILED, MAP_LABEL, MAP_NO_FILE, mapHtml, MOON_ICON, navHtml,
+  cardDrawerHtml, cardDrawerSubHtml, colChooserHtml, colFilterHtml, crumbsHtml, headerMetaHtml, keptCopyHtml, MAP_FAILED, MAP_LABEL, mapHtml, MOON_ICON, navHtml,
   noteBannerHtml, NOT_REMOVED_LINE, objectDrawerHtml, objectDrawerSubHtml, overviewHtml, rowDrawerHtml, rowDrawerSubHtml, runBannerHtml, runHtml, SUN_ICON, tableHtml, tableParts,
   type KeptCopy, type Links, type NavEntry, type TableView,
 } from "./markup.js";
@@ -25,7 +23,8 @@ import { objectOf, WHERE_USED_FILE, whereUsedView, type WhereUsedObject, type Wh
 /** The results page (results.html): the design's script, on the real result. It connects to the Anaplan tab the address
  * names and says what that tab shows. The analysis starts by itself when the icon has just opened the page, and otherwise
  * with the run control. The page shows its progress and then the result: an overview, which also holds what the Details
- * file says, one table per file, for a model its map, and the downloads. The markup is built in markup.ts and the data work is done in the modules beside it; this file
+ * file says, one table per file, and for a model its map. A result is shown here and nowhere else: the page makes no file
+ * of it and offers none to download. The markup is built in markup.ts and the data work is done in the modules beside it; this file
  * only holds what the user chose and puts the pieces on the page. The map is src/map's: the page gives it a place and tells it when it is shown. */
 
 const el = <T extends HTMLElement = HTMLElement>(id: PageId): T => document.getElementById(id) as T;
@@ -74,17 +73,6 @@ async function copyText(text: string, what = text): Promise<void> {
     area.remove();
   }
 }
-/** Saves `data` as a download. `name` is a plain file name (file-name.ts), never a name a result gave unchecked. */
-function downloadFile(name: string, data: BlobPart, type: string): void {
-  const url = URL.createObjectURL(new Blob([data], { type }));
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = name;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 30_000);
-}
 
 /* ================= state ================= */
 /** One file of the result as the page shows it: its columns, and what the user chose for it. The files are kept in the
@@ -92,10 +80,8 @@ function downloadFile(name: string, data: BlobPart, type: string): void {
 interface Shown {
   /** Its place in the result's tables, which is also its name in the navigation. */
   index: number;
-  /** The file as the result holds it: what a download gives. */
-  file: ResultTable;
-  /** The file as the page shows it: the same, unless the file has a rule of its own (result-view.ts `fileView`). Then it
-   * is the table the rule gives, and `note` is the rule's line for under the table's name. */
+  /** The file as the page shows it: the result's own table, unless the file has a rule of its own (result-view.ts
+   * `fileView`). Then it is the table the rule gives, and `note` is the rule's line for under the table's name. */
   table: ResultTable;
   note: string | undefined;
   /** What the table says in the rows' place when the file's rule leaves it none of the file's rows to list. */
@@ -129,8 +115,8 @@ interface Shown {
 type View = "overview" | "map" | number;
 
 let result: AnalysisResult | undefined;
-/** When the result was complete: its zip carries this time, so downloading it twice gives the same bytes. A result that
- * was brought back after a refresh of the page comes with the time it had, so its zip is the same before and after. */
+/** When the result was complete. A result that was brought back after a refresh of the page comes with the time it had:
+ * the line above it says when it was analysed by this time. */
 let received = new Date();
 /** Whether the result on the page was brought back after a refresh (keep-result.ts), and not analysed since the page loaded. */
 let broughtBack = false;
@@ -175,9 +161,6 @@ let running = false;
 
 const defaultHidden = (columns: readonly Column[]): Set<number> => new Set(columns.filter(column => column.hidden).map(column => column.index));
 const currentEntry = (): Shown | undefined => (typeof state.view === "number" ? shown.get(state.view) : undefined);
-/** The file "Download this table" gives: the file of the table shown, whole; on the overview, the Details file, which
- * is what the overview shows. */
-const currentTable = (): ResultTable | undefined => currentEntry()?.file ?? (state.view === "overview" ? details : undefined);
 
 /* ================= header / theme ================= */
 function currentTheme(): "dark" | "light" {
@@ -247,21 +230,11 @@ function showRunLabel(): void {
   else if (words.textContent !== label) words.textContent = label;
   button.title = ranBefore() ? "Analyse the Anaplan tab again" : "Analyse the Anaplan tab";
 }
-/** The header's buttons follow what there is to act on. */
+/** The run control follows what there is to act on. */
 function updateActions(): void {
   const phase = client.state.phase;
   el<HTMLButtonElement>("runAgain").disabled = phase === "running" || phase === "no-tab";
   showRunLabel();
-  el<HTMLButtonElement>("dlAll").disabled = !result;
-  const table = currentTable();
-  const csv = el<HTMLButtonElement>("dlCsv");
-  csv.disabled = !table;
-  // The map is no table, so there is none to save while it is the view. The control says why it is off where it says
-  // what it saves otherwise: in its title, and in the same words as its description for a screen reader.
-  const why = result && state.view === "map" ? MAP_NO_FILE : "";
-  csv.title = table ? `Download ${downloadName(table.file, ".csv", CSV_FALLBACK)}` : why;
-  if (why) csv.setAttribute("aria-description", why);
-  else csv.removeAttribute("aria-description");
 }
 
 /* ================= views ================= */
@@ -429,7 +402,7 @@ function showResult(next: AnalysisResult, at: Date, back = false): void {
     const keys = rowKeys(table);
     const page = cards !== undefined && keys.page !== undefined;
     const entry: Shown = {
-      index, file, table, note, none, empty, opensFrom, exported, columns, keys, links: { page, card: page && keys.cardId !== undefined },
+      index, table, note, none, empty, opensFrom, exported, columns, keys, links: { page, card: page && keys.cardId !== undefined },
       filters: new Map(), hidden: defaultHidden(columns), sort: undefined, page: 0, listed: table.rows.length,
     };
     // A number that could be more than one card's opens none of them: there it is plain text.
@@ -438,9 +411,9 @@ function showResult(next: AnalysisResult, at: Date, back = false): void {
     if (!byObject || file !== whereUsed) continue;
     // The file in two ways. By object, the table is the view's: one row an object, in the view's own order and with its
     // columns. Its cells link to nothing: a row opens the object, which lists its uses. The file's own number of rows is
-    // what the navigation shows either way: it is what the CSV holds, and a download is the file in both.
+    // what the navigation shows either way: it is the number of uses, whichever way they are listed.
     const object: Shown = {
-      index, file, table: { ...file, headers: byObject.headers, rows: byObject.rows }, note: byObject.note, none: undefined, empty: undefined, opensFrom: undefined,
+      index, table: { ...file, headers: byObject.headers, rows: byObject.rows }, note: byObject.note, none: undefined, empty: undefined, opensFrom: undefined,
       exported: undefined, columns: byObject.columns,
       keys: { page: undefined, cardId: undefined, number: undefined }, links: { page: false, card: false },
       filters: new Map(), hidden: defaultHidden(byObject.columns), sort: undefined, page: 0, listed: file.rows.length, objects: byObject,
@@ -1057,8 +1030,8 @@ document.addEventListener("click", event => {
       case "copy-run-log":
         void copyText(client.log.join("\n"), "the diagnostic log");
         return;
-      // The copy the tab keeps for a refresh goes: the result stays on the page, with its tables and its downloads. A
-      // model's map that was built from it goes with the copy, and its entry builds it afresh when it is next chosen.
+      // The copy the tab keeps for a refresh goes: the result stays on the page, with its tables. A model's map that
+      // was built from it goes with the copy, and its entry builds it afresh when it is next chosen.
       // The control goes with what it removed: the line that says so takes its place and the focus. The page
       // says that only of a copy that is gone. One that could not be removed keeps its control, and the page says so.
       // A screen reader reads the line where the focus now is. The live region does not say it too, or it would be read
@@ -1198,19 +1171,6 @@ window.matchMedia?.(NARROW_WINDOW).addEventListener("change", () => {
   markNavToggle();
 });
 el("themeToggle").addEventListener("click", toggleTheme);
-el("dlAll").addEventListener("click", () => {
-  if (!result) return;
-  const name = downloadName(result.zipName, ".zip", ZIP_FALLBACK);
-  downloadFile(name, resultZip(result, received), "application/zip");
-  toast(`Downloaded ${name}`);
-});
-el("dlCsv").addEventListener("click", () => {
-  const table = currentTable();
-  if (!table) return;
-  const name = downloadName(table.file, ".csv", CSV_FALLBACK);
-  downloadFile(name, tableCsv(table), "text/csv;charset=utf-8");
-  toast(`Downloaded ${name}`);
-});
 el("runAgain").addEventListener("click", () => client.runAgain());
 window.matchMedia?.("(prefers-color-scheme: dark)").addEventListener("change", event => {
   let stored: string | null = null;

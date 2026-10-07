@@ -38,6 +38,15 @@ describe("The results page's files", () => {
     expect(opening.map(tag => tag.name).filter(name => ["iframe", "img", "object", "embed", "base", "form", "style"].includes(name))).toEqual([]);
   });
 
+  it("offers nothing to download: its header holds the run control and the theme's button, and the page no link that saves a file", () => {
+    // A result is shown on the page and saved nowhere. The header's controls are these two, the page's one link leads
+    // to a place in the page, and no word of it names a download, a zip or a CSV.
+    const shell = new FakePage(html);
+    expect(shell.find(".hd-actions").children.map(child => [child.localName, child.id])).toEqual([["button", "runAgain"], ["button", "themeToggle"]]);
+    expect(opening.filter(tag => tag.name === "a" || tag.attributes.has("download")).map(tag => [...tag.attributes])).toEqual([[["class", "skip"], ["href", "#view"]]]);
+    expect(html).not.toMatch(/download|\.zip|\.csv/i);
+  });
+
   it("holds each element the script looks up, once", () => {
     const ids = opening.flatMap(tag => (tag.attributes.has("id") ? [tag.attributes.get("id")] : []));
     expect(PAGE_IDS.filter(id => ids.filter(found => found === id).length !== 1)).toEqual([]);
