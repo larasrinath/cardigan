@@ -303,7 +303,8 @@ export interface TableWay { way: string; label: string; chosen: boolean }
 
 export interface TableView {
   label: string;
-  /** A line under the table's name, for a table that does not list every row of its file. */
+  /** A line under the table's name, for a table that does not list every row of its file, or whose file needs a line
+   * to say what it lists. */
   note: string | undefined;
   /** The ways the table can be shown, when it has more than one: a switch stands at the head of its toolbar. */
   ways?: readonly TableWay[];

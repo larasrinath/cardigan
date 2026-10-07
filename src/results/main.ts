@@ -94,7 +94,7 @@ interface Shown {
   /** The file as the result holds it: what a download gives. */
   file: ResultTable;
   /** The file as the page shows it: the same, unless the file has a rule of its own (result-view.ts `fileView`). Then it
-   * is the table the rule gives, and `note` is the line under the table's name that says so. */
+   * is the table the rule gives, and `note` is the rule's line for under the table's name. */
   table: ResultTable;
   note: string | undefined;
   /** What the table says in the rows' place when the file's rule leaves it none of the file's rows to list. */

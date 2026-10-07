@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DETAILS_FILE, TAB_FILES } from "../analyse.js";
 import { APP_ZIP_REWORDED, MODEL_ZIP_AS_NAMED, ZIPPED_AT } from "../golden-0.6.1.test-support.js";
+import { ACCESS_GRIDS, ACCESS_READS_0_8_1, ACCESS_ZIP_0_8_1, ACCESS_ZIP_WITH_FILE } from "../golden-0.8.1.test-support.js";
+import { againstMap } from "../model/access.test-support.js";
 import { Failure, firstLine } from "../progress.js";
 import { ROWS_MAX, type Subject } from "../protocol.js";
 import type { AnalysisResult } from "../result-types.js";
@@ -11,7 +13,7 @@ import { APP_FILES } from "./columns.js";
 import { describeState, ResultsClient, type RunState } from "./connection.js";
 import { APP_HOST, GOLDEN_APP, GOLDEN_GRIDS, goldenApp, LINE_ITEMS, MODEL, MODEL_HOST, modelPage, serveEngine, SHELL_HOST, type EngineRun } from "./engine.test-support.js";
 import { FakeTab, MESSAGE_MAX_BYTES, NOBODY, TOO_LARGE, type PortEnd } from "./port-pair.test-support.js";
-import { detailsOf, diagnosticLog, fileView, listedTables, MODEL_CALENDAR_FILE, MODEL_FILE_ORDER, modelFacts, overviewOf } from "./result-view.js";
+import { ACCESS_FILE, detailsOf, diagnosticLog, fileView, listedTables, MODEL_CALENDAR_FILE, MODEL_FILE_ORDER, modelFacts, overviewOf } from "./result-view.js";
 
 // The results page's client against the engine: the content script's real side of the port around the real analysis of an
 // app and the real export of a model in its frame, joined to the page by ports that pass messages as Chrome's do. What
@@ -275,6 +277,45 @@ describe("The results page against the engine in the Anaplan tab", () => {
     expect([shown.headers, shown.rows.map(row => [row[0], row[2], row.at(-1)])]).toEqual([
       ["", "Module Name", "Format", "Summary", "Applies To", "Applies To from", "Ratio Numerator", "Ratio Denominator", "Format List"],
       [["Product", "List: Products", "Products"], ["Region", "List: + Regions", "+ Regions"], ["Active product", "List: ID 109000000001", ""]]]);
+  });
+
+  it("lists a model's Dynamic Cell Access right after its Line Items, as the export made it of that grid's driver columns", async () => {
+    // The golden model with the Line Items and Modules grids of a made-up model whose line items drive one another's
+    // access (golden-0.8.1.test-support.ts).
+    const settings = showModel(modelPage({ ...GOLDEN_GRIDS, ...ACCESS_GRIDS }));
+    const page = resultsPage(tab);
+    await until(done(page), "the result");
+    expectEngineResult(page, runs[0]);
+    // The file is made in the model's frame from the grids read for the other files: the frame reads what 0.8.1 read,
+    // which did not make the file, and reports the steps and the lines 0.8.1 reported, with none for this file.
+    expect(settings.reads).toEqual(ACCESS_READS_0_8_1);
+    const { result } = page.held();
+    const steps = (zip: Uint8Array): string[] => parseCsv(unzipText(zip).get("Model Details.csv") ?? "").filter(row => row[0] === "Diagnostics").map(row => row[2]);
+    expect(diagnosticLog(detailsOf(result)).map(line => line.slice(9))).toEqual(steps(ACCESS_ZIP_0_8_1));
+    expect(page.statuses().filter(status => status.includes("Dynamic Cell Access"))).toEqual([]);
+    // What the page would give for download is, file for file, the zip 0.8.1 wrote for this model with the file put in
+    // after Line Items.csv and its two rows in Model Details.csv (ACCESS_FILE_ADDED).
+    expect(files(resultZip(result, ZIPPED_AT), "Model Details.csv")).toEqual(files(ACCESS_ZIP_WITH_FILE, "Model Details.csv"));
+    // The page lists the file where the zip has it, after Line Items, which the order of Anaplan's settings puts after Modules.
+    expect(listedTables(result).map(({ table }) => table.label)).toEqual(["Model Calendar", "Time Ranges", "Versions", "General Lists", "Modules", "Line Items", "Dynamic Cell Access",
+      "Processes", "Imports", "Import Data Sources", "Exports", "Other Actions"]);
+    const file = result.tables.find(table => table.file === ACCESS_FILE);
+    if (!file) throw new Error("The export wrote no Dynamic Cell Access.csv.");
+    // Its table is the file as it stands, under the line that says what it lists. The line counts the rows without a
+    // Driver Module, and the export counted the drivers it could not match: the two say the same number.
+    const shown = fileView(result, file);
+    const COUNTED = "12 rows (2 with a driver that could not be matched)";
+    expect([shown.table === file, file.rows.length, file.rows.filter(row => row[0] === "").map(row => row[1]), shown.note]).toEqual([true, 12, ["Gone.Flag", "'Old access'.Can write"],
+      "The Read Access Driver and Write Access Driver columns of Line Items, listed from the driver's side: one row for each line item a driver controls. "
+      + "2 rows have a driver that could not be matched to a line item: they come last, with the driver as Line Items writes it and no Driver Module."]);
+    expect(result.summary.slice(0, 3)).toEqual(["Line Items: 16 rows", `Dynamic Cell Access: ${COUNTED}`, "Modules: 5 rows"]);
+    // The page makes the model map from the tables it holds. The file's rows are that map's access links, each once,
+    // and then the two driver cells the map could match to no line item.
+    const held = againstMap(file.rows, result.tables);
+    expect([held.table, held.map.map(part => part.length)]).toEqual([held.map, [10, 2]]);
+    // The overview has a tile for the file with its number of rows, and says the export's count with the files, once.
+    const overview = overviewOf(result);
+    expect([overview.tiles.find(tile => tile.label === "Dynamic Cell Access"), overview.notes, overview.files[0]]).toEqual([{ label: "Dynamic Cell Access", count: 12 }, [], ["Dynamic Cell Access.csv", COUNTED]]);
   });
 
   it("takes a model's line items, 5,000 rows of 27 columns, in the pieces the engine sends them in", async () => {

@@ -94,8 +94,9 @@ export function resultNotes(result: AnalysisResult): string[] {
 }
 
 /** A file as the page shows it: the table it lists in the file's place, and a short line for under the table's name when
- * that table is not the file as it stands. What the page counts, searches, filters and opens is this table; the CSV, as a
- * table's download and in the zip, is always the file as the export wrote it. */
+ * that table is not the file as it stands, or is a file that needs a line to say what it lists. What the page counts,
+ * searches, filters and opens is this table; the CSV, as a table's download and in the zip, is always the file as the
+ * export wrote it. */
 export interface FileView {
   table: ResultTable;
   note?: string;
@@ -165,12 +166,28 @@ const lineItemsRule: FileRule = (file, result) => {
  * item what drives who may read or write it. The file lists the same from the driver's side, one row for each line item
  * a driver controls (model/access.ts). */
 export const ACCESS_FILE = "Dynamic Cell Access.csv";
+/** The file's column for the module of the line item that drives. It is empty in the rows whose driver the export could
+ * match to no line item, and in no other row: those rows hold the driver as the Line Items file writes it. */
+const DRIVER_MODULE = "Driver Module";
 
-/** The files the page shows otherwise than as they stand, each with its rule, by the kind of result and the file's name.
- * No other file is touched: a rule is a file's own, not a filter over all of them. */
+/** The table is the file as it stands. No column of Anaplan's is called as these are, so a line under the table's name
+ * says what it lists, and how many of its rows name a driver that could not be matched. Those rows are the file's own:
+ * the count is read from them, and is the same for a result that was kept or brought back. */
+const accessRule: FileRule = file => {
+  const driverModule = columnIndex(file, DRIVER_MODULE);
+  if (driverModule === undefined) return undefined;
+  const unmatched = file.rows.filter(row => cellText(row[driverModule]) === "").length;
+  const said = unmatched === 0 ? "" : ` ${unmatched === 1 ? "1 row has a driver that could not be matched to a line item: it comes" : `${unmatched} rows have a driver that could not be matched to a line item: they come`}`
+    + ` last, with the driver as Line Items writes it and no ${DRIVER_MODULE}.`;
+  return { table: file, note: `The Read Access Driver and Write Access Driver columns of Line Items, listed from the driver's side: one row for each line item a driver controls.${said}` };
+};
+
+/** The files the page has a rule for, each with its rule, by the kind of result and the file's name: two that it shows
+ * otherwise than as they stand, and one that it shows as it stands, under a line that says what it is. No other file is
+ * touched: a rule is a file's own, not a filter over all of them. */
 export const FILE_RULES: Record<AnalysisResult["kind"], ReadonlyMap<string, FileRule>> = {
   app: new Map(),
-  model: new Map([[MODEL_CALENDAR_FILE, calendarView], [LINE_ITEMS_FILE, lineItemsRule]]),
+  model: new Map([[MODEL_CALENDAR_FILE, calendarView], [LINE_ITEMS_FILE, lineItemsRule], [ACCESS_FILE, accessRule]]),
 };
 
 /** One of the result's files by its rule alone, or as it stands: the rows the page lists, before any cell is said in words. */
