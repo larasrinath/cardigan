@@ -1924,7 +1924,7 @@ describe("What a click, a key and typing do on the results page", () => {
     const withFiles = (result: AnalysisResult, ...more: Cell[][]): AnalysisResult => ({ ...result, tables: [{ ...result.tables[0], rows: [...result.tables[0].rows,
       ...result.tables.slice(1).map((table): Cell[] => ["Files", table.file, `${table.rows.length} rows`]), ...more] }, ...result.tables.slice(1)] });
     // An app: what it is and how it was exported, a note, and how to read the tables.
-    const app = withFiles(APP, ["Notes", "Archive", "Not published"], ["How to read", "Page and Card #", "Identify a card in every file."]);
+    const app = withFiles(APP, ["Notes", "Archive", "Not published"], ["How to read", "Page and Card #", "Identify a card in every table."]);
     await openWith(app);
     expect([app.tables[0].rows.length, unsaid(app)]).toEqual([11, []]);
     expect(page.texts("#view h2")).toEqual(["About this export", "Notes", "Cards by type", "How to read these tables", "Diagnostics"]);

@@ -27,14 +27,14 @@ const appDetails = detailsTable("App Details.csv", [
   ...exportRows("us1a.app.anaplan.com", new Date(Date.UTC(2026, 9, 3, 14, 2, 5))),
   ["Files", "Pages.csv", "2 rows"], ["Files", "Cards.csv", "3 rows"],
   ["Notes", "Legacy archive", "Not published"], ["Notes", "Names", "Demo model: the model is closed, so IDs are shown instead of names."],
-  ["How to read", "Page and Card #", "Identify a card in every file."],
+  ["How to read", "Page and Card #", "Identify a card in every table."],
   ...diagnosticRows(LOG),
 ]);
 const modelDetails = detailsTable("Model Details.csv", [
   ["Model", "Model", "Model one"], ["Model", "Workspace", "Main"],
   ...exportRows("eu2a.app.anaplan.com", new Date(Date.UTC(2026, 9, 3, 9, 30, 0))),
   ["Files", "Line Items.csv", "120 rows"], ["Files", "Imports.csv", "Not exported: the grid did not load"],
-  ["Notes", "Actions", "the Actions list came without Notes; the Diagnostics rows list the columns it had."],
+  ["Notes", "Actions", "the Actions list came without Notes; the diagnostic log lists the columns it had."],
 ]);
 
 describe("What the results page reads out of a result", () => {
@@ -98,7 +98,7 @@ describe("What the results page reads out of a result", () => {
     const file = (label: string, rows: number): ResultTable => ({ file: `${label}.csv`, label, headers: ["", "Formula"], rows: Array.from({ length: rows }, (_, index) => [`Row ${index}`, ""]), guard: false });
     const tables = [modelDetails, file("Line Items", 120), file("Imports", 4), file("Versions", 1), file("Source Models", 0)];
     const said = ["Imports: 4 rows (3 matched in the Actions list)", "Exports: not exported (the grid did not load).",
-      "Actions: the Actions list came without Notes; the Diagnostics rows list the columns it had."];
+      "Actions: the Actions list came without Notes; the diagnostic log lists the columns it had."];
     const summary = ["Line Items: 120 rows", said[0], "Versions: 1 rows", "Source Models: 0 rows", said[1], said[2]];
     expect(resultNotes(result("model", tables, summary))).toEqual(said);
     expect(resultNotes(result("model", tables, ["Versions: 1 row", "Line Items: 120 rows"]))).toEqual([said[2]]);
@@ -159,7 +159,7 @@ describe("What the results page reads out of a result", () => {
       about: [["App", "Demo app"], ["App ID", "01234567-89ab-cdef-0123-456789abcdef"], ["Cards", "3"], ["Exported on", "2026-10-03 14:02 UTC"], ["Exported with", "Cardigan dev"],
         ["Anaplan host", "us1a.app.anaplan.com"]],
       files: [["Pages", "2 rows"], ["Cards", "3 rows"]],
-      howToRead: [["Page and Card #", "Identify a card in every file."]],
+      howToRead: [["Page and Card #", "Identify a card in every table."]],
       log: diagnosticLog(appDetails),
     });
   });
@@ -199,7 +199,7 @@ describe("What the results page reads out of a result", () => {
     const modules: ResultTable = { file: "Modules.csv", label: "Modules", headers: ["", "Card type", "Model"], rows: [["REP01", "x", "y"]], guard: false };
     expect(overviewOf(result("model", [modelDetails, lineItems, modules], ["Line Items: 2 rows", "Modules: 1 rows"]))).toEqual({
       tiles: [{ label: "Modules", count: 1 }, { label: "Line Items", count: 2 }], cardTypes: [], models: [],
-      notes: ["Actions: the Actions list came without Notes; the Diagnostics rows list the columns it had."],
+      notes: ["Actions: the Actions list came without Notes; the diagnostic log lists the columns it had."],
       about: [["Model", "Model one"], ["Workspace", "Main"], ["Exported on", "2026-10-03 09:30 UTC"], ["Exported with", "Cardigan dev"], ["Anaplan host", "eu2a.app.anaplan.com"]],
       files: [["Line Items", "120 rows"], ["Imports", "Not exported: the grid did not load"]], howToRead: [], log: [] });
   });
@@ -661,7 +661,7 @@ describe("What the results page reads out of a result", () => {
     // Without a Details file the facts are all the overview has about the export.
     expect(overviewOf(result("model", [calendar()])).about).toEqual([["Workspace", "Main"], ["Model", "Model one"], ["Captured on", "2026-10-03"]]);
     // The summary's line that says how many rows the file has is still no note: it counts the file, as it was read.
-    expect(overview.notes).toEqual(["Actions: the Actions list came without Notes; the Diagnostics rows list the columns it had."]);
+    expect(overview.notes).toEqual(["Actions: the Actions list came without Notes; the diagnostic log lists the columns it had."]);
   });
 
   it("names, for a card's parts, only columns the app's files really have", () => {
