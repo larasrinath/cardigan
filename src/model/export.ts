@@ -54,7 +54,8 @@ export async function exportModel(progress: Progress, diagnostics: () => string,
    * whose table is made after later grids were read is put at the place that was taken when its own grid was read. */
   const place = () => ({ table: tables.length, line: summary.length, note: notes.length, row: fileRows.length });
   const add = (file: string, table: Table, detail?: string, at = place()) => {
-    // No guard: a grid's values are written exactly as Anaplan's own export writes them (zip.ts `toCsv`).
+    // No guard: a grid's values are kept exactly as Anaplan's own export writes them. (The mark is read by the tests'
+    // writer of a CSV, zip.test-support.ts `toCsv`: the page writes none.)
     tables.splice(at.table, 0, { file: `${file}.csv`, label: file, headers: [...table.headers], rows: plainRows(table.rows), guard: false });
     const rows = `${table.rows.length} rows${detail ? ` (${detail})` : ""}`;
     summary.splice(at.line, 0, `${file}: ${rows}`);

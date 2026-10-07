@@ -8,12 +8,11 @@ import { Failure } from "./progress.js";
 import * as report from "./report.js";
 import { NONE } from "./report.js";
 import * as rest from "./rest.js";
-import { resultZip } from "./result-zip.js";
+import { resultZip } from "./result-zip.test-support.js";
 import { decodeFrames, type StompFrame } from "./stomp.js";
 import { serveTab } from "./tab-port.js";
 import { EXTENSION, FakePort } from "./tab-port.test-support.js";
-import { toCsv, zipStore } from "./zip.js";
-import { parseCsv, sameBytes, unzipText, zipEntries } from "./zip.test-support.js";
+import { parseCsv, sameBytes, toCsv, unzipText, zipEntries, zipStore } from "./zip.test-support.js";
 
 // Synthetic IDs only. The flow replays the first live run (28 Sep 2026): the model status stays UNKNOWN, and the first
 // host answers REDIRECTION_REQUIRED naming the host the model lives on.

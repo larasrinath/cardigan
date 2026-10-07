@@ -1,6 +1,5 @@
 import { MODEL_FILE_ADDED, withRowsAdded, ZIPPED_AT } from "./golden-0.6.1.test-support.js";
-import { zipStore } from "./zip.js";
-import { zipEntries } from "./zip.test-support.js";
+import { zipEntries, zipStore } from "./zip.test-support.js";
 
 /** A made-up model whose line items drive who may read and write one another, and the zip exactly as version 0.8.1
  * (commit d55eaff) wrote it for that model, kept here as base64. 0.8.1 is the last version whose export did not make

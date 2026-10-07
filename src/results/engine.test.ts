@@ -7,7 +7,7 @@ import { againstMap } from "../model/access.test-support.js";
 import { Failure, firstLine } from "../progress.js";
 import { ROWS_MAX, type Subject } from "../protocol.js";
 import type { AnalysisResult } from "../result-types.js";
-import { resultZip } from "../result-zip.js";
+import { resultZip } from "../result-zip.test-support.js";
 import { BUSY, NOTHING_TO_ANALYSE, SIGNED_OUT, UNSENT } from "../tab-port.js";
 import { parseCsv, sameBytes, unzipText } from "../zip.test-support.js";
 import { APP_FILES } from "./columns.js";

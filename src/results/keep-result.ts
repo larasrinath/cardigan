@@ -1,6 +1,6 @@
 import type { AnalysisResult } from "../result-types.js";
 import { VERSION } from "../version.js";
-import { crc32 } from "../zip.js";
+import { crc32 } from "../crc32.js";
 
 /** Keeps the results page's last finished result while its tab is refreshed. A refresh starts the page anew: without this
  * the result is gone, and the analysis has to read Anaplan again.

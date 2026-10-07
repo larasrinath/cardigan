@@ -1,19 +1,24 @@
-/** What one run hands the results page: the files of the zip, as data. The zip and each CSV are built from these tables and
- * from nothing else (result-zip.ts), so what the page shows and what a download holds cannot differ. */
+/** What one run hands the results page: its tables, as data. The page shows them, and makes no file of them.
+ *
+ * The names are from the time when a result was also a zip of CSV files to download, one file a table, and they are
+ * kept as they were: the code knows a table by its `file`. The tests still write a result as that zip, from these
+ * tables and from nothing else (result-zip.test-support.ts), to hold it against the zips earlier versions wrote. */
 
-/** A cell as it goes into the CSV. */
+/** A cell: a text or a number. */
 export type Cell = string | number;
 
-/** One file of the zip. */
+/** One table: one file of the zip, while there was one. */
 export interface ResultTable {
-  /** The file's name in the zip, with its extension: "Cards.csv", "Line Items.csv". */
+  /** The table's name as a file, with its extension: "Cards.csv", "Line Items.csv". The code knows the table by it; a
+   * user is shown `label`, never this. */
   file: string;
   /** The name the page shows for it: the file name without ".csv". */
   label: string;
   headers: string[];
   rows: Cell[][];
-  /** toCsv's `guard` for this file: true guards formula-like cells (every app file, and both Details files); false writes
-   * values exactly as Anaplan's own export does (the model's grids). */
+  /** How the table is written as a CSV: true guards formula-like cells (every app file, and both Details files); false
+   * writes values exactly as Anaplan's own export does (the model's grids). Only the tests' writer reads it now
+   * (zip.test-support.ts `toCsv`). */
   guard: boolean;
   /** True for the one file about the export itself (App Details.csv, Model Details.csv): rows of Section, Detail, Value. */
   details?: true;
@@ -25,9 +30,9 @@ export interface AnalysisResult {
   /** The app's or the model's name, and its ID. */
   name: string;
   id: string;
-  /** The zip's file name, as the download has always been named. */
+  /** The name the zip had as a download. Nothing is saved under it now. */
   zipName: string;
-  /** The zip's files, in the zip's order; the Details file comes first. */
+  /** The tables, in the order the zip had its files in; the Details file comes first. */
   tables: ResultTable[];
   /** The lines listed after a run: counts and notes. */
   summary: string[];

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { exportModel } from "../model/export.js";
 import type { Cell, ResultTable } from "../result-types.js";
-import { resultZip, tableCsv } from "../result-zip.js";
+import { resultZip, tableCsv } from "../result-zip.test-support.js";
 import { parseCsv, unzipText } from "../zip.test-support.js";
 import { columnsOf } from "./columns.js";
 import { APPLIES_TO, APPLIES_TO_FROM, APPLIES_TO_SOURCE, LINE_ITEMS_FILE, lineItemsView, MODULE_NAME, type LineItemsView } from "./line-items-view.js";

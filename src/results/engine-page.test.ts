@@ -4,7 +4,7 @@ import { DETAILS_FILE } from "../analyse.js";
 import { APP_ZIP_REWORDED } from "../golden-0.6.1.test-support.js";
 import { PORT_NAME, RESULTS_PAGE } from "../protocol.js";
 import type { AnalysisResult } from "../result-types.js";
-import { resultZip } from "../result-zip.js";
+import { resultZip } from "../result-zip.test-support.js";
 import { UNSENT } from "../tab-port.js";
 import { parseCsv, unzipText } from "../zip.test-support.js";
 import { FakeElement, FakeInput, FakePage, FakeSelect } from "./dom.test-support.js";
