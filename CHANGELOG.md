@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.0 (7 October 2026)
+
+A model's Dynamic Cell Access, listed from the driver's side.
+
+- **Dynamic Cell Access.** A model's export has one more table, right after Line Items: `Dynamic Cell Access.csv`, with its page. Anaplan names an access driver only on the line item it controls, in the **Read Access Driver** and **Write Access Driver** columns of the Line Items list; nothing on the driver's own row says what it controls. This table turns that round: one row for each line item a driver controls, with the driver's module and name, **Read** or **Write**, and the controlled line item's module and name. A driver that could not be matched to a line item comes last, written as its cell is, and the page says how many there are.
+- **Nothing more is read.** The table is made from the Line Items grid the export already reads, by the rules the model map uses for its access links, so the page and the map agree.
+- **In `Model Details.csv`.** A **Files** row and a **How to read** row for the new file.
+- **What stays the same.** A model's other files, `Line Items.csv` among them, hold the bytes 0.8.1 writes, apart from the version number and those two rows. An app's files are unchanged apart from the version number, and so is the manifest.
+
 ## 0.8.1 (6 October 2026)
 
 Housekeeping, so that the repository stands on its own.
