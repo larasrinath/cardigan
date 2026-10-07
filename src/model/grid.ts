@@ -15,7 +15,7 @@ export interface Grid { columns: LabelEntry[]; rows: GridRow[] }
 
 const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: "\"", apos: "'", nbsp: " " };
 
-/** The native formatter HTML-escapes cell text; CSV cells need the plain text. */
+/** The native formatter HTML-escapes cell text; a table's cells need the plain text. */
 export function plainText(value: unknown): string {
   if (value === null || value === undefined) return "";
   return String(value)

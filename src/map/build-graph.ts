@@ -191,7 +191,7 @@ const PROPERTY = /^([^\n]+):\s+([^\n]*)/;
 
 type Row = readonly Cell[];
 
-/** A cell as text, the way the CSV writes it: nothing for a cell that is not there. */
+/** A cell as text: nothing for a cell that is not there. */
 const textOf = (cell: unknown): string => (cell === null || cell === undefined ? "" : plainText(cell));
 
 const count = (amount: number, one: string, many: string): string => (amount === 1 ? `1 ${one}` : `${amount} ${many}`);
