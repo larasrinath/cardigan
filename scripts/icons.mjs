@@ -1,6 +1,6 @@
 // Draws the extension's icons (icons/16.png, 32.png, 48.png, 128.png): a cream card with a mustard title bar and two rows,
 // on a rust rounded square. Shapes are defined on a 128-unit grid and sampled 8 × 8 times per pixel, so every size is
-// drawn from the same geometry with smooth edges. Node built-ins only: node:zlib writes the PNG data.
+// drawn from the same geometry with smooth edges. Node built-ins only: node:zlib writes the PNG data, and reads it back.
 // Run `npm run icons` to regenerate them.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -11,12 +11,62 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const ICONS_DIR = path.join(root, 'icons');
 export const ICON_SIZES = [16, 32, 48, 128];
 
+const SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const COLOUR_TYPES = { 0: 'greyscale', 2: 'RGB', 3: 'palette', 4: 'greyscale with alpha', 6: 'RGBA' };
 const GRID = 128;
 const SAMPLES = 8;
 const RUST = [155, 58, 46];
 const CREAM = [255, 247, 234];
 const MUSTARD = [224, 164, 58];
 const ROW = [196, 108, 94];
+
+/** The Paeth predictor of PNG's filter type 4: whichever of left, up and up-left is nearest to left + up - up-left. */
+function paeth(left, up, upLeft) {
+  const [toLeft, toUp, toUpLeft] = [Math.abs(up - upLeft), Math.abs(left - upLeft), Math.abs(left + up - 2 * upLeft)];
+  return toLeft <= toUp && toLeft <= toUpLeft ? left : toUp <= toUpLeft ? up : upLeft;
+}
+
+/** The size and the RGBA pixels, row by row, of an 8-bit RGBA PNG that is not interlaced: what `encodePng` writes. Any
+ * other file is refused, by `name`. */
+export function decodePng(buffer, name = 'The image') {
+  if (!buffer.subarray(0, 8).equals(SIGNATURE)) throw new Error(`${name} is not a PNG file`);
+  let header;
+  const data = [];
+  for (let at = 8, type; type !== 'IEND';) {
+    // A chunk: four bytes of length, four of type, the data, and a check of the type and the data.
+    const end = at + 12 <= buffer.length ? at + 8 + buffer.readUInt32BE(at) : Infinity;
+    if (end + 4 > buffer.length) throw new Error(`${name} is cut short`);
+    type = buffer.toString('latin1', at + 4, at + 8);
+    if (buffer.readUInt32BE(end) !== zlib.crc32(buffer.subarray(at + 4, end))) throw new Error(`${name} is damaged: its ${type} chunk fails its check`);
+    if (type === 'IHDR') header = buffer.subarray(at + 8, end);
+    if (type === 'IDAT') data.push(buffer.subarray(at + 8, end));
+    at = end + 4;
+  }
+  if (header?.length !== 13) throw new Error(`${name} is damaged: it has no header`);
+  const [width, height] = [header.readUInt32BE(0), header.readUInt32BE(4)];
+  const [depth, colour, , , interlace] = header.subarray(8);
+  if (depth !== 8 || colour !== 6 || interlace !== 0) {
+    throw new Error(`${name} must be an 8-bit RGBA PNG that is not interlaced: it is ${depth}-bit ${COLOUR_TYPES[colour] ?? `colour type ${colour}`}${interlace ? ', interlaced' : ''}`);
+  }
+  const stride = width * 4;
+  let raw;
+  try { raw = zlib.inflateSync(Buffer.concat(data)); } catch (error) { throw new Error(`${name} is damaged: ${error.message}`); }
+  if (raw.length !== height * (stride + 1)) throw new Error(`${name} is damaged: it holds ${raw.length} bytes of pixels, not ${height * (stride + 1)}`);
+  // Each row starts with its filter type: what was taken from every byte before packing, to be added back.
+  const pixels = Buffer.alloc(height * stride);
+  for (let y = 0; y < height; y++) {
+    const [filter, from, to] = [raw[y * (stride + 1)], y * (stride + 1) + 1, y * stride];
+    if (filter > 4) throw new Error(`${name} is damaged: row ${y} has filter type ${filter}`);
+    for (let x = 0; x < stride; x++) {
+      const left = x >= 4 ? pixels[to + x - 4] : 0;
+      const up = y > 0 ? pixels[to + x - stride] : 0;
+      const upLeft = x >= 4 && y > 0 ? pixels[to + x - stride - 4] : 0;
+      const predicted = filter === 0 ? 0 : filter === 1 ? left : filter === 2 ? up : filter === 3 ? (left + up) >> 1 : paeth(left, up, upLeft);
+      pixels[to + x] = (raw[from + x] + predicted) & 255;
+    }
+  }
+  return { width, height, pixels };
+}
 
 /** Inside a rectangle with rounded corners (all four, radius `r`). */
 const rounded = (x0, y0, x1, y1, r) => (x, y) => {
@@ -84,7 +134,7 @@ export function encodePng(width, height, pixels) {
   const raw = Buffer.alloc(height * (width * 4 + 1));
   for (let y = 0; y < height; y++) pixels.copy(raw, y * (width * 4 + 1) + 1, y * width * 4, (y + 1) * width * 4);
   return Buffer.concat([
-    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    SIGNATURE,
     chunk('IHDR', header),
     chunk('IDAT', zlib.deflateSync(raw, { level: 9 })),
     chunk('IEND', Buffer.alloc(0)),
