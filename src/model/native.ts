@@ -3,8 +3,8 @@ import { SCOPE_ID, sleep } from "../util.js";
 import { labelEntries, windowRows, type Grid } from "./grid.js";
 
 /** Reads Model settings grids through the classic model building client, the way its own settings tabs do: a
- * MODEL_DEFINITION view of a row axis against a property-column axis (evidence: anaplan/settings/*.js and SAM's Model
- * Builder reader). Runs in the page's main world. Read-only by construction: requests are built only by the client's
+ * MODEL_DEFINITION view of a row axis against a property-column axis (evidence: anaplan/settings/*.js).
+ * Runs in the page's main world. Read-only by construction: requests are built only by the client's
  * view request generator, checked to carry no submissions, system actions or model summaries, and the page's model
  * cache is never updated from these reads. */
 
@@ -108,7 +108,7 @@ async function readWindow(native: Native, viewDefinition: Any, startRow: number,
 }
 
 /** A cell whose value picks from a list (a month, a weekday, a calendar type) is stored as that choice's ID; the grid shows
- * the choice's label from the view's selector label pages (Time2.DataProvider._getSelectorLabelPage, as SAM reads it). */
+ * the choice's label from the view's selector label pages (Time2.DataProvider._getSelectorLabelPage). */
 function selectorLabel(view: Any, page: Any, index: number): string | undefined {
   const format = page.getFormat?.(index);
   const selector = view.selectorLabelPages?.[view.indexSelectorLabelPageMap?.[format?.hierarchyEntityLongId]];

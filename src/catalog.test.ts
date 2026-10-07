@@ -43,7 +43,7 @@ describe("Page analyzer names from the model data service", () => {
     expect(catalog.modules.get("102000000903")).toBe("Other");
   });
 
-  it("returns SAM's resolver shape: names, kinds for filter items, owning modules, and what stayed unresolved", () => {
+  it("returns the shape the naming code takes: names, kinds for filter items, owning modules, and what stayed unresolved", () => {
     const refs = [ref("module", MODULE), ref("lineItem", "1901000000001", { moduleId: MODULE }), ref("view", VIEW), ref("dimension", "20000000012"),
       ref("unknown", "1901000000001"), ref("unknown", "101000000902"), ref("action", "112000000901", { actionType: "IMPORT" }), ref("page", "page-guid"),
       ref("listItem", "201000000001", { dimensionId: LIST }), ref("action", "118000000999", { actionType: "PROCESS" }), ref("module", MODULE)];
@@ -287,7 +287,7 @@ describe("Page analyzer names from the model data service", () => {
     expect([selectionShape(answer), selectionShape({ data: [] }), selectionShape({ data: ["x"] }), selectionShape({ items: [] }), selectionShape(undefined)])
       .toEqual(["5 entries of {index, itemId, label}", "0 entries", "1 entries", "no data list", "no data list"]);
 
-    // A rule's selected item of unknown kind: a line item, a list or a module first, as SAM's resolver has it; then a named item.
+    // A rule's selected item of unknown kind: a line item, a list or a module first; then a named item.
     const refs = [ref("unknown", ALL_REGIONS), ref("unknown", ITEM(358, 9)), ref("unknown", "1901000000001"), ref("unknown", LIST), ref("listItem", ITEM(404, 3))];
     const resolved = resolveFromCatalog(refs, catalog);
     expect(resolved.names).toEqual({ [`unknown:${ALL_REGIONS}`]: "All regions", "unknown:1901000000001": "Volume", [`unknown:${LIST}`]: "Product", [`listItem:${ITEM(404, 3)}`]: "Planner" });

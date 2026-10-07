@@ -1,6 +1,6 @@
 {
   "name": "cardigan",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "private": true,
   "description": "Cardigan: a Chrome extension that shows an Anaplan app's pages or a model's Model settings on a page, with CSV export",
   "author": "Lara Srinath",
@@ -16,8 +16,7 @@
     "build": "npm run typecheck && node scripts/build.mjs",
     "package": "npm run build && node scripts/package.mjs",
     "icons": "node scripts/icons.mjs",
-    "check": "npm run typecheck && npm test && npm run build && npm run test:scripts",
-    "check:card-reader": "node scripts/check-card-reader.mjs"
+    "check": "npm run typecheck && npm test && npm run build && npm run test:scripts"
   },
   "devDependencies": {
     "esbuild": "0.27.3",
