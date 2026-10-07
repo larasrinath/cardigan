@@ -6,10 +6,15 @@ import { zipEntries, zipStore } from "./zip.test-support.js";
  *
  * Made once by running 0.6.1's own analyseApp and exportModel on those fixtures, with the clock at 2026-09-28 12:30:10 UTC and
  * the time zone UTC (a zip entry carries its time as local time). Never regenerate them from newer code: a difference means the
- * export changed. What is deliberately written otherwise since is named below, a row of the app's files, and of the model's
- * a column, a row, and the two rows about a file the export has gained (`APP_ROW_REWORDED`, `MODEL_COLUMN_ADDED`,
- * `MODEL_ROW_REWORDED`, `MODEL_FILE_ADDED`): a test then compares with 0.6.1's zip but for what is named, and the zips
- * themselves stay as they are. */
+ * export changed. What is deliberately written otherwise since is named below: rows of the app's Details file, and of the
+ * model's files a column, rows of its Details file, and the two rows about a file the export has gained
+ * (`APP_ROW_REWORDED`, `APP_ROWS_FOR_THE_PAGE`, `MODEL_COLUMN_ADDED`, `MODEL_ROW_REWORDED`, `MODEL_ROWS_FOR_THE_PAGE`,
+ * `MODEL_FILE_ADDED`). A test then compares with 0.6.1's zip but for what is named, and the zips themselves stay as they
+ * are.
+ *
+ * Cardigan no longer writes a zip: a result is read on the results page, which makes no file of it. The zips here are
+ * what the engine's tables are held against all the same, written as the files they were (result-zip.test-support.ts),
+ * so that what the page shows does not change unnoticed. */
 
 /** The time on every entry of both zips, as a local time, so the comparison holds in any time zone. */
 export const ZIPPED_AT = new Date(2026, 8, 28, 12, 30, 10);
@@ -84,23 +89,51 @@ export const APP_ZIP_0_6_1 = bytes([
  * and so are the items that a rule compares a line item formatted as a list with, so the row says what is shown in either
  * case: the name where the model gives one, the ID otherwise.
  *
- * It is the third place where this app's files are known to differ from 0.6.1's. The other two name the build: the
- * "Exported with" row and the first Diagnostics line. Neither shows in a comparison here: the zip above was made by a build
- * that calls itself "dev", as a build under test does, and a test either gives the run the log that 0.6.1 was given or
- * leaves the Diagnostics rows, which are a run's own log, out of the comparison. */
+ * Besides this row and the three named after it (`APP_ROWS_FOR_THE_PAGE`), two places are known where this app's files
+ * differ from 0.6.1's, and both name the build: the "Exported with" row and the first Diagnostics line. Neither shows in
+ * a comparison here: the zip above was made by a build that calls itself "dev", as a build under test does, and a test
+ * either gives the run the log that 0.6.1 was given or leaves the Diagnostics rows, which are a run's own log, out of the
+ * comparison. */
 export const APP_ROW_REWORDED = {
   was: "How to read,Filter context,Filter-context items show their IDs; their names are not looked up.\r\n",
   now: `How to read,Filter context and values,"An item in a filter rule, whether chosen as the filter context or compared with a line item formatted as a list, is shown by its name where the model gives one, and by its ID otherwise. If a context item has no name, the rule's line item and context are listed together in place of the line item's name."\r\n`,
 } as const;
 
-/** The app's zip as 0.6.1 wrote it but for that row: every file's bytes as they are in `APP_ZIP_0_6_1`, with that one line
+/** The three rows of the app's App Details.csv that are deliberately not what 0.6.1 wrote since the results page stopped
+ * offering a result for download: each as the row's whole line of the file, as 0.6.1 wrote it and as it is written now.
+ * A result is read on the page and nowhere else, and the "How to read" rows are on its overview: they are to say what
+ * the page shows, and none may send its reader to a file.
+ * - "Page and Card #" said that the two identify a card in every file. They identify it in every table.
+ * - "(not in the model)" said to search Where Used.csv. It says to search the Where Used table.
+ * - "Long IDs" said how an ID of 12 digits or more is written so that Excel shows every digit. That is how a CSV is
+ *   written, and the page shows an ID as it is: the row is gone, and it is written as nothing now. */
+export const APP_ROWS_FOR_THE_PAGE = [
+  { was: 'How to read,Page and Card #,"Identify a card in every file. Card # counts cards row by row, left to right; Card ID is the stable key."\r\n',
+    now: 'How to read,Page and Card #,"Identify a card in every table. Card # counts cards row by row, left to right; Card ID is the stable key."\r\n' },
+  { was: 'How to read,(not in the model),"A module or line item a card still points at but the model no longer has: deleted, or not visible to you. Search Where Used.csv for it to find the cards."\r\n',
+    now: 'How to read,(not in the model),"A module or line item a card still points at but the model no longer has: deleted, or not visible to you. Search the Where Used table for it to find the cards."\r\n' },
+  { was: 'How to read,Long IDs,"IDs of 12 or more digits are written as text so Excel shows every digit; the formula bar shows them as =""…""."\r\n', now: "" },
+] as const;
+
+/** A Details file with rows written otherwise: each line of `rows` as it is written now, which the text must hold
+ * exactly once as it was. `csv` is the file's text, with its byte order mark or without. */
+export function withRowsReworded(csv: string, rows: readonly { was: string; now: string }[]): string {
+  return rows.reduce((text, row) => {
+    const parts = text.split(row.was);
+    if (parts.length !== 2) throw new Error(`The Details file does not hold the row that is written otherwise exactly once: ${row.was}`);
+    return parts.join(row.now);
+  }, csv);
+}
+
+/** 0.6.1's text of App Details.csv as the file is written now: the four rows named, each in its present words. */
+export const withAppRowsSince = (csv: string): string => withRowsReworded(csv, [APP_ROW_REWORDED, ...APP_ROWS_FOR_THE_PAGE]);
+
+/** The app's zip as 0.6.1 wrote it but for those rows: every file's bytes as they are in `APP_ZIP_0_6_1`, with those lines
  * of App Details.csv replaced, written by zipStore with the same time on every entry. analyse.test.ts pins that zipStore
  * writes `APP_ZIP_0_6_1` itself, byte for byte, from the files as they are, so what differs from this zip differs from 0.6.1. */
 export const APP_ZIP_REWORDED = zipStore(zipEntries(APP_ZIP_0_6_1).map(entry => {
   if (entry.name !== "App Details.csv") return entry;
-  const lines = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(entry.data).split(APP_ROW_REWORDED.was);
-  if (lines.length !== 2) throw new Error("0.6.1's App Details.csv does not hold the reworded row exactly once.");
-  return { name: entry.name, data: new TextEncoder().encode(lines.join(APP_ROW_REWORDED.now)) };
+  return { name: entry.name, data: new TextEncoder().encode(withAppRowsSince(new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(entry.data))) };
 }), ZIPPED_AT);
 
 /** `<model> - Model Export - <date>.zip`: Model Details.csv and eleven Model settings files (Source Models was not exported). */
@@ -190,10 +223,11 @@ export const MODEL_ZIP_0_6_1 = bytes([
  * made from has no Format column in its Line Items grid, so no line item of it is formatted as a list and the column is
  * empty in every row: the file's first line gains the column's name as a last cell, and every other line an empty one.
  *
- * Besides the build's name, this column, the row that describes it (`MODEL_ROW_REWORDED`) and the two rows about a file
- * this model does not get (`MODEL_FILE_ADDED`) are the only places where this model's files are known to differ from
- * 0.6.1's. The name is in the "Exported with" row and, for a model page opened on its own, in the first Diagnostics line,
- * and does not show in a comparison here, for the reasons given at `APP_ROW_REWORDED`. */
+ * Besides the build's name, this column, the row that describes it (`MODEL_ROW_REWORDED`), two more rows of "How to
+ * read" (`MODEL_ROWS_FOR_THE_PAGE`) and the two rows about a file this model does not get (`MODEL_FILE_ADDED`) are the
+ * only places where this model's files are known to differ from 0.6.1's. The name is in the "Exported with" row and, for
+ * a model page opened on its own, in the first Diagnostics line, and does not show in a comparison here, for the reasons
+ * given at `APP_ROW_REWORDED`. */
 export const MODEL_COLUMN_ADDED = { file: "Line Items.csv", header: "Format List" } as const;
 
 /** 0.6.1's text of that file with the column: each line as it is, with the one cell added at its end. `csv` is the file's
@@ -206,23 +240,44 @@ export function withColumnAdded(csv: string): string {
   return lines.map((line, index) => `${line},${index === 0 ? MODEL_COLUMN_ADDED.header : ""}\r\n`).join("");
 }
 
-/** The one row of the model's Model Details.csv that is deliberately not what 0.6.1 wrote, as the row's whole line of the
- * file. The "How to read" row on Line Items named the two columns that the export added after Anaplan's own, which were
- * all it added. The file has a third now (`MODEL_COLUMN_ADDED`), and Model Details.csv is to describe the files as they
- * are: the row says that Anaplan's own columns come first, unchanged, and what each of the three after them holds. */
+/** The row of the model's Model Details.csv on Line Items, which is deliberately not what 0.6.1 wrote, as the row's
+ * whole line of the file. It has been written otherwise twice.
+ * - It named the two columns that the export added after Anaplan's own, which were all it added. The file has a third
+ *   since (`MODEL_COLUMN_ADDED`), and the row says what each of the three holds. (0.8.1 wrote it so: its words then are
+ *   in golden-0.8.1.test-support.ts.)
+ * - It described the file: each module's row above its line items, and Anaplan's own columns first and unchanged. Since
+ *   the results page stopped offering a result for download, the row is read on the page's overview and is to say what
+ *   the page's Line Items table shows: line items only, each with its module after its name, and with the dimensions
+ *   it has under Applies To, where Applies To from says whose they are (results/line-items-view.ts). A Summary's and a
+ *   Format's JSON is the definition, which the table says in words. And General Lists is a table, not a file. */
 export const MODEL_ROW_REWORDED = {
   file: "Model Details.csv",
   was: `How to read,Line Items,"Each module's row sits above its line items. Ratio Numerator and Ratio Denominator, after Anaplan's own columns, name the line items a Ratio summary divides: the Summary JSON gives only their IDs."\r\n`,
-  now: `How to read,Line Items,"Each module's row sits above its line items. Anaplan's own columns come first and are unchanged, and three columns follow them. Ratio Numerator and Ratio Denominator name the line items a Ratio summary divides: the Summary JSON gives only their IDs. Format List names the list of a line item formatted as a list, as General Lists.csv names it: the Format JSON gives only the list's ID. It is empty for any other format, for a list that is not in General Lists.csv, such as a list subset or a line item subset, and when General Lists.csv was not exported."\r\n`,
+  now: `How to read,Line Items,"The table lists line items: each names its module under Module Name, after its own name, and a module's own row is not listed. Applies To holds the dimensions a line item has, its module's where it has none of its own, and Applies To from says which. Three columns follow Anaplan's own. Ratio Numerator and Ratio Denominator name the line items a Ratio summary divides: the Summary's definition gives only their IDs. Format List names the list of a line item formatted as a list, as the General Lists table names it: the Format's definition gives only the list's ID. It is empty for any other format, for a list that is not in General Lists, such as a list subset or a line item subset, and when General Lists was not exported."\r\n`,
 } as const;
 
-/** 0.6.1's text of that file with the row as it is written now: every other line as it is. `csv` is the file's text, with
- * its byte order mark or without. */
-export function withRowReworded(csv: string): string {
-  const lines = csv.split(MODEL_ROW_REWORDED.was);
-  if (lines.length !== 2) throw new Error("0.6.1's Model Details.csv does not hold the reworded row exactly once.");
-  return lines.join(MODEL_ROW_REWORDED.now);
-}
+/** Two more rows of the model's Model Details.csv that are deliberately not what 0.6.1 wrote since the results page
+ * stopped offering a result for download, each as the row's whole line of the file. Like the row on Line Items they are
+ * read on the page's overview, and are to say what the page shows.
+ * - `layout` said that each file has an unlabelled first column and each cell's underlying value. The page names that
+ *   column, as Name, and says a Format, a Summary and an Action in words where it has words for the definition: the row
+ *   says so, and that a row's details add the definition as it was read.
+ * - `calendar` ended by saying that Model size (GB) and Captured by are left for the reader to fill in. That was for a
+ *   file to write into. On the page those two rows have no value and are shown nowhere: the row ends before them. */
+export const MODEL_ROWS_FOR_THE_PAGE = {
+  layout: {
+    was: `How to read,Layout,"Each file is laid out as Anaplan's own export of the same Model settings grid: an unlabelled first column, then the grid's columns, with each cell's underlying value."\r\n`,
+    now: `How to read,Layout,"Each table is laid out as Anaplan's own export of the same Model settings grid: each row's name first, then the grid's columns, with each cell's underlying value. Where a Format, a Summary or an Action holds a definition that can be said in words, the table says the words, and a row's details add the definition as it was read."\r\n`,
+  },
+  calendar: {
+    was: `How to read,Model Calendar,"Follows the assessment template. Months and days are their names, and Current Fiscal Year is shown with its dates, as the Model Calendar tab shows it. Settings that do not apply to this calendar type are blank; Model size (GB) and Captured by are left for you to fill in."\r\n`,
+    now: `How to read,Model Calendar,"Follows the assessment template. Months and days are their names, and Current Fiscal Year is shown with its dates, as the Model Calendar tab shows it. Settings that do not apply to this calendar type are blank."\r\n`,
+  },
+} as const;
+
+/** 0.6.1's text of that file with the three rows as they are written now, the one on Line Items and the two above:
+ * every other line as it is. `csv` is the file's text, with its byte order mark or without. */
+export const withRowsSince = (csv: string): string => withRowsReworded(csv, [MODEL_ROWS_FOR_THE_PAGE.layout, MODEL_ROW_REWORDED, MODEL_ROWS_FOR_THE_PAGE.calendar]);
 
 /** The one file the export has gained since 0.6.1: Dynamic Cell Access.csv, which lists a model's access drivers with
  * what each controls (model/access.ts). The export makes it from the Read Access Driver and Write Access Driver columns
@@ -232,7 +287,9 @@ export function withRowReworded(csv: string): string {
  * whether it was written and how to read it: it has two rows more, each given here as the row's whole line of the file,
  * with the line it stands after. `notWritten` says that the file was not exported and why, right after the row for Line
  * Items.csv, which is the file's place among the files. `howToRead` says how to read the file, right after the row on
- * Line Items.
+ * Line Items. Like the other rows of "How to read" it is read on the page's overview: it speaks of the Line Items table
+ * and of this one, where it spoke of two files, and says of a row for a module's own driver that the Line Items table
+ * does not list the row it is set on.
  *
  * A model that has the three columns gets the file. The zip that the last version without it wrote for such a model,
  * and what differs from that zip, are in golden-0.8.1.test-support.ts. */
@@ -245,7 +302,7 @@ export const MODEL_FILE_ADDED = {
   },
   howToRead: {
     after: MODEL_ROW_REWORDED.now,
-    line: `How to read,Dynamic Cell Access,"Not a Model settings grid: the Read Access Driver and Write Access Driver columns of Line Items.csv, listed from the driver's side. One row for each use of a driver: the driver, Read or Write, and what it controls, each by module and name as Line Items.csv writes them. Rows follow the drivers' order in Line Items.csv, Read before Write. A row with no Controlled Line Item is a module's own row; a line item that shows a dash is listed with its module's driver. A driver that could not be matched comes last, once for its cell, with no Driver Module and the cell as it is written. That includes a driver that sits in a row the model map leaves out, which About this map counts. The file is not written when Line Items.csv was not exported or lacks its Module Name column or a driver column."\r\n`,
+    line: `How to read,Dynamic Cell Access,"Not a Model settings grid: the Read Access Driver and Write Access Driver columns of Line Items, listed from the driver's side. One row for each use of a driver: the driver, Read or Write, and what it controls, each by module and name as Line Items has them. Rows follow the drivers' order in Line Items, Read before Write. A row with no Controlled Line Item is a module's own: its driver is set on the module's own row, which the Line Items table does not list. A line item that shows a dash is listed with its module's driver. A driver that could not be matched comes last, once for its cell, with no Driver Module and the cell as it is written. That includes a driver that sits in a row the model map leaves out, which About this map counts. The table is not made when Line Items was not exported or lacks its Module Name column or a driver column."\r\n`,
   },
 } as const;
 
@@ -259,12 +316,12 @@ export function withRowsAdded(csv: string, rows: readonly { after: string; line:
   }, csv);
 }
 
-/** 0.6.1's text of Model Details.csv as the file is written now: the row on Line Items reworded, and the two rows about
- * Dynamic Cell Access.csv added. */
-export const withDetailsSince = (csv: string): string => withRowsAdded(withRowReworded(csv), [MODEL_FILE_ADDED.notWritten, MODEL_FILE_ADDED.howToRead]);
+/** 0.6.1's text of Model Details.csv as the file is written now: the three rows of "How to read" in their present words,
+ * and the two rows about Dynamic Cell Access.csv added. */
+export const withDetailsSince = (csv: string): string => withRowsAdded(withRowsSince(csv), [MODEL_FILE_ADDED.notWritten, MODEL_FILE_ADDED.howToRead]);
 
 /** The model's zip as 0.6.1 wrote it but for what is named above: every file's bytes as they are in `MODEL_ZIP_0_6_1`,
- * with the cell added to each line of Line Items.csv, and with one line of Model Details.csv replaced and two added,
+ * with the cell added to each line of Line Items.csv, and with three lines of Model Details.csv replaced and two added,
  * written by zipStore with the same time on every entry. model/model.test.ts pins that zipStore writes `MODEL_ZIP_0_6_1`
  * itself, byte for byte, from the files as they are, so what differs from this zip differs from 0.6.1. */
 export const MODEL_ZIP_AS_NAMED = zipStore(zipEntries(MODEL_ZIP_0_6_1).map(entry => {

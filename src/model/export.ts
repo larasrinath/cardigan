@@ -10,29 +10,34 @@ import { gridTable, type Grid, type GridRow, type Table } from "./grid.js";
 import { lineItemsTable } from "./lineitems.js";
 import { axis, loadNative, readGrid, typeIndex } from "./native.js";
 
-/** One CSV per Model settings grid, laid out as Anaplan's own export of that grid (compared with exports from Model
+/** One table per Model settings grid, laid out as Anaplan's own export of that grid (compared with exports from Model
  * settings, 28 Sep 2026): the Actions list split at its headings with its imports merged into the Imports tab (actions.ts),
  * the model calendar in the assessment template, and Model Details.csv about the export itself. One file more is no
- * grid's: Dynamic Cell Access.csv, made from the tables of the others (access.ts).
+ * grid's: Dynamic Cell Access.csv, made from the tables of the others (access.ts). A table is named as the CSV file it
+ * once was written to: the results page shows it under its label, and makes no file.
  * Evidence for each grid's axes: the classic client's settings tabs (anaplan/settings/*.js, tabs/Settings.js). */
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
+/** How to read the tables, as the results page shows them: the overview lists these rows as they are. So they say what
+ * the page's tables hold, where that is not the table as it is made here: the page says a definition in words
+ * (results/readable-cells.ts), and lists Line Items without the modules' own rows (results/line-items-view.ts). They
+ * speak of no file: the page makes none. */
 const HOW_TO_READ: readonly [detail: string, value: string][] = [
-  ["Layout", "Each file is laid out as Anaplan's own export of the same Model settings grid: an unlabelled first column, then the grid's columns, with each cell's underlying value."],
-  ["Line Items", "Each module's row sits above its line items. Anaplan's own columns come first and are unchanged, and three columns follow them. Ratio Numerator and Ratio Denominator name the line items a Ratio summary divides: the Summary JSON gives only their IDs. Format List names the list of a line item formatted as a list, as General Lists.csv names it: the Format JSON gives only the list's ID. It is empty for any other format, for a list that is not in General Lists.csv, such as a list subset or a line item subset, and when General Lists.csv was not exported."],
-  ["Dynamic Cell Access", "Not a Model settings grid: the Read Access Driver and Write Access Driver columns of Line Items.csv, listed from the driver's side. One row for each use of a driver: the driver, Read or Write, and what it controls, each by module and name as Line Items.csv writes them. Rows follow the drivers' order in Line Items.csv, Read before Write. A row with no Controlled Line Item is a module's own row; a line item that shows a dash is listed with its module's driver. A driver that could not be matched comes last, once for its cell, with no Driver Module and the cell as it is written. That includes a driver that sits in a row the model map leaves out, which About this map counts. The file is not written when Line Items.csv was not exported or lacks its Module Name column or a driver column."],
+  ["Layout", "Each table is laid out as Anaplan's own export of the same Model settings grid: each row's name first, then the grid's columns, with each cell's underlying value. Where a Format, a Summary or an Action holds a definition that can be said in words, the table says the words, and a row's details add the definition as it was read."],
+  ["Line Items", "The table lists line items: each names its module under Module Name, after its own name, and a module's own row is not listed. Applies To holds the dimensions a line item has, its module's where it has none of its own, and Applies To from says which. Three columns follow Anaplan's own. Ratio Numerator and Ratio Denominator name the line items a Ratio summary divides: the Summary's definition gives only their IDs. Format List names the list of a line item formatted as a list, as the General Lists table names it: the Format's definition gives only the list's ID. It is empty for any other format, for a list that is not in General Lists, such as a list subset or a line item subset, and when General Lists was not exported."],
+  ["Dynamic Cell Access", "Not a Model settings grid: the Read Access Driver and Write Access Driver columns of Line Items, listed from the driver's side. One row for each use of a driver: the driver, Read or Write, and what it controls, each by module and name as Line Items has them. Rows follow the drivers' order in Line Items, Read before Write. A row with no Controlled Line Item is a module's own: its driver is set on the module's own row, which the Line Items table does not list. A line item that shows a dash is listed with its module's driver. A driver that could not be matched comes last, once for its cell, with no Driver Module and the cell as it is written. That includes a driver that sits in a row the model map leaves out, which About this map counts. The table is not made when Line Items was not exported or lacks its Module Name column or a driver column."],
   ["Processes, Exports and Other Actions", "The Actions list split at its headings, in its own columns: definition, last run (start time and duration), notes, the processes that use each action and the dashboards it appears on."],
   ["Imports", "The Imports tab (source and target), then each import's columns from the Actions list (last run, duration, notes, Used in Processes, Used in Dashboards), matched on the import's ID. The Actions list's \"Import into …\" text is left out: Target Object and Target Type say the same."],
   ["Import Data Sources", "Each data source, with the imports that use it."],
-  ["Model Calendar", "Follows the assessment template. Months and days are their names, and Current Fiscal Year is shown with its dates, as the Model Calendar tab shows it. Settings that do not apply to this calendar type are blank; Model size (GB) and Captured by are left for you to fill in."],
+  ["Model Calendar", "Follows the assessment template. Months and days are their names, and Current Fiscal Year is shown with its dates, as the Model Calendar tab shows it. Settings that do not apply to this calendar type are blank."],
 ];
 
 /** What the user is told when not one grid could be read (progress.ts `Failure`); why each could not is the detail. */
 const NOTHING_READ = "Cardigan could not read any of this model's settings. Check that the model is open and that you can see its Model settings in Anaplan, "
   + `then choose Run again. ${SEND_LOG}`;
 
-/** The model's settings as the zip's files: Model Details.csv, then one file per grid that could be read, with Dynamic
+/** The model's settings as the result's tables: Model Details.csv, then one file per grid that could be read, with Dynamic
  * Cell Access.csv after Line Items.csv where that file has what it is made from. Once the export was asked to stop,
  * `progress` throws at its next step and `stop` before the next page of a grid's rows (bridge.ts `serveCore`), and that
  * ends it. */
@@ -61,7 +66,7 @@ export async function exportModel(progress: Progress, diagnostics: () => string,
     summary.splice(at.line, 0, `${file}: ${rows}`);
     fileRows.splice(at.row, 0, ["Files", `${file}.csv`, rows]);
   };
-  /** A file that is not in the zip, with the reason: among the notes, and as the file's row of the Details file. */
+  /** A file that is not in the result, with the reason: among the notes, and as the file's row of the Details file. */
   const leftOut = (file: string, why: string, at = place()) => {
     notes.splice(at.note, 0, `${file}: not exported (${why}).`);
     fileRows.splice(at.row, 0, ["Files", `${file}.csv`, `Not exported: ${why}`]);
@@ -123,7 +128,7 @@ export async function exportModel(progress: Progress, diagnostics: () => string,
     }
     log(`Actions rows by entity type: ${[...counts].map(([key, count]) => `${key}×${count}`).join(", ")}`);
     const missing = missingActionColumns(actions.columns.map(column => column.labels[0] ?? ""));
-    if (missing.length) note("Actions", `the Actions list came without ${missing.join(", ")}; the Diagnostics rows list the columns it had.`);
+    if (missing.length) note("Actions", `the Actions list came without ${missing.join(", ")}; the diagnostic log lists the columns it had.`);
   } catch (error) {
     for (const file of ["Processes", "Exports", "Other Actions"]) fail(file, error);
   }
