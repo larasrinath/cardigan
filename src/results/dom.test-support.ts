@@ -133,8 +133,6 @@ export class FakeElement {
   offsetHeight = 0;
   selectionStart = 0;
   selectionEnd = 0;
-  /** How often the script itself clicked the element, as it does to start a download. */
-  clicks = 0;
   /** How often the script asked for the element to be brought into sight. */
   broughtIntoSight = 0;
   private readonly listeners = new Map<string, Listener[]>();
@@ -184,10 +182,6 @@ export class FakeElement {
   set inert(on: boolean) { this.flag("inert", on); }
   get title(): string { return this.attributes.get("title") ?? ""; }
   set title(value: string) { this.attributes.set("title", value); }
-  get href(): string { return this.attributes.get("href") ?? ""; }
-  set href(value: string) { this.attributes.set("href", value); }
-  get download(): string { return this.attributes.get("download") ?? ""; }
-  set download(value: string) { this.attributes.set("download", value); }
   get checked(): boolean { return this.ticked ?? this.attributes.has("checked"); }
   set checked(on: boolean) { this.ticked = on; }
   /** A text box holds what was typed; a list holds the value of the option chosen, or of the one the markup selects. */
@@ -315,12 +309,6 @@ export class FakeElement {
     return false;
   }
   focus(): void { if (this.focusable) this.page.focused = this; }
-  /** The script's own click: on a link with a download name it saves the link's address under that name. */
-  click(): void {
-    this.clicks++;
-    if (this.localName === "a" && this.attributes.has("download") && this.isConnected) this.page.downloads.push({ name: this.download, href: this.href });
-    this.dispatch("click");
-  }
 
   /* What a user does. A disabled control ignores it; an element the user cannot get at is the test's mistake. A user
    * acts on the page as the browser last drew it. */
@@ -387,8 +375,6 @@ export class FakePage {
    * at once (`taken`). One that can no longer hold it, being hidden, disabled, inert or in a closed details element,
    * has it until the browser next draws the page (`frame`). */
   focused: FakeElement | null = null;
-  /** What the script saved through a link: the file's name and the address of its content. */
-  readonly downloads: { name: string; href: string }[] = [];
   /** The elements the script made itself. */
   readonly created: FakeElement[] = [];
   /** What document.execCommand was asked, and what it answers. */

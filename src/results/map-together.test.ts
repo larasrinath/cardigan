@@ -201,14 +201,11 @@ class FakePort {
 let page: FakePage;
 let port: FakePort;
 let around: Surroundings;
-/** What the page saved through a download. */
-let saved: Blob[];
 
 beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(NOW);
   browser.around = around = new Surroundings();
-  saved = [];
   const held = new Map<string, string>();
   vi.stubGlobal("history", { state: null, replaceState: () => undefined });
   vi.stubGlobal("window", { matchMedia: () => ({ matches: false, addEventListener: () => undefined }), scrollTo: () => undefined, innerWidth: 1280, innerHeight: 800 });
@@ -222,8 +219,6 @@ beforeEach(() => {
   vi.stubGlobal("requestAnimationFrame", (callback: () => void) => { callback(); return 0; });
   vi.stubGlobal("navigator", { clipboard: { writeText: async () => undefined } });
   vi.stubGlobal("chrome", { tabs: { connect: () => port = new FakePort() }, runtime: { lastError: undefined } });
-  vi.spyOn(URL, "createObjectURL").mockImplementation(blob => { saved.push(blob as Blob); return "blob:saved"; });
-  vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
 });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
@@ -341,12 +336,10 @@ describe("A model's result on the results page, with the map's real graph and th
     const topProduct = tableRow("Top Product");
     expect([onThePage["Module Name"], onThePage.Format, onThePage.Summary, onThePage.Formula, topProduct.Format])
       .toEqual([REVENUE, "Number, 2 decimal places, %", "Ratio = Margin / Revenue", "Margin / Revenue", "List: Products"]);
-    // And the file itself, as "Download this table" saves it. A spreadsheet numbers its lines from the header, which is
-    // row 1: the line item is on row 13, after the three headings and the modules' own rows above it.
-    page.id("dlCsv").press();
-    const lines = (await saved[0].text()).split("\r\n");
-    const fileRow = (name: string): number => lines.findIndex(line => line.startsWith(`${name},`)) + 1;
-    expect([page.downloads[0].name, lines[0].startsWith(",Format,Formula,Summary,"), fileRow("Margin %")]).toEqual(["Line Items.csv", true, 13]);
+    // And the file itself, as the result holds it. A spreadsheet numbers a file's lines from the header, which is row 1:
+    // the line item is on row 13, after the three headings and the modules' own rows above it.
+    const fileRow = (name: string): number => LINE_ITEM_ROWS.findIndex(cells => cells[""] === name) + 2;
+    expect(fileRow("Margin %")).toBe(13);
 
     toMap();
     // A key pressed with the focus in the map is the map's: the slash goes to the map's own search.
@@ -378,7 +371,7 @@ describe("A model's result on the results page, with the map's real graph and th
     expect(listed("depends")).toEqual([["Revenue", REVENUE], ["Margin", REVENUE]]);
     // And where it comes from: the file by the name it is saved under, and its row there as the spreadsheet numbers it.
     expect(text(".map-source")).toBe("Line Items.csv, row 13");
-    expect(text(".map-source")).toBe(`${page.downloads[0].name}, row ${fileRow("Margin %")}`);
+    expect(text(".map-source")).toBe(`Line Items.csv, row ${fileRow("Margin %")}`);
     // With the selection cleared, the line counts what this view holds: the module's four line items, the three modules
     // beside them, and the ten links among them.
     part('.map-tracebar [data-map-act="clear"]').press();

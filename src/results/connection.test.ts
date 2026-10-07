@@ -143,10 +143,10 @@ describe("The results page's connection to the Anaplan tab", () => {
 
     expect(client.state).toEqual({ phase: "done", result: expected, received: NOW });
     expect(states[states.length - 1]).toEqual({ phase: "done", result: expected, received: NOW });
-    // What the page downloads is what the tab's own result gives, byte for byte.
+    // What the page holds is the tab's own result: written as a zip, the two are the same bytes.
     if (client.state.phase !== "done") throw new Error("no result");
     expect(resultZip(client.state.result, NOW)).toEqual(resultZip(expected, NOW));
-    // The result keeps the one time it was complete at, so its zip is the same bytes however late it is downloaded.
+    // The result keeps the one time it was complete at, however late it is asked for: a zip stamped with it is the same bytes.
     const { result, received } = client.state;
     const first = resultZip(result, received);
     vi.setSystemTime(new Date(Date.UTC(2026, 9, 3, 16, 30, 0)));

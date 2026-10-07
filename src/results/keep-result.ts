@@ -9,9 +9,9 @@ import { crc32 } from "../zip.js";
  *   local storage, IndexedDB and chrome.storage keep what they hold for every tab and every later visit. A browser may
  *   give a tab it brings back (a duplicate, a reopened tab, a restored window) the session storage the tab had, which is
  *   one reason the head below is checked.
- * - What: one result per results tab, with the time it was complete (its zip is stamped with that time, so the zip
- *   downloaded after a refresh has the same bytes as the one before it), the ID of the Anaplan tab it came from and the
- *   extension's version. Keeping a result takes the place of the one kept before.
+ * - What: one result per results tab, with the time it was complete (the page says by it when a result that it
+ *   brought back was analysed), the ID of the Anaplan tab it came from and the extension's version. Keeping a result
+ *   takes the place of the one kept before.
  * - How: session storage holds a few megabytes of text, and a large model's result is larger than that as JSON. So the
  *   JSON is compressed (gzip, by the browser's own CompressionStream) and the bytes are written as text, 15 bits to a
  *   character (`bytesToText`), in parts of PART_CHARS characters under one key each. The head is written after the last
