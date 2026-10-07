@@ -2,12 +2,13 @@
 
 ## 0.9.0 (7 October 2026)
 
-A model's Dynamic Cell Access listed from the driver's side, and a page as wide as the window.
+A model's Dynamic Cell Access listed from the driver's side, a page as wide as the window, and a navigation that can be put away.
 
 - **Dynamic Cell Access.** A model's export has one more table, right after Line Items: `Dynamic Cell Access.csv`, with its page. The Line Items list names an access driver on the line item it controls, in that row's **Read Access Driver** and **Write Access Driver** cells. This table lists the same uses with the driver first: one row for each use of a driver, with the driver's module and name, **Read** or **Write**, and the module and name of what it controls. A line item that one driver controls for reading and for writing has two rows. A driver that could not be matched to a line item comes last, written as its cell is, and the page says how many there are. A model that drives no access gets the table with no rows.
-- **Nothing more is read.** The table is made from the Line Items grid the export already reads, by the rules the model map uses for its access links, so the two agree. It is not written when Line Items was not exported or lacks its Module Name column or one of the two driver columns; the Details file then says why.
+- **Nothing more is read.** The table is made from the Line Items grid the export already reads, by the rules the model map uses for its access links, so the two agree wherever the map places a row; the table also lists a driver named on a row the map leaves out. It is not written when Line Items was not exported or lacks its Module Name column or one of the two driver columns; the Details file then says why.
 - **In `Model Details.csv`.** A **Files** row and a **How to read** row for the new file.
 - **The page uses the window's width.** It was held to 1600 pixels and centred. Now the navigation stands at the window's left edge and a table or the model map takes all the room beside it; the space around them is smaller too. The Overview's notes keep to a readable line length.
+- **The navigation can be put away.** The button beside the Cardigan name hides the navigation and brings it back, so that a table or the model map can take the whole window. The browser remembers the choice. In a narrow window the button opens the navigation over the content, as before.
 - **What stays the same.** A model's other files, `Line Items.csv` among them, hold the bytes 0.8.1 writes, apart from the version number and those two rows. An app's files are unchanged apart from the version number, and so is the manifest.
 
 ## 0.8.1 (6 October 2026)

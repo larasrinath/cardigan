@@ -120,6 +120,7 @@ Closing the results page stops the reading.
 - **Columns** picks the columns shown. An app's ID columns, **Card #** and **Section #** start hidden.
 - Click a row to read every value in full. In an app, a page's name shows that page's cards, and a card's title opens the card with its grid sections, filters, formatting and buttons.
 - The sun or moon button switches the theme.
+- The page uses the window's whole width. The button beside the Cardigan name hides the navigation, so that a table or the model map takes all of it, and brings it back; your browser remembers the choice.
 
 ### Downloads
 
@@ -169,6 +170,7 @@ Closing the results page stops the reading.
 - A large view is shown whole with names cut short: point at a box to read its name. One too large even for that opens on its start, and **Whole map** shows all of it.
 - The map's view is not kept: a refresh, **Run again** or **Forget this result** starts it afresh.
 - A result over 64 MB as JSON, or 9 MB compressed, is not kept for a refresh; the page says so.
+- In **Dynamic Cell Access**, a driver that cannot be matched to a line item of the export is listed last, written as its cell is, with no Driver Module.
 - Anaplan can change the internal services Cardigan reads without notice: see [NOTICE.md](NOTICE.md).
 
 ## For developers
