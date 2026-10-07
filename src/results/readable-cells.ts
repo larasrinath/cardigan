@@ -1,6 +1,6 @@
 /** Some cells of a model's settings grids hold a definition as JSON, because that is what Anaplan's own export of the grid
  * writes: a line item's Format (`{"minimumSignificantDigits":4,…,"dataType":"NUMBER"}`), its Summary, and an action's
- * definition in the Actions list. The CSV keeps that text exactly: other tools read it. The page says such a cell in words,
+ * definition in the Actions list. The result keeps that text exactly, and a row's drawer shows it. The page says such a cell in words,
  * and this module makes the words. It takes the cell's text and gives plain text back, which the caller escapes. It reads
  * no result and no page, and it never throws: a cell it cannot read gives undefined, and the caller shows the cell as it is.
  *

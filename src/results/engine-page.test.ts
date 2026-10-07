@@ -243,7 +243,7 @@ describe("The results page itself against the engine in the Anaplan tab", () => 
     // By object at first: nine objects, in the order of an index. Territory is used twice by one card, and is one row.
     const cells = () => page.all("#tableWrap tbody tr").map(row => row.children.map(cell => cell.textContent.trim()));
     expect([page.texts("#view .view-note"), page.all("#tableWays button").map(button => [button.textContent.trim(), button.getAttribute("aria-pressed")]), page.id("rowCount").textContent])
-      .toEqual([["10 uses of 9 objects. The CSV lists every use."], [["By object", "true"], ["Every use", "false"]], "1–9 of 9 rows"]);
+      .toEqual([["10 uses of 9 objects. Choose Every use to list each one."], [["By object", "true"], ["Every use", "false"]], "1–9 of 9 rows"]);
     expect(cells()).toEqual([
       ["Module", "Demand", "—", "1", "1", "Data source (custom view)"],
       ["Line item", "Include?", "Filter flags", "1", "1", "Filter"],

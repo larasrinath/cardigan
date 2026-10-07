@@ -217,7 +217,7 @@ describe("The Where used table, by object", () => {
     expect(view.rows.slice(1)).toEqual(numbers.map(card => ["Line item", String(20 + card), "Images", 1, 1, "Image", String(286000000100 + card)]));
     // The module's uses are a click away: every card of the page, in the page's order.
     expect(view.objects[0].uses.map(used => [used.page, used.card, used.usedAs])).toEqual(numbers.map(card => ["Home", card, "Data source"]));
-    expect(view.note).toBe("40 uses of 21 objects. The CSV lists every use.");
+    expect(view.note).toBe("40 uses of 21 objects. Choose Every use to list each one.");
     // The page's search finds line item 21 and nothing called a plan. No row holds the name of the app's one model, which
     // would answer to "21" and to "plan" in every row.
     expect(selectRows(view.rows, search("21")).map(row => row[1])).toEqual(["21"]);
@@ -244,7 +244,7 @@ describe("The Where used table, by object", () => {
     });
     expect(view.objects.map(object => object.model)).toEqual(Array.from({ length: 6 }, () => "Demand planning"));
     expect([view.totalUses, view.multiModel, view.ambiguousUses, view.unlistedUses]).toEqual([10, false, 0, 0]);
-    expect(view.note).toBe("10 uses of 6 objects. The CSV lists every use.");
+    expect(view.note).toBe("10 uses of 6 objects. Choose Every use to list each one.");
   });
 
   it("takes the same ID in two models for two objects, and in one model for one", () => {
@@ -265,7 +265,7 @@ describe("The Where used table, by object", () => {
     ]);
     expect(two.objects.map(object => object.uses.map(used => used.row))).toEqual([[1], [0, 2], [3], [4]]);
     expect([two.multiModel, two.ambiguousUses, two.unlistedUses]).toEqual([true, 0, 0]);
-    expect(two.note).toBe("5 uses of 4 objects. The CSV lists every use.");
+    expect(two.note).toBe("5 uses of 4 objects. Choose Every use to list each one.");
     // The very same file in an app whose pages all read one model: one module and one dimension, and no Model column. The
     // module goes by the name most of its uses give.
     const one = viewOf(app(pages(demand("Demand review"), demand("Demand detail"), demand("Supply review")), uses));
@@ -373,11 +373,11 @@ describe("The Where used table, by object", () => {
     ]);
     expect(view.objects[1].uses.map(used => used.page)).toEqual(["Ghost page", "Draft page"]);
     expect([view.multiModel, view.ambiguousUses, view.unlistedUses]).toEqual([true, 0, 2]);
-    expect(view.note).toBe("4 uses of 3 objects. The CSV lists every use. 2 uses are on a page whose model is not known, so their objects are listed without a model.");
+    expect(view.note).toBe("4 uses of 3 objects. Choose Every use to list each one. 2 uses are on a page whose model is not known, so their objects are listed without a model.");
     // An app whose pages name one model has nothing to tell apart: every object is that model's.
     const one = viewOf(app(pages(demand("Demand review"), demand("Supply review"), page("Draft page", NONE, NONE)), uses));
     expect([one.rows, one.objects[0].model]).toEqual([[["Module", "REV01 Sales", "—", 4, 4, "Data source", SALES]], "Demand planning"]);
-    expect([one.multiModel, one.ambiguousUses, one.unlistedUses, one.note]).toEqual([false, 0, 0, "4 uses of 1 object. The CSV lists every use."]);
+    expect([one.multiModel, one.ambiguousUses, one.unlistedUses, one.note]).toEqual([false, 0, 0, "4 uses of 1 object. Choose Every use to list each one."]);
     // And an app whose pages name no model at all has none to name.
     const none = viewOf(app(pages(page("Demand review", NONE, NONE)), uses));
     expect([none.rows, none.objects[0].model, none.multiModel]).toEqual([[["Module", "REV01 Sales", "—", 4, 4, "Data source", SALES]], "—", false]);
@@ -402,13 +402,13 @@ describe("The Where used table, by object", () => {
     expect(view.objects.map(object => object.uses.map(used => used.row))).toEqual([[0, 1], [2, 3, 4]]);
     expect([view.multiModel, view.ambiguousUses, view.unlistedUses]).toEqual([true, 2, 0]);
     // The model that is not known, then the names that pages share: a page that names no model may still have cards.
-    const shared = "The CSV has only the name of a use's page, so the uses on those pages cannot be told apart.";
-    expect(view.note).toBe("5 uses of 2 objects. The CSV lists every use. 2 uses are on a page whose model is not known, so their objects are listed without a model. "
+    const shared = "The table has only the name of a use's page, so the uses on those pages cannot be told apart.";
+    expect(view.note).toBe("5 uses of 2 objects. Choose Every use to list each one. 2 uses are on a page whose model is not known, so their objects are listed without a model. "
       + `3 page names are each shared by more than one page: "Overview" (2 pages), "Summary" (2 pages), "Notes" (2 pages). ${shared} A count with "+" is at least that number.`);
     // One such use is said in the singular. It is on one page and one card, whichever of the two pages that is.
     const single = viewOf(app(pages(demand("Overview"), supply("Overview")), whereUsed(use("Module", "REV01 Sales", NONE, "Overview", 1, "Data source", SALES))));
     expect(single.rows).toEqual([["Module", "REV01 Sales", "—", "—", 1, 1, "Data source", SALES]]);
-    expect(single.note).toBe("1 use of 1 object. The CSV lists every use. 1 use is on a page whose model is not known, so its object is listed without a model. "
+    expect(single.note).toBe("1 use of 1 object. Choose Every use to list each one. 1 use is on a page whose model is not known, so its object is listed without a model. "
       + `1 page name is shared by more than one page: "Overview" (2 pages). ${shared}`);
   });
 
@@ -556,18 +556,18 @@ describe("The Where used table, by object", () => {
     expect(viewOf(app(PAGES, USES)).objects[1].uses[0]).not.toHaveProperty("cardId");
   });
 
-  it("says in a note how many uses and objects there are, and that the CSV lists every use", () => {
+  it("says in a note how many uses and objects there are, and where each use is listed", () => {
     const sized = (uses: number, objects: number) => viewOf(app(PAGES, whereUsed(...Array.from({ length: uses }, (_, index) =>
       use("Line item", `Line item ${index % objects}`, "REV01 Sales", "Overview", Math.floor(index / objects) + 1, "Field", String(286000000000 + index % objects)))))).note;
-    expect(sized(796, 143)).toBe("796 uses of 143 objects. The CSV lists every use.");
-    expect(sized(2, 1)).toBe("2 uses of 1 object. The CSV lists every use.");
-    expect(sized(1, 1)).toBe("1 use of 1 object. The CSV lists every use.");
+    expect(sized(796, 143)).toBe("796 uses of 143 objects. Choose Every use to list each one.");
+    expect(sized(2, 1)).toBe("2 uses of 1 object. Choose Every use to list each one.");
+    expect(sized(1, 1)).toBe("1 use of 1 object. Choose Every use to list each one.");
   });
 
   it("gives an empty view for an empty file", () => {
     const view = viewOf(app(PAGES, whereUsed()));
     expect([view.rows, view.objects, view.totalUses, view.multiModel, view.ambiguousUses, view.unlistedUses]).toEqual([[], [], 0, false, 0, 0]);
-    expect(view.note).toBe("No uses. The CSV has no rows.");
+    expect(view.note).toBe("No uses.");
     expect(view.columns.map(shown => shown.label)).toEqual(ONE_MODEL_HEADERS);
     // An empty file of an app of two models keeps the Model column, and an app without pages has no model to name.
     expect(viewOf(app(pages(demand("One"), supply("Two")), whereUsed())).headers).toEqual(BY_OBJECT_HEADERS);
@@ -626,7 +626,7 @@ describe("The Where used table, by object", () => {
     expect(view?.objects.map(object => object.uses.map(used => [used.row, used.card]))).toEqual([[[0, ""], [2, "true"]], [[1, ""]]]);
   });
 
-  it("reads the result and changes nothing in it: the CSV stays as it is", () => {
+  it("reads the result and changes nothing in it: the file stays as it is", () => {
     const result = app(PAGES, USES, cards(["Overview", 1, "card-a"]));
     const before = structuredClone(result);
     const csv = tableCsv(result.tables[1]);
@@ -665,7 +665,7 @@ describe("The Where used table, by object", () => {
     expect(view?.rows).toHaveLength(600);
     expect(expected.size).toBe(600);
     const checked = viewOf(result);
-    expect(checked.note).toBe("5000 uses of 600 objects. The CSV lists every use.");
+    expect(checked.note).toBe("5000 uses of 600 objects. Choose Every use to list each one.");
     // Each object has exactly the uses that were made for it, by another count than the view's own.
     expect(new Map(checked.objects.map(object => [`${object.type}|${object.model}|${object.id}`, object.uses.map(used => used.row)]))).toEqual(expected);
   });
@@ -674,8 +674,8 @@ describe("The Where used table, by object", () => {
 describe("The Where used table by object, where pages share a name", () => {
   // The file has only the name of a use's page. Two pages called Overview, with a page of another name between them.
   const ONE_NAME = '1 page name is shared by more than one page: "Overview" (2 pages).';
-  const SHARED = "The CSV has only the name of a use's page, so the uses on those pages cannot be told apart.";
-  const NOT_KNOWN = "The CSV has only the name of a use's page, so which of those pages a use is on is not known.";
+  const SHARED = "The table has only the name of a use's page, so the uses on those pages cannot be told apart.";
+  const NOT_KNOWN = "The table has only the name of a use's page, so which of those pages a use is on is not known.";
   const ON_OVERVIEW = 'on a page name that more than one page has: "Overview" (2 pages).';
   /** What a view says of each object's pages and cards: the least, and the most where that is more. */
   const spread = (view: WhereUsedView) => Object.fromEntries(view.objects.map(object => [object.name, [object.pages, object.pagesMost, object.cards, object.cardsMost]]));
@@ -699,11 +699,11 @@ describe("The Where used table by object, where pages share a name", () => {
     // Which is what the app has: the same app with its last page under a name of its own counts the same.
     const told = viewOf(threePages("Overview, the other one", [grid("card-4", SALES_MODULE)]));
     expect(told.rows).toEqual(view.rows);
-    expect(["sharedPageNames" in told, told.note]).toEqual([false, "12 uses of 4 objects. The CSV lists every use."]);
+    expect(["sharedPageNames" in told, told.note]).toEqual([false, "12 uses of 4 objects. Choose Every use to list each one."]);
     // Every count is exact here, so none is marked. The view still says that a name is shared, each object with uses
     // on it says so, and so does each of those uses: its page is one of two.
     expect(view.sharedPageNames).toEqual([["Overview", 2]]);
-    expect(view.note).toBe(`12 uses of 4 objects. The CSV lists every use. ${ONE_NAME} ${SHARED}`);
+    expect(view.note).toBe(`12 uses of 4 objects. Choose Every use to list each one. ${ONE_NAME} ${SHARED}`);
     expect(view.objects.map(object => object.note)).toEqual([`It has 2 uses ${ON_OVERVIEW} ${NOT_KNOWN}`, `It has 1 use ${ON_OVERVIEW} ${NOT_KNOWN}`,
       `It has 3 uses ${ON_OVERVIEW} ${NOT_KNOWN}`, `It has 3 uses ${ON_OVERVIEW} ${NOT_KNOWN}`]);
     // Two cards are card 1 of an Overview, with two IDs: which of them a use is on, the file does not say, so neither
@@ -729,7 +729,7 @@ describe("The Where used table by object, where pages share a name", () => {
       ["Dimension", "Time", "—", 3, 5, "Columns", "20000000003"],
     ]);
     expect(spread(view)).toEqual({ "REV01 Sales": [2, 3, 3, undefined], "REV02 Prices": [1, 2, 2, undefined], Products: [3, undefined, 5, undefined], Time: [3, undefined, 5, undefined] });
-    expect(view.note).toBe(`15 uses of 4 objects. The CSV lists every use. ${ONE_NAME} ${SHARED} A count with "+" is at least that number.`);
+    expect(view.note).toBe(`15 uses of 4 objects. Choose Every use to list each one. ${ONE_NAME} ${SHARED} A count with "+" is at least that number.`);
     expect(view.objects.map(object => object.note)).toEqual([`It has 2 uses ${ON_OVERVIEW} ${NOT_KNOWN} It is on 2 or 3 pages.`, `It has 2 uses ${ON_OVERVIEW} ${NOT_KNOWN} It is on 1 or 2 pages.`,
       `It has 4 uses ${ON_OVERVIEW} ${NOT_KNOWN}`, `It has 4 uses ${ON_OVERVIEW} ${NOT_KNOWN}`]);
     expect(view.objects.map(usedOn)).toEqual(["at least 2 pages, 3 cards", "at least 1 page, 2 cards", "3 pages, 5 cards", "3 pages, 5 cards"]);
@@ -764,7 +764,7 @@ describe("The Where used table by object, where pages share a name", () => {
       ["Dimension", "Time", "—", "1+", 3, "Columns", "20000000003"],
     ]);
     expect(spread(view)).toEqual({ "REV01 Sales": [2, undefined, 2, undefined], "Margin %": [2, 3, 3, 4], Products: [1, undefined, 1, undefined], Time: [1, 2, 3, undefined] });
-    expect(view.note).toBe(`10 uses of 4 objects. The CSV lists every use. ${ONE_NAME} ${SHARED} A count with "+" is at least that number.`);
+    expect(view.note).toBe(`10 uses of 4 objects. Choose Every use to list each one. ${ONE_NAME} ${SHARED} A count with "+" is at least that number.`);
     // What the drawer is given: the line under the object's name, the note that says what is open, and for each use on
     // the shared name how many pages have it. The module's two uses look alike, and each says its page is one of two.
     expect(view.objects.map(object => [usedOn(object), object.note])).toEqual([
@@ -788,7 +788,7 @@ describe("The Where used table by object, where pages share a name", () => {
     const today = viewOf(app(pages(demand("Overview"), demand("Stores")), USES_ALIKE));
     // One page called Overview: every count is the number of names and numbers, and nothing is said of shared names.
     expect(today.rows.map(row => row.slice(3, 5))).toEqual([[1, 1], [2, 3], [1, 1], [1, 3]]);
-    expect([shared(demand("Overview")), today.note]).toEqual([undefined, "10 uses of 4 objects. The CSV lists every use."]);
+    expect([shared(demand("Overview")), today.note]).toEqual([undefined, "10 uses of 4 objects. Choose Every use to list each one."]);
     // The same page listed twice is one page, and so is a page beside a page of its name that has no cards: not
     // published, or not analysed. Either way the view is the one above.
     for (const rows of [[demand("Overview", { "Page ID": guid(1) }), demand("Overview", { "Page ID": guid(1) })],
@@ -838,7 +838,7 @@ describe("The Where used table by object, where pages share a name", () => {
     // on every use on the name, which is what the drawer puts into "3 pages have this name", and in both notes.
     expect(view.sharedPageNames).toEqual([["Sales board", listed.length]]);
     expect(view.objects.flatMap(object => object.uses.map(used => used.pagesOfName))).toEqual(Array.from({ length: 12 }, () => listed.length));
-    expect(view.note).toBe('12 uses of 4 objects. The CSV lists every use. 1 page name is shared by more than one page: "Sales board" (3 pages, 1 of them without cards). '
+    expect(view.note).toBe('12 uses of 4 objects. Choose Every use to list each one. 1 page name is shared by more than one page: "Sales board" (3 pages, 1 of them without cards). '
       + `${SHARED} A count with "+" is at least that number.`);
     expect(view.objects[0].note).toBe(`It has 2 uses on a page name that more than one page has: "Sales board" (3 pages, 1 of them without cards). ${NOT_KNOWN} It is on 1 or 2 pages.`);
     // The counts go by the two pages that have cards, as they do without the third page: a module on card 1 of one page
@@ -929,10 +929,10 @@ describe("The Where used table by object, where pages share a name", () => {
     const noted = (count: number) => viewOf(app(pages(...names.slice(0, count).flatMap(name => [demand(name), demand(name)]), demand("Stores"), demand("Draft"), demand("Draft")),
       whereUsed(...names.slice(0, count).map(name => use("Dimension", "Time", NONE, name, 1, "Columns", "20000000003")), use("Dimension", "Time", NONE, "Stores", 1, "Columns", "20000000003")))).note;
     // A name that pages share, but that no use is on, is not one of them: Draft.
-    expect(noted(0)).toBe("1 use of 1 object. The CSV lists every use.");
-    expect(noted(1)).toBe(`2 uses of 1 object. The CSV lists every use. ${ONE_NAME} ${SHARED}`);
-    expect(noted(3)).toBe(`4 uses of 1 object. The CSV lists every use. 3 page names are each shared by more than one page: "Overview" (2 pages), "Summary" (2 pages), "Plan" (2 pages). ${SHARED}`);
-    expect(noted(5)).toBe(`6 uses of 1 object. The CSV lists every use. 5 page names are each shared by more than one page: "Overview" (2 pages), "Summary" (2 pages), "Plan" (2 pages) and 2 more. ${SHARED}`);
+    expect(noted(0)).toBe("1 use of 1 object. Choose Every use to list each one.");
+    expect(noted(1)).toBe(`2 uses of 1 object. Choose Every use to list each one. ${ONE_NAME} ${SHARED}`);
+    expect(noted(3)).toBe(`4 uses of 1 object. Choose Every use to list each one. 3 page names are each shared by more than one page: "Overview" (2 pages), "Summary" (2 pages), "Plan" (2 pages). ${SHARED}`);
+    expect(noted(5)).toBe(`6 uses of 1 object. Choose Every use to list each one. 5 page names are each shared by more than one page: "Overview" (2 pages), "Summary" (2 pages), "Plan" (2 pages) and 2 more. ${SHARED}`);
     // The object has one use on each: one page and one card of each name, whichever page that is. Its own note lists them the same way.
     const view = viewOf(app(pages(...names.flatMap(name => [demand(name), demand(name)])), whereUsed(...names.map(name => use("Dimension", "Time", NONE, name, 1, "Columns", "20000000003")))));
     expect([view.rows, view.objects[0].note]).toEqual([[["Dimension", "Time", "—", 5, 5, "Columns", "20000000003"]],
@@ -1003,7 +1003,7 @@ describe("The Where used table by object, where pages share a name", () => {
     expect(view.objects.map(object => Object.keys(object).sort().join())).toEqual(Array.from({ length: 6 }, () => "cards,id,model,module,name,pages,roles,type,uses"));
     expect(new Set(view.objects.flatMap(object => object.uses.map(used => Object.keys(used).join())))).toEqual(new Set(["row,page,card,usedAs"]));
     expect(view.rows.every(row => typeof row[3] === "number" && typeof row[4] === "number")).toBe(true);
-    expect([view.note, view.objects.map(usedOn)]).toEqual(["10 uses of 6 objects. The CSV lists every use.",
+    expect([view.note, view.objects.map(usedOn)]).toEqual(["10 uses of 6 objects. Choose Every use to list each one.",
       ["2 pages, 2 cards", "2 pages, 3 cards", "1 page, 1 card", "1 page, 1 card", "1 page, 1 card", "1 page, 1 card"]]);
     // The line under an object's name reads as the page wrote it before, for any object.
     const object = (pagesOn: number, cardsOn: number, most: Partial<WhereUsedObject> = {}): WhereUsedObject =>
