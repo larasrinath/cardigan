@@ -105,8 +105,8 @@ export interface FileView {
   table: ResultTable;
   note?: string;
   /** For a table that lists no row although its file has rows, because the file's rule lists none of them: what the
-   * table says in the rows' place. The file was read and has rows, which `note` counts, so the table must not say that
-   * nothing was found. */
+   * table says in the rows' place. The file has rows, which `note` counts, so the table must not say that nothing was
+   * found. */
   none?: string;
   /** For a file that has no rows: what its table says in the rows' place, where the page's own sentence, that nothing
    * was found, would not say what an empty file of this kind means. */
@@ -138,13 +138,17 @@ const calendarView: FileRule = file => {
   const rows = file.rows.filter(row => cellText(row[about]) !== ABOUT_MODEL);
   const left = file.rows.length - rows.length;
   if (!left) return undefined;
-  // The line says where the rows are, so that the table's count is not taken for all that was read. The overview has
-  // each such row's setting with its value, which it reads by those two columns (`modelFacts`): of a file without them
-  // it has nothing, and the line says only that the rows are not shown.
-  const said = columnIndex(file, "Setting") !== undefined && columnIndex(file, "Value") !== undefined;
-  const where = said ? `not listed here: the Overview has ${left === 1 ? "its value" : "their values"}, under About this export` : "not shown";
+  // The line says where the rows are, so that the table's count is not taken for all the file has. The overview has
+  // the setting and the value of each such row that holds a value, and of no other (`factsOf`): the export leaves the
+  // value out where it cannot know it. So the line says how many of the rows the overview has, and where none holds a
+  // value, or the file lacks the columns the overview reads them by, only that the rows are not shown.
+  const valued = factsOf(file).length;
+  const where = valued === 0 ? "not shown"
+    : valued === left ? `not listed here: the Overview has ${left === 1 ? "its value" : "their values"}, under About this export`
+    : `not listed here: ${valued} ${valued === 1 ? "holds" : "hold"} a value, which the Overview has under About this export`;
   const note = `${left} ${left === 1 ? "row about the model is" : "rows about the model are"} ${where}.`;
-  return { table: { ...file, rows }, note, ...(rows.length ? {} : { none: "Every row that was read is about the model." }) };
+  // The rows are the template's, which the export fills in: they were not read as rows, so the table does not say so.
+  return { table: { ...file, rows }, note, ...(rows.length ? {} : { none: "Every row is about the model." }) };
 };
 
 /** A model's Modules file, which lists every module (model/export.ts writes it under this name). */
@@ -270,20 +274,20 @@ export function fileView(result: AnalysisResult, file: ResultTable): FileView {
   return result.kind === "model" ? inWords(view) : view;
 }
 
-/** What a model's Model Calendar file says about the model itself: each setting with its value, in the file's order. A
- * setting without a value, as the export leaves the ones it cannot know, is left out. */
+/** What a Model Calendar file says about the model itself: each setting with its value, in the file's order. A setting
+ * without a value, as the export leaves the ones it cannot know, is left out. Nothing for a file without the columns
+ * these are read by. */
+function factsOf(table: ResultTable): [setting: string, value: string][] {
+  const about = columnIndex(table, "Section");
+  const setting = columnIndex(table, "Setting");
+  const value = columnIndex(table, "Value");
+  if (about === undefined || setting === undefined || value === undefined) return [];
+  return table.rows.filter(row => cellText(row[about]) === ABOUT_MODEL && cellText(row[value]).trim() !== "").map(row => [cellText(row[setting]), cellText(row[value])]);
+}
+
+/** What a model's Model Calendar file says about the model itself (`factsOf`): what the overview says of it. */
 export function modelFacts(result: AnalysisResult): [setting: string, value: string][] {
-  const facts: [string, string][] = [];
-  for (const table of result.kind === "model" ? result.tables.filter(candidate => candidate.file === MODEL_CALENDAR_FILE) : []) {
-    const about = columnIndex(table, "Section");
-    const setting = columnIndex(table, "Setting");
-    const value = columnIndex(table, "Value");
-    if (about === undefined || setting === undefined || value === undefined) continue;
-    for (const row of table.rows) {
-      if (cellText(row[about]) === ABOUT_MODEL && cellText(row[value]).trim() !== "") facts.push([cellText(row[setting]), cellText(row[value])]);
-    }
-  }
-  return facts;
+  return result.kind === "model" ? result.tables.filter(candidate => candidate.file === MODEL_CALENDAR_FILE).flatMap(factsOf) : [];
 }
 
 /** The order of a model's files in the navigation and among the overview's tiles: the order of Anaplan's own Model
@@ -401,10 +405,9 @@ const TILE_LABELS: ReadonlyMap<string, string> = new Map([
 export interface ModelRow { model: string; workspace: string; modelId: string }
 export interface Overview {
   /** Every file but the Details file, in the navigation's order (`listedTables`), with the number of rows its table lists.
-   * Where that is not the number of rows the file has, because its table does not list them all, `read` is the file's
-   * own number, the rows that were read: the tile says both, so the count the Details file gives for the file is on the
-   * overview either way. */
-  tiles: { label: string; count: number; read?: number }[];
+   * Where that is not the number of rows the file has, because its table does not list them all, `inAll` is the file's
+   * own number: the tile says both, so the count the Details file gives for the file is on the overview either way. */
+  tiles: { label: string; count: number; inAll?: number }[];
   /** An app's cards by the text of their Card type, most first. */
   cardTypes: [type: string, count: number][];
   /** An app's models: each different Model, Workspace and Model ID its pages name, in the pages' order. */
@@ -418,8 +421,8 @@ export interface Overview {
   /** The Details file's rows about files, as far as a file's tile does not say the same: a file that was not exported,
    * and a count that comes with a remark. Each is named as the page names the table: by the table's own label where the
    * result has the file, and otherwise by the file's name without its extension. A row that says only how many rows a
-   * file of the result has is left to the tile, which says that very number: as its count, or as the rows that were
-   * read where its table lists another number. */
+   * file of the result has is left to the tile, which says that very number: as its count, or as the rows there are
+   * in all where its table lists another number. */
   files: [table: string, value: string][];
   /** How to read these tables: the Details file's rows of that section. */
   howToRead: [detail: string, value: string][];
@@ -432,7 +435,7 @@ export function overviewOf(result: AnalysisResult): Overview {
   // words change no row, so the count needs the file's rule only.
   const tiles = listedTables(result).map(({ table }) => {
     const count = ruledView(result, table).table.rows.length;
-    return { label: TILE_LABELS.get(table.file) ?? cellText(table.label), count, ...(count === table.rows.length ? {} : { read: table.rows.length }) };
+    return { label: TILE_LABELS.get(table.file) ?? cellText(table.label), count, ...(count === table.rows.length ? {} : { inAll: table.rows.length }) };
   });
 
   const counts = new Map<string, number>();

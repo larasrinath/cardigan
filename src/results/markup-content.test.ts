@@ -194,12 +194,12 @@ describe("What the results page's markup shows", () => {
     expect(empty({ search: "x", filtered: new Set([0, 3]), context: "Stores" })[1]).toBe("Nothing in Cards matches the current search and column filters and page selection.");
     // With rows to show there is no such message.
     expect(parseMarkup(tableHtml(viewOf(CARDS, LINKS))).querySelectorAll(".empty")).toEqual([]);
-    // A table for which rows were read, none of which it lists, does not say that nothing was found: it says that none of
+    // A table whose file has rows, none of which it lists, does not say that nothing was found: it says that none of
     // the rows is its own, in the words it is given, as text. The line under its name says how many rows there are.
-    const left = { all: 0, note: "5 rows about the model are not listed here: the Overview has their values, under About this export.", none: "Every row that was read is <b>about</b> the model." };
-    expect(empty(left)).toEqual(["Cards has no rows of its own", "Every row that was read is <b>about</b> the model.", [], 0, ""]);
+    const left = { all: 0, note: "5 rows about the model are not listed here: 3 hold a value, which the Overview has under About this export.", none: "Every row is <b>about</b> the model." };
+    expect(empty(left)).toEqual(["Cards has no rows of its own", "Every row is <b>about</b> the model.", [], 0, ""]);
     const view = parseMarkup(tableHtml(viewOf(CARDS, LINKS, { rows: [], total: 0, from: 0, to: 0, ...left })));
-    expect([view.querySelectorAll(".view-note").map(text), view.querySelectorAll(".empty b").length, view.textContent.includes("Nothing was found")]).toEqual([["5 rows about the model are not listed here: the Overview has their values, under About this export."], 0, false]);
+    expect([view.querySelectorAll(".view-note").map(text), view.querySelectorAll(".empty b").length, view.textContent.includes("Nothing was found")]).toEqual([["5 rows about the model are not listed here: 3 hold a value, which the Overview has under About this export."], 0, false]);
     // Those words are for a table without rows only: one that a search leaves empty says so as ever.
     expect(empty({ search: "x", none: left.none }).slice(0, 2)).toEqual(["No results", "Nothing in Cards matches the current search."]);
     // A table whose file has no rows may have a sentence of its own for that, said as text in the place of the usual one.
@@ -305,12 +305,13 @@ describe("What the results page's markup shows", () => {
     expect([one.querySelectorAll(".panel h2").map(text), one.querySelector(".tb-fill")?.getAttribute("style")]).toEqual([["Cards by type"], "display:block;width:100%"]);
   });
 
-  it("says on a tile how many rows were read, under the rows its table lists, where the two are not the same number", () => {
-    const view = parseMarkup(overviewHtml(overviewWith({ tiles: [{ label: "Line Items", count: 3511, read: 3632 }, { label: "Model Calendar", count: 0, read: 1 }, { label: "Modules", count: 121 },
-      { label: "Odd", count: 1, read: 0 }] })));
-    // The number in large is the table's; the line under it says how many were read, each with its own word for one row and for several.
-    expect(view.querySelectorAll(".stat").map(tile => tile.children.map(text))).toEqual([["Line Items", "3511", "rows", "3632 rows read"], ["Model Calendar", "0", "rows", "1 row read"],
-      ["Modules", "121", "rows"], ["Odd", "1", "row", "0 rows read"]]);
+  it("says on a tile how many rows there are in all, under the rows its table lists, where the two are not the same number", () => {
+    const view = parseMarkup(overviewHtml(overviewWith({ tiles: [{ label: "Line Items", count: 3511, inAll: 3632 }, { label: "Model Calendar", count: 0, inAll: 1 }, { label: "Modules", count: 121 },
+      { label: "Odd", count: 1, inAll: 0 }] })));
+    // The number in large is the table's; the line under it says how many there are in all, each with its own word for one row and
+    // for several. It does not say that they were read: a table's rows may be a template's, as a Model Calendar's are.
+    expect(view.querySelectorAll(".stat").map(tile => tile.children.map(text))).toEqual([["Line Items", "3511", "rows", "3632 rows in all"], ["Model Calendar", "0", "rows", "1 row in all"],
+      ["Modules", "121", "rows"], ["Odd", "1", "row", "0 rows in all"]]);
     // Both lines under the number are the tile's small lines: the second needs no style of its own.
     expect(view.querySelectorAll(".stat").map(tile => tile.children.map(child => [...["s-lab", "s-num", "s-sub"]].find(name => child.classList.contains(name))))).toEqual([
       ["s-lab", "s-num", "s-sub", "s-sub"], ["s-lab", "s-num", "s-sub", "s-sub"], ["s-lab", "s-num", "s-sub"], ["s-lab", "s-num", "s-sub", "s-sub"]]);
@@ -489,20 +490,20 @@ describe("What the results page's markup shows", () => {
     expect(parseMarkup(navHtml(entries, "overview")).children.every(child => child.classList.contains("nav-item"))).toBe(true);
   });
 
-  it("writes for a model's map a view that holds its heading alone, and when the map could not be drawn one sentence with the button that copies the log", () => {
+  it("writes for a model's map a view that holds its heading alone, and when the map could not be drawn says so in plain statements, with the button that copies the log", () => {
     // Shown: the map stands in its own place beside the view, so the view has the heading only, for a screen reader.
     const shown = parseMarkup(mapHtml(false));
     expect(shown.children.map(child => [child.localName, child.getAttribute("class"), text(child)])).toEqual([["h1", "sr-only", "Model map"]]);
-    // Not drawn: the heading as every view has it, then the sentence, which says what happened and what to do, and names
-    // the button beside it as that reads.
+    // Not drawn: the heading as every view has it, then what happened, that the tables are not affected, and what to do,
+    // each a plain statement of its own. The last names the button beside it as that reads.
     const failed = parseMarkup(mapHtml(true));
     expect(failed.children.map(child => [child.localName, child.getAttribute("class")])).toEqual([["h1", "view-title"], ["div", "banner warn"]]);
     expect([text(failed.querySelector("h1")), failed.querySelectorAll(".banner div").map(text)]).toEqual(["Model map", [MAP_FAILED]]);
-    expect(MAP_FAILED).toBe("The model map could not be drawn: use the tables as usual, then choose Copy diagnostic log and send the log.");
+    expect(MAP_FAILED).toBe("The model map could not be drawn. The tables are not affected. Choose Copy diagnostic log and send the log.");
     const button = failed.querySelector(".banner button");
-    expect([button?.dataset.act, text(button), button?.getAttribute("type"), button?.focusable, MAP_FAILED.includes(`choose ${text(button)} `)]).toEqual(["copy-run-log", "Copy diagnostic log", "button", true, true]);
-    // The sentence is one sentence, and its icon is not read out.
-    expect([MAP_FAILED.split(". ").length, MAP_FAILED.endsWith("."), failed.querySelector(".banner svg")?.getAttribute("aria-hidden")]).toEqual([1, true, "true"]);
+    expect([button?.dataset.act, text(button), button?.getAttribute("type"), button?.focusable, MAP_FAILED.includes(`Choose ${text(button)} `)]).toEqual(["copy-run-log", "Copy diagnostic log", "button", true, true]);
+    // Three statements, none hung on another by "then" or "as usual", and the icon is not read out.
+    expect([MAP_FAILED.split(". ").length, MAP_FAILED.endsWith("."), /\bthen\b|as usual/.test(MAP_FAILED), failed.querySelector(".banner svg")?.getAttribute("aria-hidden")]).toEqual([3, true, false, "true"]);
   });
 
   it("shows on the overview what the Details file says: what was read first, then the tables that say more than their tile, and two sections that start closed", () => {
