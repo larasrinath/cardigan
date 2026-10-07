@@ -56,7 +56,7 @@ function fixture(dir) {
     'src/content.ts': 'export {};\n', 'src/model-content.ts': 'export {};\n', 'src/card-reader/card-details.ts': 'export {};\n',
     'src/background.ts': 'export {};\n', 'src/results/main.ts': 'export {};\n', 'src/results/main.test.ts': '// a test\n',
     'src/util.test.ts': '// a test\n', 'src/guards.test-support.ts': '// test cases\n', 'scripts/build.mjs': '// build\n',
-    'scripts/package.test.mjs': '// a script test\n', 'package-lock.json': '{}\n', 'docs/research/card-details.md': '# notes\n',
+    'scripts/package.test.mjs': '// a script test\n', 'package-lock.json': '{}\n', 'docs/notes.md': '# notes\n',
     'node_modules/esbuild/index.js': '// dependency\n', 'README.md': '# readme\n', 'LICENSE': 'MIT\n', '.gitignore': 'dist/\n',
     'dist/stray.js': '// not named by the manifest\n', 'dist/content.js.map': '{}\n', 'icons/source.svg': '<svg/>\n', 'icons/.DS_Store': 'x',
     'index.html': '<!doctype html>\n<title>Not the results page</title>\n', 'results.css.map': '{}\n', 'dist/results.css': '/* not the stylesheet */\n',
@@ -260,7 +260,7 @@ test('refuses to package a bundle older than a source it is built from, but not 
   }
   assert.equal(existsSync(path.join(dir, 'out')), false, 'nothing written');
   // The page and its stylesheets are packaged as they are: no bundle is built from them.
-  for (const name of ['src/util.test.ts', 'src/guards.test-support.ts', 'src/results/main.test.ts', 'src/map/map-view.test.ts', 'docs/research/card-details.md', 'README.md', 'results.html', 'results.css',
+  for (const name of ['src/util.test.ts', 'src/guards.test-support.ts', 'src/results/main.test.ts', 'src/map/map-view.test.ts', 'docs/notes.md', 'README.md', 'results.html', 'results.css',
     'map.css']) touch(repo, name, LATER);
   assert.doesNotThrow(() => packageExtension({ dir: repo, outDir: path.join(dir, 'out') }));
 }));

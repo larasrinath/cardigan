@@ -30,7 +30,7 @@ export interface ModelCatalog {
 }
 
 /** A line item's format as far as naming needs it, from the listing's `lineItemInfo.format`. Page Builder tells line items
- * apart by its `dataType` (docs/research/card-formats-designer.md, sections 1 and 6), in the classic client's words: there
+ * apart by its `dataType`, in the classic client's words: there
  * a line item is formatted as a list when `format.dataType === "ENTITY"`, and the list is `format.hierarchyEntityLongId`.
  * No capture confirms that the listing names the list by that key: the diagnostic log shows the keys it has. */
 export interface LineItemFormat {
@@ -309,7 +309,7 @@ function filterRules(cards: readonly unknown[]): { condition: Obj; axis: Obj; ca
 
 /** A rule's selected items against what the catalog names. A rule stores its line item together with its context: a
  * dimension in it follows the page's selection, and an ID that is none of these is taken for one item a dimension is fixed
- * to (docs/research/card-details.md, section 2: the fixed form was not captured). */
+ * to (the fixed form was not captured). */
 function ruleItems(condition: Obj, catalog: ModelCatalog): { lineItems: string[]; dimensions: string[]; unknown: string[] } {
   const ids = list(condition.selectedItems).map(item => String(item.id));
   const dimension = (id: string) => catalog.dimensions.has(id) || id in BUILT_IN_DIMENSIONS;
@@ -451,8 +451,8 @@ export interface FilterItemNeeds {
   unsaid: { lineItemId: string; values: number }[];
 }
 
-/** Those of a rule's values that look like an entity's ID. A rule holds every value as text, a number as much as an item
- * (docs/research/card-details.md, section 2), so only the line item's format tells the two apart. */
+/** Those of a rule's values that look like an entity's ID. A rule holds every value as text, a number as much as an item,
+ * so only the line item's format tells the two apart. */
 const idValues = (condition: Obj): string[] => (Array.isArray(condition.values) ? condition.values as unknown[] : [])
   .flatMap(value => ((typeof value === "string" || typeof value === "number") && LONG_ID.test(String(value)) ? [String(value)] : []));
 
