@@ -86,7 +86,6 @@ input,select{font:inherit;color:inherit}
   transition:background .15s;
 }
 .icon-btn:hover{background:var(--panel-2);color:var(--text)}
-.nav-toggle{display:none}
 
 /* ---------- banners ---------- */
 .banners{padding:12px var(--gutter) 0;display:grid;gap:8px}
@@ -123,6 +122,22 @@ input,select{font:inherit;color:inherit}
 .nav-item[aria-current="page"]{background:var(--accent-soft);color:var(--accent-ink);font-weight:600}
 .nav-item .cnt{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--text-3);background:var(--panel-2);border-radius:999px;padding:1px 7px}
 .nav-item[aria-current="page"] .cnt{background:transparent;color:var(--accent-ink)}
+/* The navigation can be put away and brought back by the header's first button (results/main.ts), which is there at
+   every width once the page has a result. Where the navigation stands beside the content, the page says on its root
+   element when it is put away. It then takes no room and is in no one's way, neither the Tab key's nor a screen
+   reader's, and the content begins at the gutter and has the whole width.
+   The button's icon follows what the button says of the navigation (aria-expanded): a frame with the navigation's
+   side filled while the navigation is shown, and empty once it is put away. In a narrow window, where the navigation
+   slides in over the content, the icon is three lines (see the narrow layout, below).
+   Here the button stands after the brand, which keeps its place at the window's left edge, over the navigation's:
+   nothing in the header moves when the first result brings the button. In a narrow window it stands before the
+   brand, as it always did. */
+@media (width > 1120px){
+  :root[data-navigation="hidden"] .sidenav{display:none}
+  .nav-toggle .nt-lines{display:none}
+  .nav-toggle[aria-expanded="false"] .nt-side{display:none}
+  .hd .brand{order:-1}
+}
 
 main{flex:1;min-width:0}
 .crumbs{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:2px 0 10px;font-size:12.5px;color:var(--text-2)}
@@ -418,7 +433,8 @@ main:has(> #mapHost:not([hidden])){align-self:stretch;display:flex;flex-directio
 
 /* ---------- responsive ---------- */
 @media (max-width:1120px){
-  .nav-toggle{display:inline-flex}
+  /* The navigation's button opens it over the content here, and shows three lines: the frame is the wide layout's. */
+  .nav-toggle .nt-frame{display:none}
   /* Closed, the navigation is off screen and hidden, so the Tab key skips it; it hides once it has slid out. */
   .sidenav{
     position:fixed;left:0;top:0;height:100dvh;max-height:none;width:264px;z-index:70;border-radius:0;

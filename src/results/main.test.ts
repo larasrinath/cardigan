@@ -9,6 +9,7 @@ import { FakeElement, FakeInput, FakePage, FakeSelect, parseMarkup } from "./dom
 import { analysedLine, NOT_KEPT_NOTE, TOO_LARGE_NOTE } from "./keep-notes.js";
 import { KEPT_PREFIX, ResultKeeper, type KeptStorage } from "./keep-result.js";
 import { FORGOTTEN_LINE, keptCopyHtml, MAP_FAILED, MAP_NO_FILE, NOT_REMOVED_LINE } from "./markup.js";
+import { NARROW_WINDOW, NAVIGATION_KEY } from "./navigation.js";
 
 /** What stands in for the model map (src/map). The page calls its two functions and drives what the second returns; how
  * a graph is built and a map drawn is not the page's, and is tested with them. Each test is given its own stand-ins. */
@@ -154,6 +155,13 @@ let clipboardRefuses: boolean;
 let stored: Map<string, string>;
 let systemDark: boolean;
 let systemListeners: ((event: { matches: boolean }) => void)[];
+/** Whether the window is as narrow as the stylesheet's narrow layout (navigation.ts `NARROW_WINDOW`), in which the
+ * navigation slides in over the content, and who asked to hear when the window crosses that width. A test's window is
+ * wide unless the test says otherwise. */
+let narrowWindow: boolean;
+let layoutListeners: ((event: { matches: boolean }) => void)[];
+/** What the browser's store answers with, in the place of reading and of keeping, where a browser refuses both. */
+let storeRefuses: Error | undefined;
 let lastError: { message?: string } | undefined;
 /** The page's address, each address the script changed it to, and whether changing it is refused. */
 let location: { search: string; pathname: string; hash: string };
@@ -240,6 +248,9 @@ beforeEach(() => {
   stored = new Map();
   systemDark = false;
   systemListeners = [];
+  narrowWindow = false;
+  layoutListeners = [];
+  storeRefuses = undefined;
   lastError = undefined;
   replaced = [];
   fixedAddress = false;
@@ -249,10 +260,16 @@ beforeEach(() => {
     location.search = address.includes("?") ? address.slice(address.indexOf("?")) : "";
   } });
   vi.stubGlobal("window", {
-    matchMedia: () => ({ get matches() { return systemDark; }, addEventListener: (_type: string, listener: (event: { matches: boolean }) => void) => { systemListeners.push(listener); } }),
+    // The two things the page asks of the window's media: whether it is narrow, and whether the system's theme is dark.
+    matchMedia: (query: string) => (query === NARROW_WINDOW
+      ? { get matches() { return narrowWindow; }, addEventListener: (_type: string, listener: (event: { matches: boolean }) => void) => { layoutListeners.push(listener); } }
+      : { get matches() { return systemDark; }, addEventListener: (_type: string, listener: (event: { matches: boolean }) => void) => { systemListeners.push(listener); } }),
     scrollTo: () => undefined, innerWidth: 1280, innerHeight: 800,
   });
-  vi.stubGlobal("localStorage", { getItem: (key: string) => stored.get(key) ?? null, setItem: (key: string, value: string) => { stored.set(key, value); } });
+  vi.stubGlobal("localStorage", {
+    getItem: (key: string) => { if (storeRefuses) throw storeRefuses; return stored.get(key) ?? null; },
+    setItem: (key: string, value: string) => { if (storeRefuses) throw storeRefuses; stored.set(key, value); },
+  });
   const own = session = { held: new Map<string, string>(), refuses: "", writes: 0, storage: {
     get length() { return own.held.size; },
     key: (index: number) => [...own.held.keys()][index] ?? null,
@@ -1899,6 +1916,7 @@ describe("What a click, a key and typing do on the results page", () => {
   });
 
   it("takes the focus into the navigation of a narrow window when its button opens it, and keeps the page behind out of reach until it closes", async () => {
+    narrowWindow = true;
     await openWith(APP);
     const navigation = () => [page.id("sidenav").classList.contains("open"), page.id("navToggle").getAttribute("aria-expanded"), page.id("scrim").hidden];
     /** What the open navigation lies over: the link that skips to the results, the header, the banner area and the view. */
@@ -3236,6 +3254,238 @@ describe("A result kept while the results page is refreshed", () => {
     await open(refreshed);
     await back("Demo app");
     expect([keptPlace(), page.all("#ovKept .to-come").length]).toEqual([KEPT, 0]);
+  });
+});
+
+describe("The navigation of the results page, shown or put away", () => {
+  const root = () => page.document.documentElement;
+  const button = () => page.id("navToggle");
+  /** What the page says of the navigation: on its root, which the stylesheet reads, and on the button: whether the
+   * navigation is shown, and what a press will do, as the button's name and as its title. */
+  const says = () => [root().dataset.navigation, button().getAttribute("aria-expanded"), button().getAttribute("aria-label"), button().title];
+  const SHOWN = ["shown", "true", "Hide navigation", "Hide navigation"];
+  const HIDDEN = ["hidden", "false", "Show navigation", "Show navigation"];
+  /** What the navigation of a narrow window lies over while it is open. */
+  const behind = () => [page.find(".skip"), page.find(".hd"), page.id("banners"), page.id("main")].map(part => part.inert);
+  const WITHIN_REACH = [false, false, false, false];
+  const shows = () => [page.texts("#view h1")[0], page.texts("#crumbs strong")[0]];
+  const openOver = () => page.id("sidenav").classList.contains("open");
+  /** Whether the model's result is on the page. */
+  const result = () => page.document.title === "Cardigan — Model one";
+  /** The tab's port to the page as it was last opened: a test here opens the page more than once. */
+  const tab = () => ports[ports.length - 1];
+  const sendModel = () => {
+    tab().send({ type: "subject", subject: { kind: "model", id: MODEL.id } });
+    sendResult(tab(), MODEL);
+  };
+  /** The page as the icon's click leaves it, with the model's result on it. */
+  const openWithModel = async () => {
+    await open(clicked(42));
+    sendModel();
+  };
+
+  it("puts the navigation of a wide window away in place with the header's first button, and brings it back; the button says what a press will do", async () => {
+    // Before a result there is nothing to navigate: neither the navigation nor its button is there.
+    await open(clicked(42));
+    expect([button().hidden, page.id("sidenav").hidden]).toEqual([true, true]);
+    sendModel();
+    // With a result both are there. The button is the header's first control, and names the navigation as what it controls.
+    expect([button().hidden, page.id("sidenav").hidden, page.find(".hd").children[0] === button(), button().getAttribute("aria-controls")]).toEqual([false, false, true, "sidenav"]);
+    expect(says()).toEqual(SHOWN);
+    goTo(1);
+    const [table, entries] = [page.id("tableWrap"), page.all("#navList .nav-item").length];
+
+    // Put away: the root says so, and the button says that a press brings the navigation back.
+    button().press();
+    expect(says()).toEqual(HIDDEN);
+    // In place: nothing slides over the page or lies under a scrim, and nothing is out of reach. No view is drawn again:
+    // the table on screen is the one that was there, and takes its new width by itself.
+    expect([openOver(), page.id("scrim").hidden, behind(), page.id("tableWrap") === table, shows()]).toEqual([false, true, WITHIN_REACH, true, ["Line Items", "Line Items"]]);
+    // The navigation is the page's still, with its entries, out of sight by the stylesheet's rule. The focus is where
+    // the press put it: on the button, which is one press from bringing the navigation back.
+    expect([page.id("sidenav").hidden, page.all("#navList .nav-item").length === entries, page.document.activeElement === button()]).toEqual([false, true, true]);
+    button().press();
+    expect([says(), page.id("tableWrap") === table, behind()]).toEqual([SHOWN, true, WITHIN_REACH]);
+  });
+
+  it("remembers for this browser whether the navigation is put away, and has it so before a result is drawn: the first, or one brought back after a refresh", async () => {
+    await openWithModel();
+    button().press();
+    // The one thing the page keeps of it, under a name of its own.
+    expect([says(), stored.get(NAVIGATION_KEY), [...stored.keys()]]).toEqual([HIDDEN, "hidden", ["cardigan-navigation"]]);
+
+    // The icon opens the page again. The root says that the navigation is put away as soon as the script has run,
+    // before the tab has said anything: the result that comes is never drawn with the navigation shown.
+    await open(clicked(42));
+    expect([says(), button().hidden, page.has("#runStatus"), result()]).toEqual([HIDDEN, true, true, false]);
+    sendModel();
+    expect([says(), button().hidden, page.id("sidenav").hidden, result()]).toEqual([HIDDEN, false, false, true]);
+    // A refresh brings the result back that the page kept: put away from the first moment, and as the result is shown.
+    await letKeep();
+    await open("?tab=42");
+    expect([says(), result()]).toEqual([HIDDEN, false]);
+    await eventually(result, "the result to come back");
+    expect([says(), button().hidden]).toEqual([HIDDEN, false]);
+
+    // Brought back, it is remembered as shown.
+    button().press();
+    expect([says(), stored.get(NAVIGATION_KEY)]).toEqual([SHOWN, "shown"]);
+    await open(clicked(42));
+    expect(says()).toEqual(SHOWN);
+    // Something else under the name is no choice: the navigation is shown.
+    stored.set(NAVIGATION_KEY, "collapsed");
+    await open(clicked(42));
+    expect(says()).toEqual(SHOWN);
+    // Nothing else was kept for it.
+    expect([...stored.keys()]).toEqual([NAVIGATION_KEY]);
+  });
+
+  it("works in a browser that refuses its store, or has none: the navigation starts shown, and is put away for as long as the page is open", async () => {
+    // The store holds a choice and refuses to be read or written: the navigation is shown, and the button works.
+    stored.set(NAVIGATION_KEY, "hidden");
+    storeRefuses = Object.assign(new Error("The operation is insecure."), { name: "SecurityError" });
+    await openWithModel();
+    expect(says()).toEqual(SHOWN);
+    button().press();
+    expect(says()).toEqual(HIDDEN);
+    button().press();
+    // Nothing was written: what the store held is what it holds.
+    expect([says(), stored.get(NAVIGATION_KEY), stored.size]).toEqual([SHOWN, "hidden", 1]);
+    // The same in a browser that has no store at all.
+    vi.stubGlobal("localStorage", undefined);
+    await openWithModel();
+    expect(says()).toEqual(SHOWN);
+    button().press();
+    expect([says(), page.document.activeElement === button()]).toEqual([HIDDEN, true]);
+  });
+
+  it("gives the focus to the button when the navigation goes with the focus inside it, and leaves focus that is anywhere else; the breadcrumb still says where the user is and leads back", async () => {
+    await openWithModel();
+    goTo(1);
+    // The focus is inside the navigation, on an entry, and the button is pressed without the focus moving, as by a
+    // click that a script makes. What had the focus goes out of sight: the button takes it, at once and when the page
+    // is drawn.
+    page.find('#navList [data-nav="1"]').focus();
+    expect(page.id("sidenav").contains(page.document.activeElement)).toBe(true);
+    button().dispatch("click");
+    expect([says(), page.document.activeElement === button()]).toEqual([HIDDEN, true]);
+    page.frame();
+    expect(page.document.activeElement).toBe(button());
+    // Focus that is anywhere else stays where it is, when the navigation goes and when it comes back: here in the
+    // table's search box.
+    button().dispatch("click");
+    page.id("tblSearch").focus();
+    button().dispatch("click");
+    expect([says(), page.document.activeElement.id]).toEqual([HIDDEN, "tblSearch"]);
+    button().dispatch("click");
+    expect([says(), page.document.activeElement.id]).toEqual([SHOWN, "tblSearch"]);
+    // Focus inside the navigation as it comes back is left there: nothing went out of sight.
+    button().dispatch("click");
+    page.find('#navList [data-nav="2"]').focus();
+    button().dispatch("click");
+    expect([says(), page.document.activeElement === page.find('#navList [data-nav="2"]')]).toEqual([SHOWN, true]);
+
+    // With the navigation put away the breadcrumb says which view is shown and leads back to the overview, and the
+    // button is there, within reach of the Tab key, to bring the navigation back.
+    button().press();
+    expect([says(), page.texts("#crumbs strong"), page.texts("#crumbs button"), button().hidden, button().focusable]).toEqual([HIDDEN, ["Line Items"], ["Overview"], false, true]);
+    page.find('#crumbs [data-nav="overview"]').press();
+    expect([shows(), says(), page.document.activeElement === page.id("view")]).toEqual([["Overview", "Overview"], HIDDEN, true]);
+  });
+
+  it("asks nothing of a model's map when the navigation goes or comes back, and leaves the downloads as they are", async () => {
+    await openWithModel();
+    page.find('#navList [data-nav="map"]').press();
+    const [host, drawn, asked] = [page.id("mapHost"), page.id("mapHost").children[0], [...mapAsked]];
+    expect(asked).toEqual(["build", "mount 1", "show 1"]);
+    // The map's place takes the new width by itself, and the map watches the size of its place: the page tells it
+    // nothing, and takes nothing of it away.
+    button().press();
+    expect([says(), mapAsked, host.hidden, host.children[0] === drawn, page.texts("#view h1")]).toEqual([HIDDEN, asked, false, true, ["Model map"]]);
+    button().press();
+    button().press();
+    expect([says(), mapAsked, host.hidden, host.children[0] === drawn]).toEqual([HIDDEN, asked, false, true]);
+    // The files are the result's, the same bytes with the navigation put away.
+    page.id("dlAll").press();
+    goTo(1);
+    page.id("dlCsv").press();
+    expect([await bytes(saved[0]), `﻿${await saved[1].text()}`]).toEqual([resultZip(MODEL, NOW), tableCsv(MODEL.tables[1])]);
+  });
+
+  it("has no key of its own: the button alone puts the navigation away and brings it back", async () => {
+    await openWithModel();
+    goTo(1);
+    const keys = ["[", "]", "\\", "b", "B", "n", "m", "s", "h", "Escape", "ArrowLeft", "ArrowRight", "Home", "F6"];
+    for (const key of keys) {
+      page.id("view").focus();
+      page.key(key);
+    }
+    expect([says(), shows()]).toEqual([SHOWN, ["Line Items", "Line Items"]]);
+    button().press();
+    for (const key of keys) {
+      page.id("view").focus();
+      page.key(key);
+    }
+    expect([says(), shows()]).toEqual([HIDDEN, ["Line Items", "Line Items"]]);
+  });
+
+  it("opens the navigation over the content in a narrow window, as ever; what is remembered for a wide window is neither used nor changed there", async () => {
+    stored.set(NAVIGATION_KEY, "hidden");
+    narrowWindow = true;
+    await openWithModel();
+    // The root says what is remembered, which only the wide layout's rule reads. The button says what holds here: the
+    // navigation is out of the way until the button opens it.
+    expect([says(), openOver()]).toEqual([["hidden", "false", "Show navigation", "Show navigation"], false]);
+    button().press();
+    expect([openOver(), says(), behind(), page.id("scrim").hidden]).toEqual([true, ["hidden", "true", "Hide navigation", "Hide navigation"], [true, true, true, true], false]);
+    page.key("Escape");
+    expect([openOver(), says(), behind(), page.document.activeElement === button()]).toEqual([false, ["hidden", "false", "Show navigation", "Show navigation"], WITHIN_REACH, true]);
+    // Nothing was written, and with nothing remembered the same holds: the root says shown, and the button the same words.
+    expect([stored.get(NAVIGATION_KEY), stored.size]).toEqual(["hidden", 1]);
+    stored.clear();
+    await openWithModel();
+    expect(says()).toEqual(["shown", "false", "Show navigation", "Show navigation"]);
+    button().press();
+    expect([openOver(), says().slice(1), stored.size]).toEqual([true, ["true", "Hide navigation", "Hide navigation"], 0]);
+  });
+
+  it("closes a navigation that lies over the content when the window grows wide, and says on the button what holds in the layout the window has", async () => {
+    narrowWindow = true;
+    await openWithModel();
+    // The page keeps the result once it is drawn, which the clock below would start: that is let to its end first.
+    await letKeep();
+    button().press();
+    expect([openOver(), behind()]).toEqual([true, [true, true, true, true]]);
+    // The window grows wide: nothing lies over the page there. The navigation stands beside the content, shown.
+    narrowWindow = false;
+    expect(layoutListeners).toHaveLength(1);
+    layoutListeners[0]({ matches: false });
+    expect([openOver(), behind(), says()]).toEqual([false, WITHIN_REACH, SHOWN]);
+    vi.advanceTimersByTime(210);
+    expect(page.id("scrim").hidden).toBe(true);
+    // There the button puts it away in place.
+    button().press();
+    expect([says(), openOver(), stored.get(NAVIGATION_KEY)]).toEqual([HIDDEN, false, "hidden"]);
+    // Narrow again: the navigation is out of the way until it is opened, whatever was chosen for a wide window.
+    narrowWindow = true;
+    layoutListeners[0]({ matches: true });
+    expect([says(), openOver()]).toEqual([["hidden", "false", "Show navigation", "Show navigation"], false]);
+    button().press();
+    expect([openOver(), says().slice(1)]).toEqual([true, ["true", "Hide navigation", "Hide navigation"]]);
+    page.key("Escape");
+
+    // The button says what holds in the layout the window has, each time the window crosses from one to the other
+    // with nothing open: shown beside the content in a wide window, out of the way in a narrow one.
+    narrowWindow = false;
+    layoutListeners[0]({ matches: false });
+    button().press();
+    expect(says()).toEqual(SHOWN);
+    narrowWindow = true;
+    layoutListeners[0]({ matches: true });
+    expect([says(), openOver()]).toEqual([["shown", "false", "Show navigation", "Show navigation"], false]);
+    narrowWindow = false;
+    layoutListeners[0]({ matches: false });
+    expect([says(), openOver(), behind()]).toEqual([SHOWN, false, WITHIN_REACH]);
   });
 });
 
