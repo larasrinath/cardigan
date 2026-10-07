@@ -41,7 +41,7 @@ Cardigan reads every published page of the app. The **Overview** counts each tab
 
 ### For a model
 
-Open the model in Model Building; the classic model page opened on its own works too. Cardigan reads the Model settings into thirteen tables, in Anaplan's order: Model Calendar, Time Ranges, Versions, General Lists, Modules, Line Items, Dynamic Cell Access, Processes, Imports, Import Data Sources, Exports, Other Actions and Source Models.
+Open the model in Model Building; the classic model page opened on its own works too. Cardigan reads the Model settings into twelve tables, in Anaplan's order, and makes a thirteenth, Dynamic Cell Access, from Line Items: Model Calendar, Time Ranges, Versions, General Lists, Modules, Line Items, Dynamic Cell Access, Processes, Imports, Import Data Sources, Exports, Other Actions and Source Models.
 
 - Each grid's CSV file is laid out as Anaplan's own export of that grid, with formats and summaries as JSON.
 - **Line Items** covers every module, and its file adds three columns: **Ratio Numerator**, **Ratio Denominator** and **Format List**. The page lists each line item beside its module; module rows stay in the CSV.
@@ -52,13 +52,17 @@ Open the model in Model Building; the classic model page opened on its own works
 
 <table>
   <tr>
-    <td width="50%" valign="top">
-      <a href="docs/images/model-overview.png"><img src="docs/images/model-overview.png" width="400" alt="The results page for a model: the Overview, with the number of rows in each Model settings table and the details of the export"></a><br>
+    <td width="33%" valign="top">
+      <a href="docs/images/model-overview.png"><img src="docs/images/model-overview.png" width="264" alt="The results page for a model: the Overview, with the number of rows in each table and the details of the export"></a><br>
       A model's Overview.
     </td>
-    <td width="50%" valign="top">
-      <a href="docs/images/model-line-items.png"><img src="docs/images/model-line-items.png" width="400" alt="A model's Line Items table in the dark theme: each line item with its module, its format in words, its formula and its summary"></a><br>
+    <td width="33%" valign="top">
+      <a href="docs/images/model-line-items.png"><img src="docs/images/model-line-items.png" width="264" alt="A model's Line Items table in the dark theme: each line item with its module, its format in words, its formula and its summary"></a><br>
       Line Items, in the dark theme.
+    </td>
+    <td width="33%" valign="top">
+      <a href="docs/images/model-dynamic-cell-access.png"><img src="docs/images/model-dynamic-cell-access.png" width="264" alt="A model's Dynamic Cell Access table: each access driver with the line items it controls, one row for each use, marked Read or Write"></a><br>
+      Dynamic Cell Access.
     </td>
   </tr>
 </table>
@@ -110,6 +114,7 @@ Closing the results page stops the reading.
 
 ### The results page
 
+- The page is as wide as the window: the navigation stands at the left, and the table or the map takes the rest.
 - The search box looks in every column, shown or hidden. Press `/` to reach it.
 - Click a column's name to sort. A column with 2 to 30 different values also has a filter.
 - **Columns** picks the columns shown. An app's ID columns, **Card #** and **Section #** start hidden.
@@ -157,6 +162,7 @@ Closing the results page stops the reading.
 - A button whose import, export or process is not in the model keeps its card label; **Name source** says so.
 - Where two pages share a name, a count in **Where Used** can read "2+" (at least 2), and some links are plain text.
 - A Model settings grid of more than 250,000 rows is not exported; the Overview says which.
+- In **Dynamic Cell Access**, a driver that cannot be matched to a line item is listed last, as Line Items writes it, and the page says how many there are. The table is not made when Line Items was not exported.
 - The model map takes each link from a column of the export that names another object, such as **Referenced By**. It shows formulas as text and does not work them out.
 - The map draws sections, modules, line items and the lists that formulas name. Processes and actions are not drawn; a module's details name the imports that load into it.
 - **About this map**, at the foot of the map, says what the map leaves out and could not place for this model, such as a line item named twice in one module.
