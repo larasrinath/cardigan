@@ -9,6 +9,7 @@ import { analysedLine, NOT_KEPT_NOTE, TOO_LARGE_NOTE } from "./keep-notes.js";
 import { KEPT_PREFIX, ResultKeeper, type KeptStorage } from "./keep-result.js";
 import { FORGOTTEN_LINE, keptCopyHtml, MAP_FAILED, NOT_REMOVED_LINE } from "./markup.js";
 import { NARROW_WINDOW, NAVIGATION_KEY } from "./navigation.js";
+import { watchForFiles, type FileWatch } from "./no-file.test-support.js";
 
 /** What stands in for the model map (src/map). The page calls its two functions and drives what the second returns; how
  * a graph is built and a map drawn is not the page's, and is tested with them. Each test is given its own stand-ins. */
@@ -144,6 +145,9 @@ const WITH_ACCESS: AnalysisResult = {
 
 // The page under test, and what stands in for the browser around it. A test loads the page with `open`.
 let page: FakePage;
+/** The watch for a page that makes a file, starts a download or goes somewhere to save one (no-file.test-support.ts):
+ * it is on from before each test to after it, whatever the test does with the page. */
+let watch: FileWatch;
 let ports: FakePort[];
 let connects: unknown[][];
 /** What the script put on the clipboard, and whether the clipboard refuses. */
@@ -190,6 +194,7 @@ let mapTells: Partial<Record<"mount" | "show" | "hide" | "themeChanged" | "destr
 beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(NOW);
+  watch = watchForFiles();
   mapAsked = [];
   mapBuilds = [];
   mapMounts = [];
@@ -294,14 +299,22 @@ beforeEach(() => {
     copied.push(text);
   } } });
 });
-afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+afterEach(() => {
+  // Whatever the test did with the page, the page made no file of anything, started no download, and went nowhere to
+  // save one: no blob, no address for one, and no element or address of the page's that is a file.
+  const made = watch.stop(page);
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+  expect(made).toEqual([]);
+});
 
 /** Loads the page at an address: a new page each time, as opening or reloading it gives. A page that finds no result kept
  * for it has said so to itself by the time this returns. */
 const open = async (search: string, shell = SHELL) => {
   vi.resetModules();
   page = new FakePage(shell);
-  location = { search, pathname: "/results.html", hash: "" };
+  location = watch.location({ search, pathname: "/results.html", hash: "" });
   vi.stubGlobal("document", page.document);
   vi.stubGlobal("location", location);
   await import("./main.js");

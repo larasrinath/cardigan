@@ -11,6 +11,7 @@ import { FakeElement, FakeInput, FakePage, FakeSelect } from "./dom.test-support
 import { APP_HOST, GOLDEN_APP, goldenApp, serveEngine, type EngineRun } from "./engine.test-support.js";
 import { analysedLine } from "./keep-notes.js";
 import { KEPT_PREFIX } from "./keep-result.js";
+import { watchForFiles, type FileWatch } from "./no-file.test-support.js";
 import { FakeTab } from "./port-pair.test-support.js";
 import { overviewOf } from "./result-view.js";
 
@@ -51,6 +52,8 @@ describe("The results page itself against the engine in the Anaplan tab", () => 
   let service: ReturnType<typeof goldenApp>;
   let runs: EngineRun[];
   let page: FakePage;
+  /** The watch for a page that makes a file, starts a download or goes somewhere to save one (no-file.test-support.ts). */
+  let watch: FileWatch;
   let connects: unknown[][];
   /** What the tab's session storage holds, which a refresh of the page leaves as it is. Each test has its own. */
   let session: Map<string, string>;
@@ -58,6 +61,7 @@ describe("The results page itself against the engine in the Anaplan tab", () => 
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(NOW);
+    watch = watchForFiles();
     tab = new FakeTab();
     service = goldenApp();
     runs = serveEngine(tab, { host: APP_HOST, shows: { kind: "app", id: GOLDEN_APP } });
@@ -89,8 +93,11 @@ describe("The results page itself against the engine in the Anaplan tab", () => 
     service.releaseAll();
     await until(() => runs.every(run => run.ended), "every run to end");
     await tab.quiet();
+    // With the engine's own result on it, the page made no file, started no download and went nowhere to save one.
+    const made = watch.stop(page);
     vi.useRealTimers();
     vi.restoreAllMocks();
+    expect(made).toEqual([]);
   });
 
   /** Loads the page at an address, in a tab of its own beside the Anaplan tab. */
@@ -98,7 +105,7 @@ describe("The results page itself against the engine in the Anaplan tab", () => 
     vi.resetModules();
     page = new FakePage(SHELL);
     vi.stubGlobal("document", Object.assign(page.document, service.document));
-    vi.stubGlobal("location", { search, pathname: `/${RESULTS_PAGE}`, hash: "", ...service.location });
+    vi.stubGlobal("location", watch.location({ search, pathname: `/${RESULTS_PAGE}`, hash: "", ...service.location }));
     await import("./main.js");
   };
   /** The address the icon's click gives the page, a second and a half after the click. */

@@ -437,6 +437,16 @@ export class FakePage {
   id(id: string): FakeElement { return this.find(`#${id}`); }
   /** The text of each element a selector finds, without the space around it. */
   texts(selector: string): string[] { return this.all(selector).map(element => element.textContent.trim()); }
+  /** Every element of the page, in the page's order. */
+  elements(): FakeElement[] {
+    const found: FakeElement[] = [];
+    const read = (element: FakeElement): void => {
+      found.push(element);
+      element.children.forEach(read);
+    };
+    this.root.children.forEach(read);
+    return found;
+  }
   /** An element was taken out of its place, to go or to be put elsewhere: the focus that was on it, or inside it, is
    * lost at once, and does not come back with the element. */
   taken(): void { if (this.focused && !this.focused.isConnected) this.focused = null; }
