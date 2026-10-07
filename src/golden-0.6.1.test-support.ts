@@ -7,9 +7,10 @@ import { zipEntries } from "./zip.test-support.js";
  *
  * Made once by running 0.6.1's own analyseApp and exportModel on those fixtures, with the clock at 2026-09-28 12:30:10 UTC and
  * the time zone UTC (a zip entry carries its time as local time). Never regenerate them from newer code: a difference means the
- * export changed. What is deliberately written otherwise since is named below, a row of the app's files, and a column and
- * a row of the model's (`APP_ROW_REWORDED`, `MODEL_COLUMN_ADDED`, `MODEL_ROW_REWORDED`): a test then compares with 0.6.1's
- * zip but for what is named, and the zips themselves stay as they are. */
+ * export changed. What is deliberately written otherwise since is named below, a row of the app's files, and of the model's
+ * a column, a row, and the two rows about a file the export has gained (`APP_ROW_REWORDED`, `MODEL_COLUMN_ADDED`,
+ * `MODEL_ROW_REWORDED`, `MODEL_FILE_ADDED`): a test then compares with 0.6.1's zip but for what is named, and the zips
+ * themselves stay as they are. */
 
 /** The time on every entry of both zips, as a local time, so the comparison holds in any time zone. */
 export const ZIPPED_AT = new Date(2026, 8, 28, 12, 30, 10);
@@ -190,10 +191,10 @@ export const MODEL_ZIP_0_6_1 = bytes([
  * made from has no Format column in its Line Items grid, so no line item of it is formatted as a list and the column is
  * empty in every row: the file's first line gains the column's name as a last cell, and every other line an empty one.
  *
- * Besides the build's name, this column and the row that describes it (`MODEL_ROW_REWORDED`) are the only places where
- * this model's files are known to differ from 0.6.1's. The name is in the "Exported with" row and, for a model page opened
- * on its own, in the first Diagnostics line, and does not show in a comparison here, for the reasons given at
- * `APP_ROW_REWORDED`. */
+ * Besides the build's name, this column, the row that describes it (`MODEL_ROW_REWORDED`) and the two rows about a file
+ * this model does not get (`MODEL_FILE_ADDED`) are the only places where this model's files are known to differ from
+ * 0.6.1's. The name is in the "Exported with" row and, for a model page opened on its own, in the first Diagnostics line,
+ * and does not show in a comparison here, for the reasons given at `APP_ROW_REWORDED`. */
 export const MODEL_COLUMN_ADDED = { file: "Line Items.csv", header: "Format List" } as const;
 
 /** 0.6.1's text of that file with the column: each line as it is, with the one cell added at its end. `csv` is the file's
@@ -224,12 +225,51 @@ export function withRowReworded(csv: string): string {
   return lines.join(MODEL_ROW_REWORDED.now);
 }
 
-/** The model's zip as 0.6.1 wrote it but for that column and that row: every file's bytes as they are in `MODEL_ZIP_0_6_1`,
- * with the cell added to each line of Line Items.csv and that one line of Model Details.csv replaced, written by zipStore
- * with the same time on every entry. model/model.test.ts pins that zipStore writes `MODEL_ZIP_0_6_1` itself, byte for byte,
- * from the files as they are, so what differs from this zip differs from 0.6.1. */
-export const MODEL_ZIP_COLUMN_AND_ROW = zipStore(zipEntries(MODEL_ZIP_0_6_1).map(entry => {
-  const written = entry.name === MODEL_COLUMN_ADDED.file ? withColumnAdded : entry.name === MODEL_ROW_REWORDED.file ? withRowReworded : undefined;
+/** The one file the export has gained since 0.6.1: Dynamic Cell Access.csv, which lists a model's access drivers with
+ * what each controls (model/access.ts). The export makes it from the Read Access Driver and Write Access Driver columns
+ * of Line Items.csv, by the module its Module Name column gives each line item, and reads nothing for it. The model this
+ * zip was made from has none of the three columns in its Line Items grid, so the file is not written for it, and its
+ * zip holds the twelve files it held. What differs is Model Details.csv, which says of every file the export knows
+ * whether it was written and how to read it: it has two rows more, each given here as the row's whole line of the file,
+ * with the line it stands after. `notWritten` says that the file was not exported and why, right after the row for Line
+ * Items.csv, which is the file's place among the files. `howToRead` says how to read the file, right after the row on
+ * Line Items.
+ *
+ * A model that has the three columns gets the file. The zip that the last version without it wrote for such a model,
+ * and what differs from that zip, are in golden-0.8.1.test-support.ts. */
+export const MODEL_FILE_ADDED = {
+  file: "Dynamic Cell Access.csv",
+  details: "Model Details.csv",
+  notWritten: {
+    after: "Files,Line Items.csv,4 rows\r\n",
+    line: `Files,Dynamic Cell Access.csv,"Not exported: Line Items has no Module Name, Read Access Driver and Write Access Driver columns."\r\n`,
+  },
+  howToRead: {
+    after: MODEL_ROW_REWORDED.now,
+    line: `How to read,Dynamic Cell Access,"Not a Model settings grid: the Read Access Driver and Write Access Driver columns of Line Items.csv, listed from the driver's side. One row for each use of a driver: the driver, Read or Write, and what it controls, each by module and name as Line Items.csv writes them. Rows follow the drivers' order in Line Items.csv, Read before Write. A row with no Controlled Line Item is a module's own row; a line item that shows a dash is listed with its module's driver. A driver that could not be matched comes last, once for its cell, with no Driver Module and the cell as it is written. That includes a driver that sits in a row the model map leaves out, which About this map counts. The file is not written when Line Items.csv was not exported or lacks its Module Name column or a driver column."\r\n`,
+  },
+} as const;
+
+/** A Model Details.csv with rows added: each line of `rows` right after the line it stands after, which the text must
+ * hold exactly once. `csv` is the file's text, with its byte order mark or without. */
+export function withRowsAdded(csv: string, rows: readonly { after: string; line: string }[]): string {
+  return rows.reduce((text, row) => {
+    const parts = text.split(row.after);
+    if (parts.length !== 2) throw new Error(`Model Details.csv does not hold the line a row is added after exactly once: ${row.after}`);
+    return parts.join(`${row.after}${row.line}`);
+  }, csv);
+}
+
+/** 0.6.1's text of Model Details.csv as the file is written now: the row on Line Items reworded, and the two rows about
+ * Dynamic Cell Access.csv added. */
+export const withDetailsSince = (csv: string): string => withRowsAdded(withRowReworded(csv), [MODEL_FILE_ADDED.notWritten, MODEL_FILE_ADDED.howToRead]);
+
+/** The model's zip as 0.6.1 wrote it but for what is named above: every file's bytes as they are in `MODEL_ZIP_0_6_1`,
+ * with the cell added to each line of Line Items.csv, and with one line of Model Details.csv replaced and two added,
+ * written by zipStore with the same time on every entry. model/model.test.ts pins that zipStore writes `MODEL_ZIP_0_6_1`
+ * itself, byte for byte, from the files as they are, so what differs from this zip differs from 0.6.1. */
+export const MODEL_ZIP_AS_NAMED = zipStore(zipEntries(MODEL_ZIP_0_6_1).map(entry => {
+  const written = entry.name === MODEL_COLUMN_ADDED.file ? withColumnAdded : entry.name === MODEL_ROW_REWORDED.file ? withDetailsSince : undefined;
   if (!written) return entry;
   return { name: entry.name, data: new TextEncoder().encode(written(new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(entry.data))) };
 }), ZIPPED_AT);

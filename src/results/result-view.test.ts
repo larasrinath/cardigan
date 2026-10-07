@@ -5,8 +5,8 @@ import { CALENDAR_HEADERS, calendarRows } from "../model/calendar.js";
 import type { AnalysisResult, Cell, ResultTable } from "../result-types.js";
 import { APP_FILES, cardsOf, columnsOf } from "./columns.js";
 import { lineItemsView } from "./line-items-view.js";
-import { ABOUT_MODEL, analysedOf, CARD_PARTS, cardParts, cardSections, detailSections, detailsOf, detailValue, diagnosticLog, FILE_RULES, fileView, listedTables, MODEL_CALENDAR_FILE, MODEL_FILE_ORDER, modelFacts,
-  MODULES_FILE, overviewOf, resultNotes } from "./result-view.js";
+import { ABOUT_MODEL, ACCESS_FILE, analysedOf, CARD_PARTS, cardParts, cardSections, detailSections, detailsOf, detailValue, diagnosticLog, FILE_RULES, fileView, listedTables, MODEL_CALENDAR_FILE, MODEL_FILE_ORDER,
+  modelFacts, MODULES_FILE, overviewOf, resultNotes } from "./result-view.js";
 
 /** The app export's files, as the page names them, and the report table each holds. */
 const FILES: Record<string, TabName> = Object.fromEntries((Object.keys(APP_FILES) as TabName[]).map(tab => [APP_FILES[tab], tab]));
@@ -262,17 +262,18 @@ describe("What the results page reads out of a result", () => {
   });
 
   it("lists a model's files in the order of Anaplan's Model settings, and an app's as the result has them", () => {
+    // Dynamic Cell Access is no setting of Anaplan's: the export makes it from Line Items, and it comes right after it.
     expect(MODEL_FILE_ORDER).toEqual(["Model Calendar.csv", "Time Ranges.csv", "Versions.csv", "General Lists.csv", "Line Item Subsets.csv", "Modules.csv", "Line Items.csv",
-      "Processes.csv", "Imports.csv", "Import Data Sources.csv", "Exports.csv", "Other Actions.csv", "Source Models.csv"]);
-    expect([MODEL_FILE_ORDER[0], new Set(MODEL_FILE_ORDER).size]).toEqual([MODEL_CALENDAR_FILE, 13]);
+      "Dynamic Cell Access.csv", "Processes.csv", "Imports.csv", "Import Data Sources.csv", "Exports.csv", "Other Actions.csv", "Source Models.csv"]);
+    expect([MODEL_FILE_ORDER[0], new Set(MODEL_FILE_ORDER).size, MODEL_FILE_ORDER[MODEL_FILE_ORDER.indexOf("Line Items.csv") + 1]]).toEqual([MODEL_CALENDAR_FILE, 14, ACCESS_FILE]);
     const file = (name: string): ResultTable => ({ file: name, label: name.replace(/\.csv$/, ""), headers: ["", "Value"], rows: [], guard: false });
     /** The files of a result as the page lists them: each one's name and its place in the result. */
     const listed = (kind: "app" | "model", ...names: string[]) => listedTables(result(kind, [modelDetails, ...names.map(file)])).map(({ index, table }) => `${index} ${table.file}`);
     // The export's own order (model/export.ts), after the Details file: every file moves to its place, and keeps its place in the result as its name.
-    const written = ["Line Items.csv", "Modules.csv", "General Lists.csv", "Processes.csv", "Imports.csv", "Import Data Sources.csv", "Exports.csv", "Other Actions.csv", "Time Ranges.csv",
-      "Versions.csv", "Source Models.csv", "Model Calendar.csv"];
-    expect(listed("model", ...written)).toEqual(["12 Model Calendar.csv", "9 Time Ranges.csv", "10 Versions.csv", "3 General Lists.csv", "2 Modules.csv", "1 Line Items.csv", "4 Processes.csv",
-      "5 Imports.csv", "6 Import Data Sources.csv", "7 Exports.csv", "8 Other Actions.csv", "11 Source Models.csv"]);
+    const written = ["Line Items.csv", "Dynamic Cell Access.csv", "Modules.csv", "General Lists.csv", "Processes.csv", "Imports.csv", "Import Data Sources.csv", "Exports.csv", "Other Actions.csv",
+      "Time Ranges.csv", "Versions.csv", "Source Models.csv", "Model Calendar.csv"];
+    expect(listed("model", ...written)).toEqual(["13 Model Calendar.csv", "10 Time Ranges.csv", "11 Versions.csv", "4 General Lists.csv", "3 Modules.csv", "1 Line Items.csv",
+      "2 Dynamic Cell Access.csv", "5 Processes.csv", "6 Imports.csv", "7 Import Data Sources.csv", "8 Exports.csv", "9 Other Actions.csv", "12 Source Models.csv"]);
     // Only the files the result has, in that order.
     expect(listed("model", "Imports.csv", "Line Items.csv", "Versions.csv")).toEqual(["3 Versions.csv", "2 Line Items.csv", "1 Imports.csv"]);
     // A file that is not in the order comes after those that are, in the result's order, and none is dropped: a renamed
@@ -290,7 +291,7 @@ describe("What the results page reads out of a result", () => {
       .toEqual(["1 Pages.csv", "2 Cards.csv", "3 Line Items.csv", "4 Model Calendar.csv", "5 Where Used.csv"]);
     // The overview's tiles follow the same order.
     expect(overviewOf(result("model", [modelDetails, ...written.map(file)])).tiles.map(tile => tile.label)).toEqual(["Model Calendar", "Time Ranges", "Versions", "General Lists", "Modules",
-      "Line Items", "Processes", "Imports", "Import Data Sources", "Exports", "Other Actions", "Source Models"]);
+      "Line Items", "Dynamic Cell Access", "Processes", "Imports", "Import Data Sources", "Exports", "Other Actions", "Source Models"]);
   });
 
   // A model's Model Calendar file as the export writes it: the assessment template's rows, the first five about the model.
@@ -313,7 +314,7 @@ describe("What the results page reads out of a result", () => {
     expect([fileView(model, lineItems), fileView(model, modelDetails)]).toEqual([{ table: lineItems }, { table: modelDetails }]);
     expect(fileView(model, lineItems).table).toBe(lineItems);
     // The rules are few and each is one file's own, by the kind of result and the file's name.
-    expect([[...FILE_RULES.model.keys()], [...FILE_RULES.app.keys()]]).toEqual([["Model Calendar.csv", "Line Items.csv"], []]);
+    expect([[...FILE_RULES.model.keys()], [...FILE_RULES.app.keys()]]).toEqual([["Model Calendar.csv", "Line Items.csv", "Dynamic Cell Access.csv"], []]);
     // The rule is that file's alone: by its name, in a model's result, by its Section column.
     const renamed = { ...file, file: "Model Calendar (2).csv" };
     const regrouped = { ...file, headers: ["Group", ...file.headers.slice(1)] };
@@ -375,6 +376,52 @@ describe("What the results page reads out of a result", () => {
     expect(fileView(model, flat).table).toBe(flat);
     // The overview's tile counts the line items, as the navigation does; the modules' tile is the Modules file's.
     expect(overviewOf(model).tiles).toEqual([{ label: "Modules", count: 3 }, { label: "Line Items", count: 4, inCsv: 7 }]);
+  });
+
+  it("shows a model's Dynamic Cell Access file as it stands, under a line that says what it lists and how many of its rows have a driver that could not be matched", () => {
+    // The file as the export writes it (model/access.ts): one row for each use of a driver, the driver first.
+    const HEADERS = ["Driver Module", "Driver Line Item", "Access", "Controlled Module", "Controlled Line Item"];
+    const file: ResultTable = { file: "Dynamic Cell Access.csv", label: "Dynamic Cell Access", guard: false, headers: HEADERS, rows: [
+      ["ACC01 Access", "Can read", "Read", "REV01 Revenue", "Units"], ["ACC01 Access", "Can read", "Read", "REV01 Revenue", "Price"], ["ACC01 Access", "Can read", "Write", "REV01 Revenue", "Units"]] };
+    expect(ACCESS_FILE).toBe("Dynamic Cell Access.csv");
+    const model = result("model", [modelDetails, file]);
+    // What the table lists: a use of a driver is a row, so the line item that one driver controls for reading and for
+    // writing is in two.
+    const WHAT = "The Read Access Driver and Write Access Driver columns of Line Items, listed from the driver's side. One row for each use of a driver: the driver, Read or Write, and the line item it controls.";
+    const NO_DRIVERS = "No line item in this model has a read or write access driver.";
+    // The table is the file itself, every row and every column; none of its cells is one the page says in words. The line
+    // says what the table lists: no grid of Anaplan's has these columns. A row opens from the driver's name, its second column.
+    const shown = fileView(model, file);
+    expect([shown.table === file, shown.note, shown.opensFrom, shown.none, shown.exported]).toEqual([true, WHAT, 1, undefined, undefined]);
+    // A row whose driver the export matched to no line item has no Driver Module, and the driver as Line Items writes it.
+    // The line counts those rows, one and several, and says where they are and how to tell them.
+    const unmatched: Cell[][] = [["", "Gone.Flag", "Read", "COST01 Costs", "Rates"], ["", "'Old access'.Can write", "Write", "COST01 Costs", ""]];
+    const withOne: ResultTable = { ...file, rows: [...file.rows, unmatched[0]] };
+    const withTwo: ResultTable = { ...file, rows: [...file.rows, ...unmatched] };
+    expect([fileView(model, withOne).note, fileView(model, withTwo).note]).toEqual([
+      `${WHAT} 1 row has a driver that could not be matched to a line item: it comes last, with the driver as Line Items writes it and no Driver Module.`,
+      `${WHAT} 2 rows have a driver that could not be matched to a line item: they come last, with the driver as Line Items writes it and no Driver Module.`]);
+    expect(fileView(model, withTwo).table).toBe(withTwo);
+    // The count is read from the file's own rows, by that column wherever it stands and whatever the Details file says:
+    // a row that names no module under Controlled Module is not counted for that. The row opens from the driver's name
+    // wherever that column stands.
+    const moved: ResultTable = { ...withTwo, headers: [...HEADERS.slice(1), HEADERS[0]], rows: [...withTwo.rows.map(row => [...row.slice(1), row[0]]), ["Can read", "Read", "", "Lost", "ACC01 Access"]] };
+    expect([fileView(model, moved).note, fileView(model, moved).opensFrom]).toEqual([fileView(model, withTwo).note, 0]);
+    // A model that drives no access has the file without rows. The line says what the table would list, and the table
+    // says in the rows' place what an empty file of this kind means: not that nothing was found.
+    const empty: ResultTable = { ...file, rows: [] };
+    expect(fileView(model, empty)).toEqual({ table: empty, note: WHAT, empty: NO_DRIVERS, opensFrom: 1 });
+    expect([shown.empty, fileView(model, modelDetails).empty, fileView(model, { ...file, file: "Versions.csv" }).empty]).toEqual([NO_DRIVERS, undefined, undefined]);
+    // The tile and the navigation count every row of the file, the unmatched ones among them: the table leaves none to the CSV.
+    expect(overviewOf(result("model", [modelDetails, withTwo])).tiles).toEqual([{ label: "Dynamic Cell Access", count: 5 }]);
+    // The rule is that file's alone, in a model's result. An app's file of that name, a file of another name, and a file
+    // of the name without the column are shown as they stand, without a line: the very table. A file of the name that
+    // has the driver's module and not its name has the line, and opens its rows as any table does.
+    const renamed: ResultTable = { ...file, file: "Dynamic Cell Access (2).csv" };
+    const other: ResultTable = { ...file, headers: ["Driver", ...HEADERS.slice(1)] };
+    expect([fileView(result("app", [appDetails, file]), file), fileView(model, renamed), fileView(model, other)]).toEqual([{ table: file }, { table: renamed }, { table: other }]);
+    const unnamed: ResultTable = { ...file, headers: [HEADERS[0], "Driver", ...HEADERS.slice(2)] };
+    expect(fileView(model, unnamed)).toEqual({ table: unnamed, note: WHAT, empty: NO_DRIVERS });
   });
 
   it("tells a module's own row from a line item of which only the name was read, by the names in the Modules file", () => {

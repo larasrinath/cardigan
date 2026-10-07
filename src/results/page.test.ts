@@ -2,7 +2,8 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { RESULTS_PAGE } from "../protocol.js";
 import { FakePage, parseMarkup } from "./dom.test-support.js";
-import { keptCopyHtml } from "./markup.js";
+import { keptCopyHtml, overviewHtml, runHtml, tableHtml } from "./markup.js";
+import { NARROW_WINDOW } from "./navigation.js";
 import { readMarkup } from "./markup.test-support.js";
 import { PAGE_IDS } from "./page-ids.js";
 
@@ -72,6 +73,123 @@ describe("The results page's files", () => {
       ["main:has(> #mapHost:not([hidden]))", "align-self:stretch;display:flex;flex-direction:column"],
     ]);
     expect(rules("[hidden]")[0]).toEqual(["[hidden]", "display:none !important"]);
+  });
+
+  /** The rules a media query holds, by the query as the stylesheet writes it: each as its selector and what it declares. */
+  const mediaRules = (query: string): string[][] => {
+    const plain = css.replace(/\/\*[\s\S]*?\*\//g, "");
+    const found: string[][] = [];
+    // The stylesheet may say a query more than once: the rules of each of its blocks, in the stylesheet's order.
+    for (let at = plain.indexOf(`@media ${query}{`); at >= 0; at = plain.indexOf(`@media ${query}{`, at + 1)) {
+      const open = plain.indexOf("{", at);
+      let close = open;
+      for (let depth = 0; close < plain.length; close++) {
+        if (plain[close] === "{") depth++;
+        else if (plain[close] === "}" && --depth === 0) break;
+      }
+      found.push(...[...plain.slice(open + 1, close).matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(([, selector, body]) => [selector.trim(), body.trim().replace(/\s+/g, " ")]));
+    }
+    return found;
+  };
+  /** What the rules of exactly this selector declare, in the stylesheet's order: the rule for every width first. */
+  const declared = (selector: string): string[] => rules(selector).filter(([found]) => found === selector).map(([, body]) => body.replace(/\s+/g, " "));
+
+  it("is as wide as the window: nothing caps the shell or the banners, and the header, the banners and the shell keep to the same sides", () => {
+    // The navigation stands at the window's left edge and the content takes the room beside it: no rule gives the
+    // shell, the banners or the main area a greatest width, or sets them in the middle of the window.
+    const sized = [".shell", ".banners", "main"].flatMap(name => rules(name));
+    expect(sized.length).toBeGreaterThan(6);
+    expect(sized.filter(([, body]) => /max-width|margin/.test(body))).toEqual([]);
+    // One gutter is at the window's two sides and between the navigation and the content. The header and the banners
+    // keep to the same sides as the shell: the brand stands over the navigation's edge, and a banner is as wide as the
+    // navigation and the content together.
+    expect(css).toMatch(/\n {2}--gutter:\d+px;\n/);
+    expect(declared(".shell")[0]).toBe("display:flex;gap:var(--gutter);padding:12px var(--gutter) 32px;align-items:flex-start");
+    expect(declared(".banners")[0]).toBe("padding:12px var(--gutter) 0;display:grid;gap:8px");
+    expect(declared(".hd")[0]).toContain("padding:10px var(--gutter);");
+    // The narrow layout, where the navigation slides in over the content, keeps its own sides.
+    const narrow = new Map(mediaRules("(max-width:1120px)").map(([selector, body]) => [selector, body]));
+    expect([narrow.get(".hd"), narrow.get(".banners"), narrow.get(".shell")]).toEqual(["gap:10px;padding:10px 14px", "padding:12px 20px 0", "padding:12px 14px 28px"]);
+    expect([declared(".shell").length, declared(".banners").length]).toEqual([2, 2]);
+  });
+
+  it("keeps prose to a measure where the navigation stands beside the content, and only there; each thing it names is what the page writes", () => {
+    // In a window as wide as it likes, a note, a paragraph of how to read the files and the words of an empty state
+    // would run to lines of any length. They keep to the measure; the line under a table's name may be twice as long.
+    const measured = mediaRules("(width > 1120px)").filter(([, body]) => body.includes("--measure"));
+    expect(measured).toEqual([
+      [".warn-list li", "max-width:var(--measure)"],
+      ["#ovHowTo .dl dd", "padding-right:max(16px,calc(100% - var(--measure) - 16px))"],
+      [".empty .e-title,.empty .e-sub", "max-width:var(--measure);margin-left:auto;margin-right:auto"],
+      [".view-note", "max-width:calc(2*var(--measure))"],
+    ]);
+    expect(css).toMatch(/\n {2}--measure:\d+ch;\n/);
+    // The query is the other side of the narrow layout's, so the narrow layout is as it was: every use of the measure
+    // is in this query, and none in a rule for every width or in the narrow layout's.
+    const uses = (text: string): number => text.split("var(--measure)").length - 1;
+    expect([uses(css.replace(/\/\*[\s\S]*?\*\//g, "")), uses(measured.map(([, body]) => body).join(";"))]).toEqual([4, 4]);
+    expect(mediaRules("(max-width:1120px)").filter(([, body]) => body.includes("--measure"))).toEqual([]);
+    // The page's script writes what these rules name: an overview with a note and with how to read the files, the view
+    // of a run, and a table with a line under its name and no row.
+    const written = parseMarkup(overviewHtml({ tiles: [], cardTypes: [], models: [], notes: ["A note."], about: [], files: [], howToRead: [["Layout", "How each file is laid out."]], log: [] })
+      + runHtml()
+      + tableHtml({ label: "Line Items", note: "A line under the name.", columns: [], rows: [], page: 0, pages: 1, pageSize: 50, from: 0, to: 0, total: 0, all: 0, search: "", sort: undefined,
+        filtered: new Set(), context: undefined, links: { page: false, card: false } }));
+    const named = measured.flatMap(([selector]) => selector.split(","));
+    expect(named.map(selector => [selector, written.querySelectorAll(selector).length > 0])).toEqual(named.map(selector => [selector, true]));
+    expect([written.querySelector("#ovHowTo .dl dd")?.textContent, written.querySelector(".warn-list li")?.textContent, written.querySelector(".view-note")?.textContent])
+      .toEqual(["How each file is laid out.", "A note.", "A line under the name."]);
+  });
+
+  it("puts the navigation of a wide window away where the page's root says so, by one rule that takes it out of sight, of the Tab key's way and of a screen reader's", () => {
+    // The script asks the window whether it is narrow by the query the stylesheet's narrow layout has; the wide
+    // layout's query is the other side of it. So the two cannot say different things of one window.
+    const limit = /^\(max-width:(\d+)px\)$/.exec(NARROW_WINDOW)?.[1];
+    expect([limit === undefined, css.includes(`@media ${NARROW_WINDOW}{`), css.includes(`@media (width > ${limit}px){`)]).toEqual([false, true, true]);
+    const wide = mediaRules(`(width > ${limit}px)`);
+    const narrow = mediaRules(NARROW_WINDOW);
+    // Put away, the navigation is not rendered: it takes no room, the Tab key passes it, and it is not in the
+    // accessibility tree. The rule is the wide layout's alone: no rule for every width, and none of the narrow layout,
+    // where the navigation slides in over the content, reads what the root says.
+    expect(wide.filter(([selector]) => selector.includes("data-navigation"))).toEqual([[':root[data-navigation="hidden"] .sidenav', "display:none"]]);
+    expect(css.replace(/\/\*[\s\S]*?\*\//g, "").split("data-navigation")).toHaveLength(2);
+    expect(narrow.filter(([selector]) => selector.includes("data-navigation"))).toEqual([]);
+    // With the navigation gone the content begins at the gutter: the shell's own side, with no gap before its one part.
+    expect(declared(".shell")[0]).toContain("gap:var(--gutter);padding:12px var(--gutter) 32px");
+  });
+
+  it("holds the navigation's button as the header's first control at every width, with what it controls, and an icon for each state and each layout", () => {
+    const shell = new FakePage(html);
+    const button = shell.id("navToggle");
+    // The header's first control, a button with a name and a title that say what a press will do, and with the
+    // navigation as what it controls. Until the script has a result to navigate, neither it nor the navigation is
+    // there: the shell holds both hidden, and nothing of them is drawn before the script has run.
+    expect([shell.find(".hd").children[0] === button, button.localName, button.getAttribute("class"), button.getAttribute("aria-controls"), shell.id("sidenav").localName])
+      .toEqual([true, "button", "icon-btn nav-toggle", "sidenav", "nav"]);
+    expect([button.getAttribute("aria-label"), button.title, button.getAttribute("aria-expanded"), button.hidden, shell.id("sidenav").hidden]).toEqual(["Show navigation", "Show navigation", "false", true, true]);
+    // Its icon is drawn for a screen to see, not for a screen reader to read, and holds each of its parts once: three
+    // lines, and a frame with the navigation's side filled.
+    const icon = button.children[0];
+    expect([button.children.length, icon.localName, icon.getAttribute("aria-hidden")]).toEqual([1, "svg", "true"]);
+    expect([".nt-lines", ".nt-frame", ".nt-frame .nt-side"].map(part => icon.querySelectorAll(part).length)).toEqual([1, 1, 1]);
+    // No rule takes the button itself away at any width. Which part of the icon shows is the stylesheet's to say: in
+    // a wide window the frame, with its side filled while the button says the navigation is shown and empty once it
+    // says it is put away; in a narrow one the three lines.
+    expect(rules(".nav-toggle").map(([selector, body]) => [selector, body])).toEqual([
+      [".nav-toggle .nt-lines", "display:none"], ['.nav-toggle[aria-expanded="false"] .nt-side', "display:none"], [".nav-toggle .nt-frame", "display:none"]]);
+    const limit = /\d+/.exec(NARROW_WINDOW)?.[0];
+    const wide = mediaRules(`(width > ${limit}px)`);
+    expect(wide.filter(([selector]) => selector.includes(".nav-toggle")).map(([selector]) => selector)).toEqual([".nav-toggle .nt-lines", '.nav-toggle[aria-expanded="false"] .nt-side']);
+    expect(mediaRules(NARROW_WINDOW).filter(([selector]) => selector.includes(".nav-toggle")).map(([selector]) => selector)).toEqual([".nav-toggle .nt-frame"]);
+    // The button is the header's first element, which is where the Tab key finds it. In a wide window the brand is
+    // drawn before it and keeps its place at the window's left edge, so nothing in the header moves when the first
+    // result brings the button; in a narrow one the button is drawn first, as it always was. Nothing else on the page
+    // is drawn out of its order.
+    /** A declaration of the order a box is drawn in: the property of that name, and no other whose name ends so. */
+    const ORDER = /(?<![a-z-])order:/g;
+    expect([shell.find(".hd").children.map(child => child.id || child.getAttribute("class")), wide.filter(([, body]) => body.match(ORDER))])
+      .toEqual([["navToggle", "brand", "hdMeta", "hd-actions"], [[".hd .brand", "order:-1"]]]);
+    expect(css.replace(/\/\*[\s\S]*?\*\//g, "").match(ORDER)).toHaveLength(1);
   });
 
   it("shows nothing of the room the overview holds for a kept copy's line and button: the stylesheet hides what the markup marks as to come", () => {

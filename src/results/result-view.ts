@@ -94,8 +94,9 @@ export function resultNotes(result: AnalysisResult): string[] {
 }
 
 /** A file as the page shows it: the table it lists in the file's place, and a short line for under the table's name when
- * that table is not the file as it stands. What the page counts, searches, filters and opens is this table; the CSV, as a
- * table's download and in the zip, is always the file as the export wrote it. */
+ * that table is not the file as it stands, or is a file that needs a line to say what it lists. What the page counts,
+ * searches, filters and opens is this table; the CSV, as a table's download and in the zip, is always the file as the
+ * export wrote it. */
 export interface FileView {
   table: ResultTable;
   note?: string;
@@ -103,6 +104,12 @@ export interface FileView {
    * CSV: what the table says in the rows' place. The file was read and has rows, which `note` counts, so the table must
    * not say that nothing was found. */
   none?: string;
+  /** For a file that has no rows: what its table says in the rows' place, where the page's own sentence, that nothing
+   * was found, would not say what an empty file of this kind means. */
+  empty?: string;
+  /** The column whose cell opens a row and names it in its drawer, by its place in `table`, for a table in which that is
+   * not the first column: there the first column says the same thing in many rows, and is not what a row is called by. */
+  opensFrom?: number;
   /** For the cells of `table` that the page says in words: the text the CSV has in each one's place, by the row as `table`
    * holds it and by the column's place in it. A row's drawer shows both. None when no cell is said in words. */
   exported?: ReadonlyMap<readonly Cell[], ReadonlyMap<number, Cell>>;
@@ -160,11 +167,44 @@ const lineItemsRule: FileRule = (file, result) => {
   return { table: view.table, note: view.note === undefined ? undefined : `${view.note}${where}${unchecked}`, ...none };
 };
 
-/** The files the page shows otherwise than as they stand, each with its rule, by the kind of result and the file's name.
- * No other file is touched: a rule is a file's own, not a filter over all of them. */
+/** A model's Dynamic Cell Access file (model/export.ts writes it under this name). It is no grid of Anaplan's: the
+ * export makes it from the Line Items file's Read Access Driver and Write Access Driver columns, which name a driver on
+ * the line item it controls. The file lists the same from the driver's side, one row for each use of a driver: the
+ * driver, Read or Write, and what it controls (model/access.ts). */
+export const ACCESS_FILE = "Dynamic Cell Access.csv";
+/** The file's column for the module of the line item that drives. It is empty in the rows whose driver the export could
+ * match to no line item, and in no other row: those rows hold the driver as the Line Items file writes it. */
+const DRIVER_MODULE = "Driver Module";
+/** The file's column for the line item that drives: what a row of the table is called by. */
+const DRIVER_LINE_ITEM = "Driver Line Item";
+
+/** The table is the file as it stands. No column of Anaplan's is called as these are, so a line under the table's name
+ * says what it lists, and how many of its rows name a driver that could not be matched. Those rows are the file's own:
+ * the count is read from them, and is the same for a result that was kept or brought back. A file without rows is that
+ * of a model that drives no access, and its table says so. A row opens from its driver's name, and is called by it: the
+ * file's first column is the driver's module, which is one name down the rows of a model that keeps its drivers in one
+ * module, and would read as a way to that module. */
+const accessRule: FileRule = file => {
+  const driverModule = columnIndex(file, DRIVER_MODULE);
+  if (driverModule === undefined) return undefined;
+  const unmatched = file.rows.filter(row => cellText(row[driverModule]) === "").length;
+  const said = unmatched === 0 ? "" : ` ${unmatched === 1 ? "1 row has a driver that could not be matched to a line item: it comes" : `${unmatched} rows have a driver that could not be matched to a line item: they come`}`
+    + ` last, with the driver as Line Items writes it and no ${DRIVER_MODULE}.`;
+  const opensFrom = columnIndex(file, DRIVER_LINE_ITEM);
+  return {
+    table: file, ...(opensFrom === undefined ? {} : { opensFrom }),
+    note: "The Read Access Driver and Write Access Driver columns of Line Items, listed from the driver's side. "
+      + `One row for each use of a driver: the driver, Read or Write, and the line item it controls.${said}`,
+    empty: "No line item in this model has a read or write access driver.",
+  };
+};
+
+/** The files the page has a rule for, each with its rule, by the kind of result and the file's name: two that it shows
+ * otherwise than as they stand, and one that it shows as it stands, under a line that says what it is. No other file is
+ * touched: a rule is a file's own, not a filter over all of them. */
 export const FILE_RULES: Record<AnalysisResult["kind"], ReadonlyMap<string, FileRule>> = {
   app: new Map(),
-  model: new Map([[MODEL_CALENDAR_FILE, calendarView], [LINE_ITEMS_FILE, lineItemsRule]]),
+  model: new Map([[MODEL_CALENDAR_FILE, calendarView], [LINE_ITEMS_FILE, lineItemsRule], [ACCESS_FILE, accessRule]]),
 };
 
 /** One of the result's files by its rule alone, or as it stands: the rows the page lists, before any cell is said in words. */
@@ -239,11 +279,12 @@ export function modelFacts(result: AnalysisResult): [setting: string, value: str
 
 /** The order of a model's files in the navigation and among the overview's tiles: the order of Anaplan's own Model
  * settings, with the Actions list's files in the order the owner gave. Each file is known by the name model/export.ts
- * writes it under. Line Item Subsets is not exported yet, and has its place for when it is. A file of a result that is
- * not listed here comes after these, in the result's own order: a file that is renamed, or new, moves to the end and
- * does not go missing. */
+ * writes it under. Dynamic Cell Access is none of Anaplan's settings: it is made from Line Items, and comes right after
+ * it. Line Item Subsets is not exported yet, and has its place for when it is. A file of a result that is not listed
+ * here comes after these, in the result's own order: a file that is renamed, or new, moves to the end and does not go
+ * missing. */
 export const MODEL_FILE_ORDER: readonly string[] = [
-  MODEL_CALENDAR_FILE, "Time Ranges.csv", "Versions.csv", "General Lists.csv", "Line Item Subsets.csv", MODULES_FILE, LINE_ITEMS_FILE,
+  MODEL_CALENDAR_FILE, "Time Ranges.csv", "Versions.csv", "General Lists.csv", "Line Item Subsets.csv", MODULES_FILE, LINE_ITEMS_FILE, ACCESS_FILE,
   "Processes.csv", "Imports.csv", "Import Data Sources.csv", "Exports.csv", "Other Actions.csv", "Source Models.csv",
 ];
 

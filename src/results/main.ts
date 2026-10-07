@@ -16,6 +16,7 @@ import {
   noteBannerHtml, NOT_REMOVED_LINE, objectDrawerHtml, objectDrawerSubHtml, overviewHtml, rowDrawerHtml, rowDrawerSubHtml, runBannerHtml, runHtml, SUN_ICON, tableHtml, tableParts,
   type KeptCopy, type Links, type NavEntry, type TableView,
 } from "./markup.js";
+import { NARROW_WINDOW, NAVIGATION_KEY, navigationWords, storedNavigation, type NavigationChoice } from "./navigation.js";
 import type { PageId } from "./page-ids.js";
 import { analysedOf, cardParts, detailsOf, detailValue, diagnosticLog, fileView, listedTables, overviewOf, type FileView } from "./result-view.js";
 import { cellText, NONE, pageOf, rememberingSelect, rowName, valueCounts, type Row, type Sort, type TableQuery } from "./table-engine.js";
@@ -94,11 +95,15 @@ interface Shown {
   /** The file as the result holds it: what a download gives. */
   file: ResultTable;
   /** The file as the page shows it: the same, unless the file has a rule of its own (result-view.ts `fileView`). Then it
-   * is the table the rule gives, and `note` is the line under the table's name that says so. */
+   * is the table the rule gives, and `note` is the rule's line for under the table's name. */
   table: ResultTable;
   note: string | undefined;
   /** What the table says in the rows' place when the file's rule leaves it none of the file's rows to list. */
   none: string | undefined;
+  /** What the table says in the rows' place when the file has no rows, for a file whose rule has a sentence for that. */
+  empty: string | undefined;
+  /** The column whose cell opens a row and names it, for a table in which the rule has that be another than the first. */
+  opensFrom: number | undefined;
   /** The CSV's text for each cell the table says in words, by the table's row and the column's place: a row's drawer shows both. */
   exported: FileView["exported"];
   columns: Column[];
@@ -193,6 +198,41 @@ function toggleTheme(): void {
   try { localStorage.setItem("cardigan-theme", next); } catch { /* not remembered */ }
   applyTheme(next);
 }
+/* ================= navigation: shown, or put away ================= */
+/** Whether the window is narrow (navigation.ts `NARROW_WINDOW`): the navigation then slides in over the content. */
+const narrowWindow = (): boolean => window.matchMedia?.(NARROW_WINDOW).matches ?? false;
+/** Whether the navigation is shown now: in a narrow window while it is open over the content, in a wider one unless it
+ * was put away. */
+const navigationShown = (): boolean =>
+  (narrowWindow() ? el("sidenav").classList.contains("open") : document.documentElement.dataset.navigation !== "hidden");
+/** Says on the navigation's button whether the navigation is shown, and what a press of it will do: as its name, for a
+ * screen reader, and as its title. The button's icon follows the same attribute (results.css). */
+function markNavToggle(): void {
+  const shownNow = navigationShown();
+  const button = el("navToggle");
+  button.setAttribute("aria-expanded", String(shownNow));
+  button.setAttribute("aria-label", navigationWords(shownNow));
+  button.title = navigationWords(shownNow);
+}
+/** Puts the navigation of a wide window away, or brings it back. The page says which on its root element, and the
+ * stylesheet does the rest: put away, the navigation takes no room and is in no one's way, neither the Tab key's nor a
+ * screen reader's, and the content has the whole width. A table and a model's map take the new width by themselves. In
+ * a narrow window this changes nothing that is seen: there the navigation is out of the way until its button opens it. */
+function applyNavigation(choice: NavigationChoice): void {
+  document.documentElement.dataset.navigation = choice;
+  markNavToggle();
+}
+/** The button in a wide window: the navigation goes, or comes back, and the browser is asked to remember which, as it
+ * is for the theme. Focus that was inside the navigation as it goes is given to the button: what had it is no longer
+ * there to hold it. */
+function toggleNavigation(): void {
+  const next: NavigationChoice = document.documentElement.dataset.navigation === "hidden" ? "shown" : "hidden";
+  try { localStorage.setItem(NAVIGATION_KEY, next); } catch { /* not remembered */ }
+  // Asked before the navigation goes: a browser goes on naming what it has just stopped showing as the one with the focus.
+  const inside = el("sidenav").contains(document.activeElement);
+  applyNavigation(next);
+  if (next === "hidden" && inside) el("navToggle").focus();
+}
 /** A text node, as Node.TEXT_NODE names it. */
 const TEXT_NODE = 3;
 /** Whether an analysis has been made for this page: one was asked for on it, or it shows a result, which a page that was
@@ -248,7 +288,7 @@ function tableView(entry: Shown): TableView {
   entry.page = page.page;
   currentSlice = page.rows;
   return {
-    label: cellText(entry.table.label), note: entry.note, none: entry.none,
+    label: cellText(entry.table.label), note: entry.note, none: entry.none, empty: entry.empty, opensFrom: entry.opensFrom,
     ways: entry.ways && [{ way: "object", label: "By object", chosen: entry === entry.ways.object }, { way: "use", label: "Every use", chosen: entry === entry.ways.use }],
     columns: entry.columns.filter(column => !entry.hidden.has(column.index)), rows: page.rows,
     page: page.page, pages: page.pages, pageSize: state.pageSize, from: page.from, to: page.to, total: page.total, all: entry.table.rows.length,
@@ -384,12 +424,12 @@ function showResult(next: AnalysisResult, at: Date, back = false): void {
   const whereUsed = byObject && next.tables.find(table => table.file === WHERE_USED_FILE);
   for (const { index, table: file } of listedTables(next)) {
     // What the page counts, filters and searches is the table as it shows it: the columns' filters follow its rows too.
-    const { table, note, none, exported } = fileView(next, file);
+    const { table, note, none, empty, opensFrom, exported } = fileView(next, file);
     const columns = columnsOf(table);
     const keys = rowKeys(table);
     const page = cards !== undefined && keys.page !== undefined;
     const entry: Shown = {
-      index, file, table, note, none, exported, columns, keys, links: { page, card: page && keys.cardId !== undefined },
+      index, file, table, note, none, empty, opensFrom, exported, columns, keys, links: { page, card: page && keys.cardId !== undefined },
       filters: new Map(), hidden: defaultHidden(columns), sort: undefined, page: 0, listed: table.rows.length,
     };
     // A number that could be more than one card's opens none of them: there it is plain text.
@@ -400,7 +440,8 @@ function showResult(next: AnalysisResult, at: Date, back = false): void {
     // columns. Its cells link to nothing: a row opens the object, which lists its uses. The file's own number of rows is
     // what the navigation shows either way: it is what the CSV holds, and a download is the file in both.
     const object: Shown = {
-      index, file, table: { ...file, headers: byObject.headers, rows: byObject.rows }, note: byObject.note, none: undefined, exported: undefined, columns: byObject.columns,
+      index, file, table: { ...file, headers: byObject.headers, rows: byObject.rows }, note: byObject.note, none: undefined, empty: undefined, opensFrom: undefined,
+      exported: undefined, columns: byObject.columns,
       keys: { page: undefined, cardId: undefined, number: undefined }, links: { page: false, card: false },
       filters: new Map(), hidden: defaultHidden(byObject.columns), sort: undefined, page: 0, listed: file.rows.length, objects: byObject,
     };
@@ -639,7 +680,7 @@ function setBehindNav(inert: boolean): void {
 /** Opens the navigation of a narrow window and takes the focus into it: to the entry of the view shown. */
 function openNav(): void {
   el("sidenav").classList.add("open");
-  el("navToggle").setAttribute("aria-expanded", "true");
+  markNavToggle();
   const scrim = el("scrim");
   scrim.hidden = false;
   requestAnimationFrame(() => scrim.classList.add("show"));
@@ -651,7 +692,7 @@ function openNav(): void {
 function closeNav(back: boolean): void {
   if (!el("sidenav").classList.contains("open")) return;
   el("sidenav").classList.remove("open");
-  el("navToggle").setAttribute("aria-expanded", "false");
+  markNavToggle();
   el("scrim").classList.remove("show");
   setTimeout(settleScrim, 210);
   // The page behind takes part again before the focus goes back into it.
@@ -696,17 +737,17 @@ function closeDrawer(): void {
   if (state.lastFocus instanceof HTMLElement && document.contains(state.lastFocus)) state.lastFocus.focus();
   state.lastFocus = null;
 }
-/** Any row, in full. Its heading is the row's own name: the cell of the column that names the file's rows (columns.ts
- * `ROW_NAME_COLUMNS`), or, where the page knows no such column or the cell says nothing, the first cell that does. The
- * line under it says which row of which table it is, by its place among the rows the table lists, which a search, a
- * filter or a sort does not change. */
+/** Any row, in full. Its heading is the row's own name: the cell of the column that names the file's rows (the one its
+ * rows open from, where the file's rule names one, and else columns.ts `ROW_NAME_COLUMNS`), or, where the page knows no
+ * such column or the cell says nothing, the first cell that does. The line under it says which row of which table it
+ * is, by its place among the rows the table lists, which a search, a filter or a sort does not change. */
 function openRowDrawer(entry: Shown, row: Row, opener: Element): void {
   const object = entry.objects && objectOf(entry.objects, row);
   if (entry.objects && object) return openObjectDrawer(entry.objects, object, opener);
   drawerObject = undefined;
   drawerRow = { entry, row };
   const position = entry.table.rows.findIndex(candidate => candidate === row) + 1;
-  const named = rowNameIndex(entry.table);
+  const named = entry.opensFrom ?? rowNameIndex(entry.table);
   const name = (named === undefined ? "" : rowName([row[named] ?? ""])) || rowName(row) || `Row ${position}`;
   openDrawer(name, rowDrawerSubHtml(position, cellText(entry.table.label)), rowDrawerHtml(entry.columns, row, entry.links, entry.exported?.get(row)), opener);
 }
@@ -1143,9 +1184,18 @@ el("scrim").addEventListener("click", () => {
   if (el("sidenav").classList.contains("open")) closeNav(true);
   else closeDrawer();
 });
+// The navigation's button. In a wide window it puts the navigation away in place and brings it back. In a narrow one
+// the navigation opens over the content and closes again, as it always did there.
 el("navToggle").addEventListener("click", () => {
-  if (el("sidenav").classList.contains("open")) closeNav(true);
+  if (!narrowWindow()) toggleNavigation();
+  else if (el("sidenav").classList.contains("open")) closeNav(true);
   else openNav();
+});
+// The window crosses from one layout to the other. A navigation that was open over the content is closed: in a wide
+// window nothing lies over the page. And the button says what holds in the layout the window has now.
+window.matchMedia?.(NARROW_WINDOW).addEventListener("change", () => {
+  closeNav(false);
+  markNavToggle();
 });
 el("themeToggle").addEventListener("click", toggleTheme);
 el("dlAll").addEventListener("click", () => {
@@ -1222,6 +1272,9 @@ function keepLater(kept: AnalysisResult, at: Date): void {
 
 el("version").textContent = `v${VERSION}`;
 applyTheme(currentTheme());
+// Whether the navigation is put away is known before a result is drawn, the first or one brought back after a
+// refresh: a navigation that was put away is never shown first.
+applyNavigation(storedNavigation(key => localStorage.getItem(key)));
 const tabId = tabIdFrom(location.search);
 const byIcon = openedByIcon();
 const keeper = new ResultKeeper({ tabId });
