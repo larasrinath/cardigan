@@ -9,7 +9,7 @@ import { analysedLine, NOT_KEPT_NOTE, TOO_LARGE_NOTE } from "./keep-notes.js";
 import { KEPT_PREFIX, ResultKeeper, type KeptStorage } from "./keep-result.js";
 import { FORGOTTEN_LINE, keptCopyHtml, MAP_FAILED, NOT_REMOVED_LINE } from "./markup.js";
 import { NARROW_WINDOW, NAVIGATION_KEY } from "./navigation.js";
-import { watchForFiles, type FileWatch } from "./no-file.test-support.js";
+import { fileWords, watchForFiles, type FileWatch } from "./no-file.test-support.js";
 
 /** What stands in for the model map (src/map). The page calls its two functions and drives what the second returns; how
  * a graph is built and a map drawn is not the page's, and is tested with them. Each test is given its own stand-ins. */
@@ -303,10 +303,14 @@ afterEach(() => {
   // Whatever the test did with the page, the page made no file of anything, started no download, and went nowhere to
   // save one: no blob, no address for one, and no element or address of the page's that is a file.
   const made = watch.stop(page);
+  // And nothing the page had for its user, from the markup it was made of to the last thing written to it, names a
+  // file, a CSV or a zip, or a download: with a result and without one, in a view, a row's details, a popover, a
+  // banner or a message, as text or as what an element is named or described by (dom.test-support.ts `words`).
+  const named = page ? fileWords(page.words()) : [];
   vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
-  expect(made).toEqual([]);
+  expect([made, named]).toEqual([[], []]);
 });
 
 /** Loads the page at an address: a new page each time, as opening or reloading it gives. A page that finds no result kept
