@@ -7,6 +7,7 @@ import type { MapEnvironment } from "../map/map-view.js";
 import { RESULTS_PAGE, type TabMessage } from "../protocol.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
 import { FakeElement, FakeInput, FakePage, FakeSelect } from "./dom.test-support.js";
+import { watchForFiles, type FileWatch } from "./no-file.test-support.js";
 
 // The page, the map's graph and the map's view together, each as it is built: a model's result arrives on the results
 // page as the tab sends one, "Model map" is chosen, and the page's own script has the real builder (map/build-graph.ts)
@@ -201,10 +202,13 @@ class FakePort {
 let page: FakePage;
 let port: FakePort;
 let around: Surroundings;
+/** The watch for a page that makes a file, starts a download or goes somewhere to save one (no-file.test-support.ts). */
+let watch: FileWatch;
 
 beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(NOW);
+  watch = watchForFiles();
   browser.around = around = new Surroundings();
   const held = new Map<string, string>();
   vi.stubGlobal("history", { state: null, replaceState: () => undefined });
@@ -220,7 +224,14 @@ beforeEach(() => {
   vi.stubGlobal("navigator", { clipboard: { writeText: async () => undefined } });
   vi.stubGlobal("chrome", { tabs: { connect: () => port = new FakePort() }, runtime: { lastError: undefined } });
 });
-afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+afterEach(() => {
+  // The page and its map made no file, started no download and went nowhere to save one.
+  const made = watch.stop(page);
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+  expect(made).toEqual([]);
+});
 
 /** A result as the tab sends it: what it is, then its rows table by table, then that it is complete. */
 function send(result: AnalysisResult): void {
@@ -234,7 +245,7 @@ async function openWith(result: AnalysisResult): Promise<void> {
   vi.resetModules();
   page = new FakePage(SHELL);
   vi.stubGlobal("document", page.document);
-  vi.stubGlobal("location", { search: `?tab=42&opened=${NOW.getTime() - 1500}`, pathname: `/${RESULTS_PAGE}`, hash: "" });
+  vi.stubGlobal("location", watch.location({ search: `?tab=42&opened=${NOW.getTime() - 1500}`, pathname: `/${RESULTS_PAGE}`, hash: "" }));
   await import("./main.js");
   port.send({ type: "subject", subject: { kind: "model", id: result.id } });
   send(result);
