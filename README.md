@@ -190,7 +190,7 @@ You need Node 20.19+, 22.12+ or 24+.
 | `npm test` | Runs the unit tests in `src/` (Vitest). `npm run test:scripts` runs those of `scripts/` |
 | `npm run check` | Type-check, both test suites and the build. GitHub Actions runs it on every push and pull request |
 | `npm run package` | Builds, then writes the release zip |
-| `npm run icons` | Redraws `icons/*.png` |
+| `npm run icons` | Makes the four icons in `icons/` again from the logo, `icons/source.png` |
 
 To run from source, choose **Load unpacked** and select the repository root. After a rebuild, reload the extension and refresh the Anaplan tab. `dist/` is not in Git: build after every pull.
 
