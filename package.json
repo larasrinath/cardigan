@@ -1,8 +1,8 @@
 {
   "name": "cardigan",
-  "version": "0.9.1",
+  "version": "0.10.0",
   "private": true,
-  "description": "Cardigan: a Chrome extension that shows an Anaplan app's pages or a model's Model settings on a page, with CSV export",
+  "description": "Cardigan: a Chrome extension that shows an Anaplan app's pages or a model's Model settings as searchable tables, with a model map",
   "author": "Lara Srinath",
   "license": "MIT",
   "type": "module",
