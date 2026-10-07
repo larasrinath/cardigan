@@ -74,6 +74,40 @@ describe("The results page's files", () => {
     expect(rules("[hidden]")[0]).toEqual(["[hidden]", "display:none !important"]);
   });
 
+  /** The rules a media query holds, by the query as the stylesheet writes it: each as its selector and what it declares. */
+  const mediaRules = (query: string): string[][] => {
+    const plain = css.replace(/\/\*[\s\S]*?\*\//g, "");
+    const open = plain.indexOf("{", plain.indexOf(`@media ${query}{`));
+    if (open < 0 || !plain.includes(`@media ${query}{`)) return [];
+    let close = open;
+    for (let depth = 0; close < plain.length; close++) {
+      if (plain[close] === "{") depth++;
+      else if (plain[close] === "}" && --depth === 0) break;
+    }
+    return [...plain.slice(open + 1, close).matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(([, selector, body]) => [selector.trim(), body.trim().replace(/\s+/g, " ")]);
+  };
+  /** What the rules of exactly this selector declare, in the stylesheet's order: the rule for every width first. */
+  const declared = (selector: string): string[] => rules(selector).filter(([found]) => found === selector).map(([, body]) => body.replace(/\s+/g, " "));
+
+  it("is as wide as the window: nothing caps the shell or the banners, and the header, the banners and the shell keep to the same sides", () => {
+    // The navigation stands at the window's left edge and the content takes the room beside it: no rule gives the
+    // shell, the banners or the main area a greatest width, or sets them in the middle of the window.
+    const sized = [".shell", ".banners", "main"].flatMap(name => rules(name));
+    expect(sized.length).toBeGreaterThan(6);
+    expect(sized.filter(([, body]) => /max-width|margin/.test(body))).toEqual([]);
+    // One gutter is at the window's two sides and between the navigation and the content. The header and the banners
+    // keep to the same sides as the shell: the brand stands over the navigation's edge, and a banner is as wide as the
+    // navigation and the content together.
+    expect(css).toMatch(/\n {2}--gutter:\d+px;\n/);
+    expect(declared(".shell")[0]).toBe("display:flex;gap:var(--gutter);padding:12px var(--gutter) 32px;align-items:flex-start");
+    expect(declared(".banners")[0]).toBe("padding:12px var(--gutter) 0;display:grid;gap:8px");
+    expect(declared(".hd")[0]).toContain("padding:10px var(--gutter);");
+    // The narrow layout, where the navigation slides in over the content, keeps its own sides.
+    const narrow = new Map(mediaRules("(max-width:1120px)").map(([selector, body]) => [selector, body]));
+    expect([narrow.get(".hd"), narrow.get(".banners"), narrow.get(".shell")]).toEqual(["gap:10px;padding:10px 14px", "padding:12px 20px 0", "padding:12px 14px 28px"]);
+    expect([declared(".shell").length, declared(".banners").length]).toEqual([2, 2]);
+  });
+
   it("shows nothing of the room the overview holds for a kept copy's line and button: the stylesheet hides what the markup marks as to come", () => {
     // While a result is being kept the place holds the words of the line and of the button (markup.ts `keptCopyHtml`).
     // They say that a copy is kept, which is not so yet: each part is marked, and the stylesheet must not show a marked one.
