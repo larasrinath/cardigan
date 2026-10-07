@@ -85,14 +85,13 @@ Closing the results page stops the reading.
 
 ### The results page
 
-- The page is as wide as the window: the navigation stands at the left, and the table or the map takes the rest.
+- The page is as wide as the window: the navigation stands at the left, and the table or the map takes the rest. The button beside the Cardigan name hides the navigation, so that the table or the map takes the whole width, and brings it back; your browser remembers the choice.
 - The search box looks in every column, shown or hidden. Press `/` to reach it.
 - Click a column's name to sort. A column with 2 to 30 different values also has a filter.
 - **Columns** picks the columns shown. An app's ID columns, **Card #** and **Section #** start hidden.
 - Click a row to read every value in full. In an app, a page's name shows that page's cards, and a card's title opens the card with its grid sections, filters, formatting and buttons.
 - Click an ID to copy it.
 - The sun or moon button switches the theme.
-- The page uses the window's whole width. The button beside the Cardigan name hides the navigation, so that a table or the model map takes all of it, and brings it back; your browser remembers the choice.
 
 **How to read these tables**, on the Overview, has the notes for reading them. One to know: "(not in the model)" after an ID marks a module or line item that a card points at and the model no longer has, or that you cannot see.
 
