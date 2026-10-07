@@ -107,6 +107,9 @@ export interface FileView {
   /** For a file that has no rows: what its table says in the rows' place, where the page's own sentence, that nothing
    * was found, would not say what an empty file of this kind means. */
   empty?: string;
+  /** The column whose cell opens a row and names it in its drawer, by its place in `table`, for a table in which that is
+   * not the first column: there the first column says the same thing in many rows, and is not what a row is called by. */
+  opensFrom?: number;
   /** For the cells of `table` that the page says in words: the text the CSV has in each one's place, by the row as `table`
    * holds it and by the column's place in it. A row's drawer shows both. None when no cell is said in words. */
   exported?: ReadonlyMap<readonly Cell[], ReadonlyMap<number, Cell>>;
@@ -172,19 +175,24 @@ export const ACCESS_FILE = "Dynamic Cell Access.csv";
 /** The file's column for the module of the line item that drives. It is empty in the rows whose driver the export could
  * match to no line item, and in no other row: those rows hold the driver as the Line Items file writes it. */
 const DRIVER_MODULE = "Driver Module";
+/** The file's column for the line item that drives: what a row of the table is called by. */
+const DRIVER_LINE_ITEM = "Driver Line Item";
 
 /** The table is the file as it stands. No column of Anaplan's is called as these are, so a line under the table's name
  * says what it lists, and how many of its rows name a driver that could not be matched. Those rows are the file's own:
  * the count is read from them, and is the same for a result that was kept or brought back. A file without rows is that
- * of a model that drives no access, and its table says so. */
+ * of a model that drives no access, and its table says so. A row opens from its driver's name, and is called by it: the
+ * file's first column is the driver's module, which is one name down the rows of a model that keeps its drivers in one
+ * module, and would read as a way to that module. */
 const accessRule: FileRule = file => {
   const driverModule = columnIndex(file, DRIVER_MODULE);
   if (driverModule === undefined) return undefined;
   const unmatched = file.rows.filter(row => cellText(row[driverModule]) === "").length;
   const said = unmatched === 0 ? "" : ` ${unmatched === 1 ? "1 row has a driver that could not be matched to a line item: it comes" : `${unmatched} rows have a driver that could not be matched to a line item: they come`}`
     + ` last, with the driver as Line Items writes it and no ${DRIVER_MODULE}.`;
+  const opensFrom = columnIndex(file, DRIVER_LINE_ITEM);
   return {
-    table: file,
+    table: file, ...(opensFrom === undefined ? {} : { opensFrom }),
     note: "The Read Access Driver and Write Access Driver columns of Line Items, listed from the driver's side. "
       + `One row for each use of a driver: the driver, Read or Write, and the line item it controls.${said}`,
     empty: "No line item in this model has a read or write access driver.",

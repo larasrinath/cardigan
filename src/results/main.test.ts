@@ -1310,6 +1310,11 @@ describe("What a click, a key and typing do on the results page", () => {
       ["The Read Access Driver and Write Access Driver columns of Line Items, listed from the driver's side. One row for each use of a driver: the driver, Read or Write, and the line item it controls. "
         + "1 row has a driver that could not be matched to a line item: it comes last, with the driver as Line Items writes it and no Driver Module."],
       "1–5 of 5 rows", "Dynamic Cell Access: 5 rows"]);
+    // A row opens from its driver's name, the second cell, in every row. The first cell, the driver's module, is the same
+    // name down the rows, and is plain text: as the row's button it would read as a way to that module.
+    const opens = () => page.all("#tableWrap tbody tr").map(row => row.children.map(cell => cell.querySelector('[data-act="row"]')?.textContent.trim()));
+    expect(opens()).toEqual(["Can read", "Can read", "Can read", "=Can write", "'Old access'.Flag"].map(name => [undefined, name, undefined, undefined, undefined]));
+    expect(page.all("#tableWrap tbody tr").map(row => row.children[0].querySelectorAll("button").length)).toEqual([0, 0, 0, 0, 0]);
 
     // It is a table like the model's others. The search finds a driver by its name, and what it controls by its own.
     page.id("tblSearch").type("can read");
@@ -1329,11 +1334,30 @@ describe("What a click, a key and typing do on the results page", () => {
     page.find('[data-sort="4"]').press();
     expect([column("Controlled Line Item"), column("Driver Line Item")]).toEqual([["Cost", "Cost", "Price", "Units", "Units"], ["Can read", "'Old access'.Flag", "Can read", "Can read", "=Can write"]]);
     page.id("resetBtn").press();
-    // A row opens in full. A row without a Driver Module is headed by the driver as it is written, its first text.
-    page.all('#tableWrap tbody [data-act="row"]')[4].press();
+    // A row opens in full, headed by its driver's name: the line item's, or for a row without a Driver Module the driver
+    // as it is written. The focus goes back to the button it was opened from.
+    const rowButtons = () => page.all('#tableWrap tbody [data-act="row"]');
+    rowButtons()[0].press();
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent, page.texts("#drawerBody dd")]).toEqual(["Can read", "Row 1 of Dynamic Cell Access", ["ACC01 Access", "Can read", "Read", "REV01 Revenue", "Units"]]);
+    page.key("Escape");
+    expect(page.document.activeElement).toBe(rowButtons()[0]);
+    rowButtons()[4].press();
     expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent, page.texts("#drawerBody dt"), page.texts("#drawerBody dd").slice(1)])
       .toEqual(["'Old access'.Flag", "Row 5 of Dynamic Cell Access", ["Driver Module", "Driver Line Item", "Access", "Controlled Module", "Controlled Line Item"], ["'Old access'.Flag", "Write", "COST01 Costs", "Cost"]]);
     page.key("Escape");
+    // With the driver's name hidden, the first column shown opens the row, as in any table: the module, and for the row
+    // that has none, a button of its own before the empty cell. The row is still called by its driver.
+    page.id("colBtn").press();
+    page.all("#popover input")[1].tick();
+    page.key("Escape");
+    expect([headings(), opens().map(cells => cells[0])]).toEqual([["Driver Module", "Access", "Controlled Module", "Controlled Line Item"], ["ACC01 Access", "ACC01 Access", "ACC01 Access", "ACC01 Access", ""]]);
+    rowButtons()[3].press();
+    expect(page.id("drawerTitle").textContent).toBe("=Can write");
+    page.key("Escape");
+    page.id("colBtn").press();
+    page.all("#popover input")[1].tick();
+    page.key("Escape");
+    expect(opens()[0]).toEqual([undefined, "Can read", undefined, undefined, undefined]);
 
     // "Download this table" saves the file as the export wrote it, every name as it is: nothing stands before the name
     // that begins with a sign, so that it is the name Line Items.csv has.
@@ -1346,6 +1370,10 @@ describe("What a click, a key and typing do on the results page", () => {
     page.id("dlAll").press();
     expect(await bytes(saved[1])).toEqual(resultZip(WITH_ACCESS, NOW));
     expect(WITH_ACCESS.tables.map(table => table.file)).toEqual(["Model Details.csv", "Line Items.csv", "Dynamic Cell Access.csv", "Modules.csv"]);
+
+    // Another table of the model opens its rows from its first column, as ever: the choice is this file's alone.
+    goTo(1);
+    expect(page.all("#tableWrap tbody tr").map(row => row.children.map(cell => cell.querySelectorAll('[data-act="row"]').length))[0]).toEqual([1, 0, 0, 0, 0, 0, 0, 0, 0]);
 
     // A model that drives no access has the file without rows. The line still says what the table would list, and the
     // table says in the rows' place what that means, in the place of the page's sentence for a table without rows.

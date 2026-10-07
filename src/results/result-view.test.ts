@@ -390,9 +390,9 @@ describe("What the results page reads out of a result", () => {
     const WHAT = "The Read Access Driver and Write Access Driver columns of Line Items, listed from the driver's side. One row for each use of a driver: the driver, Read or Write, and the line item it controls.";
     const NO_DRIVERS = "No line item in this model has a read or write access driver.";
     // The table is the file itself, every row and every column; none of its cells is one the page says in words. The line
-    // says what the table lists: no grid of Anaplan's has these columns.
+    // says what the table lists: no grid of Anaplan's has these columns. A row opens from the driver's name, its second column.
     const shown = fileView(model, file);
-    expect([shown.table === file, shown.note, shown.none, shown.exported]).toEqual([true, WHAT, undefined, undefined]);
+    expect([shown.table === file, shown.note, shown.opensFrom, shown.none, shown.exported]).toEqual([true, WHAT, 1, undefined, undefined]);
     // A row whose driver the export matched to no line item has no Driver Module, and the driver as Line Items writes it.
     // The line counts those rows, one and several, and says where they are and how to tell them.
     const unmatched: Cell[][] = [["", "Gone.Flag", "Read", "COST01 Costs", "Rates"], ["", "'Old access'.Can write", "Write", "COST01 Costs", ""]];
@@ -403,21 +403,25 @@ describe("What the results page reads out of a result", () => {
       `${WHAT} 2 rows have a driver that could not be matched to a line item: they come last, with the driver as Line Items writes it and no Driver Module.`]);
     expect(fileView(model, withTwo).table).toBe(withTwo);
     // The count is read from the file's own rows, by that column wherever it stands and whatever the Details file says:
-    // a row that names no module under Controlled Module is not counted for that.
+    // a row that names no module under Controlled Module is not counted for that. The row opens from the driver's name
+    // wherever that column stands.
     const moved: ResultTable = { ...withTwo, headers: [...HEADERS.slice(1), HEADERS[0]], rows: [...withTwo.rows.map(row => [...row.slice(1), row[0]]), ["Can read", "Read", "", "Lost", "ACC01 Access"]] };
-    expect(fileView(model, moved).note).toBe(fileView(model, withTwo).note);
+    expect([fileView(model, moved).note, fileView(model, moved).opensFrom]).toEqual([fileView(model, withTwo).note, 0]);
     // A model that drives no access has the file without rows. The line says what the table would list, and the table
     // says in the rows' place what an empty file of this kind means: not that nothing was found.
     const empty: ResultTable = { ...file, rows: [] };
-    expect(fileView(model, empty)).toEqual({ table: empty, note: WHAT, empty: NO_DRIVERS });
+    expect(fileView(model, empty)).toEqual({ table: empty, note: WHAT, empty: NO_DRIVERS, opensFrom: 1 });
     expect([shown.empty, fileView(model, modelDetails).empty, fileView(model, { ...file, file: "Versions.csv" }).empty]).toEqual([NO_DRIVERS, undefined, undefined]);
     // The tile and the navigation count every row of the file, the unmatched ones among them: the table leaves none to the CSV.
     expect(overviewOf(result("model", [modelDetails, withTwo])).tiles).toEqual([{ label: "Dynamic Cell Access", count: 5 }]);
     // The rule is that file's alone, in a model's result. An app's file of that name, a file of another name, and a file
-    // of the name without the column are shown as they stand, without a line: the very table.
+    // of the name without the column are shown as they stand, without a line: the very table. A file of the name that
+    // has the driver's module and not its name has the line, and opens its rows as any table does.
     const renamed: ResultTable = { ...file, file: "Dynamic Cell Access (2).csv" };
     const other: ResultTable = { ...file, headers: ["Driver", ...HEADERS.slice(1)] };
     expect([fileView(result("app", [appDetails, file]), file), fileView(model, renamed), fileView(model, other)]).toEqual([{ table: file }, { table: renamed }, { table: other }]);
+    const unnamed: ResultTable = { ...file, headers: [HEADERS[0], "Driver", ...HEADERS.slice(2)] };
+    expect(fileView(model, unnamed)).toEqual({ table: unnamed, note: WHAT, empty: NO_DRIVERS });
   });
 
   it("tells a module's own row from a line item of which only the name was read, by the names in the Modules file", () => {
