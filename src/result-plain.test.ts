@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { plainCell, plainResult, plainRows, textOf } from "./result-plain.js";
 import type { AnalysisResult } from "./result-types.js";
-import { toCsv } from "./zip.js";
+import { toCsv } from "./zip.test-support.js";
 
 // What a described card can leave in a cell besides text and numbers: the report reads fields of no fixed shape.
 const ODD = [[undefined, null, NaN, Infinity, -Infinity], [true, false, 0, -0, 1e21], [{ id: 7 }, ["a", "b"], 10n, 102000000086, "=SUM(1)"],

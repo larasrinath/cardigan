@@ -3,7 +3,7 @@ import { TAB_FILES } from "../analyse.js";
 import { buildReport, HEADERS, NONE, type PageInput, type TabName } from "../report.js";
 import { plainRows } from "../result-plain.js";
 import type { AnalysisResult, Cell, ResultTable } from "../result-types.js";
-import { tableCsv } from "../result-zip.js";
+import { tableCsv } from "../result-zip.test-support.js";
 import { selectRows, sortRows } from "./table-engine.js";
 import { BY_OBJECT_HEADERS, objectOf, TYPE_ORDER, usedOn, WHERE_USED_FILE, whereUsedView, type WhereUsedObject, type WhereUsedView } from "./where-used-view.js";
 

@@ -864,7 +864,8 @@ export async function analyseApp(appGuid: string, progress: Progress, diagnostic
     ...HOW_TO_READ.map(([detail, value]): DetailRow => ["How to read", detail, value]),
     ...diagnosticRows(diagnostics()),
   ];
-  // Every file guards formula-like cells, as the page analysis always has (zip.ts `toCsv`).
+  // Every file is marked as one that guards formula-like cells when it is written as a CSV, as the page analysis always
+  // was. The page writes none: the mark is read by the tests' writer (zip.test-support.ts `toCsv`).
   const table = (file: string, headers: readonly string[], rows: readonly (readonly unknown[])[]): ResultTable =>
     ({ file, label: file.replace(/\.csv$/, ""), headers: [...headers], rows: plainRows(rows), guard: true });
   const tables: ResultTable[] = [

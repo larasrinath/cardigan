@@ -1,14 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { crc32, safeCell, toCsv, zipStore } from "./zip.js";
+import { crc32 } from "./crc32.js";
+import { safeCell, toCsv, zipStore } from "./zip.test-support.js";
 
 const bytes = (text: string) => new TextEncoder().encode(text);
 
-describe("Page analyzer CSV and zip output", () => {
-  it("computes the standard CRC-32 check value", () => {
-    expect(crc32(bytes("123456789"))).toBe(0xcbf43926);
-    expect(crc32(new Uint8Array())).toBe(0);
-  });
-
+// The writers are the tests' own (zip.test-support.ts): the extension writes no file. They are held to what Cardigan
+// wrote while it did, because the tests compare a result with the zips it wrote then.
+describe("The CSV and the zip the tests write a result as", () => {
   it("writes a stored zip whose central directory points at each entry", () => {
     const files = [{ name: "a.csv", data: bytes("x,y\r\n") }, { name: "é.txt", data: new Uint8Array() }];
     const zip = zipStore(files, new Date(2026, 8, 27, 12, 30, 10));

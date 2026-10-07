@@ -3,7 +3,7 @@ import { assemble } from "./pieces.test-support.js";
 import { resultMessages } from "./pieces.js";
 import { ROWS_MAX, ROWS_MAX_CHARS, type TabMessage } from "./protocol.js";
 import type { AnalysisResult, Cell, ResultTable } from "./result-types.js";
-import { resultZip } from "./result-zip.js";
+import { resultZip } from "./result-zip.test-support.js";
 import { sameBytes } from "./zip.test-support.js";
 
 const table = (file: string, headers: string[], rows: Cell[][], guard = false): ResultTable => ({ file, label: file.replace(/\.csv$/, ""), headers, rows, guard });

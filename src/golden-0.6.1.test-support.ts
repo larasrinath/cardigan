@@ -1,9 +1,8 @@
-import { zipStore } from "./zip.js";
-import { zipEntries } from "./zip.test-support.js";
+import { zipEntries, zipStore } from "./zip.test-support.js";
 
 /** Two zips exactly as version 0.6.1 (commit 4eb457a) wrote them, kept here as base64: the app in analyse.test.ts (`analyseGoldenApp`) and the
  * model in model/model.test.ts (`exportGoldenModel`). 0.6.1 built its zip inside the analysis; the analysis now returns tables
- * and result-zip.ts builds the zip, and these pin that the bytes did not change. Tests only.
+ * and result-zip.test-support.ts builds the zip, and these pin that the bytes did not change. Tests only.
  *
  * Made once by running 0.6.1's own analyseApp and exportModel on those fixtures, with the clock at 2026-09-28 12:30:10 UTC and
  * the time zone UTC (a zip entry carries its time as local time). Never regenerate them from newer code: a difference means the

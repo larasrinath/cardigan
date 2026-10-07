@@ -5,9 +5,8 @@ import { ACCESS_CSV, ACCESS_FILE_ADDED, ACCESS_GRIDS, ACCESS_READS_0_8_1, ACCESS
 import { NOT_SCOPE_IDS, SCOPE_IDS } from "../guards.test-support.js";
 import { buildModelGraph } from "../map/build-graph.js";
 import { Failure } from "../progress.js";
-import { resultZip, tableCsv } from "../result-zip.js";
-import { toCsv, zipStore } from "../zip.js";
-import { parseCsv, sameBytes, unzipText, zipEntries } from "../zip.test-support.js";
+import { resultZip, tableCsv } from "../result-zip.test-support.js";
+import { parseCsv, sameBytes, toCsv, unzipText, zipEntries, zipStore } from "../zip.test-support.js";
 import * as access from "./access.js";
 import { ACCESS_HEADERS } from "./access.js";
 import { againstMap } from "./access.test-support.js";

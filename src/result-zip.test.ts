@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AnalysisResult } from "./result-types.js";
-import { resultZip, tableCsv } from "./result-zip.js";
-import { toCsv, zipStore } from "./zip.js";
+import { resultZip, tableCsv } from "./result-zip.test-support.js";
+import { toCsv, zipStore } from "./zip.test-support.js";
 
 describe("A result's zip, built from its tables", () => {
   const result: AnalysisResult = {

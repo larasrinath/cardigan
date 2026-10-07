@@ -1,7 +1,7 @@
 import { gzipSync } from "node:zlib";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AnalysisResult, Cell } from "../result-types.js";
-import { resultZip } from "../result-zip.js";
+import { resultZip } from "../result-zip.test-support.js";
 import { VERSION } from "../version.js";
 import { bytesToText, KEPT_PREFIX, MAX_JSON_BYTES, MAX_PACKED_BYTES, PART_CHARS, ResultKeeper, textToBytes, type KeeperOptions, type KeptStorage } from "./keep-result.js";
 
