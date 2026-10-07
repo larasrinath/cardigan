@@ -16,6 +16,8 @@ const FOCUSABLE = new Set(["a", "button", "input", "select", "textarea"]);
  * box, and what a screen reader calls it or says of it. An attribute that holds another element's ID, as aria-labelledby
  * and aria-controls do, says nothing itself. */
 const SAYS = /^(?:title|placeholder|alt|label|aria-(?:label|description|placeholder|roledescription|valuetext))$/;
+/** The attributes by which an element leads somewhere, or saves what it leads to. */
+const LEADS = /^(?:href|src|download)$/;
 
 export interface FakeEvent {
   type: string;
@@ -186,6 +188,13 @@ export class FakeElement {
   set inert(on: boolean) { this.flag("inert", on); }
   get title(): string { return this.attributes.get("title") ?? ""; }
   set title(value: string) { this.setAttribute("title", value); }
+  /** Where the element leads, and the name it saves that under: each is its attribute, as a browser has them. */
+  get href(): string { return this.attributes.get("href") ?? ""; }
+  set href(value: string) { this.setAttribute("href", value); }
+  get src(): string { return this.attributes.get("src") ?? ""; }
+  set src(value: string) { this.setAttribute("src", value); }
+  get download(): string { return this.attributes.get("download") ?? ""; }
+  set download(value: string) { this.setAttribute("download", value); }
   get checked(): boolean { return this.ticked ?? this.attributes.has("checked"); }
   set checked(on: boolean) { this.ticked = on; }
   /** A text box holds what was typed; a list holds the value of the option chosen, or of the one the markup selects. */
@@ -218,9 +227,10 @@ export class FakeElement {
       if (node instanceof FakeElement) node.remove();
       node.parentElement = this;
       this.childNodes.push(node);
-      // What the page has for its user from now on: a text, and what an element is named or described by.
+      // What the page has for its user from now on: a text, and what an element of the markup is named or described
+      // by, with where it leads.
       if (node instanceof FakeText) this.page.says(node.textContent);
-      else for (const [name, value] of node.attributes) if (SAYS.test(name)) this.page.says(value);
+      else for (const [name, value] of node.attributes) node.tells(name, value);
     }
   }
   appendChild<T extends FakeElement | FakeText>(node: T): T {
@@ -238,7 +248,12 @@ export class FakeElement {
   hasAttribute(name: string): boolean { return this.attributes.has(name); }
   setAttribute(name: string, value: string): void {
     this.attributes.set(name, String(value));
-    if (SAYS.test(name)) this.page.says(String(value));
+    this.tells(name, String(value));
+  }
+  /** The page is told what an attribute says to the user, and where one leads. */
+  private tells(name: string, value: string): void {
+    if (SAYS.test(name)) this.page.says(value);
+    if (LEADS.test(name)) this.page.leads(this.localName, name, value);
   }
   removeAttribute(name: string): void { this.attributes.delete(name); }
 
@@ -390,8 +405,10 @@ export class FakePage {
   /** What document.execCommand was asked, and what it answers. */
   readonly commands: string[] = [];
   commandWorks = false;
-  /** Every word the page has had for its user since it was made (`words`). */
+  /** Every word the page has had for its user since it was made (`words`), and every place an element of it has led
+   * to (`addresses`). */
   private readonly said = new Set<string>();
+  private readonly led: [element: string, attribute: string, value: string][] = [];
   readonly document: {
     title: string;
     readonly activeElement: FakeElement;
@@ -454,16 +471,11 @@ export class FakePage {
   id(id: string): FakeElement { return this.find(`#${id}`); }
   /** The text of each element a selector finds, without the space around it. */
   texts(selector: string): string[] { return this.all(selector).map(element => element.textContent.trim()); }
-  /** Every element of the page, in the page's order. */
-  elements(): FakeElement[] {
-    const found: FakeElement[] = [];
-    const read = (element: FakeElement): void => {
-      found.push(element);
-      element.children.forEach(read);
-    };
-    this.root.children.forEach(read);
-    return found;
-  }
+  /** An element has this address or this `download` attribute from now on. */
+  leads(element: string, attribute: string, value: string): void { this.led.push([element, attribute, value]); }
+  /** Every address an element has had since the page was made, and every `download` attribute, whatever became of the
+   * element: the element's name, the attribute's, and its value. */
+  addresses(): [element: string, attribute: string, value: string][] { return [...this.led]; }
   /** The page has this for its user from now on: a text put on it, or what an element is named or described by. */
   says(words: string): void { if (words.trim() !== "") this.said.add(words); }
   /** Every word the page has had for its user since it was made, each once, whatever became of it: the markup it was

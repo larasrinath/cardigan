@@ -17,8 +17,9 @@ export interface FileWatch {
    * does, and it tells of a script that sends the page to a file. */
   location<T extends object>(address: T): T;
   /** Ends the watch and puts back what it stood in for. It gives what was used since the watch began, each named as a
-   * script writes it, with what the page given holds at the end that saves a file: an element with a `download`
-   * attribute, or with an address that is a file. Nothing of it is the results page's to use. */
+   * script writes it, with what an element of the page given has had since the page was made that saves a file: a
+   * `download` attribute, or an address that is a file, whatever became of the element. Nothing of it is the results
+   * page's to use. */
   stop(page?: FakePage): string[];
 }
 
@@ -55,9 +56,9 @@ export function watchForFiles(): FileWatch {
       globals.Blob = before.Blob;
       globals.File = before.File;
       URL.createObjectURL = before.createObjectURL;
-      for (const element of page?.elements() ?? []) {
-        if (element.attributes.has("download")) used.push(`<${element.localName} download>`);
-        for (const name of ["href", "src"]) goes(`<${element.localName} ${name}>`, element.attributes.get(name));
+      for (const [element, attribute, value] of page?.addresses() ?? []) {
+        if (attribute === "download") used.push(`<${element} download>`);
+        else goes(`<${element} ${attribute}>`, value);
       }
       return used;
     },
