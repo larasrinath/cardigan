@@ -1,6 +1,6 @@
 /** A model's objects and what links them: what the model map draws. It is worked out from the tables of a model export
- * and from nothing else (build-graph.ts), so the map can say of every node which file and row it comes from, and it
- * shows nothing the files do not hold. Formulas are kept as text and never evaluated: every link comes from a column
+ * and from nothing else (build-graph.ts), so every node carries the table and the row it comes from, and the map
+ * shows nothing the tables do not hold. Formulas are kept as text and never evaluated: every link comes from a column
  * of the export that names another object. */
 
 /** What a node is. A section is no node: it is the heading row above a group of modules (or lists) in the export. */
@@ -14,7 +14,8 @@ export interface GraphNode {
   /** Where it comes from: the table's label ("Line Items", "General Lists", "Processes"...) and its row in that file as a
    * spreadsheet numbers it: the header is row 1, so the first row of data is row 2. (The page's own table of line items
    * leaves the modules' rows out and so counts differently: this is the file's count.) A subset and a property carry
-   * their list's row. */
+   * their list's row. The map's details show neither: the count is a file's, and the page gives the user no file to
+   * count in. The row gives the Dynamic Cell Access table its order (model/access.ts). */
   file: string;
   row: number;
   /** The heading row above it in its file, without the heading's dashes; "Ungrouped" where there is none, or where the

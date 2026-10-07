@@ -328,7 +328,7 @@ describe("A model's result on the results page, with the map's real graph and th
     expect(leftOut.filter(line => /was not exported|has no .* columns?:/.test(line))).toEqual([]);
   });
 
-  it("finds a line item by search and says its formula, its format and summary in the page's words, its module, and the file and row it comes from", async () => {
+  it("finds a line item by search and says its formula, its format and summary in the page's words, and its module, and names no file", async () => {
     await openWith(MODEL);
     // What the page's own Line Items table says of two line items: the Format and Summary in words, where the file holds definitions.
     choose("Line Items");
@@ -336,10 +336,6 @@ describe("A model's result on the results page, with the map's real graph and th
     const topProduct = tableRow("Top Product");
     expect([onThePage["Module Name"], onThePage.Format, onThePage.Summary, onThePage.Formula, topProduct.Format])
       .toEqual([REVENUE, "Number, 2 decimal places, %", "Ratio = Margin / Revenue", "Margin / Revenue", "List: Products"]);
-    // And the file itself, as the result holds it. A spreadsheet numbers a file's lines from the header, which is row 1:
-    // the line item is on row 13, after the three headings and the modules' own rows above it.
-    const fileRow = (name: string): number => LINE_ITEM_ROWS.findIndex(cells => cells[""] === name) + 2;
-    expect(fileRow("Margin %")).toBe(13);
 
     toMap();
     // A key pressed with the focus in the map is the map's: the slash goes to the map's own search.
@@ -369,9 +365,9 @@ describe("A model's result on the results page, with the map's real graph and th
       .toEqual(["Products", "Module", expect.stringMatching(/^Products\b.*\bmodule/), "Margin as a share of revenue"]);
     // What feeds it directly, as its formula reads: the two line items whose Referenced By names it, each with its module.
     expect(listed("depends")).toEqual([["Revenue", REVENUE], ["Margin", REVENUE]]);
-    // And where it comes from: the file by the name it is saved under, and its row there as the spreadsheet numbers it.
-    expect(text(".map-source")).toBe("Line Items.csv, row 13");
-    expect(text(".map-source")).toBe(`Line Items.csv, row ${fileRow("Margin %")}`);
+    // The details name no file, and no row of one: there is no file for the user to open. The line item is in the page's
+    // Line Items table, under its name.
+    expect(part(".map-inspector").textContent).not.toMatch(/\.csv|\brow \d/);
     // With the selection cleared, the line counts what this view holds: the module's four line items, the three modules
     // beside them, and the ten links among them.
     part('.map-tracebar [data-map-act="clear"]').press();
@@ -380,11 +376,11 @@ describe("A model's result on the results page, with the map's real graph and th
     // A line item formatted as a list says the list, which the export names beside the format's ID: in the page's words too.
     part(".map-search").type("top product");
     parts(".map-result")[0].press();
-    expect([text(".map-insp-name"), settings().Module, settings().Format, text(".map-source")]).toEqual(["Top Product", SUMMARY, topProduct.Format, `Line Items.csv, row ${fileRow("Top Product")}`]);
-    // A module says what loads into it: the one import, by the Imports file's Target Object. Its row is its own row of the file.
+    expect([text(".map-insp-name"), settings().Module, settings().Format]).toEqual(["Top Product", SUMMARY, topProduct.Format]);
+    // A module says what loads into it: the one import, by the Imports file's Target Object.
     part(".map-search").type("inp01");
     parts(".map-result")[0].press();
-    expect([text(".map-kind"), text(".map-insp-name"), text(".map-source"), fileRow(VOLUMES)]).toEqual(["MODULE", VOLUMES, "Line Items.csv, row 3", 3]);
+    expect([text(".map-kind"), text(".map-insp-name")]).toEqual(["MODULE", VOLUMES]);
     expect(parts(".map-inspector .map-lines li").map(line => line.textContent)).toEqual([expect.stringMatching(/^Load volumes\b.*\bImport\b/)]);
 
     // A list comes from General Lists. That file says which formulas name the list: the line item whose formula reads
@@ -393,9 +389,9 @@ describe("A model's result on the results page, with the map's real graph and th
     parts(".map-result")[0].press();
     around.shows();
     expect([text(".map-insp-name"), text(".map-formula"), listed("depends"), written().includes("Products")]).toEqual(["Unit Cost", "Products.'Standard Cost'", [["Products", ""]], true]);
-    // The list's own details say how many items it has, and its file and its row there: the first under the headers.
+    // The list's own details say how many items it has.
     part('.map-inspector [data-map-list="depends"] .map-link').press();
-    expect([text(".map-kind"), text(".map-insp-name"), settings()["Item Count"], text(".map-source")]).toEqual(["LIST", "Products", "40", "General Lists.csv, row 2"]);
+    expect([text(".map-kind"), text(".map-insp-name"), settings()["Item Count"], part(".map-inspector").textContent.includes(".csv")]).toEqual(["LIST", "Products", "40", false]);
   });
 
   it("keeps the map through another view of the page and back, and drops it when a new result takes the page", async () => {
