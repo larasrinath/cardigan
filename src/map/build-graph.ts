@@ -171,8 +171,9 @@ const LIST_REFERENCES = [["Referenced in Applies To", "applies", { module: true 
   ["Referenced in Formula", "list_formula", { property: true }]] as const;
 
 /** The columns that name what drives who may read and who may write a module or a line item, each with its link. A
- * driver is a line item. */
-const DRIVERS = [["Read Access Driver", "read_access"], ["Write Access Driver", "write_access"]] as const;
+ * driver is a line item. The export's Dynamic Cell Access table is made of these links (model/access.ts), and knows the
+ * two columns from here. */
+export const DRIVERS = [["Read Access Driver", "read_access"], ["Write Access Driver", "write_access"]] as const;
 
 /** The fields of an action's definition that name a list by its ID. */
 const LIST_IDENTIFIERS = ["hierarchyIdentifier", "sourceHierarchyIdentifier", "targetHierarchyIdentifier"] as const;
@@ -806,7 +807,10 @@ const targetInAction = (listOfId: ReadonlyMap<string, number>): TargetOf => (dra
 const sharedNames = (amount: number): string =>
   `${count(amount, "name fits both a line item and a list property of the same name, and is", "names fit both a line item and a list property of the same name, and are")} taken for the line item.`;
 
-function build(tables: readonly ResultTable[]): ModelGraph {
+/** The graph of a model export's tables, or, thrown, whatever kept it from being made. It is for the export's own table
+ * of the access links (model/access.ts): a file must not take a graph of nothing for a model that has no links. The
+ * page's map takes `buildModelGraph`, which gives the same graph and never throws. */
+export function graphOf(tables: readonly ResultTable[]): ModelGraph {
   const draft = new Draft();
   // In the prototype's order. A column that names objects is read once every object it can name is there.
   const lists = readLists(draft, tables);
@@ -850,7 +854,7 @@ function build(tables: readonly ResultTable[]): ModelGraph {
  * tables always give the same graph. */
 export function buildModelGraph(tables: readonly ResultTable[]): ModelGraph {
   try {
-    return build(tables);
+    return graphOf(tables);
   } catch (error) {
     return { nodes: [], edges: [], unresolved: [], sections: [], limitations: [`The map could not be made from this export's tables (${message(error)}).`] };
   }
