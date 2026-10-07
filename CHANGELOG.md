@@ -5,8 +5,8 @@
 No downloads: the results page is the only place to see a result.
 
 - **The two download buttons are gone.** "Download all (.zip)" and "Download this table (.csv)" are removed, for an app and for a model. Cardigan makes no file and offers no download. Copying the diagnostic log or an ID to the clipboard works as before.
-- **The page speaks of tables.** Every sentence that spoke of a file, a CSV or a zip is reworded: "How to read these tables", "rows read" on a tile, "module rows are not listed here" under Line Items, and so on. The model map's details no longer end with a file and a row.
-- **No longer shown anywhere.** A module's own row of the Line Items list is a row of no table: the Modules table and the model map hold a module's settings. Two rows of the Model Calendar's template that were left for the reader to fill in, Model size (GB) and Captured by, are gone, and so is the note about long IDs in a spreadsheet.
+- **The page speaks of tables.** Every sentence that spoke of a file, a CSV or a zip is reworded: "How to read these tables", "rows in all" on a tile, "module rows are not listed here" under Line Items, and so on. The model map's details no longer end with a file and a row.
+- **No longer shown anywhere.** A module's own row of the Line Items list is a row of no table: the Modules table and the model map hold a module's settings. Two rows of the Model Calendar's template that were left for the reader to fill in, Model size (GB) and Captured by, are shown nowhere, and the note about long IDs in a spreadsheet is gone.
 - **What stays the same.** What is read from Anaplan, and what the tables hold: the stored comparisons still hold every table cell for cell, apart from the reworded sentences. The last result is still kept for its tab, so that a refresh brings it back, and **Forget this result** removes it. A result kept by an earlier version is not shown.
 - **The extension's description** in Chrome no longer says "with CSV export".
 - **README and NOTICE** say the same. Four of the README's pictures showed sentences that are gone and were removed; the others lost the bar at the top of the page, which showed the two buttons.
