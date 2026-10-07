@@ -122,8 +122,10 @@ describe("The Line Items table as the results page shows it", () => {
 
   it("is given, by the model export, the table these cases are written on, under the file name it looks for", async () => {
     const result = await exportedLineItems(MODEL);
-    // The export's files here: the one about the export itself, then the grid's. The view knows the grid's by this name.
-    expect(result.tables.map(written => written.file)).toEqual(["Model Details.csv", LINE_ITEMS_FILE]);
+    // The export's files here: the one about the export itself, then the grid's, which the view knows by this name, and
+    // the one the export makes from the grid's two driver columns, which hold nothing in this model.
+    expect(result.tables.map(written => written.file)).toEqual(["Model Details.csv", LINE_ITEMS_FILE, "Dynamic Cell Access.csv"]);
+    expect(result.tables[2].rows).toEqual([]);
     // The row's name first, the grid's columns under Anaplan's own headers, the export's three columns last. The module each
     // line item's row carries on the grid's axis is not in the table: only the Module Name column says it.
     const exported = result.tables[1];

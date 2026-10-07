@@ -9,6 +9,7 @@ import { FakeElement, FakeInput, FakePage, FakeSelect, parseMarkup } from "./dom
 import { analysedLine, NOT_KEPT_NOTE, TOO_LARGE_NOTE } from "./keep-notes.js";
 import { KEPT_PREFIX, ResultKeeper, type KeptStorage } from "./keep-result.js";
 import { FORGOTTEN_LINE, keptCopyHtml, MAP_FAILED, MAP_NO_FILE, NOT_REMOVED_LINE } from "./markup.js";
+import { NARROW_WINDOW, NAVIGATION_KEY } from "./navigation.js";
 
 /** What stands in for the model map (src/map). The page calls its two functions and drives what the second returns; how
  * a graph is built and a map drawn is not the page's, and is tested with them. Each test is given its own stand-ins. */
@@ -125,6 +126,23 @@ const BLUEPRINT: AnalysisResult = {
     { file: "Modules.csv", label: "Modules", headers: ["", "Applies To"], rows: [["REV01 Revenue", "Products, Time"], ["--- Archive ---", ""], ["COST01 Costs", "Cost Centres"]], guard: false }],
 };
 
+/** The same model with a Dynamic Cell Access file laid out as the export writes one (model/access.ts), in its place after
+ * Line Items: one row for each use of a driver, the driver first. The last row is one whose driver the
+ * export matched to no line item: it has no Driver Module, and the driver as a cell of Line Items writes it. One name
+ * looks like a formula. The rows are written by hand: the page reads the file as it stands, and nothing of it out of the
+ * Line Items file above, which has no driver columns. */
+const WITH_ACCESS: AnalysisResult = {
+  ...BLUEPRINT, summary: ["Line Items: 8 rows", "Dynamic Cell Access: 5 rows (1 with a driver that could not be matched)", "Modules: 3 rows"],
+  tables: [BLUEPRINT.tables[0], BLUEPRINT.tables[1],
+    { file: "Dynamic Cell Access.csv", label: "Dynamic Cell Access", guard: false, headers: ["Driver Module", "Driver Line Item", "Access", "Controlled Module", "Controlled Line Item"], rows: [
+      ["ACC01 Access", "Can read", "Read", "REV01 Revenue", "Units"],
+      ["ACC01 Access", "Can read", "Read", "REV01 Revenue", "Price"],
+      ["ACC01 Access", "Can read", "Read", "COST01 Costs", "Cost"],
+      ["ACC01 Access", "=Can write", "Write", "REV01 Revenue", "Units"],
+      ["", "'Old access'.Flag", "Write", "COST01 Costs", "Cost"]] },
+    BLUEPRINT.tables[2]],
+};
+
 // The page under test, and what stands in for the browser around it. A test loads the page with `open`.
 let page: FakePage;
 let ports: FakePort[];
@@ -137,6 +155,13 @@ let clipboardRefuses: boolean;
 let stored: Map<string, string>;
 let systemDark: boolean;
 let systemListeners: ((event: { matches: boolean }) => void)[];
+/** Whether the window is as narrow as the stylesheet's narrow layout (navigation.ts `NARROW_WINDOW`), in which the
+ * navigation slides in over the content, and who asked to hear when the window crosses that width. A test's window is
+ * wide unless the test says otherwise. */
+let narrowWindow: boolean;
+let layoutListeners: ((event: { matches: boolean }) => void)[];
+/** What the browser's store answers with, in the place of reading and of keeping, where a browser refuses both. */
+let storeRefuses: Error | undefined;
 let lastError: { message?: string } | undefined;
 /** The page's address, each address the script changed it to, and whether changing it is refused. */
 let location: { search: string; pathname: string; hash: string };
@@ -223,6 +248,9 @@ beforeEach(() => {
   stored = new Map();
   systemDark = false;
   systemListeners = [];
+  narrowWindow = false;
+  layoutListeners = [];
+  storeRefuses = undefined;
   lastError = undefined;
   replaced = [];
   fixedAddress = false;
@@ -232,10 +260,16 @@ beforeEach(() => {
     location.search = address.includes("?") ? address.slice(address.indexOf("?")) : "";
   } });
   vi.stubGlobal("window", {
-    matchMedia: () => ({ get matches() { return systemDark; }, addEventListener: (_type: string, listener: (event: { matches: boolean }) => void) => { systemListeners.push(listener); } }),
+    // The two things the page asks of the window's media: whether it is narrow, and whether the system's theme is dark.
+    matchMedia: (query: string) => (query === NARROW_WINDOW
+      ? { get matches() { return narrowWindow; }, addEventListener: (_type: string, listener: (event: { matches: boolean }) => void) => { layoutListeners.push(listener); } }
+      : { get matches() { return systemDark; }, addEventListener: (_type: string, listener: (event: { matches: boolean }) => void) => { systemListeners.push(listener); } }),
     scrollTo: () => undefined, innerWidth: 1280, innerHeight: 800,
   });
-  vi.stubGlobal("localStorage", { getItem: (key: string) => stored.get(key) ?? null, setItem: (key: string, value: string) => { stored.set(key, value); } });
+  vi.stubGlobal("localStorage", {
+    getItem: (key: string) => { if (storeRefuses) throw storeRefuses; return stored.get(key) ?? null; },
+    setItem: (key: string, value: string) => { if (storeRefuses) throw storeRefuses; stored.set(key, value); },
+  });
   const own = session = { held: new Map<string, string>(), refuses: "", writes: 0, storage: {
     get length() { return own.held.size; },
     key: (index: number) => [...own.held.keys()][index] ?? null,
@@ -1273,6 +1307,106 @@ describe("What a click, a key and typing do on the results page", () => {
       .toEqual([["Name", "Format", "Formula", "Summary", "Applies To", "Module Name", "Ratio Numerator", "Ratio Denominator"], ["REV01 Revenue", "Units"], ["Products, Time", "-"], 0, "1–8 of 8 rows"]);
   });
 
+  it("shows a model's Dynamic Cell Access right after its Line Items, as the file stands, under a line that says what it lists and how many drivers could not be matched", async () => {
+    await openWith(WITH_ACCESS);
+    const file = WITH_ACCESS.tables[2];
+    // The navigation has it after Line Items, where Anaplan's own order has no such entry, and the overview has its tile
+    // there too. Both count the file's rows: the table lists every one.
+    expect(page.all("#navList .nav-item").map(item => item.children.map(child => child.textContent))).toEqual([["Overview"], ["Modules", "3"], ["Line Items", "5"], ["Dynamic Cell Access", "5"], ["Model map"]]);
+    expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Modules", "3", "rows"], ["Line Items", "5", "rows", "8 rows in the CSV"], ["Dynamic Cell Access", "5", "rows"]]);
+
+    goTo(2);
+    expect(shows()).toEqual(["Dynamic Cell Access", "Dynamic Cell Access", "Dynamic Cell Access"]);
+    // The file's own columns, under their own names, and its rows in its own order: the driver first, the one that could
+    // not be matched last.
+    expect(headings()).toEqual(["Driver Module", "Driver Line Item", "Access", "Controlled Module", "Controlled Line Item"]);
+    expect([column("Driver Module"), column("Driver Line Item"), column("Controlled Line Item")]).toEqual([["ACC01 Access", "ACC01 Access", "ACC01 Access", "ACC01 Access", ""],
+      ["Can read", "Can read", "Can read", "=Can write", "'Old access'.Flag"], ["Units", "Price", "Cost", "Units", "Cost"]]);
+    // Under the table's name, one line: what the table is, and how many of its drivers could not be matched.
+    expect([page.texts("#view .view-note"), page.id("rowCount").textContent, page.id("live").textContent]).toEqual([
+      ["The Read Access Driver and Write Access Driver columns of Line Items, listed from the driver's side. One row for each use of a driver: the driver, Read or Write, and the line item it controls. "
+        + "1 row has a driver that could not be matched to a line item: it comes last, with the driver as Line Items writes it and no Driver Module."],
+      "1–5 of 5 rows", "Dynamic Cell Access: 5 rows"]);
+    // A row opens from its driver's name, the second cell, in every row. The first cell, the driver's module, is the same
+    // name down the rows, and is plain text: as the row's button it would read as a way to that module.
+    const opens = () => page.all("#tableWrap tbody tr").map(row => row.children.map(cell => cell.querySelector('[data-act="row"]')?.textContent.trim()));
+    expect(opens()).toEqual(["Can read", "Can read", "Can read", "=Can write", "'Old access'.Flag"].map(name => [undefined, name, undefined, undefined, undefined]));
+    expect(page.all("#tableWrap tbody tr").map(row => row.children[0].querySelectorAll("button").length)).toEqual([0, 0, 0, 0, 0]);
+
+    // It is a table like the model's others. The search finds a driver by its name, and what it controls by its own.
+    page.id("tblSearch").type("can read");
+    expect([column("Controlled Line Item"), page.id("rowCount").textContent]).toEqual([["Units", "Price", "Cost"], "1–3 of 3 rows (filtered from 5)"]);
+    page.id("tblSearch").type("old access");
+    expect([column("Driver Line Item"), page.id("rowCount").textContent]).toEqual([["'Old access'.Flag"], "1–1 of 1 row (filtered from 5)"]);
+    page.id("tblSearch").type("");
+    // Read or Write is a filter, as any column of a few texts is; so are the modules.
+    expect(filterable()).toEqual(["Driver Module", "Driver Line Item", "Access", "Controlled Module", "Controlled Line Item"]);
+    page.find('[data-colfilter="2"]').press();
+    expect(choices()).toEqual([["Read", "3", true], ["Write", "2", true]]);
+    page.all("#popover input")[0].tick();
+    expect([column("Access"), column("Driver Line Item")]).toEqual([["Write", "Write"], ["=Can write", "'Old access'.Flag"]]);
+    page.key("Escape");
+    page.id("resetBtn").press();
+    // A column's name sorts by it: here by what is controlled, the rows of one line item in the file's order.
+    page.find('[data-sort="4"]').press();
+    expect([column("Controlled Line Item"), column("Driver Line Item")]).toEqual([["Cost", "Cost", "Price", "Units", "Units"], ["Can read", "'Old access'.Flag", "Can read", "Can read", "=Can write"]]);
+    page.id("resetBtn").press();
+    // A row opens in full, headed by its driver's name: the line item's, or for a row without a Driver Module the driver
+    // as it is written. The focus goes back to the button it was opened from.
+    const rowButtons = () => page.all('#tableWrap tbody [data-act="row"]');
+    rowButtons()[0].press();
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent, page.texts("#drawerBody dd")]).toEqual(["Can read", "Row 1 of Dynamic Cell Access", ["ACC01 Access", "Can read", "Read", "REV01 Revenue", "Units"]]);
+    page.key("Escape");
+    expect(page.document.activeElement).toBe(rowButtons()[0]);
+    rowButtons()[4].press();
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent, page.texts("#drawerBody dt"), page.texts("#drawerBody dd").slice(1)])
+      .toEqual(["'Old access'.Flag", "Row 5 of Dynamic Cell Access", ["Driver Module", "Driver Line Item", "Access", "Controlled Module", "Controlled Line Item"], ["'Old access'.Flag", "Write", "COST01 Costs", "Cost"]]);
+    page.key("Escape");
+    // With the driver's name hidden, the first column shown opens the row, as in any table: the module, and for the row
+    // that has none, a button of its own before the empty cell. The row is still called by its driver.
+    page.id("colBtn").press();
+    page.all("#popover input")[1].tick();
+    page.key("Escape");
+    expect([headings(), opens().map(cells => cells[0])]).toEqual([["Driver Module", "Access", "Controlled Module", "Controlled Line Item"], ["ACC01 Access", "ACC01 Access", "ACC01 Access", "ACC01 Access", ""]]);
+    rowButtons()[3].press();
+    expect(page.id("drawerTitle").textContent).toBe("=Can write");
+    page.key("Escape");
+    page.id("colBtn").press();
+    page.all("#popover input")[1].tick();
+    page.key("Escape");
+    expect(opens()[0]).toEqual([undefined, "Can read", undefined, undefined, undefined]);
+
+    // "Download this table" saves the file as the export wrote it, every name as it is: nothing stands before the name
+    // that begins with a sign, so that it is the name Line Items.csv has.
+    page.id("dlCsv").press();
+    const csv = tableCsv(file);
+    expect([page.downloads[0].name, await saved[0].text(), csv.charCodeAt(0)]).toEqual(["Dynamic Cell Access.csv", csv.slice(1), 0xfeff]);
+    expect((await saved[0].text()).split("\r\n")).toEqual(["Driver Module,Driver Line Item,Access,Controlled Module,Controlled Line Item", "ACC01 Access,Can read,Read,REV01 Revenue,Units",
+      "ACC01 Access,Can read,Read,REV01 Revenue,Price", "ACC01 Access,Can read,Read,COST01 Costs,Cost", "ACC01 Access,=Can write,Write,REV01 Revenue,Units", ",'Old access'.Flag,Write,COST01 Costs,Cost", ""]);
+    // And the zip has it after Line Items.csv, as the result does.
+    page.id("dlAll").press();
+    expect(await bytes(saved[1])).toEqual(resultZip(WITH_ACCESS, NOW));
+    expect(WITH_ACCESS.tables.map(table => table.file)).toEqual(["Model Details.csv", "Line Items.csv", "Dynamic Cell Access.csv", "Modules.csv"]);
+
+    // Another table of the model opens its rows from its first column, as ever: the choice is this file's alone.
+    goTo(1);
+    expect(page.all("#tableWrap tbody tr").map(row => row.children.map(cell => cell.querySelectorAll('[data-act="row"]').length))[0]).toEqual([1, 0, 0, 0, 0, 0, 0, 0, 0]);
+
+    // A model that drives no access has the file without rows. The line still says what the table would list, and the
+    // table says in the rows' place what that means, in the place of the page's sentence for a table without rows.
+    page.id("runAgain").press();
+    sendResult(ports[0], { ...WITH_ACCESS, tables: WITH_ACCESS.tables.map(table => (table === file ? { ...file, rows: [] } : table)) });
+    goTo(2);
+    expect([page.texts("#view .view-note"), page.texts("#tableWrap .e-title"), page.texts("#tableWrap .e-sub"), page.id("rowCount").textContent]).toEqual([
+      ["The Read Access Driver and Write Access Driver columns of Line Items, listed from the driver's side. One row for each use of a driver: the driver, Read or Write, and the line item it controls."],
+      ["Dynamic Cell Access has no rows"], ["No line item in this model has a read or write access driver."], "No rows"]);
+    // Any other table without rows says what it said: that nothing was found for it.
+    page.id("runAgain").press();
+    sendResult(ports[0], { ...WITH_ACCESS, tables: WITH_ACCESS.tables.map(table => (table.file === "Modules.csv" ? { ...table, rows: [] } : table)) });
+    goTo(3);
+    expect([page.texts("#tableWrap .e-title"), page.texts("#tableWrap .e-sub")]).toEqual([["Modules has no rows"], ["Nothing was found for this table in this analysis."]]);
+  });
+
   it("says a model's Format and Summary in words in the table, for the search, the filter and the sort as well; the row's drawer has the CSV's text too, and the downloads only that", async () => {
     await openWith(BLUEPRINT);
     const file = BLUEPRINT.tables[1];
@@ -1348,17 +1482,20 @@ describe("What a click, a key and typing do on the results page", () => {
     /** The navigation's entries, by their words, and the overview's tiles. */
     const entries = () => page.all("#navList .nav-item").map(item => item.children[0].textContent);
     const tiles = () => page.texts("#view .s-lab");
-    // The order the export writes its files in (model/export.ts), and the order the page lists them in.
-    const written = ["Line Items", "Modules", "General Lists", "Processes", "Imports", "Import Data Sources", "Exports", "Other Actions", "Time Ranges", "Versions", "Source Models", "Model Calendar"];
-    const ordered = ["Model Calendar", "Time Ranges", "Versions", "General Lists", "Modules", "Line Items", "Processes", "Imports", "Import Data Sources", "Exports", "Other Actions", "Source Models"];
+    // The order the export writes its files in (model/export.ts), and the order the page lists them in. Dynamic Cell
+    // Access, which the export makes from Line Items, comes right after it in both.
+    const written = ["Line Items", "Dynamic Cell Access", "Modules", "General Lists", "Processes", "Imports", "Import Data Sources", "Exports", "Other Actions", "Time Ranges", "Versions", "Source Models",
+      "Model Calendar"];
+    const ordered = ["Model Calendar", "Time Ranges", "Versions", "General Lists", "Modules", "Line Items", "Dynamic Cell Access", "Processes", "Imports", "Import Data Sources", "Exports", "Other Actions",
+      "Source Models"];
     await openWith(model(...written));
     expect([entries(), tiles()]).toEqual([["Overview", ...ordered, "Model map"], ordered]);
     // Each entry still opens its own file: its name in the navigation is the file's place in the result, and its count the file's.
-    expect(page.all("#navList .nav-item").slice(1, 4).map(item => [item.dataset.nav, item.children[1].textContent])).toEqual([["12", "12"], ["9", "9"], ["10", "10"]]);
-    goTo(9);
-    expect([shows(), page.id("rowCount").textContent, firstCells()[0]]).toEqual([["Time Ranges", "Time Ranges", "Time Ranges"], "1–9 of 9 rows", "Time Ranges 1"]);
+    expect(page.all("#navList .nav-item").slice(1, 4).map(item => [item.dataset.nav, item.children[1].textContent])).toEqual([["13", "13"], ["10", "10"], ["11", "11"]]);
+    goTo(10);
+    expect([shows(), page.id("rowCount").textContent, firstCells()[0]]).toEqual([["Time Ranges", "Time Ranges", "Time Ranges"], "1–10 of 10 rows", "Time Ranges 1"]);
     // The model map is the last entry, named as its own view and not as a file: it has no place in the result, and no count.
-    const map = page.all("#navList .nav-item")[13];
+    const map = page.all("#navList .nav-item")[14];
     expect([map.dataset.nav, map.children.map(child => child.textContent)]).toEqual(["map", ["Model map"]]);
     // Only the page's list is ordered: the zip is the result's own, with its files as the result has them.
     page.id("dlAll").press();
@@ -1779,6 +1916,7 @@ describe("What a click, a key and typing do on the results page", () => {
   });
 
   it("takes the focus into the navigation of a narrow window when its button opens it, and keeps the page behind out of reach until it closes", async () => {
+    narrowWindow = true;
     await openWith(APP);
     const navigation = () => [page.id("sidenav").classList.contains("open"), page.id("navToggle").getAttribute("aria-expanded"), page.id("scrim").hidden];
     /** What the open navigation lies over: the link that skips to the results, the header, the banner area and the view. */
@@ -3116,6 +3254,238 @@ describe("A result kept while the results page is refreshed", () => {
     await open(refreshed);
     await back("Demo app");
     expect([keptPlace(), page.all("#ovKept .to-come").length]).toEqual([KEPT, 0]);
+  });
+});
+
+describe("The navigation of the results page, shown or put away", () => {
+  const root = () => page.document.documentElement;
+  const button = () => page.id("navToggle");
+  /** What the page says of the navigation: on its root, which the stylesheet reads, and on the button: whether the
+   * navigation is shown, and what a press will do, as the button's name and as its title. */
+  const says = () => [root().dataset.navigation, button().getAttribute("aria-expanded"), button().getAttribute("aria-label"), button().title];
+  const SHOWN = ["shown", "true", "Hide navigation", "Hide navigation"];
+  const HIDDEN = ["hidden", "false", "Show navigation", "Show navigation"];
+  /** What the navigation of a narrow window lies over while it is open. */
+  const behind = () => [page.find(".skip"), page.find(".hd"), page.id("banners"), page.id("main")].map(part => part.inert);
+  const WITHIN_REACH = [false, false, false, false];
+  const shows = () => [page.texts("#view h1")[0], page.texts("#crumbs strong")[0]];
+  const openOver = () => page.id("sidenav").classList.contains("open");
+  /** Whether the model's result is on the page. */
+  const result = () => page.document.title === "Cardigan — Model one";
+  /** The tab's port to the page as it was last opened: a test here opens the page more than once. */
+  const tab = () => ports[ports.length - 1];
+  const sendModel = () => {
+    tab().send({ type: "subject", subject: { kind: "model", id: MODEL.id } });
+    sendResult(tab(), MODEL);
+  };
+  /** The page as the icon's click leaves it, with the model's result on it. */
+  const openWithModel = async () => {
+    await open(clicked(42));
+    sendModel();
+  };
+
+  it("puts the navigation of a wide window away in place with the header's first button, and brings it back; the button says what a press will do", async () => {
+    // Before a result there is nothing to navigate: neither the navigation nor its button is there.
+    await open(clicked(42));
+    expect([button().hidden, page.id("sidenav").hidden]).toEqual([true, true]);
+    sendModel();
+    // With a result both are there. The button is the header's first control, and names the navigation as what it controls.
+    expect([button().hidden, page.id("sidenav").hidden, page.find(".hd").children[0] === button(), button().getAttribute("aria-controls")]).toEqual([false, false, true, "sidenav"]);
+    expect(says()).toEqual(SHOWN);
+    goTo(1);
+    const [table, entries] = [page.id("tableWrap"), page.all("#navList .nav-item").length];
+
+    // Put away: the root says so, and the button says that a press brings the navigation back.
+    button().press();
+    expect(says()).toEqual(HIDDEN);
+    // In place: nothing slides over the page or lies under a scrim, and nothing is out of reach. No view is drawn again:
+    // the table on screen is the one that was there, and takes its new width by itself.
+    expect([openOver(), page.id("scrim").hidden, behind(), page.id("tableWrap") === table, shows()]).toEqual([false, true, WITHIN_REACH, true, ["Line Items", "Line Items"]]);
+    // The navigation is the page's still, with its entries, out of sight by the stylesheet's rule. The focus is where
+    // the press put it: on the button, which is one press from bringing the navigation back.
+    expect([page.id("sidenav").hidden, page.all("#navList .nav-item").length === entries, page.document.activeElement === button()]).toEqual([false, true, true]);
+    button().press();
+    expect([says(), page.id("tableWrap") === table, behind()]).toEqual([SHOWN, true, WITHIN_REACH]);
+  });
+
+  it("remembers for this browser whether the navigation is put away, and has it so before a result is drawn: the first, or one brought back after a refresh", async () => {
+    await openWithModel();
+    button().press();
+    // The one thing the page keeps of it, under a name of its own.
+    expect([says(), stored.get(NAVIGATION_KEY), [...stored.keys()]]).toEqual([HIDDEN, "hidden", ["cardigan-navigation"]]);
+
+    // The icon opens the page again. The root says that the navigation is put away as soon as the script has run,
+    // before the tab has said anything: the result that comes is never drawn with the navigation shown.
+    await open(clicked(42));
+    expect([says(), button().hidden, page.has("#runStatus"), result()]).toEqual([HIDDEN, true, true, false]);
+    sendModel();
+    expect([says(), button().hidden, page.id("sidenav").hidden, result()]).toEqual([HIDDEN, false, false, true]);
+    // A refresh brings the result back that the page kept: put away from the first moment, and as the result is shown.
+    await letKeep();
+    await open("?tab=42");
+    expect([says(), result()]).toEqual([HIDDEN, false]);
+    await eventually(result, "the result to come back");
+    expect([says(), button().hidden]).toEqual([HIDDEN, false]);
+
+    // Brought back, it is remembered as shown.
+    button().press();
+    expect([says(), stored.get(NAVIGATION_KEY)]).toEqual([SHOWN, "shown"]);
+    await open(clicked(42));
+    expect(says()).toEqual(SHOWN);
+    // Something else under the name is no choice: the navigation is shown.
+    stored.set(NAVIGATION_KEY, "collapsed");
+    await open(clicked(42));
+    expect(says()).toEqual(SHOWN);
+    // Nothing else was kept for it.
+    expect([...stored.keys()]).toEqual([NAVIGATION_KEY]);
+  });
+
+  it("works in a browser that refuses its store, or has none: the navigation starts shown, and is put away for as long as the page is open", async () => {
+    // The store holds a choice and refuses to be read or written: the navigation is shown, and the button works.
+    stored.set(NAVIGATION_KEY, "hidden");
+    storeRefuses = Object.assign(new Error("The operation is insecure."), { name: "SecurityError" });
+    await openWithModel();
+    expect(says()).toEqual(SHOWN);
+    button().press();
+    expect(says()).toEqual(HIDDEN);
+    button().press();
+    // Nothing was written: what the store held is what it holds.
+    expect([says(), stored.get(NAVIGATION_KEY), stored.size]).toEqual([SHOWN, "hidden", 1]);
+    // The same in a browser that has no store at all.
+    vi.stubGlobal("localStorage", undefined);
+    await openWithModel();
+    expect(says()).toEqual(SHOWN);
+    button().press();
+    expect([says(), page.document.activeElement === button()]).toEqual([HIDDEN, true]);
+  });
+
+  it("gives the focus to the button when the navigation goes with the focus inside it, and leaves focus that is anywhere else; the breadcrumb still says where the user is and leads back", async () => {
+    await openWithModel();
+    goTo(1);
+    // The focus is inside the navigation, on an entry, and the button is pressed without the focus moving, as by a
+    // click that a script makes. What had the focus goes out of sight: the button takes it, at once and when the page
+    // is drawn.
+    page.find('#navList [data-nav="1"]').focus();
+    expect(page.id("sidenav").contains(page.document.activeElement)).toBe(true);
+    button().dispatch("click");
+    expect([says(), page.document.activeElement === button()]).toEqual([HIDDEN, true]);
+    page.frame();
+    expect(page.document.activeElement).toBe(button());
+    // Focus that is anywhere else stays where it is, when the navigation goes and when it comes back: here in the
+    // table's search box.
+    button().dispatch("click");
+    page.id("tblSearch").focus();
+    button().dispatch("click");
+    expect([says(), page.document.activeElement.id]).toEqual([HIDDEN, "tblSearch"]);
+    button().dispatch("click");
+    expect([says(), page.document.activeElement.id]).toEqual([SHOWN, "tblSearch"]);
+    // Focus inside the navigation as it comes back is left there: nothing went out of sight.
+    button().dispatch("click");
+    page.find('#navList [data-nav="2"]').focus();
+    button().dispatch("click");
+    expect([says(), page.document.activeElement === page.find('#navList [data-nav="2"]')]).toEqual([SHOWN, true]);
+
+    // With the navigation put away the breadcrumb says which view is shown and leads back to the overview, and the
+    // button is there, within reach of the Tab key, to bring the navigation back.
+    button().press();
+    expect([says(), page.texts("#crumbs strong"), page.texts("#crumbs button"), button().hidden, button().focusable]).toEqual([HIDDEN, ["Line Items"], ["Overview"], false, true]);
+    page.find('#crumbs [data-nav="overview"]').press();
+    expect([shows(), says(), page.document.activeElement === page.id("view")]).toEqual([["Overview", "Overview"], HIDDEN, true]);
+  });
+
+  it("asks nothing of a model's map when the navigation goes or comes back, and leaves the downloads as they are", async () => {
+    await openWithModel();
+    page.find('#navList [data-nav="map"]').press();
+    const [host, drawn, asked] = [page.id("mapHost"), page.id("mapHost").children[0], [...mapAsked]];
+    expect(asked).toEqual(["build", "mount 1", "show 1"]);
+    // The map's place takes the new width by itself, and the map watches the size of its place: the page tells it
+    // nothing, and takes nothing of it away.
+    button().press();
+    expect([says(), mapAsked, host.hidden, host.children[0] === drawn, page.texts("#view h1")]).toEqual([HIDDEN, asked, false, true, ["Model map"]]);
+    button().press();
+    button().press();
+    expect([says(), mapAsked, host.hidden, host.children[0] === drawn]).toEqual([HIDDEN, asked, false, true]);
+    // The files are the result's, the same bytes with the navigation put away.
+    page.id("dlAll").press();
+    goTo(1);
+    page.id("dlCsv").press();
+    expect([await bytes(saved[0]), `﻿${await saved[1].text()}`]).toEqual([resultZip(MODEL, NOW), tableCsv(MODEL.tables[1])]);
+  });
+
+  it("has no key of its own: the button alone puts the navigation away and brings it back", async () => {
+    await openWithModel();
+    goTo(1);
+    const keys = ["[", "]", "\\", "b", "B", "n", "m", "s", "h", "Escape", "ArrowLeft", "ArrowRight", "Home", "F6"];
+    for (const key of keys) {
+      page.id("view").focus();
+      page.key(key);
+    }
+    expect([says(), shows()]).toEqual([SHOWN, ["Line Items", "Line Items"]]);
+    button().press();
+    for (const key of keys) {
+      page.id("view").focus();
+      page.key(key);
+    }
+    expect([says(), shows()]).toEqual([HIDDEN, ["Line Items", "Line Items"]]);
+  });
+
+  it("opens the navigation over the content in a narrow window, as ever; what is remembered for a wide window is neither used nor changed there", async () => {
+    stored.set(NAVIGATION_KEY, "hidden");
+    narrowWindow = true;
+    await openWithModel();
+    // The root says what is remembered, which only the wide layout's rule reads. The button says what holds here: the
+    // navigation is out of the way until the button opens it.
+    expect([says(), openOver()]).toEqual([["hidden", "false", "Show navigation", "Show navigation"], false]);
+    button().press();
+    expect([openOver(), says(), behind(), page.id("scrim").hidden]).toEqual([true, ["hidden", "true", "Hide navigation", "Hide navigation"], [true, true, true, true], false]);
+    page.key("Escape");
+    expect([openOver(), says(), behind(), page.document.activeElement === button()]).toEqual([false, ["hidden", "false", "Show navigation", "Show navigation"], WITHIN_REACH, true]);
+    // Nothing was written, and with nothing remembered the same holds: the root says shown, and the button the same words.
+    expect([stored.get(NAVIGATION_KEY), stored.size]).toEqual(["hidden", 1]);
+    stored.clear();
+    await openWithModel();
+    expect(says()).toEqual(["shown", "false", "Show navigation", "Show navigation"]);
+    button().press();
+    expect([openOver(), says().slice(1), stored.size]).toEqual([true, ["true", "Hide navigation", "Hide navigation"], 0]);
+  });
+
+  it("closes a navigation that lies over the content when the window grows wide, and says on the button what holds in the layout the window has", async () => {
+    narrowWindow = true;
+    await openWithModel();
+    // The page keeps the result once it is drawn, which the clock below would start: that is let to its end first.
+    await letKeep();
+    button().press();
+    expect([openOver(), behind()]).toEqual([true, [true, true, true, true]]);
+    // The window grows wide: nothing lies over the page there. The navigation stands beside the content, shown.
+    narrowWindow = false;
+    expect(layoutListeners).toHaveLength(1);
+    layoutListeners[0]({ matches: false });
+    expect([openOver(), behind(), says()]).toEqual([false, WITHIN_REACH, SHOWN]);
+    vi.advanceTimersByTime(210);
+    expect(page.id("scrim").hidden).toBe(true);
+    // There the button puts it away in place.
+    button().press();
+    expect([says(), openOver(), stored.get(NAVIGATION_KEY)]).toEqual([HIDDEN, false, "hidden"]);
+    // Narrow again: the navigation is out of the way until it is opened, whatever was chosen for a wide window.
+    narrowWindow = true;
+    layoutListeners[0]({ matches: true });
+    expect([says(), openOver()]).toEqual([["hidden", "false", "Show navigation", "Show navigation"], false]);
+    button().press();
+    expect([openOver(), says().slice(1)]).toEqual([true, ["true", "Hide navigation", "Hide navigation"]]);
+    page.key("Escape");
+
+    // The button says what holds in the layout the window has, each time the window crosses from one to the other
+    // with nothing open: shown beside the content in a wide window, out of the way in a narrow one.
+    narrowWindow = false;
+    layoutListeners[0]({ matches: false });
+    button().press();
+    expect(says()).toEqual(SHOWN);
+    narrowWindow = true;
+    layoutListeners[0]({ matches: true });
+    expect([says(), openOver()]).toEqual([["shown", "false", "Show navigation", "Show navigation"], false]);
+    narrowWindow = false;
+    layoutListeners[0]({ matches: false });
+    expect([says(), openOver(), behind()]).toEqual([SHOWN, false, WITHIN_REACH]);
   });
 });
 

@@ -445,6 +445,18 @@ describe("A model's result on the results page, with the map's real graph and th
     toMap();
     expect([host().children[0] === root, left(), page.document.activeElement === part(".map-canvas")]).toEqual([true, was, true]);
 
+    // The header's button puts the navigation away and brings it back, and the map's place is wider and narrower by
+    // it. The page tells the map nothing of that: the map watches the size of its place itself. Told the new size by
+    // the browser, it draws again with what the user has made of it, at either width.
+    page.id("navToggle").press();
+    expect([page.document.documentElement.dataset.navigation, host().hidden, host().children[0] === root, root.hidden]).toEqual(["hidden", false, true, false]);
+    around.shows(1436, 800);
+    expect([left(), around.watching]).toEqual([was, 1]);
+    expect(written()).toEqual(expect.arrayContaining(["Revenue", "Cost", "Margin", "Margin %"]));
+    page.id("navToggle").press();
+    around.shows(1200, 800);
+    expect([page.document.documentElement.dataset.navigation, host().children[0] === root, left(), around.watching]).toEqual(["shown", true, was, 1]);
+
     // Run again: the map of the result on the page goes as the run starts, and the overview stands in its place.
     page.id("runAgain").press();
     expect([port.posted, host().hidden, host().children.length, root.isConnected, around.watching, page.texts("#view h1")]).toEqual([[{ type: "run" }, { type: "run" }], true, 0, false, 0, ["Overview"]]);

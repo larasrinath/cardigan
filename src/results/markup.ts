@@ -77,9 +77,10 @@ export function cellHtml(column: Column, row: Row, links: Links, whole = false):
 
 const ROW_ICON = '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3l6 5-6 5"/></svg>';
 
-/** The first cell of a row on screen, which also opens the row, so that a row can be read in full from the keyboard: the
- * cell's content is a button. A cell that is already a link or an ID to copy keeps that, and a cell without text has
- * nothing to make a button of: there a small button stands before the cell's own content. */
+/** The cell of a row on screen that also opens the row, so that a row can be read in full from the keyboard: the cell's
+ * content is a button. It is the row's first cell, unless the table has another column for it (`TableView.opensFrom`). A
+ * cell that is already a link or an ID to copy keeps that, and a cell without text has nothing to make a button of:
+ * there a small button stands before the cell's own content. */
 export function rowCellHtml(column: Column, row: Row, links: Links): string {
   const text = cellText(row[column.index]);
   const own = cellHtml(column, row, links);
@@ -303,12 +304,18 @@ export interface TableWay { way: string; label: string; chosen: boolean }
 
 export interface TableView {
   label: string;
-  /** A line under the table's name, for a table that does not list every row of its file. */
+  /** A line under the table's name, for a table that does not list every row of its file, or whose file needs a line
+   * to say what it lists. */
   note: string | undefined;
   /** The ways the table can be shown, when it has more than one: a switch stands at the head of its toolbar. */
   ways?: readonly TableWay[];
   /** For a table that lists no row although its file has rows, which `note` says: what it says in the rows' place. */
   none?: string;
+  /** For a table whose file has no rows: what it says in the rows' place, where a file has a sentence of its own for that. */
+  empty?: string;
+  /** The column whose cell opens a row, by its place in the table, for a table in which that is not the first column
+   * shown. While that column is not among those shown, the first one opens the row, as in any table. */
+  opensFrom?: number;
   /** The columns shown, in the table's order. */
   columns: readonly Column[];
   /** The rows of the page shown. */
@@ -386,7 +393,7 @@ export function tableParts(view: TableView): TableParts {
     empty = `<div class="empty">
       <svg width="30" height="30" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" aria-hidden="true">${FILTER_PATH}</svg>
       <div class="e-title">${label} has no rows${view.none === undefined ? "" : " of its own"}</div>
-      <div class="e-sub">${view.none === undefined ? "Nothing was found for this table in this analysis." : esc(view.none)}</div>
+      <div class="e-sub">${esc(view.none ?? view.empty ?? "Nothing was found for this table in this analysis.")}</div>
       </div>`;
   } else if (view.total === 0) {
     const what = [...(searching ? ["search"] : []), ...(filtering ? ["column filters"] : []), ...(jumped ? ["page selection"] : [])].join(" and ");
@@ -397,8 +404,10 @@ export function tableParts(view: TableView): TableParts {
       <button type="button" class="btn sm" data-act="reset">Clear search &amp; filters</button>
       </div>`;
   } else {
+    // The cell that opens the row: the first one shown, or that of the column the table has for it, where it is shown.
+    const opens = Math.max(0, view.columns.findIndex(column => column.index === view.opensFrom));
     body = view.rows.map(row => `<tr>${view.columns.map((column, position) =>
-      `<td class="${column.num ? "num" : ""}">${position === 0 ? rowCellHtml(column, row, view.links) : cellHtml(column, row, view.links)}</td>`).join("")}</tr>`).join("");
+      `<td class="${column.num ? "num" : ""}">${position === opens ? rowCellHtml(column, row, view.links) : cellHtml(column, row, view.links)}</td>`).join("")}</tr>`).join("");
   }
 
   return {

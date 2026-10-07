@@ -3,6 +3,7 @@ import { Failure, SEND_LOG, type Log, type Progress, type Stop } from "../progre
 import { plainRows } from "../result-plain.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
 import { fileSafe, message, text } from "../util.js";
+import { ACCESS_LABEL, accessTable } from "./access.js";
 import { actionKind, mergeImports, missingActionColumns, type ActionKind } from "./actions.js";
 import { CALENDAR_HEADERS, calendarRows } from "./calendar.js";
 import { gridTable, type Grid, type GridRow, type Table } from "./grid.js";
@@ -11,7 +12,8 @@ import { axis, loadNative, readGrid, typeIndex } from "./native.js";
 
 /** One CSV per Model settings grid, laid out as Anaplan's own export of that grid (compared with exports from Model
  * settings, 28 Sep 2026): the Actions list split at its headings with its imports merged into the Imports tab (actions.ts),
- * the model calendar in the assessment template, and Model Details.csv about the export itself.
+ * the model calendar in the assessment template, and Model Details.csv about the export itself. One file more is no
+ * grid's: Dynamic Cell Access.csv, made from the tables of the others (access.ts).
  * Evidence for each grid's axes: the classic client's settings tabs (anaplan/settings/*.js, tabs/Settings.js). */
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -19,6 +21,7 @@ type Any = any;
 const HOW_TO_READ: readonly [detail: string, value: string][] = [
   ["Layout", "Each file is laid out as Anaplan's own export of the same Model settings grid: an unlabelled first column, then the grid's columns, with each cell's underlying value."],
   ["Line Items", "Each module's row sits above its line items. Anaplan's own columns come first and are unchanged, and three columns follow them. Ratio Numerator and Ratio Denominator name the line items a Ratio summary divides: the Summary JSON gives only their IDs. Format List names the list of a line item formatted as a list, as General Lists.csv names it: the Format JSON gives only the list's ID. It is empty for any other format, for a list that is not in General Lists.csv, such as a list subset or a line item subset, and when General Lists.csv was not exported."],
+  ["Dynamic Cell Access", "Not a Model settings grid: the Read Access Driver and Write Access Driver columns of Line Items.csv, listed from the driver's side. One row for each use of a driver: the driver, Read or Write, and what it controls, each by module and name as Line Items.csv writes them. Rows follow the drivers' order in Line Items.csv, Read before Write. A row with no Controlled Line Item is a module's own row; a line item that shows a dash is listed with its module's driver. A driver that could not be matched comes last, once for its cell, with no Driver Module and the cell as it is written. That includes a driver that sits in a row the model map leaves out, which About this map counts. The file is not written when Line Items.csv was not exported or lacks its Module Name column or a driver column."],
   ["Processes, Exports and Other Actions", "The Actions list split at its headings, in its own columns: definition, last run (start time and duration), notes, the processes that use each action and the dashboards it appears on."],
   ["Imports", "The Imports tab (source and target), then each import's columns from the Actions list (last run, duration, notes, Used in Processes, Used in Dashboards), matched on the import's ID. The Actions list's \"Import into …\" text is left out: Target Object and Target Type say the same."],
   ["Import Data Sources", "Each data source, with the imports that use it."],
@@ -29,9 +32,10 @@ const HOW_TO_READ: readonly [detail: string, value: string][] = [
 const NOTHING_READ = "Cardigan could not read any of this model's settings. Check that the model is open and that you can see its Model settings in Anaplan, "
   + `then choose Run again. ${SEND_LOG}`;
 
-/** The model's settings as the zip's files: Model Details.csv, then one file per grid that could be read. Once the export
- * was asked to stop, `progress` throws at its next step and `stop` before the next page of a grid's rows (bridge.ts
- * `serveCore`), and that ends it. */
+/** The model's settings as the zip's files: Model Details.csv, then one file per grid that could be read, with Dynamic
+ * Cell Access.csv after Line Items.csv where that file has what it is made from. Once the export was asked to stop,
+ * `progress` throws at its next step and `stop` before the next page of a grid's rows (bridge.ts `serveCore`), and that
+ * ends it. */
 export async function exportModel(progress: Progress, diagnostics: () => string, stop?: Stop): Promise<AnalysisResult> {
   const log: Log = progress.log;
   progress.status("Loading the model page's client…");
@@ -56,9 +60,13 @@ export async function exportModel(progress: Progress, diagnostics: () => string,
     summary.splice(at.line, 0, `${file}: ${rows}`);
     fileRows.splice(at.row, 0, ["Files", `${file}.csv`, rows]);
   };
+  /** A file that is not in the zip, with the reason: among the notes, and as the file's row of the Details file. */
+  const leftOut = (file: string, why: string, at = place()) => {
+    notes.splice(at.note, 0, `${file}: not exported (${why}).`);
+    fileRows.splice(at.row, 0, ["Files", `${file}.csv`, `Not exported: ${why}`]);
+  };
   const fail = (file: string, error: unknown, at = place()) => {
-    notes.splice(at.note, 0, `${file}: not exported (${message(error)}).`);
-    fileRows.splice(at.row, 0, ["Files", `${file}.csv`, `Not exported: ${message(error)}`]);
+    leftOut(file, message(error), at);
     log(`${file}: ${message(error)}`);
   };
   const note = (detail: string, text: string) => {
@@ -150,6 +158,28 @@ export async function exportModel(progress: Progress, diagnostics: () => string,
   });
 
   if (!tables.length) throw new Failure(NOTHING_READ, notes.join(" ") || undefined);
+
+  // Dynamic Cell Access is no grid's. It is the driver cells of Line Items listed from the driver's side, each read as the
+  // model map reads it (access.ts), so it is made from the tables above now that every one of them is there: the results
+  // page makes its map from these same tables. Nothing is read for the file and no step is reported: the reads, the steps
+  // and the lines of the log are those of an export without it, but for the one line of a table that fails to be made.
+  // Its place is right after Line Items, which stands at the place taken for it: as a table, with its line of the
+  // summary, or, when it could not be exported, as a note; either way with its row of the Details file.
+  const exported = tables[lineItemsAt.table]?.label === "Line Items";
+  const accessAt = exported
+    ? { table: lineItemsAt.table + 1, line: lineItemsAt.line + 1, note: lineItemsAt.note, row: lineItemsAt.row + 1 }
+    : { ...lineItemsAt, note: lineItemsAt.note + 1, row: lineItemsAt.row + 1 };
+  try {
+    const access = accessTable(tables);
+    // Without Line Items, or without a column of it that the file is made from, there is nothing to make the file from:
+    // the Details file says so, as it does of a grid that could not be read. That is no failure, and no line of the log.
+    if ("missing" in access) leftOut(ACCESS_LABEL, access.missing, accessAt);
+    else add(ACCESS_LABEL, access.table, access.unmatched ? `${access.unmatched} with a driver that could not be matched` : undefined, accessAt);
+  } catch (error) {
+    // A table that cannot be made for any other reason is its file's failure, as a grid's is: the reason goes to the log too.
+    fail(ACCESS_LABEL, error, accessAt);
+  }
+
   const details: DetailRow[] = [
     ["Model", "Model", model],
     ["Model", "Workspace", workspace || "—"],

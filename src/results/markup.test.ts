@@ -197,6 +197,15 @@ describe("The results page's escaping", () => {
     expect(acts(columns)).toEqual([["row+page", "card", "card"], ["row+page", "card", "card"]]);
     expect(acts(columns.slice(1))).toEqual([["row+card", "card"], ["row+card", "card"]]);
     expect(acts([column(2, "Card title")])).toEqual([["row"], ["row"]]);
+    // A table may have a column of its own for it, said by the column's place in the table: then that column's cell opens
+    // the row wherever it is shown, and no other. While it is not shown, the first one shown opens the row, as in any table.
+    const opened = (shown: Column[], opensFrom: number) => parseMarkup(tableHtml(viewOf(table, LINKS, { columns: shown, opensFrom }))).querySelectorAll("tbody tr")
+      .map(row => row.children.map(td => td.querySelectorAll("[data-act]").map(button => button.dataset.act).join("+")));
+    expect(opened(columns, 2)).toEqual([["page", "card", "row+card"], ["page", "card", "row+card"]]);
+    expect(opened([columns[2], columns[0]], 2)).toEqual([["row+card", "page"], ["row+card", "page"]]);
+    expect(opened([columns[1], columns[0]], 0)).toEqual([["card", "row+page"], ["card", "row+page"]]);
+    expect(opened(columns.slice(0, 2), 2)).toEqual([["row+page", "card"], ["row+page", "card"]]);
+    expect(opened(columns, 0)).toEqual(acts(columns));
   });
 
   it("lets no text change the header, the navigation or the breadcrumb", () => {
