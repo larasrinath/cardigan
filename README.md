@@ -4,9 +4,9 @@ Cardigan is a Chrome extension for Anaplan. Open an app or a model, click the Ca
 
 Cardigan only reads, with your own signed-in session, and nothing it reads leaves your browser. It is an independent project, not affiliated with Anaplan: see [NOTICE.md](NOTICE.md).
 
-![The results page for an app: the Overview, with the number of rows in each table and the details of the export](docs/images/app-overview.png)
+![An app's Overview on the results page: the number of rows in each table, what was read and when under About this export, and the notes](docs/images/app-overview.png)
 
-The pictures on this page show an invented app and model.
+The pictures on this page show an invented app and model. They leave out the bar at the top of the page.
 
 ## What you get
 
@@ -24,20 +24,9 @@ Cardigan reads every published page of the app. The **Overview** counts each tab
 | **Action Buttons** | Button, with its action type and the model action it runs |
 | **Where Used** | Use of a module, line item, dimension, saved view, action or linked page by a card |
 
-**Where Used** opens **By object**: one row per object, with how many pages and cards use it and as what. A row opens the object with each of its uses. **Every use** lists the uses one by one.
+![An app's Cards table, searched for the word forecast, with the column chooser open and the pager at the top right](docs/images/app-cards.png)
 
-<table>
-  <tr>
-    <td width="50%" valign="top">
-      <a href="docs/images/app-cards.png"><img src="docs/images/app-cards.png" width="400" alt="An app's Cards table, searched for the word forecast, with the column chooser open and the pager at the top right"></a><br>
-      Cards, with search and the column chooser.
-    </td>
-    <td width="50%" valign="top">
-      <a href="docs/images/app-where-used.png"><img src="docs/images/app-where-used.png" width="400" alt="An app's Where Used table by object, with one module opened: it is the data source of eight cards on four pages"></a><br>
-      Where Used by object, with one module opened.
-    </td>
-  </tr>
-</table>
+**Where Used** opens **By object**: one row per object, with how many pages and cards use it and as what. A row opens the object with each of its uses. **Every use** lists the uses one by one.
 
 ### For a model
 
@@ -50,28 +39,13 @@ Open the model in Model Building; the classic model page opened on its own works
 - **Processes**, **Exports** and **Other Actions** are the Actions list, split at its headings. **Imports** joins each import's source and target with its last run, notes and processes.
 - **Model Calendar** follows an assessment template. **Model size (GB)** and **Captured by** are left for you to fill in.
 
-<table>
-  <tr>
-    <td width="33%" valign="top">
-      <a href="docs/images/model-overview.png"><img src="docs/images/model-overview.png" width="264" alt="The results page for a model: the Overview, with the number of rows in each table and the details of the export"></a><br>
-      A model's Overview.
-    </td>
-    <td width="33%" valign="top">
-      <a href="docs/images/model-line-items.png"><img src="docs/images/model-line-items.png" width="264" alt="A model's Line Items table in the dark theme: each line item with its module, its format in words, its formula and its summary"></a><br>
-      Line Items, in the dark theme.
-    </td>
-    <td width="33%" valign="top">
-      <a href="docs/images/model-dynamic-cell-access.png"><img src="docs/images/model-dynamic-cell-access.png" width="264" alt="A model's Dynamic Cell Access table: each access driver with the line items it controls, one row for each use, marked Read or Write"></a><br>
-      Dynamic Cell Access.
-    </td>
-  </tr>
-</table>
+![A model's Dynamic Cell Access table: each access driver with the line items it controls, one row for each use, marked Read or Write](docs/images/model-dynamic-cell-access.png)
 
 #### Model map
 
 **Model map**, the last entry in a model's navigation, draws the model: its sections, modules and line items, and what feeds what. It is made from the tables above and nothing else, so it reads nothing more from Anaplan.
 
-![The model map on the modules of one section: one module is selected, the modules that feed it stand at its left marked in blue, the modules it feeds at its right marked in red, and its details are in a panel on the right](docs/images/map-modules.png)
+![The model map as it opens: the eight sections of a model as boxes, with arrows between the sections that feed one another and the legend of the sections at the lower left](docs/images/map-sections.png)
 
 - The map opens on the model's sections. A section is the modules under one heading: a module whose name starts with `--`, such as `-- Inputs --`. Without headings it opens on the modules.
 - Double-click a section to open its modules, and a module to open its line items. **Show all modules** shows every module. `Esc` goes back a step.
@@ -81,18 +55,7 @@ Open the model in Model Building; the classic model page opened on its own works
 - The search finds sections, modules and line items by name. In the **Legend**, click an entry to hide or show its boxes. **Access drivers** adds a link from each access driver to what it controls.
 - Drag to move, scroll to zoom, press `F` for the whole map. **About this map** lists the keys. The map follows the page's theme.
 
-<table>
-  <tr>
-    <td width="50%" valign="top">
-      <a href="docs/images/map-sections.png"><img src="docs/images/map-sections.png" width="400" alt="The model map as it opens: the eight sections of a model as boxes, with arrows between the sections that feed one another and the legend of the sections at the lower left"></a><br>
-      The map opens on the model's sections.
-    </td>
-    <td width="50%" valign="top">
-      <a href="docs/images/map-line-items.png"><img src="docs/images/map-line-items.png" width="400" alt="The model map in the dark theme: one module's line items beside the modules they read and the modules they feed, with one line item selected and its formula at the top of the panel on the right"></a><br>
-      One module's line items, in the dark theme.
-    </td>
-  </tr>
-</table>
+![The model map in the dark theme, on one module's line items: one line item is selected, the boxes that feed it are marked in blue and the boxes it feeds in red, and a panel on the right gives its details, with its formula](docs/images/map-line-items.png)
 
 ## Install
 
