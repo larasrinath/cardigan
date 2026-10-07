@@ -11,7 +11,7 @@ import { FakeElement, FakeInput, FakePage, FakeSelect } from "./dom.test-support
 import { APP_HOST, GOLDEN_APP, goldenApp, serveEngine, type EngineRun } from "./engine.test-support.js";
 import { analysedLine } from "./keep-notes.js";
 import { KEPT_PREFIX } from "./keep-result.js";
-import { watchForFiles, type FileWatch } from "./no-file.test-support.js";
+import { fileWords, watchForFiles, type FileWatch } from "./no-file.test-support.js";
 import { FakeTab } from "./port-pair.test-support.js";
 import { overviewOf } from "./result-view.js";
 
@@ -25,6 +25,9 @@ import { overviewOf } from "./result-view.js";
 const SHELL = readFileSync(new URL(`../../${RESULTS_PAGE}`, import.meta.url), "utf8");
 const NOW = new Date(Date.UTC(2026, 8, 28, 12, 30, 10));
 const BOARD = (path: string): boolean => path.includes("/boards/");
+/** What Anaplan itself calls a grid card's setting, which the Cards table says of a card as Anaplan names it. It is the
+ * one text of this app's result that names a CSV, and it is Anaplan's. */
+const ANAPLANS = /CSV export (?:on|off)/g;
 
 /** Waits until something holds, while the tab, the page and Anaplan's stand-ins take their turns. */
 async function until(holds: () => unknown, what: string): Promise<void> {
@@ -95,9 +98,12 @@ describe("The results page itself against the engine in the Anaplan tab", () => 
     await tab.quiet();
     // With the engine's own result on it, the page made no file, started no download and went nowhere to save one.
     const made = watch.stop(page);
+    // And nothing it had for its user, from first to last, names a file, a CSV or a zip, or a download, but for that
+    // setting of Anaplan's: before a result, while the engine ran, and with what the engine found.
+    const named = page ? fileWords(page.words(), ANAPLANS) : [];
     vi.useRealTimers();
     vi.restoreAllMocks();
-    expect(made).toEqual([]);
+    expect([made, named]).toEqual([[], []]);
   });
 
   /** Loads the page at an address, in a tab of its own beside the Anaplan tab. */
@@ -177,17 +183,28 @@ describe("The results page itself against the engine in the Anaplan tab", () => 
     expect(said).toEqual(overviewFor(result));
     expect([said.about.length, said.howToRead.length > 0, said.log.length > 3, said.files]).toEqual([10, true, true, []]);
     // No word of it names a file, a CSV or a zip, or a download: the page is where a result is read. That is every cell
-    // of every table, and in each view all the page says and all it names an element by for a pointer or a screen
-    // reader. (A grid card's "CSV export on" is that card's own setting in Anaplan, said as Anaplan names it.)
-    const words = [...tables].flatMap(([name, rows]) => [name, ...rows.flat()]);
+    // of every table, which `shownTables` has put on the page with every column, and in each view all the page says
+    // and all it names or describes an element by, with a row's details and a card's where the view opens them. (A
+    // grid card's "CSV export on" is that card's own setting in Anaplan, said as Anaplan names it.)
+    const opened: string[] = [];
     for (const view of page.all("#navList [data-nav]").map(entry => entry.dataset.nav)) {
       page.find(`#navList [data-nav="${view}"]`).press();
-      words.push(page.find("body").textContent, ...page.all("[title], [aria-label], [placeholder]").flatMap(named => ["title", "aria-label", "placeholder"].map(name => named.getAttribute(name) ?? "")));
+      for (const details of ["row", "card"]) {
+        if (!page.has(`#tableWrap tbody [data-act="${details}"]`)) continue;
+        page.find(`#tableWrap tbody [data-act="${details}"]`).press();
+        opened.push(`${page.texts("#view h1")[0]}: ${details}`);
+        page.id("drawerClose").press();
+      }
     }
-    expect(words.flatMap(text => text.replace(/CSV export (on|off)/g, "").match(/.{0,40}(?:\.csv|\bcsv\b|\bzip\b|download|\bfiles?\b).{0,40}/gi) ?? [])).toEqual([]);
-    // What was read there is what a user reads: the engine's own words on how to read the tables, and that setting.
-    expect([words.some(text => text.includes("Search the Where Used table for it to find the cards.")), words.some(text => /CSV export (on|off)/.test(text))]).toEqual([true, true]);
     page.find('#navList [data-nav="overview"]').press();
+    const words = page.words();
+    expect(fileWords(words, ANAPLANS)).toEqual([]);
+    // What was read is what a user reads. The engine's own words on how to read the tables, that setting of Anaplan's,
+    // a cell of a column that starts hidden, what a control is named by, and the details of a row and of a card.
+    expect([words.includes("A module or line item a card still points at but the model no longer has: deleted, or not visible to you. Search the Where Used table for it to find the cards."),
+      words.some(text => text.search(ANAPLANS) >= 0), words.includes(String(result.tables[2].rows[0][result.tables[2].headers.indexOf("Card ID")])), words.includes("Open this row"),
+      words.includes("Close details panel"), opened]).toEqual([true, true, true, true, true,
+      ["Pages: row", "Cards: row", "Cards: card", "Grid Sections: row", "Filters: row", "Conditional Formatting: row", "Action Buttons: row", "Where Used: row"]]);
     // And that result is, file for file, the one 0.6.1 wrote as its zip, but for the four rows of the Details file that
     // are deliberately written otherwise since (APP_ROW_REWORDED and APP_ROWS_FOR_THE_PAGE in golden-0.6.1.test-support.ts).
     expect(files(resultZip(result, NOW), DETAILS_FILE)).toEqual(files(APP_ZIP_REWORDED, DETAILS_FILE));

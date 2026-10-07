@@ -12,6 +12,10 @@ import { decode, readMarkup } from "./markup.test-support.js";
 const VOID = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"]);
 /** Elements the keyboard reaches without a tabindex. */
 const FOCUSABLE = new Set(["a", "button", "input", "select", "textarea"]);
+/** The attributes by which an element says something to its user: what a pointer shows over it, what stands in an empty
+ * box, and what a screen reader calls it or says of it. An attribute that holds another element's ID, as aria-labelledby
+ * and aria-controls do, says nothing itself. */
+const SAYS = /^(?:title|placeholder|alt|label|aria-(?:label|description|placeholder|roledescription|valuetext))$/;
 
 export interface FakeEvent {
   type: string;
@@ -181,7 +185,7 @@ export class FakeElement {
   get inert(): boolean { return this.flag("inert"); }
   set inert(on: boolean) { this.flag("inert", on); }
   get title(): string { return this.attributes.get("title") ?? ""; }
-  set title(value: string) { this.attributes.set("title", value); }
+  set title(value: string) { this.setAttribute("title", value); }
   get checked(): boolean { return this.ticked ?? this.attributes.has("checked"); }
   set checked(on: boolean) { this.ticked = on; }
   /** A text box holds what was typed; a list holds the value of the option chosen, or of the one the markup selects. */
@@ -214,6 +218,9 @@ export class FakeElement {
       if (node instanceof FakeElement) node.remove();
       node.parentElement = this;
       this.childNodes.push(node);
+      // What the page has for its user from now on: a text, and what an element is named or described by.
+      if (node instanceof FakeText) this.page.says(node.textContent);
+      else for (const [name, value] of node.attributes) if (SAYS.test(name)) this.page.says(value);
     }
   }
   appendChild<T extends FakeElement | FakeText>(node: T): T {
@@ -229,7 +236,10 @@ export class FakeElement {
 
   getAttribute(name: string): string | null { return this.attributes.get(name) ?? null; }
   hasAttribute(name: string): boolean { return this.attributes.has(name); }
-  setAttribute(name: string, value: string): void { this.attributes.set(name, String(value)); }
+  setAttribute(name: string, value: string): void {
+    this.attributes.set(name, String(value));
+    if (SAYS.test(name)) this.page.says(String(value));
+  }
   removeAttribute(name: string): void { this.attributes.delete(name); }
 
   contains(other: unknown): boolean {
@@ -380,6 +390,8 @@ export class FakePage {
   /** What document.execCommand was asked, and what it answers. */
   readonly commands: string[] = [];
   commandWorks = false;
+  /** Every word the page has had for its user since it was made (`words`). */
+  private readonly said = new Set<string>();
   readonly document: {
     title: string;
     readonly activeElement: FakeElement;
@@ -400,8 +412,13 @@ export class FakePage {
     build(this, this.root, html, true);
     const documentElement = this.find("html");
     const body = this.find("body");
+    let title = this.root.querySelector("title")?.textContent ?? "";
     this.document = {
-      title: this.root.querySelector("title")?.textContent ?? "",
+      get title() { return title; },
+      set title(words: string) {
+        title = words;
+        page.says(words);
+      },
       get activeElement() { return page.focused ?? body; },
       documentElement,
       body,
@@ -447,6 +464,13 @@ export class FakePage {
     this.root.children.forEach(read);
     return found;
   }
+  /** The page has this for its user from now on: a text put on it, or what an element is named or described by. */
+  says(words: string): void { if (words.trim() !== "") this.said.add(words); }
+  /** Every word the page has had for its user since it was made, each once, whatever became of it: the markup it was
+   * made of and all a script has written to it since, as text, as the tab's title, or as what an element is named or
+   * described by for a pointer, an empty box or a screen reader (`SAYS`). A text is as it was written: what stands in
+   * several elements side by side is several texts. */
+  words(): string[] { return [...this.said]; }
   /** An element was taken out of its place, to go or to be put elsewhere: the focus that was on it, or inside it, is
    * lost at once, and does not come back with the element. */
   taken(): void { if (this.focused && !this.focused.isConnected) this.focused = null; }

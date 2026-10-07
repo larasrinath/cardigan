@@ -322,16 +322,6 @@ describe("The results page against the engine in the Anaplan tab", () => {
     // The overview has a tile for the file with its number of rows, and says the export's count with the files, once.
     const overview = overviewOf(result);
     expect([overview.tiles.find(tile => tile.label === "Dynamic Cell Access"), overview.notes, overview.files[0]]).toEqual([{ label: "Dynamic Cell Access", count: 12 }, [], ["Dynamic Cell Access", COUNTED]]);
-    // In its own words the page names no file, no CSV and no zip of this result, and no download: what the overview says,
-    // the log among it, and each table's name, its headings and what it says under its name or in its rows' place. (A
-    // cell may name a file: this model's import reads prices.csv, and a cell is shown as it was read.)
-    const own = [...overview.tiles.map(tile => tile.label), ...[overview.about, overview.files, overview.howToRead].flat(2), ...overview.notes, ...overview.log,
-      ...listedTables(result).flatMap(({ table }) => {
-        const view = fileView(result, table);
-        return [String(view.table.label), ...view.table.headers, view.note ?? "", view.none ?? "", view.empty ?? ""];
-      })];
-    expect(own.flatMap(text => text.match(/.{0,40}(?:\.csv|\bcsv\b|\bzip\b|download|\bfiles?\b).{0,40}/gi) ?? [])).toEqual([]);
-    expect([own.length > 100, own.some(text => text.startsWith("Each table is laid out as Anaplan's own export")), result.tables.some(table => table.rows.flat().includes("prices.csv"))]).toEqual([true, true, true]);
   });
 
   it("lists a driver named in a row of Line Items that the model map leaves out, and counts on the page the rows the export counted", async () => {
