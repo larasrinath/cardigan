@@ -41,10 +41,11 @@ Cardigan reads every published page of the app. The **Overview** counts each tab
 
 ### For a model
 
-Open the model in Model Building; the classic model page opened on its own works too. Cardigan reads the Model settings into twelve tables, in Anaplan's order: Model Calendar, Time Ranges, Versions, General Lists, Modules, Line Items, Processes, Imports, Import Data Sources, Exports, Other Actions and Source Models.
+Open the model in Model Building; the classic model page opened on its own works too. Cardigan reads the Model settings into thirteen tables, in Anaplan's order: Model Calendar, Time Ranges, Versions, General Lists, Modules, Line Items, Dynamic Cell Access, Processes, Imports, Import Data Sources, Exports, Other Actions and Source Models.
 
 - Each grid's CSV file is laid out as Anaplan's own export of that grid, with formats and summaries as JSON.
 - **Line Items** covers every module, and its file adds three columns: **Ratio Numerator**, **Ratio Denominator** and **Format List**. The page lists each line item beside its module; module rows stay in the CSV.
+- **Dynamic Cell Access** lists each access driver with the line items it controls, one row per use, marked **Read** or **Write**. It is made from the **Read Access Driver** and **Write Access Driver** columns of Line Items, which name a driver only on the line item it controls.
 - The page says a format, a summary or an action's definition in words, such as "Number, 2 decimal places" or "List: Products".
 - **Processes**, **Exports** and **Other Actions** are the Actions list, split at its headings. **Imports** joins each import's source and target with its last run, notes and processes.
 - **Model Calendar** follows an assessment template. **Model size (GB)** and **Captured by** are left for you to fill in.
