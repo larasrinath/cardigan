@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.1 (6 October 2026)
+
+Housekeeping, so that the repository stands on its own.
+
+- **Two error messages reworded.** A page definition that is too large to read is now said to exceed "the bounded JSON traversal" or "the 8 MB character bound". Nothing else in the extension changes.
+- **Repository.** The research notes under `docs/research/` and the script that compared the card reader with a second copy are no longer part of this repository, and the comments in the source say what the code does without pointing elsewhere.
+- **What stays the same.** What is read from Anaplan, and every file written: apart from the version number, and those two messages where one is written into a file, they hold the bytes 0.8.0 writes. The manifest is unchanged apart from the version.
+
 ## 0.8.0 (6 October 2026)
 
 The model map: a picture of a model's modules and line items and of what feeds what, on the results page.
