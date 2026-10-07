@@ -101,6 +101,8 @@ interface Shown {
   none: string | undefined;
   /** What the table says in the rows' place when the file has no rows, for a file whose rule has a sentence for that. */
   empty: string | undefined;
+  /** The column whose cell opens a row and names it, for a table in which the rule has that be another than the first. */
+  opensFrom: number | undefined;
   /** The CSV's text for each cell the table says in words, by the table's row and the column's place: a row's drawer shows both. */
   exported: FileView["exported"];
   columns: Column[];
@@ -250,7 +252,7 @@ function tableView(entry: Shown): TableView {
   entry.page = page.page;
   currentSlice = page.rows;
   return {
-    label: cellText(entry.table.label), note: entry.note, none: entry.none, empty: entry.empty,
+    label: cellText(entry.table.label), note: entry.note, none: entry.none, empty: entry.empty, opensFrom: entry.opensFrom,
     ways: entry.ways && [{ way: "object", label: "By object", chosen: entry === entry.ways.object }, { way: "use", label: "Every use", chosen: entry === entry.ways.use }],
     columns: entry.columns.filter(column => !entry.hidden.has(column.index)), rows: page.rows,
     page: page.page, pages: page.pages, pageSize: state.pageSize, from: page.from, to: page.to, total: page.total, all: entry.table.rows.length,
@@ -386,12 +388,12 @@ function showResult(next: AnalysisResult, at: Date, back = false): void {
   const whereUsed = byObject && next.tables.find(table => table.file === WHERE_USED_FILE);
   for (const { index, table: file } of listedTables(next)) {
     // What the page counts, filters and searches is the table as it shows it: the columns' filters follow its rows too.
-    const { table, note, none, empty, exported } = fileView(next, file);
+    const { table, note, none, empty, opensFrom, exported } = fileView(next, file);
     const columns = columnsOf(table);
     const keys = rowKeys(table);
     const page = cards !== undefined && keys.page !== undefined;
     const entry: Shown = {
-      index, file, table, note, none, empty, exported, columns, keys, links: { page, card: page && keys.cardId !== undefined },
+      index, file, table, note, none, empty, opensFrom, exported, columns, keys, links: { page, card: page && keys.cardId !== undefined },
       filters: new Map(), hidden: defaultHidden(columns), sort: undefined, page: 0, listed: table.rows.length,
     };
     // A number that could be more than one card's opens none of them: there it is plain text.
@@ -402,8 +404,8 @@ function showResult(next: AnalysisResult, at: Date, back = false): void {
     // columns. Its cells link to nothing: a row opens the object, which lists its uses. The file's own number of rows is
     // what the navigation shows either way: it is what the CSV holds, and a download is the file in both.
     const object: Shown = {
-      index, file, table: { ...file, headers: byObject.headers, rows: byObject.rows }, note: byObject.note, none: undefined, empty: undefined, exported: undefined,
-      columns: byObject.columns,
+      index, file, table: { ...file, headers: byObject.headers, rows: byObject.rows }, note: byObject.note, none: undefined, empty: undefined, opensFrom: undefined,
+      exported: undefined, columns: byObject.columns,
       keys: { page: undefined, cardId: undefined, number: undefined }, links: { page: false, card: false },
       filters: new Map(), hidden: defaultHidden(byObject.columns), sort: undefined, page: 0, listed: file.rows.length, objects: byObject,
     };
@@ -699,17 +701,17 @@ function closeDrawer(): void {
   if (state.lastFocus instanceof HTMLElement && document.contains(state.lastFocus)) state.lastFocus.focus();
   state.lastFocus = null;
 }
-/** Any row, in full. Its heading is the row's own name: the cell of the column that names the file's rows (columns.ts
- * `ROW_NAME_COLUMNS`), or, where the page knows no such column or the cell says nothing, the first cell that does. The
- * line under it says which row of which table it is, by its place among the rows the table lists, which a search, a
- * filter or a sort does not change. */
+/** Any row, in full. Its heading is the row's own name: the cell of the column that names the file's rows (the one its
+ * rows open from, where the file's rule names one, and else columns.ts `ROW_NAME_COLUMNS`), or, where the page knows no
+ * such column or the cell says nothing, the first cell that does. The line under it says which row of which table it
+ * is, by its place among the rows the table lists, which a search, a filter or a sort does not change. */
 function openRowDrawer(entry: Shown, row: Row, opener: Element): void {
   const object = entry.objects && objectOf(entry.objects, row);
   if (entry.objects && object) return openObjectDrawer(entry.objects, object, opener);
   drawerObject = undefined;
   drawerRow = { entry, row };
   const position = entry.table.rows.findIndex(candidate => candidate === row) + 1;
-  const named = rowNameIndex(entry.table);
+  const named = entry.opensFrom ?? rowNameIndex(entry.table);
   const name = (named === undefined ? "" : rowName([row[named] ?? ""])) || rowName(row) || `Row ${position}`;
   openDrawer(name, rowDrawerSubHtml(position, cellText(entry.table.label)), rowDrawerHtml(entry.columns, row, entry.links, entry.exported?.get(row)), opener);
 }

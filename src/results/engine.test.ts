@@ -304,10 +304,11 @@ describe("The results page against the engine in the Anaplan tab", () => {
     const file = result.tables.find(table => table.file === ACCESS_FILE);
     if (!file) throw new Error("The export wrote no Dynamic Cell Access.csv.");
     // Its table is the file as it stands, under the line that says what it lists. The line counts the rows without a
-    // Driver Module, and the export counted the drivers it could not match: the two say the same number.
+    // Driver Module, and the export counted the drivers it could not match: the two say the same number. A row opens
+    // from the driver's name, which is the file's second column.
     const shown = fileView(result, file);
     const COUNTED = "12 rows (2 with a driver that could not be matched)";
-    expect([shown.table === file, file.rows.length, file.rows.filter(row => row[0] === "").map(row => row[1]), shown.note]).toEqual([true, 12, ["Gone.Flag", "'Old access'.Can write"],
+    expect([shown.table === file, shown.opensFrom, file.rows.length, file.rows.filter(row => row[0] === "").map(row => row[1]), shown.note]).toEqual([true, 1, 12, ["Gone.Flag", "'Old access'.Can write"],
       `${ACCESS_LINE} 2 rows have a driver that could not be matched to a line item: they come last, with the driver as Line Items writes it and no Driver Module.`]);
     expect(result.summary.slice(0, 3)).toEqual(["Line Items: 16 rows", `Dynamic Cell Access: ${COUNTED}`, "Modules: 5 rows"]);
     // The page makes the model map from the tables it holds. The file's rows are that map's access links, each once,
