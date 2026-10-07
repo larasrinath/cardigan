@@ -11,9 +11,11 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const { version } = JSON.parse(readFileSync(path.join(root, 'manifest.json'), 'utf8'));
 
 // content.js: the app page analysis (isolated world). model-export.js: the model export, which runs in the classic model
-// building page's main world to read its Model settings grids through the page's own client. background.js: the service
-// worker behind the toolbar icon. results.js: the results page's script, which results.html loads as a classic script. It
-// holds the model map (src/map) as well, through the page's imports: the map has no bundle of its own.
+// building page's main world to read its Model settings grids through the page's own client. It holds the builder of the
+// model map's graph (src/map/build-graph.ts) too: the export makes its Dynamic Cell Access file from that graph's access
+// links. background.js: the service worker behind the toolbar icon. results.js: the results page's script, which
+// results.html loads as a classic script. It holds the model map (src/map) as well, through the page's imports: the map
+// has no bundle of its own.
 const BUNDLES = [['content.ts', 'content.js'], ['model-content.ts', 'model-export.js'], ['background.ts', 'background.js'], ['results/main.ts', 'results.js']];
 for (const [entry, outfile] of BUNDLES) {
   await build({

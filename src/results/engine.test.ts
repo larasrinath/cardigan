@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DETAILS_FILE, TAB_FILES } from "../analyse.js";
-import { APP_ZIP_REWORDED, MODEL_ZIP_COLUMN_AND_ROW, ZIPPED_AT } from "../golden-0.6.1.test-support.js";
+import { APP_ZIP_REWORDED, MODEL_ZIP_AS_NAMED, ZIPPED_AT } from "../golden-0.6.1.test-support.js";
 import { Failure, firstLine } from "../progress.js";
 import { ROWS_MAX, type Subject } from "../protocol.js";
 import type { AnalysisResult } from "../result-types.js";
@@ -201,9 +201,9 @@ describe("The results page against the engine in the Anaplan tab", () => {
     // of the two lines the content script wrote before it asked the frame. From there on the two logs are the same.
     expect(diagnosticLog(detailsOf(result))).toEqual(page.client.log.slice(2));
     // What the page would give for download is, file for file, the zip 0.6.1 wrote for this model, but for the column of Line
-    // Items.csv and the row of Model Details.csv that are deliberately written otherwise since (MODEL_COLUMN_ADDED and
-    // MODEL_ROW_REWORDED in golden-0.6.1.test-support.ts).
-    expect(files(resultZip(result, ZIPPED_AT), "Model Details.csv")).toEqual(files(MODEL_ZIP_COLUMN_AND_ROW, "Model Details.csv"));
+    // Items.csv and the rows of Model Details.csv that are deliberately written otherwise since (MODEL_COLUMN_ADDED,
+    // MODEL_ROW_REWORDED and MODEL_FILE_ADDED in golden-0.6.1.test-support.ts).
+    expect(files(resultZip(result, ZIPPED_AT), "Model Details.csv")).toEqual(files(MODEL_ZIP_AS_NAMED, "Model Details.csv"));
     expect([result.kind, result.name, result.zipName]).toEqual(["model", "Demand: plan", "Demand plan - Model Export - 2026-09-28.zip"]);
     // The page's one rule about a model's file fits the file the export writes: its name, its Section column, and the
     // template's five rows about the model, of which the export fills in three.
@@ -216,16 +216,20 @@ describe("The results page against the engine in the Anaplan tab", () => {
     const counts = (detailsOf(result)?.rows ?? []).filter(row => row[0] === "Files" && /^\d+ rows$/.test(String(row[2]))).map(row => `${String(row[1]).replace(/\.csv$/, "")}: ${row[2]}`);
     const onTiles = overview.tiles.flatMap(tile => [tile.count, ...(tile.inCsv === undefined ? [] : [tile.inCsv])].map(rows => `${tile.label}: ${rows} rows`));
     expect([counts.length, counts.filter(line => !onTiles.includes(line)), overview.tiles.find(tile => tile.label === "Model Calendar")]).toEqual([10, [], { label: "Model Calendar", count: 26, inCsv: 31 }]);
-    // The export says two things both in its summary and in a Files row: how many imports it matched, and that the source
-    // models were not exported. The overview says each once, with the files, and neither among the notes.
+    // The export says three things both in its summary and in a Files row: how many imports it matched, and that two files
+    // were not exported, the source models and Dynamic Cell Access, which it makes from Line Items and for which this
+    // model's Line Items grid lacks the two driver columns. The overview says each once, with the files, and none among the notes.
+    const NO_ACCESS = "Line Items has no Read Access Driver and Write Access Driver columns.";
     expect(result.summary.filter(line => !/^[A-Za-z ]+: \d+ rows$/.test(line))).toEqual(["Imports: 3 rows (2 matched in the Actions list)",
-      "Source Models: not exported (This model page has no REMOTE_MODEL axis.)."]);
-    expect([overview.notes, overview.files]).toEqual([[], [["Imports.csv", "3 rows (2 matched in the Actions list)"], ["Source Models.csv", "Not exported: This model page has no REMOTE_MODEL axis."]]]);
+      `Dynamic Cell Access: not exported (${NO_ACCESS}).`, "Source Models: not exported (This model page has no REMOTE_MODEL axis.)."]);
+    expect([overview.notes, overview.files]).toEqual([[], [["Dynamic Cell Access.csv", `Not exported: ${NO_ACCESS}`], ["Imports.csv", "3 rows (2 matched in the Actions list)"],
+      ["Source Models.csv", "Not exported: This model page has no REMOTE_MODEL axis."]]]);
     // The page orders a model's files by their names. Every file the export knows, written or not (its Details file names
     // each one), is in that order; the one name in the order that the export does not know yet is Line Item Subsets.
     const known = (detailsOf(result)?.rows ?? []).filter(row => row[0] === "Files").map(row => String(row[1]));
-    expect([known.length, known.filter(file => !MODEL_FILE_ORDER.includes(file)), MODEL_FILE_ORDER.filter(file => !known.includes(file))]).toEqual([12, [], ["Line Item Subsets.csv"]]);
-    // So this result's files are listed in the order of Anaplan's Model settings, each one once. (This model has no source models.)
+    expect([known.length, known.filter(file => !MODEL_FILE_ORDER.includes(file)), MODEL_FILE_ORDER.filter(file => !known.includes(file))]).toEqual([13, [], ["Line Item Subsets.csv"]]);
+    // So this result's files are listed in the order of Anaplan's Model settings, each one once. (This model has no source
+    // models, and no Dynamic Cell Access file.)
     expect(listedTables(result).map(({ table }) => table.label)).toEqual(["Model Calendar", "Time Ranges", "Versions", "General Lists", "Modules", "Line Items", "Processes", "Imports",
       "Import Data Sources", "Exports", "Other Actions"]);
     expect(result.tables.map(table => table.label)).toEqual(["Model Details", "Line Items", "Modules", "General Lists", "Processes", "Imports", "Import Data Sources", "Exports", "Other Actions",
@@ -424,7 +428,7 @@ describe("The results page against the engine in the Anaplan tab", () => {
     expect([runs.length, settings.reads.filter((read, index, all) => all.indexOf(read) !== index)]).toEqual([2, []]);
     expectEngineResult(next, runs[1]);
     const { result } = next.held();
-    expect(files(resultZip(result, ZIPPED_AT), "Model Details.csv")).toEqual(files(MODEL_ZIP_COLUMN_AND_ROW, "Model Details.csv"));
+    expect(files(resultZip(result, ZIPPED_AT), "Model Details.csv")).toEqual(files(MODEL_ZIP_AS_NAMED, "Model Details.csv"));
     // The next page's log begins where it took over, after the two lines the content script writes for every run. The log
     // the result carries is the export's from its beginning: between them the two pages were told each line of it once.
     expect(next.client.log.slice(0, 3)).toEqual([firstLine("model", MODEL, SHELL_HOST), runs[1].said[0], "Modules: 2 rows × 2 columns; columns: Applies To | Cell Count"].map(stamped));
