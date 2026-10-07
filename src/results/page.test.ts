@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { RESULTS_PAGE } from "../protocol.js";
 import { FakePage, parseMarkup } from "./dom.test-support.js";
-import { keptCopyHtml } from "./markup.js";
+import { keptCopyHtml, overviewHtml, runHtml, tableHtml } from "./markup.js";
 import { readMarkup } from "./markup.test-support.js";
 import { PAGE_IDS } from "./page-ids.js";
 
@@ -72,6 +72,68 @@ describe("The results page's files", () => {
       ["main:has(> #mapHost:not([hidden]))", "align-self:stretch;display:flex;flex-direction:column"],
     ]);
     expect(rules("[hidden]")[0]).toEqual(["[hidden]", "display:none !important"]);
+  });
+
+  /** The rules a media query holds, by the query as the stylesheet writes it: each as its selector and what it declares. */
+  const mediaRules = (query: string): string[][] => {
+    const plain = css.replace(/\/\*[\s\S]*?\*\//g, "");
+    const open = plain.indexOf("{", plain.indexOf(`@media ${query}{`));
+    if (open < 0 || !plain.includes(`@media ${query}{`)) return [];
+    let close = open;
+    for (let depth = 0; close < plain.length; close++) {
+      if (plain[close] === "{") depth++;
+      else if (plain[close] === "}" && --depth === 0) break;
+    }
+    return [...plain.slice(open + 1, close).matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(([, selector, body]) => [selector.trim(), body.trim().replace(/\s+/g, " ")]);
+  };
+  /** What the rules of exactly this selector declare, in the stylesheet's order: the rule for every width first. */
+  const declared = (selector: string): string[] => rules(selector).filter(([found]) => found === selector).map(([, body]) => body.replace(/\s+/g, " "));
+
+  it("is as wide as the window: nothing caps the shell or the banners, and the header, the banners and the shell keep to the same sides", () => {
+    // The navigation stands at the window's left edge and the content takes the room beside it: no rule gives the
+    // shell, the banners or the main area a greatest width, or sets them in the middle of the window.
+    const sized = [".shell", ".banners", "main"].flatMap(name => rules(name));
+    expect(sized.length).toBeGreaterThan(6);
+    expect(sized.filter(([, body]) => /max-width|margin/.test(body))).toEqual([]);
+    // One gutter is at the window's two sides and between the navigation and the content. The header and the banners
+    // keep to the same sides as the shell: the brand stands over the navigation's edge, and a banner is as wide as the
+    // navigation and the content together.
+    expect(css).toMatch(/\n {2}--gutter:\d+px;\n/);
+    expect(declared(".shell")[0]).toBe("display:flex;gap:var(--gutter);padding:12px var(--gutter) 32px;align-items:flex-start");
+    expect(declared(".banners")[0]).toBe("padding:12px var(--gutter) 0;display:grid;gap:8px");
+    expect(declared(".hd")[0]).toContain("padding:10px var(--gutter);");
+    // The narrow layout, where the navigation slides in over the content, keeps its own sides.
+    const narrow = new Map(mediaRules("(max-width:1120px)").map(([selector, body]) => [selector, body]));
+    expect([narrow.get(".hd"), narrow.get(".banners"), narrow.get(".shell")]).toEqual(["gap:10px;padding:10px 14px", "padding:12px 20px 0", "padding:12px 14px 28px"]);
+    expect([declared(".shell").length, declared(".banners").length]).toEqual([2, 2]);
+  });
+
+  it("keeps prose to a measure where the navigation stands beside the content, and only there; each thing it names is what the page writes", () => {
+    // In a window as wide as it likes, a note, a paragraph of how to read the files and the words of an empty state
+    // would run to lines of any length. They keep to the measure; the line under a table's name may be twice as long.
+    const measured = mediaRules("(width > 1120px)");
+    expect(measured).toEqual([
+      [".warn-list li", "max-width:var(--measure)"],
+      ["#ovHowTo .dl dd", "padding-right:max(16px,calc(100% - var(--measure) - 16px))"],
+      [".empty .e-title,.empty .e-sub", "max-width:var(--measure);margin-left:auto;margin-right:auto"],
+      [".view-note", "max-width:calc(2*var(--measure))"],
+    ]);
+    expect(css).toMatch(/\n {2}--measure:\d+ch;\n/);
+    // The query is the other side of the narrow layout's, so the narrow layout is as it was: every use of the measure
+    // is in this query, and none in a rule for every width or in the narrow layout's.
+    const uses = (text: string): number => text.split("var(--measure)").length - 1;
+    expect([uses(css.replace(/\/\*[\s\S]*?\*\//g, "")), uses(measured.map(([, body]) => body).join(";"))]).toEqual([4, 4]);
+    expect(mediaRules("(max-width:1120px)").filter(([, body]) => body.includes("--measure"))).toEqual([]);
+    // The page's script writes what these rules name: an overview with a note and with how to read the files, the view
+    // of a run, and a table with a line under its name and no row.
+    const written = parseMarkup(overviewHtml({ tiles: [], cardTypes: [], models: [], notes: ["A note."], about: [], files: [], howToRead: [["Layout", "How each file is laid out."]], log: [] })
+      + runHtml()
+      + tableHtml({ label: "Line Items", note: "A line under the name.", columns: [], rows: [], page: 0, pages: 1, pageSize: 50, from: 0, to: 0, total: 0, all: 0, search: "", sort: undefined,
+        filtered: new Set(), context: undefined, links: { page: false, card: false } }));
+    const named = measured.flatMap(([selector]) => selector.split(","));
+    expect(named.map(selector => [selector, written.querySelectorAll(selector).length > 0])).toEqual(named.map(selector => [selector, true]));
+    expect([written.querySelector("#ovHowTo .dl dd")?.textContent, written.querySelector(".warn-list li")?.textContent, written.querySelector(".view-note")?.textContent])
+      .toEqual(["How each file is laid out.", "A note.", "A line under the name."]);
   });
 
   it("shows nothing of the room the overview holds for a kept copy's line and button: the stylesheet hides what the markup marks as to come", () => {
