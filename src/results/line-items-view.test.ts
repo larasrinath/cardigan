@@ -161,7 +161,7 @@ describe("The Line Items table as the results page shows it", () => {
       ["Price", "Sales", NUMBER, "Products", "Line item", "false", ""],
       ["Units", "Stock", NUMBER, "Warehouses", "Module", "false", ""],
       ["Cover", "Stock", NUMBER, "Warehouses", "Module", "false", ""]] });
-    expect([view.moduleRows, view.emptyModules, view.note]).toEqual([2, 0, "2 module rows are in the CSV only; each line item shows its module."]);
+    expect([view.moduleRows, view.emptyModules, view.note]).toEqual([2, 0, "2 module rows are not listed here; each line item shows its module."]);
     // The module's name is shown once: the grid's own Module Name column, moved, not a second one.
     expect(view.table.headers.filter(header => header === MODULE_NAME)).toHaveLength(1);
     expect(SHORT_VIEW).toHaveLength(SHORT.length + 1);
@@ -187,7 +187,7 @@ describe("The Line Items table as the results page shows it", () => {
       .toEqual([NO_DATA, RATIO, "Margin", "Revenue"]);
     expect(view.table.rows.every(row => row.length === VIEW_HEADERS.length)).toBe(true);
     expect([view.moduleRows, view.emptyModules]).toEqual([5, 2]);
-    expect(view.note).toBe("5 module rows are in the CSV only; each line item shows its module. 2 modules have no line items, so they are not in this table.");
+    expect(view.note).toBe("5 module rows are not listed here; each line item shows its module. 2 modules have no line items, so they are not in this table.");
   });
 
   it("tells line items of the same name apart by their module, and takes each one's Applies To from its own module", () => {
@@ -238,19 +238,19 @@ describe("The Line Items table as the results page shows it", () => {
       moduleRow("------ Inputs ------"), moduleRow("Sales", "Products"), lineItem("Units", "Sales"), moduleRow("Empty", "Regions"), moduleRow("------ Archive ------")]));
     expect(said(view)).toEqual([["Units", "Sales", "Products", "Module"]]);
     expect([view.moduleRows, view.emptyModules]).toEqual([4, 3]);
-    expect(view.note).toBe("4 module rows are in the CSV only; each line item shows its module. 3 modules have no line items, so they are not in this table.");
+    expect(view.note).toBe("4 module rows are not listed here; each line item shows its module. 3 modules have no line items, so they are not in this table.");
     // Only modules' rows: nothing is left to show, and the note says where they went.
     const none = lineItemsView(table(SHORT, [moduleRow("------ Inputs ------")]));
     expect([none.table.headers, none.table.rows, none.moduleRows, none.emptyModules]).toEqual([SHORT_VIEW, [], 1, 1]);
-    expect(none.note).toBe("1 module row is in the CSV only; each line item shows its module. 1 module has no line items, so it is not in this table.");
+    expect(none.note).toBe("1 module row is not listed here; each line item shows its module. 1 module has no line items, so it is not in this table.");
   });
 
   it("says in one line how many module rows it left out", () => {
     const note = (rows: Cell[][]) => lineItemsView(table(SHORT, rows)).note;
-    expect(note([moduleRow("Sales"), lineItem("Units", "Sales")])).toBe("1 module row is in the CSV only; each line item shows its module.");
+    expect(note([moduleRow("Sales"), lineItem("Units", "Sales")])).toBe("1 module row is not listed here; each line item shows its module.");
     expect(note([moduleRow("Sales"), lineItem("Units", "Sales"), moduleRow("Stock"), lineItem("Units", "Stock"), moduleRow("Empty")]))
-      .toBe("3 module rows are in the CSV only; each line item shows its module. 1 module has no line items, so it is not in this table.");
-    // The numbers the note is made of add up to the file's rows: none is lost between the CSV and the page.
+      .toBe("3 module rows are not listed here; each line item shows its module. 1 module has no line items, so it is not in this table.");
+    // The numbers the note is made of add up to the file's rows: none is lost between the file and the page.
     const view = lineItemsView(table(HEADERS, MODEL));
     expect(view.table.rows.length + view.moduleRows).toBe(MODEL.length);
   });
@@ -286,7 +286,7 @@ describe("The Line Items table as the results page shows it", () => {
     expect(said(view)).toEqual([["Units", REVENUE, "Products, Regions", "Module"], ["Price", "", "-", "Module (not found)"], ["Revenue", REVENUE, "Products, Regions", "Module"]]);
     // One row is left out, the module's own, and nothing says that the module has no line items.
     expect([view.moduleRows, view.emptyModules, view.table.rows.length]).toEqual([1, 0, 3]);
-    expect(view.note).toBe("1 module row is in the CSV only; each line item shows its module, except 1 whose module is not known: it has no Module Name in the file.");
+    expect(view.note).toBe("1 module row is not listed here; each line item shows its module, except 1 whose module is not known: it has no Module Name.");
   });
 
   it("keeps a line item's row that is cut short before its Module Name the same way", () => {
@@ -300,7 +300,7 @@ describe("The Line Items table as the results page shows it", () => {
     const shown: Record<string, Cell> = { "": "Price", Format: NUMBER, Summary: SUM, "Applies To": "-", "Applies To from": "Module (not found)" };
     expect(view.table.rows[1]).toEqual(VIEW_HEADERS.map(header => (Object.hasOwn(shown, header) ? shown[header] : "")));
     expect([view.moduleRows, view.emptyModules, view.table.rows.length]).toEqual([1, 0, 3]);
-    expect(view.note).toBe("1 module row is in the CSV only; each line item shows its module, except 1 whose module is not known: it has no Module Name in the file.");
+    expect(view.note).toBe("1 module row is not listed here; each line item shows its module, except 1 whose module is not known: it has no Module Name.");
   });
 
   it("takes a row for a module's own only when it names no module and has nothing that only a line item has", () => {
@@ -323,7 +323,7 @@ describe("The Line Items table as the results page shows it", () => {
       ["Bare", "Sales", "Products", "Module"], ["", "Sales", "Products", "Module"],
       ["Cover", "Stock", "Warehouses", "Module"]]);
     expect([view.moduleRows, view.emptyModules]).toEqual([3, 1]);
-    expect(view.note).toBe("3 module rows are in the CSV only; each line item shows its module, except 6 whose module is not known: they have no Module Name in the file. "
+    expect(view.note).toBe("3 module rows are not listed here; each line item shows its module, except 6 whose module is not known: they have no Module Name. "
       + "1 module has no line items, so it is not in this table.");
     // A line item that names no module is no module's, not even of a module's row that has no name.
     const nameless = lineItemsView(table(BOTH, [["", "", "", "Products", ""], ["Lost", NUMBER, SUM, "-", ""]]));
@@ -344,7 +344,7 @@ describe("The Line Items table as the results page shows it", () => {
       ["Sales", "", "", "", "Products", ""], ["Lost", "", "Units * 2", "", "-", ""], ["Units", NUMBER, "", SUM, "-", "Sales"], ["Spaces", "", "  ", "", "Regions", ""]]));
     // A formula of only spaces is none: that row is a module's own.
     expect([said(all), all.moduleRows, all.emptyModules]).toEqual([[["Lost", "", "-", "Module (not found)"], ["Units", "Sales", "Products", "Module"]], 2, 1]);
-    expect(all.note).toBe("2 module rows are in the CSV only; each line item shows its module, except 1 whose module is not known: it has no Module Name in the file. "
+    expect(all.note).toBe("2 module rows are not listed here; each line item shows its module, except 1 whose module is not known: it has no Module Name. "
       + "1 module has no line items, so it is not in this table.");
     // None of the three columns: nothing in the table tells such a row from a module's own, and it is taken for one, as
     // before. The line item after it then names a module that is not the row above it.
@@ -363,12 +363,12 @@ describe("The Line Items table as the results page shows it", () => {
       ["------ Archive ------", "", "", "", ""]]));
     expect(said(view)).toEqual([["Units", "", "-", "Module (not found)"], ["Price", "", "Regions", "Line item"], ["Cover", "Stock", "Warehouses", "Module"]]);
     expect([view.moduleRows, view.emptyModules]).toEqual([3, 1]);
-    expect(view.note).toBe("3 module rows are in the CSV only; each line item shows its module, except 2 whose module is not known: they have no Module Name in the file. "
+    expect(view.note).toBe("3 module rows are not listed here; each line item shows its module, except 2 whose module is not known: they have no Module Name. "
       + "1 module has no line items, so it is not in this table.");
     // Nor when the line items under its row name another module: whose they are is not known, so nothing is said.
     const foreign = lineItemsView(table(BOTH, [["Sales", "", "", "Products", ""], ["Units", NUMBER, SUM, "-", "Stock"], ["Empty", "", "", "Regions", ""], ["Costs", "", "", "", ""]]));
     expect([said(foreign), foreign.moduleRows, foreign.emptyModules]).toEqual([[["Units", "Stock", "-", "Module (not found)"]], 3, 2]);
-    expect(foreign.note).toBe("3 module rows are in the CSV only; each line item shows its module. 2 modules have no line items, so they are not in this table.");
+    expect(foreign.note).toBe("3 module rows are not listed here; each line item shows its module. 2 modules have no line items, so they are not in this table.");
   });
 
   it("with the model's module names, keeps a row that holds only its name and is no module's, among its module's line items", () => {
@@ -380,12 +380,12 @@ describe("The Line Items table as the results page shows it", () => {
     // of its Applies To. The line item after it is its module's, as the one before it.
     expect(said(view)).toEqual([["Units", REVENUE, "Products, Regions", "Module"], ["Price", "", "", ""], ["Revenue", REVENUE, "Products, Regions", "Module"]]);
     expect([view.moduleRows, view.emptyModules, view.table.rows.length]).toEqual([1, 0, 3]);
-    expect(view.note).toBe("1 module row is in the CSV only; each line item shows its module, except 1 whose module is not known: it has no Module Name in the file.");
+    expect(view.note).toBe("1 module row is not listed here; each line item shows its module, except 1 whose module is not known: it has no Module Name.");
     // Without the names such a row cannot be told from a module's own and is taken for one, as before: it is left out, and
     // the line item after it keeps its dash.
     const before = lineItemsView(table(HEADERS, rows));
     expect(said(before)).toEqual([["Units", REVENUE, "Products, Regions", "Module"], ["Revenue", REVENUE, "-", "Module (not found)"]]);
-    expect([before.moduleRows, before.emptyModules, before.note]).toEqual([2, 0, "2 module rows are in the CSV only; each line item shows its module."]);
+    expect([before.moduleRows, before.emptyModules, before.note]).toEqual([2, 0, "2 module rows are not listed here; each line item shows its module."]);
   });
 
   it("with the model's module names, keeps such a row as the last under its module, and does not call it a module with no line items", () => {
@@ -395,12 +395,12 @@ describe("The Line Items table as the results page shows it", () => {
     const view = lineItemsView(table(HEADERS, rows), new Set([REVENUE, COSTS]));
     expect(said(view)).toEqual([["Units", REVENUE, "Products, Regions", "Module"], ["Price", "", "", ""], ["Cost", COSTS, "Cost Centres", "Module"]]);
     expect([view.moduleRows, view.emptyModules, view.table.rows.length]).toEqual([2, 0, 3]);
-    expect(view.note).toBe("2 module rows are in the CSV only; each line item shows its module, except 1 whose module is not known: it has no Module Name in the file.");
+    expect(view.note).toBe("2 module rows are not listed here; each line item shows its module, except 1 whose module is not known: it has no Module Name.");
     // Without the names it is taken for a module's own row, and so for a module with no line items, as before.
     const before = lineItemsView(table(HEADERS, rows));
     expect(said(before)).toEqual([["Units", REVENUE, "Products, Regions", "Module"], ["Cost", COSTS, "Cost Centres", "Module"]]);
     expect([before.moduleRows, before.emptyModules]).toEqual([3, 1]);
-    expect(before.note).toBe("3 module rows are in the CSV only; each line item shows its module. 1 module has no line items, so it is not in this table.");
+    expect(before.note).toBe("3 module rows are not listed here; each line item shows its module. 1 module has no line items, so it is not in this table.");
   });
 
   it("with the names, takes a row for a module's own when its name is a module's: one of the names, or one a line item of the file gives as its module", () => {
@@ -415,7 +415,7 @@ describe("The Line Items table as the results page shows it", () => {
     expect(said(view)).toEqual([["Units", "Sales", "Products", "Module"], ["Cover", "Stock", "Warehouses", "Module"],
       ["Old", "", "Regions", "Line item"], ["Dash", "", "-", "Module (not found)"], ["Nothing", "", "", ""], ["", "", "", ""]]);
     expect([view.moduleRows, view.emptyModules]).toEqual([3, 1]);
-    expect(view.note).toBe("3 module rows are in the CSV only; each line item shows its module, except 4 whose module is not known: they have no Module Name in the file. "
+    expect(view.note).toBe("3 module rows are not listed here; each line item shows its module, except 4 whose module is not known: they have no Module Name. "
       + "1 module has no line items, so it is not in this table.");
     // A name is matched whole and as it is written.
     const near = lineItemsView(table(BOTH, [["Sales", "", "", "Products", ""], ["Stock", "", "", "Regions", ""], ["Cover", NUMBER, SUM, "-", "Stock"]]), new Set(["sales", "Sales ", "Sale"]));
@@ -476,7 +476,7 @@ describe("The Line Items table as the results page shows it", () => {
     // row that is called by those spaces.
     const blank = lineItemsView(table(BOTH, [["Sales", "", "", "Products", ""], ["Units", NUMBER, SUM, "-", " "], [" ", "", "", "Regions", ""]]), new Set(["Sales"]));
     expect([said(blank), blank.note]).toEqual([[["Units", " ", "-", "Module (not found)"], [" ", "", "Regions", "Line item"]],
-      "1 module row is in the CSV only; each line item shows its module, except 2 whose module is not known: they have no Module Name in the file."]);
+      "1 module row is not listed here; each line item shows its module, except 2 whose module is not known: they have no Module Name."]);
   });
 
   it("reads the table as before when the names are not given, or are no set of names", () => {
@@ -564,7 +564,7 @@ describe("The Line Items table as the results page shows it", () => {
       ["Long", "Sales", NUMBER, "Products", "Module", "false", "", "beyond", 9], ["Short", "Sales", NUMBER, "Products", "Module", "false", ""],
       ["Own", "Sales", NUMBER, 3, "Line item", "false", ""]]);
     expect(view.table.rows.flat().every(cell => typeof cell === "string" || (typeof cell === "number" && Number.isFinite(cell)))).toBe(true);
-    // The table given is not touched, so the CSV written from it is the one it always was; the view is another table.
+    // The table given is not touched: written as a CSV, it is the text it was. The view is another table.
     expect(given).toEqual(before);
     expect(tableCsv(given)).toBe(csv);
     expect(view.table).not.toBe(given);
@@ -606,7 +606,7 @@ describe("The Line Items table as the results page shows it", () => {
     const view = lineItemsView(given);
     const took = performance.now() - started;
     expect([given.rows.length, view.table.rows.length, view.moduleRows, view.emptyModules]).toEqual([5250, 5000, 250, 0]);
-    expect(view.note).toBe("250 module rows are in the CSV only; each line item shows its module.");
+    expect(view.note).toBe("250 module rows are not listed here; each line item shows its module.");
     expect(valueCounts(view.table.rows, VIEW_HEADERS.indexOf(APPLIES_TO_FROM))).toEqual([["Line item", 500], ["Module", 4500]]);
     expect(said(view).slice(4998)).toEqual([["Line item 18", "M249 Module 249", "List 4, List 7", "Module"], ["Line item 19", "M249 Module 249", "List 19", "Line item"]]);
     expect(took).toBeLessThan(1_000);

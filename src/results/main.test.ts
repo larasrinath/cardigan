@@ -993,7 +993,7 @@ describe("The results page's script, on the page", () => {
     expect([file.rows.length, file.rows.filter(row => row[0] === "Model").length]).toEqual([31, 5]);
     // The overview: the file's tile counts the rows its table lists. What the file says about the model stands with what
     // the Details file says about the export, after it, and without the model's name, which that has said.
-    expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Model Calendar", "26", "rows", "31 rows in the CSV"], ["Modules", "2", "rows"], ["Line Items", "120", "rows"]]);
+    expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Model Calendar", "26", "rows", "31 rows read"], ["Modules", "2", "rows"], ["Line Items", "120", "rows"]]);
     expect([page.texts("#ovAbout h2"), page.texts("#ovAbout dt"), page.texts("#ovAbout dd")])
       .toEqual([["About this export"], ["Model", "Anaplan host", "Workspace", "Captured on"], ["Model one", "us1a.app.anaplan.com", "Main", "2026-10-03"]]);
     // The navigation counts the same rows.
@@ -1004,7 +1004,7 @@ describe("The results page's script, on the page", () => {
     goTo(3);
     const settings = () => page.all("#tableWrap tbody tr").map(row => row.children[1].textContent.trim());
     expect([page.texts("#view .view-note"), page.id("rowCount").textContent, page.id("live").textContent])
-      .toEqual([["5 rows about the model are in the CSV only."], "1–26 of 26 rows", "Model Calendar: 26 rows"]);
+      .toEqual([["5 rows about the model are not listed here: the Overview has their values, under About this export."], "1–26 of 26 rows", "Model Calendar: 26 rows"]);
     expect([firstCells().every(section => section === "Model Calendar"), settings().slice(0, 2), settings().filter(setting => ["Workspace", "Model", "Captured on"].includes(setting))])
       .toEqual([true, ["Calendar Type", "Fiscal Year Starts"], []]);
     // The search reads the rows listed and no others: the calendar's type finds its row, the model's name finds none.
@@ -1035,14 +1035,14 @@ describe("The results page's script, on the page", () => {
     const file = WITH_CALENDAR.tables[3];
     const only: AnalysisResult = { ...WITH_CALENDAR, tables: [...WITH_CALENDAR.tables.slice(0, 3), { ...file, rows: file.rows.slice(0, 5) }] };
     await openWith(only);
-    // The tile and the navigation count the rows the table lists, none, and the tile says the CSV's five.
-    expect(page.all("#view .stat")[0].children.map(child => child.textContent)).toEqual(["Model Calendar", "0", "rows", "5 rows in the CSV"]);
+    // The tile and the navigation count the rows the table lists, none, and the tile says the five that were read.
+    expect(page.all("#view .stat")[0].children.map(child => child.textContent)).toEqual(["Model Calendar", "0", "rows", "5 rows read"]);
     expect(page.find('#navList [data-nav="3"]').children.map(child => child.textContent)).toEqual(["Model Calendar", "0"]);
     goTo(3);
     // The line under the name says where the five rows are. In the rows' place the table says that none is the calendar's
     // own, which does not contradict it; "Nothing was found" would.
     expect([page.texts("#view .view-note"), page.texts("#tableWrap .e-title"), page.texts("#tableWrap .e-sub"), page.id("rowCount").textContent])
-      .toEqual([["5 rows about the model are in the CSV only."], ["Model Calendar has no rows of its own"], ["Every row of the file is about the model."], "No rows"]);
+      .toEqual([["5 rows about the model are not listed here: the Overview has their values, under About this export."], ["Model Calendar has no rows of its own"], ["Every row that was read is about the model."], "No rows"]);
     expect([page.id("view").textContent.includes("Nothing was found"), page.all("#tableWrap tbody tr").length, page.id("pager").children]).toEqual([false, 0, []]);
     // The page's own table has the five rows still: a model's map is built from the result's tables.
     page.find('#navList [data-nav="map"]').press();
@@ -1181,8 +1181,8 @@ describe("What a click, a key and typing do on the results page", () => {
   it("shows a model's Line Items table as line items only, each with its module and the dimensions it has; the counts are the table's", async () => {
     await openWith(BLUEPRINT);
     // The overview's tile and the navigation count the line items, not the file's rows, three of which are modules' own:
-    // the tile says how many rows the CSV has under that.
-    expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Modules", "3", "rows"], ["Line Items", "5", "rows", "8 rows in the CSV"]]);
+    // the tile says how many rows were read under that.
+    expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Modules", "3", "rows"], ["Line Items", "5", "rows", "8 rows read"]]);
     expect(page.all("#navList .nav-item").filter(item => item.querySelector(".cnt")).map(item => item.children.map(child => child.textContent))).toEqual([["Modules", "3"], ["Line Items", "5"]]);
 
     goTo(1);
@@ -1191,9 +1191,9 @@ describe("What a click, a key and typing do on the results page", () => {
     expect([column("Name"), column("Module Name")]).toEqual([["Units", "Price", "Revenue", "Margin %", "Cost"], ["REV01 Revenue", "REV01 Revenue", "REV01 Revenue", "REV01 Revenue", "COST01 Costs"]]);
     // A dash in the file is the module's Applies To here; a line item's own stays its own.
     expect([column("Applies To"), column("Applies To from")]).toEqual([["Products, Time", "Products", "Products, Time", "Products, Time", "Cost Centres"], ["Module", "Line item", "Module", "Module", "Module"]]);
-    // The line under the table's name says what is left to the CSV, and where the module without line items is.
+    // The line under the table's name says what is not listed, and where the module without line items is.
     expect([page.texts("#view .view-note"), page.id("rowCount").textContent, page.id("live").textContent]).toEqual([
-      ["3 module rows are in the CSV only; each line item shows its module. 1 module has no line items, so it is not in this table. It is listed in the Modules table."],
+      ["3 module rows are not listed here; each line item shows its module. 1 module has no line items, so it is not in this table. It is listed in the Modules table."],
       "1–5 of 5 rows", "Line Items: 5 rows"]);
 
     // The search, the filters and the sort are the table's: a module's name finds its line items, and a module's own row is not there to find.
@@ -1239,7 +1239,7 @@ describe("What a click, a key and typing do on the results page", () => {
     // The navigation has it after Line Items, where Anaplan's own order has no such entry, and the overview has its tile
     // there too. Both count the file's rows: the table lists every one.
     expect(page.all("#navList .nav-item").map(item => item.children.map(child => child.textContent))).toEqual([["Overview"], ["Modules", "3"], ["Line Items", "5"], ["Dynamic Cell Access", "5"], ["Model map"]]);
-    expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Modules", "3", "rows"], ["Line Items", "5", "rows", "8 rows in the CSV"], ["Dynamic Cell Access", "5", "rows"]]);
+    expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Modules", "3", "rows"], ["Line Items", "5", "rows", "8 rows read"], ["Dynamic Cell Access", "5", "rows"]]);
 
     goTo(2);
     expect(shows()).toEqual(["Dynamic Cell Access", "Dynamic Cell Access", "Dynamic Cell Access"]);
@@ -1251,7 +1251,7 @@ describe("What a click, a key and typing do on the results page", () => {
     // Under the table's name, one line: what the table is, and how many of its drivers could not be matched.
     expect([page.texts("#view .view-note"), page.id("rowCount").textContent, page.id("live").textContent]).toEqual([
       ["The Read Access Driver and Write Access Driver columns of Line Items, listed from the driver's side. One row for each use of a driver: the driver, Read or Write, and the line item it controls. "
-        + "1 row has a driver that could not be matched to a line item: it comes last, with the driver as Line Items writes it and no Driver Module."],
+        + "1 row has a driver that could not be matched to a line item: it comes last, with the driver as Line Items has it and no Driver Module."],
       "1–5 of 5 rows", "Dynamic Cell Access: 5 rows"]);
     // A row opens from its driver's name, the second cell, in every row. The first cell, the driver's module, is the same
     // name down the rows, and is plain text: as the row's button it would read as a way to that module.
@@ -1327,22 +1327,22 @@ describe("What a click, a key and typing do on the results page", () => {
     expect([page.texts("#tableWrap .e-title"), page.texts("#tableWrap .e-sub")]).toEqual([["Modules has no rows"], ["Nothing was found for this table in this analysis."]]);
   });
 
-  it("says a model's Format and Summary in words in the table, for the search, the filter and the sort as well; the row's drawer has the CSV's text too", async () => {
+  it("says a model's Format and Summary in words in the table, for the search, the filter and the sort as well; the row's drawer has the text that was read too", async () => {
     await openWith(BLUEPRINT);
     const file = BLUEPRINT.tables[1];
     goTo(1);
     // The words, as Anaplan says them; a Ratio with the names its own row holds.
     expect([column("Format"), column("Summary")]).toEqual([["Number", "Number", "Number", "Number, 2 decimal places, %", "Number"],
       ["Sum", "None", "Sum", "Ratio = Margin / Revenue", "Sum, Time: Closing Balance"]]);
-    // The search reads the words, not the text the CSV has in their place: a word is found where it is seen.
+    // The search reads the words, not the text that was read in their place: a word is found where it is seen.
     page.id("tblSearch").type("closing balance");
     expect([column("Name"), page.id("rowCount").textContent]).toEqual([["Cost"], "1–1 of 1 row (filtered from 5)"]);
     // A common word finds the rows that show it and no others. Every Summary's definition holds "summaryMethod", so the
-    // CSV's text of all five rows has "sum" in it; three of them show the word.
+    // text that was read has "sum" in it in all five rows; three of them show the word.
     page.id("tblSearch").type("sum");
     expect([column("Name"), column("Summary"), page.id("rowCount").textContent])
       .toEqual([["Units", "Revenue", "Cost"], ["Sum", "Sum", "Sum, Time: Closing Balance"], "1–3 of 3 rows (filtered from 5)"]);
-    // What only the CSV's text holds finds nothing: a definition's keys, its values as the export writes them, its true and false.
+    // What only the text that was read holds finds nothing: a definition's keys, its values as the export writes them, its true and false.
     for (const word of ["summaryMethod", "CLOSING_BALANCE", "percentage", "decimalPlaces", "false"]) {
       page.id("tblSearch").type(word);
       expect(page.id("rowCount").textContent, word).toBe("No rows (filtered from 5)");
@@ -1360,10 +1360,10 @@ describe("What a click, a key and typing do on the results page", () => {
     page.find('[data-sort="2"]').press();
     expect([column("Name")[0], column("Format")[0]]).toEqual(["Margin %", "Number, 2 decimal places, %"]);
 
-    // The row's drawer: the words beside each column's name, and after them the CSV's text, named as the CSV's.
+    // The row's drawer: the words beside each column's name, and after them the text that was read, named as that.
     page.all('#tableWrap tbody [data-act="row"]')[0].press();
     expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual(["Margin %", "Row 4 of Line Items"]);
-    expect(page.texts("#drawerBody dt")).toEqual(["Name", "Module Name", "Format", "Format in the CSV", "Formula", "Summary", "Summary in the CSV", "Applies To", "Applies To from",
+    expect(page.texts("#drawerBody dt")).toEqual(["Name", "Module Name", "Format", "Format as read", "Formula", "Summary", "Summary as read", "Applies To", "Applies To from",
       "Ratio Numerator", "Ratio Denominator"]);
     expect(page.all("#drawerBody dd").map(value => value.textContent)).toEqual(["Margin %", "REV01 Revenue", "Number, 2 decimal places, %", PERCENT, "Margin / Revenue", "Ratio = Margin / Revenue", RATIO,
       "Products, Time", "Module", "Margin", "Revenue"]);
@@ -1379,7 +1379,7 @@ describe("What a click, a key and typing do on the results page", () => {
     expect([mapBuilds.length, mapBuilds[0].tables]).toEqual([1, BLUEPRINT.tables]);
     expect(file.rows[4].slice(0, 4)).toEqual(["Margin %", PERCENT, "Margin / Revenue", RATIO]);
 
-    // A table without such cells has nothing of the CSV's to add in its drawer.
+    // A table without such cells has nothing to add in its drawer.
     goTo(2);
     page.all('#tableWrap tbody [data-act="row"]')[0].press();
     expect(page.texts("#drawerBody dt")).toEqual(["Name", "Applies To"]);
@@ -1535,7 +1535,7 @@ describe("What a click, a key and typing do on the results page", () => {
     const card = () => ({ title: page.id("drawerTitle").textContent, cells: page.texts("#drawerBody .d-dl dd"), sections: page.texts("#drawerBody h3"),
       rows: page.all("#drawerBody .mini tbody tr").map(row => row.children.map(cell => cell.textContent)), note: page.texts("#drawerSub div") });
     const NOTE = '2 cards on pages named "Overview" have this number and this ID. '
-      + "The CSV has only the name of a card's page, so their grid sections and formatting rules cannot be told apart and are not listed here.";
+      + "The tables have only the name of a card's page, so their grid sections and formatting rules cannot be told apart and are not listed here.";
     expect(cardLinks().map(link => link.textContent)).toEqual(["Sales", "Margin", "Stock", "Sales, copied", "Costs", "Margin, moved"]);
     // Sales is on both pages with one number and one ID. Each row opens its own card: the copy's title and its formatting
     // rule, not those of the first card that has the page's name and the ID.
@@ -1903,11 +1903,11 @@ describe("What a click, a key and typing do on the results page", () => {
     /** Every text the overview shows, with its closed sections' as well. */
     const texts = () => [...page.texts("#view dt"), ...page.texts("#view dd"), ...page.texts("#view .warn-list li"), ...page.id("diagLog").textContent.split("\n")];
     /** What each file's tile says of its rows, by the file's own name, which is its entry's in the navigation (the tiles
-     * stand in the same order): the number its table lists, and under it the number the CSV has where that is another. */
+     * stand in the same order): the number its table lists, and under it the number that was read where that is another. */
     const tiles = () => page.all("#navList .nav-item").filter(item => item.querySelector(".cnt")).flatMap((item, index) => {
       const tile = page.all("#view .stat")[index];
       const file = `${item.children[0].textContent}.csv`;
-      return [`${file}: ${tile.querySelector(".s-num")?.textContent} rows`, ...tile.querySelectorAll(".s-sub").slice(1).map(line => `${file}: ${line.textContent.replace(/ in the CSV$/, "")}`)];
+      return [`${file}: ${tile.querySelector(".s-num")?.textContent} rows`, ...tile.querySelectorAll(".s-sub").slice(1).map(line => `${file}: ${line.textContent.replace(/ read$/, "")}`)];
     });
     /** The rows of a result's Details file that the overview does not say: a detail and its value, a note, a line of the log, or a file's tile. */
     const unsaid = (result: AnalysisResult) => {
@@ -1916,47 +1916,52 @@ describe("What a click, a key and typing do on the results page", () => {
         if (section === "Diagnostics") return !shown.includes(detail ? `${detail} ${value}` : value);
         if (section === "Notes") return !shown.includes(`${detail}: ${value}`);
         if (section === "Files" && /^\d+ rows$/.test(value)) return !tiles().includes(`${detail}: ${value}`);
+        // Any other Files row is said under the name the page has for the table: the file's own name is shown nowhere.
+        if (section === "Files") return !(shown.includes(detail.replace(/\.csv$/, "")) && shown.includes(value));
         return !(shown.includes(detail) && shown.includes(value));
       });
     };
     const withFiles = (result: AnalysisResult, ...more: Cell[][]): AnalysisResult => ({ ...result, tables: [{ ...result.tables[0], rows: [...result.tables[0].rows,
       ...result.tables.slice(1).map((table): Cell[] => ["Files", table.file, `${table.rows.length} rows`]), ...more] }, ...result.tables.slice(1)] });
-    // An app: what it is and how it was exported, a note, and how to read the files.
+    // An app: what it is and how it was exported, a note, and how to read the tables.
     const app = withFiles(APP, ["Notes", "Archive", "Not published"], ["How to read", "Page and Card #", "Identify a card in every file."]);
     await openWith(app);
     expect([app.tables[0].rows.length, unsaid(app)]).toEqual([11, []]);
-    expect(page.texts("#view h2")).toEqual(["About this export", "Notes", "Cards by type", "How to read these files", "Diagnostics"]);
+    expect(page.texts("#view h2")).toEqual(["About this export", "Notes", "Cards by type", "How to read these tables", "Diagnostics"]);
     expect([page.texts("#ovAbout dt"), page.has("#ovFiles")]).toEqual([["App", "Anaplan host"], false]);
-    // A model, one of whose files was not exported and another counted with a remark: those two are said under Files.
+    // A model, one of whose files was not exported and another counted with a remark: those two are said under Tables,
+    // each by the name the page has for the table.
     const model = withFiles(MODEL, ["Files", "Source Models.csv", "Not exported: This model page has no REMOTE_MODEL axis."], ["How to read", "Layout", "As Anaplan's own export."]);
     model.tables[0].rows[4] = ["Files", "Modules.csv", "2 rows (as listed)"];
     page.id("runAgain").press();
     sendResult(ports[0], model);
     expect([model.tables[0].rows.length, unsaid(model)]).toEqual([7, []]);
-    expect([page.texts("#view h2"), page.texts("#ovFiles dt"), page.texts("#ovFiles dd")]).toEqual([["About this export", "Files", "How to read these files", "Diagnostics"],
-      ["Modules.csv", "Source Models.csv"], ["2 rows (as listed)", "Not exported: This model page has no REMOTE_MODEL axis."]]);
+    expect([page.texts("#view h2"), page.texts("#ovFiles dt"), page.texts("#ovFiles dd")]).toEqual([["About this export", "Tables", "How to read these tables", "Diagnostics"],
+      ["Modules", "Source Models"], ["2 rows (as listed)", "Not exported: This model page has no REMOTE_MODEL axis."]]);
+    // No file's name is on the page: a table is said by its name alone.
+    expect(page.id("view").textContent).not.toMatch(/\.csv/);
 
-    // What the export says both in its summary and in a Files row is on the page once, with the files: the Notes panel
+    // What the export says both in its summary and in a Files row is on the page once, with the tables: the Notes panel
     // has only what is a note.
     const twice: AnalysisResult = { ...model, summary: ["Line Items: 120 rows", "Modules: 2 rows (as listed)", "Source Models: not exported (This model page has no REMOTE_MODEL axis.).",
       "Actions: the Actions list came without Notes."] };
     page.id("runAgain").press();
     sendResult(ports[0], twice);
     expect([page.texts("#view .warn-list li"), page.texts("#ovFiles dt"), page.texts("#ovFiles dd")]).toEqual([["Actions: the Actions list came without Notes."],
-      ["Modules.csv", "Source Models.csv"], ["2 rows (as listed)", "Not exported: This model page has no REMOTE_MODEL axis."]]);
+      ["Modules", "Source Models"], ["2 rows (as listed)", "Not exported: This model page has no REMOTE_MODEL axis."]]);
     expect(["2 rows (as listed)", "REMOTE_MODEL"].map(said => page.id("view").textContent.split(said).length - 1)).toEqual([1, 1]);
 
     // A model two of whose tables list fewer rows than their files have: the Line Items grid with its modules' own rows,
-    // and the calendar with its rows about the model. The Details file counts the CSV's rows, 8 and 31.
+    // and the calendar with its rows about the model. The Details file counts the rows that were read, 8 and 31.
     const left: AnalysisResult = { ...BLUEPRINT, summary: ["Line Items: 8 rows", "Modules: 3 rows", "Model Calendar: 31 rows"], tables: [...BLUEPRINT.tables, WITH_CALENDAR.tables[3]] };
     const counted = withFiles(left);
     expect(counted.tables[0].rows.filter(row => row[0] === "Files")).toEqual([["Files", "Line Items.csv", "8 rows"], ["Files", "Modules.csv", "3 rows"], ["Files", "Model Calendar.csv", "31 rows"]]);
     page.id("runAgain").press();
     sendResult(ports[0], counted);
-    // The tiles count what the tables list, 5 line items and 26 settings, and say the CSV's 8 and 31 under that: neither
+    // The tiles count what the tables list, 5 line items and 26 settings, and say the 8 and 31 that were read under that: neither
     // count of the Details file is lost, and no row of it is.
-    expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Model Calendar", "26", "rows", "31 rows in the CSV"], ["Modules", "3", "rows"],
-      ["Line Items", "5", "rows", "8 rows in the CSV"]]);
+    expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Model Calendar", "26", "rows", "31 rows read"], ["Modules", "3", "rows"],
+      ["Line Items", "5", "rows", "8 rows read"]]);
     expect([tiles(), unsaid(counted), page.has("#ovFiles"), page.has("#view .warn-list")]).toEqual([["Model Calendar.csv: 26 rows", "Model Calendar.csv: 31 rows", "Modules.csv: 3 rows",
       "Line Items.csv: 5 rows", "Line Items.csv: 8 rows"], [], false, false]);
   });
@@ -2044,7 +2049,7 @@ describe("An app's Where Used table, by object and by use", () => {
 
   it("lists the file by object at first: one row an object, with its pages, its cards and what it is used as; the navigation and the tile count the uses", async () => {
     await openWith(WHERE);
-    // The file's number of uses is what the navigation and the overview's tile say: it is what the CSV holds.
+    // The file's number of uses is what the navigation and the overview's tile say, whichever way the table lists them.
     expect(page.all("#navList .nav-item").filter(item => item.querySelector(".cnt")).map(item => item.children.map(child => child.textContent))).toEqual([["Pages", "2"], ["Cards", "3"], ["Where Used", "8"]]);
     expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Pages", "2", "rows"], ["Cards", "3", "rows"], ["Where Used", "8", "rows"]]);
 
@@ -2060,9 +2065,11 @@ describe("An app's Where Used table, by object and by use", () => {
       ["Module", "REP02 Stores", "—", "1", "1", "Source module"],
       ["Line item", "Revenue", "REP01 Sales", "2", "2", "Line item shown; Filter line item"],
       ["Dimension", "Time", "—", "2", "3", "Column dimension; Context selector"]]);
-    // The line under the name says how many uses that is, and of how many objects. The count beside the pager is the table's.
+    // The line under the name says how many uses that is, and of how many objects, and where each of them is listed: it
+    // names the switch's other button as that reads. The count beside the pager is the table's.
     expect([page.texts("#view .view-note"), page.id("rowCount").textContent, page.id("live").textContent, page.texts("#view h1")])
-      .toEqual([["8 uses of 4 objects. The CSV lists every use."], "1–4 of 4 rows", "Where Used: 4 rows", ["Where Used"]]);
+      .toEqual([["8 uses of 4 objects. Choose Every use to list each one."], "1–4 of 4 rows", "Where Used: 4 rows", ["Where Used"]]);
+    expect(page.texts("#view .view-note")[0]).toContain(`Choose ${page.find('#tableWays [data-way="use"]').textContent.trim()} to list`);
     // No cell of it leads anywhere by itself: a row opens its object.
     expect([page.all('#tableWrap tbody [data-act="page"]').length, page.all('#tableWrap tbody [data-act="card"]').length, page.all('#tableWrap tbody [data-act="row"]').length]).toEqual([0, 0, 4]);
 
@@ -2106,7 +2113,7 @@ describe("An app's Where Used table, by object and by use", () => {
     // Back by object: the sort chosen there is still in force.
     way("object").press();
     expect([ways(), page.document.activeElement === way("object"), column("Object name"), page.texts("#view .view-note")])
-      .toEqual([["By object (shown) filled", "Every use"], true, ["REP02 Stores", "REP01 Sales", "Revenue", "Time"], ["8 uses of 4 objects. The CSV lists every use."]]);
+      .toEqual([["By object (shown) filled", "Every use"], true, ["REP02 Stores", "REP01 Sales", "Revenue", "Time"], ["8 uses of 4 objects. Choose Every use to list each one."]]);
     // The search goes with the user from one way to the other: the object that was looked for, and then its uses.
     page.id("tblSearch").type("time");
     expect(column("Object name")).toEqual(["Time"]);
@@ -2196,7 +2203,7 @@ describe("An app's Where Used table, by object and by use", () => {
       .toEqual(["Time", "Dimension ·  · at least 2 pages, at least 3 cards", false]);
     // Under that line, why: which name is shared, and what the counts can be.
     expect(said.querySelectorAll("div").map(note => note.textContent)).toEqual(['It has 3 uses on a page name that more than one page has: "Overview" (2 pages). '
-      + "The CSV has only the name of a use's page, so which of those pages a use is on is not known. It is on 2 or 3 pages and on 3 or 4 cards."]);
+      + "The table has only the name of a use's page, so which of those pages a use is on is not known. It is on 2 or 3 pages and on 3 or 4 cards."]);
     // Its uses: the three under Overview may be on either page of that name, and the name says that two pages have it,
     // to the eye where it heads them and to a screen reader with each. Stores is one page.
     const listed = () => page.all("#drawerUses tbody tr");
@@ -2227,7 +2234,7 @@ describe("An app's Where Used table, by object and by use", () => {
     const uses = cards.map((card): Cell[] => ["Dimension", "Time", "—", card[0], card[1], "Column dimension", "20000000003"]);
     await openWith(whereUsed([...uses, ["Module", "REP01 Sales", "—", "Page 1", 1, "Source module", "102000000001"]], pages, cards));
     goTo(3);
-    expect([page.texts("#view .view-note"), column("Pages"), column("Cards")]).toEqual([["121 uses of 2 objects. The CSV lists every use."], ["1", "60"], ["1", "120"]]);
+    expect([page.texts("#view .view-note"), column("Pages"), column("Cards")]).toEqual([["121 uses of 2 objects. Choose Every use to list each one."], ["1", "60"], ["1", "120"]]);
     rowButton("Time").press();
     const listed = () => page.all("#drawerUses tbody tr");
     expect([page.id("drawerSub").textContent, page.texts("#drawerBody h3"), listed().length]).toEqual(["Dimension · 20000000003 · 60 pages, 120 cards", ["Used as", "Uses (120)"], 50]);

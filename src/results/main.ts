@@ -18,7 +18,7 @@ import { NARROW_WINDOW, NAVIGATION_KEY, navigationWords, storedNavigation, type 
 import type { PageId } from "./page-ids.js";
 import { analysedOf, cardParts, detailsOf, detailValue, diagnosticLog, fileView, listedTables, overviewOf, type FileView } from "./result-view.js";
 import { cellText, NONE, pageOf, rememberingSelect, rowName, valueCounts, type Row, type Sort, type TableQuery } from "./table-engine.js";
-import { objectOf, WHERE_USED_FILE, whereUsedView, type WhereUsedObject, type WhereUsedView } from "./where-used-view.js";
+import { EVERY_USE, objectOf, WHERE_USED_FILE, whereUsedView, type WhereUsedObject, type WhereUsedView } from "./where-used-view.js";
 
 /** The results page (results.html): the design's script, on the real result. It connects to the Anaplan tab the address
  * names and says what that tab shows. The analysis starts by itself when the icon has just opened the page, and otherwise
@@ -90,7 +90,7 @@ interface Shown {
   empty: string | undefined;
   /** The column whose cell opens a row and names it, for a table in which the rule has that be another than the first. */
   opensFrom: number | undefined;
-  /** The CSV's text for each cell the table says in words, by the table's row and the column's place: a row's drawer shows both. */
+  /** The text that was read for each cell the table says in words, by the table's row and the column's place: a row's drawer shows both. */
   exported: FileView["exported"];
   columns: Column[];
   keys: RowKeys;
@@ -262,7 +262,7 @@ function tableView(entry: Shown): TableView {
   currentSlice = page.rows;
   return {
     label: cellText(entry.table.label), note: entry.note, none: entry.none, empty: entry.empty, opensFrom: entry.opensFrom,
-    ways: entry.ways && [{ way: "object", label: "By object", chosen: entry === entry.ways.object }, { way: "use", label: "Every use", chosen: entry === entry.ways.use }],
+    ways: entry.ways && [{ way: "object", label: "By object", chosen: entry === entry.ways.object }, { way: "use", label: EVERY_USE, chosen: entry === entry.ways.use }],
     columns: entry.columns.filter(column => !entry.hidden.has(column.index)), rows: page.rows,
     page: page.page, pages: page.pages, pageSize: state.pageSize, from: page.from, to: page.to, total: page.total, all: entry.table.rows.length,
     search: state.search, sort: entry.sort, filtered: new Set(entry.filters.keys()), context: state.context, links: entry.links,

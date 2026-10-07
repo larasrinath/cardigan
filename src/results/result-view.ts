@@ -52,6 +52,10 @@ export function detailValue(details: ResultTable | undefined, section: string, d
 /** How a Files row of the Details file says that a file was not exported, before the reason (model/export.ts). */
 const NOT_EXPORTED = "Not exported: ";
 
+/** A file's name as the page says it where the result has no table of that name to ask: without its extension, which is
+ * how the export labels a table (model/export.ts). No user is shown a file's name. */
+const withoutExtension = (file: string): string => file.replace(/\.csv$/, "");
+
 /** The summary lines that say what a Files row of the Details file says. A model's summary lists every file, and the
  * export writes each file's line and its Files row from the same words (model/export.ts): "Imports: 3 rows (2 matched in
  * the Actions list)" beside the row "Imports.csv", "3 rows (2 matched in the Actions list)"; and for a file that was not
@@ -60,7 +64,7 @@ function saidWithFiles(details: ResultTable | undefined): Set<string> {
   const lines = new Set<string>();
   for (const row of details?.rows ?? []) {
     if (cellText(row[0]) !== FILES) continue;
-    const label = cellText(row[1]).replace(/\.csv$/, "");
+    const label = withoutExtension(cellText(row[1]));
     const value = cellText(row[2]);
     lines.add(`${label}: ${value}`);
     if (value.startsWith(NOT_EXPORTED)) lines.add(`${label}: not exported (${value.slice(NOT_EXPORTED.length)}).`);
@@ -74,7 +78,7 @@ function saidWithFiles(details: ResultTable | undefined): Set<string> {
  * - A line that says only how many rows a file has ("Line Items: 120 rows", as a model's summary lists every file): the
  *   file's tile says that number, also where its table lists fewer rows than the file has (`Overview.tiles`).
  * - A line that says what a Files row of the Details file says (`saidWithFiles`): that row is on the overview, under
- *   Files or as the file's tile. */
+ *   Tables or as the file's tile. */
 export function resultNotes(result: AnalysisResult): string[] {
   const rowCounts = new Set(result.tables.flatMap(table => ["rows", "row"].map(word => `${cellText(table.label)}: ${table.rows.length} ${word}`)));
   const withFiles = saidWithFiles(detailsOf(result));
@@ -95,14 +99,14 @@ export function resultNotes(result: AnalysisResult): string[] {
 
 /** A file as the page shows it: the table it lists in the file's place, and a short line for under the table's name when
  * that table is not the file as it stands, or is a file that needs a line to say what it lists. What the page counts,
- * searches, filters and opens is this table; the CSV, as a table's download and in the zip, is always the file as the
- * export wrote it. */
+ * searches, filters and opens is this table. The file itself stays as the export wrote it: a model's map is built from
+ * the result's own tables. */
 export interface FileView {
   table: ResultTable;
   note?: string;
-  /** For a table that lists no row although its file has rows, because the file's rule leaves every one of them to the
-   * CSV: what the table says in the rows' place. The file was read and has rows, which `note` counts, so the table must
-   * not say that nothing was found. */
+  /** For a table that lists no row although its file has rows, because the file's rule lists none of them: what the
+   * table says in the rows' place. The file was read and has rows, which `note` counts, so the table must not say that
+   * nothing was found. */
   none?: string;
   /** For a file that has no rows: what its table says in the rows' place, where the page's own sentence, that nothing
    * was found, would not say what an empty file of this kind means. */
@@ -110,8 +114,9 @@ export interface FileView {
   /** The column whose cell opens a row and names it in its drawer, by its place in `table`, for a table in which that is
    * not the first column: there the first column says the same thing in many rows, and is not what a row is called by. */
   opensFrom?: number;
-  /** For the cells of `table` that the page says in words: the text the CSV has in each one's place, by the row as `table`
-   * holds it and by the column's place in it. A row's drawer shows both. None when no cell is said in words. */
+  /** For the cells of `table` that the page says in words: the text the file has in each one's place, as it was read,
+   * by the row as `table` holds it and by the column's place in it. A row's drawer shows both. None when no cell is said
+   * in words. */
   exported?: ReadonlyMap<readonly Cell[], ReadonlyMap<number, Cell>>;
 }
 
@@ -133,9 +138,13 @@ const calendarView: FileRule = file => {
   const rows = file.rows.filter(row => cellText(row[about]) !== ABOUT_MODEL);
   const left = file.rows.length - rows.length;
   if (!left) return undefined;
-  // The line says where the rows are, so that the table's count is not taken for the file's.
-  const note = `${left} ${left === 1 ? "row about the model is" : "rows about the model are"} in the CSV only.`;
-  return { table: { ...file, rows }, note, ...(rows.length ? {} : { none: "Every row of the file is about the model." }) };
+  // The line says where the rows are, so that the table's count is not taken for all that was read. The overview has
+  // each such row's setting with its value, which it reads by those two columns (`modelFacts`): of a file without them
+  // it has nothing, and the line says only that the rows are not shown.
+  const said = columnIndex(file, "Setting") !== undefined && columnIndex(file, "Value") !== undefined;
+  const where = said ? `not listed here: the Overview has ${left === 1 ? "its value" : "their values"}, under About this export` : "not shown";
+  const note = `${left} ${left === 1 ? "row about the model is" : "rows about the model are"} ${where}.`;
+  return { table: { ...file, rows }, note, ...(rows.length ? {} : { none: "Every row that was read is about the model." }) };
 };
 
 /** A model's Modules file, which lists every module (model/export.ts writes it under this name). */
@@ -143,7 +152,7 @@ export const MODULES_FILE = "Modules.csv";
 
 /** A model's Line Items file is every module's blueprint in one grid: a module's own row, then its line items. The page
  * shows it as a table of line items, each with its module and the dimensions it really has (line-items-view.ts), and the
- * line under the table's name says how many modules' rows that leaves to the CSV.
+ * line under the table's name says how many modules' rows that leaves out.
  *
  * The view is given the modules' names where the result has them: the first column of the Modules file, as the file has
  * it. A row that holds nothing but a name is then a module's own row only when the name is a module's, and otherwise a
@@ -163,7 +172,7 @@ const lineItemsRule: FileRule = (file, result) => {
   const where = modules && names && view.emptyModules > 0 ? ` ${view.emptyModules === 1 ? "It is" : "They are"} listed in the ${cellText(modules.label)} table.` : "";
   // A Modules file that was not exported is not among the result's tables; one without rows is, under its own label.
   const unchecked = names ? "" : ` The ${modules ? `${cellText(modules.label)} table lists no modules` : "Modules table was not exported"}, so a row with only a name is taken for a module's row.`;
-  const none = view.table.rows.length ? {} : { none: "Every row of the file is a module's own: no module has a line item." };
+  const none = view.table.rows.length ? {} : { none: "Every row that was read is a module's own: no module has a line item." };
   return { table: view.table, note: view.note === undefined ? undefined : `${view.note}${where}${unchecked}`, ...none };
 };
 
@@ -173,7 +182,7 @@ const lineItemsRule: FileRule = (file, result) => {
  * driver, Read or Write, and what it controls (model/access.ts). */
 export const ACCESS_FILE = "Dynamic Cell Access.csv";
 /** The file's column for the module of the line item that drives. It is empty in the rows whose driver the export could
- * match to no line item, and in no other row: those rows hold the driver as the Line Items file writes it. */
+ * match to no line item, and in no other row: those rows hold the driver as the Line Items file has it. */
 const DRIVER_MODULE = "Driver Module";
 /** The file's column for the line item that drives: what a row of the table is called by. */
 const DRIVER_LINE_ITEM = "Driver Line Item";
@@ -189,7 +198,7 @@ const accessRule: FileRule = file => {
   if (driverModule === undefined) return undefined;
   const unmatched = file.rows.filter(row => cellText(row[driverModule]) === "").length;
   const said = unmatched === 0 ? "" : ` ${unmatched === 1 ? "1 row has a driver that could not be matched to a line item: it comes" : `${unmatched} rows have a driver that could not be matched to a line item: they come`}`
-    + ` last, with the driver as Line Items writes it and no ${DRIVER_MODULE}.`;
+    + ` last, with the driver as Line Items has it and no ${DRIVER_MODULE}.`;
   const opensFrom = columnIndex(file, DRIVER_LINE_ITEM);
   return {
     table: file, ...(opensFrom === undefined ? {} : { opensFrom }),
@@ -220,7 +229,7 @@ const FORMAT_LIST = "Format List";
 /** A model's table with its definitions said in words. Some cells of a model's grids hold a definition as JSON, because
  * Anaplan's own export of the grid writes that: a line item's Format and its Summary, an action's definition. The words
  * for such a cell (readable-cells.ts) take its place in the table, so the page searches, filters and sorts by them, and
- * `exported` keeps the text the CSV has. A cell the words are not known for stays as it is, and a row without such a cell
+ * `exported` keeps the text that was read. A cell the words are not known for stays as it is, and a row without such a cell
  * is the table's own row. A Ratio is said with the names in its own row's Ratio Numerator and Ratio Denominator cells. A
  * line item's list format is said with the name in its own row's Format List cell, and by the list's ID where that cell
  * is empty or the file has no such column. A result holds no names of lists by their IDs, so any other list is said by
@@ -290,7 +299,7 @@ export const MODEL_FILE_ORDER: readonly string[] = [
 
 /** The result's files as the page lists them, in the navigation and as the overview's tiles: every file but the Details
  * file, each with its place in the result's tables. An app's are in the result's order; a model's in `MODEL_FILE_ORDER`.
- * Only this list is ordered: the zip keeps the result's own order. */
+ * Only this list is ordered: the result keeps its own order. */
 export function listedTables(result: AnalysisResult): { index: number; table: ResultTable }[] {
   const tables = result.tables.map((table, index) => ({ index, table })).filter(({ table }) => table.details !== true);
   if (result.kind !== "model") return tables;
@@ -378,7 +387,7 @@ export function cardParts(result: AnalysisResult, cards: CardsTable, row: Row): 
   return {
     sections: sections.filter(section => !open.includes(section)),
     note: `${alike} cards on pages named "${page}" have ${number === undefined ? "this ID" : "this number and this ID"}. `
-      + `The CSV has only the name of a card's page, so their ${wordList(open.map(section => section.none))} cannot be told apart and are not listed here.`,
+      + `The tables have only the name of a card's page, so their ${wordList(open.map(section => section.none))} cannot be told apart and are not listed here.`,
   };
 }
 
@@ -392,9 +401,10 @@ const TILE_LABELS: ReadonlyMap<string, string> = new Map([
 export interface ModelRow { model: string; workspace: string; modelId: string }
 export interface Overview {
   /** Every file but the Details file, in the navigation's order (`listedTables`), with the number of rows its table lists.
-   * Where that is not the number of rows the file has, because its table leaves rows to the CSV, `inCsv` is the file's own
-   * number: the tile says both, so the count the Details file gives for the file is on the overview either way. */
-  tiles: { label: string; count: number; inCsv?: number }[];
+   * Where that is not the number of rows the file has, because its table does not list them all, `read` is the file's
+   * own number, the rows that were read: the tile says both, so the count the Details file gives for the file is on the
+   * overview either way. */
+  tiles: { label: string; count: number; read?: number }[];
   /** An app's cards by the text of their Card type, most first. */
   cardTypes: [type: string, count: number][];
   /** An app's models: each different Model, Workspace and Model ID its pages name, in the pages' order. */
@@ -406,10 +416,12 @@ export interface Overview {
    * rows have said already. */
   about: [detail: string, value: string][];
   /** The Details file's rows about files, as far as a file's tile does not say the same: a file that was not exported,
-   * and a count that comes with a remark. A row that says only how many rows a file of the result has is left to the tile,
-   * which says that very number: as its count, or as the rows the CSV has where its table lists another number. */
-  files: [file: string, value: string][];
-  /** How to read these files: the Details file's rows of that section. */
+   * and a count that comes with a remark. Each is named as the page names the table: by the table's own label where the
+   * result has the file, and otherwise by the file's name without its extension. A row that says only how many rows a
+   * file of the result has is left to the tile, which says that very number: as its count, or as the rows that were
+   * read where its table lists another number. */
+  files: [table: string, value: string][];
+  /** How to read these tables: the Details file's rows of that section. */
   howToRead: [detail: string, value: string][];
   /** The diagnostic log the result carries (`diagnosticLog`). */
   log: string[];
@@ -420,7 +432,7 @@ export function overviewOf(result: AnalysisResult): Overview {
   // words change no row, so the count needs the file's rule only.
   const tiles = listedTables(result).map(({ table }) => {
     const count = ruledView(result, table).table.rows.length;
-    return { label: TILE_LABELS.get(table.file) ?? cellText(table.label), count, ...(count === table.rows.length ? {} : { inCsv: table.rows.length }) };
+    return { label: TILE_LABELS.get(table.file) ?? cellText(table.label), count, ...(count === table.rows.length ? {} : { read: table.rows.length }) };
   });
 
   const counts = new Map<string, number>();
@@ -454,6 +466,9 @@ export function overviewOf(result: AnalysisResult): Overview {
   // A Files row that says only the file's own number of rows is said by the file's tile. The Details file says "1 rows"
   // too: a count is the file's number of rows and the word, whatever the number.
   const onlyCounted = new Map(result.tables.map(table => [table.file, `${table.rows.length} rows`]));
-  const files = rowsOf(FILES).filter(([file, value]) => onlyCounted.get(file) !== value);
+  // A row names its file, extension and all, which no user is to see: it is said under the name the page has for the table.
+  const labels = new Map(result.tables.map(table => [table.file, cellText(table.label)]));
+  const files = rowsOf(FILES).filter(([file, value]) => onlyCounted.get(file) !== value)
+    .map(([file, value]): [string, string] => [labels.get(file) ?? withoutExtension(file), value]);
   return { tiles, cardTypes, models: [...models.values()], notes: resultNotes(result), about, files, howToRead: rowsOf(HOW_TO_READ), log: diagnosticLog(detailsOf(result)) };
 }
