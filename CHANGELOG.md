@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.1 (7 October 2026)
+
+A new icon.
+
+- **The extension's icon is the star logo.** It shows on the toolbar button, on Cardigan's card in `chrome://extensions` and as the results page's own icon. `npm run icons` now makes the four sizes from `icons/source.png`, where it used to draw them.
+- **What stays the same.** What is read, the page and every file written, apart from the version number.
+
 ## 0.9.0 (7 October 2026)
 
 A model's Dynamic Cell Access listed from the driver's side, a page as wide as the window, and a navigation that can be put away.
