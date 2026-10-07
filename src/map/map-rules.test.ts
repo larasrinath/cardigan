@@ -188,7 +188,7 @@ describe("The map's stylesheet", () => {
       tooltipHtml({ layer: "s0", kind: "kind", name: "Node", lines: ["a line"], formula: "A + B" }),
       resultsHtml({ hits: [{ kind: "module", name: "Module", context: "Section" }], total: 2 }), resultsHtml({ hits: [], total: 0 }),
       inspectorHtml({ kind: "LINE ITEM", layer: "lineitem", name: "Node", rows: [["Module", "Module"]], action: { label: "Open", module: 1 }, formula: "A + B", lists: [{ key: "depends", title: "Feeds it directly", open: true, links }],
-        texts: [{ key: "actions", title: "Actions", lines: ["An action"] }], notes: "A note.", source: "Line Items.csv, row 2" }, words),
+        texts: [{ key: "actions", title: "Actions", lines: ["An action"] }], notes: "A note." }, words),
       inspectorHtml({ kind: "LINE ITEM", layer: "heading", name: "Node", rows: [], remark: "No formula.", lists: [], texts: [] }), emptyHtml("Nothing", "Nothing here.", ["A sentence."]),
       brokenHtml("A reason."),
     ].join("");

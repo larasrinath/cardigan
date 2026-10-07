@@ -211,7 +211,7 @@ const headingRows = (file: string, amount: number): string =>
 
 /** One of the export's files as the map reads it: its rows, and each row's cell under a column, by the column's header. */
 interface Table<Column extends string> {
-  /** The name the page shows for the file, which is where a node says it comes from. */
+  /** The name the page shows for the file: what a node carries as where it comes from. */
   label: string;
   rows: readonly Row[];
   has(column: Column): boolean;
