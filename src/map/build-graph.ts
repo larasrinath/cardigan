@@ -191,7 +191,7 @@ const PROPERTY = /^([^\n]+):\s+([^\n]*)/;
 
 type Row = readonly Cell[];
 
-/** A cell as text, the way the CSV writes it: nothing for a cell that is not there. */
+/** A cell as text: nothing for a cell that is not there. */
 const textOf = (cell: unknown): string => (cell === null || cell === undefined ? "" : plainText(cell));
 
 const count = (amount: number, one: string, many: string): string => (amount === 1 ? `1 ${one}` : `${amount} ${many}`);
@@ -211,7 +211,7 @@ const headingRows = (file: string, amount: number): string =>
 
 /** One of the export's files as the map reads it: its rows, and each row's cell under a column, by the column's header. */
 interface Table<Column extends string> {
-  /** The name the page shows for the file, which is where a node says it comes from. */
+  /** The name the page shows for the file: what a node carries as where it comes from. */
   label: string;
   rows: readonly Row[];
   has(column: Column): boolean;

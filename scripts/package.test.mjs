@@ -5,10 +5,12 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symli
 import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
-import { PAGE_SHEETS, packageExtension, pageProblems, policyProblems, ROOT, runtimeFiles } from './package.mjs';
+import { PAGE_SHEETS, packageExtension, pageProblems, policyProblems, ROOT, runtimeFiles, staleBundles } from './package.mjs';
 
 // Hermetic: packages a temporary copy of the repository's manifest and icons with stand-in bundles and a stand-in results
-// page. It needs no build, never writes into the repository and never uses the network.
+// page. It needs no build, never writes into the repository and never uses the network. One test, the last, reads the
+// repository's own build: it is skipped where there is none, or one older than its sources. `npm run check` builds
+// before it runs these tests, so there it always runs.
 const TEMP_PREFIX = path.join(os.tmpdir(), 'cardigan-package-');
 const BUNDLES = ['dist/background.js', 'dist/content.js', 'dist/model-export.js', 'dist/results.js'];
 const RUNTIME = [...BUNDLES, 'icons/128.png', 'icons/16.png', 'icons/32.png', 'icons/48.png', 'manifest.json', 'map.css', 'results.css', 'results.html'];
@@ -424,4 +426,37 @@ test('the repository\'s results page loads only packaged files, its own styleshe
   { skip: !existsSync(path.join(ROOT, 'results.html')) && 'results.html is not in this checkout' }, () => {
     const read = name => readFileSync(path.join(ROOT, name), 'utf8');
     assert.deepEqual(pageProblems(read('results.html'), Object.fromEntries(PAGE_SHEETS.map(name => [name, read(name)])), runtimeFiles(JSON.parse(read('manifest.json')))), []);
+  });
+
+/** What a script makes a file with, starts a download by, or sends its page away with, each as it is written in a
+ * script. A result is shown on the results page and nowhere else: none of this is in what Chrome loads. */
+const MAKES_A_FILE = [
+  ['makes an address for a blob', /\bcreateObjectURL\b/],
+  ['makes a blob or a file', /\bnew\s+(?:Blob|File)\b|\bBlob\s*\(/],
+  ['holds a link that saves', /\.download\b|["'`]download["'`]|\bdownload\s*=/],
+  ['asks for a place to save in', /\bshow(?:Save|Open)FilePicker\b|\bshowDirectoryPicker\b|\bFileSystem[A-Z]\w*|\bmsSave(?:OrOpen)?Blob\b|\bsaveAs\b/],
+  ['uses Chrome\'s downloads', /\bchrome\s*\.\s*downloads\b/],
+  ['sends the page to another address', /\blocation\s*\.\s*(?:href\s*=(?!=)|assign\s*\(|replace\s*\()|\blocation\s*=(?!=)|\bwindow\s*\.\s*open\s*\(/],
+  ['holds a file as an address', /\bdata:(?:text|application)\//],
+  ['names a file\'s type', /\btext\/csv\b|\bapplication\/(?:zip|octet-stream)\b/],
+  ['writes a zip', /\b(?:0x0403_?4b50|67324752|0x0201_?4b50|33639248|0x0605_?4b50|101010256)\b/i],
+];
+/** What a script's text holds of that: each kind, with the text that shows it. */
+const fileMaking = text => MAKES_A_FILE.flatMap(([what, pattern]) => (pattern.test(text) ? [`${what}: ${text.match(pattern)[0]}`] : []));
+/** The bundles Chrome loads, by the repository's manifest and results page, and why they cannot be read as built, if so. */
+const BUILT = runtimeFiles(JSON.parse(readFileSync(path.join(ROOT, 'manifest.json'), 'utf8'))).filter(name => name.startsWith('dist/'));
+const NOT_BUILT = staleBundles(ROOT, BUILT);
+
+test('the repository\'s built bundles make no file, start no download and send their page nowhere',
+  { skip: NOT_BUILT.length > 0 && `the bundles are not built from the sources as they are (${NOT_BUILT.join('; ')}): npm run build makes them` }, () => {
+    assert.deepEqual(BUILT, BUNDLES);
+    assert.deepEqual(BUILT.map(name => [name, fileMaking(readFileSync(path.join(ROOT, name), 'utf8'))]), BUILT.map(name => [name, []]));
+    // The check finds each kind where a script has it, as the page's own script had while it offered a result for download.
+    const offered = 'const url = URL.createObjectURL(new Blob([data], { type: "application/zip" })); link.href = url; link.download = name; view.setUint32(0, 67324752, true);';
+    assert.deepEqual(fileMaking(offered).map(found => found.replace(/: .*/, '')),
+      ['makes an address for a blob', 'makes a blob or a file', 'holds a link that saves', 'names a file\'s type', 'writes a zip']);
+    assert.deepEqual(['showSaveFilePicker()', 'chrome.downloads.download({})', 'location.href = to', 'location.assign(to)', 'window.open(to)', 'a.href = "data:text/csv,a"'].map(text => fileMaking(text).length > 0),
+      [true, true, true, true, true, true]);
+    // What the bundles do hold of the kind is none of it: an address read, a text put in another's place, a name compared.
+    assert.deepEqual(['new URL(path, location.origin).href', 'text.replace(/a/g, "b")', 'if (location.href === other) return;', 'const downloads = 0;'].map(fileMaking), [[], [], [], []]);
   });

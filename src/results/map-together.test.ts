@@ -1,12 +1,17 @@
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { stampLine } from "../details.js";
+import { ACCESS_GRIDS } from "../golden-0.8.1.test-support.js";
 import type { ModelGraph, ModelMapOptions } from "../map/graph-types.js";
 import type { Pen } from "../map/map-canvas.js";
 import { FakePen } from "../map/map-fakes.test-support.js";
 import type { MapEnvironment } from "../map/map-view.js";
+import { exportModel } from "../model/export.js";
 import { RESULTS_PAGE, type TabMessage } from "../protocol.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
 import { FakeElement, FakeInput, FakePage, FakeSelect } from "./dom.test-support.js";
+import { GOLDEN_GRIDS, modelPage } from "./engine.test-support.js";
+import { fileWords, watchForFiles, type FileWatch } from "./no-file.test-support.js";
 
 // The page, the map's graph and the map's view together, each as it is built: a model's result arrives on the results
 // page as the tab sends one, "Model map" is chosen, and the page's own script has the real builder (map/build-graph.ts)
@@ -186,6 +191,11 @@ const LATER = modelResult("Model two", LATER_ROWS);
 
 const SHELL = readFileSync(new URL(`../../${RESULTS_PAGE}`, import.meta.url), "utf8");
 const NOW = new Date(Date.UTC(2026, 9, 5, 14, 2, 5));
+/** What these models themselves name as a file, which the page shows as it was read: the file an import reads, in the
+ * import's name and its source, and the kind of source that is. No other text here names a file, and none is the page's. */
+const THE_MODELS = /\b(?:prices|volumes)\.csv\b|\bFILE\b/g;
+/** The page's own window, as far as the page's script asks it anything. */
+const pageWindow = () => ({ matchMedia: () => ({ matches: false, addEventListener: () => undefined }), scrollTo: () => undefined, innerWidth: 1280, innerHeight: 800 });
 
 /** The port chrome.tabs.connect gives the page, with the tab's content script at the other end. */
 class FakePort {
@@ -201,17 +211,17 @@ class FakePort {
 let page: FakePage;
 let port: FakePort;
 let around: Surroundings;
-/** What the page saved through a download. */
-let saved: Blob[];
+/** The watch for a page that makes a file, starts a download or goes somewhere to save one (no-file.test-support.ts). */
+let watch: FileWatch;
 
 beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(NOW);
+  watch = watchForFiles();
   browser.around = around = new Surroundings();
-  saved = [];
   const held = new Map<string, string>();
   vi.stubGlobal("history", { state: null, replaceState: () => undefined });
-  vi.stubGlobal("window", { matchMedia: () => ({ matches: false, addEventListener: () => undefined }), scrollTo: () => undefined, innerWidth: 1280, innerHeight: 800 });
+  vi.stubGlobal("window", pageWindow());
   vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => undefined });
   vi.stubGlobal("sessionStorage", { get length() { return held.size; }, key: (index: number) => [...held.keys()][index] ?? null, getItem: (key: string) => held.get(key) ?? null,
     setItem: (key: string, value: string) => { held.set(key, value); }, removeItem: (key: string) => { held.delete(key); } });
@@ -222,10 +232,18 @@ beforeEach(() => {
   vi.stubGlobal("requestAnimationFrame", (callback: () => void) => { callback(); return 0; });
   vi.stubGlobal("navigator", { clipboard: { writeText: async () => undefined } });
   vi.stubGlobal("chrome", { tabs: { connect: () => port = new FakePort() }, runtime: { lastError: undefined } });
-  vi.spyOn(URL, "createObjectURL").mockImplementation(blob => { saved.push(blob as Blob); return "blob:saved"; });
-  vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
 });
-afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+afterEach(() => {
+  // The page and its map made no file, started no download and went nowhere to save one.
+  const made = watch.stop(page);
+  // And nothing the page and its map had for their user, from first to last, names a file, a CSV or a zip, or a
+  // download, but for what the model itself names so.
+  const named = page ? fileWords(page.words(), THE_MODELS) : [];
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+  expect([made, named]).toEqual([[], []]);
+});
 
 /** A result as the tab sends it: what it is, then its rows table by table, then that it is complete. */
 function send(result: AnalysisResult): void {
@@ -239,11 +257,32 @@ async function openWith(result: AnalysisResult): Promise<void> {
   vi.resetModules();
   page = new FakePage(SHELL);
   vi.stubGlobal("document", page.document);
-  vi.stubGlobal("location", { search: `?tab=42&opened=${NOW.getTime() - 1500}`, pathname: `/${RESULTS_PAGE}`, hash: "" });
+  vi.stubGlobal("location", watch.location({ search: `?tab=42&opened=${NOW.getTime() - 1500}`, pathname: `/${RESULTS_PAGE}`, hash: "" }));
   await import("./main.js");
   port.send({ type: "subject", subject: { kind: "model", id: result.id } });
   send(result);
   expect(page.document.title).toBe(`Cardigan — ${result.name}`);
+}
+
+/** The export's own result for a made-up model: every grid the export reads (engine.test-support.ts), with the line
+ * items and modules of a model whose line items drive one another's access (golden-0.8.1.test-support.ts), exported as
+ * in the model's frame, with its steps and its lines as its log. The frame's window stands in the page's place while it
+ * is read, and only the clock is held. */
+async function exported(): Promise<AnalysisResult> {
+  const frame = modelPage({ ...GOLDEN_GRIDS, ...ACCESS_GRIDS });
+  const said: string[] = [];
+  const says = (line: string): void => { said.push(stampLine(line)); };
+  vi.useRealTimers();
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(NOW);
+  vi.stubGlobal("window", frame.window);
+  vi.stubGlobal("location", frame.location);
+  const result = await exportModel({ status: says, log: says }, () => said.join("\n"));
+  vi.stubGlobal("window", pageWindow());
+  vi.useRealTimers();
+  vi.useFakeTimers();
+  vi.setSystemTime(NOW);
+  return result;
 }
 
 /** An entry of the page's navigation, by its words. */
@@ -333,7 +372,7 @@ describe("A model's result on the results page, with the map's real graph and th
     expect(leftOut.filter(line => /was not exported|has no .* columns?:/.test(line))).toEqual([]);
   });
 
-  it("finds a line item by search and says its formula, its format and summary in the page's words, its module, and the file and row it comes from", async () => {
+  it("finds a line item by search and says its formula, its format and summary in the page's words, and its module, and names no file", async () => {
     await openWith(MODEL);
     // What the page's own Line Items table says of two line items: the Format and Summary in words, where the file holds definitions.
     choose("Line Items");
@@ -341,12 +380,6 @@ describe("A model's result on the results page, with the map's real graph and th
     const topProduct = tableRow("Top Product");
     expect([onThePage["Module Name"], onThePage.Format, onThePage.Summary, onThePage.Formula, topProduct.Format])
       .toEqual([REVENUE, "Number, 2 decimal places, %", "Ratio = Margin / Revenue", "Margin / Revenue", "List: Products"]);
-    // And the file itself, as "Download this table" saves it. A spreadsheet numbers its lines from the header, which is
-    // row 1: the line item is on row 13, after the three headings and the modules' own rows above it.
-    page.id("dlCsv").press();
-    const lines = (await saved[0].text()).split("\r\n");
-    const fileRow = (name: string): number => lines.findIndex(line => line.startsWith(`${name},`)) + 1;
-    expect([page.downloads[0].name, lines[0].startsWith(",Format,Formula,Summary,"), fileRow("Margin %")]).toEqual(["Line Items.csv", true, 13]);
 
     toMap();
     // A key pressed with the focus in the map is the map's: the slash goes to the map's own search.
@@ -376,9 +409,9 @@ describe("A model's result on the results page, with the map's real graph and th
       .toEqual(["Products", "Module", expect.stringMatching(/^Products\b.*\bmodule/), "Margin as a share of revenue"]);
     // What feeds it directly, as its formula reads: the two line items whose Referenced By names it, each with its module.
     expect(listed("depends")).toEqual([["Revenue", REVENUE], ["Margin", REVENUE]]);
-    // And where it comes from: the file by the name it is saved under, and its row there as the spreadsheet numbers it.
-    expect(text(".map-source")).toBe("Line Items.csv, row 13");
-    expect(text(".map-source")).toBe(`${page.downloads[0].name}, row ${fileRow("Margin %")}`);
+    // The details name no file, and no row of one: there is no file for the user to open. The line item is in the page's
+    // Line Items table, under its name.
+    expect(part(".map-inspector").textContent).not.toMatch(/\.csv|\brow \d/);
     // With the selection cleared, the line counts what this view holds: the module's four line items, the three modules
     // beside them, and the ten links among them.
     part('.map-tracebar [data-map-act="clear"]').press();
@@ -387,11 +420,11 @@ describe("A model's result on the results page, with the map's real graph and th
     // A line item formatted as a list says the list, which the export names beside the format's ID: in the page's words too.
     part(".map-search").type("top product");
     parts(".map-result")[0].press();
-    expect([text(".map-insp-name"), settings().Module, settings().Format, text(".map-source")]).toEqual(["Top Product", SUMMARY, topProduct.Format, `Line Items.csv, row ${fileRow("Top Product")}`]);
-    // A module says what loads into it: the one import, by the Imports file's Target Object. Its row is its own row of the file.
+    expect([text(".map-insp-name"), settings().Module, settings().Format]).toEqual(["Top Product", SUMMARY, topProduct.Format]);
+    // A module says what loads into it: the one import, by the Imports file's Target Object.
     part(".map-search").type("inp01");
     parts(".map-result")[0].press();
-    expect([text(".map-kind"), text(".map-insp-name"), text(".map-source"), fileRow(VOLUMES)]).toEqual(["MODULE", VOLUMES, "Line Items.csv, row 3", 3]);
+    expect([text(".map-kind"), text(".map-insp-name")]).toEqual(["MODULE", VOLUMES]);
     expect(parts(".map-inspector .map-lines li").map(line => line.textContent)).toEqual([expect.stringMatching(/^Load volumes\b.*\bImport\b/)]);
 
     // A list comes from General Lists. That file says which formulas name the list: the line item whose formula reads
@@ -400,9 +433,9 @@ describe("A model's result on the results page, with the map's real graph and th
     parts(".map-result")[0].press();
     around.shows();
     expect([text(".map-insp-name"), text(".map-formula"), listed("depends"), written().includes("Products")]).toEqual(["Unit Cost", "Products.'Standard Cost'", [["Products", ""]], true]);
-    // The list's own details say how many items it has, and its file and its row there: the first under the headers.
+    // The list's own details say how many items it has.
     part('.map-inspector [data-map-list="depends"] .map-link').press();
-    expect([text(".map-kind"), text(".map-insp-name"), settings()["Item Count"], text(".map-source")]).toEqual(["LIST", "Products", "40", "General Lists.csv, row 2"]);
+    expect([text(".map-kind"), text(".map-insp-name"), settings()["Item Count"], part(".map-inspector").textContent.includes(".csv")]).toEqual(["LIST", "Products", "40", false]);
   });
 
   it("keeps the map through another view of the page and back, and drops it when a new result takes the page", async () => {
@@ -474,5 +507,56 @@ describe("A model's result on the results page, with the map's real graph and th
     expect([where(), shownStatus()]).toEqual([["Model two", "All modules"], "5 modules · 4 links"]);
     expect(parts(".map-module-select option").map(option => option.textContent)).toEqual([VOLUMES, PRICES, REVENUE, SUMMARY, BOARD]);
     expect(text(".map-notes .map-about-line")).toMatch(/^Model two\b.*\bPlanning\b.*\b5 modules\b.*\b11 line items$/);
+  });
+
+  it("names no file, no CSV and no zip, and no download, with the export's own result for a model on it: in the overview, in each table and a row's details, and in the map with its notes, its legend and a box's details", async () => {
+    const result = await exported();
+    await openWith(result);
+    // Every view the navigation lists, the map last, and in each table that has rows the details of its first row.
+    const opened: string[] = [];
+    const drawn: string[] = [];
+    for (const view of page.all("#navList [data-nav]").map(listed => listed.dataset.nav)) {
+      page.find(`#navList [data-nav="${view}"]`).press();
+      if (!page.has('#tableWrap tbody [data-act="row"]')) continue;
+      page.find('#tableWrap tbody [data-act="row"]').press();
+      opened.push(page.texts("#view h1")[0]);
+      page.id("drawerClose").press();
+    }
+    expect([opened, page.texts("#view h1"), host().hidden]).toEqual([["Model Calendar", "Time Ranges", "Versions", "General Lists", "Modules", "Line Items", "Dynamic Cell Access", "Processes", "Imports",
+      "Import Data Sources", "Exports", "Other Actions"], ["Model map"], false]);
+    // The map as it opens, then what it says of itself and of what it leaves out, its legend, and the details of a line
+    // item that another drives and of its module: each as the browser shows it.
+    const shows = (): void => {
+      around.shows();
+      drawn.push(...around.canvas.texts());
+    };
+    shows();
+    const panels = [part(".map-about").hidden, part(".map-legend").hidden];
+    part('[data-map-act="about"]').press();
+    panels.push(part(".map-about").hidden, part(".map-legend").hidden);
+    const boxes = ["units", "rev01"].map(sought => {
+      part(".map-search").type(sought);
+      parts(".map-result")[0].press();
+      shows();
+      return [text(".map-kind"), text(".map-insp-name"), part(".map-inspector").hidden];
+    });
+    expect([panels, boxes]).toEqual([[true, false, false, false], [["LINE ITEM", "Units", false], ["MODULE", "REV01 Revenue v1.2", false]]]);
+
+    // Nothing of all that names a file, a CSV or a zip, or a download, in the page's own words or the map's: what the
+    // page has had for its user since it was made, and what the map has drawn. The model itself names a file, the one
+    // its import reads, and that is shown as it was read.
+    const words = [...page.words(), ...drawn];
+    expect(fileWords(words, THE_MODELS)).toEqual([]);
+    expect([words.includes("Prices from prices.csv"), words.includes("prices.csv"), words.includes("FILE")]).toEqual([true, true, true]);
+    // What was read is what a user reads. Of the export: how to read the tables, as its Details table has it, and its
+    // log. Of the page: a tile's second line, the line under a table's name, a cell said in words with the label of
+    // what was read for it, and what a control is named by. Of the map: a note of what it leaves out, and a box on its
+    // picture.
+    const has = (begins: string): boolean => words.some(text => text.startsWith(begins));
+    expect([has("Each table is laid out as Anaplan's own export of the same Model settings grid: each row's name first"), has("The table lists line items: each names its module under Module Name"),
+      words.some(text => text.includes("14:02:05 Line Items: 16 rows × 25 columns; columns: Format | Formula | Summary")),
+      words.includes("31 rows in all"), words.includes("5 rows about the model are not listed here: 3 hold a value, which the Overview has under About this export."),
+      has("5 module rows are not listed here; each line item shows its module."), words.includes("Format as read"), words.includes("Open this row"),
+      words.includes("Where an import takes its data from is in the Imports table, not on the map."), drawn.includes("Units")]).toEqual([true, true, true, true, true, true, true, true, true, true]);
   });
 });

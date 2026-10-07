@@ -53,9 +53,9 @@ const inspectionOf = (text: Texts): Inspection => ({
   formula: text(7),
   lists: [{ key: "depends", title: text(8), open: true, links: [link(text, 9, { raw: 5 }), link(text, 12, { node: "external7" })] }, { key: "used", title: text(15), open: false, links: [link(text, 16, { raw: 6 })] }],
   texts: [{ key: "actions", title: text(19), lines: [text(20), text(21)] }],
-  notes: text(22), source: text(23),
+  notes: text(22),
 });
-const INSPECTION_TEXTS = 24;
+const INSPECTION_TEXTS = 23;
 
 /** Every piece of markup the map writes, built with one set of texts. */
 const everything = (text: Texts): string[] => [
@@ -394,7 +394,7 @@ describe("The details' markup", () => {
       { key: "used", title: "It feeds directly · 0", open: false, links: [] },
     ],
     texts: [{ key: "unresolved", title: "Names not matched to one object · 1", lines: ["Referenced By: Retired.Total"] }],
-    notes: "Before discounts.", source: "Line Items.csv, row 42",
+    notes: "Before discounts.",
   };
 
   it("shows what the node is, its name as a heading that can take the focus, and the button that closes it", () => {
@@ -414,10 +414,11 @@ describe("The details' markup", () => {
     expect(panel.querySelectorAll("dd").map(value => value.textContent)).toEqual(["CAL01 - Revenue", "Number, 2 decimal places"]);
     expect([panel.querySelector(".map-formula")?.localName, panel.querySelector(".map-formula")?.textContent]).toEqual(["pre", "Units\n  * Price"]);
     expect(panel.querySelectorAll("h4").map(title => title.textContent)).toEqual(["Formula", "Notes"]);
-    expect(panel.querySelector(".map-source")?.textContent).toBe("Line Items.csv, row 42");
     expect(panel.querySelectorAll(".map-insp-note").map(note => note.textContent)).toEqual(["Before discounts."]);
+    // The notes end the details: nothing names a file or a row after them.
+    expect([panel.children[panel.children.length - 1].textContent, html.includes(".csv"), /\brow \d/.test(panel.textContent)]).toEqual(["Before discounts.", false, false]);
     // The order a modeller reads in: the name, what the trace found, the way in, the formula, and only then the rest.
-    const order = ["map-insp-name", "map-insp-trace", "map-primary", "map-formula", "map-dl", "map-details", "map-source"].map(name => html.indexOf(`class="${name}"`));
+    const order = ["map-insp-name", "map-insp-trace", "map-primary", "map-formula", "map-dl", "map-details", "map-insp-note"].map(name => html.indexOf(`class="${name}"`));
     expect(order.every(at => at >= 0)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
   });
@@ -451,7 +452,7 @@ describe("The details' markup", () => {
     const panel = parseMarkup(inspectorHtml({ kind: "LINE ITEM", layer: "heading", name: "Workings", rows: [], remark: "No formula.", lists: [], texts: [] }));
     expect(panel.querySelector(".map-formula")).toBeNull();
     expect(panel.querySelectorAll(".map-insp-note").map(note => note.textContent)).toEqual(["No formula."]);
-    expect([panel.querySelector("dl"), panel.querySelector(".map-source"), panel.querySelector(".map-details"), panel.querySelector("h4"), panel.querySelector(".map-primary")]).toEqual([null, null, null, null, null]);
+    expect([panel.querySelector("dl"), panel.querySelector(".map-details"), panel.querySelector("h4"), panel.querySelector(".map-primary")]).toEqual([null, null, null, null]);
   });
 
   it("writes the first hundred links of a long list, with a button that lists them all", () => {

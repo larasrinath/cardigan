@@ -1,7 +1,8 @@
 import { VERSION } from "./version.js";
 
-/** The one file in each zip about the export itself (App Details.csv, Model Details.csv): what was exported, notes, how to
- * read the other files and the diagnostic log, one row each under its section, so the zip holds only CSV files. */
+/** The one table of each result about the export itself (App Details.csv, Model Details.csv): what was exported, notes,
+ * how to read the other tables and the diagnostic log, one row each under its section. The results page has no view of
+ * it as a table: its overview says what the rows hold. */
 
 export const DETAILS_HEADERS = ["Section", "Detail", "Value"];
 export type DetailRow = [section: string, detail: string, value: string | number];

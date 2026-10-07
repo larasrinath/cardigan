@@ -169,8 +169,8 @@ export function keptCopyHtml(copy: KeptCopy): string {
 
 /** The overview: everything about the run in one view. Under the tiles, what someone checks first: what was read and when,
  * with what the page keeps of the result for a refresh (`copy`) close under it, then the notes, and for an app its cards
- * by type and its models. After those, what is looked up now and then: files that say more than their tile, and two
- * sections that start closed, how to read the files and the diagnostic log.
+ * by type and its models. After those, what is looked up now and then: tables that say more than their tile, and two
+ * sections that start closed, how to read the tables and the diagnostic log.
  *
  * A view's heading is the page's h1, so what stands under it is an h2, also inside a section that starts closed. The
  * drawer's heading is an h2 of the page shell, and its sections are h3. No view goes from one level to one two below it. */
@@ -197,11 +197,11 @@ export function overviewHtml(overview: Overview, copy: KeptCopy = "none"): strin
     <div class="d-sec" id="ovAbout"><h2>About this export</h2>
       <dl class="dl">${detailRows(overview.about)}</dl></div>` : "";
   const files = overview.files.length ? `
-    <div class="d-sec" id="ovFiles"><h2>Files</h2>
+    <div class="d-sec" id="ovFiles"><h2>Tables</h2>
       <dl class="dl">${detailRows(overview.files)}</dl></div>` : "";
   const howToRead = overview.howToRead.length ? `
     <details class="diag" id="ovHowTo">
-      ${sectionSummary("How to read these files")}
+      ${sectionSummary("How to read these tables")}
       <div class="diag-body"><dl class="dl">${detailRows(overview.howToRead)}</dl></div>
     </details>` : "";
   // The button stands above the log, so that it is in sight as soon as the section is open, however long the log is.
@@ -224,8 +224,9 @@ export function overviewHtml(overview: Overview, copy: KeptCopy = "none"): strin
     <h1 class="view-title">Overview</h1>
     <div class="ov-grid">
       ${overview.tiles.map(tile => `<div class="stat"><div class="s-lab">${esc(tile.label)}</div><div class="s-num">${esc(tile.count)}</div><div class="s-sub">${tile.count === 1 ? "row" : "rows"}</div>${
-        // A table that leaves rows to the CSV: the tile counts the rows listed, and says how many the file has.
-        tile.inCsv === undefined ? "" : `<div class="s-sub">${esc(tile.inCsv)} ${tile.inCsv === 1 ? "row" : "rows"} in the CSV</div>`}</div>`).join("")}
+        // A table that does not list every row of its file: the tile counts the rows listed, and says how many there
+        // are in all. It does not say that they were read: a Model Calendar's rows are a template's, which the export fills in.
+        tile.inAll === undefined ? "" : `<div class="s-sub">${esc(tile.inAll)} ${tile.inAll === 1 ? "row" : "rows"} in all</div>`}</div>`).join("")}
     </div>${about}
     <p class="ov-kept" id="ovKept">${keptCopyHtml(copy)}</p>${notes}${types || models ? `
     <div class="ov-cols">${types}${models}
@@ -275,12 +276,9 @@ export function noteBannerHtml(): string {
 
 /** What a model's map is called: in the navigation, in the breadcrumb and as its view's heading. */
 export const MAP_LABEL = "Model map";
-/** What the view says when the map could not be drawn: one sentence, with what to do. It names the button beside it as
- * that reads; the reason is in the log the button copies. */
-export const MAP_FAILED = "The model map could not be drawn: download the files as usual, then choose Copy diagnostic log and send the log.";
-/** Why "Download this table" is off while the map is the view: the control says so itself, in its title and as its
- * description for a screen reader. */
-export const MAP_NO_FILE = "The model map has no file of its own: the tables it is made from are under their own entries.";
+/** What the view says when the map could not be drawn: that it could not, that the tables are as they were, each under
+ * its own entry, and what to do. It names the button beside it as that reads; the reason is in the log the button copies. */
+export const MAP_FAILED = "The model map could not be drawn. The tables are not affected. Choose Copy diagnostic log and send the log.";
 
 /** The view while a model's map is shown. The map itself stands in a place of its own beside the view (results.html
  * `#mapHost`), which takes all the room there is. So the view holds its heading and no more, for a screen reader only:
@@ -304,8 +302,8 @@ export interface TableWay { way: string; label: string; chosen: boolean }
 
 export interface TableView {
   label: string;
-  /** A line under the table's name, for a table that does not list every row of its file, or whose file needs a line
-   * to say what it lists. */
+  /** A line under the table's name, for a table that does not list every row of its file, or that needs a line to say
+   * what it lists. */
   note: string | undefined;
   /** The ways the table can be shown, when it has more than one: a switch stands at the head of its toolbar. */
   ways?: readonly TableWay[];
@@ -388,8 +386,8 @@ export function tableParts(view: TableView): TableParts {
   let body = "";
   let empty = "";
   if (view.all === 0) {
-    // A table without rows says that nothing was found, unless its file has rows that the table leaves to the CSV: the
-    // line under its name counts those, and here the table says that none of them is its own.
+    // A table without rows says that nothing was found, unless its file has rows that the table does not list: the line
+    // under its name counts those, and here the table says that none of them is its own.
     empty = `<div class="empty">
       <svg width="30" height="30" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" aria-hidden="true">${FILTER_PATH}</svg>
       <div class="e-title">${label} has no rows${view.none === undefined ? "" : " of its own"}</div>
@@ -491,16 +489,16 @@ export function colChooserHtml(columns: readonly Column[], hidden: ReadonlySet<n
 
 /** A row whole: every one of its cells, also those beyond the table's headers, each with its value in full. Nothing but
  * the value stands in a `dd`, so no space of the markup's own is kept with it. `exported` has, for each cell the table
- * says in words, the text the CSV holds in its place, by the column's place: that text follows the words, under the
- * column's name and "in the CSV", so that it is clear which of the two is which. */
+ * says in words, the text that was read in its place, by the column's place: that text follows the words, under the
+ * column's name and "as read", so that it is clear which of the two is which. */
 const allColumns = (columns: readonly Column[], row: Row, links: Links, exported?: ReadonlyMap<number, unknown>): string =>
   `<dl class="d-dl">${rowColumns(columns, row).map(column => {
     const shown = `<dt>${esc(column.label)}</dt><dd>${cellHtml(column, row, links, true)}</dd>`;
-    return exported?.has(column.index) ? `${shown}<dt>${esc(column.label)} in the CSV</dt><dd><span class="cell-t">${esc(exported.get(column.index))}</span></dd>` : shown;
+    return exported?.has(column.index) ? `${shown}<dt>${esc(column.label)} as read</dt><dd><span class="cell-t">${esc(exported.get(column.index))}</span></dd>` : shown;
   }).join("")}</dl>`;
 
-/** One row in full: every column, hidden ones included, with nothing cut short, and the CSV's text for each cell that is
- * said in words (`exported`). */
+/** One row in full: every column, hidden ones included, with nothing cut short, and for each cell that is said in words
+ * the text that was read (`exported`). */
 export function rowDrawerHtml(columns: readonly Column[], row: Row, links: Links, exported?: ReadonlyMap<number, unknown>): string {
   return `<div class="d-sec"><h3>All columns</h3>
     ${allColumns(columns, row, links, exported)}</div>`;

@@ -714,19 +714,21 @@ export async function loadCatalog(scope: ModelScope, pages: readonly UxPageCardD
 }
 
 /** File names in the model export's style (asked for by the user, 28 Sep 2026); App Details.csv comes first. Exported so
- * that the results page, which knows an app's tables by these names, can pin them in a test. */
+ * that the results page, which knows an app's tables by these names, can pin them in a test. No user sees them: the page
+ * shows a table under its label, and makes no file. */
 export const DETAILS_FILE = "App Details.csv";
 export const TAB_FILES: Record<TabName, string> = {
   Pages: "Pages.csv", Cards: "Cards.csv", "Grid sections": "Grid Sections.csv", Filters: "Filters.csv", Formatting: "Conditional Formatting.csv",
   Actions: "Action Buttons.csv", "Where used": "Where Used.csv",
 };
+/** How to read the tables, as the results page shows them: the overview lists these rows as they are. They speak of the
+ * page's tables, never of a file: the page makes none. */
 const HOW_TO_READ: readonly [detail: string, value: string][] = [
-  ["Page and Card #", "Identify a card in every file. Card # counts cards row by row, left to right; Card ID is the stable key."],
+  ["Page and Card #", "Identify a card in every table. Card # counts cards row by row, left to right; Card ID is the stable key."],
   ["View type", "Custom view: a module shaped on the page. Saved view: a saved view or a module's default view, built in the model and only selected on the page. Combined grid: several module sections in one card."],
   ["Set in the model (saved view)", "A saved view's own filters, sorts and show/hide live in the model, not on the page."],
-  ["(not in the model)", "A module or line item a card still points at but the model no longer has: deleted, or not visible to you. Search Where Used.csv for it to find the cards."],
+  ["(not in the model)", "A module or line item a card still points at but the model no longer has: deleted, or not visible to you. Search the Where Used table for it to find the cards."],
   ["Filter context and values", "An item in a filter rule, whether chosen as the filter context or compared with a line item formatted as a list, is shown by its name where the model gives one, and by its ID otherwise. If a context item has no name, the rule's line item and context are listed together in place of the line item's name."],
-  ["Long IDs", "IDs of 12 or more digits are written as text so Excel shows every digit; the formula bar shows them as =\"…\"."],
 ];
 
 /** What the user is told when the app itself cannot be read (progress.ts `Failure`), by what Anaplan answered. */
@@ -748,7 +750,7 @@ function appUnread(error: unknown): unknown {
   return new Failure(said, error.message);
 }
 
-/** The app's pages as the zip's files: App Details.csv, then the seven tables. `signal` stops the run (the results page that
+/** The app's pages as the result's tables: App Details.csv, then the seven tables. `signal` stops the run (the results page that
  * asked for it went away): it starts no further page and asks nothing more for a model's names (loadCatalog), and it
  * rejects with the signal's reason. Only the page that is being read is finished first: the routes still to be tried for
  * it are tried. */
@@ -864,7 +866,8 @@ export async function analyseApp(appGuid: string, progress: Progress, diagnostic
     ...HOW_TO_READ.map(([detail, value]): DetailRow => ["How to read", detail, value]),
     ...diagnosticRows(diagnostics()),
   ];
-  // Every file guards formula-like cells, as the page analysis always has (zip.ts `toCsv`).
+  // Every file is marked as one that guards formula-like cells when it is written as a CSV, as the page analysis always
+  // was. The page writes none: the mark is read by the tests' writer (zip.test-support.ts `toCsv`).
   const table = (file: string, headers: readonly string[], rows: readonly (readonly unknown[])[]): ResultTable =>
     ({ file, label: file.replace(/\.csv$/, ""), headers: [...headers], rows: plainRows(rows), guard: true });
   const tables: ResultTable[] = [

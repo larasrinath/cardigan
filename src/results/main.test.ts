@@ -4,12 +4,12 @@ import type { ModelMapOptions } from "../map/graph-types.js";
 import { CALENDAR_HEADERS, CALENDAR_PROPERTIES, calendarRows } from "../model/calendar.js";
 import { FRESH_MS, PORT_NAME, RESULTS_PAGE, type TabMessage } from "../protocol.js";
 import type { AnalysisResult, Cell } from "../result-types.js";
-import { resultZip, tableCsv } from "../result-zip.js";
 import { FakeElement, FakeInput, FakePage, FakeSelect, parseMarkup } from "./dom.test-support.js";
 import { analysedLine, NOT_KEPT_NOTE, TOO_LARGE_NOTE } from "./keep-notes.js";
 import { KEPT_PREFIX, ResultKeeper, type KeptStorage } from "./keep-result.js";
-import { FORGOTTEN_LINE, keptCopyHtml, MAP_FAILED, MAP_NO_FILE, NOT_REMOVED_LINE } from "./markup.js";
+import { FORGOTTEN_LINE, keptCopyHtml, MAP_FAILED, NOT_REMOVED_LINE } from "./markup.js";
 import { NARROW_WINDOW, NAVIGATION_KEY } from "./navigation.js";
+import { fileWords, watchForFiles, type FileWatch } from "./no-file.test-support.js";
 
 /** What stands in for the model map (src/map). The page calls its two functions and drives what the second returns; how
  * a graph is built and a map drawn is not the page's, and is tested with them. Each test is given its own stand-ins. */
@@ -145,9 +145,11 @@ const WITH_ACCESS: AnalysisResult = {
 
 // The page under test, and what stands in for the browser around it. A test loads the page with `open`.
 let page: FakePage;
+/** The watch for a page that makes a file, starts a download or goes somewhere to save one (no-file.test-support.ts):
+ * it is on from before each test to after it, whatever the test does with the page. */
+let watch: FileWatch;
 let ports: FakePort[];
 let connects: unknown[][];
-let saved: Blob[];
 /** What the script put on the clipboard, and whether the clipboard refuses. */
 let copied: string[];
 let clipboardRefuses: boolean;
@@ -192,6 +194,7 @@ let mapTells: Partial<Record<"mount" | "show" | "hide" | "themeChanged" | "destr
 beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(NOW);
+  watch = watchForFiles();
   mapAsked = [];
   mapBuilds = [];
   mapMounts = [];
@@ -242,7 +245,6 @@ beforeEach(() => {
   };
   ports = [];
   connects = [];
-  saved = [];
   copied = [];
   clipboardRefuses = false;
   stored = new Map();
@@ -296,17 +298,27 @@ beforeEach(() => {
     if (clipboardRefuses) throw new Error("Write permission denied.");
     copied.push(text);
   } } });
-  vi.spyOn(URL, "createObjectURL").mockImplementation(blob => { saved.push(blob as Blob); return "blob:saved"; });
-  vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
 });
-afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+afterEach(() => {
+  // Whatever the test did with the page, the page made no file of anything, started no download, and went nowhere to
+  // save one: no blob, no address for one, and no element or address of the page's that is a file.
+  const made = watch.stop(page);
+  // And nothing the page had for its user, from the markup it was made of to the last thing written to it, names a
+  // file, a CSV or a zip, or a download: with a result and without one, in a view, a row's details, a popover, a
+  // banner or a message, as text or as what an element is named or described by (dom.test-support.ts `words`).
+  const named = page ? fileWords(page.words()) : [];
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+  expect([made, named]).toEqual([[], []]);
+});
 
 /** Loads the page at an address: a new page each time, as opening or reloading it gives. A page that finds no result kept
  * for it has said so to itself by the time this returns. */
 const open = async (search: string, shell = SHELL) => {
   vi.resetModules();
   page = new FakePage(shell);
-  location = { search, pathname: "/results.html", hash: "" };
+  location = watch.location({ search, pathname: "/results.html", hash: "" });
   vi.stubGlobal("document", page.document);
   vi.stubGlobal("location", location);
   await import("./main.js");
@@ -331,7 +343,6 @@ const letKeep = async () => {
 const clicked = (tab: number) => `?tab=${tab}&opened=${NOW.getTime() - 1500}`;
 /** What the run control reads, beside its icon. */
 const runControl = () => [page.id("runAgain").textContent.trim(), page.id("runAgain").title, page.all("#runAgain svg").length];
-const bytes = async (blob: Blob) => new Uint8Array(await blob.arrayBuffer());
 /** Lets what the script started without waiting for it, such as a copy to the clipboard, come to its end. */
 const settle = async () => { for (let turn = 0; turn < 5; turn++) await Promise.resolve(); };
 /** The banner above a result: its kind, and its heading, message and hint as far as they are shown. */
@@ -358,8 +369,6 @@ const firstCells = () => page.all("#tableWrap tbody tr").map(row => row.children
 const filterable = () => page.all("#tableWrap thead th").filter(heading => heading.querySelector("[data-colfilter]")).map(heading => heading.querySelector(".th-sort")?.textContent.trim());
 /** The open filter's choices: each one's text, its count, and whether it is ticked. */
 const choices = () => page.all("#popover .pop-opt").map(option => [option.children[1].textContent, option.querySelector(".po-cnt")?.childNodes[0].textContent, option.children[0].checked]);
-/** A cell as the CSV writes it when it holds quotes: in quotes, with each of its own doubled. */
-const csvCell = (text: string) => `"${text.replace(/"/g, '""')}"`;
 /** The pager's buttons: each one's words, with a mark on the current page and brackets around one that is disabled. */
 const pagerButtons = () => page.all("#pager .pg-btn").map(button => {
   const words = button.textContent.trim();
@@ -381,7 +390,7 @@ describe("The results page's script, on the page", () => {
     ports[0].send({ type: "subject", subject: { kind: "app", id: RESULT.id } });
     expect(ports[0].posted).toEqual([{ type: "run" }]);
     expect([page.id("runTitle").textContent, page.id("runStatus").textContent]).toEqual(["Analysing", "Starting the analysis…"]);
-    expect(disabled("runAgain", "dlAll", "dlCsv")).toEqual([true, true, true]);
+    expect(disabled("runAgain")).toEqual([true]);
     expect(page.id("sidenav").hidden).toBe(true);
 
     ports[0].send({ type: "status", text: "Reading page 1 of 1: Overview" });
@@ -405,8 +414,8 @@ describe("The results page's script, on the page", () => {
     expect(page.all("#navList [data-nav]").map(entry => entry.dataset.nav)).toEqual(["overview", "1", "2"]);
     expect(page.texts("#view h1")).toEqual(["Overview"]);
     expect(page.id("sidenav").hidden).toBe(false);
-    // Downloads and Run again are there now; on the overview "this table" is the Details file, which the overview shows.
-    expect([disabled("runAgain", "dlAll", "dlCsv"), page.id("dlCsv").title]).toEqual([[false, false, false], "Download App Details.csv"]);
+    // Run again is there now.
+    expect(disabled("runAgain")).toEqual([false]);
   });
 
   it("starts nothing by itself when the icon did not open it just now: it says what the tab shows, and Run analyses it", async () => {
@@ -422,7 +431,7 @@ describe("The results page's script, on the page", () => {
       expect(["runTitle", "runStatus", "runHint"].map(id => page.id(id).textContent), address).toEqual(["Ready to analyse", "That Anaplan tab shows an app.",
         "Choose Run to analyse it. This page starts by itself only when the Cardigan icon has just opened it."]);
       expect(runControl(), address).toEqual(["Run", "Analyse the Anaplan tab", 1]);
-      expect(disabled("runAgain", "dlAll", "dlCsv"), address).toEqual([false, true, true]);
+      expect(disabled("runAgain"), address).toEqual([false]);
       // A time that is in the address goes, fresh or not.
       expect(location.search, address).toBe("?tab=42");
 
@@ -462,50 +471,6 @@ describe("The results page's script, on the page", () => {
     expect(page.id("runTitle").textContent).toBe("Ready to analyse");
   });
 
-  it("downloads the result's zip under its own name, the same bytes however late and however often", async () => {
-    await openWith();
-    page.id("dlAll").press();
-    vi.setSystemTime(new Date(Date.UTC(2026, 9, 3, 18, 45, 0)));
-    page.id("dlAll").press();
-    expect(page.downloads).toEqual([{ name: RESULT.zipName, href: "blob:saved" }, { name: RESULT.zipName, href: "blob:saved" }]);
-    // The link the script made for each download is clicked once and does not stay on the page.
-    expect(page.created.map(link => [link.localName, link.clicks, link.isConnected])).toEqual([["a", 1, false], ["a", 1, false]]);
-    expect(saved.map(blob => blob.type)).toEqual(["application/zip", "application/zip"]);
-    const expected = resultZip(RESULT, NOW);
-    expect(await bytes(saved[0])).toEqual(expected);
-    expect(await bytes(saved[1])).toEqual(expected);
-    // The page says so for a moment, counted from the last download.
-    expect([page.id("toast").textContent, page.id("toast").classList.contains("show")]).toEqual([`Downloaded ${RESULT.zipName}`, true]);
-    vi.advanceTimersByTime(2199);
-    expect(page.id("toast").classList.contains("show")).toBe(true);
-    vi.advanceTimersByTime(1);
-    expect(page.id("toast").classList.contains("show")).toBe(false);
-  });
-
-  it("gives a download a fixed name when the result's own name is not a plain file name, and the same content", async () => {
-    // A path in the zip's name, a character that turns the text round in one file's name, and a path in another's.
-    const named: AnalysisResult = { ...RESULT, zipName: "..\\..\\evil.zip",
-      tables: [RESULT.tables[0], { ...RESULT.tables[1], file: `Pages${String.fromCodePoint(0x202e)}vsc.csv` }, { ...RESULT.tables[2], file: "../Cards.csv" }] };
-    await openWith(named);
-    page.id("dlAll").press();
-    expect(page.id("toast").textContent).toBe("Downloaded Cardigan export.zip");
-    goTo(1);
-    expect(page.id("dlCsv").title).toBe("Download table.csv");
-    page.id("dlCsv").press();
-    goTo(2);
-    page.id("dlCsv").press();
-    expect(page.downloads.map(download => download.name)).toEqual(["Cardigan export.zip", "table.csv", "table.csv"]);
-    expect(page.id("toast").textContent).toBe("Downloaded table.csv");
-    // What is saved is the result's own zip and files, as they are.
-    expect(await bytes(saved[0])).toEqual(resultZip(named, NOW));
-    expect([await saved[1].text(), await saved[2].text()]).toEqual([named.tables[1], named.tables[2]].map(table => tableCsv(table).replace(/^\ufeff/, "")));
-    // A plain name is used as it is: on the overview, the Details file's.
-    page.find('#navList [data-nav="overview"]').press();
-    expect(page.id("dlCsv").title).toBe("Download App Details.csv");
-    page.id("dlCsv").press();
-    expect(page.downloads[3].name).toBe("App Details.csv");
-  });
-
   it("keeps the result on the page while it runs again, and replaces it only with a complete new one", async () => {
     await openWith();
     goTo(2);
@@ -524,15 +489,8 @@ describe("The results page's script, on the page", () => {
     const earlier = () => [page.document.title, page.texts("#hdMeta .meta-app"), page.all("#navList [data-nav]").length, page.texts("#view h1"), firstCells().length,
       page.id("drawer").hidden, page.texts("#drawerBody dd")[2]];
     expect(earlier()).toEqual(["Cardigan — Demo <img src=x onerror=alert(1)> app", ["Demo <img src=x onerror=alert(1)> app"], 3, ["Cards"], 2, false, "=Margin"]);
-    expect(disabled("runAgain", "dlAll", "dlCsv")).toEqual([true, false, false]);
-    // And it is what the downloads give, with the time it was complete at.
-    vi.setSystemTime(new Date(Date.UTC(2026, 9, 3, 15, 0, 0)));
+    expect(disabled("runAgain")).toEqual([true]);
     page.id("drawerClose").press();
-    page.id("dlAll").press();
-    page.id("dlCsv").press();
-    expect(page.downloads.map(download => download.name)).toEqual([RESULT.zipName, "Cards.csv"]);
-    expect(await bytes(saved[0])).toEqual(resultZip(RESULT, NOW));
-    expect(await saved[1].text()).toBe(tableCsv(RESULT.tables[2]).replace(/^\ufeff/, ""));
 
     // The new result arrives in pieces: until it is complete, nothing of it is shown, and the user reads on.
     page.all('#tableWrap tbody [data-act="row"]')[0].press();
@@ -549,11 +507,10 @@ describe("The results page's script, on the page", () => {
       .toEqual(["Cardigan — Demo app, second run", ["Overview"], ["1", "1"], [], false]);
     // The focus was in that drawer: it is on the new view now, not on nothing.
     expect(page.document.activeElement).toBe(page.id("view"));
-    expect(disabled("runAgain", "dlAll", "dlCsv")).toEqual([false, false, false]);
-    // The downloads are the new result's from now on, with its own time.
-    page.id("dlAll").press();
-    expect(page.downloads[2].name).toBe("Second.zip");
-    expect(await bytes(saved[2])).toEqual(resultZip(next, new Date(Date.UTC(2026, 9, 3, 15, 0, 0))));
+    expect(disabled("runAgain")).toEqual([false]);
+    // The tables are the new result's from now on.
+    goTo(2);
+    expect(page.all("#tableWrap tbody tr").map(row => row.children[1].textContent.trim())).toEqual(["Only card"]);
   });
 
   it("closes a popover of the old result's table when the new result takes its place", async () => {
@@ -584,9 +541,9 @@ describe("The results page's script, on the page", () => {
     ports[1].drop();
     lastError = undefined;
     expect(banner()).toEqual(["warn", "Not connected", "Cardigan cannot reach that tab.", "If it is an Anaplan app or model, refresh it, then click the Cardigan icon again."]);
-    // The result is where it was, and so are its downloads; Run again can be tried again.
+    // The result is where it was; Run again can be tried again.
     expect([page.document.title, page.texts("#view h1"), firstCells().length, page.id("sidenav").hidden]).toEqual(["Cardigan — Demo <img src=x onerror=alert(1)> app", ["Cards"], 2, false]);
-    expect(disabled("runAgain", "dlAll", "dlCsv")).toEqual([false, false, false]);
+    expect(disabled("runAgain")).toEqual([false]);
     // The banner's button copies the log of the run that failed, not the one the result carries.
     expect(page.id("bannerCopy").hidden).toBe(false);
     page.id("bannerCopy").press();
@@ -604,7 +561,7 @@ describe("The results page's script, on the page", () => {
     ports[0].send({ type: "log", text: "14:02:09 stopped: GET /apps 503" });
     ports[0].send({ type: "error", message: `Anaplan could not be reached. Check your connection, then choose Run again. ${TAG}` });
     expect(banner().slice(0, 3)).toEqual(["warn", "The analysis stopped", `Anaplan could not be reached. Check your connection, then choose Run again. ${TAG}`]);
-    expect([shown(), page.has("img"), disabled("runAgain", "dlAll")]).toEqual([first, false, [false, false]]);
+    expect([shown(), page.has("img"), disabled("runAgain")]).toEqual([first, false, [false]]);
 
     // A piece of the result could not be sent: an error takes the place of "done", after the result and some of its rows.
     page.id("runAgain").press();
@@ -866,7 +823,7 @@ describe("The results page's script, on the page", () => {
       rows: [["Revenue", formula, "beyond the headers", `more ${TAG}`], ["Units", "1"], ["", "—"]] }] };
     await openWith(odd);
     goTo(1);
-    // The table keeps to its headers; the row's drawer has every cell, as the CSV has.
+    // The table keeps to its headers; the row's drawer has every cell the row holds.
     expect([page.all("#tableWrap thead th").length, page.all("#tableWrap tbody tr").map(row => row.children.length)]).toEqual([2, [2, 2, 2]]);
     page.all('#tableWrap tbody [data-act="row"]')[0].press();
     expect(page.texts("#drawerBody dt")).toEqual(["Name", "Formula", "Column 3", "Column 4"]);
@@ -880,9 +837,6 @@ describe("The results page's script, on the page", () => {
     // A row no cell of which says anything has no name of its own: its drawer is headed by its place in the file.
     page.all('#tableWrap tbody [data-act="row"]')[2].press();
     expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual(["Row 3", "Row 3 of Line Items"]);
-    page.id("drawerClose").press();
-    page.id("dlCsv").press();
-    expect(await saved[0].text()).toContain("beyond the headers");
   });
 
   it("keeps a page's link in an app's first column, with the row's button before it", async () => {
@@ -1050,13 +1004,13 @@ describe("The results page's script, on the page", () => {
     expect([page.id("popover").hidden, active() === page.id("tblSearch")]).toEqual([true, true]);
   });
 
-  it("lists the calendar's rows only in a model's Model Calendar table and says so, with the model's facts on the overview; the downloads hold every row", async () => {
+  it("lists the calendar's rows only in a model's Model Calendar table and says so, with the model's facts on the overview", async () => {
     await openWith(WITH_CALENDAR);
     const file = WITH_CALENDAR.tables[3];
     expect([file.rows.length, file.rows.filter(row => row[0] === "Model").length]).toEqual([31, 5]);
     // The overview: the file's tile counts the rows its table lists. What the file says about the model stands with what
     // the Details file says about the export, after it, and without the model's name, which that has said.
-    expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Model Calendar", "26", "rows", "31 rows in the CSV"], ["Modules", "2", "rows"], ["Line Items", "120", "rows"]]);
+    expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Model Calendar", "26", "rows", "31 rows in all"], ["Modules", "2", "rows"], ["Line Items", "120", "rows"]]);
     expect([page.texts("#ovAbout h2"), page.texts("#ovAbout dt"), page.texts("#ovAbout dd")])
       .toEqual([["About this export"], ["Model", "Anaplan host", "Workspace", "Captured on"], ["Model one", "us1a.app.anaplan.com", "Main", "2026-10-03"]]);
     // The navigation counts the same rows.
@@ -1067,7 +1021,7 @@ describe("The results page's script, on the page", () => {
     goTo(3);
     const settings = () => page.all("#tableWrap tbody tr").map(row => row.children[1].textContent.trim());
     expect([page.texts("#view .view-note"), page.id("rowCount").textContent, page.id("live").textContent])
-      .toEqual([["5 rows about the model are in the CSV only."], "1–26 of 26 rows", "Model Calendar: 26 rows"]);
+      .toEqual([["5 rows about the model are not listed here: 3 hold a value, which the Overview has under About this export."], "1–26 of 26 rows", "Model Calendar: 26 rows"]);
     expect([firstCells().every(section => section === "Model Calendar"), settings().slice(0, 2), settings().filter(setting => ["Workspace", "Model", "Captured on"].includes(setting))])
       .toEqual([true, ["Calendar Type", "Fiscal Year Starts"], []]);
     // The search reads the rows listed and no others: the calendar's type finds its row, the model's name finds none.
@@ -1084,13 +1038,9 @@ describe("The results page's script, on the page", () => {
     expect([page.id("drawerSub").textContent, page.texts("#drawerBody dd").slice(0, 3)]).toEqual(["Row 1 of Model Calendar", ["Model Calendar", "Calendar Type", "Calendar Months/Quarters/Years"]]);
     page.key("Escape");
 
-    // "Download this table" saves the file whole, the rows about the model first; "Download all" saves the result's zip as it is.
-    page.id("dlCsv").press();
-    const csv = tableCsv(file);
-    expect([page.downloads[0].name, await saved[0].text(), csv.charCodeAt(0)]).toEqual(["Model Calendar.csv", csv.slice(1), 0xfeff]);
-    expect((await saved[0].text()).split("\r\n").filter(line => line.startsWith("Model,")).map(line => line.split(",")[1])).toEqual(["Workspace", "Model", "Model size (GB)", "Captured on", "Captured by"]);
-    page.id("dlAll").press();
-    expect(await bytes(saved[1])).toEqual(resultZip(WITH_CALENDAR, NOW));
+    // The page's own table is whole, the rows about the model first: a model's map is built from the result's tables.
+    page.find('#navList [data-nav="map"]').press();
+    expect([mapBuilds.length, mapBuilds[0].tables]).toEqual([1, WITH_CALENDAR.tables]);
 
     // Another table lists every row of its file, and says nothing under its name.
     goTo(1);
@@ -1102,18 +1052,18 @@ describe("The results page's script, on the page", () => {
     const file = WITH_CALENDAR.tables[3];
     const only: AnalysisResult = { ...WITH_CALENDAR, tables: [...WITH_CALENDAR.tables.slice(0, 3), { ...file, rows: file.rows.slice(0, 5) }] };
     await openWith(only);
-    // The tile and the navigation count the rows the table lists, none, and the tile says the CSV's five.
-    expect(page.all("#view .stat")[0].children.map(child => child.textContent)).toEqual(["Model Calendar", "0", "rows", "5 rows in the CSV"]);
+    // The tile and the navigation count the rows the table lists, none, and the tile says the five there are in all.
+    expect(page.all("#view .stat")[0].children.map(child => child.textContent)).toEqual(["Model Calendar", "0", "rows", "5 rows in all"]);
     expect(page.find('#navList [data-nav="3"]').children.map(child => child.textContent)).toEqual(["Model Calendar", "0"]);
     goTo(3);
     // The line under the name says where the five rows are. In the rows' place the table says that none is the calendar's
     // own, which does not contradict it; "Nothing was found" would.
     expect([page.texts("#view .view-note"), page.texts("#tableWrap .e-title"), page.texts("#tableWrap .e-sub"), page.id("rowCount").textContent])
-      .toEqual([["5 rows about the model are in the CSV only."], ["Model Calendar has no rows of its own"], ["Every row of the file is about the model."], "No rows"]);
+      .toEqual([["5 rows about the model are not listed here: 3 hold a value, which the Overview has under About this export."], ["Model Calendar has no rows of its own"], ["Every row is about the model."], "No rows"]);
     expect([page.id("view").textContent.includes("Nothing was found"), page.all("#tableWrap tbody tr").length, page.id("pager").children]).toEqual([false, 0, []]);
-    // The file is whole in its download.
-    page.id("dlCsv").press();
-    expect((await saved[0].text()).split("\r\n").filter(line => line.startsWith("Model,"))).toHaveLength(5);
+    // The page's own table has the five rows still: a model's map is built from the result's tables.
+    page.find('#navList [data-nav="map"]').press();
+    expect([mapBuilds.length, mapBuilds[0].tables]).toEqual([1, only.tables]);
     // A file without rows at all says, as ever, that nothing was found for it.
     page.id("runAgain").press();
     sendResult(ports[0], { ...WITH_CALENDAR, tables: [...WITH_CALENDAR.tables.slice(0, 3), { ...file, rows: [] }] });
@@ -1229,7 +1179,7 @@ describe("What a click, a key and typing do on the results page", () => {
       .toEqual([["Overview", "Pages", "Cards", "Grid Sections", "Where Used"], false, ["Pages", "Cards", "Grid sections", "Where Used"]]);
     for (const [table, label, rows] of [[1, "Pages", 2], [2, "Cards", 4], [3, "Grid Sections", 3], [4, "Where Used", 2]] as const) {
       goTo(table);
-      expect([shows(), firstCells().length, page.id("dlCsv").title]).toEqual([[label, label, label], rows, `Download ${label}.csv`]);
+      expect([shows(), firstCells().length]).toEqual([[label, label, label], rows]);
     }
     // The breadcrumb's Overview goes back to the overview.
     page.find('#crumbs [data-nav="overview"]').press();
@@ -1245,12 +1195,11 @@ describe("What a click, a key and typing do on the results page", () => {
     expect(shows()).toEqual(["Overview", "Overview", "Overview"]);
   });
 
-  it("shows a model's Line Items table as line items only, each with its module and the dimensions it has; the counts are the table's, the downloads the file's", async () => {
+  it("shows a model's Line Items table as line items only, each with its module and the dimensions it has; the counts are the table's", async () => {
     await openWith(BLUEPRINT);
-    const file = BLUEPRINT.tables[1];
     // The overview's tile and the navigation count the line items, not the file's rows, three of which are modules' own:
-    // the tile says how many rows the CSV has under that.
-    expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Modules", "3", "rows"], ["Line Items", "5", "rows", "8 rows in the CSV"]]);
+    // the tile says how many rows there are in all under that.
+    expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Modules", "3", "rows"], ["Line Items", "5", "rows", "8 rows in all"]]);
     expect(page.all("#navList .nav-item").filter(item => item.querySelector(".cnt")).map(item => item.children.map(child => child.textContent))).toEqual([["Modules", "3"], ["Line Items", "5"]]);
 
     goTo(1);
@@ -1259,9 +1208,9 @@ describe("What a click, a key and typing do on the results page", () => {
     expect([column("Name"), column("Module Name")]).toEqual([["Units", "Price", "Revenue", "Margin %", "Cost"], ["REV01 Revenue", "REV01 Revenue", "REV01 Revenue", "REV01 Revenue", "COST01 Costs"]]);
     // A dash in the file is the module's Applies To here; a line item's own stays its own.
     expect([column("Applies To"), column("Applies To from")]).toEqual([["Products, Time", "Products", "Products, Time", "Products, Time", "Cost Centres"], ["Module", "Line item", "Module", "Module", "Module"]]);
-    // The line under the table's name says what is left to the CSV, and where the module without line items is.
+    // The line under the table's name says what is not listed, and where the module without line items is.
     expect([page.texts("#view .view-note"), page.id("rowCount").textContent, page.id("live").textContent]).toEqual([
-      ["3 module rows are in the CSV only; each line item shows its module. 1 module has no line items, so it is not in this table. It is listed in the Modules table."],
+      ["3 module rows are not listed here; each line item shows its module. 1 module has no line items, so it is not in this table. It is listed in the Modules table."],
       "1–5 of 5 rows", "Line Items: 5 rows"]);
 
     // The search, the filters and the sort are the table's: a module's name finds its line items, and a module's own row is not there to find.
@@ -1285,16 +1234,10 @@ describe("What a click, a key and typing do on the results page", () => {
       .toEqual(["Cost", "Row 5 of Line Items", ["Name", "Module Name"], ["Cost", "COST01 Costs"]]);
     page.key("Escape");
 
-    // "Download this table" saves the file as the export wrote it: the modules' rows, the dashes, the file's own columns.
-    page.id("dlCsv").press();
-    const csv = tableCsv(file);
-    expect([page.downloads[0].name, await saved[0].text(), csv.charCodeAt(0)]).toEqual(["Line Items.csv", csv.slice(1), 0xfeff]);
-    expect((await saved[0].text()).split("\r\n").slice(0, 3)).toEqual([",Format,Formula,Summary,Applies To,Module Name,Ratio Numerator,Ratio Denominator", "REV01 Revenue,,,,\"Products, Time\",,,",
-      `Units,${csvCell(NUMBER)},,${csvCell(SUM)},-,REV01 Revenue,,`]);
-    page.id("dlAll").press();
-    expect(await bytes(saved[1])).toEqual(resultZip(BLUEPRINT, NOW));
-    // The result's own table was not touched.
-    expect([file.rows.length, file.headers[1], file.rows[1][4]]).toEqual([8, "Format", "-"]);
+    // The page's own table is the file as the export wrote it, with the modules' rows, the dashes and the file's own
+    // columns: a model's map is built from the result's tables.
+    page.find('#navList [data-nav="map"]').press();
+    expect([mapBuilds.length, mapBuilds[0].tables]).toEqual([1, BLUEPRINT.tables]);
 
     // The Modules table is the Modules file as it stands, and an app's file of the same name and layout is too.
     goTo(2);
@@ -1313,7 +1256,7 @@ describe("What a click, a key and typing do on the results page", () => {
     // The navigation has it after Line Items, where Anaplan's own order has no such entry, and the overview has its tile
     // there too. Both count the file's rows: the table lists every one.
     expect(page.all("#navList .nav-item").map(item => item.children.map(child => child.textContent))).toEqual([["Overview"], ["Modules", "3"], ["Line Items", "5"], ["Dynamic Cell Access", "5"], ["Model map"]]);
-    expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Modules", "3", "rows"], ["Line Items", "5", "rows", "8 rows in the CSV"], ["Dynamic Cell Access", "5", "rows"]]);
+    expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Modules", "3", "rows"], ["Line Items", "5", "rows", "8 rows in all"], ["Dynamic Cell Access", "5", "rows"]]);
 
     goTo(2);
     expect(shows()).toEqual(["Dynamic Cell Access", "Dynamic Cell Access", "Dynamic Cell Access"]);
@@ -1325,7 +1268,7 @@ describe("What a click, a key and typing do on the results page", () => {
     // Under the table's name, one line: what the table is, and how many of its drivers could not be matched.
     expect([page.texts("#view .view-note"), page.id("rowCount").textContent, page.id("live").textContent]).toEqual([
       ["The Read Access Driver and Write Access Driver columns of Line Items, listed from the driver's side. One row for each use of a driver: the driver, Read or Write, and the line item it controls. "
-        + "1 row has a driver that could not be matched to a line item: it comes last, with the driver as Line Items writes it and no Driver Module."],
+        + "1 row has a driver that could not be matched to a line item: it comes last, with the driver as Line Items has it and no Driver Module."],
       "1–5 of 5 rows", "Dynamic Cell Access: 5 rows"]);
     // A row opens from its driver's name, the second cell, in every row. The first cell, the driver's module, is the same
     // name down the rows, and is plain text: as the row's button it would read as a way to that module.
@@ -1376,16 +1319,10 @@ describe("What a click, a key and typing do on the results page", () => {
     page.key("Escape");
     expect(opens()[0]).toEqual([undefined, "Can read", undefined, undefined, undefined]);
 
-    // "Download this table" saves the file as the export wrote it, every name as it is: nothing stands before the name
-    // that begins with a sign, so that it is the name Line Items.csv has.
-    page.id("dlCsv").press();
-    const csv = tableCsv(file);
-    expect([page.downloads[0].name, await saved[0].text(), csv.charCodeAt(0)]).toEqual(["Dynamic Cell Access.csv", csv.slice(1), 0xfeff]);
-    expect((await saved[0].text()).split("\r\n")).toEqual(["Driver Module,Driver Line Item,Access,Controlled Module,Controlled Line Item", "ACC01 Access,Can read,Read,REV01 Revenue,Units",
-      "ACC01 Access,Can read,Read,REV01 Revenue,Price", "ACC01 Access,Can read,Read,COST01 Costs,Cost", "ACC01 Access,=Can write,Write,REV01 Revenue,Units", ",'Old access'.Flag,Write,COST01 Costs,Cost", ""]);
-    // And the zip has it after Line Items.csv, as the result does.
-    page.id("dlAll").press();
-    expect(await bytes(saved[1])).toEqual(resultZip(WITH_ACCESS, NOW));
+    // The page's own table is the file as the export wrote it, every name as it is, in its place after Line Items: a
+    // model's map is built from the result's tables.
+    page.find('#navList [data-nav="map"]').press();
+    expect([mapBuilds.length, mapBuilds[0].tables]).toEqual([1, WITH_ACCESS.tables]);
     expect(WITH_ACCESS.tables.map(table => table.file)).toEqual(["Model Details.csv", "Line Items.csv", "Dynamic Cell Access.csv", "Modules.csv"]);
 
     // Another table of the model opens its rows from its first column, as ever: the choice is this file's alone.
@@ -1407,22 +1344,22 @@ describe("What a click, a key and typing do on the results page", () => {
     expect([page.texts("#tableWrap .e-title"), page.texts("#tableWrap .e-sub")]).toEqual([["Modules has no rows"], ["Nothing was found for this table in this analysis."]]);
   });
 
-  it("says a model's Format and Summary in words in the table, for the search, the filter and the sort as well; the row's drawer has the CSV's text too, and the downloads only that", async () => {
+  it("says a model's Format and Summary in words in the table, for the search, the filter and the sort as well; the row's drawer has the text that was read too", async () => {
     await openWith(BLUEPRINT);
     const file = BLUEPRINT.tables[1];
     goTo(1);
     // The words, as Anaplan says them; a Ratio with the names its own row holds.
     expect([column("Format"), column("Summary")]).toEqual([["Number", "Number", "Number", "Number, 2 decimal places, %", "Number"],
       ["Sum", "None", "Sum", "Ratio = Margin / Revenue", "Sum, Time: Closing Balance"]]);
-    // The search reads the words, not the text the CSV has in their place: a word is found where it is seen.
+    // The search reads the words, not the text that was read in their place: a word is found where it is seen.
     page.id("tblSearch").type("closing balance");
     expect([column("Name"), page.id("rowCount").textContent]).toEqual([["Cost"], "1–1 of 1 row (filtered from 5)"]);
     // A common word finds the rows that show it and no others. Every Summary's definition holds "summaryMethod", so the
-    // CSV's text of all five rows has "sum" in it; three of them show the word.
+    // text that was read has "sum" in it in all five rows; three of them show the word.
     page.id("tblSearch").type("sum");
     expect([column("Name"), column("Summary"), page.id("rowCount").textContent])
       .toEqual([["Units", "Revenue", "Cost"], ["Sum", "Sum", "Sum, Time: Closing Balance"], "1–3 of 3 rows (filtered from 5)"]);
-    // What only the CSV's text holds finds nothing: a definition's keys, its values as the export writes them, its true and false.
+    // What only the text that was read holds finds nothing: a definition's keys, its values as the export writes them, its true and false.
     for (const word of ["summaryMethod", "CLOSING_BALANCE", "percentage", "decimalPlaces", "false"]) {
       page.id("tblSearch").type(word);
       expect(page.id("rowCount").textContent, word).toBe("No rows (filtered from 5)");
@@ -1440,10 +1377,10 @@ describe("What a click, a key and typing do on the results page", () => {
     page.find('[data-sort="2"]').press();
     expect([column("Name")[0], column("Format")[0]]).toEqual(["Margin %", "Number, 2 decimal places, %"]);
 
-    // The row's drawer: the words beside each column's name, and after them the CSV's text, named as the CSV's.
+    // The row's drawer: the words beside each column's name, and after them the text that was read, named as that.
     page.all('#tableWrap tbody [data-act="row"]')[0].press();
     expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual(["Margin %", "Row 4 of Line Items"]);
-    expect(page.texts("#drawerBody dt")).toEqual(["Name", "Module Name", "Format", "Format in the CSV", "Formula", "Summary", "Summary in the CSV", "Applies To", "Applies To from",
+    expect(page.texts("#drawerBody dt")).toEqual(["Name", "Module Name", "Format", "Format as read", "Formula", "Summary", "Summary as read", "Applies To", "Applies To from",
       "Ratio Numerator", "Ratio Denominator"]);
     expect(page.all("#drawerBody dd").map(value => value.textContent)).toEqual(["Margin %", "REV01 Revenue", "Number, 2 decimal places, %", PERCENT, "Margin / Revenue", "Ratio = Margin / Revenue", RATIO,
       "Products, Time", "Module", "Margin", "Revenue"]);
@@ -1453,15 +1390,13 @@ describe("What a click, a key and typing do on the results page", () => {
     expect([page.id("drawerTitle").textContent, page.texts("#drawerBody dd").slice(2, 4), page.texts("#drawerBody dd").slice(5, 7)]).toEqual(["Cost", ["Number", NUMBER], ["Sum, Time: Closing Balance", CLOSING]]);
     page.key("Escape");
 
-    // The downloads hold the file as the export wrote it: Anaplan's text, and none of the words.
-    page.id("dlCsv").press();
-    expect(`\ufeff${await saved[0].text()}`).toBe(tableCsv(file));
-    expect([(await saved[0].text()).includes(csvCell(RATIO)), (await saved[0].text()).includes("Ratio = "), (await saved[0].text()).includes("decimal places")]).toEqual([true, false, false]);
-    page.id("dlAll").press();
-    expect(await bytes(saved[1])).toEqual(resultZip(BLUEPRINT, NOW));
+    // The page's own table is the file as the export wrote it: Anaplan's text, and none of the words. A model's map is
+    // built from the result's tables.
+    page.find('#navList [data-nav="map"]').press();
+    expect([mapBuilds.length, mapBuilds[0].tables]).toEqual([1, BLUEPRINT.tables]);
     expect(file.rows[4].slice(0, 4)).toEqual(["Margin %", PERCENT, "Margin / Revenue", RATIO]);
 
-    // A table without such cells has nothing of the CSV's to add in its drawer.
+    // A table without such cells has nothing to add in its drawer.
     goTo(2);
     page.all('#tableWrap tbody [data-act="row"]')[0].press();
     expect(page.texts("#drawerBody dt")).toEqual(["Name", "Applies To"]);
@@ -1497,9 +1432,10 @@ describe("What a click, a key and typing do on the results page", () => {
     // The model map is the last entry, named as its own view and not as a file: it has no place in the result, and no count.
     const map = page.all("#navList .nav-item")[14];
     expect([map.dataset.nav, map.children.map(child => child.textContent)]).toEqual(["map", ["Model map"]]);
-    // Only the page's list is ordered: the zip is the result's own, with its files as the result has them.
-    page.id("dlAll").press();
-    expect(await bytes(saved[0])).toEqual(resultZip(model(...written), NOW));
+    // Only the page's list is ordered: the result's own tables are in the order the result has them, which is how a
+    // model's map is handed them.
+    map.press();
+    expect([mapBuilds.length, mapBuilds[0].tables]).toEqual([1, model(...written).tables]);
 
     // A result without some of the files lists the ones it has, in the same order.
     page.id("runAgain").press();
@@ -1511,29 +1447,6 @@ describe("What a click, a key and typing do on the results page", () => {
     sendResult(ports[0], model("Dashboards", "Line Items", "Line Item Subsets", "Users", "Modules", "General Lists"));
     expect([entries(), tiles()]).toEqual([["Overview", "General Lists", "Line Item Subsets", "Modules", "Line Items", "Dashboards", "Users", "Model map"],
       ["General Lists", "Line Item Subsets", "Modules", "Line Items", "Dashboards", "Users"]]);
-  });
-
-  it("saves with Download this table the table on screen, whole, and the Details file on the overview", async () => {
-    await openWith(APP);
-    const last = async () => [page.downloads[page.downloads.length - 1].name, saved[saved.length - 1].type, await saved[saved.length - 1].text()];
-    const csv = (file: string) => tableCsv(APP.tables.find(table => table.file === file)!).replace(/^\ufeff/, "");
-    for (const [where, file] of [[3, "Grid Sections.csv"], [1, "Pages.csv"], ["overview", "App Details.csv"], [4, "Where Used.csv"], [2, "Cards.csv"]] as const) {
-      page.find(`#navList [data-nav="${where}"]`).press();
-      page.id("dlCsv").press();
-      expect(await last(), file).toEqual([file, "text/csv;charset=utf-8", csv(file)]);
-      expect(page.id("toast").textContent).toBe(`Downloaded ${file}`);
-    }
-    // What is searched, filtered, sorted or hidden on screen does not change the file: it is the table as the zip holds it.
-    page.id("tblSearch").type("margin");
-    page.find('[data-sort="2"]').press();
-    page.id("colBtn").press();
-    page.all("#popover input")[0].tick();
-    expect(firstCells().length).toBe(2);
-    page.id("dlCsv").press();
-    expect((await last())[2]).toBe(csv("Cards.csv"));
-    // On the overview the file is the Details file, which is what the overview shows: the button says so.
-    page.find('#navList [data-nav="overview"]').press();
-    expect([page.id("dlCsv").disabled, page.id("dlCsv").title]).toEqual([false, "Download App Details.csv"]);
   });
 
   it("opens the row that was clicked, not its neighbour, on a click anywhere in the row but on a control", async () => {
@@ -1639,7 +1552,7 @@ describe("What a click, a key and typing do on the results page", () => {
     const card = () => ({ title: page.id("drawerTitle").textContent, cells: page.texts("#drawerBody .d-dl dd"), sections: page.texts("#drawerBody h3"),
       rows: page.all("#drawerBody .mini tbody tr").map(row => row.children.map(cell => cell.textContent)), note: page.texts("#drawerSub div") });
     const NOTE = '2 cards on pages named "Overview" have this number and this ID. '
-      + "The CSV has only the name of a card's page, so their grid sections and formatting rules cannot be told apart and are not listed here.";
+      + "The tables have only the name of a card's page, so their grid sections and formatting rules cannot be told apart and are not listed here.";
     expect(cardLinks().map(link => link.textContent)).toEqual(["Sales", "Margin", "Stock", "Sales, copied", "Costs", "Margin, moved"]);
     // Sales is on both pages with one number and one ID. Each row opens its own card: the copy's title and its formatting
     // rule, not those of the first card that has the page's name and the ID.
@@ -2007,11 +1920,11 @@ describe("What a click, a key and typing do on the results page", () => {
     /** Every text the overview shows, with its closed sections' as well. */
     const texts = () => [...page.texts("#view dt"), ...page.texts("#view dd"), ...page.texts("#view .warn-list li"), ...page.id("diagLog").textContent.split("\n")];
     /** What each file's tile says of its rows, by the file's own name, which is its entry's in the navigation (the tiles
-     * stand in the same order): the number its table lists, and under it the number the CSV has where that is another. */
+     * stand in the same order): the number its table lists, and under it the number there is in all where that is another. */
     const tiles = () => page.all("#navList .nav-item").filter(item => item.querySelector(".cnt")).flatMap((item, index) => {
       const tile = page.all("#view .stat")[index];
       const file = `${item.children[0].textContent}.csv`;
-      return [`${file}: ${tile.querySelector(".s-num")?.textContent} rows`, ...tile.querySelectorAll(".s-sub").slice(1).map(line => `${file}: ${line.textContent.replace(/ in the CSV$/, "")}`)];
+      return [`${file}: ${tile.querySelector(".s-num")?.textContent} rows`, ...tile.querySelectorAll(".s-sub").slice(1).map(line => `${file}: ${line.textContent.replace(/ in all$/, "")}`)];
     });
     /** The rows of a result's Details file that the overview does not say: a detail and its value, a note, a line of the log, or a file's tile. */
     const unsaid = (result: AnalysisResult) => {
@@ -2020,52 +1933,57 @@ describe("What a click, a key and typing do on the results page", () => {
         if (section === "Diagnostics") return !shown.includes(detail ? `${detail} ${value}` : value);
         if (section === "Notes") return !shown.includes(`${detail}: ${value}`);
         if (section === "Files" && /^\d+ rows$/.test(value)) return !tiles().includes(`${detail}: ${value}`);
+        // Any other Files row is said under the name the page has for the table: the file's own name is shown nowhere.
+        if (section === "Files") return !(shown.includes(detail.replace(/\.csv$/, "")) && shown.includes(value));
         return !(shown.includes(detail) && shown.includes(value));
       });
     };
     const withFiles = (result: AnalysisResult, ...more: Cell[][]): AnalysisResult => ({ ...result, tables: [{ ...result.tables[0], rows: [...result.tables[0].rows,
       ...result.tables.slice(1).map((table): Cell[] => ["Files", table.file, `${table.rows.length} rows`]), ...more] }, ...result.tables.slice(1)] });
-    // An app: what it is and how it was exported, a note, and how to read the files.
-    const app = withFiles(APP, ["Notes", "Archive", "Not published"], ["How to read", "Page and Card #", "Identify a card in every file."]);
+    // An app: what it is and how it was exported, a note, and how to read the tables.
+    const app = withFiles(APP, ["Notes", "Archive", "Not published"], ["How to read", "Page and Card #", "Identify a card in every table."]);
     await openWith(app);
     expect([app.tables[0].rows.length, unsaid(app)]).toEqual([11, []]);
-    expect(page.texts("#view h2")).toEqual(["About this export", "Notes", "Cards by type", "How to read these files", "Diagnostics"]);
+    expect(page.texts("#view h2")).toEqual(["About this export", "Notes", "Cards by type", "How to read these tables", "Diagnostics"]);
     expect([page.texts("#ovAbout dt"), page.has("#ovFiles")]).toEqual([["App", "Anaplan host"], false]);
-    // A model, one of whose files was not exported and another counted with a remark: those two are said under Files.
+    // A model, one of whose files was not exported and another counted with a remark: those two are said under Tables,
+    // each by the name the page has for the table.
     const model = withFiles(MODEL, ["Files", "Source Models.csv", "Not exported: This model page has no REMOTE_MODEL axis."], ["How to read", "Layout", "As Anaplan's own export."]);
     model.tables[0].rows[4] = ["Files", "Modules.csv", "2 rows (as listed)"];
     page.id("runAgain").press();
     sendResult(ports[0], model);
     expect([model.tables[0].rows.length, unsaid(model)]).toEqual([7, []]);
-    expect([page.texts("#view h2"), page.texts("#ovFiles dt"), page.texts("#ovFiles dd")]).toEqual([["About this export", "Files", "How to read these files", "Diagnostics"],
-      ["Modules.csv", "Source Models.csv"], ["2 rows (as listed)", "Not exported: This model page has no REMOTE_MODEL axis."]]);
+    expect([page.texts("#view h2"), page.texts("#ovFiles dt"), page.texts("#ovFiles dd")]).toEqual([["About this export", "Tables", "How to read these tables", "Diagnostics"],
+      ["Modules", "Source Models"], ["2 rows (as listed)", "Not exported: This model page has no REMOTE_MODEL axis."]]);
+    // No file's name is on the page: a table is said by its name alone.
+    expect(page.id("view").textContent).not.toMatch(/\.csv/);
 
-    // What the export says both in its summary and in a Files row is on the page once, with the files: the Notes panel
+    // What the export says both in its summary and in a Files row is on the page once, with the tables: the Notes panel
     // has only what is a note.
     const twice: AnalysisResult = { ...model, summary: ["Line Items: 120 rows", "Modules: 2 rows (as listed)", "Source Models: not exported (This model page has no REMOTE_MODEL axis.).",
       "Actions: the Actions list came without Notes."] };
     page.id("runAgain").press();
     sendResult(ports[0], twice);
     expect([page.texts("#view .warn-list li"), page.texts("#ovFiles dt"), page.texts("#ovFiles dd")]).toEqual([["Actions: the Actions list came without Notes."],
-      ["Modules.csv", "Source Models.csv"], ["2 rows (as listed)", "Not exported: This model page has no REMOTE_MODEL axis."]]);
+      ["Modules", "Source Models"], ["2 rows (as listed)", "Not exported: This model page has no REMOTE_MODEL axis."]]);
     expect(["2 rows (as listed)", "REMOTE_MODEL"].map(said => page.id("view").textContent.split(said).length - 1)).toEqual([1, 1]);
 
     // A model two of whose tables list fewer rows than their files have: the Line Items grid with its modules' own rows,
-    // and the calendar with its rows about the model. The Details file counts the CSV's rows, 8 and 31.
+    // and the calendar with its rows about the model. The Details file counts all of each file's rows, 8 and 31.
     const left: AnalysisResult = { ...BLUEPRINT, summary: ["Line Items: 8 rows", "Modules: 3 rows", "Model Calendar: 31 rows"], tables: [...BLUEPRINT.tables, WITH_CALENDAR.tables[3]] };
     const counted = withFiles(left);
     expect(counted.tables[0].rows.filter(row => row[0] === "Files")).toEqual([["Files", "Line Items.csv", "8 rows"], ["Files", "Modules.csv", "3 rows"], ["Files", "Model Calendar.csv", "31 rows"]]);
     page.id("runAgain").press();
     sendResult(ports[0], counted);
-    // The tiles count what the tables list, 5 line items and 26 settings, and say the CSV's 8 and 31 under that: neither
+    // The tiles count what the tables list, 5 line items and 26 settings, and say the 8 and 31 there are in all under that: neither
     // count of the Details file is lost, and no row of it is.
-    expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Model Calendar", "26", "rows", "31 rows in the CSV"], ["Modules", "3", "rows"],
-      ["Line Items", "5", "rows", "8 rows in the CSV"]]);
+    expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Model Calendar", "26", "rows", "31 rows in all"], ["Modules", "3", "rows"],
+      ["Line Items", "5", "rows", "8 rows in all"]]);
     expect([tiles(), unsaid(counted), page.has("#ovFiles"), page.has("#view .warn-list")]).toEqual([["Model Calendar.csv: 26 rows", "Model Calendar.csv: 31 rows", "Modules.csv: 3 rows",
       "Line Items.csv: 5 rows", "Line Items.csv: 8 rows"], [], false, false]);
   });
 
-  it("says what was copied as text, whatever the ID holds", async () => {
+  it("says what was copied as text, whatever the ID holds, for a moment", async () => {
     // An ID is a cell like any other: it can hold what an Anaplan user typed.
     await openWith({ ...APP, tables: APP.tables.map((table, index) => (index === 3 ? { ...table, rows: [["Overview", 1, 1, "Own rows and columns", "REP01 Sales", `card ${TAG}`]] } : table)) });
     goTo(3);
@@ -2079,6 +1997,17 @@ describe("What a click, a key and typing do on the results page", () => {
     page.find("#tableWrap tbody .id-pill").press();
     await settle();
     expect([page.created.map(element => element.value), page.id("toast").textContent, page.has("img")]).toEqual([[`card ${TAG}`], `Copied card ${TAG}`, false]);
+    // The page says so for a moment, counted from the last copy. (The result is kept first: the page does that in a turn
+    // of its own once the clock moves, and would still be at it when the test ends.)
+    await letKeep();
+    vi.advanceTimersByTime(1500);
+    page.find("#tableWrap tbody .id-pill").press();
+    await settle();
+    expect(page.id("toast").classList.contains("show")).toBe(true);
+    vi.advanceTimersByTime(2199);
+    expect(page.id("toast").classList.contains("show")).toBe(true);
+    vi.advanceTimersByTime(1);
+    expect(page.id("toast").classList.contains("show")).toBe(false);
   });
 
   it("copies through a text box when the clipboard refuses, and says so when that fails too", async () => {
@@ -2124,7 +2053,6 @@ describe("An app's Where Used table, by object and by use", () => {
   const MODEL_ID = "0A".repeat(16);
   const WHERE = whereUsed(USES, [["Demo app", "Overview", "Model one", "Main", MODEL_ID], ["Demo app", "Stores", "Model one", "Main", MODEL_ID]],
     [["Overview", 1, "Sales", "Grid", "card-a"], ["Overview", 2, "Margin", "KPI", "card-b"], ["Stores", 1, "Stores grid", "Grid", "card-c"]]);
-  const FILE = WHERE.tables[3];
 
   /** The headings of the columns on screen, and the rows on screen by the text of one column. */
   const headings = () => page.all("#tableWrap thead .th-sort").map(button => button.textContent.trim().replace(/[▲▼]$/, ""));
@@ -2138,7 +2066,7 @@ describe("An app's Where Used table, by object and by use", () => {
 
   it("lists the file by object at first: one row an object, with its pages, its cards and what it is used as; the navigation and the tile count the uses", async () => {
     await openWith(WHERE);
-    // The file's number of uses is what the navigation and the overview's tile say: it is what the CSV holds.
+    // The file's number of uses is what the navigation and the overview's tile say, whichever way the table lists them.
     expect(page.all("#navList .nav-item").filter(item => item.querySelector(".cnt")).map(item => item.children.map(child => child.textContent))).toEqual([["Pages", "2"], ["Cards", "3"], ["Where Used", "8"]]);
     expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Pages", "2", "rows"], ["Cards", "3", "rows"], ["Where Used", "8", "rows"]]);
 
@@ -2154,9 +2082,11 @@ describe("An app's Where Used table, by object and by use", () => {
       ["Module", "REP02 Stores", "—", "1", "1", "Source module"],
       ["Line item", "Revenue", "REP01 Sales", "2", "2", "Line item shown; Filter line item"],
       ["Dimension", "Time", "—", "2", "3", "Column dimension; Context selector"]]);
-    // The line under the name says how many uses that is, and of how many objects. The count beside the pager is the table's.
+    // The line under the name says how many uses that is, and of how many objects, and where each of them is listed: it
+    // names the switch's other button as that reads. The count beside the pager is the table's.
     expect([page.texts("#view .view-note"), page.id("rowCount").textContent, page.id("live").textContent, page.texts("#view h1")])
-      .toEqual([["8 uses of 4 objects. The CSV lists every use."], "1–4 of 4 rows", "Where Used: 4 rows", ["Where Used"]]);
+      .toEqual([["8 uses of 4 objects. Choose Every use to list each one."], "1–4 of 4 rows", "Where Used: 4 rows", ["Where Used"]]);
+    expect(page.texts("#view .view-note")[0]).toContain(`Choose ${page.find('#tableWays [data-way="use"]').textContent.trim()} to list`);
     // No cell of it leads anywhere by itself: a row opens its object.
     expect([page.all('#tableWrap tbody [data-act="page"]').length, page.all('#tableWrap tbody [data-act="card"]').length, page.all('#tableWrap tbody [data-act="row"]').length]).toEqual([0, 0, 4]);
 
@@ -2200,7 +2130,7 @@ describe("An app's Where Used table, by object and by use", () => {
     // Back by object: the sort chosen there is still in force.
     way("object").press();
     expect([ways(), page.document.activeElement === way("object"), column("Object name"), page.texts("#view .view-note")])
-      .toEqual([["By object (shown) filled", "Every use"], true, ["REP02 Stores", "REP01 Sales", "Revenue", "Time"], ["8 uses of 4 objects. The CSV lists every use."]]);
+      .toEqual([["By object (shown) filled", "Every use"], true, ["REP02 Stores", "REP01 Sales", "Revenue", "Time"], ["8 uses of 4 objects. Choose Every use to list each one."]]);
     // The search goes with the user from one way to the other: the object that was looked for, and then its uses.
     page.id("tblSearch").type("time");
     expect(column("Object name")).toEqual(["Time"]);
@@ -2290,7 +2220,7 @@ describe("An app's Where Used table, by object and by use", () => {
       .toEqual(["Time", "Dimension ·  · at least 2 pages, at least 3 cards", false]);
     // Under that line, why: which name is shared, and what the counts can be.
     expect(said.querySelectorAll("div").map(note => note.textContent)).toEqual(['It has 3 uses on a page name that more than one page has: "Overview" (2 pages). '
-      + "The CSV has only the name of a use's page, so which of those pages a use is on is not known. It is on 2 or 3 pages and on 3 or 4 cards."]);
+      + "The table has only the name of a use's page, so which of those pages a use is on is not known. It is on 2 or 3 pages and on 3 or 4 cards."]);
     // Its uses: the three under Overview may be on either page of that name, and the name says that two pages have it,
     // to the eye where it heads them and to a screen reader with each. Stores is one page.
     const listed = () => page.all("#drawerUses tbody tr");
@@ -2321,7 +2251,7 @@ describe("An app's Where Used table, by object and by use", () => {
     const uses = cards.map((card): Cell[] => ["Dimension", "Time", "—", card[0], card[1], "Column dimension", "20000000003"]);
     await openWith(whereUsed([...uses, ["Module", "REP01 Sales", "—", "Page 1", 1, "Source module", "102000000001"]], pages, cards));
     goTo(3);
-    expect([page.texts("#view .view-note"), column("Pages"), column("Cards")]).toEqual([["121 uses of 2 objects. The CSV lists every use."], ["1", "60"], ["1", "120"]]);
+    expect([page.texts("#view .view-note"), column("Pages"), column("Cards")]).toEqual([["121 uses of 2 objects. Choose Every use to list each one."], ["1", "60"], ["1", "120"]]);
     rowButton("Time").press();
     const listed = () => page.all("#drawerUses tbody tr");
     expect([page.id("drawerSub").textContent, page.texts("#drawerBody h3"), listed().length]).toEqual(["Dimension · 20000000003 · 60 pages, 120 cards", ["Used as", "Uses (120)"], 50]);
@@ -2383,23 +2313,6 @@ describe("An app's Where Used table, by object and by use", () => {
     expect(page.id("drawerTitle").textContent).toBe("Card 2 — Margin");
   });
 
-  it("saves the file whole in both ways: every use, as the result has it", async () => {
-    await openWith(WHERE);
-    goTo(3);
-    const csv = tableCsv(FILE);
-    page.id("tblSearch").type("time");
-    page.id("dlCsv").press();
-    expect([page.downloads[0].name, `\ufeff${await saved[0].text()}`, page.id("dlCsv").title]).toEqual(["Where Used.csv", csv, "Download Where Used.csv"]);
-    way("use").press();
-    page.id("dlCsv").press();
-    expect(`\ufeff${await saved[1].text()}`).toBe(csv);
-    expect(csv.split("\r\n").filter(line => line !== "")).toHaveLength(9);
-    page.id("dlAll").press();
-    expect(await bytes(saved[2])).toEqual(resultZip(WHERE, NOW));
-    // The result's own table was not touched.
-    expect(FILE.rows).toEqual(USES);
-  });
-
   it("shows the file's own table, without a switch, where the result does not have what the view by object takes", async () => {
     // An app whose Pages file names no model: the same table as ever.
     await openWith(APP);
@@ -2428,8 +2341,19 @@ describe("A result kept while the results page is refreshed", () => {
   /** The note above the result: its line, its kind, and whether it offers the run's log to copy. */
   const note = () => (page.has("#noteBanner") ? [page.id("noteText").textContent, page.id("noteBanner").classList.contains("warn") ? "warn" : "note", !page.id("noteCopy").hidden] : []);
   const back = (name: string) => eventually(() => page.document.title === `Cardigan — ${name}`, "the result to come back");
+  /** What the page shows of the result on it, view by view as the navigation lists them: each view's own words, which
+   * for a table are its name, its line, its toolbar and the rows of its first page. The page is left on the overview. */
+  const everyView = (): string[] => {
+    // The navigation is written again with each view: an entry is looked up by its name when its turn comes.
+    const views = page.all("#navList [data-nav]").map(entry => entry.dataset.nav).map(name => {
+      page.find(`#navList [data-nav="${name}"]`).press();
+      return page.id("view").textContent.replace(/\s+/g, " ").trim();
+    });
+    page.find('#navList [data-nav="overview"]').press();
+    return views;
+  };
 
-  it("brings the result back after a refresh, under a line that says when it was analysed, and asks the tab nothing; the zip is the same bytes", async () => {
+  it("brings the result back after a refresh, under a line that says when it was analysed, and asks the tab nothing; every view shows what it showed", async () => {
     await openWith(APP);
     // The result is drawn first. The page keeps it in a turn of its own after that, and not before.
     expect([page.texts("#view h1"), session.held.size]).toEqual([["Overview"], 0]);
@@ -2443,8 +2367,8 @@ describe("A result kept while the results page is refreshed", () => {
     vi.advanceTimersByTime(5000);
     await pass(30);
     expect([session.writes, kept()]).toEqual([writes, true]);
-    page.id("dlAll").press();
-    const before = await bytes(saved[0]);
+    const before = everyView();
+    expect([before.length, before[2].startsWith("Cards "), before[2].includes("Sales, copied")]).toEqual([5, true, true]);
 
     // The page is refreshed twenty minutes later. Its address no longer holds the time of the icon's click.
     expect(location.search).toBe(refreshed);
@@ -2462,17 +2386,14 @@ describe("A result kept while the results page is refreshed", () => {
     const line = analysedLine(NOW, later);
     expect(line).toMatch(/^Analysed (today|yesterday) at \d\d:\d\d\. Choose Run again to read Anaplan again\.$/);
     expect([note(), page.id("banners").children.length, page.id("live").textContent]).toEqual([[line, "note", false], 1, `Demo app. ${line}`]);
-    // The run control says "again", and the downloads are there.
-    expect([runControl().slice(0, 2), disabled("runAgain", "dlAll", "dlCsv")]).toEqual([["Run again", "Analyse the Anaplan tab again"], [false, false, false]]);
+    // The run control says "again".
+    expect([runControl().slice(0, 2), disabled("runAgain")]).toEqual([["Run again", "Analyse the Anaplan tab again"], [false]]);
     // The page has asked the tab nothing. When the tab says what it shows, nothing changes either: no run starts by itself.
     expect(ports[1].posted).toEqual([]);
     ports[1].send({ type: "subject", subject: { kind: "app", id: APP.id } });
     expect([ports[1].posted, note()[0], page.has("#runBanner"), page.texts("#view h1"), runControl()[0]]).toEqual([[], line, false, ["Overview"], "Run again"]);
-    // The zip carries the time the result was complete at, before the refresh: it is the same bytes as then.
-    page.id("dlAll").press();
-    const after = await bytes(saved[1]);
-    expect([after.length === before.length && after.every((byte, index) => byte === before[index]), page.downloads[0].name]).toEqual([true, APP.zipName]);
-    expect(after).toEqual(resultZip(APP, NOW));
+    // Every view of the result shows what it showed before the refresh, word for word.
+    expect(everyView()).toEqual(before);
     // The result's tables work as ever, under the same line.
     goTo(2);
     expect([firstCells().length, page.id("rowCount").textContent, note()[0]]).toEqual([4, "1–4 of 4 rows", line]);
@@ -2537,15 +2458,12 @@ describe("A result kept while the results page is refreshed", () => {
     sendResult(ports[1], next);
     expect([page.document.title, page.id("banners").children, page.id("live").textContent]).toEqual(["Cardigan — Demo app, read again", [], "Analysis finished: Demo app, read again"]);
     await letKeep();
-    page.id("dlAll").press();
-    const before = await bytes(saved[0]);
+    const before = everyView();
     await open(refreshed);
     await back("Demo app, read again");
     const line = analysedLine(again, again);
     expect([note()[0], line.startsWith("Analysed today at ")]).toEqual([line, true]);
-    page.id("dlAll").press();
-    expect(await bytes(saved[1])).toEqual(before);
-    expect(before).toEqual(resultZip(next, again));
+    expect(everyView()).toEqual(before);
   });
 
   it("leaves a result that a run brought meanwhile where it is: the one that was kept is the older", async () => {
@@ -2592,10 +2510,10 @@ describe("A result kept while the results page is refreshed", () => {
     await openWith(APP);
     vi.advanceTimersByTime(0);
     await eventually(() => page.has("#noteBanner"), "the note");
-    // A note, not a failure: the result is there, and so are its downloads. Nothing of it is in the storage.
+    // A note, not a failure: the result is there. Nothing of it is in the storage.
     expect(note()).toEqual([TOO_LARGE_NOTE, "note", true]);
-    expect([page.id("banners").children.length, page.id("live").textContent, page.texts("#view h1"), disabled("runAgain", "dlAll", "dlCsv"), session.held.size])
-      .toEqual([1, TOO_LARGE_NOTE, ["Overview"], [false, false, false], 0]);
+    expect([page.id("banners").children.length, page.id("live").textContent, page.texts("#view h1"), disabled("runAgain"), session.held.size])
+      .toEqual([1, TOO_LARGE_NOTE, ["Overview"], [false], 0]);
     // Why is in the run's log, which the note's button copies, and not on the page.
     page.id("noteCopy").press();
     await settle();
@@ -2697,11 +2615,9 @@ describe("A result kept while the results page is refreshed", () => {
     expect([page.texts("#view h1"), page.has("#noteBanner"), kept()]).toEqual([["Overview"], true, true]);
     goTo(1);
     expect(page.all("#tableWrap tbody tr").map(row => row.children.map(cell => cell.textContent.trim()))).toEqual([["Demo app", "[object Object]", ""], ["Demo app", "Overview (copy)", "true"]]);
-    // Its downloads are written from the same cells.
-    page.id("dlCsv").press();
-    expect(await saved[0].text()).toBe("App,Page,Total cards,Page ID\r\nDemo app,[object Object],,\"a,b\"\r\nDemo app,Overview (copy),true,page-2\r\n");
-    page.id("dlAll").press();
-    expect((await bytes(saved[1])).length).toBeGreaterThan(500);
+    // A row's drawer has the cell of the column that starts hidden as well, as text too.
+    page.all('#tableWrap tbody [data-act="row"]')[0].press();
+    expect(page.all("#drawerBody dd").map(value => value.textContent)).toEqual(["Demo app", "[object Object]", "", "a,b"]);
   });
 
   it("forgets a kept result that it fails to show, and shows the waiting view in its place", async () => {
@@ -2717,7 +2633,7 @@ describe("A result kept while the results page is refreshed", () => {
     // kept nothing, and what was kept is gone.
     expect([page.texts("#view h1"), page.id("runStatus").textContent, page.has("#noteBanner"), page.id("navList").children, page.id("sidenav").hidden, page.document.title])
       .toEqual([["Connecting"], "Connecting to the Anaplan tab…", false, [], true, "Cardigan"]);
-    expect([session.held.size, runControl()[0], disabled("runAgain", "dlAll", "dlCsv")]).toEqual([0, "Run", [false, true, true]]);
+    expect([session.held.size, runControl()[0], disabled("runAgain")]).toEqual([0, "Run", [false]]);
     ports[1].send({ type: "subject", subject: { kind: "app", id: APP.id } });
     expect([page.id("runTitle").textContent, page.id("runHint").textContent, ports[1].posted])
       .toEqual(["Ready to analyse", "Choose Run to analyse it. This page starts by itself only when the Cardigan icon has just opened it.", []]);
@@ -2762,7 +2678,7 @@ describe("A result kept while the results page is refreshed", () => {
     // The page is then the one that kept nothing: the waiting view, no navigation, and Run. What was kept is gone.
     expect(parts()).toEqual(["Cardigan", "", 0, 0, "", ["Connecting"]]);
     expect([page.id("runStatus").textContent, page.has("#noteBanner"), page.id("sidenav").hidden, said]).toEqual(["Connecting to the Anaplan tab…", false, true, "Connecting to the Anaplan tab…"]);
-    expect([session.held.size, runControl()[0], disabled("runAgain", "dlAll", "dlCsv")]).toEqual([0, "Run", [false, true, true]]);
+    expect([session.held.size, runControl()[0], disabled("runAgain")]).toEqual([0, "Run", [false]]);
   });
 
   it("shows no note about a result that another result has replaced by the time its keeping ends", async () => {
@@ -2907,15 +2823,13 @@ describe("A result kept while the results page is refreshed", () => {
     expect([keptPlace(), page.document.title]).toEqual([FORGOTTEN, "Cardigan — Noise"]);
   });
 
-  it("leaves the result on the page when its kept copy is forgotten, with both downloads; the control goes, and one line says so in its place", async () => {
+  it("leaves the result on the page when its kept copy is forgotten; the control goes, and one line says so in its place", async () => {
     await openWith(APP);
     await letKeep();
     const control = await offered();
-    page.id("dlAll").press();
-    const before = await bytes(saved[0]);
     /** What the page shows of the result: its name, its overview, its navigation, the details of the export, and its controls. */
     const shown = () => [page.document.title, page.texts("#hdMeta .meta-app"), page.texts("#view h1"), page.texts("#view .s-lab"), page.all("#navList .nav-item").map(item => item.children[0].textContent),
-      page.id("sidenav").hidden, page.texts("#ovAbout dd"), page.texts("#view h2"), disabled("runAgain", "dlAll", "dlCsv"), runControl()[0], page.id("toast").textContent, page.id("banners").children.length];
+      page.id("sidenav").hidden, page.texts("#ovAbout dd"), page.texts("#view h2"), disabled("runAgain"), runControl()[0], page.id("toast").textContent, page.id("banners").children.length];
     const was = shown();
     expect(was.slice(0, 3)).toEqual(["Cardigan — Demo app", ["Demo app"], ["Overview"]]);
 
@@ -2934,17 +2848,8 @@ describe("A result kept while the results page is refreshed", () => {
     // The result is on the page as it was, every part of it.
     expect(shown()).toEqual(was);
 
-    // Both downloads give what they gave, however much later: the zip, the same bytes as before, and a table's file.
-    vi.setSystemTime(new Date(NOW.getTime() + 3_600_000));
-    page.id("dlAll").press();
-    expect(await bytes(saved[1])).toEqual(before);
-    expect(before).toEqual(resultZip(APP, NOW));
-    page.id("dlCsv").press();
-    goTo(2);
-    page.id("dlCsv").press();
-    expect(page.downloads.map(download => download.name)).toEqual([APP.zipName, APP.zipName, "App Details.csv", "Cards.csv"]);
-    expect([await saved[2].text(), await saved[3].text()]).toEqual([APP.tables[0], APP.tables[2]].map(table => tableCsv(table).replace(/^﻿/, "")));
     // Its tables work as ever, and a card still opens.
+    goTo(2);
     expect([firstCells().length, page.id("rowCount").textContent]).toEqual([4, "1–4 of 4 rows"]);
     page.all('#tableWrap tbody [data-act="card"]')[1].press();
     expect(page.id("drawerTitle").textContent).toBe("Card 2 — Margin");
@@ -2965,7 +2870,7 @@ describe("A result kept while the results page is refreshed", () => {
     expect([page.texts("#view h1"), page.has("#noteBanner"), page.has("#ovKept"), page.document.title, page.id("sidenav").hidden, session.held.size])
       .toEqual([["Connecting"], false, false, "Cardigan", true, 0]);
     ports[1].send({ type: "subject", subject: { kind: "app", id: APP.id } });
-    expect([page.id("runTitle").textContent, runControl()[0], ports[1].posted, disabled("runAgain", "dlAll", "dlCsv")]).toEqual(["Ready to analyse", "Run", [], [false, true, true]]);
+    expect([page.id("runTitle").textContent, runControl()[0], ports[1].posted, disabled("runAgain")]).toEqual(["Ready to analyse", "Run", [], [false]]);
 
     // The same for a result that a refresh had brought back: forgotten there, the next refresh finds nothing.
     page.id("runAgain").press();
@@ -3011,11 +2916,11 @@ describe("A result kept while the results page is refreshed", () => {
     expect([page.find('#ovKept [data-act="forget"]') === control, page.document.activeElement === control, control.focusable, control.hasAttribute("aria-describedby")])
       .toEqual([true, true, true, false]);
     // The place holds what the overview writes for a copy that was not removed, to the character, and the overview writes
-    // that when it is shown again. The result is on the page, with its downloads.
+    // that when it is shown again. The result is on the page.
     expect(page.id("ovKept").innerHTML).toBe(parseMarkup(keptCopyHtml("not-removed")).innerHTML);
     goTo(2);
     toOverview();
-    expect([keptPlace(), page.document.title, disabled("runAgain", "dlAll", "dlCsv")]).toEqual([NOT_REMOVED, "Cardigan — Demo app", [false, false, false]]);
+    expect([keptPlace(), page.document.title, disabled("runAgain")]).toEqual([NOT_REMOVED, "Cardigan — Demo app", [false]]);
 
     // A refresh brings the result back, and nothing said it would not. The line then says that a copy is kept, which is true.
     await open(refreshed);
@@ -3393,7 +3298,7 @@ describe("The navigation of the results page, shown or put away", () => {
     expect([shows(), says(), page.document.activeElement === page.id("view")]).toEqual([["Overview", "Overview"], HIDDEN, true]);
   });
 
-  it("asks nothing of a model's map when the navigation goes or comes back, and leaves the downloads as they are", async () => {
+  it("asks nothing of a model's map when the navigation goes or comes back", async () => {
     await openWithModel();
     page.find('#navList [data-nav="map"]').press();
     const [host, drawn, asked] = [page.id("mapHost"), page.id("mapHost").children[0], [...mapAsked]];
@@ -3405,11 +3310,6 @@ describe("The navigation of the results page, shown or put away", () => {
     button().press();
     button().press();
     expect([says(), mapAsked, host.hidden, host.children[0] === drawn]).toEqual([HIDDEN, asked, false, true]);
-    // The files are the result's, the same bytes with the navigation put away.
-    page.id("dlAll").press();
-    goTo(1);
-    page.id("dlCsv").press();
-    expect([await bytes(saved[0]), `﻿${await saved[1].text()}`]).toEqual([resultZip(MODEL, NOW), tableCsv(MODEL.tables[1])]);
   });
 
   it("has no key of its own: the button alone puts the navigation away and brings it back", async () => {
@@ -3503,7 +3403,15 @@ describe("A model's map on the results page", () => {
     tables: [{ ...MODEL.tables[0], rows: [MODEL.tables[0].rows[0], ["Model", "Workspace", workspace], ...MODEL.tables[0].rows.slice(1)] }, ...MODEL.tables.slice(1)] });
 
   it("lists Model map last in a model's navigation, as an entry like any other, and builds nothing for it; an app has none", async () => {
-    await openWith(MODEL);
+    // Before there is a result there is no map: a link that names one builds nothing, and the result comes to its overview.
+    await open("?tab=42");
+    page.id("banners").innerHTML = '<button type="button" data-nav="map">Map</button>';
+    page.find('#banners [data-nav="map"]').press();
+    ports[0].send({ type: "subject", subject: { kind: "model", id: MODEL.id } });
+    expect([page.id("runTitle").textContent, mapAsked]).toEqual(["Ready to analyse", []]);
+    page.id("runAgain").press();
+    sendResult(ports[0], MODEL);
+    expect([shows(), mapAsked]).toEqual([["Overview", "Overview", "Overview"], []]);
     const entries = () => page.all("#navList .nav-item");
     expect(entries().map(item => item.children.map(child => child.textContent))).toEqual([["Overview"], ["Modules", "2"], ["Line Items", "120"], ["Model map"]]);
     // An entry like the others: a button the Tab key reaches, which nothing marks as off or as still to come.
@@ -3566,9 +3474,8 @@ describe("A model's map on the results page", () => {
     // the breadcrumb say where the user is, and the breadcrumb leads back to the overview.
     expect([shows(), host().hidden, page.id("view").children.map(child => [child.localName, child.getAttribute("class")]), page.has("#tableWrap"), page.texts("#crumbs button")])
       .toEqual([["Model map", "Model map", "Model map"], false, [["h1", "sr-only"]], false, ["Overview"]]);
-    // The view takes the focus, as every view does, and the page says what it shows. No table is shown, so there is
-    // none to download; the result's zip is there as ever.
-    expect([page.document.activeElement === page.id("view"), page.id("live").textContent, disabled("dlAll", "dlCsv")]).toEqual([true, "Model map", [false, true]]);
+    // The view takes the focus, as every view does, and the page says what it shows.
+    expect([page.document.activeElement === page.id("view"), page.id("live").textContent]).toEqual([true, "Model map"]);
     // The navigation gives up height to the map while it is shown, and the map's entry is its last: the page brings
     // the entry into sight, where the navigation has to scroll for that.
     expect(page.all("#navList .nav-item").map(item => item.broughtIntoSight)).toEqual([0, 0, 0, 1]);
@@ -3582,7 +3489,7 @@ describe("A model's map on the results page", () => {
     // Another view: the map is told that it is hidden, and its place gives the room back. The table is as any table
     // that was left: whole again.
     goTo(1);
-    expect([mapAsked.slice(5), host().hidden, shows(), page.id("rowCount").textContent, page.id("dlCsv").disabled]).toEqual([["hide 1"], true, ["Line Items", "Line Items", "Line Items"], "1–50 of 120 rows", false]);
+    expect([mapAsked.slice(5), host().hidden, shows(), page.id("rowCount").textContent]).toEqual([["hide 1"], true, ["Line Items", "Line Items", "Line Items"], "1–50 of 120 rows"]);
     // What the map made stays in its place, out of reach while it is hidden, and the view that is shown has the focus.
     expect([host().children.length, mapMounts[0].button.isConnected, mapMounts[0].button.focusable, page.document.activeElement === page.id("view")]).toEqual([1, true, false, true]);
     // Going on from view to view asks nothing of a map that is hidden.
@@ -3597,13 +3504,6 @@ describe("A model's map on the results page", () => {
     // The breadcrumb's Overview leaves the map as the navigation does.
     page.find('#crumbs [data-nav="overview"]').press();
     expect([mapAsked.slice(7), host().hidden, shows()]).toEqual([["hide 1"], true, ["Overview", "Overview", "Overview"]]);
-
-    // The downloads are the result's own, with the map shown or not: the zip is the same bytes.
-    toMap();
-    page.id("dlAll").press();
-    toOverview();
-    page.id("dlAll").press();
-    expect([await bytes(saved[0]), await bytes(saved[1])]).toEqual([resultZip(MODEL, NOW), resultZip(MODEL, NOW)]);
   });
 
   it("gives the map the focus back when its entry is chosen again while it is shown: the map is shown anew, and is not built again", async () => {
@@ -3655,60 +3555,6 @@ describe("A model's map on the results page", () => {
     // Its entry, chosen again, has no map to show anew: nothing is asked, and the view says the same.
     toMap();
     expect([mapAsked.length, notDrawn(), page.document.activeElement === page.id("view")]).toEqual([16, [MAP_FAILED], true]);
-  });
-
-  it("says on Download this table why it is off while the map is the view: the map has no file of its own", async () => {
-    /** The control: whether it is off, its title, and its description for a screen reader. */
-    const control = () => [page.id("dlCsv").disabled, page.id("dlCsv").title, page.id("dlCsv").getAttribute("aria-description")];
-    await open("?tab=42");
-    // Before there is a result the control is off as every download is, and that needs no saying. Nor does a link that
-    // names the map make it say so, where there is no result to have a map.
-    expect(control()).toEqual([true, "", null]);
-    page.id("banners").innerHTML = '<button type="button" data-nav="map">Map</button>';
-    page.find('#banners [data-nav="map"]').press();
-    ports[0].send({ type: "subject", subject: { kind: "model", id: MODEL.id } });
-    expect([page.id("runTitle").textContent, control(), mapAsked]).toEqual(["Ready to analyse", [true, "", null], []]);
-    page.id("runAgain").press();
-    sendResult(ports[0], MODEL);
-    // On the overview it saves the Details file, and its title says so.
-    expect(control()).toEqual([false, "Download Model Details.csv", null]);
-
-    toMap();
-    // On the map it is off, and says why on itself, in the page's own words: in its title, for whoever points at it,
-    // and as its description, for a screen reader. Its name is as ever, and the result's zip is there to download.
-    expect(MAP_NO_FILE).toBe("The model map has no file of its own: the tables it is made from are under their own entries.");
-    expect(control()).toEqual([true, MAP_NO_FILE, MAP_NO_FILE]);
-    expect([page.id("dlCsv").textContent.trim(), page.id("dlAll").disabled, page.id("dlCsv").focusable]).toEqual(["Download this table (.csv)", false, false]);
-    // It saves nothing there.
-    page.id("dlCsv").press();
-    expect([page.downloads, saved]).toEqual([[], []]);
-    // The entry chosen again leaves the control as it is.
-    toMap();
-    expect(control()).toEqual([true, MAP_NO_FILE, MAP_NO_FILE]);
-
-    // A table, and the overview: it saves a file again, says which, and nothing of the reason is left on it.
-    goTo(1);
-    expect(control()).toEqual([false, "Download Line Items.csv", null]);
-    page.id("dlCsv").press();
-    expect(page.downloads.map(download => download.name)).toEqual(["Line Items.csv"]);
-    toMap();
-    toOverview();
-    expect(control()).toEqual([false, "Download Model Details.csv", null]);
-    // A run that starts while the map is shown puts the overview in its place: the control is the overview's again.
-    toMap();
-    expect(control()).toEqual([true, MAP_NO_FILE, MAP_NO_FILE]);
-    page.id("runAgain").press();
-    expect([shows()[0], control()]).toEqual(["Overview", [false, "Download Model Details.csv", null]]);
-
-    // A map that could not be drawn has no file either: its view says so on the control in the same words.
-    mapThrows.build = new Error("No graph.");
-    sendResult(ports[0], MODEL);
-    toMap();
-    expect([notDrawn(), control()]).toEqual([[MAP_FAILED], [true, MAP_NO_FILE, MAP_NO_FILE]]);
-    // An app has no map, and its control never says so.
-    page.id("runAgain").press();
-    sendResult(ports[0], APP);
-    expect(control()).toEqual([false, "Download App Details.csv", null]);
   });
 
   it("tells a mounted map that the theme has changed, shown or hidden, once the page has the new theme; a map that is not mounted is told nothing", async () => {
@@ -3843,11 +3689,11 @@ describe("A model's map on the results page", () => {
     sendResult(ports[0], MODEL);
     goTo(1);
     toMap();
-    // The view says so under its heading, in one sentence that says what to do, and the page says it to a screen reader.
+    // The view says so under its heading, with what to do, and the page says it to a screen reader.
     // The page's place for the map is hidden and empty, and nothing was mounted.
     expect([shows(), notDrawn(), page.id("live").textContent, host().hidden, host().childNodes.length, mapAsked])
       .toEqual([["Model map", "Model map", "Model map"], [MAP_FAILED], MAP_FAILED, true, 0, ["build"]]);
-    expect(MAP_FAILED).toBe("The model map could not be drawn: download the files as usual, then choose Copy diagnostic log and send the log.");
+    expect(MAP_FAILED).toBe("The model map could not be drawn. The tables are not affected. Choose Copy diagnostic log and send the log.");
     // Why is not on the page. It is in the run's log, after the run's own lines, and the button the sentence names copies that.
     expect(page.find("body").textContent).not.toContain("Cannot read");
     const copy = page.find('#view [data-act="copy-run-log"]');
@@ -3858,14 +3704,10 @@ describe("A model's map on the results page", () => {
     expect(copied[0].split("\n")[1]).toMatch(/^\d\d:\d\d:\d\d Model map: buildModelGraph failed \(TypeError: Cannot read properties of undefined \(reading 'rows'\)\)\.$/);
     expect(copied[0].split("\n")).toHaveLength(2);
 
-    // The rest of the page works on: the files are there to download, the same bytes as ever, and the tables open.
-    expect(disabled("runAgain", "dlAll", "dlCsv")).toEqual([false, false, true]);
-    page.id("dlAll").press();
-    expect([page.downloads[0].name, await bytes(saved[0])]).toEqual([MODEL.zipName, resultZip(MODEL, NOW)]);
+    // The rest of the page works on: Run again is there, and the tables open.
+    expect(disabled("runAgain")).toEqual([false]);
     goTo(1);
     expect([shows()[0], firstCells().length, page.has("#view .banner")]).toEqual(["Line Items", 50, false]);
-    page.id("dlCsv").press();
-    expect(`\ufeff${await saved[1].text()}`).toBe(tableCsv(MODEL.tables[1]));
     // Chosen again, the entry says the same without another try: the graph is not built twice for one result, and the
     // log has its one line.
     toMap();
@@ -3902,11 +3744,9 @@ describe("A model's map on the results page", () => {
     page.find('#view [data-act="copy-run-log"]').press();
     await settle();
     expect(copied[1]).toMatch(/^\d\d:\d\d:\d\d Model map: show failed \(RangeError: The host has no size\.\)\.$/);
-    // The page is whole: its other views, and the result's files.
+    // The page is whole: its other views are as they were.
     goTo(2);
     expect([shows()[0], firstCells()]).toEqual(["Modules", ["Revenue", "Cost"]]);
-    page.id("dlAll").press();
-    expect(await bytes(saved[0])).toEqual(resultZip(MODEL, NOW));
   });
 
   it("works on when the map itself fails as it is told of the theme, hidden or removed: each reason is in the run's log", async () => {
@@ -3976,14 +3816,10 @@ describe("A model's map on the results page", () => {
     expect(copied[0].split("\n")[1]).toMatch(/^\d\d:\d\d:\d\d Model map: stopped after it was drawn \(Cannot read properties of undefined \(reading 'x'\)\)\.$/);
     expect(copied[0].split("\n")).toHaveLength(2);
 
-    // The rest of the page works on: the files are there to download, the same bytes as ever, and the tables open.
-    expect(disabled("runAgain", "dlAll", "dlCsv")).toEqual([false, false, true]);
-    page.id("dlAll").press();
-    expect([page.downloads[0].name, await bytes(saved[0])]).toEqual([MODEL.zipName, resultZip(MODEL, NOW)]);
+    // The rest of the page works on: Run again is there, and the tables open.
+    expect(disabled("runAgain")).toEqual([false]);
     goTo(1);
     expect([shows()[0], firstCells().length, page.has("#view .banner")]).toEqual(["Line Items", 50, false]);
-    page.id("dlCsv").press();
-    expect(`\ufeff${await saved[1].text()}`).toBe(tableCsv(MODEL.tables[1]));
     // The failure is remembered for this result, as one of building the graph is: the entry, chosen again, says the same
     // without another try. A map that was taken away is not heard any more, whatever it tells: the log has its one line.
     mapMounts[0].stops("And once more.");

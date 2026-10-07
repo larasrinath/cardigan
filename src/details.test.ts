@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DETAILS_HEADERS, diagnosticRows, exportRows, stampLine } from "./details.js";
-import { toCsv } from "./zip.js";
+import { toCsv } from "./zip.test-support.js";
 
 describe("App Details.csv and Model Details.csv", () => {
   afterEach(() => vi.useRealTimers());

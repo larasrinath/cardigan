@@ -18,8 +18,7 @@ export const APP_FILES: Record<TabName, string> = {
  *
  * Two kinds of column start hidden in every one of the app's tables: the IDs, and what only numbers a row's place, a
  * card's number and a section's (`NUMBERS_HIDDEN`). A row says where it belongs in words, by its page and its card's
- * title or its own name. A hidden column is still in the column chooser, in the search, in the row's drawer and in the
- * CSV, which always has every column. */
+ * title or its own name. A hidden column is still in the column chooser, in the search and in the row's drawer. */
 
 export type ColumnKind = "text" | "id" | "tag" | "page" | "card";
 
@@ -27,7 +26,7 @@ export interface Column {
   /** The column's position in the table's headers and in each row. */
   index: number;
   /** The name the page shows: the header, or a name of the page's own for a header that is empty. Every file of a model
-   * starts with such a column, the one that names each row. The CSV keeps the empty header. */
+   * starts with such a column, the one that names each row. The file keeps the empty header. */
   label: string;
   kind: ColumnKind;
   /** Right-aligned, as the design shows numbers. */
@@ -119,7 +118,7 @@ export function columnsOf(table: ResultTable): Column[] {
 }
 
 /** The columns of one row in full: the table's, then one for each cell the row holds beyond its headers, under a name of
- * the page's own. The CSV holds those cells, so the place where a row is read in full shows them too. */
+ * the page's own. The row holds those cells, so the place where a row is read in full shows them too. */
 export function rowColumns(columns: readonly Column[], row: readonly unknown[]): Column[] {
   const beyond = Array.from({ length: Math.max(0, row.length - columns.length) }, (_, extra): Column => {
     const index = columns.length + extra;

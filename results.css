@@ -152,7 +152,7 @@ main{flex:1;min-width:0}
 }
 .crumbs .ctx button{display:inline-flex;color:inherit;border-radius:999px;padding:1px}
 .view-title{font-size:17px;font-weight:650;margin:0 0 12px}
-/* The line under a table's name that says what the table leaves to the CSV: close under the name, in the secondary text. */
+/* The line under a table's name that says what the table lists and what it leaves out: close under the name, in the secondary text. */
 .view-note{font-size:12px;color:var(--text-2);margin:-6px 0 12px}
 
 /* ---------- toolbar ---------- */
@@ -418,7 +418,7 @@ main:has(> #mapHost:not([hidden])){align-self:stretch;display:flex;flex-directio
 /* ---------- the measure ---------- */
 /* Where the navigation stands beside the content, the content is as wide as the window lets it be, and prose would run
    to lines of any length. There it keeps to the measure (`--measure`), in a box that is as wide as the rest:
-   - a note of the overview, and each paragraph of how to read the files. A row of that list is as wide as the list, as
+   - a note of the overview, and each paragraph of how to read the tables. A row of that list is as wide as the list, as
      in every list of details: its words keep to the measure by the room the row leaves empty after them.
    - the words of an empty state and of a run, which stand in the middle.
    - the line under a table's name, which may run to twice the measure before it takes a second line: a line more

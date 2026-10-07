@@ -4,9 +4,9 @@ import { cellText } from "./table-engine.js";
 /** The model's Line Items table as the results page shows it: a table of line items. The file is laid out as Anaplan's own
  * Line Items grid for all modules, which is every module's blueprint in one grid: a module's own row (its name and its
  * Applies To, no format and no summary), then that module's line items, where a line item with no dimensions of its own
- * shows a dash under Applies To. That is what the CSV holds, and the CSV stays as it is. The page leaves the modules' rows
+ * shows a dash under Applies To. That is what the file holds, and the file stays as it is. The page leaves the modules' rows
  * out, names each line item's module directly after its own name, and shows under Applies To the dimensions the line item
- * really has. The table given is never changed, and a download is written from it, never from the view.
+ * really has. The table given is never changed: a model's map is built from it, never from the view.
  *
  * A module's own row names no module under Module Name and has no Format, no Formula and no Summary. A line item's row
  * names its module there, and always has a Format and a Summary (the classic client parses every line item's Format, and
@@ -58,7 +58,7 @@ const DASH = "-";
 
 export interface LineItemsView {
   /** The table to show: headers and rows of flat cells, as columns.ts and table-engine.ts take them. It is the table
-   * given, itself, when the view does not apply to it. It is for showing only: the CSV is written from the table given. */
+   * given, itself, when the view does not apply to it. It is for showing only: the table given stays as it is. */
   table: ResultTable;
   /** The modules' own rows left out of `table`. */
   moduleRows: number;
@@ -77,8 +77,8 @@ const count = (amount: number, one: string, many: string): string => (amount ===
  * of the modules have no line items. That last part stays last: the page adds to it where those modules are listed
  * (result-view.ts). */
 function noteOf(moduleRows: number, unnamed: number, emptyModules: number): string {
-  const except = unnamed === 0 ? "" : `, except ${count(unnamed, "whose module is not known: it has", "whose module is not known: they have")} no ${MODULE_NAME} in the file`;
-  const left = `${count(moduleRows, "module row is", "module rows are")} in the CSV only; each line item shows its module${except}.`;
+  const except = unnamed === 0 ? "" : `, except ${count(unnamed, "whose module is not known: it has", "whose module is not known: they have")} no ${MODULE_NAME}`;
+  const left = `${count(moduleRows, "module row is", "module rows are")} not listed here; each line item shows its module${except}.`;
   return emptyModules === 0 ? left : `${left} ${count(emptyModules, "module has no line items, so it is", "modules have no line items, so they are")} not in this table.`;
 }
 
@@ -137,7 +137,7 @@ function viewOf(table: ResultTable, moduleNames: ReadonlySet<string> | undefined
       : itsModule ? [itsModule.appliesTo, APPLIES_TO_SOURCE.module]
       : [own, APPLIES_TO_SOURCE.notFound];
     const cells: Cell[] = order.flatMap(index => (index === appliesTo ? [shown, from] : [row[index] ?? ""]));
-    // The cells a row holds beyond the headers stay after them, as the CSV has them.
+    // The cells a row holds beyond the headers stay after them, as the file has them.
     for (let index = headers.length; index < row.length; index++) cells.push(row[index] ?? "");
     rows.push(cells);
   }
