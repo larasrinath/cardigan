@@ -957,7 +957,7 @@ describe("Model export: Model settings grids to tables", () => {
       .toEqual([["Flags,Open,Read,,Stray"], ["Flags,Open,Read,Stray,"], ["Flags,Open,Read,Stray,"]]);
   });
 
-  it("takes a Dynamic Cell Access table that cannot be made for that file's failure, in the file's place and with no line in the log, and exports the other files as they are", async () => {
+  it("takes a Dynamic Cell Access table that cannot be made for that file's failure, in the file's place and with the reason in the log, and exports the other files as they are", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date(Date.UTC(2026, 8, 28, 12, 30, 10)));
     const grids = { ...GOLDEN_GRIDS, ...ACCESS_GRIDS };
@@ -973,9 +973,10 @@ describe("Model export: Model settings grids to tables", () => {
       ["Dynamic Cell Access: not exported (no table).", "Source Models: not exported (This model page has no REMOTE_MODEL axis.)."]]);
     // Every other file is the one the export writes when the table is made, cell for cell: no file depends on this one.
     for (const table of result.tables.slice(1)) expect(table, table.file).toEqual(whole.tables.find(other => other.file === table.file));
-    // The reason is in the Details file's row. The export reports the same steps and lines either way: the file is no
-    // step of its own, and its failure no line of the log.
-    expect([saidWithout, said.length]).toEqual([said, 23]);
+    // The reason is in the Details file's row and, as any other file's failure is, in the log: one line more, after
+    // the lines of the last grid, since the file is made once every grid is read. The file is still no step of its own.
+    expect([said.length, saidWithout]).toEqual([23, [...said, "12:30:10 Dynamic Cell Access: no table"]]);
+    expect(result.tables[0].rows.filter(row => row[0] === "Diagnostics").at(-1)).toEqual(["Diagnostics", "12:30:10", "Dynamic Cell Access: no table"]);
   });
 });
 
