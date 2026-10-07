@@ -176,27 +176,19 @@ You need Node 20.19+, 22.12+ or 24+.
 | `npm run check` | Type-check, both test suites and the build. GitHub Actions runs it on every push and pull request |
 | `npm run package` | Builds, then writes the release zip |
 | `npm run icons` | Redraws `icons/*.png` |
-| `npm run check:card-reader` | Compares the card reader with SAM's copy |
 
 To run from source, choose **Load unpacked** and select the repository root. After a rebuild, reload the extension and refresh the Anaplan tab. `dist/` is not in Git: build after every pull.
 
-In the Anaplan tab, `src/content.ts` and `src/analyse.ts` read an app, and `src/model-content.ts` and `src/model/` export a model through the page's own client. `src/background.ts` opens the results page: `results.html`, `results.css` and `src/results/`. `src/map/` builds a model's map from the tables of its export and draws it on the page, styled by `map.css`. `src/protocol.ts` lists the messages between the page and the tab.
+In the Anaplan tab, `src/content.ts` and `src/analyse.ts` read an app, and `src/model-content.ts` and `src/model/` export a model through the page's own client. `src/card-reader/` reads a page's cards, and `docs/research/` holds the notes on the page definition formats it follows. `src/background.ts` opens the results page: `results.html`, `results.css` and `src/results/`. `src/map/` builds a model's map from the tables of its export and draws it on the page, styled by `map.css`. `src/protocol.ts` lists the messages between the page and the tab.
 
 ### Release
 
 1. Set the new `version` in `manifest.json`, `package.json` and `package-lock.json` (two fields), and add the release to [CHANGELOG.md](CHANGELOG.md).
-2. Run `npm run check:card-reader -- <path to anaplan-sam>`. It must report the five files identical.
-3. Run `npm run check`.
-4. Run `npm run package`. It writes `release/cardigan-<version>.zip` and prints its SHA-256.
-5. Publish the zip with its SHA-256.
+2. Run `npm run check`.
+3. Run `npm run package`. It writes `release/cardigan-<version>.zip` and prints its SHA-256.
+4. Publish the zip with its SHA-256.
 
 The zip holds the twelve files Chrome loads: `manifest.json`, four bundles, four icons, `results.html`, `results.css` and `map.css`. The same files always give the same bytes. The packager refuses a version that differs between `manifest.json` and `package.json`, a missing or stale bundle, a results page that loads a file outside the zip, and a manifest that asks for a permission or has no content security policy that keeps everything inside the package.
-
-### The card reader
-
-The app analysis reads cards with the code of SAM's `describe_ux_page_cards` tool, in the `anaplan-sam` repository. Each repository keeps a copy: `src/card-reader/` here, `src/domains/ux-designer/` there. Five files must stay byte-for-byte identical: `card-details.ts`, `card-naming.ts`, `card-types.ts`, `definition-json.ts` and `definition-types.ts`. Change them the same way in both.
-
-`npm run check:card-reader` names each file that differs, and fails. Without a path it looks in `../anaplan-sam`; with no checkout there it is skipped, as in CI. `docs/research/` holds the notes on the page definition formats the reader follows.
 
 ## Licence
 
