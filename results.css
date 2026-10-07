@@ -16,6 +16,8 @@
   --mono:ui-monospace,"SF Mono","Cascadia Mono","Roboto Mono",Consolas,"Liberation Mono",monospace;
   --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
   --r-xs:4px; --r-sm:8px; --r-md:12px;
+  /* The room at the window's two sides, and between the navigation and the content. */
+  --gutter:12px;
 }
 :root[data-theme="dark"]{
   color-scheme:dark;
@@ -52,7 +54,7 @@ input,select{font:inherit;color:inherit}
 /* ---------- header ---------- */
 .hd{
   position:sticky;top:0;z-index:40;display:flex;flex-wrap:wrap;align-items:center;gap:16px;
-  padding:10px 20px;background:var(--panel);border-bottom:1px solid var(--border);
+  padding:10px var(--gutter);background:var(--panel);border-bottom:1px solid var(--border);
 }
 .brand{display:flex;align-items:center;gap:10px;flex:none}
 .brand svg{display:block}
@@ -85,7 +87,7 @@ input,select{font:inherit;color:inherit}
 .nav-toggle{display:none}
 
 /* ---------- banners ---------- */
-.banners{padding:12px 20px 0;display:grid;gap:8px;max-width:1600px;margin:0 auto}
+.banners{padding:12px var(--gutter) 0;display:grid;gap:8px}
 .banner{
   display:flex;flex-wrap:wrap;gap:10px;align-items:flex-start;border-radius:var(--r-sm);
   padding:10px 14px;font-size:12.5px;border:1px solid;overflow-wrap:anywhere;
@@ -99,7 +101,11 @@ input,select{font:inherit;color:inherit}
 .banner strong{font-weight:600}
 
 /* ---------- shell / nav ---------- */
-.shell{display:flex;gap:20px;max-width:1600px;margin:0 auto;padding:12px 20px 32px;align-items:flex-start}
+/* The page is as wide as the window. The navigation stands at the window's left edge, and the content takes all the room
+   beside it: a table and a model's map are as wide as the window lets them be. The same gutter is at the window's two
+   sides and between the navigation and the content. The header and the banners keep to the same sides: the brand stands
+   over the navigation's edge, and a banner is as wide as the navigation and the content together. */
+.shell{display:flex;gap:var(--gutter);padding:12px var(--gutter) 32px;align-items:flex-start}
 .sidenav{
   width:224px;flex:none;position:sticky;top:68px;max-height:calc(100vh - 84px);overflow:auto;
   background:var(--panel);border:1px solid var(--border);border-radius:var(--r-md);padding:8px;
@@ -402,6 +408,7 @@ main:has(> #mapHost:not([hidden])){align-self:stretch;display:flex;flex-directio
   }
   .sidenav.open{transform:translateX(0);visibility:visible;transition-delay:0s}
   .hd{gap:10px;padding:10px 14px}
+  .banners{padding:12px 20px 0}
   .shell{padding:12px 14px 28px}
   .ov-cols{grid-template-columns:minmax(0,1fr)}
   .meta-app{white-space:normal;overflow-wrap:anywhere}
