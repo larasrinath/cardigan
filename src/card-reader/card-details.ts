@@ -131,7 +131,7 @@ class Collector {
   }
 }
 
-/** Leaf paths of content SAM does not map. Values only for short primitives; credential-like keys/values redacted. */
+/** Leaf paths of content the reader does not map. Values only for short primitives; credential-like keys/values redacted. */
 class Unrecognised {
   readonly entries: UxUnrecognisedField[] = [];
   omitted = 0;
@@ -707,7 +707,7 @@ function describeSources(card: Obj, scope: Scope, regions: Region[], rules: UxCo
     sources.push(source);
   });
   else unrec.add("widgetDataSources", raw);
-  // Card-level bindings (IMAGE, SAM-authored grids/KPIs) usually repeat a data source; list them only when they do not.
+  // Card-level bindings (IMAGE, tool-authored grids/KPIs) usually repeat a data source; list them only when they do not.
   const cardModule = idOf(card.dataSourceId);
   const cardLineItem = idOf(card.lineItemId);
   if (cardModule || cardLineItem) {
