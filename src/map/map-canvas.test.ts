@@ -459,6 +459,13 @@ describe("A trace in the map's picture", () => {
     expect(traced).toBe(true);
     // Long dashes lead to the node and short ones lead on from it: the two are told apart without their colours.
     expect(linkStrokes(pen).map(call => [call.strokeStyle, call.dash, call.globalAlpha])).toEqual([[FALLBACK.traceUp, [7, 5], 1], [FALLBACK.traceUp, [7, 5], 1], [FALLBACK.traceDown, [2, 4], 1]]);
+    // A traced link is drawn a fifth thinner than the same link, by its path, without a trace: its moving dashes stay light.
+    const pathOf = (on: FakePen, call: PenCall): string => JSON.stringify(shapeBefore(on, call).filter(each => ["moveTo", "lineTo", "bezierCurveTo"].includes(each.name)).map(each => [each.name, each.args]));
+    const untraced = draw(sceneOf(graph)).pen;
+    const widths = new Map(linkStrokes(untraced).map(call => [pathOf(untraced, call), call.lineWidth]));
+    const ratios = linkStrokes(pen).map(call => call.lineWidth / (widths.get(pathOf(pen, call)) ?? Number.NaN));
+    expect(ratios).toHaveLength(3);
+    for (const ratio of ratios) expect(ratio).toBeCloseTo(0.8, 10);
     // The node selected has the selection's edge and a ring; the nodes of its trace have a ring of their side's colour.
     const rings = pen.named("stroke").filter(call => call.lineWidth === 1.4).map(call => call.strokeStyle);
     expect(rings).toEqual([FALLBACK.traceUp, FALLBACK.traceUp, FALLBACK.select, FALLBACK.traceDown]);

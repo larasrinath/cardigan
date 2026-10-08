@@ -11,6 +11,7 @@ A bar of icons in place of the side navigation, tables that hold still, and valu
 - **Counts have commas.** Cell Count, a Polaris model's Populated Cell Count, Item Count, an app's card counts on Pages, and Pages and Cards in Model Objects show their thousands apart (15,389,009,578). They still sort as numbers, and the search finds them with or without commas.
 - **A panel lists items one per line.** Where a value lists several items, such as Applies To, Referenced By, Context selectors or Colour stops, the panel that opens on a row or a card lists them one per line. The table keeps them on one line.
 - **Colours show as squares.** A conditional formatting rule's colour stops show a small square of each colour before its code.
+- **The model map's trace keeps moving.** The dashes on a selected box's links move for as long as it is selected, where they stopped after 1.4 seconds, and are drawn a fifth thinner. They still stand still for a user who asked for less motion.
 - **Where Used is now Model Objects**: the model's objects the app uses, and where each is used.
 - **A refresh keeps the view.** A refreshed page opens on the table or the map it showed. The page's address marks the view by the table's place, and names nothing of the result.
 - **Filters.** A filter's condition line item is told apart from its filter context, and the system's Current User item reads "Users = Current User".
