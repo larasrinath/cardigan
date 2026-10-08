@@ -36,6 +36,9 @@ export const BESIDE_SAYS = "Among a module's line items, a box that stands for a
 /** The names the view gives the elements that others point at. */
 export interface ShellIds { results: string; hints: string; legend: string; about: string; access: string }
 
+/** The chevron of a select, which draws its own (map.css `.map-select-wrap`): the one the results page's menus have. */
+const SELECT_CHEVRON = '<svg class="map-select-chevron" width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg>';
+
 /** Everything the map puts into its element, empty of the model but for its name: the view fills the parts as it goes.
  * The canvas comes first, under the panels; then one bar (the view's switch, where the map is, and the view's controls
  * with the search, which take a second line together where one is too short), the details of the box selected, and
@@ -56,8 +59,8 @@ export function shellHtml(ids: ShellIds, modelName: string): string {
     <div class="map-tools">
     <div class="map-controls" role="group" aria-label="Map controls">
       <button type="button" class="map-btn" data-map-act="group">Show all modules</button>
-      <select class="map-select map-section-select" aria-label="Model section"></select>
-      <select class="map-select map-module-select" aria-label="Module for line items" hidden></select>
+      <span class="map-select-wrap"><select class="map-select map-section-select" aria-label="Model section"></select>${SELECT_CHEVRON}</span>
+      <span class="map-select-wrap"><select class="map-select map-module-select" aria-label="Module for line items" hidden></select>${SELECT_CHEVRON}</span>
       <button type="button" class="map-btn" data-map-act="external" hidden>Show line items of other modules</button>
       <label class="map-check" title="${esc(ACCESS_SAYS)}"><input type="checkbox" class="map-access" aria-describedby="${esc(ids.access)}">Access drivers</label>
       <span class="map-sr-only" id="${esc(ids.access)}">${esc(ACCESS_SAYS)}</span>
