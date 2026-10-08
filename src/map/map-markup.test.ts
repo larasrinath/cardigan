@@ -157,6 +157,13 @@ describe("The map's own markup", () => {
     expect(shell.querySelector(".map-tooltip")?.getAttribute("aria-hidden")).toBe("true");
   });
 
+  it("stands each select with the page's chevron, which a screen reader is not told of, in a wrap that the stylesheet hides with it", () => {
+    const shell = parseMarkup(shellHtml(IDS, "Demand Plan"));
+    expect(shell.querySelectorAll(".map-select-wrap").map(wrap => [wrap.children.map(child => [child.localName, child.getAttribute("class"), child.getAttribute("aria-hidden")])]))
+      .toEqual([[[["select", "map-select map-section-select", null], ["svg", "map-select-chevron", "true"]]],
+        [[["select", "map-select map-module-select", null], ["svg", "map-select-chevron", "true"]]]]);
+  });
+
   it("makes every control a real button, list or box with a name", () => {
     const shell = parseMarkup(shellHtml(IDS, "Demand Plan"));
     const controls = shell.querySelectorAll("button, select, input");
