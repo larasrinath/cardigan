@@ -1541,7 +1541,7 @@ describe("Selecting a node on the map", () => {
     env.settle();
     const far = [...boxes()].sort((a, b) => b[1].x - a[1].x || a[1].y - b[1].y)[0];
     click(far[1].x + far[1].w / 2, far[1].y + far[1].h / 2);
-    // The camera has not moved yet, and the dashes of the trace have a second and more to run.
+    // The camera has not moved yet, and the dashes of the trace move for as long as the node is selected.
     const atOnce = [status(), part(".map-status").hidden, act("whole").hidden];
     expect(env.waiting).toBe(1);
     let frames = 0;
@@ -2410,7 +2410,7 @@ describe("What moves on the map", () => {
     expect(new Set(traced.map(call => call.dash.join()))).toEqual(new Set(["7,5", "2,4"]));
     expect(new Set(traced.map(call => call.dashOffset))).toEqual(new Set([0]));
   });
-  it("moves a trace's dashes for a moment after a node is selected, and then lets them stand", () => {
+  it("moves a trace's dashes for as long as a node is selected, and asks for no picture once none is", () => {
     env.reduced = false;
     open();
     expect(env.waiting).toBe(0);
@@ -2420,23 +2420,17 @@ describe("What moves on the map", () => {
     const first = offsets();
     env.frame();
     expect(offsets()).not.toEqual(first);
-    // About a second and a half of frames, and then no more: nothing on the map moves without end.
-    let frames = 2;
-    while (env.waiting && frames < 1000) {
-      env.frame();
-      frames++;
-    }
-    expect(frames).toBeGreaterThan(60);
-    expect(frames).toBeLessThan(110);
-    const stopped = offsets();
-    expect(stopped).toHaveLength(2);
-    env.time += 60000;
+    // A minute of frames on, the next picture is still asked for, and it has the dashes further along.
+    for (let frames = 0; frames < 3600; frames++) env.frame();
+    const later = offsets();
+    expect([later.length, env.waiting]).toEqual([2, 1]);
+    env.frame();
+    expect(offsets()).not.toEqual(later);
+    // With the selection cleared there is no trace: once the camera is back, no other picture is asked for.
+    act("clear").press();
+    expect(env.settle()).toBeLessThan(100);
     expect(env.waiting).toBe(0);
-    // A picture drawn later for another reason has the dashes where they stopped.
-    map.themeChanged();
-    expect(env.settle()).toBe(1);
-    expect(offsets()).toEqual(stopped);
-    // Another node selected, and they move again for a moment.
+    // Another node selected, and they move again.
     clickNode("01: Inputs");
     env.frame();
     const again = offsets();
