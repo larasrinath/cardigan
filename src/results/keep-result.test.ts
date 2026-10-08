@@ -76,15 +76,15 @@ const sameBytes = (a: Uint8Array | undefined, b: Uint8Array | undefined): boolea
 /** An app's result as the analysis lays one out, with fewer columns: numbers and texts, the dash for nothing to say, and
  * names as people type them. */
 const APP: AnalysisResult = {
-  kind: "app", name: "Demo app — planning", id: "01234567-89ab-cdef-0123-456789abcdef", zipName: "Demo app - App Export - 2026-10-03.zip",
+  kind: "app", name: "Demo app - planning", id: "01234567-89ab-cdef-0123-456789abcdef", zipName: "Demo app - App Export - 2026-10-03.zip",
   summary: ["2 of 2 pages analysed, 4 cards.", "1 model did not answer."],
   tables: [
     { file: "App Details.csv", label: "App Details", headers: ["Section", "Detail", "Value"], guard: true, details: true,
-      rows: [["App", "App", "Demo app — planning"], ["Export", "Anaplan host", "us1a.app.anaplan.com"], ["Diagnostics", "14:02:05", "app: 2 pages"]] },
+      rows: [["App", "App", "Demo app - planning"], ["Export", "Anaplan host", "us1a.app.anaplan.com"], ["Diagnostics", "14:02:05", "app: 2 pages"]] },
     { file: "Pages.csv", label: "Pages", headers: ["App", "Page", "Total cards", "Page ID"], guard: true,
-      rows: [["Demo app — planning", "Overview", 2, "page-1"], ["Demo app — planning", "Übersicht (copy)", 2, "page-2"]] },
+      rows: [["Demo app - planning", "Overview", 2, "page-1"], ["Demo app - planning", "Übersicht (copy)", 2, "page-2"]] },
     { file: "Cards.csv", label: "Cards", headers: ["Page", "Card #", "Card title", "Card type", "Card ID"], guard: true,
-      rows: [["Overview", 1, "Sales", "Grid", "card-a"], ["Overview", 2, "=Margin", "KPI", "card-b"], ["Übersicht (copy)", 1, "—", "Grid", "card-a"], ["Übersicht (copy)", 2, "販売計画", "KPI", "card-b"]] },
+      rows: [["Overview", 1, "Sales", "Grid", "card-a"], ["Overview", 2, "=Margin", "KPI", "card-b"], ["Übersicht (copy)", 1, "-", "Grid", "card-a"], ["Übersicht (copy)", 2, "販売計画", "KPI", "card-b"]] },
     { file: "Filters.csv", label: "Filters", headers: ["Page", "Card #"], rows: [], guard: true },
     { file: "Where Used.csv", label: "Where Used", headers: ["Object type", "Object name", "Page", "Card #", "Object ID"], guard: true,
       rows: [["Module", "REP01 Sales", "Overview", 1, "102000000001"], ["Line item", "Margin %", "Übersicht (copy)", 2, 0.125]] },
@@ -310,7 +310,7 @@ describe("A result kept across a refresh of the results tab", () => {
 
   it("keeps every text as it is: characters of any script, the invisible ones, and halves of a pair", async () => {
     const storage = new FakeStorage();
-    const texts = ["", " ", "—", "…", "naïve café", "販売計画", "تخطيط", String.fromCodePoint(0x1f600), char(0xd83d), char(0xde00), `a${char(0)}b`, `line${char(0x2028)}break${char(0x2029)}`,
+    const texts = ["", " ", "\u2014", "…", "naïve café", "販売計画", "تخطيط", String.fromCodePoint(0x1f600), char(0xd83d), char(0xde00), `a${char(0)}b`, `line${char(0x2028)}break${char(0x2029)}`,
       `${char(0x202e)}reversed`, 'say "hi"', "back\\slash", "tab\tand\r\nbreak", "</script>", char(0x4e00), char(0xcdff), char(0xfeff), char(0xffff), "x".repeat(250_000)];
     const numbers = [0, 1, -1, 0.1, -2.5e-7, 1.476e12, Number.MAX_SAFE_INTEGER, Number.MIN_SAFE_INTEGER, 1e21, 5e-324];
     const result: AnalysisResult = { ...APP, name: texts.join("|"), summary: texts, tables: [{ file: "Texts.csv", label: texts[11], headers: texts, rows: [texts, numbers, []], guard: false }] };

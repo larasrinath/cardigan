@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { UxPageCardDetails } from "./card-reader/card-types.js";
 import { analyseApp, DETAILS_FILE, loadCatalog, TAB_FILES } from "./analyse.js";
-import { APP_ROW_REWORDED, APP_ROWS_FOR_THE_PAGE, APP_ZIP_0_6_1, APP_ZIP_REWORDED, withAppRowsSince, ZIPPED_AT } from "./golden-0.6.1.test-support.js";
+import { APP_DASH_PLAIN, APP_ROW_ON_TWO_LINES, APP_ROW_REWORDED, APP_ROWS_FOR_THE_PAGE, APP_ZIP_0_6_1, APP_ZIP_REWORDED, withAppRowsSince, withPlainDash, ZIPPED_AT } from "./golden-0.6.1.test-support.js";
 import { ANAPLAN_HOSTS, NOT_SCOPE_IDS, OTHER_HOSTS, SCOPE_IDS } from "./guards.test-support.js";
 import { assemble } from "./pieces.test-support.js";
 import { Failure } from "./progress.js";
@@ -472,6 +472,160 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
       expect(destinations().at(-1), failing).toBe(failing);
       expect(log, failing).toContain(line);
     }
+  });
+
+  describe("a dimension no answer names", () => {
+    // The page synced a hidden context selector to the card for a list that is no dimension of the card's module, so the
+    // module's dimensions do not name it (seen live, 7 Oct 2026).
+    const SYNCED = "101000000913";
+    const synced = { kind: "dimension", id: SYNCED };
+    const selectorPage = (card: Record<string, unknown> = {}, references: unknown[] = []) => [{
+      pageContext: { contextSelectors: [{ dimension: synced, visible: true, syncedToPage: true }] },
+      cards: [{ id: "card-1", type: "TABLE", contextSelectors: [{ dimension: synced, visible: false, syncedToPage: true }],
+        grid: { regions: [{ region: "SINGLE", module: { kind: "module", id: MODULE }, rows: { dimensions: [{ dimension: { kind: "dimension", id: LIST } }] },
+          columns: { dimensions: [{ dimension: { kind: "dimension", id: "20000000012" } }] },
+          pivot: { rows: [{ kind: "dimension", id: LIST }], columns: [{ kind: "dimension", id: "20000000012" }],
+            pages: [{ dimension: synced, source: "contextSelector", visible: false, syncedToPage: true }] } }] }, ...card }],
+      references: [{ kind: "module", id: MODULE }, { kind: "dimension", id: LIST }, { kind: "dimension", id: "20000000012" }, synced, ...references],
+    }] as unknown as UxPageCardDetails[];
+    /** The model's answers before this step: the module and its one list, which the module's dimensions name too. */
+    const named = (more: Record<string, (id: string, asked: Any) => string> = {}) => serveModel({
+      [at("")]: id => update(id, { status: "UNKNOWN" }),
+      [MODULE_VIEWS]: id => update(id, { data: [{ id: Number(MODULE), name: "Demand", views: [] }], dimensions: {} }),
+      [at("/lists")]: id => update(id, { data: [{ id: LIST, name: "Product" }] }),
+      [at("/dimensions")]: id => update(id, { modules: { [MODULE]: { dimensions: [{ id: LIST, label: "Product" }] } } }),
+      ...more,
+    });
+    const after = (destination: string) => sent("SEND").map(frame => [frame.headers.destination, JSON.parse(frame.body)]).slice(destinations().indexOf(destination) + 1);
+
+    it("looks for it among the lists with their subsets, after every other read, and asks nothing more once they name it", async () => {
+      named({ [at("/lists?subsets=true")]: id => update(id, { data: [{ id: LIST, name: "Product" }, { id: Number(SYNCED), name: "Organization" }] }) });
+      const { log, statuses, result } = run(selectorPage());
+      const { catalog, notes } = await result;
+
+      expect(notes).toEqual([]);
+      expect(after(at("/dimensions"))).toEqual([[at("/lists?subsets=true"), {}]]);
+      expect(catalog.dimensions.get(SYNCED)).toBe("Organization");
+      expect(statuses.at(-1)).toBe("Reading dimension names in Synthetic model…");
+      expect(log.filter(line => /^(module views:|lists|dimension names|dimension \d)/.test(line))).toEqual(["module views: 1 modules, 0 dimensions labelled", "lists: 1 entries of {id, name}",
+        "lists with subsets: 2 entries of {id, name}", "dimension names: 1 of 1 named"]);
+      expect(everyReadEnded()).toBe(true);
+    });
+
+    it("asks which modules have it when the lists do not name it, and reads their dimensions, which label it", async () => {
+      named({
+        [at("/applicableModules")]: id => update(id, { data: [{ id: Number(MODULE_3), label: "Org settings" }] }),
+        [at("/dimensions")]: (id, asked) => update(id, { modules: (asked.moduleIds as string[]).includes(MODULE_3)
+          ? { [MODULE_3]: { dimensions: [{ id: SYNCED, label: "Organization" }] } } : { [MODULE]: { dimensions: [{ id: LIST, label: "Product" }] } } }),
+      });
+      const { log, result } = run(selectorPage());
+      const { catalog } = await result;
+
+      expect(after(at("/lists?subsets=true"))).toEqual([[at("/applicableModules"), { dimensions: [101000000913] }], [at("/dimensions"), { moduleIds: [MODULE_3] }]]);
+      expect(catalog.dimensions.get(SYNCED)).toBe("Organization");
+      expect(catalog.modules.get(MODULE_3)).toBe("Org settings");
+      expect(log.filter(line => /^(lists with|modules with|dimensions of 1 modules that|dimension names)/.test(line))).toEqual(["lists with subsets: 0 entries",
+        `modules with dimension ${SYNCED}: ${MODULE_3}`, "dimensions of 1 modules that have an unnamed dimension: 1 read", "dimension names: 1 of 1 named"]);
+    });
+
+    it("logs, for each one still unnamed, how the cards use it and which answers hold its ID, without a name or a value", async () => {
+      // The module views listing holds the ID with no label: it is there, and was read as nothing.
+      named({ [MODULE_VIEWS]: id => update(id, { data: [{ id: Number(MODULE), name: "Demand", views: [] }], dimensions: { [SYNCED]: {} } }) });
+      const { log, result } = run(selectorPage({ savedCustomizations: { branchSync: [{ dimension: synced, enabled: true }] } }));
+      const { catalog } = await result;
+
+      expect(catalog.dimensions.has(SYNCED)).toBe(false);
+      expect(after(at("/lists?subsets=true"))).toEqual([[at("/applicableModules"), { dimensions: [101000000913] }]]);
+      expect(log.filter(line => /^(modules with|dimension names|dimension \d)/.test(line))).toEqual([`modules with dimension ${SYNCED}: none`, "dimension names: 0 of 1 named",
+        `dimension ${SYNCED} has no name: a context selector of 1 cards (1 synced to the page), on the rows or columns of 0, in the branch sync of 1, `
+        + "a selector of 1 pages; its ID is in the answers of lists: no, lists with subsets: no, module views: yes, module dimensions: no; modules that have it: 0"]);
+    });
+
+    it("logs a read of this step that is refused and goes on to the next; a dimension still unnamed keeps its ID", async () => {
+      named({ [at("/lists?subsets=true")]: id => rejected(id, "LISTS_UNAVAILABLE"), [at("/applicableModules")]: id => rejected(id, "MODULES_UNAVAILABLE") });
+      const { log, result } = run(selectorPage());
+      const { catalog, notes } = await result;
+
+      expect(notes).toEqual([]);
+      expect(catalog.dimensions.has(SYNCED)).toBe(false);
+      expect(log.filter(line => /^(lists with|modules with|dimension names|dimension \d)/.test(line))).toEqual(["lists with subsets: LISTS_UNAVAILABLE",
+        `modules with dimension ${SYNCED}: MODULES_UNAVAILABLE`, "dimension names: 0 of 1 named",
+        `dimension ${SYNCED} has no name: a context selector of 1 cards (1 synced to the page), on the rows or columns of 0, in the branch sync of 0, `
+        + "a selector of 1 pages; its ID is in the answers of lists: no, lists with subsets: no answer, module views: no, module dimensions: no; modules that have it: not asked"]);
+    });
+
+    it("names it from the branch of a hierarchy that a saved view's metadata filters by, and then asks nothing more for it", async () => {
+      named({ [at(`/views/${VIEW}`)]: id => metadata(id, { rows: [{ dimensionId: LIST, label: "Product" }], cols: [],
+        contextFilters: [{ parent: SYNCED, label: "Organization", contextFilterType: "BRANCH_SYNC" }] }) });
+      const { result } = run(selectorPage({}, [{ kind: "view", id: VIEW }]));
+      const { catalog } = await result;
+
+      expect(catalog.dimensions.get(SYNCED)).toBe("Organization");
+      expect(catalog.viewLayouts.get(VIEW)).toEqual({ rows: [{ id: LIST, name: "Product" }], columns: [], pages: [] });
+      expect(destinations()).not.toContain(at("/lists?subsets=true"));
+      expect(destinations()).not.toContain(at("/applicableModules"));
+    });
+
+    it("gives a read ten seconds and all of them thirty, and asks nothing more after two reads that went unanswered", async () => {
+      const others = ["101000000914", "101000000915", "101000000916"];
+      const more = others.map(id => ({ kind: "dimension", id }));
+      const timedOut = (id: string) => `modules with dimension ${id}: Timed out waiting for ${at("/applicableModules")}.`;
+      const steps = (log: string[]) => log.filter(line => /^(modules with|dimension names)/.test(line));
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
+
+      // The model never says which modules have a dimension: after two questions that went unanswered no third is asked.
+      named({ [at("/applicableModules")]: () => "" });
+      const silent = run(selectorPage({}, more));
+      let outcome: unknown = "reading";
+      silent.result.then(done => { outcome = done.notes; }, error => { outcome = error; });
+      await vi.advanceTimersByTimeAsync(19_999);
+      expect([outcome, after(at("/lists?subsets=true")).length]).toEqual(["reading", 2]);
+      await vi.advanceTimersByTimeAsync(101);
+      expect([outcome, after(at("/lists?subsets=true")).length]).toEqual([[], 2]);
+      expect(steps(silent.log)).toEqual([timedOut(SYNCED), timedOut(others[0]), "dimension names: 0 of 4 named",
+        "dimension names: two reads went unanswered, no more were made"]);
+      // Each dimension still has its line, which says it was not asked about to the end.
+      expect(silent.log.filter(line => /^dimension \d/.test(line)).map(line => line.split("; ").at(-1))).toEqual(Array(4).fill("modules that have it: not asked"));
+
+      // The model answers each question after nine seconds: the fourth is given up when the thirty seconds are over, and
+      // a read given up so is not one that went unanswered.
+      ScriptedSocket.sockets = [];
+      named();
+      slowly(destination => destination === at("/applicableModules"), 9_000);
+      const slow = run(selectorPage({}, more));
+      await vi.advanceTimersByTimeAsync(30_100);
+      expect((await slow.result).notes).toEqual([]);
+      expect(after(at("/lists?subsets=true")).length).toBe(4);
+      expect(steps(slow.log)).toEqual([...[SYNCED, ...others.slice(0, 2)].map(id => `modules with dimension ${id}: none`), timedOut(others[2]),
+        "dimension names: 0 of 4 named", "dimension names: the 30 seconds allowed for them ran out"]);
+      vi.useRealTimers();
+    });
+
+    it("does not begin after the model reported itself closed: it shows no step and asks nothing", async () => {
+      let status = "";
+      named({ [at("")]: id => { status = id; return update(id, { status: "UNKNOWN" }); },
+        // The model gives the module's dimensions and reports itself closed in the same breath.
+        [at("/dimensions")]: id => update(id, { modules: { [MODULE]: { dimensions: [{ id: LIST, label: "Product" }] } } }) + update(status, { status: "CLOSED" }) });
+      const { statuses, result } = run(selectorPage());
+      const { notes } = await result;
+      await new Promise(resolve => { setTimeout(resolve, 20); });
+
+      expect(notes).toEqual(["Synthetic model: names from the model data service were not available (the model is closed); IDs are shown instead."]);
+      expect(destinations().at(-1)).toBe(at("/dimensions"));
+      expect(statuses).not.toContain("Reading dimension names in Synthetic model…");
+    });
+
+    it("ends the socket work at once when the connection fails while it is looked for", async () => {
+      for (const [failing, logged] of [[at("/lists?subsets=true"), []], [at("/applicableModules"), ["lists with subsets: 0 entries"]]] as const) {
+        ScriptedSocket.sockets = [];
+        named({ [failing]: () => SERVICE_DOWN });
+        const { log, result } = run(selectorPage());
+        const { notes } = await result;
+        expect(notes, failing).toEqual([UNAVAILABLE]);
+        expect(destinations().at(-1), failing).toBe(failing);
+        expect(log.filter(line => /^(lists with|modules with|dimension names|dimension \d)/.test(line)), failing).toEqual(logged);
+      }
+    });
   });
 
   it("stops a later read that is still waiting when the model closes, and handles the stop by that phase's own rule", async () => {
@@ -2402,14 +2556,52 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
       .toEqual(["apps", "boards", "grid-pages", "reports"]);
     expect(result.summary).toEqual(["0 of 1 pages analysed; 1 unpublished, not analysed, 0 cards."]);
 
+    // The Details file says the same, each number on a line of its own. (It is read from the result's own table here: a
+    // file writes a cell's line break as " / ".)
+    expect(result.tables[0].rows.find(row => row[1] === "Pages analysed")).toEqual(["App", "Pages analysed", "0 of 1 (published versions)\n1 unpublished, not analysed"]);
     const files = unzipText(resultZip(result));
     const details = parseCsv(files.get("App Details.csv") ?? "");
-    expect(details.find(row => row[1] === "Pages analysed")).toEqual(["App", "Pages analysed", "0 of 1 (published versions); 1 unpublished, not analysed"]);
     expect(details.filter(row => row[0] === "Notes" && row[1] !== "Names")).toEqual([["Notes", "Draft", "Not published"], ["Notes", "Restricted", "Not analysed: no access"]]);
     const [headers, ...rows] = parseCsv(files.get("Pages.csv") ?? "");
     const [page, state] = [headers.indexOf("Page"), headers.indexOf("Publish state")];
     expect(rows.map(row => [row[page], row[state]])).toEqual([["Draft", "Not published"], ["Restricted", "Not analysed: no access"]]);
     expect(rows.filter(row => row[state] === "Not published")).toHaveLength(1);
+  });
+
+  it("writes each category and each model of the app on a line of its own, and the pages left unpublished on a line after those analysed", async () => {
+    // The app of the 0.6.1 zip with three categories, and with a second board, on a model of another workspace, beside
+    // its own board and the page it never published. The second model is not scripted: it answers every read with no
+    // data, which leaves its board's cards unnamed and changes nothing that is looked at here.
+    const [SUPPLY, OTHER_WS, OTHER_MODEL] = [guid(3000), "11112222333344445555666677778888", "AAAABBBBCCCCDDDDEEEEFFFF00001111"];
+    const supplyBoard: Any = { ...goldenBoard, pageGuid: SUPPLY, name: "Supply board", categoryGuid: guid(3001), workspaceId: OTHER_WS, modelId: OTHER_MODEL,
+      modelInfo: { modelName: "Model two", workspaceName: "Workspace two" }, modelInfos: [{ workspaceId: OTHER_WS, modelId: OTHER_MODEL }] };
+    const categories = [{ guid: guid(1001), name: "Demand" }, { guid: guid(3001), name: "Supply" }, { guid: guid(3002), name: "00 Admin" }];
+    const pages = [{ guid: guid(1000), name: "Demand board", pageType: "BOARD", categoryGuid: guid(1001), hasPublishedVersion: true },
+      { guid: SUPPLY, name: "Supply board", pageType: "BOARD", categoryGuid: guid(3001), hasPublishedVersion: true },
+      { guid: guid(2000), name: "Draft page", pageType: "BOARD", categoryGuid: guid(3002), hasPublishedVersion: false }];
+    /** What App Details.csv says of the categories, the models and the pages analysed of the app with these categories
+     * and pages: each value as the result's own table holds it, for a file would write its line breaks as " / ". */
+    const listed = async (app: { categories: Any[]; pages: Any[] }): Promise<string[]> => {
+      serveGoldenApp();
+      const golden = globalThis.fetch;
+      const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+      vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+        const path = new URL(url).pathname;
+        if (path.endsWith(`/apps/${GOLDEN_APP}`)) return json({ name: "Planning: app", ...app });
+        return path.endsWith(`/boards/${SUPPLY}`) ? json(supplyBoard) : golden(url, init);
+      }));
+      const result = await analyseApp(GOLDEN_APP, { status: () => undefined, log: () => undefined }, () => "");
+      return ["Categories", "Models", "Pages analysed"].map(detail => String(result.tables[0].rows.find(row => row[0] === "App" && row[1] === detail)?.[2]));
+    };
+
+    // Three categories and two models: each on a line of its own, in the order of the app's categories and of its pages,
+    // and no semicolon between them. A page was left unpublished, and that is said on a line after the pages analysed.
+    const several = await listed({ categories, pages });
+    expect(several.map(value => value.split("\n"))).toEqual([["Demand", "Supply", "00 Admin"], ["Model one (Workspace one)", "Model two (Workspace two)"],
+      ["2 of 2 (published versions)", "1 unpublished, not analysed"]]);
+    expect(several.filter(value => value.includes(";"))).toEqual([]);
+    // One category and one model, and no page left unpublished: each value is one line.
+    expect(await listed({ categories: categories.slice(0, 1), pages: pages.slice(0, 1) })).toEqual(["Demand", "Model one (Workspace one)", "1 of 1 (published versions)"]);
   });
 
   it("returns only text and finite numbers as cells, whatever the report holds, without changing the CSV", async () => {
@@ -2499,40 +2691,51 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     expect([(noApp as Failure).message, (noApp as Failure).detail]).toEqual(["Open an app first: the address has no app ID.", undefined]);
   });
 
-  it("writes the zip 0.6.1 wrote for the same app, byte for byte but for four rows of App Details.csv that are named, and returns each file as a table", async () => {
+  it("writes the zip 0.6.1 wrote for the same app, byte for byte but for five rows of App Details.csv and the dash for nothing to say, which are named, and returns each file as a table", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date(Date.UTC(2026, 8, 28, 12, 30, 10)));
     const result = await analyseGoldenApp();
     // The engine writes no zip: the result's tables are written as the files they were (result-zip.test-support.ts), and
     // held against the zip 0.6.1 wrote.
     const zip = resultZip(result, ZIPPED_AT);
-    // Four rows of App Details.csv are deliberately not what 0.6.1 wrote, all of them "How to read" rows, and each is
-    // named (golden-0.6.1.test-support.ts). The row on a filter's context says how the items of a filter are shown
+    // Five rows of App Details.csv are deliberately not what 0.6.1 wrote, and each is named (golden-0.6.1.test-support.ts).
+    // The row on the pages analysed says its two numbers on two lines, as the overview shows them (APP_ROW_ON_TWO_LINES).
+    // The four others are "How to read" rows. The row on a filter's context says how the items of a filter are shown
     // (APP_ROW_REWORDED). And since the results page is where a result is read, with no file of it to download, three
     // rows speak of the page's tables (APP_ROWS_FOR_THE_PAGE): two say "table" where they said "file" and named a file,
-    // and the one on how long IDs are written for Excel is gone. (The two other known differences, the build's name in
-    // the "Exported with" row and in the first Diagnostics line, do not show here.) Everything else is what 0.6.1
-    // wrote, byte for byte.
-    // File by file first, so that a difference shows as text: 0.6.1's files in their order, each with its text, and of
-    // App Details.csv every line but those four, each of which stood there once.
+    // and the one on how long IDs are written for Excel is gone. The dash that the other files hold where there is
+    // nothing to say is a plain hyphen where 0.6.1 wrote an em dash, guarded as any cell that starts with a hyphen
+    // (APP_DASH_PLAIN). (The two other known differences, the build's name in the "Exported with" row and in the first
+    // Diagnostics line, do not show here.) Everything else is what 0.6.1 wrote, byte for byte.
+    // File by file first, so that a difference shows as text: 0.6.1's files in their order, each with its text, of
+    // App Details.csv every line but those five, each of which stood there once, and in the other files each dash as the
+    // hyphen. Five of the seven files hold the dash, and no file holds 0.6.1's dash any more.
     const [written, before] = [unzipText(zip), unzipText(APP_ZIP_0_6_1)];
     expect([...written.keys()]).toEqual([...before.keys()]);
-    for (const [file, text] of before) expect(written.get(file), file).toBe(file === DETAILS_FILE ? withAppRowsSince(text) : text);
-    // Row by row: the rows of 0.6.1's file that are no longer there are the four named, in the file's order, and the
-    // rows that 0.6.1's file did not have are the three they are written as now. The fourth is written as nothing.
-    const named = [APP_ROWS_FOR_THE_PAGE[0], APP_ROWS_FOR_THE_PAGE[1], APP_ROW_REWORDED, APP_ROWS_FOR_THE_PAGE[2]];
+    for (const [file, text] of before) expect(written.get(file), file).toBe(withPlainDash(file === DETAILS_FILE ? withAppRowsSince(text) : text));
+    const dashed = [...before].filter(([, text]) => text.includes(APP_DASH_PLAIN.was)).map(([file]) => file);
+    expect(dashed).toEqual(["Pages.csv", "Cards.csv", "Grid Sections.csv", "Action Buttons.csv", "Where Used.csv"]);
+    expect([...written].filter(([, text]) => text.includes(APP_DASH_PLAIN.was)).map(([file]) => file)).toEqual([]);
+    // Row by row: the rows of 0.6.1's file that are no longer there are the five named, in the file's order, and the
+    // rows that 0.6.1's file did not have are the four they are written as now. The fifth is written as nothing.
+    const named = [APP_ROW_ON_TWO_LINES, APP_ROWS_FOR_THE_PAGE[0], APP_ROWS_FOR_THE_PAGE[1], APP_ROW_REWORDED, APP_ROWS_FOR_THE_PAGE[2]];
     const [details, detailsBefore] = [parseCsv(written.get(DETAILS_FILE)!), parseCsv(before.get(DETAILS_FILE)!)].map(rows => rows.map(row => row.join("\n")));
     expect(detailsBefore.filter(row => !details.includes(row))).toEqual(named.map(row => parseCsv(row.was)[0].join("\n")));
-    expect(details.filter(row => !detailsBefore.includes(row))).toEqual(named.slice(0, 3).map(row => parseCsv(row.now)[0].join("\n")));
-    expect([named[3].now, detailsBefore.length - details.length, details.filter(row => row.startsWith("How to read\n")).length]).toEqual(["", 1, 5]);
+    expect(details.filter(row => !detailsBefore.includes(row))).toEqual(named.slice(0, 4).map(row => parseCsv(row.now)[0].join("\n")));
+    expect([named[4].now, detailsBefore.length - details.length, details.filter(row => row.startsWith("How to read\n")).length]).toEqual(["", 1, 5]);
     // No "How to read" row names a file, a CSV or a zip, or says to download one: the overview lists these rows as they are.
     expect(details.filter(row => row.startsWith("How to read\n") && /\.csv|\bCSV\b|\bzip\b|\bfiles?\b|download|Excel/i.test(row))).toEqual([]);
-    // Then every byte. Of the eight files, only App Details.csv has other bytes than 0.6.1's.
+    // The row on the pages analysed holds a line break, which the file writes as " / ": the table the page reads holds
+    // the break itself, and no semicolon.
+    expect(result.tables[0].rows.find(row => row[1] === "Pages analysed")).toEqual(["App", "Pages analysed", "1 of 1 (published versions)\n1 unpublished, not analysed"]);
+    // Then every byte. Of the eight files, App Details.csv and the five that hold the dash have other bytes than 0.6.1's:
+    // Filters.csv and Conditional Formatting.csv have 0.6.1's own.
     const [files, golden] = [zipEntries(zip), zipEntries(APP_ZIP_0_6_1)];
-    expect(files.filter((file, index) => !sameBytes(file.data, golden[index].data)).map(file => file.name)).toEqual([DETAILS_FILE]);
+    expect(files.filter((file, index) => !sameBytes(file.data, golden[index].data)).map(file => file.name))
+      .toEqual(golden.map(file => file.name).filter(name => name === DETAILS_FILE || dashed.includes(name)));
     // The zip around the files is written as 0.6.1 wrote it: from 0.6.1's own files, it is 0.6.1's zip.
     expect(sameBytes(zipStore(golden, ZIPPED_AT), APP_ZIP_0_6_1)).toBe(true);
-    // So this run's zip is, byte for byte, 0.6.1's zip with those four rows written as they are named.
+    // So this run's zip is, byte for byte, 0.6.1's zip with those five rows and the dash written as they are named.
     expect(sameBytes(zip, APP_ZIP_REWORDED)).toBe(true);
 
     expect([result.kind, result.name, result.id, result.zipName]).toEqual(["app", "Planning: app", GOLDEN_APP, "Planning app - App Export - 2026-09-28.zip"]);
@@ -2541,7 +2744,7 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
       ["App Details.csv", "App Details", true, true, 27], ["Pages.csv", "Pages", true, undefined, 2], ["Cards.csv", "Cards", true, undefined, 3],
       ["Grid Sections.csv", "Grid Sections", true, undefined, 1], ["Filters.csv", "Filters", true, undefined, 1],
       ["Conditional Formatting.csv", "Conditional Formatting", true, undefined, 1], ["Action Buttons.csv", "Action Buttons", true, undefined, 2],
-      ["Where Used.csv", "Where Used", true, undefined, 10]]);
+      ["Where Used.csv", "Model Objects", true, undefined, 10]]);
     // The names by which the results page knows an app's files are the ones exported: the Details file, then a file per tab.
     expect(result.tables.map(table => table.file)).toEqual([DETAILS_FILE, ...Object.values(TAB_FILES)]);
     expect([DETAILS_FILE, TAB_FILES]).toEqual(["App Details.csv", { Pages: "Pages.csv", Cards: "Cards.csv", "Grid sections": "Grid Sections.csv", Filters: "Filters.csv",
@@ -2577,17 +2780,17 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     expect(filters(unnamed)).toEqual([
       ["Status", "Demand", "is equal to", ITEM(318, 2), NONE, STATUS], ["Status", "Demand", "is equal to", ITEM(318, 1), NONE, STATUS],
       ["Status", "Demand", "is equal to", `${ITEM(318, 2)}, ${ITEM(318, 1)}`, "Territory = current", STATUS],
-      // No line item is told from the rule's other items while one of them is unnamed: all three are listed.
-      [`Time, ${ITEM(358, 0)}, Role`, NONE, "is equal to", ITEM(404, 3), NONE, NONE]]);
+      // The rule's line item is its last item: it is told from the others while one of them is unnamed, and the unnamed
+      // one is shown by its ID in the context.
+      ["Role", "Demand", "is equal to", ITEM(404, 3), `Time = current; ${ITEM(358, 0)}`, ROLE]]);
     expect(cell(unnamed, "Cards.csv", "Filters")).toEqual([[`Rows, match all: Status [Demand] is equal to ${ITEM(318, 2)}`, `Rows, match all: Status [Demand] is equal to ${ITEM(318, 1)}`,
       `Rows, match all: Status [Demand] is equal to ${ITEM(318, 2)}, ${ITEM(318, 1)} (context: Territory = current)`,
-      `Rows, match all: Time, ${ITEM(358, 0)}, Role [${NONE}] is equal to ${ITEM(404, 3)}`].join(" | ")]);
+      `Rows, match all: Role [Demand] is equal to ${ITEM(404, 3)} (context: Time = current; ${ITEM(358, 0)})`].join(" | ")]);
     expect(usedIn(unnamed)).toEqual([["Line item", "Status", "Demand", "Filter", STATUS], ["Dimension", "Territory", NONE, "Filter context", LIST_2],
-      ["Line item", `Time, ${ITEM(358, 0)}, Role`, NONE, "Filter", NONE]]);
+      ["Line item", "Role", "Demand", "Filter", ROLE], ["Dimension", "Time", NONE, "Filter context", "20000000003"]]);
     expect(unnamed.summary).toEqual(["1 of 1 pages analysed, 1 cards."]);
 
-    // The model names them: each ID is the item's name wherever it stood, and the fourth rule is told apart: its line item,
-    // that item's module and ID, and its context.
+    // The model names them: each ID is the item's name wherever it stood, in the context of the fourth rule as well.
     lines.length = 0;
     serveStaffApp({ [at(`/modules/${MODULE}/dimensions/${REGIONS}`)]: labels({ [ITEM(358, 0)]: "All regions" }),
       [at(`/modules/${MODULE}/dimensions/${STATUSES}`)]: labels({ [ITEM(318, 1)]: "Open", [ITEM(318, 2)]: "Closed" }),
@@ -2603,18 +2806,17 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
       "Rows, match all: Role [Demand] is equal to Planner (context: Time = current; All regions)"].join(" | ")]);
     expect(usedIn(named)).toEqual([["Line item", "Status", "Demand", "Filter", STATUS], ["Dimension", "Territory", NONE, "Filter context", LIST_2],
       ["Line item", "Role", "Demand", "Filter", ROLE], ["Dimension", "Time", NONE, "Filter context", "20000000003"]]);
-    // Nothing else differs between the two: the other columns of Filters.csv and of Cards.csv, the other rows of Where
-    // Used.csv, and every other file. App Details.csv counts the row that Where Used.csv gains for the rule that is told
-    // apart (its context's dimension), and says when it was exported.
-    const changing: Record<string, string[]> = { "Filters.csv": ["Condition line item", "Condition line item's module", "Value", "Condition context", "Line item ID"], "Cards.csv": ["Filters"] };
+    // Nothing else differs between the two: the other columns of Filters.csv and of Cards.csv, and every other file. Where
+    // Used.csv has the same rows: the rule was told apart either way. App Details.csv says when it was exported.
+    const changing: Record<string, string[]> = { "Filters.csv": ["Value", "Condition context"], "Cards.csv": ["Filters"] };
     const others = (result: typeof named) => result.tables.map(table => [table.file,
       table.file === DETAILS_FILE ? table.rows.filter(row => row[1] !== "Exported on" && row[1] !== "Where Used.csv")
         : table.file === "Where Used.csv" ? table.rows.filter(row => !String(row[5]).startsWith("Filter"))
           : table.rows.map(row => row.filter((_, column) => !(changing[table.file] ?? []).includes(table.headers[column])))]);
     expect(others(named)).toEqual(others(unnamed));
-    const used = (result: typeof named) => result.tables.find(each => each.file === "Where Used.csv")!.rows.length;
-    expect(used(named)).toBe(used(unnamed) + 1);
-    expect([unnamed, named].map(result => result.tables[0].rows.find(row => row[1] === "Where Used.csv")?.[2])).toEqual([`${used(unnamed)} rows`, `${used(named)} rows`]);
+    const used = (result: typeof named) => result.tables.find(each => each.file === "Where Used.csv")!.rows;
+    expect(used(named)).toEqual(used(unnamed));
+    expect([unnamed, named].map(result => result.tables[0].rows.find(row => row[1] === "Where Used.csv")?.[2])).toEqual([`${used(unnamed).length} rows`, `${used(named).length} rows`]);
     // The log names what was asked and how much was named, never an item, a list or a line item by its name.
     expect(lines.filter(line => line.startsWith("filter "))).toEqual([
       // The rule's context item is an item of one of its line item's module's dimensions: those the rule does not name are asked in turn.
@@ -2698,9 +2900,10 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     expect(logged.at(-1)).toBe("socket closed code=1000");
     expect(page.types().slice(-3)).toEqual(["rows", "rows", "done"]);
     expect(page.received.map(message => (message.type === "log" ? message.text : ""))).not.toContain("12:30:10 socket closed code=1000");
-    // What arrived is the whole result: the same zip, and its Diagnostics rows are the log up to the report.
+    // What arrived is the whole result: the same zip, its dash as it is written now (APP_DASH_PLAIN), and its Diagnostics
+    // rows are the log up to the report.
     const result = assemble(page.received);
-    expect(unzipText(resultZip(result, ZIPPED_AT)).get("Cards.csv")).toBe(unzipText(APP_ZIP_0_6_1).get("Cards.csv"));
+    expect(unzipText(resultZip(result, ZIPPED_AT)).get("Cards.csv")).toBe(unzipText(APP_ZIP_REWORDED).get("Cards.csv"));
     const diagnostics = result.tables[0].rows.filter(row => row[0] === "Diagnostics").map(row => row[2]);
     expect([diagnostics[0], diagnostics.at(-1)]).toEqual([`Cardigan dev: app ${GOLDEN_APP} on ${FIRST}`, "Building the report…"]);
   });

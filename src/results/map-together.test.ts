@@ -261,7 +261,7 @@ async function openWith(result: AnalysisResult): Promise<void> {
   await import("./main.js");
   port.send({ type: "subject", subject: { kind: "model", id: result.id } });
   send(result);
-  expect(page.document.title).toBe(`Cardigan — ${result.name}`);
+  expect(page.document.title).toBe(`Cardigan - ${result.name}`);
 }
 
 /** The export's own result for a made-up model: every grid the export reads (engine.test-support.ts), with the line
@@ -285,14 +285,20 @@ async function exported(): Promise<AnalysisResult> {
   return result;
 }
 
-/** An entry of the page's navigation, by its words. */
+/** An entry of the page's navigation, by its words: those of its first span, after its icon. */
 const entry = (words: string): FakeElement => {
-  const found = page.all("#navList .nav-item").find(item => item.children[0].textContent === words);
+  const found = page.all("#navList .nav-item").find(item => item.querySelector("span")?.textContent === words);
   if (!found) throw new Error(`The navigation has no entry ${words}`);
   return found;
 };
-/** Chooses an entry of the page's navigation, as a user does. */
-const choose = (words: string): void => entry(words).press();
+/** Chooses an entry of the page's navigation, as a user does: an entry of a group's menu once the group's button has
+ * opened the menu. */
+const choose = (words: string): void => {
+  const found = entry(words);
+  const menu = found.closest(".nav-menu");
+  if (menu?.hidden) page.find(`#navList [aria-controls="${menu.id}"]`).press();
+  found.press();
+};
 /** Chooses "Model map", and lets the browser lay the map out and draw it. */
 const toMap = (): void => {
   choose("Model map");
@@ -334,6 +340,8 @@ function tableRow(name: string): Record<string, string> {
 describe("A model's result on the results page, with the map's real graph and the map's real view", () => {
   it("draws the made-up model as its sections and its modules, by name, under a line that counts them and their links", async () => {
     await openWith(MODEL);
+    // The overview's tile counts the rows that the page's own Line Items table lists.
+    const listed = page.all("#view .stat").find(tile => tile.querySelector(".s-lab")?.textContent === "Line Items")?.querySelector(".s-num")?.textContent;
     // Nothing of the map is on the page until its entry is chosen.
     expect([host().hidden, host().children.length, around.watching]).toEqual([true, 0, 0]);
     toMap();
@@ -366,7 +374,7 @@ describe("A model's result on the results page, with the map's real graph and th
     // every file the map reads is there, and each has the columns the map reads.
     part('[data-map-act="about"]').press();
     expect([part(".map-about").hidden, text(".map-notes .map-about-line")]).toEqual([false, expect.stringMatching(/^Model one\b.*\bPlanning\b.*\b4 modules\b.*\b10 line items$/)]);
-    expect(page.all("#navList .nav-item").find(item => item.children[0].textContent === "Line Items")?.children[1].textContent).toBe("10");
+    expect(listed).toBe("10");
     const leftOut = parts(".map-notes li").map(line => line.textContent);
     expect(leftOut.filter(line => /^\d/.test(line))).toEqual([expect.stringMatching(/^1 export is linked to no module or list/)]);
     expect(leftOut.filter(line => /was not exported|has no .* columns?:/.test(line))).toEqual([]);
@@ -478,17 +486,14 @@ describe("A model's result on the results page, with the map's real graph and th
     toMap();
     expect([host().children[0] === root, left(), page.document.activeElement === part(".map-canvas")]).toEqual([true, was, true]);
 
-    // The header's button puts the navigation away and brings it back, and the map's place is wider and narrower by
-    // it. The page tells the map nothing of that: the map watches the size of its place itself. Told the new size by
-    // the browser, it draws again with what the user has made of it, at either width.
-    page.id("navToggle").press();
-    expect([page.document.documentElement.dataset.navigation, host().hidden, host().children[0] === root, root.hidden]).toEqual(["hidden", false, true, false]);
+    // The window grows wider and narrower again, and the map's place with it. The page tells the map nothing of that:
+    // the map watches the size of its place itself. Told the new size by the browser, it draws again with what the user
+    // has made of it, at either width.
     around.shows(1436, 800);
-    expect([left(), around.watching]).toEqual([was, 1]);
+    expect([host().hidden, host().children[0] === root, root.hidden, left(), around.watching]).toEqual([false, true, false, was, 1]);
     expect(written()).toEqual(expect.arrayContaining(["Revenue", "Cost", "Margin", "Margin %"]));
-    page.id("navToggle").press();
     around.shows(1200, 800);
-    expect([page.document.documentElement.dataset.navigation, host().children[0] === root, left(), around.watching]).toEqual(["shown", true, was, 1]);
+    expect([host().children[0] === root, left(), around.watching]).toEqual([true, was, 1]);
 
     // Run again: the map of the result on the page goes as the run starts, and the overview stands in its place.
     page.id("runAgain").press();
@@ -499,7 +504,7 @@ describe("A model's result on the results page, with the map's real graph and th
 
     // The new result takes the page: the earlier one's map goes with it.
     send(LATER);
-    expect([page.document.title, host().hidden, host().children.length, around.watching, page.texts("#view h1")]).toEqual(["Cardigan — Model two", true, 0, 0, ["Overview"]]);
+    expect([page.document.title, host().hidden, host().children.length, around.watching, page.texts("#view h1")]).toEqual(["Cardigan - Model two", true, 0, 0, ["Overview"]]);
     // The new result's map is of the new model: its name, and the module and the link it has more.
     toMap();
     part('[data-map-act="group"]').press();
@@ -515,8 +520,8 @@ describe("A model's result on the results page, with the map's real graph and th
     // Every view the navigation lists, the map last, and in each table that has rows the details of its first row.
     const opened: string[] = [];
     const drawn: string[] = [];
-    for (const view of page.all("#navList [data-nav]").map(listed => listed.dataset.nav)) {
-      page.find(`#navList [data-nav="${view}"]`).press();
+    for (const words of page.all("#navList .nav-item").map(listed => listed.querySelector("span")?.textContent ?? "")) {
+      choose(words);
       if (!page.has('#tableWrap tbody [data-act="row"]')) continue;
       page.find('#tableWrap tbody [data-act="row"]').press();
       opened.push(page.texts("#view h1")[0]);
@@ -555,7 +560,7 @@ describe("A model's result on the results page, with the map's real graph and th
     const has = (begins: string): boolean => words.some(text => text.startsWith(begins));
     expect([has("Each table is laid out as Anaplan's own export of the same Model settings grid: each row's name first"), has("The table lists line items: each names its module under Module Name"),
       words.some(text => text.includes("14:02:05 Line Items: 16 rows × 25 columns; columns: Format | Formula | Summary")),
-      words.includes("31 rows in all"), words.includes("5 rows about the model are not listed here: 3 hold a value, which the Overview has under About this export."),
+      words.includes("31 rows in all"), has("5 rows about the model are not listed here: 3 hold a value, which the Overview has under About this export."),
       has("5 module rows are not listed here; each line item shows its module."), words.includes("Format as read"), words.includes("Open this row"),
       words.includes("Where an import takes its data from is in the Imports table, not on the map."), drawn.includes("Units")]).toEqual([true, true, true, true, true, true, true, true, true, true]);
   });

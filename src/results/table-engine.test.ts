@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { NONE as REPORT_NONE } from "../report.js";
 import type { Cell } from "../result-types.js";
-import { cellText, NONE, pageOf, pagerItems, rememberingSelect, ROW_NAME_MAX, rowName, selectRows, sortRows, valueCounts, type TableQuery } from "./table-engine.js";
+import { cellText, groupedCount, NONE, pageOf, rememberingSelect, ROW_NAME_MAX, rowName, selectRows, sortRows, valueCounts, type TableQuery } from "./table-engine.js";
 
 // Page, Card #, Card title, Card type, Card ID
 const CARDS: Cell[][] = [
@@ -10,7 +10,7 @@ const CARDS: Cell[][] = [
   ["Overview", 10, "How to use this page", "Text", "card-c"],
   ["Stores", 1, "Store plan", "Grid", "card-d"],
   ["Stores", 2, "sales value", "Chart", "card-e"],
-  ["Admin", 1, "—", "Action", "card-f"],
+  ["Admin", 1, "-", "Action", "card-f"],
 ];
 const titles = (rows: readonly (readonly Cell[])[]) => rows.map(row => row[2]);
 const all = (query: Partial<TableQuery> = {}): TableQuery => ({ search: "", filters: new Map(), ...query });
@@ -18,19 +18,22 @@ const all = (query: Partial<TableQuery> = {}): TableQuery => ({ search: "", filt
 describe("The results page's table engine", () => {
   it("shows a cell as its own text, and a missing value as nothing", () => {
     expect([cellText("=A + B"), cellText(12), cellText(0), cellText(""), cellText(undefined), cellText(null), cellText(-1.5)]).toEqual(["=A + B", "12", "0", "", "", "", "-1.5"]);
-    // The dash the page greys is the one the app export writes where it has nothing to say.
-    expect(NONE).toBe(REPORT_NONE);
+    // The dash the page greys is the one the app export writes where it has nothing to say: a plain hyphen.
+    expect([NONE, REPORT_NONE]).toEqual(["-", "-"]);
   });
 
-  it("names a row by its first cell that says something", () => {
-    expect([rowName(["Revenue", "Units * Price"]), rowName(["", "Units * Price"]), rowName(["—", "", 12, "x"]), rowName([0, "x"]), rowName(["   ", "\n", "  name  "])])
+  it("names a row by its first cell that says something: the dash says nothing in an app's table, and is a name in a model's", () => {
+    // In one of the app's files the dash is what the analysis writes where it has nothing to say: it names no row.
+    expect([rowName(["Revenue", "Units * Price"], true), rowName(["", "Units * Price"], true), rowName([NONE, "", 12, "x"], true), rowName([0, "x"], true), rowName(["   ", "\n", "  name  "], true)])
       .toEqual(["Revenue", "Units * Price", "12", "0", "name"]);
     // No cell says anything: the row has no name of its own.
-    expect([rowName([]), rowName(["", "—", "  "])]).toEqual(["", ""]);
+    expect([rowName([], true), rowName(["", NONE, "  "], true), rowName([], false), rowName(["", "  "], false)]).toEqual(["", "", "", ""]);
+    // In a model's file the same dash is Anaplan's text, such as the name of a row that divides a list: a name like any other.
+    expect([rowName([NONE, "", 12, "x"], false), rowName(["", NONE, "  "], false), rowName(["Revenue", NONE], false)]).toEqual([NONE, NONE, "Revenue"]);
     // A text is a name as it stands, markup and all; only one far longer than a name is cut, and marked as cut.
-    expect(rowName(["<b>Q4</b> plan"])).toBe("<b>Q4</b> plan");
+    expect(rowName(["<b>Q4</b> plan"], true)).toBe("<b>Q4</b> plan");
     const long = "x".repeat(ROW_NAME_MAX + 30);
-    expect([rowName(["x".repeat(ROW_NAME_MAX)]).length, rowName([long]), ROW_NAME_MAX]).toEqual([ROW_NAME_MAX, `${"x".repeat(ROW_NAME_MAX)}…`, 120]);
+    expect([rowName(["x".repeat(ROW_NAME_MAX)], true).length, rowName([long], true), ROW_NAME_MAX]).toEqual([ROW_NAME_MAX, `${"x".repeat(ROW_NAME_MAX)}…`, 120]);
   });
 
   it("keeps the file's rows and order when nothing is asked", () => {
@@ -48,6 +51,41 @@ describe("The results page's table engine", () => {
     expect(selectRows(CARDS, all({ search: "   " }))).toHaveLength(6);
     expect(titles(selectRows(CARDS, all({ search: "%" })))).toEqual(["Margin %"]);
     expect(selectRows(CARDS, all({ search: ".*" }))).toEqual([]);
+  });
+
+  it("shows a count with a comma between each three of its figures, the same wherever the page is opened, and anything else as it is", () => {
+    expect(["15389009578", "2252068", "1000000", "123456", "12345", "1234", "999", "12", "1", "-1234567"].map(groupedCount))
+      .toEqual(["15,389,009,578", "2,252,068", "1,000,000", "123,456", "12,345", "1,234", "999", "12", "1", "-1,234,567"]);
+    // A count larger than a number holds exactly is grouped figure for figure: it is worked on as text.
+    expect(groupedCount("123456789012345678901234567890")).toBe("123,456,789,012,345,678,901,234,567,890");
+    // What is no whole number written as plain figures stays as it is: nothing, the dash, a word, a fraction, a number
+    // already grouped or written otherwise, figures with spaces, and figures that begin with a zero, which are a code.
+    const asItIs = ["", "0", NONE, "n/a", "12.5", "1234.5", "2,400", "1 234", " 1234", "1234 ", "+1234", "1e21", "0012", "007", "41+", "1234+", "١٢٣٤", "１２３４"];
+    expect(asItIs.map(groupedCount)).toEqual(asItIs);
+    // Whatever the browser's language: the grouping is the page's own, not the one the language would choose.
+    expect(groupedCount("1234567")).not.toBe((1234567).toLocaleString("de-DE"));
+  });
+
+  it("finds a count as the table shows it, with its commas, and as the cell holds it, by its figures alone", () => {
+    // Name, Cell Count: the counts arrive as text, as a model's grids give them.
+    const modules: Cell[][] = [["REV01 Revenue", "15389009578"], ["COST01 Costs", "2252068"], ["SYS01 Settings", "12"], ["Archive 1,000", ""]];
+    const names = (search: string, counts?: ReadonlySet<number>) => selectRows(modules, all({ search, counts })).map(row => row[0]);
+    const counted = new Set([1]);
+    // With or without its commas, whole or in part: as the user reads it, or as they type the figures.
+    expect([names("15,389,009,578", counted), names("15389009578", counted), names("15,389", counted), names("9,578", counted), names("389009", counted)])
+      .toEqual([["REV01 Revenue"], ["REV01 Revenue"], ["REV01 Revenue"], ["REV01 Revenue"], ["REV01 Revenue"]]);
+    expect([names("2,252,068", counted), names("2252", counted), names(",252", counted)]).toEqual([["COST01 Costs"], ["COST01 Costs"], ["COST01 Costs"]]);
+    // A grouping the count does not have finds nothing, and a comma alone finds what shows one: a grouped count, and a
+    // name that holds one in its own text.
+    expect([names("38,900", counted), names("1,5", counted), names(",", counted)]).toEqual([[], [], ["REV01 Revenue", "COST01 Costs", "Archive 1,000"]]);
+    // Only a count's column is searched as it is shown. Another column is searched as its cells hold their text.
+    expect([names("15,389"), names("15,389", new Set([0])), names("1,000", counted)]).toEqual([[], [], ["Archive 1,000"]]);
+    // The cells are not changed by any of it, and a count's column still sorts by its numbers.
+    expect(modules.map(row => row[1])).toEqual(["15389009578", "2252068", "12", ""]);
+    expect(sortRows(modules, { column: 1, dir: "desc" }).map(row => row[0])).toEqual(["REV01 Revenue", "COST01 Costs", "SYS01 Settings", "Archive 1,000"]);
+    // The memory of the last search tells a query whose counts are searched as shown from one whose are not.
+    const select = rememberingSelect();
+    expect([select(modules, all({ search: "15,389", counts: counted })).length, select(modules, all({ search: "15,389" })).length]).toEqual([1, 0]);
   });
 
   it("filters a column to the texts ticked, and several columns together", () => {
@@ -97,9 +135,9 @@ describe("The results page's table engine", () => {
   });
 
   it("sorts a column that mixes numbers and other text as text, by one rule for the whole column", () => {
-    const sections: Cell[][] = [[2], ["1, 2 (shared rows)"], [10], ["—"], [1]];
+    const sections: Cell[][] = [[2], ["1, 2 (shared rows)"], [10], ["-"], [1]];
     const sorted = sortRows(sections, { column: 0, dir: "asc" }).flat();
-    expect(sorted.filter(cell => cell !== "—")).toEqual([1, "1, 2 (shared rows)", 2, 10]);
+    expect(sorted.filter(cell => cell !== "-")).toEqual([1, "1, 2 (shared rows)", 2, 10]);
     expect(sortRows(sections, { column: 0, dir: "desc" }).flat()).toEqual([...sorted].reverse());
     // The same three cells in any order of arrival give the same order: no pair is compared by another rule.
     const tricky: Cell[] = ["1.5", "1.25", "1.10x"];
@@ -170,17 +208,6 @@ describe("The results page's table engine", () => {
     expect(pageOf(rows, Number.NaN, 50)).toMatchObject({ page: 0, from: 1, to: 50 });
     expect(pageOf(rows, 1.5, 50)).toMatchObject({ page: 0, from: 1, to: 50 });
     expect(pageOf([], 3, 50)).toEqual({ rows: [], page: 0, pages: 1, from: 0, to: 0, total: 0 });
-  });
-
-  it("offers every page number up to seven pages, and otherwise the ends and the pages around the current one", () => {
-    expect(pagerItems(0, 1)).toEqual([0]);
-    expect(pagerItems(3, 7)).toEqual([0, 1, 2, 3, 4, 5, 6]);
-    expect(pagerItems(0, 8)).toEqual([0, 1, undefined, 7]);
-    expect(pagerItems(0, 20)).toEqual([0, 1, undefined, 19]);
-    expect(pagerItems(1, 20)).toEqual([0, 1, 2, undefined, 19]);
-    expect(pagerItems(10, 20)).toEqual([0, undefined, 9, 10, 11, undefined, 19]);
-    expect(pagerItems(18, 20)).toEqual([0, undefined, 17, 18, 19]);
-    expect(pagerItems(19, 20)).toEqual([0, undefined, 18, 19]);
   });
 
   it("lists what a column holds for its filter: each text once, with its number of rows, in text order", () => {

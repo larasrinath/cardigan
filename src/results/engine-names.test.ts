@@ -39,7 +39,7 @@ describe("The names the results page and the engine know each other by", () => {
     expect(chosen.filter(rest => !controls.some(control => rest.startsWith(control)))).toEqual([]);
     expect(controls.map(control => chosen.filter(rest => rest.startsWith(control)).length)).toEqual([4, 3]);
     // The button that copies a log reads exactly so wherever a failed run or a result shows its log.
-    const overview = overviewHtml({ tiles: [], cardTypes: [], models: [], notes: [], about: [], files: [], howToRead: [], log: ["a line"] });
+    const overview = overviewHtml({ tiles: [], notes: [], about: [], files: [], howToRead: [], log: ["a line"] });
     for (const html of [runHtml(), runBannerHtml(), noteBannerHtml(), overview]) {
       expect(parseMarkup(html).querySelectorAll("button").map(button => button.textContent.trim())).toEqual(["Copy diagnostic log"]);
     }

@@ -4,7 +4,7 @@ import { plainRows } from "../result-plain.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
 import { fileSafe, message, text } from "../util.js";
 import { ACCESS_LABEL, accessTable } from "./access.js";
-import { actionKind, mergeImports, missingActionColumns, type ActionKind } from "./actions.js";
+import { actionKind, mergeImports, missingActionColumns, otherActionsTable, type ActionKind } from "./actions.js";
 import { CALENDAR_HEADERS, calendarRows } from "./calendar.js";
 import { gridTable, type Grid, type GridRow, type Table } from "./grid.js";
 import { lineItemsTable } from "./lineitems.js";
@@ -21,16 +21,18 @@ import { axis, loadNative, readGrid, typeIndex } from "./native.js";
 type Any = any;
 /** How to read the tables, as the results page shows them: the overview lists these rows as they are. So they say what
  * the page's tables hold, where that is not the table as it is made here: the page says a definition in words
- * (results/readable-cells.ts), and lists Line Items without the modules' own rows (results/line-items-view.ts). They
- * speak of no file: the page makes none. */
+ * (results/readable-cells.ts), lists Line Items without the modules' own rows (results/line-items-view.ts), and shows an
+ * import's Source Object as three columns and a source model's Mapped To as two (results/result-view.ts). They speak of
+ * no file: the page makes none. */
 const HOW_TO_READ: readonly [detail: string, value: string][] = [
   ["Layout", "Each table is laid out as Anaplan's own export of the same Model settings grid: each row's name first, then the grid's columns, with each cell's underlying value. Where a Format, a Summary or an Action holds a definition that can be said in words, the table says the words, and a row's details add the definition as it was read."],
   ["Line Items", "The table lists line items: each names its module under Module Name, after its own name, and a module's own row is not listed. Applies To holds the dimensions a line item has, its module's where it has none of its own, and Applies To from says which. Three columns follow Anaplan's own. Ratio Numerator and Ratio Denominator name the line items a Ratio summary divides: the Summary's definition gives only their IDs. Format List names the list of a line item formatted as a list, as the General Lists table names it: the Format's definition gives only the list's ID. It is empty for any other format, for a list that is not in General Lists, such as a list subset or a line item subset, and when General Lists was not exported."],
   ["Dynamic Cell Access", "Not a Model settings grid: the Read Access Driver and Write Access Driver columns of Line Items, listed from the driver's side. One row for each use of a driver: the driver, Read or Write, and what it controls, each by module and name as Line Items has them. Rows follow the drivers' order in Line Items, Read before Write. A row with no Controlled Line Item is a module's own: its driver is set on the module's own row, which the Line Items table does not list. A line item that shows a dash is listed with its module's driver. A driver that could not be matched comes last, once for its cell, with no Driver Module and the cell as it is written. That includes a driver that sits in a row the model map leaves out, which About this map counts. The table is not made when Line Items was not exported or lacks its Module Name column or a driver column."],
-  ["Processes, Exports and Other Actions", "The Actions list split at its headings, in its own columns: definition, last run (start time and duration), notes, the processes that use each action and the dashboards it appears on."],
-  ["Imports", "The Imports tab (source and target), then each import's columns from the Actions list (last run, duration, notes, Used in Processes, Used in Dashboards), matched on the import's ID. The Actions list's \"Import into …\" text is left out: Target Object and Target Type say the same."],
+  ["Processes, Exports and Other Actions", "The Actions list split at its headings, in its own columns: definition, last run (start time and duration), notes, the processes that use each action and the dashboards it appears on. One column follows Anaplan's own in Other Actions. Action List names the list an action deletes from or orders, as the General Lists table names it: the Action's definition gives only the list's ID. It is empty for any other action, for a list that is not in General Lists, and when General Lists was not exported."],
+  ["Imports", "The Imports tab (source and target), then each import's columns from the Actions list (last run, duration, notes, Used in Processes, Used in Dashboards), matched on the import's ID. The Actions list's \"Import into …\" text is left out: Target Object and Target Type say the same. Source Object is shown as three columns, Source Model, Source Module and Saved View, for an import from a module or a saved view: Source Model names this model where the import reads from this model itself. A row's details add Source Object as it was read. Any other Source Object stands as it is under Source Model."],
   ["Import Data Sources", "Each data source, with the imports that use it."],
-  ["Model Calendar", "Follows the assessment template. Months and days are their names, and Current Fiscal Year is shown with its dates, as the Model Calendar tab shows it. Settings that do not apply to this calendar type are blank."],
+  ["Model Calendar", "Lists the calendar's settings that hold a value: those that do not apply to this calendar type, or that the model does not show, are left out. Months and days are their names, and Current Fiscal Year is shown with its dates, as the Model Calendar tab shows it."],
+  ["Source Models", "Mapped To is shown as two columns, Mapped Workspace and Mapped Model: the workspace and the model each source model is mapped to, by name, or by ID where Mapped To gives no name. A row's details add Mapped To as it was read. A Mapped To that cannot be read stands as it is under Mapped Workspace."],
 ];
 
 /** What the user is told when not one grid could be read (progress.ts `Failure`); why each could not is the detail. */
@@ -142,7 +144,9 @@ export async function exportModel(progress: Progress, diagnostics: () => string,
   await plain("Import Data Sources", () => axis(native, "IMPORT_DATA_SOURCE"), () => axis(native, "IMPORT_DATA_SOURCE_DETAILS_PROPERTY"));
   if (actions) {
     add("Exports", gridTable(actions, ofKind("export")));
-    add("Other Actions", gridTable(actions, ofKind("other")));
+    // General Lists has been read, or has failed, before the Actions list: its rows name the lists of the Action List
+    // column of Other Actions (actions.ts), as they name those of Format List, and no grid is read for the names.
+    add("Other Actions", otherActionsTable(actions, ofKind("other"), lists));
   }
   await plain("Time Ranges", () => axis(native, "TIME_RANGE"), () => {
     const calendar = native.cache.getTimescaleInfo?.()?.calendarTypeEntityIndex;
@@ -188,7 +192,8 @@ export async function exportModel(progress: Progress, diagnostics: () => string,
 
   const details: DetailRow[] = [
     ["Model", "Model", model],
-    ["Model", "Workspace", workspace || "—"],
+    // A dash where no workspace was found, which the results page reads as no name (results/main.ts `mapOptions`).
+    ["Model", "Workspace", workspace || "-"],
     ["Model", "Model ID", native.modelId],
     ["Model", "Workspace ID", native.workspaceId],
     ...exportRows(location.host),

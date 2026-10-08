@@ -17,43 +17,31 @@
 <body>
 <a class="skip" href="#view">Skip to results</a>
 
-<header class="hd">
-  <button id="navToggle" class="icon-btn nav-toggle" aria-label="Show navigation" title="Show navigation" aria-controls="sidenav" aria-expanded="false" hidden>
-    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
-      <path class="nt-lines" d="M2 4h12M2 8h12M2 12h12"/>
-      <g class="nt-frame" stroke-linejoin="round">
-        <path class="nt-side" d="M4 2.8h2v10.4H4a2.2 2.2 0 0 1-2.2-2.2V5A2.2 2.2 0 0 1 4 2.8z" fill="currentColor" stroke="none"/>
-        <rect x="1.8" y="2.8" width="12.4" height="10.4" rx="2.2"/>
-        <path d="M6 2.8v10.4"/>
-      </g>
-    </svg>
-  </button>
-  <div class="brand">
-    <svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true">
-      <rect x="1" y="1" width="24" height="24" rx="6" fill="var(--ink)"/>
-      <path d="M7.5 6.5v13M13 6.5l-3 3.2 3 3.3-3 3.3M18.5 6.5v13" stroke="var(--ink-text)" stroke-width="1.7" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-    </svg>
-    <span class="brand-name">Cardigan<span class="ver" id="version"></span></span>
-  </div>
-  <div class="meta" id="hdMeta"></div>
-  <div class="hd-actions">
-    <button class="btn" id="runAgain" title="Analyse the Anaplan tab again">
-      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.4 3.3v3.5h-3.5"/><path d="M12.95 9.75a5.25 5.25 0 1 1-1.24-5.46l2.7 2.54"/></svg>
-      Run again
-    </button>
-    <button id="themeToggle" class="icon-btn" aria-label="Switch colour theme" title="Switch colour theme"></button>
-  </div>
-</header>
+<div class="top">
+  <header class="hd">
+    <div class="brand">
+      <img src="icons/128.png" alt="" width="26" height="26">
+      <span class="brand-name">Cardigan<span class="ver" id="version"></span></span>
+    </div>
+    <div class="meta" id="hdMeta"></div>
+    <div class="hd-actions">
+      <button class="btn" id="runAgain" title="Analyse the Anaplan tab again">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.4 3.3v3.5h-3.5"/><path d="M12.95 9.75a5.25 5.25 0 1 1-1.24-5.46l2.7 2.54"/></svg>
+        Run again
+      </button>
+      <button id="themeToggle" class="icon-btn" aria-label="Switch colour theme" title="Switch colour theme"></button>
+    </div>
+  </header>
+  <nav class="topnav" id="topnav" aria-label="Result tables" hidden>
+    <div class="nav-list" id="navList"></div>
+    <div class="nav-compact" id="navCompact"></div>
+  </nav>
+</div>
 
 <div class="banners" id="banners"></div>
 
 <div class="shell">
-  <nav class="sidenav" id="sidenav" aria-label="Result tables" hidden>
-    <h2>Results</h2>
-    <div id="navList"></div>
-  </nav>
   <main id="main">
-    <nav class="crumbs" id="crumbs" aria-label="Breadcrumb"></nav>
     <div id="view" tabindex="-1"></div>
     <div id="mapHost" hidden></div>
   </main>

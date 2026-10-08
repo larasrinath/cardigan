@@ -1,13 +1,20 @@
-import { rowColumns, type Column } from "./columns.js";
-import type { Analysed, CardSection, Overview } from "./result-view.js";
-import { cellText, NONE, pagerItems, type Row, type Sort } from "./table-engine.js";
+import type { Items } from "./cell-lists.js";
+import { headerWidth, ROW_BUTTON, WIDEST } from "./column-widths.js";
+import { APP_FILES, rowColumns, type Column } from "./columns.js";
+import { LINE_ITEMS_FILE } from "./line-items-view.js";
+import { ACCESS_FILE, MODEL_CALENDAR_FILE, MODULES_FILE, type Analysed, type CardSection, type Overview, type SectionCell } from "./result-view.js";
+import { cellText, groupedCount, NONE, type Row, type Sort } from "./table-engine.js";
 import { usedOn, type WhereUsedObject } from "./where-used-view.js";
 
 /** The results page's markup, as the design writes it: each function turns data into the HTML text the page then shows.
  * Every string of a result was typed by an Anaplan user (card titles, text cards, names, formulas), so every value that
  * comes from a result goes through `esc`, in text and inside attributes alike, and no value is ever written as a tag, an
- * attribute name, a style or an address. What a click means is read from the row the page holds, never back out of the
- * markup: the only data attributes that carry a value hold a number the page counted itself, or an ID to copy. */
+ * attribute name, a style or an address. One part of a value is written into a style, and only as the page matched it: a
+ * formatting rule's colour, `#` and hexadecimal digits, which fills its square (`coloursHtml`). The only other style that
+ * carries a value holds a number the page worked out itself: a column's width. What a click means is read from the row
+ * the page holds, never back out of the markup: the only data attributes that carry a value hold a number the page
+ * counted itself, or an ID to copy. In a drawer, a value that lists several items decides one thing more than its text:
+ * how many items its list has. Each item is escaped text, in a list of the page's own elements. */
 
 const ESCAPES: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" };
 /** A value as text that cannot end the text or the quoted attribute it is written into. */
@@ -35,14 +42,43 @@ const copyLogButton = (act: "copy-diag" | "copy-run-log", attributes = ""): stri
 /* ---------- cells ---------- */
 
 /** An ID as a pill that copies it when clicked. */
+const pill = (text: string): string =>
+  `<button type="button" class="id-pill" data-copy="${esc(text)}" title="Copy ${esc(text)}" aria-label="Copy ID ${esc(text)}">${esc(text)}</button>`;
+
+/** An ID from the app's files as a pill that copies it, where it stands outside a table: a card's or an object's, in the
+ * drawer. There the dash says that the files have no such ID. A cell of a table is shown the way its column is shown
+ * (`cellHtml`). */
 export function idPill(id: unknown): string {
   const text = cellText(id);
   if (text === "") return "";
   if (text === NONE) return DASH;
-  return `<button type="button" class="id-pill" data-copy="${esc(text)}" title="Copy ${esc(text)}" aria-label="Copy ID ${esc(text)}">${esc(text)}</button>`;
+  return pill(text);
 }
 
+/** Whether a cell is the dash that says that there is nothing: the dash alone, in a column where it says so (columns.ts
+ * `Column`). */
+const isNone = (column: Column, text: string): boolean => column.none && text === NONE;
+
 const plain = (text: string): string => `<span class="cell-t" title="${esc(text)}">${esc(text)}</span>`;
+
+/** A colour stop as report.ts `cfRuleText` writes it, its value, an arrow and its colour, where the colour is `#` and three
+ * or six hexadecimal digits and ends the stop. A colour written in any other way stays text. */
+const COLOUR_STOP = /(→ )(#(?:[0-9A-Fa-f]{6}|[0-9A-Fa-f]{3}))(?=;|\s|$)/g;
+
+/** A text that holds colour stops, each colour as a small square of that colour before its code, as design tools show a
+ * colour. The square only shows what the code says, so screen readers skip it. The colour is written into its style only
+ * as COLOUR_STOP matched it; the rest of the text is escaped as any text. */
+export function coloursHtml(text: string): string {
+  let html = "";
+  let from = 0;
+  for (const match of text.matchAll(COLOUR_STOP)) {
+    const at = (match.index ?? 0) + match[1].length;
+    const colour = match[2];
+    html += `${esc(text.slice(from, at))}<span class="colour"><span class="swatch" style="--swatch:${colour}" aria-hidden="true"></span>${colour}</span>`;
+    from = at + colour.length;
+  }
+  return html + esc(text.slice(from));
+}
 
 /** What a row's cells may link to: its page's cards and its card's details. Both need the result's Cards file and the
  * row's own Page or Card ID column. `hasCard` says for each row whether its card is one to open: a table whose rows name
@@ -53,23 +89,30 @@ export interface Links { page: boolean; card: boolean; hasCard?: (row: Row) => b
 /** Whether a row's card is a link: the table's cards are, and this row's card is one to open. */
 const cardLinked = (links: Links, row: Row): boolean => links.card && (links.hasCard?.(row) ?? true);
 
-/** One cell: always the cell's own text, shown the way its column is shown. An empty cell stays empty. `whole` is for the
- * drawer, where a value is read in full: there its text stands in a `cell-t` whatever the column's kind, and that is the
- * element in which the stylesheet keeps a value's line breaks and spaces (an ID is a pill, which it shows uncut). */
+/** One cell: always the cell's own text, shown the way its column is shown. An empty cell stays empty, and the dash that
+ * says that there is nothing is greyed (`isNone`). `whole` is for the drawer, where a value is read in full: there its
+ * text stands in a `cell-t` whatever the column's kind, and that is the element in which the stylesheet keeps a value's
+ * line breaks and spaces (an ID is a pill, which it shows uncut). A count is its text with its thousands apart, in the
+ * table and in the drawer alike: what the page shows of the cell, which is not changed. A cell of a count's column that
+ * is no plain number shows as it is. */
 export function cellHtml(column: Column, row: Row, links: Links, whole = false): string {
   const text = cellText(row[column.index]);
   if (text === "") return "";
-  if (text === NONE) return DASH;
+  if (isNone(column, text)) return DASH;
   const shown = whole ? `<span class="cell-t">${esc(text)}</span>` : esc(text);
   switch (column.kind) {
     case "id":
-      return idPill(text);
+      return pill(text);
     case "tag":
       return `<span class="tag">${shown}</span>`;
     case "page":
       return links.page ? `<button type="button" class="link" data-act="page" title="Show cards on ${esc(text)}">${shown}</button>` : plain(text);
     case "card":
       return cardLinked(links, row) ? `<button type="button" class="link" data-act="card" title="Open card details">${shown}</button>` : plain(text);
+    case "colours":
+      return whole ? `<span class="cell-t">${coloursHtml(text)}</span>` : `<span class="cell-t" title="${esc(text)}">${coloursHtml(text)}</span>`;
+    case "count":
+      return whole ? `<span class="cell-t">${esc(groupedCount(text))}</span>` : plain(groupedCount(text));
     default:
       return plain(text);
   }
@@ -84,7 +127,7 @@ const ROW_ICON = '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" st
 export function rowCellHtml(column: Column, row: Row, links: Links): string {
   const text = cellText(row[column.index]);
   const own = cellHtml(column, row, links);
-  const control = text !== NONE && (column.kind === "id" || (column.kind === "page" && links.page) || (column.kind === "card" && cardLinked(links, row)));
+  const control = !isNone(column, text) && (column.kind === "id" || (column.kind === "page" && links.page) || (column.kind === "card" && cardLinked(links, row)));
   if (text === "" || control) return `<button type="button" class="link" data-act="row" aria-label="Open this row" title="Open this row">${ROW_ICON}</button> ${own}`;
   return `<button type="button" class="link" data-act="row" title="Open this row">${own}</button>`;
 }
@@ -99,39 +142,178 @@ export function headerMetaHtml(analysed: Analysed): string {
      <div class="meta-sub">${parts.join('<span class="dotsep">·</span>')}</div>`;
 }
 
-export interface NavEntry { id: string; label: string; count?: number }
+export interface NavEntry {
+  id: string;
+  label: string;
+  /** For the entry of a file: the file's name as the analysis writes it ("Cards.csv"), by which its icon is chosen. */
+  file?: string;
+}
 
-/** The navigation: one entry for each view, in the order given. A model's map is an entry like the others, which the page
- * lists last (main.ts `navEntries`). */
-export function navHtml(entries: readonly NavEntry[], current: string): string {
-  return entries.map(entry => {
-    const cur = entry.id === current ? ' aria-current="page"' : "";
-    const cnt = entry.count === undefined ? "" : `<span class="cnt">${esc(entry.count)}</span>`;
-    return `<button type="button" class="nav-item" data-nav="${esc(entry.id)}"${cur}><span>${esc(entry.label)}</span>${cnt}</button>`;
+/** An icon of the navigation: a small drawing before an entry's words, drawn as the page's other icons are, and hidden from
+ * a screen reader, for the words beside it say what the entry is. Each is the page's own markup, written once, here:
+ * nothing of a result goes into one. */
+const navIcon = (drawing: string): string =>
+  `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${drawing}</svg>`;
+
+/** The icons of the views that are no file the page knows: the overview, a model's map, and the table of any other file;
+ * of the groups a model's tables stand in (`NAV_GROUPS`); and of the one menu of a window too narrow for the bar. */
+export const NAV_ICONS = {
+  /** Panels of different sizes, as on a board: everything about the run in one view. */
+  overview: navIcon('<rect x="2" y="2" width="5" height="6" rx="1.2"/><rect x="9" y="2" width="5" height="3.5" rx="1.2"/><rect x="9" y="7.5" width="5" height="6.5" rx="1.2"/><rect x="2" y="10" width="5" height="4" rx="1.2"/>'),
+  /** A folded map. */
+  map: navIcon('<path d="M1.8 4.2 5.8 2.5l4.4 1.8 4-1.7v9.2l-4 1.7-4.4-1.8-4 1.7Z"/><path d="M5.8 2.5v9.2M10.2 4.3v9.2"/>'),
+  /** A table, with its row of headers and its first column. */
+  table: navIcon('<rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M2 6.2h12M6.2 2.5v11"/>'),
+  /** An hourglass: the model's time. */
+  time: navIcon('<path d="M4.5 1.8h7M4.5 14.2h7"/><path d="M5.2 1.8v2.4c0 1.6 2.8 2.6 2.8 3.8S5.2 10.2 5.2 11.8v2.4M10.8 1.8v2.4c0 1.6-2.8 2.6-2.8 3.8s2.8 2.2 2.8 3.8v2.4"/>'),
+  /** A hierarchy, as a list's items stand under their parents. */
+  lists: navIcon('<rect x="5.8" y="1.8" width="4.4" height="3.4" rx="1"/><rect x="1.8" y="10.8" width="4.4" height="3.4" rx="1"/><rect x="9.8" y="10.8" width="4.4" height="3.4" rx="1"/><path d="M8 5.2v2.8M4 10.8V8h8v2.8"/>'),
+  /** Blocks of one size, side by side: the model's modules. */
+  modules: navIcon('<rect x="2" y="2" width="5" height="5" rx="1.2"/><rect x="9" y="2" width="5" height="5" rx="1.2"/><rect x="2" y="9" width="5" height="5" rx="1.2"/><rect x="9" y="9" width="5" height="5" rx="1.2"/>'),
+  /** A button that runs something: the model's actions. */
+  actions: navIcon('<circle cx="8" cy="8" r="6.2"/><path d="M6.6 5.4v5.2l4.2-2.6Z"/>'),
+  /** Three lines: a menu of every view. */
+  menu: navIcon('<path d="M2.5 4h11M2.5 8h11M2.5 12h11"/>'),
+} as const;
+
+/** The chevron after the words of a button that opens a menu of the navigation, turned over while the menu is open. */
+const NAV_CHEVRON = '<svg class="nav-chevron" width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg>';
+/** The same chevron for the choice of rows per page, which draws its own (results.css `.select`). */
+const SELECT_CHEVRON = NAV_CHEVRON.replace('class="nav-chevron"', 'class="select-chevron"');
+
+/** The icon of each file the page knows by name, a drawing of what the file lists: the app's seven (columns.ts
+ * `APP_FILES`) and a model's (result-view.ts `MODEL_FILE_ORDER`), each under the name the analysis writes it under. An
+ * entry's icon is found by that name and by nothing else, never by the entry's words: those are the file's label, which
+ * is a result's like any of its texts. A file of any other name has the table's icon (`NAV_ICONS.table`). A map, so that a
+ * name like that of an object's built-in property finds nothing. */
+export const FILE_ICONS: ReadonlyMap<string, string> = new Map([
+  // A page with its text.
+  [APP_FILES.Pages, navIcon('<path d="M9.2 1.8H4.5A1.5 1.5 0 0 0 3 3.3v9.4a1.5 1.5 0 0 0 1.5 1.5h7a1.5 1.5 0 0 0 1.5-1.5V5.6Z"/><path d="M9.2 1.8v3.8H13M5.8 8.6h4.4M5.8 11.2h4.4"/>')],
+  // A card, with more cards stacked behind it.
+  [APP_FILES.Cards, navIcon('<path d="M5.5 2h5M3.8 4.6h8.4"/><rect x="2.2" y="7.2" width="11.6" height="7" rx="1.5"/>')],
+  // A grid.
+  [APP_FILES["Grid sections"], navIcon('<rect x="2" y="2" width="12" height="12" rx="1.5"/><path d="M2 6h12M2 10h12M6 2v12M10 2v12"/>')],
+  // A funnel, as on the buttons of a table's filters.
+  [APP_FILES.Filters, navIcon(FILTER_PATH)],
+  // A painter's palette: a card's colours, set by a rule.
+  [APP_FILES.Formatting, navIcon('<path d="M8 1.8a6.2 6.2 0 0 0 0 12.4c.8 0 1.3-.5 1.3-1.2 0-.6-.5-1-.5-1.6 0-.7.5-1.2 1.2-1.2h1.5a2.8 2.8 0 0 0 2.8-2.8C14.3 4.4 11.5 1.8 8 1.8Z"/>'
+    + '<circle cx="4.9" cy="8.4" r="1" fill="currentColor" stroke="none"/><circle cx="6.3" cy="5.1" r="1" fill="currentColor" stroke="none"/><circle cx="9.8" cy="4.6" r="1" fill="currentColor" stroke="none"/>')],
+  // A pointer that clicks.
+  [APP_FILES.Actions, navIcon('<path d="M6.2 6.2 13.6 9.2l-3.1.9-.9 3.1Z"/><path d="M4.6 1.8l.5 2M1.8 4.6l2 .5M9.4 2.6 8.2 4M2.6 9.4 4 8.2"/>')],
+  // A pin: where an object is used.
+  [APP_FILES["Where used"], navIcon('<path d="M8 14.3s-4.6-4.2-4.6-7.7a4.6 4.6 0 0 1 9.2 0c0 3.5-4.6 7.7-4.6 7.7Z"/><circle cx="8" cy="6.6" r="1.7"/>')],
+  // A calendar.
+  [MODEL_CALENDAR_FILE, navIcon('<rect x="2" y="3" width="12" height="11" rx="1.5"/><path d="M2 6.6h12M5.4 1.8v2.4M10.6 1.8v2.4"/>')],
+  // A clock.
+  ["Time Ranges.csv", navIcon('<circle cx="8" cy="8" r="6.2"/><path d="M8 4.6V8l2.3 1.5"/>')],
+  // Layers, one over another, as a model's versions are.
+  ["Versions.csv", navIcon('<path d="M8 1.8 14.2 5 8 8.2 1.8 5Z"/><path d="M1.8 8.2 8 11.4l6.2-3.2M1.8 11.2 8 14.4l6.2-3.2"/>')],
+  // A list, item under item.
+  ["General Lists.csv", navIcon('<path d="M6 4h8M6 8h8M6 12h8"/><path d="M2.8 4h.01M2.8 8h.01M2.8 12h.01" stroke-width="2.2"/>')],
+  // A list with some of its items ticked.
+  ["Line Item Subsets.csv", navIcon('<path d="M2 4.6l1.3 1.3 2.6-2.6M2 11.1l1.3 1.3 2.6-2.6M8 4h6M8 8h6M8 12h6"/>')],
+  // A box: a module.
+  [MODULES_FILE, navIcon('<path d="M8 1.8 13.6 5v6.2L8 14.4 2.4 11.2V5Z"/><path d="M2.4 5 8 8.2 13.6 5M8 8.2v6.2"/>')],
+  // Lines that hang from a line: a module's line items.
+  [LINE_ITEMS_FILE, navIcon('<path d="M5.3 4H14M8.7 8H14M8.7 12H14M2 4v2.7c0 .7.6 1.3 1.3 1.3h2M2 6.7v4c0 .7.6 1.3 1.3 1.3h2"/>')],
+  // A padlock: who may read a cell, and who may write it.
+  [ACCESS_FILE, navIcon('<rect x="3" y="7.2" width="10" height="7" rx="1.5"/><path d="M5.5 7.2V5.2a2.5 2.5 0 0 1 5 0v2"/>')],
+  // One step that leads to the next.
+  ["Processes.csv", navIcon('<rect x="2" y="2" width="5.3" height="5.3" rx="1.3"/><rect x="8.7" y="8.7" width="5.3" height="5.3" rx="1.3"/><path d="M4.7 7.3V10A1.3 1.3 0 0 0 6 11.3h2.7"/>')],
+  // An arrow that goes in.
+  ["Imports.csv", navIcon('<path d="M10 2h2.7A1.3 1.3 0 0 1 14 3.3v9.4a1.3 1.3 0 0 1-1.3 1.3H10"/><path d="M6.7 11.3 10 8 6.7 4.7M10 8H2"/>')],
+  // A store of data.
+  ["Import Data Sources.csv", navIcon('<path d="M2.2 3.7a5.8 2 0 1 0 11.6 0a5.8 2 0 1 0-11.6 0"/><path d="M2.2 3.7v8.6a5.8 2 0 0 0 11.6 0V3.7M2.2 8a5.8 2 0 0 0 11.6 0"/>')],
+  // An arrow that goes out.
+  ["Exports.csv", navIcon('<path d="M6 14H3.3A1.3 1.3 0 0 1 2 12.7V3.3A1.3 1.3 0 0 1 3.3 2H6"/><path d="M10.7 11.3 14 8l-3.3-3.3M14 8H6"/>')],
+  // A bolt: an action of another kind.
+  ["Other Actions.csv", navIcon('<path d="M9 1.8 3 9.2h4.6L7 14.2l6-7.4H8.4Z"/>')],
+  // A server: the other models that an import reads from.
+  ["Source Models.csv", navIcon('<rect x="2" y="2.2" width="12" height="5" rx="1.3"/><rect x="2" y="8.8" width="12" height="5" rx="1.3"/><path d="M4.8 4.7h.01M4.8 11.3h.01" stroke-width="2"/>')],
+]);
+
+/** An entry's icon: the overview's, a model's map's, or that of the entry's file, by the file's name alone. */
+const entryIcon = (entry: NavEntry): string =>
+  (entry.id === "overview" ? NAV_ICONS.overview : entry.id === "map" ? NAV_ICONS.map : FILE_ICONS.get(entry.file ?? "") ?? NAV_ICONS.table);
+
+/** The groups a model's navigation gathers its tables in, each a button that opens a menu of the group's tables: in the
+ * order of Anaplan's Model settings (result-view.ts `MODEL_FILE_ORDER`), each group by the names the analysis writes its
+ * files under, never by a table's words. Versions and Source Models are one file each, and stand in the bar on their own,
+ * as does a file that no group names: none is left out. Each group's ID is the ID of its menu. The page's own words and
+ * drawings only: nothing of a result. */
+export const NAV_GROUPS: readonly { id: string; label: string; icon: string; files: readonly string[] }[] = [
+  { id: "navGroupTime", label: "Time", icon: NAV_ICONS.time, files: [MODEL_CALENDAR_FILE, "Time Ranges.csv"] },
+  { id: "navGroupLists", label: "Lists", icon: NAV_ICONS.lists, files: ["General Lists.csv", "Line Item Subsets.csv"] },
+  { id: "navGroupModules", label: "Modules", icon: NAV_ICONS.modules, files: [MODULES_FILE, LINE_ITEMS_FILE, ACCESS_FILE] },
+  { id: "navGroupActions", label: "Actions", icon: NAV_ICONS.actions, files: ["Processes.csv", "Imports.csv", "Import Data Sources.csv", "Exports.csv", "Other Actions.csv"] },
+];
+
+/** A group of a model's navigation, with the entries of the tables it holds, in their order. */
+export interface NavGroup { group: (typeof NAV_GROUPS)[number]; entries: NavEntry[] }
+/** What stands in the navigation: an entry, or a group of entries. */
+export type NavItem = NavEntry | NavGroup;
+const isGroup = (item: NavItem): item is NavGroup => "entries" in item;
+
+/** The navigation's items. A model's tables stand in their groups (`NAV_GROUPS`), each group where its first table stands,
+ * with the tables of its files that the result has: a group with none is not there. A group of one table is that table's
+ * own entry, as Versions is: a menu of one entry would be a press more for nothing. Every other entry keeps its place.
+ * An app's entries stand as they are, whatever their files are called: `grouped` is the result's kind, never a file's name. */
+export function navItems(entries: readonly NavEntry[], grouped: boolean): NavItem[] {
+  if (!grouped) return [...entries];
+  const items: NavItem[] = [];
+  const started = new Map<string, NavGroup>();
+  for (const entry of entries) {
+    const group = NAV_GROUPS.find(each => entry.file !== undefined && each.files.includes(entry.file));
+    const held = group && started.get(group.id);
+    if (held) held.entries.push(entry);
+    else if (group) {
+      const made: NavGroup = { group, entries: [entry] };
+      started.set(group.id, made);
+      items.push(made);
+    } else items.push(entry);
+  }
+  return items.map(item => (isGroup(item) && item.entries.length === 1 ? item.entries[0] : item));
+}
+
+/** An entry: a button with its icon and its words, marked where it is the view shown. How many rows a table has is the
+ * overview's to say, on the table's tile. */
+const entryHtml = (entry: NavEntry, current: string): string =>
+  `<button type="button" class="nav-item" data-nav="${esc(entry.id)}"${entry.id === current ? ' aria-current="page"' : ""}>${entryIcon(entry)}<span>${esc(entry.label)}</span></button>`;
+
+/** A button that opens a menu, and the menu, which follows it on the page, so that Tab goes from the button into it: the
+ * disclosure pattern. The button says whether its menu is open (main.ts opens and closes it), and names the menu it
+ * controls by the menu's ID, which is the page's own. `here` marks the button of a group that holds the view shown. */
+const menuHtml = (id: string, button: string, here: boolean, menu: string): string =>
+  `<div class="nav-group"><button type="button" class="nav-group-btn" aria-expanded="false" aria-controls="${id}"${here ? ' aria-current="true"' : ""}>${button}${NAV_CHEVRON}</button>`
+  + `<div class="nav-menu" id="${id}" hidden>${menu}</div></div>`;
+
+/** The navigation as one line of items, in the order given: the overview, a model's groups among its tables, and a
+ * model's map last (main.ts `navEntries`). A group is a button with an icon, a name and a chevron: the group's own, or,
+ * where the group holds the view shown, that entry's, so that the bar says which table is shown. The entry of the view
+ * shown is marked as the page, and the button of the group that holds it as current. */
+export function navHtml(items: readonly NavItem[], current: string): string {
+  return items.map(item => {
+    if (!isGroup(item)) return entryHtml(item, current);
+    const shown = item.entries.find(entry => entry.id === current);
+    const button = shown ? `${entryIcon(shown)}<span>${esc(shown.label)}</span>` : `${item.group.icon}<span>${item.group.label}</span>`;
+    return menuHtml(item.group.id, button, shown !== undefined, item.entries.map(entry => entryHtml(entry, current)).join(""));
   }).join("");
 }
 
-/** The breadcrumb: the overview alone, or the view under it with the page a jump keeps. */
-export function crumbsHtml(label: string | undefined, context: string | undefined): string {
-  if (label === undefined) return '<span aria-current="page"><strong>Overview</strong></span>';
-  const crumbs = [
-    '<button type="button" data-nav="overview">Overview</button>',
-    '<span class="sep" aria-hidden="true">/</span>',
-    `<span aria-current="page"><strong>${esc(label)}</strong></span>`,
-  ];
-  if (context !== undefined) {
-    crumbs.push('<span class="sep" aria-hidden="true">/</span>');
-    crumbs.push(`<span class="ctx">Page: ${esc(context)}
-        <button type="button" data-act="clear-context" aria-label="Clear page filter">
-          ${CLOSE_ICON}
-        </button></span>`);
-  }
-  return crumbs.join("");
+/** The navigation as one menu, for a window too narrow for its line: a button that names the view shown, `here`, which
+ * opens a menu of every item in the same order, a model's groups each under its name. */
+export function navMenuHtml(items: readonly NavItem[], current: string, here: string): string {
+  const listed = items.map(item => (isGroup(item)
+    ? `<div class="nav-section" role="group" aria-label="${item.group.label}"><p class="nav-heading" aria-hidden="true">${item.group.label}</p>${item.entries.map(entry => entryHtml(entry, current)).join("")}</div>`
+    : entryHtml(item, current))).join("");
+  return menuHtml("navMenu", `${NAV_ICONS.menu}<span>${esc(here)}</span>`, false, listed);
 }
 
 /* ---------- overview ---------- */
 
-/** Details beside their values, as the design's details list holds them. */
+/** Details beside their values, as the design's details list holds them. A value is written as its text, line breaks and
+ * all: no tag stands for a line break, and nothing but the value stands in its element, for where the stylesheet shows a
+ * value's lines (results.css `#ovAbout`) a space or a line break around the value would show as well. */
 const detailRows = (rows: readonly (readonly [detail: string, value: string])[]): string => rows.map(([detail, value]) => `<dt>${esc(detail)}</dt><dd>${esc(value)}</dd>`).join("");
 
 /** What the page keeps of the result on it for a refresh of the page (keep-result.ts), as the overview says it: "keeping"
@@ -168,31 +350,13 @@ export function keptCopyHtml(copy: KeptCopy): string {
 }
 
 /** The overview: everything about the run in one view. Under the tiles, what someone checks first: what was read and when,
- * with what the page keeps of the result for a refresh (`copy`) close under it, then the notes, and for an app its cards
- * by type and its models. After those, what is looked up now and then: tables that say more than their tile, and two
- * sections that start closed, how to read the tables and the diagnostic log.
+ * with what the page keeps of the result for a refresh (`copy`) close under it, then the notes. After those, what is
+ * looked up now and then: tables that say more than their tile, and two sections that start closed, how to read the
+ * tables and the diagnostic log.
  *
  * A view's heading is the page's h1, so what stands under it is an h2, also inside a section that starts closed. The
  * drawer's heading is an h2 of the page shell, and its sections are h3. No view goes from one level to one two below it. */
 export function overviewHtml(overview: Overview, copy: KeptCopy = "none"): string {
-  const most = overview.cardTypes.reduce((max, [, count]) => Math.max(max, count), 1);
-  const types = overview.cardTypes.length ? `
-      <section class="panel" aria-labelledby="ovt"><h2 id="ovt">Cards by type</h2>
-        <div class="typebars">
-          ${overview.cardTypes.map(([type, count]) => `
-            <div class="typebar"><span>${type === "" ? BLANK : esc(type)}</span>
-              <span class="tb-track"><span class="tb-fill" style="display:block;width:${Math.round(count / most * 100)}%"></span></span>
-              <span class="tb-n">${esc(count)}</span></div>`).join("")}
-        </div>
-      </section>` : "";
-  const models = overview.models.length ? `
-      <section class="panel" aria-labelledby="ovm"><h2 id="ovm">Models</h2>
-        ${overview.models.map(model => `
-          <div class="model-row">
-            <div class="m-name">${esc(model.model)} ${idPill(model.modelId)}</div>
-            <div class="m-sub">Workspace: ${esc(model.workspace)}</div>
-          </div>`).join("")}
-      </section>` : "";
   const about = overview.about.length ? `
     <div class="d-sec" id="ovAbout"><h2>About this export</h2>
       <dl class="dl">${detailRows(overview.about)}</dl></div>` : "";
@@ -228,9 +392,7 @@ export function overviewHtml(overview: Overview, copy: KeptCopy = "none"): strin
         // are in all. It does not say that they were read: a Model Calendar's rows are a template's, which the export fills in.
         tile.inAll === undefined ? "" : `<div class="s-sub">${esc(tile.inAll)} ${tile.inAll === 1 ? "row" : "rows"} in all</div>`}</div>`).join("")}
     </div>${about}
-    <p class="ov-kept" id="ovKept">${keptCopyHtml(copy)}</p>${notes}${types || models ? `
-    <div class="ov-cols">${types}${models}
-    </div>` : ""}${files}${howToRead}${log}`;
+    <p class="ov-kept" id="ovKept">${keptCopyHtml(copy)}</p>${notes}${files}${howToRead}${log}`;
 }
 
 /* ---------- the run, before there is a result ---------- */
@@ -274,7 +436,7 @@ export function noteBannerHtml(): string {
 
 /* ---------- the model map ---------- */
 
-/** What a model's map is called: in the navigation, in the breadcrumb and as its view's heading. */
+/** What a model's map is called: in the navigation and as its view's heading. */
 export const MAP_LABEL = "Model map";
 /** What the view says when the map could not be drawn: that it could not, that the tables are as they were, each under
  * its own entry, and what to do. It names the button beside it as that reads; the reason is in the log the button copies. */
@@ -282,9 +444,9 @@ export const MAP_FAILED = "The model map could not be drawn. The tables are not 
 
 /** The view while a model's map is shown. The map itself stands in a place of its own beside the view (results.html
  * `#mapHost`), which takes all the room there is. So the view holds its heading and no more, for a screen reader only:
- * to the eye the breadcrumb says the same. When the map could not be drawn (`failed`) the view says so instead, under
- * the heading, with the button that copies the run's log, where the reason is. Every word is the page's own: the view
- * holds nothing of a result. */
+ * to the eye the map's entry in the navigation, marked as the view shown, says the same. When the map could not be drawn
+ * (`failed`) the view says so instead, under the heading, with the button that copies the run's log, where the reason
+ * is. Every word is the page's own: the view holds nothing of a result. */
 export function mapHtml(failed: boolean): string {
   if (!failed) return `<h1 class="sr-only">${MAP_LABEL}</h1>`;
   return `
@@ -316,6 +478,10 @@ export interface TableView {
   opensFrom?: number;
   /** The columns shown, in the table's order. */
   columns: readonly Column[];
+  /** Each column's width in ch, by its place in the table's headers, worked out from every row of the table and not
+   * from the rows on screen (column-widths.ts `columnWidths`): the same whatever the sort, the page, the search, the
+   * filters or a jump, so that none of them moves the table's columns. A column without one is as wide as its header. */
+  widths: ReadonlyMap<number, number>;
   /** The rows of the page shown. */
   rows: readonly Row[];
   page: number;
@@ -335,18 +501,18 @@ export interface TableView {
   links: Links;
 }
 
+/** The pager: Previous and Next, each disabled where there is no page to turn to, and the choice of rows per page. It
+ * names no page by its number: the count that stands just before it says which rows are shown and of how many
+ * ("51–100 of 229 rows"), and that is what tells the user where they are in the table. */
 export function pagerHtml(page: number, pages: number, total: number, pageSize: number): string {
   if (total === 0) return "";
-  const numbers = pagerItems(page, pages).map(item => (item === undefined ? '<span aria-hidden="true">…</span>'
-    : `<button type="button" class="pg-btn" data-page="${item}" ${item === page ? 'aria-current="true"' : ""} aria-label="Page ${item + 1}">${item + 1}</button>`));
   return `
     <button type="button" class="pg-btn" data-page="${page - 1}" ${page === 0 ? "disabled" : ""} aria-label="Previous page">‹</button>
-    <span class="pages">${numbers.join("")}</span>
     <button type="button" class="pg-btn" data-page="${page + 1}" ${page >= pages - 1 ? "disabled" : ""} aria-label="Next page">›</button>
     <span class="per-page">Rows per page
-      <select id="pageSize" aria-label="Rows per page">
+      <span class="select"><select id="pageSize" aria-label="Rows per page">
         ${[25, 50, 100].map(size => `<option value="${size}" ${size === pageSize ? "selected" : ""}>${size}</option>`).join("")}
-      </select></span>`;
+      </select>${SELECT_CHEVRON}</span></span>`;
 }
 
 /** The parts of a table view that follow what the user asked for: the search, the filters, the sort and the page. The
@@ -361,15 +527,36 @@ export interface TableParts {
   modified: boolean;
 }
 
+/** A column's width as the page writes it into the column's style: a whole number of ch, which the page worked out
+ * itself (column-widths.ts) and which no text of a result can be. Anything but a number is the widest a column gets. */
+const colWidth = (width: number): number => (Number.isFinite(width) ? Math.min(WIDEST, Math.max(1, Math.round(width))) : WIDEST);
+
+/** Whether a row's opening button stands before the content of a cell of this column, rather than being its content:
+ * where the cell is a link or an ID to copy (`rowCellHtml`). The column of such cells takes the button's room as well,
+ * when it is the one that opens the row. */
+const besideButton = (column: Column, links: Links): boolean => column.kind === "id" || (column.kind === "page" && links.page) || (column.kind === "card" && links.card);
+
 export function tableParts(view: TableView): TableParts {
   const label = esc(view.label);
   const searching = view.search.trim() !== "";
   const filtering = view.filtered.size > 0;
   const jumped = view.context !== undefined;
+  // The cell that opens the row: the first one shown, or that of the column the table has for it, where it is shown.
+  const opens = Math.max(0, view.columns.findIndex(column => column.index === view.opensFrom));
+
+  // The table is laid out by these widths, one for each column shown, and by nothing it shows (results.css): a column
+  // is as wide on every page, in every order and under every search and filter. The stylesheet reads each width from
+  // the column's style, where it is the only value, and keeps the first column to half the table's box.
+  const cols = view.columns.map((column, position) => {
+    const width = (view.widths.get(column.index) ?? headerWidth(column)) + (position === opens && besideButton(column, view.links) ? ROW_BUTTON : 0);
+    return `<col style="--width:${colWidth(width)}ch">`;
+  }).join("");
 
   const head = view.columns.map(column => {
     const dir = view.sort?.column === column.index ? view.sort.dir : undefined;
     const aria = dir ? (dir === "asc" ? "ascending" : "descending") : "none";
+    // The arrow's place is in every header, empty where the column is not sorted, and the stylesheet gives it the same
+    // room either way (`.th-sort .dir`): a sort changes what it shows, not how wide the header is.
     const arrow = `<span class="dir" aria-hidden="true">${dir ? (dir === "asc" ? "▲" : "▼") : ""}</span>`;
     const name = esc(column.label);
     // A filter in force shows in more than the button's colour: the funnel is filled, where it is otherwise an outline,
@@ -402,14 +589,12 @@ export function tableParts(view: TableView): TableParts {
       <button type="button" class="btn sm" data-act="reset">Clear search &amp; filters</button>
       </div>`;
   } else {
-    // The cell that opens the row: the first one shown, or that of the column the table has for it, where it is shown.
-    const opens = Math.max(0, view.columns.findIndex(column => column.index === view.opensFrom));
     body = view.rows.map(row => `<tr>${view.columns.map((column, position) =>
       `<td class="${column.num ? "num" : ""}">${position === opens ? rowCellHtml(column, row, view.links) : cellHtml(column, row, view.links)}</td>`).join("")}</tr>`).join("");
   }
 
   return {
-    grid: `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>
+    grid: `<table><colgroup>${cols}</colgroup><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>
       ${empty}
       <div class="scroll-fade" aria-hidden="true"></div>`,
     pager: pagerHtml(view.page, view.pages, view.total, view.pageSize),
@@ -422,7 +607,8 @@ export function tableParts(view: TableView): TableParts {
  * toolbar holds the search box and the Columns and Reset buttons, and at its right end the count and then the pager, which
  * is its last child: nothing stands under the table. A table that can be shown in more than one way has the switch
  * between them at the toolbar's head: a button for each way, which says whether it is the one shown (aria-pressed), and
- * the one shown is also the filled one. */
+ * the one shown is also the filled one. Where a jump keeps the table to one page's cards, that page stands next, before
+ * the search box, as a chip with the button that clears it: the same filter as the search and Reset, beside them. */
 export function tableHtml(view: TableView): string {
   const label = esc(view.label);
   const parts = tableParts(view);
@@ -430,11 +616,16 @@ export function tableHtml(view: TableView): string {
       <div class="ways" id="tableWays" role="group" aria-label="How ${label} is listed">
         ${view.ways.map(way => `<button type="button" class="btn sm${way.chosen ? " primary" : ""}" data-way="${esc(way.way)}" aria-pressed="${way.chosen ? "true" : "false"}">${esc(way.label)}</button>`).join("\n        ")}
       </div>` : "";
+  const context = view.context === undefined ? "" : `
+      <span class="ctx" id="pageFilter">Page: ${esc(view.context)}
+        <button type="button" data-act="clear-context" aria-label="Clear page filter">
+          ${CLOSE_ICON}
+        </button></span>`;
   const note = view.note === undefined ? "" : `
     <p class="view-note">${esc(view.note)}</p>`;
   return `
     <h1 class="view-title">${label}</h1>${note}
-    <div class="toolbar">${ways}
+    <div class="toolbar">${ways}${context}
       <div class="search-wrap ${view.search ? "has-value" : ""}" id="searchWrap">
         <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">${SEARCH_PATH}</svg>
         <input id="tblSearch" type="search" value="${esc(view.search)}" placeholder="Search all columns…" aria-label="Search ${label}">
@@ -458,16 +649,18 @@ export function tableHtml(view: TableView): string {
 
 /** A column's filter: each text the column holds with its number of rows, ticked when shown. The numbers count the rows
  * of the whole table, whatever the search, the other filters or a jump leave on screen, and a line above them says so. A
- * box is known by its place in the list, so no value is read back out of the page. */
+ * box is known by its place in the list, so no value is read back out of the page. A count's column lists each count as
+ * its cells show it, with its thousands apart. */
 export function colFilterHtml(column: Column, values: readonly (readonly [value: string, count: number])[], selected: ReadonlySet<string> | undefined): string {
   const checked = (value: string) => (!selected || selected.has(value) ? "checked" : "");
+  const shown = (value: string) => (column.kind === "count" ? groupedCount(value) : value);
   return `
     <div class="pop-hd"><span>Filter: ${esc(column.label)}</span><button type="button" data-popact="all">Show all</button></div>
     ${values.length ? '<div class="pop-hd" aria-hidden="true"><span>Value</span><span>Rows in the whole table</span></div>' : ""}
     <div class="pop-bd">
       ${values.length ? values.map(([value, count], index) => `
         <label class="pop-opt"><input type="checkbox" data-fval="${index}" ${checked(value)}>
-        <span style="overflow:hidden;text-overflow:ellipsis">${value === "" ? BLANK : esc(value)}</span>
+        <span style="overflow:hidden;text-overflow:ellipsis">${value === "" ? BLANK : esc(shown(value))}</span>
         <span class="po-cnt">${esc(count)}<span class="sr-only"> ${count === 1 ? "row" : "rows"} in the whole table</span></span></label>`).join("")
       : '<div class="pop-empty">No values</div>'}
     </div>`;
@@ -487,21 +680,36 @@ export function colChooserHtml(columns: readonly Column[], hidden: ReadonlySet<n
 
 /* ---------- drawer ---------- */
 
+/** A value that lists several items, as the drawer shows it: one item to a line, in the order the cell has them. Each item
+ * stands in a `cell-t`, as a value of the drawer does, and the list holds nothing else: no separator of the cell's and no
+ * space of the markup's own. */
+/** Items one to a line; the items of a column of colour stops each with the square of its colour (`coloursHtml`). */
+const itemsHtml = (items: Items, colours = false): string => `<ul class="cell-list">${items.map(item => `<li><span class="cell-t">${colours ? coloursHtml(item) : esc(item)}</span></li>`).join("")}</ul>`;
+
 /** A row whole: every one of its cells, also those beyond the table's headers, each with its value in full. Nothing but
  * the value stands in a `dd`, so no space of the markup's own is kept with it. `exported` has, for each cell the table
  * says in words, the text that was read in its place, by the column's place: that text follows the words, under the
- * column's name and "as read", so that it is clear which of the two is which. */
-const allColumns = (columns: readonly Column[], row: Row, links: Links, exported?: ReadonlyMap<number, unknown>): string =>
+ * column's name and "as read", so that it is clear which of the two is which. Where the column is no column of the file,
+ * `readUnder` has the name of the file's column the text was read from, by the column's place, and the text is named by
+ * that name instead (result-view.ts `FileView`). `items` has, for each cell that lists several items (cell-lists.ts), those
+ * items, by the column's place: the cell is listed one item to a line. Only a column of plain text or of colour stops is
+ * listed so, the colour stops each with its square: an ID, a tag and a link stay what they are. */
+const allColumns = (columns: readonly Column[], row: Row, links: Links, exported?: ReadonlyMap<number, unknown>, items?: ReadonlyMap<number, Items>,
+  readUnder?: ReadonlyMap<number, string>): string =>
   `<dl class="d-dl">${rowColumns(columns, row).map(column => {
-    const shown = `<dt>${esc(column.label)}</dt><dd>${cellHtml(column, row, links, true)}</dd>`;
-    return exported?.has(column.index) ? `${shown}<dt>${esc(column.label)} as read</dt><dd><span class="cell-t">${esc(exported.get(column.index))}</span></dd>` : shown;
+    const listed = column.kind === "text" || column.kind === "colours" ? items?.get(column.index) : undefined;
+    const shown = `<dt>${esc(column.label)}</dt><dd>${listed && listed.length > 1 ? itemsHtml(listed, column.kind === "colours") : cellHtml(column, row, links, true)}</dd>`;
+    return exported?.has(column.index)
+      ? `${shown}<dt>${esc(readUnder?.get(column.index) ?? column.label)} as read</dt><dd><span class="cell-t">${esc(exported.get(column.index))}</span></dd>` : shown;
   }).join("")}</dl>`;
 
-/** One row in full: every column, hidden ones included, with nothing cut short, and for each cell that is said in words
- * the text that was read (`exported`). */
-export function rowDrawerHtml(columns: readonly Column[], row: Row, links: Links, exported?: ReadonlyMap<number, unknown>): string {
+/** One row in full: every column, hidden ones included, with nothing cut short, for each cell that is said in words the
+ * text that was read (`exported`), named by the file's column it was read from where that is another (`readUnder`), and
+ * for each cell that lists several items those items, one to a line (`items`). */
+export function rowDrawerHtml(columns: readonly Column[], row: Row, links: Links, exported?: ReadonlyMap<number, unknown>, items?: ReadonlyMap<number, Items>,
+  readUnder?: ReadonlyMap<number, string>): string {
   return `<div class="d-sec"><h3>All columns</h3>
-    ${allColumns(columns, row, links, exported)}</div>`;
+    ${allColumns(columns, row, links, exported, items, readUnder)}</div>`;
 }
 
 /** Under a row's name in the drawer: which row of which table it is. `position` is the row's place in the file, from 1. */
@@ -516,14 +724,18 @@ export function cardDrawerSubHtml(page: string, type: string, cardId: string, no
   return note === undefined ? line : `${line}<div>${esc(note)}</div>`;
 }
 
-/** A card in full: its row of the Cards file, then its parts: the rows of the other files that carry its Card ID. */
-export function cardDrawerHtml(columns: readonly Column[], row: Row, links: Links, sections: readonly CardSection[]): string {
+/** A cell of a card's part: its text, or its items one to a line where it lists several. */
+const sectionCellHtml = (cell: SectionCell, colours = false): string => (typeof cell === "string" ? (colours ? coloursHtml(cell) : esc(cell)) : itemsHtml(cell, colours));
+
+/** A card in full: its row of the Cards file, with each cell that lists several items listed one to a line (`items`, as
+ * for any row), then its parts: the rows of the other files that carry its Card ID. */
+export function cardDrawerHtml(columns: readonly Column[], row: Row, links: Links, sections: readonly CardSection[], items?: ReadonlyMap<number, Items>): string {
   return `
     <div class="d-sec"><h3>Card details</h3>
-      ${allColumns(columns, row, links)}</div>
+      ${allColumns(columns, row, links, undefined, items)}</div>
     ${sections.map(section => `<div class="d-sec"><h3>${esc(section.title)} (${section.rows.length})</h3>
       ${section.rows.length ? `<table class="mini"><thead><tr>${section.headings.map(heading => `<th>${esc(heading)}</th>`).join("")}</tr></thead>
-        <tbody>${section.rows.map(cells => `<tr>${cells.map(cell => `<td>${esc(cell)}</td>`).join("")}</tr>`).join("")}</tbody></table>`
+        <tbody>${section.rows.map(cells => `<tr>${cells.map((cell, index) => `<td>${sectionCellHtml(cell, section.colours[index])}</td>`).join("")}</tr>`).join("")}</tbody></table>`
       : `<p style="font-size:12px;color:var(--text-3);margin:4px 0 0">No ${esc(section.none)} on this card.</p>`}</div>`).join("")}`;
 }
 
