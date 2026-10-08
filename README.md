@@ -54,7 +54,7 @@ Open the model in Model Building; the classic model page opened on its own works
 - The map opens on the model's sections. A section is the modules under one heading: a module whose name starts with `--`, such as `-- Inputs --`. Without headings it opens on the modules.
 - Double-click a section to open its modules, and a module to open its line items. **Show all modules** shows every module. `Esc` goes back a step.
 - An arrow from A to B means B reads A.
-- Click a box to see everything that feeds it, marked in blue, and everything it feeds, marked in red, directly or through others. The rest fades; **Only these** hides it.
+- Click a box to see everything that feeds it, marked in blue, and everything it feeds, marked in red, directly or through others. The rest fades; **Only these** hides it. Dashes move along the marked links for as long as the box is selected, long ones towards it and short ones away from it; they stand still if your system is set to reduce motion.
 - The panel on the right gives the box's details: for a line item its formula, format and summary in words, and what feeds it and what it feeds directly.
 - The search finds sections, modules and line items by name. In the **Legend**, click an entry to hide or show its boxes. **Access drivers** adds a link from each access driver to what it controls.
 - Drag to move, scroll to zoom, press `F` for the whole map. **About this map** lists the keys. The map follows the page's theme.
@@ -90,7 +90,8 @@ Closing the results page stops the reading.
 - The page stands in a column in the middle of the window, at most 1,400 pixels wide, with room at both sides that grows with the screen. A table wider than the column scrolls sideways in its own box. The model map takes the whole width of the window.
 - The navigation is a bar under the header, on one line, with an icon for each entry: the overview, each table and a model's map. A model's tables are grouped in menus, **Time**, **Lists**, **Modules** and **Actions**, with **Versions** and **Source Models** on their own; a group with only one table in the result is that table's entry. A menu's button names the table shown when it is one of the menu's. In a window narrower than 1,000 pixels, one menu holds every entry. The Overview's tiles say how many rows each table has.
 - The search box looks in every column, shown or hidden. Press `/` to reach it.
-- Click a column's name to sort. A column with 2 to 30 different values also has a filter.
+- Click a column's name to sort. A column with 2 to 30 different values also has a filter. The columns keep their widths whatever the sort, the page, the search or the filter.
+- Counts, such as **Cell Count** and **Item Count**, show their thousands with commas. A formatting rule's **Colour stops** show a square of each colour.
 - **Columns** picks the columns shown. An app's ID columns, **Card #** and **Section #** start hidden.
 - Click a row to read every value in full. In an app, a page's name shows that page's cards: a chip beside the search box names the page, and its cross shows all the cards again. A card's title opens the card with its grid sections, filters, formatting and buttons.
 - Where a value lists several items, such as a line item's **Applies To** and **Referenced By** or a card's **Context selectors**, the panel that opens lists them one per line. The table keeps them on one line, and the search, the sort and the filters read them as the table shows them. A name in quotes stays whole, commas and all.

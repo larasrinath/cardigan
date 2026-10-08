@@ -53,6 +53,9 @@ const WORDS_KEPT = 60000;
 const DASH_UP = [7, 5];
 const DASH_DOWN = [2, 4];
 const DASH_SPEED = 24;
+/** A trace's dashed links are drawn this much as wide as the same links without a trace: a fifth thinner, so that the
+ * moving dashes stay light. */
+const TRACE_WEIGHT = 0.8;
 /** How strongly a link is drawn, by how many links the picture has. A dozen are each in full strength, which stands 3
  * to 1 against the canvas. The more there are, the lighter each one, falling as the root of their number and never
  * below a fifth: at full strength a few dozen links between a dozen boxes already fill the gutters with dark bands. */
@@ -238,6 +241,7 @@ function drawEdges(pen: Pen, scene: Scene): boolean {
       traced = true;
       const dash = way === 1 ? DASH_UP : DASH_DOWN;
       pen.setLineDash(dash);
+      pen.lineWidth *= TRACE_WEIGHT;
       pen.lineDashOffset = scene.time === undefined ? 0 : -((scene.time / 1000 * DASH_SPEED) % (dash[0] + dash[1]));
     }
     pen.stroke();

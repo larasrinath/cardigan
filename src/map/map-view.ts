@@ -75,9 +75,6 @@ const DOUBLE_PRESS = { within: 450, near: 8 } as const;
 /** Below this zoom a box picked from the search or the details is too small to be told from its neighbours: the camera
  * then goes to it. */
 const TELLING_ZOOM = 0.62;
-/** How long a trace's dashes move after a node is selected, in milliseconds: long enough to show which way the links
- * run, and then they stand still. */
-const TRACE_MOVES = 1400;
 /** Up to this width of the map the legend and the notes about the map are not shown side by side (map.css puts the
  * details under the graph from the same width down). */
 const NARROW = 760;
@@ -186,8 +183,6 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   let inspection: Inspection | undefined;
   /** Whether the view keeps to the trace: only the node selected and what it reads and feeds are shown. */
   let onlyTrace = false;
-  /** Until when a trace's dashes move. */
-  let traceMovesUntil = 0;
   const hiddenLayers = new Set<string>();
   let shownNodes = new Uint8Array(0);
   let shownCount = 0;
@@ -243,9 +238,9 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
       camera = step.camera;
       if (step.done) heading = undefined; else moving = true;
     }
-    // A trace's dashes move for a moment after the node is selected, and stand where they stopped from then on.
+    // A trace's dashes move for as long as the trace is on screen, unless the user asked for less motion: then they stand.
     const moves = motion();
-    const scene = { graph: onScreen, camera, width, height, palette, shown: shownNodes, trace, matches, order, time: moves ? Math.min(time, traceMovesUntil) : undefined };
+    const scene = { graph: onScreen, camera, width, height, palette, shown: shownNodes, trace, matches, order, time: moves ? time : undefined };
     pen.setTransform(ratio, 0, 0, ratio, 0, 0);
     const tracing = drawScene(pen, scene, fonts);
     if (miniPen) {
@@ -255,9 +250,9 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     // The line at the foot says what is in view where the camera has come to rest: it is written for where the camera
     // is going as soon as it sets out (`go`), and here for a camera the user has moved.
     if (!moving && countedFor !== camera && !drag) renderStatus();
-    // Another picture is asked for only while something moves: the camera on its way, or a trace's dashes for a moment
-    // after a selection. A picture that has settled is never drawn again by itself.
-    if (moving || (tracing && moves && time < traceMovesUntil)) {
+    // Another picture is asked for only while something moves: the camera on its way, or the dashes of a trace on
+    // screen. A picture that has settled is never drawn again by itself.
+    if (moving || (tracing && moves)) {
       lastFrame = time;
       frame = env.requestFrame(drawFrame);
     } else lastFrame = 0;
@@ -810,7 +805,6 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     selected = node;
     onlyTrace = false;
     trace = node ? traceNode(onScreen, model, node.index, access) : undefined;
-    traceMovesUntil = env.now() + TRACE_MOVES;
     refreshShown();
     renderInspector();
     if (node && traced) announce(traced.sentence);
