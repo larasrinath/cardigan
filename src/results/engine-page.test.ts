@@ -116,9 +116,10 @@ describe("The results page itself against the engine in the Anaplan tab", () => 
   };
   /** The address the icon's click gives the page, a second and a half after the click. */
   const clicked = `?tab=42&opened=${NOW.getTime() - 1500}`;
-  const shown = (name: string) => (): boolean => page.document.title === `Cardigan — ${name}`;
-  /** The navigation's tables: each one's name and number of rows. */
-  const navigation = (): string[][] => page.all("#navList .nav-item").filter(item => item.querySelector(".cnt")).map(item => item.children.map(child => child.textContent));
+  const shown = (name: string) => (): boolean => page.document.title === `Cardigan - ${name}`;
+  /** The navigation's tables, by the words of each one's entry beside its icon: the entries named by a table's place in
+   * the result, a number. The overview's and a map's are named by a word. */
+  const navigation = (): string[] => page.all("#navList .nav-item").filter(item => /^\d+$/.test(item.dataset.nav ?? "")).map(item => item.querySelector("span")?.textContent ?? "");
   /** The table on screen with every column chosen, the ones that start hidden too: its headings, then its rows cell for
    * cell, as text. The columns are then as they started. An app's tables are short: every row is on the first page. */
   const onScreen = (): string[][] => {
@@ -164,8 +165,8 @@ describe("The results page itself against the engine in the Anaplan tab", () => 
     expect(runs).toHaveLength(1);
     const result = runs[0].result!;
 
-    // It shows the engine's tables, each with its rows, and the engine's note.
-    expect(navigation()).toEqual(result.tables.filter(table => table.details !== true).map(table => [table.label, String(table.rows.length)]));
+    // It lists the engine's tables, and shows the engine's note.
+    expect(navigation()).toEqual(result.tables.filter(table => table.details !== true).map(table => table.label));
     expect(page.texts("#view .warn-list li")).toEqual(["1 of 1 pages analysed; 1 unpublished, not analysed, 3 cards.", "Draft page: Not published", "Names: All models answered."]);
     page.find('#navList [data-nav="2"]').press();
     const cards = result.tables[2];
@@ -178,10 +179,15 @@ describe("The results page itself against the engine in the Anaplan tab", () => 
     // and on the overview what the engine's Details file says, with the log of the run.
     const tables = shownTables();
     expect(tables).toEqual(tablesOf(result));
-    expect([...tables.keys()]).toEqual(["Pages", "Cards", "Grid Sections", "Filters", "Conditional Formatting", "Action Buttons", "Where Used"]);
+    expect([...tables.keys()]).toEqual(["Pages", "Cards", "Grid Sections", "Filters", "Conditional Formatting", "Action Buttons", "Model Objects"]);
     const said = overviewSays();
     expect(said).toEqual(overviewFor(result));
     expect([said.about.length, said.howToRead.length > 0, said.log.length > 3, said.files]).toEqual([10, true, true, []]);
+    // About this export has each of the app's categories and models on a line of its own: this app has one of each, and
+    // each is one line. A page was left unpublished, so the pages analysed take two lines, and no line has a semicolon.
+    const about = new Map(said.about.map(([detail, value]): [string, string[]] => [detail, value.split("\n")]));
+    expect(["Categories", "Models", "Pages analysed"].map(detail => about.get(detail))).toEqual([["Demand"], ["Model one (Workspace one)"],
+      ["1 of 1 (published versions)", "1 unpublished, not analysed"]]);
     // No word of it names a file, a CSV or a zip, or a download: the page is where a result is read. That is every cell
     // of every table, which `shownTables` has put on the page with every column, and in each view all the page says
     // and all it names or describes an element by, with a row's details and a card's where the view opens them. (A
@@ -201,12 +207,13 @@ describe("The results page itself against the engine in the Anaplan tab", () => 
     expect(fileWords(words, ANAPLANS)).toEqual([]);
     // What was read is what a user reads. The engine's own words on how to read the tables, that setting of Anaplan's,
     // a cell of a column that starts hidden, what a control is named by, and the details of a row and of a card.
-    expect([words.includes("A module or line item a card still points at but the model no longer has: deleted, or not visible to you. Search the Where Used table for it to find the cards."),
+    expect([words.includes("A module or line item a card still points at but the model no longer has: deleted, or not visible to you. Search the Model Objects table for it to find the cards."),
       words.some(text => text.search(ANAPLANS) >= 0), words.includes(String(result.tables[2].rows[0][result.tables[2].headers.indexOf("Card ID")])), words.includes("Open this row"),
       words.includes("Close details panel"), opened]).toEqual([true, true, true, true, true,
-      ["Pages: row", "Cards: row", "Cards: card", "Grid Sections: row", "Filters: row", "Conditional Formatting: row", "Action Buttons: row", "Where Used: row"]]);
-    // And that result is, file for file, the one 0.6.1 wrote as its zip, but for the four rows of the Details file that
-    // are deliberately written otherwise since (APP_ROW_REWORDED and APP_ROWS_FOR_THE_PAGE in golden-0.6.1.test-support.ts).
+      ["Pages: row", "Cards: row", "Cards: card", "Grid Sections: row", "Filters: row", "Conditional Formatting: row", "Action Buttons: row", "Model Objects: row"]]);
+    // And that result is, file for file, the one 0.6.1 wrote as its zip, but for the five rows of the Details file and the
+    // dash for nothing to say in the other files, which are deliberately written otherwise since (APP_ROW_REWORDED,
+    // APP_ROWS_FOR_THE_PAGE, APP_ROW_ON_TWO_LINES and APP_DASH_PLAIN in golden-0.6.1.test-support.ts).
     expect(files(resultZip(result, NOW), DETAILS_FILE)).toEqual(files(APP_ZIP_REWORDED, DETAILS_FILE));
   });
 
@@ -228,7 +235,7 @@ describe("The results page itself against the engine in the Anaplan tab", () => 
     // all still there, cell for cell.
     expect([page.id("bannerText").textContent, page.id("banners").textContent.includes("The results below are from the earlier run.")])
       .toEqual(["Reading page 1 of 2: Demand board", true]);
-    expect([page.document.title, navigation().length, page.id("runAgain").disabled]).toEqual(["Cardigan — Planning: app", 7, true]);
+    expect([page.document.title, navigation().length, page.id("runAgain").disabled]).toEqual(["Cardigan - Planning: app", 7, true]);
     expect(shownTables()).toEqual(first);
 
     // Only when the engine's new result is whole does it take the first one's place.
@@ -248,7 +255,7 @@ describe("The results page itself against the engine in the Anaplan tab", () => 
     await until(() => page.has("#runBanner") && page.id("runBanner").classList.contains("warn"), "the failure on the page");
     expect([runs.length, runs[2].result?.name]).toEqual([3, "Planning: app, renamed again"]);
     expect([page.id("bannerText").textContent, page.id("bannerHint").hidden, page.id("bannerCopy").hidden]).toEqual([UNSENT, true, false]);
-    expect([page.document.title, page.id("runAgain").disabled]).toEqual(["Cardigan — Planning: app, renamed", false]);
+    expect([page.document.title, page.id("runAgain").disabled]).toEqual(["Cardigan - Planning: app, renamed", false]);
     expect(shownTables()).toEqual(second);
   });
 
@@ -273,35 +280,36 @@ describe("The results page itself against the engine in the Anaplan tab", () => 
     const result = runs[0].result!;
     const index = result.tables.findIndex(table => table.file === "Where Used.csv");
     const file = result.tables[index];
-    // The engine found ten uses: that is the file, and what the navigation counts.
-    expect([file.rows.length, page.find(`#navList [data-nav="${index}"]`).children.map(child => child.textContent)]).toEqual([10, ["Where Used", "10"]]);
+    // The engine found ten uses: that is the file, and what the overview's tile counts.
+    const tile = page.all("#view .stat").find(stat => stat.querySelector(".s-lab")?.textContent === "Model objects");
+    expect([file.rows.length, tile?.querySelector(".s-num")?.textContent, page.texts(`#navList [data-nav="${index}"] span`)]).toEqual([10, "10", ["Model Objects"]]);
     page.find(`#navList [data-nav="${index}"]`).press();
     // By object at first: nine objects, in the order of an index. Territory is used twice by one card, and is one row.
     const cells = () => page.all("#tableWrap tbody tr").map(row => row.children.map(cell => cell.textContent.trim()));
     expect([page.texts("#view .view-note"), page.all("#tableWays button").map(button => [button.textContent.trim(), button.getAttribute("aria-pressed")]), page.id("rowCount").textContent])
       .toEqual([["10 uses of 9 objects. Choose Every use to list each one."], [["By object", "true"], ["Every use", "false"]], "1–9 of 9 rows"]);
     expect(cells()).toEqual([
-      ["Module", "Demand", "—", "1", "1", "Data source (custom view)"],
+      ["Module", "Demand", "-", "1", "1", "Data source (custom view)"],
       ["Line item", "Include?", "Filter flags", "1", "1", "Filter"],
       ["Line item", "Volume", "Demand", "1", "1", "Formatting"],
-      ["Dimension", "Line Items", "—", "1", "1", "Page selector"],
-      ["Dimension", "Product", "—", "1", "1", "Rows"],
-      ["Dimension", "Territory", "—", "1", "1", "Page selector; Filter context"],
-      ["Dimension", "Time", "—", "1", "1", "Columns"],
-      ["Import", "Import demand", "—", "1", "1", "Action button"],
-      ["Process", "Run nightly", "—", "1", "1", "Action button"]]);
+      ["Dimension", "Line Items", "-", "1", "1", "Page selector"],
+      ["Dimension", "Product", "-", "1", "1", "Rows"],
+      ["Dimension", "Territory", "-", "1", "1", "Page selector; Filter context"],
+      ["Dimension", "Time", "-", "1", "1", "Columns"],
+      ["Import", "Import demand", "-", "1", "1", "Action button"],
+      ["Process", "Run nightly", "-", "1", "1", "Action button"]]);
     // Territory's drawer: what it is, its two roles, and its two uses on the one card, which the card's number opens.
     page.all('#tableWrap tbody [data-act="row"]')[5].press();
     const drawerRows = (section: number) => page.all("#drawerBody .d-sec")[section].querySelectorAll("tbody tr").map(row => row.children.map(cell => cell.textContent.trim()));
     expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent, drawerRows(0), drawerRows(1)]).toEqual(["Territory", "Dimension · 101000000902 · 1 page, 1 card",
       [["Page selector", "1"], ["Filter context", "1"]], [["Demand board", "2", "Page selector"], ["Demand board", "2", "Filter context"]]]);
     page.find('#drawerUses [data-act="use-card"]').press();
-    expect([page.id("drawerTitle").textContent, page.texts("#drawerSub .link")]).toEqual(["Card 2 — Demand by product", ["Demand board"]]);
+    expect([page.id("drawerTitle").textContent, page.texts("#drawerSub .link")]).toEqual(["Card 2 - Demand by product", ["Demand board"]]);
     page.id("drawerClose").press();
     // As every use, the table is the engine's file: its columns, the two that start hidden among them, and its ten rows.
     page.find('#tableWays [data-way="use"]').press();
     expect([cells().length, page.id("rowCount").textContent, page.all("#view .view-note").length]).toEqual([10, "1–10 of 10 rows", 0]);
-    expect(onScreen()).toEqual(tablesOf(result).get("Where Used"));
+    expect(onScreen()).toEqual(tablesOf(result).get("Model Objects"));
   });
 
   it("brings the engine's result back after a refresh of the page, without asking the engine, and shows the same cells", async () => {
@@ -324,9 +332,9 @@ describe("The results page itself against the engine in the Anaplan tab", () => 
     // The engine made one result, and was asked for no second: the new page connected and sent nothing; nothing was read.
     const reads = service.reads.length;
     expect([runs.length, tab.ports.length, tab.ports[1].tab.heard, tab.ports[1].page.types()]).toEqual([1, 2, [], ["subject"]]);
-    // The page shows the engine's tables again, under a line that says when they were analysed.
+    // The page lists the engine's tables again, under a line that says when they were analysed.
     const result = runs[0].result!;
-    expect(navigation()).toEqual(result.tables.filter(table => table.details !== true).map(table => [table.label, String(table.rows.length)]));
+    expect(navigation()).toEqual(result.tables.filter(table => table.details !== true).map(table => table.label));
     expect([page.id("noteText").textContent, page.id("runAgain").textContent.trim()]).toEqual([analysedLine(NOW, later), "Run again"]);
     // The page shows what it showed before the refresh: every table cell for cell, and on the overview what the engine's
     // Details file says, with the run's log.

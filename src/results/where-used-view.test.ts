@@ -213,7 +213,7 @@ describe("The Where used table, by object", () => {
       use("Line item", String(20 + card), "Images", "Home", card, "Image", String(286000000100 + card))]))));
     expect(view.headers).toEqual(ONE_MODEL_HEADERS);
     expect(view.rows).toHaveLength(21);
-    expect(view.rows[0]).toEqual(["Module", "Images", "—", 1, 20, "Data source", "102000000050"]);
+    expect(view.rows[0]).toEqual(["Module", "Images", "-", 1, 20, "Data source", "102000000050"]);
     expect(view.rows.slice(1)).toEqual(numbers.map(card => ["Line item", String(20 + card), "Images", 1, 1, "Image", String(286000000100 + card)]));
     // The module's uses are a click away: every card of the page, in the page's order.
     expect(view.objects[0].uses.map(used => [used.page, used.card, used.usedAs])).toEqual(numbers.map(card => ["Home", card, "Data source"]));
@@ -228,12 +228,12 @@ describe("The Where used table, by object", () => {
   it("gives an object used by several cards on several pages in several ways one row: its pages, its cards and its roles", () => {
     const view = viewOf(app(PAGES, USES));
     expect(view.rows).toEqual([
-      ["Module", "REV01 Sales", "—", 2, 2, "Data source (custom view); Data source (via saved view)", SALES],
+      ["Module", "REV01 Sales", "-", 2, 2, "Data source (custom view); Data source (via saved view)", SALES],
       ["Line item", "Margin %", "REV01 Sales", 2, 3, "Filter; Formatting; KPI value", MARGIN],
-      ["Dimension", "Products", "—", 1, 1, "Rows", "101000000001"],
+      ["Dimension", "Products", "-", 1, 1, "Rows", "101000000001"],
       ["Saved view", "Top stores", "REV01 Sales", 1, 1, "Data source", "130000000007"],
-      ["Process", "Refresh plan", "—", 1, 1, "Action button", "118000000002"],
-      ["Page", "Stores", "—", 1, 1, "Link target", guid(2)],
+      ["Process", "Refresh plan", "-", 1, 1, "Action button", "118000000002"],
+      ["Page", "Stores", "-", 1, 1, "Link target", guid(2)],
     ]);
     // The line item: four uses on three cards of two pages. Two cards filter by it, so Filter comes first.
     expect(view.objects[1]).toEqual({
@@ -258,10 +258,10 @@ describe("The Where used table, by object", () => {
     const two = viewOf(app(pages(demand("Demand review"), demand("Demand detail"), supply("Supply review")), uses));
     expect(two.headers).toEqual(BY_OBJECT_HEADERS);
     expect(two.rows).toEqual([
-      ["Module", "INV01 Stock", "—", "Supply planning", 1, 1, "Data source", SALES],
-      ["Module", "REV01 Sales", "—", "Demand planning", 2, 2, "Data source", SALES],
-      ["Dimension", "Time", "—", "Demand planning", 1, 1, "Columns", "20000000003"],
-      ["Dimension", "Time", "—", "Supply planning", 1, 1, "Columns", "20000000003"],
+      ["Module", "INV01 Stock", "-", "Supply planning", 1, 1, "Data source", SALES],
+      ["Module", "REV01 Sales", "-", "Demand planning", 2, 2, "Data source", SALES],
+      ["Dimension", "Time", "-", "Demand planning", 1, 1, "Columns", "20000000003"],
+      ["Dimension", "Time", "-", "Supply planning", 1, 1, "Columns", "20000000003"],
     ]);
     expect(two.objects.map(object => object.uses.map(used => used.row))).toEqual([[1], [0, 2], [3], [4]]);
     expect([two.multiModel, two.ambiguousUses, two.unlistedUses]).toEqual([true, 0, 0]);
@@ -270,8 +270,8 @@ describe("The Where used table, by object", () => {
     // module goes by the name most of its uses give.
     const one = viewOf(app(pages(demand("Demand review"), demand("Demand detail"), demand("Supply review")), uses));
     expect(one.rows).toEqual([
-      ["Module", "REV01 Sales", "—", 3, 3, "Data source", SALES],
-      ["Dimension", "Time", "—", 2, 2, "Columns", "20000000003"],
+      ["Module", "REV01 Sales", "-", 3, 3, "Data source", SALES],
+      ["Dimension", "Time", "-", 2, 2, "Columns", "20000000003"],
     ]);
     expect([one.multiModel, one.objects.map(object => object.model)]).toEqual([false, ["Demand planning", "Demand planning"]]);
   });
@@ -286,10 +286,10 @@ describe("The Where used table, by object", () => {
         use("Page", "Finance home", NONE, "Home", 4, "Link target", guid(99)),
         use("Module", "REV01 Sales", NONE, "Home", 1, "Data source", SALES))));
     expect(view.rows).toEqual([
-      ["Module", "REV01 Sales", "—", "Demand planning", 1, 1, "Data source", SALES],
+      ["Module", "REV01 Sales", "-", "Demand planning", 1, 1, "Data source", SALES],
       // A page of another app is in no model the Pages file knows.
-      ["Page", "Finance home", "—", "—", 1, 1, "Link target", guid(99)],
-      ["Page", "Supply review", "—", "Supply planning", 2, 2, "Link target", guid(12)],
+      ["Page", "Finance home", "-", "-", 1, 1, "Link target", guid(99)],
+      ["Page", "Supply review", "-", "Supply planning", 2, 2, "Link target", guid(12)],
     ]);
     expect([view.multiModel, view.ambiguousUses, view.unlistedUses]).toEqual([true, 0, 0]);
   });
@@ -333,13 +333,13 @@ describe("The Where used table, by object", () => {
     // A row cut short has no ID cell at all.
     const view = viewOf(app(PAGES, { ...file, rows: [...file.rows, ["Dimension", "Region", NONE, "Overview", 4, "Filter context"]] }));
     expect(view.rows).toEqual([
-      ["Module", "REV01 Sales", "—", 1, 1, "Data source", "  "],
-      ["Module", "REV02 Prices", "—", 1, 1, "Data source", "  "],
-      ["Line item", "Sales, Margin", "—", 2, 2, "Filter", "—"],
-      ["Line item", "Sales, Margin", "—", 1, 1, "Filter", "286000000009"],
-      ["Line item", "sales, margin", "—", 1, 1, "Filter", "—"],
-      ["Line item", "Sales, Margin", "REV02 Prices", 1, 1, "Filter", "—"],
-      ["Dimension", "Region", "—", 1, 1, "Filter context", ""],
+      ["Module", "REV01 Sales", "-", 1, 1, "Data source", "  "],
+      ["Module", "REV02 Prices", "-", 1, 1, "Data source", "  "],
+      ["Line item", "Sales, Margin", "-", 2, 2, "Filter", "-"],
+      ["Line item", "Sales, Margin", "-", 1, 1, "Filter", "286000000009"],
+      ["Line item", "sales, margin", "-", 1, 1, "Filter", "-"],
+      ["Line item", "Sales, Margin", "REV02 Prices", 1, 1, "Filter", "-"],
+      ["Dimension", "Region", "-", 1, 1, "Filter context", ""],
     ]);
     expect(view.objects.map(object => object.uses.map(used => used.row))).toEqual([[5], [6], [0, 1], [4], [3], [2], [7]]);
     // In an app of two models, such an object is still its model's own.
@@ -350,12 +350,12 @@ describe("The Where used table, by object", () => {
     const modules = viewOf(app(PAGES, whereUsed(
       use("Line item", "Amount", "REV01 Sales", "Overview", 1, "Field", NONE), use("Line item", "Amount", "REV02 Prices", "Overview", 1, "Field", NONE),
       use("Line item", "Amount", "REV01 Sales", "Stores", 1, "Field", ""))));
-    expect(modules.rows).toEqual([["Line item", "Amount", "REV01 Sales", 2, 2, "Field", "—"], ["Line item", "Amount", "REV02 Prices", 1, 1, "Field", "—"]]);
+    expect(modules.rows).toEqual([["Line item", "Amount", "REV01 Sales", 2, 2, "Field", "-"], ["Line item", "Amount", "REV02 Prices", 1, 1, "Field", "-"]]);
     expect(modules.objects.map(object => object.uses.map(used => used.row))).toEqual([[0, 2], [1]]);
     // A linked page without an ID is known by its name, and no page of the Pages file is taken for it: these two pages
     // have no ID in the file either.
     const linked = viewOf(app(pages(demand("Overview"), demand("Stores")), whereUsed(use("Page", "Somewhere", NONE, "Overview", 7, "Link target", NONE))));
-    expect([linked.rows, linked.objects[0].model]).toEqual([[["Page", "Somewhere", "—", 1, 1, "Link target", "—"]], "—"]);
+    expect([linked.rows, linked.objects[0].model]).toEqual([[["Page", "Somewhere", "-", 1, 1, "Link target", "-"]], "-"]);
   });
 
   it("does not guess the model of a use on a page the Pages file does not list: its object is listed without a model", () => {
@@ -367,20 +367,20 @@ describe("The Where used table, by object", () => {
       use("Module", "INV01 Stock", NONE, "Supply review", 1, "Data source", SALES));
     const view = viewOf(app(pages(demand("Demand review"), supply("Supply review"), page("Draft page", NONE, NONE, { Workspace: NONE })), uses));
     expect(view.rows).toEqual([
-      ["Module", "INV01 Stock", "—", "Supply planning", 1, 1, "Data source", SALES],
-      ["Module", "REV01 Sales", "—", "—", 2, 2, "Data source", SALES],
-      ["Module", "REV01 Sales", "—", "Demand planning", 1, 1, "Data source", SALES],
+      ["Module", "INV01 Stock", "-", "Supply planning", 1, 1, "Data source", SALES],
+      ["Module", "REV01 Sales", "-", "-", 2, 2, "Data source", SALES],
+      ["Module", "REV01 Sales", "-", "Demand planning", 1, 1, "Data source", SALES],
     ]);
     expect(view.objects[1].uses.map(used => used.page)).toEqual(["Ghost page", "Draft page"]);
     expect([view.multiModel, view.ambiguousUses, view.unlistedUses]).toEqual([true, 0, 2]);
     expect(view.note).toBe("4 uses of 3 objects. Choose Every use to list each one. 2 uses are on a page whose model is not known, so their objects are listed without a model.");
     // An app whose pages name one model has nothing to tell apart: every object is that model's.
     const one = viewOf(app(pages(demand("Demand review"), demand("Supply review"), page("Draft page", NONE, NONE)), uses));
-    expect([one.rows, one.objects[0].model]).toEqual([[["Module", "REV01 Sales", "—", 4, 4, "Data source", SALES]], "Demand planning"]);
+    expect([one.rows, one.objects[0].model]).toEqual([[["Module", "REV01 Sales", "-", 4, 4, "Data source", SALES]], "Demand planning"]);
     expect([one.multiModel, one.ambiguousUses, one.unlistedUses, one.note]).toEqual([false, 0, 0, "4 uses of 1 object. Choose Every use to list each one."]);
     // And an app whose pages name no model at all has none to name.
     const none = viewOf(app(pages(page("Demand review", NONE, NONE)), uses));
-    expect([none.rows, none.objects[0].model, none.multiModel]).toEqual([[["Module", "REV01 Sales", "—", 4, 4, "Data source", SALES]], "—", false]);
+    expect([none.rows, none.objects[0].model, none.multiModel]).toEqual([[["Module", "REV01 Sales", "-", 4, 4, "Data source", SALES]], "-", false]);
   });
 
   it("does not guess the model of a use on a page whose name pages of different models share, and counts those uses", () => {
@@ -396,8 +396,8 @@ describe("The Where used table, by object", () => {
         use("Module", "REV01 Sales", NONE, "Notes", 1, "Data source", SALES))));
     // The two uses on Overview are on cards 1 and 2: two cards for certain, on one of the two pages or on both.
     expect(view.rows).toEqual([
-      ["Module", "REV01 Sales", "—", "—", "1+", 2, "Data source", SALES],
-      ["Module", "REV01 Sales", "—", "Demand planning", 3, 3, "Data source", SALES],
+      ["Module", "REV01 Sales", "-", "-", "1+", 2, "Data source", SALES],
+      ["Module", "REV01 Sales", "-", "Demand planning", 3, 3, "Data source", SALES],
     ]);
     expect(view.objects.map(object => object.uses.map(used => used.row))).toEqual([[0, 1], [2, 3, 4]]);
     expect([view.multiModel, view.ambiguousUses, view.unlistedUses]).toEqual([true, 2, 0]);
@@ -407,7 +407,7 @@ describe("The Where used table, by object", () => {
       + `3 page names are each shared by more than one page: "Overview" (2 pages), "Summary" (2 pages), "Notes" (2 pages). ${shared} A count with "+" is at least that number.`);
     // One such use is said in the singular. It is on one page and one card, whichever of the two pages that is.
     const single = viewOf(app(pages(demand("Overview"), supply("Overview")), whereUsed(use("Module", "REV01 Sales", NONE, "Overview", 1, "Data source", SALES))));
-    expect(single.rows).toEqual([["Module", "REV01 Sales", "—", "—", 1, 1, "Data source", SALES]]);
+    expect(single.rows).toEqual([["Module", "REV01 Sales", "-", "-", 1, 1, "Data source", SALES]]);
     expect(single.note).toBe("1 use of 1 object. Choose Every use to list each one. 1 use is on a page whose model is not known, so its object is listed without a model. "
       + `1 page name is shared by more than one page: "Overview" (2 pages). ${shared}`);
   });
@@ -433,11 +433,11 @@ describe("The Where used table, by object", () => {
     expect([...new Set(column(view, "Used as").flatMap(cell => String(cell).split("; ")))].sort()).toEqual([...roles].sort());
     // The module ID both models have is two modules, and the page the first model's card links to is the second model's.
     expect(view.rows.filter(row => row[0] === "Module")).toEqual([
-      ["Module", "INV01 Stock", "—", "Supply planning", 1, 1, "Data source (default view)", SALES],
-      ["Module", "REV01 Sales", "—", "Demand planning", 1, 4, "Data source (custom view); Data source (via saved view); Data source (combined grid section 1); Data source", SALES],
-      ["Module", "REV02 Prices", "—", "Demand planning", 1, 2, "Data source (default view); Data source (combined grid section 2)", "102000000002"],
+      ["Module", "INV01 Stock", "-", "Supply planning", 1, 1, "Data source (default view)", SALES],
+      ["Module", "REV01 Sales", "-", "Demand planning", 1, 4, "Data source (custom view); Data source (via saved view); Data source (combined grid section 1); Data source", SALES],
+      ["Module", "REV02 Prices", "-", "Demand planning", 1, 2, "Data source (default view); Data source (combined grid section 2)", "102000000002"],
     ]);
-    expect(view.rows.filter(row => row[0] === "Page")).toEqual([["Page", "Stock", "—", "Supply planning", 1, 1, "Link target", guid(2)]]);
+    expect(view.rows.filter(row => row[0] === "Page")).toEqual([["Page", "Stock", "-", "Supply planning", 1, 1, "Link target", guid(2)]]);
     // Each use names its card as the Cards file does.
     expect(view.objects.find(object => object.name === "Margin %")?.uses.map(used => [used.page, used.card, used.usedAs, used.cardId])).toEqual(
       [["Overview", 1, "Filter", "card-1"], ["Overview", 1, "Formatting", "card-1"], ["Overview", 5, "KPI value", "card-5"]]);
@@ -463,7 +463,7 @@ describe("The Where used table, by object", () => {
     const view = viewOf(app(PAGES, whereUsed(...modules.map((module, index) => use("Line item", "Revenue", module, "Overview", 1, "Field", String(286000000100 + index))),
       use("Line item", "revenue", "REV1 Sales", "Overview", 1, "Field", "286000000150"), use("Line item", "Cost", "REV10 Returns", "Overview", 1, "Field", "286000000200"))));
     expect(view.rows.map(row => [row[1], row[2]])).toEqual(
-      [["Cost", "REV10 Returns"], ["Revenue", "—"], ["revenue", "REV1 Sales"], ["Revenue", "REV2 Prices"], ["Revenue", "rev2 prices"], ["Revenue", "REV10 Returns"]]);
+      [["Cost", "REV10 Returns"], ["Revenue", "-"], ["revenue", "REV1 Sales"], ["Revenue", "REV2 Prices"], ["Revenue", "rev2 prices"], ["Revenue", "REV10 Returns"]]);
   });
 
   it("lists an object's roles most used first, then in the file's order, with a separator no role holds", () => {
@@ -498,14 +498,14 @@ describe("The Where used table, by object", () => {
       use("Dimension", "", NONE, "Overview", 4, "Rows", "101000000009"),
       use("Dimension", NONE, NONE, "Overview", 5, "Rows", "101000000009"))));
     expect(view.rows.map(row => row.slice(0, 3))).toEqual(
-      [["Line item", "Margin %", "REV01 Sales"], ["Dimension", "", "—"], ["Export", "Send", "—"], ["Process", "Refresh plan", "—"]]);
+      [["Line item", "Margin %", "REV01 Sales"], ["Dimension", "", "-"], ["Export", "Send", "-"], ["Process", "Refresh plan", "-"]]);
   });
 
-  it("shows the type as a tag, the counts as numbers and the ID as one to copy, with a Model column only for several models", () => {
+  it("shows the type as a tag, the counts as counts and the ID as one to copy, with a Model column only for several models", () => {
     const one = viewOf(app(PAGES, USES));
     expect(one.columns.map(shown => [shown.label, shown.kind, shown.num, shown.hidden])).toEqual([
       ["Object type", "tag", false, false], ["Object name", "text", false, false], ["Object's module", "text", false, false],
-      ["Pages", "text", true, false], ["Cards", "text", true, false], ["Used as", "text", false, false], ["Object ID", "id", false, true]]);
+      ["Pages", "count", true, false], ["Cards", "count", true, false], ["Used as", "text", false, false], ["Object ID", "id", false, true]]);
     // The type has its filter whatever the table holds, and a column of few different texts has one as in any table.
     const single = viewOf(app(PAGES, whereUsed(use("Module", "REV01 Sales", NONE, "Overview", 1, "Data source", SALES))));
     expect(single.columns.map(shown => shown.filter)).toEqual([true, false, false, false, false, false, false]);
@@ -513,8 +513,11 @@ describe("The Where used table, by object", () => {
       use("Module", "REV01 Sales", NONE, "Demand review", 1, "Data source", SALES), use("Module", "INV01 Stock", NONE, "Supply review", 1, "Data source", SALES))));
     expect(two.columns.map(shown => [shown.label, shown.kind, shown.num, shown.hidden])).toEqual([
       ["Object type", "tag", false, false], ["Object name", "text", false, false], ["Object's module", "text", false, false], ["Model", "text", false, false],
-      ["Pages", "text", true, false], ["Cards", "text", true, false], ["Used as", "text", false, false], ["Object ID", "id", false, true]]);
-    expect(two.columns[3]).toEqual({ index: 3, label: "Model", kind: "text", num: false, filter: true, hidden: false });
+      ["Pages", "count", true, false], ["Cards", "count", true, false], ["Used as", "text", false, false], ["Object ID", "id", false, true]]);
+    expect(two.columns[3]).toEqual({ index: 3, label: "Model", kind: "text", num: false, filter: true, hidden: false, none: true });
+    // Every cell comes from the app's file or from the view, both of which write the dash alone where there is nothing to
+    // say: in each column the page takes it so, as in the file's own table.
+    expect([...one.columns, ...two.columns].every(shown => shown.none)).toBe(true);
     // The counts are numbers: the page's own sort puts 2 before 11, and its search finds an object by its ID as well.
     const wide = viewOf(app(pages(...Array.from({ length: 11 }, (_, index) => demand(`Page ${index + 1}`))), whereUsed(
       ...Array.from({ length: 11 }, (_, index) => use("Dimension", "Time", NONE, `Page ${index + 1}`, 1, "Columns", "20000000003")),
@@ -604,7 +607,7 @@ describe("The Where used table, by object", () => {
     expect(bare.rows).toEqual(whole.rows);
     // Only the linked page's own model needs the page's ID.
     expect([whole.objects.map(object => object.model), bare.objects.map(object => object.model)]).toEqual(
-      [Array.from({ length: 6 }, () => "Demand planning"), [...Array.from({ length: 5 }, () => "Demand planning"), "—"]]);
+      [Array.from({ length: 6 }, () => "Demand planning"), [...Array.from({ length: 5 }, () => "Demand planning"), "-"]]);
   });
 
   it("never throws, whatever it is given", () => {
@@ -691,10 +694,10 @@ describe("The Where used table by object, where pages share a name", () => {
     const view = viewOf(threePages("Overview", [grid("card-4", SALES_MODULE)]));
     // Counted by page name alone this read 2 pages and 2 cards for Sales, and 2 and 3 for the two dimensions.
     expect(view.rows).toEqual([
-      ["Module", "REV01 Sales", "—", 3, 3, "Data source (custom view)", SALES],
-      ["Module", "REV02 Prices", "—", 1, 1, "Data source (custom view)", "102000000002"],
-      ["Dimension", "Products", "—", 3, 4, "Rows", "101000000001"],
-      ["Dimension", "Time", "—", 3, 4, "Columns", "20000000003"],
+      ["Module", "REV01 Sales", "-", 3, 3, "Data source (custom view)", SALES],
+      ["Module", "REV02 Prices", "-", 1, 1, "Data source (custom view)", "102000000002"],
+      ["Dimension", "Products", "-", 3, 4, "Rows", "101000000001"],
+      ["Dimension", "Time", "-", 3, 4, "Columns", "20000000003"],
     ]);
     // Which is what the app has: the same app with its last page under a name of its own counts the same.
     const told = viewOf(threePages("Overview, the other one", [grid("card-4", SALES_MODULE)]));
@@ -723,10 +726,10 @@ describe("The Where used table by object, where pages share a name", () => {
     // Sales is used by card 1 and by card 2 of an Overview: two cards for certain, on one of those pages or on both. Each
     // dimension is used twice in the same way by a card 1 and by a card 2: on both pages, by two cards of each number.
     expect(view.rows).toEqual([
-      ["Module", "REV01 Sales", "—", "2+", 3, "Data source (custom view)", SALES],
-      ["Module", "REV02 Prices", "—", "1+", 2, "Data source (custom view)", "102000000002"],
-      ["Dimension", "Products", "—", 3, 5, "Rows", "101000000001"],
-      ["Dimension", "Time", "—", 3, 5, "Columns", "20000000003"],
+      ["Module", "REV01 Sales", "-", "2+", 3, "Data source (custom view)", SALES],
+      ["Module", "REV02 Prices", "-", "1+", 2, "Data source (custom view)", "102000000002"],
+      ["Dimension", "Products", "-", 3, 5, "Rows", "101000000001"],
+      ["Dimension", "Time", "-", 3, 5, "Columns", "20000000003"],
     ]);
     expect(spread(view)).toEqual({ "REV01 Sales": [2, 3, 3, undefined], "REV02 Prices": [1, 2, 2, undefined], Products: [3, undefined, 5, undefined], Time: [3, undefined, 5, undefined] });
     expect(view.note).toBe(`15 uses of 4 objects. Choose Every use to list each one. ${ONE_NAME} ${SHARED} A count with "+" is at least that number.`);
@@ -758,10 +761,10 @@ describe("The Where used table by object, where pages share a name", () => {
   it("states no count as exact that is not: two uses that look alike are two pages, and an open count is at least its number", () => {
     const view = viewOf(app(PAGES_ALIKE, USES_ALIKE));
     expect(view.rows).toEqual([
-      ["Module", "REV01 Sales", "—", 2, 2, "Data source", SALES],
+      ["Module", "REV01 Sales", "-", 2, 2, "Data source", SALES],
       ["Line item", "Margin %", "REV01 Sales", "2+", "3+", "Filter; Formatting; KPI value", MARGIN],
-      ["Dimension", "Products", "—", 1, 1, "Rows", "101000000001"],
-      ["Dimension", "Time", "—", "1+", 3, "Columns", "20000000003"],
+      ["Dimension", "Products", "-", 1, 1, "Rows", "101000000001"],
+      ["Dimension", "Time", "-", "1+", 3, "Columns", "20000000003"],
     ]);
     expect(spread(view)).toEqual({ "REV01 Sales": [2, undefined, 2, undefined], "Margin %": [2, 3, 3, 4], Products: [1, undefined, 1, undefined], Time: [1, 2, 3, undefined] });
     expect(view.note).toBe(`10 uses of 4 objects. Choose Every use to list each one. ${ONE_NAME} ${SHARED} A count with "+" is at least that number.`);
@@ -844,10 +847,10 @@ describe("The Where used table by object, where pages share a name", () => {
     // The counts go by the two pages that have cards, as they do without the third page: a module on card 1 of one page
     // and card 2 of the other is on one or two pages, never on three.
     expect(view.rows).toEqual([
-      ["Module", "REV01 Sales", "—", "1+", 2, "Data source (custom view)", SALES],
-      ["Module", "REV02 Prices", "—", "1+", 2, "Data source (custom view)", "102000000002"],
-      ["Dimension", "Products", "—", 2, 4, "Rows", "101000000001"],
-      ["Dimension", "Time", "—", 2, 4, "Columns", "20000000003"],
+      ["Module", "REV01 Sales", "-", "1+", 2, "Data source (custom view)", SALES],
+      ["Module", "REV02 Prices", "-", "1+", 2, "Data source (custom view)", "102000000002"],
+      ["Dimension", "Products", "-", 2, 4, "Rows", "101000000001"],
+      ["Dimension", "Time", "-", 2, 4, "Columns", "20000000003"],
     ]);
     const two = viewOf(reportedApp(...boards));
     expect([view.rows, spread(view)]).toEqual([two.rows, spread(two)]);
@@ -911,7 +914,7 @@ describe("The Where used table by object, where pages share a name", () => {
     expect(spread(viewOf(app(PAGES_ALIKE, whereUsed(...rows(2)))))).toEqual({ "REV01 Sales": [2, undefined, 4, undefined] });
     const view = viewOf(app(PAGES_ALIKE, whereUsed(...rows(3))));
     expect(spread(view)).toEqual({ "REV01 Sales": [1, 2, 2, 4] });
-    expect(view.rows).toEqual([["Module", "REV01 Sales", "—", "1+", "2+", "Data source", SALES]]);
+    expect(view.rows).toEqual([["Module", "REV01 Sales", "-", "1+", "2+", "Data source", SALES]]);
     expect(view.objects[0].note).toBe(`It has 5 uses ${ON_OVERVIEW} ${NOT_KNOWN} It is on 1 or 2 pages and on 2 to 4 cards.`);
     // On a name that one page has, a row twice is one page and one card, as it always was.
     expect(spread(viewOf(app(PAGES, whereUsed(...rows(2)))))).toEqual({ "REV01 Sales": [1, undefined, 2, undefined] });
@@ -935,7 +938,7 @@ describe("The Where used table by object, where pages share a name", () => {
     expect(noted(5)).toBe(`6 uses of 1 object. Choose Every use to list each one. 5 page names are each shared by more than one page: "Overview" (2 pages), "Summary" (2 pages), "Plan" (2 pages) and 2 more. ${SHARED}`);
     // The object has one use on each: one page and one card of each name, whichever page that is. Its own note lists them the same way.
     const view = viewOf(app(pages(...names.flatMap(name => [demand(name), demand(name)])), whereUsed(...names.map(name => use("Dimension", "Time", NONE, name, 1, "Columns", "20000000003")))));
-    expect([view.rows, view.objects[0].note]).toEqual([[["Dimension", "Time", "—", 5, 5, "Columns", "20000000003"]],
+    expect([view.rows, view.objects[0].note]).toEqual([[["Dimension", "Time", "-", 5, 5, "Columns", "20000000003"]],
       `It has 5 uses on page names that more than one page has: "Overview" (2 pages), "Summary" (2 pages), "Plan" (2 pages) and 2 more. ${NOT_KNOWN}`]);
   });
 

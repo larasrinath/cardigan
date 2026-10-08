@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { HEADERS, type TabName } from "../report.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
-import { APP_FILES, cardsNamed, cardsOf, COLUMN_CHOICES, columnIndex, columnsOf, FILTER_MAX, FILTER_MIN, NUMBERS_HIDDEN, ROW_NAME_COLUMNS, rowColumns, rowKeys, rowNameIndex } from "./columns.js";
+import { APP_FILES, cardsNamed, cardsOf, COLUMN_CHOICES, columnIndex, columnsOf, FILTER_MAX, FILTER_MIN, MODEL_COUNTS, NUMBERS_HIDDEN, ROW_NAME_COLUMNS, rowColumns, rowKeys, rowNameIndex,
+  writesNone } from "./columns.js";
+import { MODEL_FILE_ORDER } from "./result-view.js";
 
 /** The app export's files, as the page names them, and the report table each holds. */
 const FILES: Record<string, TabName> = Object.fromEntries((Object.keys(APP_FILES) as TabName[]).map(tab => [APP_FILES[tab], tab]));
@@ -37,7 +39,15 @@ describe("The results page's columns", () => {
     expect(labels(columns.filter(column => column.hidden))).toEqual(["Card #", "Card ID", "Source IDs"]);
     expect(labels(columns.filter(column => column.num))).toEqual(["Card #"]);
     expect(Object.fromEntries(columns.filter(column => column.kind !== "text").map(column => [column.label, column.kind]))).toEqual({
-      "Page": "page", "Card #": "card", "Card title": "card", "Card type": "tag", "View type": "tag", "Card ID": "id" });
+      "Page": "page", "Card #": "card", "Card title": "card", "Card type": "tag", "View type": "tag", "Conditional formatting": "colours", "Card ID": "id" });
+  });
+
+  it("shows the colours of formatting rules as squares where the files write their colour stops: in Cards and in Conditional Formatting", () => {
+    const colours = (file: string) => labels(columnsOf(appTable(file)).filter(column => column.kind === "colours"));
+    expect(colours("Cards.csv")).toEqual(["Conditional formatting"]);
+    expect(colours("Conditional Formatting.csv")).toEqual(["Colour stops"]);
+    // Grid Sections counts a section's rules and names no colour.
+    expect(colours("Grid Sections.csv")).toEqual([]);
   });
 
   it("keeps them for the other six files", () => {
@@ -107,6 +117,33 @@ describe("The results page's columns", () => {
     expect(columnsOf(table("Empty.csv", []))).toEqual([]);
   });
 
+  it("shows a count as a count: an app's numbers of cards on a page, and a model's cells and list items, by file and header", () => {
+    /** Each column that is not plain text, with its kind and whether it is a number. */
+    const shown = (table: ResultTable) => columnsOf(table).filter(column => column.kind !== "text" || column.num).map(column => [column.label, column.kind, column.num]);
+    // The Pages file's numbers of cards are counts. A card's number and a section's are not: they only name a card or a
+    // section on its page, and stay as they are, as does every ID.
+    expect(shown(appTable("Pages.csv")).filter(([, kind]) => kind === "count").map(([label]) => label))
+      .toEqual(["Total cards", "Grid cards", "Chart cards", "KPI cards", "Field cards", "Action cards", "Text & image cards"]);
+    for (const file of Object.keys(FILES)) {
+      const columns = columnsOf(appTable(file));
+      expect(columns.filter(column => NUMBERS_HIDDEN.includes(column.label)).map(column => column.kind).filter(kind => kind === "count"), file).toEqual([]);
+      expect(columns.filter(column => / ID$/.test(column.label)).every(column => column.kind === "id"), file).toBe(true);
+    }
+    // A model's files, as model/export.ts names them, and the headers of Anaplan's own grids: each count is a count, right-
+    // aligned as a number is, and every other column of the file stays plain text, whatever number it holds.
+    expect([...MODEL_COUNTS]).toEqual([["Modules.csv", ["Cell Count", "Populated Cell Count"]], ["Line Items.csv", ["Cell Count", "Populated Cell Count"]], ["General Lists.csv", ["Item Count"]]]);
+    expect(shown(table("Modules.csv", ["", "Applies To", "Cell Count", "Functional Area", "Notes"]))).toEqual([["Cell Count", "count", true]]);
+    expect(shown(table("General Lists.csv", ["", "Parent Hierarchy", "Top Level Item", "Numbered List", "Item Count", "Next Item Index", "Notes"]))).toEqual([["Item Count", "count", true]]);
+    expect(shown(table("Line Items.csv", ["", "Format", "Time Range", "Cell Count", "Populated Cell Count", "Calculation Effort", "Code", "Module Name"])))
+      .toEqual([["Cell Count", "count", true], ["Populated Cell Count", "count", true]]);
+    // Another model file with a column of the same name is not known to count anything, nor is a count's header in
+    // another case, and the files of actions keep their times and durations as text.
+    expect([shown(table("Versions.csv", ["", "Cell Count"])), shown(table("Modules.csv", ["", "cell count"])),
+      shown(table("Processes.csv", ["", "Start Date and Time (UTC)", "Most recent duration (ms)"])), shown(table("Time Ranges.csv", ["", "Start Period", "End Period"]))]).toEqual([[], [], [], []]);
+    // Every file named is one the page knows a model's files by: it lists them all in the navigation's order.
+    expect([...MODEL_COUNTS.keys()].filter(file => !MODEL_FILE_ORDER.includes(file))).toEqual([]);
+  });
+
   it("shows every column of a file it has no choices for as plain text: a model's files, odd names", () => {
     const columns = columnsOf(table("Line Items.csv", ["", "Formula", "Page", "Card ID", "constructor", "__proto__", "Formula"]));
     expect(columns.map(column => [column.label, column.kind, column.num, column.filter, column.hidden]))
@@ -141,17 +178,34 @@ describe("The results page's columns", () => {
     const cards = appTable("Cards.csv");
     const at = (header: string) => cards.headers.indexOf(header);
     const row = (page: string, number: number, type: string, saved: string) => cards.headers.map((_, index) =>
-      (index === at("Page") ? page : index === at("Card #") ? number : index === at("Card type") ? type : index === at("Saved view") ? saved : index === at("Card ID") ? `card-${page}-${number}` : "—"));
+      (index === at("Page") ? page : index === at("Card #") ? number : index === at("Card type") ? type : index === at("Saved view") ? saved : index === at("Card ID") ? `card-${page}-${number}` : "-"));
     const filters = (rows: ReturnType<typeof row>[]) => labels(columnsOf({ ...cards, rows }).filter(column => column.filter));
     // One page and one type: the design's three filters stay, although each has nothing to choose between.
-    expect(filters([row("Overview", 1, "Grid", "—")])).toEqual(["Page", "Card type", "View type"]);
+    expect(filters([row("Overview", 1, "Grid", "-")])).toEqual(["Page", "Card type", "View type"]);
     // Forty pages: Page keeps its filter although it holds more than thirty texts. Card # and Saved view gain one.
-    const many = Array.from({ length: 80 }, (_, index) => row(`Page ${index % 40}`, index % 2 + 1, index % 3 ? "Grid" : "KPI", index % 5 ? "—" : "Top 10"));
+    const many = Array.from({ length: 80 }, (_, index) => row(`Page ${index % 40}`, index % 2 + 1, index % 3 ? "Grid" : "KPI", index % 5 ? "-" : "Top 10"));
     expect(filters(many)).toEqual(["Page", "Card #", "Card type", "View type", "Saved view"]);
     // The column is still what the design made it: a hidden ID with few values is a hidden ID that can be filtered.
     const pages = appTable("Pages.csv");
-    const twoModels = Array.from({ length: 6 }, (_, index) => pages.headers.map(header => (header === "Page" ? `Page ${index}` : header === "Model ID" ? `model-${index % 2}` : "—")));
+    const twoModels = Array.from({ length: 6 }, (_, index) => pages.headers.map(header => (header === "Page" ? `Page ${index}` : header === "Model ID" ? `model-${index % 2}` : "-")));
     expect(columnsOf({ ...pages, rows: twoModels }).find(column => column.label === "Model ID")).toMatchObject({ kind: "id", hidden: true, filter: true });
+  });
+
+  it("takes the dash alone for nothing to say in the app's files only: in a model's file it is Anaplan's own text", () => {
+    // Each of the app's files is written by the analysis, which writes the dash where it has nothing to say: in every
+    // column the dash says that.
+    for (const file of Object.keys(FILES)) {
+      expect([writesNone(appTable(file)), columnsOf(appTable(file)).every(column => column.none)], file).toEqual([true, true]);
+    }
+    // A model's file is Anaplan's grid, where Anaplan writes a dash itself, and a file the page knows nothing about is no
+    // file of the app's either: whatever its name or its columns, the dash is its text.
+    for (const other of [table("Modules.csv", ["", "Applies To"]), table("Imports.csv", ["", "Source Object"]), table("Line Items.csv", ["", "Page", "Card ID"]),
+      table("constructor", ["Page"]), table("__proto__", ["Page"]), table("", ["Page"])]) {
+      expect([writesNone(other), columnsOf(other).some(column => column.none)], other.file).toEqual([false, false]);
+    }
+    // A cell beyond a row's headers is its table's like any other.
+    const beyond = (file: string, headers: string[]) => rowColumns(columnsOf(table(file, headers)), ["a", "b", "c"]).map(column => column.none);
+    expect([beyond("Cards.csv", ["Page"]), beyond("Line Items.csv", [""])]).toEqual([[true, true, true], [false, false, false]]);
   });
 
   it("gives a row its table's columns, and one more for each cell it holds beyond the headers", () => {

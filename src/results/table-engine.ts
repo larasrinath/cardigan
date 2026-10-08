@@ -8,15 +8,33 @@ export type Row = readonly Cell[];
 /** A cell as the page shows it: its text as it stands, and nothing for a missing value. */
 export const cellText = (cell: unknown): string => (cell === null || cell === undefined ? "" : String(cell));
 
-/** The dash the app export writes where there is nothing to say (report.ts `NONE`). The page shows it greyed, as text. */
-export const NONE = "—";
+/** The dash the app export writes where there is nothing to say (report.ts `NONE`): a plain hyphen, alone in its cell. In
+ * an app's tables the page shows it greyed, as text, and wherever it reads an app's cells it takes it for no value. A
+ * hyphen that an Anaplan user typed alone, as a card's title or an object's name, is then taken for no value as well:
+ * that is accepted, as the two cannot be told apart. Anaplan writes the same hyphen in a model's grids, in Applies To on a
+ * heading row of Modules and in Source Object of a file import, so in a model's tables it is the cell's text like any
+ * other (columns.ts `writesNone`). */
+export const NONE = "-";
 
-/** A name for a row: the text of its first cell that says something, which is neither empty nor the dash. Nothing when no
- * cell does. A text far longer than a name is cut, since it stands as a heading; the cell itself is never cut. */
-export function rowName(row: Row): string {
+/** A count as the page shows it: its digits with a comma between each group of three, counted from the right, so that
+ * 15389009578 reads 15,389,009,578. The grouping is always this one, whatever language the browser speaks, so that the
+ * page reads the same everywhere. It is worked on the digits as text, never as a number: a model's cell count can be
+ * larger than a number holds exactly. Only a whole number written as plain digits, with a minus sign or not, is a count
+ * to group. Anything else stays as it is: an empty cell, the dash, a word, a number with a fraction or already grouped,
+ * and digits that begin with a zero, which are a code rather than a count. The cell itself is never changed: this is what
+ * the page shows of it. */
+export function groupedCount(text: string): string {
+  const count = /^(-?)([1-9]\d*)$/.exec(text);
+  return count ? `${count[1]}${count[2].replace(/\B(?=(\d{3})+$)/g, ",")}` : text;
+}
+
+/** A name for a row: the text of its first cell that says something, which is neither empty nor, in a table where the dash
+ * says that there is nothing (`none`, columns.ts `writesNone`), the dash. Nothing when no cell does. A text far longer
+ * than a name is cut, since it stands as a heading; the cell itself is never cut. */
+export function rowName(row: Row, none: boolean): string {
   for (const cell of row) {
     const text = cellText(cell).trim();
-    if (text !== "" && text !== NONE) return text.length > ROW_NAME_MAX ? `${text.slice(0, ROW_NAME_MAX)}…` : text;
+    if (text !== "" && !(none && text === NONE)) return text.length > ROW_NAME_MAX ? `${text.slice(0, ROW_NAME_MAX)}…` : text;
   }
   return "";
 }
@@ -27,6 +45,9 @@ export interface Sort { column: number; dir: "asc" | "desc" }
 export interface TableQuery {
   /** Keeps the rows with this text in any column, whatever its case. */
   search: string;
+  /** The columns whose counts the page shows grouped (`groupedCount`). The search finds a count in them as it is shown as
+   * well as by its own digits: "15,389" and "15389" both find 15,389,009,578. */
+  counts?: ReadonlySet<number>;
   /** Column -> the cell texts to keep. A column without a set keeps every row; an empty set keeps none. */
   filters: ReadonlyMap<number, ReadonlySet<string>>;
   sort?: Sort;
@@ -69,7 +90,13 @@ export function selectRows<T extends Row>(rows: readonly T[], query: TableQuery)
   const { context } = query;
   if (context) out = out.filter(row => cellText(row[context.column]) === context.value);
   const needle = query.search.trim().toLowerCase();
-  if (needle) out = out.filter(row => row.some(cell => cellText(cell).toLowerCase().includes(needle)));
+  const counts = query.counts;
+  // A count is found by what the page shows of it too: its digits as the cell holds them, and with their commas.
+  const found = (cell: unknown, column: number): boolean => {
+    const text = cellText(cell);
+    return text.toLowerCase().includes(needle) || (counts?.has(column) === true && groupedCount(text).includes(needle));
+  };
+  if (needle) out = out.filter(row => row.some(found));
   for (const [column, values] of query.filters) out = out.filter(row => values.has(cellText(row[column])));
   return query.sort ? sortRows(out, query.sort) : out;
 }
@@ -79,7 +106,8 @@ export function selectRows<T extends Row>(rows: readonly T[], query: TableQuery)
 export function rememberingSelect(): <T extends Row>(rows: readonly T[], query: TableQuery) => readonly T[] {
   let last: { rows: readonly Row[]; key: string; selected: readonly Row[] } | undefined;
   return <T extends Row>(rows: readonly T[], query: TableQuery): readonly T[] => {
-    const key = JSON.stringify([query.search, [...query.filters].map(([column, values]) => [column, [...values]]), query.sort ?? null, query.context ?? null]);
+    const key = JSON.stringify([query.search, [...query.filters].map(([column, values]) => [column, [...values]]), query.sort ?? null, query.context ?? null,
+      [...(query.counts ?? [])]]);
     if (!last || last.rows !== rows || last.key !== key) last = { rows, key, selected: selectRows(rows, query) };
     return last.selected as readonly T[];
   };
@@ -103,20 +131,6 @@ export function pageOf<T>(rows: readonly T[], page: number, size: number): Page<
   const current = Number.isInteger(page) ? Math.min(Math.max(0, page), pages - 1) : 0;
   const start = current * size;
   return { rows: rows.slice(start, start + size), page: current, pages, from: total === 0 ? 0 : start + 1, to: Math.min(total, start + size), total };
-}
-
-/** The page numbers a pager offers, from 0: all of them up to seven, otherwise the first, the last and the ones around the
- * current page, with `undefined` where pages are left out. */
-export function pagerItems(page: number, pages: number): (number | undefined)[] {
-  if (pages <= 7) return Array.from({ length: pages }, (_, index) => index);
-  const low = Math.max(1, page - 1);
-  const high = Math.min(pages - 2, page + 1);
-  const items: (number | undefined)[] = [0];
-  if (low > 1) items.push(undefined);
-  for (let index = low; index <= high; index++) items.push(index);
-  if (high < pages - 2) items.push(undefined);
-  items.push(pages - 1);
-  return items;
 }
 
 /** Each text a column holds, with the number of rows that hold it, in text order: what a column filter offers. */

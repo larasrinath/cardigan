@@ -1,20 +1,21 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { stampLine } from "../details.js";
-import { MODEL_COLUMN_ADDED, MODEL_FILE_ADDED, MODEL_ROW_REWORDED, MODEL_ROWS_FOR_THE_PAGE, MODEL_ZIP_0_6_1, MODEL_ZIP_AS_NAMED, withColumnAdded, withDetailsSince, ZIPPED_AT } from "../golden-0.6.1.test-support.js";
-import { ACCESS_CSV, ACCESS_FILE_ADDED, ACCESS_GRIDS, ACCESS_READS_0_8_1, ACCESS_ROWS_FOR_THE_PAGE, ACCESS_ZIP_0_8_1, ACCESS_ZIP_WITH_FILE, withAccessRows } from "../golden-0.8.1.test-support.js";
+import { IMPORTS_ROW_REWORDED, MODEL_ACTIONS_COLUMN_ADDED, MODEL_ACTIONS_ROW_REWORDED, MODEL_COLUMN_ADDED, MODEL_COLUMNS_ADDED, MODEL_FILE_ADDED, MODEL_ROW_ADDED, MODEL_ROW_REWORDED, MODEL_ROWS_FOR_THE_PAGE, MODEL_ZIP_0_6_1, MODEL_ZIP_AS_NAMED, withColumnAdded, withDetailsSince, ZIPPED_AT } from "../golden-0.6.1.test-support.js";
+import { ACCESS_CSV, ACCESS_FILE_ADDED, ACCESS_GRIDS, ACCESS_READS_0_8_1, ACCESS_ROWS_FOR_THE_PAGE, ACCESS_ROWS_REWORDED, ACCESS_ZIP_0_8_1, ACCESS_ZIP_WITH_FILE, withAccessRows } from "../golden-0.8.1.test-support.js";
 import { NOT_SCOPE_IDS, SCOPE_IDS } from "../guards.test-support.js";
 import { buildModelGraph } from "../map/build-graph.js";
 import { Failure } from "../progress.js";
 import { resultZip, tableCsv } from "../result-zip.test-support.js";
+import { actionWords } from "../results/readable-cells.js";
 import { parseCsv, sameBytes, toCsv, unzipText, zipEntries, zipStore } from "../zip.test-support.js";
 import * as access from "./access.js";
 import { ACCESS_HEADERS } from "./access.js";
 import { againstMap } from "./access.test-support.js";
-import { actionKind, mergeImports, missingActionColumns } from "./actions.js";
+import { ACTION_LIST_COLUMN, actionKind, mergeImports, missingActionColumns, otherActionsTable } from "./actions.js";
 import { CALENDAR_HEADERS, CALENDAR_PROPERTIES, calendarKind, calendarRows } from "./calendar.js";
 import { exportModel } from "./export.js";
 import * as grids from "./grid.js";
-import { cellText, gridTable, labelEntries, plainText, windowRows, type CellSource, type Grid } from "./grid.js";
+import { cellText, gridTable, labelEntries, plainText, windowRows, type CellSource, type Grid, type GridRow } from "./grid.js";
 import * as lineItems from "./lineitems.js";
 import { FORMAT_LIST_COLUMN, lineItemsTable, RATIO_COLUMNS } from "./lineitems.js";
 import { assertRead, modelOnPage, readGrid, type Native } from "./native.js";
@@ -293,6 +294,75 @@ describe("Model export: Model settings grids to tables", () => {
     expect(table.headers).toEqual(["", "Format", "Ratio Numerator", "Ratio Denominator", "Format List"]);
     expect(table.rows.map(row => [row[0], row[4]])).toEqual([["Orders", ""], ["Units", ""], ["By module", ""], ["By line item", ""], ["Spaced out", " Padded "], ["Lower case", ""],
       ["Product", "Products"]]);
+  });
+
+  it("names the list an action deletes from or orders, from the General Lists grid's rows by ID, and nothing it would have to guess", () => {
+    const action = (actionType: unknown, hierarchyIdentifier?: unknown): string => JSON.stringify({ actionType, hierarchyIdentifier, filterLineItemIdentifier: "_1901000000031_" });
+    // The General Lists grid: each list's row under the list's ID, named by its label. A name is written as it is, also one
+    // that holds what `replace` would read as a pattern of its own.
+    const TOO_LONG = "101000000007000000007";
+    const lists: Grid = { columns: [{ ids: [4000000101], labels: ["Top Level Item"] }], rows: [
+      { ids: [101000000007], labels: ["Products"], cells: ["All Products"] },
+      { ids: [101000000008], labels: ['Regions, "north" & south'], cells: [""] },
+      { ids: [101000000010], labels: ["$& <b>$1</b> $' List"], cells: [""] },
+      { ids: [Number(TOO_LONG)], labels: ["Rounded"], cells: [""] }] };
+    /** Each other action's Action cell, and what its Action List cell holds. */
+    const cases: [name: string, cell: string, actionList: string][] = [
+      ["Delete old products", action("DELETE_BY_SELECTION", "_101000000007_"), "Products"],
+      ["Order regions", action("ORDER_HIERARCHY", "_101000000008_"), 'Regions, "north" & south'],
+      ["Odd name", action("DELETE_BY_SELECTION", "_101000000010_"), "$& <b>$1</b> $' List"],
+      // The ID as a number, or as digits alone, is the same ID.
+      ["As number", action("ORDER_HIERARCHY", 101000000007), "Products"], ["As digits", action("DELETE_BY_SELECTION", "101000000007"), "Products"],
+      // A list that is no row of General Lists is not named, and its ID is not written in the name's place: a general list
+      // the grid does not hold, and IDs of the entity types of a list subset and a line item subset (109 and 114).
+      ["Gone", action("DELETE_BY_SELECTION", "_101000000009_"), ""], ["Subset", action("ORDER_HIERARCHY", "_109000000004_"), ""],
+      ["Line item subset", action("ORDER_HIERARCHY", "_114000000002_"), ""],
+      // An action of those two kinds that names no list, or names it by something that is no ID.
+      ["No list", action("DELETE_BY_SELECTION"), ""], ["Empty", action("DELETE_BY_SELECTION", ""), ""], ["None", action("ORDER_HIERARCHY", -1), ""],
+      ["Named", action("DELETE_BY_SELECTION", "Products"), ""], ["Many", action("DELETE_BY_SELECTION", ["_101000000007_"]), ""],
+      ["Object", action("ORDER_HIERARCHY", { id: 101000000007 }), ""], ["Spaced", action("DELETE_BY_SELECTION", " 101000000007 "), ""],
+      // An ID of more digits than a number holds exactly is not looked up: this one and its row's are one number.
+      ["Too long", action("DELETE_BY_SELECTION", `_${TOO_LONG}_`), ""],
+      // Any other kind of action, also one whose definition carries a list's ID in that field, and a kind in other letters.
+      ["Copy", action("BULK_COPY", "_101000000007_"), ""], ["Current period", action("UPDATE_CURRENT_PERIOD", "_101000000007_"), ""],
+      ["Lower case", action("delete_by_selection", "_101000000007_"), ""], ["No kind", JSON.stringify({ hierarchyIdentifier: "_101000000007_" }), ""],
+      ["Create", JSON.stringify({ actionType: "TASK_ELEMENT", taskElement: JSON.stringify({ taskElementType: "BULK_OPERATION", operation: "SIMPLE_CREATE", hierarchyEntityLongId: 101000000007 }) }), ""],
+      // A cell that is no definition.
+      ["Words", "Delete from Products using Selection", ""], ["Cut short", '{"actionType":"DELETE_BY_SELECTION","hierarchyIdentifier":"_1010', ""], ["Blank", "", ""]];
+    const grid: Grid = { columns: [{ ids: [4000000001], labels: ["Action"] }, { ids: [4000000002], labels: ["Notes"] }], rows: [
+      { ids: [31000000004], labels: ["Other Actions"], cells: ["", ""] },
+      ...cases.map(([name, cell], index) => ({ ids: [117000000001 + index], labels: [name], cells: [cell, ""] }))] };
+    const other = (row: GridRow): boolean => Math.floor(row.ids[0] / 1e9) === 117;
+    const table = otherActionsTable(grid, other, lists);
+    // The column comes last, after the Actions list's own, in the rows the split gives Other Actions. The Actions list's
+    // own cells are untouched: the Action cell keeps the ID.
+    expect(table.headers).toEqual(["", "Action", "Notes", ACTION_LIST_COLUMN]);
+    expect(table.rows.map(row => [row[0], row[3]])).toEqual(cases.map(([name, , actionList]) => [name, actionList]));
+    expect(table.rows.map(row => row.slice(0, 3))).toEqual(gridTable(grid, other).rows);
+    // Without the General Lists grid, or with one that has no rows, the column is there and empty: no list is named.
+    for (const without of [otherActionsTable(grid, other), otherActionsTable(grid, other, undefined), otherActionsTable(grid, other, { ...lists, rows: [] })]) {
+      expect([without.headers, without.rows.map(row => row[3])]).toEqual([table.headers, cases.map(() => "")]);
+    }
+    // A list is found by its row's ID alone: not by its name, and not by a cell.
+    const byName: Grid = { columns: lists.columns, rows: [{ ids: [101000000001], labels: ["101000000007"], cells: ["101000000007"] }] };
+    expect(otherActionsTable(grid, other, byName).rows.map(row => row[3])).toEqual(cases.map(() => ""));
+    // An Actions list without an Action column has the column too, empty, whatever a row's name and its other cells hold.
+    const named = action("DELETE_BY_SELECTION", "_101000000007_");
+    const bare: Grid = { columns: [{ ids: [4000000002], labels: ["Notes"] }], rows: [{ ids: [117000000001], labels: [named], cells: [named] }] };
+    expect(otherActionsTable(bare, other, lists)).toEqual({ headers: ["", "Notes", ACTION_LIST_COLUMN], rows: [[named, named, ""]] });
+  });
+
+  it("names a list in Action List for the very kinds of action that the results page says with a list's name, and for no other kind", () => {
+    const lists: Grid = { columns: [], rows: [{ ids: [101000000007], labels: ["Products"], cells: [] }] };
+    // Each kind of action the page says in words, each with a list's ID in the field where the two that name a list hold it.
+    const kinds = ["PROCESS", "BULK_COPY", "DELETE_BY_SELECTION", "ORDER_HIERARCHY", "UPDATE_CURRENT_PERIOD", "TASK_ELEMENT"];
+    const cells = kinds.map(actionType => JSON.stringify({ actionType, hierarchyIdentifier: "_101000000007_",
+      ...(actionType === "TASK_ELEMENT" ? { taskElement: JSON.stringify({ taskElementType: "DASHBOARD", hierarchyEntityLongId: 101000000007 }) } : {}) }));
+    const grid: Grid = { columns: [{ ids: [4000000001], labels: ["Action"] }], rows: cells.map((cell, index) => ({ ids: [117000000001 + index], labels: [kinds[index]], cells: [cell] })) };
+    const named = otherActionsTable(grid, () => true, lists).rows.map(row => row[2] !== "");
+    // The page's words for the same cell, given that name for whatever list they ask for, hold it where the action names a list.
+    const said = cells.map(cell => actionWords(cell, { listName: () => "Products" })?.includes("Products") === true);
+    expect([named, said]).toEqual([[false, false, true, true, false, false], [false, false, true, true, false, false]]);
   });
 
   it("reads a large grid in row pages through the page's client, sending reads only", async () => {
@@ -579,6 +649,38 @@ describe("Model export: Model settings grids to tables", () => {
     expect(details(without)).toEqual(details(result).map(row => (row[1] === "General Lists.csv" ? ["Files", "General Lists.csv", "Not exported: The model rejected the read."] : row)));
   });
 
+  it("exports Other Actions.csv with the name of the list each action deletes from or orders, from General Lists, which it reads before the Actions list, and reads no grid more", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(Date.UTC(2026, 8, 28, 12, 30, 10)));
+    const [ACTIONS, LISTS] = ["ACTIONS × ACTION PROPERTIES", "LISTS × LIST PROPERTIES"];
+    const action = (actionType: string, hierarchyIdentifier: string): string => JSON.stringify({ actionType, hierarchyIdentifier, filterLineItemIdentifier: "_1901000000031_" });
+    // The golden model's Actions list with its one other action deleting from Products, and three other actions more: one
+    // orders + Regions, whose name a spreadsheet would take for a formula, one orders by an ID of a list subset's entity
+    // type, which General Lists does not hold, and a bulk copy, whose definition carries a list's ID as well.
+    const others = [row(117000000001, "Delete old items", action("DELETE_BY_SELECTION", "_101000000001_"), "", "", "", "Nightly load", ""),
+      row(117000000002, "Order regions", action("ORDER_HIERARCHY", "_101000000002_"), "", "", "", "", ""),
+      row(117000000003, "Order active products", action("ORDER_HIERARCHY", "_109000000001_"), "", "", "", "", ""),
+      row(117000000004, "Copy forecast", action("BULK_COPY", "_101000000001_"), "", "", "", "", "")];
+    const grids = { ...GOLDEN_GRIDS, [ACTIONS]: { columns: ACTION_COLUMNS, rows: [...GOLDEN_GRIDS[ACTIONS].rows.slice(0, -1), ...others] } };
+    const reads: string[] = [];
+    const result = await exportGoldenModel(grids, reads);
+    const csv = (exported: typeof result, file: string) => parseCsv(unzipText(resultZip(exported, ZIPPED_AT)).get(file) ?? "");
+    // The column comes last, after the Actions list's own, which are as the grid has them. A name is written as General
+    // Lists has it, with nothing before one that starts with a sign. A list General Lists does not hold, and a list's ID
+    // in a kind of action that names no list, are named by nothing.
+    expect(csv(result, "Other Actions.csv")).toEqual([["", ...ACTION_COLUMNS, ACTION_LIST_COLUMN],
+      ...others.map(({ labels, cells }, index) => [labels[0], ...cells, ["Products", "+ Regions", "", ""][index]])]);
+    // Processes and Exports have no such column: no process or export is said with a list's name.
+    expect([csv(result, "Processes.csv")[0], csv(result, "Exports.csv")[0]]).toEqual([["", ...ACTION_COLUMNS], ["", ...ACTION_COLUMNS]]);
+    // No grid is read for the names: every grid is read once, in the order it always was, General Lists before the Actions list.
+    expect(reads).toEqual(["LINE ITEMS 0+1", "LINE ITEMS 0+4", "MODULES 0+1", "MODULES 0+2", "LISTS 0+1", "LISTS 0+2", "ACTIONS 0+1", "ACTIONS 0+13", "IMPORTS 0+1", "IMPORTS 0+2",
+      "DATA SOURCES 0+1", "TIME RANGES 0+1", "VERSIONS 0+1", "VERSIONS 0+2", "CALENDAR 0+1", "CALENDAR 0+10"]);
+    // General Lists cannot be read: Other Actions.csv is exported all the same, with the column there and empty.
+    const { [LISTS]: _lists, ...withoutLists } = grids;
+    const without = await exportGoldenModel(withoutLists);
+    expect(csv(without, "Other Actions.csv")).toEqual(csv(result, "Other Actions.csv").map((cells, index) => (index === 0 ? cells : [...cells.slice(0, -1), ""])));
+  });
+
   it("returns only text and finite numbers as cells, whatever a grid holds, without changing the CSV", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date(Date.UTC(2026, 8, 28, 12, 30, 10)));
@@ -595,65 +697,84 @@ describe("Model export: Model settings grids to tables", () => {
     expect(unzipText(resultZip(JSON.parse(JSON.stringify(result)) as typeof result)).get("Versions.csv")).toBe(written.slice(1));
   });
 
-  it("writes the zip 0.6.1 wrote for the same model, byte for byte but for the Format List column of Line Items.csv and what Model Details.csv says of how to read the tables and of Dynamic Cell Access.csv, and returns each file as a table", async () => {
+  it("writes the zip 0.6.1 wrote for the same model, byte for byte but for the Format List column of Line Items.csv, the Action List column of Other Actions.csv and what Model Details.csv says of how to read the tables and of Dynamic Cell Access.csv, and returns each file as a table", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date(Date.UTC(2026, 8, 28, 12, 30, 10)));
     const result = await exportGoldenModel();
     // The export writes no zip: the result's tables are written as the files they were (result-zip.test-support.ts), and
     // held against the zip 0.6.1 wrote.
     const zip = resultZip(result, ZIPPED_AT);
-    // Four things are deliberately not what 0.6.1 wrote, and each is named (golden-0.6.1.test-support.ts). Line Items.csv has
+    // Five things are deliberately not what 0.6.1 wrote, and each is named (golden-0.6.1.test-support.ts). Line Items.csv has
     // one column more, Format List, its last (MODEL_COLUMN_ADDED): this model's Line Items grid has no Format column, so the
-    // column is empty in every row. The "How to read" row of Model Details.csv about Line Items says what the three
-    // columns after Anaplan's own hold, where it named the two there were, and what the page's table of line items lists
-    // (MODEL_ROW_REWORDED). Two more "How to read" rows, on the layout and on the calendar, say what the results page
-    // shows, which is where a result is read, with no file of it to download (MODEL_ROWS_FOR_THE_PAGE). And Model
-    // Details.csv has two rows more, about a file the export has gained, Dynamic Cell Access.csv (MODEL_FILE_ADDED):
-    // this model's Line Items grid has none of the columns the file is made from, so the file is not written for it,
-    // and the rows say that and how to read the file.
+    // column is empty in every row. Other Actions.csv has one column more, Action List, its last
+    // (MODEL_ACTIONS_COLUMN_ADDED): this model's one other action names no list, so the column is empty in its row. The
+    // "How to read" row of Model Details.csv about Line Items says what the three columns after Anaplan's own hold, where it
+    // named the two there were, and what the page's table of line items lists (MODEL_ROW_REWORDED), and the one about the
+    // Actions list's files says what Action List holds (MODEL_ACTIONS_ROW_REWORDED). Two more "How to read" rows, on the
+    // layout and on the calendar, say what the results page shows, which is where a result is read, with no file of it to
+    // download (MODEL_ROWS_FOR_THE_PAGE), and the one on Imports says that the page shows an import's Source Object as
+    // three columns (IMPORTS_ROW_REWORDED). And Model Details.csv has two rows more, about a file the export has gained,
+    // Dynamic Cell Access.csv (MODEL_FILE_ADDED): this model's Line Items grid has none of the columns the file is made
+    // from, so the file is not written for it, and the rows say that and how to read the file. It has a third row more, of
+    // "How to read" on Source Models, which the page shows with Mapped To as two columns (MODEL_ROW_ADDED): every model
+    // has it, also one without that grid.
     // Everything else is what 0.6.1 wrote, byte for byte.
     // File by file first, so that a difference shows as text: 0.6.1's files in their order, each with its text; of Line
-    // Items.csv every line with that one cell more at its end, and of Model Details.csv every line but those three, with
-    // the two lines more.
+    // Items.csv and of Other Actions.csv every line with that one cell more at its end, and of Model Details.csv every line
+    // but those five, with the three lines more.
     const [written, before] = [unzipText(zip), unzipText(MODEL_ZIP_0_6_1)];
     expect([...written.keys()]).toEqual([...before.keys()]);
-    const since = (file: string, text: string): string => (file === MODEL_COLUMN_ADDED.file ? withColumnAdded(text) : file === MODEL_ROW_REWORDED.file ? withDetailsSince(text) : text);
+    const since = (file: string, text: string): string => {
+      const column = MODEL_COLUMNS_ADDED.find(added => added.file === file);
+      return column ? withColumnAdded(text, column) : file === MODEL_ROW_REWORDED.file ? withDetailsSince(text) : text;
+    };
     for (const [file, text] of before) expect(written.get(file), file).toBe(since(file, text));
     // The Line Items file's own cells are 0.6.1's, every one: the column is the last, under its name, and holds nothing.
     const [lineItems, lineItemsBefore] = [parseCsv(written.get(MODEL_COLUMN_ADDED.file)!), parseCsv(before.get(MODEL_COLUMN_ADDED.file)!)];
     expect(lineItems.map(row => row.slice(0, -1))).toEqual(lineItemsBefore);
     expect(lineItems.map(row => row.at(-1))).toEqual([MODEL_COLUMN_ADDED.header, "", "", "", ""]);
-    // Model Details.csv has 0.6.1's rows, each in its place and all but three in 0.6.1's words, and two rows that 0.6.1 did
-    // not write: the rows named, each right after the row it is named to follow. Those two are about Dynamic Cell
+    // So are the Other Actions file's: its column is the last too, under its name, and holds nothing in the one row.
+    const [actions, actionsBefore] = [parseCsv(written.get(MODEL_ACTIONS_COLUMN_ADDED.file)!), parseCsv(before.get(MODEL_ACTIONS_COLUMN_ADDED.file)!)];
+    expect(actions.map(row => row.slice(0, -1))).toEqual(actionsBefore);
+    expect(actions.map(row => row.at(-1))).toEqual([MODEL_ACTIONS_COLUMN_ADDED.header, ""]);
+    // Model Details.csv has 0.6.1's rows, each in its place and all but five in 0.6.1's words, and three rows that 0.6.1
+    // did not write: the rows named, each right after the row it is named to follow. Two are about Dynamic Cell
     // Access.csv: the Files row stands where the file would, after the row for Line Items.csv, and says why this model
-    // has none, and the "How to read" row stands after the one on Line Items.
+    // has none, and the "How to read" row stands after the one on Line Items. The "How to read" row on Source Models is
+    // the last of those rows, after the one on the calendar.
     const [details, detailsBefore] = [parseCsv(written.get(MODEL_ROW_REWORDED.file)!), parseCsv(before.get(MODEL_ROW_REWORDED.file)!)];
-    const added = [MODEL_FILE_ADDED.notWritten, MODEL_FILE_ADDED.howToRead].map(row => ({ after: parseCsv(row.after)[0], row: parseCsv(row.line)[0] }));
+    const added = [MODEL_FILE_ADDED.notWritten, MODEL_FILE_ADDED.howToRead, MODEL_ROW_ADDED].map(row => ({ after: parseCsv(row.after)[0], row: parseCsv(row.line)[0] }));
     const places = added.map(({ row }) => details.findIndex(each => each.join("\n") === row.join("\n")));
     expect(places.map(place => details[place - 1])).toEqual(added.map(({ after }) => after));
-    expect(added.map(({ row }) => row.slice(0, 2))).toEqual([["Files", MODEL_FILE_ADDED.file], ["How to read", "Dynamic Cell Access"]]);
+    expect(added.map(({ row }) => row.slice(0, 2))).toEqual([["Files", MODEL_FILE_ADDED.file], ["How to read", "Dynamic Cell Access"], ["How to read", "Source Models"]]);
     expect(added[0].row[2]).toBe("Not exported: Line Items has no Module Name, Read Access Driver and Write Access Driver columns.");
     const kept = details.filter((_, index) => !places.includes(index));
     expect(kept.length).toBe(detailsBefore.length);
-    // The three rows that are written otherwise are the three named, in the file's order: on the layout, on Line Items
-    // and on the calendar.
+    // The four rows that are written otherwise are the four named, in the file's order: on the layout, on Line Items, on
+    // the Actions list's files, on Imports and on the calendar.
     expect(kept.flatMap((row, index) => (row.join("\n") === detailsBefore[index].join("\n") ? [] : [[detailsBefore[index], row]])))
-      .toEqual([MODEL_ROWS_FOR_THE_PAGE.layout, MODEL_ROW_REWORDED, MODEL_ROWS_FOR_THE_PAGE.calendar].map(row => [parseCsv(row.was)[0], parseCsv(row.now)[0]]));
-    // The row on Line Items is the account of that table, and names each column the export adds to the grid's own.
+      .toEqual([MODEL_ROWS_FOR_THE_PAGE.layout, MODEL_ROW_REWORDED, MODEL_ACTIONS_ROW_REWORDED, IMPORTS_ROW_REWORDED, MODEL_ROWS_FOR_THE_PAGE.calendar].map(row => [parseCsv(row.was)[0], parseCsv(row.now)[0]]));
+    // The row on Imports says what it said, and then how the page shows Source Object.
+    expect(parseCsv(IMPORTS_ROW_REWORDED.now)[0][2].startsWith(parseCsv(IMPORTS_ROW_REWORDED.was)[0][2])).toBe(true);
+    // The row on Line Items is the account of that table, and names each column the export adds to the grid's own; the
+    // row on the Actions list's files names the one it adds to theirs.
     const [section, detail, howToRead] = parseCsv(MODEL_ROW_REWORDED.now)[0];
     expect([section, detail, [...RATIO_COLUMNS, FORMAT_LIST_COLUMN].filter(column => !howToRead.includes(column))]).toEqual(["How to read", "Line Items", []]);
+    const [actionsSection, actionsDetail, actionsHowToRead] = parseCsv(MODEL_ACTIONS_ROW_REWORDED.now)[0];
+    expect([actionsSection, actionsDetail, actionsHowToRead.includes(ACTION_LIST_COLUMN)]).toEqual(["How to read", "Processes, Exports and Other Actions", true]);
     // No "How to read" row names a file, a CSV or a zip, or says to download or to fill one in: the page's overview lists
     // these rows as they are. (Anaplan's own export of a grid, which the layout is said by, is Anaplan's.)
     const said = details.filter(row => row[0] === "How to read").map(row => row[2]);
-    expect([said.length, said.filter(text => /\.csv|\bCSV\b|\bzip\b|\bfiles?\b|download|fill in|\bJSON\b/i.test(text))]).toEqual([7, []]);
-    // Then every byte. The zip holds the twelve files it held, and no Dynamic Cell Access.csv; only those two have other
+    expect([said.length, said.filter(text => /\.csv|\bCSV\b|\bzip\b|\bfiles?\b|download|fill in|\bJSON\b/i.test(text))]).toEqual([8, []]);
+    // Then every byte. The zip holds the twelve files it held, and no Dynamic Cell Access.csv; only those three have other
     // bytes than 0.6.1's.
     const [files, golden] = [zipEntries(zip), zipEntries(MODEL_ZIP_0_6_1)];
-    expect([files.length, files.filter((file, index) => !sameBytes(file.data, golden[index].data)).map(file => file.name)]).toEqual([12, [MODEL_ROW_REWORDED.file, MODEL_COLUMN_ADDED.file]]);
+    expect([files.length, files.filter((file, index) => !sameBytes(file.data, golden[index].data)).map(file => file.name)])
+      .toEqual([12, [MODEL_ROW_REWORDED.file, MODEL_COLUMN_ADDED.file, MODEL_ACTIONS_COLUMN_ADDED.file]]);
     expect(files.map(file => file.name)).not.toContain(MODEL_FILE_ADDED.file);
     // The zip around the files is written as 0.6.1 wrote it: from 0.6.1's own files, it is 0.6.1's zip.
     expect(sameBytes(zipStore(golden, ZIPPED_AT), MODEL_ZIP_0_6_1)).toBe(true);
-    // So this run's zip is, byte for byte, 0.6.1's zip with that one column added, those three rows reworded and those two rows added.
+    // So this run's zip is, byte for byte, 0.6.1's zip with those two columns added, those five rows reworded and those three rows added.
     expect(sameBytes(zip, MODEL_ZIP_AS_NAMED)).toBe(true);
 
     expect([result.kind, result.name, result.id, result.zipName])
@@ -666,13 +787,15 @@ describe("Model export: Model settings grids to tables", () => {
       "Source Models: not exported (This model page has no REMOTE_MODEL axis.)."]);
     // Only Model Details.csv guards formula-like cells: a grid is written exactly as Anaplan's own export writes it.
     expect(result.tables.map(table => [table.file, table.label, table.guard, table.details, table.rows.length])).toEqual([
-      ["Model Details.csv", "Model Details", true, true, 29], ["Line Items.csv", "Line Items", false, undefined, 4], ["Modules.csv", "Modules", false, undefined, 2],
+      ["Model Details.csv", "Model Details", true, true, 30], ["Line Items.csv", "Line Items", false, undefined, 4], ["Modules.csv", "Modules", false, undefined, 2],
       ["General Lists.csv", "General Lists", false, undefined, 2], ["Processes.csv", "Processes", false, undefined, 1], ["Imports.csv", "Imports", false, undefined, 3],
       ["Import Data Sources.csv", "Import Data Sources", false, undefined, 1], ["Exports.csv", "Exports", false, undefined, 1],
       ["Other Actions.csv", "Other Actions", false, undefined, 1], ["Time Ranges.csv", "Time Ranges", false, undefined, 1], ["Versions.csv", "Versions", false, undefined, 2],
       ["Model Calendar.csv", "Model Calendar", false, undefined, 31]]);
     expect(result.tables[1].headers).toEqual(["", "Formula", "Summary", "Notes", "Ratio Numerator", "Ratio Denominator", "Format List"]);
     expect(result.tables[1].rows[1]).toEqual(["Profit", "=Revenue - Cost", '{"summaryMethod":"SUM"}', "First line\nSecond line", "", "", ""]);
+    expect([result.tables[8].headers, result.tables[8].rows]).toEqual([["", ...ACTION_COLUMNS, ACTION_LIST_COLUMN],
+      [["Delete old items", '{"actionType":"DELETE_BY_SELECTION"}', "", "", "", "Nightly load", "", ""]]]);
     // Plain data: the tables are the same after the trip to the results page as JSON, and so is the zip.
     const received = JSON.parse(JSON.stringify(result)) as typeof result;
     expect(received).toEqual(result);
@@ -784,7 +907,7 @@ describe("Model export: Model settings grids to tables", () => {
       "Modules: not exported (The model rejected the read.).", "Source Models: not exported (This model page has no REMOTE_MODEL axis.)."]);
   });
 
-  it("writes Dynamic Cell Access.csv right after Line Items.csv for a model that drives access, and otherwise the zip 0.8.1 wrote for the same model, byte for byte but for the rows of Model Details.csv that are named", async () => {
+  it("writes Dynamic Cell Access.csv right after Line Items.csv for a model that drives access, and otherwise the zip 0.8.1 wrote for the same model, byte for byte but for the Action List column of Other Actions.csv and the rows of Model Details.csv that are named", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date(Date.UTC(2026, 8, 28, 12, 30, 10)));
     // The golden model with the Line Items and Modules grids of a made-up model whose line items drive one another's
@@ -794,31 +917,41 @@ describe("Model export: Model settings grids to tables", () => {
     const zip = resultZip(result, ZIPPED_AT);
     // 0.8.1 is the last version that did not make the file. What differs from the zip it wrote for this model is named
     // (golden-0.8.1.test-support.ts). The file, which stands right after Line Items.csv, and two rows of Model
-    // Details.csv, which give the file's number of rows and say how to read it (ACCESS_FILE_ADDED). And three "How to
-    // read" rows, which say what the results page shows since it is where a result is read, with no file of it to
-    // download (ACCESS_ROWS_FOR_THE_PAGE). Everything else is what 0.8.1 wrote, byte for byte.
-    // File by file first, so that a difference shows as text: 0.8.1's files in their order, each with its text, of Model
-    // Details.csv every line but those three, with the two lines more, and the file in its place with the text it is to have.
+    // Details.csv, which give the file's number of rows and say how to read it (ACCESS_FILE_ADDED). Three "How to read"
+    // rows, which say what the results page shows since it is where a result is read, with no file of it to download
+    // (ACCESS_ROWS_FOR_THE_PAGE). The column Other Actions.csv has gained, with the "How to read" row that says what it
+    // holds, as they differ from 0.6.1's zip (MODEL_ACTIONS_COLUMN_ADDED and MODEL_ACTIONS_ROW_REWORDED): this model's one
+    // other action names no list, so the column is empty in its row. And two "How to read" rows that every model's Model
+    // Details.csv has changed: the one on Imports, reworded (IMPORTS_ROW_REWORDED), and one more, on Source Models
+    // (MODEL_ROW_ADDED). Everything else is what 0.8.1 wrote, byte for byte.
+    // File by file first, so that a difference shows as text: 0.8.1's files in their order, each with its text, of Other
+    // Actions.csv every line with that one cell more at its end, of Model Details.csv every line but those five, with the
+    // three lines more, and the file in its place with the text it is to have.
     const [written, before] = [unzipText(zip), unzipText(ACCESS_ZIP_0_8_1)];
     expect([...written.keys()]).toEqual([...before.keys()].flatMap(file => (file === ACCESS_FILE_ADDED.after ? [file, ACCESS_FILE_ADDED.file] : [file])));
-    for (const [file, text] of before) expect(written.get(file), file).toBe(file === ACCESS_FILE_ADDED.details ? withAccessRows(text) : text);
+    const since = (file: string, text: string): string =>
+      (file === ACCESS_FILE_ADDED.details ? withAccessRows(text) : file === MODEL_ACTIONS_COLUMN_ADDED.file ? withColumnAdded(text, MODEL_ACTIONS_COLUMN_ADDED) : text);
+    for (const [file, text] of before) expect(written.get(file), file).toBe(since(file, text));
     expect(written.get(ACCESS_FILE_ADDED.file)).toBe(ACCESS_CSV);
-    // Row by row, Model Details.csv has 0.8.1's rows, each in its place, with the two rows about the file among them.
-    // The rows in other words than 0.8.1's are the three named, in the file's order: on the layout, on Line Items and
-    // on the calendar.
+    // Row by row, Model Details.csv has 0.8.1's rows, each in its place, with the two rows about the file and the row on
+    // Source Models among them. The rows in other words than 0.8.1's are the five named, in the file's order: on the
+    // layout, on Line Items, on the Actions list's files, on Imports and on the calendar.
     const lines = (text: string): string[] => parseCsv(text).map(row => row.join("\n"));
     const [details, detailsBefore] = [lines(written.get(ACCESS_FILE_ADDED.details)!), lines(before.get(ACCESS_FILE_ADDED.details)!)];
-    const gained = [ACCESS_FILE_ADDED.written, ACCESS_FILE_ADDED.howToRead].map(row => lines(row.line)[0]);
+    const gained = [ACCESS_FILE_ADDED.written, ACCESS_FILE_ADDED.howToRead, MODEL_ROW_ADDED].map(row => lines(row.line)[0]);
     const stayed = details.filter(row => !gained.includes(row));
-    expect([details.length, stayed.length]).toEqual([detailsBefore.length + 2, detailsBefore.length]);
-    expect(stayed.flatMap((row, index) => (row === detailsBefore[index] ? [] : [[detailsBefore[index], row]]))).toEqual(ACCESS_ROWS_FOR_THE_PAGE.map(row => [lines(row.was)[0], lines(row.now)[0]]));
-    // Then every byte. Of 0.8.1's twelve files, Line Items.csv among them, only Model Details.csv has other bytes.
+    expect([details.length, stayed.length]).toEqual([detailsBefore.length + 3, detailsBefore.length]);
+    expect(stayed.flatMap((row, index) => (row === detailsBefore[index] ? [] : [[detailsBefore[index], row]]))).toEqual(ACCESS_ROWS_REWORDED.map(row => [lines(row.was)[0], lines(row.now)[0]]));
+    // Then every byte. Of 0.8.1's twelve files, Line Items.csv among them, only Model Details.csv and Other Actions.csv
+    // have other bytes.
     const [files, golden] = [zipEntries(zip), zipEntries(ACCESS_ZIP_0_8_1)];
     const kept = files.filter(file => file.name !== ACCESS_FILE_ADDED.file);
-    expect([files.length, golden.length, kept.filter((file, index) => !sameBytes(file.data, golden[index].data)).map(file => file.name)]).toEqual([13, 12, [ACCESS_FILE_ADDED.details]]);
+    expect([files.length, golden.length, kept.filter((file, index) => !sameBytes(file.data, golden[index].data)).map(file => file.name)])
+      .toEqual([13, 12, [ACCESS_FILE_ADDED.details, MODEL_ACTIONS_COLUMN_ADDED.file]]);
     // The zip around the files is written as 0.8.1 wrote it: from 0.8.1's own files, it is 0.8.1's zip.
     expect(sameBytes(zipStore(golden, ZIPPED_AT), ACCESS_ZIP_0_8_1)).toBe(true);
-    // So this run's zip is, byte for byte, 0.8.1's zip with that one file put in, those three rows reworded and those two rows added.
+    // So this run's zip is, byte for byte, 0.8.1's zip with that one file put in, that column added, those five rows
+    // reworded and those three rows added.
     expect(sameBytes(zip, ACCESS_ZIP_WITH_FILE)).toBe(true);
 
     // Nothing is read for the file, and the export reports no step and no line more: the reads are 0.8.1's, in its order,

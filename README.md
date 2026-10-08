@@ -24,11 +24,11 @@ Cardigan reads every published page of the app. The **Overview** counts each tab
 | **Filters** | Filter condition on a grid's rows or columns |
 | **Conditional Formatting** | Formatting rule or KPI indicator |
 | **Action Buttons** | Button, with its action type and the model action it runs |
-| **Where Used** | Use of a module, line item, dimension, saved view, action or linked page by a card |
+| **Model Objects** | Use of a module, line item, dimension, saved view, action or linked page by a card |
 
 ![An app's Cards table, searched for the word forecast, with the column chooser open and the pager at the top right](docs/images/app-cards.png)
 
-**Where Used** opens **By object**: one row per object, with how many pages and cards use it and as what. A row opens the object with each of its uses. **Every use** lists the uses one by one.
+**Model Objects** opens **By object**: one row per object, with how many pages and cards use it and as what. A row opens the object with each of its uses. **Every use** lists the uses one by one.
 
 ### For a model
 
@@ -37,9 +37,11 @@ Open the model in Model Building; the classic model page opened on its own works
 - A table read from a Model settings grid is laid out as Anaplan's own export of that grid: each row's name first, then the grid's columns.
 - **Line Items** covers every module and lists each line item beside its module; a module's own row is not listed. Three columns follow Anaplan's own: **Ratio Numerator**, **Ratio Denominator** and **Format List**.
 - **Dynamic Cell Access** lists each access driver with the line items it controls, one row per use, marked **Read** or **Write**. It is made from the **Read Access Driver** and **Write Access Driver** columns of Line Items, which name a driver only on the line item it controls.
-- The page says a format, a summary or an action's definition in words, such as "Number, 2 decimal places" or "List: Products". Click the row to see the definition as it was read, under **Format as read**, **Summary as read** or **Action as read**.
-- **Processes**, **Exports** and **Other Actions** are the Actions list, split at its headings. **Imports** joins each import's source and target with its last run, notes and processes.
-- **Model Calendar** follows an assessment template. The template's rows about the model itself are not listed: those that have a value, such as **Captured on**, are on the Overview, under **About this export**.
+- The page says a format, a summary or an action's definition in words, such as "Number, 2 decimal places", "List: Products" or "Delete from Products using Selection". Click the row to see the definition as it was read, under **Format as read**, **Summary as read** or **Action as read**.
+- **Processes**, **Exports** and **Other Actions** are the Actions list, split at its headings. One column follows Anaplan's own in **Other Actions**: **Action List**, the list an action deletes from or orders, as General Lists names it. **Imports** joins each import's source and target with its last run, notes and processes.
+- In **Imports**, an import from a module or a saved view shows its **Source Object** as three columns, **Source Model**, **Source Module** and **Saved View**. For an import from the model itself, Source Model names the model. Click the row to see Source Object as it was read, under **Source Object as read**. Any other source, such as a file, stays as it is, under Source Model.
+- **Source Models** shows **Mapped To** as two columns, **Mapped Workspace** and **Mapped Model**: the workspace and the model each source model is mapped to, by name, or by ID where Anaplan gives no name. Click the row to see Mapped To as it was read, under **Mapped To as read**.
+- **Model Calendar** lists the calendar's settings that hold a value: a setting that does not apply to the model's calendar type, or that the model does not show, is left out, and so are the template's **Applies to** and **Notes** columns, which only guide filling it in by hand. The template's rows about the model itself are not listed either: those that have a value, such as **Captured on**, are on the Overview, under **About this export**.
 
 ![A model's Dynamic Cell Access table: each access driver with the line items it controls, one row for each use, marked Read or Write](docs/images/model-dynamic-cell-access.png)
 
@@ -85,11 +87,13 @@ Closing the results page stops the reading.
 
 ### The results page
 
-- The page is as wide as the window: the navigation stands at the left, and the table or the map takes the rest. The button beside the Cardigan name hides the navigation, so that the table or the map takes the whole width, and brings it back; your browser remembers the choice.
+- The page stands in a column in the middle of the window, at most 1,400 pixels wide, with room at both sides that grows with the screen. A table wider than the column scrolls sideways in its own box. The model map takes the whole width of the window.
+- The navigation is a bar under the header, on one line, with an icon for each entry: the overview, each table and a model's map. A model's tables are grouped in menus, **Time**, **Lists**, **Modules** and **Actions**, with **Versions** and **Source Models** on their own; a group with only one table in the result is that table's entry. A menu's button names the table shown when it is one of the menu's. In a window narrower than 1,000 pixels, one menu holds every entry. The Overview's tiles say how many rows each table has.
 - The search box looks in every column, shown or hidden. Press `/` to reach it.
 - Click a column's name to sort. A column with 2 to 30 different values also has a filter.
 - **Columns** picks the columns shown. An app's ID columns, **Card #** and **Section #** start hidden.
-- Click a row to read every value in full. In an app, a page's name shows that page's cards, and a card's title opens the card with its grid sections, filters, formatting and buttons.
+- Click a row to read every value in full. In an app, a page's name shows that page's cards: a chip beside the search box names the page, and its cross shows all the cards again. A card's title opens the card with its grid sections, filters, formatting and buttons.
+- Where a value lists several items, such as a line item's **Applies To** and **Referenced By** or a card's **Context selectors**, the panel that opens lists them one per line. The table keeps them on one line, and the search, the sort and the filters read them as the table shows them. A name in quotes stays whole, commas and all.
 - Click an ID to copy it.
 - The sun or moon button switches the theme.
 
@@ -98,7 +102,7 @@ Closing the results page stops the reading.
 ### Run again, refresh and Forget this result
 
 - **Run again** reads the Anaplan tab again. The result on the page stays until the new one is complete.
-- The last finished result is kept for its tab, so a refresh brings it back without reading Anaplan. A line above it says when it was analysed.
+- The last finished result is kept for its tab, so a refresh brings it back without reading Anaplan, on the table or the map that was shown. A line above it says when it was analysed.
 - **Forget this result**, on the Overview, removes the kept copy at once. The result stays on the page until you refresh or close it.
 - Only the icon starts a reading unasked. A results page that is reloaded, duplicated or reopened waits for **Run** or **Run again**.
 
@@ -127,7 +131,7 @@ Closing the results page stops the reading.
 - A filter rule's line item in a module that no card shows is looked for during at most 45 seconds per model. After that the rule keeps its IDs, and a note says so.
 - The items a filter rule names are looked up for at most 30 seconds per model. The rest keep their IDs.
 - A button whose import, export or process is not in the model keeps its card label; **Name source** says so.
-- Where two pages share a name, a count in **Where Used** can read "2+" (at least 2), and some links are plain text.
+- Where two pages share a name, a count in **Model Objects** can read "2+" (at least 2), and some links are plain text.
 - A Model settings grid of more than 250,000 rows is not read. The Overview lists it under **Tables** as "Not exported", with the reason.
 - In **Dynamic Cell Access**, a driver that cannot be matched to a line item is listed last, as Line Items has it and with no **Driver Module**, and the page says how many there are. The table is not made when Line Items was not read.
 - The model map takes each link from a column that names another object, such as **Referenced By**. It shows formulas as text and does not work them out.

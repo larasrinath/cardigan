@@ -3,9 +3,9 @@ import { nameCardDetails } from "./card-reader/card-naming.js";
 import type { UxEntityRef, UxPageCardDetails } from "./card-reader/card-types.js";
 import type { UxPageType } from "./card-reader/definition-types.js";
 import {
-  addActions, addLineItems, addLists, addModuleDimensions, addModuleViews, addSelections, applicableModuleIds, describeFormat, emptyCatalog, entityType,
-  filterItemNeeds, filterLineItemSearch, nameFilterValues, resolveFromCatalog, selectionShape, unnamedFilterRules, unresolvedFilterItems, viewLayoutFromMetadata,
-  type ModelCatalog,
+  addActions, addLineItems, addLists, addMetadataDimensionNames, addModuleDimensions, addModuleViews, addSelections, applicableModuleIds, describeFormat,
+  describeSystemContext, emptyCatalog, entityType, filterItemNeeds, filterLineItemSearch, moduleViewsShape, nameFilterValues, resolveFromCatalog, selectionShape,
+  unnamedDimensionIds, unnamedFilterRules, unresolvedFilterItems, viewLayoutFromMetadata, type ModelCatalog,
 } from "./catalog.js";
 import { DETAILS_HEADERS, diagnosticRows, exportRows, type DetailRow } from "./details.js";
 import { Failure, REFRESH, SEND_LOG, type Log, type Progress } from "./progress.js";
@@ -44,6 +44,14 @@ const FILTER_ITEMS_BUDGET_MS = 30_000;
 const MAX_FILTER_ITEM_READS = 40;
 /** As many of the IDs, or of the rules, that were left unnamed as the log lists. */
 const MAX_LOGGED = 30;
+/** As long as one read may wait that looks for the name of a dimension no other answer named: the model is loaded by then. */
+const DIMENSION_NAME_READ_MS = 10_000;
+/** As long as those reads may take in one model, all together: the names are a help to the reader, and nobody should wait
+ * minutes for them. */
+const DIMENSION_NAMES_BUDGET_MS = 30_000;
+/** As many dimensions still unnamed as the model is asked which modules have them; of the modules it names, two per
+ * dimension have their dimensions read. */
+const MAX_DIMENSION_QUESTIONS = 10;
 
 function declaredType(entry: Obj): UxPageType | undefined {
   const raw = String(entry.pageType ?? entry.type ?? "").toUpperCase();
@@ -208,7 +216,12 @@ interface SocketReads {
   catalog: ModelCatalog;
   notes: string[];
   progress: Progress;
+  answers: NameAnswers;
 }
+
+/** The answers that name dimensions, as they came: for a dimension no answer named, the log says which of them hold its ID
+ * at all (one that holds it unnamed would be read wrongly). */
+interface NameAnswers { lists?: unknown; moduleViews?: unknown; moduleDimensions: unknown[] }
 
 /** A module whose line items cannot be read is remembered, so the search for filter line items does not ask again. A read
  * that ended with the connection says nothing about its module: after a redirect it is read on the host the model lives on.
@@ -230,13 +243,14 @@ async function readLineItems(reads: SocketReads, moduleId: string, givingUp?: Ab
 
 /** Context selectors: each section's module dimensions, the list Page Builder's grid section settings read. */
 async function readModuleDimensions(reads: SocketReads, modules: ReadonlySet<string>): Promise<void> {
-  const { scope, connection, subscribe, settle, halted, catalog, notes, progress } = reads;
+  const { scope, connection, subscribe, settle, halted, catalog, notes, progress, answers } = reads;
   const { workspaceId: ws, modelId: model } = scope;
   if (modules.size) {
     progress.status(`Reading module dimensions in ${scope.modelName}…`);
     try {
-      const read = addModuleDimensions(catalog, await settle(subscribe(`core://${ws}:${model}/dimensions`,
-        { body: { moduleIds: [...modules] }, timeoutMs: LOAD_MS })));
+      const json = await settle(subscribe(`core://${ws}:${model}/dimensions`, { body: { moduleIds: [...modules] }, timeoutMs: LOAD_MS }));
+      answers.moduleDimensions.push(json);
+      const read = addModuleDimensions(catalog, json);
       progress.log(`dimensions of ${read.length} of ${modules.size} modules`);
     } catch (error) {
       if (connection.failed || halted()) throw error;
@@ -280,6 +294,7 @@ async function readViewLayouts(reads: SocketReads, refs: readonly UxEntityRef[])
           onMessage: (type, keys) => progress.log(`view ${viewId}: ${type} {${keys.join(", ")}}`),
         });
         const layout = viewLayoutFromMetadata(metadata);
+        addMetadataDimensionNames(catalog, metadata);
         if (layout) catalog.viewLayouts.set(viewId, layout);
         else progress.log(`view ${viewId}: metadata without rows, columns or pages`);
       } catch (error) {
@@ -614,6 +629,102 @@ async function readFilterItemNames(reads: SocketReads, pages: readonly UxPageCar
   }
 }
 
+/** Where the cards of the pages use a dimension, for the diagnostic log: counts only. */
+function dimensionUse(pages: readonly UxPageCardDetails[], id: string): string {
+  const has = (entries: unknown) => list(entries).some(entry => (entry.dimension?.id ?? entry.id) === id);
+  let selectors = 0, synced = 0, axes = 0, branches = 0, pageSelectors = 0;
+  for (const page of pages) {
+    if (has((page as unknown as Obj).pageContext?.contextSelectors)) pageSelectors++;
+    for (const card of page.cards as Obj[]) {
+      const regions = list(card.grid?.regions);
+      const chosen = [...list(card.contextSelectors), ...regions.flatMap(region => list(region.pivot?.pages))].filter(entry => entry.dimension?.id === id);
+      if (chosen.length) selectors++;
+      if (chosen.some(entry => entry.syncedToPage === true)) synced++;
+      if (regions.some(region => has(region.pivot?.rows) || has(region.pivot?.columns))) axes++;
+      if (has(card.savedCustomizations?.branchSync)) branches++;
+    }
+  }
+  return `a context selector of ${selectors} cards (${synced} synced to the page), on the rows or columns of ${axes}, in the branch sync of ${branches}, `
+    + `a selector of ${pageSelectors} pages`;
+}
+
+/** Dimensions the cards name that no answer named so far. A page can save a card's context selector for a list that is no
+ * dimension of the card's module (seen live, 7 Oct 2026), and the module's dimensions do not name it then. Such a dimension
+ * is looked for once among the lists with their subsets; then, for at most MAX_DIMENSION_QUESTIONS of those still unnamed,
+ * the model is asked which modules have it, and the dimensions of two of them per dimension are read, which label it. A
+ * read that is refused or not answered is logged and the next is made. A read waits DIMENSION_NAME_READ_MS at most, all of
+ * them together take DIMENSION_NAMES_BUDGET_MS at most, and after two reads that went unanswered no more are made; the log
+ * says when the asking ended so. A connection that fails, a model that closes and a run that is stopped end the step, as
+ * they end every step. Each dimension still unnamed after that has one line in the log: where the cards use it and which
+ * answers hold its ID, in IDs, counts and yes or no only. */
+async function readDimensionNames(reads: SocketReads, pages: readonly UxPageCardDetails[]): Promise<void> {
+  const { scope, connection, subscribe, settle, ended, catalog, progress, answers } = reads;
+  const { workspaceId: ws, modelId: model } = scope;
+  const refs = pages.flatMap(page => page.references);
+  const unnamed = () => unnamedDimensionIds(refs, catalog);
+  const first = unnamed();
+  if (!first.length) return;
+  // After a model that closed earlier the step does not begin: it shows nothing, and what ended the work is thrown, as the
+  // search for filter line items does.
+  if (ended()) await settle(new Promise<never>(() => undefined));
+  progress.status(`Reading dimension names in ${scope.modelName}…`);
+  const until = Date.now() + DIMENSION_NAMES_BUDGET_MS;
+  let unanswered = 0;
+  let timeUp = false;
+  /** One read, while there is time left and fewer than two went unanswered; otherwise nothing is asked. */
+  const read = async (what: string, destination: string, body: Record<string, unknown>, done: (json: unknown) => string): Promise<unknown> => {
+    const time = until - Date.now();
+    if (time <= 0) timeUp = true;
+    if (timeUp || unanswered >= 2) return undefined;
+    try {
+      const json = await settle(subscribe(destination, { body, timeoutMs: Math.min(DIMENSION_NAME_READ_MS, time) }));
+      progress.log(`${what}${done(json)}`);
+      return json;
+    } catch (error) {
+      if (connection.failed || ended()) throw error;
+      // Given up because the time for all of them was up, a read is not one that went unanswered for as long as a read may.
+      const waited = error instanceof StompError && error.code === "TIMEOUT";
+      if (waited && Date.now() >= until) timeUp = true; else if (waited) unanswered++;
+      progress.log(`${what}: ${message(error)}`);
+      return undefined;
+    }
+  };
+  const subsets = await read("lists with subsets", `core://${ws}:${model}/lists?subsets=true`, {}, json => {
+    addLists(catalog, json);
+    return `: ${selectionShape(json)}`;
+  });
+  const modulesOf = new Map<string, string[]>();
+  for (const id of unnamed().slice(0, MAX_DIMENSION_QUESTIONS)) {
+    await read(`modules with dimension ${id}`, `core://${ws}:${model}/applicableModules`, { dimensions: [Number(id)] }, json => {
+      const found = applicableModuleIds(catalog, json).filter(module => ENTITY_ID.test(module));
+      modulesOf.set(id, found);
+      return `: ${found.length ? found.slice(0, MAX_LOGGED).join(", ") : "none"}`;
+    });
+  }
+  const modules = [...new Set([...modulesOf.values()].flatMap(found => found.slice(0, 2)))].filter(module => !catalog.moduleDimensions.has(module));
+  if (modules.length) {
+    const json = await read(`dimensions of ${modules.length} modules that have an unnamed dimension`, `core://${ws}:${model}/dimensions`, { moduleIds: modules },
+      answer => `: ${addModuleDimensions(catalog, answer).length} read`);
+    if (json !== undefined) answers.moduleDimensions.push(json);
+  }
+
+  const left = unnamed();
+  progress.log(`dimension names: ${first.length - left.length} of ${first.length} named`);
+  if (unanswered >= 2) progress.log("dimension names: two reads went unanswered, no more were made");
+  if (timeUp) progress.log(`dimension names: the ${DIMENSION_NAMES_BUDGET_MS / 1000} seconds allowed for them ran out`);
+  if (!left.length) return;
+  const asText = (json: unknown) => (json === undefined ? undefined : JSON.stringify(json) ?? "");
+  const held = { lists: asText(answers.lists), subsets: asText(subsets), views: asText(answers.moduleViews),
+    dimensions: answers.moduleDimensions.length ? answers.moduleDimensions.map(json => JSON.stringify(json) ?? "").join("\n") : undefined };
+  const holds = (body: string | undefined, id: string) => (body === undefined ? "no answer" : new RegExp(`(?<!\\d)${id}(?!\\d)`).test(body) ? "yes" : "no");
+  for (const id of left.slice(0, MAX_LOGGED)) {
+    progress.log(`dimension ${id} has no name: ${dimensionUse(pages, id)}; its ID is in the answers of lists: ${holds(held.lists, id)}, `
+      + `lists with subsets: ${holds(held.subsets, id)}, module views: ${holds(held.views, id)}, module dimensions: ${holds(held.dimensions, id)}; `
+      + `modules that have it: ${modulesOf.get(id)?.length ?? "not asked"}`);
+  }
+  if (left.length > MAX_LOGGED) progress.log(`dimensions with no name: ${left.length - MAX_LOGGED} more are not listed`);
+}
+
 /** Names for one model. Like Page Builder, it asks for the data straight away and lets the service load the model: a
  * model that is not open reports status UNKNOWN until a data request loads it (observed live, 28 Sep 2026), so the
  * status is watched and logged, never waited for. A connection-level error such as REDIRECTION_REQUIRED fails every
@@ -670,7 +781,8 @@ export async function loadCatalog(scope: ModelScope, pages: readonly UxPageCardD
       // same breath as the end. Such a read waits for no answer, and the step's own `settle` ends it. (The watch on the
       // model's status above is no read of a step: it is what says that the model closed.)
       const subscribe: StompConnection["subscribe"] = (destination, options) => (ended ? new Promise<never>(() => undefined) : connection.subscribe(destination, options));
-      const reads: SocketReads = { scope, connection, subscribe, settle, halted: () => signal?.aborted === true, ended: () => ended, catalog, notes, progress };
+      const answers: NameAnswers = { moduleDimensions: [] };
+      const reads: SocketReads = { scope, connection, subscribe, settle, halted: () => signal?.aborted === true, ended: () => ended, catalog, notes, progress, answers };
       const started = Date.now();
       const waiting = setInterval(() => progress.status(`Reading names in ${scope.modelName}: ${Math.round((Date.now() - started) / 1000)} s, `
         + `model status ${status}. A model that is not open can take a few minutes to load…`), 5_000);
@@ -681,8 +793,16 @@ export async function loadCatalog(scope: ModelScope, pages: readonly UxPageCardD
           subscribe(`core://${ws}:${model}/lists`, { body: {}, timeoutMs: LOAD_MS }),
         ]));
         clearInterval(waiting);
-        if (views.status === "fulfilled") addModuleViews(catalog, views.value); else notes.push(`${scope.modelName}: module and saved view names were not available (${message(views.reason)}).`);
-        if (lists.status === "fulfilled") addLists(catalog, lists.value); else notes.push(`${scope.modelName}: list names were not available (${message(lists.reason)}).`);
+        if (views.status === "fulfilled") {
+          addModuleViews(catalog, views.value);
+          answers.moduleViews = views.value;
+          progress.log(`module views: ${moduleViewsShape(views.value)}`);
+        } else notes.push(`${scope.modelName}: module and saved view names were not available (${message(views.reason)}).`);
+        if (lists.status === "fulfilled") {
+          addLists(catalog, lists.value);
+          answers.lists = lists.value;
+          progress.log(`lists: ${selectionShape(lists.value)}`);
+        } else notes.push(`${scope.modelName}: list names were not available (${message(lists.reason)}).`);
         progress.status(`Reading line items in ${scope.modelName}…`);
         await settle(inBatches([...moduleIds], 4, moduleId => readLineItems(reads, moduleId)));
 
@@ -692,6 +812,7 @@ export async function loadCatalog(scope: ModelScope, pages: readonly UxPageCardD
         await readViewLayouts(reads, refs);
         await findFilterLineItems(reads, pages);
         await readFilterItemNames(reads, pages, needs.modules);
+        await readDimensionNames(reads, pages);
         // Whatever a rule still holds unnamed, by what the rule's items are: it shows a live run's reader what was not found.
         const unnamed = unnamedFilterRules(pages.flatMap(page => page.cards), catalog);
         for (const line of unnamed.slice(0, MAX_LOGGED)) progress.log(line);
@@ -721,14 +842,18 @@ export const TAB_FILES: Record<TabName, string> = {
   Pages: "Pages.csv", Cards: "Cards.csv", "Grid sections": "Grid Sections.csv", Filters: "Filters.csv", Formatting: "Conditional Formatting.csv",
   Actions: "Action Buttons.csv", "Where used": "Where Used.csv",
 };
+
+/** The name a table is shown under where it is not its file's: an app's Where Used file lists the model's objects that
+ * the app uses, and where each is used. */
+const TAB_LABELS: ReadonlyMap<string, string> = new Map([[TAB_FILES["Where used"], "Model Objects"]]);
 /** How to read the tables, as the results page shows them: the overview lists these rows as they are. They speak of the
  * page's tables, never of a file: the page makes none. */
 const HOW_TO_READ: readonly [detail: string, value: string][] = [
   ["Page and Card #", "Identify a card in every table. Card # counts cards row by row, left to right; Card ID is the stable key."],
   ["View type", "Custom view: a module shaped on the page. Saved view: a saved view or a module's default view, built in the model and only selected on the page. Combined grid: several module sections in one card."],
   ["Set in the model (saved view)", "A saved view's own filters, sorts and show/hide live in the model, not on the page."],
-  ["(not in the model)", "A module or line item a card still points at but the model no longer has: deleted, or not visible to you. Search the Where Used table for it to find the cards."],
-  ["Filter context and values", "An item in a filter rule, whether chosen as the filter context or compared with a line item formatted as a list, is shown by its name where the model gives one, and by its ID otherwise. If a context item has no name, the rule's line item and context are listed together in place of the line item's name."],
+  ["(not in the model)", "A module or line item a card still points at but the model no longer has: deleted, or not visible to you. Search the Model Objects table for it to find the cards."],
+  ["Filter context and values", "An item in a filter rule, whether chosen as the filter context or compared with a line item formatted as a list, is shown by its name where the model gives one, and by its ID otherwise. A rule's line item has its own columns, and its context gives each other dimension as current, which follows the page, or as the item it is fixed to: Users = Current User is whoever views the page. Only where the rule's line item is not found are the line item and its context listed together in place of the line item's name."],
 ];
 
 /** What the user is told when the app itself cannot be read (progress.ts `Failure`), by what Anaplan answered. */
@@ -826,7 +951,8 @@ export async function analyseApp(appGuid: string, progress: Progress, diagnostic
     summary.push(...notes);
     for (const input of group) {
       const details = described.get(input)!;
-      input.details = addDerivedContextSelectors(nameFilterValues(nameCardDetails(details, resolveFromCatalog(details.references, catalog)), catalog), catalog);
+      const named = nameFilterValues(nameCardDetails(details, resolveFromCatalog(details.references, catalog)), catalog);
+      input.details = addDerivedContextSelectors(describeSystemContext(named, catalog), catalog);
       input.dimensionNames = catalog.dimensions;
       input.failedActionTypes = failedActionTypes;
     }
@@ -840,7 +966,7 @@ export async function analyseApp(appGuid: string, progress: Progress, diagnostic
   // An unpublished page has no published version to read, so it is counted apart: "93 of 93", not "93 of 96".
   const unpublished = inputs.filter(input => input.state === "Not published").length;
   const published = inputs.length - unpublished;
-  const skipped = unpublished ? `; ${unpublished} unpublished, not analysed` : "";
+  const skipped = unpublished ? [`${unpublished} unpublished, not analysed`] : [];
   const cards = report.Cards.rows.length;
   const tabs = Object.keys(HEADERS) as TabName[];
   const pageTypes = new Map<string, number>();
@@ -851,14 +977,19 @@ export async function analyseApp(appGuid: string, progress: Progress, diagnostic
   const categoryNames = [...new Set([...categories.values(), ...inputs.map(input => input.categoryName).filter(name => name !== NONE)])];
   const modelsUsed = [...new Set(inputs.filter(input => input.modelName !== NONE)
     .map(input => (input.workspaceName !== NONE ? `${input.modelName} (${input.workspaceName})` : input.modelName)))];
+  // The overview lists these rows under About this export. A value that lists several things, the categories or the
+  // models, has each on a line of its own, and so has the value that says two: how many published pages were analysed,
+  // and how many pages were left unpublished. The line breaks are the value's own, and the overview shows them as they
+  // are (results.css `#ovAbout`). The page splits no value: splitting at semicolons would also split a name that has one.
+  const lines = (items: readonly string[]): string => items.join("\n");
   const details: DetailRow[] = [
     ["App", "App", appName],
     ["App", "App ID", appGuid],
-    ["App", "Categories", categoryNames.join("; ") || NONE],
+    ["App", "Categories", lines(categoryNames) || NONE],
     ["App", "Pages", `${entries.length} (${[...pageTypes].map(([label, count]) => `${count} ${label}${count === 1 ? "" : "s"}`).join(", ")})`],
-    ["App", "Pages analysed", `${analysed} of ${published} (published versions)${skipped}`],
+    ["App", "Pages analysed", lines([`${analysed} of ${published} (published versions)`, ...skipped])],
     ["App", "Cards", cards],
-    ["App", "Models", modelsUsed.join("; ") || NONE],
+    ["App", "Models", lines(modelsUsed) || NONE],
     ...exportRows(location.host),
     ...tabs.map((tab): DetailRow => ["Files", TAB_FILES[tab], `${report[tab].rows.length} rows`]),
     ...inputs.filter(input => !input.details).map((input): DetailRow => ["Notes", input.pageName, input.state]),
@@ -869,7 +1000,7 @@ export async function analyseApp(appGuid: string, progress: Progress, diagnostic
   // Every file is marked as one that guards formula-like cells when it is written as a CSV, as the page analysis always
   // was. The page writes none: the mark is read by the tests' writer (zip.test-support.ts `toCsv`).
   const table = (file: string, headers: readonly string[], rows: readonly (readonly unknown[])[]): ResultTable =>
-    ({ file, label: file.replace(/\.csv$/, ""), headers: [...headers], rows: plainRows(rows), guard: true });
+    ({ file, label: TAB_LABELS.get(file) ?? file.replace(/\.csv$/, ""), headers: [...headers], rows: plainRows(rows), guard: true });
   const tables: ResultTable[] = [
     { ...table(DETAILS_FILE, DETAILS_HEADERS, details), details: true },
     ...tabs.map(tab => table(TAB_FILES[tab], report[tab].headers, report[tab].rows)),
@@ -877,6 +1008,7 @@ export async function analyseApp(appGuid: string, progress: Progress, diagnostic
   const date = new Date().toISOString().slice(0, 10);
   return {
     kind: "app", name: appName, id: appGuid, zipName: `${fileSafe(appName, "app")} - App Export - ${date}.zip`, tables,
-    summary: [`${analysed} of ${published} pages analysed${skipped}, ${cards} cards.`, ...summary],
+    // The summary is a sentence among the overview's notes, and says the same in one line, as it always did.
+    summary: [`${[`${analysed} of ${published} pages analysed`, ...skipped].join("; ")}, ${cards} cards.`, ...summary],
   };
 }

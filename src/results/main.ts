@@ -5,16 +5,17 @@ import { PORT_NAME } from "../protocol.js";
 import { plainResult, textOf } from "../result-plain.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
 import { VERSION } from "../version.js";
-import { cardsNamed, cardsOf, columnIndex, columnsOf, rowKeys, rowNameIndex, type CardsTable, type Column, type RowKeys } from "./columns.js";
+import { cellLists, rowItems, type CellList } from "./cell-lists.js";
+import { columnWidths } from "./column-widths.js";
+import { cardsNamed, cardsOf, columnIndex, columnsOf, rowKeys, rowNameIndex, writesNone, type CardsTable, type Column, type RowKeys } from "./columns.js";
 import { describeState, openedJustNow, ResultsClient, runLabel, tabIdFrom, withoutOpened, type RunState } from "./connection.js";
 import { analysedLine, notKeptNote } from "./keep-notes.js";
 import { ResultKeeper } from "./keep-result.js";
 import {
-  cardDrawerHtml, cardDrawerSubHtml, colChooserHtml, colFilterHtml, crumbsHtml, headerMetaHtml, keptCopyHtml, MAP_FAILED, MAP_LABEL, mapHtml, MOON_ICON, navHtml,
+  cardDrawerHtml, cardDrawerSubHtml, colChooserHtml, colFilterHtml, headerMetaHtml, keptCopyHtml, MAP_FAILED, MAP_LABEL, mapHtml, MOON_ICON, navHtml, navItems, navMenuHtml,
   noteBannerHtml, NOT_REMOVED_LINE, objectDrawerHtml, objectDrawerSubHtml, overviewHtml, rowDrawerHtml, rowDrawerSubHtml, runBannerHtml, runHtml, SUN_ICON, tableHtml, tableParts,
   type KeptCopy, type Links, type NavEntry, type TableView,
 } from "./markup.js";
-import { NARROW_WINDOW, NAVIGATION_KEY, navigationWords, storedNavigation, type NavigationChoice } from "./navigation.js";
 import type { PageId } from "./page-ids.js";
 import { analysedOf, cardParts, detailsOf, detailValue, diagnosticLog, fileView, listedTables, overviewOf, type FileView } from "./result-view.js";
 import { cellText, NONE, pageOf, rememberingSelect, rowName, valueCounts, type Row, type Sort, type TableQuery } from "./table-engine.js";
@@ -47,10 +48,25 @@ function announce(message: string): void {
  * that is the control the user has just used, as it stands now, or the nearest thing to it. Without this the focus is left
  * on nothing, and a keyboard user starts again from the top of the page. */
 function focusOn(...selectors: string[]): void {
+  focusFirst(selectors, {});
+}
+
+/** The same for a control the page has just written again where it stood, in the table's head: a column's sort button
+ * or its filter button. The browser is not let bring it into sight, for it is in sight where the user pressed it. A
+ * browser that brings a control into sight scrolls the table's box sideways to it as soon as it is not wholly clear of
+ * the first column, which stays at the left while the rest scrolls: the box keeps a band at its left for that column
+ * (results.css `scroll-padding-left`), and a header in that band, or cut short at the box's right edge, would make the
+ * table jump sideways under the pointer that pressed it. */
+function focusInPlace(...selectors: string[]): void {
+  focusFirst(selectors, { preventScroll: true });
+}
+
+/** Gives the focus to the first element these find that can take it, the browser being let scroll to it or not (`options`). */
+function focusFirst(selectors: readonly string[], options: FocusOptions): void {
   for (const selector of selectors) {
     const node = find<HTMLButtonElement>(selector);
     if (node && !node.disabled && !node.hidden) {
-      node.focus();
+      node.focus(options);
       return;
     }
   }
@@ -92,7 +108,16 @@ interface Shown {
   opensFrom: number | undefined;
   /** The text that was read for each cell the table says in words, by the table's row and the column's place: a row's drawer shows both. */
   exported: FileView["exported"];
+  /** For a column the rule made out of a column of the file: that column's name, under which the drawer names the text that was read. */
+  readUnder: FileView["readUnder"];
+  /** How the cells of each column that can list several items list them, by the column's place (cell-lists.ts): a row's
+   * drawer lists such a cell's items one to a line. The table shows the cell as it is. */
+  lists: ReadonlyMap<number, CellList>;
   columns: Column[];
+  /** Each column's width, worked out from every row of `table` the first time the table is drawn (column-widths.ts),
+   * once its columns are what they stay, and kept: the table is laid out by it whatever is shown of it. Not before: a
+   * model's Line Items can have many thousands of rows, and many a table is never looked at. */
+  widths?: ReadonlyMap<number, number>;
   keys: RowKeys;
   links: Links;
   /** Column -> the texts ticked in its filter; a column with every text ticked has no entry. */
@@ -100,8 +125,6 @@ interface Shown {
   hidden: Set<number>;
   sort: Sort | undefined;
   page: number;
-  /** The number the navigation shows for the file: the rows its table lists, or for a file shown in two ways the file's own. */
-  listed: number;
   /** For a file the page shows in two ways, an app's Where Used: both of them, each with what the user chose for it. The
    * one that is shown is the file's entry among `shown`. */
   ways?: { object: Shown; use: Shown };
@@ -181,41 +204,6 @@ function toggleTheme(): void {
   try { localStorage.setItem("cardigan-theme", next); } catch { /* not remembered */ }
   applyTheme(next);
 }
-/* ================= navigation: shown, or put away ================= */
-/** Whether the window is narrow (navigation.ts `NARROW_WINDOW`): the navigation then slides in over the content. */
-const narrowWindow = (): boolean => window.matchMedia?.(NARROW_WINDOW).matches ?? false;
-/** Whether the navigation is shown now: in a narrow window while it is open over the content, in a wider one unless it
- * was put away. */
-const navigationShown = (): boolean =>
-  (narrowWindow() ? el("sidenav").classList.contains("open") : document.documentElement.dataset.navigation !== "hidden");
-/** Says on the navigation's button whether the navigation is shown, and what a press of it will do: as its name, for a
- * screen reader, and as its title. The button's icon follows the same attribute (results.css). */
-function markNavToggle(): void {
-  const shownNow = navigationShown();
-  const button = el("navToggle");
-  button.setAttribute("aria-expanded", String(shownNow));
-  button.setAttribute("aria-label", navigationWords(shownNow));
-  button.title = navigationWords(shownNow);
-}
-/** Puts the navigation of a wide window away, or brings it back. The page says which on its root element, and the
- * stylesheet does the rest: put away, the navigation takes no room and is in no one's way, neither the Tab key's nor a
- * screen reader's, and the content has the whole width. A table and a model's map take the new width by themselves. In
- * a narrow window this changes nothing that is seen: there the navigation is out of the way until its button opens it. */
-function applyNavigation(choice: NavigationChoice): void {
-  document.documentElement.dataset.navigation = choice;
-  markNavToggle();
-}
-/** The button in a wide window: the navigation goes, or comes back, and the browser is asked to remember which, as it
- * is for the theme. Focus that was inside the navigation as it goes is given to the button: what had it is no longer
- * there to hold it. */
-function toggleNavigation(): void {
-  const next: NavigationChoice = document.documentElement.dataset.navigation === "hidden" ? "shown" : "hidden";
-  try { localStorage.setItem(NAVIGATION_KEY, next); } catch { /* not remembered */ }
-  // Asked before the navigation goes: a browser goes on naming what it has just stopped showing as the one with the focus.
-  const inside = el("sidenav").contains(document.activeElement);
-  applyNavigation(next);
-  if (next === "hidden" && inside) el("navToggle").focus();
-}
 /** A text node, as Node.TEXT_NODE names it. */
 const TEXT_NODE = 3;
 /** Whether an analysis has been made for this page: one was asked for on it, or it shows a result, which a page that was
@@ -238,10 +226,13 @@ function updateActions(): void {
 }
 
 /* ================= views ================= */
+/** The navigation's entries. A file's entry carries the file's name as the result has it, by which the navigation draws
+ * its icon (markup.ts `FILE_ICONS`) and a model's places it in its group (markup.ts `NAV_GROUPS`): the name the analysis
+ * gave the file, which the user never reads or types. */
 function navEntries(): NavEntry[] {
   return [
     { id: "overview", label: "Overview" },
-    ...[...shown.values()].map(entry => ({ id: String(entry.index), label: cellText(entry.table.label), count: entry.listed })),
+    ...[...shown.values()].map(entry => ({ id: String(entry.index), label: cellText(entry.table.label), file: entry.table.file })),
     // A model's map, after its files. An app has none.
     ...(result?.kind === "model" ? [{ id: "map", label: MAP_LABEL }] : []),
   ];
@@ -252,6 +243,8 @@ function query(entry: Shown): TableQuery {
   return {
     search: state.search, filters: entry.filters, sort: entry.sort,
     context: state.context !== undefined && column !== undefined ? { column, value: state.context } : undefined,
+    // The search finds a count as the table shows it too, with its commas: in every column of counts, shown or hidden.
+    counts: new Set(entry.columns.filter(shown => shown.kind === "count").map(shown => shown.index)),
   };
 }
 
@@ -260,10 +253,12 @@ function tableView(entry: Shown): TableView {
   const page = pageOf(select(entry.table.rows, query(entry)), entry.page, state.pageSize);
   entry.page = page.page;
   currentSlice = page.rows;
+  // The columns' widths come from all the table's rows, whatever the search, the filters, the sort and the page leave.
+  entry.widths ??= columnWidths(entry.columns, entry.table.rows);
   return {
     label: cellText(entry.table.label), note: entry.note, none: entry.none, empty: entry.empty, opensFrom: entry.opensFrom,
     ways: entry.ways && [{ way: "object", label: "By object", chosen: entry === entry.ways.object }, { way: "use", label: EVERY_USE, chosen: entry === entry.ways.use }],
-    columns: entry.columns.filter(column => !entry.hidden.has(column.index)), rows: page.rows,
+    columns: entry.columns.filter(column => !entry.hidden.has(column.index)), widths: entry.widths, rows: page.rows,
     page: page.page, pages: page.pages, pageSize: state.pageSize, from: page.from, to: page.to, total: page.total, all: entry.table.rows.length,
     search: state.search, sort: entry.sort, filtered: new Set(entry.filters.keys()), context: state.context, links: entry.links,
   };
@@ -293,7 +288,11 @@ function renderTable(entry: Shown): void {
 
 /** Draws again what follows the search, the filters, the sort and the page: the rows, the pager, the count, and whether
  * Reset is offered. The rest of the view stays as it is, the search box above all: writing the box again while the user
- * types into it would move the caret and break a letter that is still being put together (a dead key, an input method). */
+ * types into it would move the caret and break a letter that is still being put together (a dead key, an input method).
+ * The table's box stays too, with how far it was scrolled sideways: after a sort, a page, a search or a filter the table
+ * written into it has the columns it had, each as wide as before (column-widths.ts), so the browser keeps the box where
+ * it was. It is taken back to its top, where the new rows begin: another order, page, search or filter shows other rows,
+ * and the head stays at the top of the box. */
 function updateTable(entry: Shown): void {
   const wrap = find("#tableWrap");
   const pager = find("#pager");
@@ -319,8 +318,12 @@ function renderAll(): void {
   // The map is a model's. Any other view that is no file of the result is the overview.
   const onMap = state.view === "map" && result.kind === "model";
   if (!entry && !onMap) state.view = "overview";
-  el("navList").innerHTML = navHtml(navEntries(), String(state.view));
-  el("crumbs").innerHTML = crumbsHtml(entry ? cellText(entry.table.label) : onMap ? MAP_LABEL : undefined, entry ? state.context : undefined);
+  // The navigation, in its two forms: its line, with a model's tables in groups, and the one menu that stands in the line's
+  // place in a window too narrow for it, which names the view shown. The stylesheet shows the one the window has room
+  // for. Each is drawn with its menus closed.
+  const items = navItems(navEntries(), result.kind === "model");
+  el("navList").innerHTML = navHtml(items, String(state.view));
+  el("navCompact").innerHTML = navMenuHtml(items, String(state.view), entry ? cellText(entry.table.label) : onMap ? MAP_LABEL : "Overview");
   // The map gives its room back before another view is drawn, which measures the room it has.
   if (!onMap) leaveMap();
   if (entry) renderTable(entry);
@@ -331,6 +334,7 @@ function renderAll(): void {
   const line = broughtBack ? find("#noteText") : null;
   if (line) line.textContent = analysedLine(received, new Date());
   updateActions();
+  markView();
 }
 
 /** A note of the page's own in the banner area above the result: when a result that was brought back was analysed, or
@@ -397,28 +401,27 @@ function showResult(next: AnalysisResult, at: Date, back = false): void {
   const whereUsed = byObject && next.tables.find(table => table.file === WHERE_USED_FILE);
   for (const { index, table: file } of listedTables(next)) {
     // What the page counts, filters and searches is the table as it shows it: the columns' filters follow its rows too.
-    const { table, note, none, empty, opensFrom, exported } = fileView(next, file);
+    const { table, note, none, empty, opensFrom, exported, readUnder } = fileView(next, file);
     const columns = columnsOf(table);
     const keys = rowKeys(table);
     const page = cards !== undefined && keys.page !== undefined;
     const entry: Shown = {
-      index, table, note, none, empty, opensFrom, exported, columns, keys, links: { page, card: page && keys.cardId !== undefined },
-      filters: new Map(), hidden: defaultHidden(columns), sort: undefined, page: 0, listed: table.rows.length,
+      index, table, note, none, empty, opensFrom, exported, readUnder, lists: cellLists(next, table), columns, keys, links: { page, card: page && keys.cardId !== undefined },
+      filters: new Map(), hidden: defaultHidden(columns), sort: undefined, page: 0,
     };
     // A number that could be more than one card's opens none of them: there it is plain text.
     if (entry.links.card) entry.links.hasCard = row => cardsOfRow(entry, row).length < 2;
     shown.set(index, entry);
     if (!byObject || file !== whereUsed) continue;
     // The file in two ways. By object, the table is the view's: one row an object, in the view's own order and with its
-    // columns. Its cells link to nothing: a row opens the object, which lists its uses. The file's own number of rows is
-    // what the navigation shows either way: it is the number of uses, whichever way they are listed.
+    // columns. Its cells link to nothing: a row opens the object, which lists its uses. Such a row opens the object's own
+    // drawer, which lists the object's roles and uses a row each: no cell of the view is cut into items.
     const object: Shown = {
       index, table: { ...file, headers: byObject.headers, rows: byObject.rows }, note: byObject.note, none: undefined, empty: undefined, opensFrom: undefined,
-      exported: undefined, columns: byObject.columns,
+      exported: undefined, readUnder: undefined, lists: new Map(), columns: byObject.columns,
       keys: { page: undefined, cardId: undefined, number: undefined }, links: { page: false, card: false },
-      filters: new Map(), hidden: defaultHidden(byObject.columns), sort: undefined, page: 0, listed: file.rows.length, objects: byObject,
+      filters: new Map(), hidden: defaultHidden(byObject.columns), sort: undefined, page: 0, objects: byObject,
     };
-    entry.listed = file.rows.length;
     entry.ways = object.ways = { object, use: entry };
     // As every use, a row names its card by its number, and the file has no column of card IDs. The view knows each use's
     // card where the result has it: there the number opens the card, as it does from the object's drawer.
@@ -433,10 +436,9 @@ function showResult(next: AnalysisResult, at: Date, back = false): void {
   state.search = "";
   state.context = undefined;
   const analysed = analysedOf(next);
-  document.title = `Cardigan — ${analysed.name}`;
+  document.title = `Cardigan - ${analysed.name}`;
   el("hdMeta").innerHTML = headerMetaHtml(analysed);
-  el("sidenav").hidden = false;
-  el("navToggle").hidden = false;
+  el("topnav").hidden = false;
   renderAll();
   if (replaced) el("view").focus({ preventScroll: true });
   if (!back) return announce(`Analysis finished: ${analysed.name}`);
@@ -466,7 +468,7 @@ function clearResult(): void {
   state.search = "";
   state.context = undefined;
   document.title = TITLE;
-  for (const id of ["hdMeta", "banners", "navList", "crumbs", "view"] as const satisfies readonly PageId[]) {
+  for (const id of ["hdMeta", "banners", "navList", "navCompact", "view"] as const satisfies readonly PageId[]) {
     const part = document.getElementById(id);
     if (part) part.innerHTML = "";
   }
@@ -518,8 +520,7 @@ function showRun(runState: RunState): void {
   } else {
     if (!find("#runStatus")) {
       // The page before its first result: there is nothing to navigate yet.
-      el("sidenav").hidden = true;
-      el("navToggle").hidden = true;
+      el("topnav").hidden = true;
       el("view").innerHTML = runHtml();
     }
     set("#runTitle", text.title);
@@ -554,7 +555,10 @@ function markPopOwner(): void {
   for (const button of document.querySelectorAll("[data-colfilter], #colBtn")) button.setAttribute("aria-expanded", String(popOwner !== undefined && button.matches(popOwner)));
 }
 /** Closes the popover. `back` gives the focus back to the control that opened it: after Escape and after the popover's own
- * buttons, which would otherwise leave the focus on nothing. A click elsewhere takes the focus where it was made. */
+ * buttons, which would otherwise leave the focus on nothing. A click elsewhere takes the focus where it was made. The
+ * control is where it was when it opened the popover, which stands over the page and moves nothing: a column's filter
+ * button is written again with the table's head while the popover is open, in the same place, so the focus goes back to
+ * it without moving the table's box (`focusInPlace`). */
 function closePopover(back = false): void {
   const popover = el("popover");
   if (!popover.hidden) {
@@ -564,7 +568,7 @@ function closePopover(back = false): void {
   const owner = popOwner;
   popOwner = undefined;
   markPopOwner();
-  if (back && owner) focusOn(owner);
+  if (back && owner) focusInPlace(owner);
 }
 /** Opens the popover under `anchor`, the button `owner` names. `name` is what the popover is, for a screen reader. */
 function openPopover(owner: string, anchor: Element, name: string, html: string): void {
@@ -634,43 +638,11 @@ function openColChooser(entry: Shown, anchor: Element): void {
 /* ================= drawer ================= */
 /** Hides the drawer once it has slid out. Opening it again first calls this off, so a drawer is never hidden while open. */
 let drawerTimer: ReturnType<typeof setTimeout> | undefined;
-/** The scrim goes once neither the drawer nor the narrow-screen navigation needs it. */
-function settleScrim(): void {
-  if (el("drawer").hidden && !el("sidenav").classList.contains("open")) el("scrim").hidden = true;
-}
-/** What lies behind the open drawer: the link that skips to the results, the header, the banner area and the shell. The
- * drawer says it is modal, so while it is open these are inert: the Tab key stays in the drawer, and a screen reader does
- * not read on into the page behind it. */
+/** What lies behind the open drawer: the link that skips to the results, the header, the navigation, the banner area and
+ * the shell. The drawer says it is modal, so while it is open these are inert: the Tab key stays in the drawer, and a
+ * screen reader does not read on into the page behind it. */
 function setBehindDrawer(inert: boolean): void {
-  for (const part of [find(".skip"), find(".hd"), el("banners"), find(".shell")]) if (part) part.inert = inert;
-}
-/** What lies behind the open navigation of a narrow window, where it slides over the page: the link that skips to the
- * results, the header, the banner area and the view. While the navigation is open these are inert, so the Tab key stays
- * among its entries and a screen reader does not read on into the page behind it. */
-function setBehindNav(inert: boolean): void {
-  for (const part of [find(".skip"), find(".hd"), el("banners"), find("#main")]) if (part) part.inert = inert;
-}
-/** Opens the navigation of a narrow window and takes the focus into it: to the entry of the view shown. */
-function openNav(): void {
-  el("sidenav").classList.add("open");
-  markNavToggle();
-  const scrim = el("scrim");
-  scrim.hidden = false;
-  requestAnimationFrame(() => scrim.classList.add("show"));
-  setBehindNav(true);
-  focusOn('#navList [aria-current="page"]', "#navList .nav-item");
-}
-/** Closes it, when it is open. `back` gives the focus back to the button that opens it: after Escape and after a click
- * beside it. An entry that is chosen takes the focus to its view instead. */
-function closeNav(back: boolean): void {
-  if (!el("sidenav").classList.contains("open")) return;
-  el("sidenav").classList.remove("open");
-  markNavToggle();
-  el("scrim").classList.remove("show");
-  setTimeout(settleScrim, 210);
-  // The page behind takes part again before the focus goes back into it.
-  setBehindNav(false);
-  if (back) el("navToggle").focus();
+  for (const part of [find(".skip"), find(".hd"), el("topnav"), el("banners"), find(".shell")]) if (part) part.inert = inert;
 }
 /** Shows the drawer. The title is a text and is set as one; the line under it and the body are markup.ts' markup. What
  * the focus goes back to afterwards is what opened the drawer from the page: a link inside the drawer that opens another
@@ -699,11 +671,10 @@ function closeDrawer(): void {
   const scrim = el("scrim");
   drawer.classList.remove("show");
   scrim.classList.remove("show");
-  closeNav(false);
   clearTimeout(drawerTimer);
   drawerTimer = setTimeout(() => {
     drawer.hidden = true;
-    settleScrim();
+    scrim.hidden = true;
   }, 210);
   // The page behind takes part again before the focus goes back into it.
   setBehindDrawer(false);
@@ -712,8 +683,10 @@ function closeDrawer(): void {
 }
 /** Any row, in full. Its heading is the row's own name: the cell of the column that names the file's rows (the one its
  * rows open from, where the file's rule names one, and else columns.ts `ROW_NAME_COLUMNS`), or, where the page knows no
- * such column or the cell says nothing, the first cell that does. The line under it says which row of which table it
- * is, by its place among the rows the table lists, which a search, a filter or a sort does not change. */
+ * such column or the cell says nothing, the first cell that does. A cell says nothing when it is empty, and in one of the
+ * app's files when it is the dash the analysis writes for nothing to say (columns.ts `writesNone`): in a model's file
+ * that dash is Anaplan's text, which names a row like any other. The line under the heading says which row of which
+ * table it is, by its place among the rows the table lists, which a search, a filter or a sort does not change. */
 function openRowDrawer(entry: Shown, row: Row, opener: Element): void {
   const object = entry.objects && objectOf(entry.objects, row);
   if (entry.objects && object) return openObjectDrawer(entry.objects, object, opener);
@@ -721,17 +694,19 @@ function openRowDrawer(entry: Shown, row: Row, opener: Element): void {
   drawerRow = { entry, row };
   const position = entry.table.rows.findIndex(candidate => candidate === row) + 1;
   const named = entry.opensFrom ?? rowNameIndex(entry.table);
-  const name = (named === undefined ? "" : rowName([row[named] ?? ""])) || rowName(row) || `Row ${position}`;
-  openDrawer(name, rowDrawerSubHtml(position, cellText(entry.table.label)), rowDrawerHtml(entry.columns, row, entry.links, entry.exported?.get(row)), opener);
+  const none = writesNone(entry.table);
+  const name = (named === undefined ? "" : rowName([row[named] ?? ""], none)) || rowName(row, none) || `Row ${position}`;
+  openDrawer(name, rowDrawerSubHtml(position, cellText(entry.table.label)), rowDrawerHtml(entry.columns, row, entry.links, entry.exported?.get(row), rowItems(entry.lists, row), entry.readUnder), opener);
 }
 /** What an object's uses may link to: a page's cards and a card's details, where the result has the cards to show. */
 const useLinks = (): Links => ({ page: cards !== undefined, card: cards !== undefined });
 /** An object of Where Used by object: headed by its name, with what it is and where it is used under it, then its roles
- * and its uses. A page among its uses jumps to that page's cards, and a card's number opens the card. */
+ * and its uses. A page among its uses jumps to that page's cards, and a card's number opens the card. The object comes
+ * from the app's Where Used file, so the dash the analysis writes for nothing to say is no name for it. */
 function openObjectDrawer(view: WhereUsedView, object: WhereUsedObject, opener: Element): void {
   drawerRow = undefined;
   drawerObject = { view, object, all: false };
-  openDrawer(rowName([object.name]) || rowName([object.type]) || "Object", objectDrawerSubHtml(object, view.multiModel), objectDrawerHtml(object, useLinks(), false), opener);
+  openDrawer(rowName([object.name], true) || rowName([object.type], true) || "Object", objectDrawerSubHtml(object, view.multiModel), objectDrawerHtml(object, useLinks(), false), opener);
 }
 /** The cards a row names, as rows of the Cards file. A row of that file is its own card. A row of another file names its
  * card by its page's name and the card's ID (its own, or in a table without that column the one the row is known to
@@ -764,8 +739,8 @@ function openCardDrawer(row: Row, opener: Element): void {
   const { sections, note } = cardParts(result, found, row);
   drawerObject = undefined;
   drawerRow = { entry, row };
-  openDrawer(`Card ${cell("Card #")}${title !== "" && title !== NONE ? ` — ${title}` : ""}`,
-    cardDrawerSubHtml(cellText(row[found.page]), cell("Card type"), cellText(row[found.cardId]), note), cardDrawerHtml(entry.columns, row, entry.links, sections), opener);
+  openDrawer(`Card ${cell("Card #")}${title !== "" && title !== NONE ? ` - ${title}` : ""}`,
+    cardDrawerSubHtml(cellText(row[found.page]), cell("Card type"), cellText(row[found.cardId]), note), cardDrawerHtml(entry.columns, row, entry.links, sections, rowItems(entry.lists, row)), opener);
 }
 /** The row a click belongs to: the drawer's row inside the drawer, otherwise the table row clicked. */
 function rowFor(element: Element): { entry: Shown; row: Row } | undefined {
@@ -789,8 +764,9 @@ const mapStopped = (reason: unknown): string => {
 };
 
 /** What the page tells the map about the model: its name, which is the result's, and its workspace's, which the Details
- * file has under Model (model/export.ts). A dash there says that the export found none. With them goes the way for the
- * map to tell the page that it has stopped (graph-types.ts `onFailure`). */
+ * file has under Model (model/export.ts). A dash there says that the export found none, so a workspace that is called
+ * by the dash alone is taken for none as well. With them goes the way for the map to tell the page that it has stopped
+ * (graph-types.ts `onFailure`). */
 function mapOptions(model: AnalysisResult, onFailure: (reason: string) => void): ModelMapOptions {
   const workspace = detailValue(detailsOf(model), "Model", "Workspace")?.trim() ?? "";
   return { modelName: cellText(model.name), ...(workspace === "" || workspace === NONE ? {} : { workspaceName: workspace }), onFailure };
@@ -887,8 +863,6 @@ function enterMap(model: AnalysisResult): void {
       el("view").innerHTML = mapHtml(true);
     }
   }
-  // The navigation has less height while the map is shown, and the map's entry is its last: it stays in sight.
-  find('#navList [aria-current="page"]')?.scrollIntoView({ block: "nearest" });
   announce(modelMap === "failed" ? MAP_FAILED : MAP_LABEL);
 }
 
@@ -902,6 +876,34 @@ function endMapForRun(): void {
   state.view = "overview";
   renderAll();
   if (inside) el("view").focus({ preventScroll: true });
+}
+
+/* ================= the view in the address ================= */
+/** Marks the view shown in the page's address, so that a refreshed page opens on it once the result it kept is back
+ * (`showMarked`): a table by its place among the result's tables, a number the page counted itself, and a model's map by
+ * its own name. The overview has no mark. The address names nothing of the result, and changing it loads nothing. A page
+ * that cannot change its address opens on the overview after a refresh. */
+function markView(): void {
+  const mark = typeof state.view === "number" ? `#${state.view}` : state.view === "map" ? "#map" : "";
+  if (location.hash === mark) return;
+  try {
+    history.replaceState(history.state, "", `${location.pathname}${location.search}${mark}`);
+  } catch { /* not marked: a refresh opens on the overview */ }
+}
+
+/** The view the page's address marks (`markView`). */
+function markedView(): "map" | number | undefined {
+  const mark = location.hash.slice(1);
+  return mark === "map" ? "map" : /^\d{1,4}$/.test(mark) ? Number(mark) : undefined;
+}
+
+/** Shows the view the address marked when the page was loaded, once the result the page kept is back: a table the result
+ * has, or a model's map. A mark that names no view of this result leaves the overview. The focus stays where it is. */
+function showMarked(view: "map" | number | undefined): void {
+  if (!result || view === undefined || view === state.view) return;
+  if (view === "map" ? result.kind !== "model" : !shown.has(view)) return;
+  state.view = view;
+  renderAll();
 }
 
 /* ================= view switching ================= */
@@ -925,8 +927,6 @@ function navTo(view: View, context?: string): void {
   state.search = "";
   state.context = context;
   renderAll();
-  // The navigation of a narrow window closes on a choice, before the view takes the focus: until then the view is behind it.
-  closeNav(false);
   // The view takes the focus, unless a map that is shown has it: one that took it as it was shown, whose keys are its
   // own from the first one, or one that kept it through a choice of its own entry. A map that is hidden has no focus to
   // keep, whatever element the browser still names: so only a map that is shown is asked.
@@ -943,10 +943,44 @@ function gotoPage(page: string): void {
   navTo(entry.index, page);
 }
 
+/* ================= the navigation's menus ================= */
+/** Opens or closes a menu of the navigation, by the button that controls it: a group's of a model's tables, or the one
+ * menu of a narrow window. The button says whether its menu is open. The menu follows its button on the page, so the
+ * focus stays on the button and Tab goes on into the menu. The menus have the look of the page's popovers, but each
+ * stands in the navigation, after its button, rather than in the page's one popover, which is a dialog of its own. */
+function setNavMenu(button: Element, open: boolean): void {
+  const menu = document.getElementById(button.getAttribute("aria-controls") ?? "");
+  if (!menu) return;
+  menu.hidden = !open;
+  button.setAttribute("aria-expanded", String(open));
+}
+/** Closes every open menu of the navigation but the one inside `keep`, and says whether it closed one. `back` gives the
+ * focus back to the menu's button: after Escape, which a keyboard user presses inside the menu. */
+function closeNavMenus(keep: Element | null = null, back = false): boolean {
+  let closed = false;
+  for (const button of document.querySelectorAll<HTMLElement>('#topnav [aria-expanded="true"]')) {
+    if (keep?.contains(button)) continue;
+    setNavMenu(button, false);
+    if (back) button.focus();
+    closed = true;
+  }
+  return closed;
+}
+
 /* ================= global events ================= */
 document.addEventListener("click", event => {
   if (!(event.target instanceof Element)) return;
   const target = event.target;
+  // A menu of the navigation closes on a click anywhere but inside it or on its button: on the map too, which closing it
+  // reads nothing of. A click on another menu's button opens that one instead, and closes a table's popover as any click
+  // outside the popover does; choosing an entry draws the navigation again, with its menus closed.
+  closeNavMenus(target.closest("#topnav .nav-group"));
+  const menuButton = target.closest("#topnav [aria-controls]");
+  if (menuButton) {
+    closePopover();
+    setNavMenu(menuButton, menuButton.getAttribute("aria-expanded") !== "true");
+    return;
+  }
   // What is clicked inside the map is the map's own: the page reads nothing there, whatever an element is marked with.
   // Nor does it read what is no longer on the page when the click gets here: a click that ended the map still comes up
   // to the page, with the map taken away.
@@ -1063,7 +1097,9 @@ document.addEventListener("click", event => {
     // Another order puts other rows on every page: the table is shown from its first page, as after a search or a filter.
     entry.page = 0;
     updateTable(entry);
-    focusOn(`[data-sort="${column}"]`);
+    // The button pressed is written again with the table's head, where it was: it takes the focus there, and neither the
+    // table's box nor the page moves to it.
+    focusInPlace(`[data-sort="${column}"]`);
     return;
   }
 
@@ -1096,11 +1132,14 @@ document.addEventListener("click", event => {
 
   const pager = target.closest<HTMLButtonElement>(".pg-btn[data-page]");
   if (pager && !pager.disabled && entry) {
-    // Previous, Next or a page's number, by the name the pager gives each: the page's number is the current page after this.
+    // Previous or Next, by the name the pager gives each: the same button takes the focus back once the pager is drawn
+    // again. A press that reaches the first or the last page leaves that button disabled, and a disabled button cannot
+    // hold the focus, so the other one takes it: the one that turns the page back, which Enter then presses.
     const name = pager.getAttribute("aria-label") ?? "";
+    const other = name === "Next page" ? "Previous page" : "Next page";
     entry.page = parseInt(pager.dataset.page ?? "", 10);
     updateTable(entry);
-    focusOn(`.pg-btn[aria-label="${name}"]`, '.pg-btn[aria-current="true"]');
+    focusOn(`.pg-btn[aria-label="${name}"]`, `.pg-btn[aria-label="${other}"]`);
     return;
   }
 
@@ -1132,18 +1171,9 @@ document.addEventListener("keydown", event => {
   // While the focus is inside the map, a key is the map's: the page's own shortcuts leave it alone.
   if (el("mapHost").contains(document.activeElement)) return;
   if (event.key === "Escape") {
-    if (!el("popover").hidden) {
-      closePopover(true);
-      return;
-    }
-    if (el("drawer").classList.contains("show")) {
-      closeDrawer();
-      return;
-    }
-    if (el("sidenav").classList.contains("open")) {
-      closeNav(true);
-      el("scrim").hidden = true;
-    }
+    if (closeNavMenus(null, true)) return;
+    if (!el("popover").hidden) closePopover(true);
+    else if (el("drawer").classList.contains("show")) closeDrawer();
     return;
   }
   if (event.key === "/" && currentEntry() && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName ?? "")) {
@@ -1151,25 +1181,13 @@ document.addEventListener("keydown", event => {
     find("#tblSearch")?.focus();
   }
 });
+// The focus leaving a menu of the navigation, by Tab or otherwise, closes it: a menu stays open only while it is in use.
+document.addEventListener("focusin", event => {
+  if (event.target instanceof Element) closeNavMenus(event.target.closest("#topnav .nav-group"));
+});
 el("drawerClose").addEventListener("click", closeDrawer);
-// A click beside what is open closes it: the navigation of a narrow window, or the drawer.
-el("scrim").addEventListener("click", () => {
-  if (el("sidenav").classList.contains("open")) closeNav(true);
-  else closeDrawer();
-});
-// The navigation's button. In a wide window it puts the navigation away in place and brings it back. In a narrow one
-// the navigation opens over the content and closes again, as it always did there.
-el("navToggle").addEventListener("click", () => {
-  if (!narrowWindow()) toggleNavigation();
-  else if (el("sidenav").classList.contains("open")) closeNav(true);
-  else openNav();
-});
-// The window crosses from one layout to the other. A navigation that was open over the content is closed: in a wide
-// window nothing lies over the page. And the button says what holds in the layout the window has now.
-window.matchMedia?.(NARROW_WINDOW).addEventListener("change", () => {
-  closeNav(false);
-  markNavToggle();
-});
+// A click beside the drawer, on the scrim, closes it: the scrim is the drawer's alone.
+el("scrim").addEventListener("click", closeDrawer);
 el("themeToggle").addEventListener("click", toggleTheme);
 el("runAgain").addEventListener("click", () => client.runAgain());
 window.matchMedia?.("(prefers-color-scheme: dark)").addEventListener("change", event => {
@@ -1232,9 +1250,6 @@ function keepLater(kept: AnalysisResult, at: Date): void {
 
 el("version").textContent = `v${VERSION}`;
 applyTheme(currentTheme());
-// Whether the navigation is put away is known before a result is drawn, the first or one brought back after a
-// refresh: a navigation that was put away is never shown first.
-applyNavigation(storedNavigation(key => localStorage.getItem(key)));
 const tabId = tabIdFrom(location.search);
 const byIcon = openedByIcon();
 const keeper = new ResultKeeper({ tabId });
@@ -1256,14 +1271,20 @@ const client = new ResultsClient({
 // A page the icon has just opened analyses anew, and takes nothing back. Any other page may be one that was refreshed: it
 // looks for the result it kept, and shows it at once, having asked the tab nothing. Meanwhile it connects to the tab as
 // ever, so that the run control works.
+// The view the address marks, read before anything is drawn: drawing the overview takes the mark away.
+const marked = markedView();
 takingBack = !byIcon;
 client.start();
 if (takingBack) {
   void keeper.takeBack().then(back => {
     takingBack = false;
     // A run that finished meanwhile has the page: its result is the newer one. What came back and cannot be shown is
-    // forgotten: the page then waits for the run control, as one that kept nothing.
-    if (back.found && !result && !showKept(back.result, back.received)) keeper.forget();
+    // forgotten: the page then waits for the run control, as one that kept nothing. What is shown opens on the view the
+    // address marked.
+    if (back.found && !result) {
+      if (showKept(back.result, back.received)) showMarked(marked);
+      else keeper.forget();
+    }
     // The state the page held back, or the one that belongs above the result: a run asked for meanwhile has its banner.
     if (client.state.phase !== "done") showRun(client.state);
   });

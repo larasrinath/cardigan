@@ -2,14 +2,15 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { RESULTS_PAGE } from "../protocol.js";
 import { FakePage, parseMarkup } from "./dom.test-support.js";
-import { keptCopyHtml, overviewHtml, runHtml, tableHtml } from "./markup.js";
-import { NARROW_WINDOW } from "./navigation.js";
+import { cardDrawerHtml, keptCopyHtml, navHtml, navItems, navMenuHtml, overviewHtml, rowDrawerHtml, runHtml, tableHtml } from "./markup.js";
 import { readMarkup } from "./markup.test-support.js";
 import { PAGE_IDS } from "./page-ids.js";
 
 // The page itself and its stylesheet, as they are packaged: an extension page runs no inline script and no inline handler.
 const html = readFileSync(new URL(`../../${RESULTS_PAGE}`, import.meta.url), "utf8");
 const css = readFileSync(new URL("../../results.css", import.meta.url), "utf8");
+/** The extension's manifest, which names the icons that are packaged with it. */
+const manifest = JSON.parse(readFileSync(new URL("../../manifest.json", import.meta.url), "utf8")) as { icons: Record<string, string> };
 const { tags } = readMarkup(html, true);
 const opening = tags.filter(tag => !tag.closing);
 
@@ -30,12 +31,27 @@ describe("The results page's files", () => {
 
   it("loads nothing from outside the extension", () => {
     const addresses = opening.flatMap(tag => ["src", "href", "action", "data", "poster", "srcset"].flatMap(name => (tag.attributes.has(name) ? [`${tag.name} ${name}=${tag.attributes.get(name)}`] : [])));
-    expect(addresses).toEqual(["link href=icons/32.png", "link href=results.css", "link href=map.css", "a href=#view", "script src=dist/results.js"]);
+    expect(addresses).toEqual(["link href=icons/32.png", "link href=results.css", "link href=map.css", "a href=#view", "img src=icons/128.png", "script src=dist/results.js"]);
     for (const text of [html, css]) {
       expect(text).not.toMatch(/https?:|\/\//i);
       expect(text).not.toMatch(/url\(|@import|@font-face/i);
     }
-    expect(opening.map(tag => tag.name).filter(name => ["iframe", "img", "object", "embed", "base", "form", "style"].includes(name))).toEqual([]);
+    // One image and no more: the extension's own icon beside its name in the header, one of the icons/ files that the
+    // manifest names, which are packaged with the page (scripts/package.mjs). Its text is empty: the name beside it says
+    // it. No other image, and none of the elements that would load or hold another document, a form or styles.
+    const images = opening.filter(tag => tag.name === "img");
+    expect(images.map(tag => [...tag.attributes])).toEqual([[["src", "icons/128.png"], ["alt", ""], ["width", "26"], ["height", "26"]]]);
+    expect(images.map(tag => [/^icons\/\d+\.png$/.test(tag.attributes.get("src") ?? ""), Object.values(manifest.icons).includes(tag.attributes.get("src") ?? "")])).toEqual([[true, true]]);
+    expect(opening.map(tag => tag.name).filter(name => ["iframe", "object", "embed", "base", "form", "style"].includes(name))).toEqual([]);
+  });
+
+  it("shows the extension's own icon beside its name in the header, the one Chrome shows in its toolbar, and no drawing of its own in its place", () => {
+    const brand = new FakePage(html).find(".hd .brand");
+    expect(brand.children.map(child => [child.localName, child.getAttribute("class"), child.getAttribute("src")])).toEqual([["img", null, "icons/128.png"], ["span", "brand-name", null]]);
+    expect(brand.querySelectorAll("svg")).toEqual([]);
+    // The largest of the icons, drawn at the brand's size: sharp on a screen of any density. Only its place is styled.
+    expect([manifest.icons["128"], rules(".brand").map(([selector]) => selector)]).toEqual(["icons/128.png", [".brand", ".brand img", ".brand-name"]]);
+    expect(declared(".brand img")).toEqual(["display:block"]);
   });
 
   it("offers nothing to download: its header holds the run control and the theme's button, and the page no link that saves a file", () => {
@@ -64,7 +80,7 @@ describe("The results page's files", () => {
     // page gives it a name to find it by and nothing else: no class, no role, no style.
     const page = new FakePage(html);
     const host = page.id("mapHost");
-    expect([page.id("main").children.map(child => child.id), host.localName, [...host.attributes.keys()], host.hidden, host.childNodes.length]).toEqual([["crumbs", "view", "mapHost"], "div", ["id", "hidden"], true, 0]);
+    expect([page.id("main").children.map(child => child.id), host.localName, [...host.attributes.keys()], host.hidden, host.childNodes.length]).toEqual([["view", "mapHost"], "div", ["id", "hidden"], true, 0]);
   });
 
   it("gives the map's place the height the window leaves while it is shown, and no look of its own", () => {
@@ -73,12 +89,13 @@ describe("The results page's files", () => {
     // map looks is the map's own: the page gives its place no colour, border, padding or type.
     expect(rules("#mapHost").filter(([selector]) => selector === "#mapHost")).toEqual([["#mapHost", "position:relative;flex:1 1 0;min-height:320px;isolation:isolate"]]);
     // The page is as high as the window only while the place is shown: every other rule about it says so of each box it
-    // sizes, from the page down to the main area, and a hidden place changes nothing on the page.
+    // sizes, from the page down to the main area, and a hidden place changes nothing on the page. While it is shown the
+    // shell keeps 12px at the window's two sides, at every width, less than the gutter that every other view keeps: the
+    // map takes nearly the whole width. The banners keep the gutter, as the header and the navigation do.
     expect(rules("#mapHost").filter(([selector]) => selector !== "#mapHost")).toEqual([
       ["body:has(#mapHost:not([hidden]))", "display:flex;flex-direction:column;height:100dvh"],
       ["body:has(#mapHost:not([hidden])) > .banners,body:has(#mapHost:not([hidden])) > .shell", "width:100%"],
-      ["body:has(#mapHost:not([hidden])) > .shell", "flex:1 1 0;min-height:0;padding-bottom:12px"],
-      ["body:has(#mapHost:not([hidden])) .sidenav", "max-height:100%"],
+      ["body:has(#mapHost:not([hidden])) > .shell", "flex:1 1 0;min-height:0;padding:12px"],
       ["main:has(> #mapHost:not([hidden]))", "align-self:stretch;display:flex;flex-direction:column"],
     ]);
     expect(rules("[hidden]")[0]).toEqual(["[hidden]", "display:none !important"]);
@@ -103,26 +120,43 @@ describe("The results page's files", () => {
   /** What the rules of exactly this selector declare, in the stylesheet's order: the rule for every width first. */
   const declared = (selector: string): string[] => rules(selector).filter(([found]) => found === selector).map(([, body]) => body.replace(/\s+/g, " "));
 
-  it("is as wide as the window: nothing caps the shell or the banners, and the header, the banners and the shell keep to the same sides", () => {
-    // The navigation stands at the window's left edge and the content takes the room beside it: no rule gives the
-    // shell, the banners or the main area a greatest width, or sets them in the middle of the window.
+  it("stands every view but a model's map in one column in the middle of the window, at most 1400px wide, whose sides the header, the navigation, the banners and the content all keep", () => {
+    // No rule gives the shell, the banners or the main area a greatest width or a margin: the column is the room each of
+    // them keeps at its two sides, the gutter, so that their backgrounds and borders still reach the window's edges.
     const sized = [".shell", ".banners", "main"].flatMap(name => rules(name));
     expect(sized.length).toBeGreaterThan(6);
     expect(sized.filter(([, body]) => /max-width|margin/.test(body))).toEqual([]);
-    // One gutter is at the window's two sides and between the navigation and the content. The header and the banners
-    // keep to the same sides as the shell: the brand stands over the navigation's edge, and a banner is as wide as the
-    // navigation and the content together.
-    expect(css).toMatch(/\n {2}--gutter:\d+px;\n/);
-    expect(declared(".shell")[0]).toBe("display:flex;gap:var(--gutter);padding:12px var(--gutter) 32px;align-items:flex-start");
-    expect(declared(".banners")[0]).toBe("padding:12px var(--gutter) 0;display:grid;gap:8px");
+    // The column is at most 1400px wide, with at least the edge at each side: 16px in a phone's window, more as the window
+    // widens past 400px, and 48px from 1200px on. From 1496px on the column is 1400px wide, in the middle of the window,
+    // and the rest of the width is the room at its two sides.
+    const token = (name: string) => css.match(new RegExp(`\\n {2}--${name}:([^;]*);\\n`))?.[1];
+    expect([token("column"), token("edge"), token("gutter")]).toEqual(["1400px", "clamp(16px,4vw,48px)", "max(var(--edge),calc((100% - var(--column)) / 2))"]);
+    // The gutter's 100% is the width of the box it is a side of. Each of the four is as wide as the window: a child of the
+    // page's body, or of a box of the top of the page, none of which has a side or a width of its own.
+    const page = new FakePage(html);
+    expect([".hd", ".nav-list", ".banners", ".shell"].map(name => page.find(name).parentElement).map(parent => parent?.getAttribute("class") ?? parent?.localName))
+      .toEqual(["top", "topnav", "body", "body"]);
+    expect(rules(".top").filter(([, body]) => /padding|margin|width/.test(body))).toEqual([]);
+    // The room for a scrollbar is kept whether the page scrolls or not: a long overview scrolls and a table's page does
+    // not, and a scrollbar that came and went would move the column sideways, the header and the navigation with it.
+    expect(declared("html")).toEqual(["scrollbar-gutter:stable"]);
+    // The header, the navigation in either of its forms, the banners and the shell all keep the gutter, so that their
+    // edges line up. The shell holds the main area alone, so it has no gap between parts.
+    expect(declared(".shell")[0]).toBe("display:flex;padding:12px var(--gutter) 32px;align-items:flex-start");
+    expect(declared(".banners")).toEqual(["padding:12px var(--gutter) 0;display:grid;gap:8px"]);
     expect(declared(".hd")[0]).toContain("padding:10px var(--gutter);");
-    // The narrow layout, where the navigation slides in over the content, keeps its own sides.
+    expect([declared(".nav-list")[0], declared(".nav-compact")[0]]).toEqual(["display:flex;flex-wrap:wrap;align-items:center;gap:4px 2px;padding:6px var(--gutter)", "display:none;padding:6px var(--gutter)"]);
+    // The narrow layout gives none of their sides of its own: the gutter narrows with the window by itself.
     const narrow = new Map(mediaRules("(max-width:1120px)").map(([selector, body]) => [selector, body]));
-    expect([narrow.get(".hd"), narrow.get(".banners"), narrow.get(".shell")]).toEqual(["gap:10px;padding:10px 14px", "padding:12px 20px 0", "padding:12px 14px 28px"]);
-    expect([declared(".shell").length, declared(".banners").length]).toEqual([2, 2]);
+    expect([narrow.get(".hd"), narrow.get(".nav-list"), narrow.get(".nav-compact"), narrow.get(".banners"), narrow.get(".shell")]).toEqual(["gap:10px", undefined, undefined, undefined, "padding-bottom:28px"]);
+    // Nor does any other rule but the map's (see the map's place, above): no side of the five is a length of its own.
+    const sides = [".hd", ".nav-list", ".nav-compact", ".banners", ".shell"].flatMap(name => rules(name)).filter(([selector]) => !selector.includes("#mapHost"))
+      .flatMap(([, body]) => body.split(";").map(declaration => declaration.trim()))
+      .filter(declaration => /^padding(-left|-right|-inline)?:/.test(declaration));
+    expect([sides.length, sides.filter(declaration => !declaration.includes("var(--gutter)"))]).toEqual([5, []]);
   });
 
-  it("keeps prose to a measure where the navigation stands beside the content, and only there; each thing it names is what the page writes", () => {
+  it("keeps prose to a measure in a wide window, and only there; each thing it names is what the page writes", () => {
     // In a window as wide as it likes, a note, a paragraph of how to read the tables and the words of an empty state
     // would run to lines of any length. They keep to the measure; the line under a table's name may be twice as long.
     const measured = mediaRules("(width > 1120px)").filter(([, body]) => body.includes("--measure"));
@@ -140,9 +174,9 @@ describe("The results page's files", () => {
     expect(mediaRules("(max-width:1120px)").filter(([, body]) => body.includes("--measure"))).toEqual([]);
     // The page's script writes what these rules name: an overview with a note and with how to read the tables, the view
     // of a run, and a table with a line under its name and no row.
-    const written = parseMarkup(overviewHtml({ tiles: [], cardTypes: [], models: [], notes: ["A note."], about: [], files: [], howToRead: [["Layout", "How each table is laid out."]], log: [] })
+    const written = parseMarkup(overviewHtml({ tiles: [], notes: ["A note."], about: [], files: [], howToRead: [["Layout", "How each table is laid out."]], log: [] })
       + runHtml()
-      + tableHtml({ label: "Line Items", note: "A line under the name.", columns: [], rows: [], page: 0, pages: 1, pageSize: 50, from: 0, to: 0, total: 0, all: 0, search: "", sort: undefined,
+      + tableHtml({ label: "Line Items", note: "A line under the name.", columns: [], widths: new Map(), rows: [], page: 0, pages: 1, pageSize: 50, from: 0, to: 0, total: 0, all: 0, search: "", sort: undefined,
         filtered: new Set(), context: undefined, links: { page: false, card: false } }));
     const named = measured.flatMap(([selector]) => selector.split(","));
     expect(named.map(selector => [selector, written.querySelectorAll(selector).length > 0])).toEqual(named.map(selector => [selector, true]));
@@ -150,55 +184,129 @@ describe("The results page's files", () => {
       .toEqual(["How each table is laid out.", "A note.", "A line under the name."]);
   });
 
-  it("puts the navigation of a wide window away where the page's root says so, by one rule that takes it out of sight, of the Tab key's way and of a screen reader's", () => {
-    // The script asks the window whether it is narrow by the query the stylesheet's narrow layout has; the wide
-    // layout's query is the other side of it. So the two cannot say different things of one window.
-    const limit = /^\(max-width:(\d+)px\)$/.exec(NARROW_WINDOW)?.[1];
-    expect([limit === undefined, css.includes(`@media ${NARROW_WINDOW}{`), css.includes(`@media (width > ${limit}px){`)]).toEqual([false, true, true]);
-    const wide = mediaRules(`(width > ${limit}px)`);
-    const narrow = mediaRules(NARROW_WINDOW);
-    // Put away, the navigation is not rendered: it takes no room, the Tab key passes it, and it is not in the
-    // accessibility tree. The rule is the wide layout's alone: no rule for every width, and none of the narrow layout,
-    // where the navigation slides in over the content, reads what the root says.
-    expect(wide.filter(([selector]) => selector.includes("data-navigation"))).toEqual([[':root[data-navigation="hidden"] .sidenav', "display:none"]]);
-    expect(css.replace(/\/\*[\s\S]*?\*\//g, "").split("data-navigation")).toHaveLength(2);
-    expect(narrow.filter(([selector]) => selector.includes("data-navigation"))).toEqual([]);
-    // With the navigation gone the content begins at the gutter: the shell's own side, with no gap before its one part.
-    expect(declared(".shell")[0]).toContain("gap:var(--gutter);padding:12px var(--gutter) 32px");
+  it("shows each line of a value about the export on a line of its own, by one rule of the stylesheet, and the value in the markup as its text", () => {
+    // A value about the export that lists several things has each on a line of its own, as the analysis writes an app's
+    // categories and its models, and so has one that says two, as the pages analysed do when pages were left unpublished.
+    // The markup writes such a value as its text and nothing else: no tag for a line break, and no space around the
+    // value, which the rule would show as well. A value of one line is one line.
+    const about: [string, string][] = [["Categories", "Demand\nSupply\n00 Admin"], ["Pages analysed", "2 of 2 (published versions)\n1 unpublished, not analysed"],
+      ["Models", "Model one (Workspace one)\nModel two (Workspace two)"], ["Cards", "6"]];
+    const written = parseMarkup(overviewHtml({ tiles: [], notes: [], about, files: [["Imports", "Not exported: the grid did not load"]],
+      howToRead: [["Layout", "How each table is laid out."]], log: [] }));
+    const values = written.querySelectorAll("#ovAbout .dl dd");
+    expect(values.map(value => [value.children.length, value.textContent.split("\n")])).toEqual([[0, ["Demand", "Supply", "00 Admin"]],
+      [0, ["2 of 2 (published versions)", "1 unpublished, not analysed"]], [0, ["Model one (Workspace one)", "Model two (Workspace two)"]], [0, ["6"]]]);
+    // The stylesheet shows those lines as the value has them, by one rule, which names what the markup writes: the values
+    // of that list, and of no other list of details. No rule keeps the lines of a value under Tables or of how to read
+    // the tables, which are shown as they always were.
+    expect(rules("#ovAbout")).toEqual([["#ovAbout .dl dd", "white-space:pre-line"]]);
+    expect([written.querySelectorAll(".dl dd").length, values.length]).toEqual([6, 4]);
+    expect(rules(".dl dd").filter(([, body]) => body.includes("white-space"))).toEqual([["#ovAbout .dl dd", "white-space:pre-line"]]);
   });
 
-  it("holds the navigation's button as the header's first control at every width, with what it controls, and an icon for each state and each layout", () => {
+  it("holds the navigation in a bar of its own under the header, the two the top of the page, hidden until there is a result, with nothing that puts it away", () => {
     const shell = new FakePage(html);
-    const button = shell.id("navToggle");
-    // The header's first control, a button with a name and a title that say what a press will do, and with the
-    // navigation as what it controls. Until the script has a result to navigate, neither it nor the navigation is
-    // there: the shell holds both hidden, and nothing of them is drawn before the script has run.
-    expect([shell.find(".hd").children[0] === button, button.localName, button.getAttribute("class"), button.getAttribute("aria-controls"), shell.id("sidenav").localName])
-      .toEqual([true, "button", "icon-btn nav-toggle", "sidenav", "nav"]);
-    expect([button.getAttribute("aria-label"), button.title, button.getAttribute("aria-expanded"), button.hidden, shell.id("sidenav").hidden]).toEqual(["Show navigation", "Show navigation", "false", true, true]);
-    // Its icon is drawn for a screen to see, not for a screen reader to read, and holds each of its parts once: three
-    // lines, and a frame with the navigation's side filled.
-    const icon = button.children[0];
-    expect([button.children.length, icon.localName, icon.getAttribute("aria-hidden")]).toEqual([1, "svg", "true"]);
-    expect([".nt-lines", ".nt-frame", ".nt-frame .nt-side"].map(part => icon.querySelectorAll(part).length)).toEqual([1, 1, 1]);
-    // No rule takes the button itself away at any width. Which part of the icon shows is the stylesheet's to say: in
-    // a wide window the frame, with its side filled while the button says the navigation is shown and empty once it
-    // says it is put away; in a narrow one the three lines.
-    expect(rules(".nav-toggle").map(([selector, body]) => [selector, body])).toEqual([
-      [".nav-toggle .nt-lines", "display:none"], ['.nav-toggle[aria-expanded="false"] .nt-side', "display:none"], [".nav-toggle .nt-frame", "display:none"]]);
-    const limit = /\d+/.exec(NARROW_WINDOW)?.[0];
-    const wide = mediaRules(`(width > ${limit}px)`);
-    expect(wide.filter(([selector]) => selector.includes(".nav-toggle")).map(([selector]) => selector)).toEqual([".nav-toggle .nt-lines", '.nav-toggle[aria-expanded="false"] .nt-side']);
-    expect(mediaRules(NARROW_WINDOW).filter(([selector]) => selector.includes(".nav-toggle")).map(([selector]) => selector)).toEqual([".nav-toggle .nt-frame"]);
-    // The button is the header's first element, which is where the Tab key finds it. In a wide window the brand is
-    // drawn before it and keeps its place at the window's left edge, so nothing in the header moves when the first
-    // result brings the button; in a narrow one the button is drawn first, as it always was. Nothing else on the page
+    const top = shell.find(".top");
+    const bar = shell.id("topnav");
+    // The header and the navigation under it are the top of the page: after the link that skips to the results, before
+    // the banners and the shell.
+    expect(shell.find("body").children.slice(0, 4).map(child => child.id || child.getAttribute("class"))).toEqual(["skip", "top", "banners", "shell"]);
+    expect([top.children.map(child => child.localName), top.children[1] === bar]).toEqual([["header", "nav"], true]);
+    // The bar is a landmark with a name of its own. It holds the places the script writes the navigation into, its line
+    // and the one menu that stands in the line's place in a narrow window, and nothing else; until the script has a
+    // result to navigate, it is hidden, and nothing of it is drawn.
+    expect([bar.localName, bar.getAttribute("aria-label"), bar.hidden, bar.children.map(child => [child.id, child.getAttribute("class"), child.childNodes.length])])
+      .toEqual(["nav", "Result tables", true, [["navList", "nav-list", 0], ["navCompact", "nav-compact", 0]]]);
+    // Nothing is left of the button that put the old navigation away, of the drawer it slid in as, or of the breadcrumb:
+    // no element, no rule, and no rule that reads a choice from the page's root.
+    expect(["navToggle", "sidenav", "crumbs"].filter(id => html.includes(`id="${id}"`))).toEqual([]);
+    const plain = css.replace(/\/\*[\s\S]*?\*\//g, "");
+    expect(["data-navigation", ".nav-toggle", ".sidenav", ".crumbs"].filter(name => plain.includes(name))).toEqual([]);
+    // The header holds the brand, the name of what was analysed and the actions, in that order, and nothing on the page
     // is drawn out of its order.
     /** A declaration of the order a box is drawn in: the property of that name, and no other whose name ends so. */
     const ORDER = /(?<![a-z-])order:/g;
-    expect([shell.find(".hd").children.map(child => child.id || child.getAttribute("class")), wide.filter(([, body]) => body.match(ORDER))])
-      .toEqual([["navToggle", "brand", "hdMeta", "hd-actions"], [[".hd .brand", "order:-1"]]]);
-    expect(css.replace(/\/\*[\s\S]*?\*\//g, "").match(ORDER)).toHaveLength(1);
+    expect([shell.find(".hd").children.map(child => child.id || child.getAttribute("class")), plain.match(ORDER)]).toEqual([["brand", "hdMeta", "hd-actions"], null]);
+  });
+
+  it("lays the navigation out on one line, a model's tables in groups whose menus have the popovers' look, with one menu in the line's place under 1000px wide; it marks the view shown as it always did", () => {
+    // One line of items, each as wide as its words and on one line of its own: no item fills the line. An item goes to the
+    // next line only where the line has no room, which no line the page knows needs where it is shown (see below).
+    // Nothing of the line scrolls: no rule of it holds an overflow or a scroll.
+    expect(declared(".nav-list")[0]).toBe("display:flex;flex-wrap:wrap;align-items:center;gap:4px 2px;padding:6px var(--gutter)");
+    const item = declared(".nav-item,.nav-group-btn")[0];
+    expect([item.includes("flex:none;"), item.includes("white-space:nowrap;"), /width|margin/.test(item)]).toEqual([true, true, false]);
+    expect([".nav-list", ".nav-item", ".nav-group-btn", ".topnav"].flatMap(name => rules(name)).filter(([, body]) => /overflow|scroll/.test(body))).toEqual([]);
+    // A menu has the look of the page's popovers, their panel, border, corners and shadow, and stands under its button,
+    // over the content and the tables' headers, under the drawer. The one long menu, a narrow window's, scrolls within itself.
+    const menu = declared(".nav-menu")[0];
+    const popover = declared(".popover")[0];
+    expect(["background:var(--panel)", "border:1px solid var(--border-strong)", "border-radius:var(--r-md)", "box-shadow:var(--shadow)"].map(part => [part, menu.includes(part), popover.includes(part)]))
+      .toEqual(["background:var(--panel)", "border:1px solid var(--border-strong)", "border-radius:var(--r-md)", "box-shadow:var(--shadow)"].map(part => [part, true, true]));
+    expect([menu.includes("position:absolute;"), menu.includes("overflow-y:auto;"), /z-index:(\d+)/.exec(menu)?.[1]]).toEqual([true, true, "50"]);
+    // Under 1000px wide the one menu stands in the line's place, whatever the result's kind: the line needs about 860px.
+    // It is the narrow layout's only rule about the navigation, and nothing slides in over the content.
+    expect(mediaRules("(max-width:1000px)")).toEqual([[".nav-list", "display:none"], [".nav-compact", "display:flex"]]);
+    expect(mediaRules("(max-width:1120px)").filter(([selector]) => /nav/.test(selector))).toEqual([]);
+    // An entry has no count: the overview's tiles say how many rows each table has.
+    expect(rules(".cnt")).toEqual([]);
+    // The entry of the view shown is marked as it always was, in the accent's soft colour and its ink with its words in
+    // bold, and so is the button of the group that holds it. Every colour of the bar is one of the page's tokens, so that
+    // both themes have it.
+    expect(declared('.nav-item[aria-current="page"],.nav-group-btn[aria-current="true"]')).toEqual(["background:var(--accent-soft);color:var(--accent-ink);font-weight:600"]);
+    expect([...rules(".nav-"), ...rules(".topnav")].flatMap(([, body]) => body.match(/#[0-9a-f]{3,8}\b|rgba?\(/gi) ?? [])).toEqual([]);
+    // What these rules name is what the page writes: entries, a group with its button, chevron and menu, and the one menu
+    // with a group's section under its heading, the entry of the view shown marked in each, and its group.
+    const entries = [{ id: "overview", label: "Overview" }, { id: "1", label: "Modules", file: "Modules.csv" }, { id: "2", label: "Line Items", file: "Line Items.csv" }];
+    const written = parseMarkup(navHtml(navItems(entries, true), "2") + navMenuHtml(navItems(entries, true), "2", "Line Items"));
+    expect([".nav-item", ".nav-group", ".nav-group-btn", ".nav-chevron", ".nav-menu", ".nav-section", ".nav-heading", '.nav-item[aria-current="page"]', '.nav-group-btn[aria-current="true"]', ".cnt"]
+      .map(selector => written.querySelectorAll(selector).length)).toEqual([6, 2, 2, 2, 2, 1, 1, 2, 1, 0]);
+  });
+
+  it("keeps the header and the navigation at the top of the window together, as one box, which a window under 640px wide, or a narrow one that is short, lets scroll away", () => {
+    // The box of the two stays at the top, over the content that scrolls under it. The header has no place of its own:
+    // the navigation needs to know nothing of the header's height, which grows as the header wraps.
+    expect(declared(".top")[0]).toBe("position:sticky;top:0;z-index:40");
+    expect(rules(".hd").filter(([selector]) => selector === ".hd").map(([, body]) => /position|top:|z-index/.test(body))).toEqual([false, false]);
+    // Under 640px wide the header wraps onto two or three lines, and in a window that is narrow and short the two take
+    // much of its height whatever its width. There they would cover much of the window: they scroll away with the page.
+    // That is the one other rule for the box.
+    expect(mediaRules("(max-width:640px), (max-width:1120px) and (max-height:560px)")).toEqual([[".top", "position:static"]]);
+    expect(declared(".top")).toEqual(["position:sticky;top:0;z-index:40", "position:static"]);
+  });
+
+  it("styles the page a jump keeps as a chip of its own in a table's toolbar, which wraps the page's name within itself rather than widen the page", () => {
+    const view = parseMarkup(tableHtml({ label: "Cards", note: undefined, columns: [], rows: [], page: 0, pages: 1, pageSize: 50, from: 0, to: 0, total: 0, all: 0, search: "", sort: undefined,
+      filtered: new Set(), context: "Stores", links: { page: true, card: true } }));
+    expect([view.querySelectorAll(".toolbar .ctx").length, rules(".ctx").map(([selector]) => selector)]).toEqual([1, [".ctx", ".ctx button", ".ctx button:hover"]]);
+    expect(declared(".ctx")[0]).toContain("overflow-wrap:anywhere;");
+  });
+
+  it("lays the results table out by the widths the page writes on its columns, and by nothing the rows on screen hold", () => {
+    const every = rules("");
+    // Only the results table is laid out by its columns' widths, by rules of its box's own: a card's small tables in the
+    // drawer keep the rules every table has, and the browser's own layout. With no width of its own the results table
+    // is as wide as its columns, and at least as wide as its box.
+    expect(every.filter(([, body]) => body.includes("table-layout"))).toEqual([[".table-wrap table", "table-layout:fixed;width:0"]]);
+    expect(declared("table")).toEqual(["border-collapse:separate;border-spacing:0;width:max-content;min-width:100%;font-size:12.5px"]);
+    // Each column is as wide as its <col> says, and the first, which stays at the left, at most half of what the box
+    // shows. No cell's own width rule is left to say otherwise: in this layout it would say nothing.
+    expect([declared(".table-wrap col"), declared(".table-wrap col:first-child"), declared(".table-wrap :is(th,td):first-child")[0]])
+      .toEqual([["width:var(--width)"], ["width:min(var(--width),50cqi - 9px)"], "position:sticky;left:0"]);
+    expect(every.filter(([selector, body]) => selector.includes(":first-child") && selector.includes("table-wrap") && /(^|;)\s*(max-)?width/.test(body)).map(([selector]) => selector))
+      .toEqual([".table-wrap col:first-child"]);
+    // The sort arrow keeps its room in every header, sorted or not, and never gives it up; a header's name takes a second
+    // line rather than run into the next header's. Every other table's headers stay on one line, as they were.
+    expect(declared(".th-sort .dir")).toEqual(["color:var(--accent);font-size:9px;width:9px;flex:none"]);
+    expect([declared(".table-wrap thead th"), declared("thead th")[0].includes("white-space:nowrap")]).toEqual([["white-space:normal;overflow-wrap:anywhere"], true]);
+    // A row keeps to one line: a text wider than its column ends in an ellipsis, in the cell and in the text's own box.
+    expect([declared("tbody td")[0].includes("white-space:nowrap;overflow:hidden;text-overflow:ellipsis"), declared(".cell-t")[0].includes("max-width:100%;overflow:hidden;text-overflow:ellipsis")])
+      .toEqual([true, true]);
+    // The page writes what the rules read: a <col> for each column shown, which says its width and nothing else.
+    const column = (index: number, label: string) => ({ index, label, kind: "text" as const, num: false, filter: false, hidden: false });
+    const written = parseMarkup(tableHtml({ label: "Modules", note: undefined, columns: [column(0, "Name"), column(2, "Cell Count")], widths: new Map([[0, 20], [2, 12]]), rows: [["Revenue", "", "12"]],
+      page: 0, pages: 1, pageSize: 50, from: 1, to: 1, total: 1, all: 1, search: "", sort: undefined, filtered: new Set(), context: undefined, links: { page: false, card: false } }));
+    expect(written.querySelectorAll(".table-wrap col").map(col => [...col.attributes])).toEqual([[["style", "--width:20ch"]], [["style", "--width:12ch"]]]);
   });
 
   it("shows nothing of the room the overview holds for a kept copy's line and button: the stylesheet hides what the markup marks as to come", () => {
@@ -210,6 +318,24 @@ describe("The results page's files", () => {
     expect(rules(".to-come")).toEqual([[".ov-kept .to-come", "visibility:hidden"]]);
     // The place of a result that could not be kept holds nothing, and takes no room.
     expect(rules(".ov-kept:empty")).toEqual([[".ov-kept:empty", "display:none"]]);
+  });
+
+  it("lists a value of several items one to a line, in the drawer's values and in a card's parts alike, by the page's tokens alone", () => {
+    // The list takes no room round it; its bullet hangs in its own margin, in the muted colour; an item's text runs as text,
+    // so that the bullet stands beside an item's first line, not beside the last line of a box.
+    expect(rules(".cell-list")).toEqual([[".cell-list", "margin:0;padding-left:16px"], [".cell-list li + li", "margin-top:3px"], [".cell-list li::marker", "color:var(--text-3)"],
+      [".cell-list .cell-t", "display:inline"]]);
+    // The one colour is a token, which the light theme and the dark one each set.
+    for (const theme of [":root{", ':root[data-theme="dark"]{']) {
+      const at = css.indexOf(theme);
+      expect([at >= 0, /--text-3:#[0-9a-f]{6};/.test(css.slice(at, css.indexOf("}", at)))], theme).toEqual([true, true]);
+    }
+    // The page's script writes what the rules name: a list among the drawer's values, and in a cell of a card's part.
+    const column = { index: 0, label: "Context selectors", kind: "text" as const, num: false, filter: false, hidden: false };
+    const items = new Map([[0, ["Territory (visible, synced to page)", "Channel (hidden)"]]]);
+    const written = parseMarkup(rowDrawerHtml([column], ["Territory (visible, synced to page); Channel (hidden)"], { page: false, card: false }, undefined, items)
+      + cardDrawerHtml([], [], { page: false, card: false }, [{ title: "Filters", none: "filters", headings: ["Context"], colours: [false], rows: [[["Time = current", "Version = Actual"]]] }]));
+    expect([written.querySelectorAll(".d-dl dd .cell-list li .cell-t").length, written.querySelectorAll(".mini td .cell-list li .cell-t").length]).toEqual([2, 2]);
   });
 
   it("carries no demo left from the design: no sample name, no version, no preview control", () => {

@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.11.0 (7 October 2026)
+
+A bar of icons in place of the side navigation, tables that hold still, and values read item by item.
+
+- **The navigation is a bar under the header.** Each entry has a small icon. A model's tables are grouped in menus: **Time** (Model Calendar, Time Ranges), **Lists** (General Lists, Line Item Subsets), **Modules** (Modules, Line Items, Dynamic Cell Access) and **Actions** (Processes, Imports, Import Data Sources, Exports, Other Actions), with Overview, Versions, Source Models and Model map on their own. A menu's button names the table shown when it is one of the menu's. The bar has no counts and never scrolls; in a window narrower than 1,000 pixels one menu holds every entry. The breadcrumb and the button that put the navigation away are gone, and the header shows the toolbar's icon.
+- **The page stands in a centred column**, at most 1,400 pixels wide, with room at both sides that grows with the window. The model map takes the whole width.
+- **The Overview** no longer has the Cards by type and Models panels. Under About this export, a value that lists several things has each on a line of its own, without semicolons, and an app's models follow its ID.
+- **Tables hold still.** Each column's width is worked out once from all of the table's rows, so a sort, a page, a search or a filter no longer moves the columns or the table's sideways scroll. The pager has Previous and Next, without page numbers.
+- **Counts have commas.** Cell Count, a Polaris model's Populated Cell Count, Item Count, an app's card counts on Pages, and Pages and Cards in Model Objects show their thousands apart (15,389,009,578). They still sort as numbers, and the search finds them with or without commas.
+- **A panel lists items one per line.** Where a value lists several items, such as Applies To, Referenced By, Context selectors or Colour stops, the panel that opens on a row or a card lists them one per line. The table keeps them on one line.
+- **Colours show as squares.** A conditional formatting rule's colour stops show a small square of each colour before its code.
+- **Where Used is now Model Objects**: the model's objects the app uses, and where each is used.
+- **A refresh keeps the view.** A refreshed page opens on the table or the map it showed. The page's address marks the view by the table's place, and names nothing of the result.
+- **Filters.** A filter's condition line item is told apart from its filter context, and the system's Current User item reads "Users = Current User".
+- **More context selectors are named.** A dimension that no answer named is named from the grid's own metadata or from the lists with their subsets. For at most ten still unnamed, Cardigan asks which modules have the dimension and reads their dimensions, within 30 seconds in all. The diagnostic log has a line for each one that stays unnamed.
+- **A model's tables as the page shows them.** Model Calendar lists only the settings that hold a value, without the template's Applies to and Notes. Imports shows Source Object as **Source Model**, **Source Module** and **Saved View**; Source Model names the model itself for an import from its own modules, and a saved view written without quotes is read too. Source Models shows Mapped To as **Mapped Workspace** and **Mapped Model**. A row's panel still has the cell as it was read.
+- **Other Actions has an Action List column**, which names the list an action deletes from or orders, in place of its ID.
+- **Plain hyphens.** The dash for nothing to say in an app's tables is a plain hyphen, and no text of the page or the tables uses an em dash.
+- **What stays the same.** What is read from Anaplan, apart from the reads for unnamed dimensions above. The tables hold what they held, apart from the hyphen, the Action List column, reworded How to read rows, and the App Details values that list several things, now one to a line; Model Calendar, Imports and Source Models are shown differently, but their tables are as the export wrote them.
+
 ## 0.10.0 (7 October 2026)
 
 No downloads: the results page is the only place to see a result.

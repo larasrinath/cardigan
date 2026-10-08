@@ -14,7 +14,7 @@ import { APP_FILES } from "./columns.js";
 import { describeState, ResultsClient, type RunState } from "./connection.js";
 import { APP_HOST, GOLDEN_APP, GOLDEN_GRIDS, goldenApp, LINE_ITEMS, MODEL, MODEL_HOST, modelPage, serveEngine, SHELL_HOST, type EngineRun } from "./engine.test-support.js";
 import { FakeTab, MESSAGE_MAX_BYTES, NOBODY, TOO_LARGE, type PortEnd } from "./port-pair.test-support.js";
-import { ACCESS_FILE, detailsOf, diagnosticLog, fileView, listedTables, MODEL_CALENDAR_FILE, MODEL_FILE_ORDER, modelFacts, overviewOf } from "./result-view.js";
+import { ACCESS_FILE, detailsOf, diagnosticLog, fileView, IMPORTS_FILE, listedTables, MODEL_CALENDAR_FILE, MODEL_FILE_ORDER, modelFacts, overviewOf } from "./result-view.js";
 
 // The results page's client against the engine: the content script's real side of the port around the real analysis of an
 // app and the real export of a model in its frame, joined to the page by ports that pass messages as Chrome's do. What
@@ -178,9 +178,9 @@ describe("The results page against the engine in the Anaplan tab", () => {
     // The files are the ones the page knows an app's files by, the Details file first.
     expect(result.tables.map(table => table.file)).toEqual([DETAILS_FILE, ...Object.values(TAB_FILES)]);
     expect(result.tables.map(table => table.file)).toEqual([detailsOf(result)?.file, ...Object.values(APP_FILES)]);
-    // Written as a zip, what the page holds is, file for file, the zip 0.6.1 wrote for this app, but for the four rows of
-    // the Details file that are deliberately written otherwise since (APP_ROW_REWORDED and APP_ROWS_FOR_THE_PAGE in
-    // golden-0.6.1.test-support.ts).
+    // Written as a zip, what the page holds is, file for file, the zip 0.6.1 wrote for this app, but for the five rows of
+    // the Details file and the dash for nothing to say in the other files, which are deliberately written otherwise since
+    // (APP_ROW_REWORDED, APP_ROWS_FOR_THE_PAGE, APP_ROW_ON_TWO_LINES and APP_DASH_PLAIN in golden-0.6.1.test-support.ts).
     expect(files(resultZip(result, ZIPPED_AT), DETAILS_FILE)).toEqual(files(APP_ZIP_REWORDED, DETAILS_FILE));
     expect([result.kind, result.name, result.zipName, result.summary]).toEqual(["app", "Planning: app", "Planning app - App Export - 2026-09-28.zip",
       ["1 of 1 pages analysed; 1 unpublished, not analysed, 3 cards."]]);
@@ -206,22 +206,23 @@ describe("The results page against the engine in the Anaplan tab", () => {
     // The log the result carries is the frame's own, which begins with the export: inside Model Building it has neither
     // of the two lines the content script wrote before it asked the frame. From there on the two logs are the same.
     expect(diagnosticLog(detailsOf(result))).toEqual(page.client.log.slice(2));
-    // Written as a zip, what the page holds is, file for file, the zip 0.6.1 wrote for this model, but for the column of Line
-    // Items.csv and the rows of Model Details.csv that are deliberately written otherwise since (MODEL_COLUMN_ADDED,
-    // MODEL_ROW_REWORDED, MODEL_ROWS_FOR_THE_PAGE and MODEL_FILE_ADDED in golden-0.6.1.test-support.ts).
+    // Written as a zip, what the page holds is, file for file, the zip 0.6.1 wrote for this model, but for the columns of Line
+    // Items.csv and Other Actions.csv and the rows of Model Details.csv that are deliberately written otherwise since
+    // (MODEL_COLUMN_ADDED, MODEL_ACTIONS_COLUMN_ADDED, MODEL_ROW_REWORDED, MODEL_ACTIONS_ROW_REWORDED, MODEL_ROWS_FOR_THE_PAGE,
+    // IMPORTS_ROW_REWORDED, MODEL_FILE_ADDED and MODEL_ROW_ADDED in golden-0.6.1.test-support.ts).
     expect(files(resultZip(result, ZIPPED_AT), "Model Details.csv")).toEqual(files(MODEL_ZIP_AS_NAMED, "Model Details.csv"));
     expect([result.kind, result.name, result.zipName]).toEqual(["model", "Demand: plan", "Demand plan - Model Export - 2026-09-28.zip"]);
     // The page's one rule about a model's file fits the file the export writes: its name, its Section column, and the
     // template's five rows about the model, of which the export fills in three.
     const calendar = result.tables.find(table => table.file === MODEL_CALENDAR_FILE);
     expect([calendar?.rows.length, calendar && fileView(result, calendar).note, calendar && fileView(result, calendar).table.rows.length, modelFacts(result)])
-      .toEqual([31, "5 rows about the model are not listed here: 3 hold a value, which the Overview has under About this export.", 26, [["Workspace", "Workspace one"], ["Model", "Demand: plan"], ["Captured on", "2026-09-28"]]]);
+      .toEqual([31, "5 rows about the model are not listed here: 3 hold a value, which the Overview has under About this export. 16 settings have no value and are not listed: they do not apply to this calendar type, or the model does not show them.", 10, [["Workspace", "Workspace one"], ["Model", "Demand: plan"], ["Captured on", "2026-09-28"]]]);
     // The overview loses none of the counts the export's Details file gives. Each row that only counts a file is said by
-    // the file's tile: as the rows its table lists, or, for the calendar, whose table lists 26 of its 31, as the rows in all.
+    // the file's tile: as the rows its table lists, or, for the calendar, whose table lists 10 of its 31, as the rows in all.
     const overview = overviewOf(result);
     const counts = (detailsOf(result)?.rows ?? []).filter(row => row[0] === "Files" && /^\d+ rows$/.test(String(row[2]))).map(row => `${String(row[1]).replace(/\.csv$/, "")}: ${row[2]}`);
     const onTiles = overview.tiles.flatMap(tile => [tile.count, ...(tile.inAll === undefined ? [] : [tile.inAll])].map(rows => `${tile.label}: ${rows} rows`));
-    expect([counts.length, counts.filter(line => !onTiles.includes(line)), overview.tiles.find(tile => tile.label === "Model Calendar")]).toEqual([10, [], { label: "Model Calendar", count: 26, inAll: 31 }]);
+    expect([counts.length, counts.filter(line => !onTiles.includes(line)), overview.tiles.find(tile => tile.label === "Model Calendar")]).toEqual([10, [], { label: "Model Calendar", count: 10, inAll: 31 }]);
     // The export says three things both in its summary and in a Files row: how many imports it matched, and that two files
     // were not exported, the source models and Dynamic Cell Access, which it makes from Line Items and for which this
     // model's Line Items grid lacks the three columns it is made from. The overview says each once, with the tables and
@@ -255,6 +256,15 @@ describe("The results page against the engine in the Anaplan tab", () => {
     expect(cells("Line Items.csv", "Summary")).toEqual([["", '{"summaryMethod":"SUM"}', '{"summaryMethod":"SUM"}', ratio], ["", "Sum", "Sum", "Ratio = Profit / Revenue"]]);
     expect(cells("Other Actions.csv", "Action")).toEqual([['{"actionType":"DELETE_BY_SELECTION"}'], ["Delete from List using Selection"]]);
     expect(cells("Exports.csv", "Action")).toEqual([['{"exportType":"GRID_CURRENT_PAGE"}'], ['{"exportType":"GRID_CURRENT_PAGE"}']]);
+    // The page's rule for the Imports file fits the file the export writes: the import of a saved view of another model
+    // is shown by its model, its module and its view; the file's import keeps its dash, and the import that only the
+    // Actions list has keeps its empty cell. The table the result holds keeps the tab's text.
+    const imports = result.tables.find(candidate => candidate.file === IMPORTS_FILE);
+    if (!imports) throw new Error("The export wrote no Imports.csv.");
+    const importsShown = fileView(result, imports).table;
+    const parts = ["Source Model", "Source Module", "Saved View"].map(header => importsShown.headers.indexOf(header));
+    expect([imports.rows.map(row => row[imports.headers.indexOf("Source Object")]), importsShown.rows.map(row => parts.map(index => row[index]))])
+      .toEqual([["Hub / 'LIST - Regions'.Export", "-", ""], [["Hub", "LIST - Regions", "Export"], ["-", "", ""], ["", "", ""]]]);
   });
 
   it("says a line item's list format with the name the export wrote beside it, from the model's General Lists", async () => {
@@ -284,6 +294,36 @@ describe("The results page against the engine in the Anaplan tab", () => {
       [["Product", "List: Products", "Products"], ["Region", "List: + Regions", "+ Regions"], ["Active product", "List: ID 109000000001", ""]]]);
   });
 
+  it("says an action that deletes from a list or orders one with the name the export wrote beside it, from the model's General Lists", async () => {
+    const ACTIONS = "ACTIONS × ACTION PROPERTIES";
+    const action = (actionType: string, hierarchyIdentifier: string): string => JSON.stringify({ actionType, hierarchyIdentifier, filterLineItemIdentifier: "_1901000000031_" });
+    // The golden model's Actions list, with its one other action deleting from one of its two general lists and two more
+    // that order a list: the other general list, and one by an ID of a list subset's entity type, which General Lists
+    // does not hold.
+    const others = [{ ids: [117000000001], labels: ["Delete old items"], cells: [action("DELETE_BY_SELECTION", "_101000000001_"), "", "", "", "Nightly load", ""] },
+      { ids: [117000000002], labels: ["Order regions"], cells: [action("ORDER_HIERARCHY", "_101000000002_"), "", "", "", "", ""] },
+      { ids: [117000000003], labels: ["Order active products"], cells: [action("ORDER_HIERARCHY", "_109000000001_"), "", "", "", "", ""] }];
+    const golden = GOLDEN_GRIDS[ACTIONS];
+    const settings = showModel(modelPage({ ...GOLDEN_GRIDS, [ACTIONS]: { columns: golden.columns, rows: [...golden.rows.slice(0, -1), ...others] } }));
+    const page = resultsPage(tab);
+    await until(done(page), "the result");
+    expectEngineResult(page, runs[0]);
+    // The names came from the General Lists grid, read once and before the Actions list: no grid is read for them.
+    expect(settings.reads).toEqual(["LINE ITEMS 0+1", "LINE ITEMS 0+4", "MODULES 0+1", "MODULES 0+2", "LISTS 0+1", "LISTS 0+2", "ACTIONS 0+1", "ACTIONS 0+12", "IMPORTS 0+1", "IMPORTS 0+2",
+      "DATA SOURCES 0+1", "TIME RANGES 0+1", "VERSIONS 0+1", "VERSIONS 0+2", "CALENDAR 0+1", "CALENDAR 0+10"]);
+    const { result } = page.held();
+    const file = result.tables.find(table => table.file === "Other Actions.csv");
+    if (!file) throw new Error("The export wrote no Other Actions.csv.");
+    // The file holds the Action as Anaplan writes it, and the list's name in its last column. The ID General Lists does
+    // not hold names no list.
+    expect([file.headers.at(-1), file.rows.map(row => [row[0], row[1], row.at(-1)])]).toEqual(["Action List",
+      others.map(({ labels, cells }, index) => [labels[0], cells[0], ["Products", "+ Regions", ""][index]])]);
+    // The page says each action as Anaplan's own Actions list does, with the name, and with the list's ID where the file has none.
+    const shown = fileView(result, file).table;
+    expect(shown.rows.map(row => [row[0], row[1], row.at(-1)])).toEqual([["Delete old items", "Delete from Products using Selection", "Products"],
+      ["Order regions", "Order + Regions", "+ Regions"], ["Order active products", "Order list ID 109000000001", ""]]);
+  });
+
   it("lists a model's Dynamic Cell Access right after its Line Items, as the export made it of that grid's driver columns", async () => {
     // The golden model with the Line Items and Modules grids of a made-up model whose line items drive one another's
     // access (golden-0.8.1.test-support.ts).
@@ -299,8 +339,10 @@ describe("The results page against the engine in the Anaplan tab", () => {
     expect(diagnosticLog(detailsOf(result)).map(line => line.slice(9))).toEqual(steps(ACCESS_ZIP_0_8_1));
     expect(page.statuses().filter(status => status.includes("Dynamic Cell Access"))).toEqual([]);
     // Written as a zip, what the page holds is, file for file, the zip 0.8.1 wrote for this model with the file put in
-    // after Line Items.csv and its two rows in Model Details.csv (ACCESS_FILE_ADDED), and with the three rows of "How to
-    // read" that are deliberately written otherwise since (ACCESS_ROWS_FOR_THE_PAGE in golden-0.8.1.test-support.ts).
+    // after Line Items.csv and its two rows in Model Details.csv (ACCESS_FILE_ADDED), with the column of Other Actions.csv
+    // (MODEL_ACTIONS_COLUMN_ADDED in golden-0.6.1.test-support.ts), with the five rows of "How to read" that are
+    // deliberately written otherwise since (ACCESS_ROWS_REWORDED in golden-0.8.1.test-support.ts), and with the row of
+    // "How to read" on Source Models that every model has gained (MODEL_ROW_ADDED in golden-0.6.1.test-support.ts).
     expect(files(resultZip(result, ZIPPED_AT), "Model Details.csv")).toEqual(files(ACCESS_ZIP_WITH_FILE, "Model Details.csv"));
     // The page lists the file where the zip has it, after Line Items, which the order of Anaplan's settings puts after Modules.
     expect(listedTables(result).map(({ table }) => table.label)).toEqual(["Model Calendar", "Time Ranges", "Versions", "General Lists", "Modules", "Line Items", "Dynamic Cell Access",

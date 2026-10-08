@@ -1,4 +1,4 @@
-import { MODEL_FILE_ADDED, MODEL_ROW_REWORDED, MODEL_ROWS_FOR_THE_PAGE, withRowsAdded, withRowsReworded, ZIPPED_AT } from "./golden-0.6.1.test-support.js";
+import { IMPORTS_ROW_REWORDED, MODEL_ACTIONS_COLUMN_ADDED, MODEL_ACTIONS_ROW_REWORDED, MODEL_FILE_ADDED, MODEL_ROW_ADDED, MODEL_ROW_REWORDED, MODEL_ROWS_FOR_THE_PAGE, withColumnAdded, withRowsAdded, withRowsReworded, ZIPPED_AT } from "./golden-0.6.1.test-support.js";
 import { zipEntries, zipStore } from "./zip.test-support.js";
 
 /** A made-up model whose line items drive who may read and write one another, and the zip exactly as version 0.8.1
@@ -248,8 +248,11 @@ export const ACCESS_READS_0_8_1 = ["LINE ITEMS 0+1", "LINE ITEMS 0+16", "MODULES
  * stands right after Line Items.csv in the zip, and the two rows of Model Details.csv about it, each as the row's whole
  * line of the file with the line it stands after. `written` gives the file's number of rows and how many of them have a
  * driver that could not be matched, right after the row for Line Items.csv; `howToRead` is the row every model's Model
- * Details.csv has gained. Besides these, the three rows named after them (`ACCESS_ROWS_FOR_THE_PAGE`) and the build's
- * name (see `APP_ROW_REWORDED` in golden-0.6.1.test-support.ts), nothing differs. */
+ * Details.csv has gained. Besides these, the three rows named after them (`ACCESS_ROWS_FOR_THE_PAGE`), the column Other
+ * Actions.csv has gained and the row that says what it holds, which differ from 0.8.1's zip as they differ from 0.6.1's
+ * (`MODEL_ACTIONS_COLUMN_ADDED` and `MODEL_ACTIONS_ROW_REWORDED` in golden-0.6.1.test-support.ts), the row on Imports and
+ * the row on Source Models, which every model's Model Details.csv has reworded and gained as well (`IMPORTS_ROW_REWORDED`
+ * and `MODEL_ROW_ADDED` there), and the build's name (see `APP_ROW_REWORDED` there), nothing differs. */
 export const ACCESS_FILE_ADDED = {
   file: MODEL_FILE_ADDED.file,
   after: "Line Items.csv",
@@ -272,16 +275,28 @@ export const ACCESS_ROWS_FOR_THE_PAGE = [
   MODEL_ROWS_FOR_THE_PAGE.calendar,
 ] as const;
 
-/** 0.8.1's text of this model's Model Details.csv as the file is written now: those three rows in their present words,
- * and the two rows about the file added. */
-export const withAccessRows = (csv: string): string => withRowsAdded(withRowsReworded(csv, ACCESS_ROWS_FOR_THE_PAGE), [ACCESS_FILE_ADDED.written, ACCESS_FILE_ADDED.howToRead]);
+/** Every row of "How to read" in Model Details.csv that is deliberately not what 0.8.1 wrote, each as the row's whole
+ * line of the file, in the file's order: the three above, and between the one on Line Items and the one on the calendar
+ * the row on the Actions list's files, which says what the column Other Actions.csv has gained holds
+ * (`MODEL_ACTIONS_ROW_REWORDED` in golden-0.6.1.test-support.ts), and the row on Imports, which says how the page shows
+ * an import's Source Object (`IMPORTS_ROW_REWORDED` there). 0.8.1 wrote both as 0.6.1 did. */
+export const ACCESS_ROWS_REWORDED = [ACCESS_ROWS_FOR_THE_PAGE[0], ACCESS_ROWS_FOR_THE_PAGE[1], MODEL_ACTIONS_ROW_REWORDED, IMPORTS_ROW_REWORDED, ACCESS_ROWS_FOR_THE_PAGE[2]] as const;
 
-/** The model's zip as 0.8.1 wrote it but for that: every file's bytes as they are in `ACCESS_ZIP_0_8_1`, with three lines
- * of Model Details.csv replaced and two added, and the file put in after Line Items.csv, written by zipStore with the same time on
- * every entry. model/model.test.ts pins that zipStore writes `ACCESS_ZIP_0_8_1` itself, byte for byte, from the files
- * as they are, so what differs from this zip differs from 0.8.1. */
+/** 0.8.1's text of this model's Model Details.csv as the file is written now: those five rows in their present words,
+ * the two rows about the file added, and the row on Source Models. */
+export const withAccessRows = (csv: string): string =>
+  withRowsAdded(withRowsReworded(csv, ACCESS_ROWS_REWORDED), [ACCESS_FILE_ADDED.written, ACCESS_FILE_ADDED.howToRead, MODEL_ROW_ADDED]);
+
+/** The model's zip as 0.8.1 wrote it but for that: every file's bytes as they are in `ACCESS_ZIP_0_8_1`, with five lines
+ * of Model Details.csv replaced and three added, the cell added to each line of Other Actions.csv
+ * (`MODEL_ACTIONS_COLUMN_ADDED` in golden-0.6.1.test-support.ts: 0.8.1's file is 0.6.1's, byte for byte), and the file put
+ * in after Line Items.csv, written by zipStore with the same time on every entry. Line Items.csv is 0.8.1's own: 0.8.1
+ * wrote its Format List column already. model/model.test.ts pins that zipStore writes `ACCESS_ZIP_0_8_1` itself, byte
+ * for byte, from the files as they are, so what differs from this zip differs from 0.8.1. */
 export const ACCESS_ZIP_WITH_FILE = zipStore(zipEntries(ACCESS_ZIP_0_8_1).flatMap(entry => {
   const encoder = new TextEncoder();
-  if (entry.name === ACCESS_FILE_ADDED.details) return [{ name: entry.name, data: encoder.encode(withAccessRows(new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(entry.data))) }];
+  const text = (): string => new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(entry.data);
+  if (entry.name === ACCESS_FILE_ADDED.details) return [{ name: entry.name, data: encoder.encode(withAccessRows(text())) }];
+  if (entry.name === MODEL_ACTIONS_COLUMN_ADDED.file) return [{ name: entry.name, data: encoder.encode(withColumnAdded(text(), MODEL_ACTIONS_COLUMN_ADDED)) }];
   return entry.name === ACCESS_FILE_ADDED.after ? [entry, { name: ACCESS_FILE_ADDED.file, data: encoder.encode(`\ufeff${ACCESS_FILE_ADDED.csv}`) }] : [entry];
 }), ZIPPED_AT);

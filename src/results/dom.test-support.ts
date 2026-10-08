@@ -133,7 +133,10 @@ export class FakeElement {
   /** Each attribute with its value as the browser reads it; "" for an attribute without a value. */
   readonly attributes = new Map<string, string>();
   readonly style: Record<string, string> = {};
+  /** How far a box is scrolled down and sideways. Nothing is laid out, so a box keeps both until the script sets them, as
+   * a browser keeps them while the box stays and what it holds is as large as before. */
   scrollTop = 0;
+  scrollLeft = 0;
   scrollHeight = 0;
   clientHeight = 0;
   offsetHeight = 0;
@@ -141,6 +144,10 @@ export class FakeElement {
   selectionEnd = 0;
   /** How often the script asked for the element to be brought into sight. */
   broughtIntoSight = 0;
+  /** How often the script gave the element the focus and let the browser bring it into sight, as a focus does unless the
+   * script asks it not to (`preventScroll`): a browser then scrolls the boxes around the element, and the page, to show it
+   * where it is not wholly in sight. */
+  focusedIntoSight = 0;
   private readonly listeners = new Map<string, Listener[]>();
   /** What was typed or chosen, and whether the box was ticked, once that differs from the markup. */
   private entered: string | undefined;
@@ -333,7 +340,11 @@ export class FakeElement {
     }
     return false;
   }
-  focus(): void { if (this.focusable) this.page.focused = this; }
+  focus(options: { preventScroll?: boolean } = {}): void {
+    if (!this.focusable) return;
+    this.page.focused = this;
+    if (options.preventScroll !== true) this.focusedIntoSight++;
+  }
 
   /* What a user does. A disabled control ignores it; an element the user cannot get at is the test's mistake. A user
    * acts on the page as the browser last drew it. */
