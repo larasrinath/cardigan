@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.11.1 (7 October 2026)
+
+The model map's selects, and new pictures.
+
+- **The model map's two selects**, of the section and of the module, have the chevron of the page's menus, clear of the round end of their pills, as the page's other chevrons have since 0.11.0.
+- **The README's pictures are retaken** on this build, with the bar of icons. As before, they show an invented app and model, which Cardigan's own card reader, report and model export read.
+- **What stays the same.** What is read from Anaplan, and what the tables hold.
+
 ## 0.11.0 (7 October 2026)
 
 A bar of icons in place of the side navigation, tables that hold still, and values read item by item.
