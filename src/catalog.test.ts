@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { UxEntityRef } from "./card-reader/card-types.js";
 import {
-  addActions, addLineItems, addLists, addModuleDimensions, addModuleViews, addSelections, applicableModuleIds, describeFormat, emptyCatalog, entityType,
-  filterItemNeeds, filterLineItemSearch, nameFilterValues, resolveFromCatalog, selectionShape, unnamedFilterRules, unresolvedFilterItems, viewLayoutFromMetadata,
+  addActions, addLineItems, addLists, addMetadataDimensionNames, addModuleDimensions, addModuleViews, addSelections, applicableModuleIds, CURRENT_USER,
+  describeFormat, emptyCatalog, entityType, filterItemNeeds, filterLineItemSearch, moduleViewsShape, nameFilterValues, resolveFromCatalog, selectionShape,
+  unnamedDimensionIds, unnamedFilterRules, unresolvedFilterItems, viewLayoutFromMetadata,
 } from "./catalog.js";
 
 // Synthetic IDs only.
@@ -91,6 +92,54 @@ describe("Page analyzer names from the model data service", () => {
     const resolved = resolveFromCatalog([ref("listItem", "201000000001", { dimensionId: LIST }), ref("view", VIEW)], catalog);
     expect(resolved.names).toEqual({ "listItem:201000000001": "North", [`view:${VIEW}`]: "Exceptions view" });
     expect(resolved.views).toEqual({ [`view:${VIEW}`]: view });
+  });
+
+  it("names a dimension from a grid's metadata where no listing named it, the list a branch of whose hierarchy it filters by included", () => {
+    const catalog = loaded();
+    addMetadataDimensionNames(catalog, {
+      rows: [{ dimensionId: "101000000904", label: "Region" }, { dimensionId: LIST, label: "Product from a view" }], cols: [{ dimensionId: "20000000003", label: "Month" }],
+      contextFilters: [{ parent: "101000000905", label: "Organization", contextFilterType: "BRANCH_SYNC" }, { parent: "101000000906", label: "Channel", type: "LIST" },
+        { parent: "101000000907" }, { label: "no ID" }],
+      pages: [{ dimensionId: 101000000908, label: "Scenario" }],
+    });
+    expect(catalog.dimensions.get("101000000904")).toBe("Region");
+    expect(catalog.dimensions.get("101000000905")).toBe("Organization");
+    expect(catalog.dimensions.get("101000000906")).toBe("Channel");
+    expect(catalog.dimensions.get("101000000908")).toBe("Scenario");
+    expect(catalog.dimensions.get(LIST)).toBe("Product"); // a name already known is kept
+    expect(catalog.dimensions.get("20000000003")).toBe("Time"); // and so is a system dimension's
+    expect(catalog.dimensions.has("101000000907")).toBe(false);
+    addMetadataDimensionNames(catalog, undefined);
+    addMetadataDimensionNames(catalog, { rows: "not a list" });
+  });
+
+  it("says which dimensions the references name that no answer named, and what the module views listing holds", () => {
+    const catalog = loaded();
+    const refs = [ref("dimension", LIST), ref("dimension", "101000000909"), ref("dimension", "20000000012"), ref("dimension", "20000000003"),
+      ref("dimension", "101000000909"), ref("dimension", "not an ID"), ref("listItem", "201000000001"), ref("dimension", "101000000910")];
+    expect(unnamedDimensionIds(refs, catalog)).toEqual(["101000000909", "101000000910"]);
+    catalog.dimensions.set("101000000910", "Channel");
+    expect(unnamedDimensionIds(refs, catalog)).toEqual(["101000000909"]);
+
+    expect(moduleViewsShape({ data: [{ id: 1 }, { id: 2 }], dimensions: { [LIST]: { label: "Product" } } })).toBe("2 modules, 1 dimensions labelled");
+    expect(moduleViewsShape({ data: [] })).toBe("0 modules, 0 dimensions labelled");
+    expect(moduleViewsShape({ modules: [] })).toBe("no data list");
+    expect(moduleViewsShape(undefined)).toBe("no data list");
+  });
+
+  it("knows Page Builder's Current User, so that no read looks for its name and no rule is logged as unnamed for it", () => {
+    const catalog = loaded();
+    const ruleWith = (selected: string[]) => [{ id: "card-1", grid: { regions: [{ module: { kind: "module", id: MODULE },
+      rows: { dimensions: [{ dimension: { kind: "dimension", id: LIST } }],
+        filter: { conditions: [{ operator: "EQUALS", values: ["true"], selectedItems: selected.map(id => ({ kind: "unknown", id })) }], groups: [] } } }] } }];
+    const followsTheViewer = ruleWith(["20000000003", CURRENT_USER, "1901000000001"]);
+    expect(filterItemNeeds(followsTheViewer, catalog).context).toEqual([]);
+    expect(unnamedFilterRules(followsTheViewer, catalog)).toEqual([]);
+    expect(resolveFromCatalog([ref("unknown", CURRENT_USER), ref("listItem", CURRENT_USER)], catalog).names)
+      .toEqual({ [`unknown:${CURRENT_USER}`]: "Current User", [`listItem:${CURRENT_USER}`]: "Current User" });
+    // An item no read named is still looked for, among the dimensions of its line item's module.
+    expect(filterItemNeeds(ruleWith(["20000000003", ITEM(358, 1), "1901000000001"]), catalog).context)
+      .toEqual([{ moduleId: MODULE, itemIds: [ITEM(358, 1)], unlikely: ["20000000003", LIST] }]);
   });
 
   it("finds filter items no listing names yet, with the dimensions of the axis they filter", () => {

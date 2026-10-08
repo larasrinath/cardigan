@@ -24,7 +24,10 @@ export function applyNames<T>(value: T, resolved: UxResolvedNames): T {
   return visit(value) as T;
 }
 /** A filter rule stores its line item and filter context together (observed in Page Builder, 27 Sep 2026): a dimension
- * in that list means "- current -", the page selection. Derived only when names established every entry's kind. */
+ * in that list means "- current -", the page selection. The line item comes last, after the context in Page Builder's
+ * order (seen live, 7 Oct 2026: Time, Users and Quarter, then the line item). Derived when names established every
+ * entry's kind; where they did not, when the last entry is the rule's one line item, and an entry of unknown kind is then
+ * an item the context is fixed to. */
 export function explainFilterRules<T>(value: T): T {
   const kindOf = (ref: Record<string, unknown>) => ref.kind === "unknown" ? ref.resolvedKind : ref.kind;
   const visit = (node: unknown): unknown => {
@@ -34,13 +37,16 @@ export function explainFilterRules<T>(value: T): T {
     const items = copy.selectedItems;
     // Only filter rule conditions: sorts also carry selectedItems (the header they sort by).
     const isFilterRule = typeof copy.operator === "string" && Array.isArray(copy.values);
-    if (isFilterRule && Array.isArray(items) && items.length && items.every(item => item && typeof item === "object" && typeof kindOf(item) === "string")) {
+    if (isFilterRule && Array.isArray(items) && items.length && items.every(item => item && typeof item === "object")) {
       const refs = items as Record<string, unknown>[];
       const lineItems = refs.filter(ref => kindOf(ref) === "lineItem");
-      if (lineItems.length === 1) copy.filterLineItem = lineItems[0];
-      const context = refs.filter(ref => kindOf(ref) !== "lineItem")
-        .map(ref => kindOf(ref) === "dimension" ? { dimension: ref, selection: "current" } : { item: ref });
-      if (context.length) copy.filterContext = context;
+      const known = refs.every(ref => typeof kindOf(ref) === "string");
+      if (known || (lineItems.length === 1 && lineItems[0] === refs[refs.length - 1])) {
+        if (lineItems.length === 1) copy.filterLineItem = lineItems[0];
+        const context = refs.filter(ref => kindOf(ref) !== "lineItem")
+          .map(ref => kindOf(ref) === "dimension" ? { dimension: ref, selection: "current" } : { item: ref });
+        if (context.length) copy.filterContext = context;
+      }
     }
     return copy;
   };

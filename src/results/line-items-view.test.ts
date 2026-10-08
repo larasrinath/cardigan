@@ -204,9 +204,9 @@ describe("The Line Items table as the results page shows it", () => {
     const view = lineItemsView(table(SHORT, [moduleRow("Sales", "Products, Time"),
       lineItem("Price", "Sales", "Products"), lineItem("Rate", "Sales", ""), lineItem("Quoted", "Sales", "\"Regions, EMEA\", Time"), lineItem("Spaced", "Sales", " - "),
       // Only the dash is the module's: a longer text that starts with one, or another kind of dash, is the line item's own.
-      lineItem("Odd", "Sales", "-- None --"), lineItem("Long dash", "Sales", "—")]));
+      lineItem("Odd", "Sales", "-- None --"), lineItem("Long dash", "Sales", "\u2014")]));
     expect(said(view)).toEqual([["Price", "Sales", "Products", "Line item"], ["Rate", "Sales", "", "Line item"], ["Quoted", "Sales", "\"Regions, EMEA\", Time", "Line item"],
-      ["Spaced", "Sales", "Products, Time", "Module"], ["Odd", "Sales", "-- None --", "Line item"], ["Long dash", "Sales", "—", "Line item"]]);
+      ["Spaced", "Sales", "Products, Time", "Module"], ["Odd", "Sales", "-- None --", "Line item"], ["Long dash", "Sales", "\u2014", "Line item"]]);
     expect(APPLIES_TO_SOURCE).toEqual({ module: "Module", lineItem: "Line item", notFound: "Module (not found)" });
     expect(APPLIES_TO_FROM).toBe("Applies To from");
   });

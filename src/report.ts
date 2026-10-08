@@ -29,7 +29,10 @@ export interface PageInput {
   failedActionTypes?: readonly string[];
 }
 
-export const NONE = "—";
+/** What a cell holds where there is nothing to say: a plain hyphen. The results page shows it greyed in the app's tables
+ * and takes it for no value wherever it reads them, so a hyphen that an Anaplan user typed alone, as a name or a value,
+ * counts as no value there too: that is accepted (results/table-engine.ts `NONE`). */
+export const NONE = "-";
 export const LINE_ITEMS = "20000000012";
 /** Column names in Page Builder's words where it has them ("Context selectors", "Show items that match"); every row that
  * belongs to a grid section names that section's module (reviewed with the user, 28 Sep 2026). */

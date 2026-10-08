@@ -38,9 +38,10 @@ export const BY_OBJECT_HEADERS: readonly string[] = ["Object type", "Object name
 const MODEL = "Model";
 
 /** What is not a plain text column, by header (columns.ts `Column`): the type is a tag with a filter, the two counts are
- * numbers, and the ID is one to copy, hidden until chosen, as in the file's own table. */
+ * counts, and the ID is one to copy, hidden until chosen, as in the file's own table. A count shows its thousands apart
+ * where it is a plain number; one that the file leaves open ("41+") is shown as its cell says it. */
 const SHOWN: ReadonlyMap<string, Partial<Column>> = new Map<string, Partial<Column>>([
-  ["Object type", { kind: "tag", filter: true }], ["Pages", { num: true }], ["Cards", { num: true }], ["Object ID", { kind: "id", hidden: true }]]);
+  ["Object type", { kind: "tag", filter: true }], ["Pages", { kind: "count", num: true }], ["Cards", { kind: "count", num: true }], ["Object ID", { kind: "id", hidden: true }]]);
 
 /** The object types report.ts writes, in the order of the index: what a model is made of, then what a card runs (the
  * model's own actions first), then the pages a card links to. Any other type follows these, by its name. */
@@ -473,8 +474,10 @@ function byObject(result: AnalysisResult): WhereUsedView | undefined {
   const counted = (least: number, most: number | undefined): Cell => (most === undefined ? least : `${least}+`);
   const rows = objects.map((object): Cell[] => [object.type, object.name, object.module, ...(multiModel ? [object.model] : []),
     counted(object.pages, object.pagesMost), counted(object.cards, object.cardsMost), object.roles.map(([role]) => role).join(separator), object.id]);
-  // A column of few different texts gets its filter from columns.ts, as in any table.
-  const columns = columnsOf({ file: "", label: "", headers, rows, guard: true }).map((column): Column => ({ ...column, ...SHOWN.get(column.label) }));
+  // A column of few different texts gets its filter from columns.ts, as in any table. The cells come from the file, which
+  // the analysis writes, and the view writes the same dash where it has nothing to say: the dash alone in a cell says that
+  // there is nothing, as it does in the file's own table.
+  const columns = columnsOf({ file: "", label: "", headers, rows, guard: true }).map((column): Column => ({ ...column, none: true, ...SHOWN.get(column.label) }));
 
   const totalUses = file.rows.length;
   const sharedPageNames = [...sharedUsed].map(([name, { pages: pagesOfName }]): [string, number] => [name, pagesOfName]);

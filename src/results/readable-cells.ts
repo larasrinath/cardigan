@@ -1,7 +1,7 @@
 /** Some cells of a model's settings grids hold a definition as JSON, because that is what Anaplan's own export of the grid
- * writes: a line item's Format (`{"minimumSignificantDigits":4,…,"dataType":"NUMBER"}`), its Summary, and an action's
- * definition in the Actions list. The result keeps that text exactly, and a row's drawer shows it. The page says such a cell in words,
- * and this module makes the words. It takes the cell's text and gives plain text back, which the caller escapes. It reads
+ * writes: a line item's Format (`{"minimumSignificantDigits":4,…,"dataType":"NUMBER"}`), its Summary, an action's
+ * definition in the Actions list, and what a source model is mapped to (`mappingWords`). The result keeps that text
+ * exactly, and a row's drawer shows it. The page says such a cell in words, and this module makes the words. It takes the cell's text and gives plain text back, which the caller escapes. It reads
  * no result and no page, and it never throws: a cell it cannot read gives undefined, and the caller shows the cell as it is.
  *
  * The words are Anaplan's own wherever the classic client's sources settle them: the client's modules (named below as the
@@ -346,6 +346,40 @@ function actionOf(action: Definition, names: CellNames): string {
   const list = listNameOf(id, names) ?? `list ID ${id}`;
   // A function, so that a name is put in as it is whatever it holds ("$&" means something to `replace` in text).
   return label.replace("List", () => list);
+}
+
+/* ---------- Mapped To ---------- */
+
+/** What a source model is mapped to, as the page says it: the workspace and the model, each by its name, or by its ID where
+ * the cell gives no name for it, and empty where the cell gives neither. */
+export interface MappingWords { workspace: string; model: string }
+
+/** One of the two a mapping names: by its name where the cell gives one that says something, or else by its ID, said as
+ * an ID as a list is said by its ID above. Nothing when the cell gives neither: a name is never made up. */
+function mappedOne(name: unknown, id: unknown): string | undefined {
+  const named = given(name);
+  if (named !== undefined) return named;
+  const identified = given(id);
+  return identified === undefined ? undefined : `ID ${identified}`;
+}
+
+/** A source model's Mapped To cell, of the Source Models grid, in words. Anaplan's own export of the grid writes the cell as
+ * an object that names the workspace and the model the source model is mapped to, each by its ID and by its name:
+ * `{"workspaceId":"dc56f2296af444ca894c1bca437ae1b4","workspaceName":"…","modelId":"42FAAB38…","modelName":"…"}`. No
+ * client source settles these four keys: they are the ones a real model's cell holds. Each of the two is said by its
+ * name, or else by its ID ("ID dc56f2296af444ca894c1bca437ae1b4"), and a name that is missing, blank or not text is never
+ * guessed. Undefined for a cell that is no such object, and for an object that names neither the workspace nor the model
+ * either way: the caller then shows the cell as it is. */
+export function mappingWords(text: unknown): MappingWords | undefined {
+  try {
+    const mapping = definitionOf(text);
+    if (mapping === undefined) return undefined;
+    const workspace = mappedOne(mapping.workspaceName, mapping.workspaceId);
+    const model = mappedOne(mapping.modelName, mapping.modelId);
+    return workspace === undefined && model === undefined ? undefined : { workspace: workspace ?? "", model: model ?? "" };
+  } catch {
+    return undefined;
+  }
 }
 
 /* ---------- for the caller ---------- */

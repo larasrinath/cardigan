@@ -211,6 +211,47 @@ export function addActions(catalog: ModelCatalog, key: "imports" | "exports" | "
 // System dimensions every model has; the socket's dimension labels normally name them too.
 const BUILT_IN_DIMENSIONS: Record<string, string> = { "20000000012": "Line Items", "20000000003": "Time" };
 
+/** A grid's metadata labels the dimensions it shows: those on rows and columns, its context selectors, and the lists it
+ * filters by a branch of their hierarchy (`contextFilterType: "BRANCH_SYNC"`), which the saved view's layout leaves out.
+ * Names the dimensions no other answer named; a name already known is kept, and the system dimensions keep theirs. */
+export function addMetadataDimensionNames(catalog: ModelCatalog, json: unknown): void {
+  const root = json && typeof json === "object" ? (json as Obj) : {};
+  const entries: [unknown, string | undefined][] = [
+    ...list(root.rows).map((item): [unknown, string | undefined] => [item.dimensionId ?? item.id, text(item.label) ?? text(item.name)]),
+    ...list(root.cols ?? root.columns).map((item): [unknown, string | undefined] => [item.dimensionId ?? item.id, text(item.label) ?? text(item.name)]),
+    ...list(root.contextFilters).map((item): [unknown, string | undefined] => [item.parent ?? item.dimensionId, text(item.label) ?? text(item.name)]),
+    ...list(root.pages).map((item): [unknown, string | undefined] => [item.dimensionId ?? item.parent, text(item.label) ?? text(item.name)]),
+  ];
+  for (const [value, label] of entries) {
+    const id = idText(value);
+    if (id && label && LONG_ID.test(id) && !(id in BUILT_IN_DIMENSIONS) && !catalog.dimensions.has(id)) catalog.dimensions.set(id, label);
+  }
+}
+
+/** The dimensions the references name that no answer named, in the references' order: no list or module dimension listing
+ * labelled them, and they are no system dimension. */
+export function unnamedDimensionIds(refs: readonly UxEntityRef[], catalog: ModelCatalog): string[] {
+  return [...new Set(refs.filter(ref => ref.kind === "dimension" && LONG_ID.test(ref.id)).map(ref => ref.id))]
+    .filter(id => !catalog.dimensions.has(id) && !(id in BUILT_IN_DIMENSIONS));
+}
+
+/** What the module views listing holds, for the diagnostic log: how many modules, and how many dimensions it labels. */
+export function moduleViewsShape(json: unknown): string {
+  const root = json && typeof json === "object" ? (json as Obj) : {};
+  if (!Array.isArray(root.data)) return "no data list";
+  const labelled = root.dimensions && typeof root.dimensions === "object" ? Object.keys(root.dimensions as Obj).length : 0;
+  return `${root.data.length} modules, ${labelled} dimensions labelled`;
+}
+
+/** Page Builder's Current User: what a filter rule's context is fixed to for the Users dimension when the rule follows
+ * whoever views the page (seen live, 7 Oct 2026, with Page Builder showing "Users: Current User"). It is no item of the
+ * Users list, so no read names it, and the model's own Users list is the dimension it stands for. */
+export const CURRENT_USER = "111999999997";
+const USERS = "101999999999";
+/** Items no read names, by their ID. */
+const SYSTEM_ITEMS: Record<string, string> = { [CURRENT_USER]: "Current User" };
+const itemName = (catalog: ModelCatalog, id: string): string | undefined => catalog.listItems.get(id) ?? SYSTEM_ITEMS[id];
+
 type Found = { name: string; kind: Exclude<UxEntityRef["kind"], "unknown">; moduleId?: string };
 
 function lookup(ref: UxEntityRef, catalog: ModelCatalog): Found | undefined {
@@ -227,8 +268,8 @@ function lookup(ref: UxEntityRef, catalog: ModelCatalog): Found | undefined {
     return moduleName ? { name: moduleName, kind: "module" } : undefined;
   };
   const listItem = (id: string): Found | undefined => {
-    const itemName = catalog.listItems.get(id);
-    return itemName ? { name: itemName, kind: "listItem" } : undefined;
+    const named = itemName(catalog, id);
+    return named ? { name: named, kind: "listItem" } : undefined;
   };
   switch (ref.kind) {
     case "module": return module(ref.id);
@@ -314,7 +355,7 @@ function ruleItems(condition: Obj, catalog: ModelCatalog): { lineItems: string[]
   const ids = list(condition.selectedItems).map(item => String(item.id));
   const dimension = (id: string) => catalog.dimensions.has(id) || id in BUILT_IN_DIMENSIONS;
   return { lineItems: ids.filter(id => catalog.lineItems.has(id)), dimensions: ids.filter(dimension),
-    unknown: ids.filter(id => !catalog.lineItems.has(id) && !dimension(id) && !catalog.modules.has(id) && !catalog.listItems.has(id)) };
+    unknown: ids.filter(id => !catalog.lineItems.has(id) && !dimension(id) && !catalog.modules.has(id) && itemName(catalog, id) === undefined) };
 }
 
 /** IDs in filter rules that may be line items of a module not read yet, with the dimensions of the axis each rule filters.
@@ -483,7 +524,7 @@ export function filterItemNeeds(cards: readonly unknown[], catalog: ModelCatalog
       context.set(moduleId, group);
     }
     const format = catalog.lineItemFormats.get(lineItemId);
-    const unnamed = comparedItems(condition, format).filter(id => !catalog.listItems.has(id));
+    const unnamed = comparedItems(condition, format).filter(id => itemName(catalog, id) === undefined);
     if (unnamed.length) {
       const group = values.get(lineItemId) ?? { moduleId, ...(format?.listId ? { listId: format.listId } : {}), itemIds: new Set<string>() };
       unnamed.forEach(id => group.itemIds.add(id));
@@ -506,7 +547,19 @@ export function nameFilterValues<T extends { cards: readonly unknown[] }>(detail
     const { lineItems } = ruleItems(condition, catalog);
     if (lineItems.length !== 1) continue;
     const items = new Set(comparedItems(condition, catalog.lineItemFormats.get(lineItems[0])));
-    if (items.size) condition.values = (condition.values as unknown[]).map(value => (items.has(String(value)) ? catalog.listItems.get(String(value)) ?? value : value));
+    if (items.size) condition.values = (condition.values as unknown[]).map(value => (items.has(String(value)) ? itemName(catalog, String(value)) ?? value : value));
+  }
+  return details;
+}
+
+/** A rule's context fixed to Current User, in card details whose rules were read (card-naming.ts `explainFilterRules`),
+ * as Page Builder shows it: the Users dimension, with Current User as its selection. The model's own name for its Users
+ * list is used where an answer gave one. */
+export function describeSystemContext<T extends { cards: readonly unknown[] }>(details: T, catalog: ModelCatalog): T {
+  for (const { condition } of filterRules(details.cards)) {
+    if (!Array.isArray(condition.filterContext)) continue;
+    condition.filterContext = (condition.filterContext as Obj[]).map(entry => (entry.item?.id === CURRENT_USER
+      ? { dimension: { kind: "dimension", id: USERS, name: catalog.dimensions.get(USERS) ?? "Users" }, selection: "Current User" } : entry));
   }
   return details;
 }
@@ -517,7 +570,7 @@ export function unnamedFilterRules(cards: readonly unknown[], catalog: ModelCata
   const kind = (id: string) => {
     const lineItem = catalog.lineItems.get(id);
     return lineItem ? `line item ${id} of module ${lineItem.moduleId}` : catalog.dimensions.has(id) || id in BUILT_IN_DIMENSIONS ? `dimension ${id}`
-      : catalog.modules.has(id) ? `module ${id}` : catalog.listItems.has(id) ? `item ${id}` : `unnamed ${id}`;
+      : catalog.modules.has(id) ? `module ${id}` : itemName(catalog, id) !== undefined ? `item ${id}` : `unnamed ${id}`;
   };
   return [...new Set(filterRules(cards).filter(({ condition }) => ruleItems(condition, catalog).unknown.length)
     .map(({ condition, cardId }) => `filter rule with an unnamed item (card ${cardId}): ${list(condition.selectedItems).map(item => kind(String(item.id))).join(", ")}`))];

@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { Cell, ResultTable } from "../result-types.js";
+import { columnWidths, headerWidth, ROW_BUTTON, WIDEST } from "./column-widths.js";
 import { columnsOf, type Column } from "./columns.js";
 import { parseMarkup, type FakeElement } from "./dom.test-support.js";
-import { cardDrawerSubHtml, cellHtml, colChooserHtml, colFilterHtml, FORGOTTEN_LINE, keptCopyHtml, MAP_FAILED, MAP_LABEL, mapHtml, navHtml, NOT_REMOVED_LINE, objectDrawerHtml, objectDrawerSubHtml, overviewHtml, pagerHtml,
-  rowDrawerHtml, tableHtml, USES_AT_FIRST, type KeptCopy, type Links, type TableView } from "./markup.js";
+import { cardDrawerHtml, cardDrawerSubHtml, cellHtml, colChooserHtml, colFilterHtml, FILE_ICONS, FORGOTTEN_LINE, keptCopyHtml, MAP_FAILED, MAP_LABEL, mapHtml, NAV_ICONS, navHtml, navItems, navMenuHtml,
+  NOT_REMOVED_LINE, objectDrawerHtml, objectDrawerSubHtml, overviewHtml, pagerHtml, rowCellHtml, rowDrawerHtml, tableHtml, USES_AT_FIRST, type KeptCopy, type Links, type NavItem,
+  type TableView } from "./markup.js";
 import type { Overview } from "./result-view.js";
-import { pageOf, selectRows } from "./table-engine.js";
+import { NONE, pageOf, selectRows } from "./table-engine.js";
 import type { WhereUsedObject } from "./where-used-view.js";
 
 // What each piece of markup shows: the right value in the right place. markup.test.ts checks that no value can change the
@@ -15,14 +17,15 @@ import type { WhereUsedObject } from "./where-used-view.js";
 const LINKS: Links = { page: true, card: true };
 const NO_LINKS: Links = { page: false, card: false };
 const KINDS: Column["kind"][] = ["text", "id", "tag", "page", "card"];
+/** A column of one of the app's tables, where the dash alone says that there is nothing (columns.ts `Column`). */
 const column = (index: number, label: string, kind: Column["kind"] = "text", extra: Partial<Column> = {}): Column =>
-  ({ index, label, kind, num: false, filter: false, hidden: false, ...extra });
+  ({ index, label, kind, num: false, filter: false, hidden: false, none: true, ...extra });
 
 // Cards.csv, so that its columns are the design's: Page a link with a filter, Card # a number, Card type a tag with a
 // filter, Card ID an ID that starts hidden.
 const CARDS: ResultTable = {
   file: "Cards.csv", label: "Cards", headers: ["Page", "Card #", "Card title", "Card type", "Card ID"], guard: true,
-  rows: [["Overview", 1, "Sales by region", "Grid", "card-a"], ["Overview", 2, "Margin %", "KPI", "card-b"], ["Stores", 3, "", "Text", "—"]],
+  rows: [["Overview", 1, "Sales by region", "Grid", "card-a"], ["Overview", 2, "Margin %", "KPI", "card-b"], ["Stores", 3, "", "Text", "-"]],
 };
 // A model's file: its first header is empty, and nothing is known about its columns.
 const LINES: ResultTable = {
@@ -32,12 +35,12 @@ const LINES: ResultTable = {
 
 function viewOf(table: ResultTable, links: Links, overrides: Partial<TableView> = {}): TableView {
   const page = pageOf(selectRows(table.rows, { search: "", filters: new Map() }), 0, 50);
-  return { label: table.label, columns: columnsOf(table), rows: page.rows, page: page.page, pages: page.pages, pageSize: 50, from: page.from, to: page.to,
-    total: page.total, all: table.rows.length, search: "", sort: undefined, filtered: new Set(), context: undefined, links, note: undefined, ...overrides };
+  return { label: table.label, columns: columnsOf(table), widths: columnWidths(columnsOf(table), table.rows), rows: page.rows, page: page.page, pages: page.pages, pageSize: 50,
+    from: page.from, to: page.to, total: page.total, all: table.rows.length, search: "", sort: undefined, filtered: new Set(), context: undefined, links, note: undefined, ...overrides };
 }
 const text = (element: FakeElement | null | undefined): string => element?.textContent.trim() ?? "";
 /** An overview that holds nothing but what a test gives it. */
-const overviewWith = (parts: Partial<Overview>): Overview => ({ tiles: [], cardTypes: [], models: [], notes: [], about: [], files: [], howToRead: [], log: [], ...parts });
+const overviewWith = (parts: Partial<Overview>): Overview => ({ tiles: [], notes: [], about: [], files: [], howToRead: [], log: [], ...parts });
 /** The body of a table's markup: the text of each cell, row by row. */
 const cells = (html: string): string[][] => parseMarkup(html).querySelectorAll("tbody tr").map(row => row.children.map(text));
 
@@ -49,13 +52,39 @@ describe("What the results page's markup shows", () => {
         for (const index of [0, 1, 2, 3]) expect(text(parseMarkup(cellHtml(column(index, "Any", kind), row, links))), `${kind} ${index}`).toBe(row[index]);
       }
     }
-    // A number shows as its digits, 0 included. An empty or missing cell shows nothing, and the dash is the greyed dash, in every kind of column.
+    // A number shows as its digits, 0 included. An empty or missing cell shows nothing, and in an app's table the dash is
+    // the greyed dash, in every kind of column. In a model's it is Anaplan's text, shown as any text is in its column.
     expect([text(parseMarkup(cellHtml(column(1, "Card #"), ["a", 0], NO_LINKS))), text(parseMarkup(cellHtml(column(1, "Card #"), ["a", -12.5], NO_LINKS)))]).toEqual(["0", "-12.5"]);
     for (const kind of KINDS) {
       expect([cellHtml(column(0, "Any", kind), [""], LINKS), cellHtml(column(3, "Any", kind), ["a"], LINKS)], kind).toEqual(["", ""]);
-      const dash = parseMarkup(cellHtml(column(0, "Any", kind), ["—"], LINKS)).children;
-      expect(dash.map(element => [element.localName, element.getAttribute("class"), element.textContent]), kind).toEqual([["span", "dash", "—"]]);
+      const dash = parseMarkup(cellHtml(column(0, "Any", kind), [NONE], LINKS)).children;
+      expect(dash.map(element => [element.localName, element.getAttribute("class"), element.textContent]), kind).toEqual([["span", "dash", NONE]]);
+      const anaplans = parseMarkup(cellHtml(column(0, "Any", kind, { none: false }), [NONE], LINKS));
+      expect([text(anaplans), anaplans.querySelectorAll(".dash").length], kind).toEqual([NONE, 0]);
     }
+  });
+
+  it("greys the dash in an app's table, where it says that there is nothing, and shows it as text in a model's, where it is Anaplan's", () => {
+    // The app's Cards file with the dash for a card without a title, and a model's Modules file as Anaplan writes it: a
+    // dash under Applies To on the rows that divide the list of modules, one of which is called by a dash alone.
+    const cards: ResultTable = { ...CARDS, rows: [["Overview", 1, NONE, "Grid", "card-a"]] };
+    const modules: ResultTable = { file: "Modules.csv", label: "Modules", headers: ["", "Applies To"], guard: false,
+      rows: [["REV01 Revenue", "Products, Time"], ["--- Inputs ---", NONE], [NONE, NONE]] };
+    const [app, model] = [columnsOf(cards), columnsOf(modules)];
+    /** What a cell is made of: each element, by its name, its class, its text and its tooltip. */
+    const made = (html: string) => parseMarkup(html).children.map(element => [element.localName, element.getAttribute("class"), element.textContent, element.title]);
+    // In the app's table the dash is greyed, and is no text with a tooltip; in the table and in the drawer alike.
+    expect([made(cellHtml(app[2], cards.rows[0], LINKS)), made(cellHtml(app[2], cards.rows[0], LINKS, true))]).toEqual([[["span", "dash", NONE, ""]], [["span", "dash", NONE, ""]]]);
+    // In the model's table it is the cell's text like any other, with its tooltip, whichever column it is in.
+    expect([made(cellHtml(model[1], modules.rows[1], NO_LINKS)), made(cellHtml(model[0], modules.rows[2], NO_LINKS))]).toEqual([[["span", "cell-t", NONE, NONE]], [["span", "cell-t", NONE, NONE]]]);
+    // Where it is the cell that opens its row, it is the button's own content, as a name is, and the button is named by it.
+    const [opens, ...others] = parseMarkup(rowCellHtml(model[0], modules.rows[2], NO_LINKS)).children;
+    expect([others.length, opens.dataset.act, opens.getAttribute("aria-label"), opens.children.map(child => [child.getAttribute("class"), child.textContent])])
+      .toEqual([0, "row", null, [["cell-t", NONE]]]);
+    // Whole tables: the app's greys its one dash; the model's greys none of its three, and shows each as it was written.
+    expect(parseMarkup(tableHtml(viewOf(cards, LINKS))).querySelectorAll("tbody .dash").map(text)).toEqual([NONE]);
+    const shown = tableHtml(viewOf(modules, NO_LINKS));
+    expect([parseMarkup(shown).querySelectorAll(".dash").length, cells(shown)]).toEqual([0, [["REV01 Revenue", "Products, Time"], ["--- Inputs ---", NONE], [NONE, NONE]]]);
   });
 
   it("shows a cell the way its column is shown: plain text, an ID to copy, a tag, or a link to a page or a card", () => {
@@ -146,6 +175,55 @@ describe("What the results page's markup shows", () => {
     expect(numbers).toEqual(Array(3).fill([false, true, false, false, false]));
   });
 
+  it("lays a table out by a width for each column shown, in their order, each its own and the same for any rows shown", () => {
+    /** The width each column's <col> says, in ch, in the order of the columns. */
+    const widths = (view: TableView) => parseMarkup(tableHtml(view)).querySelectorAll("colgroup col").map(col => col.getAttribute("style"));
+    const all = columnsOf(CARDS);
+    const given = new Map([[0, 31], [1, 12], [2, 40], [3, 15], [4, 20]]);
+    // One <col> for each column shown, before the head, each with its own column's width; the button that opens a row
+    // stands before a page's link in the first cell, and that column has its room too.
+    const table = parseMarkup(tableHtml(viewOf(CARDS, LINKS, { widths: given }))).querySelector("table");
+    expect(table?.children.map(child => child.localName)).toEqual(["colgroup", "thead", "tbody"]);
+    expect(widths(viewOf(CARDS, LINKS, { widths: given }))).toEqual([`--width:${31 + ROW_BUTTON}ch`, "--width:12ch", "--width:40ch", "--width:15ch", "--width:20ch"]);
+    // A column carries its width wherever it is shown, and only the columns shown have one. The button's room goes with
+    // the cell that opens the row: none where that cell's content is the button itself, as a card's title is without links.
+    expect(widths(viewOf(CARDS, LINKS, { widths: given, columns: [all[4], all[2], all[1]] }))).toEqual([`--width:${20 + ROW_BUTTON}ch`, "--width:40ch", "--width:12ch"]);
+    expect(widths(viewOf(CARDS, NO_LINKS, { widths: given, columns: [all[2], all[0]] }))).toEqual(["--width:40ch", "--width:31ch"]);
+    expect(widths(viewOf(CARDS, NO_LINKS, { widths: given, columns: [all[0]], opensFrom: 2 }))).toEqual(["--width:31ch"]);
+    // The rows shown, a page of them, sorted, searched, filtered or none at all, change no width.
+    const whole = widths(viewOf(CARDS, LINKS));
+    for (const overrides of [{ rows: [CARDS.rows[2]] }, { rows: [...CARDS.rows].reverse(), sort: { column: 2, dir: "desc" as const } }, { rows: [], total: 0, from: 0, to: 0, search: "zzz" },
+      { filtered: new Set([3]), rows: CARDS.rows.slice(0, 1) }, { page: 1, pages: 2, from: 51, to: 52 }]) {
+      expect(widths(viewOf(CARDS, LINKS, overrides)), JSON.stringify(overrides)).toEqual(whole);
+    }
+    // A column without a width of its own is as wide as its header; a width that is not a whole number is rounded, and
+    // none is wider than a column gets.
+    expect(widths(viewOf(CARDS, NO_LINKS, { widths: new Map([[2, 17.4], [3, 900]]), columns: [all[2], all[3], all[1]] })))
+      .toEqual(["--width:17ch", `--width:${WIDEST}ch`, `--width:${headerWidth(all[1])}ch`]);
+  });
+
+  it("shows a count with its thousands apart, in the table, in its tooltip and in the drawer, and any other text of its column as it is", () => {
+    const columns = [column(0, "Name"), column(1, "Cell Count", "count", { num: true }), column(2, "Module ID", "id"), column(3, "Code")];
+    const rows: Cell[][] = [["Revenue", "15389009578", "102000000001", "102000000001"], ["Units", 1234, "x", "1234"], ["Empty", "", "", ""], ["None", NONE, NONE, NONE],
+      ["Word", "n/a", "", ""], ["Fraction", "12.5", "", ""], ["Grouped", "2,400", "", ""], ["Code", "0012", "", ""], ["Open", "41+", "", ""], ["Small", "12", "", ""]];
+    const shown = rows.map(row => text(parseMarkup(cellHtml(columns[1], row, NO_LINKS))));
+    expect(shown).toEqual(["15,389,009,578", "1,234", "", NONE, "n/a", "12.5", "2,400", "0012", "41+", "12"]);
+    // The tooltip says what the cell shows; the dash is the greyed dash, as in every column.
+    expect(parseMarkup(cellHtml(columns[1], rows[0], NO_LINKS)).children[0].title).toBe("15,389,009,578");
+    expect(parseMarkup(cellHtml(columns[1], rows[3], NO_LINKS)).children.map(element => element.getAttribute("class"))).toEqual(["dash"]);
+    // An ID and a code of figures are not counts: they show as they are, in the table and in the drawer.
+    expect([text(parseMarkup(cellHtml(columns[2], rows[0], NO_LINKS))), text(parseMarkup(cellHtml(columns[3], rows[0], NO_LINKS))), text(parseMarkup(cellHtml(columns[3], rows[1], NO_LINKS)))])
+      .toEqual(["102000000001", "102000000001", "1234"]);
+    const drawer = parseMarkup(rowDrawerHtml(columns, rows[0], NO_LINKS)).querySelectorAll("dd").map(text);
+    expect(drawer).toEqual(["Revenue", "15,389,009,578", "102000000001", "102000000001"]);
+    // The row is the result's own, and stays as it was: the commas are what the page shows of it.
+    expect(rows[0]).toEqual(["Revenue", "15389009578", "102000000001", "102000000001"]);
+    // In a table the count's column is a number's, right-aligned, and the row's own button shows the count too.
+    const table = parseMarkup(tableHtml(viewOf({ file: "Modules.csv", label: "Modules", headers: ["", "Cell Count"], rows: [["Revenue", "15389009578"]], guard: false }, NO_LINKS)));
+    expect(table.querySelectorAll("tbody td").map(cell => [text(cell), cell.classList.contains("num")])).toEqual([["Revenue", false], ["15,389,009,578", true]]);
+    expect(text(parseMarkup(rowCellHtml(columns[1], rows[0], NO_LINKS)).querySelector('[data-act="row"]'))).toBe("15,389,009,578");
+  });
+
   it("frames a table with its name, the search as typed, the count, and Reset when something is in force", () => {
     const frame = (overrides: Partial<TableView>) => {
       const view = parseMarkup(tableHtml(viewOf(CARDS, LINKS, overrides)));
@@ -175,7 +253,7 @@ describe("What the results page's markup shows", () => {
     // The pager's controls are its own: the buttons that turn the page and the list of page sizes, with their names as they were.
     const pager = parseMarkup(tableHtml(viewOf(CARDS, LINKS, { page: 1, pages: 3, from: 51, to: 100, total: 120, all: 120 }))).querySelector("#pager");
     expect([pager?.querySelectorAll(".pg-btn[data-page]").map(button => button.getAttribute("aria-label")), pager?.querySelectorAll("select").map(list => list.id)])
-      .toEqual([["Previous page", "Page 1", "Page 2", "Page 3", "Next page"], ["pageSize"]]);
+      .toEqual([["Previous page", "Next page"], ["pageSize"]]);
   });
 
   it("says why a table shows no row: it has none, or nothing matches what is in force", () => {
@@ -213,18 +291,21 @@ describe("What the results page's markup shows", () => {
     expect(parseMarkup(tableHtml(viewOf(CARDS, LINKS, { empty: own }))).textContent.includes("No card of this app")).toBe(false);
   });
 
-  it("offers Previous, the page numbers and Next, each with the page it goes to, and marks the page shown", () => {
-    /** Each button of the pager: its words, its name, the page it goes to (from 0), and "off" or "here" when disabled or current. */
+  it("offers Previous and Next, each with the page it goes to and disabled where there is no such page, and no page's number", () => {
+    /** Each button of the pager: its words, its name, the page it goes to (from 0), and "off" when it is disabled. */
     const pager = (page: number, pages: number) => parseMarkup(pagerHtml(page, pages, pages * 50, 50)).querySelectorAll(".pg-btn").map(button =>
-      [text(button), button.getAttribute("aria-label"), button.dataset.page, button.disabled ? "off" : button.getAttribute("aria-current") === "true" ? "here" : ""]);
-    expect(pager(0, 3)).toEqual([["‹", "Previous page", "-1", "off"], ["1", "Page 1", "0", "here"], ["2", "Page 2", "1", ""], ["3", "Page 3", "2", ""], ["›", "Next page", "1", ""]]);
-    expect(pager(1, 3)).toEqual([["‹", "Previous page", "0", ""], ["1", "Page 1", "0", ""], ["2", "Page 2", "1", "here"], ["3", "Page 3", "2", ""], ["›", "Next page", "2", ""]]);
-    expect(pager(2, 3)).toEqual([["‹", "Previous page", "1", ""], ["1", "Page 1", "0", ""], ["2", "Page 2", "1", ""], ["3", "Page 3", "2", "here"], ["›", "Next page", "3", "off"]]);
-    expect(pager(0, 1)).toEqual([["‹", "Previous page", "-1", "off"], ["1", "Page 1", "0", "here"], ["›", "Next page", "1", "off"]]);
-    // Many pages: the ends, the pages around the one shown, and a gap where pages are left out.
-    const long = parseMarkup(pagerHtml(10, 20, 1000, 50)).querySelector(".pages");
-    expect(long?.children.map(item => (item.localName === "button" ? `${text(item)}>${item.dataset.page}${item.getAttribute("aria-current") ? "!" : ""}` : text(item))))
-      .toEqual(["1>0", "…", "10>9", "11>10!", "12>11", "…", "20>19"]);
+      [text(button), button.getAttribute("aria-label"), button.dataset.page, button.disabled ? "off" : ""]);
+    expect(pager(0, 3)).toEqual([["‹", "Previous page", "-1", "off"], ["›", "Next page", "1", ""]]);
+    expect(pager(1, 3)).toEqual([["‹", "Previous page", "0", ""], ["›", "Next page", "2", ""]]);
+    expect(pager(2, 3)).toEqual([["‹", "Previous page", "1", ""], ["›", "Next page", "3", "off"]]);
+    expect(pager(0, 1)).toEqual([["‹", "Previous page", "-1", "off"], ["›", "Next page", "1", "off"]]);
+    // Many pages: the same two buttons side by side and then the choice of rows per page, with no page's number between
+    // them, no gap where numbers were left out, and nothing that marks a page as the one shown. The count that stands
+    // before the pager says which rows are shown.
+    const long = parseMarkup(`<div class="pager">${pagerHtml(10, 20, 1000, 50)}</div>`).querySelector(".pager");
+    expect(long?.children.map(item => (item.localName === "button" ? `${text(item)}>${item.dataset.page}` : item.getAttribute("class"))))
+      .toEqual(["‹>9", "›>11", "per-page"]);
+    expect([long?.querySelectorAll("[aria-current]").length, long?.textContent.includes("…")]).toEqual([0, false]);
     // Rows per page: the three sizes, with the one in force selected.
     for (const size of [25, 50, 100]) {
       const list = parseMarkup(pagerHtml(0, 3, 150, size)).querySelector("#pageSize");
@@ -258,6 +339,10 @@ describe("What the results page's markup shows", () => {
     // A column that holds nothing at all says so, and has nothing to count.
     const none = parseMarkup(colFilterHtml(column(3, "Card type"), [], undefined));
     expect([none.querySelectorAll(".pop-opt").length, text(none.querySelector(".pop-empty")), none.querySelectorAll(".pop-hd").map(text)]).toEqual([0, "No values", ["Filter: Card typeShow all"]]);
+    // A count's column lists each count as its cells show it, with its thousands apart; a box still carries its place.
+    const counts = [["", 1], ["12", 2], ["2252068", 1], ["n/a", 1]] as const;
+    expect(parseMarkup(colFilterHtml(column(2, "Cell Count", "count"), counts, undefined)).querySelectorAll(".pop-opt").map(option => [text(option.children[1]), option.querySelector("input")?.dataset.fval]))
+      .toEqual([["(blank)", "0"], ["12", "1"], ["2,252,068", "2"], ["n/a", "3"]]);
   });
 
   it("lists every column in the chooser, ticked when shown, each box carrying its own column", () => {
@@ -279,30 +364,21 @@ describe("What the results page's markup shows", () => {
     expect([text(popover.querySelector(".pop-hd span")), popover.querySelectorAll("[data-popact]").map(button => [button.dataset.popact, text(button)])]).toEqual(["Show / hide columns", [["defaults", "Defaults"]]]);
   });
 
-  it("shows the overview's tiles, an app's cards by type as bars, its models and the notes", () => {
+  it("shows the overview's tiles and the notes, and no panel of an app's cards by type or of its models", () => {
     const view = parseMarkup(overviewHtml(overviewWith({
       tiles: [{ label: "Pages", count: 7 }, { label: "Cards", count: 1 }, { label: "Filters", count: 0 }],
-      cardTypes: [["Grid", 8], ["KPI", 2], ["", 1]],
-      models: [{ model: "Model one", workspace: "Main", modelId: "id-1" }, { model: "Model two", workspace: "Other", modelId: "—" }],
       notes: ["A first note.", "A second note."],
     })));
     expect(view.querySelectorAll(".stat").map(tile => tile.children.map(text))).toEqual([["Pages", "7", "rows"], ["Cards", "1", "row"], ["Filters", "0", "rows"]]);
-    // A bar is as long as its type's share of the largest; a type without a name is called blank.
-    expect(view.querySelectorAll(".typebar").map(bar => [text(bar.children[0]), text(bar.querySelector(".tb-n")), bar.querySelector(".tb-fill")?.getAttribute("style")])).toEqual([
-      ["Grid", "8", "display:block;width:100%"], ["KPI", "2", "display:block;width:25%"], ["(blank)", "1", "display:block;width:13%"]]);
-    // A model: its name, its ID to copy (a dash where there is none), and its workspace.
-    expect(view.querySelectorAll(".model-row").map(model => [model.querySelector(".m-name")?.childNodes[0].textContent.trim(), model.querySelector(".id-pill")?.dataset.copy ?? text(model.querySelector(".dash")),
-      text(model.querySelector(".m-sub"))])).toEqual([["Model one", "id-1", "Workspace: Main"], ["Model two", "—", "Workspace: Other"]]);
-    // The notes stand above the cards by type and the models.
-    expect([view.querySelectorAll(".panel h2").map(text), view.querySelectorAll(".warn-list li").map(text)]).toEqual([["Notes", "Cards by type", "Models"], ["A first note.", "A second note."]]);
-    // A model's export has neither cards nor models, and a result may have no notes: then there is no panel for them, and
-    // without a Details file nothing else stands under the tiles but the place for what the page keeps of the result,
-    // which holds nothing.
+    // The notes are the overview's one panel. An app's cards by type have none, and nor have its models, which the
+    // details of the export name.
+    expect([view.querySelectorAll(".panel h2").map(text), view.querySelectorAll(".warn-list li").map(text)]).toEqual([["Notes"], ["A first note.", "A second note."]]);
+    expect(view.querySelectorAll(".typebar, .model-row, .ov-cols, .id-pill")).toEqual([]);
+    // A result may have no notes: then there is no panel at all, and without a Details file nothing else stands under the
+    // tiles but the place for what the page keeps of the result, which holds nothing.
     const bare = parseMarkup(overviewHtml(overviewWith({ tiles: [{ label: "Line Items", count: 120 }] })));
-    expect([bare.querySelectorAll(".stat").map(tile => tile.children.map(text)), bare.querySelectorAll(".panel").length, bare.querySelectorAll(".ov-cols").length,
-      bare.children.map(child => child.localName), bare.querySelector("#ovKept")?.innerHTML]).toEqual([[["Line Items", "120", "rows"]], 0, 0, ["h1", "div", "p"], ""]);
-    const one = parseMarkup(overviewHtml(overviewWith({ cardTypes: [["Grid", 3]] })));
-    expect([one.querySelectorAll(".panel h2").map(text), one.querySelector(".tb-fill")?.getAttribute("style")]).toEqual([["Cards by type"], "display:block;width:100%"]);
+    expect([bare.querySelectorAll(".stat").map(tile => tile.children.map(text)), bare.querySelectorAll(".panel").length, bare.children.map(child => child.localName),
+      bare.querySelector("#ovKept")?.innerHTML]).toEqual([[["Line Items", "120", "rows"]], 0, ["h1", "div", "p"], ""]);
   });
 
   it("says on a tile how many rows there are in all, under the rows its table lists, where the two are not the same number", () => {
@@ -336,6 +412,68 @@ describe("What the results page's markup shows", () => {
     }
   });
 
+  it("names the text that was read for a column the page made out of a column of the file by the file's name for that column, once", () => {
+    // A source model's row as the page shows it: Mapped To as two columns, each said out of the one cell of the file.
+    const columns = [column(0, "Name"), column(1, "Mapped Workspace"), column(2, "Mapped Model"), column(3, "Notes")];
+    const row = ["Finance Hub (old)", "CL1 WU Finance [DEV-1]", "Finance Hub", "From the hub"];
+    const mapping = '{"workspaceId":"dc56f2296af444ca894c1bca437ae1b4","workspaceName":"CL1 WU Finance [DEV-1]","modelId":"42FAAB38006B4E478C5A051DADA1B7C0","modelName":"Finance Hub"}';
+    const names = (html: string) => parseMarkup(html).querySelectorAll("dt").map(name => name.textContent);
+    const drawer = rowDrawerHtml(columns, row, NO_LINKS, new Map([[2, mapping]]), undefined, new Map([[2, "Mapped To"]]));
+    // The two columns, then the text both were read from, once, under the file's name for it and "as read".
+    expect(names(drawer)).toEqual(["Name", "Mapped Workspace", "Mapped Model", "Mapped To as read", "Notes"]);
+    expect(parseMarkup(drawer).querySelectorAll("dd").map(value => value.textContent)).toEqual([...row.slice(0, 3), mapping, row[3]]);
+    expect(parseMarkup(drawer).querySelectorAll("dd")[3].querySelector(".cell-t")?.textContent).toBe(mapping);
+    // A file's name for a column whose cell has no text that was read adds nothing; and without such a name, the text that
+    // was read is named by its own column, as for a Format or a Summary.
+    expect(names(rowDrawerHtml(columns, row, NO_LINKS, new Map(), undefined, new Map([[2, "Mapped To"]])))).toEqual(["Name", "Mapped Workspace", "Mapped Model", "Notes"]);
+    expect(names(rowDrawerHtml(columns, row, NO_LINKS, new Map([[2, mapping]])))).toEqual(["Name", "Mapped Workspace", "Mapped Model", "Mapped Model as read", "Notes"]);
+  });
+
+  it("lists in a drawer each item of a value that lists several, one to a line, and leaves the table's cell as it is", () => {
+    const columns = [column(0, "Name"), column(1, "Applies To"), column(2, "Referenced By"), column(3, "Card ID", "id"), column(4, "Card type", "tag"), column(5, "Format")];
+    const row = ["Revenue", "Products, 'Regions, north'", "Price, 'COST01 Costs'.Rent", "card-a; card-b", "Grid; KPI", "Number"];
+    const items = new Map([[1, ["Products", "'Regions, north'"]], [2, ["Price", "'COST01 Costs'.Rent"]], [3, ["card-a", "card-b"]], [4, ["Grid", "KPI"]]]);
+    /** Each value of the drawer: its items where it lists several, and otherwise its text, with what stands in the `dd`. */
+    const values = (html: string) => parseMarkup(html).querySelectorAll(".d-dl dd").map(value => [value.children.map(child => child.getAttribute("class")),
+      value.querySelectorAll("li").length ? value.querySelectorAll("li").map(item => item.children.map(child => [child.getAttribute("class"), child.textContent])) : value.textContent]);
+    const drawer = rowDrawerHtml(columns, row, LINKS, new Map([[5, '{"dataType":"NUMBER"}']]), items);
+    expect(values(drawer)).toEqual([
+      [["cell-t"], "Revenue"],
+      // A list, an item each, and in each item its text in the element that keeps a value's spaces: the cell's own text
+      // cut where it was joined, quotes and all, with no separator left over and no text of the markup's own.
+      [["cell-list"], [[["cell-t", "Products"]], [["cell-t", "'Regions, north'"]]]],
+      [["cell-list"], [[["cell-t", "Price"]], [["cell-t", "'COST01 Costs'.Rent"]]]],
+      // A column that is more than plain text stays what it is: one ID to copy, one tag.
+      [["id-pill"], "card-a; card-b"],
+      [["tag"], "Grid; KPI"],
+      // A value said in words keeps the text that was read after it, as ever.
+      [["cell-t"], "Number"],
+      [["cell-t"], '{"dataType":"NUMBER"}'],
+    ]);
+    expect(parseMarkup(drawer).querySelectorAll(".d-dl dd").map(value => value.childNodes.filter(node => node.nodeType === 3).length)).toEqual([0, 0, 0, 0, 0, 0, 0]);
+    // A value of one item is not a list, nor is one without items: the drawer is then the one a row without lists has.
+    const plain = rowDrawerHtml(columns, row, LINKS);
+    for (const none of [new Map(), new Map([[1, ["Products, 'Regions, north'"]]]), new Map([[2, []]])]) expect(rowDrawerHtml(columns, row, LINKS, undefined, none)).toBe(plain);
+    // The table shows each cell as it is, on one line: the same cells, whatever a drawer lists.
+    const table: ResultTable = { file: "Line Items.csv", label: "Line Items", headers: columns.map(entry => entry.label), rows: [row], guard: false };
+    expect(cells(tableHtml(viewOf(table, LINKS, { columns })))).toEqual([row]);
+  });
+
+  it("lists in a card's drawer the items of its own cells and of its parts' cells that list several, and the rest as text", () => {
+    const columns = [column(0, "Page", "page"), column(1, "Card title", "card"), column(2, "Context selectors"), column(3, "Card settings")];
+    const row = ["Overview", "Sales", "Territory (visible, synced to page); Channel (hidden)", "Read-only"];
+    const sections = [{ title: "Filters", none: "filters", headings: ["Sec", "Condition", "Context"], colours: [false, false, false],
+      rows: [["1", "Sales is greater than 10", ["Territory = current", "Time = current"]], ["1", "Margin % is not blank", NONE]] }];
+    const drawer = parseMarkup(cardDrawerHtml(columns, row, LINKS, sections, new Map([[2, ["Territory (visible, synced to page)", "Channel (hidden)"]]])));
+    expect(drawer.querySelectorAll(".d-dl dd").map(value => (value.querySelector(".cell-list") ? value.querySelectorAll("li").map(text) : text(value))))
+      .toEqual(["Overview", "Sales", ["Territory (visible, synced to page)", "Channel (hidden)"], "Read-only"]);
+    // A part's cell is its text, or its items one to a line.
+    expect(drawer.querySelectorAll(".mini tbody tr").map(entry => entry.children.map(cell => (cell.querySelector(".cell-list") ? cell.querySelectorAll("li .cell-t").map(text) : text(cell)))))
+      .toEqual([["1", "Sales is greater than 10", ["Territory = current", "Time = current"]], ["1", "Margin % is not blank", NONE]]);
+    // A card without lists has the drawer it had.
+    expect(cardDrawerHtml(columns, row, LINKS, [], new Map())).toBe(cardDrawerHtml(columns, row, LINKS, []));
+  });
+
   it("says under a card's name its page, its type and its ID, and on a line of its own what its drawer leaves out", () => {
     const sub = (note?: string) => parseMarkup(`<div>${cardDrawerSubHtml("Overview <b>north</b>", "Grid", "card-a", note)}</div>`).children[0];
     const parts = (line: FakeElement) => line.children.map(child => [child.localName, child.dataset.act ?? (child.classList.contains("id-pill") ? "ID" : ""), text(child)]);
@@ -362,7 +500,7 @@ describe("What the results page's markup shows", () => {
 
   it("shows an object in its drawer: what it is used as with its counts, and its uses by page, each use leading to its page and its card", () => {
     expect(USES_AT_FIRST).toBe(50);
-    const object: WhereUsedObject = { type: "Dimension", name: "Time", module: "—", model: "Model one", pages: 2, cards: 3, id: "20000000003",
+    const object: WhereUsedObject = { type: "Dimension", name: "Time", module: "-", model: "Model one", pages: 2, cards: 3, id: "20000000003",
       roles: [["Column dimension", 2], ["", 1]], uses: [
         { row: 2, page: "Overview", card: 1, usedAs: "Column dimension", cardId: "card-a" },
         { row: 6, page: "Stores <b>north</b>", card: 1, usedAs: "Column dimension" },
@@ -390,7 +528,7 @@ describe("What the results page's markup shows", () => {
 
     // The line under the object's name: what says something of its type, its module, its model in an app of several, its ID, and its counts.
     const sub = (changes: Partial<WhereUsedObject>, multiModel: boolean) => text(parseMarkup(`<div>${objectDrawerSubHtml({ ...object, ...changes }, multiModel)}</div>`));
-    expect([sub({}, false), sub({}, true), sub({ module: "REP01 <i>Sales</i>", pages: 1, cards: 1 }, true), sub({ id: "—", model: "—", type: "" }, true)])
+    expect([sub({}, false), sub({}, true), sub({ module: "REP01 <i>Sales</i>", pages: 1, cards: 1 }, true), sub({ id: "-", model: "-", type: "" }, true)])
       .toEqual(["Dimension · 20000000003 · 2 pages, 3 cards", "Dimension · Model one · 20000000003 · 2 pages, 3 cards", "Dimension · REP01 <i>Sales</i> · Model one · 20000000003 · 1 page, 1 card", "2 pages, 3 cards"]);
     const pill = parseMarkup(`<div>${objectDrawerSubHtml(object, false)}</div>`).querySelector(".id-pill");
     expect([pill?.dataset.copy, pill?.getAttribute("aria-label")]).toEqual(["20000000003", "Copy ID 20000000003"]);
@@ -398,7 +536,7 @@ describe("What the results page's markup shows", () => {
 
   it("says of an object with uses on a page name that pages share that its counts are the least they can be, why, and which uses those are", () => {
     // Two pages are called Overview, and the file has only a page's name: this object's three uses there may be on either.
-    const open: WhereUsedObject = { type: "Dimension", name: "Time", module: "—", model: "Model one", pages: 2, pagesMost: 3, cards: 3, cardsMost: 4, id: "20000000003",
+    const open: WhereUsedObject = { type: "Dimension", name: "Time", module: "-", model: "Model one", pages: 2, pagesMost: 3, cards: 3, cardsMost: 4, id: "20000000003",
       note: 'It has 3 uses on a page name that more than one page has: "Overview <b>north</b>" (2 pages). The table has only the name of a use\'s page, so which of those pages a use is on is not known. It is on 2 or 3 pages and on 3 or 4 cards.',
       roles: [["Column dimension", 3], ["Context selector", 1]], uses: [
         { row: 1, page: "Overview <b>north</b>", card: 1, usedAs: "Column dimension", pagesOfName: 2 },
@@ -437,7 +575,7 @@ describe("What the results page's markup shows", () => {
 
   it("lists the first fifty of an object's uses, with a control for the rest, and all of them once asked", () => {
     const uses = Array.from({ length: 130 }, (_, index) => ({ row: index, page: `Page ${index % 65}`, card: index < 65 ? 1 : 2, usedAs: "Column dimension", cardId: `card-${index}` }));
-    const object: WhereUsedObject = { type: "Dimension", name: "Time", module: "—", model: "—", pages: 65, cards: 130, id: "20000000003", roles: [["Column dimension", 130]], uses };
+    const object: WhereUsedObject = { type: "Dimension", name: "Time", module: "-", model: "-", pages: 65, cards: 130, id: "20000000003", roles: [["Column dimension", 130]], uses };
     const first = parseMarkup(objectDrawerHtml(object, LINKS, false));
     const listed = (drawer: FakeElement) => drawer.querySelectorAll("#drawerUses tbody tr");
     // The heading counts them all. Fifty are listed: the first twenty-five pages, each with both of its uses, although the
@@ -473,21 +611,104 @@ describe("What the results page's markup shows", () => {
     expect([plain.children.map(child => child.id || child.localName), plain.querySelectorAll(".view-note").length]).toEqual([["h1", "div", "tableWrap"], 0]);
   });
 
-  it("writes the navigation's entries in the order given, a model's map among them as an entry like the others", () => {
-    const entries = [{ id: "overview", label: "Overview" }, { id: "12", label: "Model Calendar", count: 26 }, { id: "1", label: "Line Items", count: 120 }, { id: "details", label: "Details" },
-      { id: "map", label: MAP_LABEL }];
-    /** Each entry: its name in the navigation, its words, its count, and whether it is the current one. */
+  it("writes the navigation's entries in the order given, a model's map among them as an entry like the others, each with its icon before its words", () => {
+    const entries = [{ id: "overview", label: "Overview" }, { id: "12", label: "Model Calendar", file: "Model Calendar.csv" }, { id: "1", label: "Line Items", file: "Line Items.csv" },
+      { id: "details", label: "Details" }, { id: "map", label: MAP_LABEL }];
+    /** Each entry: its name in the navigation, its words, and whether it is the current one. */
     const items = (current: string) => parseMarkup(navHtml(entries, current)).querySelectorAll(".nav-item").map(item =>
-      [item.dataset.nav, text(item.children[0]), text(item.querySelector(".cnt")), item.getAttribute("aria-current") ?? ""]);
-    expect(items("12")).toEqual([["overview", "Overview", "", ""], ["12", "Model Calendar", "26", "page"], ["1", "Line Items", "120", ""], ["details", "Details", "", ""], ["map", "Model map", "", ""]]);
+      [item.dataset.nav, text(item.querySelector("span")), item.getAttribute("aria-current") ?? ""]);
+    expect(items("12")).toEqual([["overview", "Overview", ""], ["12", "Model Calendar", "page"], ["1", "Line Items", ""], ["details", "Details", ""], ["map", "Model map", ""]]);
+    // An entry is its icon, then its words, and nothing else: no count, which the overview's tile says. The icon is a
+    // drawing, hidden from a screen reader, with no text: the button's text is its words.
+    expect(parseMarkup(navHtml(entries, "12")).querySelectorAll(".nav-item").map(item => [item.children.map(child => child.localName), item.children[0].getAttribute("aria-hidden"), text(item)]))
+      .toEqual([[["svg", "span"], "true", "Overview"], [["svg", "span"], "true", "Model Calendar"], [["svg", "span"], "true", "Line Items"], [["svg", "span"], "true", "Details"],
+        [["svg", "span"], "true", "Model map"]]);
     // The map's entry is written as every other: a button the Tab key reaches, which nothing marks as off or as still to
     // come, and the current one when its view is shown.
     const written = parseMarkup(navHtml(entries, "map")).querySelectorAll(".nav-item").map(item => [item.localName, item.getAttribute("type"), item.getAttribute("class"), item.focusable,
       [...item.attributes.keys()].filter(name => !["type", "class", "data-nav", "aria-current"].includes(name))]);
     expect(written).toEqual(Array(5).fill(["button", "button", "nav-item", true, []]));
-    expect([items("map")[4], items("map").filter(item => item[3] !== "").length, parseMarkup(navHtml(entries, "map")).textContent.includes("coming")]).toEqual([["map", "Model map", "", "page"], 1, false]);
+    expect([items("map")[4], items("map").filter(item => item[2] !== "").length, parseMarkup(navHtml(entries, "map")).textContent.includes("coming")]).toEqual([["map", "Model map", "page"], 1, false]);
     // Nothing stands between the entries: no divider, no group.
     expect(parseMarkup(navHtml(entries, "overview")).children.every(child => child.classList.contains("nav-item"))).toBe(true);
+  });
+
+  it("gives each entry the icon of its view: the overview's, the map's, its file's for a known file, and a table's for any other", () => {
+    const entries = [{ id: "overview", label: "Overview" }, { id: "2", label: "Cards", file: "Cards.csv" }, { id: "3", label: "Dashboards", file: "Dashboards.csv" },
+      { id: "4", label: "Versions", file: "Versions.csv" }, { id: "map", label: MAP_LABEL }];
+    const icons = parseMarkup(navHtml(entries, "2")).querySelectorAll(".nav-item svg").map(icon => icon.outerHTML);
+    expect(icons).toEqual([NAV_ICONS.overview, FILE_ICONS.get("Cards.csv"), NAV_ICONS.table, FILE_ICONS.get("Versions.csv"), NAV_ICONS.map].map(icon => parseMarkup(icon ?? "").innerHTML));
+    // Each a different drawing.
+    expect(new Set(icons).size).toBe(5);
+  });
+
+  it("gathers a model's entries in its groups by their files' names, each group where its first table stands; a group of one table, and a file no group names, stay entries; an app's entries stay as they are", () => {
+    const entry = (id: string, label: string) => ({ id, label, file: `${label}.csv` });
+    const entries = [{ id: "overview", label: "Overview" }, entry("13", "Model Calendar"), entry("10", "Time Ranges"), entry("11", "Versions"), entry("4", "General Lists"), entry("3", "Modules"),
+      entry("1", "Line Items"), entry("5", "Processes"), entry("12", "Source Models"), entry("14", "Dashboards"), { id: "map", label: MAP_LABEL }];
+    /** The items by their words: a group by its name and its entries' words. */
+    const words = (items: NavItem[]) => items.map(item => ("entries" in item ? `${item.group.label}: ${item.entries.map(each => each.label).join(", ")}` : item.label));
+    expect(words(navItems(entries, true))).toEqual(["Overview", "Time: Model Calendar, Time Ranges", "Versions", "General Lists", "Modules: Modules, Line Items", "Processes", "Source Models",
+      "Dashboards", "Model map"]);
+    // A table's words play no part: one labelled as a group's table but of another file is no table of the group.
+    expect(words(navItems([entry("1", "Time Ranges"), { id: "2", label: "Model Calendar", file: "Calendar of mine.csv" }, entry("3", "Model Calendar")], true)))
+      .toEqual(["Time: Time Ranges, Model Calendar", "Model Calendar"]);
+    // An app's entries stand as they are, whatever their files are called.
+    expect(navItems(entries, false)).toEqual(entries);
+  });
+
+  it("writes a group as a button that names its menu, which follows it closed, with an icon, a name and a chevron: the group's, or the entry's of the view shown that it holds", () => {
+    const items = navItems([{ id: "overview", label: "Overview" }, { id: "3", label: "Modules", file: "Modules.csv" }, { id: "1", label: "Line Items", file: "Line Items.csv" }], true);
+    const line = parseMarkup(navHtml(items, "1"));
+    const group = line.querySelector(".nav-group");
+    const button = group?.querySelector(".nav-group-btn");
+    const menu = group?.querySelector(".nav-menu");
+    expect([line.children.map(child => child.getAttribute("class")), group?.children.map(child => child.localName), button?.getAttribute("type"), button?.getAttribute("aria-expanded"),
+      button?.getAttribute("aria-controls"), menu?.id, menu?.hidden, button?.getAttribute("aria-current"), text(button), button?.children.map(child => child.localName), button?.hasAttribute("data-nav")])
+      .toEqual([["nav-item", "nav-group"], ["button", "div"], "button", "false", "navGroupModules", "navGroupModules", true, "true", "Line Items", ["svg", "span", "svg"], false]);
+    // The button says which table is shown: that entry's icon and name, then the chevron, the two drawings hidden from a
+    // screen reader.
+    expect([button?.children[0].outerHTML, button?.children[2].getAttribute("class"), button?.children.map(child => child.getAttribute("aria-hidden"))])
+      .toEqual([parseMarkup(FILE_ICONS.get("Line Items.csv") ?? "").innerHTML, "nav-chevron", ["true", null, "true"]]);
+    // The menu holds the group's entries, the one of the view shown marked as the page, which no other element of the line is.
+    expect([menu?.querySelectorAll(".nav-item").map(item => [item.dataset.nav, text(item), item.getAttribute("aria-current")]), line.querySelectorAll('[aria-current="page"]').length])
+      .toEqual([[["3", "Modules", null], ["1", "Line Items", "page"]], 1]);
+    // A group that does not hold the view shown is not marked, and its button has the group's own icon and name.
+    const elsewhere = parseMarkup(navHtml(items, "overview")).querySelector(".nav-group-btn");
+    expect([elsewhere?.hasAttribute("aria-current"), text(elsewhere), elsewhere?.children[0].outerHTML]).toEqual([false, "Modules", parseMarkup(NAV_ICONS.modules).innerHTML]);
+  });
+
+  it("writes the one menu of a narrow window: a button that names the view shown, as text, and every item in the line's order, a model's groups each in a section under its name", () => {
+    const items = navItems([{ id: "overview", label: "Overview" }, { id: "3", label: "Modules", file: "Modules.csv" }, { id: "1", label: "Line Items <b>x</b>", file: "Line Items.csv" },
+      { id: "map", label: MAP_LABEL }], true);
+    const compact = parseMarkup(navMenuHtml(items, "1", "Line Items <b>x</b>"));
+    const button = compact.querySelector(".nav-group-btn");
+    expect([button?.getAttribute("aria-controls"), button?.getAttribute("aria-expanded"), button?.hasAttribute("aria-current"), text(button), button?.children[0].outerHTML,
+      compact.querySelectorAll("b").length, compact.querySelector("#navMenu")?.hidden])
+      .toEqual(["navMenu", "false", false, "Line Items <b>x</b>", parseMarkup(NAV_ICONS.menu).innerHTML, 0, true]);
+    // A group's section is a group to a screen reader, named by the group: its heading, seen, is not read twice.
+    expect(compact.querySelector("#navMenu")?.children.map(child => (child.classList.contains("nav-section")
+      ? [child.getAttribute("role"), child.getAttribute("aria-label"), child.children.map(each => [text(each), each.getAttribute("aria-hidden"), each.getAttribute("aria-current")])] : text(child))))
+      .toEqual(["Overview", ["group", "Modules", [["Modules", "true", null], ["Modules", null, null], ["Line Items <b>x</b>", null, "page"]]], "Model map"]);
+  });
+
+  it("shows the page a jump keeps as a chip at the head of the toolbar, with the button that clears it, and nothing of it without a jump", () => {
+    const chip = (overrides: Partial<TableView>) => parseMarkup(tableHtml(viewOf(CARDS, LINKS, overrides))).querySelector("#pageFilter");
+    // The page's name as text, after the page's own word for it; a name that holds a tag is that text.
+    const kept = chip({ context: "Stores <b>north</b>" });
+    expect([kept?.localName, kept?.getAttribute("class"), text(kept), kept?.querySelectorAll("b").length]).toEqual(["span", "ctx", "Page: Stores <b>north</b>", 0]);
+    // The button clears the jump; it has no words of its own to see, so it has a name.
+    expect(kept?.querySelectorAll("button").map(button => [button.getAttribute("type"), button.dataset.act, button.getAttribute("aria-label"), button.focusable, button.querySelector("svg")?.getAttribute("aria-hidden")]))
+      .toEqual([["button", "clear-context", "Clear page filter", true, "true"]]);
+    // At the head of the toolbar, before the search box; after the switch of a table that has one.
+    const toolbar = (overrides: Partial<TableView>) => parseMarkup(tableHtml(viewOf(CARDS, LINKS, overrides))).querySelector(".toolbar")?.children.map(child => child.id);
+    expect(toolbar({ context: "Stores" })).toEqual(["pageFilter", "searchWrap", "colBtn", "resetBtn", "rowCount", "pager"]);
+    expect(toolbar({ context: "Stores", ways: [{ way: "object", label: "By object", chosen: true }, { way: "use", label: "Every use", chosen: false }] }))
+      .toEqual(["tableWays", "pageFilter", "searchWrap", "colBtn", "resetBtn", "rowCount", "pager"]);
+    // Without a jump there is no chip: the page's name is not kept, and the toolbar is as it always was.
+    expect([chip({}), toolbar({})]).toEqual([null, ["searchWrap", "colBtn", "resetBtn", "rowCount", "pager"]]);
+    // Its look is the stylesheet's: the page writes no style for it.
+    expect(kept?.hasAttribute("style")).toBe(false);
   });
 
   it("writes for a model's map a view that holds its heading alone, and when the map could not be drawn says so in plain statements, with the button that copies the log", () => {
@@ -508,7 +729,7 @@ describe("What the results page's markup shows", () => {
 
   it("shows on the overview what the Details file says: what was read first, then the tables that say more than their tile, and two sections that start closed", () => {
     const view = parseMarkup(overviewHtml(overviewWith({
-      tiles: [{ label: "Pages", count: 7 }], cardTypes: [["Grid", 8]], models: [{ model: "Model one", workspace: "Main", modelId: "id-1" }], notes: ["A note."],
+      tiles: [{ label: "Pages", count: 7 }], notes: ["A note."],
       about: [["App", "Demo <b>app</b>"], ["Cards", "3"], ["Exported on", "2026-10-03 14:02 UTC"]],
       files: [["Imports", "Not exported: the grid did not load"]],
       howToRead: [["Layout", "Each table is laid out as the grid of the same name."], ["Line Items", "Line items only: each names its module."]],
@@ -519,10 +740,10 @@ describe("What the results page's markup shows", () => {
       const names = view.querySelectorAll(`${selector} dt`).map(text);
       return names.map((name, index) => [name, text(view.querySelectorAll(`${selector} dd`)[index])]);
     };
-    // The order under the heading: the tiles, what was read, the place for what the page keeps of it, the notes, an app's
-    // panels, the tables that say more than their tile, how to read them, the log.
-    expect(view.children.map(child => child.id || (child.classList.contains("panel") ? "notes" : child.classList.contains("ov-grid") ? "tiles" : child.classList.contains("ov-cols") ? "panels" : child.localName)))
-      .toEqual(["h1", "tiles", "ovAbout", "ovKept", "notes", "panels", "ovFiles", "ovHowTo", "ovLog"]);
+    // The order under the heading: the tiles, what was read, the place for what the page keeps of it, the notes, the
+    // tables that say more than their tile, how to read them, the log.
+    expect(view.children.map(child => child.id || (child.classList.contains("panel") ? "notes" : child.classList.contains("ov-grid") ? "tiles" : child.localName)))
+      .toEqual(["h1", "tiles", "ovAbout", "ovKept", "notes", "ovFiles", "ovHowTo", "ovLog"]);
     expect([text(view.querySelector("#ovAbout h2")), list("#ovAbout dl.dl")]).toEqual(["About this export", [["App", "Demo <b>app</b>"], ["Cards", "3"], ["Exported on", "2026-10-03 14:02 UTC"]]]);
     expect([text(view.querySelector("#ovFiles h2")), list("#ovFiles dl.dl")]).toEqual(["Tables", [["Imports", "Not exported: the grid did not load"]]]);
     expect(view.querySelectorAll("b").length).toBe(0);
