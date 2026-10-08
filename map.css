@@ -118,7 +118,12 @@
 .map-btn.map-icon{width:28px;padding:0;font-size:15px;line-height:1}
 .map-btn.map-small{height:24px;padding:0 10px}
 .map-btn[aria-expanded="true"]{background:var(--accent-soft);color:var(--accent-ink);border-color:color-mix(in srgb,var(--accent) 35%,transparent)}
-.map-select{height:28px;max-width:280px;padding:0 8px;border:1px solid var(--border-strong);border-radius:999px;background:var(--panel);font-size:12px;text-overflow:ellipsis}
+/* A select draws the chevron the results page's menus have, clear of the round end of its pill: a browser's own arrow
+   stands close against it. A select the map hides takes its chevron with it. */
+.map-select-wrap{position:relative;display:inline-flex;align-items:center}
+.map-select-wrap:has(> select[hidden]){display:none}
+.map-select{appearance:none;height:28px;max-width:280px;padding:0 28px 0 12px;border:1px solid var(--border-strong);border-radius:999px;background:var(--panel);font-size:12px;text-overflow:ellipsis;cursor:pointer}
+.map-select-chevron{position:absolute;right:11px;pointer-events:none;color:var(--text-3)}
 .map-check{display:inline-flex;align-items:center;gap:6px;padding:0 2px;font-size:12px;color:var(--text-2);white-space:nowrap;cursor:pointer}
 .map-check input{margin:0;accent-color:var(--accent)}
 
