@@ -16,8 +16,14 @@
   --mono:ui-monospace,"SF Mono","Cascadia Mono","Roboto Mono",Consolas,"Liberation Mono",monospace;
   --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
   --r-xs:4px; --r-sm:8px; --r-md:12px;
-  /* The room at the window's two sides, and between the navigation and the content. */
-  --gutter:12px;
+  /* The page's column, in the middle of the window, in which every view but a model's map stands: at most --column wide,
+     with at least --edge at each side, which is 16px in a phone's window and grows with the window up to 48px. The
+     header, the navigation, the banners and the content take the column's sides as their own (--gutter), so that their
+     edges line up, while their backgrounds and borders reach the window's edges. The gutter is measured against the box
+     it is a side of, and each of those boxes is as wide as the window. A model's map keeps less (see the model map). */
+  --column:1400px;
+  --edge:clamp(16px,4vw,48px);
+  --gutter:max(var(--edge),calc((100% - var(--column)) / 2));
   /* How long a line of prose may be: about 120 characters of the page's text. */
   --measure:90ch;
 }
@@ -38,6 +44,10 @@
 *{box-sizing:border-box}
 [hidden]{display:none !important}
 html,body{margin:0;padding:0}
+/* The page's column stands in the middle of the window. Where a scrollbar takes room, one that came and went with the
+   view (a long overview scrolls, a table's page does not) would move the column sideways by half its width, and the
+   header and the navigation with it: the room for a scrollbar is kept whether the page scrolls or not. */
+html{scrollbar-gutter:stable}
 body{
   background:var(--bg); color:var(--text);
   font:13px/1.45 var(--sans);
@@ -54,12 +64,19 @@ input,select{font:inherit;color:inherit}
 ::placeholder{color:var(--text-3)}
 
 /* ---------- header ---------- */
+/* The header and the navigation under it are the top of the page. They stay at the top of the window together while the
+   page scrolls under them, as one box: so the navigation needs to know nothing of the header's height, which grows when
+   the header wraps in a narrow window. Where they would cover much of the window, the two scroll away with the page (see
+   the end of this stylesheet). */
+.top{position:sticky;top:0;z-index:40}
 .hd{
-  position:sticky;top:0;z-index:40;display:flex;flex-wrap:wrap;align-items:center;gap:16px;
+  display:flex;flex-wrap:wrap;align-items:center;gap:16px;
   padding:10px var(--gutter);background:var(--panel);border-bottom:1px solid var(--border);
 }
 .brand{display:flex;align-items:center;gap:10px;flex:none}
-.brand svg{display:block}
+/* The extension's own icon, the one Chrome shows in its toolbar, from the largest of its files so that it is sharp on any
+   screen. It has no background of its own, so it stands on the header as it is in both themes. */
+.brand img{display:block}
 .brand-name{font-size:15px;font-weight:650;letter-spacing:.01em}
 .ver{font-family:var(--mono);font-size:11px;color:var(--text-2);background:var(--panel-2);border:1px solid var(--border);border-radius:999px;padding:1px 8px;margin-left:8px;vertical-align:2px}
 /* The name keeps 200px beside the brand and the actions; when the three no longer fit on one line, the header wraps. */
@@ -101,56 +118,60 @@ input,select{font:inherit;color:inherit}
 .banner.note{background:var(--panel-2);border-color:var(--border);color:var(--text-2)}
 .banner strong{font-weight:600}
 
-/* ---------- shell / nav ---------- */
-/* The page is as wide as the window. The navigation stands at the window's left edge, and the content takes all the room
-   beside it: a table and a model's map are as wide as the window lets them be. The same gutter is at the window's two
-   sides and between the navigation and the content. The header and the banners keep to the same sides: the brand stands
-   over the navigation's edge, and a banner is as wide as the navigation and the content together. What reads badly in
-   long lines keeps to a measure of its own, however wide the content is (see the measure, below). */
-.shell{display:flex;gap:var(--gutter);padding:12px var(--gutter) 32px;align-items:flex-start}
-.sidenav{
-  width:224px;flex:none;position:sticky;top:68px;max-height:calc(100vh - 84px);overflow:auto;
-  background:var(--panel);border:1px solid var(--border);border-radius:var(--r-md);padding:8px;
+/* ---------- navigation ---------- */
+/* The navigation is a bar of its own under the header, as wide as the window, with its items on one line: the overview,
+   the tables and a model's map, each an entry with its icon and its words. A model's tables stand in groups (markup.ts
+   `NAV_GROUPS`): a group is a button with an icon of its own, its name and a chevron, which opens a menu of the group's
+   tables under it. Where the line has no room, one such button stands in its place, which names the view shown and
+   opens a menu of every item (see the narrow layout, below): the bar is one line, and never scrolls. It keeps the
+   header's sides. The entry of the view shown is marked as it always was, in the accent's colours with its words in
+   bold, and so is the button of the group that holds it. Its icon takes its colour; the others' are quieter. */
+.topnav{background:var(--panel);border-bottom:1px solid var(--border)}
+/* An item that does not fit goes to the next line rather than out of the bar. No line the page knows needs that at a
+   width it is shown at, but a model's file that no group names stands in the line on its own, and lengthens it. */
+.nav-list{display:flex;flex-wrap:wrap;align-items:center;gap:4px 2px;padding:6px var(--gutter)}
+.nav-compact{display:none;padding:6px var(--gutter)}
+.nav-item,.nav-group-btn{
+  display:inline-flex;align-items:center;gap:6px;flex:none;white-space:nowrap;
+  padding:5px 10px;border-radius:999px;font-size:13px;color:var(--text-2);
+  transition:background .12s,color .12s;
 }
-.sidenav h2{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text-3);padding:8px 10px 6px}
-.nav-item{
-  display:flex;align-items:center;gap:8px;width:100%;text-align:left;
-  padding:7px 10px;border-radius:var(--r-sm);font-size:13px;color:var(--text);
-  transition:background .12s;
+.nav-item svg,.nav-group-btn svg{flex:none;color:var(--text-3)}
+.nav-item:hover,.nav-group-btn:hover{background:var(--panel-2);color:var(--text)}
+.nav-item:hover svg,.nav-group-btn:hover svg{color:inherit}
+.nav-item[aria-current="page"],.nav-group-btn[aria-current="true"]{background:var(--accent-soft);color:var(--accent-ink);font-weight:600}
+.nav-item[aria-current="page"] svg,.nav-group-btn[aria-current="true"] svg{color:inherit}
+/* A menu's button keeps its chevron clear of the round end of its pill. */
+.nav-group-btn{padding-right:14px}
+.nav-group-btn .nav-chevron{margin-left:-2px;transition:transform .12s}
+.nav-group-btn[aria-expanded="true"] .nav-chevron{transform:rotate(180deg)}
+/* A menu has the look of the page's popovers, and stands under its button, over the content and under the drawer. An
+   entry of it is a row as wide as the menu. A long menu, the one of a narrow window, scrolls within itself rather than
+   run past the window's foot, where the top of the page stays in sight. */
+.nav-group{position:relative}
+.nav-menu{
+  position:absolute;top:calc(100% + 6px);left:0;z-index:50;display:flex;flex-direction:column;gap:2px;
+  min-width:200px;max-height:min(480px,70dvh);overflow-y:auto;padding:6px;
+  background:var(--panel);border:1px solid var(--border-strong);border-radius:var(--r-md);box-shadow:var(--shadow);
 }
-.nav-item:hover{background:var(--panel-2)}
-.nav-item[aria-current="page"]{background:var(--accent-soft);color:var(--accent-ink);font-weight:600}
-.nav-item .cnt{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--text-3);background:var(--panel-2);border-radius:999px;padding:1px 7px}
-.nav-item[aria-current="page"] .cnt{background:transparent;color:var(--accent-ink)}
-/* The navigation can be put away and brought back by the header's first button (results/main.ts), which is there at
-   every width once the page has a result. Where the navigation stands beside the content, the page says on its root
-   element when it is put away. It then takes no room and is in no one's way, neither the Tab key's nor a screen
-   reader's, and the content begins at the gutter and has the whole width.
-   The button's icon follows what the button says of the navigation (aria-expanded): a frame with the navigation's
-   side filled while the navigation is shown, and empty once it is put away. In a narrow window, where the navigation
-   slides in over the content, the icon is three lines (see the narrow layout, below).
-   Here the button stands after the brand, which keeps its place at the window's left edge, over the navigation's:
-   nothing in the header moves when the first result brings the button. In a narrow window it stands before the
-   brand, as it always did. */
-@media (width > 1120px){
-  :root[data-navigation="hidden"] .sidenav{display:none}
-  .nav-toggle .nt-lines{display:none}
-  .nav-toggle[aria-expanded="false"] .nt-side{display:none}
-  .hd .brand{order:-1}
-}
+.nav-menu .nav-item{border-radius:var(--r-xs)}
+/* In the one menu of a narrow window, a model's groups each stand under their names, as the popovers' headings do, with
+   their tables set in under them; its button names the view shown, in the accent's colours. */
+.nav-section{display:flex;flex-direction:column;gap:2px}
+.nav-heading{margin:0;padding:8px 10px 2px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--text-3)}
+.nav-section .nav-item{padding-left:24px}
+.nav-compact .nav-group-btn{background:var(--accent-soft);color:var(--accent-ink);font-weight:600}
+.nav-compact .nav-group-btn svg{color:inherit}
+
+/* ---------- shell ---------- */
+/* Every view but a model's map stands in the page's column (--column, above): the shell keeps the gutter at the window's
+   two sides, as the header, the navigation and the banners do, so that their edges line up and a banner is as wide as
+   the content. A table is as wide as the column, and scrolls within its own box where it is wider: the page never
+   scrolls sideways. What reads badly in long lines keeps to a measure of its own, however wide the column is (see the
+   measure, below). A model's map takes nearly the whole width of the window (see the model map, below). */
+.shell{display:flex;padding:12px var(--gutter) 32px;align-items:flex-start}
 
 main{flex:1;min-width:0}
-.crumbs{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:2px 0 10px;font-size:12.5px;color:var(--text-2)}
-.crumbs button{color:var(--accent);text-decoration:none;border-radius:var(--r-xs)}
-.crumbs button:hover{text-decoration:underline}
-.crumbs .sep{color:var(--text-3)}
-/* The page a jump keeps. Its name wraps inside the chip, anywhere when it has no place to break at, so the page never
-   scrolls sideways for it. On one line the chip is a pill; on more it keeps the pill's corners, clear of the text. */
-.crumbs .ctx{
-  display:inline-flex;align-items:center;gap:6px;background:var(--accent-soft);color:var(--accent-ink);
-  border-radius:11px;padding:2px 6px 2px 10px;font-size:12px;font-weight:550;overflow-wrap:anywhere;
-}
-.crumbs .ctx button{display:inline-flex;color:inherit;border-radius:999px;padding:1px}
 .view-title{font-size:17px;font-weight:650;margin:0 0 12px}
 /* The line under a table's name that says what the table lists and what it leaves out: close under the name, in the secondary text. */
 .view-note{font-size:12px;color:var(--text-2);margin:-6px 0 12px}
@@ -173,11 +194,21 @@ main{flex:1;min-width:0}
 .search-wrap.has-value .search-clear{display:inline-flex}
 /* The count takes the room that is left in its line and stands at the right end of it, beside the pager that follows it. */
 .rowcount{flex:1 1 auto;text-align:right;font-size:12px;color:var(--text-2);font-variant-numeric:tabular-nums}
+/* The page a jump keeps, at the head of a table's toolbar: a chip with the page's name and the button that clears it. Its
+   name wraps inside the chip, anywhere when it has no place to break at, so the page never scrolls sideways for it. On
+   one line the chip is a pill as high as the toolbar's small buttons; on more it keeps the pill's corners, clear of the
+   text. */
+.ctx{
+  display:inline-flex;align-items:center;gap:6px;background:var(--accent-soft);color:var(--accent-ink);
+  border-radius:14px;padding:5px 6px 5px 12px;font-size:12px;font-weight:550;overflow-wrap:anywhere;
+}
+.ctx button{display:inline-flex;flex:none;color:inherit;border-radius:999px;padding:3px}
+.ctx button:hover{background:color-mix(in srgb,var(--accent-ink) 14%,transparent)}
 
 /* ---------- table ---------- */
 /* With a table on screen the page is as high as the window, and each box down to the table's takes the height that is
-   left to it. The table's box grows from 220px into what the header, the banners, the breadcrumb and the toolbar leave,
-   down to the shell's foot, and no further than its rows: a short table stays short. */
+   left to it. The table's box grows from 220px into what the header and the navigation, the banners, the table's name
+   and its toolbar leave, down to the shell's foot, and no further than its rows: a short table stays short. */
 body:has(.table-wrap){display:flex;flex-direction:column;height:100dvh}
 body:has(.table-wrap) > .banners,body:has(.table-wrap) > .shell{width:100%}
 body:has(.table-wrap) > .shell,#view:has(> .table-wrap){flex:1 1 auto}
@@ -193,10 +224,24 @@ thead th{
   font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;text-align:left;
   border-bottom:1px solid var(--border-strong);padding:0;white-space:nowrap;
 }
+/* A result's table is as wide in each column as the page says, on the column's own <col>, and not as wide as the rows on
+   screen. The page works each width out once from all of the table's rows (results/column-widths.ts), so a sort,
+   another page, a search or a filter shows other rows in the same columns, and nothing moves. The fixed layout reads
+   the widths and nothing the cells hold. With no width of its own the table is as wide as its columns together, and at
+   least as wide as its box, which shares the room left over among the columns by their widths. A text wider than its
+   column ends in an ellipsis, as it did when it was wider than the most a column was given. A card's small tables in the
+   drawer are laid out as before, by what they hold.
+   A header's name takes a second line where its column is too narrow for it, rather than run into the next header: the
+   page makes each column as wide as its header's name, so that is only the first column in a narrow window (below), or
+   a name of unusually wide letters. */
+.table-wrap table{table-layout:fixed;width:0}
+.table-wrap col{width:var(--width)}
+.table-wrap thead th{white-space:normal;overflow-wrap:anywhere}
 .th-in{display:flex;align-items:center;gap:2px;padding:8px 10px}
 .th-sort{display:inline-flex;align-items:center;gap:5px;color:inherit;font:inherit;text-transform:inherit;letter-spacing:inherit;border-radius:var(--r-xs);padding:1px 2px}
 .th-sort:hover{color:var(--text)}
-.th-sort .dir{color:var(--accent);font-size:9px;width:9px}
+/* The sort arrow's room is in every header, sorted or not, and never shrinks: a sort shows the arrow, and moves nothing. */
+.th-sort .dir{color:var(--accent);font-size:9px;width:9px;flex:none}
 .th-filter{display:inline-flex;padding:3px;border-radius:999px;color:var(--text-3)}
 .th-filter:hover{color:var(--text);background:var(--panel-3)}
 .th-filter.active{color:var(--accent)}
@@ -230,16 +275,19 @@ td.num{font-variant-numeric:tabular-nums}
    - Nothing shows through it: a row says its own background, an opaque colour, and its first cell takes that.
    - The header's first cell lies above the rest of the header, the column above the other cells, and the shade at the
      box's foot above the column as above the rest.
-   - It is at most 340px wide, as every column, and at most half of what the box shows, which is what counts in a narrow
-     window (the 9px are half a scrollbar, for where scrollbars take room). A header too long for that takes a second line.
+   - It is as wide as the page makes it, at most about 340px as every column, and at most half of what the box shows,
+     which is what counts in a narrow window (the 9px are half a scrollbar, for where scrollbars take room). Its <col>
+     says so, for in the fixed layout a column is as wide as its <col>, whatever its cells say. A header too long for
+     that takes a second line.
    - Once the table has been scrolled sideways a hairline marks its edge (where Chrome can tell: 133 and later).
    - A control that takes the keyboard's focus under it is brought out: for that the box counts as beginning where the
      column can end. The column's own controls are in view where they are, and the margin that reaches across the box
      says so: without it the table would jump back each time one of them took the focus. */
 .table-wrap{container-type:inline-size;container-type:inline-size scroll-state;scroll-padding-left:min(340px,50%)}
 .table-wrap tr{background:var(--panel)}
-.table-wrap :is(th,td):first-child{position:sticky;left:0;max-width:min(340px,50cqi - 9px)}
-.table-wrap th:first-child{z-index:4;white-space:normal}
+.table-wrap col:first-child{width:min(var(--width),50cqi - 9px)}
+.table-wrap :is(th,td):first-child{position:sticky;left:0}
+.table-wrap th:first-child{z-index:4}
 .table-wrap th:first-child .th-sort{text-align:left}
 .table-wrap td:first-child{background:inherit}
 .table-wrap :is(th,td):first-child button{scroll-margin-right:100vw}
@@ -254,11 +302,19 @@ td.num{font-variant-numeric:tabular-nums}
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:1px;transition:border-color .12s,color .12s;
 }
 .id-pill:hover{border-color:var(--accent);color:var(--accent)}
-/* In the drawer and in the overview's list of models an ID shows in full, on more than one line when it has to. */
-.drawer .id-pill,.model-row .id-pill{max-width:100%;white-space:normal;overflow-wrap:anywhere;text-align:left}
+/* In the drawer an ID shows in full, on more than one line when it has to. */
+.drawer .id-pill{max-width:100%;white-space:normal;overflow-wrap:anywhere;text-align:left}
 .tag{
   display:inline-block;background:var(--panel-2);border:1px solid var(--border);border-radius:var(--r-xs);
   padding:1px 7px;font-size:11.5px;color:var(--text-2);
+}
+/* A formatting rule's colour: a small square of that colour before its code, as design tools show a colour (markup.ts
+   `coloursHtml`). The page gives the square only the colour, as --swatch; its outline keeps a white or a black square apart
+   from the page in either theme. The code and its square stay on one line. */
+.colour{white-space:nowrap}
+.swatch{
+  display:inline-block;width:11px;height:11px;margin-right:4px;vertical-align:-1px;border-radius:3px;
+  background:var(--swatch);box-shadow:inset 0 0 0 1px var(--border-strong);
 }
 
 /* pagination: the toolbar's last child, at its right end beside the count. When the toolbar has no room for it there
@@ -266,14 +322,16 @@ td.num{font-variant-numeric:tabular-nums}
    with no row to show has an empty pager, which takes no room. */
 .pager{display:flex;align-items:center;gap:10px;margin-left:auto;font-size:12px;color:var(--text-2);flex-wrap:wrap}
 .pager:empty{display:none}
-.pager .pages{display:flex;gap:4px;align-items:center}
 /* The choice of rows per page ends the pager: where the pager wraps within itself, it stands at the right of its line. */
 .pager .per-page{margin-left:auto}
-.pg-btn{min-width:28px;height:28px;border-radius:999px;border:1px solid var(--border-strong);background:var(--panel);padding:0 8px;font-variant-numeric:tabular-nums}
+.pg-btn{min-width:28px;height:28px;border-radius:999px;border:1px solid var(--border-strong);background:var(--panel);padding:0 8px}
 .pg-btn:hover:not([disabled]){background:var(--panel-2)}
-.pg-btn[aria-current="true"]{background:var(--ink);color:var(--ink-text);border-color:var(--ink);font-weight:600}
 .pg-btn[disabled]{opacity:.4;cursor:default}
-.pager select{border:1px solid var(--border-strong);background:var(--panel);border-radius:999px;padding:3px 8px;font-size:12px}
+/* The choice of rows per page draws the chevron the bar's menus have, clear of the round end of its pill: a browser's own
+   arrow stands close against it. */
+.select{position:relative;display:inline-flex;align-items:center}
+.pager select{appearance:none;border:1px solid var(--border-strong);background:var(--panel);border-radius:999px;padding:3px 28px 3px 12px;font-size:12px;cursor:pointer}
+.select-chevron{position:absolute;right:11px;pointer-events:none;color:var(--text-3)}
 
 /* empty states */
 .empty{padding:56px 20px;text-align:center;color:var(--text-2);overflow-wrap:anywhere}
@@ -285,19 +343,21 @@ td.num{font-variant-numeric:tabular-nums}
 /* The place of a model's map (src/map, map.css): an element beside the view, empty and hidden until the map is shown in
    the view's place. Only its place and its size are said here: what stands in it, and how that looks, is the map's own.
    - While it is shown the page is as high as the window, and each box down to the host takes the height that is left
-     to it: the host has the whole of the main area under the breadcrumb, and the page does not scroll. A page that
-     does not scroll needs no foot to scroll to, so the shell ends as near the window's edge as it begins under the
-     banners. The navigation keeps to that height too, and scrolls within itself where its entries need more.
+     to it: the host has the whole of the main area under the header, the navigation and the banners, and the page does
+     not scroll. A page that does not scroll needs no foot to scroll to, so the shell ends as near the window's edge as
+     it begins under the banners.
    - The host is never less than 320px high, which a map with its panels needs at least. In a window too short for
      that the page scrolls, as it does for a table.
    - Its size is the room's, never its content's. It cuts nothing off: a map that asked for more height than its
      place has would show whole, and the page would scroll for it.
-   - The map's own boxes are placed from it and stacked within it: none of them lies over the page's header, drawer or
-     popovers, whatever z-index it has. */
+   - The map's own boxes are placed from it and stacked within it: none of them lies over the page's header, navigation,
+     drawer or popovers, whatever z-index it has.
+   - The map takes nearly the whole width of the window, out of the page's column: the shell keeps 12px at each side
+     while it is shown, at every width. The header, the navigation and the banners keep to the column here as well, so
+     that nothing above the map moves sideways as it is shown and hidden. */
 body:has(#mapHost:not([hidden])){display:flex;flex-direction:column;height:100dvh}
 body:has(#mapHost:not([hidden])) > .banners,body:has(#mapHost:not([hidden])) > .shell{width:100%}
-body:has(#mapHost:not([hidden])) > .shell{flex:1 1 0;min-height:0;padding-bottom:12px}
-body:has(#mapHost:not([hidden])) .sidenav{max-height:100%}
+body:has(#mapHost:not([hidden])) > .shell{flex:1 1 0;min-height:0;padding:12px}
 main:has(> #mapHost:not([hidden])){align-self:stretch;display:flex;flex-direction:column}
 #mapHost{position:relative;flex:1 1 0;min-height:320px;isolation:isolate}
 
@@ -307,19 +367,8 @@ main:has(> #mapHost:not([hidden])){align-self:stretch;display:flex;flex-directio
 .stat .s-lab{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--text-3)}
 .stat .s-num{font-size:26px;font-weight:650;font-variant-numeric:tabular-nums;margin-top:4px;line-height:1.1}
 .stat .s-sub{font-size:11.5px;color:var(--text-2);margin-top:4px}
-/* Two panels side by side, equally wide whatever they hold: a long name wraps inside its panel and does not widen it. */
-.ov-cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;margin-bottom:12px}
 .panel{background:var(--panel);border:1px solid var(--border);border-radius:var(--r-md);padding:14px 16px}
 .panel h2,.panel h3{font-size:13px;margin-bottom:10px}
-.typebars{display:grid;gap:6px}
-.typebar{display:grid;grid-template-columns:92px 1fr 34px;gap:10px;align-items:center;font-size:12px}
-.typebar .tb-track{height:7px;background:var(--panel-2);border-radius:999px;overflow:hidden}
-.typebar .tb-fill{height:100%;background:var(--accent);border-radius:999px;opacity:.75}
-.typebar .tb-n{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
-.model-row{display:grid;gap:4px;padding:8px 0;border-bottom:1px solid var(--border)}
-.model-row:last-child{border-bottom:0}
-.model-row .m-name{font-weight:600;display:flex;gap:8px;align-items:center;flex-wrap:wrap;overflow-wrap:anywhere}
-.model-row .m-sub{font-size:12px;color:var(--text-2);display:flex;gap:6px;align-items:center;flex-wrap:wrap;overflow-wrap:anywhere}
 .warn-list{display:grid;gap:8px;margin:0;padding:0;list-style:none}
 .warn-list li{display:flex;gap:9px;align-items:flex-start;font-size:12.5px;overflow-wrap:anywhere}
 .warn-list .wl-ink{color:var(--text)}
@@ -339,6 +388,10 @@ main:has(> #mapHost:not([hidden])){align-self:stretch;display:flex;flex-directio
 .dl dt{padding:9px 16px;font-size:12px;color:var(--text-2);border-bottom:1px solid var(--border);background:var(--panel-2);overflow-wrap:anywhere}
 .dl dd{padding:9px 16px;margin:0;border-bottom:1px solid var(--border);font-size:12.5px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;overflow-wrap:anywhere}
 .dl dt:last-of-type,.dl dd:last-of-type{border-bottom:0}
+/* A value about the export may hold line breaks: one thing on each line where it lists several, as an app's categories
+   and its models do, and one on each line where it says two, as the pages analysed do when pages were left unpublished.
+   The list shows those lines as the value has them. Spaces are as in any other text, and a long line still wraps. */
+#ovAbout .dl dd{white-space:pre-line}
 .diag{background:var(--panel);border:1px solid var(--border);border-radius:var(--r-md)}
 .diag summary{
   cursor:pointer;padding:12px 16px;font-weight:600;font-size:13px;list-style:none;display:flex;align-items:center;gap:8px;
@@ -382,6 +435,14 @@ main:has(> #mapHost:not([hidden])){align-self:stretch;display:flex;flex-directio
 .d-dl dt:last-of-type,.d-dl dd:last-of-type{border-bottom:0}
 /* A value shows as it is: its line breaks and its spaces are kept, and a long line wraps. */
 .d-dl dd .cell-t{white-space:pre-wrap}
+/* A value that lists several items shows one to a line, each behind a muted bullet, as the map's details list their
+   lines. The bullet hangs in the list's own margin, so an item that wraps keeps its lines beside the bullet, and where one
+   item ends and the next begins stays plain. An item's text runs as text, not as a box of its own: a box would put the
+   bullet beside its last line. The list takes no room round it, in the drawer's values as in a card's small tables. */
+.cell-list{margin:0;padding-left:16px}
+.cell-list li + li{margin-top:3px}
+.cell-list li::marker{color:var(--text-3)}
+.cell-list .cell-t{display:inline}
 /* A card's parts, each kind in a small table under its heading. A table is as wide as the drawer: a header takes more
    than one line when it has to, and a cell's text breaks where it must, so that seven columns fit. In a narrow window
    they cannot (see the responsive rules): there the table scrolls sideways inside its own section, under the heading,
@@ -416,14 +477,14 @@ main:has(> #mapHost:not([hidden])){align-self:stretch;display:flex;flex-directio
 .toast.show{opacity:1;transform:translate(-50%,0)}
 
 /* ---------- the measure ---------- */
-/* Where the navigation stands beside the content, the content is as wide as the window lets it be, and prose would run
-   to lines of any length. There it keeps to the measure (`--measure`), in a box that is as wide as the rest:
+/* In a wide window the page's column is up to 1400px wide, and prose would run to lines that long. There it keeps to the
+   measure (`--measure`), in a box that is as wide as the rest:
    - a note of the overview, and each paragraph of how to read the tables. A row of that list is as wide as the list, as
      in every list of details: its words keep to the measure by the room the row leaves empty after them.
    - the words of an empty state and of a run, which stand in the middle.
    - the line under a table's name, which may run to twice the measure before it takes a second line: a line more
      there is a line less of the table.
-   The narrow layout is as it was: there a line is as long as the window lets it be. */
+   The narrow layout is as it was: there a line is as long as the column lets it be. */
 @media (width > 1120px){
   .warn-list li{max-width:var(--measure)}
   #ovHowTo .dl dd{padding-right:max(16px,calc(100% - var(--measure) - 16px))}
@@ -433,29 +494,29 @@ main:has(> #mapHost:not([hidden])){align-self:stretch;display:flex;flex-directio
 
 /* ---------- responsive ---------- */
 @media (max-width:1120px){
-  /* The navigation's button opens it over the content here, and shows three lines: the frame is the wide layout's. */
-  .nav-toggle .nt-frame{display:none}
-  /* Closed, the navigation is off screen and hidden, so the Tab key skips it; it hides once it has slid out. */
-  .sidenav{
-    position:fixed;left:0;top:0;height:100dvh;max-height:none;width:264px;z-index:70;border-radius:0;
-    transform:translateX(-104%);visibility:hidden;transition:transform .2s cubic-bezier(.4,0,.2,1),visibility 0s .2s;
-    border:0;border-right:1px solid var(--border-strong);box-shadow:var(--shadow);
-  }
-  .sidenav.open{transform:translateX(0);visibility:visible;transition-delay:0s}
-  .hd{gap:10px;padding:10px 14px}
-  .banners{padding:12px 20px 0}
-  .shell{padding:12px 14px 28px}
-  .ov-cols{grid-template-columns:minmax(0,1fr)}
+  /* The sides are the gutter's here as well, which narrows with the window by itself: the header, the navigation, the
+     banners and the content keep to the same column at every width. Nothing slides in over the content. */
+  .hd{gap:10px}
+  .shell{padding-bottom:28px}
   .meta-app{white-space:normal;overflow-wrap:anywhere}
   .toast{max-width:calc(100vw - 28px)}
+}
+/* The navigation's line needs about 860px of the column with the entry of the view shown in bold: an app's, its seven
+   tables each an entry of its own, a little more than a model's, its tables in groups. Under 1000px wide the column has
+   less room than that with some to spare, and the one menu stands in the line's place, whatever the result's kind. */
+@media (max-width:1000px){
+  .nav-list{display:none}
+  .nav-compact{display:flex}
 }
 /* Under 530px the drawer cannot hold a card's table of seven columns however its words break. A cell keeps its words
    whole there, up to the 160px it asks for at most (a longer word breaks), and the table scrolls inside its section. */
 @media (max-width:530px){
   .mini td{word-break:normal;overflow-wrap:break-word;max-width:160px}
 }
-/* A wrapped header is high: in a short window it scrolls away with the page instead of covering it. */
-@media (max-width:1120px) and (max-height:560px){ .hd{position:static} }
+/* The header and the navigation stay at the top of the window while the page scrolls, but not where they would cover much
+   of it. Under 640px the header wraps onto two or three lines, and in a narrow window that is short the two take much of
+   its height whatever its width: there they scroll away with the page. */
+@media (max-width:640px), (max-width:1120px) and (max-height:560px){ .top{position:static} }
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{transition:none !important;animation:none !important}
 }

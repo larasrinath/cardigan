@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { actionWords, formatWords, MAX_DEFINITION_LENGTH, READABLE_HEADERS, readableCell, summaryWords, type CellNames } from "./readable-cells.js";
+import { actionWords, formatWords, mappingWords, MAX_DEFINITION_LENGTH, READABLE_HEADERS, readableCell, summaryWords, type CellNames } from "./readable-cells.js";
 
 // Every definition here is made up, in the shape Anaplan's own export of a settings grid writes one: no model's data.
 const cell = (definition: unknown): string => JSON.stringify(definition);
@@ -382,6 +382,48 @@ describe("An action's definition in words", () => {
       { actionType: "TASK_ELEMENT", taskElement: "{\"taskElementType\":\"BULK_OPERATION\",\"operation\":[\"SIMPLE_CREATE\"]}" },
       { actionType: "DELETE_BY_SELECTION", hierarchyIdentifier: "Products" }, { actionType: "ORDER_HIERARCHY", hierarchyIdentifier: {} }];
     for (const definition of wrong) expect(actionWords(cell(definition), LIST_NAMES), JSON.stringify(definition)).toBeUndefined();
+  });
+});
+
+describe("A source model's Mapped To in words", () => {
+  // A cell as Anaplan's own export of the Source Models grid writes it, with the keys a real model's cell has.
+  const WORKSPACE_ID = "dc56f2296af444ca894c1bca437ae1b4";
+  const MODEL_ID = "42FAAB38006B4E478C5A051DADA1B7C0";
+  const MAPPING = { workspaceId: WORKSPACE_ID, workspaceName: "CL1 WU Finance [DEV-1]", modelId: MODEL_ID, modelName: "Finance Hub" };
+
+  it("says the workspace and the model a source model is mapped to by their names, as the cell has them", () => {
+    expect(mappingWords(cell(MAPPING))).toEqual({ workspace: "CL1 WU Finance [DEV-1]", model: "Finance Hub" });
+    // The keys in another order, other keys beside them, and white space around the object change nothing.
+    expect(mappingWords(cell({ modelName: "Finance Hub", modelId: MODEL_ID, extra: [1], workspaceName: "CL1 WU Finance [DEV-1]", workspaceId: WORKSPACE_ID })))
+      .toEqual({ workspace: "CL1 WU Finance [DEV-1]", model: "Finance Hub" });
+    expect(mappingWords(`  \n${cell(MAPPING)}\n `)).toEqual({ workspace: "CL1 WU Finance [DEV-1]", model: "Finance Hub" });
+    // A name goes in as it is, spaces, markup and all: the caller escapes it.
+    expect(mappingWords(cell({ ...MAPPING, workspaceName: " R&amp;D <b>", modelName: "$& \"Plan\"" }))).toEqual({ workspace: " R&amp;D <b>", model: "$& \"Plan\"" });
+  });
+
+  it("says a workspace or a model by its ID where the cell gives no name for it, and never guesses one", () => {
+    const ids = { workspace: `ID ${WORKSPACE_ID}`, model: `ID ${MODEL_ID}` };
+    for (const name of [undefined, null, "", "   ", 42, true, ["Finance"], { name: "Finance" }]) {
+      expect(mappingWords(cell({ workspaceId: WORKSPACE_ID, workspaceName: name, modelId: MODEL_ID, modelName: name })), JSON.stringify(name)).toEqual(ids);
+    }
+    // Each of the two on its own: one by its name and the other by its ID, and one with neither, which says nothing.
+    expect(mappingWords(cell({ ...MAPPING, modelName: "" }))).toEqual({ workspace: "CL1 WU Finance [DEV-1]", model: `ID ${MODEL_ID}` });
+    expect(mappingWords(cell({ workspaceId: WORKSPACE_ID, modelName: "Finance Hub" }))).toEqual({ workspace: `ID ${WORKSPACE_ID}`, model: "Finance Hub" });
+    expect(mappingWords(cell({ workspaceName: "CL1 WU Finance [DEV-1]" }))).toEqual({ workspace: "CL1 WU Finance [DEV-1]", model: "" });
+    expect(mappingWords(cell({ workspaceId: " ", modelId: MODEL_ID }))).toEqual({ workspace: "", model: `ID ${MODEL_ID}` });
+    // An ID that is no text is no ID either.
+    expect(mappingWords(cell({ workspaceId: 12345, modelId: MODEL_ID }))).toEqual({ workspace: "", model: `ID ${MODEL_ID}` });
+  });
+
+  it("gives nothing for a cell that names neither a workspace nor a model, so the caller shows the cell as it is", () => {
+    for (const text of NOT_A_DEFINITION) expect(mappingWords(text), String(text).slice(0, 40)).toBeUndefined();
+    const none: unknown[] = [{ workspace: "Finance", model: "Hub" }, { workspaceName: "", modelName: "  " }, { workspaceId: null, modelId: -1 }, { workspaceName: ["Finance"] },
+      { mapping: MAPPING }];
+    for (const definition of none) expect(mappingWords(cell(definition)), JSON.stringify(definition)).toBeUndefined();
+    // The names under a key of an object's built-in name, a list of mappings, and a mapping with text after it.
+    for (const text of [`{"__proto__":${cell(MAPPING)}}`, `[${cell(MAPPING)}]`, `${cell(MAPPING)} and more`]) expect(mappingWords(text), text).toBeUndefined();
+    // The cell is no definition the page says in its own place: its column is none of those.
+    expect([readableCell("Mapped To", cell(MAPPING)), (READABLE_HEADERS as readonly string[]).includes("Mapped To")]).toEqual([undefined, false]);
   });
 });
 

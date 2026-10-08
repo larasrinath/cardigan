@@ -12,15 +12,21 @@ export const APP_FILES: Record<TabName, string> = {
 
 /** How the results page shows each column. Columns come from a table's headers. The design's choices for the app's seven
  * files are kept by header name: which columns offer a filter, which start hidden, which are numbers, and which are shown
- * as an ID to copy, a tag or a link. Every cell shows its own text whatever the choice. A file or a header that is not
- * listed here (every file of a model export) gets a plain text column. In any file, a column that holds only a few
- * different texts offers a filter as well, so a model's tables can be filtered too.
+ * as an ID to copy, a tag, a link or a count. Every cell shows its own text whatever the choice; a count shows it with its
+ * thousands apart. Of a model export's files the page knows only the columns that count something (`MODEL_COUNTS`). A file
+ * or a header that is not listed here gets a plain text column. In any file, a column that holds only a few different
+ * texts offers a filter as well, so a model's tables can be filtered too.
  *
  * Two kinds of column start hidden in every one of the app's tables: the IDs, and what only numbers a row's place, a
  * card's number and a section's (`NUMBERS_HIDDEN`). A row says where it belongs in words, by its page and its card's
  * title or its own name. A hidden column is still in the column chooser, in the search and in the row's drawer. */
 
-export type ColumnKind = "text" | "id" | "tag" | "page" | "card";
+/** How a column's cells are shown: as plain text, an ID to copy, a tag, a link to a page or to a card, a formatting rule's
+ * colour stops, each colour as a small square of that colour before its code, or a count, which is a number of things
+ * shown with its thousands apart (table-engine.ts `groupedCount`). A count's column is right-aligned as any number's is,
+ * and sorts as numbers wherever its cells are numbers, as any column does: the cells are not changed. A number that only
+ * names or places something, as a card's number, an ID, a year or a code, is no count. */
+export type ColumnKind = "text" | "id" | "tag" | "page" | "card" | "colours" | "count";
 
 export interface Column {
   /** The column's position in the table's headers and in each row. */
@@ -35,6 +41,9 @@ export interface Column {
   filter: boolean;
   /** Hidden until chosen in the column chooser. */
   hidden: boolean;
+  /** Whether the dash alone in a cell (table-engine.ts `NONE`) says that there is nothing, as the page shows it, greyed: so
+   * in a table of one of the app's files (`writesNone`). In any other table the dash is the cell's text like any other. */
+  none: boolean;
 }
 
 interface Choice { kind?: ColumnKind; num?: true; filter?: true; hidden?: true }
@@ -45,20 +54,21 @@ export const NUMBERS_HIDDEN: readonly string[] = ["Card #", "Section #"];
 const PAGE: Choice = { kind: "page", filter: true };
 /** A card's number where the row also holds the card's ID: it opens the card, from the row's drawer while it is hidden. */
 const CARD_NUMBER: Choice = { kind: "card", num: true, hidden: true };
-const NUM: Choice = { num: true };
+const COUNT: Choice = { kind: "count", num: true };
 const HIDDEN_NUM: Choice = { num: true, hidden: true };
 const FILTER: Choice = { filter: true };
 const TAG: Choice = { kind: "tag", filter: true };
 const HIDDEN_ID: Choice = { kind: "id", hidden: true };
+const COLOURS: Choice = { kind: "colours" };
 
 const CHOICES: Record<TabName, Record<string, Choice>> = {
   Pages: {
     "Category": FILTER, "Page": { kind: "page" }, "Page type": TAG, "Publish state": FILTER, "Model": FILTER,
-    "Total cards": NUM, "Grid cards": NUM, "Chart cards": NUM, "KPI cards": NUM, "Field cards": NUM, "Action cards": NUM, "Text & image cards": NUM,
+    "Total cards": COUNT, "Grid cards": COUNT, "Chart cards": COUNT, "KPI cards": COUNT, "Field cards": COUNT, "Action cards": COUNT, "Text & image cards": COUNT,
     "Page ID": HIDDEN_ID, "App ID": HIDDEN_ID, "Model ID": HIDDEN_ID,
   },
   Cards: {
-    "Page": PAGE, "Card #": CARD_NUMBER, "Card title": { kind: "card" }, "Card type": TAG, "View type": TAG,
+    "Page": PAGE, "Card #": CARD_NUMBER, "Card title": { kind: "card" }, "Card type": TAG, "View type": TAG, "Conditional formatting": COLOURS,
     "Card ID": HIDDEN_ID, "Source IDs": { hidden: true },
   },
   "Grid sections": {
@@ -70,7 +80,7 @@ const CHOICES: Record<TabName, Record<string, Choice>> = {
     "Operator": FILTER, "Card ID": HIDDEN_ID, "Line item ID": HIDDEN_ID,
   },
   Formatting: {
-    "Page": PAGE, "Card #": CARD_NUMBER, "Section #": HIDDEN_NUM, "Format style": TAG, "Card ID": HIDDEN_ID, "Line item ID": HIDDEN_ID,
+    "Page": PAGE, "Card #": CARD_NUMBER, "Section #": HIDDEN_NUM, "Format style": TAG, "Colour stops": COLOURS, "Card ID": HIDDEN_ID, "Line item ID": HIDDEN_ID,
   },
   Actions: {
     "Page": PAGE, "Card #": CARD_NUMBER, "Action type": TAG, "Name source": FILTER, "Runs automatically": FILTER, "Cancel button": FILTER,
@@ -87,6 +97,28 @@ const CHOICES: Record<TabName, Record<string, Choice>> = {
  * Maps, so that a file or a header with the name of an object's built-in property finds nothing. */
 export const COLUMN_CHOICES: ReadonlyMap<string, ReadonlyMap<string, Choice>> = new Map(
   (Object.keys(CHOICES) as TabName[]).map((tab): [string, ReadonlyMap<string, Choice>] => [APP_FILES[tab], new Map(Object.entries(CHOICES[tab]))]));
+
+/** The app's files by name: a set, so that a file with the name of an object's built-in property is none of them. */
+const APP_FILE_NAMES: ReadonlySet<string> = new Set(Object.values(APP_FILES));
+
+/** Whether a table is one of the app's files, which the analysis writes (report.ts): there, and only there, the dash
+ * alone in a cell (table-engine.ts `NONE`) is the analysis's own, which says that there is nothing. A model's files are
+ * Anaplan's own grids, where Anaplan writes that dash itself, in Applies To on a heading row of Modules and in Source
+ * Object of a file import, and the page leaves it in Applies To of a line item whose module is not found
+ * (line-items-view.ts). There it is a text like any other, and the page shows it as one. */
+export const writesNone = (table: ResultTable): boolean => APP_FILE_NAMES.has(table.file);
+
+/** The columns of a model export's files that count something, by file and header: a module's cells, a line item's cells
+ * and a list's items. The files are named as model/export.ts writes them, and the headers are those of Anaplan's own
+ * Model settings grids, which the export keeps: Modules and Line Items count their cells as Cell Count in a Classic model
+ * and as Populated Cell Count in a Polaris one, and General Lists count their items as Item Count. Every other column
+ * of a model's files is plain text: the grids' other numbers are no counts of things (Calculation Effort is a measure of
+ * the work a line item takes, Most recent duration (ms) a time, Code a code), or they name a year, a period or an ID. */
+const CELL_COUNTS = ["Cell Count", "Populated Cell Count"];
+export const MODEL_COUNTS: ReadonlyMap<string, readonly string[]> = new Map([
+  ["Modules.csv", CELL_COUNTS], ["Line Items.csv", CELL_COUNTS], ["General Lists.csv", ["Item Count"]],
+]);
+const MODEL_CHOICES: ReadonlyMap<string, ReadonlyMap<string, Choice>> = new Map([...MODEL_COUNTS].map(([file, headers]) => [file, new Map(headers.map(header => [header, COUNT]))]));
 
 /** A column of any file offers a filter when it holds at least this many different texts and at most that many: with one
  * there is nothing to choose, and more than thirty are a list to search, not to tick. */
@@ -107,22 +139,25 @@ function fewTexts(table: ResultTable): boolean[] {
 
 /** A table's columns, in the order of its headers. The rows must be complete: which columns offer a filter depends on them. */
 export function columnsOf(table: ResultTable): Column[] {
-  const choices = COLUMN_CHOICES.get(table.file);
+  const choices = COLUMN_CHOICES.get(table.file) ?? MODEL_CHOICES.get(table.file);
   const few = fewTexts(table);
+  const none = writesNone(table);
   return table.headers.map((value, index) => {
     const header = cellText(value);
     const choice = choices?.get(header) ?? {};
     const label = header !== "" ? header : index === 0 ? "Name" : `Column ${index + 1}`;
-    return { index, label, kind: choice.kind ?? "text", num: choice.num === true, filter: choice.filter === true || few[index], hidden: choice.hidden === true };
+    return { index, label, kind: choice.kind ?? "text", num: choice.num === true, filter: choice.filter === true || few[index], hidden: choice.hidden === true, none };
   });
 }
 
 /** The columns of one row in full: the table's, then one for each cell the row holds beyond its headers, under a name of
- * the page's own. The row holds those cells, so the place where a row is read in full shows them too. */
+ * the page's own. The row holds those cells, so the place where a row is read in full shows them too. Such a cell is
+ * the table's like any other: the dash alone in it says what it says in the table's own columns. */
 export function rowColumns(columns: readonly Column[], row: readonly unknown[]): Column[] {
+  const none = columns.some(column => column.none);
   const beyond = Array.from({ length: Math.max(0, row.length - columns.length) }, (_, extra): Column => {
     const index = columns.length + extra;
-    return { index, label: `Column ${index + 1}`, kind: "text", num: false, filter: false, hidden: false };
+    return { index, label: `Column ${index + 1}`, kind: "text", num: false, filter: false, hidden: false, none };
   });
   return [...columns, ...beyond];
 }

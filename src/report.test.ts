@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { describePageCards } from "./card-reader/card-details.js";
 import { nameCardDetails } from "./card-reader/card-naming.js";
 import { addDerivedContextSelectors, gridNeeds } from "./analyse.js";
-import { addActions, addLineItems, addLists, addModuleDimensions, addModuleViews, addSelections, emptyCatalog, resolveFromCatalog } from "./catalog.js";
-import { buildReport, HEADERS, type PageInput, type TabName } from "./report.js";
+import { addActions, addLineItems, addLists, addModuleDimensions, addModuleViews, addSelections, CURRENT_USER, describeSystemContext, emptyCatalog, resolveFromCatalog } from "./catalog.js";
+import { buildReport, HEADERS, NONE, type PageInput, type TabName } from "./report.js";
 import { toCsv } from "./zip.test-support.js";
 
 // Synthetic IDs and names only, shaped like a captured board (see card-details.test.ts).
@@ -142,8 +142,8 @@ function fullReport() {
 describe("Page analyzer report, from a native page to the agreed CSV tables", () => {
   it("numbers cards by position and keeps the card title on the Cards tab only", () => {
     const result = report();
-    expect(rowsOf("Cards", "Card #", "Card title", "Card type", "View type")).toEqual([[1, "—", "Action", "—"], [2, "Demand by brand", "Grid", "Custom view"],
-      [3, "—", "Grid", "Saved view"], [4, "Plan and factors", "Grid", "Combined grid (2 sections)"]]);
+    expect(rowsOf("Cards", "Card #", "Card title", "Card type", "View type")).toEqual([[1, "-", "Action", "-"], [2, "Demand by brand", "Grid", "Custom view"],
+      [3, "-", "Grid", "Saved view"], [4, "Plan and factors", "Grid", "Combined grid (2 sections)"]]);
     for (const tab of ["Grid sections", "Filters", "Formatting", "Actions", "Where used"] as TabName[]) {
       expect(HEADERS[tab]).not.toContain("Card title");
       expect(JSON.stringify(result[tab].rows)).not.toContain("Demand by brand");
@@ -151,24 +151,24 @@ describe("Page analyzer report, from a native page to the agreed CSV tables", ()
     expect(result.Pages.rows).toEqual([
       ["Planning app", "Demand", "Synthetic demand board", "Board", "Published (no unpublished changes)", "Model one", "Workspace one", 4, 3, 0,
         "1 custom view, 1 saved view, 1 combined grid", 0, 0, 1, 0, "2026-09-21", guid(1000), guid(1002), "MODEL-1"],
-      ["Planning app", "Demand", "Draft page", "Board", "Not published", "Model one", "Workspace one", 0, 0, 0, "—", 0, 0, 0, 0, "—", guid(1000), guid(1002), "MODEL-1"]]);
+      ["Planning app", "Demand", "Draft page", "Board", "Not published", "Model one", "Workspace one", 0, 0, 0, "-", 0, 0, 0, 0, "-", guid(1000), guid(1002), "MODEL-1"]]);
   });
 
   it("describes each view type: custom view, saved view and a side-by-side combined grid", () => {
     expect(rowsOf("Cards", "Source module(s)", "Saved view", "Line items shown", "Rows", "Columns", "Filters", "Sorts & hidden items")).toEqual([
-      ["—", "—", "—", "—", "—", "—", "—"],
-      ["Demand", "—", "Line Items not on rows, columns or a selector", "Product", "Time (lowest level only)",
-        "Rows, match all: Territory demand [Factors] is not equal to 0 (context: Territory = current)", "—"],
-      ["Order summary", "Exceptions view", "Set by the saved view", "—", "—", "Set in the model (saved view)", "Set in the model (saved view)"],
-      ["Section 1: Demand | Section 2: Factors", "—", "Section 1: Line Items not on rows, columns or a selector | Section 2: All line items (Line Items on columns)",
-        "Product (shared by all sections)", "Section 1: Time | Section 2: Line Items", "Rows (sections 1 and 2), match all: Show? [Demand] is equal to true", "—"]]);
+      ["-", "-", "-", "-", "-", "-", "-"],
+      ["Demand", "-", "Line Items not on rows, columns or a selector", "Product", "Time (lowest level only)",
+        "Rows, match all: Territory demand [Factors] is not equal to 0 (context: Territory = current)", "-"],
+      ["Order summary", "Exceptions view", "Set by the saved view", "-", "-", "Set in the model (saved view)", "Set in the model (saved view)"],
+      ["Section 1: Demand | Section 2: Factors", "-", "Section 1: Line Items not on rows, columns or a selector | Section 2: All line items (Line Items on columns)",
+        "Product (shared by all sections)", "Section 1: Time | Section 2: Line Items", "Rows (sections 1 and 2), match all: Show? [Demand] is equal to true", "-"]]);
     expect(rowsOf("Grid sections", "Card #", "Section #", "Section layout", "Source module", "Saved view", "Row filter", "Column filter", "Conditional formatting")).toEqual([
-      [2, 1, "—", "Demand", "—", "1 condition, match all", "—", "1 rule (Border)"],
-      [3, 1, "—", "Order summary", "Exceptions view", "Set in the model (saved view)", "Set in the model (saved view)", "—"],
-      [4, 1, "Beside section 2 (same rows)", "Demand", "—", "1 condition, match all (shared with section 2)", "—", "—"],
-      [4, 2, "Beside section 1 (same rows)", "Factors", "—", "1 condition, match all (shared with section 1)", "—", "1 rule (Background)"]]);
+      [2, 1, "-", "Demand", "-", "1 condition, match all", "-", "1 rule (Border)"],
+      [3, 1, "-", "Order summary", "Exceptions view", "Set in the model (saved view)", "Set in the model (saved view)", "-"],
+      [4, 1, "Beside section 2 (same rows)", "Demand", "-", "1 condition, match all (shared with section 2)", "-", "-"],
+      [4, 2, "Beside section 1 (same rows)", "Factors", "-", "1 condition, match all (shared with section 1)", "-", "1 rule (Background)"]]);
     expect(rowsOf("Filters", "Card #", "Section #", "Filtered module", "Filter on", "Condition line item", "Condition line item's module", "Condition context")).toEqual([
-      [2, "1", "Demand", "Rows", "Territory demand", "Factors", "Territory = current"], [4, "1, 2 (shared rows)", "Demand; Factors", "Rows", "Show?", "Demand", "—"]]);
+      [2, "1", "Demand", "Rows", "Territory demand", "Factors", "Territory = current"], [4, "1, 2 (shared rows)", "Demand; Factors", "Rows", "Show?", "Demand", "-"]]);
     expect(rowsOf("Formatting", "Card #", "Section #", "Formatted module", "Format style", "Formatted line item")).toEqual([[2, "1", "Demand", "Border", "Volume"], [4, "2", "Factors", "Background", "Factor"]]);
   });
 
@@ -228,14 +228,14 @@ describe("Page analyzer report, from a native page to the agreed CSV tables", ()
     const section = result["Grid sections"].rows[0];
     expect([section[HEADERS["Grid sections"].indexOf("Rows")], section[HEADERS["Grid sections"].indexOf("Columns")]])
       .toEqual(["Product (levels: top level, lowest level, Territory, 101000000999)", "Time (lowest level only)"]);
-    expect(result.Actions.rows[0].slice(4, 6)).toEqual(["—", "Card label (model lookup failed)"]);
+    expect(result.Actions.rows[0].slice(4, 6)).toEqual(["-", "Card label (model lookup failed)"]);
   });
 
   it("names model actions from the model, keeps other buttons' labels, and never exports an action token", () => {
     expect(rowsOf("Actions", "Button label", "Action type", "Model action name", "Name source", "Runs automatically", "Cancel button")).toEqual([
       ["Reload plan", "Import", "Import demand (model name)", "Model", "Yes (default)", "n/a"],
-      ["Forecast demand", "Forecaster", "—", "Card label (not a model object)", "n/a", "n/a"],
-      ["Run nightly", "Process", "—", "Card label (not found in the model)", "No (asks first)", "Cancel disabled"]]);
+      ["Forecast demand", "Forecaster", "-", "Card label (not a model object)", "n/a", "n/a"],
+      ["Run nightly", "Process", "-", "Card label (not found in the model)", "No (asks first)", "Cancel disabled"]]);
     const result = report();
     const csv = (Object.keys(HEADERS) as TabName[]).map(tab => toCsv(result[tab].headers, result[tab].rows)).join("\n");
     expect(csv).not.toContain(TOKEN);
@@ -252,122 +252,122 @@ describe("Page analyzer report, from a native page to the agreed CSV tables", ()
     expect(result.Pages.rows).toEqual([
       ["Planning app", "Demand", "Synthetic demand board", "Board", "Published (no unpublished changes)", "Model one", "Workspace one", 4, 3, 0,
         "1 custom view, 1 saved view, 1 combined grid", 0, 0, 1, 0, "2026-09-21", guid(1000), guid(1002), "MODEL-1"],
-      ["Planning app", "Demand", "Draft page", "Board", "Not published", "Model one", "Workspace one", 0, 0, 0, "—", 0, 0, 0, 0, "—", guid(1000), guid(1002), "MODEL-1"],
+      ["Planning app", "Demand", "Draft page", "Board", "Not published", "Model one", "Workspace one", 0, 0, 0, "-", 0, 0, 0, 0, "-", guid(1000), guid(1002), "MODEL-1"],
       ["Planning app", "Demand", "Synthetic KPI board", "Board", "Published, draft differs", "Model one", "Workspace one", 7, 2, 0, "1 custom view, 1 saved view", 1, 1,
         1, 2, "2026-09-30", guid(1010), guid(1002), "MODEL-1"]]);
     expect(result.Cards.rows).toEqual([
-      ["Synthetic demand board", 1, "—", "Action", "—", "—", "—", "—", "—", "—", "—", "—", "—", "—",
-        "Import: Reload plan | Forecaster: Forecast demand | Process: Run nightly", "—", "—", guid(1), "—"],
-      ["Synthetic demand board", 2, "Demand by brand", "Grid", "Custom view", "Demand", "—", "Chosen by the Line Items selector", "Product", "Time (lowest level only)",
-        "Territory; Line Items", "Rows, match all: Territory demand [Factors] is not equal to 0 (context: Territory = current)", "—",
-        "Border colour on Volume: 0 → #FFFFFF; 100,000 → #627786", "—", "—", "Read-only · pivot on · filter/sort on · CSV export on", guid(2), MODULE],
-      ["Synthetic demand board", 3, "—", "Grid", "Saved view", "Order summary", "Exceptions view", "Set by the saved view", "—", "—", "—",
-        "Set in the model (saved view)", "Set in the model (saved view)", "—", "—", "—", "Read-only · pivot on · filter/sort on · CSV export on", guid(3),
+      ["Synthetic demand board", 1, "-", "Action", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-",
+        "Import: Reload plan | Forecaster: Forecast demand | Process: Run nightly", "-", "-", guid(1), "-"],
+      ["Synthetic demand board", 2, "Demand by brand", "Grid", "Custom view", "Demand", "-", "Chosen by the Line Items selector", "Product", "Time (lowest level only)",
+        "Territory; Line Items", "Rows, match all: Territory demand [Factors] is not equal to 0 (context: Territory = current)", "-",
+        "Border colour on Volume: 0 → #FFFFFF; 100,000 → #627786", "-", "-", "Read-only · pivot on · filter/sort on · CSV export on", guid(2), MODULE],
+      ["Synthetic demand board", 3, "-", "Grid", "Saved view", "Order summary", "Exceptions view", "Set by the saved view", "-", "-", "-",
+        "Set in the model (saved view)", "Set in the model (saved view)", "-", "-", "-", "Read-only · pivot on · filter/sort on · CSV export on", guid(3),
         "102000000903; 130000000901"],
-      ["Synthetic demand board", 4, "Plan and factors", "Grid", "Combined grid (2 sections)", "Section 1: Demand | Section 2: Factors", "—",
+      ["Synthetic demand board", 4, "Plan and factors", "Grid", "Combined grid (2 sections)", "Section 1: Demand | Section 2: Factors", "-",
         "Section 1: Chosen by the Line Items selector | Section 2: All line items (Line Items on columns)", "Product (shared by all sections)",
-        "Section 1: Time | Section 2: Line Items", "Section 1: Territory; Line Items", "Rows (sections 1 and 2), match all: Show? [Demand] is equal to true", "—",
-        "Section 2: Background colour on Factor: 0 → #FFFFFF; 100,000 → #627786", "—", "—", "Read-only · pivot on · filter/sort on · CSV export on", guid(4),
+        "Section 1: Time | Section 2: Line Items", "Section 1: Territory; Line Items", "Rows (sections 1 and 2), match all: Show? [Demand] is equal to true", "-",
+        "Section 2: Background colour on Factor: 0 → #FFFFFF; 100,000 → #627786", "-", "-", "Read-only · pivot on · filter/sort on · CSV export on", guid(4),
         "102000000901; 102000000902"],
-      ["Synthetic KPI board", 1, "Plan inputs", "Field", "—", "—", "—", "Show?; Factor", "—", "—", "—", "—", "—", "—", "—", "—", "—", guid(12), "—"],
-      ["Synthetic KPI board", 2, "Total volume", "KPI", "—", "Demand", "—", "Volume", "—", "—", "—", "—", "—",
+      ["Synthetic KPI board", 1, "Plan inputs", "Field", "-", "-", "-", "Show?; Factor", "-", "-", "-", "-", "-", "-", "-", "-", "-", guid(12), "-"],
+      ["Synthetic KPI board", 2, "Total volume", "KPI", "-", "Demand", "-", "Volume", "-", "-", "-", "-", "-",
         "CARD_LEVEL colour on Volume (values from Show?): 0 → #FFFFFF; 1,500.5 → #627786 | KPI indicator (threshold): 3 icons (arrow up, flag red); no threshold values set",
-        "Title links to board Synthetic demand board", "—", "text LARGE · scale THOUSANDS · sparkline on", guid(11), MODULE],
-      ["Synthetic KPI board", 3, "—", "Image", "—", "Factors", "—", "Territory demand (image)", "—", "—", "—", "—", "—", "—", "—", "—", "—", guid(13), MODULE_2],
-      ["Synthetic KPI board", 4, "—", "Text", "—", "—", "—", "—", "—", "—", "—", "—", "—", "—", "Title links to board Synthetic demand board",
-        "Review the plan before Friday.", "—", guid(14), "—"],
-      ["Synthetic KPI board", 5, "Ranked demand", "Grid", "Custom view", "Demand", "—", "All except Show? (Line Items on rows)", "Product; Line Items", "Time",
+        "Title links to board Synthetic demand board", "-", "text LARGE · scale THOUSANDS · sparkline on", guid(11), MODULE],
+      ["Synthetic KPI board", 3, "-", "Image", "-", "Factors", "-", "Territory demand (image)", "-", "-", "-", "-", "-", "-", "-", "-", "-", guid(13), MODULE_2],
+      ["Synthetic KPI board", 4, "-", "Text", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-", "Title links to board Synthetic demand board",
+        "Review the plan before Friday.", "-", guid(14), "-"],
+      ["Synthetic KPI board", 5, "Ranked demand", "Grid", "Custom view", "Demand", "-", "All except Show? (Line Items on rows)", "Product; Line Items", "Time",
         "Territory (hidden, synced to page)",
-        "Columns, match any: Volume [Demand] is greater than 1500.5 | Columns, match all: Show? [Demand] is equal to true | Columns, match all: Volume [Demand] is blank —",
-        "Product: sorted (1 sort key); Product: only North shown; Line Items: 1 item hidden (Show?)", "Font colour on Volume: 0 → #FFFFFF; 100,000 → #627786", "—", "—",
+        "Columns, match any: Volume [Demand] is greater than 1500.5 | Columns, match all: Show? [Demand] is equal to true | Columns, match all: Volume [Demand] is blank -",
+        "Product: sorted (1 sort key); Product: only North shown; Line Items: 1 item hidden (Show?)", "Font colour on Volume: 0 → #FFFFFF; 100,000 → #627786", "-", "-",
         "Read-only · pivot on · filter/sort on · CSV export on", guid(15), MODULE],
-      ["Synthetic KPI board", 6, "Factors", "Grid", "Saved view", "Factors", "Default view of the module", "Set by the saved view", "—", "—", "—",
-        "Set in the model (saved view)", "Set in the model (saved view)", "—", "—", "—", "Read-only · pivot on · filter/sort on · CSV export on", guid(16), MODULE_2],
-      ["Synthetic KPI board", 7, "—", "Action", "—", "—", "—", "—", "—", "—", "—", "—", "—", "—",
-        "Export: Send plan | Process: Run weekly | Navigation: Open review | CUSTOM_STEP: Custom step", "—", "—", guid(17), "—"]]);
+      ["Synthetic KPI board", 6, "Factors", "Grid", "Saved view", "Factors", "Default view of the module", "Set by the saved view", "-", "-", "-",
+        "Set in the model (saved view)", "Set in the model (saved view)", "-", "-", "-", "Read-only · pivot on · filter/sort on · CSV export on", guid(16), MODULE_2],
+      ["Synthetic KPI board", 7, "-", "Action", "-", "-", "-", "-", "-", "-", "-", "-", "-", "-",
+        "Export: Send plan | Process: Run weekly | Navigation: Open review | CUSTOM_STEP: Custom step", "-", "-", guid(17), "-"]]);
     expect(result["Grid sections"].rows).toEqual([
-      ["Synthetic demand board", 2, "Custom view", 1, "—", "Demand", "—", "Product", "Time (lowest level only)", "Territory; Line Items",
-        "Chosen by the Line Items selector", "1 condition, match all", "—", "—", "1 rule (Border)", guid(2), "SINGLE", MODULE],
-      ["Synthetic demand board", 3, "Saved view", 1, "—", "Order summary", "Exceptions view", "—", "—", "—", "Set by the saved view", "Set in the model (saved view)",
-        "Set in the model (saved view)", "Set in the model (saved view)", "—", guid(3), "—", OWNER],
-      ["Synthetic demand board", 4, "Combined grid (2 sections)", 1, "Beside section 2 (same rows)", "Demand", "—", "Product", "Time", "Territory; Line Items",
-        "Chosen by the Line Items selector", "1 condition, match all (shared with section 2)", "—", "—", "—", guid(4), "SINGLE", MODULE],
-      ["Synthetic demand board", 4, "Combined grid (2 sections)", 2, "Beside section 1 (same rows)", "Factors", "—", "Product", "Line Items", "—",
-        "All line items (Line Items on columns)", "1 condition, match all (shared with section 1)", "—", "—", "1 rule (Background)", guid(4), guid(902), MODULE_2],
-      ["Synthetic KPI board", 5, "Custom view", 1, "—", "Demand", "—", "Product; Line Items", "Time", "Territory (hidden, synced to page)",
-        "All except Show? (Line Items on rows)", "—", "3 conditions, match all/any",
+      ["Synthetic demand board", 2, "Custom view", 1, "-", "Demand", "-", "Product", "Time (lowest level only)", "Territory; Line Items",
+        "Chosen by the Line Items selector", "1 condition, match all", "-", "-", "1 rule (Border)", guid(2), "SINGLE", MODULE],
+      ["Synthetic demand board", 3, "Saved view", 1, "-", "Order summary", "Exceptions view", "-", "-", "-", "Set by the saved view", "Set in the model (saved view)",
+        "Set in the model (saved view)", "Set in the model (saved view)", "-", guid(3), "-", OWNER],
+      ["Synthetic demand board", 4, "Combined grid (2 sections)", 1, "Beside section 2 (same rows)", "Demand", "-", "Product", "Time", "Territory; Line Items",
+        "Chosen by the Line Items selector", "1 condition, match all (shared with section 2)", "-", "-", "-", guid(4), "SINGLE", MODULE],
+      ["Synthetic demand board", 4, "Combined grid (2 sections)", 2, "Beside section 1 (same rows)", "Factors", "-", "Product", "Line Items", "-",
+        "All line items (Line Items on columns)", "1 condition, match all (shared with section 1)", "-", "-", "1 rule (Background)", guid(4), guid(902), MODULE_2],
+      ["Synthetic KPI board", 5, "Custom view", 1, "-", "Demand", "-", "Product; Line Items", "Time", "Territory (hidden, synced to page)",
+        "All except Show? (Line Items on rows)", "-", "3 conditions, match all/any",
         "Product: sorted (1 sort key); Product: only North shown; Line Items: 1 item hidden (Show?)", "1 rule (Font colour)", guid(15), "SINGLE", MODULE],
-      ["Synthetic KPI board", 6, "Saved view", 1, "—", "Factors", "Default view of the module", "—", "—", "—", "Set by the saved view", "Set in the model (saved view)",
-        "Set in the model (saved view)", "Set in the model (saved view)", "—", guid(16), "—", MODULE_2]]);
+      ["Synthetic KPI board", 6, "Saved view", 1, "-", "Factors", "Default view of the module", "-", "-", "-", "Set by the saved view", "Set in the model (saved view)",
+        "Set in the model (saved view)", "Set in the model (saved view)", "-", guid(16), "-", MODULE_2]]);
     expect(result.Filters.rows).toEqual([
       ["Synthetic demand board", 2, "1", "Demand", "Rows", "Product", "1", "All", "Territory demand", "Factors", "is not equal to", "0", "Territory = current", guid(2),
         LI(9)],
-      ["Synthetic demand board", 4, "1, 2 (shared rows)", "Demand; Factors", "Rows", "Product", "1", "All", "Show?", "Demand", "is equal to", "true", "—", guid(4),
+      ["Synthetic demand board", 4, "1, 2 (shared rows)", "Demand; Factors", "Rows", "Product", "1", "All", "Show?", "Demand", "is equal to", "true", "-", guid(4),
         LI(1)],
-      ["Synthetic KPI board", 5, "1", "Demand", "Columns", "Time", "1", "Any", "Volume", "Demand", "is greater than", "1500.5", "—", guid(15), LI(2)],
-      ["Synthetic KPI board", 5, "1", "Demand", "Columns", "Time", "1.1", "All", "Show?", "Demand", "is equal to", "true", "—", guid(15), LI(1)],
-      ["Synthetic KPI board", 5, "1", "Demand", "Columns", "Time", "1.1", "All", "Volume", "Demand", "is blank", "—", "—", guid(15), LI(2)]]);
+      ["Synthetic KPI board", 5, "1", "Demand", "Columns", "Time", "1", "Any", "Volume", "Demand", "is greater than", "1500.5", "-", guid(15), LI(2)],
+      ["Synthetic KPI board", 5, "1", "Demand", "Columns", "Time", "1.1", "All", "Show?", "Demand", "is equal to", "true", "-", guid(15), LI(1)],
+      ["Synthetic KPI board", 5, "1", "Demand", "Columns", "Time", "1.1", "All", "Volume", "Demand", "is blank", "-", "-", guid(15), LI(2)]]);
     expect(result.Formatting.rows).toEqual([
       ["Synthetic demand board", 2, "1", "Demand", "Border", "Volume", "Volume", "0 → #FFFFFF; 100,000 → #627786", guid(2), LI(2)],
       ["Synthetic demand board", 4, "2", "Factors", "Background", "Factor", "Factor", "0 → #FFFFFF; 100,000 → #627786", guid(4), LI(8)],
-      ["Synthetic KPI board", 2, "—", "Demand", "CARD_LEVEL", "Volume", "Show?", "0 → #FFFFFF; 1,500.5 → #627786", guid(11), LI(2)],
-      ["Synthetic KPI board", 2, "—", "Demand", "KPI indicator – threshold icons", "KPI value", "Volume", "3 icons (arrow up, flag red); no threshold values set",
+      ["Synthetic KPI board", 2, "-", "Demand", "CARD_LEVEL", "Volume", "Show?", "0 → #FFFFFF; 1,500.5 → #627786", guid(11), LI(2)],
+      ["Synthetic KPI board", 2, "-", "Demand", "KPI indicator – threshold icons", "KPI value", "Volume", "3 icons (arrow up, flag red); no threshold values set",
         guid(11), LI(2)],
       ["Synthetic KPI board", 5, "1", "Demand", "Font colour", "Volume", "Volume", "0 → #FFFFFF; 100,000 → #627786", guid(15), LI(2)]]);
     expect(result.Actions.rows).toEqual([
       ["Synthetic demand board", 1, "Reload plan", "Import", "Import demand (model name)", "Model", "Yes (default)", "n/a", guid(1), "112000000901"],
-      ["Synthetic demand board", 1, "Forecast demand", "Forecaster", "—", "Card label (not a model object)", "n/a", "n/a", guid(1), "0123456789abcdef0123456789abcdef"],
-      ["Synthetic demand board", 1, "Run nightly", "Process", "—", "Card label (not found in the model)", "No (asks first)", "Cancel disabled", guid(1), "118000000901"],
-      ["Synthetic KPI board", 7, "Send plan", "Export", "—", "Card label (model lookup failed)", "Yes", "n/a", guid(17), "116000000901"],
-      ["Synthetic KPI board", 7, "Run weekly", "Process", "—", "Card label (not found in the model)", "Yes (default)", "Cancel allowed", guid(17), "118000000902"],
-      ["Synthetic KPI board", 7, "Open review", "Navigation", "—", "Card label (not a model object)", "n/a", "n/a", guid(17), guid(990)],
-      ["Synthetic KPI board", 7, "Custom step", "CUSTOM_STEP", "—", "Card label (not a model object)", "n/a", "n/a", guid(17), "119000000901"]]);
+      ["Synthetic demand board", 1, "Forecast demand", "Forecaster", "-", "Card label (not a model object)", "n/a", "n/a", guid(1), "0123456789abcdef0123456789abcdef"],
+      ["Synthetic demand board", 1, "Run nightly", "Process", "-", "Card label (not found in the model)", "No (asks first)", "Cancel disabled", guid(1), "118000000901"],
+      ["Synthetic KPI board", 7, "Send plan", "Export", "-", "Card label (model lookup failed)", "Yes", "n/a", guid(17), "116000000901"],
+      ["Synthetic KPI board", 7, "Run weekly", "Process", "-", "Card label (not found in the model)", "Yes (default)", "Cancel allowed", guid(17), "118000000902"],
+      ["Synthetic KPI board", 7, "Open review", "Navigation", "-", "Card label (not a model object)", "n/a", "n/a", guid(17), guid(990)],
+      ["Synthetic KPI board", 7, "Custom step", "CUSTOM_STEP", "-", "Card label (not a model object)", "n/a", "n/a", guid(17), "119000000901"]]);
     expect(result["Where used"].rows).toEqual([
-      ["Import", "Import demand (model name)", "—", "Synthetic demand board", 1, "Action button", "112000000901"],
-      ["Forecaster", "Forecast demand", "—", "Synthetic demand board", 1, "Action button", "0123456789abcdef0123456789abcdef"],
-      ["Process", "Run nightly", "—", "Synthetic demand board", 1, "Action button", "118000000901"],
-      ["Module", "Demand", "—", "Synthetic demand board", 2, "Data source (custom view)", MODULE],
-      ["Dimension", "Product", "—", "Synthetic demand board", 2, "Rows", LIST],
-      ["Dimension", "Time", "—", "Synthetic demand board", 2, "Columns", TIME],
-      ["Dimension", "Territory", "—", "Synthetic demand board", 2, "Page selector", LIST_2],
-      ["Dimension", "Line Items", "—", "Synthetic demand board", 2, "Page selector", LINE_ITEMS],
+      ["Import", "Import demand (model name)", "-", "Synthetic demand board", 1, "Action button", "112000000901"],
+      ["Forecaster", "Forecast demand", "-", "Synthetic demand board", 1, "Action button", "0123456789abcdef0123456789abcdef"],
+      ["Process", "Run nightly", "-", "Synthetic demand board", 1, "Action button", "118000000901"],
+      ["Module", "Demand", "-", "Synthetic demand board", 2, "Data source (custom view)", MODULE],
+      ["Dimension", "Product", "-", "Synthetic demand board", 2, "Rows", LIST],
+      ["Dimension", "Time", "-", "Synthetic demand board", 2, "Columns", TIME],
+      ["Dimension", "Territory", "-", "Synthetic demand board", 2, "Page selector", LIST_2],
+      ["Dimension", "Line Items", "-", "Synthetic demand board", 2, "Page selector", LINE_ITEMS],
       ["Line item", "Territory demand", "Factors", "Synthetic demand board", 2, "Filter", LI(9)],
-      ["Dimension", "Territory", "—", "Synthetic demand board", 2, "Filter context", LIST_2],
+      ["Dimension", "Territory", "-", "Synthetic demand board", 2, "Filter context", LIST_2],
       ["Line item", "Volume", "Demand", "Synthetic demand board", 2, "Formatting", LI(2)],
-      ["Module", "Order summary", "—", "Synthetic demand board", 3, "Data source (via saved view)", OWNER],
+      ["Module", "Order summary", "-", "Synthetic demand board", 3, "Data source (via saved view)", OWNER],
       ["Saved view", "Exceptions view", "Order summary", "Synthetic demand board", 3, "Data source", VIEW],
-      ["Module", "Demand", "—", "Synthetic demand board", 4, "Data source (combined grid section 1)", MODULE],
-      ["Module", "Factors", "—", "Synthetic demand board", 4, "Data source (combined grid section 2)", MODULE_2],
-      ["Dimension", "Product", "—", "Synthetic demand board", 4, "Rows", LIST],
-      ["Dimension", "Time", "—", "Synthetic demand board", 4, "Columns", TIME],
-      ["Dimension", "Territory", "—", "Synthetic demand board", 4, "Page selector", LIST_2],
-      ["Dimension", "Line Items", "—", "Synthetic demand board", 4, "Page selector", LINE_ITEMS],
-      ["Dimension", "Line Items", "—", "Synthetic demand board", 4, "Columns", LINE_ITEMS],
+      ["Module", "Demand", "-", "Synthetic demand board", 4, "Data source (combined grid section 1)", MODULE],
+      ["Module", "Factors", "-", "Synthetic demand board", 4, "Data source (combined grid section 2)", MODULE_2],
+      ["Dimension", "Product", "-", "Synthetic demand board", 4, "Rows", LIST],
+      ["Dimension", "Time", "-", "Synthetic demand board", 4, "Columns", TIME],
+      ["Dimension", "Territory", "-", "Synthetic demand board", 4, "Page selector", LIST_2],
+      ["Dimension", "Line Items", "-", "Synthetic demand board", 4, "Page selector", LINE_ITEMS],
+      ["Dimension", "Line Items", "-", "Synthetic demand board", 4, "Columns", LINE_ITEMS],
       ["Line item", "Show?", "Demand", "Synthetic demand board", 4, "Filter", LI(1)],
       ["Line item", "Factor", "Factors", "Synthetic demand board", 4, "Formatting", LI(8)],
       ["Line item", "Show?", "Demand", "Synthetic KPI board", 1, "Field", LI(1)],
       ["Line item", "Factor", "Factors", "Synthetic KPI board", 1, "Field", LI(8)],
-      ["Module", "Demand", "—", "Synthetic KPI board", 2, "Data source", MODULE],
+      ["Module", "Demand", "-", "Synthetic KPI board", 2, "Data source", MODULE],
       ["Line item", "Volume", "Demand", "Synthetic KPI board", 2, "KPI value", LI(2)],
       ["Line item", "Volume", "Demand", "Synthetic KPI board", 2, "Formatting", LI(2)],
       ["Line item", "Show?", "Demand", "Synthetic KPI board", 2, "Formatting values", LI(1)],
-      ["Page", "Synthetic demand board", "—", "Synthetic KPI board", 2, "Link target", guid(1000)],
-      ["Module", "Factors", "—", "Synthetic KPI board", 3, "Data source", MODULE_2],
+      ["Page", "Synthetic demand board", "-", "Synthetic KPI board", 2, "Link target", guid(1000)],
+      ["Module", "Factors", "-", "Synthetic KPI board", 3, "Data source", MODULE_2],
       ["Line item", "Territory demand", "Factors", "Synthetic KPI board", 3, "Image", LI(9)],
-      ["Page", "Synthetic demand board", "—", "Synthetic KPI board", 4, "Link target", guid(1000)],
-      ["Module", "Demand", "—", "Synthetic KPI board", 5, "Data source (custom view)", MODULE],
-      ["Dimension", "Product", "—", "Synthetic KPI board", 5, "Rows", LIST],
-      ["Dimension", "Line Items", "—", "Synthetic KPI board", 5, "Rows", LINE_ITEMS],
-      ["Dimension", "Time", "—", "Synthetic KPI board", 5, "Columns", TIME],
-      ["Dimension", "Territory", "—", "Synthetic KPI board", 5, "Page selector", LIST_2],
+      ["Page", "Synthetic demand board", "-", "Synthetic KPI board", 4, "Link target", guid(1000)],
+      ["Module", "Demand", "-", "Synthetic KPI board", 5, "Data source (custom view)", MODULE],
+      ["Dimension", "Product", "-", "Synthetic KPI board", 5, "Rows", LIST],
+      ["Dimension", "Line Items", "-", "Synthetic KPI board", 5, "Rows", LINE_ITEMS],
+      ["Dimension", "Time", "-", "Synthetic KPI board", 5, "Columns", TIME],
+      ["Dimension", "Territory", "-", "Synthetic KPI board", 5, "Page selector", LIST_2],
       ["Line item", "Volume", "Demand", "Synthetic KPI board", 5, "Filter", LI(2)],
       ["Line item", "Show?", "Demand", "Synthetic KPI board", 5, "Filter", LI(1)],
       ["Line item", "Volume", "Demand", "Synthetic KPI board", 5, "Formatting", LI(2)],
-      ["Module", "Factors", "—", "Synthetic KPI board", 6, "Data source (default view)", MODULE_2],
-      ["Export", "Send plan", "—", "Synthetic KPI board", 7, "Action button", "116000000901"],
-      ["Process", "Run weekly", "—", "Synthetic KPI board", 7, "Action button", "118000000902"],
-      ["Navigation", "Open review", "—", "Synthetic KPI board", 7, "Action button", guid(990)],
-      ["CUSTOM_STEP", "Custom step", "—", "Synthetic KPI board", 7, "Action button", "119000000901"]]);
+      ["Module", "Factors", "-", "Synthetic KPI board", 6, "Data source (default view)", MODULE_2],
+      ["Export", "Send plan", "-", "Synthetic KPI board", 7, "Action button", "116000000901"],
+      ["Process", "Run weekly", "-", "Synthetic KPI board", 7, "Action button", "118000000902"],
+      ["Navigation", "Open review", "-", "Synthetic KPI board", 7, "Action button", guid(990)],
+      ["CUSTOM_STEP", "Custom step", "-", "Synthetic KPI board", 7, "Action button", "119000000901"]]);
     expect(Object.keys(result)).toEqual(["Pages", "Cards", "Grid sections", "Filters", "Formatting", "Actions", "Where used"]);
     for (const tab of Object.keys(HEADERS) as TabName[]) expect(result[tab].headers).toBe(HEADERS[tab]);
     expect(JSON.stringify(result)).not.toContain(TOKEN);
@@ -392,14 +392,43 @@ describe("Page analyzer report, from a native page to the agreed CSV tables", ()
     const result = buildReport([pageOf("Plan", guid(1000), fields, buttons), pageOf("Plan", guid(1020), fields, buttons),
       pageOf("Plan", guid(1030), actionCard_("card-1", 0, process("118000000901", "Run nightly")), fieldCard_("card-2", 1, ...shown)), pageOf("Review", guid(1040), buttons)]);
     const copy = [["Line item", "Show?", "Demand", "Plan", 1, "Field", LI(1)], ["Line item", "Factor", "Factors", "Plan", 1, "Field", LI(8)],
-      ["Process", "Run nightly", "—", "Plan", 2, "Action button", "118000000901"]];
+      ["Process", "Run nightly", "-", "Plan", 2, "Action button", "118000000901"]];
     expect(result["Where used"].rows).toEqual([...copy, ...copy,
-      ["Process", "Run nightly", "—", "Plan", 1, "Action button", "118000000901"],
+      ["Process", "Run nightly", "-", "Plan", 1, "Action button", "118000000901"],
       ["Line item", "Show?", "Demand", "Plan", 2, "Field", LI(1)], ["Line item", "Factor", "Factors", "Plan", 2, "Field", LI(8)],
-      ["Process", "Run nightly", "—", "Review", 1, "Action button", "118000000901"]]);
+      ["Process", "Run nightly", "-", "Review", 1, "Action button", "118000000901"]]);
     // The other tables always had a row for each of them.
     expect(result.Cards.rows.map(row => [row[0], row[1], row[3]])).toEqual([["Plan", 1, "Field"], ["Plan", 2, "Action"], ["Plan", 1, "Field"], ["Plan", 2, "Action"],
       ["Plan", 1, "Action"], ["Plan", 2, "Field"], ["Review", 1, "Action"]]);
+  });
+
+  it("tells a filter rule's line item from its context, the line item being last, and shows a context fixed to Current User as Users", () => {
+    const UNNAMED = "358000000001";
+    const LOST = "1901000000077";
+    // As Page Builder stores a rule: its context in the order it shows it, then its line item. The first follows the page's
+    // Time and Product and whoever views the page; the second is fixed to an item no read named; the third's line item is
+    // in no module that was read.
+    const rules = [leaf([TIME, CURRENT_USER, LIST, LI(1)], "EQUALS", ["true"]), leaf([TIME, UNNAMED, LI(2)], "EQUALS", ["true"]), leaf([TIME, LOST], "EQUALS", ["true"])];
+    const filtered = grid(20, "Filtered demand", [{ dataSourceId: guid(920), dataSourceType: "MULTI_AXIS_DESCRIPTION", axisDescriptionQuery: { id: guid(920), version: 1,
+      regions: { SINGLE: { moduleId: MODULE, rows: axis([dim(LIST_2)], [branch(rules)]), columns: axis([dim(TIME)]) } } } }]);
+    const board: Obj = { ...native, widgets: { [filtered.clientGuid]: filtered },
+      layout: { ...native.layout, areas: { main: [{ type: "BOARD_CONTENT", id: guid(1101), areas: { sections: [{ type: "BOARD_SECTION", id: guid(1102), areas: {
+        rows: [{ id: guid(1200), type: "BOARD_ROW", height: 240, padding: "small", areas: { columns: [column(1201, filtered)] } }] } }] } }], sidepanel: [], expanded: [] } } };
+    const names = catalog();
+    const details = describePageCards("BOARD", structuredClone(board));
+    const named = describeSystemContext(nameCardDetails(details, resolveFromCatalog(details.references, names)), names);
+    const result = buildReport([{ appName: "Planning app", categoryName: "Demand", pageName: "Filtered board", pageType: "BOARD", state: "Published (no unpublished changes)",
+      modelName: "Model one", workspaceName: "Workspace one", pageGuid: guid(1000), appGuid: guid(1002), modelId: "MODEL-1", details: named }]);
+
+    const at = (header: string) => HEADERS.Filters.indexOf(header);
+    expect(result.Filters.rows.map(row => [row[at("Condition line item")], row[at("Condition line item's module")], row[at("Condition context")], row[at("Line item ID")]])).toEqual([
+      ["Show?", "Demand", "Time = current; Users = Current User; Product = current", LI(1)],
+      ["Volume", "Demand", `Time = current; ${UNNAMED}`, LI(2)],
+      // Only a rule whose line item is not found keeps its items together, in the line item's place.
+      [`Time, ${LOST}`, NONE, NONE, NONE]]);
+    expect(result["Where used"].rows.filter(row => String(row[5]).startsWith("Filter")).map(row => [row[0], row[1], row[5], row[6]])).toEqual([
+      ["Line item", "Show?", "Filter", LI(1)], ["Dimension", "Time", "Filter context", TIME], ["Dimension", "Users", "Filter context", "101999999999"],
+      ["Dimension", "Product", "Filter context", LIST], ["Line item", "Volume", "Filter", LI(2)], ["Line item", `Time, ${LOST}`, "Filter", NONE]]);
   });
 
   it("lists in Where used each object a card uses in a role, also one that has the name of another: the first use of the same object wins", () => {
@@ -411,9 +440,9 @@ describe("Page analyzer report, from a native page to the agreed CSV tables", ()
         process("118000000901", "Run it again")))]);
     expect(result["Where used"].rows).toEqual([
       ["Line item", "Amount", "Demand", "Plan", 1, "Field", LI(1)], ["Line item", "Amount", "Factors", "Plan", 1, "Field", LI(8)],
-      ["Process", "Run nightly", "—", "Plan", 2, "Action button", "118000000901"], ["Process", "Run nightly", "—", "Plan", 2, "Action button", "118000000902"],
+      ["Process", "Run nightly", "-", "Plan", 2, "Action button", "118000000901"], ["Process", "Run nightly", "-", "Plan", 2, "Action button", "118000000902"],
       // Its label is the only name such an action has, so it is listed under each: as it was before objects were told apart by their IDs.
-      ["Process", "Run it again", "—", "Plan", 2, "Action button", "118000000901"]]);
+      ["Process", "Run it again", "-", "Plan", 2, "Action button", "118000000901"]]);
     // Every button has its row in Action Buttons.csv, as before.
     expect(result.Actions.rows.map(row => [row[2], row[9]])).toEqual([["Run nightly", "118000000901"], ["Run nightly", "118000000902"], ["Run nightly", "118000000901"],
       ["Run it again", "118000000901"]]);
