@@ -6,7 +6,7 @@ Cardigan makes no file and offers no download: the results page is the only plac
 
 Cardigan only reads, with your own signed-in session, and nothing it reads leaves your browser. It is an independent project, not affiliated with Anaplan: see [NOTICE.md](NOTICE.md).
 
-![An app's Overview on the results page: the number of rows in each table, what was read and when under About this export, and the notes](docs/images/app-overview.png)
+![An app's Overview on the results page, under the navigation bar: the number of rows in each table, what was read and when under About this export, and the notes](docs/images/app-overview.png)
 
 The pictures on this page show an invented app and model. They leave out the bar at the top of the page.
 
