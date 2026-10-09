@@ -644,6 +644,7 @@ function followOn(rows: [detail: string, value: string][], after: string, detail
 export function overviewOf(result: AnalysisResult): Overview {
   // A tile counts the rows the file's table lists, and says the file's own number beside it where the two differ. The
   // words change no row, so the count needs the file's rule only.
+  // In the order of `listedTables`, which is the navigation's: the page opens a tile's table by that order.
   const tiles = listedTables(result).map(({ table }) => {
     const count = ruledView(result, table).table.rows.length;
     return { label: TILE_LABELS.get(table.file) ?? cellText(table.label), count, ...(count === table.rows.length ? {} : { inAll: table.rows.length }) };
