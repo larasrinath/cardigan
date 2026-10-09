@@ -24,6 +24,22 @@ const QUIET = new Failure("The model stopped answering while Cardigan was readin
   "the model's frame sent nothing for 300 s");
 const settle = () => new Promise(resolve => setTimeout(resolve, 0));
 
+describe("A content script that a later copy has replaced", () => {
+  it("leaves a results page to that copy, without closing the port", () => {
+    let current = true;
+    let connect: (port: chrome.runtime.Port) => void = () => undefined;
+    serveTab({ id: EXTENSION, onConnect: { addListener: listener => { connect = listener; } } }, { host: "us1a.app.anaplan.com", subject: () => APP,
+      run: () => new Promise<AnalysisResult>(() => undefined), signedOut: () => false, current: () => current });
+    const first = new FakePort();
+    connect(first as unknown as chrome.runtime.Port);
+    expect(first.types()).toEqual(["subject"]);
+    current = false;
+    const port = new FakePort();
+    connect(port as unknown as chrome.runtime.Port);
+    expect([port.received, port.refused]).toEqual([[], false]);
+  });
+});
+
 /** A content script's tab whose runs the test finishes by hand. */
 function tab(shows: Subject = APP) {
   const runs: { subject: Seen; progress: Progress; diagnostics: () => string; signal: AbortSignal; finish(result: AnalysisResult): void; fail(error: unknown): void }[] = [];

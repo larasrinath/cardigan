@@ -12,12 +12,15 @@ import { serveTab } from "./tab-port.js";
 const APP_PATH = /\/apps\/app\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:[/?#]|$)/i;
 const MODEL_PATH = /\/a\/modeling(?:-ui)?\/.*\/models\/([0-9A-Za-z]{32})(?:[/?#]|$)/;
 
-/** Content scripts can be injected more than once: only the first in a document answers the results page. The mark is on
- * this script's own view of the window (the isolated world), which the page cannot see. */
-const page = window as unknown as { cardiganServing?: true };
+/** This script can be put into a document more than once: by Chrome as the page loads, and by the results page when none
+ * answers it, as in a tab that was open before Cardigan was installed, updated or reloaded (results/connection.ts). Only
+ * the latest answers the results page. The mark is on this script's own view of the window (the isolated world), which
+ * the page cannot see; a script left from before a reload may share it, and can no longer be reached anyway. */
+const page = window as unknown as { cardiganServing?: symbol };
+const me = Symbol("cardigan");
 
-if (window.top === window && !page.cardiganServing) {
-  page.cardiganServing = true;
+if (window.top === window) {
+  page.cardiganServing = me;
   /** The model's holder as it announced itself: a core frame inside this page, or this window itself. */
   let frame: CoreHandle | undefined;
   let own: CoreHandle | undefined;
@@ -38,6 +41,7 @@ if (window.top === window && !page.cardiganServing) {
 
   serveTab(chrome.runtime, {
     host: location.host,
+    current: () => page.cardiganServing === me,
     subject,
     run: (seen, progress, diagnostics, signal) => (seen.kind === "app"
       ? analyseApp(seen.id, progress, diagnostics, signal)

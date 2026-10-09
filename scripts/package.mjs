@@ -14,10 +14,15 @@ import zlib from 'node:zlib';
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 /** Manifest keys the packager understands. A key that could name another file (web_accessible_resources, options_page,
- * side_panel…) fails packaging until the packager learns it, so a runtime file can never be left out silently. A permission
- * key fails it too: Cardigan asks for none. */
+ * side_panel…) fails packaging until the packager learns it, so a runtime file can never be left out silently. Of the
+ * permission keys, only "permissions" is known, and only with PERMISSIONS: host permissions, required or optional, and
+ * optional permissions fail packaging. */
 const KNOWN_KEYS = new Set(['manifest_version', 'name', 'version', 'minimum_chrome_version', 'description', 'icons', 'action', 'background', 'content_scripts',
-  'content_security_policy']);
+  'content_security_policy', 'permissions']);
+/** The permissions Cardigan asks for, neither with a warning: together they let the toolbar icon's click put the content
+ * script into the clicked Anaplan tab when Chrome has not, as in a tab open since before Cardigan was installed, updated or
+ * reloaded (src/results/connection.ts). */
+export const PERMISSIONS = ['activeTab', 'scripting'];
 const KNOWN_SCRIPT_KEYS = new Set(['matches', 'js', 'run_at', 'world', 'all_frames']);
 /** The toolbar icon has a title and icons. A default_popup would name a page, and would take the click from the service worker. */
 const KNOWN_ACTION_KEYS = new Set(['default_title', 'default_icon']);
@@ -85,6 +90,9 @@ export function runtimeFiles(manifest) {
   const scripts = Array.isArray(manifest.content_scripts) ? manifest.content_scripts : [];
   const [action, background] = [manifest.action ?? {}, manifest.background ?? {}];
   checkKeys(manifest, KNOWN_KEYS, '');
+  if (manifest.permissions !== undefined && JSON.stringify(manifest.permissions) !== JSON.stringify(PERMISSIONS)) {
+    problems.push(`manifest.json: "permissions" may hold only ${PERMISSIONS.join(' and ')}, in that order`);
+  }
   for (const script of scripts) checkKeys(script, KNOWN_SCRIPT_KEYS, 'content_scripts ');
   checkKeys(action, KNOWN_ACTION_KEYS, 'action ');
   checkKeys(background, KNOWN_BACKGROUND_KEYS, 'background ');

@@ -19,6 +19,7 @@
       "128": "icons/128.png"
     }
   },
+  "permissions": ["activeTab", "scripting"],
   "background": {
     "service_worker": "dist/background.js"
   },

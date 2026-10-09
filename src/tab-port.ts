@@ -33,6 +33,8 @@ export interface Tab {
   run(subject: Seen, progress: Progress, diagnostics: () => string, signal: AbortSignal): Promise<AnalysisResult>;
   /** True for the error that means Anaplan's session has ended. */
   signedOut(error: unknown): boolean;
+  /** False once a later copy of the content script serves the document: this one then leaves new results pages to it. */
+  current?(): boolean;
 }
 
 export const SIGNED_OUT = "You're signed out of Anaplan. Sign in and try again.";
@@ -130,6 +132,8 @@ export function serveTab(runtime: Pick<typeof chrome.runtime, "id" | "onConnect"
   };
 
   runtime.onConnect.addListener(port => {
+    // A later copy of the content script answers instead. The port is not closed: that would close it for that copy too.
+    if (tab.current && !tab.current()) return;
     // The sender must name this extension: two missing IDs are not a match.
     if (!runtime.id || port.sender?.id !== runtime.id || port.name !== PORT_NAME) { port.disconnect(); return; }
     port.onDisconnect.addListener(() => {

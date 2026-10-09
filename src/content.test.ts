@@ -64,22 +64,27 @@ describe("The content scripts on an Anaplan page", () => {
     expect([vi.mocked(globalThis.fetch).mock.calls, vi.mocked(globalThis.WebSocket).mock.calls, vi.getTimerCount()]).toEqual([[], [], 0]);
   });
 
-  it("answers once however often the script is injected into the same page", async () => {
+  it("answers once however often the script is injected into the same page: the latest copy answers", async () => {
     at(`/a/apps/app/${APP}`);
-    const connects: unknown[] = [];
+    const connects: ((port: chrome.runtime.Port) => void)[] = [];
     vi.stubGlobal("chrome", { runtime: { id: EXTENSION, onConnect: { addListener: (listener: (port: chrome.runtime.Port) => void) => { connects.push(listener); connect = listener; } } } });
     await import("./content.js");
     vi.resetModules();
+    // The results page puts the script into a page whose copy no longer answers, as after Cardigan was reloaded.
     await import("./content.js");
-    expect([connects.length, listeners.length]).toEqual([1, 2]);
-    expect(open().received).toEqual([{ type: "subject", subject: { kind: "app", id: APP } }]);
+    // Chrome hands a new port to every copy's listener: only the latest answers, and the earlier one leaves the port open.
+    const port = new FakePort();
+    for (const listener of connects) listener(port as unknown as chrome.runtime.Port);
+    expect(connects).toHaveLength(2);
+    expect(port.received).toEqual([{ type: "subject", subject: { kind: "app", id: APP } }]);
+    expect(port.refused).toBe(false);
     // A new page is a new window, and is served again.
     vi.resetModules();
     const next = { ...page, cardiganServing: undefined } as Record<string, unknown>;
     next.top = next;
     vi.stubGlobal("window", next);
     await import("./content.js");
-    expect(connects).toHaveLength(2);
+    expect(connects).toHaveLength(3);
   });
 
   it("says what the page shows by its address: an app, a model in Model Building, or neither", async () => {

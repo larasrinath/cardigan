@@ -8,7 +8,7 @@ import { VERSION } from "../version.js";
 import { cellLists, rowItems, type CellList } from "./cell-lists.js";
 import { columnWidths } from "./column-widths.js";
 import { cardsNamed, cardsOf, columnIndex, columnsOf, rowKeys, rowNameIndex, writesNone, type CardsTable, type Column, type RowKeys } from "./columns.js";
-import { describeState, openedJustNow, ResultsClient, runLabel, tabIdFrom, withoutOpened, type RunState } from "./connection.js";
+import { describeState, openedJustNow, repairTab, ResultsClient, runLabel, tabIdFrom, withoutOpened, type RunState } from "./connection.js";
 import { analysedLine, notKeptNote } from "./keep-notes.js";
 import { ResultKeeper } from "./keep-result.js";
 import {
@@ -492,7 +492,7 @@ function showKept(kept: unknown, at: Date): boolean {
 }
 
 /** The states in which a run did not start or did not finish. */
-const STOPPED: ReadonlySet<RunState["phase"]> = new Set(["unreachable", "no-subject", "failed", "interrupted"]);
+const STOPPED: ReadonlySet<RunState["phase"]> = new Set(["unreachable", "not-anaplan", "tab-closed", "no-subject", "failed", "interrupted"]);
 
 /** Connecting, running, or why there is no new result. Before the first result this is the whole view. Once a result is on
  * the page it stays there until a new one is complete, and the same words stand in the banner area above it: a run that
@@ -1257,6 +1257,11 @@ const client = new ResultsClient({
   connect: tabId === undefined ? undefined : () => chrome.tabs.connect(tabId, { name: PORT_NAME }),
   autoRun: byIcon,
   closeReason: () => chrome.runtime.lastError?.message,
+  // A tab open since before Cardigan was installed, updated or reloaded has no content script until the page puts it there,
+  // which the icon's click allows. A tab that is still loading answers within a few seconds.
+  repair: tabId === undefined ? undefined : () => repairTab(chrome.scripting, tabId),
+  retries: { count: 10, pauseMs: 500 },
+  tabGone: tabId === undefined ? undefined : () => chrome.tabs.get(tabId).then(() => false, () => true),
   onState: next => {
     // Only a run that starts ends the map: one that goes on says "running" again with each step.
     if (next.phase === "running" && !running) endMapForRun();
