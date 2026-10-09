@@ -96,13 +96,16 @@ test('the committed icons are the ones the script makes from the source, at ever
   }
 });
 
-test('shows the logo on a transparent ground: clear corners, a solid middle, the same pixels on every run', () => {
+test('shows the logo on a transparent ground: clear corners and a clear hole in the C, a solid ring and arms, the same pixels on every run', () => {
   for (const size of ICON_SIZES) {
     const pixels = renderIcon(size, source());
     const alpha = (x, y) => pixels[(y * size + x) * 4 + 3];
+    /** The pixel at a share of the icon's width and height. */
+    const at = (across, down) => alpha(Math.round(across * (size - 1)), Math.round(down * (size - 1)));
     for (const [x, y] of [[0, 0], [size - 1, 0], [0, size - 1], [size - 1, size - 1]]) assert.equal(alpha(x, y), 0, `${size}: corner ${x}, ${y}`);
-    // The logo's own alpha stops just short of 255.
-    assert.ok(alpha(size >> 1, size >> 1) >= 250, `${size}: middle`);
+    // The hole of the C, in the middle, lets the toolbar through; the C's ring and the star's top and bottom arms do not.
+    assert.equal(at(0.5, 0.5), 0, `${size}: the C's hole`);
+    for (const [across, down] of [[0.36, 0.42], [0.5, 0.22], [0.5, 0.8]]) assert.ok(at(across, down) >= 250, `${size}: solid at ${across}, ${down}`);
     assert.ok(pixels.equals(renderIcon(size)), `${size}: repeatable`);
   }
 });
