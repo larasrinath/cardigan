@@ -4,7 +4,7 @@
 
 An Anaplan tab that was open before Cardigan was installed, updated or reloaded is read without a refresh, and a new logo.
 
-- **No refresh after an update.** Chrome puts Cardigan's script only into pages that load after Cardigan is installed, updated or reloaded, so a tab open since before said **Not connected** until it was refreshed. Clicking the icon on such a tab now puts the script back there, and the reading starts.
+- **No refresh after an update.** Chrome puts Cardigan's script only into pages that load after Cardigan is installed, updated or reloaded, so a tab open since before said **Not connected** until it was refreshed. Clicking the icon on such a tab now puts the script back there, and the reading starts. A model in Model Building that was open before Cardigan was first installed still needs one refresh: the part of Cardigan that reads inside the model runs in the page itself, and is not put back.
 - **A tab still loading** is asked again for about five seconds before the page says it cannot reach it.
 - **The page says what is wrong.** A tab that shows another site is named, and a closed tab is said to be closed. **Not connected** says to wait for a loading tab before it says to refresh.
 - **Two permissions**, neither with a warning: **activeTab** and **scripting**. They reach only the tab the icon was clicked on, and only an Anaplan page there. The packager refuses any other permission.
