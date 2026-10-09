@@ -2,7 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FRESH_MS, ROWS_MAX, type TabMessage } from "../protocol.js";
 import type { AnalysisResult, Cell } from "../result-types.js";
 import { resultZip } from "../result-zip.test-support.js";
-import { describeState, MAX_LOG_LINES, NO_REASON, openedJustNow, ResultsClient, runLabel, tabIdFrom, UNREADABLE, withoutOpened, type RunState, type TabPort } from "./connection.js";
+import { CONTENT_SCRIPT } from "../protocol.js";
+import {
+  describeState, MAX_LOG_LINES, NO_REASON, openedJustNow, repairTab, ResultsClient, runLabel, tabIdFrom, UNREADABLE, withoutOpened, type Repair, type RunState, type TabPort,
+} from "./connection.js";
 
 /** A port as the page holds it. What the page posts arrives as a copy, as Chrome delivers it, and so does what the tab sends. */
 class FakePort implements TabPort {
@@ -38,7 +41,8 @@ class FakePort implements TabPort {
 
 /** A page's client with every port it opened, every state it was told and the log as last shown. Unless a test says
  * otherwise, it is a page the icon has just opened. */
-function page(options: { noTab?: boolean; closeReason?: string; connect?: () => TabPort; autoRun?: boolean } = {}) {
+function page(options: { noTab?: boolean; closeReason?: string; connect?: () => TabPort; autoRun?: boolean; repair?: () => Promise<Repair>;
+  retries?: { count: number; pauseMs: number }; tabGone?: () => Promise<boolean>; wait?: (ms: number) => Promise<void> } = {}) {
   const ports: FakePort[] = [];
   const states: RunState[] = [];
   let shownLog: string[] = [];
@@ -50,6 +54,10 @@ function page(options: { noTab?: boolean; closeReason?: string; connect?: () => 
     }),
     autoRun: options.autoRun ?? true,
     closeReason: () => options.closeReason,
+    repair: options.repair,
+    retries: options.retries,
+    tabGone: options.tabGone,
+    wait: options.wait,
     onState: state => states.push(state),
     onLog: lines => { shownLog = [...lines]; },
   });
@@ -295,7 +303,7 @@ describe("The results page's connection to the Anaplan tab", () => {
     ports[0].drop();
     expect(phases()).toEqual(["connecting", "unreachable"]);
     expect(describeState(client.state, client.asked)).toEqual({ title: "Not connected", message: "Cardigan cannot reach that tab.",
-      hint: "If it is an Anaplan app or model, refresh it, then click the Cardigan icon again." });
+      hint: "If it is an Anaplan app or model that is still loading, wait for it, then choose Run again. Otherwise refresh it, then click the Cardigan icon on it." });
     expect(log()).toEqual(["14:02:05 The tab did not answer: Could not establish connection. Receiving end does not exist."]);
 
     // After the refresh the same tab answers: Run again connects anew and the analysis starts.
@@ -616,5 +624,105 @@ describe("The results page's connection to the Anaplan tab", () => {
     expect(describeState({ phase: "connecting" }, true)).toEqual({ title: "Connecting", message: "Connecting to the Anaplan tab…", hint: "" });
     expect(describeState({ phase: "running", status: "Reading Line Items…" }, true)).toEqual({ title: "Analysing", message: "Reading Line Items…",
       hint: "Keep the Anaplan tab open until this finishes." });
+  });
+});
+
+describe("A tab whose content script does not answer", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(Date.UTC(2026, 9, 9, 14, 2, 5)));
+  });
+  afterEach(() => { vi.useRealTimers(); });
+  /** Lets the steps that wait on a promise go on. */
+  const settle = async () => { for (let step = 0; step < 10; step++) await Promise.resolve(); };
+  const now = async () => undefined;
+
+  it("gets the content script put back, as a tab open since before Cardigan was reloaded needs, and then runs", async () => {
+    const repair = vi.fn(async (): Promise<Repair> => ({ put: true }));
+    const { client, ports, phases, log } = page({ repair, retries: { count: 3, pauseMs: 500 }, wait: now, closeReason: "Receiving end does not exist." });
+    client.start();
+    ports[0].drop();
+    await settle();
+    expect(repair).toHaveBeenCalledTimes(1);
+    ports[1].send({ type: "subject", subject: APP });
+    expect(ports[1].posted).toEqual([RUN]);
+    expect(phases()).toEqual(["connecting", "connecting", "running"]);
+    // A run starts its own log; until then the log said why the page connected again.
+    expect(log()).toEqual([]);
+  });
+
+  it("says a tab that is not Anaplan is not, and asks it nothing more", async () => {
+    const { client, ports, log } = page({ repair: async () => ({ put: false, notAnaplan: "https://www.example.net" }), retries: { count: 3, pauseMs: 500 }, wait: now });
+    client.start();
+    ports[0].drop();
+    await settle();
+    expect(client.state).toEqual({ phase: "not-anaplan", shows: "https://www.example.net" });
+    expect(ports).toHaveLength(1);
+    expect(describeState(client.state, client.asked)).toEqual({ title: "Not an Anaplan tab", message: "That tab shows https://www.example.net, not Anaplan.",
+      hint: "Open an app or a model in Anaplan, then click the Cardigan icon on that tab." });
+    expect(log()).toEqual(["14:02:05 The tab did not answer."]);
+  });
+
+  it("asks a tab that may be loading again for a while, then says it cannot reach it, and a closed tab that it is closed", async () => {
+    const waits: number[] = [];
+    const { client, ports, phases, log } = page({ repair: async () => ({ put: false }), retries: { count: 2, pauseMs: 500 },
+      wait: async ms => { waits.push(ms); }, tabGone: async () => false });
+    client.start();
+    for (let attempt = 0; attempt < 3; attempt++) { ports[attempt].drop(); await settle(); }
+    expect(ports).toHaveLength(3);
+    expect(phases()).toEqual(["connecting", "connecting", "connecting", "unreachable"]);
+    expect(waits).toEqual([500, 500]);
+    // The first try's line, and a count of the tries after it.
+    expect(log()).toEqual(["14:02:05 The tab did not answer.", "14:02:05 No answer after 2 more tries."]);
+    // A closed tab is asked nothing more.
+    const repair = vi.fn(async (): Promise<Repair> => ({ put: false }));
+    const closed = page({ repair, retries: { count: 2, pauseMs: 500 }, wait: now, tabGone: async () => true });
+    closed.client.start();
+    closed.ports[0].drop();
+    await settle();
+    expect([closed.ports.length, closed.phases(), repair.mock.calls.length]).toEqual([1, ["connecting", "tab-closed"], 0]);
+    expect(describeState({ phase: "tab-closed" }, true)).toEqual({ title: "Tab closed", message: "The Anaplan tab this page was opened for has been closed.",
+      hint: "Open the app or model in Anaplan again, then click the Cardigan icon on that tab." });
+    // A loading tab that answers on a later try is read.
+    const loading = page({ repair: async () => ({ put: false }), retries: { count: 5, pauseMs: 500 }, wait: now });
+    loading.client.start();
+    loading.ports[0].drop();
+    await settle();
+    loading.ports[1].send({ type: "subject", subject: MODEL });
+    expect(loading.ports[1].posted).toEqual([RUN]);
+  });
+
+  it("drops the tries of a connection the run control has replaced", async () => {
+    let finish: (repair: Repair) => void = () => undefined;
+    const { client, ports, phases } = page({ repair: () => new Promise<Repair>(resolve => { finish = resolve; }), retries: { count: 3, pauseMs: 500 }, wait: now });
+    client.start();
+    ports[0].drop();
+    client.runAgain();
+    expect(ports).toHaveLength(2);
+    finish({ put: true });
+    await settle();
+    expect(ports).toHaveLength(2);
+    ports[1].send({ type: "subject", subject: APP });
+    expect(phases()).toEqual(["connecting", "connecting", "running"]);
+  });
+
+  it("puts the content script only into an Anaplan page, and nothing anywhere when Chrome refuses", async () => {
+    const calls: unknown[] = [];
+    const scripting = (origin: string | Error) => ({
+      executeScript: vi.fn(async (injection: { target: { tabId: number }; files?: string[]; func?: () => unknown }) => {
+        calls.push(injection.files ?? "probe");
+        if (origin instanceof Error) throw origin;
+        return injection.func ? [{ result: origin, frameId: 0 }] : [{ frameId: 0 }];
+      }),
+    });
+    expect(await repairTab(scripting("https://us1a.app.anaplan.com"), 7)).toEqual({ put: true });
+    expect(calls).toEqual(["probe", [CONTENT_SCRIPT]]);
+    calls.length = 0;
+    expect(await repairTab(scripting("https://au1a.app2.anaplan.com"), 7)).toEqual({ put: true });
+    calls.length = 0;
+    expect(await repairTab(scripting("https://www.anaplan.com"), 7)).toEqual({ put: false, notAnaplan: "https://www.anaplan.com" });
+    expect(await repairTab(scripting(""), 7)).toEqual({ put: false, notAnaplan: "a page Cardigan cannot read" });
+    expect(calls).toEqual(["probe", "probe"]);
+    expect(await repairTab(scripting(new Error("Cannot access contents of the page.")), 7)).toEqual({ put: false });
   });
 });

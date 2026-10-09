@@ -169,6 +169,8 @@ let mediaAsked: string[];
 /** What the browser's store answers with, in the place of reading and of keeping, where a browser refuses both. */
 let storeRefuses: Error | undefined;
 let lastError: { message?: string } | undefined;
+/** Whether the Anaplan tab the page was opened for has been closed, as chrome.tabs.get finds. */
+let tabClosed: boolean;
 /** The page's address, each address the script changed it to, and whether changing it is refused. */
 let location: { search: string; pathname: string; hash: string };
 let replaced: string[];
@@ -249,6 +251,7 @@ beforeEach(() => {
   };
   ports = [];
   connects = [];
+  tabClosed = false;
   copied = [];
   clipboardRefuses = false;
   stored = new Map();
@@ -298,7 +301,12 @@ beforeEach(() => {
   vi.stubGlobal("HTMLSelectElement", FakeSelect);
   vi.stubGlobal("requestAnimationFrame", (callback: () => void) => { callback(); return 0; });
   vi.stubGlobal("chrome", {
-    tabs: { connect: (...args: unknown[]) => { connects.push(args); const port = new FakePort(); ports.push(port); return port; } },
+    tabs: {
+      connect: (...args: unknown[]) => { connects.push(args); const port = new FakePort(); ports.push(port); return port; },
+      get: async (id: number) => { if (tabClosed) throw new Error(`No tab with id: ${id}.`); return { id, index: 0 }; },
+    },
+    // As in a tab the icon was not just clicked on: Chrome lets nothing be put into it.
+    scripting: { executeScript: async () => { throw new Error("Cannot access contents of the page. Extension manifest must request permission to access the respective host."); } },
     runtime: { get lastError() { return lastError; } },
   });
   vi.stubGlobal("navigator", { clipboard: { writeText: async (text: string) => {
@@ -306,7 +314,10 @@ beforeEach(() => {
     copied.push(text);
   } } });
 });
-afterEach(() => {
+afterEach(async () => {
+  // A page that was left asking a tab again takes its next step now, while this test's clock and Chrome stand in: its
+  // next try then waits on this clock, which goes with the test, and opens no port in the next one.
+  for (let turn = 0; turn < 50; turn++) await Promise.resolve();
   // Whatever the test did with the page, the page made no file of anything, started no download, and went nowhere to
   // save one: no blob, no address for one, and no element or address of the page's that is a file.
   const made = watch.stop(page);
@@ -353,6 +364,17 @@ const clicked = (tab: number) => `?tab=${tab}&opened=${NOW.getTime() - 1500}`;
 const runControl = () => [page.id("runAgain").textContent.trim(), page.id("runAgain").title, page.all("#runAgain svg").length];
 /** Lets what the script started without waiting for it, such as a copy to the clipboard, come to its end. */
 const settle = async () => { for (let turn = 0; turn < 5; turn++) await Promise.resolve(); };
+/** What Chrome says when it closes a port to a tab without the content script. */
+const NO_RECEIVER = "Could not establish connection. Receiving end does not exist.";
+/** Lets the page ask a tab whose content script never answers again, until it gives up: each port it opens meanwhile
+ * closes at once, as Chrome closes one to such a tab. */
+const neverAnswers = async () => {
+  let seen = ports.length;
+  for (let round = 0; round < 20; round++) {
+    await vi.advanceTimersByTimeAsync(500);
+    while (seen < ports.length) { lastError = { message: NO_RECEIVER }; ports[seen++].drop(); lastError = undefined; }
+  }
+};
 /** The banner above a result: its kind, and its heading, message and hint as far as they are shown. */
 const banner = () => (page.has("#runBanner")
   ? [page.id("runBanner").classList.contains("warn") ? "warn" : "note", ...["bannerTitle", "bannerText", "bannerHint"].filter(id => !page.id(id).hidden).map(id => page.id(id).textContent)]
@@ -569,7 +591,10 @@ describe("The results page's script, on the page", () => {
     expect([banner(), page.id("bannerCopy").hidden]).toEqual([["note", "Connecting", "Connecting to the Anaplan tab…"], true]);
     ports[1].drop();
     lastError = undefined;
-    expect(banner()).toEqual(["warn", "Not connected", "Cardigan cannot reach that tab.", "If it is an Anaplan app or model, refresh it, then click the Cardigan icon again."]);
+    // It asks again for a while, as for a tab that is still loading, and then says so.
+    expect(banner().slice(0, 2)).toEqual(["note", "Connecting"]);
+    await neverAnswers();
+    expect(banner()).toEqual(["warn", "Not connected", "Cardigan cannot reach that tab.", "If it is an Anaplan app or model that is still loading, wait for it, then choose Run again. Otherwise refresh it, then click the Cardigan icon on it."]);
     // The result is where it was; Run again can be tried again.
     expect([page.document.title, page.texts("#view h1"), firstCells().length, page.id("topnav").hidden]).toEqual(["Cardigan - Demo <img src=x onerror=alert(1)> app", ["Cards"], 2, false]);
     expect(disabled("runAgain")).toEqual([false]);
@@ -577,7 +602,7 @@ describe("The results page's script, on the page", () => {
     expect(page.id("bannerCopy").hidden).toBe(false);
     page.id("bannerCopy").press();
     await settle();
-    expect(copied).toEqual(["14:02:05 The tab did not answer: Could not establish connection. Receiving end does not exist."]);
+    expect(copied).toEqual(["14:02:05 The tab did not answer: Could not establish connection. Receiving end does not exist.\n14:02:10 No answer after 10 more tries."]);
     expect(page.id("toast").textContent).toBe("Copied the diagnostic log");
   });
 
@@ -1251,12 +1276,26 @@ describe("The results page's script, on the page", () => {
     lastError = { message: "Could not establish connection. Receiving end does not exist." };
     ports[0].drop();
     lastError = undefined;
-    expect([page.id("runStatus").textContent, page.id("runHint").textContent]).toEqual(
-      ["Cardigan cannot reach that tab.", "If it is an Anaplan app or model, refresh it, then click the Cardigan icon again."]);
-    expect(page.id("diagLog").textContent).toBe("14:02:05 The tab did not answer: Could not establish connection. Receiving end does not exist.");
+    await neverAnswers();
+    expect([page.id("runStatus").textContent, page.id("runHint").textContent]).toEqual(["Cardigan cannot reach that tab.", "If it is an Anaplan app or model that is still loading, wait for it, then choose Run again. Otherwise refresh it, then click the Cardigan icon on it."]);
+    // The first try's reason, and a count of the tries after it.
+    expect(page.id("diagLog").textContent).toBe("14:02:05 The tab did not answer: Could not establish connection. Receiving end does not exist.\n14:02:10 No answer after 10 more tries.");
     expect(page.id("runAgain").disabled).toBe(false);
+    expect(connects).toHaveLength(11);
     page.id("runAgain").press();
-    expect(connects).toEqual([[7, { name: PORT_NAME }], [7, { name: PORT_NAME }]]);
+    expect(connects).toHaveLength(12);
+    expect(new Set(connects.map(args => JSON.stringify(args)))).toEqual(new Set([JSON.stringify([7, { name: PORT_NAME }])]));
+  });
+
+  it("says a closed Anaplan tab is closed, at once", async () => {
+    await open(clicked(7));
+    tabClosed = true;
+    lastError = { message: NO_RECEIVER };
+    ports[0].drop();
+    lastError = undefined;
+    await settle();
+    expect([page.id("runTitle").textContent, page.id("runStatus").textContent, page.id("runHint").textContent, connects.length]).toEqual(
+      ["Tab closed", "The Anaplan tab this page was opened for has been closed.", "Open the app or model in Anaplan again, then click the Cardigan icon on that tab.", 1]);
   });
 
   it("shows a failed run's message as it is, with nothing of the page's own under it, and the button that copies its log beside it", async () => {
@@ -3955,6 +3994,7 @@ describe("A model's map on the results page", () => {
     page.id("runAgain").press();
     ports[1].drop();
     lastError = undefined;
+    await neverAnswers();
     expect([banner().slice(0, 2), mapAsked, host().hidden, shows()[0]]).toEqual([["warn", "Not connected"], ["build", "mount 1", "show 1"], false, "Model map"]);
     // Run again once more, and this time the tab answers. Until it has said what it shows there is no run: the map is
     // still there, and the focus goes into it meanwhile.
@@ -3962,8 +4002,8 @@ describe("A model's map on the results page", () => {
     mapMounts[0].button.focus();
     expect([mapAsked.length, page.document.activeElement === mapMounts[0].button]).toEqual([3, true]);
     // Now the run starts: the map goes, and the focus is on the overview that takes its place.
-    ports[2].send({ type: "subject", subject: { kind: "model", id: MODEL.id } });
-    expect([ports[2].posted, mapAsked.slice(3), host().hidden, host().childNodes.length, shows(), banner().slice(0, 2), page.document.activeElement === page.id("view")])
+    ports.at(-1)!.send({ type: "subject", subject: { kind: "model", id: MODEL.id } });
+    expect([ports.at(-1)!.posted, mapAsked.slice(3), host().hidden, host().childNodes.length, shows(), banner().slice(0, 2), page.document.activeElement === page.id("view")])
       .toEqual([[{ type: "run" }], ["destroy 1"], true, 0, ["Overview", "Overview"], ["note", "Analysing"], true]);
   });
 

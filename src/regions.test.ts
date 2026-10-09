@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { ANAPLAN_ORIGIN } from "./bridge.js";
+import { CONTENT_SCRIPT, CONTENT_SCRIPT_ORIGIN } from "./protocol.js";
 import { ANAPLAN_HOSTS, OTHER_HOSTS } from "./guards.test-support.js";
 import { ANAPLAN_HOST } from "./util.js";
 
@@ -20,10 +21,23 @@ describe("Anaplan regions, Australia's app2 host included", () => {
     ]);
   });
 
-  it("asks for no permissions and no host permissions, required or optional", () => {
-    // That is permissions, host_permissions, optional_permissions and optional_host_permissions. The toolbar icon's click,
-    // the tab it opens and the port to a tab's content script need none of them.
-    expect(Object.keys(manifest).filter(key => key.endsWith("permissions"))).toEqual([]);
+  it("asks only for activeTab and scripting, and for no host permissions, required or optional", () => {
+    // The toolbar icon's click, the tab it opens and the port to a tab's content script need none. These two let the click
+    // put the content script into the clicked Anaplan tab when Chrome has not (results/connection.ts): neither comes with
+    // a warning, and neither reaches a tab the icon was not clicked on.
+    expect(Object.keys(manifest).filter(key => key.endsWith("permissions"))).toEqual(["permissions"]);
+    expect((manifest as Manifest & { permissions: string[] }).permissions).toEqual(["activeTab", "scripting"]);
+  });
+
+  it("puts its content script back only on the hosts the manifest's matches name", () => {
+    expect(manifest.content_scripts[0].js).toEqual([CONTENT_SCRIPT]);
+    for (const host of ["us1a.app.anaplan.com", "eu2a.app.anaplan.com", "US1A.APP.ANAPLAN.COM", AUSTRALIA]) {
+      expect(CONTENT_SCRIPT_ORIGIN.test(`https://${host}`), host).toBe(true);
+    }
+    for (const host of [...LOOKALIKES, "x.anaplan.com", "www.anaplan.com", "anaplan.com", "example.net"]) {
+      expect(CONTENT_SCRIPT_ORIGIN.test(`https://${host}`), host).toBe(false);
+    }
+    expect(CONTENT_SCRIPT_ORIGIN.test(`http://${AUSTRALIA}`)).toBe(false);
   });
 
   it("lets its own pages and its service worker load only the extension's own files", () => {

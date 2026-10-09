@@ -109,14 +109,15 @@ Closing the results page stops the reading.
 
 ### If it does not start
 
-- **Not connected**: refresh the Anaplan tab, then click the icon again. A tab that was open before Cardigan was installed, updated or reloaded needs this once.
+- **Not connected**: the Anaplan tab did not answer. A tab that was open before Cardigan was installed, updated or reloaded needs nothing: clicking the icon on it puts Cardigan's script back there. A tab that is still loading is asked again for a few seconds; if it still does not answer, wait for it and choose **Run again**, or refresh it and click the icon on it.
+- **Not an Anaplan tab** or **Tab closed**: the page says what the tab shows, or that it was closed. Open the app or model in Anaplan, then click the icon on that tab.
 - **Nothing to analyse**: the tab shows an Anaplan page that is neither an app nor a model. Open one there, let it load, then choose **Run again**.
 - When a reading stops, the page says what happened and what to do. **Copy diagnostic log** copies the log, to send with a report. It holds request paths, statuses and counts, and no cookies, tokens or cell values.
 - If the model map cannot be drawn, the page says so in the map's place. The tables are not affected, and **Copy diagnostic log** beside the message copies the reason.
 
 ## Privacy and permissions
 
-- Cardigan declares no permissions. Its scripts run only on `https://*.app.anaplan.com` and, for Australia, `https://*.app2.anaplan.com`, and add nothing to those pages.
+- Cardigan declares two permissions, **activeTab** and **scripting**, and neither comes with a warning. Together they let a click on its icon put its script back into that one Anaplan tab when Chrome has not, as in a tab that was open before Cardigan was installed, updated or reloaded. It asks for no access to any site. Its scripts run only on `https://*.app.anaplan.com` and, for Australia, `https://*.app2.anaplan.com`, and add nothing to those pages.
 - It reads nothing until you click its icon or choose **Run again**. It is read-only by construction: its web requests are GET requests to two Anaplan services, its socket client can only subscribe, and every request to a model is checked to carry no change.
 - Nothing is sent anywhere except those reads, and the results page loads nothing from the internet.
 - The kept result is in the browser's session storage for its tab, compressed and not encrypted.
@@ -167,7 +168,7 @@ In the Anaplan tab, `src/content.ts` and `src/analyse.ts` read an app, and `src/
 3. Run `npm run package`. It writes `release/cardigan-<version>.zip` and prints its SHA-256.
 4. Publish the zip with its SHA-256.
 
-The zip holds the twelve files Chrome loads: `manifest.json`, four bundles, four icons, `results.html`, `results.css` and `map.css`. The same files always give the same bytes. The packager refuses a version that differs between `manifest.json` and `package.json`, a missing or stale bundle, a results page that loads a file outside the zip, and a manifest that asks for a permission or has no content security policy that keeps everything inside the package.
+The zip holds the twelve files Chrome loads: `manifest.json`, four bundles, four icons, `results.html`, `results.css` and `map.css`. The same files always give the same bytes. The packager refuses a version that differs between `manifest.json` and `package.json`, a missing or stale bundle, a results page that loads a file outside the zip, and a manifest that asks for any permission but activeTab and scripting, or has no content security policy that keeps everything inside the package.
 
 ## Licence
 
