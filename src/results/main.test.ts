@@ -190,7 +190,9 @@ let mapBuilds: { tables: unknown; graph: object }[];
  * stopped by itself, and why, as its contract has it (graph-types.ts `onFailure`). */
 let mapMounts: { host: FakeElement; graph: unknown; options: unknown; found: unknown[]; button: FakeElement; stops(reason: string): void }[];
 /** What the stand-in throws when it is asked for one of these, in the place of doing it: nothing unless a test sets it. */
-let mapThrows: Partial<Record<"build" | "mount" | "show" | "hide" | "themeChanged" | "destroy", unknown>>;
+let mapThrows: Partial<Record<"build" | "mount" | "show" | "hide" | "themeChanged" | "destroy" | "reveal", unknown>>;
+/** The nodes of the graph the stand-in builds: none unless a test gives them. */
+let mapNodes: object[];
 /** Whether the stand-in takes the focus into itself, to its button, each time it is shown. */
 let mapTakesFocus: boolean;
 /** What the stand-in tells the page of its stop while it is asked for one of these, or while it hears a click or a key
@@ -205,6 +207,7 @@ beforeEach(() => {
   mapBuilds = [];
   mapMounts = [];
   mapThrows = {};
+  mapNodes = [];
   mapTakesFocus = false;
   mapTells = {};
   const asked = (what: keyof typeof mapThrows, said: string) => {
@@ -213,7 +216,7 @@ beforeEach(() => {
   };
   mapStandIn.build = tables => {
     asked("build", "build");
-    const graph = { nodes: [], edges: [], unresolved: [], sections: [], limitations: [] };
+    const graph = { nodes: mapNodes, edges: [], unresolved: [], sections: [], limitations: [] };
     mapBuilds.push({ tables, graph });
     return graph;
   };
@@ -247,6 +250,7 @@ beforeEach(() => {
       hide: () => { asked("hide", `hide ${number}`); tells("hide"); },
       themeChanged: () => { asked("themeChanged", `themeChanged ${number} ${page.document.documentElement.dataset.theme}`); tells("themeChanged"); },
       destroy: () => { asked("destroy", `destroy ${number}`); root.remove(); tells("destroy"); },
+      reveal: (node: number) => { asked("reveal", `reveal ${number} ${node}`); return true; },
     };
   };
   ports = [];
@@ -4398,5 +4402,81 @@ describe("A model's map on the results page", () => {
     page.id("colBtn").focus();
     page.key("Escape");
     expect(page.id("popover").hidden).toBe(true);
+  });
+});
+
+describe("The ways from a count or a row to where it leads", () => {
+  /** BLUEPRINT's modules and line items, as the map's graph holds them: what the button in a row's details reads. */
+  const blueprintNodes = () => [
+    { id: 0, kind: "module", name: "REV01 Revenue" }, { id: 1, kind: "lineItem", name: "Units", module: 0 }, { id: 2, kind: "lineItem", name: "Price", module: 0 },
+    { id: 3, kind: "lineItem", name: "Revenue", module: 0 }, { id: 4, kind: "lineItem", name: "Margin %", module: 0 },
+    { id: 5, kind: "module", name: "COST01 Costs" }, { id: 6, kind: "lineItem", name: "Cost", module: 5 },
+  ];
+  const shows = () => [page.texts("#view h1")[0], page.texts('#navList [aria-current="page"] span')[0]];
+  /** Opens a row's details by its first cell. */
+  const openRow = (name: string) => {
+    const at = firstCells().indexOf(name);
+    page.all('#tableWrap tbody [data-act="row"]')[at].press();
+  };
+  const drawerOpen = () => page.id("drawer").classList.contains("show");
+
+  it("opens a line item's box on the model map from the button at the top of its details, and a module's", async () => {
+    mapNodes = blueprintNodes();
+    await openWith(BLUEPRINT);
+    goTo(1);
+    openRow("Revenue");
+    expect([page.id("drawerTitle").textContent, page.id("drawerMap").hidden, page.id("drawerMap").textContent.trim()]).toEqual(["Revenue", false, "Open in Model map"]);
+    page.id("drawerMap").press();
+    // The details close, the map is shown, and the line item is selected on it.
+    expect([drawerOpen(), shows(), mapAsked]).toEqual([false, ["Model map", "Model map"], ["build", "mount 1", "show 1", "reveal 1 3"]]);
+    // A module's row: the module, among its section's.
+    goTo(2);
+    openRow("COST01 Costs");
+    page.id("drawerMap").press();
+    expect([drawerOpen(), shows()[0], mapAsked.slice(4)]).toEqual([false, "Model map", ["hide 1", "show 1", "reveal 1 5"]]);
+    // The graph is built once, for the button and the map both.
+    expect(mapBuilds).toHaveLength(1);
+  });
+
+  it("has no such button for a heading of Modules, nor for a line item the map does not draw", async () => {
+    mapNodes = blueprintNodes().filter(node => node.name !== "Cost");
+    await openWith(BLUEPRINT);
+    goTo(2);
+    openRow("--- Archive ---");
+    expect(page.id("drawerMap").hidden).toBe(true);
+    page.id("drawerClose").press();
+    goTo(1);
+    openRow("Cost");
+    expect(page.id("drawerMap").hidden).toBe(true);
+  });
+
+  it("has no such button for an app's rows, which have no map", async () => {
+    await openWith(RESULT);
+    goTo(2);
+    page.all('#tableWrap tbody [data-act="row"]')[0].press();
+    expect([drawerOpen(), page.id("drawerMap").hidden, mapAsked]).toEqual([true, true, []]);
+  });
+
+  it("has no such button where the model's graph cannot be made", async () => {
+    mapNodes = blueprintNodes();
+    mapThrows = { build: new Error("No modules.") };
+    await openWith(BLUEPRINT);
+    goTo(1);
+    openRow("Revenue");
+    expect([drawerOpen(), page.id("drawerMap").hidden]).toEqual([true, true]);
+  });
+
+  it("opens the table a tile of the overview counts, for an app", async () => {
+    await openWith(RESULT);
+    const tiles = page.all("#view .stat");
+    expect(tiles.map(tile => [tile.localName, tile.dataset.nav])).toEqual([["button", "1"], ["button", "2"]]);
+    tiles[1].press();
+    expect(shows()).toEqual(["Cards", "Cards"]);
+  });
+
+  it("opens the table a tile of the overview counts, for a model", async () => {
+    await openWith(BLUEPRINT);
+    page.all("#view .stat").find(tile => tile.querySelector(".s-lab")?.textContent === "Modules")!.press();
+    expect(shows()).toEqual(["Modules", "Modules"]);
   });
 });

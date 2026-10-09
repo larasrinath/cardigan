@@ -376,6 +376,10 @@ describe("What the results page's markup shows", () => {
     expect(view.querySelectorAll(".typebar, .model-row, .ov-cols, .id-pill")).toEqual([]);
     // A result may have no notes: then there is no panel at all, and without a Details file nothing else stands under the
     // tiles but the place for what the page keeps of the result, which holds nothing.
+    // Given the place of each tile's table, a tile is a button that opens it, as the table's entry of the navigation does.
+    const ways = parseMarkup(overviewHtml(overviewWith({ tiles: [{ label: "Line Items", count: 120 }, { label: "Modules", count: 1 }] }), "none", [3, 5]));
+    expect(ways.querySelectorAll(".stat").map(tile => [tile.localName, tile.getAttribute("type"), tile.dataset.nav, tile.textContent])).toEqual([
+      ["button", "button", "3", "Line Items120rows"], ["button", "button", "5", "Modules1row"]]);
     const bare = parseMarkup(overviewHtml(overviewWith({ tiles: [{ label: "Line Items", count: 120 }] })));
     expect([bare.querySelectorAll(".stat").map(tile => tile.children.map(text)), bare.querySelectorAll(".panel").length, bare.children.map(child => child.localName),
       bare.querySelector("#ovKept")?.innerHTML]).toEqual([[["Line Items", "120", "rows"]], 0, ["h1", "div", "p"], ""]);

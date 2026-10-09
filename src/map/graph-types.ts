@@ -129,4 +129,8 @@ export interface ModelMap {
   themeChanged(): void;
   /** Takes its elements out of the host and drops every listener and timer. */
   destroy(): void;
+  /** Goes to a node of the graph the map was mounted with, by its place in `ModelGraph.nodes`, and selects it, as the
+   * map's search does: a module among its section's modules, a line item among its module's line items. The node's
+   * details then take the focus. True when the node is selected; only a map that is shown goes anywhere. */
+  reveal(node: number): boolean;
 }

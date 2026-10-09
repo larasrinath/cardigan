@@ -2533,3 +2533,25 @@ describe("A model's texts on the map", () => {
     check();
   });
 });
+
+describe("Going to an object the page names", () => {
+  it("goes to a line item in its module's view and to a module among its section's, selected, with the details in focus", () => {
+    const { graph, gross, margin } = sample();
+    mount(graph);
+    // A map that is not shown goes nowhere.
+    expect(map.reveal(gross)).toBe(false);
+    map.show();
+    env.resize(1200, 800);
+    env.settle();
+    expect(map.reveal(gross)).toBe(true);
+    expect(text(".map-insp-name")).toBe("Gross");
+    expect(page.document.activeElement).toBe(part(".map-insp-name"));
+    expect(map.reveal(margin)).toBe(true);
+    expect(text(".map-insp-name")).toBe("Margin Workings");
+    // A node the graph does not have is not gone to.
+    expect(map.reveal(graph.nodes.length)).toBe(false);
+    expect(text(".map-insp-name")).toBe("Margin Workings");
+    map.destroy();
+    expect(map.reveal(gross)).toBe(false);
+  });
+});
