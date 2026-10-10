@@ -1,5 +1,5 @@
 import { buildModelGraph } from "../map/build-graph.js";
-import type { ModelMap, ModelMapOptions } from "../map/graph-types.js";
+import type { ModelGraph, ModelMap, ModelMapOptions } from "../map/graph-types.js";
 import { mountModelMap } from "../map/map-view.js";
 import { PORT_NAME } from "../protocol.js";
 import { plainResult, textOf } from "../result-plain.js";
@@ -17,7 +17,8 @@ import {
   type KeptCopy, type Links, type NavEntry, type TableView,
 } from "./markup.js";
 import type { PageId } from "./page-ids.js";
-import { analysedOf, cardParts, detailsOf, detailValue, diagnosticLog, fileView, listedTables, overviewOf, type FileView } from "./result-view.js";
+import { LINE_ITEMS_FILE, MODULE_NAME } from "./line-items-view.js";
+import { analysedOf, cardParts, detailsOf, detailValue, diagnosticLog, fileView, listedTables, MODULES_FILE, overviewOf, type FileView } from "./result-view.js";
 import { cellText, NONE, pageOf, rememberingSelect, rowName, valueCounts, type Row, type Sort, type TableQuery } from "./table-engine.js";
 import { EVERY_USE, objectOf, WHERE_USED_FILE, whereUsedView, type WhereUsedObject, type WhereUsedView } from "./where-used-view.js";
 
@@ -179,6 +180,8 @@ let select = rememberingSelect();
  * drawn for this result, or was drawn and then stopped by itself: the view says so, and the page does not try again
  * until the map is dropped (`dropMap`). */
 let modelMap: ModelMap | "failed" | undefined;
+/** The graph of the model on the page: built once, for its map and for the button in a row's details that goes there. */
+let modelGraph: ModelGraph | undefined;
 /** True while a run is going, so that a run that starts is told from one that goes on. */
 let running = false;
 
@@ -328,7 +331,8 @@ function renderAll(): void {
   if (!onMap) leaveMap();
   if (entry) renderTable(entry);
   else if (onMap) enterMap(result);
-  else el("view").innerHTML = overviewHtml(overviewOf(result), keptCopy);
+  // Each tile opens its table: the tiles are in the navigation's order, which `listedTables` gives.
+  else el("view").innerHTML = overviewHtml(overviewOf(result), keptCopy, listedTables(result).map(({ index }) => index));
   // The line above a result that was brought back says "today" by the clock: each view says it anew, so that it is still
   // true on a page left open past midnight.
   const line = broughtBack ? find("#noteText") : null;
@@ -654,6 +658,8 @@ function openDrawer(title: string, subHtml: string, bodyHtml: string, opener?: E
   el("drawerTitle").textContent = title;
   el("drawerSub").innerHTML = subHtml;
   el("drawerBody").innerHTML = bodyHtml;
+  // A row of a model's Line Items or Modules that has its box on the map: the button at the top takes the user there.
+  el("drawerMap").hidden = !drawerRow || mapNodeOf(drawerRow.entry, drawerRow.row) === undefined;
   const drawer = el("drawer");
   const scrim = el("scrim");
   drawer.hidden = false;
@@ -753,6 +759,32 @@ function rowFor(element: Element): { entry: Shown; row: Row } | undefined {
 }
 
 /* ================= model map ================= */
+/** The model's graph, built the first time the map or a row's details asks for it. It throws what keeps it from being made. */
+function graphFor(model: AnalysisResult): ModelGraph {
+  modelGraph ??= buildModelGraph(model.tables);
+  return modelGraph;
+}
+
+/** The map's box for a row of a model's Line Items or Modules: the line item in its module, or the module, by their names.
+ * None for any other row, for a row the map does not draw (a heading, a line item that names no module), and where the
+ * map cannot be drawn. */
+function mapNodeOf(entry: Shown, row: Row): number | undefined {
+  const file = entry.table.file;
+  if (result?.kind !== "model" || modelMap === "failed" || (file !== LINE_ITEMS_FILE && file !== MODULES_FILE)) return undefined;
+  let graph: ModelGraph;
+  try {
+    graph = graphFor(result);
+  } catch {
+    return undefined;
+  }
+  const name = cellText(row[0]).trim();
+  if (file === MODULES_FILE) return graph.nodes.find(node => node.kind === "module" && node.name.trim() === name)?.id;
+  const at = columnIndex(entry.table, MODULE_NAME);
+  const module = at === undefined ? "" : cellText(row[at]).trim();
+  return graph.nodes.find(node => node.kind === "lineItem" && node.name.trim() === name && node.module !== undefined
+    && graph.nodes[node.module]?.name.trim() === module)?.id;
+}
+
 /** A line for the run's log about a call into the map that threw: which call, and the error's own words. */
 const mapFailure = (call: string, error: unknown): string => `Model map: ${call} failed (${error instanceof Error ? `${error.name}: ${error.message}` : textOf(error)}).`;
 
@@ -787,6 +819,7 @@ function tellMap(call: "hide" | "themeChanged" | "destroy", map = modelMap): voi
 function dropMap(): void {
   const map = modelMap;
   modelMap = undefined;
+  modelGraph = undefined;
   tellMap("destroy", map);
   const host = document.getElementById("mapHost" satisfies PageId);
   if (!host) return;
@@ -846,7 +879,7 @@ function enterMap(model: AnalysisResult): void {
     let call = "buildModelGraph";
     try {
       if (!modelMap) {
-        const graph = buildModelGraph(model.tables);
+        const graph = graphFor(model);
         call = "mountModelMap";
         // Only the map the page holds is heard when it tells of its stop. One that is still being mounted is not: it
         // fails by throwing. Nor is one that the page has taken away, or has heard once already.
@@ -1008,6 +1041,16 @@ document.addEventListener("click", event => {
       case "card":
         if (from) openCard(cardsOfRow(from.entry, from.row), act);
         return;
+      // The row's box on the map: the details close, the map is shown, and the box is selected there as the map's own
+      // search selects one, with its details beside it.
+      case "map-node": {
+        const node = from && mapNodeOf(from.entry, from.row);
+        if (node === undefined) return;
+        closeDrawer();
+        navTo("map");
+        if (modelMap && modelMap !== "failed" && !modelMap.reveal(node)) toast("Not found on the map");
+        return;
+      }
       case "row":
         if (from) openRowDrawer(from.entry, from.row, act);
         return;

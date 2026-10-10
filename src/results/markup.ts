@@ -356,7 +356,9 @@ export function keptCopyHtml(copy: KeptCopy): string {
  *
  * A view's heading is the page's h1, so what stands under it is an h2, also inside a section that starts closed. The
  * drawer's heading is an h2 of the page shell, and its sections are h3. No view goes from one level to one two below it. */
-export function overviewHtml(overview: Overview, copy: KeptCopy = "none"): string {
+/** `views`: for each tile, the place in the result of the table it counts. A tile with one opens that table, as the table's
+ * entry of the navigation does; one without stays a tile to read. */
+export function overviewHtml(overview: Overview, copy: KeptCopy = "none", views: readonly number[] = []): string {
   const about = overview.about.length ? `
     <div class="d-sec" id="ovAbout"><h2>About this export</h2>
       <dl class="dl">${detailRows(overview.about)}</dl></div>` : "";
@@ -387,10 +389,14 @@ export function overviewHtml(overview: Overview, copy: KeptCopy = "none"): strin
   return `
     <h1 class="view-title">Overview</h1>
     <div class="ov-grid">
-      ${overview.tiles.map(tile => `<div class="stat"><div class="s-lab">${esc(tile.label)}</div><div class="s-num">${esc(tile.count)}</div><div class="s-sub">${tile.count === 1 ? "row" : "rows"}</div>${
+      ${overview.tiles.map((tile, at) => {
         // A table that does not list every row of its file: the tile counts the rows listed, and says how many there
         // are in all. It does not say that they were read: a Model Calendar's rows are a template's, which the export fills in.
-        tile.inAll === undefined ? "" : `<div class="s-sub">${esc(tile.inAll)} ${tile.inAll === 1 ? "row" : "rows"} in all</div>`}</div>`).join("")}
+        const parts = `<span class="s-lab">${esc(tile.label)}</span><span class="s-num">${esc(tile.count)}</span><span class="s-sub">${tile.count === 1 ? "row" : "rows"}</span>${
+          tile.inAll === undefined ? "" : `<span class="s-sub">${esc(tile.inAll)} ${tile.inAll === 1 ? "row" : "rows"} in all</span>`}`;
+        const view = views[at];
+        return view === undefined ? `<div class="stat">${parts}</div>` : `<button type="button" class="stat stat-open" data-nav="${view}">${parts}</button>`;
+      }).join("")}
     </div>${about}
     <p class="ov-kept" id="ovKept">${keptCopyHtml(copy)}</p>${notes}${files}${howToRead}${log}`;
 }
