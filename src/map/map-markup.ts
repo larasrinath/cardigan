@@ -39,6 +39,8 @@ export const BESIDE_SAYS = "Among a module's line items, a box that stands for a
 export interface ShellIds { results: string; hints: string; legend: string; about: string; access: string; links: string; picker: string }
 
 /** The chevron of a select, which draws its own (map.css `.map-select-wrap`): the one the results page's menus have. */
+/** What stands between two parts of the map's path: a chevron pointing on, drawn as the bar's other chevrons are. */
+const PATH_CHEVRON = '<svg class="map-sep-chevron" width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 4l4 4-4 4"/></svg>';
 const SELECT_CHEVRON = '<svg class="map-select-chevron" width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg>';
 /** The same chevron after a button's words, as a menu's button has it. */
 const BUTTON_CHEVRON = '<svg class="map-btn-chevron" width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg>';
@@ -78,11 +80,11 @@ export function shellHtml(ids: ShellIds, modelName: string): string {
       </div>
       <nav class="map-crumbs" aria-label="Where the map is">
         <span class="map-path-root"><h2 class="map-title-name map-here" aria-current="location">${esc(modelName)}</h2></span>
-        <span class="map-sep" data-map-sep="show" aria-hidden="true">›</span>
+        <span class="map-sep" data-map-sep="show" aria-hidden="true">${PATH_CHEVRON}</span>
         <span class="map-select-wrap"><select class="map-select map-show-select" aria-label="Show"></select>${SELECT_CHEVRON}</span>
-        <span class="map-sep" data-map-sep="group" aria-hidden="true" hidden>›</span>
+        <span class="map-sep" data-map-sep="group" aria-hidden="true" hidden>${PATH_CHEVRON}</span>
         <span class="map-select-wrap"><select class="map-select map-group-select" aria-label="Group" hidden></select>${SELECT_CHEVRON}</span>
-        <span class="map-sep" data-map-sep="module" aria-hidden="true" hidden>›</span>
+        <span class="map-sep" data-map-sep="module" aria-hidden="true" hidden>${PATH_CHEVRON}</span>
         <span class="map-picker" hidden>
           <input class="map-picker-input" type="text" role="combobox" aria-label="Module" aria-autocomplete="list" aria-expanded="false" aria-controls="${esc(ids.picker)}" autocomplete="off" spellcheck="false">${SELECT_CHEVRON}
           <div class="map-panel map-picker-pop" hidden><div class="map-picker-list" id="${esc(ids.picker)}" role="listbox" aria-label="Modules"></div><p class="map-picker-note" hidden></p></div>
@@ -250,7 +252,7 @@ export function inspectorHtml(inspection: Inspection, trace?: TraceWords): strin
   const rows = inspection.rows.length ? `<dl class="map-dl">${inspection.rows.map(([label, value]) => `<dt>${esc(label)}</dt><dd>${esc(value)}</dd>`).join("")}</dl>` : "";
   const action = inspection.action;
   const button = !action ? "" : `<button type="button" class="map-primary" data-map-act="open"${action.section === undefined ? "" : ` data-map-section="${esc(action.section)}"`}${
-    action.module === undefined ? "" : ` data-map-module="${esc(action.module)}"`}${action.select === undefined ? "" : ` data-map-select="${esc(action.select)}"`}>${esc(action.label)} →</button>`;
+    action.module === undefined ? "" : ` data-map-module="${esc(action.module)}"`}${action.select === undefined ? "" : ` data-map-select="${esc(action.select)}"`}>${esc(action.label)}</button>`;
   const formula = inspection.formula !== undefined ? `<h4 class="map-insp-sec">Formula</h4><pre class="map-formula">${esc(inspection.formula)}</pre>`
     : inspection.remark !== undefined ? `<p class="map-insp-note">${esc(inspection.remark)}</p>` : "";
   const traced = !trace ? "" : `<p class="map-insp-trace">On the map, directly or through others: <span class="map-trace-up">${SIGN}${esc(trace.feeds)}</span>, <span class="map-trace-down">${SIGN}${esc(trace.fed)}</span>.</p>`;

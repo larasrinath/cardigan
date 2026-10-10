@@ -241,7 +241,7 @@ thead th{
 .th-sort{display:inline-flex;align-items:center;gap:5px;color:inherit;font:inherit;text-transform:inherit;letter-spacing:inherit;border-radius:var(--r-xs);padding:1px 2px}
 .th-sort:hover{color:var(--text)}
 /* The sort arrow's room is in every header, sorted or not, and never shrinks: a sort shows the arrow, and moves nothing. */
-.th-sort .dir{color:var(--accent);font-size:9px;width:9px;flex:none}
+.th-sort .dir{display:inline-flex;align-items:center;color:var(--accent);width:9px;flex:none}
 .th-filter{display:inline-flex;padding:3px;border-radius:999px;color:var(--text-3)}
 .th-filter:hover{color:var(--text);background:var(--panel-3)}
 .th-filter.active{color:var(--accent)}
@@ -328,7 +328,7 @@ td.num{font-variant-numeric:tabular-nums}
 .pager:empty{display:none}
 /* The choice of rows per page ends the pager: where the pager wraps within itself, it stands at the right of its line. */
 .pager .per-page{margin-left:auto}
-.pg-btn{min-width:28px;height:28px;border-radius:999px;border:1px solid var(--border-strong);background:var(--panel);padding:0 8px}
+.pg-btn{display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:28px;border-radius:999px;border:1px solid var(--border-strong);background:var(--panel);padding:0 8px}
 .pg-btn:hover:not([disabled]){background:var(--panel-2)}
 .pg-btn[disabled]{opacity:.4;cursor:default}
 /* The choice of rows per page draws the chevron the bar's menus have, clear of the round end of its pill: a browser's own
