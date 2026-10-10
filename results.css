@@ -480,6 +480,12 @@ main:has(> #mapHost:not([hidden])){align-self:stretch;display:flex;flex-directio
 .cell-list li + li{margin-top:3px}
 .cell-list li::marker{color:var(--text-3)}
 .cell-list .cell-t{display:inline}
+/* How many items a value lists stands after the column's name, in the muted type of the name itself. A long list shows its
+   first items; the rest follow in a second list, the first's very continuation, hidden until the button under them shows
+   them (or the browser's find in page reaches one). An item that names a row of the result is a link to that row. */
+.d-count{color:var(--text-3);font-weight:400}
+.cell-rest:not([hidden]){margin-top:3px}
+.cell-more{margin-top:6px;font-size:12px}
 /* A card's parts, each kind in a small table under its heading. A table is as wide as the drawer: a header takes more
    than one line when it has to, and a cell's text breaks where it must, so that seven columns fit. In a narrow window
    they cannot (see the responsive rules): there the table scrolls sideways inside its own section, under the heading,
