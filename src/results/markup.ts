@@ -667,23 +667,71 @@ export function tableHtml(view: TableView): string {
 
 /* ---------- popovers ---------- */
 
+/** A column filter's values: each text the column holds, or each item its cells list, with its number of rows. */
+export type FilterValues = readonly (readonly [value: string, count: number])[];
+
+/** A filter has a box to find its values once it has more than this many: a longer list is read by searching it. */
+export const FILTER_FIND_FROM = 15;
+/** A filter lists at most this many of its values at once, and says how many more there are: the box finds the others.
+ * The page stays quick to open a filter whatever a column holds, a model's line items' many modules included. */
+export const FILTER_LISTED_MAX = 300;
+
+/** A filter's value as its list shows it, which is also what its box finds it by: a blank as the word in brackets, and a
+ * count with its thousands apart, as its cells show it. */
+export const filterValueText = (column: Column, value: string): string => (value === "" ? "(blank)" : column.kind === "count" ? groupedCount(value) : value);
+
+/** The values a filter's box finds for `find`, by their places in `values`: those whose shown text holds it, whatever its
+ * case. Every value when nothing is typed. */
+export function filterMatches(column: Column, values: FilterValues, find: string): number[] {
+  const needle = find.trim().toLowerCase();
+  return values.flatMap(([value], index) => (!needle || filterValueText(column, value).toLowerCase().includes(needle) ? [index] : []));
+}
+
+/** The boxes of a filter's values: those of `matches` (places in `values`), at most `FILTER_LISTED_MAX` of them, each
+ * ticked when shown. A box is known by its value's place in `values`, so no value is read back out of the page. */
+export function filterOptionsHtml(column: Column, values: FilterValues, matches: readonly number[], selected: ReadonlySet<string> | undefined): string {
+  if (!values.length) return '<div class="pop-empty">No values</div>';
+  if (!matches.length) return '<div class="pop-empty">No value matches</div>';
+  return matches.slice(0, FILTER_LISTED_MAX).map(index => {
+    const [value, count] = values[index];
+    return `
+        <label class="pop-opt"><input type="checkbox" data-fval="${index}" ${!selected || selected.has(value) ? "checked" : ""}>
+        <span style="overflow:hidden;text-overflow:ellipsis">${value === "" ? BLANK : esc(filterValueText(column, value))}</span>
+        <span class="po-cnt">${esc(count)}<span class="sr-only"> ${count === 1 ? "row" : "rows"} in the whole table</span></span></label>`;
+  }).join("");
+}
+
+/** What a filter with a box says of its list, for a screen reader as well: how many values it has, how many the box finds,
+ * and that only the first are listed when there are more than the list holds. */
+export function filterStatusText(values: FilterValues, matches: readonly number[], find: string): string {
+  const found = find.trim() !== "";
+  const said = found ? `${matches.length} of ${values.length} ${values.length === 1 ? "value matches" : "values match"}` : `${values.length} values`;
+  return matches.length > FILTER_LISTED_MAX ? `${said}. The first ${FILTER_LISTED_MAX} are listed: type to narrow the list.` : `${said}.`;
+}
+
+/** The words of the two buttons that tick or untick every value the box finds: all of them while nothing is typed. */
+export const filterTickWords = (find: string): [tick: string, untick: string] => (find.trim() === "" ? ["Tick all", "Untick all"] : ["Tick matches", "Untick matches"]);
+
 /** A column's filter: each text the column holds with its number of rows, ticked when shown. The numbers count the rows
  * of the whole table, whatever the search, the other filters or a jump leave on screen, and a line above them says so. A
- * box is known by its place in the list, so no value is read back out of the page. A count's column lists each count as
- * its cells show it, with its thousands apart. */
-export function colFilterHtml(column: Column, values: readonly (readonly [value: string, count: number])[], selected: ReadonlySet<string> | undefined): string {
-  const checked = (value: string) => (!selected || selected.has(value) ? "checked" : "");
-  const shown = (value: string) => (column.kind === "count" ? groupedCount(value) : value);
+ * count's column lists each count as its cells show it, with its thousands apart. A column whose cells list items (`list`)
+ * lists each item, and says that a row shows when any of its items is ticked. A filter of many values has a box to find
+ * them, which has the focus when the filter opens, two buttons that tick or untick what it finds, and a line that says how
+ * many it finds: only the first `FILTER_LISTED_MAX` are listed at once. */
+export function colFilterHtml(column: Column, values: FilterValues, selected: ReadonlySet<string> | undefined, list = false): string {
+  const finding = values.length > FILTER_FIND_FROM;
+  const all = values.map((_, index) => index);
+  const [tick, untick] = filterTickWords("");
   return `
     <div class="pop-hd"><span>Filter: ${esc(column.label)}</span><button type="button" data-popact="all">Show all</button></div>
+    ${finding ? `<div class="pop-find"><input type="search" data-ffind data-first autocomplete="off" spellcheck="false" placeholder="Find a value" aria-label="Find a value of ${esc(column.label)}"></div>
+    <div class="pop-acts"><button type="button" data-popact="tick">${tick}</button><button type="button" data-popact="untick">${untick}</button></div>` : ""}
+    ${list ? '<div class="pop-note">Each item is listed on its own: a row shows when any of its items is ticked.</div>' : ""}
     ${values.length ? '<div class="pop-hd" aria-hidden="true"><span>Value</span><span>Rows in the whole table</span></div>' : ""}
     <div class="pop-bd">
-      ${values.length ? values.map(([value, count], index) => `
-        <label class="pop-opt"><input type="checkbox" data-fval="${index}" ${checked(value)}>
-        <span style="overflow:hidden;text-overflow:ellipsis">${value === "" ? BLANK : esc(shown(value))}</span>
-        <span class="po-cnt">${esc(count)}<span class="sr-only"> ${count === 1 ? "row" : "rows"} in the whole table</span></span></label>`).join("")
-      : '<div class="pop-empty">No values</div>'}
-    </div>`;
+      ${filterOptionsHtml(column, values, all, selected)}
+    </div>
+    ${finding ? `<div class="pop-note" role="status" data-fstatus>${esc(filterStatusText(values, all, ""))}</div>` : ""}`;
 }
 
 /** The column chooser. A column that starts hidden because it holds IDs is marked as one; a number that starts hidden, a
