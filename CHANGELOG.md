@@ -6,11 +6,11 @@ Every merged change that alters the extension has a version of its own: a new fe
 
 A refresh of the results page keeps how you left the result, until the tab is closed.
 
-- **Tables as you left them.** Each table keeps its filters, its ranges, the columns you showed or hid, its sort and its page; the page keeps the rows it lists, the search of the table shown and how **Where Used** is listed. A page the table no longer has shows as its last. (#PR)
-- **The map where you left it.** Its view, the group or the module it showed, other modules' line items and access drivers' links. Its zoom, position, selection and search start afresh. (#PR)
-- **The details that were open** open again, found by what their row holds; where no row or more than one holds it now, none opens. (#PR)
-- **Run again** on the same app or model keeps what still fits its tables, each column by its name: a filter on **Format type** stays, a column that is gone is let go, and one that is new starts as it always does. Another app or model starts clean. **Reset** clears a table's, and **Forget this result** all of it. (#PR)
-- **Where it is kept.** The tab's session storage, beside the kept result, a few thousand characters at most; a tab whose storage is missing, full or refuses works the same and keeps nothing. [NOTICE.md](NOTICE.md) says what is kept. (#PR)
+- **Tables as you left them.** Each table keeps its filters, its ranges, the columns you showed or hid, its sort and its page; the page keeps the rows it lists, the search of the table shown and how **Where Used** is listed. A page the table no longer has shows as its last. (#44)
+- **The map where you left it.** Its view, the group or the module it showed, other modules' line items and access drivers' links. Its zoom, position, selection and search start afresh. (#44)
+- **The details that were open** open again, found by what their row holds; where no row or more than one holds it now, none opens. (#44)
+- **Run again** on the same app or model keeps what still fits its tables, each column by its name: a filter on **Format type** stays, a column that is gone is let go, and one that is new starts as it always does. Another app or model starts clean. **Reset** clears a table's, and **Forget this result** all of it. (#44)
+- **Where it is kept.** The tab's session storage, beside the kept result, a few thousand characters at most; a tab whose storage is missing, full or refuses works the same and keeps nothing. [NOTICE.md](NOTICE.md) says what is kept. (#44)
 
 ## 0.15.9 (10 October 2026)
 
