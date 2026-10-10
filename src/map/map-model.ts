@@ -1,8 +1,9 @@
-import type { EdgeKind, GraphEdge, GraphNode, ModelGraph, Unresolved } from "./graph-types.js";
+import type { EdgeKind, GraphEdge, GraphNode, ModelGraph, PageFilter, Unresolved } from "./graph-types.js";
 import type { Grouping } from "./map-groups.js";
 
 /** A model's graph, looked up the ways the map asks for it: its modules and their line items, its sections, the links
- * that make a dependency (a formula's, and who may read or write), and each node's links in and out. It reads the graph
+ * that make a dependency (a formula's, and who may read or write), the links of the pages' filters, and each node's links
+ * in and out. It reads the graph
  * and changes nothing in it. A link that names a node the graph does not hold, and a line item without a module of the
  * graph, are left out rather than trusted. */
 
@@ -13,6 +14,13 @@ const FORMULA: ReadonlySet<EdgeKind> = new Set<EdgeKind>(["reference", "list_for
 const ACCESS: ReadonlySet<EdgeKind> = new Set<EdgeKind>(["read_access", "write_access"]);
 /** Whether a link says who may read or write, and not what a formula reads. */
 export const isAccess = (kind: EdgeKind): boolean => ACCESS.has(kind);
+/** Whether a link is a page's filter, from its condition line item to the module it filters (graph-types.ts
+ * `page_filter`): no formula reads it, and the map draws it only where asked to, as it does the links of access. */
+export const isFilter = (kind: EdgeKind): boolean => kind === "page_filter";
+
+/** A line item that filters cards of a module on the pages built on the model, with those filters (graph-types.ts
+ * `PageFilter`), in the Page Filters table's order. */
+export interface ModuleFilter { item: GraphNode; uses: readonly PageFilter[] }
 
 /** An action that loads into a module, works on it or takes it, and which of the three. */
 export interface ModuleAction { action: GraphNode; kind: EdgeKind }
@@ -27,6 +35,8 @@ export interface MapModel {
   readonly sections: readonly string[];
   readonly formulaEdges: readonly GraphEdge[];
   readonly accessEdges: readonly GraphEdge[];
+  /** The links of the pages' filters (`isFilter`), in the graph's order. */
+  readonly filterEdges: readonly GraphEdge[];
   node(id: number | undefined): GraphNode | undefined;
   itemsOf(module: number): readonly GraphNode[];
   /** The section of a module, or of a line item's module. */
@@ -35,10 +45,13 @@ export interface MapModel {
   sectionIndex(section: string): number;
   /** The module a node belongs to: a module itself, a line item's module. Nothing else has one. */
   moduleOf(node: GraphNode | undefined): number | undefined;
-  /** The formula and access links into a node, and out of it, in the graph's order. */
+  /** The formula, access and page filter links into a node, and out of it, in the graph's order. */
   incoming(id: number): readonly GraphEdge[];
   outgoing(id: number): readonly GraphEdge[];
   actionsOf(module: number): readonly ModuleAction[];
+  /** The line items whose page filters filter a module, each with those of its filters, in the order of the line items:
+   * its own line items among them, which have no link to it. */
+  filtersOf(module: number): readonly ModuleFilter[];
   unresolvedOf(id: number): readonly Unresolved[];
   /** How the modules are filed into the sections, where the map chose a grouping (`withGrouping`); none where the
    * sections are the heading rows the graph gives. */
@@ -85,6 +98,7 @@ export function indexModel(graph: ModelGraph): MapModel {
 
   const formulaEdges: GraphEdge[] = [];
   const accessEdges: GraphEdge[] = [];
+  const filterEdges: GraphEdge[] = [];
   const into = new Map<number, GraphEdge[]>();
   const outOf = new Map<number, GraphEdge[]>();
   const actions = new Map<number, ModuleAction[]>();
@@ -97,8 +111,8 @@ export function indexModel(graph: ModelGraph): MapModel {
     const first = byId.get(from);
     const second = byId.get(to);
     if (!first || !second) continue;
-    if (FORMULA.has(kind) || ACCESS.has(kind)) {
-      (FORMULA.has(kind) ? formulaEdges : accessEdges).push(edge);
+    if (FORMULA.has(kind) || ACCESS.has(kind) || isFilter(kind)) {
+      (FORMULA.has(kind) ? formulaEdges : ACCESS.has(kind) ? accessEdges : filterEdges).push(edge);
       file(into, to, edge);
       file(outOf, from, edge);
       continue;
@@ -111,6 +125,23 @@ export function indexModel(graph: ModelGraph): MapModel {
     if (listed) listed.push({ action, kind }); else actions.set(module.id, [{ action, kind }]);
   }
 
+  // Each module's filters on the pages: the line items whose filters name it, its own included.
+  const filters = new Map<number, ModuleFilter[]>();
+  for (const item of lineItems) {
+    const byModule = new Map<number, PageFilter[]>();
+    for (const use of item.pageFilters ?? []) {
+      for (const module of use.modules ?? []) {
+        if (!items.has(module)) continue;
+        const uses = byModule.get(module);
+        if (uses) uses.push(use); else byModule.set(module, [use]);
+      }
+    }
+    for (const [module, uses] of byModule) {
+      const listed = filters.get(module);
+      if (listed) listed.push({ item, uses }); else filters.set(module, [{ item, uses }]);
+    }
+  }
+
   const unresolved = new Map<number, Unresolved[]>();
   for (const entry of graph.unresolved) {
     const entries = unresolved.get(entry.source);
@@ -118,13 +149,14 @@ export function indexModel(graph: ModelGraph): MapModel {
   }
 
   return {
-    graph, modules, lineItems, sections, formulaEdges, accessEdges, moduleOf, sectionOf,
+    graph, modules, lineItems, sections, formulaEdges, accessEdges, filterEdges, moduleOf, sectionOf,
     node: id => (id === undefined ? undefined : byId.get(id)),
     itemsOf: module => items.get(module) ?? NONE,
     sectionIndex: section => sectionPlace.get(section) ?? -1,
     incoming: id => into.get(id) ?? NONE,
     outgoing: id => outOf.get(id) ?? NONE,
     actionsOf: module => actions.get(module) ?? NONE,
+    filtersOf: module => filters.get(module) ?? NONE,
     unresolvedOf: id => unresolved.get(id) ?? NONE,
   };
 }

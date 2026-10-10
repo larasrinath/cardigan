@@ -52,6 +52,9 @@ const WORDS_KEPT = 60000;
  * without their colours. */
 const DASH_UP = [7, 5];
 const DASH_DOWN = [2, 4];
+/** A page filter's link, where no trace marks it: in its own colour, in dashes that stand still, so it is told from a
+ * formula's link by more than its colour, and from a trace's by standing still. */
+const DASH_FILTER = [5, 3.5];
 const DASH_SPEED = 24;
 /** A trace's dashed links are drawn this much as wide as the same links without a trace: a fifth thinner, so that the
  * moving dashes stay light. */
@@ -202,7 +205,7 @@ function drawEdges(pen: Pen, scene: Scene): boolean {
     const own = trace !== undefined && (edge.s === trace.selected || edge.t === trace.selected);
     let alpha = trace ? (way ? (own ? 1 : strong) : 0.12) : idle;
     if (matches && !matches[edge.s] && !matches[edge.t]) alpha *= 0.25;
-    const colour = way === 1 ? palette.traceUp : way === 2 ? palette.traceDown : palette.edge;
+    const colour = way === 1 ? palette.traceUp : way === 2 ? palette.traceDown : edge.filter ? palette.filter : palette.edge;
     pen.globalAlpha = alpha;
     pen.strokeStyle = colour;
     pen.fillStyle = colour;
@@ -243,9 +246,12 @@ function drawEdges(pen: Pen, scene: Scene): boolean {
       pen.setLineDash(dash);
       pen.lineWidth *= TRACE_WEIGHT;
       pen.lineDashOffset = scene.time === undefined ? 0 : -((scene.time / 1000 * DASH_SPEED) % (dash[0] + dash[1]));
+    } else if (edge.filter) {
+      pen.setLineDash(DASH_FILTER);
+      pen.lineDashOffset = 0;
     }
     pen.stroke();
-    if (way) pen.setLineDash([]);
+    if (way || edge.filter) pen.setLineDash([]);
     arrowhead(pen, tip, y2, head, pointsLeft);
   }
   pen.globalAlpha = 1;

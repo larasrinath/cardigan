@@ -62,6 +62,8 @@ export interface MapPalette {
   nodeText: string;
   nodeTextMuted: string;
   edge: string;
+  /** A page filter's link (map-graphs.ts `ViewEdge.filter`), where no trace marks it. */
+  filter: string;
   /** The node selected: its border and the ring around it. */
   select: string;
   /** The ring around a node the search names. */
@@ -85,7 +87,7 @@ type Colour = Exclude<keyof MapPalette, "sections" | "sans" | "mono">;
 export const COLOUR_TOKENS: Record<Colour, string> = {
   canvas: "--map-canvas-bg", grid: "--map-grid",
   nodeFill: "--map-node-fill", nodeFillSelected: "--map-node-fill-selected", nodeBorder: "--map-node-border", nodeText: "--map-node-text", nodeTextMuted: "--map-node-text-2",
-  edge: "--map-edge", select: "--text", match: "--accent", traceUp: "--map-trace-up", traceDown: "--map-trace-down",
+  edge: "--map-edge", filter: "--map-filter", select: "--text", match: "--accent", traceUp: "--map-trace-up", traceDown: "--map-trace-down",
   lineItem: "--map-line-item", heading: "--map-heading", external: "--map-external", list: "--map-list", property: "--map-property",
 };
 export const SECTION_COLOURS = 8;
@@ -100,7 +102,7 @@ export const SECTION_MARKS = 2 * SECTION_COLOURS;
 export const FALLBACK: MapPalette = {
   canvas: "#f6f4ee", grid: "rgba(25, 25, 25, 0.1)",
   nodeFill: "#ffffff", nodeFillSelected: "#f3f1ea", nodeBorder: "#d4d2c8", nodeText: "#191919", nodeTextMuted: "#5b584f",
-  edge: "#8b8880", select: "#191919", match: "#2b5bd7", traceUp: "#2a78d6", traceDown: "#e34948",
+  edge: "#8b8880", filter: "#a8458f", select: "#191919", match: "#2b5bd7", traceUp: "#2a78d6", traceDown: "#e34948",
   sections: ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"],
   lineItem: "#4a3aa7", heading: "#b3b0a5", external: "#898781", list: "#1baf7a", property: "#eb6834",
   sans: "sans-serif", mono: "monospace",

@@ -186,11 +186,11 @@ describe("The map's stylesheet", () => {
     const links: InspectLink[] = Array.from({ length: LIST_CAP + 1 }, (_, index) => ({ raw: index, name: "Line", sub: "Module", caption: "read access", layer: layers[index % layers.length] }));
     const words = { feeds: "1 box feeds it", fed: "it feeds 2 boxes", sentence: "Line item Node selected." };
     const everything = [
-      shellHtml({ results: "map-results-1", hints: "map-hints-1", legend: "map-legend-1", about: "map-about-1", access: "map-access-1", links: "map-links-1", picker: "map-picker-1" }, "Model"),
+      shellHtml({ results: "map-results-1", hints: "map-hints-1", legend: "map-legend-1", about: "map-about-1", access: "map-access-1", filters: "map-filters-1", links: "map-links-1", picker: "map-picker-1" }, "Model"),
       notesHtml({ name: "Model", workspace: "Workspace", modules: 2, lineItems: 3 }, ["A sentence."], 1),
       pathRootHtml("Model", "Workspace", true), pathRootHtml("Model", "Workspace", false), fullIconHtml(true),
       pickerOptionsHtml("map-picker-1", [{ name: "Module", group: "Group" }, { name: "Other" }], 0),
-      legendHtml("Sections", layers.map(key => ({ key, label: key, count: 1 })), new Set(["external"])), tracebarHtml("Node", words, false), tracebarHtml("Node", words, true),
+      legendHtml("Sections", layers.map(key => ({ key, label: key, count: 1 })), new Set(["external"]), true), tracebarHtml("Node", words, false), tracebarHtml("Node", words, true),
       tooltipHtml({ layer: "s0", kind: "kind", name: "Node", lines: ["a line"], formula: "A + B" }),
       resultsHtml({ hits: [{ kind: "module", name: "Module", context: "Section" }], total: 2 }), resultsHtml({ hits: [], total: 0 }),
       inspectorHtml({ kind: "LINE ITEM", layer: "lineitem", name: "Node", rows: [["Module", "Module"]], action: { label: "Open", module: 1 }, formula: "A + B", lists: [{ key: "depends", title: "Feeds it directly", open: true, links }],

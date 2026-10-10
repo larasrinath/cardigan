@@ -2,6 +2,26 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version stands next to Cardigan's name at the top of the results page and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## 0.18.0 (10 October 2026)
+
+The model map draws the pages' filters too, as it draws access drivers: from each filter line item to the module it filters.
+
+- **Page filters in the Links panel.** Beside **Access drivers**, a box **Page filters**: "Boolean line items used as filters on the pages built on the model. Tick to draw an arrow from each filter line item to the module it filters." It is off until ticked, and the tab keeps the tick with the map's other settings. Where the result has no **Page Filters** table, or none of its filters has a line item of the model as its condition, the box cannot be ticked, and its note says which. (#51)
+- **One arrow for each line item and module.** A filter's line item, its **Condition line item**, has an arrow to each module of the map its **Filtered module** names, a filter of more than one module's sections to each of them, once however many cards it filters there. A filter of the line item's own module draws none. In the groups and among all modules the arrows run between their boxes, and among a module's line items each module filtered stands beside them. (#51)
+- **Drawn apart.** The arrows are plum dashes that stand still, counted apart from the formula links between the same two boxes, with a line in the legend that says what they are while they are drawn. A trace follows them only while they are drawn; no formula link, no list of what feeds what, and no module's role counts them. (#51)
+- **In the details.** A line item's page filters now say what each filters, and by which dimension, beside its app, page and card, and **Modules it filters on pages** lists the modules, each with where. A module's details list **Filtered on pages by**: the line items whose filters filter it. Both are there whether the arrows are drawn or not. (#51)
+- **What stays the same.** What is read, the tables, and the map's formula and access links. The Links panel's mark for formulas is drawn, no character. (#51)
+
+## 0.17.2 (10 October 2026)
+
+A row's details list what refers to a module and its line items one to a line, as they did a line item's dimensions.
+
+- **More cells listed.** A module's **Referenced By** and its **Line Items** are listed one item to a line, as a line item's **Applies To** and **Referenced By** already were. A module's line items are its rows of Line Items, in their order, so a name that holds a comma, such as "Rate, net", stays one item; a cell that does not read as those names is shown whole. A data source's imports are listed under the header Anaplan's grid gives them, **Imports**, as under **Used in Imports**. (#52)
+- **How many.** A value that lists several items says how many beside the column's name: **Referenced By (10)**. (#52)
+- **Show all.** A list of more than fifteen shows its first twelve, then **Show all**, which shows the rest in place and hides them again. The rest stay where the browser's find in page finds them, and a match shows them. (#52)
+- **Items that are rows open them.** An item that is a row of the model opens that row's details, where exactly one row has its name: a module or a line item that refers to the row, a module's line item, a list among the dimensions, a process among an action's processes, and an import among a data source's. Any other item stays text. (#52)
+- **What stays the same.** A cell that names things without quotes, where Cardigan has no names to check them by, is shown whole: **Used in Dashboards**, **Data Tags** and **Users List**. The tables, their search, sorts and filters read each cell as before. (#52)
+
 ## 0.17.1 (10 October 2026)
 
 A menu's tab names the table shown again, and nothing in the bar moves.

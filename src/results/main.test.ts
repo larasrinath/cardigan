@@ -1903,11 +1903,11 @@ describe("What a click, a key and typing do on the results page", () => {
     expect([column("Name")[0], column("Format")[0]]).toEqual(["Margin %", "Number, 2 decimal places, %"]);
 
     // The row's drawer: the words beside each column's name, and after them the text that was read, named as that. The
-    // dimensions the line item has from its module are listed one to a line there, and the table says them as the file
-    // has them, on one line, in the very row that was opened.
+    // dimensions the line item has from its module are listed one to a line there, with how many beside the column's
+    // name, and the table says them as the file has them, on one line, in the very row that was opened.
     page.all('#tableWrap tbody [data-act="row"]')[0].press();
     expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual(["Margin %", "Row 5 of Line Items"]);
-    expect(page.texts("#drawerBody dt")).toEqual(["Name", "Module Name", "Format", "Format as read", "Format type", "Formula", "Summary", "Summary as read", "Applies To",
+    expect(page.texts("#drawerBody dt")).toEqual(["Name", "Module Name", "Format", "Format as read", "Format type", "Formula", "Summary", "Summary as read", "Applies To (2)",
       "Applies To from", "Ratio Numerator", "Ratio Denominator"]);
     /** A value of the drawer: its items where it lists several, and otherwise its text. */
     const value = (dd: FakeElement) => (dd.querySelectorAll("li").length ? dd.querySelectorAll(".cell-list li .cell-t").map(item => item.textContent) : dd.textContent);
@@ -1932,10 +1932,10 @@ describe("What a click, a key and typing do on the results page", () => {
     expect([mapBuilds.length, mapBuilds[0].tables]).toEqual([1, BLUEPRINT.tables]);
     expect(file.rows[4].slice(0, 4)).toEqual(["Margin %", PERCENT, "Margin / Revenue", RATIO]);
 
-    // A table without such cells has nothing to add in its drawer.
+    // A table without such cells has nothing to add in its drawer: only the count of the dimensions it lists.
     goTo(2);
     page.all('#tableWrap tbody [data-act="row"]')[0].press();
-    expect(page.texts("#drawerBody dt")).toEqual(["Name", "Applies To"]);
+    expect(page.texts("#drawerBody dt")).toEqual(["Name", "Applies To (2)"]);
     page.key("Escape");
     // An app's tables are never said in words, whatever their columns are called: the cells are as the file has them.
     page.id("runAgain").press();
@@ -2128,14 +2128,15 @@ describe("What a click, a key and typing do on the results page", () => {
       const value = page.all("#drawerBody .d-dl dd")[at];
       return [name.textContent, value.querySelector(".cell-list") ? value.querySelectorAll(".cell-list li").map(item => item.textContent) : value.textContent];
     }));
-    // A row's drawer: the grid's selectors one to a line, a comma inside one of them its own; the text card's words whole.
+    // A row's drawer: the grid's selectors one to a line, how many beside the column's name, a comma inside one of them its
+    // own; the text card's words whole.
     page.all('#tableWrap tbody [data-act="row"]')[0].press();
-    expect([values().get("Context selectors"), values().get("Text content")]).toEqual([["Territory (visible, synced to page)", "Channel (hidden)"], "Check the plan; then submit."]);
+    expect([values().get("Context selectors (2)"), values().get("Text content")]).toEqual([["Territory (visible, synced to page)", "Channel (hidden)"], "Check the plan; then submit."]);
     page.key("Escape");
     // A card's drawer: a combined grid's selectors one section to a line, each section's own semicolon in its line.
     cardLinks()[1].press();
     const title = page.id("drawerTitle").textContent;
-    expect([title.startsWith("Card 2 "), title.endsWith(" Plan"), values().get("Context selectors")]).toEqual([true, true,
+    expect([title.startsWith("Card 2 "), title.endsWith(" Plan"), values().get("Context selectors (2)")]).toEqual([true, true,
       ["Section 1: Territory (visible, synced to page); Channel (hidden)", "Section 2: Store (hidden)"]]);
     page.key("Escape");
     // The other card's filter, among its parts, lists its context one dimension to a line. (The table has neither the
@@ -5651,6 +5652,65 @@ describe("The actions of a process, in its row's details", () => {
     goTo(3);
     openProcess("Nightly load");
     expect([strayImg(), steps()[1]]).toEqual([false, [["1", `Load ${TAG}`, TAG]]]);
+  });
+});
+
+describe("A row's details list a cell of several items one to a line, each that names a row as a link to it", () => {
+  /** A model whose Modules table says, as Anaplan's grid writes them, what each module applies to, what refers to it and
+   * its line items: twenty of them for one module, two for the other. */
+  const ITEMS = Array.from({ length: 20 }, (_, at) => `Item ${at + 1}`);
+  const LISTS: ResultTable = { file: "General Lists.csv", label: "General Lists", guard: false, headers: ["", "Item Count"], rows: [["Products", "12"], ["Regions", "4"]] };
+  const MODULES: ResultTable = { file: "Modules.csv", label: "Modules", guard: false, headers: ["", "Applies To", "Referenced By", "Line Items"], rows: [
+    ["SYS100 Time", "Products, Time", "'REV01 Revenue', 'Gone module', 'REV01 Revenue'.Price", ITEMS.join(", ")],
+    ["REV01 Revenue", "Products, Regions", "", "Price, Units"]] };
+  const LINE_ITEMS: ResultTable = { file: "Line Items.csv", label: "Line Items", guard: false, headers: ["", "Format", "Applies To", "Module Name"], rows: [
+    ["SYS100 Time", "", "Products, Time", ""], ...ITEMS.map(item => [item, NUMBER, "-", "SYS100 Time"]),
+    ["REV01 Revenue", "", "Products, Regions", ""], ["Price", NUMBER, "-", "REV01 Revenue"], ["Units", NUMBER, "-", "REV01 Revenue"]] };
+  const LISTED: AnalysisResult = { ...MODEL, summary: ["General Lists: 2 rows", "Modules: 2 rows", "Line Items: 25 rows"], tables: [MODEL.tables[0], LISTS, MODULES, LINE_ITEMS] };
+  /** The details' values by their names, as the drawer heads them. */
+  const values = () => new Map(page.all("#drawerBody .d-dl dt").map((name, at) => [name.textContent, page.all("#drawerBody .d-dl dd")[at]]));
+  const items = (value: FakeElement | undefined) => value?.querySelectorAll(".cell-list li").map(item => item.textContent) ?? [];
+  const links = (value: FakeElement | undefined) => value?.querySelectorAll('[data-act="item"]').map(link => link.textContent) ?? [];
+  const openModule = (name: string) => page.all('#tableWrap tbody [data-act="row"]')[firstCells().indexOf(name)].press();
+
+  it("says how many items a value lists, lists them, and opens the row an item names, where exactly one row has it", async () => {
+    await openWith(LISTED);
+    goTo(2);
+    openModule("SYS100 Time");
+    expect(page.texts("#drawerBody dt")).toEqual(["Name", "Applies To (2)", "Referenced By (3)", "Line Items (20)"]);
+    const shown = values();
+    // A dimension that is a list of the model opens its row; Time is no row of General Lists.
+    expect([items(shown.get("Applies To (2)")), links(shown.get("Applies To (2)"))]).toEqual([["Products", "Time"], ["Products"]]);
+    // What refers to the module, as the grid writes it: a module, one the result does not have, and a line item.
+    expect([items(shown.get("Referenced By (3)")), links(shown.get("Referenced By (3)"))])
+      .toEqual([["'REV01 Revenue'", "'Gone module'", "'REV01 Revenue'.Price"], ["'REV01 Revenue'", "'REV01 Revenue'.Price"]]);
+    // The module's line items, as its rows of Line Items name them, each a link to its row.
+    expect([items(shown.get("Line Items (20)")), links(shown.get("Line Items (20)")).length]).toEqual([ITEMS, 20]);
+    // An item opens its row's details, as a click on the row in its own table does.
+    shown.get("Referenced By (3)")!.querySelectorAll('[data-act="item"]')[1].press();
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual(["Price", "Row 23 of Line Items"]);
+    page.key("Escape");
+    openModule("SYS100 Time");
+    values().get("Referenced By (3)")!.querySelectorAll('[data-act="item"]')[0].press();
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual(["REV01 Revenue", "Row 2 of Modules"]);
+    // A short list shows every item, with nothing to show more.
+    expect([items(values().get("Line Items (2)")), page.all("#drawerBody .cell-more").length]).toEqual([["Price", "Units"], 0]);
+  });
+
+  it("shows a long list's first twelve items, and the rest in place with Show all, which hides them again", async () => {
+    await openWith(LISTED);
+    goTo(2);
+    openModule("SYS100 Time");
+    const value = values().get("Line Items (20)")!;
+    const rest = value.querySelector(".cell-rest")!;
+    const more = value.querySelector(".cell-more")!;
+    // The first list holds twelve; the rest stand hidden after them, where the browser's find in page still reaches them.
+    expect([value.querySelectorAll(".cell-list")[0].querySelectorAll("li").length, rest.querySelectorAll("li").length, rest.getAttribute("hidden"), more.textContent,
+      more.getAttribute("aria-expanded")]).toEqual([12, 8, "until-found", "Show all 20", "false"]);
+    more.press();
+    expect([rest.getAttribute("hidden"), more.textContent, more.getAttribute("aria-expanded")]).toEqual([null, "Show fewer", "true"]);
+    more.press();
+    expect([rest.getAttribute("hidden"), more.textContent, more.getAttribute("aria-expanded")]).toEqual(["until-found", "Show all 20", "false"]);
   });
 });
 

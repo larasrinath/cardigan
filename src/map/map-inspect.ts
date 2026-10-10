@@ -1,7 +1,7 @@
 import { formatWords, summaryWords } from "../results/readable-cells.js";
-import type { GraphNode } from "./graph-types.js";
+import type { GraphNode, PageFilter } from "./graph-types.js";
 import { LAYER, sectionLayer, type ViewGraph, type ViewNode } from "./map-graphs.js";
-import { isAccess, type MapModel } from "./map-model.js";
+import { isAccess, isFilter, type MapModel } from "./map-model.js";
 import { formatCount, plural } from "./map-text.js";
 
 /** What the map says in words about the graph on screen and the node selected, as plain data: the markup
@@ -48,16 +48,60 @@ export interface Inspection {
 /** As many of a line item's page filters as its details list: the rest are counted. */
 export const FILTERS_LISTED = 10;
 
-/** The filters on the pages built on the model that have a line item as their condition, a line each: the app, the page
- * and the card's number, as the Page Filters table has them. Of more than `FILTERS_LISTED`, the rest are counted, and the
- * table has them all. */
-function pageFiltersText(raw: GraphNode): InspectText[] {
+/** Where a filter is, as the Page Filters table has it: its app, its page and its card's number, and the dimension it
+ * filters by. */
+function whereWords(use: PageFilter): string {
+  return [use.app, use.page, use.card === "" ? "" : `Card ${use.card}`, use.dimension === undefined ? "" : `by ${use.dimension}`].filter(part => part !== "").join(" · ");
+}
+
+/** What a link of a filter says under its name: where the filter is, the first of them, and how many more there are. */
+function whereCaption(uses: readonly PageFilter[]): string {
+  const [first] = uses;
+  if (!first) return "";
+  const more = uses.length - 1;
+  return `${whereWords(first)}${more > 0 ? ` · ${plural(more, "more card")}` : ""}`;
+}
+
+/** The filters on the pages built on the model that have a line item as their condition, a line each: what each
+ * filters, where it is and by which dimension, as the Page Filters table has them. Of more than `FILTERS_LISTED`, the
+ * rest are counted, and the table has them all. */
+function pageFiltersText(model: MapModel, raw: GraphNode): InspectText[] {
   const filters = raw.pageFilters ?? [];
   if (!filters.length) return [];
-  const lines = filters.slice(0, FILTERS_LISTED).map(({ app, page, card }) => [app, page, card === "" ? "" : `Card ${card}`].filter(part => part !== "").join(" · "));
+  const lines = filters.slice(0, FILTERS_LISTED).map(use => {
+    const modules = (use.modules ?? []).map(id => model.node(id)?.name).filter((name): name is string => name !== undefined);
+    return modules.length ? `${modules.join(", ")} · ${whereWords(use)}` : whereWords(use);
+  });
   const more = filters.length - FILTERS_LISTED;
   if (more > 0) lines.push(`And ${formatCount(more)} more: the Page Filters table lists them all.`);
   return [{ key: "pageFilters", title: `Page filters · ${formatCount(filters.length)}`, lines }];
+}
+
+/** The modules a line item's page filters filter, each once, as links, with where the line item filters it: what the
+ * map's page filter links say of it, whether they are drawn or not. Its own module is among them where a filter names
+ * it. Nothing for a line item that filters no module of the map. */
+function filtersModules(model: MapModel, raw: GraphNode): InspectList[] {
+  const byModule = new Map<number, PageFilter[]>();
+  for (const use of raw.pageFilters ?? []) {
+    for (const id of use.modules ?? []) {
+      const uses = byModule.get(id);
+      if (uses) uses.push(use); else byModule.set(id, [use]);
+    }
+  }
+  const links: InspectLink[] = [];
+  for (const [id, uses] of byModule) {
+    const module = model.node(id);
+    if (module) links.push(objectLink(model, module, whereCaption(uses)));
+  }
+  return links.length ? [{ key: "filters", title: `Modules it filters on pages · ${formatCount(links.length)}`, open: true, links }] : [];
+}
+
+/** The line items whose page filters filter a module, as links, each with where it filters the module: what the map's
+ * page filter links into it say, whether they are drawn or not. Nothing for a module no page filter names. */
+function filteredBy(model: MapModel, module: GraphNode): InspectList[] {
+  const filters = model.filtersOf(module.id);
+  if (!filters.length) return [];
+  return [{ key: "filteredBy", title: `Filtered on pages by · ${formatCount(filters.length)}`, open: true, links: filters.map(({ item, uses }) => objectLink(model, item, whereCaption(uses))) }];
 }
 
 const KIND_NAMES: Record<GraphNode["kind"], string> = { list: "LIST", subset: "LIST SUBSET", property: "LIST PROPERTY", module: "MODULE", lineItem: "LINE ITEM", process: "PROCESS", action: "ACTION" };
@@ -102,11 +146,12 @@ function summaryOf(node: GraphNode): string | undefined {
 }
 
 /** What an object reads (`upstream`) or what reads it, one entry for each object, with the access it gives where the
- * link is one of who may read or write. */
+ * link is one of who may read or write. The links of the pages' filters are no reading: the details list them on their
+ * own (`filtersModules`, `filteredBy`). */
 function related(model: MapModel, id: number, upstream: boolean, access: boolean): InspectLink[] {
   const found = new Map<number, Set<string>>();
   for (const edge of upstream ? model.incoming(id) : model.outgoing(id)) {
-    if (!access && isAccess(edge[2])) continue;
+    if ((!access && isAccess(edge[2])) || isFilter(edge[2])) continue;
     const other = edge[upstream ? 0 : 1];
     let kinds = found.get(other);
     if (!kinds) found.set(other, kinds = new Set());
@@ -170,6 +215,7 @@ function inspectModule(model: MapModel, graph: ViewGraph, node: ViewNode, raw: G
     lists.push({ key: "referenced", title: `Its line items linked here · ${formatCount(members.length)}`, open: true, links: members.map(member => objectLink(model, member)) });
   }
   lists.push(...linkLists(graph.in[node.index].map(index => nodeLink(graph.nodes[index])), graph.out[node.index].map(index => nodeLink(graph.nodes[index]))));
+  lists.push(...filteredBy(model, raw));
   if (owned.length) lists.push({ key: "items", title: `All its line items · ${formatCount(owned.length)}`, open: false, links: owned.map(item => objectLink(model, item)) });
   const actions = model.actionsOf(raw.id);
   return {
@@ -208,7 +254,7 @@ function inspectObject(model: MapModel, node: ViewNode, raw: GraphNode, access: 
     // A line item of another module can be gone to in its own module. One of the module on screen is already there.
     ...(module && node.external ? { action: { label: "Open its module with it selected", module: module.id, select: raw.id } } : {}),
     ...(formula !== undefined ? { formula } : raw.kind === "lineItem" ? { remark: isHeading(raw) ? "No formula. Its format is No Data: a heading among the line items." : "No formula." } : {}),
-    lists: linkLists(related(model, raw.id, true, access), related(model, raw.id, false, access)), texts: pageFiltersText(raw),
+    lists: [...linkLists(related(model, raw.id, true, access), related(model, raw.id, false, access)), ...filtersModules(model, raw)], texts: pageFiltersText(model, raw),
   };
 }
 

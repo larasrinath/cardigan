@@ -94,11 +94,13 @@ type LineItemColumn = (typeof LINE_ITEMS)["columns"][number][0];
 const PROCESSES = { file: PROCESSES_FILE, objects: "processes", columns: [["Notes"]] } as const satisfies Reads<string>;
 
 /** The filters on the pages built on the model, which a model's run reads from those pages (model-pages.ts): no settings
- * grid of the model, and nothing the map draws. A line item's details list those that have it as their condition. Each
- * column is read by its name: the file's order is the results page's. */
+ * grid of the model. A line item's details list those that have it as their condition, and the map draws a link from
+ * the line item to each module it filters where asked to (`page_filter`). Each column is read by its name: the file's
+ * order is the results page's. */
 const PAGE_FILTERS = {
   file: PAGE_FILTERS_FILE, objects: "page filters", rowNames: false,
-  columns: [["App", null], ["Page", null], ["Card #", null], ["Condition line item", null], ["Condition line item's module", null]],
+  columns: [["App", null], ["Page", null], ["Card #", null], ["Condition line item", null], ["Condition line item's module", null],
+    ["Filtered module", null], ["Filtered dimension", null]],
 } as const satisfies Reads<string>;
 
 /** The Modules file read for what it says of each module beyond Line Items: its Functional Area, Anaplan's own grouping
@@ -839,17 +841,47 @@ const targetInAction = (listOfId: ReadonlyMap<string, number>): TargetOf => (dra
 const sharedNames = (amount: number): string =>
   `${count(amount, "name fits both a line item and a list property of the same name, and is", "names fit both a line item and a list property of the same name, and are")} taken for the line item.`;
 
+/** The map's module of a name: as written or, where no module has that, without the spaces at its ends on either side,
+ * where one module alone has it. A name the Line Items file wrote with a space at an end is found from a row of another
+ * table without it, and the other way round. */
+function moduleNamer(draft: Draft): (name: string) => number | undefined {
+  const trimmed = new Map<string, number | undefined>();
+  for (const [name, id] of draft.modules) {
+    const key = name.trim();
+    trimmed.set(key, trimmed.has(key) ? undefined : id);
+  }
+  return name => draft.modules.get(name) ?? trimmed.get(name.trim());
+}
+
+/** How the report joins the modules of a filter that filters sections of more than one module (report.ts). */
+const MODULES_JOINED = "; ";
+
 /** Each line item's page filters: the rows of Page Filters that have it as their condition, found by the names of its
- * module and its own, as written or, where nothing is, without the spaces at their ends. A row whose line item the map
- * does not have says nothing, and neither does an export without the file. */
-function readPageFilters(draft: Draft, tables: readonly ResultTable[]): void {
+ * module and its own, as written or, where nothing is, without the spaces at their ends, each with the modules of the map
+ * it filters and the dimension it filters by. The line item is linked to each of those modules but its own
+ * (`page_filter`), once however many cards it filters there: a link from a line item to its own module is no link
+ * between two modules, and the details say it all the same. A row whose line item the map does not have says nothing,
+ * and neither does an export without the file. Gives back whether the export has the file. */
+function readPageFilters(draft: Draft, tables: readonly ResultTable[]): boolean {
   const table = tableOf(tables, PAGE_FILTERS);
+  const moduleNamed = moduleNamer(draft);
   for (const row of table?.rows ?? []) {
     const [module, lineItem] = [table!.cell(row, "Condition line item's module"), table!.cell(row, "Condition line item")];
     const id = draft.items.get(module)?.get(lineItem) ?? draft.items.get(module.trim())?.get(lineItem.trim());
     if (id === undefined) continue;
-    (draft.nodes[id].pageFilters ??= []).push({ app: table!.cell(row, "App"), page: table!.cell(row, "Page"), card: table!.cell(row, "Card #") });
+    const modules: number[] = [];
+    for (const name of table!.cell(row, "Filtered module").split(MODULES_JOINED)) {
+      const filtered = nothing(name) ? undefined : moduleNamed(name);
+      if (filtered !== undefined && !modules.includes(filtered)) modules.push(filtered);
+    }
+    const dimension = table!.cell(row, "Filtered dimension").trim();
+    (draft.nodes[id].pageFilters ??= []).push({
+      app: table!.cell(row, "App"), page: table!.cell(row, "Page"), card: table!.cell(row, "Card #"),
+      ...(modules.length ? { modules } : {}), ...(nothing(dimension) ? {} : { dimension }),
+    });
+    for (const filtered of modules) if (filtered !== draft.nodes[id].module) draft.link(id, filtered, "page_filter");
   }
+  return table !== undefined;
 }
 
 /** What the Modules file and the Module Usage table say of each module of the map, found by its name as written or,
@@ -858,14 +890,7 @@ function readPageFilters(draft: Draft, tables: readonly ResultTable[]): void {
  * cell that holds nothing or a dash. Gives back which of the two the result has, and, where Modules has the Functional
  * Area column, how its rows met the map's modules (`AreaCheck`). */
 function readModuleFacts(draft: Draft, tables: readonly ResultTable[]): NonNullable<ModelGraph["moduleFacts"]> & { areaCheck?: AreaCheck } {
-  // The map's modules by their names without the spaces at their ends, where no two share one: a name the Line Items
-  // file wrote with a space at an end is found from a Modules row without it, and the other way round.
-  const trimmed = new Map<string, number | undefined>();
-  for (const [name, id] of draft.modules) {
-    const key = name.trim();
-    trimmed.set(key, trimmed.has(key) ? undefined : id);
-  }
-  const moduleNamed = (name: string): number | undefined => draft.modules.get(name) ?? trimmed.get(name.trim());
+  const moduleNamed = moduleNamer(draft);
   const modules = tableOf(tables, MODULES);
   const inFile = new Set<number>();
   const rowsNotOnMap: string[] = [];
@@ -933,7 +958,7 @@ function build(tables: readonly ResultTable[]): { graph: ModelGraph; draft: Draf
   // Many of the other actions work on no list: one that names none is as it should be.
   const otherActions = readActions(draft, tables, OTHER_ACTIONS, processes.known, { target: targetInAction(ids.listOfId) });
   const actions = [imports, exportActions, otherActions];
-  readPageFilters(draft, tables);
+  const pageFilterTable = readPageFilters(draft, tables);
   const { areaCheck, ...moduleFacts } = readModuleFacts(draft, tables);
   const shared = draft.sharedWithProperty.size;
   const graph: ModelGraph = {
@@ -954,6 +979,7 @@ function build(tables: readonly ResultTable[]): { graph: ModelGraph; draft: Draf
       ...(imports.sources ? [IMPORT_SOURCES] : []),
     ],
     ...(moduleFacts.functionalAreas || moduleFacts.moduleUsage ? { moduleFacts } : {}),
+    ...(pageFilterTable ? { pageFilterTable } : {}),
     ...(areaCheck ? { areaCheck } : {}),
   };
   return { graph, draft, lineItems };

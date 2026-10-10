@@ -1,5 +1,5 @@
 import type { ViewGraph } from "./map-graphs.js";
-import { isAccess, type MapModel } from "./map-model.js";
+import { isAccess, isFilter, type MapModel } from "./map-model.js";
 
 /** What feeds a node and what it feeds, in the graph on screen.
  *
@@ -36,13 +36,14 @@ function reach(start: number, neighbours: readonly (readonly number[])[]): Set<n
   return seen;
 }
 
-/** Every object of the model reached from the seeds against the links (`upstream`) or along them, without the seeds. */
-function reachInModel(model: MapModel, seeds: readonly number[], upstream: boolean, access: boolean): Set<number> {
+/** Every object of the model reached from the seeds against the links (`upstream`) or along them, without the seeds. The
+ * links of access drivers and of the pages' filters count only where they are drawn (`access`, `filters`). */
+function reachInModel(model: MapModel, seeds: readonly number[], upstream: boolean, access: boolean, filters: boolean): Set<number> {
   const seen = new Set(seeds);
   const queue = [...seeds];
   for (let index = 0; index < queue.length; index++) {
     for (const edge of upstream ? model.incoming(queue[index]) : model.outgoing(queue[index])) {
-      if (!access && isAccess(edge[2])) continue;
+      if ((!access && isAccess(edge[2])) || (!filters && isFilter(edge[2]))) continue;
       const next = edge[upstream ? 0 : 1];
       if (!seen.has(next)) {
         seen.add(next);
@@ -54,8 +55,9 @@ function reachInModel(model: MapModel, seeds: readonly number[], upstream: boole
   return seen;
 }
 
-/** The trace of the node at `selected`. `access` says whether the links of who may read and write count. */
-export function traceNode(graph: ViewGraph, model: MapModel, selected: number, access: boolean): Trace {
+/** The trace of the node at `selected`. `access` says whether the links of who may read and write count, and `filters`
+ * whether those of the pages' filters do: each only where the map draws them. */
+export function traceNode(graph: ViewGraph, model: MapModel, selected: number, access: boolean, filters = false): Trace {
   const node = graph.nodes[selected];
   const edges = new Uint8Array(graph.edges.length);
   if (graph.kind !== "drill" || !node.raw) {
@@ -70,8 +72,8 @@ export function traceNode(graph: ViewGraph, model: MapModel, selected: number, a
 
   const seeds = node.kind === "externalModule" ? [...(node.members ?? [])] : [node.raw.id];
   const seedSet = new Set(seeds);
-  const rawUp = reachInModel(model, seeds, true, access);
-  const rawDown = reachInModel(model, seeds, false, access);
+  const rawUp = reachInModel(model, seeds, true, access, filters);
+  const rawDown = reachInModel(model, seeds, false, access, filters);
   const holds = (reached: ReadonlySet<number>): Set<number> => {
     const held = new Set<number>();
     for (const other of graph.nodes) {

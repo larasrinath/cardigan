@@ -11,6 +11,7 @@ import { columnWidths } from "./column-widths.js";
 import { cardsNamed, cardsOf, columnIndex, columnsOf, rowKeys, rowNameIndex, writesNone, type CardsTable, type Column, type RowKeys } from "./columns.js";
 import { describeState, openedJustNow, reloadTab, renewReader, repairTab, ResultsClient, runLabel, tabIdFrom, withoutOpened, type RunState } from "./connection.js";
 import { mappingOfRow } from "./import-mapping-view.js";
+import { itemRows, type NamedRows } from "./item-links.js";
 import { processOfRow, type StepView } from "./process-actions-view.js";
 import { analysedLine, notKeptNote } from "./keep-notes.js";
 import { ResultKeeper } from "./keep-result.js";
@@ -1113,9 +1114,51 @@ function openRowDrawer(entry: Shown, row: Row, opener: Element): void {
   // A process's row lists the actions it runs: each opens its own row, where its table has one row of its name.
   const process = processOfRow(result, entry.table, row);
   drawerSteps = process ? process.steps.map(stepRow) : [];
+  const items = rowItems(entry.lists, row);
   openDrawer(name, rowDrawerSubHtml(position, cellText(entry.table.label)),
-    rowDrawerHtml(entry.columns, row, entry.links, entry.exported?.get(row), rowItems(entry.lists, row), entry.readUnder, mappingOfRow(result, entry.table, row),
-      process && { view: process, opens: drawerSteps.map(Boolean) }, { mode: timeMode, zone: ownZone }), opener);
+    rowDrawerHtml(entry.columns, row, entry.links, entry.exported?.get(row), items, entry.readUnder, mappingOfRow(result, entry.table, row),
+      process && { view: process, opens: drawerSteps.map(Boolean) }, { mode: timeMode, zone: ownZone }, itemOpens(entry, row, items)), opener);
+}
+/** Shows the rest of a long list in the details, the items after its first ones, or hides them again: `control` is the
+ * button under them (markup.ts `itemsHtml`), which says which it will do. Hidden, they stay where the browser's find in
+ * page reaches them (`until-found`); a match there shows them, and the button follows (`beforematch`). */
+function showRest(control: Element, show: boolean): void {
+  // The list's value holds the one list: its rest and its button stand side by side in it.
+  const rest = control.parentElement?.querySelector(".cell-rest");
+  if (!rest) return;
+  if (show) rest.removeAttribute("hidden");
+  else rest.setAttribute("hidden", "until-found");
+  control.setAttribute("aria-expanded", String(show));
+  control.textContent = show ? "Show fewer" : `Show all ${control.getAttribute("data-all") ?? ""}`;
+}
+document.addEventListener("beforematch", event => {
+  const rest = event.target instanceof Element ? event.target.closest(".cell-rest") : null;
+  const control = rest?.parentElement?.querySelector(".cell-more");
+  if (control) showRest(control, true);
+}, true);
+/** The rows the listed items of a row name (item-links.ts), each kept in `drawerItems` and named in its link by its place
+ * there: by the column's place, and in it the item's. A model's tables only: an app's items name no row. */
+function itemOpens(entry: Shown, row: Row, items: ReadonlyMap<number, readonly string[]>): ReadonlyMap<number, readonly (number | undefined)[]> {
+  drawerItems = [];
+  const opens = new Map<number, (number | undefined)[]>();
+  if (result?.kind !== "model" || !items.size) return opens;
+  const byFile = new Map<string, Shown>();
+  const tables = new Map<string, NamedRows>();
+  for (const candidate of shown.values()) {
+    if (byFile.has(candidate.table.file)) continue;
+    byFile.set(candidate.table.file, candidate);
+    const module = columnIndex(candidate.table, MODULE_NAME);
+    tables.set(candidate.table.file, { table: candidate.table, name: candidate.opensFrom ?? rowNameIndex(candidate.table) ?? 0, ...(module === undefined ? {} : { module }) });
+  }
+  for (const [index, list] of items) {
+    opens.set(index, itemRows(entry.table, cellText(entry.table.headers[index]), list, row, tables).map(found => {
+      const to = found && byFile.get(found.file);
+      if (!found || !to) return undefined;
+      drawerItems.push({ entry: to, row: found.row });
+      return drawerItems.length - 1;
+    }));
+  }
+  return opens;
 }
 /** The row of an action a process runs: the one row of its name in the table of its kind, as the page shows that table.
  * None where the result has no such table, or where none of its rows, or more than one, has the name: which is meant is
@@ -1228,6 +1271,9 @@ let drawerOpens: readonly Open[] = [];
 /** For a process's row in the details, the row of each action it runs, by the action's place among them, where the page
  * has one: what a click on the action's name opens. */
 let drawerSteps: readonly ({ entry: Shown; row: Row } | undefined)[] = [];
+/** For the row the details show, the row each listed item names, where the page can open it (item-links.ts), by the
+ * number its link carries: what a click on the item opens. */
+let drawerItems: { entry: Shown; row: Row }[] = [];
 
 /** Where the model on the page is in Anaplan, its site and its customer: as its result says them, or, for a result an
  * earlier version kept, as the tab says them of the model it shows in Model Building. None for the classic model page
@@ -1842,6 +1888,16 @@ document.addEventListener("click", event => {
         if (to) openRowDrawer(to.entry, to.row, act);
         return;
       }
+      // An item of a list in the details that names a row the page has: that row's details.
+      case "item": {
+        const to = drawerItems[Number(act.dataset.item)];
+        if (to) openRowDrawer(to.entry, to.row, act);
+        return;
+      }
+      // A long list in the details: the rest of its items, shown in place, or hidden again.
+      case "more":
+        showRest(act, act.getAttribute("aria-expanded") !== "true");
+        return;
       // A use of the object in the drawer, by its place among the object's uses: its page's cards, or its card.
       case "use-page":
       case "use-card": {

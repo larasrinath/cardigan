@@ -1,4 +1,4 @@
-import type { EdgeKind, GraphEdge, GraphNode, ModelGraph, Unresolved } from "./graph-types.js";
+import type { EdgeKind, GraphEdge, GraphNode, ModelGraph, PageFilter, Unresolved } from "./graph-types.js";
 import type { TextMeasure } from "./map-text.js";
 
 /** Graphs made by hand for the map's tests, as build-graph.ts gives them: every node's id is its place, and the links
@@ -134,3 +134,21 @@ export class FakePen {
 }
 
 const isColour = (value: unknown): value is string => typeof value === "string" && /^(#[0-9a-f]{3,8}|rgba?\([^)]*\)|color\([^)]*\))$/i.test(value.trim());
+
+/** A model whose filter line item, Show?, is the condition of filters on the pages built on it: on two cards of REV01 -
+ * Revenue, the second of them also filtering MAR01 - Margin, each by Products. Revenue's formula also reads Show?; nothing
+ * reads Margin. Each module is in a section of its own. Without `filters` it is the same model with no page filters at
+ * all. Tests only. */
+export function filteredModel(filters = true) {
+  const make = new GraphMaker();
+  const flt = make.module("FLT01 - Filters", "01: Inputs");
+  const rev = make.module("REV01 - Revenue", "02: Calculations");
+  const mar = make.module("MAR01 - Margin", "03: Reporting");
+  const use = (card: string, ...modules: number[]): PageFilter => ({ app: "Planning", page: "Demand", card, modules, dimension: "Products" });
+  const show = make.item(flt, "Show?", { format: "BOOLEAN", ...(filters ? { pageFilters: [use("3", rev), use("4", rev, mar)] } : {}) });
+  const revenue = make.item(rev, "Revenue", { formula: "Show? * 2" });
+  const margin = make.item(mar, "Margin");
+  make.link(show, revenue);
+  if (filters) make.link(show, rev, "page_filter").link(show, mar, "page_filter");
+  return { graph: make.graph(), flt, rev, mar, show, revenue, margin };
+}

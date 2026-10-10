@@ -27,6 +27,16 @@ export const LIST_CAP = 100;
 
 /** What access drivers are, said where they are switched, in a modeller's words. */
 export const ACCESS_SAYS = "Read and Write Access Drivers are line items that decide which cells of a module or line item someone can see or edit (Anaplan's dynamic cell access). Tick to draw an arrow from each driver to what it controls.";
+/** What page filters are, said where their links are switched, in the same words. */
+export const FILTERS_SAY = "Boolean line items used as filters on the pages built on the model. Tick to draw an arrow from each filter line item to the module it filters.";
+/** Why the links of page filters cannot be drawn, said in the switch's place, which is then off and not to be ticked:
+ * the result has no Page Filters table, or none of its filters has a line item of the model as its condition. */
+export const FILTERS_NONE = {
+  table: "This result has no Page Filters table, so the map has no page filter links. Run the model again to read the pages built on it.",
+  links: "None of the filters on the pages built on this model has one of its line items as its condition, so the map has no page filter links.",
+} as const;
+/** What a page filter's link looks like and means, said in the legend while those links are drawn. */
+export const FILTER_LINK_SAYS = "Dashed: a page filter, from its line item to the module it filters.";
 /** What the links of formulas are, said beside the switch of the others: they are always drawn. */
 export const FORMULAS_SAY = "Always drawn. An arrow from A to B: B reads A.";
 /** What a line on the map means. */
@@ -36,7 +46,7 @@ export const LINK_SAYS = "An arrow from A to B: B reads A.";
 export const BESIDE_SAYS = "Among a module's line items, a box that stands for another module can carry a sign without a coloured link: it feeds the line item selected, or is fed by it, by way of line items that are not on this map.";
 
 /** The names the view gives the elements that others point at. */
-export interface ShellIds { results: string; hints: string; legend: string; about: string; access: string; links: string; picker: string }
+export interface ShellIds { results: string; hints: string; legend: string; about: string; access: string; filters: string; links: string; picker: string }
 
 /** The chevron of a select, which draws its own (map.css `.map-select-wrap`): the one the results page's menus have. */
 /** What stands between two parts of the map's path: a chevron pointing on, drawn as the bar's other chevrons are. */
@@ -44,6 +54,8 @@ const PATH_CHEVRON = '<svg class="map-sep-chevron" width="10" height="10" viewBo
 const SELECT_CHEVRON = '<svg class="map-select-chevron" width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg>';
 /** The same chevron after a button's words, as a menu's button has it. */
 const BUTTON_CHEVRON = '<svg class="map-btn-chevron" width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg>';
+/** The mark beside the links that are always drawn: a drawn tick. */
+const TICK = '<svg class="map-links-tick" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5l3.2 3L13 4.5"/></svg>';
 /** The full screen button's two faces: four corners going out, to fill the screen, and coming in, to leave it. */
 const FULL_ICON = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10"/></svg>';
 const LEAVE_FULL_ICON = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2.5V6H2.5M13.5 6H10V2.5M10 13.5V10h3.5M2.5 10H6v3.5"/></svg>';
@@ -100,10 +112,12 @@ export function shellHtml(ids: ShellIds, modelName: string): string {
         <button type="button" class="map-btn map-links-btn" data-map-act="links" aria-expanded="false" aria-controls="${esc(ids.links)}">Links${BUTTON_CHEVRON}</button>
         <div class="map-panel map-links-pop" id="${esc(ids.links)}" role="group" aria-label="Links on the map" hidden>
           <h3 class="map-about-title">Links on the map</h3>
-          <div class="map-links-row"><span class="map-links-tick" aria-hidden="true">✓</span><span><b>Formulas</b></span></div>
+          <div class="map-links-row">${TICK}<span><b>Formulas</b></span></div>
           <p class="map-links-note">${esc(FORMULAS_SAY)}</p>
           <label class="map-check map-links-row"><input type="checkbox" class="map-access" aria-describedby="${esc(ids.access)}"><b>Access drivers</b></label>
           <p class="map-links-note" id="${esc(ids.access)}">${esc(ACCESS_SAYS)}</p>
+          <label class="map-check map-links-row map-filters-row"><input type="checkbox" class="map-filters" aria-describedby="${esc(ids.filters)}"><b>Page filters</b></label>
+          <p class="map-links-note map-filters-note" id="${esc(ids.filters)}">${esc(FILTERS_SAY)}</p>
         </div>
       </div>
       <div class="map-searchwrap">
@@ -189,13 +203,14 @@ export function pathRootHtml(model: string, workspace: string | undefined, whole
 }
 
 /** The legend: each layer of the graph on screen with its colour and its number, as a button that hides the layer and
- * shows it again, and under them what a line means. A hidden layer says so in more than its colour: its name is
+ * shows it again, and under them what a line means: while the links of page filters are drawn (`filters`), what theirs
+ * means too, beside a piece of the line they are drawn in. A hidden layer says so in more than its colour: its name is
  * struck through, and the button is not pressed. */
-export function legendHtml(title: string, layers: readonly ViewLayer[], hidden: ReadonlySet<string>): string {
+export function legendHtml(title: string, layers: readonly ViewLayer[], hidden: ReadonlySet<string>, filters = false): string {
   return `<div class="map-legend-title">${esc(title)}</div>${layers.map(layer => {
     const off = hidden.has(layer.key);
     return `<button type="button" class="map-legend-item${off ? " map-off" : ""}" data-map-act="layer" data-map-layer="${esc(layer.key)}" aria-pressed="${off ? "false" : "true"}">${dot(layer.key)}<span class="map-legend-name">${esc(layer.label)}</span><span class="map-legend-count">${esc(formatCount(layer.count))}</span></button>`;
-  }).join("")}<p class="map-legend-note">${esc(LINK_SAYS)}</p>`;
+  }).join("")}<p class="map-legend-note">${esc(LINK_SAYS)}</p>${filters ? `<p class="map-legend-note map-legend-filter"><span class="map-line-filter" aria-hidden="true"></span>${esc(FILTER_LINK_SAYS)}</p>` : ""}`;
 }
 
 /** What the first button of the trace's bar does, in full: its face is short, for the bar to keep to one row. */

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { moduleGraph, modulesGraph, sectionsGraph, type ViewGraph } from "./map-graphs.js";
 import { indexModel } from "./map-model.js";
 import { inTrace, traceNode } from "./map-trace.js";
-import { GraphMaker } from "./map-fakes.test-support.js";
+import { filteredModel, GraphMaker } from "./map-fakes.test-support.js";
 
 const names = (graph: ViewGraph, places: ReadonlySet<number>): string[] => [...places].map(place => graph.nodes[place].fullName).sort();
 const place = (graph: ViewGraph, name: string): number => graph.nodes.findIndex(node => node.fullName === name);
@@ -164,5 +164,22 @@ describe("The trace of a line item in its module's graph", () => {
     expect(names(graph, trace.up)).toEqual(["Total"]);
     expect(trace.down.size).toBe(0);
     expect(marked(graph, trace.edges)).toEqual(["Total > Running Total: 1"]);
+  });
+});
+
+describe("The trace of the pages' filters", () => {
+  it("follows a page filter's link only while those links are drawn", () => {
+    const { graph, flt } = filteredModel();
+    const model = indexModel(graph);
+    const names = (view: ViewGraph, places: ReadonlySet<number>): string[] => [...places].map(place => view.nodes[place].fullName).sort();
+    const at = (view: ViewGraph, name: string): number => view.nodes.findIndex(node => node.fullName === name);
+    const plain = modulesGraph(model, undefined, false);
+    const drawn = modulesGraph(model, undefined, false, true);
+    expect(names(plain, traceNode(plain, model, at(plain, "FLT01 - Filters"), false).down)).toEqual(["REV01 - Revenue"]);
+    expect(names(drawn, traceNode(drawn, model, at(drawn, "FLT01 - Filters"), false, true).down)).toEqual(["MAR01 - Margin", "REV01 - Revenue"]);
+    // Among the filter's module's line items: the box of Revenue's module for its formula, and each module it filters.
+    const own = moduleGraph(model, flt, false, false, true);
+    expect(names(own, traceNode(own, model, at(own, "Show?"), false, true).down)).toEqual(["MAR01 - Margin", "REV01 - Revenue", "REV01 - Revenue"]);
+    expect(names(own, traceNode(own, model, at(own, "Show?"), false).down)).toEqual(["REV01 - Revenue"]);
   });
 });

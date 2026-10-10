@@ -3,7 +3,8 @@ import { parseMarkup } from "../results/dom.test-support.js";
 import { decode, readMarkup, shownValues, structure } from "../results/markup.test-support.js";
 import type { InspectLink, Inspection, TraceWords } from "./map-inspect.js";
 import {
-  ACCESS_SAYS, BESIDE_SAYS, brokenHtml, emptyHtml, esc, FORMULAS_SAY, FULL_SAYS, fullIconHtml, groupingOptionsHtml, groupOptionsHtml, inspectorHtml, legendHtml, LINK_SAYS, LIST_CAP, listHtml, notesHtml,
+  ACCESS_SAYS, BESIDE_SAYS, brokenHtml, emptyHtml, esc, FILTER_LINK_SAYS, FILTERS_NONE, FILTERS_SAY, FORMULAS_SAY, FULL_SAYS, fullIconHtml, groupingOptionsHtml, groupOptionsHtml, inspectorHtml,
+  legendHtml, LINK_SAYS, LIST_CAP, listHtml, notesHtml,
   pathRootHtml, pickerOptionsHtml, resultsHtml, shellHtml, SHOW_GROUPS, SHOW_MODULES, showOptionsHtml, TIP_FORMULA, tooltipHtml, tracebarHtml, type ShellIds,
 } from "./map-markup.js";
 import { HOSTILE } from "./map-fakes.test-support.js";
@@ -43,7 +44,7 @@ const tagNames = (html: string): string[] => [...new Set(readMarkup(html).tags.m
 const attributeNames = (html: string): string[] => [...new Set(readMarkup(html).tags.flatMap(tag => [...tag.attributes.keys()]))].sort();
 const classes = (html: string): string[] => [...new Set(readMarkup(html).tags.flatMap(tag => (tag.attributes.get("class") ?? "").split(/\s+/).filter(name => name !== "")))];
 
-const IDS: ShellIds = { results: "map-results-1", hints: "map-hints-1", legend: "map-legend-1", about: "map-about-1", access: "map-access-1", links: "map-links-1", picker: "map-picker-1" };
+const IDS: ShellIds = { results: "map-results-1", hints: "map-hints-1", legend: "map-legend-1", about: "map-about-1", access: "map-access-1", filters: "map-filters-1", links: "map-links-1", picker: "map-picker-1" };
 const size = (text: Texts, from = 0) => ({ name: text(from), workspace: text(from + 1), modules: 250, lineItems: 5000 });
 const words = (text: Texts, from = 0): TraceWords => ({ feeds: text(from), fed: text(from + 1), sentence: "" });
 const TRACED: TraceWords = { feeds: "1,200 boxes feed it", fed: "it feeds 1 box", sentence: "Line item Gross selected." };
@@ -190,7 +191,7 @@ describe("The map's own markup", () => {
   it("makes every control a real button, list or box with a name", () => {
     const shell = parseMarkup(shellHtml(IDS, "Demand Plan"));
     const controls = shell.querySelectorAll("button, select, input");
-    expect(controls.map(control => control.localName).sort()).toEqual([...Array.from({ length: 10 }, () => "button"), "input", "input", "input", "input", "select", "select", "select"]);
+    expect(controls.map(control => control.localName).sort()).toEqual([...Array.from({ length: 10 }, () => "button"), "input", "input", "input", "input", "input", "select", "select", "select"]);
     const names: string[] = [];
     for (const control of controls) {
       const label = control.closest("label");
@@ -201,7 +202,7 @@ describe("The map's own markup", () => {
     }
     // In the bar's order: where the map is, how it is built, and its tools. Each list and box is named as its label reads.
     expect(names).toEqual([
-      "Modules", "Line items", "Show", "Group", "Module", "Group by", "Other modules' line items", "Links", "Access drivers", "Search all sections, modules and line items", FULL_SAYS.enter,
+      "Modules", "Line items", "Show", "Group", "Module", "Group by", "Other modules' line items", "Links", "Access drivers", "Page filters", "Search all sections, modules and line items", FULL_SAYS.enter,
       "Whole map", "Legend", "About this map", "Zoom out", "Zoom in", "Fit",
     ]);
     expect(shell.querySelector(".map-grouping-field")?.textContent).toBe("Group by");
@@ -211,20 +212,28 @@ describe("The map's own markup", () => {
     expect(shell.querySelectorAll("[data-map-act]").filter(element => element.localName !== "button")).toEqual([]);
   });
 
-  it("says which links the map draws in a panel behind the Links button: formulas always, and access drivers where ticked, each in words", () => {
+  it("says which links the map draws in a panel behind the Links button: formulas always, access drivers and page filters where ticked, each in words", () => {
     const shell = parseMarkup(shellHtml(IDS, "Demand Plan"));
     const button = shell.querySelector('[data-map-act="links"]')!;
     const panel = shell.querySelector(".map-links-pop")!;
     expect([button.textContent, button.getAttribute("aria-expanded"), button.getAttribute("aria-controls"), panel.id, panel.hidden, panel.getAttribute("aria-label")])
       .toEqual(["Links", "false", "map-links-1", "map-links-1", true, "Links on the map"]);
-    // Formulas are always drawn, and said so: no box switches them.
-    expect(panel.querySelectorAll(".map-links-note").map(note => note.textContent)).toEqual([FORMULAS_SAY, ACCESS_SAYS]);
+    // Formulas are always drawn, and said so: no box switches them. Their mark is a drawn tick, no glyph.
+    expect(panel.querySelectorAll(".map-links-note").map(note => note.textContent)).toEqual([FORMULAS_SAY, ACCESS_SAYS, FILTERS_SAY]);
     expect(FORMULAS_SAY).toBe(`Always drawn. ${LINK_SAYS}`);
+    expect([panel.querySelector(".map-links-tick")?.localName, panel.querySelector(".map-links-tick")?.getAttribute("aria-hidden"), panel.textContent.includes("✓")]).toEqual(["svg", "true", false]);
     // Access drivers are a box, which a screen reader hears described by what they are.
     const box = panel.querySelector(".map-access")!;
     expect([box.getAttribute("type"), box.getAttribute("aria-describedby"), box.closest("label")?.textContent]).toEqual(["checkbox", "map-access-1", "Access drivers"]);
     expect(shell.querySelector("#map-access-1")?.textContent).toBe(ACCESS_SAYS);
     expect(ACCESS_SAYS).toBe("Read and Write Access Drivers are line items that decide which cells of a module or line item someone can see or edit (Anaplan's dynamic cell access). Tick to draw an arrow from each driver to what it controls.");
+    // Page filters are a box after them, described the same way. The view turns the note into why there are none where
+    // the model has none to draw.
+    const filters = panel.querySelector(".map-filters")!;
+    expect([filters.getAttribute("type"), filters.getAttribute("aria-describedby"), filters.closest("label")?.textContent]).toEqual(["checkbox", "map-filters-1", "Page filters"]);
+    expect(shell.querySelector("#map-filters-1")?.textContent).toBe(FILTERS_SAY);
+    expect(FILTERS_SAY).toBe("Boolean line items used as filters on the pages built on the model. Tick to draw an arrow from each filter line item to the module it filters.");
+    expect(Object.keys(FILTERS_NONE)).toEqual(["table", "links"]);
   });
 
   it("gives full screen a button at the end of the bar that says what it does, and a face for each way", () => {
@@ -382,6 +391,12 @@ describe("The map's panels", () => {
     // A colour is a class of the stylesheet's: the tenth section has the second colour, in stripes.
     expect(legend.querySelectorAll(".map-dot").map(dot => dot.getAttribute("class"))).toEqual(["map-dot map-c-lineitem", "map-dot map-c-external", "map-dot map-c-s2 map-c-striped"]);
     expect([legend.querySelector(".map-legend-note")?.localName, legend.querySelector(".map-legend-note")?.textContent]).toEqual(["p", LINK_SAYS]);
+    // Page filters' links are said only while some are drawn, beside a piece of their dashed line.
+    expect(legend.querySelector(".map-legend-filter")).toBeNull();
+    const drawn = parseMarkup(`<div>${legendHtml("On this map", [{ key: "lineitem", label: "Line items", count: 3 }], new Set(), true)}</div>`);
+    const filter = drawn.querySelector(".map-legend-filter");
+    expect([filter?.textContent, filter?.querySelector(".map-line-filter")?.getAttribute("aria-hidden")]).toEqual([FILTER_LINK_SAYS, "true"]);
+    expect(FILTER_LINK_SAYS).toBe("Dashed: a page filter, from its line item to the module it filters.");
   });
 
   it("says what is traced as the picture runs: what feeds the node, the node, what it feeds, each side with its sign", () => {

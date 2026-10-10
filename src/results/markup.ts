@@ -845,8 +845,26 @@ export function colChooserHtml(columns: readonly Column[], hidden: ReadonlySet<n
 /** A value that lists several items, as the drawer shows it: one item to a line, in the order the cell has them. Each item
  * stands in a `cell-t`, as a value of the drawer does, and the list holds nothing else: no separator of the cell's and no
  * space of the markup's own. */
-/** Items one to a line; the items of a column of colour stops each with the square of its colour (`coloursHtml`). */
-const itemsHtml = (items: Items, colours = false): string => `<ul class="cell-list">${items.map(item => `<li><span class="cell-t">${colours ? coloursHtml(item) : esc(item)}</span></li>`).join("")}</ul>`;
+/** How many items a long list shows before the rest, and how long a list is shown whole: a list of up to `LIST_WHOLE`
+ * items shows them all, a longer one its first `LIST_SHOWN` with a control that shows the rest in place. */
+export const LIST_SHOWN = 12;
+export const LIST_WHOLE = 15;
+
+/** Items one to a line; the items of a column of colour stops each with the square of its colour (`coloursHtml`). An item
+ * that names a row the page can open is a link to that row's details: `opens` has, by the item's place, the number the
+ * page knows that row by (item-links.ts). A long list shows its first items, and the rest stand hidden after them, in a
+ * second list the browser's find in page still searches (`until-found`), until the control under them shows them. */
+const itemsHtml = (items: Items, colours = false, opens?: readonly (number | undefined)[]): string => {
+  const item = (text: string, at: number): string => {
+    const open = opens?.[at];
+    const words = open === undefined ? (colours ? coloursHtml(text) : esc(text)) : `<button type="button" class="link" data-act="item" data-item="${open}">${esc(text)}</button>`;
+    return `<li><span class="cell-t">${words}</span></li>`;
+  };
+  if (items.length <= LIST_WHOLE) return `<ul class="cell-list">${items.map(item).join("")}</ul>`;
+  const rest = items.slice(LIST_SHOWN).map((text, at) => item(text, at + LIST_SHOWN)).join("");
+  return `<ul class="cell-list">${items.slice(0, LIST_SHOWN).map(item).join("")}</ul><div class="cell-rest" hidden="until-found"><ul class="cell-list">${rest}</ul></div>`
+    + `<button type="button" class="link cell-more" data-act="more" data-all="${items.length}" aria-expanded="false">Show all ${items.length}</button>`;
+};
 
 /** A row whole: every one of its cells, also those beyond the table's headers, each with its value in full. Nothing but
  * the value stands in a `dd`, so no space of the markup's own is kept with it. `exported` has, for each cell the table
@@ -857,7 +875,7 @@ const itemsHtml = (items: Items, colours = false): string => `<ul class="cell-li
  * items, by the column's place: the cell is listed one item to a line. Only a column of plain text or of colour stops is
  * listed so, the colour stops each with its square: an ID, a tag and a link stay what they are. */
 const allColumns = (columns: readonly Column[], row: Row, links: Links, exported?: ReadonlyMap<number, unknown>, items?: ReadonlyMap<number, Items>,
-  readUnder?: ReadonlyMap<number, string>, times?: DrawerTimes): string =>
+  readUnder?: ReadonlyMap<number, string>, times?: DrawerTimes, opens?: ReadonlyMap<number, readonly (number | undefined)[]>): string =>
   `<dl class="d-dl">${rowColumns(columns, row).map(column => {
     // A time is said in both zones, the one the page shows first: the UTC text that was read stands in it.
     const kind = times && timesOf(column.label, times.zone);
@@ -865,7 +883,10 @@ const allColumns = (columns: readonly Column[], row: Row, links: Links, exported
     const both = read === undefined || !times ? undefined : bothTimes(read, times.mode, times.zone);
     if (both !== undefined) return `<dt>${esc(column.label)}</dt><dd><span class="cell-t">${esc(both)}</span></dd>`;
     const listed = column.kind === "text" || column.kind === "colours" ? items?.get(column.index) : undefined;
-    const shown = `<dt>${esc(column.label)}</dt><dd>${listed && listed.length > 1 ? itemsHtml(listed, column.kind === "colours") : cellHtml(column, row, links, true)}</dd>`;
+    // A value that lists several items says how many beside its name, and lists them one to a line.
+    const shown = listed && listed.length > 1
+      ? `<dt>${esc(column.label)} <span class="d-count">(${listed.length})</span></dt><dd>${itemsHtml(listed, column.kind === "colours", opens?.get(column.index))}</dd>`
+      : `<dt>${esc(column.label)}</dt><dd>${cellHtml(column, row, links, true)}</dd>`;
     return exported?.has(column.index)
       ? `${shown}<dt>${esc(readUnder?.get(column.index) ?? column.label)} as read</dt><dd><span class="cell-t">${esc(exported.get(column.index))}</span></dd>` : shown;
   }).join("")}</dl>`;
@@ -903,13 +924,16 @@ export function processActionsHtml(process: ProcessView, opens: readonly boolean
 
 /** One row in full: every column, hidden ones included, with nothing cut short, for each cell that is said in words the
  * text that was read (`exported`), named by the file's column it was read from where that is another (`readUnder`), and
- * for each cell that lists several items those items, one to a line (`items`). A cell of a column of times says its time
+ * for each cell that lists several items those items, one to a line, with how many there are beside the column's name
+ * (`items`); an item that names a row the page can open is a link to that row's details (`itemOpens`, by the column's
+ * place and the item's, item-links.ts). A cell of a column of times says its time
  * in both zones, the one the page shows first (`times`). A row of an import from a file has its mapping after the columns
  * (`mapping`), and a row of a process the actions it runs (`process`). */
 export function rowDrawerHtml(columns: readonly Column[], row: Row, links: Links, exported?: ReadonlyMap<number, unknown>, items?: ReadonlyMap<number, Items>,
-  readUnder?: ReadonlyMap<number, string>, mapping?: MappingView, process?: { view: ProcessView; opens: readonly boolean[] }, times?: DrawerTimes): string {
+  readUnder?: ReadonlyMap<number, string>, mapping?: MappingView, process?: { view: ProcessView; opens: readonly boolean[] }, times?: DrawerTimes,
+  itemOpens?: ReadonlyMap<number, readonly (number | undefined)[]>): string {
   return `<div class="d-sec"><h3>All columns</h3>
-    ${allColumns(columns, row, links, exported, items, readUnder, times)}</div>${mapping ? importMappingHtml(mapping) : ""}${process ? processActionsHtml(process.view, process.opens) : ""}`;
+    ${allColumns(columns, row, links, exported, items, readUnder, times, itemOpens)}</div>${mapping ? importMappingHtml(mapping) : ""}${process ? processActionsHtml(process.view, process.opens) : ""}`;
 }
 
 /** Which zone the page shows times in, and the viewer's own: a row's details say each time in both (times.ts). */
