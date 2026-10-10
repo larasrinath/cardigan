@@ -500,7 +500,6 @@ main:has(> #mapHost:not([hidden])){align-self:stretch;display:flex;flex-directio
 .pr-field > span{flex:none;width:34px}
 .pr-field input{flex:1;min-width:0;height:28px;padding:0 10px;border:1px solid var(--border-strong);border-radius:var(--r-xs);
   background:var(--panel-2);color:var(--text);font:inherit;font-size:12.5px;font-variant-numeric:tabular-nums}
-.pr-field input::placeholder{color:var(--text-3)}
 .pr-field input:focus-visible{outline:none;border-color:var(--ring);box-shadow:0 0 0 2px color-mix(in srgb,var(--ring) 30%,transparent)}
 .pr-field input[aria-invalid="true"]{border-color:var(--danger);box-shadow:0 0 0 2px color-mix(in srgb,var(--danger) 25%,transparent)}
 .pr-blanks{margin:0 6px}
