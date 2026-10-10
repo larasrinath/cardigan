@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { stampLine } from "../details.js";
 import { IMPORTS_ROW_REWORDED, MODEL_ACTIONS_COLUMN_ADDED, MODEL_ACTIONS_ROW_REWORDED, MODEL_COLUMN_ADDED, MODEL_COLUMNS_ADDED, MODEL_FILE_ADDED, MODEL_ROW_ADDED, MODEL_ROW_REWORDED, MODEL_ROWS_FOR_THE_PAGE, MODEL_ZIP_0_6_1, MODEL_ZIP_AS_NAMED, withColumnAdded, withDetailsSince, ZIPPED_AT } from "../golden-0.6.1.test-support.js";
 import { ACCESS_CSV, ACCESS_FILE_ADDED, ACCESS_GRIDS, ACCESS_READS_0_8_1, ACCESS_ROWS_FOR_THE_PAGE, ACCESS_ROWS_REWORDED, ACCESS_ZIP_0_8_1, ACCESS_ZIP_WITH_FILE, MAPPINGS_ADDED,
-  MODULE_IDS_ADDED, PAGE_TIME, PROCESSES_ADDED, withAccessRows, withLinesSaid, withMappingsRead, withPageTimes } from "../golden-0.8.1.test-support.js";
+  LIST_IDS_ADDED, MODULE_IDS_ADDED, PAGE_TIME, PROCESSES_ADDED, withAccessRows, withLinesSaid, withMappingsRead, withPageTimes } from "../golden-0.8.1.test-support.js";
 import { NOT_SCOPE_IDS, SCOPE_IDS } from "../guards.test-support.js";
 import { buildModelGraph } from "../map/build-graph.js";
 import { Failure } from "../progress.js";
@@ -15,7 +15,7 @@ import { ACCESS_HEADERS } from "./access.js";
 import { againstMap } from "./access.test-support.js";
 import { ACTION_LIST_COLUMN, actionKind, mergeImports, missingActionColumns, otherActionsTable } from "./actions.js";
 import { CALENDAR_HEADERS, CALENDAR_PROPERTIES, calendarKind, calendarRows } from "./calendar.js";
-import { exportModel, lineItemIdsOf, moduleIdsLine, moduleIdsOf } from "./export.js";
+import { exportModel, lineItemIdsOf, listIdsLine, listIdsOf, moduleIdsLine, moduleIdsOf } from "./export.js";
 import { MAPPING_NOTES } from "./import-mappings.js";
 import { PROCESS_NOTES } from "./process-actions.js";
 import * as grids from "./grid.js";
@@ -964,10 +964,10 @@ describe("Model export: Model settings grids to tables", () => {
     const lines = (text: string): string[] => parseCsv(text).map(row => row.join("\n"));
     const [details, detailsBefore] = [lines(written.get(ACCESS_FILE_ADDED.details)!), lines(before.get(ACCESS_FILE_ADDED.details)!)];
     const paged = details.filter(row => row.startsWith("Diagnostics\n") && PAGE_TIME.test(row.split("\n")[2] ?? ""));
-    const gained = [...[ACCESS_FILE_ADDED.written, ACCESS_FILE_ADDED.howToRead, MODEL_ROW_ADDED, MODULE_IDS_ADDED.rows, MAPPINGS_ADDED.rows, PROCESSES_ADDED.rows]
-      .flatMap(row => lines(row.line)), ...paged];
+    const gained = [...[ACCESS_FILE_ADDED.written, ACCESS_FILE_ADDED.howToRead, MODEL_ROW_ADDED, MODULE_IDS_ADDED.rows, LIST_IDS_ADDED.rows, MAPPINGS_ADDED.rows,
+      PROCESSES_ADDED.rows].flatMap(row => lines(row.line)), ...paged];
     const stayed = details.filter(row => !gained.includes(row));
-    expect([details.length, stayed.length, gained.length, paged.length]).toEqual([detailsBefore.length + 24, detailsBefore.length, 24, 11]);
+    expect([details.length, stayed.length, gained.length, paged.length]).toEqual([detailsBefore.length + 25, detailsBefore.length, 25, 11]);
     expect(stayed.flatMap((row, index) => (row === detailsBefore[index] ? [] : [[detailsBefore[index], row]]))).toEqual(ACCESS_ROWS_REWORDED.map(row => [lines(row.was)[0], lines(row.now)[0]]));
     // Then every byte. Of 0.8.1's twelve files, Line Items.csv among them, only Model Details.csv and Other Actions.csv
     // have other bytes.
@@ -1035,10 +1035,10 @@ describe("Model export: Model settings grids to tables", () => {
     /** The model exported with that Line Items grid: the file's text, the Details file's first three Files rows, what the
      * summary says of the file, and how many steps and lines the export reported. A file that is written is held against
      * the model map of the result's tables on the way: its rows are that map's access links, and what it could not match. */
-    /** How many steps and lines the export reports of this model: 0.8.1's, those on the modules' IDs, on the imports'
-     * definitions and on the processes' definitions, and one on the time it took after each of the eleven grids with rows,
-     * each of them one page. */
-    const STEPS = 23 + MODULE_IDS_ADDED.said.length + MAPPINGS_ADDED.said.length + PROCESSES_ADDED.said.length + 11;
+    /** How many steps and lines the export reports of this model: 0.8.1's, those on the modules' and the lists' IDs, on the
+     * imports' definitions and on the processes' definitions, and one on the time it took after each of the eleven grids
+     * with rows, each of them one page. */
+    const STEPS = 23 + MODULE_IDS_ADDED.said.length + LIST_IDS_ADDED.said.length + MAPPINGS_ADDED.said.length + PROCESSES_ADDED.said.length + 11;
     const exported = async (lineItems: FakeGrid) => {
       const said: string[] = [];
       const result = await exportGoldenModel({ ...GOLDEN_GRIDS, ...ACCESS_GRIDS, [LINE_ITEMS]: lineItems }, [], said);
@@ -1181,10 +1181,10 @@ describe("Model export: Model settings grids to tables", () => {
     for (const table of result.tables.slice(1)) expect(table, table.file).toEqual(whole.tables.find(other => other.file === table.file));
     // The reason is in the Details file's row and, as any other file's failure is, in the log: one line more, after
     // the lines of the last grid, since the file is made once every grid is read. The file is still no step of its own.
-    // The steps and lines are 0.8.1's, with those on the modules' IDs (MODULE_IDS_ADDED), on the imports' definitions
-    // (MAPPINGS_ADDED) and on the processes' definitions (PROCESSES_ADDED), and after each grid's line that of the time its
-    // one page took, eleven in all.
-    expect([said.length, saidWithout]).toEqual([23 + MODULE_IDS_ADDED.said.length + MAPPINGS_ADDED.said.length + PROCESSES_ADDED.said.length + 11,
+    // The steps and lines are 0.8.1's, with those on the modules' and the lists' IDs (MODULE_IDS_ADDED, LIST_IDS_ADDED), on
+    // the imports' definitions (MAPPINGS_ADDED) and on the processes' definitions (PROCESSES_ADDED), and after each grid's
+    // line that of the time its one page took, eleven in all.
+    expect([said.length, saidWithout]).toEqual([23 + MODULE_IDS_ADDED.said.length + LIST_IDS_ADDED.said.length + MAPPINGS_ADDED.said.length + PROCESSES_ADDED.said.length + 11,
       [...said, "12:30:10 Dynamic Cell Access: no table"]]);
     expect([said.filter(line => PAGE_TIME.test(line)).length, withPageTimes(said.filter(line => !PAGE_TIME.test(line)))]).toEqual([11, said]);
     expect(result.tables[0].rows.filter(row => row[0] === "Diagnostics").at(-1)).toEqual(["Diagnostics", "12:30:10", "Dynamic Cell Access: no table"]);
@@ -1335,6 +1335,21 @@ describe("The modules' IDs a model's result keeps", () => {
     // Without a Line Items table there are none.
     const rest = Object.fromEntries(Object.entries(GOLDEN_GRIDS).filter(([grid]) => grid !== "LINE ITEMS × LINE ITEM PROPERTIES"));
     expect(Object.hasOwn(await exportGoldenModel(rest), "lineItemIds")).toBe(false);
+  });
+
+  it("of the lists are General Lists', taken the same way, carried and said in the log the same way", async () => {
+    // The golden model's two lists.
+    expect((await exportGoldenModel()).listIds).toEqual([["Products", "101000000001"], ["+ Regions", "101000000002"]]);
+    const grid = (rows: [number, string][]): Grid => ({ columns: [], rows: rows.map(([id, name]) => ({ ids: [id], labels: [name], cells: [] })) });
+    // A list's ID by the type it starts with, a module's and a subset's not, and each name once; the client's word adds one.
+    const blind = { ids: {} } as never;
+    expect(listIdsOf(blind, [grid([[101000000017, "Products"], [102000000001, "Sales"], [101000000018, ""], [101000000019, "Products"], [109000000001, "Active"]])]))
+      .toEqual([["Products", "101000000017"]]);
+    const says = { ids: { getEntityTypeIndex: (id: number) => (id === 7 ? 101 : Math.floor(id / 1e9)) } } as never;
+    expect(listIdsOf(says, [grid([[7, "Small"], [101000000020, "Regions"]]), undefined])).toEqual([["Small", "7"], ["Regions", "101000000020"]]);
+    expect(listIdsOf(says, [undefined])).toEqual([]);
+    expect(listIdsLine(says, [grid([[101000000017, "Products"]])], 1)).toBe("List IDs: 1 found; the first row listed has ID 101000000017, of type 101 by the model's client");
+    expect(listIdsLine(says, [undefined], 0)).toBe("List IDs: 0 found; no grid lists a list");
   });
 
   it("are carried however many were found, and said in the log with the first row listed", () => {

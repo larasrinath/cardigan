@@ -86,12 +86,13 @@ export interface ClientOptions {
 
 const STARTING = "Starting the analysis…";
 const RECEIVING = "Receiving the result…";
-/** How long the page waits for the tab to say whether it opened a module inside its page (`openInPage`): longer than the
+/** How long the page waits for the tab to say whether it opened a module or a list inside its page (`openInPage`): longer than the
  * tab waits for the model's frame (bridge.ts `openInCore`), so that a tab of this build always answers in time. A tab
  * whose content script is of an earlier build does not know the question and never answers. */
 export const OPEN_WAIT_MS = 1500;
 
-/** What the tab said of a module it was asked to open inside its page: whether it did, and how or why not, for the log. */
+/** What the tab said of a module or a list it was asked to open inside its page: whether it did, and how or why not, for
+ * the log. */
 export interface OpenAnswer { opened: boolean; detail: string }
 /** The page's own two failures, in the words the tab's messages use for what to do next (progress.ts): they name the run
  * control and the button beside the log as those read. */
@@ -190,14 +191,14 @@ export class ResultsClient {
     this.append(stampLine(line));
   }
 
-  /** Asks the tab to open the module `module` of the model `model` inside the Model Building page it shows, beside the
-   * modules open there (protocol.ts "open"). The ask goes on the port the page follows the tab on. Where that has closed,
+  /** Asks the tab to open the module or the list `object` of the model `model` inside the Model Building page it shows,
+   * beside the tabs open there (protocol.ts "open"). The ask goes on the port the page follows the tab on. Where that has closed,
    * as once the tab has loaded another page, it goes on a port opened for it alone, which asks for no run and is let go
    * once the ask is over. Resolves with the tab's answer; with nothing where the tab cannot be reached, where the port
    * closes first, and where no answer comes within `waitMs`, as from a content script of an earlier build. */
-  openInPage(model: string, module: string, waitMs = OPEN_WAIT_MS): Promise<OpenAnswer | undefined> {
+  openInPage(model: string, object: string, waitMs = OPEN_WAIT_MS): Promise<OpenAnswer | undefined> {
     const nonce = crypto.randomUUID();
-    const message: PageMessage = { type: "open", nonce, model, module };
+    const message: PageMessage = { type: "open", nonce, model, object };
     return new Promise(resolve => {
       let over = false;
       let own: TabPort | undefined;
@@ -229,14 +230,14 @@ export class ResultsClient {
     });
   }
 
-  /** An answer to an ask to open a module, from whichever port: the ask with its nonce takes it. */
+  /** An answer to an ask to open a module or a list, from whichever port: the ask with its nonce takes it. */
   private takeOpened(received: unknown): void {
     const message = received as Partial<Extract<TabMessage, { type: "opened" }>> | null;
     if (message?.type !== "opened" || typeof message.nonce !== "string") return;
     this.opening.get(message.nonce)?.({ opened: message.opened === true, detail: text(message.detail) ? message.detail : "" });
   }
 
-  /** The asks to open a module that still wait get no answer: their port has gone. */
+  /** The asks to open a module or a list that still wait get no answer: their port has gone. */
   private unopened(): void {
     for (const answered of [...this.opening.values()]) answered(undefined);
   }

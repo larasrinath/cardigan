@@ -628,7 +628,7 @@ describe("The results page's connection to the Anaplan tab", () => {
     client.start();
     ports[0].send({ type: "subject", subject: MODEL });
     const asked = client.openInPage(MODEL.id, "102000000001");
-    expect(opens(ports[0])).toEqual([{ type: "open", nonce: expect.any(String), model: MODEL.id, module: "102000000001" }]);
+    expect(opens(ports[0])).toEqual([{ type: "open", nonce: expect.any(String), model: MODEL.id, object: "102000000001" }]);
     // An answer to another ask, and an answer that is no answer, are not taken.
     ports[0].send({ type: "opened", nonce: "another", opened: true, detail: "Model Building opened it beside the modules open there" });
     ports[0].send({ type: "opened", opened: true, detail: "no nonce" });
@@ -666,7 +666,7 @@ describe("The results page's connection to the Anaplan tab", () => {
     // The ask's port says what the tab shows, which starts no run; it asks for the module alone, and goes once answered.
     expect(ports).toHaveLength(2);
     ports[1].send({ type: "subject", subject: MODEL });
-    expect(ports[1].posted).toEqual([{ type: "open", nonce: expect.any(String), model: MODEL.id, module: "102000000001" }]);
+    expect(ports[1].posted).toEqual([{ type: "open", nonce: expect.any(String), model: MODEL.id, object: "102000000001" }]);
     ports[1].send({ type: "opened", nonce: opens(ports[1])[0].nonce, opened: true, detail: "Model Building opened it beside the modules open there" });
     expect(await asked).toEqual({ opened: true, detail: "Model Building opened it beside the modules open there" });
     expect([ports[1].closedByPage, phases().at(-1)]).toEqual([true, "done"]);
