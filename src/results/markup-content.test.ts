@@ -425,6 +425,25 @@ describe("What the results page's markup shows", () => {
     // A column of dates whose header says nothing of UTC says nothing of it.
     expect(text(parseMarkup(rangeFilterHtml({ ...started, label: "Last published" }, read, undefined)).querySelector("#rangeHint")))
       .toBe("Earliest 2026-03-12, latest 2026-10-09. Whole days, both ends kept; leave a box empty for no end there.");
+    // The page's own words for the zone take the place of the header's, for a column of times shown in the viewer's zone.
+    expect(text(parseMarkup(rangeFilterHtml({ ...started, label: "Start Date and Time (local)" }, read, undefined, "The column's dates and times are in your time zone, Asia/Tokyo. "))
+      .querySelector("#rangeHint"))).toBe("The column's dates and times are in your time zone, Asia/Tokyo. Earliest 2026-03-12, latest 2026-10-09. Whole days, both ends kept; leave a box empty for no end there.");
+  });
+
+  it("says a time in a row's drawer in both zones, the one the page shows first, and no text as read beside it", () => {
+    const columns = [column(0, "Name"), column(1, "Start Date and Time (local)"), column(2, "Notes")];
+    const shown = ["Load", "2026-03-13 08:19:56", "Nightly"];
+    const local = parseMarkup(rowDrawerHtml(columns, shown, NO_LINKS, new Map([[1, "2026-03-12 23:19:56"]]), undefined, undefined, undefined, undefined, { mode: "local", zone: "Asia/Tokyo" }));
+    expect([local.querySelectorAll("dt").map(text), local.querySelectorAll("dd").map(text)])
+      .toEqual([["Name", "Start Date and Time (local)", "Notes"], ["Load", "2026-03-13 08:19:56 local · 2026-03-12 23:19:56 UTC", "Nightly"]]);
+    // In UTC the cell is the time as it was read; the viewer's comes second.
+    const utc = parseMarkup(rowDrawerHtml([columns[0], column(1, "Start Date and Time (UTC)"), columns[2]], ["Load", "2026-03-12 23:19:56", "Nightly"], NO_LINKS, undefined, undefined,
+      undefined, undefined, undefined, { mode: "utc", zone: "Asia/Tokyo" }));
+    expect(utc.querySelectorAll("dd").map(text)[1]).toBe("2026-03-12 23:19:56 UTC · 2026-03-13 08:19:56 local");
+    // A cell that names no moment, and a drawer told nothing of times, show the cell as it is.
+    expect(parseMarkup(rowDrawerHtml(columns, ["Copy", "", ""], NO_LINKS, undefined, undefined, undefined, undefined, undefined, { mode: "local", zone: "Asia/Tokyo" }))
+      .querySelectorAll("dd").map(text)).toEqual(["Copy", "", ""]);
+    expect(parseMarkup(rowDrawerHtml(columns, shown, NO_LINKS)).querySelectorAll("dd").map(text)[1]).toBe("2026-03-13 08:19:56");
   });
 
   it("says on a filter's button that its filter is on, and what a range in force keeps", () => {
