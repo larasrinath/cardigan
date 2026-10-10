@@ -369,15 +369,17 @@ main:has(> #mapHost:not([hidden])){align-self:stretch;display:flex;flex-directio
 #mapHost:has(> .map-full-window){z-index:85}
 
 /* ---------- overview ---------- */
-.ov-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(158px,1fr));gap:12px;margin-bottom:16px}
-.stat{background:var(--panel);border:1px solid var(--border);border-radius:var(--r-md);padding:12px 14px}
-.stat .s-lab{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--text-3)}
-.stat .s-num{font-size:26px;font-weight:650;font-variant-numeric:tabular-nums;margin-top:4px;line-height:1.1}
-.stat .s-sub{font-size:11.5px;color:var(--text-2);margin-top:4px}
+/* Every tile the same size: columns of one width, rows of one height, and a tile that never grows with what it holds. */
+.ov-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(158px,1fr));grid-auto-rows:1fr;gap:12px;margin-bottom:16px}
+.stat{min-width:0;height:100%;box-sizing:border-box;background:var(--panel);border:1px solid var(--border);border-radius:var(--r-md);padding:12px 14px}
+/* A name keeps to one line, cut with an ellipsis where it is too long; the table's icon stands before it, at its size. */
+.stat .s-lab{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--text-3);line-height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stat .s-lab svg{width:12px;height:12px;margin-right:6px;vertical-align:-2px}
+.stat .s-num{font-size:26px;font-weight:650;font-variant-numeric:tabular-nums;margin-top:4px;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* A tile opens its table: a button with the tile's look, a little lifted under the pointer. */
 .stat-open{display:block;width:100%;text-align:left;font:inherit;color:inherit;cursor:pointer;transition:background .15s,border-color .15s}
 .stat-open:hover{background:var(--panel-2);border-color:var(--border-strong)}
-.stat .s-lab,.stat .s-num,.stat .s-sub{display:block}
+.stat .s-lab,.stat .s-num{display:block}
 .panel{background:var(--panel);border:1px solid var(--border);border-radius:var(--r-md);padding:14px 16px}
 .panel h2,.panel h3{font-size:13px;margin-bottom:10px}
 .warn-list{display:grid;gap:8px;margin:0;padding:0;list-style:none}
