@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeElement, FakePage } from "../results/dom.test-support.js";
-import type { ModelGraph, ModelMap } from "./graph-types.js";
+import type { ModelGraph, ModelMap, ModelMapOptions } from "./graph-types.js";
 import type { Pen } from "./map-canvas.js";
 import { FALLBACK } from "./map-palette.js";
 import { mountModelMap, mountModelMapIn, type MapEnvironment } from "./map-view.js";
@@ -119,8 +119,10 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function mount(graph: ModelGraph = sample().graph, options = { modelName: "Demand Plan", workspaceName: "Sandbox" as string | undefined }): void {
-  map = mountModelMapIn(host as unknown as HTMLElement, graph, options, env);
+/** Mounts the map. Its sections are the graph's heading rows, as if the viewer had chosen that grouping, unless the
+ * options say otherwise: the tests of how the map groups modules by itself are in a block of their own. */
+function mount(graph: ModelGraph = sample().graph, options: ModelMapOptions = { modelName: "Demand Plan", workspaceName: "Sandbox" }): void {
+  map = mountModelMapIn(host as unknown as HTMLElement, graph, { grouping: "headings", ...options }, env);
 }
 /** Mounts the map, shows it at a size, and lets the first picture be drawn. */
 function open(graph?: ModelGraph, width = 1200, height = 800): void {
@@ -985,7 +987,7 @@ describe("The map's views", () => {
   it("goes from the sections to all modules and back with the grouping button", () => {
     open();
     act("group").press();
-    expect([text(".map-here"), act("group").textContent, status()]).toEqual(["All modules", "Group by section", "5 modules · 5 links"]);
+    expect([text(".map-here"), act("group").textContent, status()]).toEqual(["All modules", "Show sections", "5 modules · 5 links"]);
     expect([...locate().keys()].sort()).toEqual(["CAL01 - Revenue", "INP01 - Volumes", "INP02 - Prices", "Margin Workings", "REP01 - Board"]);
     expect(parts(".map-crumbs button").map(crumb => crumb.textContent)).toEqual(["Demand Plan"]);
     // Among all modules each box says its section in words: its colour alone would not.
@@ -998,7 +1000,7 @@ describe("The map's views", () => {
     open();
     expect(parts(".map-section-select option").map(option => [option.getAttribute("value"), option.textContent])).toEqual([["", "All sections"], ["0", "01: Inputs"], ["1", "02: Calculations"], ["2", "Reporting"]]);
     part(".map-section-select").choose("1");
-    expect([text(".map-here"), part(".map-section-select").value, act("group").textContent]).toEqual(["02: Calculations", "1", "Group by section"]);
+    expect([text(".map-here"), part(".map-section-select").value, act("group").textContent]).toEqual(["02: Calculations", "1", "Show sections"]);
     expect(parts(".map-legend-item").map(item => item.textContent)).toEqual(["Modules of other sections3", "02: Calculations2"]);
     expect(locate().size).toBe(5);
     // The section's own modules are counted apart from those that stand beside them, on screen and aloud.
@@ -1863,7 +1865,7 @@ describe("The map's search", () => {
     part(".map-search").type("revenue");
     expect([part(".map-results").hidden, text(".map-search-count")]).toEqual([false, "4"]);
     expect(parts(".map-result").map(result => [result.querySelector("span")?.textContent, result.querySelector("small")?.textContent])).toEqual([
-      ["CAL01 - Revenue", "Module · 02: Calculations"], ["Workings", "CAL01 - Revenue"], ["Gross", "CAL01 - Revenue"], ["Net", "CAL01 - Revenue"],
+      ["CAL01 - Revenue", "Module · 02: Calculations · from heading rows"], ["Workings", "CAL01 - Revenue"], ["Gross", "CAL01 - Revenue"], ["Net", "CAL01 - Revenue"],
     ]);
     expect(text(".map-live")).toBe("4 matches.");
     env.settle();
@@ -2553,5 +2555,101 @@ describe("Going to an object the page names", () => {
     expect(text(".map-insp-name")).toBe("Margin Workings");
     map.destroy();
     expect(map.reveal(gross)).toBe(false);
+  });
+});
+
+describe("How the map groups modules", () => {
+  /** Ten modules whose names start with codes three of them share, under no heading: the codes group them well. Each
+   * up to REP03 Trend reads the one before it, and an import loads the first. */
+  function coded() {
+    const make = new GraphMaker();
+    const names = ["INP01 Volumes", "INP02 Prices", "INP03 Rates", "CAL01 Revenue", "CAL02 Costs", "CAL03 Margin", "REP01 Board", "REP02 Summary", "REP03 Trend", "Scratch"];
+    const modules = names.map(name => make.module(name));
+    const items = modules.map((module, index) => make.item(module, "Value", index >= 3 && index < 9 ? { formula: "x" } : {}));
+    // REP03 Trend is the last that reads one: no module reads it.
+    items.slice(1, 9).forEach((item, index) => make.link(items[index], item));
+    make.link(make.action("Load Volumes", { actionType: "Import" }), modules[0], "import_target");
+    return make.graph();
+  }
+  const choices = (): [string | null, string][] => parts(".map-grouping-select option").map(option => [option.getAttribute("value"), option.textContent]);
+  const sectionNames = (): string[] => parts(".map-legend-name").map(name => name.textContent);
+  const heard: (string | undefined)[] = [];
+  const openGrouped = (graph: ModelGraph, grouping?: string): void => {
+    heard.length = 0;
+    map = mountModelMapIn(host as unknown as HTMLElement, graph, { modelName: "Demand Plan", ...(grouping === undefined ? {} : { grouping }), onGrouping: kind => { heard.push(kind); } }, env);
+    map.show();
+    env.resize(1200, 800);
+    env.settle();
+  };
+
+  it("opens on the grouping it picks itself, which the switch says, and names each module's section with where it comes from", () => {
+    openGrouped(coded());
+    expect(choices()).toEqual([["prefix", "By name prefix (automatic)"], ["role", "By role in the data flow"]]);
+    expect([part(".map-grouping-select").hidden, part(".map-grouping-select").value]).toEqual([false, "prefix"]);
+    expect(sectionNames()).toEqual(["INP", "CAL", "REP", "Other"]);
+    expect(parts(".map-section-select option").map(option => option.textContent)).toEqual(["All sections", "INP", "CAL", "REP", "Other"]);
+    // A module's details and the search say its section and where that comes from.
+    act("group").press();
+    env.settle();
+    clickNode("CAL02 Costs");
+    expect(parts(".map-dl dt").map(term => term.textContent).slice(0, 2)).toEqual(["Section", "Line items"]);
+    expect(parts(".map-dl dd")[0].textContent).toBe("CAL · from module names");
+    part(".map-search").type("costs");
+    expect(parts(".map-result").map(result => result.querySelector("small")?.textContent)[0]).toBe("Module · CAL · from module names");
+    expect(heard).toEqual([]);
+  });
+
+  it("groups the modules anew from the switch, shows the model whole, says so, and tells the page the choice: the map's own pick as none", () => {
+    openGrouped(coded());
+    clickNode("CAL");
+    part(".map-grouping-select").choose("role");
+    env.settle();
+    // The whole model, in the new sections, with nothing selected.
+    expect([sectionNames(), part(".map-inspector").hidden, part(".map-grouping-select").value]).toEqual([["Data", "Input", "Calculation", "Output"], true, "role"]);
+    expect(text(".map-live")).toMatch(/^Modules grouped by role in the data flow\. Sections of Demand Plan: 4 sections/);
+    // The details say why a module is where the map put it.
+    clickNode("Calculation");
+    act("open").press();
+    env.settle();
+    clickNode("REP01 Board");
+    expect(parts(".map-dl dt").map(term => term.textContent).slice(0, 2)).toEqual(["Section", "Why"]);
+    expect(parts(".map-dl dd").map(value => value.textContent).slice(0, 2)).toEqual(["Calculation · from the data flow", "Calculation: 1 of its 1 line item has a formula, and another module reads it."]);
+    part(".map-grouping-select").choose("prefix");
+    env.settle();
+    expect([sectionNames(), heard]).toEqual([["INP", "CAL", "REP", "Other"], ["role", undefined]]);
+    // The grouping on screen chosen again: nothing changes, and nothing is told.
+    part(".map-grouping-select").choose("prefix");
+    expect(heard).toEqual(["role", undefined]);
+  });
+
+  it("opens on the grouping the viewer chose last where the model has it, and on its own pick where it has not", () => {
+    openGrouped(coded(), "role");
+    expect([part(".map-grouping-select").value, sectionNames()]).toEqual(["role", ["Data", "Input", "Calculation", "Output"]]);
+    map.destroy();
+    openGrouped(coded(), "functionalArea");
+    expect([part(".map-grouping-select").value, sectionNames()]).toEqual(["prefix", ["INP", "CAL", "REP", "Other"]]);
+  });
+
+  it("keeps the switch to the modules, and hides it where a model can be grouped only one way", () => {
+    openGrouped(coded());
+    tab("drill").press();
+    env.settle();
+    expect(part(".map-grouping-select").hidden).toBe(true);
+    map.destroy();
+    // Names that share no code, no heading, no list: only the role in the data flow, which makes one section here.
+    const make = new GraphMaker();
+    for (const name of ["Volumes", "Prices", "Rates"]) make.item(make.module(name), "Value");
+    openGrouped(make.graph());
+    expect([choices(), part(".map-grouping-select").hidden, act("group").hidden, sectionNames()]).toEqual([[["role", "By role in the data flow (automatic)"]], true, true, ["Modules"]]);
+  });
+
+  it("goes on when the page cannot keep the choice", () => {
+    map = mountModelMapIn(host as unknown as HTMLElement, coded(), { modelName: "Demand Plan", onGrouping: () => { throw new Error("no storage"); } }, env);
+    map.show();
+    env.resize(1200, 800);
+    env.settle();
+    part(".map-grouping-select").choose("role");
+    env.settle();
+    expect([sectionNames(), parts(".map-broken").length]).toEqual([["Data", "Input", "Calculation", "Output"], 0]);
   });
 });

@@ -152,8 +152,12 @@ function inspectSection(model: MapModel, graph: ViewGraph, node: ViewNode): Insp
 function inspectModule(model: MapModel, graph: ViewGraph, node: ViewNode, raw: GraphNode): Inspection {
   const owned = model.itemsOf(raw.id);
   const rows: [string, string][] = [];
-  // A model whose modules stand under one heading, or under none, has no sections to tell them apart by.
-  if (model.sections.length > 1) row(rows, "Section", model.sectionOf(raw));
+  // A model whose modules stand under one heading, or under none, has no sections to tell them apart by. Where the map
+  // chose how to group the modules, the section says where it comes from, and a section the map worked out says why.
+  if (model.sections.length > 1) {
+    row(rows, "Section", model.grouping ? `${model.sectionOf(raw)} · ${model.grouping.source}` : model.sectionOf(raw));
+    row(rows, "Why", model.grouping?.whyOf?.get(raw.id));
+  }
   row(rows, "Line items", formatCount(owned.length));
   row(rows, "Applies To", appliesTo(model, raw));
   row(rows, "Cell Count", raw.cells === undefined ? undefined : formatCount(raw.cells));

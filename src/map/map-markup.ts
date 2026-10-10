@@ -58,6 +58,7 @@ export function shellHtml(ids: ShellIds, modelName: string): string {
     <nav class="map-crumbs" aria-label="Map breadcrumb"></nav>
     <div class="map-tools">
     <div class="map-controls" role="group" aria-label="Map controls">
+      <span class="map-select-wrap"><select class="map-select map-grouping-select" aria-label="Group the modules" hidden></select>${SELECT_CHEVRON}</span>
       <button type="button" class="map-btn" data-map-act="group">Show all modules</button>
       <span class="map-select-wrap"><select class="map-select map-section-select" aria-label="Model section"></select>${SELECT_CHEVRON}</span>
       <span class="map-select-wrap"><select class="map-select map-module-select" aria-label="Module for line items" hidden></select>${SELECT_CHEVRON}</span>
@@ -248,6 +249,12 @@ export function inspectorHtml(inspection: Inspection, trace?: TraceWords): strin
 export function brokenHtml(reason: string): string {
   const why = reason.trim() === "" ? "" : ` (${esc(reason)})`;
   return `<div class="map-broken" role="alert" tabindex="-1"><h2 class="map-empty-title">The map could not be drawn</h2><p class="map-empty-text">Drawing it failed${why}, and the map has stopped. The tables of this result are not affected.</p></div>`;
+}
+
+/** The choices of how to group the modules: each grouping the model has, by its kind (map-groups.ts), in the switch's
+ * order. The one the map picks by itself says so. */
+export function groupingOptionsHtml(groupings: readonly { kind: string; label: string }[], automatic: string | undefined): string {
+  return groupings.map(grouping => `<option value="${esc(grouping.kind)}">By ${esc(grouping.label.toLowerCase())}${grouping.kind === automatic ? " (automatic)" : ""}</option>`).join("");
 }
 
 /** The choices of the section list: every section by its place, after the choice of all of them. */
