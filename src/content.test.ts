@@ -10,6 +10,8 @@ const WS = "0123456789abcdef0123456789abcdef";
 const MODEL = "FEDCBA9876543210FEDCBA9876543210";
 const APP = "01234567-89ab-cdef-0123-456789abcdef";
 const PROTOCOL = "cardigan-model-export";
+/** What every message of a run or of an ask to open carries: the run channel, and this build (bridge.ts). */
+const RUN = { protocol: "cardigan-model-reader", build: BUILD };
 const [SHELL, CORE] = ["https://us1a.app.anaplan.com", "https://eu2a.app.anaplan.com"];
 const MODEL_BUILDING = `/a/modeling/customers/${WS}/models/${MODEL}/modules`;
 
@@ -60,7 +62,12 @@ describe("The content scripts on an Anaplan page", () => {
   });
   afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
-  const at = (pathname: string, host = "us1a.app.anaplan.com") => vi.stubGlobal("location", { host, origin: `https://${host}`, pathname });
+  /** Puts the page at an address: the window's own location says it as well as the global one. */
+  const at = (pathname: string, host = "us1a.app.anaplan.com") => {
+    const location = { host, origin: `https://${host}`, pathname };
+    page.location = location;
+    vi.stubGlobal("location", location);
+  };
   const open = () => { const port = new FakePort(); connect!(port as unknown as chrome.runtime.Port); return port; };
   const hear = (data: unknown, origin: string, source: unknown) => { for (const listener of [...listeners]) listener({ data, origin, source }); };
 
@@ -241,11 +248,11 @@ describe("The content scripts on an Anaplan page", () => {
     expect(frame.asked.map(message => message.type)).toEqual(["ack", "run"]);
     const { nonce } = frame.asked[1];
 
-    hear({ protocol: PROTOCOL, type: "status", nonce, text: "Reading Versions…" }, CORE, frame);
+    hear({ ...RUN, type: "status", nonce, text: "Reading Versions…" }, CORE, frame);
     // The frame's sign of life before each page of a grid is for this script alone: the results page is sent nothing for it.
-    hear({ protocol: PROTOCOL, type: "alive", nonce }, CORE, frame);
+    hear({ ...RUN, type: "alive", nonce }, CORE, frame);
     // The export comes with the IDs of its line items, for reading the pages built on the model: they go no further.
-    hear({ protocol: PROTOCOL, type: "done", nonce, result: { ...exportedModel(), lineItemIds: [["102000000001", ""], ["1901000000001", "102000000001"]] } }, CORE, frame);
+    hear({ ...RUN, type: "done", nonce, result: { ...exportedModel(), lineItemIds: [["102000000001", ""], ["1901000000001", "102000000001"]] } }, CORE, frame);
     await vi.advanceTimersByTimeAsync(0);
     // Then this window reads the pages built on the model, for the customer the address names. Anaplan answers that the
     // session has ended: the export is handed on all the same, and says why it has no tables of those pages.
@@ -269,6 +276,82 @@ describe("The content scripts on an Anaplan page", () => {
     expect(frame.asked.slice(2).map(message => [message.type, message.nonce === frame.asked[2].nonce])).toEqual([["run", true], ["stop", true]]);
   });
 
+  it("asks the reader of this build where a frame holds two, and refuses one of another build after a few seconds, saying whether the results page can reach its frame", async () => {
+    at(MODEL_BUILDING);
+    await import("./content.js");
+    const frame = { asked: [] as { type: string; protocol?: string; build?: string }[], postMessage(message: { type: string }) { this.asked.push(message); } };
+    // The reader Chrome put into the frame as the page loaded is of an earlier build; this build's checks in beside it, as
+    // after the results page put it there, and each says so again when greeted: this build's is held.
+    hear({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: "0a1b2c3d4e5f" }, CORE, frame);
+    hear({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD }, CORE, frame);
+    hear({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: "0a1b2c3d4e5f" }, CORE, frame);
+    const port = open();
+    port.take();
+    port.say({ type: "run" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(frame.asked.filter(message => message.type === "run")).toEqual([{ ...RUN, type: "run", nonce: expect.any(String) }]);
+    port.close();
+
+    // A page whose frame holds only a reader of another build: on another Anaplan host than the page, then on its own.
+    for (const [origin, renewable] of [[CORE, false], [SHELL, true]] as const) {
+      vi.resetModules();
+      listeners.length = 0;
+      await import("./content.js");
+      hear({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: "0a1b2c3d4e5f" }, origin, frame);
+      const asking = open();
+      asking.take();
+      asking.say({ type: "run" });
+      await vi.advanceTimersByTimeAsync(3999);
+      expect(asking.types().filter(type => type === "error")).toEqual([]);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(asking.received.filter(message => message.type === "error")).toEqual([{ type: "error", message: expect.stringContaining("still holds the earlier Cardigan's model reader"),
+        code: "OLD_READER", renewable }]);
+    }
+    expect(frame.asked.filter(message => message.type === "run")).toHaveLength(1);
+  });
+
+  it("waits three minutes for the model's frame in a run asked for right after the results page refreshed the tab, and twenty seconds otherwise", async () => {
+    at(MODEL_BUILDING);
+    await import("./content.js");
+    const errors = (port: FakePort) => port.received.filter(message => message.type === "error").length;
+    const port = open();
+    port.take();
+    port.say({ type: "run" });
+    await vi.advanceTimersByTimeAsync(21_000);
+    expect(errors(port)).toBe(1);
+    const refreshed = open();
+    refreshed.take();
+    refreshed.say({ type: "run", afterRefresh: true });
+    await vi.advanceTimersByTimeAsync(170_000);
+    expect(errors(refreshed)).toBe(0);
+    // The model shows: its frame checks in, and is asked.
+    const frame = { asked: [] as { type: string }[], postMessage(message: { type: string }) { this.asked.push(message); } };
+    hear({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD }, CORE, frame);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(frame.asked.map(message => message.type)).toEqual(["ack", "run"]);
+    refreshed.close();
+  });
+
+  it("says in a model's export that this version made it, whichever version the model's reader is of", async () => {
+    at(`/a/modeling/workspaces/${WS}/models/${MODEL}`);
+    await import("./content.js");
+    const frame = { asked: [] as { type: string; nonce?: string }[], postMessage(message: { type: string; nonce?: string }) { this.asked.push(message); } };
+    hear({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD }, CORE, frame);
+    const port = open();
+    port.take();
+    port.say({ type: "run" });
+    await vi.advanceTimersByTimeAsync(0);
+    // A reader of the same code as this build's, kept in the tab through an update that changed only the version.
+    const result = exportedModel();
+    result.tables[0].rows.push(["Export", "Exported with", "Cardigan 0.12.0"], ["Diagnostics", "01:59:09", `Cardigan 0.12.0: model ${MODEL} on eu2a.app.anaplan.com`],
+      ["Diagnostics", "01:59:09", "Cardigan 0.12.0 was here"]);
+    hear({ ...RUN, type: "done", nonce: frame.asked[1].nonce, result }, CORE, frame);
+    await vi.advanceTimersByTimeAsync(0);
+    const rows = assemble(port.received).tables[0].rows;
+    expect(rows.filter(row => row[0] === "Export" || (row[0] === "Diagnostics" && String(row[2]).startsWith("Cardigan")))).toEqual([["Export", "Exported with", "Cardigan dev"],
+      ["Diagnostics", "01:59:09", `Cardigan dev: model ${MODEL} on eu2a.app.anaplan.com`], ["Diagnostics", "01:59:09", "Cardigan 0.12.0 was here"]]);
+  });
+
   it("opens a module inside the Model Building page through the model's frame when the results page asks, and says what came of it", async () => {
     at(MODEL_BUILDING);
     await import("./content.js");
@@ -281,14 +364,14 @@ describe("The content scripts on an Anaplan page", () => {
     await vi.advanceTimersByTimeAsync(0);
     // The frame is asked, by the model's ID and the module's, and its answer goes back to the page for that very ask.
     const ask = frame.asked.find(message => message.type === "open")!;
-    expect(ask).toEqual({ protocol: PROTOCOL, type: "open", nonce: expect.any(String), model: MODEL, object: "102000000001" });
-    hear({ protocol: PROTOCOL, type: "opened", nonce: ask.nonce, opened: true }, CORE, frame);
+    expect(ask).toEqual({ ...RUN, type: "open", nonce: expect.any(String), model: MODEL, object: "102000000001" });
+    hear({ ...RUN, type: "opened", nonce: ask.nonce, opened: true }, CORE, frame);
     await vi.advanceTimersByTimeAsync(0);
     expect(opened()).toEqual([{ type: "opened", nonce: "ask-1", opened: true, detail: "Model Building opened it beside the tabs open there" }]);
     // A frame that says it could not, and one that says nothing in time.
     port.say({ type: "open", nonce: "ask-2", model: MODEL.toLowerCase(), object: "102000000002" });
     await vi.advanceTimersByTimeAsync(0);
-    hear({ protocol: PROTOCOL, type: "opened", nonce: frame.asked.at(-1)!.nonce, opened: false }, CORE, frame);
+    hear({ ...RUN, type: "opened", nonce: frame.asked.at(-1)!.nonce, opened: false }, CORE, frame);
     port.say({ type: "open", nonce: "ask-3", model: MODEL, object: "102000000003" });
     await vi.advanceTimersByTimeAsync(1000);
     expect(opened()).toEqual([{ type: "opened", nonce: "ask-2", opened: false, detail: "the model's frame did not open it" },
@@ -307,13 +390,13 @@ describe("The content scripts on an Anaplan page", () => {
     const ask = async (nonce: string) => {
       port.say({ type: "open", nonce, model: MODEL, object: "102000000001" });
       await vi.advanceTimersByTimeAsync(400);
-      return port.take().filter(message => message.type === "opened").map(message => (message as { detail: string }).detail);
+      return port.take().filter(message => message.type === "opened").map(message => [(message as { detail: string }).detail, (message as { oldReader?: boolean }).oldReader === true]);
     };
-    expect(await ask("another-model")).toEqual(["the tab shows another model"]);
+    expect(await ask("another-model")).toEqual([["the tab shows another model", false]]);
     at(MODEL_BUILDING);
-    expect(await ask("another-build")).toEqual(["the model's frame holds a reader of another build"]);
+    expect(await ask("another-build")).toEqual([["the model's frame holds a reader of another build", true]]);
     at(`/a/springboard/apps/app/${APP}/page/board/${APP}`);
-    expect(await ask("an-app")).toEqual(["the tab does not show Model Building"]);
+    expect(await ask("an-app")).toEqual([["the tab does not show Model Building", false]]);
     expect(frame.asked.map(message => message.type)).toEqual(["ack"]);
   });
 
@@ -340,10 +423,10 @@ describe("The content scripts on an Anaplan page", () => {
     at("/core-webapp/anaplan/framework.jsp", "eu2a.app.anaplan.com");
     await import("./model-content.js");
     vi.advanceTimersByTime(1000);
-    for (const listener of [...heard]) listener({ data: { protocol: PROTOCOL, type: "open", nonce: "ask", model: MODEL, object: "102000000409" }, origin: SHELL, source: top });
+    for (const listener of [...heard]) listener({ data: { ...RUN, type: "open", nonce: "ask", model: MODEL, object: "102000000409" }, origin: SHELL, source: top });
     await vi.advanceTimersByTimeAsync(0);
     expect([published, top.posted.filter(message => (message as { type: string }).type === "opened")])
-      .toEqual([[["anaplan/views", 102000000409]], [{ protocol: PROTOCOL, type: "opened", nonce: "ask", opened: true }]]);
+      .toEqual([[["anaplan/views", 102000000409]], [{ ...RUN, type: "opened", nonce: "ask", opened: true }]]);
   });
 
   it("reads nothing of the pages built on a model where the address names no customer, and says so", async () => {
@@ -355,7 +438,7 @@ describe("The content scripts on an Anaplan page", () => {
     expect(port.take()).toEqual([{ type: "subject", subject: { kind: "model", id: MODEL } }]);
     port.say({ type: "run" });
     await vi.advanceTimersByTimeAsync(0);
-    hear({ protocol: PROTOCOL, type: "done", nonce: frame.asked[1].nonce, result: { ...exportedModel(), lineItemIds: [["102000000001", ""]] } }, CORE, frame);
+    hear({ ...RUN, type: "done", nonce: frame.asked[1].nonce, result: { ...exportedModel(), lineItemIds: [["102000000001", ""]] } }, CORE, frame);
     await vi.advanceTimersByTimeAsync(0);
     // The IDs of the export's line items are not handed on, here either.
     expect(assemble(port.received)).toEqual(withoutPages(NO_CUSTOMER));
@@ -414,7 +497,7 @@ describe("The content scripts on an Anaplan page", () => {
     Object.assign(page, client());
     await import("./model-content.js");
     vi.advanceTimersByTime(1000);
-    hear({ protocol: PROTOCOL, type: "run", nonce: "own" }, CORE, page);
+    hear({ ...RUN, type: "run", nonce: "own" }, CORE, page);
     await vi.advanceTimersByTimeAsync(0);
     // As 0.6.1 began the file's log on such a page, in the words the results page's log begins with now.
     expect(diagnostics(posted)!.slice(0, 2)).toEqual([["01:59:10", `Cardigan dev: model ${MODEL} on eu2a.app.anaplan.com`], ["01:59:10", "Loading the model page's client…"]]);
@@ -422,7 +505,7 @@ describe("The content scripts on an Anaplan page", () => {
     expect(posted.filter(message => (message as { type: string }).type === "log").map(message => (message as { text: string }).text)).not.toContainEqual(expect.stringContaining("Cardigan"));
     // A page that no longer names its model gets no line that would name none.
     delete page.modelId;
-    hear({ protocol: PROTOCOL, type: "run", nonce: "own again" }, CORE, page);
+    hear({ ...RUN, type: "run", nonce: "own again" }, CORE, page);
     await vi.advanceTimersByTimeAsync(0);
     expect(posted.filter(message => (message as { type: string }).type === "done")).toHaveLength(2);
     expect(diagnostics(posted)![0]).toEqual(["01:59:10", "Loading the model page's client…"]);
@@ -434,7 +517,7 @@ describe("The content scripts on an Anaplan page", () => {
     vi.stubGlobal("window", { ...client(), addEventListener: (_type: string, listener: Listener) => { heard.push(listener); }, removeEventListener: () => undefined, top });
     await import("./model-content.js");
     vi.advanceTimersByTime(1000);
-    for (const listener of [...heard]) listener({ data: { protocol: PROTOCOL, type: "run", nonce: "frame" }, origin: SHELL, source: top });
+    for (const listener of [...heard]) listener({ data: { ...RUN, type: "run", nonce: "frame" }, origin: SHELL, source: top });
     await vi.advanceTimersByTimeAsync(0);
     expect(diagnostics(top.posted)![0]).toEqual(["01:59:11", "Loading the model page's client…"]);
   });

@@ -14,7 +14,18 @@ import { firstLine } from "./progress.js";
  * - Classic model page opened on its own: the top window is this window, and its content script asks from the isolated
  *   world of the same window. The export's own log then begins as the results page's does, with the build, the model and
  *   the host, so that Model Details.csv has that row, as it had in 0.6.1. Inside Model Building the frame's log, and so
- *   the file, has never had it. */
+ *   the file, has never had it.
+ * - A frame can be given this script more than once: by Chrome as the page loads, and by the results page when the frame
+ *   holds the reader of an earlier build (results/connection.ts `renewReader`). Only the latest copy announces itself and
+ *   takes what the top window asks; a reader of another build hears none of it anyway (bridge.ts `RUN_PROTOCOL`). The
+ *   mark is a property of the page's own window, under a key the page's code does not use. */
+
+/** Which copy of the reader serves this frame: the latest one put into it. */
+const SERVING = Symbol.for("cardigan.model-reader");
+const me = Symbol("reader");
+const marks = window as unknown as Record<symbol, symbol | undefined>;
+marks[SERVING] = me;
+const current = () => marks[SERVING] === me;
 
 /** The export with that first line, stamped as the export starts, before the log it is given. */
 const exportOwnPage: typeof exportModel = (progress, diagnostics, stop) => {
@@ -27,10 +38,12 @@ if (window.top) reportFrame(window.top);
 
 const started = Date.now();
 const watch = setInterval(() => {
-  if (modelOnPage()) {
+  if (!current()) {
     clearInterval(watch);
-    if (window.top) serveCore(window, window.top, modelOnPage, window.top === window ? exportOwnPage : exportModel);
-    if (window.top && window.top !== window) serveOpen(window, window.top, openObject);
+  } else if (modelOnPage()) {
+    clearInterval(watch);
+    if (window.top) serveCore(window, window.top, modelOnPage, window.top === window ? exportOwnPage : exportModel, undefined, undefined, current);
+    if (window.top && window.top !== window) serveOpen(window, window.top, openObject, current);
   } else if (Date.now() - started > 10 * 60_000) {
     clearInterval(watch);
   }
