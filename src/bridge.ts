@@ -9,8 +9,8 @@ import { BUILD } from "./version.js";
  * often on another data centre's host. The export must read there,
  * but the results page talks to the content script of the page the user sees. This bridge links the two with window
  * messages: the core frame announces itself, the shell asks it to export, and the core frame streams progress and finally
- * the result (the export's files as tables) back. The shell can also ask it to open one of the model's modules in the
- * page, as Model Building's own Modules list opens one (`openInCore`).
+ * the result (the export's files as tables) back. The shell can also ask it to open one of the model's modules or lists
+ * in the page, as Model Building's own Modules list and General Lists open one (`openInCore`).
  * Each side accepts messages only from the other window and only from an Anaplan origin. On the classic model page opened
  * on its own there is no frame: the core side runs in the page's own window, and the other window is that same window. */
 
@@ -132,13 +132,13 @@ export async function exportInCore(self: Window, core: () => CoreHandle | undefi
   return runInCore(self, found, progress, undefined, signal);
 }
 
-/** How long the page waits for the model's frame to say whether it opened a module (`openInCore`). The frame answers at
- * once; one that is busy or gone has not answered by then, and the module is opened by its address instead. */
+/** How long the page waits for the model's frame to say whether it opened a module or a list (`openInCore`). The frame
+ * answers at once; one that is busy or gone has not answered by then, and the object is opened by its address instead. */
 const OPEN_WAIT_MS = 700;
 
-/** Shell side: asks the model's frame to open one of the model's modules in the page, beside the modules open there
- * (`serveOpen`). True once the frame says it did; false when it says it could not, or says nothing within `waitMs`. */
-export function openInCore(self: MessageTarget, core: CoreHandle, model: string, module: string, waitMs = OPEN_WAIT_MS): Promise<boolean> {
+/** Shell side: asks the model's frame to open one of the model's modules or lists in the page, beside the tabs open
+ * there (`serveOpen`). True once the frame says it did; false when it says it could not, or says nothing within `waitMs`. */
+export function openInCore(self: MessageTarget, core: CoreHandle, model: string, object: string, waitMs = OPEN_WAIT_MS): Promise<boolean> {
   return new Promise(resolve => {
     const nonce = crypto.randomUUID();
     const finish = (opened: boolean) => {
@@ -152,19 +152,19 @@ export function openInCore(self: MessageTarget, core: CoreHandle, model: string,
     };
     const timer = setTimeout(() => finish(false), waitMs);
     self.addEventListener("message", listener);
-    core.source.postMessage({ protocol: PROTOCOL, type: "open", nonce, model, module }, core.origin);
+    core.source.postMessage({ protocol: PROTOCOL, type: "open", nonce, model, object }, core.origin);
   });
 }
 
-/** Core side: opens a module when the top window asks (`openInCore`), and says whether it did. `opener` does the opening
- * (model/open-module.ts); a module's ID and the model's are checked before it is asked. */
-export function serveOpen(self: MessageTarget, top: Endpoint, opener: (model: string, module: string) => Promise<boolean>): () => void {
+/** Core side: opens a module or a list when the top window asks (`openInCore`), and says whether it did. `opener` does
+ * the opening (model/open-object.ts); the object's ID and the model's are checked before it is asked. */
+export function serveOpen(self: MessageTarget, top: Endpoint, opener: (model: string, object: string) => Promise<boolean>): () => void {
   const listener = (event: MessageEvent) => {
     const data = ours(event);
     if (data?.type !== "open" || event.source !== (top as unknown) || typeof data.nonce !== "string" || typeof data.model !== "string" || !SCOPE_ID.test(data.model)
-      || typeof data.module !== "string" || !/^\d{1,19}$/.test(data.module)) return;
+      || typeof data.object !== "string" || !/^\d{1,19}$/.test(data.object)) return;
     const reply = (opened: boolean) => top.postMessage({ protocol: PROTOCOL, type: "opened", nonce: data.nonce, opened }, event.origin);
-    opener(data.model, data.module).then(reply, () => reply(false));
+    opener(data.model, data.object).then(reply, () => reply(false));
   };
   self.addEventListener("message", listener);
   return () => self.removeEventListener("message", listener);
