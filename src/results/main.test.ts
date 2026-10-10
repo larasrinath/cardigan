@@ -5386,8 +5386,8 @@ describe("The mapping of an import from a file, in its row's details", () => {
     // An import into a module: a line item by its column's heading alone after the column with a place, then a constant
     // and the line items from the header row.
     openImport("Prices from prices.csv");
-    expect(mapping()).toEqual([[["Product", "Products"], ["Price", "Price"], ["Constant: Actual", "Versions"], ["Header row: each line item from the column it heads", "Line Items"]],
-      ["Column 1 is used.",
+    expect(mapping()).toEqual([[["Product", "Products"], ["Price", "Price"], ["Constant: Actual", "Versions"], ["Header row: each column whose header is a line item's name or code", "Line Items"]],
+      ["Headers that match a line item's name or code are matched when the import runs; Anaplan stores no such match, so those columns are not listed.", "Column 1 is used.",
       "Whether there are columns after column 1 is not known: Anaplan keeps the import's mapping, not the header row it was made from."]]);
     page.key("Escape");
     // An import from another model has no mapping: its details are All columns alone.
@@ -5418,7 +5418,8 @@ describe("The mapping of an import from a file, in its row's details", () => {
     page.key("Escape");
     // An import into a module tells no items apart: it has no such line.
     openImport("Prices from prices.csv");
-    expect(mapping()[1]).toEqual(["Column 1 is used.", "Whether there are columns after column 1 is not known: Anaplan keeps the import's mapping, not the header row it was made from."]);
+    expect(mapping()[1]).toEqual(["Headers that match a line item's name or code are matched when the import runs; Anaplan stores no such match, so those columns are not listed.",
+      "Column 1 is used.", "Whether there are columns after column 1 is not known: Anaplan keeps the import's mapping, not the header row it was made from."]);
   });
 
   it("shows no mapping for a result an earlier version kept, which has none", async () => {
@@ -5456,6 +5457,33 @@ describe("The mapping of an import from a file, in its row's details", () => {
     goTo(3);
     openImport("Division from HQ Network.csv");
     expect(mapping()).toEqual([[], ["Cardigan has no mapping for this import: choose Run again to read it."]]);
+  });
+
+  /** The mapping of the import into PRI01 Prices with its dimensions matched as the export reads them. */
+  const MATCHED: ImportMapping = { ...MAPPINGS[1], targets: [{ target: "Products", source: "column", column: 1, text: "Product", items: { byHand: 2, ignored: 1 } },
+    { target: "Time", source: "column", column: 2, text: "Month", periodFormat: "MMM YY" }, { target: "Line Items", source: "headerRow", items: { byHand: 0, ignored: 0 } }] };
+
+  it("shows under a source how it is read; the header row's line names the first line items a header can match, and opens to all of them", async () => {
+    // The module the import loads into, with seven line items a header can match, after the model's own.
+    const withPrices = (table: ResultTable): ResultTable => (table.file !== "Line Items.csv" ? table : { ...table, rows: [...table.rows, ["PRI01 Prices", "", "", "", "Products", "", "", ""],
+      ...["Cost", "Hours", "Rate", "Start", "End", "Notes", "Active"].map(name => [name, NUMBER, "", SUM, "-", "PRI01 Prices", "", ""])] });
+    await openWith({ ...WITH_MAPPINGS, tables: WITH_MAPPINGS.tables.map(withPrices), importMappings: [MAPPINGS[0], MATCHED] });
+    goTo(3);
+    openImport("Prices from prices.csv");
+    // The line under a source stands in its cell; the header row's names the first five line items, and opens to all.
+    expect(page.texts("#drawerMapping span.m-note")).toEqual(["2 items mapped by hand, 1 ignored", "Period format: MMM YY"]);
+    expect(page.texts("#drawerMapping details summary")).toEqual(["Line items a header can match: Cost, Hours, Rate, Start, End and 2 more Show all"]);
+    const all = page.find("#drawerMapping details.m-note");
+    expect([all?.localName, all?.children.map(child => child.localName), all?.children[1]?.textContent]).toEqual(["details", ["summary", "span"], "Cost, Hours, Rate, Start, End, Notes, Active"]);
+  });
+
+  it("shows each header of the header row mapped by hand as a row of its own, with its line item, the one ignored after them", async () => {
+    await openWith({ ...WITH_MAPPINGS, importMappings: [MAPPINGS[0], { ...MATCHED, targets: [{ target: "Line Items", source: "headerRow", items: { byHand: 1, ignored: 1 } }],
+      headers: [{ header: "Cost (EUR)", lineItem: "Cost" }, { header: "Comment" }] }] });
+    goTo(3);
+    openImport("Prices from prices.csv");
+    expect(mapping()[0]).toEqual([["Cost (EUR)", "Cost"], ["Comment", "Ignored"], ["Header row: each line item from the header mapped to itMapped by hand: 1 header, 1 ignored", "Line Items"]]);
+    expect(page.texts("#drawerMapping span.m-note")).toEqual(["Mapped by hand: 1 header, 1 ignored"]);
   });
 
   it("writes every name, heading and value of a mapping as text", async () => {
