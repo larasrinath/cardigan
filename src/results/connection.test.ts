@@ -4,7 +4,8 @@ import type { AnalysisResult, Cell } from "../result-types.js";
 import { resultZip } from "../result-zip.test-support.js";
 import { CONTENT_SCRIPT } from "../protocol.js";
 import {
-  describeState, MAX_LOG_LINES, NO_REASON, openedJustNow, repairTab, ResultsClient, runLabel, tabIdFrom, UNREADABLE, withoutOpened, type Repair, type RunState, type TabPort,
+  describeState, MAX_LOG_LINES, NO_REASON, OPEN_WAIT_MS, openedJustNow, repairTab, ResultsClient, runLabel, tabIdFrom, UNREADABLE, withoutOpened, type Repair, type RunState,
+  type TabPort,
 } from "./connection.js";
 
 /** A port as the page holds it. What the page posts arrives as a copy, as Chrome delivers it, and so does what the tab sends. */
@@ -616,6 +617,78 @@ describe("The results page's connection to the Anaplan tab", () => {
     // The log is the run's: Run again starts a new one, without the line.
     client.runAgain();
     expect([client.log, log()]).toEqual([[], []]);
+  });
+
+  /** What the page asked a port to open inside the tab's page, in order. */
+  const opens = (port: FakePort) => port.posted.filter(message => (message as { type: string }).type === "open") as { nonce: string }[];
+
+  it("asks the tab to open a module inside its page on the port it follows the tab on, and takes the answer to that very ask, while a run goes on", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+    const { client, ports, phases } = page();
+    client.start();
+    ports[0].send({ type: "subject", subject: MODEL });
+    const asked = client.openInPage(MODEL.id, "102000000001");
+    expect(opens(ports[0])).toEqual([{ type: "open", nonce: expect.any(String), model: MODEL.id, module: "102000000001" }]);
+    // An answer to another ask, and an answer that is no answer, are not taken.
+    ports[0].send({ type: "opened", nonce: "another", opened: true, detail: "Model Building opened it beside the modules open there" });
+    ports[0].send({ type: "opened", opened: true, detail: "no nonce" });
+    ports[0].send({ type: "opened", nonce: opens(ports[0])[0].nonce, opened: true, detail: "Model Building opened it beside the modules open there" });
+    expect(await asked).toEqual({ opened: true, detail: "Model Building opened it beside the modules open there" });
+    // The run the subject started goes on, untouched, on the same port.
+    expect([phases(), ports.length, ports[0].closedByPage]).toEqual([["connecting", "running"], 1, false]);
+    // An answer whose fields are not what they should be says no, without a reason.
+    const odd = client.openInPage(MODEL.id, "102000000002");
+    ports[0].send({ type: "opened", nonce: opens(ports[0])[1].nonce, opened: "true", detail: 5 });
+    expect(await odd).toEqual({ opened: false, detail: "" });
+    // A tab that says nothing, as one whose content script is of an earlier build: no answer once the wait is over.
+    const silent = client.openInPage(MODEL.id, "102000000003");
+    let over = false;
+    void silent.then(() => { over = true; });
+    await vi.advanceTimersByTimeAsync(OPEN_WAIT_MS - 1);
+    expect(over).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await silent).toBeUndefined();
+    // An ask whose port closes before the answer ends at once, without one.
+    const cut = client.openInPage(MODEL.id, "102000000004");
+    ports[0].drop();
+    expect(await cut).toBeUndefined();
+  });
+
+  it("asks on a port of the ask's own where the page's has closed, as once the tab has loaded another page, and lets that port go once answered", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+    const { client, ports, phases } = page();
+    client.start();
+    ports[0].send({ type: "subject", subject: MODEL });
+    ports[0].send({ type: "result", result: { ...full(), kind: "model", tables: full().tables.map(table => ({ ...table, rows: [] })) } });
+    ports[0].send({ type: "done" });
+    ports[0].drop();
+    const asked = client.openInPage(MODEL.id, "102000000001");
+    // The ask's port says what the tab shows, which starts no run; it asks for the module alone, and goes once answered.
+    expect(ports).toHaveLength(2);
+    ports[1].send({ type: "subject", subject: MODEL });
+    expect(ports[1].posted).toEqual([{ type: "open", nonce: expect.any(String), model: MODEL.id, module: "102000000001" }]);
+    ports[1].send({ type: "opened", nonce: opens(ports[1])[0].nonce, opened: true, detail: "Model Building opened it beside the modules open there" });
+    expect(await asked).toEqual({ opened: true, detail: "Model Building opened it beside the modules open there" });
+    expect([ports[1].closedByPage, phases().at(-1)]).toEqual([true, "done"]);
+    // So for a port that throws when asked: the ask goes on a port of its own.
+    client.runAgain();
+    ports[2].breakSilently();
+    const again = client.openInPage(MODEL.id, "102000000002");
+    expect([ports.length, opens(ports[2]), opens(ports[3]).length]).toEqual([4, [], 1]);
+    ports[3].send({ type: "opened", nonce: opens(ports[3])[0].nonce, opened: false, detail: "the tab shows another model" });
+    expect(await again).toEqual({ opened: false, detail: "the tab shows another model" });
+    // A tab without a content script closes the ask's port at once, without an answer; one that never answers is given
+    // up after the wait, and its port let go.
+    ports[2].drop();
+    const unanswered = client.openInPage(MODEL.id, "102000000003");
+    ports[4].drop();
+    expect(await unanswered).toBeUndefined();
+    const quiet = client.openInPage(MODEL.id, "102000000004");
+    await vi.advanceTimersByTimeAsync(OPEN_WAIT_MS);
+    expect([await quiet, ports[5].closedByPage]).toEqual([undefined, true]);
+    // A page whose address names no tab asks nothing.
+    const { client: none } = page({ noTab: true });
+    expect(await none.openInPage(MODEL.id, "102000000005")).toBeUndefined();
   });
 
   it("does not change what the tab sent: the result is the page's own copy", () => {

@@ -17,10 +17,15 @@ import { message } from "./util.js";
  *   looking at. An app's analysis starts no further page and asks nothing more for a model's names (analyse.ts), and a
  *   model's export reads no further rows of a grid (bridge.ts). A read that is under way is not cut short, except that
  *   the socket to a model is closed at once, and the routes still to be tried for the app page being read are tried.
- * - Only this extension's results page is answered: its own ID as the sender, and the port's name. */
+ * - Only this extension's results page is answered: its own ID as the sender, and the port's name.
+ * - An "open" asks the tab to open a module inside the Model Building page it shows (content.ts). It is answered on its
+ *   own, with or without a run going on, and reads nothing. */
 
 /** An app or a model: something a run can read. */
 export type Seen = Exclude<Subject, { kind: "none" }>;
+
+/** What became of an "open": whether the page took the module, and in a few words how, or why not, for the log. */
+export interface Opened { opened: boolean; detail: string }
 
 /** What this file needs from the content script around it. */
 export interface Tab {
@@ -35,6 +40,9 @@ export interface Tab {
   signedOut(error: unknown): boolean;
   /** False once a later copy of the content script serves the document: this one then leaves new results pages to it. */
   current?(): boolean;
+  /** Opens a module of the model inside the Model Building page the tab shows, beside the modules open there (protocol.ts
+   * "open"). A tab without it answers that it cannot. */
+  open?(model: string, module: string): Promise<Opened>;
 }
 
 export const SIGNED_OUT = "You're signed out of Anaplan. Sign in and try again.";
@@ -53,6 +61,18 @@ type Port = chrome.runtime.Port;
 interface Run { subject: Seen; ports: Set<Port>; stop: AbortController; lines: string[]; status?: string }
 
 const same = (a: Subject, b: Subject) => a.kind === b.kind && (a.kind === "none" || a.id === (b as Seen).id);
+
+/** An "open" as the page may send it: a nonce to answer with, a model's 32-character ID and a module's ID in digits.
+ * Anything else is not answered. */
+const OPEN_NONCE = /^[\w-]{1,100}$/;
+const OPEN_MODEL = /^[0-9A-Za-z]{32}$/;
+const OPEN_MODULE = /^\d{1,19}$/;
+type OpenAsked = Extract<PageMessage, { type: "open" }>;
+const openAsked = (received: unknown): OpenAsked | undefined => {
+  const asked = received as Partial<OpenAsked> | null;
+  return asked?.type === "open" && typeof asked.nonce === "string" && OPEN_NONCE.test(asked.nonce) && typeof asked.model === "string" && OPEN_MODEL.test(asked.model)
+    && typeof asked.module === "string" && OPEN_MODULE.test(asked.module) ? asked as OpenAsked : undefined;
+};
 
 export function serveTab(runtime: Pick<typeof chrome.runtime, "id" | "onConnect">, tab: Tab): void {
   let run: Run | undefined;
@@ -116,6 +136,18 @@ export function serveTab(runtime: Pick<typeof chrome.runtime, "id" | "onConnect"
     void perform();
   };
 
+  /** Opens a module in the page as the page asked, and says what became of it. It belongs to no run: a run going on
+   * meanwhile is neither waited for nor told. */
+  const answerOpen = async (port: Port, asked: OpenAsked) => {
+    let answer: Opened;
+    try {
+      answer = tab.open ? await tab.open(asked.model, asked.module) : { opened: false, detail: "this tab opens no module in its page" };
+    } catch (error) {
+      answer = { opened: false, detail: message(error) };
+    }
+    send(port, { type: "opened", nonce: asked.nonce, opened: answer.opened === true, detail: String(answer.detail) });
+  };
+
   const ask = (port: Port) => {
     if (!run) { start(new Set([port])); return; }
     if (run.ports.has(port)) return;
@@ -140,7 +172,11 @@ export function serveTab(runtime: Pick<typeof chrome.runtime, "id" | "onConnect"
       waiting.delete(port);
       if (run?.ports.delete(port) && !run.ports.size) run.stop.abort(new Error(NOBODY_LISTENING));
     });
-    port.onMessage.addListener(received => { if ((received as PageMessage | null)?.type === "run") ask(port); });
+    port.onMessage.addListener(received => {
+      if ((received as PageMessage | null)?.type === "run") ask(port);
+      const open = openAsked(received);
+      if (open) void answerOpen(port, open);
+    });
     send(port, { type: "subject", subject: tab.subject() });
   });
 }
