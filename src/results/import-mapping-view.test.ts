@@ -25,7 +25,7 @@ describe("An import's mapping, in the drawer's words", () => {
       { target: "Products", source: "prompt" }, { target: "Regions", source: "ignore" }, { target: "Line Items", source: "headerRow" },
       { target: "Price", source: "none" }, { target: "Batch", source: "numbered" }, { target: "Manager", source: "other", text: "field" }, { target: "Manager", source: "other" },
     ] as MappedTarget[]).map(sourceWords);
-    expect(said).toEqual(["Column 1: Division Name", "Column 4", "Column headed Units", "Column with ID f12", "A column the definition neither numbers nor names",
+    expect(said).toEqual(["Division Name", "Column 4", "Units", "Column with ID f12", "A column the definition neither numbers nor names",
       "Constant: Actual", "Constant, with no value given", "Prompt: chosen each time the import runs", "Ignored", "Header row: each line item from the column it heads",
       "Not mapped", "Not mapped: the list numbers its items itself", "A source Cardigan does not know (field)", "A source Cardigan does not know"]);
     expect(said.filter(words => NAMES_A_FILE.test(words))).toEqual([]);
@@ -48,8 +48,8 @@ describe("An import's mapping, in the drawer's words", () => {
       targets: [{ target: "DL032 - Inventory #", source: "numbered" }, { target: "Parent", source: "none" }, { target: "Code", source: "none" },
         column("Product", undefined, "Product"), column("Location", undefined, "Location"), column("Inventory Quantity (U)", undefined, "Qty")] };
     expect(mappingView(INVENTORY)).toEqual({ match: "Items uniquely identified by: Combination of properties: Product, Location and Production Date.",
-      rows: [["DL032 - Inventory #", "Not mapped: the list numbers its items itself"], ["Parent", "Not mapped"], ["Code", "Not mapped"], ["Product", "Column headed Product"],
-        ["Location", "Column headed Location"], ["Inventory Quantity (U)", "Column headed Qty"]],
+      rows: [["DL032 - Inventory #", "Not mapped: the list numbers its items itself"], ["Parent", "Not mapped"], ["Code", "Not mapped"], ["Product", "Product"],
+        ["Location", "Location"], ["Inventory Quantity (U)", "Qty"]],
       lines: ["Each column mapped is named by its heading alone, so Cardigan cannot say which columns are not used."] });
     // A mapping without a way to tell items apart, as one into a module, has no such line.
     expect(mappingView({ ...INVENTORY, matchedBy: undefined }).match).toBeUndefined();
@@ -89,14 +89,14 @@ describe("An import's mapping, in the drawer's words", () => {
     // As the export reads the user's import into a numbered list matched by its code (model/import-mappings.test.ts).
     const BY_CODE: ImportMapping = { id: "112000000171", name: "Division by code", importType: "HIERARCHY_DATA",
       targets: [{ target: "Division", source: "none" }, column("Code", 1, "Code"), column("Parent", 2, "Region")] };
-    expect(mappingView(BY_CODE)).toEqual({ rows: [["Division", "Not mapped"], ["Code", "Column 1: Code"], ["Parent", "Column 2: Region"]],
+    expect(mappingView(BY_CODE)).toEqual({ rows: [["Division", "Not mapped"], ["Code", "Code"], ["Parent", "Region"]],
       lines: ["Columns 1 and 2 are both used.", "Whether there are columns after column 2 is not known: Anaplan keeps the import's mapping, not the header row it was made from."] });
   });
 
   it("shows a row of Target and Source for each target, or what stands in their place", () => {
     const DIVISION: ImportMapping = { id: "112000000001", name: "Division from HQ Network.csv", importType: "HIERARCHY_DATA",
       targets: [column("Division", 1, "Division Name"), column("Parent", 2, "Region"), { target: "Code", source: "none" }] };
-    expect(mappingView(DIVISION)).toEqual({ rows: [["Division", "Column 1: Division Name"], ["Parent", "Column 2: Region"], ["Code", "Not mapped"]],
+    expect(mappingView(DIVISION)).toEqual({ rows: [["Division", "Division Name"], ["Parent", "Region"], ["Code", "Not mapped"]],
       lines: ["Columns 1 and 2 are both used.", "Whether there are columns after column 2 is not known: Anaplan keeps the import's mapping, not the header row it was made from."] });
     // An import whose definition could not be read says why; one of another kind says what it loads.
     expect(mappingView({ ...DIVISION, importType: "", targets: [], note: "Cardigan could not read this import's mapping." }))
