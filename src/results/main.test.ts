@@ -3881,7 +3881,8 @@ describe("The navigation bar of the results page", () => {
     expect(page.id("navList").children.map(item => (item.querySelector("button") ?? item).focusable)).toEqual([true, true, true]);
     expect(page.all("#navGroupModules .nav-item").map(item => item.focusable)).toEqual([false, false]);
     goTo(1);
-    expect([line(), page.document.activeElement === page.id("view")]).toEqual([["Overview", "Line Items (holds the view shown): Modules, Line Items (shown)", "Model map"], true]);
+    // The group's button keeps its own name, whichever of its tables is shown: it is marked, and its menu marks the table.
+    expect([line(), page.document.activeElement === page.id("view")]).toEqual([["Overview", "Modules (holds the view shown): Modules, Line Items (shown)", "Model map"], true]);
     // The entry is the one marked as the page; its group's button is marked as current, not as the page.
     expect([page.all('#navList [aria-current="page"]').map(entryLabel), page.all('#navList [aria-current="true"]').map(button => button.getAttribute("aria-controls"))])
       .toEqual([["Line Items"], ["navGroupModules"]]);
