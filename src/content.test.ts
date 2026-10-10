@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { NO_CUSTOMER } from "./model-pages.js";
 import { assemble } from "./pieces.test-support.js";
 import type { AnalysisResult } from "./result-types.js";
 import { EXTENSION, FakePort } from "./tab-port.test-support.js";
@@ -10,6 +11,19 @@ const APP = "01234567-89ab-cdef-0123-456789abcdef";
 const PROTOCOL = "cardigan-model-export";
 const [SHELL, CORE] = ["https://us1a.app.anaplan.com", "https://eu2a.app.anaplan.com"];
 const MODEL_BUILDING = `/a/modeling/customers/${WS}/models/${MODEL}/modules`;
+
+/** A model's export as the frame hands it over: its details and one grid. */
+const exportedModel = (): AnalysisResult => ({ kind: "model", name: "Model one", id: MODEL, zipName: "Model one - Model Export - 2026-09-28.zip", summary: ["Versions: 1 rows"],
+  tables: [{ file: "Model Details.csv", label: "Model Details", headers: ["Section", "Detail", "Value"], rows: [["Model", "Model", "Model one"], ["Model", "Workspace ID", WS]],
+    guard: true, details: true }, { file: "Versions.csv", label: "Versions", headers: ["", "Is Actual"], rows: [["Actual", "true"]], guard: false }] });
+/** That export as the results page gets it when the pages built on the model are not read, for `why` (model-pages.ts). */
+function withoutPages(why: string): AnalysisResult {
+  const result = exportedModel();
+  const files = ["Module Usage", "Page Filters", "Page Actions"];
+  result.summary.push(...files.map(file => `${file}: not exported (${why}).`));
+  result.tables[0].rows.push(...files.map(file => ["Files", `${file}.csv`, `Not exported: ${why}`]));
+  return result;
+}
 
 type Listener = (event: { data: unknown; origin: string; source: unknown }) => void;
 
@@ -225,26 +239,44 @@ describe("The content scripts on an Anaplan page", () => {
     expect(frame.asked.map(message => message.type)).toEqual(["ack", "run"]);
     const { nonce } = frame.asked[1];
 
-    const exported: AnalysisResult = { kind: "model", name: "Model one", id: MODEL, zipName: "Model one - Model Export - 2026-09-28.zip", summary: ["Versions: 1 rows"],
-      tables: [{ file: "Model Details.csv", label: "Model Details", headers: ["Section", "Detail", "Value"], rows: [["Model", "Model", "Model one"]], guard: true, details: true },
-        { file: "Versions.csv", label: "Versions", headers: ["", "Is Actual"], rows: [["Actual", "true"]], guard: false }] };
     hear({ protocol: PROTOCOL, type: "status", nonce, text: "Reading Versions…" }, CORE, frame);
     // The frame's sign of life before each page of a grid is for this script alone: the results page is sent nothing for it.
     hear({ protocol: PROTOCOL, type: "alive", nonce }, CORE, frame);
-    hear({ protocol: PROTOCOL, type: "done", nonce, result: exported }, CORE, frame);
+    hear({ protocol: PROTOCOL, type: "done", nonce, result: exportedModel() }, CORE, frame);
     await vi.advanceTimersByTimeAsync(0);
-    expect(port.types()).toEqual(["log", "status", "log", "result", "rows", "rows", "done"]);
-    expect(port.received.slice(0, 3)).toEqual([{ type: "log", text: `01:59:09 Cardigan dev: model ${MODEL} on us1a.app.anaplan.com` },
-      { type: "status", text: "Reading Versions…" }, { type: "log", text: "01:59:09 Reading Versions…" }]);
-    expect(assemble(port.received)).toEqual(exported);
-    // Nothing went to Anaplan from this window, and nothing was asked of it: the frame did the reading.
-    expect([vi.mocked(globalThis.fetch).mock.calls, vi.mocked(globalThis.WebSocket).mock.calls, posted]).toEqual([[], [], []]);
+    // Then this window reads the pages built on the model, for the customer the address names. Anaplan answers that the
+    // session has ended: the export is handed on all the same, and says why it has no tables of those pages.
+    expect(port.types()).toEqual(["log", "status", "log", "status", "log", "log", "result", "rows", "rows", "done"]);
+    expect(port.received.slice(0, 6)).toEqual([{ type: "log", text: `01:59:09 Cardigan dev: model ${MODEL} on us1a.app.anaplan.com` },
+      { type: "status", text: "Reading Versions…" }, { type: "log", text: "01:59:09 Reading Versions…" },
+      { type: "status", text: "Reading the pages built on this model…" }, { type: "log", text: "01:59:09 Reading the pages built on this model…" },
+      { type: "log", text: "01:59:09 pages built on the model: SIGNED_OUT (HTTP 401)" }]);
+    expect(assemble(port.received)).toEqual(withoutPages("you're signed out of Anaplan"));
+    // The frame did the export's reading. This window asked Anaplan for one thing, with GET, opened no socket, and asked the frame nothing more.
+    expect(vi.mocked(globalThis.fetch).mock.calls.map(([url, init]) => [url, init?.method]))
+      .toEqual([[`${SHELL}/a/springboard-definition-service/customer/${WS}/model/${MODEL}/pages`, "GET"]]);
+    expect([vi.mocked(globalThis.WebSocket).mock.calls, posted]).toEqual([[], []]);
 
     // The results page closes during the next run: the frame is told to stop.
     port.say({ type: "run" });
     await vi.advanceTimersByTimeAsync(0);
     port.close();
     expect(frame.asked.slice(2).map(message => [message.type, message.nonce === frame.asked[2].nonce])).toEqual([["run", true], ["stop", true]]);
+  });
+
+  it("reads nothing of the pages built on a model where the address names no customer, and says so", async () => {
+    at(`/a/modeling/workspaces/${WS}/models/${MODEL}`);
+    await import("./content.js");
+    const frame = { asked: [] as { type: string; nonce?: string }[], postMessage(message: { type: string; nonce?: string }) { this.asked.push(message); } };
+    hear({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL }, CORE, frame);
+    const port = open();
+    expect(port.take()).toEqual([{ type: "subject", subject: { kind: "model", id: MODEL } }]);
+    port.say({ type: "run" });
+    await vi.advanceTimersByTimeAsync(0);
+    hear({ protocol: PROTOCOL, type: "done", nonce: frame.asked[1].nonce, result: exportedModel() }, CORE, frame);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(assemble(port.received)).toEqual(withoutPages(NO_CUSTOMER));
+    expect([vi.mocked(globalThis.fetch).mock.calls, vi.mocked(globalThis.WebSocket).mock.calls]).toEqual([[], []]);
   });
 
   it("announces the model from its core frame to the page around it, and puts nothing on the page", async () => {
