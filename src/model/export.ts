@@ -7,7 +7,7 @@ import { ACCESS_LABEL, accessTable } from "./access.js";
 import { actionKind, mergeImports, missingActionColumns, otherActionsTable, type ActionKind } from "./actions.js";
 import { CALENDAR_HEADERS, calendarRows } from "./calendar.js";
 import { gridTable, type Grid, type GridRow, type Table } from "./grid.js";
-import { fileImports, IMPORT_DEFINITION, importMappings, importNames } from "./import-mappings.js";
+import { fileImports, IMPORT_DEFINITION, importMappings, importNames, importsLine } from "./import-mappings.js";
 import { lineItemsTable } from "./lineitems.js";
 import { axis, loadNative, readGrid, typeIndex, type Native } from "./native.js";
 
@@ -42,17 +42,15 @@ const HOW_TO_READ: readonly [detail: string, value: string][] = [
 const NOTHING_READ = "Cardigan could not read any of this model's settings. Check that the model is open and that you can see its Model settings in Anaplan, "
   + `then choose Run again. ${SEND_LOG}`;
 
-/** The model's settings as the result's tables: Model Details.csv, then one file per grid that could be read, with Dynamic
- * Cell Access.csv after Line Items.csv where that file has what it is made from. Once the export was asked to stop,
- * `progress` throws at its next step and `stop` before the next page of a grid's rows (bridge.ts `serveCore`), and that
- * ends it. */
-/** The entity type of a module (native.ts `typeIndex`). */
+/** The entity type of a module: the first three digits of its ID, as Anaplan's long IDs carry their type (102 and nine
+ * more digits), and the type the model's client says an ID is of (native.ts `typeIndex`). */
 const MODULE_TYPE = 102;
 
 /** Each module's name and ID, from the grids that list modules: Modules, and Line Items, which has a row of each module's
  * own above its line items. The results page opens a module in Model Building by its ID (results/main.ts). An ID is a
- * module's where the model's client says so; where the client cannot say, by the type an ID starts with, as Anaplan's
- * long IDs carry it (102 and nine more digits). A name is kept once, with its first ID. */
+ * module's by the type it starts with; the model's client is asked only of an ID that does not start so, and adds it
+ * where it says it is a module's. Its word takes away no ID that starts with a module's type: the client's numbers for
+ * the types could differ from the IDs' own, and then none would be found. A name is kept once, with its first ID. */
 export function moduleIdsOf(native: Native, grids: readonly (Grid | undefined)[]): [string, string][] {
   const found = new Map<string, string>();
   for (const grid of grids) {
@@ -60,12 +58,23 @@ export function moduleIdsOf(native: Native, grids: readonly (Grid | undefined)[]
       const [id] = row.ids;
       const name = row.labels[0] ?? "";
       if (!Number.isSafeInteger(id) || id <= 0 || name === "" || found.has(name)) continue;
-      const type = typeIndex(native, id);
-      if (type === MODULE_TYPE || (type < 0 && Math.floor(id / 1e9) === MODULE_TYPE)) found.set(name, String(id));
+      if (Math.floor(id / 1e9) === MODULE_TYPE || typeIndex(native, id) === MODULE_TYPE) found.set(name, String(id));
     }
   }
   return [...found];
 }
+
+/** The log's line on the modules' IDs: how many were found, and the first row of the grids that list modules, by its ID and
+ * the type the model's client says it is of, which tell why an ID was not found. Nothing else of the row is written. */
+export function moduleIdsLine(native: Native, grids: readonly (Grid | undefined)[], found: number): string {
+  const row = grids.find(grid => grid?.rows.length)?.rows[0];
+  return `Module IDs: ${found} found; ${row ? `the first row listed has ID ${row.ids[0]}, of type ${typeIndex(native, row.ids[0])} by the model's client` : "no grid lists a module"}`;
+}
+
+/** The model's settings as the result's tables: Model Details.csv, then one file per grid that could be read, with Dynamic
+ * Cell Access.csv after Line Items.csv where that file has what it is made from. Once the export was asked to stop,
+ * `progress` throws at its next step and `stop` before the next page of a grid's rows (bridge.ts `serveCore`), and that
+ * ends it. The result carries the modules' IDs, none found or not: a result without them is one an earlier version made. */
 
 export async function exportModel(progress: Progress, diagnostics: () => string, stop?: Stop): Promise<AnalysisResult> {
   const log: Log = progress.log;
@@ -129,6 +138,9 @@ export async function exportModel(progress: Progress, diagnostics: () => string,
     add("Modules", gridTable(read));
     return read;
   });
+  // Both grids that list modules have been read, or have failed: the modules' IDs are taken now, and the log says how many.
+  const moduleIds = moduleIdsOf(native, [modules, lineItems]);
+  log(moduleIdsLine(native, [modules, lineItems], moduleIds.length));
   const lists = await step("General Lists", async () => {
     const read = await grid("General Lists", axis(native, "HIERARCHY"), native.axisHelper.getHierarchySystemAxisIdentifier());
     add("General Lists", gridTable(read));
@@ -175,8 +187,14 @@ export async function exportModel(progress: Progress, diagnostics: () => string,
   // Each import from a file with its mapping, out of its own definition (import-mappings.ts): one grid more, read only where
   // the Imports tab names such an import. It is no table, and its failure is none: the Imports table stands as it is, each
   // of those imports says that its mapping could not be read, and the log says why. The step is reported before the read,
-  // as every grid's is, so that an export asked to stop reads nothing more.
+  // as every grid's is, so that an export asked to stop reads nothing more. The log says first what the Imports tab holds,
+  // whether an import reads a file or not, and the result carries the mappings once the tab was read, none or not: a
+  // result without them is one an earlier version made.
   let mappings: ImportMapping[] | undefined;
+  if (imports) {
+    log(importsLine(imports));
+    mappings = [];
+  }
   if (imports && fileImports(imports).length) {
     progress.status("Reading Import mappings…");
     let definitions: Grid | undefined;
@@ -251,7 +269,6 @@ export async function exportModel(progress: Progress, diagnostics: () => string,
   ];
   tables.unshift({ file: "Model Details.csv", label: "Model Details", headers: [...DETAILS_HEADERS], rows: plainRows(details), guard: true, details: true });
   const date = new Date().toISOString().slice(0, 10);
-  const moduleIds = moduleIdsOf(native, [modules, lineItems]);
   return { kind: "model", name: model, id: native.modelId, zipName: `${fileSafe(model, "model")} - Model Export - ${date}.zip`, tables,
-    summary: [...summary, ...notes], ...(moduleIds.length ? { moduleIds } : {}), ...(mappings ? { importMappings: mappings } : {}) };
+    summary: [...summary, ...notes], moduleIds, ...(mappings ? { importMappings: mappings } : {}) };
 }

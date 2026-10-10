@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { PAGE_FILTERS_HEADERS } from "../model-pages.js";
 import { HEADERS } from "../report.js";
 import type { Cell, ResultTable } from "../result-types.js";
 import { buildModelGraph } from "./build-graph.js";
@@ -376,22 +377,24 @@ describe("The model map's graph, from the tables of a model export", () => {
   it("lists a line item's page filters from the Page Filters table, by its module's name and its own, and draws nothing of them", () => {
     const tables = [lineItems(moduleRow("REV01 Revenue"), item("REV01 Revenue", "Revenue"), item("REV01 Revenue", "Units"), moduleRow("REV02 Margin"),
       item("REV02 Margin", "Revenue"))];
-    /** A row of the table a model's run writes (model-pages.ts): an app's Filters row with the app in front. */
-    const headers = ["App", ...HEADERS.Filters];
-    const filter = (app: string, page: string, card: number, lineItem: string, module: string): Cell[] => headers.map(header =>
-      ({ App: app, Page: page, "Card #": card, "Condition line item": lineItem, "Condition line item's module": module } as Record<string, Cell>)[header] ?? "-");
-    const filters = file("Page Filters", headers, [filter("Planning app", "Demand board", 3, "Revenue", "REV01 Revenue"),
-      filter("Another app", "Supply board", 1, "Revenue", "REV01 Revenue"), filter("Planning app", "Margins", 2, "Revenue", "REV02 Margin"),
-      // A line item the map does not have, a condition that names none, and names with spaces at their ends.
-      filter("Planning app", "Demand board", 4, "Gone", "REV01 Revenue"), filter("Planning app", "Demand board", 5, "-", "-"),
-      filter("Planning app", "Spaced", 6, " Units ", "REV01 Revenue ")]);
-    const graph = buildModelGraph([...tables, filters]);
-    expect(graph.nodes.map(node => [node.name, node.pageFilters])).toEqual([["REV01 Revenue", undefined],
-      ["Revenue", [{ app: "Planning app", page: "Demand board", card: "3" }, { app: "Another app", page: "Supply board", card: "1" }]],
-      ["Units", [{ app: "Planning app", page: "Spaced", card: "6" }]], ["REV02 Margin", undefined], ["Revenue", [{ app: "Planning app", page: "Margins", card: "2" }]]]);
-    // Nothing else changes: the same links, names and sentences as without the table.
-    const plain = buildModelGraph(tables);
-    expect([graph.edges, graph.unresolved, graph.limitations]).toEqual([plain.edges, plain.unresolved, plain.limitations]);
+    // The table as a model's run writes it (model-pages.ts), its condition's module first, and as 0.12.0's first runs
+    // wrote it, an app's Filters rows with the app in front: each column is read by its name, the first one too.
+    for (const headers of [PAGE_FILTERS_HEADERS, ["App", ...HEADERS.Filters]]) {
+      const filter = (app: string, page: string, card: number, lineItem: string, module: string): Cell[] => headers.map(header =>
+        ({ App: app, Page: page, "Card #": card, "Condition line item": lineItem, "Condition line item's module": module } as Record<string, Cell>)[header] ?? "-");
+      const filters = file("Page Filters", [...headers], [filter("Planning app", "Demand board", 3, "Revenue", "REV01 Revenue"),
+        filter("Another app", "Supply board", 1, "Revenue", "REV01 Revenue"), filter("Planning app", "Margins", 2, "Revenue", "REV02 Margin"),
+        // A line item the map does not have, a condition that names none, and names with spaces at their ends.
+        filter("Planning app", "Demand board", 4, "Gone", "REV01 Revenue"), filter("Planning app", "Demand board", 5, "-", "-"),
+        filter("Planning app", "Spaced", 6, " Units ", "REV01 Revenue ")]);
+      const graph = buildModelGraph([...tables, filters]);
+      expect(graph.nodes.map(node => [node.name, node.pageFilters]), headers[0]).toEqual([["REV01 Revenue", undefined],
+        ["Revenue", [{ app: "Planning app", page: "Demand board", card: "3" }, { app: "Another app", page: "Supply board", card: "1" }]],
+        ["Units", [{ app: "Planning app", page: "Spaced", card: "6" }]], ["REV02 Margin", undefined], ["Revenue", [{ app: "Planning app", page: "Margins", card: "2" }]]]);
+      // Nothing else changes: the same links, names and sentences as without the table.
+      const plain = buildModelGraph(tables);
+      expect([graph.edges, graph.unresolved, graph.limitations], headers[0]).toEqual([plain.edges, plain.unresolved, plain.limitations]);
+    }
   });
 
   it("takes a row with no Module Name for a line item, and leaves it out, when it has a format, a formula or a summary", () => {

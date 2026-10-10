@@ -492,9 +492,6 @@ export interface TableView {
   /** The column whose cell opens a row, by its place in the table, for a table in which that is not the first column
    * shown. While that column is not among those shown, the first one opens the row, as in any table. */
   opensFrom?: number;
-  /** What a double-click on a row does, as every row's title says it: for a model's Line Items and Modules, which open the
-   * row's module in Anaplan. */
-  rowTitle?: string;
   /** The columns shown, in the table's order. */
   columns: readonly Column[];
   /** Each column's width in ch, by its place in the table's headers, worked out from every row of the table and not
@@ -608,8 +605,7 @@ export function tableParts(view: TableView): TableParts {
       <button type="button" class="btn sm" data-act="reset">Clear search &amp; filters</button>
       </div>`;
   } else {
-    const tr = view.rowTitle === undefined ? "<tr>" : `<tr title="${esc(view.rowTitle)}">`;
-    body = view.rows.map(row => `${tr}${view.columns.map((column, position) =>
+    body = view.rows.map(row => `<tr>${view.columns.map((column, position) =>
       `<td class="${column.num ? "num" : ""}">${position === opens ? rowCellHtml(column, row, view.links) : cellHtml(column, row, view.links)}</td>`).join("")}</tr>`).join("");
   }
 
@@ -743,6 +739,29 @@ export function rowDrawerHtml(columns: readonly Column[], row: Row, links: Links
   readUnder?: ReadonlyMap<number, string>, mapping?: MappingView): string {
   return `<div class="d-sec"><h3>All columns</h3>
     ${allColumns(columns, row, links, exported, items, readUnder)}</div>${mapping ? importMappingHtml(mapping) : ""}`;
+}
+
+/** Where a button at the top right of a row's details leads: the model map, a module of the model in Model Building, an
+ * app, or a page of an app. */
+export type OpenKind = "map" | "module" | "app" | "page";
+/** One such button: where it leads, its few words, and what it opens, by name, which its title says. */
+export interface OpenButton { kind: OpenKind; label: string; title: string }
+
+/** The icon of each kind of button, a drawing of where it leads: the map's folded map, as the navigation's; the model, as a
+ * box, for a module opened in it; an app as a window with its bar; and a page with its text, as the Pages table's. */
+export const OPEN_ICONS: Readonly<Record<OpenKind, string>> = {
+  map: NAV_ICONS.map,
+  module: navIcon('<path d="M8 1.6 14 4.9v6.2L8 14.4 2 11.1V4.9Z"/><path d="M2 4.9 8 8.2l6-3.3M8 8.2v6.2"/>'),
+  app: navIcon('<rect x="1.8" y="2.6" width="12.4" height="10.8" rx="2"/><path d="M1.8 6h12.4"/><path d="M4.2 4.3h.01M6.2 4.3h.01" stroke-width="1.8"/>'),
+  page: FILE_ICONS.get(APP_FILES.Pages) ?? NAV_ICONS.table,
+};
+
+/** The buttons at the top right of a row's details, one under another, each with its icon and its words, and its title
+ * naming what it opens. A button is named by its place among them, a number the page counts itself: what it opens is the
+ * page's, read from the row it holds, never from the markup. */
+export function opensHtml(opens: readonly OpenButton[]): string {
+  return opens.map((open, index) =>
+    `<button type="button" class="btn primary sm" data-act="open" data-open="${index}" title="${esc(open.title)}">${OPEN_ICONS[open.kind]}<span>${esc(open.label)}</span></button>`).join("");
 }
 
 /** Under a row's name in the drawer: which row of which table it is. `position` is the row's place in the file, from 1. */

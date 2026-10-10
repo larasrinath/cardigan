@@ -3,6 +3,7 @@ import { Failure, failureOf, REFRESH, SEND_LOG, UNEXPECTED, type Progress, type 
 import { plainResult, textOf } from "./result-plain.js";
 import type { AnalysisResult } from "./result-types.js";
 import { SCOPE_ID, sleep } from "./util.js";
+import { BUILD } from "./version.js";
 
 /** The Model Building page (`/a/modeling/…/models/{id}`) is a shell; the classic model client runs in a core frame inside it,
  * often on another data centre's host. The export must read there,
@@ -22,13 +23,23 @@ export const NO_MODEL = "Cardigan could not reach the model inside this page. If
   + `otherwise refresh the Anaplan tab, then click the Cardigan icon again. ${SEND_LOG}`;
 export const QUIET = "The model stopped answering while Cardigan was reading it. Check that it is still open in the Anaplan tab, then choose Run again.";
 export const UNREADABLE = `Cardigan could not read what the model's page sent back. ${REFRESH} ${SEND_LOG}`;
+/** What the user is told when the model's reader in the tab is of another build than the content script: Chrome puts the
+ * reader into a page as it loads, and a reload of the extension takes it out of no page, so a model open since before an
+ * update still has the earlier reader, which the results page cannot put back as it puts back the content script. Read
+ * with it, a model's result would lack what the earlier build did not read. */
+export const OLD_READER = "This Anaplan tab was open before Cardigan was updated or reloaded, and still holds the earlier Cardigan's model reader. "
+  + "Refresh the Anaplan tab, wait until the model shows, then choose Run again.";
 
 export interface Endpoint { postMessage(message: unknown, targetOrigin: string, transfer?: Transferable[]): void }
 export interface MessageTarget {
   addEventListener(type: "message", listener: (event: MessageEvent) => void): void;
   removeEventListener(type: "message", listener: (event: MessageEvent) => void): void;
 }
-export interface CoreHandle { source: Endpoint; origin: string; modelId: string }
+/** A model's reader as it announced itself: its window, its origin, the model it holds, and its build (version.ts `BUILD`),
+ * which a reader made before builds were marked does not say. */
+export interface CoreHandle { source: Endpoint; origin: string; modelId: string; build?: string }
+/** A build's mark as a reader says it: a few letters and digits, which the log may quote. */
+const BUILD_MARK = /^[\w.-]{1,40}$/;
 
 // Messages are structured clones from another window; fields are checked before use.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -45,7 +56,7 @@ export function watchCore(self: MessageTarget, onCore: (core: CoreHandle) => voi
     if (data?.type !== "core-ready" || typeof data.modelId !== "string" || !SCOPE_ID.test(data.modelId) || !event.source) return;
     const source = event.source as unknown as Endpoint;
     source.postMessage({ protocol: PROTOCOL, type: "ack" }, event.origin);
-    onCore({ source, origin: event.origin, modelId: data.modelId });
+    onCore({ source, origin: event.origin, modelId: data.modelId, ...(typeof data.build === "string" && BUILD_MARK.test(data.build) ? { build: data.build } : {}) });
   });
 }
 
@@ -98,7 +109,9 @@ export function runInCore(self: MessageTarget, core: CoreHandle, progress: Progr
 }
 
 /** Shell side: the model's own frame (the classic client inside this page) does the reading. Waits for it to check in,
- * asking every frame once a second, then runs the export there. `model` is the model the page's address names. */
+ * asking every frame once a second, then runs the export there. `model` is the model the page's address names. A frame
+ * whose reader is of another build than this script, or says none, is not asked: the tab has to be refreshed first
+ * (`OLD_READER`), and the log says which builds the two are. */
 export async function exportInCore(self: Window, core: () => CoreHandle | undefined, probes: () => Iterable<FrameProbe>, model: string, progress: Progress,
   signal?: AbortSignal, waitMs = WAIT_FOR_CORE_MS): Promise<AnalysisResult> {
   const deadline = Date.now() + waitMs;
@@ -113,6 +126,7 @@ export async function exportInCore(self: Window, core: () => CoreHandle | undefi
   for (const probe of seen) progress.log(describeProbe(probe));
   const found = core();
   if (!found) throw new Failure(NO_MODEL, seen.length ? `the model's frame did not answer; ${seen.length} frame(s) reported in` : "no frame reported in");
+  if (found.build !== BUILD) throw new Failure(OLD_READER, `the model's reader is ${found.build === undefined ? "of a build that names none" : `build ${found.build}`}; this script is build ${BUILD}`);
   if (found.modelId.toUpperCase() !== model.toUpperCase()) progress.log("the model frame reports a different model than this page's address");
   return runInCore(self, found, progress, undefined, signal);
 }
@@ -168,7 +182,7 @@ export function greetFrames(root: Window, depth = 0): void {
 export function serveCore(self: MessageTarget, top: Endpoint, modelId: () => string | undefined,
   exporter: (progress: Progress, diagnostics: () => string, stop: Stop) => Promise<AnalysisResult>, announceMs = 2000, announceForMs = 10 * 60_000): () => void {
   let running: { nonce: string; origin: string; stopped: boolean } | undefined;
-  const announce = () => { const id = modelId(); if (id) top.postMessage({ protocol: PROTOCOL, type: "core-ready", modelId: id }, "*"); };
+  const announce = () => { const id = modelId(); if (id) top.postMessage({ protocol: PROTOCOL, type: "core-ready", modelId: id, build: BUILD }, "*"); };
   const timer = setInterval(announce, announceMs);
   const stopAnnouncing = setTimeout(() => clearInterval(timer), announceForMs);
   announce();
