@@ -240,21 +240,22 @@ export const ACCESS_ZIP_0_8_1 = bytes([
   "DRJgAATW9kZWwgQ2FsZW5kYXIuY3N2UEsFBgAAAAAMAAwA2wIAACo0AAAAAA==",
 ].join(""));
 
-/** What 0.8.1 read for that model, in order: each grid's row axis and the rows asked for. Nothing is read for the file. */
-export const ACCESS_READS_0_8_1 = ["LINE ITEMS 0+1", "LINE ITEMS 0+16", "MODULES 0+1", "MODULES 0+5", "LISTS 0+1", "LISTS 0+2", "ACTIONS 0+1", "ACTIONS 0+10", "IMPORTS 0+1", "IMPORTS 0+2",
-  "DATA SOURCES 0+1", "TIME RANGES 0+1", "VERSIONS 0+1", "VERSIONS 0+2", "CALENDAR 0+1", "CALENDAR 0+10"];
+/** What the export reads for that model, in order: each grid's row axis and the rows asked for. Nothing is read for the
+ * file. 0.8.1 read the same grids, each with a read of one row before its pages: a grid now starts with its first page. */
+export const ACCESS_READS_0_8_1 = ["LINE ITEMS 0+1333", "MODULES 0+1333", "LISTS 0+1333", "ACTIONS 0+1333", "IMPORTS 0+1333",
+  "DATA SOURCES 0+1333", "TIME RANGES 0+1333", "VERSIONS 0+1333", "CALENDAR 0+1333"];
 
 /** What the export reads and says that 0.8.1 did not, for a model with an import from a file, as this model has one (Prices
  * from prices.csv, in the grids it shares with 0.6.1's model, model/model.test.ts `GOLDEN_GRIDS`): the grid of the
  * imports' definitions, which hold each import's mapping (model/import-mappings.ts). It is read right after the Imports
- * tab, with the same row axis, a first row and then the rest (`reads`, after the read `after`). Its lines of the log come
+ * tab, with the same row axis, in its first page (`reads`, after the read `after`). Its lines of the log come
  * right after the Imports tab's line (`said`, after the line `saidAfter`): what the tab holds, by Source Type, the step,
  * the grid's line, how the import's definition is made, and how many were read and found. Model Details.csv has them as
  * Diagnostics rows, each as the row's whole line of the file (`rows`). Nothing else is read or said for the mappings, and
  * no table is made of them: the result carries them beside its tables. */
 export const MAPPINGS_ADDED = {
-  after: "IMPORTS 0+2",
-  reads: ["IMPORTS 0+1", "IMPORTS 0+2"],
+  after: "IMPORTS 0+1333",
+  reads: ["IMPORTS 0+1333"],
   saidAfter: "Imports: 2 rows × 6 columns; columns: Source Label | Source Object | Source Type | Target Object | Target Type | Production Data",
   said: ["Import mappings: 2 imports; Source Types: SAVED VIEW ×1, FILE ×1; 1 mapping to read", "Reading Import mappings…", "Import mappings: 2 rows × 2 columns; columns: Notes | Import Definition",
     "Import mapping 112000000002: keys importType, target, mappings; 4 mappings: [targetType, target, sourceType, sourceColumnId, sourceColumnName] column ×4",
@@ -298,9 +299,37 @@ function withSaid(lines: readonly string[], added: { saidAfter: string; said: re
   return [...lines.slice(0, at + 1), ...added.said.map(line => `${stamp}${line}`), ...lines.slice(at + 1)];
 }
 
+/** A grid's line in the log, as the export says it once the grid's first page is read (model/native.ts `readGrid`), with
+ * the time it is stamped with where it is: the stamp, the grid's name and its rows. */
+const GRID_LINE = /^((?:\d\d:\d\d:\d\d )?)(.+?): (\d+) rows × \d+ columns; columns: /;
+/** The line the export says of a page of a grid, once the grid is read: which rows it held, and how long it took. */
+export const PAGE_TIME = /^(?:\d\d:\d\d:\d\d )?.+?: rows \d+–\d+ in \d+\.\d\d s$/;
+
+/** Lines of the log, with what the export says that 0.8.1 did not after each grid's line: once the grid is read, how long
+ * each of its pages took (model/native.ts `readGrid`). Each grid of these models is one page, which the tests' clock,
+ * standing still, reads in no time: a grid with rows gains one line right after its own, stamped as its own is, and a
+ * grid of none gains none. Nothing more is read for them. */
+export function withPageTimes(lines: readonly string[]): string[] {
+  return lines.flatMap(line => {
+    const [, stamp, grid, rows] = GRID_LINE.exec(line) ?? [];
+    if (rows === undefined || Number(rows) === 0) return [line];
+    if (Number(rows) > 1333) throw new Error(`${grid} has more rows than one page holds.`);
+    return [line, `${stamp}${grid}: rows 0–${Number(rows) - 1} in 0.00 s`];
+  });
+}
+
+/** Model Details.csv's text with the same lines as Diagnostics rows, each right after the row of its grid's line. */
+export function withPageTimeRows(csv: string): string {
+  return csv.split("\r\n").flatMap(line => {
+    const row = /^Diagnostics,(\d\d:\d\d:\d\d),"?(.+?): (\d+) rows × \d+ columns; columns: /.exec(line);
+    return row && Number(row[3]) > 0 ? [line, `Diagnostics,${row[1]},${row[2]}: rows 0–${Number(row[3]) - 1} in 0.00 s`] : [line];
+  }).join("\r\n");
+}
+
 /** Lines of the log as 0.8.1 said them, in order, with the lines the export says now that 0.8.1 did not: on the modules'
- * IDs (`MODULE_IDS_ADDED`), and on the imports' definitions (`MAPPINGS_ADDED`), each where the export says them. */
-export const withLinesSaid = (lines: readonly string[]): string[] => withSaid(withSaid(lines, MODULE_IDS_ADDED), MAPPINGS_ADDED);
+ * IDs (`MODULE_IDS_ADDED`), on the imports' definitions (`MAPPINGS_ADDED`), and on the time each grid's page took
+ * (`withPageTimes`), each where the export says them. */
+export const withLinesSaid = (lines: readonly string[]): string[] => withPageTimes(withSaid(withSaid(lines, MODULE_IDS_ADDED), MAPPINGS_ADDED));
 
 /** What is deliberately not what 0.8.1 wrote for this model because the export has gained a file: the file itself, which
  * stands right after Line Items.csv in the zip, and the two rows of Model Details.csv about it, each as the row's whole
@@ -342,9 +371,11 @@ export const ACCESS_ROWS_REWORDED = [ACCESS_ROWS_FOR_THE_PAGE[0], ACCESS_ROWS_FO
 
 /** 0.8.1's text of this model's Model Details.csv as the file is written now: those five rows in their present words,
  * the two rows about the file added, the row on Source Models, and the Diagnostics rows on the modules' IDs
- * (`MODULE_IDS_ADDED`) and on the imports' definitions (`MAPPINGS_ADDED`). */
+ * (`MODULE_IDS_ADDED`), on the imports' definitions (`MAPPINGS_ADDED`) and on the time each grid's page took
+ * (`withPageTimeRows`). */
 export const withAccessRows = (csv: string): string =>
-  withRowsAdded(withRowsReworded(csv, ACCESS_ROWS_REWORDED), [ACCESS_FILE_ADDED.written, ACCESS_FILE_ADDED.howToRead, MODEL_ROW_ADDED, MODULE_IDS_ADDED.rows, MAPPINGS_ADDED.rows]);
+  withPageTimeRows(withRowsAdded(withRowsReworded(csv, ACCESS_ROWS_REWORDED), [ACCESS_FILE_ADDED.written, ACCESS_FILE_ADDED.howToRead, MODEL_ROW_ADDED, MODULE_IDS_ADDED.rows,
+    MAPPINGS_ADDED.rows]));
 
 /** The model's zip as 0.8.1 wrote it but for that: every file's bytes as they are in `ACCESS_ZIP_0_8_1`, with five lines
  * of Model Details.csv replaced and nine added (three rows of the file's own, a Diagnostics row on the modules' IDs and

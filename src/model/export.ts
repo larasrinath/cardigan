@@ -71,6 +71,14 @@ export function moduleIdsLine(native: Native, grids: readonly (Grid | undefined)
   return `Module IDs: ${found} found; ${row ? `the first row listed has ID ${row.ids[0]}, of type ${typeIndex(native, row.ids[0])} by the model's client` : "no grid lists a module"}`;
 }
 
+/** The IDs of each row of the Line Items grid, as the result carries them beside its Line Items table, row for row
+ * (result-types.ts `lineItemIds`): the row's own, and for a line item its module's, the label's second entity, which a
+ * module's own row does not have. An ID that is no whole number above 0 is given as none. */
+export function lineItemIdsOf(grid: Grid): [string, string][] {
+  const id = (value: number | undefined): string => (value !== undefined && Number.isSafeInteger(value) && value > 0 ? String(value) : "");
+  return grid.rows.map(row => [id(row.ids[0]), row.ids.length > 1 ? id(row.ids[1]) : ""]);
+}
+
 /** The model's settings as the result's tables: Model Details.csv, then one file per grid that could be read, with Dynamic
  * Cell Access.csv after Line Items.csv where that file has what it is made from. Once the export was asked to stop,
  * `progress` throws at its next step and `stop` before the next page of a grid's rows (bridge.ts `serveCore`), and that
@@ -146,10 +154,13 @@ export async function exportModel(progress: Progress, diagnostics: () => string,
     add("General Lists", gridTable(read));
     return read;
   });
+  /** The IDs of the Line Items table's rows, where the table was made: the pages built on the model are read with them. */
+  let lineItemIds: [string, string][] | undefined;
   if (lineItems) {
     // A table that cannot be made is its file's failure, as it was while the table was made in the file's own step.
     try {
       add("Line Items", lineItemsTable(lineItems, lists), undefined, lineItemsAt);
+      lineItemIds = lineItemIdsOf(lineItems);
     } catch (error) {
       fail("Line Items", error, lineItemsAt);
     }
@@ -270,5 +281,5 @@ export async function exportModel(progress: Progress, diagnostics: () => string,
   tables.unshift({ file: "Model Details.csv", label: "Model Details", headers: [...DETAILS_HEADERS], rows: plainRows(details), guard: true, details: true });
   const date = new Date().toISOString().slice(0, 10);
   return { kind: "model", name: model, id: native.modelId, zipName: `${fileSafe(model, "model")} - Model Export - ${date}.zip`, tables,
-    summary: [...summary, ...notes], moduleIds, ...(mappings ? { importMappings: mappings } : {}) };
+    summary: [...summary, ...notes], moduleIds, ...(mappings ? { importMappings: mappings } : {}), ...(lineItemIds ? { lineItemIds } : {}) };
 }
