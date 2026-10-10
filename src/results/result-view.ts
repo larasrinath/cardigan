@@ -614,9 +614,9 @@ const TILE_LABELS: ReadonlyMap<string, string> = new Map([
 
 export interface Overview {
   /** Every file but the Details file, in the navigation's order (`listedTables`), with the number of rows its table lists.
-   * Where that is not the number of rows the file has, because its table does not list them all, `inAll` is the file's
-   * own number: the tile says both, so the count the Details file gives for the file is on the overview either way. */
-  tiles: { label: string; count: number; inAll?: number }[];
+   * A tile says that one number: where a table leaves rows of its file out, as a Model Calendar's does, the line under the
+   * table's name says how many and why. */
+  tiles: { label: string; count: number }[];
   /** The result's notes (`resultNotes`). */
   notes: string[];
   /** About this export: the Details file's rows of every section but its files, its notes, how to read them and the log,
@@ -628,8 +628,8 @@ export interface Overview {
   /** The Details file's rows about files, as far as a file's tile does not say the same: a file that was not exported,
    * and a count that comes with a remark. Each is named as the page names the table: by the table's own label where the
    * result has the file, and otherwise by the file's name without its extension. A row that says only how many rows a
-   * file of the result has is left to the tile, which says that very number: as its count, or as the rows there are
-   * in all where its table lists another number. */
+   * file of the result has is left out: the file's tile says how many rows its table lists, and where that is fewer,
+   * the line under the table's name says how many are left out and why. */
   files: [table: string, value: string][];
   /** How to read these tables: the Details file's rows of that section. */
   howToRead: [detail: string, value: string][];
@@ -646,12 +646,12 @@ function followOn(rows: [detail: string, value: string][], after: string, detail
 }
 
 export function overviewOf(result: AnalysisResult): Overview {
-  // A tile counts the rows the file's table lists, and says the file's own number beside it where the two differ. The
-  // words change no row, so the count needs the file's rule only.
+  // A tile counts the rows the file's table lists, and nothing more. The words change no row, so the count needs the
+  // file's rule only.
   // In the order of `listedTables`, which is the navigation's: the page opens a tile's table by that order.
   const tiles = listedTables(result).map(({ table }) => {
     const count = ruledView(result, table).table.rows.length;
-    return { label: TILE_LABELS.get(table.file) ?? cellText(table.label), count, ...(count === table.rows.length ? {} : { inAll: table.rows.length }) };
+    return { label: TILE_LABELS.get(table.file) ?? cellText(table.label), count };
   });
 
   const sections = detailSections(detailsOf(result));
@@ -662,8 +662,9 @@ export function overviewOf(result: AnalysisResult): Overview {
   }
   // What an app is built on is said with what the app is: its models follow its ID, before its categories and pages.
   if (result.kind === "app") followOn(about, "App ID", "Models");
-  // A Files row that says only the file's own number of rows is said by the file's tile. The Details file says "1 rows"
-  // too: a count is the file's number of rows and the word, whatever the number.
+  // A Files row that says only the file's own number of rows is left out: the file's tile says how many rows its table
+  // lists, and a table that leaves rows out says so under its name. The Details file says "1 rows" too: a count is the
+  // file's number of rows and the word, whatever the number.
   const onlyCounted = new Map(result.tables.map(table => [table.file, `${table.rows.length} rows`]));
   // A row names its file, extension and all, which no user is to see: it is said under the name the page has for the table.
   const labels = new Map(result.tables.map(table => [table.file, cellText(table.label)]));

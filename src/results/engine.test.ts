@@ -223,11 +223,15 @@ describe("The results page against the engine in the Anaplan tab", () => {
     expect([calendar?.rows.length, calendar && fileView(result, calendar).note, calendar && fileView(result, calendar).table.rows.length, modelFacts(result)])
       .toEqual([31, "5 rows about the model are not listed here: 3 hold a value, which the Overview has under About this export. 16 settings have no value and are not listed: they do not apply to this calendar type, or the model does not show them.", 10, [["Workspace", "Workspace one"], ["Model", "Demand: plan"], ["Captured on", "2026-09-28"]]]);
     // The overview loses none of the counts the export's Details file gives. Each row that only counts a file is said by
-    // the file's tile: as the rows its table lists, or, for the calendar, whose table lists 10 of its 31, as the rows in all.
+    // the file's tile, as the rows its table lists, but for the calendar's: its table lists 10 of its 31, and the line under
+    // the table's name says the rest, 5 rows about the model and 16 settings with no value.
     const overview = overviewOf(result);
     const counts = (detailsOf(result)?.rows ?? []).filter(row => row[0] === "Files" && /^\d+ rows$/.test(String(row[2]))).map(row => `${String(row[1]).replace(/\.csv$/, "")}: ${row[2]}`);
-    const onTiles = overview.tiles.flatMap(tile => [tile.count, ...(tile.inAll === undefined ? [] : [tile.inAll])].map(rows => `${tile.label}: ${rows} rows`));
-    expect([counts.length, counts.filter(line => !onTiles.includes(line)), overview.tiles.find(tile => tile.label === "Model Calendar")]).toEqual([10, [], { label: "Model Calendar", count: 10, inAll: 31 }]);
+    const onTiles = overview.tiles.map(tile => `${tile.label}: ${tile.count} rows`);
+    expect([counts.length, counts.filter(line => !onTiles.includes(line)), overview.tiles.find(tile => tile.label === "Model Calendar")])
+      .toEqual([10, ["Model Calendar: 31 rows"], { label: "Model Calendar", count: 10 }]);
+    const leftOut = /^(\d+) rows about the model are not listed here.* (\d+) settings have no value and are not listed/.exec(calendar ? fileView(result, calendar).note ?? "" : "");
+    expect(10 + Number(leftOut?.[1]) + Number(leftOut?.[2])).toBe(31);
     // The export says three things both in its summary and in a Files row: how many imports it matched, and that two files
     // were not exported, the source models and Dynamic Cell Access, which it makes from Line Items and for which this
     // model's Line Items grid lacks the three columns it is made from. The overview says each once, with the tables and
