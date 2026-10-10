@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { describeProbe, exportInCore, NO_MODEL, OLD_READER, probeFrame, PROTOCOL, QUIET, runInCore, serveCore, UNREADABLE, watchCore, watchProbes, type CoreHandle,
+import { describeProbe, exportInCore, NO_MODEL, OLD_READER, openInCore, probeFrame, PROTOCOL, QUIET, runInCore, serveCore, serveOpen, UNREADABLE, watchCore, watchProbes,
+  type CoreHandle,
   type Endpoint, type FrameProbe } from "./bridge.js";
 import { NOT_SCOPE_IDS, SCOPE_IDS } from "./guards.test-support.js";
 import { readGrid, type Native } from "./model/native.js";
@@ -771,5 +772,67 @@ describe("Model export bridge between the Model Building page and the model's co
     const stop = serveCore(core, { postMessage: message => { posts.push(message); } }, () => MODEL, async () => exported(), 60_000);
     expect(posts).toEqual([{ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD }]);
     stop();
+  });
+});
+
+describe("Opening a module in the Model Building page through the model's core frame", () => {
+  const MODULE = "102000000001";
+
+  it("asks the frame that holds the model, which opens the module and says whether it did, to the page that asked alone", async () => {
+    const shell = new FakeWindow(SHELL);
+    const core = new FakeWindow(CORE);
+    let handle: CoreHandle | undefined;
+    watchCore(shell, found => { handle = found; });
+    serveCore(core, shell.seenBy(core), () => MODEL, async () => exported(), 5);
+    const asked: string[][] = [];
+    let opens: () => Promise<boolean> = async () => true;
+    const stop = serveOpen(core, shell.seenBy(core), (model, module) => { asked.push([model, module]); return opens(); });
+    await settle();
+    expect(await openInCore(shell, handle!, MODEL, MODULE)).toBe(true);
+    expect(asked).toEqual([[MODEL, MODULE]]);
+    // A frame that could not, and one whose opening fails, say no.
+    opens = async () => false;
+    expect(await openInCore(shell, handle!, MODEL, MODULE)).toBe(false);
+    opens = () => Promise.reject(new Error("no client"));
+    expect(await openInCore(shell, handle!, MODEL, MODULE)).toBe(false);
+    // The frame takes an ask only from the page around it, and only one as the page writes it: anything else opens
+    // nothing and is not answered.
+    asked.length = 0;
+    const other = new FakeWindow(SHELL);
+    core.receive({ protocol: PROTOCOL, type: "open", nonce: "ask", model: MODEL, module: MODULE }, SHELL, other.seenBy(core));
+    core.receive({ protocol: PROTOCOL, type: "open", nonce: "ask", model: MODEL, module: MODULE }, "https://example.com", shell.seenBy(core));
+    for (const odd of [{ nonce: 5, model: MODEL, module: MODULE }, { nonce: "ask", model: "FEDCBA98", module: MODULE }, { nonce: "ask", model: MODEL, module: "10200000000x" },
+      { nonce: "ask", model: MODEL, module: 102000000001 }, { nonce: "ask", model: MODEL }]) {
+      core.receive({ protocol: PROTOCOL, type: "open", ...odd }, SHELL, shell.seenBy(core));
+    }
+    core.receive({ protocol: "another", type: "open", nonce: "ask", model: MODEL, module: MODULE }, SHELL, shell.seenBy(core));
+    await settle();
+    expect(asked).toEqual([]);
+    // Once stopped, the frame opens nothing more: the page's ask goes unanswered, and is given up after its wait.
+    stop();
+    expect(await openInCore(shell, handle!, MODEL, MODULE, 20)).toBe(false);
+    expect(asked).toEqual([]);
+  });
+
+  it("takes the answer only from the frame it asked, from that frame's origin and for its own ask, and gives up after its wait", async () => {
+    const shell = new FakeWindow(SHELL);
+    const asked: { type: string; nonce: string; model: string; module: string }[] = [];
+    const source: Endpoint = { postMessage: message => { asked.push(message as { type: string; nonce: string; model: string; module: string }); } };
+    const handle: CoreHandle = { source, origin: CORE, modelId: MODEL, build: BUILD };
+    let over: boolean | undefined;
+    void openInCore(shell, handle, MODEL, MODULE, 60).then(opened => { over = opened; });
+    expect(asked).toEqual([{ protocol: PROTOCOL, type: "open", nonce: expect.any(String), model: MODEL, module: MODULE }]);
+    const { nonce } = asked[0];
+    const another: Endpoint = { postMessage: () => undefined };
+    shell.receive({ protocol: PROTOCOL, type: "opened", nonce, opened: true }, CORE, another);
+    shell.receive({ protocol: PROTOCOL, type: "opened", nonce, opened: true }, SHELL, source);
+    shell.receive({ protocol: PROTOCOL, type: "opened", nonce: "another ask", opened: true }, CORE, source);
+    await settle();
+    expect(over).toBeUndefined();
+    shell.receive({ protocol: PROTOCOL, type: "opened", nonce, opened: true }, CORE, source);
+    await settle();
+    expect(over).toBe(true);
+    // A frame that never answers: no, once the wait is over.
+    expect(await openInCore(shell, handle, MODEL, MODULE, 20)).toBe(false);
   });
 });
