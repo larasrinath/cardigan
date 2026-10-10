@@ -2,6 +2,15 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version stands next to Cardigan's name at the top of the results page and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## 0.15.5 (10 October 2026)
+
+No arrow drawn as text anywhere on the page.
+
+- **The map's buttons say their words alone.** A box's details offer "Open its 15 line items", where they read "Open its 15 line items →"; so does every other button there. (#PR)
+- **Marks are drawn.** The map's path separates its parts with a chevron, as its lists draw theirs; the pager's **Previous** and **Next** each draw a chevron, and a sorted column's mark is a chevron up or down, in place of the text marks they showed. Screen readers hear the buttons' names and the header's sort, as before. (#PR)
+- **Colour stops in words.** A formatting rule's stops read "#F5A5B1 at -10; #627786 at 100,000", where they read "-10 → #F5A5B1; 100,000 → #627786", in **Conditional Formatting** and in a card's **Conditional formatting**. Each colour still has its square, the filter still lists each stop, and the search finds them as written. (#PR)
+- **What stays the same.** What is read, every other table cell for cell, and how the page sorts, filters and turns its pages. (#PR)
+
 ## 0.15.4 (10 October 2026)
 
 An import's **Mapping** names a column by the file's header for it.
