@@ -33,7 +33,11 @@ export type Subject = { kind: "app" | "model"; id: string; origin?: string; cust
 /** Page to tab. */
 export type PageMessage =
   /** Analyse what the tab shows; progress and then the result follow. A "run" while one is in progress is ignored. */
-  | { type: "run" };
+  | { type: "run" }
+  /** Open a module of `model` inside the Model Building page the tab shows, beside the modules open there, as Model
+   * Building's own Modules list opens one. `module` is the module's ID. One "opened" answers it, with the same `nonce`;
+   * it can be asked at any time, while a run goes on or without one. */
+  | { type: "open"; nonce: string; model: string; module: string };
 
 /** Tab to page. */
 export type TabMessage =
@@ -51,7 +55,10 @@ export type TabMessage =
   /** The run failed; `message` is a plain sentence for the user. `code` is "SIGNED_OUT" when Anaplan's session has ended.
    * An "error" can also arrive after "result" and "rows", in place of "done", when a piece of the result could not be
    * sent: the result is then incomplete and must not be shown. */
-  | { type: "error"; message: string; code?: "SIGNED_OUT" };
+  | { type: "error"; message: string; code?: "SIGNED_OUT" }
+  /** The answer to an "open": whether the page took the module, and in a few words how, or why not, for the log. It
+   * belongs to no run. */
+  | { type: "opened"; nonce: string; opened: boolean; detail: string };
 
 /** One "rows" message holds at most ROWS_MAX rows, and is cut earlier once the text of its cells passes ROWS_MAX_CHARS,
  * so a message stays far below Chrome's size limit however large a model is. */
