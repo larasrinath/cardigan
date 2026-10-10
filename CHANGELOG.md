@@ -6,7 +6,7 @@ Every merged change that alters the extension has a version of its own: a new fe
 
 Model Calendar's Section starts hidden.
 
-- **Model Calendar's Section starts hidden**, as its Allowed values do: every setting the table lists is in the same section, so the column said the same on every row. The column chooser shows it, the search reads it, and a row's details list it. (#PR)
+- **Model Calendar's Section starts hidden**, as its Allowed values do: every setting the table lists is in the same section, so the column said the same on every row. The column chooser shows it, the search reads it, and a row's details list it. (#35)
 - **What stays the same.** What is read, and what the table holds.
 
 ## 0.15.0 (10 October 2026)
