@@ -97,6 +97,9 @@ describe("The results page's files", () => {
       ["body:has(#mapHost:not([hidden])) > .banners,body:has(#mapHost:not([hidden])) > .shell", "width:100%"],
       ["body:has(#mapHost:not([hidden])) > .shell", "flex:1 1 0;min-height:0;padding:12px"],
       ["main:has(> #mapHost:not([hidden]))", "align-self:stretch;display:flex;flex-direction:column"],
+      // The one time the place stands over the page: the map fills the window, where the browser would not give it the
+      // screen. Only the page's toasts stand over it then.
+      ["#mapHost:has(> .map-full-window)", "z-index:85"],
     ]);
     expect(rules("[hidden]")[0]).toEqual(["[hidden]", "display:none !important"]);
   });
