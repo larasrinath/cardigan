@@ -1,5 +1,8 @@
 import type { GraphNode, ModelGraph, ModelMap, ModelMapOptions } from "./graph-types.js";
-import { boxAround, bringIntoView, centreOn, countInView, defaultInsets, easeCamera, fitCameraIn, hitNode, insetsOf, roomsBeside, stepFrom, toWorld, zoomAt, type Area, type Camera, type Direction, type Insets, type MinimapTransform } from "./map-camera.js";
+import {
+  boxAround, bringIntoView, centreOn, countInView, defaultInsets, easeCamera, fitCameraIn, hitNode, insetsOf, reveal as revealIn, roomsBeside, stepFrom, toScreen, toWorld, zoomAt,
+  type Area, type Camera, type Direction, type Insets, type MinimapTransform,
+} from "./map-camera.js";
 import { createFonts, drawMinimap, drawScene, legibleFrom, type Fonts, type Pen } from "./map-canvas.js";
 import { moduleGraph, modulesGraph, sectionsGraph, type Box, type ViewGraph, type ViewNode } from "./map-graphs.js";
 import { inspect, statusWords, traceWords, viewSentence, type Inspection, type TraceWords } from "./map-inspect.js";
@@ -87,6 +90,12 @@ const FIT_MARGIN = 20;
 const ARROWS: Record<string, Direction> = { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down" };
 /** How soon and how near a second press must follow the first to go into the node, in milliseconds and CSS pixels. */
 const DOUBLE_PRESS = { within: 450, near: 8 } as const;
+/** How far a pointer may go while it is pressed, in CSS pixels, and still be a press and no drag: a hand that shakes a
+ * little as it clicks moves neither the box nor the picture. A finger or a pen moves further than a mouse does. */
+const PRESS_SLOP: Readonly<Record<string, number>> = { mouse: 5, pen: 8, touch: 10 };
+/** The room kept around a box the camera moves to uncover, in the graph's units: as much as is kept around a box the
+ * search or the details go to. */
+const UNCOVER_MARGIN = 8;
 /** Below this zoom a box picked from the search or the details is too small to be told from its neighbours: the camera
  * then goes to it. */
 const TELLING_ZOOM = 0.62;
@@ -202,11 +211,8 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   let heading: Camera | undefined;
   /** Whether the picture is to show the whole graph: it was fitted so as it opened, or the user asked for the whole of
    * it (F, Fit, Whole map), and has not moved it since. It is then fitted again whenever its room changes, as far as
-   * its names stay readable, and when a selection that moved it is cleared. */
+   * its names stay readable. */
   let wantsWhole = false;
-  /** For a picture that is not to show the whole graph: where the camera stood before a selection moved it. It goes
-   * back there when the selection is cleared, unless the user has moved it since. */
-  let rest: Camera | undefined;
   /** Whether a node was dragged: the graph then keeps its places when the room changes. */
   let moved = false;
   let selected: ViewNode | undefined;
@@ -226,7 +232,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   let hovered: ViewNode | undefined;
   /** Whether the user opened or closed the legend: until then it is open where the picture has the room for it. */
   let legendWanted: boolean | undefined;
-  let drag: { pointer: number; node: ViewNode | undefined; x: number; y: number; ox: number; oy: number; nodeX: number; nodeY: number; moved: boolean; home?: { wantsWhole: boolean; rest: Camera | undefined } } | undefined;
+  let drag: { pointer: number; node: ViewNode | undefined; x: number; y: number; ox: number; oy: number; nodeX: number; nodeY: number; slop: number; moved: boolean; home?: { wantsWhole: boolean } } | undefined;
   /** The last press on a node that was no drag: a second one at the same place soon after goes into that node. */
   let lastPress: { node: ViewNode; time: number; x: number; y: number } | undefined;
   /** The timer that lets presses through the details for a moment after a press opened them. */
@@ -384,7 +390,6 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
       const shift = (to: Camera): Camera => ({ ox: to.ox + (width - laidOut!.width) / 2, oy: to.oy + (height - laidOut!.height) / 2, k: to.k });
       camera = shift(camera);
       if (heading) heading = shift(heading);
-      if (rest) rest = shift(rest);
     }
     laidOut = { width, height };
     // A canvas that changes its size is cleared: it is drawn again at once, before the cleared one could be shown.
@@ -423,6 +428,17 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     return found.length || !freeArea ? found : [insetsOf(freeArea, width, height, FIT_MARGIN)];
   }
 
+  /** The rooms the panels leave the picture, as far as they reach: with no margin kept inside them, and however small. A
+   * box whole in one of them is in view, and under none of the panels. Where the page is not laid out, the room the
+   * bar and the details take by default. */
+  function openRooms(): Insets[] {
+    const freeArea = areaOf(free);
+    if (!freeArea) return [defaultInsets(width, height, selected !== undefined)];
+    const panels = [areaOf(legend), areaOf(about), areaOf(dock), areaOf(corner)].filter((area): area is Area => area !== undefined);
+    const found = roomsBeside(freeArea, panels).map(room => insetsOf(room, width, height));
+    return found.length ? found : [insetsOf(freeArea, width, height)];
+  }
+
   /** Sets where the picture is seen from, at once or over a few frames. The line at the foot says from that moment what
    * is in view where the camera comes to rest. */
   function go(to: Camera, animate: boolean): void {
@@ -439,7 +455,6 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   /** The user has taken the camera somewhere: it stays where they put it. */
   function ownCamera(): void {
     wantsWhole = false;
-    rest = undefined;
   }
 
   /** What the whole picture covers: every box of the graph, or those of the trace while the view keeps to it. */
@@ -459,7 +474,6 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     }
     needsFit = false;
     wantsWhole = true;
-    rest = undefined;
     footFor(true);
     go(fitCameraIn(wholeBox(onScreen), width, height, rooms()), animate);
   }
@@ -534,7 +548,6 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     });
     order = undefined;
     moved = false;
-    rest = undefined;
     const whole = fitCameraIn(wholeBox(current), width, height, list);
     wantsWhole = whole.k >= floor;
     if (wantsWhole) {
@@ -549,19 +562,17 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     const room = list.reduce((best, each) => ((width - each.l - each.r) * (height - each.t - each.b) > (width - best.l - best.r) * (height - best.t - best.b) ? each : best));
     const k = fullFrom(current);
     const start: Camera = { ox: room.l - current.bounds.x * k, oy: room.t - current.bounds.y * k, k };
-    const to = selected ? beside(current, selected, list, start, floor) : start;
-    if (to !== start) rest = start;
-    go(to, false);
+    go(selected ? beside(current, selected, list, start, floor) : start, false);
   }
 
-  /** Puts the camera where the picture is to be seen from, for the room there is now: after a selection, and after the
-   * details or a panel opened or closed. The opening's rule holds every time: the picture is never taken so far away
-   * that a box no longer holds a readable line.
+  /** Puts the camera where the picture is to be seen from, for the room there is now: after a box was gone to (the
+   * search, a link of the details, a row of the page, an arrow key), and after a panel opened or closed or the trace
+   * was kept to. The opening's rule holds every time: the picture is never taken so far away that a box no longer holds
+   * a readable line.
    * - A picture that is to show the whole graph is fitted whole where that can be read; in a room too small for it the
    *   legend closes first, where the user has not asked for it.
    * - Otherwise, with a box selected, the camera moves just far enough to have it in view beside the details, with the
-   *   boxes it has links with where those fit too. With none selected, it goes back to where it stood before a
-   *   selection moved it.
+   *   boxes it has links with where those fit too. With none selected, it stays where it is.
    * The line at the foot says how much of the graph is then in view. */
   function reframe(animate: boolean): void {
     if (!onScreen) return;
@@ -587,15 +598,35 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
       footFor(false);
       const to = beside(current, selected, rooms(), from, floor);
       if (to === from) renderStatus();
-      else {
-        if (!wantsWhole) rest ??= from;
-        go(to, animate);
-      }
-    } else if (rest) {
-      const back = rest;
-      rest = undefined;
-      go(back, animate);
+      else go(to, animate);
     } else renderStatus();
+  }
+
+  /** Where the picture is seen from after the user pressed a box: from where it is, while the box is whole in view and
+   * clear of the details and the other panels. Where one of them covers it, or it stands partly outside the canvas,
+   * the camera moves by the least it must for the box to be whole beside them, with a little room around it, and at the
+   * zoom it has: a press never takes the picture nearer or further away, and never fits it again. The boxes the box
+   * has links with stay where they are: the line at the foot says how much of the graph is in view. */
+  function uncover(node: ViewNode): void {
+    if (width <= 0 || height <= 0) return renderStatus();
+    const from = heading ?? camera;
+    // The line at the foot first, as it stands beside the details just opened: where it has more to say it takes more
+    // of the foot, and may cover the box.
+    renderStatus();
+    const [left, top] = toScreen(from, node.x, node.y);
+    const right = left + node.w * from.k;
+    const bottom = top + node.h * from.k;
+    if (openRooms().some(room => left >= room.l && top >= room.t && right <= width - room.r && bottom <= height - room.b)) return;
+    // The room is measured with the line at the foot as it may stand once part of the picture is out of view.
+    footFor(false);
+    const cost = (to: Camera): number => Math.abs(to.ox - from.ox) + Math.abs(to.oy - from.oy);
+    let best: Camera | undefined;
+    for (const room of rooms()) {
+      const to = revealIn(from, node, width, height, room, UNCOVER_MARGIN * from.k);
+      if (!best || cost(to) < cost(best)) best = to;
+    }
+    if (!best || best === from) renderStatus();
+    else go(best, true);
   }
 
   function zoom(factor: number, x = width / 2, y = height / 2): void {
@@ -992,7 +1023,9 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     if (onScreen) announce(viewSentence(onScreen, options.modelName));
   }
 
-  function select(node: ViewNode | undefined): void {
+  /** Selects a box, or none. `deliberate` is for a box the user went to, by the search, a link of the details, a row of
+   * the page or an arrow key; a box pressed on the canvas is no such box. */
+  function select(node: ViewNode | undefined, deliberate = false): void {
     if (!model || !onScreen) return;
     const had = selected !== undefined;
     selected = node;
@@ -1003,8 +1036,10 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     if (node && traced) announce(traced.sentence);
     else if (had) announce("Selection cleared.");
     invalidate();
-    // The details opened or closed, or another box is selected: the picture is brought beside them.
-    if (node || had) reframe(true);
+    // A box gone to is brought beside the details. A box pressed moves only where the details or another panel would
+    // cover it, by no more than that. A selection cleared moves nothing.
+    if (node && deliberate) reframe(true);
+    else if (node) uncover(node);
     else renderStatus();
   }
 
@@ -1015,7 +1050,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     const current = onScreen;
     const node = current?.byId.get(id);
     if (!node || !current) return;
-    select(node);
+    select(node, true);
     const from = heading ?? camera;
     if (from.k >= TELLING_ZOOM || width <= 0 || height <= 0) return;
     const full = fullFrom(current);
@@ -1028,7 +1063,6 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
       const alone = boxAround([node], 24);
       to = alone ? fitCameraIn(alone, width, height, list, full) : from;
     }
-    if (!wantsWhole) rest ??= from;
     go(to, true);
   }
 
@@ -1099,10 +1133,8 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     const from = heading ?? camera;
     // The boxes that are left, all in view at once where every one of them then holds its name.
     const kept = on && !wantsWhole && width > 0 && height > 0 ? fitCameraIn(wholeBox(onScreen), width, height, rooms()) : undefined;
-    if (kept && kept.k >= leastZoom(onScreen, from)) {
-      rest ??= from;
-      go(kept, true);
-    } else reframe(true);
+    if (kept && kept.k >= leastZoom(onScreen, from)) go(kept, true);
+    else reframe(true);
     invalidate();
   }
 
@@ -1402,7 +1434,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     else if (target === canvas && ARROWS[key]) {
       const [nearX, nearY] = toWorld(camera, width / 2, height / 2);
       const next = stepFrom(onScreen.nodes, isShown, selected, ARROWS[key], nearX, nearY);
-      if (next) select(next);
+      if (next) select(next, true);
       else announce(selected ? `No box ${ARROWS[key] === "up" ? "above" : ARROWS[key] === "down" ? "below" : `to the ${ARROWS[key]} of`} ${selected.fullName}.` : "No box on the map.");
     } else if (target === canvas && key === "Enter" && selected) enter(selected);
     else used = false;
@@ -1438,14 +1470,15 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     if (event.button !== 0 || !onScreen) return;
     const [x, y] = place(event);
     const node = hitNode(onScreen.nodes, isShown, camera, x, y, order);
-    // A press stops a camera that is on its way, where it is. Should the press turn out to be a click and no drag, the
-    // picture is still to go where it was going: what it was to show is kept for that.
-    const home = heading ? { wantsWhole, rest } : undefined;
+    // A press stops a camera that is on its way, where it is. Should the press turn out to be a click and no drag,
+    // whether the picture was to be whole is kept for that.
+    const home = heading ? { wantsWhole } : undefined;
     if (heading) {
       heading = undefined;
       ownCamera();
     }
-    drag = { pointer: event.pointerId, node, x, y, ox: camera.ox, oy: camera.oy, nodeX: node?.x ?? 0, nodeY: node?.y ?? 0, moved: false, ...(home ? { home } : {}) };
+    const slop = PRESS_SLOP[event.pointerType] ?? PRESS_SLOP.mouse;
+    drag = { pointer: event.pointerId, node, x, y, ox: camera.ox, oy: camera.oy, nodeX: node?.x ?? 0, nodeY: node?.y ?? 0, slop, moved: false, ...(home ? { home } : {}) };
     // The canvas keeps the pointer while it is down, so that a drag goes on outside it. A pointer the browser does not
     // know cannot be kept, and the drag then ends at the canvas's edge.
     try { canvas.setPointerCapture?.(event.pointerId); } catch { /* not kept */ }
@@ -1459,7 +1492,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     if (drag) {
       const dx = x - drag.x;
       const dy = y - drag.y;
-      if (Math.hypot(dx, dy) > 4) drag.moved = true;
+      if (Math.hypot(dx, dy) > drag.slop) drag.moved = true;
       if (!drag.moved) return;
       if (drag.node) {
         // The node dragged lies over the others from now on: where it is let go, it is not under another.
@@ -1523,10 +1556,11 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
       lastPress = undefined;
       return;
     }
-    // A click, and no drag: a camera it stopped on its way keeps what it was to show.
-    if (held.home) ({ wantsWhole, rest } = held.home);
+    // A click, and no drag: a camera it stopped on its way stays where it stopped. Whether the picture is to show the
+    // whole graph stays as it was, for the next time its room changes.
+    if (held.home) wantsWhole = held.home.wantsWhole;
     // A second press at the same place soon after the first goes into the node the first one was on, whatever is under
-    // the pointer by now: the first press may have moved the camera.
+    // the pointer by now: the first press may have uncovered its box from under the details.
     const now = env.now();
     const first = lastPress;
     lastPress = undefined;
