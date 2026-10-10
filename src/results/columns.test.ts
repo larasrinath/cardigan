@@ -3,8 +3,9 @@ import { PAGE_ACTIONS_HEADERS, PAGE_FILTERS_HEADERS } from "../model-pages.js";
 import { MODEL_PAGE_FILES, MODULE_USAGE_FILE, MODULE_USAGE_HEADERS, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, PAGE_PLACE_HEADERS } from "../page-files.js";
 import { HEADERS, type TabName } from "../report.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
-import { APP_FILES, cardsNamed, cardsOf, COLUMN_CHOICES, columnIndex, columnsOf, FILTER_MAX, FILTER_MIN, MODEL_COUNTS, MODEL_FILTERED, MODEL_HIDDEN, NUMBERS_HIDDEN, ROW_NAME_COLUMNS, rowColumns, rowKeys, rowNameIndex,
-  writesNone } from "./columns.js";
+import { APP_FILES, cardsNamed, cardsOf, COLUMN_CHOICES, columnIndex, columnsOf, FILTER_MAX, FILTER_MIN, FREE_TEXT, MEASURES, MODEL_COUNTS, MODEL_FILTERED, MODEL_HIDDEN, NUMBERS_HIDDEN,
+  ROW_NAME_COLUMNS, rowColumns, rowKeys, rowNameIndex, writesNone } from "./columns.js";
+import { cellText } from "./table-engine.js";
 import { MODEL_FILE_ORDER } from "./result-view.js";
 
 /** The app export's files, as the page names them, and the report table each holds. */
@@ -190,8 +191,9 @@ describe("The results page's columns", () => {
     const headers = Object.keys(columns);
     const rows = values(90).map((_, row) => Object.values(columns).map(column => column[row]));
     const lineItems: ResultTable = { ...table("Line Items.csv", [...headers, "Missing"]), rows: rows.map((row, index) => (index % 2 ? [...row, "there"] : row)) };
+    // Thirty-one texts that each stand in three rows offer one too: a column of many texts does, as long as they repeat.
     expect(Object.fromEntries(columnsOf(lineItems).map(column => [column.label, column.filter]))).toEqual({
-      Name: false, One: false, Two: true, Thirty: true, "Thirty-one": false, Numbers: true, Blank: true, "All blank": false, Missing: true });
+      Name: false, One: false, Two: true, Thirty: true, "Thirty-one": true, Numbers: true, Blank: true, "All blank": false, Missing: true });
     // Nothing else about the column changes with it.
     expect(columnsOf(lineItems).every(column => column.kind === "text" && !column.num && !column.hidden)).toBe(true);
     // Texts that differ only in case, or in a space, are different texts, as the filter lists them.
@@ -199,6 +201,46 @@ describe("The results page's columns", () => {
     expect(columnsOf(cased).map(column => column.filter)).toEqual([true, true]);
     // Without rows no column of a model's file has anything to filter.
     expect(columnsOf(table("Line Items.csv", headers)).some(column => column.filter)).toBe(false);
+  });
+
+  it("offers a filter past thirty texts where they repeat, but not on a row's name, free text, an ID, a measure, numbers or dates, or texts each in one row", () => {
+    expect([FREE_TEXT, MEASURES]).toEqual([["Formula", "Notes", "Text content", "Description"], ["Cell Count", "Populated Cell Count", "Memory Used", "Calculation Effort",
+      "Item Count", "Next item index", "Most recent duration (ms)", "Start Date and Time (UTC)", "Last published"]]);
+    const pad = (number: number) => String(number).padStart(2, "0");
+    /** Ninety rows of a model's Line Items, and what each column holds in each. */
+    const cells: Record<string, (row: number) => string> = {
+      // The row's own name: forty-five names, each in two rows. The search finds a name.
+      "": row => `Line ${row % 45}`,
+      // Forty modules, each in several rows: the filter lists them.
+      "Module Name": row => `Module ${row % 40}`,
+      // Free text, an ID and a measure, each by its header, with forty texts that repeat.
+      Formula: row => `Units * ${row % 40}`, Notes: row => `Note ${row % 40}`, "Line item ID": row => `li-${row % 40}`, "Cell Count": row => String(row % 40),
+      // Numbers, a share and dates, by what they hold, under headers the page knows nothing of.
+      Size: row => String(1000 + (row % 40)), Share: row => `${(row % 40) / 10}%`, Started: row => `2026-${pad(1 + (row % 12))}-${pad(1 + (row % 28))}`,
+      // Codes, each in one row, beside blanks: the blank says nothing, so nothing that says something repeats.
+      Code: row => (row % 3 ? "" : `C${row}`),
+      // Names listed in a cell: each cell is its own, but its first item stands in two rows.
+      "Applies To": row => `List ${row % 45}, Time ${row}`,
+      // Few texts: a filter, whatever they are.
+      "Is Summary": row => (row % 2 ? "true" : "false"), Few: row => String(row % 5),
+    };
+    const headers = Object.keys(cells);
+    const lineItems: ResultTable = { ...table("Line Items.csv", headers), rows: Array.from({ length: 90 }, (_, row) => headers.map(header => cells[header](row))) };
+    const listed = new Map([[headers.indexOf("Applies To"), (text: string) => text.split(", ")]]);
+    expect(Object.fromEntries(columnsOf(lineItems, listed).map(column => [column.label, column.filter]))).toEqual({
+      Name: false, "Module Name": true, Formula: false, Notes: false, "Line item ID": false, "Cell Count": false, Size: false, Share: false, Started: false, Code: false,
+      "Applies To": true, "Is Summary": true, Few: true });
+    // Read whole, each cell of Applies To stands in one row alone: it is the list's items that repeat.
+    expect(columnsOf(lineItems).find(column => column.label === "Applies To")?.filter).toBe(false);
+    // With thirty texts or fewer, each of them offers a filter, as it always did: a name, free text, an ID and a measure too.
+    const few: ResultTable = { ...lineItems, rows: lineItems.rows.map(row => row.map(cell => cellText(cell).replace(/\d+/g, digits => String(Number(digits) % 3)))) };
+    expect(columnsOf(few, listed).filter(column => !column.filter).map(column => column.label)).toEqual([]);
+    // In an app's table, a column the design shows as a number keeps to thirty texts, and any other column of many texts
+    // that repeat offers one: a button's action, beside its card's number.
+    const actions: ResultTable = { ...appTable("Action Buttons.csv"), rows: Array.from({ length: 90 }, (_, row) => HEADERS.Actions.map(header =>
+      (header === "Card #" ? row : header === "Model action name" ? `Action ${row % 40}` : header === "Page" ? "Overview" : "-"))) };
+    const offered = columnsOf(actions).filter(column => column.filter).map(column => column.label);
+    expect([offered.includes("Model action name"), offered.includes("Card #")]).toEqual([true, false]);
   });
 
   it("always offers a filter on the data type of a line item's format, which the page adds to a model's Line Items, however many texts it holds", () => {
