@@ -2,6 +2,13 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version stands next to Cardigan's name at the top of the results page and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## 0.15.4 (10 October 2026)
+
+An import's **Mapping** names a column by the file's header for it.
+
+- **The header alone.** Where an import keeps the header of the file's column that feeds a target, its **Source** reads that header and nothing else, "Product" where it read "Column headed Product" or "Column 3: Product". A column the import keeps only by its place reads "Column 3", as before, and one it keeps only by an identifier "Column with ID …".
+- **What stays the same.** The lines under the mapping, which still count the columns by their places; what is read; and the diagnostic log.
+
 ## 0.15.3 (10 October 2026)
 
 An update no longer asks for a refresh of an open model's tab.
