@@ -8,7 +8,7 @@ Cardigan only reads, with your own signed-in session, and nothing it reads leave
 
 ![An app's Overview on the results page, under the navigation bar: the number of rows in each table, what was read and when under About this export, and the notes](docs/images/app-overview.png)
 
-The pictures on this page show an invented app and model. They leave out the bar at the top of the page.
+The pictures on this page show an invented app and model.
 
 ## What you get
 
@@ -51,7 +51,7 @@ Then it reads the pages built on the model, in every app you can open, and makes
 - On the Overview, under **About this export**, **Apps** names the apps whose pages use the model, one per line, or says that no app's pages use it.
 - **Model Calendar** lists the calendar's settings that hold a value: a setting that does not apply to the model's calendar type, or that the model does not show, is left out, and so are the template's **Applies to** and **Notes** columns, which only guide filling it in by hand. Its **Allowed values** column starts hidden; the column chooser shows it. The template's rows about the model itself are not listed either: those that have a value, such as **Captured on**, are on the Overview, under **About this export**.
 
-![A model's Dynamic Cell Access table: each access driver with the line items it controls, one row for each use, marked Read or Write](docs/images/model-dynamic-cell-access.png)
+![A model's Dynamic Cell Access table: each access driver with the line items it controls, one row for each use, marked Read or Write. The navigation bar above it ends with Module Usage, Page Filters, Page Actions and Model map](docs/images/model-dynamic-cell-access.png)
 
 #### Model map
 

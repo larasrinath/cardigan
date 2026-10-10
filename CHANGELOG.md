@@ -2,7 +2,7 @@
 
 ## 0.12.0 (9 October 2026)
 
-Shortcuts to where a row or a count leads, and the pages built on a model.
+Shortcuts to where a row or a count leads, the pages built on a model, and new pictures.
 
 - **Open in Model map.** The details of a line item or a module, from **Line Items** or **Modules**, have **Open in Model map** at the top right, a filled button with the map's icon. It closes the details and shows the map on that line item, inside its module's view, or on that module among its section's, selected, with what feeds it and what it feeds. A heading of Modules, and a line item the map does not draw, have no such button.
 - **Double-click a row to open its module in Anaplan.** A double-click on a row of a model's **Line Items** or **Modules** takes the Anaplan tab Cardigan read to that module in Model Building, and brings the tab to the front; no new tab opens. A line item opens its module. The tab loads Model Building's own link to the module, so the page reloads while the model stays open: switching modules inside the page through Anaplan's app shell could not be checked, and is not tried. The rows say so when the pointer rests on them. A model's result now keeps each module's ID, and the content script tells the results page the site and the customer of a model in Model Building; a result an earlier version kept has no IDs, and the page says to run it again.
@@ -13,6 +13,7 @@ Shortcuts to where a row or a count leads, and the pages built on a model.
 - **The Overview names the apps.** Under **About this export**, **Apps**, after Model ID, names the apps whose pages use the model, one per line, or says that no app's pages use it.
 - **The map lists a line item's page filters.** A line item's details on the Model map list the page filters that have it as their condition, by app, page and card: the first ten, and how many more. The map reads them from the Page Filters table, and nothing more from Anaplan.
 - **An import from a file shows its mapping.** The details of a row of **Imports** whose **Source Type** is FILE end with **Mapping**, below **All columns**: each target of the import with what feeds it, a column of the file by its number and, where the import keeps it, its heading, a constant and its value, a prompt, ignored, or not mapped. A line names the columns before the last one mapped that no target uses; whether the file has columns after it is not known, since Anaplan keeps the mapping and not the file's header row, and the page says so. The mapping is read from the import's own saved definition, one more view of the model's settings, read only for a model with an import from a file, so it shows for a file that is no longer available too. Nothing is saved, and Anaplan is never asked for a file's columns. An import into users, versions or line items says what it loads instead, and a result an earlier version kept shows no mapping.
+- **The README's pictures are retaken** on this build: the header has the new logo, and a model's navigation has Module Usage, Page Filters and Page Actions. As before, they show an invented app and model, which Cardigan's own card reader, report and model export read; the model's three new tables are made from the app's pages, as a run makes them from the pages built on a model.
 - **What stays the same.** How an app and a model's settings are read, apart from the imports' definitions for a model with an import from a file; and what their tables hold, apart from the Page Filters column of Line Items and the How to read row on Imports.
 
 ## 0.11.2 (9 October 2026)
@@ -23,7 +24,7 @@ An Anaplan tab that was open before Cardigan was installed, updated or reloaded 
 - **A tab still loading** is asked again for about five seconds before the page says it cannot reach it.
 - **The page says what is wrong.** A tab that shows another site is named, and a closed tab is said to be closed. **Not connected** says to wait for a loading tab before it says to refresh.
 - **Two permissions**, neither with a warning: **activeTab** and **scripting**. They reach only the tab the icon was clicked on, and only an Anaplan page there. The packager refuses any other permission.
-- **A new logo.** Cardigan's star and its C in navy, orange and peach, on the toolbar and in the results page's header. The README's pictures still show the earlier one.
+- **A new logo.** Cardigan's star and its C in navy, orange and peach, on the toolbar and in the results page's header. The README's pictures are retaken with it in 0.12.0.
 - **What stays the same.** What is read from Anaplan, and what the tables hold.
 
 ## 0.11.1 (7 October 2026)
