@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Cardigan",
-  "version": "0.16.2",
+  "version": "0.16.3",
   "minimum_chrome_version": "111",
   "description": "Shows an Anaplan app's pages (cards, modules, filters, formatting, actions) or a model's Model settings as searchable tables, with a model map.",
   "icons": {
