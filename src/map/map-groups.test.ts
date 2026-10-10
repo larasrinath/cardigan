@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ModelGraph } from "./graph-types.js";
-import { automaticGrouping, GOOD, groupingsOf, isGood, leadingCode, roleOf, type Flow, type Grouping, type GroupingKind } from "./map-groups.js";
+import { automaticGrouping, BUILT, GOOD, groupingsOf, isBuilt, isGood, leadingCode, roleOf, type Flow, type Grouping, type GroupingKind } from "./map-groups.js";
 import { indexModel, withGrouping } from "./map-model.js";
 import { GraphMaker } from "./map-fakes.test-support.js";
 
@@ -56,6 +56,21 @@ describe("The ways the map groups a model's modules", () => {
     const plain = new GraphMaker();
     plain.module("Volumes", "Inputs");
     expect(groupingsBy(plain.graph()).has("functionalArea")).toBe(false);
+  });
+
+  it("lists the functional areas in the order of their names, numbers as numbers and whatever their case, as Anaplan lists them, the modules with none last", () => {
+    const make = new GraphMaker();
+    // In the model's order the areas come mixed up: the module list is not ordered by area.
+    for (const [name, area] of [["Images", "004: Images"], ["Scratch", ""], ["Settings", "000: Global System"], ["Reports", "010: Reporting"], ["Volumes", "002: Parameters"],
+      ["Admin", "003: Administration"], ["Users", "001: Users"], ["Prices", "002: Parameters"], ["Board", "board"], ["Archive", "Archive"]]) {
+      make.module(name, undefined, area === "" ? {} : { functionalArea: area });
+    }
+    const graph = make.graph();
+    const area = groupingsBy(graph).get("functionalArea");
+    expect(area?.groups).toEqual(["000: Global System", "001: Users", "002: Parameters", "003: Administration", "004: Images", "010: Reporting", "Archive", "board", "No functional area"]);
+    // The order is the groups' only: each module is in its own area still.
+    expect(groupsOf(graph, area)).toEqual([["Images", "004: Images"], ["Scratch", "No functional area"], ["Settings", "000: Global System"], ["Reports", "010: Reporting"],
+      ["Volumes", "002: Parameters"], ["Admin", "003: Administration"], ["Users", "001: Users"], ["Prices", "002: Parameters"], ["Board", "board"], ["Archive", "Archive"]]);
   });
 
   it("groups modules by the heading rows above them, in the model's order, as the map always has, and offers it only where a module has one", () => {
@@ -196,14 +211,34 @@ describe("The grouping the map picks by itself", () => {
     expect(isGood({ kind: "role", label: "", source: "", groups: [], groupOf: new Map() })).toBe(false);
   });
 
-  it("opens on the first of functional area, headings and name prefix that is good, and otherwise on the role in the data flow", () => {
+  it("takes a grouping of the builders' for the map's own where it files most modules, in two groups or more, however many and however large", () => {
+    expect(BUILT).toEqual({ share: 0.6, least: 2 });
+    // Twenty areas of one module each, and one area that holds nearly all: both are the builders' own.
+    expect([sized("functionalArea", Array.from({ length: 20 }, () => 1)), sized("functionalArea", [9, 1]), sized("functionalArea", [90, 5, 5])].map(isBuilt)).toEqual([true, true, true]);
+    // Six of ten in the areas is most; five is not. The group of what it cannot place is no area.
+    expect([sized("functionalArea", [3, 3, 4], true), sized("functionalArea", [3, 2, 5], true)].map(isBuilt)).toEqual([true, false]);
+    // Every module in one area, or in one and the rest, files nothing apart.
+    expect([sized("functionalArea", [10]), sized("functionalArea", [8, 2], true)].map(isBuilt)).toEqual([false, false]);
+    expect(isBuilt({ kind: "headings", label: "", source: "", groups: [], groupOf: new Map() })).toBe(false);
+  });
+
+  it("opens on the functional areas or the heading rows where the builders filed most modules by them, then on name prefixes that are good, and otherwise on the role in the data flow", () => {
     const good = [3, 3, 4];
+    const many = Array.from({ length: 22 }, () => 2);
     const pick = (...groupings: Grouping[]): GroupingKind | undefined => automaticGrouping(groupings)?.kind;
     expect(pick(sized("functionalArea", good), sized("headings", good), sized("prefix", good), sized("role", good))).toBe("functionalArea");
-    expect(pick(sized("functionalArea", [9, 1]), sized("headings", good), sized("prefix", good), sized("role", good))).toBe("headings");
-    expect(pick(sized("functionalArea", [9, 1]), sized("headings", [8, 1, 1]), sized("prefix", good), sized("role", good))).toBe("prefix");
-    // None is good: the role in the data flow, good or not. App and main dimension are never picked.
-    expect(pick(sized("functionalArea", [9, 1]), sized("prefix", [10]), sized("role", [10]), sized("app", good), sized("dimension", good))).toBe("role");
+    // Twenty-two areas are more than a learnt grouping could have, and one area of nine modules beside one of a single
+    // module is lopsided: both are still the builders' own, and the map opens on them.
+    expect(pick(sized("functionalArea", many), sized("headings", good), sized("prefix", good), sized("role", good))).toBe("functionalArea");
+    expect(pick(sized("functionalArea", [9, 1]), sized("headings", good), sized("prefix", good), sized("role", good))).toBe("functionalArea");
+    // Areas on half the modules only: the headings, however many.
+    expect(pick(sized("functionalArea", [2, 3, 5], true), sized("headings", many), sized("prefix", good), sized("role", good))).toBe("headings");
+    // Neither filed most modules apart: the name prefixes where they are good, and the role in the data flow otherwise.
+    expect(pick(sized("functionalArea", [10]), sized("headings", [8, 2], true), sized("prefix", good), sized("role", good))).toBe("prefix");
+    expect(pick(sized("functionalArea", [10]), sized("prefix", [10]), sized("role", [10]), sized("app", good), sized("dimension", good))).toBe("role");
+    // Prefixes are learnt: their own test holds them, however many modules they place.
+    expect(pick(sized("prefix", many), sized("role", good))).toBe("role");
+    // App and main dimension are never picked, but where they are all there is.
     expect(pick(sized("app", good))).toBe("app");
     expect(pick()).toBeUndefined();
   });
@@ -217,6 +252,13 @@ describe("The grouping the map picks by itself", () => {
     const codes = ["INP01 A", "INP02 B", "INP03 C", "CAL01 D", "CAL02 E", "CAL03 F", "REP01 G", "REP02 H", "REP03 I", "Other J"];
     const automatic = (graph: ModelGraph): GroupingKind | undefined => automaticGrouping(groupingsOf(indexModel(graph)))?.kind;
     expect(automatic(named(codes, index => ({ functionalArea: ["Sales", "Finance", "Workforce"][index % 3] })))).toBe("functionalArea");
+    // A model whose builders keep 22 functional areas opens on them, as one with three does.
+    const areas = Array.from({ length: 44 }, (_, index) => `M${index} Module`);
+    expect(automatic(named(areas, index => ({ functionalArea: `${String(Math.floor(index / 2)).padStart(3, "0")}: Area` })))).toBe("functionalArea");
+    // And one whose builders head 22 groups of modules opens on the heading rows.
+    const headed = new GraphMaker();
+    areas.forEach((name, index) => headed.item(headed.module(name, `${Math.floor(index / 2)}: Group`), "Value"));
+    expect(automatic(headed.graph())).toBe("headings");
     const make = new GraphMaker();
     codes.forEach((name, index) => make.module(name, ["01 Data", "02 Inputs", "03 Reports"][index % 3]));
     expect(automatic(make.graph())).toBe("headings");

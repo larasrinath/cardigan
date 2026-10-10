@@ -2912,6 +2912,51 @@ describe("How the map groups modules", () => {
     expect([choices(), part(".map-grouping-field").hidden, part(".map-zone-build").hidden, part(".map-show-select").hidden, sectionNames()]).toEqual([[["role", "Role in the data flow · automatic"]], true, true, true, ["Modules"]]);
   });
 
+  it("opens by itself on 22 functional areas its builders set, in the order of their names, and every part of the map follows a switch of grouping", () => {
+    // Two modules in each of 22 areas, which the module list gives out of their order, each module also under one of two
+    // heading rows.
+    const make = new GraphMaker();
+    const order = Array.from({ length: 22 }, (_, index) => (index * 7) % 22);
+    const ids = new Map<string, number>();
+    for (const area of order) {
+      for (const half of [0, 1]) {
+        const name = `M${area}-${half}`;
+        const module = make.module(name, `${half}: Heading`, { functionalArea: `${String(area).padStart(3, "0")}: Area ${area}` });
+        ids.set(name, module);
+        make.item(module, "Value");
+      }
+    }
+    const graph = make.graph();
+    openGrouped(graph);
+    const shows = (): string[] => parts(".map-show-select option").map(option => option.textContent);
+    const groupsListed = (): string[] => parts(".map-group-select option").map(option => option.textContent);
+    expect([part(".map-grouping-select").value, choices()[0], sectionNames().slice(0, 3), sectionNames().length])
+      .toEqual(["functionalArea", ["functionalArea", "Functional area · automatic"], ["000: Area 0", "001: Area 1", "002: Area 2"], 22]);
+    expect([shows().slice(0, 4), shows().length]).toEqual([["All groups", "All modules", "000: Area 0 · 2 modules", "001: Area 1 · 2 modules"], 24]);
+    // The search, a module's details and a module opened from the page all say its area, and where that comes from.
+    part(".map-search").type("M5-1");
+    expect(parts(".map-result").map(result => result.querySelector("small")?.textContent)[0]).toBe("Module · 005: Area 5 · from functional areas");
+    part(".map-search").type("");
+    expect(map.reveal(ids.get("M7-0")!)).toBe(true);
+    expect([text(".map-insp-name"), parts(".map-dl dd")[0].textContent]).toEqual(["M7-0", "007: Area 7 · from functional areas"]);
+
+    // The heading rows: the lists, the legend, the search and the details are theirs at once.
+    part(".map-grouping-select").choose("headings");
+    env.settle();
+    expect([sectionNames(), shows(), groupsListed()]).toEqual([["0: Heading", "1: Heading"], ["All groups", "All modules", "0: Heading · 22 modules", "1: Heading · 22 modules"],
+      ["All groups", "0: Heading · 22 modules", "1: Heading · 22 modules"]]);
+    part(".map-search").type("M5-1");
+    expect(parts(".map-result").map(result => result.querySelector("small")?.textContent)[0]).toBe("Module · 1: Heading · from heading rows");
+    part(".map-search").type("");
+    expect(map.reveal(ids.get("M7-0")!)).toBe(true);
+    expect(parts(".map-dl dd")[0].textContent).toBe("0: Heading · from heading rows");
+
+    // And back: nothing of the headings is left.
+    part(".map-grouping-select").choose("functionalArea");
+    env.settle();
+    expect([sectionNames().length, shows().length, groupsListed().slice(0, 2), heard]).toEqual([22, 24, ["All groups", "000: Area 0 · 2 modules"], ["headings", undefined]]);
+  });
+
   it("goes on when the page cannot keep the choice", () => {
     map = mountModelMapIn(host as unknown as HTMLElement, coded(), { modelName: "Demand Plan", onGrouping: () => { throw new Error("no storage"); } }, env);
     map.show();
