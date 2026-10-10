@@ -97,6 +97,35 @@ describe("What a model's cell lists, item by item, for the drawer", () => {
     expect(listed(model, modules)).toEqual([{ "Applies To": ["'Regions, north & south'", "Products"] }, {}]);
   });
 
+  it("lists what refers to a module, and its line items as its rows of Line Items name them, never cutting a name that holds a comma", () => {
+    const lineItems = file("Line Items", ["", "Format", "Module Name"], [
+      ["SYS100 Time", "", ""], ["Time Period", "{}", "SYS100 Time"], ["Rate, net", "{}", "SYS100 Time"], ["1,0 Indicators", "{}", "SYS100 Time"], ["Year", "{}", "SYS100 Time"],
+      ["REV01 Revenue", "", ""], ["Price", "{}", "REV01 Revenue"], ["Units", "{}", "REV01 Revenue"],
+      ["ONE01 Single", "", ""], ["Only", "{}", "ONE01 Single"]]);
+    const MODULE_HEADERS = ["", "Applies To", "Referenced By", "Used in Dashboards", "Line Items"];
+    const modules = file("Modules", MODULE_HEADERS, [
+      // As Anaplan writes the cells: what refers to the module with each name in quotes where it needs them, and its line
+      // items without quotes, a name that holds a comma and a space among them.
+      ["SYS100 Time", "Time", "'PRM000 - Global Parameters', 'ADM100 - Monthly, Admin', REV01 Revenue", "Sales, Planning", "Time Period, Rate, net, 1,0 Indicators, Year"],
+      // In another order than the table's, the cell is still cut into the module's names, where it reads one way.
+      ["REV01 Revenue", "Products, Time", "SYS100 Time", "", "Units, Price"],
+      // A name the table has no row of, or one line item: the cell is shown whole.
+      ["ONE01 Single", "", "", "", "Only, Gone"],
+      ["GONE01 Not in Line Items", "", "", "", "A, B"]]);
+    const model = result("model", lineItems, modules);
+    const found = listed(model, modules);
+    expect(found).toEqual([
+      { "Referenced By": ["'PRM000 - Global Parameters'", "'ADM100 - Monthly, Admin'", "REV01 Revenue"], "Line Items": ["Time Period", "Rate, net", "1,0 Indicators", "Year"] },
+      { "Applies To": ["Products", "Time"], "Line Items": ["Units", "Price"] },
+      {},
+      {},
+    ]);
+    expectWhole(modules, found);
+    // The dashboards a module is on are named without quotes, and the result has no names of dashboards: not cut. Without
+    // the Line Items table nothing is known to cut a module's line items by.
+    expect(listed(result("model", modules), modules)[0]).toEqual({ "Referenced By": ["'PRM000 - Global Parameters'", "'ADM100 - Monthly, Admin'", "REV01 Revenue"] });
+  });
+
   it("cuts an action's processes and a data source's imports only into names the result has, where the cell reads one way", () => {
     const ACTION_HEADERS = ["", "Action", "Notes", "Used in Processes", "Used in Dashboards"];
     const processes = file("Processes", ACTION_HEADERS, [["Nightly load", "", "Runs at 2am", "", "Admin, Review"], ["-- LOADS --", "", "", "", ""], ["Nightly load, full", "", "", "", ""],
@@ -121,6 +150,9 @@ describe("What a model's cell lists, item by item, for the drawer", () => {
     // The dashboards an action is on are named without quotes too, and the result has no names of dashboards: not cut.
     expect(listed(model, processes)).toEqual([{}, {}, {}, {}, {}, {}]);
     expect(listed(model, sources)).toEqual([{ "Used in Imports": ["Load prices", "Load regions"] }, {}]);
+    // Anaplan's own grid heads the column Imports: it lists the same way.
+    const headed = file("Import Data Sources", ["", "Source Type", "Imports"], [["prices.csv", "FILE", "Load prices, Load regions"]]);
+    expect(listed(result("model", imports, headed), headed)).toEqual([{ Imports: ["Load prices", "Load regions"] }]);
     // Without the Processes table, or with none of its rows, nothing is known to cut by.
     expect(listed(result("model", imports, exports), imports)).toEqual([{}, {}, {}, {}, {}, {}]);
     expect(listed(result("model", { ...processes, rows: [] }, imports), imports)).toEqual([{}, {}, {}, {}, {}, {}]);
