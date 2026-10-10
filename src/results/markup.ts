@@ -372,7 +372,7 @@ export function keptCopyHtml(copy: KeptCopy): string {
  * drawer's heading is an h2 of the page shell, and its sections are h3. No view goes from one level to one two below it. */
 /** `views`: for each tile, the place in the result of the table it counts. A tile with one opens that table, as the table's
  * entry of the navigation does; one without stays a tile to read. */
-export function overviewHtml(overview: Overview, copy: KeptCopy = "none", views: readonly number[] = []): string {
+export function overviewHtml(overview: Overview, copy: KeptCopy = "none", views: readonly number[] = [], tileFiles: readonly string[] = []): string {
   const about = overview.about.length ? `
     <div class="d-sec" id="ovAbout"><h2>About this export</h2>
       <dl class="dl">${detailRows(overview.about)}</dl></div>` : "";
@@ -404,10 +404,13 @@ export function overviewHtml(overview: Overview, copy: KeptCopy = "none", views:
     <h1 class="view-title">Overview</h1>
     <div class="ov-grid">
       ${overview.tiles.map((tile, at) => {
-        // A table that does not list every row of its file: the tile counts the rows listed, and says how many there
-        // are in all. It does not say that they were read: a Model Calendar's rows are a template's, which the export fills in.
-        const parts = `<span class="s-lab">${esc(tile.label)}</span><span class="s-num">${esc(tile.count)}</span><span class="s-sub">${tile.count === 1 ? "row" : "rows"}</span>${
-          tile.inAll === undefined ? "" : `<span class="s-sub">${esc(tile.inAll)} ${tile.inAll === 1 ? "row" : "rows"} in all</span>`}`;
+        // The table's icon, the one its entry of the navigation has, then its name, and under that the number of rows the
+        // table lists, without a word: only a screen reader is told that they are rows. A name too long for the tile ends
+        // in an ellipsis, and its title holds it whole. A file with no icon of its own has none here, and no stand-in.
+        const file = tileFiles[at];
+        const icon = file === undefined ? "" : FILE_ICONS.get(file) ?? "";
+        const parts = `<span class="s-lab" title="${esc(tile.label)}">${icon}${esc(tile.label)}</span><span class="s-num">${esc(tile.count)}</span>`
+          + `<span class="sr-only">${tile.count === 1 ? "row" : "rows"}</span>`;
         const view = views[at];
         return view === undefined ? `<div class="stat">${parts}</div>` : `<button type="button" class="stat stat-open" data-nav="${view}">${parts}</button>`;
       }).join("")}

@@ -1280,9 +1280,9 @@ describe("The results page's script, on the page", () => {
     await openWith(WITH_CALENDAR);
     const file = WITH_CALENDAR.tables[3];
     expect([file.rows.length, file.rows.filter(row => row[0] === "Model").length]).toEqual([31, 5]);
-    // The overview: the file's tile counts the rows its table lists. What the file says about the model stands with what
-    // the Details file says about the export, after it, and without the model's name, which that has said.
-    expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Model Calendar", "5", "rows", "31 rows in all"], ["Modules", "2", "rows"], ["Line Items", "120", "rows"]]);
+    // The overview: the file's tile counts the rows its table lists, and only those. What the file says about the model
+    // stands with what the Details file says about the export, after it, and without the model's name, which that has said.
+    expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Model Calendar", "5", "rows"], ["Modules", "2", "rows"], ["Line Items", "120", "rows"]]);
     expect([page.texts("#ovAbout h2"), page.texts("#ovAbout dt"), page.texts("#ovAbout dd")])
       .toEqual([["About this export"], ["Model", "Anaplan host", "Workspace", "Captured on"], ["Model one", "us1a.app.anaplan.com", "Main", "2026-10-03"]]);
     // The navigation lists the same tables in the same order, and counts nothing: the tiles count the rows.
@@ -1327,9 +1327,9 @@ describe("The results page's script, on the page", () => {
     const file = WITH_CALENDAR.tables[3];
     const only: AnalysisResult = { ...WITH_CALENDAR, tables: [...WITH_CALENDAR.tables.slice(0, 3), { ...file, rows: file.rows.slice(0, 5) }] };
     await openWith(only);
-    // The tile counts the rows the table lists, none, and says the five there are in all. The table keeps its entry in the
-    // navigation.
-    expect(page.all("#view .stat")[0].children.map(child => child.textContent)).toEqual(["Model Calendar", "0", "rows", "5 rows in all"]);
+    // The tile counts the rows the table lists, none, and says nothing of the five the file has. The table keeps its entry
+    // in the navigation.
+    expect(page.all("#view .stat")[0].children.map(child => child.textContent)).toEqual(["Model Calendar", "0", "rows"]);
     expect(entryLabel(page.find('#navList [data-nav="3"]'))).toBe("Model Calendar");
     goTo(3);
     // The line under the name says where the five rows are. In the rows' place the table says that none is the calendar's
@@ -2528,19 +2528,17 @@ describe("What a click, a key and typing do on the results page", () => {
     /** Every text the overview shows, with its closed sections' as well. */
     const texts = () => [...page.texts("#view dt"), ...page.texts("#view dd"), ...page.texts("#view .warn-list li"), ...page.id("diagLog").textContent.split("\n")];
     /** What each file's tile says of its rows, by the file's own name, which is its entry's in the navigation (the tiles
-     * stand in the same order): the number its table lists, and under it the number there is in all where that is another. */
-    const tiles = () => tableEntries().flatMap((item, index) => {
-      const tile = page.all("#view .stat")[index];
-      const file = `${entryLabel(item)}.csv`;
-      return [`${file}: ${tile.querySelector(".s-num")?.textContent} rows`, ...tile.querySelectorAll(".s-sub").slice(1).map(line => `${file}: ${line.textContent.replace(/ in all$/, "")}`)];
-    });
+     * stand in the same order): the number its table lists. */
+    const tiles = () => tableEntries().map((item, index) => `${entryLabel(item)}.csv: ${page.all("#view .stat")[index].querySelector(".s-num")?.textContent} rows`);
     /** The rows of a result's Details file that the overview does not say: a detail and its value, a note, a line of the log, or a file's tile. */
     const unsaid = (result: AnalysisResult) => {
       const shown = texts();
       return result.tables[0].rows.map(row => row.map(String)).filter(([section, detail, value]) => {
         if (section === "Diagnostics") return !shown.includes(detail ? `${detail} ${value}` : value);
         if (section === "Notes") return !shown.includes(`${detail}: ${value}`);
-        if (section === "Files" && /^\d+ rows$/.test(value)) return !tiles().includes(`${detail}: ${value}`);
+        // A count of the file's own rows is its tile's number, but for a Model Calendar's: its table leaves rows out, and the
+        // line under the table's name says how many.
+        if (section === "Files" && /^\d+ rows$/.test(value)) return !tiles().includes(`${detail}: ${value}`) && detail !== "Model Calendar.csv";
         // Any other Files row is said under the name the page has for the table: the file's own name is shown nowhere.
         if (section === "Files") return !(shown.includes(detail.replace(/\.csv$/, "")) && shown.includes(value));
         return !(shown.includes(detail) && shown.includes(value));
@@ -2583,12 +2581,14 @@ describe("What a click, a key and typing do on the results page", () => {
     expect(counted.tables[0].rows.filter(row => row[0] === "Files")).toEqual([["Files", "Line Items.csv", "8 rows"], ["Files", "Modules.csv", "3 rows"], ["Files", "Model Calendar.csv", "31 rows"]]);
     page.id("runAgain").press();
     sendResult(ports[0], counted);
-    // The tiles count what the tables list, 5 settings and every row of Line Items, and the calendar's says the 31 there
-    // are in all under that: no count of the Details file is lost, and no row of it is.
-    expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Model Calendar", "5", "rows", "31 rows in all"], ["Modules", "3", "rows"],
+    // The tiles count what the tables list, 5 settings and every row of Line Items, and nothing more: the calendar's 31 are
+    // said by the line under its table's name, which counts the rows it leaves out. No row of the Details file is lost.
+    expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Model Calendar", "5", "rows"], ["Modules", "3", "rows"],
       ["Line Items", "8", "rows"]]);
-    expect([tiles(), unsaid(counted), page.has("#ovFiles"), page.has("#view .warn-list")]).toEqual([["Model Calendar.csv: 5 rows", "Model Calendar.csv: 31 rows", "Modules.csv: 3 rows",
+    expect([tiles(), unsaid(counted), page.has("#ovFiles"), page.has("#view .warn-list")]).toEqual([["Model Calendar.csv: 5 rows", "Modules.csv: 3 rows",
       "Line Items.csv: 8 rows"], [], false, false]);
+    goTo(3);
+    expect(page.texts("#view .view-note")).toEqual([CALENDAR_NOTE]);
   });
 
   it("says what was copied as text, whatever the ID holds, for a moment", async () => {
