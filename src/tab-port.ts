@@ -68,11 +68,11 @@ interface Run { subject: Seen; ports: Set<Port>; stop: AbortController; lines: s
 
 const same = (a: Subject, b: Subject) => a.kind === b.kind && (a.kind === "none" || a.id === (b as Seen).id);
 
-/** An "open" as the page may send it: a nonce to answer with, a model's 32-character ID and a module's or a list's ID in
- * digits. Anything else is not answered. */
+/** An "open" as the page may send it: a nonce to answer with, a model's 32-character ID and a module's, a list's or a
+ * settings page's ID as a number, which a settings page's may be below nought. Anything else is not answered. */
 const OPEN_NONCE = /^[\w-]{1,100}$/;
 const OPEN_MODEL = /^[0-9A-Za-z]{32}$/;
-const OPEN_OBJECT = /^\d{1,19}$/;
+const OPEN_OBJECT = /^-?\d{1,19}$/;
 type OpenAsked = Extract<PageMessage, { type: "open" }>;
 const openAsked = (received: unknown): OpenAsked | undefined => {
   const asked = received as Partial<OpenAsked> | null;

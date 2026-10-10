@@ -133,6 +133,14 @@ describe("The Anaplan tab's end of the port to the results page", () => {
       { type: "open", nonce: "ask-6", model: MODEL.id, object: 102000000001 }, { type: "OPEN", nonce: "ask-7", model: MODEL.id, object: "1" }]) page.say(odd);
     await settle();
     expect([opened(), asked.length]).toEqual([[], 3]);
+    // A settings page's ID is a number too, and may be below nought: it is asked of the tab as a module's is. One that is
+    // no number is not.
+    answer = () => Promise.resolve({ opened: true, detail: "Model Building opened it beside the tabs open there" });
+    page.say({ type: "open", nonce: "ask-8", model: MODEL.id, object: "-19" });
+    page.say({ type: "open", nonce: "ask-9", model: MODEL.id, object: "9000000002" });
+    for (const odd of ["--19", "-", "19-", "-1a"]) page.say({ type: "open", nonce: "ask-10", model: MODEL.id, object: odd });
+    await settle();
+    expect([opened().map(message => (message as { nonce?: string }).nonce), asked.slice(3)]).toEqual([["ask-8", "ask-9"], [[MODEL.id, "-19"], [MODEL.id, "9000000002"]]]);
   });
 
   it("answers that it opens nothing in its page where the tab cannot, as one of a page that is no Model Building", async () => {
