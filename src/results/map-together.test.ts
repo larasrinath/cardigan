@@ -340,7 +340,7 @@ function tableRow(name: string): Record<string, string> {
 describe("A model's result on the results page, with the map's real graph and the map's real view", () => {
   it("draws the made-up model as its sections and its modules, by name, under a line that counts them and their links", async () => {
     await openWith(MODEL);
-    // The overview's tile counts the rows that the page's own Line Items table lists.
+    // The overview's tile counts the rows of the page's own Line Items table: every row of the file, the modules' own too.
     const listed = page.all("#view .stat").find(tile => tile.querySelector(".s-lab")?.textContent === "Line Items")?.querySelector(".s-num")?.textContent;
     // Nothing of the map is on the page until its entry is chosen.
     expect([host().hidden, host().children.length, around.watching]).toEqual([true, 0, 0]);
@@ -368,16 +368,22 @@ describe("A model's result on the results page, with the map's real graph and th
     // Each module is a box, with its code and its section on the small line and its name under it.
     expect(written()).toEqual(expect.arrayContaining(["Volumes", "Prices", "Revenue", "Summary"]));
     expect([writes("INP01", "01 Inputs"), writes("INP02", "01 Inputs"), writes("CAL01", "02 Calculations"), writes("REP01", "03 Reporting")]).toEqual([true, true, true, true]);
-    // The notes about the map say how large the model is. Its line items are as many as the page's own Line Items table
-    // lists, which leaves the modules' rows and the headings out as the map does. And the notes say what the map leaves
-    // out of this export: its one export, whose definition names no module. Every other name in the files was matched,
-    // every file the map reads is there, and each has the columns the map reads.
+    // The notes about the map say how large the model is. And they say what the map leaves out of this export: its one
+    // export, whose definition names no module. Every other name in the files was matched, every file the map reads is
+    // there, and each has the columns the map reads.
     part('[data-map-act="about"]').press();
     expect([part(".map-about").hidden, text(".map-notes .map-about-line")]).toEqual([false, expect.stringMatching(/^Model one\b.*\bPlanning\b.*\b4 modules\b.*\b10 line items$/)]);
-    expect(listed).toBe("10");
+    expect(listed).toBe("17");
     const leftOut = parts(".map-notes li").map(line => line.textContent);
     expect(leftOut.filter(line => /^\d/.test(line))).toEqual([expect.stringMatching(/^1 export is linked to no module or list/)]);
     expect(leftOut.filter(line => /was not exported|has no .* columns?:/.test(line))).toEqual([]);
+    // Its line items are as many as the page's own Line Items table lists without the blanks of the format's data type,
+    // which are the modules' own rows and the headings among them, as the map leaves them out.
+    choose("Line Items");
+    page.find('[data-colfilter="3"]').press();
+    expect(page.all("#popover .pop-opt").map(option => option.textContent.replace(/\s+/g, " ").trim())[0]).toMatch(/^\(blank\) 7\b/);
+    page.all("#popover input")[0].tick();
+    expect(page.id("rowCount").textContent).toBe("1–10 of 10 rows (filtered from 17)");
   });
 
   it("finds a line item by search and says its formula, its format and summary in the page's words, and its module, and names no file", async () => {
@@ -462,7 +468,7 @@ describe("A model's result on the results page, with the map's real graph and th
 
     // Another view: the map gives its place up, and what it made stays there, out of sight.
     choose("Line Items");
-    expect([host().hidden, root.hidden, host().children[0] === root, page.texts("#view h1"), page.id("rowCount").textContent]).toEqual([true, true, true, ["Line Items"], "1–10 of 10 rows"]);
+    expect([host().hidden, root.hidden, host().children[0] === root, page.texts("#view h1"), page.id("rowCount").textContent]).toEqual([true, true, true, ["Line Items"], "1–17 of 17 rows"]);
     // Back: the same map, where it was left: the module's line items, the line item selected, the text in its search.
     // It is drawn again, and has the focus on its picture.
     toMap();
@@ -517,7 +523,8 @@ describe("A model's result on the results page, with the map's real graph and th
   it("names no file, no CSV and no zip, and no download, with the export's own result for a model on it: in the overview, in each table and a row's details, and in the map with its notes, its legend and a box's details", async () => {
     const result = await exported();
     await openWith(result);
-    // Every view the navigation lists, the map last, and in each table that has rows the details of its first row.
+    // Every view the navigation lists, the map last, and in each table that has rows the details of its first row. Line
+    // Items starts with a module's own row, a heading, which has no format to say in words: its first line item's details too.
     const opened: string[] = [];
     const drawn: string[] = [];
     for (const words of page.all("#navList .nav-item").map(listed => listed.querySelector("span")?.textContent ?? "")) {
@@ -525,6 +532,9 @@ describe("A model's result on the results page, with the map's real graph and th
       if (!page.has('#tableWrap tbody [data-act="row"]')) continue;
       page.find('#tableWrap tbody [data-act="row"]').press();
       opened.push(page.texts("#view h1")[0]);
+      page.id("drawerClose").press();
+      if (words !== "Line Items") continue;
+      page.all("#tableWrap tbody tr").find(row => !row.classList.contains("heading"))?.querySelector('[data-act="row"]')?.press();
       page.id("drawerClose").press();
     }
     expect([opened, page.texts("#view h1"), host().hidden]).toEqual([["Model Calendar", "Time Ranges", "Versions", "General Lists", "Modules", "Line Items", "Dynamic Cell Access", "Processes", "Imports",
@@ -558,10 +568,10 @@ describe("A model's result on the results page, with the map's real graph and th
     // what was read for it, and what a control is named by. Of the map: a note of what it leaves out, and a box on its
     // picture.
     const has = (begins: string): boolean => words.some(text => text.startsWith(begins));
-    expect([has("Each table is laid out as Anaplan's own export of the same Model settings grid: each row's name first"), has("The table lists line items: each names its module under Module Name"),
+    expect([has("Each table is laid out as Anaplan's own export of the same Model settings grid: each row's name first"), has("The table lists every row of the grid: each module's own row, in bold, then its line items."),
       words.some(text => text.includes("14:02:05 Line Items: 16 rows × 25 columns; columns: Format | Formula | Summary")),
       words.includes("31 rows in all"), has("5 rows about the model are not listed here: 3 hold a value, which the Overview has under About this export."),
-      has("5 module rows are not listed here; each line item shows its module."), words.includes("Format as read"), words.includes("Open this row"),
+      has("Every row of Anaplan's Line Items grid: 11 line items, and 5 modules' own rows, each in bold above its line items"), words.includes("Format as read"), words.includes("Open this row"),
       words.includes("Where an import takes its data from is in the Imports table, not on the map."), drawn.includes("Units")]).toEqual([true, true, true, true, true, true, true, true, true, true]);
   });
 });

@@ -71,8 +71,8 @@ describe("What a model's cell lists, item by item, for the drawer", () => {
   });
 
   it("lists a line item's dimensions and what refers to it, wherever the page shows the columns, and a module's dimensions", () => {
-    // The Line Items file as the export writes it, a module's own row first; the page shows its line items, each with its
-    // module after its name and the dimensions it has, from the module where it shows a dash.
+    // The Line Items file as the export writes it, a module's own row first; the page shows every row of it, each line item
+    // with its module after its name and the dimensions it has, from the module where it shows a dash.
     const lineItems = file("Line Items", ["", "Format", "Applies To", "Referenced By", "Read Access Driver", "Module Name"], [
       ["ACC01 Access, by role", "", "'Regions, north & south', 'O''Brien''s', Products, 'Top, sellers'", "", "", ""],
       ["Can read", '{"dataType":"BOOLEAN"}', "-",
@@ -82,9 +82,11 @@ describe("What a model's cell lists, item by item, for the drawer", () => {
     const modules = file("Modules", ["", "Applies To", "Cell Count"], [["ACC01 Access, by role", "'Regions, north & south', Products", "1,200"], ["REV01 Revenue v1.2", "-", "0"]]);
     const model = result("model", lineItems, modules);
     const shown = fileView(model, lineItems).table;
-    expect(shown.headers).toEqual(["", "Module Name", "Format", "Applies To", "Applies To from", "Referenced By", "Read Access Driver"]);
+    expect(shown.headers).toEqual(["", "Module Name", "Format", "Format type", "Applies To", "Applies To from", "Referenced By", "Read Access Driver"]);
     const found = listed(model, shown);
     expect(found).toEqual([
+      // The module's own row: its dimensions, which are the ones its first line item takes.
+      { "Applies To": ["'Regions, north & south'", "'O''Brien''s'", "Products", "'Top, sellers'"] },
       { "Applies To": ["'Regions, north & south'", "'O''Brien''s'", "Products", "'Top, sellers'"],
         "Referenced By": ["'Editor''s lock'", "'REV01 Revenue v1.2'.Units", "'REV01 Revenue v1.2'.Price", "'REV01 Revenue v1.2'.Revenue", "'COST01 Costs'.Salaries"] },
       // One line item of another module, whose name holds a comma: one item. A driver is one name, whatever it holds.

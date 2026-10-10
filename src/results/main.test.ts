@@ -1416,42 +1416,58 @@ describe("What a click, a key and typing do on the results page", () => {
     expect(shows()).toEqual(["Overview", "Overview"]);
   });
 
-  it("shows a model's Line Items table as line items only, each with its module and the dimensions it has; the counts are the table's", async () => {
+  it("shows a model's Line Items table with every row, each with its module and the dimensions it has, a module's own row as a heading; the counts are the file's", async () => {
     await openWith(BLUEPRINT);
-    // The overview's tile counts the line items, not the file's rows, three of which are modules' own: the tile says how
-    // many rows there are in all under that.
-    expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Modules", "3", "rows"], ["Line Items", "5", "rows", "8 rows in all"]]);
+    // The overview's tile counts every row of the file, as Anaplan's grid does: the modules' own rows are in the table.
+    expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Modules", "3", "rows"], ["Line Items", "8", "rows"]]);
 
     goTo(1);
-    // The module stands directly after the name, and after Applies To where it came from; the other columns are in the file's order.
-    expect(headings()).toEqual(["Name", "Module Name", "Format", "Formula", "Summary", "Applies To", "Applies To from", "Ratio Numerator", "Ratio Denominator"]);
-    expect([column("Name"), column("Module Name")]).toEqual([["Units", "Price", "Revenue", "Margin %", "Cost"], ["REV01 Revenue", "REV01 Revenue", "REV01 Revenue", "REV01 Revenue", "COST01 Costs"]]);
-    // A dash in the file is the module's Applies To here; a line item's own stays its own.
-    expect([column("Applies To"), column("Applies To from")]).toEqual([["Products, Time", "Products", "Products, Time", "Products, Time", "Cost Centres"], ["Module", "Line item", "Module", "Module", "Module"]]);
-    // The line under the table's name says what is not listed, and where the module without line items is.
-    expect([page.texts("#view .view-note"), page.id("rowCount").textContent, page.id("live").textContent]).toEqual([
-      ["3 module rows are not listed here; each line item shows its module. 1 module has no line items, so it is not in this table. It is listed in the Modules table."],
-      "1–5 of 5 rows", "Line Items: 5 rows"]);
+    // The module stands directly after the name, the format's data type after Format, and after Applies To where it came
+    // from; the other columns are in the file's order.
+    expect(headings()).toEqual(["Name", "Module Name", "Format", "Format type", "Formula", "Summary", "Applies To", "Applies To from", "Ratio Numerator", "Ratio Denominator"]);
+    expect([column("Name"), column("Module Name")]).toEqual([["REV01 Revenue", "Units", "Price", "Revenue", "Margin %", "--- Archive ---", "COST01 Costs", "Cost"],
+      ["REV01 Revenue", "REV01 Revenue", "REV01 Revenue", "REV01 Revenue", "REV01 Revenue", "--- Archive ---", "COST01 Costs", "COST01 Costs"]]);
+    // A dash in the file is the module's Applies To here; a line item's own stays its own. A module's own row has its own.
+    expect([column("Applies To"), column("Applies To from")]).toEqual([["Products, Time", "Products, Time", "Products", "Products, Time", "Products, Time", "", "Cost Centres", "Cost Centres"],
+      ["Module", "Module", "Line item", "Module", "Module", "Module", "Module", "Module"]]);
+    // A module's own row has no format, and stands out as a heading above its line items.
+    expect([column("Format type"), page.all("#tableWrap tbody tr").map(row => row.classList.contains("heading"))])
+      .toEqual([["", "Number", "Number", "Number", "Number", "", "", "Number"], [true, false, false, false, false, true, true, false]]);
+    // The line under the table's name says what the rows are, and how to list the line items alone.
+    expect([page.texts("#view .view-note"), page.id("rowCount").textContent, page.id("live").textContent]).toEqual([["Every row of Anaplan's Line Items grid: 5 line items, and 3 modules' own rows, each in bold above its line items, with its own name under Module Name. To list only line items, untick (blank) in the filter of Format type, and No Data as well to leave out the line items that are headings."], "1–8 of 8 rows", "Line Items: 8 rows"]);
 
-    // The search, the filters and the sort are the table's: a module's name finds its line items, and a module's own row is not there to find.
+    // The search, the filters and the sort are the table's: a module's name finds its own row and its line items.
     page.id("tblSearch").type("cost01");
-    expect([column("Name"), page.id("rowCount").textContent]).toEqual([["Cost"], "1–1 of 1 row (filtered from 5)"]);
+    expect([column("Name"), page.id("rowCount").textContent]).toEqual([["COST01 Costs", "Cost"], "1–2 of 2 rows (filtered from 8)"]);
     page.id("tblSearch").type("archive");
-    expect(page.id("rowCount").textContent).toBe("No rows (filtered from 5)");
+    expect([column("Name"), page.id("rowCount").textContent]).toEqual([["--- Archive ---"], "1–1 of 1 row (filtered from 8)"]);
     page.id("tblSearch").type("");
-    expect(filterable()).toEqual(expect.arrayContaining(["Module Name", "Applies To from"]));
-    page.find('[data-colfilter="6"]').press();
-    expect(choices()).toEqual([["Line item", "1", true], ["Module", "4", true]]);
+    expect(filterable()).toEqual(expect.arrayContaining(["Module Name", "Format type", "Applies To from"]));
+    page.find('[data-colfilter="7"]').press();
+    expect(choices()).toEqual([["Line item", "1", true], ["Module", "7", true]]);
     page.all("#popover input")[1].tick();
     expect(column("Name")).toEqual(["Price"]);
     page.key("Escape");
     page.id("resetBtn").press();
+    // The filter on the format's data type lists the modules' own rows as blanks: without them, the line items alone.
+    page.find('[data-colfilter="3"]').press();
+    expect(choices()).toEqual([["(blank)", "3", true], ["Number", "5", true]]);
+    page.all("#popover input")[0].tick();
+    expect([column("Name"), page.id("rowCount").textContent]).toEqual([["Units", "Price", "Revenue", "Margin %", "Cost"], "1–5 of 5 rows (filtered from 8)"]);
+    expect(page.all("#tableWrap tbody tr").some(row => row.classList.contains("heading"))).toBe(false);
+    page.key("Escape");
+    page.id("resetBtn").press();
+    // A sort by module keeps each module's own row with its line items, above them.
     page.find('[data-sort="1"]').press();
-    expect(column("Name")).toEqual(["Cost", "Units", "Price", "Revenue", "Margin %"]);
-    // A row's drawer is headed by the line item and says its place among the line items; it holds the view's columns.
-    page.all('#tableWrap tbody [data-act="row"]')[0].press();
+    expect(column("Name")).toEqual(["--- Archive ---", "COST01 Costs", "Cost", "REV01 Revenue", "Units", "Price", "Revenue", "Margin %"]);
+    // A row's drawer is headed by the row's name and says its place among the table's rows; it holds the view's columns.
+    page.all('#tableWrap tbody [data-act="row"]')[2].press();
     expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent, page.texts("#drawerBody dt").slice(0, 2), page.texts("#drawerBody dd").slice(0, 2)])
-      .toEqual(["Cost", "Row 5 of Line Items", ["Name", "Module Name"], ["Cost", "COST01 Costs"]]);
+      .toEqual(["Cost", "Row 8 of Line Items", ["Name", "Module Name"], ["Cost", "COST01 Costs"]]);
+    page.key("Escape");
+    page.all('#tableWrap tbody [data-act="row"]')[1].press();
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent, page.texts("#drawerBody dd").slice(0, 2)])
+      .toEqual(["COST01 Costs", "Row 7 of Line Items", ["COST01 Costs", "COST01 Costs"]]);
     page.key("Escape");
 
     // The page's own table is the file as the export wrote it, with the modules' rows, the dashes and the file's own
@@ -1520,7 +1536,7 @@ describe("What a click, a key and typing do on the results page", () => {
     // The navigation has it after Line Items, where Anaplan's own order has no such entry, and the overview has its tile
     // there too, which counts the file's rows: the table lists every one.
     expect(page.all("#navList .nav-item").map(entryLabel)).toEqual(["Overview", "Modules", "Line Items", "Dynamic Cell Access", "Model map"]);
-    expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Modules", "3", "rows"], ["Line Items", "5", "rows", "8 rows in all"], ["Dynamic Cell Access", "5", "rows"]]);
+    expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Modules", "3", "rows"], ["Line Items", "8", "rows"], ["Dynamic Cell Access", "5", "rows"]]);
 
     goTo(2);
     expect(shows()).toEqual(["Dynamic Cell Access", "Dynamic Cell Access"]);
@@ -1591,7 +1607,7 @@ describe("What a click, a key and typing do on the results page", () => {
 
     // Another table of the model opens its rows from its first column, as ever: the choice is this file's alone.
     goTo(1);
-    expect(page.all("#tableWrap tbody tr").map(row => row.children.map(cell => cell.querySelectorAll('[data-act="row"]').length))[0]).toEqual([1, 0, 0, 0, 0, 0, 0, 0, 0]);
+    expect(page.all("#tableWrap tbody tr").map(row => row.children.map(cell => cell.querySelectorAll('[data-act="row"]').length))[0]).toEqual([1, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
 
     // A model that drives no access has the file without rows. The line still says what the table would list, and the
     // table says in the rows' place what that means, in the place of the page's sentence for a table without rows.
@@ -1613,27 +1629,27 @@ describe("What a click, a key and typing do on the results page", () => {
     const file = BLUEPRINT.tables[1];
     goTo(1);
     // The words, as Anaplan says them; a Ratio with the names its own row holds.
-    expect([column("Format"), column("Summary")]).toEqual([["Number", "Number", "Number", "Number, 2 decimal places, %", "Number"],
-      ["Sum", "None", "Sum", "Ratio = Margin / Revenue", "Sum, Time: Closing Balance"]]);
+    expect([column("Format"), column("Summary")]).toEqual([["", "Number", "Number", "Number", "Number, 2 decimal places, %", "", "", "Number"],
+      ["", "Sum", "None", "Sum", "Ratio = Margin / Revenue", "", "", "Sum, Time: Closing Balance"]]);
     // The search reads the words, not the text that was read in their place: a word is found where it is seen.
     page.id("tblSearch").type("closing balance");
-    expect([column("Name"), page.id("rowCount").textContent]).toEqual([["Cost"], "1–1 of 1 row (filtered from 5)"]);
+    expect([column("Name"), page.id("rowCount").textContent]).toEqual([["Cost"], "1–1 of 1 row (filtered from 8)"]);
     // A common word finds the rows that show it and no others. Every Summary's definition holds "summaryMethod", so the
-    // text that was read has "sum" in it in all five rows; three of them show the word.
+    // text that was read has "sum" in it in all five line items; three of them show the word.
     page.id("tblSearch").type("sum");
     expect([column("Name"), column("Summary"), page.id("rowCount").textContent])
-      .toEqual([["Units", "Revenue", "Cost"], ["Sum", "Sum", "Sum, Time: Closing Balance"], "1–3 of 3 rows (filtered from 5)"]);
+      .toEqual([["Units", "Revenue", "Cost"], ["Sum", "Sum", "Sum, Time: Closing Balance"], "1–3 of 3 rows (filtered from 8)"]);
     // What only the text that was read holds finds nothing: a definition's keys, its values as the export writes them, its true and false.
     for (const word of ["summaryMethod", "CLOSING_BALANCE", "percentage", "decimalPlaces", "false"]) {
       page.id("tblSearch").type(word);
-      expect(page.id("rowCount").textContent, word).toBe("No rows (filtered from 5)");
+      expect(page.id("rowCount").textContent, word).toBe("No rows (filtered from 8)");
     }
     page.id("tblSearch").type("");
-    // The Summary column's filter lists the words, each with its rows.
-    page.find('[data-colfilter="4"]').press();
-    expect(choices()).toEqual([["None", "1", true], ["Ratio = Margin / Revenue", "1", true], ["Sum", "2", true], ["Sum, Time: Closing Balance", "1", true]]);
-    page.all("#popover input")[2].tick();
-    expect([column("Name"), page.id("rowCount").textContent]).toEqual([["Price", "Margin %", "Cost"], "1–3 of 3 rows (filtered from 5)"]);
+    // The Summary column's filter lists the words, each with its rows, and the modules' own rows, which have none, as blanks.
+    page.find('[data-colfilter="5"]').press();
+    expect(choices()).toEqual([["(blank)", "3", true], ["None", "1", true], ["Ratio = Margin / Revenue", "1", true], ["Sum", "2", true], ["Sum, Time: Closing Balance", "1", true]]);
+    page.all("#popover input")[3].tick();
+    expect([column("Name"), page.id("rowCount").textContent]).toEqual([["REV01 Revenue", "Price", "Margin %", "--- Archive ---", "COST01 Costs", "Cost"], "1–6 of 6 rows (filtered from 8)"]);
     page.key("Escape");
     page.id("resetBtn").press();
     // The sort is by the words: descending by Format, the one format that says more comes first.
@@ -1645,23 +1661,24 @@ describe("What a click, a key and typing do on the results page", () => {
     // dimensions the line item has from its module are listed one to a line there, and the table says them as the file
     // has them, on one line, in the very row that was opened.
     page.all('#tableWrap tbody [data-act="row"]')[0].press();
-    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual(["Margin %", "Row 4 of Line Items"]);
-    expect(page.texts("#drawerBody dt")).toEqual(["Name", "Module Name", "Format", "Format as read", "Formula", "Summary", "Summary as read", "Applies To", "Applies To from",
-      "Ratio Numerator", "Ratio Denominator"]);
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual(["Margin %", "Row 5 of Line Items"]);
+    expect(page.texts("#drawerBody dt")).toEqual(["Name", "Module Name", "Format", "Format as read", "Format type", "Formula", "Summary", "Summary as read", "Applies To",
+      "Applies To from", "Ratio Numerator", "Ratio Denominator"]);
     /** A value of the drawer: its items where it lists several, and otherwise its text. */
     const value = (dd: FakeElement) => (dd.querySelectorAll("li").length ? dd.querySelectorAll(".cell-list li .cell-t").map(item => item.textContent) : dd.textContent);
-    expect(page.all("#drawerBody dd").map(value)).toEqual(["Margin %", "REV01 Revenue", "Number, 2 decimal places, %", PERCENT, "Margin / Revenue", "Ratio = Margin / Revenue", RATIO,
-      ["Products", "Time"], "Module", "Margin", "Revenue"]);
+    expect(page.all("#drawerBody dd").map(value)).toEqual(["Margin %", "REV01 Revenue", "Number, 2 decimal places, %", PERCENT, "Number", "Margin / Revenue", "Ratio = Margin / Revenue",
+      RATIO, ["Products", "Time"], "Module", "Margin", "Revenue"]);
     expect([column("Name")[0], column("Applies To")[0]]).toEqual(["Margin %", "Products, Time"]);
     page.key("Escape");
-    // The search finds the dimensions as the table shows them, the comma between them as well: the three line items that
-    // have their module's, whatever order the sort in force puts them in.
+    // The search finds the dimensions as the table shows them, the comma between them as well: the module's own row and
+    // the three line items that have its dimensions, whatever order the sort in force puts them in.
     page.id("tblSearch").type("products, time");
-    expect([[...column("Name")].sort(), page.id("rowCount").textContent]).toEqual([["Margin %", "Revenue", "Units"], "1–3 of 3 rows (filtered from 5)"]);
+    expect([[...column("Name")].sort(), page.id("rowCount").textContent]).toEqual([["Margin %", "REV01 Revenue", "Revenue", "Units"], "1–4 of 4 rows (filtered from 8)"]);
     page.id("tblSearch").type("");
     // Another row has its own: the drawer is the row's, after a sort as well.
     page.all('#tableWrap tbody [data-act="row"]')[4].press();
-    expect([page.id("drawerTitle").textContent, page.texts("#drawerBody dd").slice(2, 4), page.texts("#drawerBody dd").slice(5, 7)]).toEqual(["Cost", ["Number", NUMBER], ["Sum, Time: Closing Balance", CLOSING]]);
+    expect([page.id("drawerTitle").textContent, page.texts("#drawerBody dd").slice(2, 5), page.texts("#drawerBody dd").slice(6, 8)])
+      .toEqual(["Cost", ["Number", NUMBER, "Number"], ["Sum, Time: Closing Balance", CLOSING]]);
     page.key("Escape");
 
     // The page's own table is the file as the export wrote it: Anaplan's text, and none of the words. A model's map is
@@ -1694,7 +1711,7 @@ describe("What a click, a key and typing do on the results page", () => {
     const WITH_SOURCES: AnalysisResult = { ...BLUEPRINT, summary: [...BLUEPRINT.summary, "Source Models: 4 rows"], tables: [...BLUEPRINT.tables, sources] };
     await openWith(WITH_SOURCES);
     // The tile counts every row of the file, and the bar has its entry: the table lists them all.
-    expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Modules", "3", "rows"], ["Line Items", "5", "rows", "8 rows in all"], ["Source Models", "4", "rows"]]);
+    expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Modules", "3", "rows"], ["Line Items", "8", "rows"], ["Source Models", "4", "rows"]]);
     expect(entryLabel(page.find('#navList [data-nav="3"]'))).toBe("Source Models");
 
     goTo(3);
@@ -2347,19 +2364,19 @@ describe("What a click, a key and typing do on the results page", () => {
       ["Modules", "Source Models"], ["2 rows (as listed)", "Not exported: This model page has no REMOTE_MODEL axis."]]);
     expect(["2 rows (as listed)", "REMOTE_MODEL"].map(said => page.id("view").textContent.split(said).length - 1)).toEqual([1, 1]);
 
-    // A model two of whose tables list fewer rows than their files have: the Line Items grid with its modules' own rows,
-    // and the calendar with its rows about the model. The Details file counts all of each file's rows, 8 and 31.
+    // A model one of whose tables lists fewer rows than its file has: the calendar, with its rows about the model. The
+    // Details file counts all of each file's rows, 8 and 31.
     const left: AnalysisResult = { ...BLUEPRINT, summary: ["Line Items: 8 rows", "Modules: 3 rows", "Model Calendar: 31 rows"], tables: [...BLUEPRINT.tables, WITH_CALENDAR.tables[3]] };
     const counted = withFiles(left);
     expect(counted.tables[0].rows.filter(row => row[0] === "Files")).toEqual([["Files", "Line Items.csv", "8 rows"], ["Files", "Modules.csv", "3 rows"], ["Files", "Model Calendar.csv", "31 rows"]]);
     page.id("runAgain").press();
     sendResult(ports[0], counted);
-    // The tiles count what the tables list, 5 line items and 5 settings, and say the 8 and 31 there are in all under that: neither
-    // count of the Details file is lost, and no row of it is.
+    // The tiles count what the tables list, 5 settings and every row of Line Items, and the calendar's says the 31 there
+    // are in all under that: no count of the Details file is lost, and no row of it is.
     expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Model Calendar", "5", "rows", "31 rows in all"], ["Modules", "3", "rows"],
-      ["Line Items", "5", "rows", "8 rows in all"]]);
+      ["Line Items", "8", "rows"]]);
     expect([tiles(), unsaid(counted), page.has("#ovFiles"), page.has("#view .warn-list")]).toEqual([["Model Calendar.csv: 5 rows", "Model Calendar.csv: 31 rows", "Modules.csv: 3 rows",
-      "Line Items.csv: 5 rows", "Line Items.csv: 8 rows"], [], false, false]);
+      "Line Items.csv: 8 rows"], [], false, false]);
   });
 
   it("says what was copied as text, whatever the ID holds, for a moment", async () => {
@@ -4470,6 +4487,20 @@ describe("The ways from a count or a row to where it leads", () => {
     expect(mapBuilds).toHaveLength(1);
   });
 
+  it("opens a module's box from its own row of Line Items, which the table shows as a heading", async () => {
+    mapNodes = blueprintNodes();
+    await openWith(BLUEPRINT);
+    goTo(1);
+    openRow("COST01 Costs");
+    expect([page.id("drawerTitle").textContent, mapButton()?.title]).toEqual(["COST01 Costs", "Show COST01 Costs on the Model map"]);
+    mapButton()!.press();
+    expect([drawerOpen(), shows()[0], mapAsked]).toEqual([false, "Model map", ["build", "mount 1", "show 1", "reveal 1 5"]]);
+    // A heading's own row there, which the map draws as no module, has none.
+    goTo(1);
+    openRow("--- Archive ---");
+    expect([drawerOpen(), mapButton()]).toEqual([true, undefined]);
+  });
+
   it("opens a module's box on the model map from its row of Module Usage", async () => {
     mapNodes = blueprintNodes();
     const usage: ResultTable = { file: MODULE_USAGE_FILE, label: "Module Usage", guard: true, headers: [...MODULE_USAGE_HEADERS],
@@ -4583,7 +4614,7 @@ describe("The buttons at the top right of a row's details that open it in Anapla
     await openModel();
     goTo(1);
     // No row says that a double-click does anything, and a double-click does nothing.
-    expect(page.all("#tableWrap tbody tr").map(row => row.getAttribute("title"))).toEqual(Array(5).fill(null));
+    expect(page.all("#tableWrap tbody tr").map(row => row.getAttribute("title"))).toEqual(Array(8).fill(null));
     openRow("Revenue");
     expect([opens(), page.id("drawerOpens").hidden, why()]).toEqual([[["Model", "Open REV01 Revenue in Model Building"]], false, undefined]);
     page.id("scrim").dispatch("dblclick");
@@ -4597,6 +4628,20 @@ describe("The buttons at the top right of a row's details that open it in Anapla
     openRow("COST01 Costs");
     await press("Model");
     expect([tabUpdates.at(-1), windowUpdates.length, tabCreates]).toEqual([[7, { url: link("102000000002"), active: true }], 2, []]);
+  });
+
+  it("opens a module from its own row of Line Items, as from its row of Modules, with the map's button above", async () => {
+    mapNodes = [{ id: 0, kind: "module", name: "REV01 Revenue" }, { id: 5, kind: "module", name: "COST01 Costs" }];
+    await openModel();
+    goTo(1);
+    openRow("COST01 Costs");
+    expect(opens()).toEqual([["Model map", "Show COST01 Costs on the Model map"], ["Model", "Open COST01 Costs in Model Building"]]);
+    await press("Model");
+    expect(tabUpdates).toEqual([[7, { url: link("102000000002"), active: true }]]);
+    // A heading's own row has neither: the map draws no module of it, and the export found no ID for it.
+    page.key("Escape");
+    openRow("--- Archive ---");
+    expect([opens(), page.id("drawerOpens").hidden]).toEqual([[], true]);
   });
 
   it("has the button only for a row whose module the export found an ID for: none for a heading, nor for a module without one", async () => {

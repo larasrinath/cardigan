@@ -295,11 +295,13 @@ describe("The results page against the engine in the Anaplan tab", () => {
     // The file holds the Format as Anaplan writes it, and the list's name in its last column. A list subset is not named.
     expect([file.headers, file.rows.map(row => [row[0], row[1], row.at(-1)])]).toEqual([["", "Format", "Summary", "Applies To", "Module Name", "Ratio Numerator", "Ratio Denominator", "Format List"],
       [["Profitability", "", ""], ["Product", list(101000000001), "Products"], ["Region", list(101000000002), "+ Regions"], ["Active product", list(109000000001), ""]]]);
-    // The page says the format with that name, and with the list's ID where the file has none. The column is in its table.
+    // The page says the format with that name, and with the list's ID where the file has none, and its data type after
+    // it. The column is in its table, and so is the module's own row, which has no format.
     const shown = fileView(result, file).table;
-    expect([shown.headers, shown.rows.map(row => [row[0], row[2], row.at(-1)])]).toEqual([
-      ["", "Module Name", "Format", "Summary", "Applies To", "Applies To from", "Ratio Numerator", "Ratio Denominator", "Format List"],
-      [["Product", "List: Products", "Products"], ["Region", "List: + Regions", "+ Regions"], ["Active product", "List: ID 109000000001", ""]]]);
+    expect([shown.headers, shown.rows.map(row => [row[0], row[2], row[3], row.at(-1)])]).toEqual([
+      ["", "Module Name", "Format", "Format type", "Summary", "Applies To", "Applies To from", "Ratio Numerator", "Ratio Denominator", "Format List"],
+      [["Profitability", "", "", ""], ["Product", "List: Products", "List", "Products"], ["Region", "List: + Regions", "List", "+ Regions"],
+        ["Active product", "List: ID 109000000001", "List", ""]]]);
   });
 
   it("says an action that deletes from a list or orders one with the name the export wrote beside it, from the model's General Lists", async () => {

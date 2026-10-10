@@ -1,6 +1,7 @@
 import { FILTER_USES, MODEL_PAGE_FILES, MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, PAGE_PLACE_HEADERS } from "../page-files.js";
 import type { TabName } from "../report.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
+import { FORMAT_TYPE, LINE_ITEMS_FILE } from "./line-items-view.js";
 import { cellText, type Row } from "./table-engine.js";
 
 /** The names of an app export's files, by the report table each holds. The analysis writes its files under these names
@@ -14,10 +15,11 @@ export const APP_FILES: Record<TabName, string> = {
 /** How the results page shows each column. Columns come from a table's headers. The design's choices for the app's seven
  * files are kept by header name: which columns offer a filter, which start hidden, which are numbers, and which are shown
  * as an ID to copy, a tag, a link or a count. Every cell shows its own text whatever the choice; a count shows it with its
- * thousands apart. Of a model export's files the page knows only the columns that count something (`MODEL_COUNTS`) and
- * those that start hidden (`MODEL_HIDDEN`); the tables of the pages built on a model are shown as the app's tables they are
- * made from (`PAGE_FILE_CHOICES`). A file or a header that is not listed here gets a plain text column. In any file, a column that holds only a few different
- * texts offers a filter as well, so a model's tables can be filtered too.
+ * thousands apart. Of a model export's files the page knows only the columns that count something (`MODEL_COUNTS`), those
+ * that start hidden (`MODEL_HIDDEN`) and those that always offer a filter (`MODEL_FILTERED`); the tables of the pages
+ * built on a model are shown as the app's tables they are made from (`PAGE_FILE_CHOICES`). A file or a header that is
+ * not listed here gets a plain text column. In any file, a column that holds only a few different texts offers a filter
+ * as well, so a model's tables can be filtered too.
  *
  * Two kinds of column start hidden in every one of the app's tables: the IDs, and what only numbers a row's place, a
  * card's number and a section's (`NUMBERS_HIDDEN`). A row says where it belongs in words, by its page and its card's
@@ -126,6 +128,10 @@ export const MODEL_COUNTS: ReadonlyMap<string, readonly string[]> = new Map([
 /** The columns of a model export's files that start hidden: a Model Calendar setting's allowed values, which only guide
  * filling the template in by hand. Such a column is still in the column chooser, in the search and in the row's details. */
 export const MODEL_HIDDEN: ReadonlyMap<string, readonly string[]> = new Map([["Model Calendar.csv", ["Allowed values"]]]);
+/** The columns of a model's tables that always offer a filter, however many different texts they hold: the data type of a
+ * line item's format, which the page adds to Line Items after Format (line-items-view.ts). Its filter lists the line items
+ * alone without the blanks, which are the modules' own rows, and leaves out the headings without No Data. */
+export const MODEL_FILTERED: ReadonlyMap<string, readonly string[]> = new Map([[LINE_ITEMS_FILE, [FORMAT_TYPE]]]);
 /** The tables of the pages built on a model (page-files.ts), which the run writes from an app's tables: Page Filters and
  * Page Actions hold an app's Filters and Action Buttons with their app, and are shown as those are, with their IDs and
  * numbers hidden. Each of the three offers a filter on the app, and ends with where each page is, hidden: its type, as a
@@ -136,9 +142,10 @@ export const PAGE_FILE_CHOICES: ReadonlyMap<string, Readonly<Record<string, Choi
   [PAGE_ACTIONS_FILE, { App: FILTER, ...CHOICES.Actions, ...PAGE_PLACE }],
 ]);
 const MODEL_CHOICES: ReadonlyMap<string, ReadonlyMap<string, Choice>> = new Map([
-  ...[...new Set([...MODEL_COUNTS.keys(), ...MODEL_HIDDEN.keys()])].map((file): [string, ReadonlyMap<string, Choice>] => [file,
+  ...[...new Set([...MODEL_COUNTS.keys(), ...MODEL_HIDDEN.keys(), ...MODEL_FILTERED.keys()])].map((file): [string, ReadonlyMap<string, Choice>] => [file,
     new Map<string, Choice>([...(MODEL_COUNTS.get(file) ?? []).map((header): [string, Choice] => [header, COUNT]),
-      ...(MODEL_HIDDEN.get(file) ?? []).map((header): [string, Choice] => [header, { hidden: true }])])]),
+      ...(MODEL_HIDDEN.get(file) ?? []).map((header): [string, Choice] => [header, { hidden: true }]),
+      ...(MODEL_FILTERED.get(file) ?? []).map((header): [string, Choice] => [header, FILTER])])]),
   ...[...PAGE_FILE_CHOICES].map(([file, choices]): [string, ReadonlyMap<string, Choice>] => [file, new Map(Object.entries(choices))]),
 ]);
 

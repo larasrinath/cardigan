@@ -295,7 +295,7 @@ export function withColumnAdded(csv: string, column: ColumnAdded): string {
 }
 
 /** The row of the model's Model Details.csv on Line Items, which is deliberately not what 0.6.1 wrote, as the row's
- * whole line of the file. It has been written otherwise twice.
+ * whole line of the file. It has been written otherwise three times.
  * - It named the two columns that the export added after Anaplan's own, which were all it added. The file has a third
  *   since (`MODEL_COLUMN_ADDED`), and the row says what each of the three holds. (0.8.1 wrote it so: its words then are
  *   in golden-0.8.1.test-support.ts.)
@@ -303,11 +303,15 @@ export function withColumnAdded(csv: string, column: ColumnAdded): string {
  *   the results page stopped offering a result for download, the row is read on the page's overview and is to say what
  *   the page's Line Items table shows: line items only, each with its module after its name, and with the dimensions
  *   it has under Applies To, where Applies To from says whose they are (results/line-items-view.ts). A Summary's and a
- *   Format's JSON is the definition, which the table says in words. And General Lists is a table, not a file. */
+ *   Format's JSON is the definition, which the table says in words. And General Lists is a table, not a file.
+ * - The page's Line Items table lists every row of the file again, each module's own row in bold above its line items,
+ *   and adds Format type after Format, the data type of a line item's format, whose filter lists only line items without
+ *   the blanks of the modules' rows. The row says so, and the row on Dynamic Cell Access no longer says that the table
+ *   does not list a module's own row. */
 export const MODEL_ROW_REWORDED = {
   file: "Model Details.csv",
   was: `How to read,Line Items,"Each module's row sits above its line items. Ratio Numerator and Ratio Denominator, after Anaplan's own columns, name the line items a Ratio summary divides: the Summary JSON gives only their IDs."\r\n`,
-  now: `How to read,Line Items,"The table lists line items: each names its module under Module Name, after its own name, and a module's own row is not listed. Applies To holds the dimensions a line item has, its module's where it has none of its own, and Applies To from says which. Three columns follow Anaplan's own. Ratio Numerator and Ratio Denominator name the line items a Ratio summary divides: the Summary's definition gives only their IDs. Format List names the list of a line item formatted as a list, as the General Lists table names it: the Format's definition gives only the list's ID. It is empty for any other format, for a list that is not in General Lists, such as a list subset or a line item subset, and when General Lists was not exported."\r\n`,
+  now: `How to read,Line Items,"The table lists every row of the grid: each module's own row, in bold, then its line items. Each row names its module under Module Name, after its own name, a module's own row its own name. Applies To holds the dimensions a line item has, its module's where it has none of its own, and Applies To from says which. Format type, after Format, is the data type of a line item's format, and is blank on a module's own row: without (blank) its filter lists only line items, and without No Data it leaves out the line items that are headings. Three columns follow Anaplan's own. Ratio Numerator and Ratio Denominator name the line items a Ratio summary divides: the Summary's definition gives only their IDs. Format List names the list of a line item formatted as a list, as the General Lists table names it: the Format's definition gives only the list's ID. It is empty for any other format, for a list that is not in General Lists, such as a list subset or a line item subset, and when General Lists was not exported."\r\n`,
 } as const;
 
 /** The row of the model's Model Details.csv on the Actions list's three files, which is deliberately not what 0.6.1
@@ -379,7 +383,7 @@ export const MODEL_FILE_ADDED = {
   },
   howToRead: {
     after: MODEL_ROW_REWORDED.now,
-    line: `How to read,Dynamic Cell Access,"Not a Model settings grid: the Read Access Driver and Write Access Driver columns of Line Items, listed from the driver's side. One row for each use of a driver: the driver, Read or Write, and what it controls, each by module and name as Line Items has them. Rows follow the drivers' order in Line Items, Read before Write. A row with no Controlled Line Item is a module's own: its driver is set on the module's own row, which the Line Items table does not list. A line item that shows a dash is listed with its module's driver. A driver that could not be matched comes last, once for its cell, with no Driver Module and the cell as it is written. That includes a driver that sits in a row the model map leaves out, which About this map counts. The table is not made when Line Items was not exported or lacks its Module Name column or a driver column."\r\n`,
+    line: `How to read,Dynamic Cell Access,"Not a Model settings grid: the Read Access Driver and Write Access Driver columns of Line Items, listed from the driver's side. One row for each use of a driver: the driver, Read or Write, and what it controls, each by module and name as Line Items has them. Rows follow the drivers' order in Line Items, Read before Write. A row with no Controlled Line Item is a module's own: its driver is set on the module's own row, which the Line Items table shows above the module's line items. A line item that shows a dash is listed with its module's driver. A driver that could not be matched comes last, once for its cell, with no Driver Module and the cell as it is written. That includes a driver that sits in a row the model map leaves out, which About this map counts. The table is not made when Line Items was not exported or lacks its Module Name column or a driver column."\r\n`,
   },
 } as const;
 

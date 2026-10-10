@@ -500,6 +500,9 @@ export interface TableView {
   widths: ReadonlyMap<number, number>;
   /** The rows of the page shown. */
   rows: readonly Row[];
+  /** The rows of the table that are headings, which it shows in bold above the rows they head: a module's own row of a
+   * model's Line Items. */
+  headings?: ReadonlySet<Row>;
   page: number;
   pages: number;
   pageSize: number;
@@ -605,7 +608,7 @@ export function tableParts(view: TableView): TableParts {
       <button type="button" class="btn sm" data-act="reset">Clear search &amp; filters</button>
       </div>`;
   } else {
-    body = view.rows.map(row => `<tr>${view.columns.map((column, position) =>
+    body = view.rows.map(row => `<tr${view.headings?.has(row) ? ' class="heading"' : ""}>${view.columns.map((column, position) =>
       `<td class="${column.num ? "num" : ""}">${position === opens ? rowCellHtml(column, row, view.links) : cellHtml(column, row, view.links)}</td>`).join("")}</tr>`).join("");
   }
 
