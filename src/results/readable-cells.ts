@@ -400,6 +400,20 @@ export function formatWords(text: unknown, names?: CellNames): string | undefine
   return words(text, names, formatOf);
 }
 
+/** Says a Format cell's data type alone, by the label of the Format dialog's Type list, as the grid itself shows it:
+ * any of Number, Boolean, Date, Time Period, List, Text and No Data. A data type that is not among them is said
+ * raw, as the cell holds it, so that a line item of a type Anaplan adds later still has one. Undefined for a cell
+ * a reader of this module takes for no definition, such as a module's own row of Line Items, which has no Format;
+ * none either where a definition names no data type. */
+export function formatType(text: unknown): string | undefined {
+  try {
+    const type = word(definitionOf(text)?.dataType);
+    return type === undefined ? undefined : DATA_TYPE.get(type) ?? type;
+  } catch {
+    return undefined;
+  }
+}
+
 /** A Summary cell in words: "Sum", "Sum, Time: Closing Balance", "Ratio = Profit / Revenue", or "Ratio = ID 1901000000011 /
  * ID 1901000000012" when the caller has no names for the line items. */
 export function summaryWords(text: unknown, names?: CellNames): string | undefined {

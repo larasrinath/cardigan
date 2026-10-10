@@ -3,7 +3,7 @@ import { PAGE_ACTIONS_HEADERS, PAGE_FILTERS_HEADERS } from "../model-pages.js";
 import { MODEL_PAGE_FILES, MODULE_USAGE_FILE, MODULE_USAGE_HEADERS, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, PAGE_PLACE_HEADERS } from "../page-files.js";
 import { HEADERS, type TabName } from "../report.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
-import { APP_FILES, cardsNamed, cardsOf, COLUMN_CHOICES, columnIndex, columnsOf, FILTER_MAX, FILTER_MIN, MODEL_COUNTS, MODEL_HIDDEN, NUMBERS_HIDDEN, ROW_NAME_COLUMNS, rowColumns, rowKeys, rowNameIndex,
+import { APP_FILES, cardsNamed, cardsOf, COLUMN_CHOICES, columnIndex, columnsOf, FILTER_MAX, FILTER_MIN, MODEL_COUNTS, MODEL_FILTERED, MODEL_HIDDEN, NUMBERS_HIDDEN, ROW_NAME_COLUMNS, rowColumns, rowKeys, rowNameIndex,
   writesNone } from "./columns.js";
 import { MODEL_FILE_ORDER } from "./result-view.js";
 
@@ -145,7 +145,7 @@ describe("The results page's columns", () => {
     expect([shown(table("Versions.csv", ["", "Cell Count"])), shown(table("Modules.csv", ["", "cell count"])),
       shown(table("Processes.csv", ["", "Start Date and Time (UTC)", "Most recent duration (ms)"])), shown(table("Time Ranges.csv", ["", "Start Period", "End Period"]))]).toEqual([[], [], [], []]);
     // Every file named is one the page knows a model's files by: it lists them all in the navigation's order.
-    expect([...MODEL_COUNTS.keys(), ...MODEL_HIDDEN.keys()].filter(file => !MODEL_FILE_ORDER.includes(file))).toEqual([]);
+    expect([...MODEL_COUNTS.keys(), ...MODEL_HIDDEN.keys(), ...MODEL_FILTERED.keys()].filter(file => !MODEL_FILE_ORDER.includes(file))).toEqual([]);
     // A Model Calendar setting's allowed values only guide filling the template in by hand: the column starts hidden.
     const calendar = columnsOf(table("Model Calendar.csv", ["Section", "Setting", "Value", "Allowed values"]));
     expect(calendar.map(column => [column.label, column.hidden])).toEqual([["Section", false], ["Setting", false], ["Value", false], ["Allowed values", true]]);
@@ -199,6 +199,23 @@ describe("The results page's columns", () => {
     expect(columnsOf(cased).map(column => column.filter)).toEqual([true, true]);
     // Without rows no column of a model's file has anything to filter.
     expect(columnsOf(table("Line Items.csv", headers)).some(column => column.filter)).toBe(false);
+  });
+
+  it("always offers a filter on the data type of a line item's format, which the page adds to a model's Line Items, however many texts it holds", () => {
+    expect([...MODEL_FILTERED]).toEqual([["Line Items.csv", ["Format type"]]]);
+    /** A Line Items table as the page shows it, with as many different texts under Format type as `different`. */
+    const typed = (different: number): ResultTable => ({ ...table("Line Items.csv", ["", "Module Name", "Format", "Format type"]),
+      rows: Array.from({ length: 40 }, (_, index) => [`Item ${index}`, "Plan", `Format ${index}`, `Type ${index % different}`]) });
+    // One text, or more than thirty: the filter is there either way. The other columns offer one as any column does.
+    for (const different of [1, 2, 31, 40]) {
+      expect(columnsOf(typed(different)).map(column => [column.label, column.filter]), String(different))
+        .toEqual([["Name", false], ["Module Name", false], ["Format", false], ["Format type", true]]);
+    }
+    // Nothing else about the column changes with it: plain text, shown.
+    expect(columnsOf(typed(40)).find(column => column.label === "Format type")).toMatchObject({ kind: "text", num: false, hidden: false, filter: true });
+    // Only there: another file's column of that name, or one under another name, offers a filter only as any column does.
+    expect(columnsOf({ ...typed(40), file: "Modules.csv" }).find(column => column.label === "Format type")?.filter).toBe(false);
+    expect(columnsOf({ ...typed(40), headers: ["", "Module Name", "Format", "format type"] }).find(column => column.label === "format type")?.filter).toBe(false);
   });
 
   it("keeps the design's filters in an app's files whatever their columns hold, and adds one where a column holds few texts", () => {

@@ -314,7 +314,8 @@ export class ResultsClient {
 
   /** The tab did not answer this connection. Its content script is put back once, and it is asked again for a while; then
    * the page says that the tab is unreachable, or gone. A step whose connection the run control has replaced meanwhile
-   * ends there. Without a way to put the script back, to ask again or to look for the tab, it says so at once. */
+   * ends there. Without a way to put the script back, to ask again or to look for the tab, it says so at once. Nothing is
+   * given up before the final whistle, which is the last of those tries. */
   private async unanswered(): Promise<void> {
     const connection = this.connection;
     const current = () => connection === this.connection && this.state.phase === "connecting";

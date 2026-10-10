@@ -128,6 +128,9 @@ export interface FileView {
    * cell in `exported` by it, so that the text is said to be what that column of the file holds. Any other cell's text
    * is named by its own column. */
   readUnder?: ReadonlyMap<number, string>;
+  /** The rows of `table` that the page shows as headings, above the rows they head: a module's own row of a model's Line
+   * Items. None in any other table. */
+  headings?: ReadonlySet<readonly Cell[]>;
 }
 
 /** A rule for one file: what the page shows in its place. It gives nothing when the file is not as the rule expects it,
@@ -186,29 +189,26 @@ const calendarView: FileRule = file => {
 export const MODULES_FILE = "Modules.csv";
 
 /** A model's Line Items file is every module's blueprint in one grid: a module's own row, then its line items. The page
- * shows it as a table of line items, each with its module and the dimensions it really has (line-items-view.ts), and the
- * line under the table's name says how many modules' rows that leaves out.
+ * shows every row of it, each with its module, a line item with the dimensions it really has and the data type of its
+ * format, and a module's own row as a heading (line-items-view.ts). So the table counts the rows the file has, as the
+ * grid does, and the line under the table's name says how many of them are line items and how many modules' own, and how
+ * the filter on Format type lists the line items alone.
  *
  * The view is given the modules' names where the result has them: the first column of the Modules file, as the file has
  * it. A row that holds nothing but a name is then a module's own row only when the name is a module's, and otherwise a
- * line item whose module is not known, which stays in the table. A result without the Modules file, or with one that
- * lists nothing, has no names to give, and every such row is taken for a module's own. The line then says that, and
- * why: a line item of which only the name was read is among the rows it counts as modules' own, and nothing else on
- * the page tells that the names could not be checked.
- *
- * A module with no line items is in no row of the table. Where the names came from the Modules file, the line says that
- * the file lists such modules: a row with nothing under it is taken for a module's own because the file names it. */
+ * line item whose module is not known. A result without the Modules file, or with one that lists nothing, has no names
+ * to give, and every such row is taken for a module's own. The line then says that, and why: a line item of which only
+ * the name was read is among the rows it counts as modules' own, and nothing else on the page tells that the names could
+ * not be checked. */
 const lineItemsRule: FileRule = (file, result) => {
   const modules = result.tables.find(table => table.file === MODULES_FILE);
   const names = modules?.rows.length ? new Set(modules.rows.map(row => cellText(row[0]))) : undefined;
   const view = lineItemsView(file, names);
   // The view gives the table itself back when it does not apply to it.
   if (view.table === file) return undefined;
-  const where = modules && names && view.emptyModules > 0 ? ` ${view.emptyModules === 1 ? "It is" : "They are"} listed in the ${cellText(modules.label)} table.` : "";
   // A Modules file that was not exported is not among the result's tables; one without rows is, under its own label.
   const unchecked = names ? "" : ` The ${modules ? `${cellText(modules.label)} table lists no modules` : "Modules table was not exported"}, so a row with only a name is taken for a module's row.`;
-  const none = view.table.rows.length ? {} : { none: "Every row that was read is a module's own: no module has a line item." };
-  return { table: view.table, note: view.note === undefined ? undefined : `${view.note}${where}${unchecked}`, ...none };
+  return { table: view.table, note: view.note === undefined ? undefined : `${view.note}${unchecked}`, headings: view.headings };
 };
 
 /** A model's Dynamic Cell Access file (model/export.ts writes it under this name). It is no grid of Anaplan's: the
@@ -424,7 +424,7 @@ const LIST_COLUMNS: ReadonlyMap<string, string> = new Map([[LINE_ITEMS_FILE, FOR
  * or orders one with the name in its own row's Action List cell. Either is said by the list's ID where that cell is empty
  * or the file has no such column. A result holds no other names of lists by their IDs, so any other list is said by its
  * ID. What a file's own rule kept of a row stays kept, also in the copy of the row that is said in words, and a cell the
- * rule kept a text for is the rule's: it is not read again. */
+ * rule kept a text for is the rule's: it is not read again. A row the rule shows as a heading is one in its copy too. */
 function inWords(view: FileView): FileView {
   const { table } = view;
   const readable = table.headers.flatMap((header, index) => (READABLE_HEADERS.some(known => known === header) ? [index] : []));
@@ -459,7 +459,9 @@ function inWords(view: FileView): FileView {
     }
     return said ?? row;
   });
-  return changed ? { ...view, table: { ...table, rows }, exported } : view;
+  if (!changed) return view;
+  const headings = view.headings && new Set(rows.filter((row, index) => view.headings?.has(table.rows[index])));
+  return { ...view, table: { ...table, rows }, exported, ...(headings ? { headings } : {}) };
 }
 
 /** One of the result's files as the page shows it: by its rule, or as it stands, and for a model's result with its

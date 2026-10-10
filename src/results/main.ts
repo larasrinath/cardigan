@@ -113,6 +113,8 @@ interface Shown {
   exported: FileView["exported"];
   /** For a column the rule made out of a column of the file: that column's name, under which the drawer names the text that was read. */
   readUnder: FileView["readUnder"];
+  /** The rows the table shows as headings: a module's own row of a model's Line Items. */
+  headings: FileView["headings"];
   /** How the cells of each column that can list several items list them, by the column's place (cell-lists.ts): a row's
    * drawer lists such a cell's items one to a line. The table shows the cell as it is. */
   lists: ReadonlyMap<number, CellList>;
@@ -263,7 +265,7 @@ function tableView(entry: Shown): TableView {
   return {
     label: cellText(entry.table.label), note: entry.note, none: entry.none, empty: entry.empty, opensFrom: entry.opensFrom,
     ways: entry.ways && [{ way: "object", label: "By object", chosen: entry === entry.ways.object }, { way: "use", label: EVERY_USE, chosen: entry === entry.ways.use }],
-    columns: entry.columns.filter(column => !entry.hidden.has(column.index)), widths: entry.widths, rows: page.rows,
+    columns: entry.columns.filter(column => !entry.hidden.has(column.index)), widths: entry.widths, rows: page.rows, ...(entry.headings ? { headings: entry.headings } : {}),
     page: page.page, pages: page.pages, pageSize: state.pageSize, from: page.from, to: page.to, total: page.total, all: entry.table.rows.length,
     search: state.search, sort: entry.sort, filtered: new Set(entry.filters.keys()), context: state.context, links: entry.links,
   };
@@ -407,12 +409,12 @@ function showResult(next: AnalysisResult, at: Date, back = false): void {
   const whereUsed = byObject && next.tables.find(table => table.file === WHERE_USED_FILE);
   for (const { index, table: file } of listedTables(next)) {
     // What the page counts, filters and searches is the table as it shows it: the columns' filters follow its rows too.
-    const { table, note, none, empty, opensFrom, exported, readUnder } = fileView(next, file);
+    const { table, note, none, empty, opensFrom, exported, readUnder, headings } = fileView(next, file);
     const columns = columnsOf(table);
     const keys = rowKeys(table);
     const page = cards !== undefined && keys.page !== undefined;
     const entry: Shown = {
-      index, table, note, none, empty, opensFrom, exported, readUnder, lists: cellLists(next, table), columns, keys, links: { page, card: page && keys.cardId !== undefined },
+      index, table, note, none, empty, opensFrom, exported, readUnder, headings, lists: cellLists(next, table), columns, keys, links: { page, card: page && keys.cardId !== undefined },
       filters: new Map(), hidden: defaultHidden(columns), sort: undefined, page: 0,
     };
     // A number that could be more than one card's opens none of them: there it is plain text.
@@ -424,7 +426,7 @@ function showResult(next: AnalysisResult, at: Date, back = false): void {
     // drawer, which lists the object's roles and uses a row each: no cell of the view is cut into items.
     const object: Shown = {
       index, table: { ...file, headers: byObject.headers, rows: byObject.rows }, note: byObject.note, none: undefined, empty: undefined, opensFrom: undefined,
-      exported: undefined, readUnder: undefined, lists: new Map(), columns: byObject.columns,
+      exported: undefined, readUnder: undefined, headings: undefined, lists: new Map(), columns: byObject.columns,
       keys: { page: undefined, cardId: undefined, number: undefined }, links: { page: false, card: false },
       filters: new Map(), hidden: defaultHidden(byObject.columns), sort: undefined, page: 0, objects: byObject,
     };
@@ -904,8 +906,8 @@ function graphFor(model: AnalysisResult): ModelGraph {
 }
 
 /** The map's box for a row of a model's Line Items, Modules or Module Usage: the line item in its module, or the module, by
- * their names. None for any other row, for a row the map does not draw (a heading, a line item that names no module, a
- * module the model does not have), and where the map cannot be drawn. */
+ * their names. A module's own row of Line Items is its module's. None for any other row, for a row the map does not draw
+ * (a heading, a line item that names no module, a module the model does not have), and where the map cannot be drawn. */
 function mapNodeOf(entry: Shown, row: Row): number | undefined {
   const file = entry.table.file;
   if (result?.kind !== "model" || modelMap === "failed" || (file !== LINE_ITEMS_FILE && file !== MODULES_FILE && file !== MODULE_USAGE_FILE)) return undefined;
@@ -916,7 +918,7 @@ function mapNodeOf(entry: Shown, row: Row): number | undefined {
     return undefined;
   }
   const name = cellText(row[0]).trim();
-  if (file !== LINE_ITEMS_FILE) return graph.nodes.find(node => node.kind === "module" && node.name.trim() === name)?.id;
+  if (file !== LINE_ITEMS_FILE || entry.headings?.has(row)) return graph.nodes.find(node => node.kind === "module" && node.name.trim() === name)?.id;
   const at = columnIndex(entry.table, MODULE_NAME);
   const module = at === undefined ? "" : cellText(row[at]).trim();
   return graph.nodes.find(node => node.kind === "lineItem" && node.name.trim() === name && node.module !== undefined

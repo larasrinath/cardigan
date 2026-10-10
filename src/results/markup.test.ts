@@ -230,6 +230,15 @@ describe("The results page's escaping", () => {
     expect(opened(columns, 0)).toEqual(acts(columns));
   });
 
+  it("marks the rows a table shows as headings, and only those", () => {
+    const table: ResultTable = { file: "Line Items.csv", label: "Line Items", headers: ["", "Module Name"], rows: [["Sales", "Sales"], ["Units", "Sales"], ["Stock", "Stock"]], guard: false };
+    const classes = (overrides: Partial<TableView> = {}) => parseMarkup(tableHtml(viewOf(table, NO_LINKS, overrides))).querySelectorAll("tbody tr").map(row => row.getAttribute("class"));
+    expect(classes()).toEqual([null, null, null]);
+    expect(classes({ headings: new Set([table.rows[0], table.rows[2]]) })).toEqual(["heading", null, "heading"]);
+    // A row is a heading by being one of the table's rows, not by what it holds: a copy of one is none.
+    expect(classes({ headings: new Set([[...table.rows[0]]]) })).toEqual([null, null, null]);
+  });
+
   it("lets no text change the header or the navigation, its icons included: a file's name chooses an icon and is written nowhere", () => {
     expectInert(text => headerMetaHtml({ name: text(0), kind: text(1), host: text(2), exportedOn: text(3) }), 4);
     expectInert(text => navHtml([{ id: "overview", label: text(0) }, { id: "1", label: text(1) }, { id: "details", label: text(2) }], "details"), 3);

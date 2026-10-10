@@ -37,7 +37,7 @@ Open the model in Model Building; the classic model page opened on its own works
 Then it reads the pages built on the model, in every app you can open, and makes three more tables: **Module Usage**, **Page Filters** and **Page Actions**. They come last, before the map.
 
 - A table read from a Model settings grid is laid out as Anaplan's own export of that grid: each row's name first, then the grid's columns.
-- **Line Items** covers every module and lists each line item beside its module; a module's own row is not listed. Three columns follow Anaplan's own: **Ratio Numerator**, **Ratio Denominator** and **Format List**.
+- **Line Items** lists every row of Anaplan's Line Items grid, so it counts what the grid counts: each module's own row, in bold, above that module's line items, and each line item beside its module. **Format type**, after **Format**, gives each line item's data type: Number, Boolean, Date, Time Period, List, Text or No Data. It always has a filter: untick **(blank)** to list only line items, and **No Data** as well to leave out the line items that are headings. Three columns follow Anaplan's own: **Ratio Numerator**, **Ratio Denominator** and **Format List**.
 - **Open a row where it leads, from the top right of its details.** Buttons there, one under another, each with its icon:
   - **Model map** shows a line item or a module on the map, from **Line Items**, **Modules** or **Module Usage**.
   - **Model** opens the row's module in Model Building: a line item opens its module, since Model Building opens modules, not single line items. In **Page Filters**, **Condition module** and **Filtered module** open the filter's two modules, or one **Model** button where they are the same.
