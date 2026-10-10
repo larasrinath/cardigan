@@ -276,6 +276,54 @@ describe("The content scripts on an Anaplan page", () => {
     expect(frame.asked.slice(2).map(message => [message.type, message.nonce === frame.asked[2].nonce])).toEqual([["run", true], ["stop", true]]);
   });
 
+  it("reads the pages built on the model beside the export where the address names the customer, the workspace and the model, and shows the export's status meanwhile", async () => {
+    at(`/a/modeling/customers/${WS}/workspaces/${WS}/models/${MODEL}/modules`);
+    await import("./content.js");
+    const frame = { asked: [] as { type: string; nonce?: string }[], postMessage(message: { type: string; nonce?: string }) { this.asked.push(message); } };
+    hear({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD }, CORE, frame);
+    const port = open();
+    port.take();
+    port.say({ type: "run" });
+    await vi.advanceTimersByTimeAsync(0);
+    const { nonce } = frame.asked[1];
+    hear({ ...RUN, type: "status", nonce, text: "Reading Versions…" }, CORE, frame);
+    await vi.advanceTimersByTimeAsync(0);
+    // The frame is still exporting, and the list of the pages built on the model has been asked for already.
+    expect(vi.mocked(globalThis.fetch).mock.calls.map(([url]) => url)).toEqual([`${SHELL}/a/springboard-definition-service/customer/${WS}/model/${MODEL}/pages`]);
+    // The export's status is the one shown: nothing of the pages is said until the export has come.
+    expect(port.received.filter(message => message.type === "status")).toEqual([{ type: "status", text: "Reading Versions…" }]);
+    hear({ ...RUN, type: "done", nonce, result: { ...exportedModel(), lineItemIds: [["102000000001", ""]] } }, CORE, frame);
+    await vi.advanceTimersByTimeAsync(0);
+    // Then what the pages' reading said, as a run that read them after the export says it: Anaplan answered that the
+    // session has ended, and the export is handed on all the same.
+    expect(port.types()).toEqual(["log", "status", "log", "status", "log", "log", "result", "rows", "rows", "done"]);
+    expect(assemble(port.received)).toEqual({ ...withoutPages("you're signed out of Anaplan", ["Reading the pages built on this model…", "pages built on the model: SIGNED_OUT (HTTP 401)"]),
+      site: { origin: SHELL, customer: WS } });
+    expect(vi.mocked(globalThis.fetch).mock.calls).toHaveLength(1);
+  });
+
+  it("gives up the pages it was reading beside an export that fails", async () => {
+    at(`/a/modeling/customers/${WS}/workspaces/${WS}/models/${MODEL}/modules`);
+    await import("./content.js");
+    // The list of the pages answers only when the test says.
+    let answer: (response: Response) => void = () => undefined;
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(resolve => { answer = resolve; })));
+    const frame = { asked: [] as { type: string; nonce?: string }[], postMessage(message: { type: string; nonce?: string }) { this.asked.push(message); } };
+    hear({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD }, CORE, frame);
+    const port = open();
+    port.take();
+    port.say({ type: "run" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(vi.mocked(globalThis.fetch)).toHaveBeenCalledOnce();
+    hear({ ...RUN, type: "error", nonce: frame.asked[1].nonce, message: "The Line Items grid did not load." }, CORE, frame);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(port.received.filter(message => message.type === "error")).toEqual([expect.objectContaining({ type: "error" })]);
+    // The list comes after the export failed: no page is asked for, and no socket opened.
+    answer(new Response(JSON.stringify({ items: [{ guid: "00000000-0000-4000-8000-000000001000", name: "Demand board" }] }), { status: 200, headers: { "content-type": "application/json" } }));
+    await vi.advanceTimersByTimeAsync(1000);
+    expect([vi.mocked(globalThis.fetch).mock.calls.length, vi.mocked(globalThis.WebSocket).mock.calls]).toEqual([1, []]);
+  });
+
   it("asks the reader of this build where a frame holds two, and refuses one of another build after a few seconds, saying whether the results page can reach its frame", async () => {
     at(MODEL_BUILDING);
     await import("./content.js");

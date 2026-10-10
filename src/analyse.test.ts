@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { UxPageCardDetails } from "./card-reader/card-types.js";
-import { analyseApp, DETAILS_FILE, forgetModelHosts, loadCatalog, TAB_FILES } from "./analyse.js";
+import { analyseApp, DETAILS_FILE, forgetModelHosts, loadCatalog, loadCatalogWhen, TAB_FILES, VIEW_TRIAL, type CatalogInputs } from "./analyse.js";
 import type { ExportedLineItems } from "./catalog.js";
 import { APP_DASH_PLAIN, APP_ROW_ON_TWO_LINES, APP_ROW_REWORDED, APP_ROWS_FOR_THE_PAGE, APP_STOPS_IN_WORDS, APP_ZIP_0_6_1, APP_ZIP_REWORDED, withAppRowsSince, withPlainDash,
   withStopsInWords, ZIPPED_AT } from "./golden-0.6.1.test-support.js";
@@ -457,10 +457,12 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     const { catalog, notes, failedActionTypes } = await result;
 
     expect([notes, failedActionTypes]).toEqual([["Synthetic model: 1 of 2 saved views' rows, columns and context selectors could not be read."], []]);
-    const viewBody = { transforms: [], expandCollapseTransforms: [], clientQueryOptions: { useCellIdTemplate: false, canHandleDedupedAuxData: false, canHandleNullColumnWidths: false } };
+    // A saved view is asked for as Page Builder asks for a grid card's: as an Anaplan grid's data source, by its ID, in this model.
+    const viewBody = (view: string) => ({ dataSourceType: "ANAPLAN_GRID", dataSourceId: view, modelId: MODEL, workspaceId: WS,
+      clientQueryOptions: { useCellIdTemplate: false, canHandleDedupedAuxData: false, canHandleNullColumnWidths: false }, transforms: [] });
     expect(sent("SEND").map(frame => [frame.headers.destination, JSON.parse(frame.body)])).toEqual([
       [at(""), {}], [MODULE_VIEWS, {}], [at("/lists"), {}], [at(`/modules/${MODULE}/lineItems`), {}], [at("/dimensions"), { moduleIds: [MODULE] }],
-      [at(`/modules/${MODULE}/dimensions/${LIST}`), { itemIds: [NORTH, SOUTH], filter: "" }], [at(`/views/${VIEW}`), viewBody], [at(`/views/${VIEW_2}`), viewBody],
+      [at(`/modules/${MODULE}/dimensions/${LIST}`), { itemIds: [NORTH, SOUTH], filter: "" }], [at(`/views/${VIEW}`), viewBody(VIEW)], [at(`/views/${VIEW_2}`), viewBody(VIEW_2)],
       [at("/applicableModules"), { dimensions: [101000000901] }], [at(`/modules/${candidate(1)}/lineItems`), {}], [at(`/modules/${candidate(2)}/lineItems`), {}]]);
     expect(sent("SUBSCRIBE").filter(frame => frame.headers.accept).map(frame => [frame.headers.destination, frame.headers.accept])).toEqual([
       [at(""), "widget/model"], [at(`/modules/${MODULE}/dimensions/${LIST}`), "widget/selection"], [at(`/views/${VIEW}`), "widget/grid"], [at(`/views/${VIEW_2}`), "widget/grid"]]);
@@ -521,6 +523,112 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
       expect(notes, failing).toEqual([UNAVAILABLE]);
       expect(destinations().at(-1), failing).toBe(failing);
       expect(log, failing).toContain(line);
+    }
+  });
+
+  it(`reads the first ${VIEW_TRIAL} saved views before the others, and asks none of the others when each of those is refused and none answers`, async () => {
+    const views = Array.from({ length: VIEW_TRIAL + 3 }, (_, index) => String(130000000901 + index));
+    const viewRefs = views.map(id => ({ kind: "view", id }));
+    // Every view is refused, as a live run had all 233 refused (10 Oct 2026).
+    serveModel(Object.fromEntries(views.map(view => [at(`/views/${view}`), (id: string) => rejected(id, "VIEW_UNAVAILABLE")])));
+    const refusedAll = run(withGrid(...viewRefs));
+    const { notes } = await refusedAll.result;
+    expect(destinations().filter(destination => destination.includes("/views/"))).toEqual(views.slice(0, VIEW_TRIAL).map(view => at(`/views/${view}`)));
+    expect(refusedAll.log.filter(line => line.startsWith("saved view layouts"))).toEqual([`saved view layouts: the first ${VIEW_TRIAL} were refused (VIEW_UNAVAILABLE), so the other 3 were not asked`]);
+    expect(notes).toContain(`Synthetic model: ${views.length} of ${views.length} saved views' rows, columns and context selectors could not be read: the service refused the first ${VIEW_TRIAL}, so the others were not asked.`);
+
+    // One of the first that answers shows that the others may: every view is asked.
+    ScriptedSocket.sockets = [];
+    serveModel(Object.fromEntries(views.map((view, index) => [at(`/views/${view}`), (id: string) => (index === VIEW_TRIAL - 1
+      ? metadata(id, { rows: [{ dimensionId: LIST, label: "Product" }], cols: [] }) : rejected(id, "VIEW_UNAVAILABLE"))])));
+    const oneAnswers = run(withGrid(...viewRefs));
+    const answered = await oneAnswers.result;
+    expect(destinations().filter(destination => destination.includes("/views/"))).toHaveLength(views.length);
+    expect(oneAnswers.log.filter(line => line.startsWith("saved view layouts"))).toEqual([]);
+    expect(answered.notes).toContain(`Synthetic model: ${views.length - 1} of ${views.length} saved views' rows, columns and context selectors could not be read.`);
+  });
+
+  it("reads no saved view's layout for a model's run, whose tables show none, and says so", async () => {
+    serveModel({ [at(`/views/${VIEW}`)]: id => metadata(id, { rows: [{ dimensionId: LIST, label: "Product" }], cols: [] }) });
+    const log: string[] = [];
+    const { catalog, notes } = await loadCatalog(scope, withGrid({ kind: "view", id: VIEW }), new Map(), { status: () => undefined, log: line => { log.push(line); } },
+      undefined, undefined, { viewLayouts: false });
+    expect([destinations().filter(destination => destination.includes("/views/")), catalog.viewLayouts.size, notes]).toEqual([[], 0, []]);
+    expect(log).toContain("saved views: their rows, columns and context selectors are not read, as no table of a model's run shows them");
+    expect(log.find(line => line.startsWith("Time: "))).not.toContain("saved views");
+  });
+
+  it("asks for the model's names of modules and lists at once, and waits for the pages and the export for the other steps, saying how long it waited", async () => {
+    serveModel({
+      [MODULE_VIEWS]: id => update(id, { data: [{ id: Number(MODULE), name: "Demand", views: [] }], dimensions: {} }),
+      [at(`/modules/${MODULE}/lineItems`)]: id => update(id, { data: [{ lineItemId: LINE_ITEM, lineItemLabel: "Volume" }] }),
+    });
+    let give: (inputs: CatalogInputs) => void = () => undefined;
+    const log: string[] = [];
+    const loading = loadCatalogWhen(scope, new Promise<CatalogInputs>(resolve => { give = resolve; }), { status: () => undefined, log: line => { log.push(line); } });
+    await vi.waitFor(() => expect(destinations()).toEqual([at(""), MODULE_VIEWS, at("/lists")]));
+    // Nothing more is asked until the pages and the export have come.
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(destinations()).toEqual([at(""), MODULE_VIEWS, at("/lists")]);
+    give({ pages, pageNames: new Map([["page-guid", "Inventory policy"]]) });
+    const { catalog, notes } = await loading;
+    expect([notes, catalog.modules.get(MODULE), catalog.lineItems.get(LINE_ITEM), catalog.pages.get("page-guid")]).toEqual([[], "Demand", { name: "Volume", moduleId: MODULE }, "Inventory policy"]);
+    expect(destinations().slice(3)).toEqual([at(`/modules/${MODULE}/lineItems`)]);
+    expect(log.find(line => line.startsWith("Time: "))?.replace(/\d+\.\d\d s/g, "… s")).toBe("Time: connection … s, module and list names … s, waiting for the pages and the export … s, "
+      + "line items … s, module dimensions … s, item names … s, saved views … s, filter line items … s, filter item names … s, dimension names … s, action names … s; "
+      + "names of Synthetic model in all … s");
+  });
+
+  it("ends the names' work when their inputs never come, as when the run's export failed: the socket is closed, and no action name is read", async () => {
+    serveModel({});
+    let fail: (reason: unknown) => void = () => undefined;
+    const loading = loadCatalogWhen(scope, new Promise<CatalogInputs>((_, reject) => { fail = reject; }), { status: () => undefined, log: () => undefined });
+    await vi.waitFor(() => expect(destinations()).toEqual([at(""), MODULE_VIEWS, at("/lists")]));
+    fail(new Error("the export failed"));
+    await expect(loading).rejects.toThrow("the export failed");
+    await vi.waitFor(() => expect(ScriptedSocket.sockets.every(socket => socket.readyState === 3)).toBe(true));
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it("starts the socket on the host of the frame the model is read in, the model's own, and on the page's where that host cannot be reached", async () => {
+    // The page's host would send the model on to its own, as it did live on every first run (10 Oct 2026).
+    const frame = { host: MODEL_HOST, unreachable: false, redirects: true };
+    ScriptedSocket.reply = (socket, frame_) => {
+      if (frame_.command === "CONNECT") {
+        if (socket.host === MODEL_HOST && frame.unreachable) socket.close(1006);
+        else socket.serve(CONNECTED);
+      } else if (frame_.command === "SEND" && frame_.headers.destination === at("") && socket.host === FIRST && frame.redirects) {
+        socket.serve(`ERROR\n\n${JSON.stringify({ error: "REDIRECTION_REQUIRED", fqdn: MODEL_HOST })}\0`);
+      } else if (frame_.command === "SEND") socket.serve(update(frame_.headers.id, { data: [] }));
+    };
+    const names = (frameHost?: () => string | undefined) => {
+      const log: string[] = [];
+      return { log, result: loadCatalogWhen(scope, Promise.resolve({ pages, pageNames: new Map() }), { status: () => undefined, log: line => { log.push(line); } }, undefined, { frameHost }) };
+    };
+    const framed = names(() => frame.host);
+    await framed.result;
+    expect(ScriptedSocket.sockets.map(socket => socket.host)).toEqual([MODEL_HOST]);
+    expect(framed.log.filter(line => /^(asking|redirected|the model data service)/.test(line))).toEqual([`asking ${MODEL_HOST} first: the model's frame is there`]);
+    // The import names are asked of the model's host first, where the socket settled.
+    expect(vi.mocked(globalThis.fetch).mock.calls.map(([url]) => new URL(String(url)).host)).toEqual([MODEL_HOST]);
+
+    // The frame's host cannot be reached: the page's is asked, as before, and here serves the model itself.
+    forgetModelHosts();
+    ScriptedSocket.sockets = [];
+    [frame.unreachable, frame.redirects] = [true, false];
+    const fellBack = names(() => frame.host);
+    await fellBack.result;
+    expect(ScriptedSocket.sockets.map(socket => socket.host)).toEqual([MODEL_HOST, FIRST]);
+    expect(fellBack.log.filter(line => /^(asking|redirected|the model data service)/.test(line))).toEqual([`asking ${MODEL_HOST} first: the model's frame is there`,
+      `the model data service on ${MODEL_HOST} could not be reached (Connection closed (code 1006).): asking ${FIRST}`]);
+
+    // A frame on the page's own host, or on a host that is not Anaplan's, changes nothing: the page's host is asked.
+    for (const host of [FIRST, "frame.example.com", undefined]) {
+      forgetModelHosts();
+      ScriptedSocket.sockets = [];
+      [frame.unreachable, frame.redirects] = [false, true];
+      await names(() => host).result;
+      expect(ScriptedSocket.sockets.map(socket => socket.host)[0], String(host)).toBe(FIRST);
     }
   });
 
