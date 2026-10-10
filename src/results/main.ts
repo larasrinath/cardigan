@@ -14,7 +14,8 @@ import { mappingOfRow } from "./import-mapping-view.js";
 import { analysedLine, notKeptNote } from "./keep-notes.js";
 import { ResultKeeper } from "./keep-result.js";
 import {
-  cardDrawerHtml, cardDrawerSubHtml, colChooserHtml, colFilterHtml, headerMetaHtml, keptCopyHtml, MAP_FAILED, MAP_LABEL, mapHtml, MOON_ICON, navHtml, navItems, navMenuHtml,
+  cardDrawerHtml, cardDrawerSubHtml, colChooserHtml, colFilterHtml, filterMatches, filterOptionsHtml, filterStatusText, filterTickWords, headerMetaHtml, keptCopyHtml, MAP_FAILED,
+  MAP_LABEL, mapHtml, MOON_ICON, navHtml, navItems, navMenuHtml,
   noteBannerHtml, NOT_REMOVED_LINE, objectDrawerHtml, objectDrawerSubHtml, opensHtml, overviewHtml, rowDrawerHtml, rowDrawerSubHtml, runBannerHtml, runHtml, SUN_ICON, tableHtml,
   tableParts, type KeptCopy, type Links, type NavEntry, type OpenButton, type TableView,
 } from "./markup.js";
@@ -248,7 +249,7 @@ function navEntries(): NavEntry[] {
 function query(entry: Shown): TableQuery {
   const column = entry.keys.page;
   return {
-    search: state.search, filters: entry.filters, sort: entry.sort,
+    search: state.search, filters: entry.filters, lists: entry.lists, sort: entry.sort,
     context: state.context !== undefined && column !== undefined ? { column, value: state.context } : undefined,
     // The search finds a count as the table shows it too, with its commas: in every column of counts, shown or hidden.
     counts: new Set(entry.columns.filter(shown => shown.kind === "count").map(shown => shown.index)),
@@ -410,11 +411,12 @@ function showResult(next: AnalysisResult, at: Date, back = false): void {
   for (const { index, table: file } of listedTables(next)) {
     // What the page counts, filters and searches is the table as it shows it: the columns' filters follow its rows too.
     const { table, note, none, empty, opensFrom, exported, readUnder, headings } = fileView(next, file);
-    const columns = columnsOf(table);
+    const lists = cellLists(next, table);
+    const columns = columnsOf(table, lists);
     const keys = rowKeys(table);
     const page = cards !== undefined && keys.page !== undefined;
     const entry: Shown = {
-      index, table, note, none, empty, opensFrom, exported, readUnder, headings, lists: cellLists(next, table), columns, keys, links: { page, card: page && keys.cardId !== undefined },
+      index, table, note, none, empty, opensFrom, exported, readUnder, headings, lists, columns, keys, links: { page, card: page && keys.cardId !== undefined },
       filters: new Map(), hidden: defaultHidden(columns), sort: undefined, page: 0,
     };
     // A number that could be more than one card's opens none of them: there it is plain text.
@@ -594,32 +596,67 @@ function openPopover(owner: string, anchor: Element, name: string, html: string)
   popover.style.top = "0px";
   popover.style.visibility = "hidden";
   requestAnimationFrame(() => {
-    const height = Math.min(popover.offsetHeight, 340);
+    const height = Math.min(popover.offsetHeight, 380);
     if (top + height > window.innerHeight - 10) top = Math.max(10, rect.top - height - 6);
     popover.style.top = `${top}px`;
     popover.style.visibility = "visible";
-    popover.querySelector<HTMLElement>("input,button")?.focus();
+    // The control the popover marks to have the focus first, a filter's box to find its values; else its first control.
+    (popover.querySelector<HTMLElement>("[data-first]") ?? popover.querySelector<HTMLElement>("input,button"))?.focus();
   });
 }
+/** Opens a column's filter. Its values are read from the table's rows now, when it opens, and not before: each text of the
+ * column, or each item of a column whose cells list items. A filter of many values has a box that finds them: the list
+ * shows what it finds, and its two buttons tick or untick all of that, listed or not. */
 function openColFilter(entry: Shown, column: Column, owner: string, anchor: Element): void {
-  const values = valueCounts(entry.table.rows, column.index);
-  openPopover(owner, anchor, `Filter: ${column.label}`, colFilterHtml(column, values, entry.filters.get(column.index)));
+  const items = entry.lists.get(column.index);
+  const values = valueCounts(entry.table.rows, column.index, items);
+  openPopover(owner, anchor, `Filter: ${column.label}`, colFilterHtml(column, values, entry.filters.get(column.index), items !== undefined));
   const popover = el("popover");
-  popover.querySelectorAll<HTMLInputElement>("input[data-fval]").forEach(input => {
-    input.addEventListener("change", () => {
-      const value = values[Number(input.dataset.fval)]?.[0];
-      if (value === undefined) return;
-      let selected = entry.filters.get(column.index);
-      if (!selected) {
-        selected = new Set(values.map(([text]) => text));
-        entry.filters.set(column.index, selected);
+  let find = "";
+  /** What the box finds, by the values' places: every value while nothing is typed. */
+  let matches = values.map((_, index) => index);
+  /** Ticks or unticks the values at these places and draws the table again. With every value ticked there is no filter. */
+  const choose = (places: readonly number[], ticked: boolean) => {
+    let selected = entry.filters.get(column.index);
+    if (!selected) {
+      selected = new Set(values.map(([text]) => text));
+      entry.filters.set(column.index, selected);
+    }
+    for (const place of places) {
+      const value = values[place]?.[0];
+      if (value !== undefined) {
+        if (ticked) selected.add(value); else selected.delete(value);
       }
-      if (input.checked) selected.add(value); else selected.delete(value);
-      if (selected.size === values.length) entry.filters.delete(column.index);
-      entry.page = 0;
-      updateTable(entry);
-    });
+    }
+    if (selected.size === values.length) entry.filters.delete(column.index);
+    entry.page = 0;
+    updateTable(entry);
+  };
+  /** Lists what the box finds, ticked as the filter has it now, and says how many it finds and what the buttons do. */
+  const relist = () => {
+    const list = popover.querySelector(".pop-bd");
+    if (list) list.innerHTML = filterOptionsHtml(column, values, matches, entry.filters.get(column.index));
+    const status = popover.querySelector("[data-fstatus]");
+    if (status) status.textContent = filterStatusText(values, matches, find);
+    const words = filterTickWords(find);
+    popover.querySelectorAll<HTMLElement>('[data-popact="tick"], [data-popact="untick"]').forEach((button, at) => { button.textContent = words[at]; });
+  };
+  // The list's boxes are written again as the box finds other values: the list itself hears each box that changes.
+  popover.querySelector(".pop-bd")?.addEventListener("change", event => {
+    const input = event.target;
+    if (input instanceof HTMLInputElement && input.dataset.fval !== undefined) choose([Number(input.dataset.fval)], input.checked);
   });
+  popover.querySelector<HTMLInputElement>("[data-ffind]")?.addEventListener("input", event => {
+    find = (event.target as HTMLInputElement).value;
+    matches = filterMatches(column, values, find);
+    relist();
+  });
+  for (const ticked of [true, false]) {
+    popover.querySelector(`[data-popact="${ticked ? "tick" : "untick"}"]`)?.addEventListener("click", () => {
+      choose(matches, ticked);
+      relist();
+    });
+  }
   popover.querySelector('[data-popact="all"]')?.addEventListener("click", () => {
     entry.filters.delete(column.index);
     entry.page = 0;

@@ -762,6 +762,47 @@ describe("The results page's script, on the page", () => {
     expect(filterable()).toEqual(["Name", "Functional Area"]);
   });
 
+  it("filters a column of lists by each item, and a filter of many values by what its box finds: its buttons tick or untick all of that", async () => {
+    // Sixty modules, each applying to Products and to one of twenty regions, as a model's grid writes names, each region in
+    // three modules; and each in one of three functional areas.
+    const region = (at: number) => `Region ${String((at % 20) + 1).padStart(2, "0")}`;
+    const MANY: AnalysisResult = { ...MODEL, summary: ["Modules: 60 rows"], tables: [MODEL.tables[0], { file: "Modules.csv", label: "Modules",
+      headers: ["", "Applies To", "Functional Area"], guard: false, rows: Array.from({ length: 60 }, (_, at) => [`Module ${at + 1}`, `Products, ${region(at)}`, `Area ${at % 3}`]) }] };
+    await openWith(MANY);
+    goTo(1);
+    // Every cell of Applies To is its own, but its items repeat: the column offers a filter. The modules' names do not.
+    expect(filterable()).toEqual(["Applies To", "Functional Area"]);
+    page.find('[data-colfilter="1"]').press();
+    // Each item once, with the rows that list it, Products first; with more than fifteen, a box finds them, and has the focus.
+    const box = page.find("#popover [data-ffind]");
+    expect([choices().length, choices()[0], choices()[1], page.document.activeElement === box, page.find("#popover [data-fstatus]").textContent, page.find("#popover .pop-note").textContent])
+      .toEqual([21, ["Products", "60", true], ["Region 01", "3", true], true, "21 values.", "Each item is listed on its own: a row shows when any of its items is ticked."]);
+    // The box narrows the list, whatever the case, and the buttons say they work on what it finds.
+    box.type("region 0");
+    expect([choices().map(([value]) => value), page.find("#popover [data-fstatus]").textContent, page.texts("#popover [data-popact]")])
+      .toEqual([Array.from({ length: 9 }, (_, at) => `Region 0${at + 1}`), "9 of 21 values match.", ["Show all", "Tick matches", "Untick matches"]]);
+    // Unticking what it finds keeps every row while Products, which each of them lists, is ticked.
+    page.find('#popover [data-popact="untick"]').press();
+    expect([choices().every(([, , ticked]) => !ticked), page.id("rowCount").textContent, page.find('[data-colfilter="1"]').classList.contains("active")])
+      .toEqual([true, "1–50 of 60 rows", true]);
+    // Without Products, a row shows only by its region: the nine regions found are gone, and their twenty-seven modules.
+    box.type("PRODUCTS");
+    page.find('#popover [data-popact="untick"]').press();
+    expect([choices(), page.id("rowCount").textContent]).toEqual([[["Products", "60", false]], "1–33 of 33 rows (filtered from 60)"]);
+    // Ticking what it finds brings its rows back; with nothing typed, the buttons work on every value.
+    box.type("");
+    expect([page.texts("#popover [data-popact]"), page.find("#popover [data-fstatus]").textContent]).toEqual([["Show all", "Tick all", "Untick all"], "21 values."]);
+    page.find('#popover [data-popact="tick"]').press();
+    expect([choices().every(([, , ticked]) => ticked), page.id("rowCount").textContent, page.find('[data-colfilter="1"]').classList.contains("active")])
+      .toEqual([true, "1–50 of 60 rows", false]);
+    // A box ticked in the narrowed list is the value it shows, whatever its place in the list.
+    box.type("region 20");
+    page.all("#popover .pop-opt input")[0].tick();
+    expect([choices(), page.id("rowCount").textContent]).toEqual([[["Region 20", "3", false]], "1–50 of 60 rows"]);
+    page.find('#popover [data-popact="all"]').press();
+    expect([page.id("popover").hidden, page.find('[data-colfilter="1"]').classList.contains("active")]).toEqual([true, false]);
+  });
+
   it("shows a table from its first page again after a sort, a search or a filter, and after leaving a search behind", async () => {
     await openWith(MODEL);
     goTo(1);
@@ -1866,7 +1907,7 @@ describe("What a click, a key and typing do on the results page", () => {
     expect(copied).toEqual(["card-a", "card-gone"]);
   });
 
-  it("lists one to a line, in a row's drawer and in a card's, a cell that the report joined from several items; the table, its search and its filter read the cell as it is", async () => {
+  it("lists one to a line, in a row's drawer and in a card's, a cell that the report joined from several items; the table and its search read the cell as it is, its filter each item", async () => {
     /** An app whose Cards table has a grid of one section and a combined grid, with the columns the report joins, and a
      * filter whose context is two dimensions. */
     const JOINED: AnalysisResult = { ...APP, tables: [APP.tables[0], APP.tables[1],
@@ -1900,12 +1941,17 @@ describe("What a click, a key and typing do on the results page", () => {
     expect(page.all("#drawerBody .mini tbody tr").map(entry => entry.children.map(cell => (cell.querySelector(".cell-list") ? cell.querySelectorAll("li").map(text => text.textContent) : cell.textContent))))
       .toEqual([["1", "", "", NONE, "Sales", ["Time = current", "Version = Actual"]]]);
     page.key("Escape");
-    // The search finds the cell as the table shows it, the report's separator and all; the filter lists the cells whole.
+    // The search finds the cell as the table shows it, the report's separator and all. The filter lists each item the
+    // drawer lists, once, with the rows that list it: a section of the combined grid is one item, its own semicolon and all.
     page.id("tblSearch").type("channel (hidden) | section 2");
     expect([column("Card title"), page.id("rowCount").textContent]).toEqual([["Plan"], "1–1 of 1 row (filtered from 2)"]);
     page.id("tblSearch").type("");
     page.find(`[data-colfilter="${4}"]`).press();
-    expect(choices().map(([value]) => value).sort()).toEqual([...SELECTORS].sort());
+    expect(choices().map(([value, count]) => [value, count]).sort()).toEqual([["Channel (hidden)", "1"], ["Section 1: Territory (visible, synced to page); Channel (hidden)", "1"],
+      ["Section 2: Store (hidden)", "1"], ["Territory (visible, synced to page)", "1"]]);
+    // A row shows when any of its items is ticked: without the first card's two items, the combined grid stays.
+    page.all("#popover input").filter((_, at) => ["Channel (hidden)", "Territory (visible, synced to page)"].includes(choices()[at][0])).forEach(box => box.tick());
+    expect([column("Card title"), page.id("rowCount").textContent]).toEqual([["Plan"], "1–1 of 1 row (filtered from 2)"]);
   });
 
   it("opens the card a link stands for: the one on that row's page, with its parts", async () => {
