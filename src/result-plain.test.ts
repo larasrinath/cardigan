@@ -65,6 +65,28 @@ describe("A result as plain data", () => {
     expect(plainResult({ ...result, moduleIds: model.moduleIds })).toEqual(result);
   });
 
+  it("keeps a model's mappings of its imports from a file, every field checked, and leaves them out whole where anything is not as it should be", () => {
+    const importMappings = [
+      { id: "112000000001", name: "Division from HQ Network.csv", importType: "HIERARCHY_DATA", targets: [{ target: "Division", source: "column", column: 1, text: "Division Name" },
+        { target: "Parent", source: "constant", text: "All" }, { target: "Code", source: "none" }, { target: "Manager", source: "other", text: "field" }] },
+      { id: "", name: "Gone", importType: "", targets: [], note: "Cardigan could not read this import's mapping." }];
+    const model = { ...result, kind: "model" as const, importMappings };
+    const read = plainResult({ ...model, importMappings: importMappings.map(mapping => ({ ...mapping, extra: "<b>", targets: mapping.targets.map(target => ({ ...target, html: 1 })) })) });
+    expect(read).toEqual(model);
+    expect(Object.keys(read!.importMappings![0].targets[0])).toEqual(["target", "source", "column", "text"]);
+    const target = importMappings[0].targets[0];
+    const mapping = importMappings[0];
+    for (const odd of [{ ...mapping, id: "1x" }, { ...mapping, id: 112000000001 }, { ...mapping, name: null }, { ...mapping, importType: 1 }, { ...mapping, targets: "none" },
+      { ...mapping, note: 7 }, { ...mapping, targets: [{ ...target, source: "file" }] }, { ...mapping, targets: [{ ...target, source: "toString" }] },
+      { ...mapping, targets: [{ ...target, column: 0 }] }, { ...mapping, targets: [{ ...target, column: 1.5 }] }, { ...mapping, targets: [{ ...target, column: "1" }] },
+      { ...mapping, targets: [{ ...target, text: 3 }] }, { ...mapping, targets: [{ ...target, target: undefined }] }, { ...mapping, targets: [null] }, null, "mapping"]) {
+      expect(plainResult({ ...model, importMappings: [odd] }), JSON.stringify(odd)).toEqual({ ...result, kind: "model" });
+    }
+    expect(plainResult({ ...model, importMappings: { 0: mapping } })).toEqual({ ...result, kind: "model" });
+    // An app has none.
+    expect(plainResult({ ...result, importMappings })).toEqual(result);
+  });
+
   it("takes a file name only when it is a name: no path, no drive, no line break, and the extension expected", () => {
     const named = (zipName: unknown, file: unknown) => plainResult({ ...result, zipName, tables: [{ ...result.tables[1], file }] }) !== undefined;
     expect(named("Plan #1 (R&D) - 50%+ [a] {b} ~ 'c' = d; e, f! @g $h ^i - App Export - 2026-09-28.zip", "Conditional Formatting.csv")).toBe(true);

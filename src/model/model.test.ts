@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { stampLine } from "../details.js";
 import { IMPORTS_ROW_REWORDED, MODEL_ACTIONS_COLUMN_ADDED, MODEL_ACTIONS_ROW_REWORDED, MODEL_COLUMN_ADDED, MODEL_COLUMNS_ADDED, MODEL_FILE_ADDED, MODEL_ROW_ADDED, MODEL_ROW_REWORDED, MODEL_ROWS_FOR_THE_PAGE, MODEL_ZIP_0_6_1, MODEL_ZIP_AS_NAMED, withColumnAdded, withDetailsSince, ZIPPED_AT } from "../golden-0.6.1.test-support.js";
-import { ACCESS_CSV, ACCESS_FILE_ADDED, ACCESS_GRIDS, ACCESS_READS_0_8_1, ACCESS_ROWS_FOR_THE_PAGE, ACCESS_ROWS_REWORDED, ACCESS_ZIP_0_8_1, ACCESS_ZIP_WITH_FILE, withAccessRows } from "../golden-0.8.1.test-support.js";
+import { ACCESS_CSV, ACCESS_FILE_ADDED, ACCESS_GRIDS, ACCESS_READS_0_8_1, ACCESS_ROWS_FOR_THE_PAGE, ACCESS_ROWS_REWORDED, ACCESS_ZIP_0_8_1, ACCESS_ZIP_WITH_FILE, MAPPINGS_ADDED, withAccessRows,
+  withMappingsRead, withMappingsSaid } from "../golden-0.8.1.test-support.js";
 import { NOT_SCOPE_IDS, SCOPE_IDS } from "../guards.test-support.js";
 import { buildModelGraph } from "../map/build-graph.js";
 import { Failure } from "../progress.js";
+import { plainResult } from "../result-plain.js";
 import { resultZip, tableCsv } from "../result-zip.test-support.js";
 import { actionWords } from "../results/readable-cells.js";
 import { parseCsv, sameBytes, toCsv, unzipText, zipEntries, zipStore } from "../zip.test-support.js";
@@ -14,6 +16,7 @@ import { againstMap } from "./access.test-support.js";
 import { ACTION_LIST_COLUMN, actionKind, mergeImports, missingActionColumns, otherActionsTable } from "./actions.js";
 import { CALENDAR_HEADERS, CALENDAR_PROPERTIES, calendarKind, calendarRows } from "./calendar.js";
 import { exportModel, moduleIdsOf } from "./export.js";
+import { MAPPING_NOTES } from "./import-mappings.js";
 import * as grids from "./grid.js";
 import { cellText, gridTable, labelEntries, plainText, windowRows, type CellSource, type Grid, type GridRow } from "./grid.js";
 import * as lineItems from "./lineitems.js";
@@ -626,9 +629,10 @@ describe("Model export: Model settings grids to tables", () => {
       ["Profitability", "", "", "", "", ""], ["Product", list(101000000001), '{"summaryMethod":"NONE"}', "", "", "Products"],
       ["Region", list(101000000002), '{"summaryMethod":"NONE"}', "", "", "+ Regions"], ["Active product", list(109000000001), '{"summaryMethod":"NONE"}', "", "", ""],
       ["Profit", NUMBER, '{"summaryMethod":"SUM"}', "", "", ""]]);
-    // No grid is read for the names: every grid is read once, in the order it always was, Line Items first.
-    expect(reads).toEqual(["LINE ITEMS 0+1", "LINE ITEMS 0+5", "MODULES 0+1", "MODULES 0+2", "LISTS 0+1", "LISTS 0+2", "ACTIONS 0+1", "ACTIONS 0+10", "IMPORTS 0+1", "IMPORTS 0+2",
-      "DATA SOURCES 0+1", "TIME RANGES 0+1", "VERSIONS 0+1", "VERSIONS 0+2", "CALENDAR 0+1", "CALENDAR 0+10"]);
+    // No grid is read for the names: every grid is read once, in the order it always was, Line Items first. The grid of
+    // the imports' definitions is read with the Imports tab's row axis, right after it (MAPPINGS_ADDED).
+    expect(reads).toEqual(withMappingsRead(["LINE ITEMS 0+1", "LINE ITEMS 0+5", "MODULES 0+1", "MODULES 0+2", "LISTS 0+1", "LISTS 0+2", "ACTIONS 0+1", "ACTIONS 0+10",
+      "IMPORTS 0+1", "IMPORTS 0+2", "DATA SOURCES 0+1", "TIME RANGES 0+1", "VERSIONS 0+1", "VERSIONS 0+2", "CALENDAR 0+1", "CALENDAR 0+10"]));
     // The file has its place and its count as ever. The Details file says what it says of the golden model, but for the
     // file's number of rows, and every other file is the golden model's own.
     expect(result.tables.map(table => table.file).slice(0, 4)).toEqual(["Model Details.csv", "Line Items.csv", "Modules.csv", "General Lists.csv"]);
@@ -672,9 +676,10 @@ describe("Model export: Model settings grids to tables", () => {
       ...others.map(({ labels, cells }, index) => [labels[0], ...cells, ["Products", "+ Regions", "", ""][index]])]);
     // Processes and Exports have no such column: no process or export is said with a list's name.
     expect([csv(result, "Processes.csv")[0], csv(result, "Exports.csv")[0]]).toEqual([["", ...ACTION_COLUMNS], ["", ...ACTION_COLUMNS]]);
-    // No grid is read for the names: every grid is read once, in the order it always was, General Lists before the Actions list.
-    expect(reads).toEqual(["LINE ITEMS 0+1", "LINE ITEMS 0+4", "MODULES 0+1", "MODULES 0+2", "LISTS 0+1", "LISTS 0+2", "ACTIONS 0+1", "ACTIONS 0+13", "IMPORTS 0+1", "IMPORTS 0+2",
-      "DATA SOURCES 0+1", "TIME RANGES 0+1", "VERSIONS 0+1", "VERSIONS 0+2", "CALENDAR 0+1", "CALENDAR 0+10"]);
+    // No grid is read for the names: every grid is read once, in the order it always was, General Lists before the Actions
+    // list. The grid of the imports' definitions is read with the Imports tab's row axis, right after it (MAPPINGS_ADDED).
+    expect(reads).toEqual(withMappingsRead(["LINE ITEMS 0+1", "LINE ITEMS 0+4", "MODULES 0+1", "MODULES 0+2", "LISTS 0+1", "LISTS 0+2", "ACTIONS 0+1", "ACTIONS 0+13",
+      "IMPORTS 0+1", "IMPORTS 0+2", "DATA SOURCES 0+1", "TIME RANGES 0+1", "VERSIONS 0+1", "VERSIONS 0+2", "CALENDAR 0+1", "CALENDAR 0+10"]));
     // General Lists cannot be read: Other Actions.csv is exported all the same, with the column there and empty.
     const { [LISTS]: _lists, ...withoutLists } = grids;
     const without = await exportGoldenModel(withoutLists);
@@ -933,14 +938,15 @@ describe("Model export: Model settings grids to tables", () => {
       (file === ACCESS_FILE_ADDED.details ? withAccessRows(text) : file === MODEL_ACTIONS_COLUMN_ADDED.file ? withColumnAdded(text, MODEL_ACTIONS_COLUMN_ADDED) : text);
     for (const [file, text] of before) expect(written.get(file), file).toBe(since(file, text));
     expect(written.get(ACCESS_FILE_ADDED.file)).toBe(ACCESS_CSV);
-    // Row by row, Model Details.csv has 0.8.1's rows, each in its place, with the two rows about the file and the row on
-    // Source Models among them. The rows in other words than 0.8.1's are the five named, in the file's order: on the
-    // layout, on Line Items, on the Actions list's files, on Imports and on the calendar.
+    // Row by row, Model Details.csv has 0.8.1's rows, each in its place, with the two rows about the file, the row on
+    // Source Models and the four Diagnostics rows on the imports' definitions among them. The rows in other words than
+    // 0.8.1's are the five named, in the file's order: on the layout, on Line Items, on the Actions list's files, on
+    // Imports and on the calendar.
     const lines = (text: string): string[] => parseCsv(text).map(row => row.join("\n"));
     const [details, detailsBefore] = [lines(written.get(ACCESS_FILE_ADDED.details)!), lines(before.get(ACCESS_FILE_ADDED.details)!)];
-    const gained = [ACCESS_FILE_ADDED.written, ACCESS_FILE_ADDED.howToRead, MODEL_ROW_ADDED].map(row => lines(row.line)[0]);
+    const gained = [ACCESS_FILE_ADDED.written, ACCESS_FILE_ADDED.howToRead, MODEL_ROW_ADDED, MAPPINGS_ADDED.rows].flatMap(row => lines(row.line));
     const stayed = details.filter(row => !gained.includes(row));
-    expect([details.length, stayed.length]).toEqual([detailsBefore.length + 3, detailsBefore.length]);
+    expect([details.length, stayed.length, gained.length]).toEqual([detailsBefore.length + 7, detailsBefore.length, 7]);
     expect(stayed.flatMap((row, index) => (row === detailsBefore[index] ? [] : [[detailsBefore[index], row]]))).toEqual(ACCESS_ROWS_REWORDED.map(row => [lines(row.was)[0], lines(row.now)[0]]));
     // Then every byte. Of 0.8.1's twelve files, Line Items.csv among them, only Model Details.csv and Other Actions.csv
     // have other bytes.
@@ -955,10 +961,11 @@ describe("Model export: Model settings grids to tables", () => {
     expect(sameBytes(zip, ACCESS_ZIP_WITH_FILE)).toBe(true);
 
     // Nothing is read for the file, and the export reports no step and no line more: the reads are 0.8.1's, in its order,
-    // and so are the steps and the lines of the log, which the Diagnostics rows of Model Details.csv hold one by one.
-    expect(reads).toEqual(ACCESS_READS_0_8_1);
+    // and so are the steps and the lines of the log, which the Diagnostics rows of Model Details.csv hold one by one, but
+    // for the grid of the imports' definitions, read and said right after the Imports tab (MAPPINGS_ADDED).
+    expect(reads).toEqual(withMappingsRead(ACCESS_READS_0_8_1));
     const log = (zipped: Map<string, string>): string[] => parseCsv(zipped.get(ACCESS_FILE_ADDED.details)!).filter(row => row[0] === "Diagnostics").map(row => `${row[1]} ${row[2]}`);
-    expect(said).toEqual(log(before));
+    expect(said).toEqual(withMappingsSaid(log(before)));
     expect([log(written), said.filter(line => line.includes("Dynamic Cell Access"))]).toEqual([said, []]);
 
     // The file has its place right after Line Items in the result too: among the tables, in the summary and among the
@@ -1006,6 +1013,8 @@ describe("Model export: Model settings grids to tables", () => {
     /** The model exported with that Line Items grid: the file's text, the Details file's first three Files rows, what the
      * summary says of the file, and how many steps and lines the export reported. A file that is written is held against
      * the model map of the result's tables on the way: its rows are that map's access links, and what it could not match. */
+    /** How many steps and lines the export reports of this model: 0.8.1's, and those on the imports' definitions. */
+    const STEPS = 23 + MAPPINGS_ADDED.said.length;
     const exported = async (lineItems: FakeGrid) => {
       const said: string[] = [];
       const result = await exportGoldenModel({ ...GOLDEN_GRIDS, ...ACCESS_GRIDS, [LINE_ITEMS]: lineItems }, [], said);
@@ -1017,11 +1026,11 @@ describe("Model export: Model settings grids to tables", () => {
         summary: result.summary.filter(line => line.startsWith("Dynamic Cell Access")), said: said.length, lineItems: parseCsv(zip.get("Line Items.csv") ?? "")[0] };
     };
     const whole = await exported(grid);
-    expect([whole.file, whole.said]).toEqual([ACCESS_CSV, 23]);
+    expect([whole.file, whole.said]).toEqual([ACCESS_CSV, STEPS]);
     // No line item has a driver: the two columns are there, and empty. The file is written, with its header and no row.
     const HEADER = "Driver Module,Driver Line Item,Access,Controlled Module,Controlled Line Item\r\n";
     expect(await exported(emptied(READ, WRITE))).toEqual({ file: HEADER, files: ["Line Items.csv: 16 rows", "Dynamic Cell Access.csv: 0 rows", "Modules.csv: 5 rows"],
-      summary: ["Dynamic Cell Access: 0 rows"], said: 23, lineItems: whole.lineItems });
+      summary: ["Dynamic Cell Access: 0 rows"], said: STEPS, lineItems: whole.lineItems });
     // Only write drivers: the file's six Write rows, in the order they have among all twelve, the one that was not
     // matched last.
     const writes = await exported(emptied(READ));
@@ -1033,7 +1042,7 @@ describe("Model export: Model settings grids to tables", () => {
     // failure, and no line of the log.
     const withoutWrite = await exported(lacking(WRITE));
     expect(withoutWrite).toEqual({ file: undefined, files: ["Line Items.csv: 16 rows", "Dynamic Cell Access.csv: Not exported: Line Items has no Write Access Driver column.", "Modules.csv: 5 rows"],
-      summary: ["Dynamic Cell Access: not exported (Line Items has no Write Access Driver column.)."], said: 23, lineItems: whole.lineItems.filter(header => header !== WRITE) });
+      summary: ["Dynamic Cell Access: not exported (Line Items has no Write Access Driver column.)."], said: STEPS, lineItems: whole.lineItems.filter(header => header !== WRITE) });
     expect([(await exported(lacking(READ))).files[1], (await exported(lacking(READ, WRITE))).files[1]]).toEqual([
       "Dynamic Cell Access.csv: Not exported: Line Items has no Read Access Driver column.",
       "Dynamic Cell Access.csv: Not exported: Line Items has no Read Access Driver and Write Access Driver columns."]);
@@ -1041,7 +1050,7 @@ describe("Model export: Model settings grids to tables", () => {
     // no rows at all, and say of neither that the grid is at fault: it is not written, with both driver columns there.
     const withoutModuleName = await exported(lacking(MODULE_NAME));
     expect(withoutModuleName).toEqual({ file: undefined, files: ["Line Items.csv: 16 rows", "Dynamic Cell Access.csv: Not exported: Line Items has no Module Name column.", "Modules.csv: 5 rows"],
-      summary: ["Dynamic Cell Access: not exported (Line Items has no Module Name column.)."], said: 23, lineItems: whole.lineItems.filter(header => header !== MODULE_NAME) });
+      summary: ["Dynamic Cell Access: not exported (Line Items has no Module Name column.)."], said: STEPS, lineItems: whole.lineItems.filter(header => header !== MODULE_NAME) });
     expect((await exported(lacking(MODULE_NAME, READ, WRITE))).files[1])
       .toBe("Dynamic Cell Access.csv: Not exported: Line Items has no Module Name, Read Access Driver and Write Access Driver columns.");
   });
@@ -1148,7 +1157,8 @@ describe("Model export: Model settings grids to tables", () => {
     for (const table of result.tables.slice(1)) expect(table, table.file).toEqual(whole.tables.find(other => other.file === table.file));
     // The reason is in the Details file's row and, as any other file's failure is, in the log: one line more, after
     // the lines of the last grid, since the file is made once every grid is read. The file is still no step of its own.
-    expect([said.length, saidWithout]).toEqual([23, [...said, "12:30:10 Dynamic Cell Access: no table"]]);
+    // The steps and lines are 0.8.1's, with those on the imports' definitions (MAPPINGS_ADDED).
+    expect([said.length, saidWithout]).toEqual([23 + MAPPINGS_ADDED.said.length, [...said, "12:30:10 Dynamic Cell Access: no table"]]);
     expect(result.tables[0].rows.filter(row => row[0] === "Diagnostics").at(-1)).toEqual(["Diagnostics", "12:30:10", "Dynamic Cell Access: no table"]);
   });
 });
@@ -1156,10 +1166,22 @@ describe("Model export: Model settings grids to tables", () => {
 // One model exported end to end, as the 0.6.1 zip in golden-0.6.1.test-support.ts was made: every Model settings grid the
 // export reads, with the values a CSV has to quote (commas, quotes, line breaks) and text that looks like a formula, an
 // import the Imports tab does not list, and one grid the page's client does not have (Source Models).
-interface FakeGrid { columns: string[]; rows: { ids: number[]; labels: (string | null)[]; cells: string[] }[] }
+interface FakeGrid { columns: string[]; columnIds?: number[]; rows: { ids: number[]; labels: (string | null)[]; cells: string[] }[] }
 const row = (id: number, label: string, ...cells: string[]) => ({ ids: [id], labels: [label], cells });
 const ACTION_COLUMNS = ["Action", "Start Date and Time (UTC)", "Most recent duration (ms)", "Notes", "Used in Processes", "Used in Dashboards"];
 const GOLDEN_RATIO = JSON.stringify({ summaryMethod: "RATIO", timeSummaryMethod: "RATIO", ratioNumeratorIdentifier: "_1901000000001_", ratioDenominatorIdentifier: "_1901000000002_" });
+/** The definitions of the golden model's two imports, as Anaplan's import dialog saves them (model/import-mappings.ts),
+ * in the grid of the imports against their properties, whose column of definitions the page's client knows by its ID.
+ * The import from a file loads Products from its first column, Time from its second, the line items from its third and
+ * their values from its fifth: its fourth column is not used. The other import loads a list from another model: its
+ * mapping is not read. */
+const PRICES_DEFINITION = JSON.stringify({ importType: "MODULE_DATA", target: "_102000000003_", mappings: [
+  { targetType: "moduleDimension", target: "_101000000001_", sourceType: "column", sourceColumnId: "#1", sourceColumnName: "Product" },
+  { targetType: "moduleDimension", target: "_9000000001_", sourceType: "column", sourceColumnId: "#2", sourceColumnName: "Month" },
+  { targetType: "moduleDimension", target: "", sourceType: "column", sourceColumnId: "#3", sourceColumnName: "Line item" },
+  { targetType: "moduleLineItem", target: "", sourceType: "column", sourceColumnId: "#5", sourceColumnName: "Price" }] });
+const REGIONS_DEFINITION = JSON.stringify({ importType: "HIERARCHY_DATA", target: "_101000000002_", mappings: [
+  { targetType: "hierarchyMemberEntityName", target: "", sourceType: "column", sourceColumnEntityLongId: 101000000009, sourceColumnName: "Region" }] });
 const GOLDEN_GRIDS: Record<string, FakeGrid> = {
   "LINE ITEMS × LINE ITEM PROPERTIES": { columns: ["Formula", "Summary", "Notes"], rows: [
     { ids: [102000000001, -1], labels: ["Profitability", null], cells: ["", "", ""] },
@@ -1182,6 +1204,8 @@ const GOLDEN_GRIDS: Record<string, FakeGrid> = {
   "IMPORTS × IMPORT PROPERTIES": { columns: ["Source Label", "Source Object", "Source Type", "Target Object", "Target Type", "Production Data"], rows: [
     row(112000000001, "1.1 Load regions", "Hub / Regions", "Hub / 'LIST - Regions'.Export", "SAVED VIEW", "Regions", "LIST", "false"),
     row(112000000002, "Prices from prices.csv", "prices.csv", "-", "FILE", "Prices", "MODULE", "false")] },
+  "IMPORTS × IMPORT DEFINITIONS": { columns: ["Notes", "Import Definition"], columnIds: [4000000017, 4000001300], rows: [
+    row(112000000001, "1.1 Load regions", "", REGIONS_DEFINITION), row(112000000002, "Prices from prices.csv", "From the price list", PRICES_DEFINITION)] },
   "DATA SOURCES × DATA SOURCE PROPERTIES": { columns: ["Type", "Used in Imports"], rows: [row(113000000001, "prices.csv", "FILE", "Prices from prices.csv")] },
   "TIME RANGES × TIME RANGE PROPERTIES": { columns: ["Start Period", "End Period"], rows: [row(123000000001, "FY24-FY25", "FY24", "FY25")] },
   "VERSIONS × VERSION PROPERTIES": { columns: ["Is Actual", "Switchover"], rows: [row(107000000001, "Actual", "true", ""), row(107000000002, "Forecast", "false", "@Current Period")] },
@@ -1193,17 +1217,21 @@ const GOLDEN_GRIDS: Record<string, FakeGrid> = {
     row(CALENDAR_PROPERTIES["Include Quarter Totals"], "Quarter Totals", "true")] },
 };
 const GOLDEN_AXES: Record<string, string> = { MODULE_WITH_LINE_ITEM: "LINE ITEMS", LINE_ITEM_PROPERTY: "LINE ITEM PROPERTIES", MODULE_ALL: "MODULES", HIERARCHY: "LISTS",
-  ACTION_WITH_HEADING: "ACTIONS", IMPORT_ALL: "IMPORTS", IMPORT_DEFINITION_PROPERTY: "IMPORT PROPERTIES", IMPORT_DATA_SOURCE: "DATA SOURCES",
+  ACTION_WITH_HEADING: "ACTIONS", IMPORT_ALL: "IMPORTS", IMPORT_DEFINITION_PROPERTY: "IMPORT PROPERTIES", IMPORT_PROPERTY: "IMPORT DEFINITIONS", IMPORT_DATA_SOURCE: "DATA SOURCES",
   IMPORT_DATA_SOURCE_DETAILS_PROPERTY: "DATA SOURCE PROPERTIES", TIME_RANGE: "TIME RANGES", TIME_RANGE_PROPERTY: "TIME RANGE PROPERTIES", VERSION_ALL: "VERSIONS",
   VERSION_PROPERTY: "VERSION PROPERTIES", TIMESCALE_PROPERTY: "CALENDAR", EMPTY_1_0: "EMPTY" };
 
 /** Runs the model export against a page whose classic client serves those grids, a few rows at a time. The model rejects
  * the read of a grid that is not among `grids`, and `reads` is given each read in order: its row axis and the rows asked for.
  * With `said`, the export's steps and log lines are kept there as the model's frame keeps them (bridge.ts `serveCore`):
- * each stamped as it is said, a step as a line, and all of them together the log the export is given for its Details file. */
-async function exportGoldenModel(grids: Record<string, FakeGrid> = GOLDEN_GRIDS, reads: string[] = [], said?: string[]) {
+ * each stamped as it is said, a step as a line, and all of them together the log the export is given for its Details file.
+ * `client` can keep every request the page's client is given to send (`posted`), and make the requests its generator
+ * makes (`request`), where they are not the reads it makes otherwise. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function exportGoldenModel(grids: Record<string, FakeGrid> = GOLDEN_GRIDS, reads: string[] = [], said?: string[], client: { posted?: any[]; request?: (params: any) => unknown } = {}) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const aggregator = { isDirty: () => false, post: (request: any, _flag: boolean, ok: (response: unknown) => boolean) => {
+    client.posted?.push(request);
     const { viewDefinition, pageRequests: [{ startRow, rowCount }] } = request.params;
     reads.push(`${viewDefinition.rowAxis} ${startRow}+${rowCount}`);
     const grid = grids[`${viewDefinition.rowAxis} × ${viewDefinition.columnAxis}`];
@@ -1216,7 +1244,7 @@ async function exportGoldenModel(grids: Record<string, FakeGrid> = GOLDEN_GRIDS,
     queueMicrotask(() => ok({ result: { viewRequestResults: [{ rowCount: grid.rows.length, columnCount: grid.columns.length,
       rowLabelPages: [{ start: startRow, count: slice.length, entityLongIds: Array.from({ length: dimensions }, (_, d) => slice.map(entry => entry.ids[d] ?? -1)),
         labels: Array.from({ length: dimensions }, (_, d) => slice.map(entry => entry.labels[d] ?? null)) }],
-      columnLabelPages: [{ start: 0, count: grid.columns.length, entityLongIds: [grid.columns.map((_, index) => 4000000001 + index)], labels: [grid.columns] }],
+      columnLabelPages: [{ start: 0, count: grid.columns.length, entityLongIds: [grid.columnIds ?? grid.columns.map((_, index) => 4000000001 + index)], labels: [grid.columns] }],
       dataPages: [{ startRow, rows: slice.map(entry => entry.cells) }] }] } }));
     return true;
   } };
@@ -1228,7 +1256,7 @@ async function exportGoldenModel(grids: Record<string, FakeGrid> = GOLDEN_GRIDS,
     CALENDAR_TYPE_WEEKS_GENERAL_ENTITY_INDEX: 1, CALENDAR_TYPE_THIRTEEN_FOUR_WEEK_PERIODS_ENTITY_INDEX: 2, FEATURE_FLAGS: { TIME_SUMMARY: "timeSummary" } };
   const axisHelper = { getModuleSystemAxisIdentifier: () => "MODULE PROPERTIES", getHierarchySystemAxisIdentifier: () => "LIST PROPERTIES",
     getActionSystemAxisIdentifier: () => "ACTION PROPERTIES" };
-  class RequestGenerator { getRequest(params: unknown) { return { requestType: "VIEW_REQUEST_SET", submissions: [], systemActions: [], params }; } }
+  class RequestGenerator { getRequest(params: unknown) { return client.request?.(params) ?? { requestType: "VIEW_REQUEST_SET", submissions: [], systemActions: [], params }; } }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   class DataPage extends FakePage { constructor({ page }: any) { super(page); } }
   vi.stubGlobal("window", { workspaceId: "0123456789abcdef0123456789abcdef", modelId: "FEDCBA9876543210FEDCBA9876543210",
@@ -1254,5 +1282,87 @@ describe("The modules' IDs a model's result keeps", () => {
     // A client that can say: its word is taken.
     const says = { ids: { getEntityTypeIndex: (id: number) => (id === 7 ? 102 : 101) } } as never;
     expect(moduleIdsOf(says, [grid([[7, "Small"], [102000000009, "Listed"]])])).toEqual([["Small", "7"]]);
+  });
+});
+
+describe("The mappings of a model's imports from a file", () => {
+  afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
+  const IMPORTS_TAB = "IMPORTS × IMPORT PROPERTIES";
+  const DEFINITIONS = "IMPORTS × IMPORT DEFINITIONS";
+  /** The golden model's import from a file with its mapping, as the export reads it out of the import's definition. */
+  const PRICES_MAPPING = { id: "112000000002", name: "Prices from prices.csv", importType: "MODULE_DATA", targets: [
+    { target: "Products", source: "column", column: 1, text: "Product" }, { target: "Time", source: "column", column: 2, text: "Month" },
+    { target: "Line Items", source: "column", column: 3, text: "Line item" }, { target: "Value", source: "column", column: 5, text: "Price" }] };
+
+  it("are read from the imports' definitions as Anaplan's import dialog reads them, one view and nothing else sent, for the imports from a file alone", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const posted: any[] = [];
+    const result = await exportGoldenModel(GOLDEN_GRIDS, [], undefined, { posted });
+    // The one import from a file has its mapping; the import from another model has none. Products is named as General
+    // Lists names it.
+    expect(result.importMappings).toEqual([PRICES_MAPPING]);
+    // The definitions are a view of every import against the import properties, IMPORT_ALL against IMPORT_PROPERTY, read
+    // after the Imports tab as any other grid is, a first row and then the rest.
+    const views = posted.map(request => `${request.params.viewDefinition.type} ${request.params.viewDefinition.rowAxis} × ${request.params.viewDefinition.columnAxis}`);
+    expect(views.filter(view => view.includes("IMPORTS"))).toEqual(["MODEL_DEFINITION IMPORTS × IMPORT PROPERTIES", "MODEL_DEFINITION IMPORTS × IMPORT PROPERTIES",
+      "MODEL_DEFINITION IMPORTS × IMPORT DEFINITIONS", "MODEL_DEFINITION IMPORTS × IMPORT DEFINITIONS"]);
+    // Every request the page's client was given to send is a read of a view: no submission, so no cell of a definition is
+    // saved, and no system action, so not the one that asks for a file's columns.
+    expect(posted.every(request => request.requestType === "VIEW_REQUEST_SET" && request.submissions.length === 0 && request.systemActions.length === 0)).toBe(true);
+    expect(JSON.stringify(posted).includes("GET_IMPORT_SOURCE_FIELDS")).toBe(false);
+    // The Imports table is as it is without them, and so is every other table: the mappings are carried beside the tables.
+    const { [DEFINITIONS]: _definitions, ...without } = GOLDEN_GRIDS;
+    const before = await exportGoldenModel(without);
+    expect(result.tables).toEqual(before.tables);
+  });
+
+  it("send nothing if the page's client ever made anything but a read of the definitions, and say on each import that its mapping was not read", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const posted: any[] = [];
+    const said: string[] = [];
+    // A generator that would save a definition, or ask for a file's columns, where it is asked for the view of the definitions.
+    const request = (params: { viewDefinition: { columnAxis: string } }) => (params.viewDefinition.columnAxis === "IMPORT DEFINITIONS"
+      ? { requestType: "VIEW_REQUEST_SET", submissions: [{ entityLongIds: [4000001300, 112000000002], value: "{}" }], systemActions: [{ type: "GET_IMPORT_SOURCE_FIELDS" }], params } : undefined);
+    const result = await exportGoldenModel(GOLDEN_GRIDS, [], said, { posted, request });
+    expect(posted.filter(sent => sent.params.viewDefinition.columnAxis === "IMPORT DEFINITIONS")).toEqual([]);
+    expect(result.importMappings).toEqual([{ id: "112000000002", name: "Prices from prices.csv", importType: "", targets: [], note: MAPPING_NOTES.notRead }]);
+    expect(said.map(line => line.slice(9)).filter(line => line.includes("Import mapping"))).toEqual(["Reading Import mappings…", "Import mappings: Refusing to send anything but a read.",
+      "Import mappings: 0 of 1 read"]);
+    // The export goes on: every table is there, the Imports table as ever.
+    expect(result.tables.map(table => table.file)).toEqual((await exportGoldenModel()).tables.map(table => table.file));
+  });
+
+  it("are not read for a model without an import from a file, and the result then has none", async () => {
+    const reads: string[] = [];
+    const tab = GOLDEN_GRIDS[IMPORTS_TAB];
+    const noFile = { ...tab, rows: tab.rows.map(row => ({ ...row, cells: row.cells.map(cell => (cell === "FILE" ? "MODULE" : cell)) })) };
+    const result = await exportGoldenModel({ ...GOLDEN_GRIDS, [IMPORTS_TAB]: noFile }, reads);
+    expect([result.importMappings, reads.filter(read => read.startsWith("IMPORTS"))]).toEqual([undefined, ["IMPORTS 0+1", "IMPORTS 0+2"]]);
+    // Nor where the Imports tab could not be read: its imports are not known.
+    const { [IMPORTS_TAB]: _tab, ...withoutTab } = GOLDEN_GRIDS;
+    expect((await exportGoldenModel(withoutTab)).importMappings).toBeUndefined();
+  });
+
+  it("are each said not to have been read where the model rejects the read, and the export goes on, the Imports table as ever", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(Date.UTC(2026, 8, 28, 12, 30, 10)));
+    const { [DEFINITIONS]: _definitions, ...without } = GOLDEN_GRIDS;
+    const [reads, said]: string[][] = [[], []];
+    const result = await exportGoldenModel(without, reads, said);
+    expect(result.importMappings).toEqual([{ id: "112000000002", name: "Prices from prices.csv", importType: "", targets: [], note: MAPPING_NOTES.notRead }]);
+    // The read was sent, once, and the next grid read after it: the reason is in the log, and no table says it.
+    expect(reads.slice(reads.indexOf("IMPORTS 0+2") + 1, reads.indexOf("IMPORTS 0+2") + 3)).toEqual(["IMPORTS 0+1", "DATA SOURCES 0+1"]);
+    expect(said.filter(line => line.includes("Import mapping"))).toEqual(["12:30:10 Reading Import mappings…", "12:30:10 Import mappings: The model rejected the read.",
+      "12:30:10 Import mappings: 0 of 1 read"]);
+    expect([result.summary.filter(line => /mapping/i.test(line)), result.tables[0].rows.filter(row => row[0] === "Notes")]).toEqual([[], []]);
+    expect(result.tables.find(table => table.file === "Imports.csv")).toEqual((await exportGoldenModel()).tables.find(table => table.file === "Imports.csv"));
+  });
+
+  it("come through the trip to the results page as plain data, and a result an earlier version kept has none", async () => {
+    const result = await exportGoldenModel();
+    const received = plainResult(JSON.parse(JSON.stringify(result)));
+    expect(received?.importMappings).toEqual([PRICES_MAPPING]);
+    const { importMappings: _mappings, ...earlier } = result;
+    expect(plainResult(JSON.parse(JSON.stringify(earlier)))?.importMappings).toBeUndefined();
   });
 });

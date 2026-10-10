@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ModelMapOptions } from "../map/graph-types.js";
 import { CALENDAR_HEADERS, CALENDAR_PROPERTIES, calendarRows } from "../model/calendar.js";
 import { FRESH_MS, PORT_NAME, RESULTS_PAGE, type TabMessage } from "../protocol.js";
-import type { AnalysisResult, Cell, ResultTable } from "../result-types.js";
+import type { AnalysisResult, Cell, ImportMapping, ResultTable } from "../result-types.js";
 import { columnWidths } from "./column-widths.js";
 import { columnsOf } from "./columns.js";
 import { FakeElement, FakeInput, FakePage, FakeSelect, parseMarkup } from "./dom.test-support.js";
@@ -171,6 +171,10 @@ let storeRefuses: Error | undefined;
 let lastError: { message?: string } | undefined;
 /** Whether the Anaplan tab the page was opened for has been closed, as chrome.tabs.get finds. */
 let tabClosed: boolean;
+/** What a test's model itself names as a file, which the page shows as it was read (no-file.test-support.ts
+ * `fileWords`): an import's Source Type, FILE, and the name of the file it reads. None but in a test that sets it: no word
+ * of the page's own names a file in any test. */
+let theirs: RegExp | undefined;
 /** What the page asked of chrome.tabs.update and chrome.windows.update, in order. */
 let tabUpdates: unknown[][];
 let windowUpdates: unknown[][];
@@ -259,6 +263,7 @@ beforeEach(() => {
   ports = [];
   connects = [];
   tabClosed = false;
+  theirs = undefined;
   tabUpdates = [];
   windowUpdates = [];
   copied = [];
@@ -339,7 +344,7 @@ afterEach(async () => {
   // And nothing the page had for its user, from the markup it was made of to the last thing written to it, names a
   // file, a CSV or a zip, or a download: with a result and without one, in a view, a row's details, a popover, a
   // banner or a message, as text or as what an element is named or described by (dom.test-support.ts `words`).
-  const named = page ? fileWords(page.words()) : [];
+  const named = page ? fileWords(page.words(), theirs) : [];
   vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -4583,5 +4588,111 @@ describe("A double-click that opens a row's module in Anaplan", () => {
     page.id("scrim").dispatch("dblclick");
     await settle();
     expect(tabUpdates).toEqual([]);
+  });
+});
+
+describe("The mapping of an import from a file, in its row's details", () => {
+  /** A model's Imports as the export writes them: the Imports tab's columns, then the Actions list's. The first import is
+   * the user's example, into a list, from a file that is no longer available; the second reads a saved view of another
+   * model; the third loads a module from a file. */
+  const IMPORTS: ResultTable = { file: "Imports.csv", label: "Imports", guard: false, headers: ["", "Source Label", "Source Object", "Source Type", "Target Object", "Target Type", "Used in Processes"],
+    rows: [["Division from HQ Network.csv", "HQ Network.csv", "-", "FILE", "Division", "LIST", "Nightly load"],
+      ["Regions from the hub", "Hub / Regions", "Hub / 'LIST - Regions'.Export", "SAVED VIEW", "+ Regions", "LIST", ""],
+      ["Prices from prices.csv", "prices.csv", "-", "FILE", "PRI01 Prices", "MODULE", ""]] };
+  /** The file of the first import is no longer available: Import Data Sources says so, as Anaplan's own message does. */
+  const SOURCES: ResultTable = { file: "Import Data Sources.csv", label: "Import Data Sources", guard: false, headers: ["", "Type", "Used in Imports", "Status"],
+    rows: [["HQ Network.csv", "FILE", "Division from HQ Network.csv", "The uploaded file is no longer available; please upload the file again"],
+      ["prices.csv", "FILE", "Prices from prices.csv", ""]] };
+  /** Each import from a file with its mapping, as the export reads it out of the import's own definition. */
+  const MAPPINGS: ImportMapping[] = [
+    { id: "112000000001", name: "Division from HQ Network.csv", importType: "HIERARCHY_DATA", targets: [
+      { target: "Division", source: "column", column: 1, text: "Division Name" }, { target: "Parent", source: "column", column: 2, text: "Region" },
+      { target: "Code", source: "column", column: 4 }, { target: "Manager", source: "column", column: 7, text: "Manager" }, { target: "Active", source: "none" }] },
+    { id: "112000000003", name: "Prices from prices.csv", importType: "MODULE_DATA", targets: [
+      { target: "Products", source: "column", column: 1, text: "Product" }, { target: "Versions", source: "constant", text: "Actual" },
+      { target: "Line Items", source: "headerRow" }, { target: "Price", source: "column", text: "Price" }] }];
+  const WITH_MAPPINGS: AnalysisResult = { ...BLUEPRINT, summary: [...BLUEPRINT.summary, "Imports: 3 rows", "Import Data Sources: 2 rows"],
+    tables: [...BLUEPRINT.tables, IMPORTS, SOURCES], importMappings: MAPPINGS };
+  /** The drawer's sections by their headings, and the Mapping section's rows and lines. */
+  const sections = () => page.all("#drawerBody .d-sec").map(section => section.querySelector("h3")?.textContent);
+  const mapping = () => [page.all("#drawerMapping tbody tr").map(row => row.children.map(cell => cell.textContent)), page.texts("#drawerMapping p")];
+  const openImport = (name: string) => {
+    page.all('#tableWrap tbody [data-act="row"]')[firstCells().indexOf(name)].press();
+  };
+
+  beforeEach(() => {
+    // The models of these tests name their files and say FILE of them: the page shows that as it was read.
+    theirs = /\bFILE\b|HQ Network\.csv|prices\.csv|The uploaded file is no longer available; please upload the file again/g;
+  });
+
+  it("ends the details of an import from a file with its mapping, below All columns: each target with what feeds it, then the columns it does not use", async () => {
+    await openWith(WITH_MAPPINGS);
+    goTo(3);
+    openImport("Division from HQ Network.csv");
+    expect([page.id("drawerTitle").textContent, sections()]).toEqual(["Division from HQ Network.csv", ["All columns", "Mapping"]]);
+    // The import's file is no longer available, and its mapping is shown all the same: the mapping is the import's own.
+    expect(mapping()).toEqual([[["Division", "Column 1: Division Name"], ["Parent", "Column 2: Region"], ["Code", "Column 4"], ["Manager", "Column 7: Manager"], ["Active", "Not mapped"]],
+      ["Columns 3, 5 and 6 are not used.", "Whether there are columns after column 7 is not known: Anaplan keeps the import's mapping, not the header row it was made from."]]);
+    expect(page.texts("#drawerMapping th")).toEqual(["Target", "Source"]);
+    page.key("Escape");
+    // An import into a module: a constant, the line items from the header row, a line item by its column's heading alone.
+    openImport("Prices from prices.csv");
+    expect(mapping()).toEqual([[["Products", "Column 1: Product"], ["Versions", "Constant: Actual"], ["Line Items", "Header row: each line item from the column it heads"],
+      ["Price", "Column headed Price"]], ["Column 1 is used.",
+      "Whether there are columns after column 1 is not known: Anaplan keeps the import's mapping, not the header row it was made from."]]);
+    page.key("Escape");
+    // An import from another model has no mapping: its details are All columns alone.
+    openImport("Regions from the hub");
+    expect(sections()).toEqual(["All columns"]);
+    page.key("Escape");
+    // Nor has a row of another table, though it names an import from a file.
+    goTo(4);
+    page.all('#tableWrap tbody [data-act="row"]')[0].press();
+    expect(sections()).toEqual(["All columns"]);
+  });
+
+  it("shows no mapping for a result an earlier version kept, which has none", async () => {
+    const { importMappings: _mappings, ...earlier } = WITH_MAPPINGS;
+    await openWith(earlier);
+    goTo(3);
+    openImport("Division from HQ Network.csv");
+    expect(sections()).toEqual(["All columns"]);
+  });
+
+  it("keeps the mappings with a result kept for a refresh, which brings them back with it", async () => {
+    await openWith(WITH_MAPPINGS);
+    await letKeep();
+    await open("?tab=42");
+    await eventually(() => page.document.title === `Cardigan - ${WITH_MAPPINGS.name}`, "the result to come back");
+    goTo(3);
+    openImport("Prices from prices.csv");
+    expect([sections(), mapping()[0][0]]).toEqual([["All columns", "Mapping"], ["Products", "Column 1: Product"]]);
+  });
+
+  it("says why there is no mapping to show: one that could not be read, or an import of another kind", async () => {
+    const NOT_READ = "Cardigan could not read this import's mapping: the model did not give the imports' definitions. The diagnostic log says why.";
+    await openWith({ ...WITH_MAPPINGS, importMappings: [{ ...MAPPINGS[0], importType: "", targets: [], note: NOT_READ }, { ...MAPPINGS[1], importType: "USERS", targets: [] }] });
+    goTo(3);
+    openImport("Division from HQ Network.csv");
+    expect([sections(), mapping()]).toEqual([["All columns", "Mapping"], [[], [NOT_READ]]]);
+    expect(page.has("#drawerMapping table")).toBe(false);
+    page.key("Escape");
+    openImport("Prices from prices.csv");
+    expect(mapping()).toEqual([[], ["This import loads users. Cardigan lists the mapping of an import into a module or a list."]]);
+  });
+
+  it("says that it has none for an import the result's mappings do not hold, and to run again", async () => {
+    await openWith({ ...WITH_MAPPINGS, importMappings: [MAPPINGS[1]] });
+    goTo(3);
+    openImport("Division from HQ Network.csv");
+    expect(mapping()).toEqual([[], ["Cardigan has no mapping for this import: choose Run again to read it."]]);
+  });
+
+  it("writes every name, heading and value of a mapping as text", async () => {
+    await openWith({ ...WITH_MAPPINGS, importMappings: [{ ...MAPPINGS[0], targets: [{ target: `Division ${TAG}`, source: "column", column: 1, text: `Name ${TAG}` },
+      { target: "Parent", source: "constant", text: TAG }, { target: "Code", source: "other", text: TAG }] }] });
+    goTo(3);
+    openImport("Division from HQ Network.csv");
+    expect([strayImg(), mapping()[0]]).toEqual([false, [[`Division ${TAG}`, `Column 1: Name ${TAG}`], ["Parent", `Constant: ${TAG}`], ["Code", `A source Cardigan does not know (${TAG})`]]]);
   });
 });
