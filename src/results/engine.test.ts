@@ -200,7 +200,7 @@ describe("The results page against the engine in the Anaplan tab", () => {
     expect(page.client.log).toEqual([firstLine("model", MODEL, SHELL_HOST), ...runs[0].said].map(stamped));
     expect(runs[0].said.slice(0, 2)).toEqual([`frame ${MODEL_HOST}/core-webapp/anaplan/framework.jsp: loader=function model=id workspace=id`, "Loading the model page's client…"]);
     // Every grid was read through the frame's client, a first row and then the rest.
-    expect(settings.reads.slice(0, 4)).toEqual(["LINE ITEMS 0+1", "LINE ITEMS 0+4", "MODULES 0+1", "MODULES 0+2"]);
+    expect(settings.reads.slice(0, 2)).toEqual(["LINE ITEMS 0+1333", "MODULES 0+1333"]);
     const { result } = page.held();
     expect(detailsOf(result)?.file).toBe("Model Details.csv");
     // The log the result carries is the frame's own, which begins with the export: inside Model Building it has neither
@@ -287,8 +287,8 @@ describe("The results page against the engine in the Anaplan tab", () => {
     expectEngineResult(page, runs[0]);
     // The names came from the General Lists grid, read once and after Line Items: no grid is read for them.
     // The grid of the imports' definitions is read with the Imports tab's row axis, right after it (MAPPINGS_ADDED).
-    expect(settings.reads).toEqual(withMappingsRead(["LINE ITEMS 0+1", "LINE ITEMS 0+4", "MODULES 0+1", "MODULES 0+2", "LISTS 0+1", "LISTS 0+2", "ACTIONS 0+1", "ACTIONS 0+10", "IMPORTS 0+1", "IMPORTS 0+2",
-      "DATA SOURCES 0+1", "TIME RANGES 0+1", "VERSIONS 0+1", "VERSIONS 0+2", "CALENDAR 0+1", "CALENDAR 0+10"]));
+    expect(settings.reads).toEqual(withMappingsRead(["LINE ITEMS 0+1333", "MODULES 0+1333", "LISTS 0+1333", "ACTIONS 0+1333", "IMPORTS 0+1333",
+      "DATA SOURCES 0+1333", "TIME RANGES 0+1333", "VERSIONS 0+1333", "CALENDAR 0+1333"]));
     const { result } = page.held();
     const file = result.tables.find(table => table.file === "Line Items.csv");
     if (!file) throw new Error("The export wrote no Line Items.csv.");
@@ -320,8 +320,8 @@ describe("The results page against the engine in the Anaplan tab", () => {
     expectEngineResult(page, runs[0]);
     // The names came from the General Lists grid, read once and before the Actions list: no grid is read for them.
     // The grid of the imports' definitions is read with the Imports tab's row axis, right after it (MAPPINGS_ADDED).
-    expect(settings.reads).toEqual(withMappingsRead(["LINE ITEMS 0+1", "LINE ITEMS 0+4", "MODULES 0+1", "MODULES 0+2", "LISTS 0+1", "LISTS 0+2", "ACTIONS 0+1", "ACTIONS 0+12", "IMPORTS 0+1", "IMPORTS 0+2",
-      "DATA SOURCES 0+1", "TIME RANGES 0+1", "VERSIONS 0+1", "VERSIONS 0+2", "CALENDAR 0+1", "CALENDAR 0+10"]));
+    expect(settings.reads).toEqual(withMappingsRead(["LINE ITEMS 0+1333", "MODULES 0+1333", "LISTS 0+1333", "ACTIONS 0+1333", "IMPORTS 0+1333",
+      "DATA SOURCES 0+1333", "TIME RANGES 0+1333", "VERSIONS 0+1333", "CALENDAR 0+1333"]));
     const { result } = page.held();
     const file = result.tables.find(table => table.file === "Other Actions.csv");
     if (!file) throw new Error("The export wrote no Other Actions.csv.");
@@ -424,7 +424,7 @@ describe("The results page against the engine in the Anaplan tab", () => {
     await until(done(page), "the result");
 
     // The engine read the grid a window of rows at a time, and sent the file's rows on in pieces of 500.
-    expect(settings.reads.filter(entry => entry.startsWith("LINE ITEMS "))).toEqual(["LINE ITEMS 0+1", "LINE ITEMS 0+1739", "LINE ITEMS 1739+1739", "LINE ITEMS 3478+1522"]);
+    expect(settings.reads.filter(entry => entry.startsWith("LINE ITEMS "))).toEqual(["LINE ITEMS 0+1333", "LINE ITEMS 1333+1739", "LINE ITEMS 3072+1739", "LINE ITEMS 4811+189"]);
     const pieces = page.ports[0].heard.filter((message): message is { type: "rows"; table: number; rows: unknown[] } => (message as { type?: string }).type === "rows");
     expect(pieces.filter(piece => piece.table === 1).map(piece => piece.rows.length)).toEqual(Array(5000 / ROWS_MAX).fill(ROWS_MAX));
     // No message came near what Chrome allows one: the largest is a piece of rows, a few hundred kilobytes.
@@ -512,9 +512,10 @@ describe("The results page against the engine in the Anaplan tab", () => {
     const secondRead = service.hold(path => path.includes("/apps/") && service.reads.filter(earlier => earlier.includes("/apps/")).length === 2);
     const page = resultsPage(tab);
     await until(() => board.waiting === 1, "the run to reach the board");
-    // The run waits for Anaplan's answer about the board; the page has heard all that was sent so far.
+    // The run waits for Anaplan's answer about the board, and has begun the app's other page beside it: the pages are read
+    // a few at a time. The page has heard all that was sent so far.
     await tab.quiet();
-    expect(page.client.state).toEqual({ phase: "running", status: "Reading page 1 of 2: Demand board" });
+    expect(page.client.state).toEqual({ phase: "running", status: "Reading page 2 of 2: Draft page" });
     const told = page.ports[0].heard.length;
 
     // The page is closed, and the icon is clicked again at once: the next page asks while the stopped run is still ending.
@@ -558,7 +559,7 @@ describe("The results page against the engine in the Anaplan tab", () => {
     // page's run takes over the one that is under way (bridge.ts `serveCore`) instead of starting a second beside it.
     const next = resultsPage(tab);
     await tab.quiet();
-    expect([next.client.state, runs.length, settings.reads]).toEqual([{ phase: "running", status: "Starting the analysis…" }, 2, ["LINE ITEMS 0+1", "LINE ITEMS 0+4", "MODULES 0+1"]]);
+    expect([next.client.state, runs.length, settings.reads]).toEqual([{ phase: "running", status: "Starting the analysis…" }, 2, ["LINE ITEMS 0+1333", "MODULES 0+1333"]]);
 
     modules.release();
     await until(done(next), "the next page's result");
@@ -588,12 +589,12 @@ describe("The results page against the engine in the Anaplan tab", () => {
     expect(page.says()).toEqual({ title: "The analysis stopped", message: "The Anaplan tab was closed or left the page before the analysis finished.",
       hint: "Open the app or model again, then click the Cardigan icon or choose Run again." });
     expect(page.client.log).toEqual([firstLine("app", GOLDEN_APP, APP_HOST), "Reading the app…", runs[0].said[1], "Reading page 1 of 2: Demand board",
-      "The connection to the tab closed."].map(stamped));
+      "Reading page 2 of 2: Draft page", "The connection to the tab closed."].map(stamped));
     // (In a browser the content script's run ends with its page. Here it is let run out: what it still sends reaches nobody.)
     board.release();
     await until(() => runs[0].ended, "the old run to end");
     await tab.quiet();
-    expect([page.client.state.phase, page.ports[0].open, page.phases()]).toEqual(["interrupted", false, ["connecting", "running", "running", "running", "interrupted"]]);
+    expect([page.client.state.phase, page.ports[0].open, page.phases()]).toEqual(["interrupted", false, ["connecting", "running", "running", "running", "running", "interrupted"]]);
 
     // While the tab is still loading nobody answers there: Run again says so, with Chrome's reason in the log.
     page.client.runAgain();
@@ -699,10 +700,10 @@ describe("The results page against the engine in the Anaplan tab", () => {
     // is and every line of its log so far.
     const second = resultsPage(tab);
     await tab.quiet();
-    expect(first.client.state).toEqual({ phase: "running", status: "Reading page 1 of 2: Demand board" });
+    expect(first.client.state).toEqual({ phase: "running", status: "Reading page 2 of 2: Draft page" });
     expect(second.client.state).toEqual(first.client.state);
     expect(second.client.log).toEqual(first.client.log);
-    expect(second.client.log).toHaveLength(4);
+    expect(second.client.log).toHaveLength(5);
     expect(runs).toHaveLength(1);
 
     board.release();
