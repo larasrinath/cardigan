@@ -168,6 +168,9 @@ export interface TableQuery {
   /** Column -> the range its rows are kept by, for a column of numbers or of dates. A column without one keeps every row. */
   ranges?: ReadonlyMap<number, RangeQuery>;
   sort?: Sort;
+  /** Column -> the text a row is sorted by in it, where that is not the cell's own: a time shown in the viewer's zone is
+   * sorted by the UTC text that was read, which runs as the moments do (times.ts `readText`). */
+  sortKeys?: ReadonlyMap<number, (row: Row) => string>;
   /** A jump from another table: keeps the rows whose cell in `column` is exactly `value`. */
   context?: { column: number; value: string };
 }
@@ -184,10 +187,11 @@ function sortNumber(cell: unknown): number | undefined {
 
 /** The rows in the order of one column. A column that holds only numbers and blanks sorts as numbers, blanks first; any
  * other column sorts as text. The rule is taken once for the column, not per pair of cells, so the order is consistent.
- * Rows that compare equal keep the file's order, in both directions. */
-export function sortRows<T extends Row>(rows: readonly T[], sort: Sort): T[] {
-  const texts = rows.map(row => cellText(row[sort.column]));
-  const numbers = rows.map(row => sortNumber(row[sort.column]));
+ * Rows that compare equal keep the file's order, in both directions. `key` gives the text a row sorts by where that is
+ * not its cell's: such a column sorts as text. */
+export function sortRows<T extends Row>(rows: readonly T[], sort: Sort, key?: (row: Row) => string): T[] {
+  const texts = rows.map(row => (key ? key(row) : cellText(row[sort.column])));
+  const numbers = rows.map(row => (key ? undefined : sortNumber(row[sort.column])));
   const numeric = numbers.some(value => value !== undefined) && numbers.every((value, index) => value !== undefined || texts[index] === "");
   const compare = numeric
     ? (a: number, b: number) => {
@@ -219,7 +223,7 @@ export function selectRows<T extends Row>(rows: readonly T[], query: TableQuery)
     out = items ? out.filter(row => filterItems(row, column, items).some(item => values.has(item))) : out.filter(row => values.has(cellText(row[column])));
   }
   for (const [column, range] of query.ranges ?? []) out = out.filter(row => inRange(row, column, range));
-  return query.sort ? sortRows(out, query.sort) : out;
+  return query.sort ? sortRows(out, query.sort, query.sortKeys?.get(query.sort.column)) : out;
 }
 
 /** `selectRows` that remembers its last answer: the same rows and an equal query give the same list back without searching
@@ -228,7 +232,8 @@ export function rememberingSelect(): <T extends Row>(rows: readonly T[], query: 
   let last: { rows: readonly Row[]; key: string; selected: readonly Row[] } | undefined;
   return <T extends Row>(rows: readonly T[], query: TableQuery): readonly T[] => {
     const key = JSON.stringify([query.search, [...query.filters].map(([column, values]) => [column, [...values]]), query.sort ?? null, query.context ?? null,
-      [...(query.counts ?? [])], [...(query.ranges ?? [])].map(([column, range]) => [column, range.kind, range.from ?? null, range.to ?? null, range.blanks, range.none])]);
+      [...(query.counts ?? [])], [...(query.ranges ?? [])].map(([column, range]) => [column, range.kind, range.from ?? null, range.to ?? null, range.blanks, range.none]),
+      [...(query.sortKeys?.keys() ?? [])]]);
     if (!last || last.rows !== rows || last.key !== key) last = { rows, key, selected: selectRows(rows, query) };
     return last.selected as readonly T[];
   };

@@ -168,6 +168,24 @@ describe("The results page's table engine", () => {
     expect(sortRows(ragged, { column: 1, dir: "asc" })).toEqual([["a"], ["c", "1"], ["b", "2"]]);
   });
 
+  it("sorts a column by the text a query gives for each row, where that is not its cell's: a time by the moment it names", () => {
+    // New York's clocks went back an hour at 06:00 UTC on 1 November 2026: its clock read 01:30 twice. As the clock's text
+    // the later moment would come first; by the UTC text that was read, as the moments run.
+    const read = new Map<Cell[], string>();
+    const row = (name: string, shown: string, utc: string): Cell[] => {
+      const cells = [name, shown];
+      read.set(cells, utc);
+      return cells;
+    };
+    const rows = [row("first", "2026-11-01 01:30", "2026-11-01 05:30"), row("second", "2026-11-01 01:10", "2026-11-01 06:10"), row("never", "", "")];
+    const sortKeys = new Map([[1, (cells: readonly Cell[]) => read.get(cells as Cell[]) ?? ""]]);
+    expect([selectRows(rows, { search: "", filters: new Map(), sort: { column: 1, dir: "asc" }, sortKeys }).map(cells => cells[0]),
+      selectRows(rows, { search: "", filters: new Map(), sort: { column: 1, dir: "asc" } }).map(cells => cells[0])])
+      .toEqual([["never", "first", "second"], ["never", "second", "first"]]);
+    // A key of figures alone is still text: the column is not taken for numbers.
+    expect(sortRows([["a", "10"], ["b", "9"]], { column: 1, dir: "asc" }, cells => String(cells[1])).map(cells => cells[0])).toEqual(["b", "a"]);
+  });
+
   it("searches, filters and sorts together", () => {
     const query = all({ search: "s", filters: new Map([[3, new Set(["Grid", "Chart", "Text"])]]), sort: { column: 2, dir: "desc" } });
     expect(titles(selectRows(CARDS, query))).toEqual(["Store plan", "sales value", "Sales by region", "How to use this page"]);

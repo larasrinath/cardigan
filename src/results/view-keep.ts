@@ -2,6 +2,7 @@ import type { MapView } from "../map/graph-types.js";
 import type { Column } from "./columns.js";
 import { readRange, type RangeState } from "./range-filter.js";
 import { cellText, type Row, type Sort } from "./table-engine.js";
+import { fileLabel } from "./times.js";
 
 /** What a results page keeps of how its result is looked at, so that a refresh of the page shows the result as it was
  * left and not only the result: each table's filters, ranges, columns shown or hidden, order and page; the search and the
@@ -36,8 +37,9 @@ export type KeptFilter = { t: string[] } | { u: string[] };
 /** One table's settings, each column by its key (`columnKeys`). */
 export interface KeptTable {
   filters?: Record<string, KeptFilter>;
-  /** A range as the user typed its two ends, and whether it keeps the cells that say nothing. */
-  ranges?: Record<string, { from: string; to: string; blanks: boolean }>;
+  /** A range as the user typed its two ends, and whether it keeps the cells that say nothing; for a column of times, the
+   * zone its days were set in (range-filter.ts `RangeState`), so that it keeps the same rows in either zone. */
+  ranges?: Record<string, { from: string; to: string; blanks: boolean; zone?: string }>;
   /** The columns shown that start hidden, and those hidden that start shown. A column the table did not have when the
    * settings were made starts as the page starts it. */
   shown?: string[];
@@ -74,10 +76,12 @@ const PAGE_SIZES: ReadonlySet<number> = new Set([25, 50, 100]);
 export const subjectOf = (result: { kind: string; id: string }): string => `${result.kind}:${result.id}`;
 
 /** Each column's key: its label, and where two columns of the table have one label, the label and which of them it is
- * ("Notes #2"). The label is what the user knows a column by, and what a new run's table names it by too. */
+ * ("Notes #2"). The label is what the user knows a column by, and what a new run's table names it by too. A column of
+ * times is keyed by the file's name for it, whichever zone its times are shown in (times.ts `fileLabel`). */
 export function columnKeys(columns: readonly Pick<Column, "label">[]): string[] {
   const seen = new Map<string, number>();
-  return columns.map(({ label }) => {
+  return columns.map(({ label: shown }) => {
+    const label = fileLabel(shown);
     const count = (seen.get(label) ?? 0) + 1;
     seen.set(label, count);
     return count === 1 ? label : `${label} #${count}`;
@@ -140,7 +144,7 @@ export function keepTable(looks: TableLooks, valuesOf: (column: number) => reado
   const ranges: NonNullable<KeptTable["ranges"]> = {};
   for (const [index, range] of looks.ranges) {
     const key = keyOf(index);
-    if (key !== undefined) ranges[key] = { from: range.fromText, to: range.toText, blanks: range.blanks };
+    if (key !== undefined) ranges[key] = { from: range.fromText, to: range.toText, blanks: range.blanks, ...(range.zone === undefined ? {} : { zone: range.zone }) };
   }
   if (Object.keys(ranges).length) kept.ranges = ranges;
   const shown: string[] = [];
@@ -188,7 +192,7 @@ export function takeTable(kept: KeptTable, columns: readonly Pick<Column, "index
     if (!column?.range) continue;
     const read = readRange(column.range, range.from, range.to);
     if ("problem" in read) continue;
-    const state: RangeState = { fromText: range.from, toText: range.to, ...read, blanks: range.blanks };
+    const state: RangeState = { fromText: range.from, toText: range.to, ...read, blanks: range.blanks, ...(range.zone === undefined ? {} : { zone: range.zone }) };
     if (state.from !== undefined || state.to !== undefined || !state.blanks) ranges.set(column.index, state);
   }
   const hidden = new Set(columns.filter(column => column.hidden).map(column => column.index));
@@ -232,7 +236,8 @@ function readTable(value: unknown): KeptTable | undefined {
   if (isRecord(value.ranges)) {
     const ranges: NonNullable<KeptTable["ranges"]> = {};
     for (const [key, range] of Object.entries(value.ranges)) {
-      if (isRecord(range) && typeof range.from === "string" && typeof range.to === "string" && typeof range.blanks === "boolean") ranges[key] = { from: range.from, to: range.to, blanks: range.blanks };
+      if (!isRecord(range) || typeof range.from !== "string" || typeof range.to !== "string" || typeof range.blanks !== "boolean") continue;
+      ranges[key] = { from: range.from, to: range.to, blanks: range.blanks, ...(typeof range.zone === "string" && range.zone !== "" ? { zone: range.zone } : {}) };
     }
     table.ranges = ranges;
   }
