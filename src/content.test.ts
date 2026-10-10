@@ -253,7 +253,9 @@ describe("The content scripts on an Anaplan page", () => {
       { type: "status", text: "Reading Versions…" }, { type: "log", text: "01:59:09 Reading Versions…" },
       { type: "status", text: "Reading the pages built on this model…" }, { type: "log", text: "01:59:09 Reading the pages built on this model…" },
       { type: "log", text: "01:59:09 pages built on the model: SIGNED_OUT (HTTP 401)" }]);
-    expect(assemble(port.received)).toEqual(withoutPages("you're signed out of Anaplan", ["Reading the pages built on this model…", "pages built on the model: SIGNED_OUT (HTTP 401)"]));
+    // The result says where the model is, as the address said it: the results page opens its modules, apps and pages there.
+    expect(assemble(port.received)).toEqual({ ...withoutPages("you're signed out of Anaplan", ["Reading the pages built on this model…", "pages built on the model: SIGNED_OUT (HTTP 401)"]),
+      site: { origin: SHELL, customer: WS } });
     // The frame did the export's reading. This window asked Anaplan for one thing, with GET, opened no socket, and asked the frame nothing more.
     expect(vi.mocked(globalThis.fetch).mock.calls.map(([url, init]) => [url, init?.method]))
       .toEqual([[`${SHELL}/a/springboard-definition-service/customer/${WS}/model/${MODEL}/pages`, "GET"]]);

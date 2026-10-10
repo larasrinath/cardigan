@@ -54,11 +54,12 @@
       <h2 id="drawerTitle"></h2>
       <div class="d-sub" id="drawerSub"></div>
     </div>
-    <button type="button" class="btn primary" id="drawerMap" data-act="map-node" hidden><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.8 4.2 5.8 2.5l4.4 1.8 4-1.7v9.2l-4 1.7-4.4-1.8-4 1.7Z"/><path d="M5.8 2.5v9.2M10.2 4.3v9.2"/></svg>Open in Model map</button>
+    <div class="d-opens" id="drawerOpens" role="group" aria-label="Open elsewhere" hidden></div>
     <button class="icon-btn" id="drawerClose" aria-label="Close details panel">
       <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 3l10 10M13 3 3 13"/></svg>
     </button>
   </div>
+  <p class="d-open-why" id="drawerWhy" hidden></p>
   <div class="drawer-bd" id="drawerBody"></div>
 </aside>
 

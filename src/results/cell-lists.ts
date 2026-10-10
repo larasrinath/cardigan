@@ -195,7 +195,7 @@ const usedInProcesses = namesIn(PROCESSES_FILE);
  * result has no names of their kind to cut by: an action's Used in Dashboards, and a line item's Data Tags. A list's
  * Parent Hierarchy is one name, as are a driver and a format's list. */
 const MODEL_LISTS: Record<string, Record<string, ListRule>> = {
-  // An app's Filters table with the app in front (page-files.ts): its cells list as that table's do.
+  // An app's Filters rows with their app (page-files.ts): its cells list as that table's do, column by column.
   [PAGE_FILTERS_FILE]: APP_LISTS.Filters,
   [LISTS_FILE]: { Subsets: names, Properties: properties, "Referenced in Applies To": names, "Referenced as Format": names, "Referenced in Formula": names },
   [MODULES_FILE]: { "Applies To": names },

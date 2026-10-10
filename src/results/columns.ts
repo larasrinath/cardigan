@@ -198,7 +198,7 @@ export const ROW_NAME_COLUMNS: Record<TabName, string> = {
   Pages: "Page", Cards: "Card title", "Grid sections": "Source module", Filters: "Condition line item", Formatting: "Formatted line item",
   Actions: "Button label", "Where used": "Object name",
 };
-/** Page Filters and Page Actions, an app's Filters and Action Buttons with the app in front, are named as those are. */
+/** Page Filters and Page Actions, which hold an app's Filters and Action Buttons rows, are named as those are. */
 const ROW_NAMES: ReadonlyMap<string, string> = new Map([...(Object.keys(ROW_NAME_COLUMNS) as TabName[]).map((tab): [string, string] => [APP_FILES[tab], ROW_NAME_COLUMNS[tab]]),
   [PAGE_FILTERS_FILE, ROW_NAME_COLUMNS.Filters], [PAGE_ACTIONS_FILE, ROW_NAME_COLUMNS.Actions]]);
 
