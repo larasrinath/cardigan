@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { describeProbe, exportInCore, NO_MODEL, OLD_READER, openInCore, probeFrame, PROTOCOL, QUIET, runInCore, serveCore, serveOpen, UNREADABLE, watchCore, watchProbes,
+import { describeProbe, exportInCore, NO_MODEL, OLD_READER, openInCore, probeFrame, PROTOCOL, QUIET, RUN_PROTOCOL, runInCore, serveCore, serveOpen, UNREADABLE, watchCore,
+  watchProbes,
   type CoreHandle,
   type Endpoint, type FrameProbe } from "./bridge.js";
 import { NOT_SCOPE_IDS, SCOPE_IDS } from "./guards.test-support.js";
 import { readGrid, type Native } from "./model/native.js";
-import { Failure, UNEXPECTED, type Progress, type Stop } from "./progress.js";
+import { Failure, OldReader, UNEXPECTED, type Progress, type Stop } from "./progress.js";
 import type { AnalysisResult, Cell } from "./result-types.js";
 import { BUILD } from "./version.js";
 
@@ -17,6 +18,8 @@ class FakeWindow {
   /** The windows inside this one, as this window holds them (greetFrames). */
   frames: Endpoint[] = [];
   constructor(readonly origin: string) {}
+  /** The page the window holds, as far as its origin. */
+  get location() { return { origin: this.origin }; }
   addEventListener(_type: "message", listener: (event: MessageEvent) => void) { this.listeners.add(listener); }
   removeEventListener(_type: "message", listener: (event: MessageEvent) => void) { this.listeners.delete(listener); }
   /** Delivers a message as the browser would, whoever it claims to come from. */
@@ -40,6 +43,8 @@ class FakeWindow {
 }
 
 const MODEL = "FEDCBA9876543210FEDCBA9876543210";
+/** What every message of a run or of an ask to open carries: the run channel, and this build. */
+const RUN = { protocol: RUN_PROTOCOL, build: BUILD };
 const [SHELL, CORE] = ["https://us1a.app.anaplan.com", "https://eu2a.app.anaplan.com"];
 /** How a failed run ended: the sentence the results page shows and the detail the diagnostic log keeps (progress.ts `Failure`). */
 const failedWith = (error: unknown) => (error instanceof Failure ? [error.message, error.detail] : error);
@@ -130,14 +135,14 @@ describe("Model export bridge between the Model Building page and the model's co
     const sibling = new FakeWindow(SHELL);
     let runs = 0;
     const stop = serveCore(core, shell.seenBy(core), () => MODEL, async () => { runs++; return exported(); }, 5);
-    core.seenBy(sibling).postMessage({ protocol: PROTOCOL, type: "run", nonce: "n" }, "*");
+    core.seenBy(sibling).postMessage({ ...RUN, type: "run", nonce: "n" }, "*");
     await settle();
     expect(runs).toBe(0);
     // Nor a run that names no run ID: its progress and its result could not be told from another run's.
-    for (const nonce of [undefined, null, 7, {}, ["n"]]) core.seenBy(shell).postMessage({ protocol: PROTOCOL, type: "run", nonce }, "*");
+    for (const nonce of [undefined, null, 7, {}, ["n"]]) core.seenBy(shell).postMessage({ ...RUN, type: "run", nonce }, "*");
     await settle();
     expect(runs).toBe(0);
-    core.seenBy(shell).postMessage({ protocol: PROTOCOL, type: "run", nonce: "n" }, "*");
+    core.seenBy(shell).postMessage({ ...RUN, type: "run", nonce: "n" }, "*");
     await settle();
     expect(runs).toBe(1);
     stop();
@@ -174,18 +179,18 @@ describe("Model export bridge between the Model Building page and the model's co
     runInCore(shell, { source, origin: CORE, modelId: MODEL }, progress).then(result => { outcome = result; }, error => { outcome = error; });
     expect(asked.map(message => message.type)).toEqual(["run"]);
     const { nonce } = asked[0];
-    const done = { protocol: PROTOCOL, type: "done", nonce, result: exported() };
+    const done = { ...RUN, type: "done", nonce, result: exported() };
 
     shell.receive(done, CORE, shell.seenBy(sibling));                                        // another window, the right origin and run
     shell.receive(done, "https://evil.example.com", source);                                // the frame, from an origin that is not Anaplan's
     shell.receive(done, SHELL, source);                                                     // the frame, from another Anaplan origin than it announced
     shell.receive({ ...done, nonce: "another-run" }, CORE, source);                         // the frame, for a run this page did not ask for
     shell.receive({ ...done, protocol: "another-protocol" }, CORE, source);
-    shell.receive({ protocol: PROTOCOL, type: "status", nonce, text: "forged" }, CORE, shell.seenBy(sibling));
+    shell.receive({ ...RUN, type: "status", nonce, text: "forged" }, CORE, shell.seenBy(sibling));
     await settle();
     expect([outcome, lines]).toEqual(["waiting", []]);
 
-    shell.receive({ protocol: PROTOCOL, type: "status", nonce, text: "Reading Versions…" }, CORE, source);
+    shell.receive({ ...RUN, type: "status", nonce, text: "Reading Versions…" }, CORE, source);
     shell.receive(done, CORE, source);
     await settle();
     expect(outcome).toEqual(exported());
@@ -221,9 +226,9 @@ describe("Model export bridge between the Model Building page and the model's co
       progress.log("Versions: 2 rows");
       return exports.shift()!();
     }, 60_000);
-    core.receive({ protocol: PROTOCOL, type: "run", nonce: "first" }, SHELL, recording);
+    core.receive({ ...RUN, type: "run", nonce: "first" }, SHELL, recording);
     await settle();
-    core.receive({ protocol: PROTOCOL, type: "run", nonce: "second" }, SHELL, recording);
+    core.receive({ ...RUN, type: "run", nonce: "second" }, SHELL, recording);
     await settle();
     stop();
     // Only the announcement goes to whoever is on top, as it always has: it carries the model's ID and nothing of the model.
@@ -237,7 +242,7 @@ describe("Model export bridge between the Model Building page and the model's co
       const asked: { nonce: string }[] = [];
       const source: Endpoint = { postMessage: message => { asked.push(message as { nonce: string }); } };
       const run = runInCore(shell, { source, origin: CORE, modelId: MODEL }, collect().progress);
-      shell.receive({ protocol: PROTOCOL, type: "done", nonce: asked[0].nonce, result }, CORE, source);
+      shell.receive({ ...RUN, type: "done", nonce: asked[0].nonce, result }, CORE, source);
       return run;
     };
     const table = exported().tables[1];
@@ -280,7 +285,7 @@ describe("Model export bridge between the Model Building page and the model's co
       const { lines, progress } = collect();
       // Half a second without a readable answer would be the frame "not answering": no run here takes that long.
       const run = runInCore(shell, { source, origin: CORE, modelId: MODEL }, progress, 500);
-      const hears = (message: Record<string, unknown>) => shell.receive({ protocol: PROTOCOL, nonce: asked[0].nonce, ...message }, CORE, source);
+      const hears = (message: Record<string, unknown>) => shell.receive({ ...RUN, nonce: asked[0].nonce, ...message }, CORE, source);
       return { run, hears, lines };
     };
     // In a step, a log line, a cell, a header and a summary line.
@@ -412,8 +417,8 @@ describe("Model export bridge between the Model Building page and the model's co
     expect(reached).toEqual(["Reading Line Items…"]);
 
     // Neither another window nor another run's "stop" ends this export.
-    core.seenBy(sibling).postMessage({ protocol: PROTOCOL, type: "stop", nonce: "n" }, "*");
-    core.seenBy(shell).postMessage({ protocol: PROTOCOL, type: "stop", nonce: "another-run" }, "*");
+    core.seenBy(sibling).postMessage({ ...RUN, type: "stop", nonce: "n" }, "*");
+    core.seenBy(shell).postMessage({ ...RUN, type: "stop", nonce: "another-run" }, "*");
     await next();
     expect(reached).toEqual(["Reading Line Items…", "Reading Modules…"]);
 
@@ -558,7 +563,7 @@ describe("Model export bridge between the Model Building page and the model's co
     // 2.7 s in all.
     for (const message of [{ type: "status", text: "Reading Line Items…" }, { type: "log", text: "Line Items: 3 rows × 2 columns" }, { type: "alive" }]) {
       await vi.advanceTimersByTimeAsync(900);
-      shell.receive({ protocol: PROTOCOL, nonce, ...message }, CORE, source);
+      shell.receive({ ...RUN, nonce, ...message }, CORE, source);
       await vi.advanceTimersByTimeAsync(0);
     }
     await vi.advanceTimersByTimeAsync(999);
@@ -566,11 +571,11 @@ describe("Model export bridge between the Model Building page and the model's co
     expect([outcome, lines]).toEqual(["waiting", ["status: Reading Line Items…", "log: Line Items: 3 rows × 2 columns"]]);
     // One that is not this run's, or not from the frame that was asked, at the origin it announced, does not count.
     const sibling = new FakeWindow(CORE);
-    shell.receive({ protocol: PROTOCOL, nonce: "another-run", type: "alive" }, CORE, source);
-    shell.receive({ protocol: PROTOCOL, type: "alive" }, CORE, source);
-    shell.receive({ protocol: PROTOCOL, nonce, type: "alive" }, CORE, shell.seenBy(sibling));
-    shell.receive({ protocol: PROTOCOL, nonce, type: "alive" }, SHELL, source);
-    shell.receive({ protocol: PROTOCOL, nonce, type: "alive" }, "https://evil.example.com", source);
+    shell.receive({ ...RUN, nonce: "another-run", type: "alive" }, CORE, source);
+    shell.receive({ ...RUN, type: "alive" }, CORE, source);
+    shell.receive({ ...RUN, nonce, type: "alive" }, CORE, shell.seenBy(sibling));
+    shell.receive({ ...RUN, nonce, type: "alive" }, SHELL, source);
+    shell.receive({ ...RUN, nonce, type: "alive" }, "https://evil.example.com", source);
     shell.receive({ protocol: "another-protocol", nonce, type: "alive" }, CORE, source);
     await vi.advanceTimersByTimeAsync(1);
     expect(outcome).toEqual([QUIET, "the model's frame sent nothing for 1 s"]);
@@ -691,7 +696,7 @@ describe("Model export bridge between the Model Building page and the model's co
     core = { source, origin: CORE, modelId: MODEL, build: BUILD };
     await vi.advanceTimersByTimeAsync(1000);
     expect(asked.map(message => message.type)).toEqual(["run"]);
-    shell.receive({ protocol: PROTOCOL, type: "done", nonce: asked[0].nonce, result: exported() }, CORE, source);
+    shell.receive({ ...RUN, type: "done", nonce: asked[0].nonce, result: exported() }, CORE, source);
     await expect(run).resolves.toEqual(exported());
     // The same model in another case is the same model: nothing is logged about it.
     expect(lines).toEqual([...Array(3).fill("status: Waiting for the model's frame…"),
@@ -722,7 +727,7 @@ describe("Model export bridge between the Model Building page and the model's co
     const { lines, progress } = collect();
     const run = exportInCore(shell, () => ({ source, origin: CORE, modelId: SCOPE_IDS[0], build: BUILD }), () => [], MODEL, progress);
     await vi.advanceTimersByTimeAsync(0);
-    (shell as unknown as FakeWindow).receive({ protocol: PROTOCOL, type: "done", nonce: asked[0].nonce, result: exported() }, CORE, source);
+    (shell as unknown as FakeWindow).receive({ ...RUN, type: "done", nonce: asked[0].nonce, result: exported() }, CORE, source);
     await expect(run).resolves.toEqual(exported());
     expect(lines).toEqual(["log: the model frame reports a different model than this page's address"]);
   });
@@ -740,7 +745,7 @@ describe("Model export bridge between the Model Building page and the model's co
     expect(lines).toEqual(Array(2).fill("status: Waiting for the model's frame…"));
   });
 
-  it("reads a model only with a reader of its own build: one left in the tab from before an update is not asked, and the tab is to be refreshed", async () => {
+  it("reads a model only with a reader of its own build: one of another build is waited past for a few seconds, then refused, saying whether its frame is within the page's reach", async () => {
     // The reader says its build when it checks in, and the page takes it as it is said: a mark of a few letters and digits.
     const shell = new FakeWindow(SHELL);
     const core = new FakeWindow(CORE);
@@ -751,29 +756,116 @@ describe("Model export bridge between the Model Building page and the model's co
     }
     await settle();
     expect(found.map(handle => handle.build)).toEqual([BUILD, "0a1b2c3d4e5f", undefined, undefined, undefined, undefined, undefined]);
-    // A reader of this build is asked to export.
+    // A reader of this build is asked to export, at once, on the run channel with this build.
     const asked: { type: string; nonce: string }[] = [];
     const source: Endpoint = { postMessage: message => { asked.push(message as { type: string; nonce: string }); } };
     const run = exportInCore(shell as unknown as Window, () => ({ source, origin: CORE, modelId: MODEL, build: BUILD }), () => [], MODEL, collect().progress);
     await settle();
-    shell.receive({ protocol: PROTOCOL, type: "done", nonce: asked[0].nonce, result: exported() }, CORE, source);
+    expect(asked).toEqual([{ ...RUN, type: "run", nonce: expect.any(String) }]);
+    shell.receive({ ...RUN, type: "done", nonce: asked[0].nonce, result: exported() }, CORE, source);
     await expect(run).resolves.toEqual(exported());
-    // One of another build, or one that says none, as a reader made before builds were marked, is asked nothing: the
-    // user is told to refresh the tab, and the log which builds the two are.
+
+    // One of another build, or one that says none, as a reader made before builds were marked, is asked nothing. The page
+    // waits four seconds more for one of this build to check in beside it, greeting the frames, then refuses: the log
+    // says which builds the two are, and where the reader's frame is.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
     asked.length = 0;
-    const refused = (build?: string) => {
+    const refused = async (handle: Omit<CoreHandle, "source">) => {
       const { lines, progress } = collect();
-      return failed(exportInCore(shell as unknown as Window, () => ({ source, origin: CORE, modelId: MODEL, ...(build === undefined ? {} : { build }) }), () => [], MODEL,
-        progress)).then(outcome => [outcome, lines]);
+      let outcome: unknown = "waiting";
+      exportInCore(shell as unknown as Window, () => ({ source, ...handle }), () => [], MODEL, progress)
+        .then(() => { outcome = "exported"; }, error => { outcome = error instanceof OldReader ? [error.message, error.detail, error.renewable] : error; });
+      await vi.advanceTimersByTimeAsync(3999);
+      const meanwhile = outcome;
+      await vi.advanceTimersByTimeAsync(1);
+      return [meanwhile, outcome, lines];
     };
-    expect(await refused("0a1b2c3d4e5f")).toEqual([[OLD_READER, `the model's reader is build 0a1b2c3d4e5f; this script is build ${BUILD}`], []]);
-    expect(await refused()).toEqual([[OLD_READER, `the model's reader is of a build that names none; this script is build ${BUILD}`], []]);
+    const waited = Array(4).fill("status: Waiting for the model's frame…");
+    // Its frame on another Anaplan host than the page: out of the results page's reach.
+    expect(await refused({ origin: CORE, modelId: MODEL, build: "0a1b2c3d4e5f" })).toEqual(["waiting",
+      [OLD_READER, `the model's reader is build 0a1b2c3d4e5f; this script is build ${BUILD}; its frame is on ${CORE}, the page on ${SHELL}`, false], waited]);
+    // Its frame on the page's own origin: the results page may put this build's reader there.
+    expect(await refused({ origin: SHELL, modelId: MODEL })).toEqual(["waiting",
+      [OLD_READER, `the model's reader is of a build that names none; this script is build ${BUILD}; its frame is on the page's own origin`, true], waited]);
     expect(asked).toEqual([]);
+
+    // A reader of this build that checks in meanwhile, as one the results page has just put into the frame does, is asked
+    // at once, and the one of another build is not.
+    let held: CoreHandle = { source, origin: SHELL, modelId: MODEL, build: "0a1b2c3d4e5f" };
+    const renewed = exportInCore(shell as unknown as Window, () => held, () => [], MODEL, collect().progress);
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(asked).toEqual([]);
+    held = { ...held, build: BUILD };
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(asked).toEqual([{ ...RUN, type: "run", nonce: expect.any(String) }]);
+    shell.receive({ ...RUN, type: "done", nonce: asked[0].nonce, result: exported() }, SHELL, source);
+    await expect(renewed).resolves.toEqual(exported());
+
     // The reader says the build it was made in.
     const posts: unknown[] = [];
     const stop = serveCore(core, { postMessage: message => { posts.push(message); } }, () => MODEL, async () => exported(), 60_000);
     expect(posts).toEqual([{ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD }]);
     stop();
+  });
+
+  it("keeps a reader of another build in the same frame out of every run and every ask to open: it hears none of them, and only this build's answers", async () => {
+    const shell = new FakeWindow(SHELL);
+    const core = new FakeWindow(CORE);
+    // A reader made before the run channel: it takes a run or an ask to open on the protocol it checks in with, from
+    // whoever posts one, and it would read the model with its own, earlier code.
+    const earlier: string[] = [];
+    core.addEventListener("message", event => {
+      const data = event.data as { protocol?: string; type?: string };
+      if (data.protocol === PROTOCOL && (data.type === "run" || data.type === "open" || data.type === "stop")) earlier.push(data.type);
+    });
+    let handle: CoreHandle | undefined;
+    watchCore(shell, found => { handle = found; });
+    let runs = 0;
+    const stopCore = serveCore(core, shell.seenBy(core), () => MODEL, async () => { runs++; return exported(); }, 5);
+    const opened: string[] = [];
+    const stopOpen = serveOpen(core, shell.seenBy(core), async (_model, object) => { opened.push(object); return true; });
+    await settle();
+    await expect(runInCore(shell, handle!, collect().progress)).resolves.toEqual(exported());
+    expect(await openInCore(shell, handle!, MODEL, "101000000004")).toBe(true);
+    expect([runs, opened, earlier]).toEqual([1, ["101000000004"], []]);
+    // And a reader of this build takes nothing of another build's: a later one's run, or its ask to open.
+    core.receive({ protocol: RUN_PROTOCOL, build: "0a1b2c3d4e5f", type: "run", nonce: "later" }, SHELL, shell.seenBy(core));
+    core.receive({ protocol: RUN_PROTOCOL, build: "0a1b2c3d4e5f", type: "open", nonce: "later", model: MODEL, object: "101000000004" }, SHELL, shell.seenBy(core));
+    core.receive({ protocol: RUN_PROTOCOL, type: "run", nonce: "no build" }, SHELL, shell.seenBy(core));
+    await settle();
+    expect([runs, opened]).toEqual([1, ["101000000004"]]);
+    stopCore();
+    stopOpen();
+  });
+
+  it("lets only the latest copy of the reader in a frame serve it: an earlier copy announces nothing, and takes no run and no ask to open", async () => {
+    const shell = new FakeWindow(SHELL);
+    const core = new FakeWindow(CORE);
+    const announced: unknown[] = [];
+    shell.addEventListener("message", event => { if ((event.data as { type?: string }).type === "core-ready") announced.push(event.data); });
+    let handle: CoreHandle | undefined;
+    watchCore(shell, found => { handle = found; });
+    // The copy Chrome put into the frame as the page loaded, and one the results page put there since: the mark of the
+    // frame names the latest (model-content.ts).
+    let latest = "first";
+    const ran: string[] = [];
+    const opened: string[] = [];
+    const copy = (name: string) => [
+      serveCore(core, shell.seenBy(core), () => MODEL, async () => { ran.push(name); return exported(); }, 60_000, undefined, () => latest === name),
+      serveOpen(core, shell.seenBy(core), async () => { opened.push(name); return true; }, () => latest === name)];
+    const first = copy("first");
+    latest = "second";
+    const second = copy("second");
+    await settle();
+    // The first copy announced itself while it was the latest, the second since: from now on only the second does.
+    expect(announced).toHaveLength(2);
+    core.seenBy(shell).postMessage({ protocol: PROTOCOL, type: "hello" }, "*");
+    await settle();
+    expect(announced).toHaveLength(3);
+    await expect(runInCore(shell, handle!, collect().progress)).resolves.toEqual(exported());
+    expect(await openInCore(shell, handle!, MODEL, "102000000001")).toBe(true);
+    expect([ran, opened]).toEqual([["second"], ["second"]]);
+    for (const stop of [...first, ...second]) stop();
   });
 });
 
@@ -801,11 +893,11 @@ describe("Opening a module in the Model Building page through the model's core f
     // nothing and is not answered.
     asked.length = 0;
     const other = new FakeWindow(SHELL);
-    core.receive({ protocol: PROTOCOL, type: "open", nonce: "ask", model: MODEL, object: MODULE }, SHELL, other.seenBy(core));
-    core.receive({ protocol: PROTOCOL, type: "open", nonce: "ask", model: MODEL, object: MODULE }, "https://example.com", shell.seenBy(core));
+    core.receive({ ...RUN, type: "open", nonce: "ask", model: MODEL, object: MODULE }, SHELL, other.seenBy(core));
+    core.receive({ ...RUN, type: "open", nonce: "ask", model: MODEL, object: MODULE }, "https://example.com", shell.seenBy(core));
     for (const odd of [{ nonce: 5, model: MODEL, object: MODULE }, { nonce: "ask", model: "FEDCBA98", object: MODULE }, { nonce: "ask", model: MODEL, object: "10200000000x" },
       { nonce: "ask", model: MODEL, object: 102000000001 }, { nonce: "ask", model: MODEL }]) {
-      core.receive({ protocol: PROTOCOL, type: "open", ...odd }, SHELL, shell.seenBy(core));
+      core.receive({ ...RUN, type: "open", ...odd }, SHELL, shell.seenBy(core));
     }
     core.receive({ protocol: "another", type: "open", nonce: "ask", model: MODEL, object: MODULE }, SHELL, shell.seenBy(core));
     await settle();
@@ -823,15 +915,15 @@ describe("Opening a module in the Model Building page through the model's core f
     const handle: CoreHandle = { source, origin: CORE, modelId: MODEL, build: BUILD };
     let over: boolean | undefined;
     void openInCore(shell, handle, MODEL, MODULE, 60).then(opened => { over = opened; });
-    expect(asked).toEqual([{ protocol: PROTOCOL, type: "open", nonce: expect.any(String), model: MODEL, object: MODULE }]);
+    expect(asked).toEqual([{ ...RUN, type: "open", nonce: expect.any(String), model: MODEL, object: MODULE }]);
     const { nonce } = asked[0];
     const another: Endpoint = { postMessage: () => undefined };
-    shell.receive({ protocol: PROTOCOL, type: "opened", nonce, opened: true }, CORE, another);
-    shell.receive({ protocol: PROTOCOL, type: "opened", nonce, opened: true }, SHELL, source);
-    shell.receive({ protocol: PROTOCOL, type: "opened", nonce: "another ask", opened: true }, CORE, source);
+    shell.receive({ ...RUN, type: "opened", nonce, opened: true }, CORE, another);
+    shell.receive({ ...RUN, type: "opened", nonce, opened: true }, SHELL, source);
+    shell.receive({ ...RUN, type: "opened", nonce: "another ask", opened: true }, CORE, source);
     await settle();
     expect(over).toBeUndefined();
-    shell.receive({ protocol: PROTOCOL, type: "opened", nonce, opened: true }, CORE, source);
+    shell.receive({ ...RUN, type: "opened", nonce, opened: true }, CORE, source);
     await settle();
     expect(over).toBe(true);
     // A frame that never answers: no, once the wait is over.

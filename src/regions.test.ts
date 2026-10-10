@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { ANAPLAN_ORIGIN } from "./bridge.js";
-import { CONTENT_SCRIPT, CONTENT_SCRIPT_ORIGIN } from "./protocol.js";
+import { CONTENT_SCRIPT, CONTENT_SCRIPT_ORIGIN, MODEL_READER } from "./protocol.js";
 import { ANAPLAN_HOSTS, OTHER_HOSTS } from "./guards.test-support.js";
 import { ANAPLAN_HOST } from "./util.js";
 
@@ -30,7 +30,9 @@ describe("Anaplan regions, Australia's app2 host included", () => {
   });
 
   it("puts its content script back only on the hosts the manifest's matches name", () => {
-    expect(manifest.content_scripts[0].js).toEqual([CONTENT_SCRIPT]);
+    // And the model's reader, the file the manifest puts into the page's main world in every frame (results/connection.ts).
+    expect([manifest.content_scripts[0].js, manifest.content_scripts[1].js]).toEqual([[CONTENT_SCRIPT], [MODEL_READER]]);
+    expect(manifest.content_scripts[1]).toMatchObject({ world: "MAIN", all_frames: true });
     for (const host of ["us1a.app.anaplan.com", "eu2a.app.anaplan.com", "US1A.APP.ANAPLAN.COM", AUSTRALIA]) {
       expect(CONTENT_SCRIPT_ORIGIN.test(`https://${host}`), host).toBe(true);
     }

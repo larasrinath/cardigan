@@ -187,6 +187,10 @@ let tabCreates: unknown[][];
 let windowUpdates: unknown[][];
 let tabsRefuse: boolean;
 let closedTabs: Set<number>;
+/** What the page asked Chrome to put into a tab, in order, whether Chrome lets it, and each tab it asked Chrome to refresh. */
+let injected: unknown[];
+let scriptingAllows: boolean;
+let tabReloads: number[];
 /** The tab the results page itself is in, as chrome.tabs.getCurrent says it, after the Anaplan tab it was opened for. */
 const OWN_TAB = { id: 50, index: 2, windowId: 3 };
 /** The page's address, each address the script changed it to, and whether changing it is refused. */
@@ -280,6 +284,9 @@ beforeEach(() => {
   windowUpdates = [];
   tabsRefuse = false;
   closedTabs = new Set();
+  injected = [];
+  scriptingAllows = false;
+  tabReloads = [];
   copied = [];
   clipboardRefuses = false;
   stored = new Map();
@@ -334,7 +341,7 @@ beforeEach(() => {
       get: async (id: number) => {
         if ((tabClosed && id <= 100) || closedTabs.has(id)) throw new Error(`No tab with id: ${id}.`);
         const opener = id > 100 ? (tabCreates[id - 101]?.[0] as { openerTabId?: number } | undefined)?.openerTabId : undefined;
-        return { id, index: 0, ...(opener === undefined ? {} : { openerTabId: opener }) };
+        return { id, index: 0, status: "complete", ...(opener === undefined ? {} : { openerTabId: opener }) };
       },
       getCurrent: async () => OWN_TAB,
       // `tabClosed` closes the tab the page was opened for, and none it opened itself; `closedTabs`, those it opened.
@@ -348,9 +355,14 @@ beforeEach(() => {
         tabCreates.push([properties]);
         return { id: 100 + tabCreates.length, index: 1, windowId: 3 };
       },
+      reload: async (id: number) => { tabReloads.push(id); },
     },
     // As in a tab the icon was not just clicked on: Chrome lets nothing be put into it.
-    scripting: { executeScript: async () => { throw new Error("Cannot access contents of the page. Extension manifest must request permission to access the respective host."); } },
+    scripting: { executeScript: async (injection: unknown) => {
+      injected.push(injection);
+      if (scriptingAllows) return [{ frameId: 0 }, { frameId: 5 }];
+      throw new Error("Cannot access contents of the page. Extension manifest must request permission to access the respective host.");
+    } },
     windows: { update: async (id: number, info: unknown) => { windowUpdates.push([id, info]); } },
     runtime: { get lastError() { return lastError; } },
   });
@@ -1427,6 +1439,69 @@ describe("The results page's script, on the page", () => {
     expect([page.id("runTitle").textContent, page.id("runStatus").textContent]).toEqual(["The analysis stopped", "You're signed out of <b>Anaplan</b>. Sign in and try again."]);
     // The message was set as text, not written into the page's markup: its tag is no element.
     expect(page.has("#view b")).toBe(false);
+  });
+});
+
+describe("A model tab that still holds the reader of an earlier Cardigan", () => {
+  const SUBJECT = { kind: "model", id: "0123456789ABCDEF0123456789ABCDEF", origin: "https://us1a.app.anaplan.com", customer: "0123456789abcdef0123456789abcdef" } as const;
+  const STALE = "This Anaplan tab was open before Cardigan was updated or reloaded, and still holds the earlier Cardigan's model reader.";
+  /** The tab says a run found the reader of an earlier build: its log's line, then the error with its code. */
+  const stale = (port: FakePort, renewable: boolean) => {
+    port.send({ type: "log", text: "14:02:05 stopped: the model's reader is build 0a1b2c3d4e5f; this script is build dev" });
+    port.send({ type: "error", message: `${STALE} Refresh the Anaplan tab, wait until the model shows, then choose Run again.`, code: "OLD_READER", renewable });
+  };
+  const READER = { target: { tabId: 42, allFrames: true }, files: ["dist/model-export.js"], world: "MAIN" };
+
+  it("puts its reader into the tab's frames where it can, and otherwise offers the one button that refreshes the tab, which only a click presses", async () => {
+    await open(clicked(42));
+    ports[0].send({ type: "subject", subject: SUBJECT });
+    // The model's frame is on the page's own origin: the page asks Chrome to put this build's reader into every frame it
+    // may reach, in the page's world. Chrome refuses here, so the tab needs a refresh.
+    stale(ports[0], true);
+    await settle();
+    expect(injected).toEqual([READER]);
+    const button = page.id("runRefresh");
+    expect([page.id("runTitle").textContent, page.id("runStatus").textContent, page.id("runHint").textContent, button.hidden, button.textContent.trim()]).toEqual([
+      "The Anaplan tab needs a refresh", `${STALE} Cardigan could not put its new reader into the open page.`,
+      "Choose Refresh the Anaplan tab and run: the tab reloads, and Cardigan reads the model as soon as it shows. The refresh closes the modules and lists you have open in Model Building.",
+      false, "Refresh the Anaplan tab and run"]);
+    expect(page.id("diagLog").textContent.split("\n").at(-1)).toBe(
+      "14:02:05 Cardigan could not put its model reader into the tab: Cannot access contents of the page. Extension manifest must request permission to access the respective host.");
+    // Nothing refreshes the tab by itself, however long the page waits, and Run again tries the reader once more.
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(tabReloads).toEqual([]);
+    page.id("runAgain").press();
+    stale(ports[0], false);
+    await settle();
+    expect([injected.length, page.id("runStatus").textContent]).toEqual([1,
+      `${STALE} The model is served from another Anaplan host than the page around it, where Chrome lets Cardigan put its new reader only when the tab is refreshed.`]);
+
+    // The click: the tab is refreshed, and once it has loaded the page connects again and reads the model, waiting for its
+    // frame as long as a model takes to open again.
+    button.press();
+    await settle();
+    expect([tabReloads, page.id("runStatus").textContent, button.hidden]).toEqual([[42], "Refreshing the Anaplan tab…", true]);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(connects).toHaveLength(2);
+    ports[1].send({ type: "subject", subject: SUBJECT });
+    expect(ports[1].posted).toEqual([{ type: "run", afterRefresh: true }]);
+    expect(page.id("diagLog").textContent).toContain("Refreshing the Anaplan tab, as asked, so that it loads this build's model reader.");
+  });
+
+  it("offers the same button above an earlier result, in the banner, and hides it again once a run goes on", async () => {
+    await open(clicked(42));
+    ports[0].send({ type: "subject", subject: { kind: "app", id: RESULT.id } });
+    sendResult(ports[0]);
+    page.id("runAgain").press();
+    stale(ports[0], false);
+    await settle();
+    expect([banner(), page.id("bannerRefresh").hidden]).toEqual([["warn", "The Anaplan tab needs a refresh",
+      `${STALE} The model is served from another Anaplan host than the page around it, where Chrome lets Cardigan put its new reader only when the tab is refreshed.`,
+      "Choose Refresh the Anaplan tab and run: the tab reloads, and Cardigan reads the model as soon as it shows. The refresh closes the modules and lists you have open in Model Building."], false]);
+    expect(injected).toEqual([]);
+    page.id("runAgain").press();
+    expect(page.id("bannerRefresh").hidden).toBe(true);
+    expect(tabReloads).toEqual([]);
   });
 });
 
@@ -4745,7 +4820,7 @@ describe("The buttons at the top right of a row's details that open it in Anapla
   const link = (module: string) => `${ORIGIN}/a/modeling/customers/${CUSTOMER}/workspaces/${WORKSPACE}/models/${BLUEPRINT.id}/tabs/${module}`;
   /** How the content script answers the page's ask to open a module inside the Model Building page it shows: that it did,
    * that it could not, or nothing at all, as a content script of an earlier build that does not know the ask. */
-  let inPage: "opened" | "not" | "silent";
+  let inPage: "opened" | "not" | "silent" | "old-reader";
   beforeEach(() => {
     inPage = "not";
     // Every port to the tab has the content script at its other end, which answers asks to open a module.
@@ -4764,6 +4839,12 @@ describe("The buttons at the top right of a row's details that open it in Anapla
       post(message);
       const asked = message as { type?: string; nonce?: string };
       if (asked.type !== "open" || inPage === "silent") return;
+      // A frame that holds the reader of an earlier build says so once; with this build's reader put beside it, it opens.
+      if (inPage === "old-reader") {
+        inPage = "opened";
+        queueMicrotask(() => port.send({ type: "opened", nonce: String(asked.nonce), opened: false, detail: "the model's frame holds a reader of another build", oldReader: true }));
+        return;
+      }
       const opened = inPage === "opened";
       queueMicrotask(() => port.send({ type: "opened", nonce: String(asked.nonce), opened, detail: opened ? "Model Building opened it beside the modules open there" : "the tab shows another model" }));
     };
@@ -4803,6 +4884,32 @@ describe("The buttons at the top right of a row's details that open it in Anapla
   const why = () => (page.id("drawerWhy").hidden ? undefined : page.id("drawerWhy").textContent);
   const drawerOpen = () => page.id("drawer").classList.contains("show");
   const toastSays = () => page.id("toast").textContent;
+
+  it("gives a tab whose model's frame still holds an earlier reader this build's, and then opens the module inside the page after all; where Chrome refuses, it loads the address", async () => {
+    await openModel();
+    goTo(1);
+    openRow("Revenue");
+    inPage = "old-reader";
+    scriptingAllows = true;
+    await press("Model");
+    // The reader goes into every frame Chrome lets the page reach, in the page's own world, and nothing is asked meanwhile.
+    expect([injected, asks()]).toEqual([[{ target: { tabId: 7, allFrames: true }, files: ["dist/model-export.js"], world: "MAIN" }], [expect.objectContaining({ type: "open" })]]);
+    await vi.advanceTimersByTimeAsync(1500);
+    for (let turn = 0; turn < 20; turn++) await Promise.resolve();
+    // Asked again once the reader has had time to check in: Model Building opens the module beside the ones open there,
+    // and no address is loaded.
+    expect(asks()).toHaveLength(2);
+    expect(tabUpdates).toEqual([[7, { active: true }]]);
+    expect(await openedLines()).toEqual(["Opened the module REV01 Revenue inside the Model Building page of the Anaplan tab Cardigan read: Model Building opened it beside the modules open there."]);
+
+    // Where Chrome refuses, the page loads the module's address, as it always has, and asks nothing again.
+    tabUpdates.length = 0;
+    inPage = "old-reader";
+    scriptingAllows = false;
+    await press("Model");
+    expect([asks().length, tabUpdates]).toEqual([3, [[7, { url: link("102000000001"), active: true }]]]);
+    expect(tabReloads).toEqual([]);
+  });
 
   it("opens a line item's module, and a module, in Model Building in the Anaplan tab Cardigan read, by its address where the tab cannot open it inside its page, and brings that tab's window to the front", async () => {
     await openModel();

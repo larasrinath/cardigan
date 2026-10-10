@@ -20,6 +20,13 @@ export class Failure extends Error {
   constructor(message: string, readonly detail?: string) { super(message); }
 }
 
+/** A model that was not read because its frame holds a reader of another build than the content script (bridge.ts
+ * `exportInCore`), as a tab open since before Cardigan was updated or reloaded does. `renewable`: the frame is on the
+ * page's own origin, where the results page may put this build's reader itself (results/connection.ts `renewReader`). */
+export class OldReader extends Failure {
+  constructor(message: string, detail: string, readonly renewable: boolean) { super(message, detail); }
+}
+
 /** What to do next, in the words every message uses for it. The second names the button beside the log on the results page. */
 export const REFRESH = "Refresh the Anaplan tab, then click the Cardigan icon again.";
 export const SEND_LOG = "If it keeps happening, choose Copy diagnostic log and send the log.";

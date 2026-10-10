@@ -2,6 +2,15 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version stands next to Cardigan's name at the top of the results page and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## 0.15.3 (10 October 2026)
+
+An update no longer asks for a refresh of an open model's tab.
+
+- **A new version keeps the model's reader when its code is the same.** The part of Cardigan that reads a model, inside the model's page, is marked by its code alone, not by the version, so an update that leaves it as it was needs nothing in an open model's tab. The version an export names is the running Cardigan's. (#37)
+- **The new reader goes into the tab, in place of a refresh.** Where the model's page still holds the reader of an earlier version, the results page puts this version's into that tab, as Chrome does when the page loads, and reads the model. Pressing **Model** on a row does the same before it would load the module's link. Chrome allows this where the model is served from the tab's own Anaplan host. (#37)
+- **One click where it cannot.** Where the model is served from another Anaplan host, or the new reader does not answer, the results page offers **Refresh the Anaplan tab and run**: the tab reloads, and Cardigan reads the model as soon as it shows. A refresh closes the modules and lists open in Model Building, so nothing refreshes the tab unless you choose it. (#37)
+- **What stays the same.** The two permissions, activeTab and scripting; what is read from Anaplan; and a tab Cardigan was not opened on is never touched.
+
 ## 0.15.2 (10 October 2026)
 
 An import's **Mapping** reads its columns as Anaplan saves them, and says how an import into a list tells its items apart.
