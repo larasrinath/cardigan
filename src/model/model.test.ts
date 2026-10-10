@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { stampLine } from "../details.js";
 import { IMPORTS_ROW_REWORDED, MODEL_ACTIONS_COLUMN_ADDED, MODEL_ACTIONS_ROW_REWORDED, MODEL_COLUMN_ADDED, MODEL_COLUMNS_ADDED, MODEL_FILE_ADDED, MODEL_ROW_ADDED, MODEL_ROW_REWORDED, MODEL_ROWS_FOR_THE_PAGE, MODEL_ZIP_0_6_1, MODEL_ZIP_AS_NAMED, withColumnAdded, withDetailsSince, ZIPPED_AT } from "../golden-0.6.1.test-support.js";
 import { ACCESS_CSV, ACCESS_FILE_ADDED, ACCESS_GRIDS, ACCESS_READS_0_8_1, ACCESS_ROWS_FOR_THE_PAGE, ACCESS_ROWS_REWORDED, ACCESS_ZIP_0_8_1, ACCESS_ZIP_WITH_FILE, MAPPINGS_ADDED,
-  LIST_IDS_ADDED, MODULE_IDS_ADDED, PAGE_TIME, withAccessRows, withLinesSaid, withMappingsRead, withPageTimes } from "../golden-0.8.1.test-support.js";
+  LIST_IDS_ADDED, MODULE_IDS_ADDED, PAGE_TIME, PROCESSES_ADDED, withAccessRows, withLinesSaid, withMappingsRead, withPageTimes } from "../golden-0.8.1.test-support.js";
 import { NOT_SCOPE_IDS, SCOPE_IDS } from "../guards.test-support.js";
 import { buildModelGraph } from "../map/build-graph.js";
 import { Failure } from "../progress.js";
@@ -17,6 +17,7 @@ import { ACTION_LIST_COLUMN, actionKind, mergeImports, missingActionColumns, oth
 import { CALENDAR_HEADERS, CALENDAR_PROPERTIES, calendarKind, calendarRows } from "./calendar.js";
 import { exportModel, lineItemIdsOf, listIdsLine, listIdsOf, moduleIdsLine, moduleIdsOf } from "./export.js";
 import { MAPPING_NOTES } from "./import-mappings.js";
+import { PROCESS_NOTES } from "./process-actions.js";
 import * as grids from "./grid.js";
 import { cellText, gridTable, labelEntries, plainText, windowRows, type CellSource, type Grid, type GridRow } from "./grid.js";
 import * as lineItems from "./lineitems.js";
@@ -957,16 +958,16 @@ describe("Model export: Model settings grids to tables", () => {
     for (const [file, text] of before) expect(written.get(file), file).toBe(since(file, text));
     expect(written.get(ACCESS_FILE_ADDED.file)).toBe(ACCESS_CSV);
     // Row by row, Model Details.csv has 0.8.1's rows, each in its place, with the two rows about the file, the row on
-    // Source Models, the Diagnostics row on the modules' IDs, the five on the imports' definitions, and after each of the
-    // ten grids with rows the one on the time its page took, among them. The rows in other words than 0.8.1's are the five
+    // Source Models, the Diagnostics row on the modules' IDs, the five on the imports' definitions, the four on the
+    // processes' definitions, and after each of the eleven grids with rows the one on the time its page took, among them. The rows in other words than 0.8.1's are the five
     // named, in the file's order: on the layout, on Line Items, on the Actions list's files, on Imports and on the calendar.
     const lines = (text: string): string[] => parseCsv(text).map(row => row.join("\n"));
     const [details, detailsBefore] = [lines(written.get(ACCESS_FILE_ADDED.details)!), lines(before.get(ACCESS_FILE_ADDED.details)!)];
     const paged = details.filter(row => row.startsWith("Diagnostics\n") && PAGE_TIME.test(row.split("\n")[2] ?? ""));
-    const gained = [...[ACCESS_FILE_ADDED.written, ACCESS_FILE_ADDED.howToRead, MODEL_ROW_ADDED, MODULE_IDS_ADDED.rows, LIST_IDS_ADDED.rows, MAPPINGS_ADDED.rows].flatMap(row => lines(row.line)),
-      ...paged];
+    const gained = [...[ACCESS_FILE_ADDED.written, ACCESS_FILE_ADDED.howToRead, MODEL_ROW_ADDED, MODULE_IDS_ADDED.rows, LIST_IDS_ADDED.rows, MAPPINGS_ADDED.rows,
+      PROCESSES_ADDED.rows].flatMap(row => lines(row.line)), ...paged];
     const stayed = details.filter(row => !gained.includes(row));
-    expect([details.length, stayed.length, gained.length, paged.length]).toEqual([detailsBefore.length + 20, detailsBefore.length, 20, 10]);
+    expect([details.length, stayed.length, gained.length, paged.length]).toEqual([detailsBefore.length + 25, detailsBefore.length, 25, 11]);
     expect(stayed.flatMap((row, index) => (row === detailsBefore[index] ? [] : [[detailsBefore[index], row]]))).toEqual(ACCESS_ROWS_REWORDED.map(row => [lines(row.was)[0], lines(row.now)[0]]));
     // Then every byte. Of 0.8.1's twelve files, Line Items.csv among them, only Model Details.csv and Other Actions.csv
     // have other bytes.
@@ -1034,9 +1035,10 @@ describe("Model export: Model settings grids to tables", () => {
     /** The model exported with that Line Items grid: the file's text, the Details file's first three Files rows, what the
      * summary says of the file, and how many steps and lines the export reported. A file that is written is held against
      * the model map of the result's tables on the way: its rows are that map's access links, and what it could not match. */
-    /** How many steps and lines the export reports of this model: 0.8.1's, those on the modules' IDs and on the imports'
-     * definitions, and one on the time it took after each of the ten grids with rows, each of them one page. */
-    const STEPS = 23 + MODULE_IDS_ADDED.said.length + LIST_IDS_ADDED.said.length + MAPPINGS_ADDED.said.length + 10;
+    /** How many steps and lines the export reports of this model: 0.8.1's, those on the modules' and the lists' IDs, on the
+     * imports' definitions and on the processes' definitions, and one on the time it took after each of the eleven grids
+     * with rows, each of them one page. */
+    const STEPS = 23 + MODULE_IDS_ADDED.said.length + LIST_IDS_ADDED.said.length + MAPPINGS_ADDED.said.length + PROCESSES_ADDED.said.length + 11;
     const exported = async (lineItems: FakeGrid) => {
       const said: string[] = [];
       const result = await exportGoldenModel({ ...GOLDEN_GRIDS, ...ACCESS_GRIDS, [LINE_ITEMS]: lineItems }, [], said);
@@ -1179,11 +1181,12 @@ describe("Model export: Model settings grids to tables", () => {
     for (const table of result.tables.slice(1)) expect(table, table.file).toEqual(whole.tables.find(other => other.file === table.file));
     // The reason is in the Details file's row and, as any other file's failure is, in the log: one line more, after
     // the lines of the last grid, since the file is made once every grid is read. The file is still no step of its own.
-    // The steps and lines are 0.8.1's, with those on the modules' and the lists' IDs (MODULE_IDS_ADDED, LIST_IDS_ADDED)
-    // and on the imports' definitions (MAPPINGS_ADDED), and after each grid's line that of the time its one page took, ten
-    // in all.
-    expect([said.length, saidWithout]).toEqual([23 + MODULE_IDS_ADDED.said.length + LIST_IDS_ADDED.said.length + MAPPINGS_ADDED.said.length + 10, [...said, "12:30:10 Dynamic Cell Access: no table"]]);
-    expect([said.filter(line => PAGE_TIME.test(line)).length, withPageTimes(said.filter(line => !PAGE_TIME.test(line)))]).toEqual([10, said]);
+    // The steps and lines are 0.8.1's, with those on the modules' and the lists' IDs (MODULE_IDS_ADDED, LIST_IDS_ADDED), on
+    // the imports' definitions (MAPPINGS_ADDED) and on the processes' definitions (PROCESSES_ADDED), and after each grid's
+    // line that of the time its one page took, eleven in all.
+    expect([said.length, saidWithout]).toEqual([23 + MODULE_IDS_ADDED.said.length + LIST_IDS_ADDED.said.length + MAPPINGS_ADDED.said.length + PROCESSES_ADDED.said.length + 11,
+      [...said, "12:30:10 Dynamic Cell Access: no table"]]);
+    expect([said.filter(line => PAGE_TIME.test(line)).length, withPageTimes(said.filter(line => !PAGE_TIME.test(line)))]).toEqual([11, said]);
     expect(result.tables[0].rows.filter(row => row[0] === "Diagnostics").at(-1)).toEqual(["Diagnostics", "12:30:10", "Dynamic Cell Access: no table"]);
   });
 });
@@ -1207,6 +1210,10 @@ const PRICES_DEFINITION = JSON.stringify({ importType: "MODULE_DATA", target: "_
   { targetType: "moduleLineItem", target: "", sourceType: "column", sourceColumnId: "#5", sourceColumnName: "Price" }] });
 const REGIONS_DEFINITION = JSON.stringify({ importType: "HIERARCHY_DATA", target: "_101000000002_", mappings: [
   { targetType: "hierarchyMemberEntityName", target: "", sourceType: "column", sourceColumnEntityLongId: 101000000009, sourceColumnName: "Region" }] });
+/** Nightly load's definition, as Anaplan's process dialog writes it (model/process-actions.ts): the import from a file, the
+ * import of the regions, then the deletion, each node naming the next, until the end. */
+const NIGHTLY_DEFINITION = JSON.stringify({ nodes: { 0: { type: "IMPORT", action: "_112000000002_", next: "1" }, 1: { type: "IMPORT", action: "_112000000001_", next: "2" },
+  2: { type: "ACTION", action: "_117000000001_", next: "_END_" }, _END_: { type: "END", next: null } }, start: "0", useDetailedResults: false });
 const GOLDEN_GRIDS: Record<string, FakeGrid> = {
   "LINE ITEMS × LINE ITEM PROPERTIES": { columns: ["Formula", "Summary", "Notes"], rows: [
     { ids: [102000000001, -1], labels: ["Profitability", null], cells: ["", "", ""] },
@@ -1231,6 +1238,7 @@ const GOLDEN_GRIDS: Record<string, FakeGrid> = {
     row(112000000002, "Prices from prices.csv", "prices.csv", "-", "FILE", "Prices", "MODULE", "false")] },
   "IMPORTS × IMPORT DEFINITIONS": { columns: ["Notes", "Import Definition"], columnIds: [4000000017, 4000001300], rows: [
     row(112000000001, "1.1 Load regions", "", REGIONS_DEFINITION), row(112000000002, "Prices from prices.csv", "From the price list", PRICES_DEFINITION)] },
+  "PROCESSES × PROCESS DEFINITIONS": { columns: ["Process Definition"], columnIds: [4000001900], rows: [row(118000000001, "Nightly load", NIGHTLY_DEFINITION)] },
   "DATA SOURCES × DATA SOURCE PROPERTIES": { columns: ["Type", "Used in Imports"], rows: [row(113000000001, "prices.csv", "FILE", "Prices from prices.csv")] },
   "TIME RANGES × TIME RANGE PROPERTIES": { columns: ["Start Period", "End Period"], rows: [row(123000000001, "FY24-FY25", "FY24", "FY25")] },
   "VERSIONS × VERSION PROPERTIES": { columns: ["Is Actual", "Switchover"], rows: [row(107000000001, "Actual", "true", ""), row(107000000002, "Forecast", "false", "@Current Period")] },
@@ -1244,7 +1252,8 @@ const GOLDEN_GRIDS: Record<string, FakeGrid> = {
 const GOLDEN_AXES: Record<string, string> = { MODULE_WITH_LINE_ITEM: "LINE ITEMS", LINE_ITEM_PROPERTY: "LINE ITEM PROPERTIES", MODULE_ALL: "MODULES", HIERARCHY: "LISTS",
   ACTION_WITH_HEADING: "ACTIONS", IMPORT_ALL: "IMPORTS", IMPORT_DEFINITION_PROPERTY: "IMPORT PROPERTIES", IMPORT_PROPERTY: "IMPORT DEFINITIONS", IMPORT_DATA_SOURCE: "DATA SOURCES",
   IMPORT_DATA_SOURCE_DETAILS_PROPERTY: "DATA SOURCE PROPERTIES", TIME_RANGE: "TIME RANGES", TIME_RANGE_PROPERTY: "TIME RANGE PROPERTIES", VERSION_ALL: "VERSIONS",
-  VERSION_PROPERTY: "VERSION PROPERTIES", TIMESCALE_PROPERTY: "CALENDAR", EMPTY_1_0: "EMPTY" };
+  VERSION_PROPERTY: "VERSION PROPERTIES", TIMESCALE_PROPERTY: "CALENDAR", EMPTY_1_0: "EMPTY", PROCESS: "PROCESSES",
+  PROCESS_PROPERTY: "PROCESS DEFINITIONS" };
 
 /** Runs the model export against a page whose classic client serves those grids, a few rows at a time. The model rejects
  * the read of a grid that is not among `grids`, and `reads` is given each read in order: its row axis and the rows asked for.
@@ -1445,5 +1454,70 @@ describe("The mappings of a model's imports from a file", () => {
     expect(received?.importMappings).toEqual([PRICES_MAPPING]);
     const { importMappings: _mappings, ...earlier } = result;
     expect(plainResult(JSON.parse(JSON.stringify(earlier)))?.importMappings).toBeUndefined();
+  });
+});
+
+describe("The actions of a model's processes", () => {
+  afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
+  const ACTIONS = "ACTIONS × ACTION PROPERTIES";
+  const DEFINITIONS = "PROCESSES × PROCESS DEFINITIONS";
+  /** The golden model's process with its actions, as the export reads them out of the process's definition. */
+  const NIGHTLY = { id: "118000000001", name: "Nightly load", actions: [{ id: "112000000002", name: "Prices from prices.csv", type: "IMPORT" },
+    { id: "112000000001", name: "1.1 Load regions", type: "IMPORT" }, { id: "117000000001", name: "Delete old items", type: "ACTION" }] };
+
+  it("are read from the processes' definitions as the Actions tab reads them, one view and nothing else sent, and named as the Actions list names them", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const posted: any[] = [];
+    const [reads, said]: string[][] = [[], []];
+    const result = await exportGoldenModel(GOLDEN_GRIDS, reads, said, { posted });
+    expect(result.processActions).toEqual([NIGHTLY]);
+    // The definitions are a view of the processes against their properties, PROCESS against PROCESS_PROPERTY, read right
+    // after the Actions list, in one page.
+    const views = posted.map(request => `${request.params.viewDefinition.type} ${request.params.viewDefinition.rowAxis} × ${request.params.viewDefinition.columnAxis}`);
+    expect(views.filter(view => view.includes("PROCESS"))).toEqual(["MODEL_DEFINITION PROCESSES × PROCESS DEFINITIONS"]);
+    expect(reads.slice(reads.indexOf("ACTIONS 0+1333"), reads.indexOf("ACTIONS 0+1333") + 3)).toEqual(["ACTIONS 0+1333", "PROCESSES 0+1333", "IMPORTS 0+1333"]);
+    expect(posted.every(request => request.requestType === "VIEW_REQUEST_SET" && request.submissions.length === 0 && request.systemActions.length === 0)).toBe(true);
+    // The log says how many processes there are before the step, then what was read.
+    expect(said.map(line => line.slice(9)).filter(line => line.startsWith("Process") || line === "Reading Process actions…")).toEqual(["Process actions: 1 process to read",
+      "Reading Process actions…", "Process actions: 1 rows × 1 columns; columns: Process Definition", "Process actions: rows 0–0 in 0.00 s",
+      "Process actions: 1 of 1 read; 3 actions: IMPORT ×2, ACTION ×1; 1 found in the grid of definitions"]);
+    // Every table is as it is without them, Model Details with its Files rows and notes: the processes' actions are carried
+    // beside the tables. (The log is the tests' own here, as it is in an export the tests give no log to keep.)
+    const { [DEFINITIONS]: _definitions, ...without } = GOLDEN_GRIDS;
+    expect((await exportGoldenModel()).tables).toEqual((await exportGoldenModel(without)).tables);
+  });
+
+  it("are each said not to have been read where the model rejects the read, and the export goes on, every table as ever", async () => {
+    const { [DEFINITIONS]: _definitions, ...without } = GOLDEN_GRIDS;
+    const said: string[] = [];
+    const result = await exportGoldenModel(without, [], said);
+    expect(result.processActions).toEqual([{ id: "118000000001", name: "Nightly load", actions: [], note: PROCESS_NOTES.notRead }]);
+    expect(said.map(line => line.slice(9)).filter(line => line.startsWith("Process"))).toEqual(["Process actions: 1 process to read",
+      "Process actions: The model rejected the read.", "Process actions: 0 of 1 read; 0 actions; the model gave no grid of definitions"]);
+    expect([result.summary.filter(line => /process actions/i.test(line)), result.tables.map(table => table.file)])
+      .toEqual([[], (await exportGoldenModel()).tables.map(table => table.file)]);
+  });
+
+  it("are not read for a model without a process, and the result has none of them where the Actions list could not be read", async () => {
+    const [reads, said]: string[][] = [[], []];
+    const actions = GOLDEN_GRIDS[ACTIONS];
+    const noProcess = { ...actions, rows: actions.rows.filter(row => Math.floor(row.ids[0] / 1e9) !== 118) };
+    const result = await exportGoldenModel({ ...GOLDEN_GRIDS, [ACTIONS]: noProcess }, reads, said);
+    // An empty list, not none: a result without them is one an earlier version made.
+    expect([result.processActions, reads.filter(read => read.startsWith("PROCESSES")), said.filter(line => line.includes("Process actions"))]).toEqual([[], [], []]);
+    const { [ACTIONS]: _actions, ...withoutActions } = GOLDEN_GRIDS;
+    expect((await exportGoldenModel(withoutActions)).processActions).toBeUndefined();
+  });
+
+  it("come through the trip to the results page as plain data, and a result an earlier version kept has none", async () => {
+    const result = await exportGoldenModel();
+    expect(plainResult(JSON.parse(JSON.stringify(result)))?.processActions).toEqual([NIGHTLY]);
+    const { processActions: _processes, ...earlier } = result;
+    expect(plainResult(JSON.parse(JSON.stringify(earlier)))?.processActions).toBeUndefined();
+    // Anything else in their place is no list of them: the result is taken, without them.
+    for (const odd of [{}, [{ ...NIGHTLY, id: "1e5" }], [{ ...NIGHTLY, actions: [{ id: "1", name: "A" }] }], [{ ...NIGHTLY, note: 3 }]]) {
+      const received = plainResult(JSON.parse(JSON.stringify({ ...result, processActions: odd })));
+      expect([received?.name, received?.processActions], JSON.stringify(odd)).toEqual([result.name, undefined]);
+    }
   });
 });

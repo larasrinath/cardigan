@@ -5,7 +5,7 @@ import { PAGE_ACTIONS_HEADERS, PAGE_FILTERS_HEADERS } from "../model-pages.js";
 import { MODULE_USAGE_FILE, MODULE_USAGE_HEADERS, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE } from "../page-files.js";
 import { CALENDAR_HEADERS, CALENDAR_PROPERTIES, calendarRows } from "../model/calendar.js";
 import { FRESH_MS, PORT_NAME, RESULTS_PAGE, type TabMessage } from "../protocol.js";
-import type { AnalysisResult, Cell, ImportMapping, ResultTable } from "../result-types.js";
+import type { AnalysisResult, Cell, ImportMapping, ProcessActions, ResultTable } from "../result-types.js";
 import { columnWidths } from "./column-widths.js";
 import { columnsOf } from "./columns.js";
 import { OPEN_WAIT_MS } from "./connection.js";
@@ -14,6 +14,7 @@ import { analysedLine, NOT_KEPT_NOTE, TOO_LARGE_NOTE } from "./keep-notes.js";
 import { KEPT_PREFIX, ResultKeeper, type KeptStorage } from "./keep-result.js";
 import { FILE_ICONS, FORGOTTEN_LINE, keptCopyHtml, MAP_FAILED, NAV_ICONS, NOT_REMOVED_LINE } from "./markup.js";
 import { fileWords, watchForFiles, type FileWatch } from "./no-file.test-support.js";
+import { PROCESS_LINES } from "./process-actions-view.js";
 import { NONE } from "./table-engine.js";
 
 /** What stands in for the model map (src/map). The page calls its two functions and drives what the second returns; how
@@ -5156,5 +5157,100 @@ describe("The mapping of an import from a file, in its row's details", () => {
     goTo(3);
     openImport("Division from HQ Network.csv");
     expect([strayImg(), mapping()[0]]).toEqual([false, [[`Division ${TAG}`, `Column 1: Name ${TAG}`], ["Parent", `Constant: ${TAG}`], ["Code", `A source Cardigan does not know (${TAG})`]]]);
+  });
+});
+
+describe("The actions of a process, in its row's details", () => {
+  const USED = "Used in Processes";
+  /** A model's Processes, then three tables of the actions they run, each with its Used in Processes, as the export writes
+   * them: the Actions list split at its headings, the imports merged into the Imports tab. */
+  const PROCESSES: ResultTable = { file: "Processes.csv", label: "Processes", guard: false, headers: ["", "Notes", USED, "Used in Dashboards"],
+    rows: [["Nightly load", "Runs at 2am", "", "Admin"], ["Weekly load", "", "", ""], ["Empty", "", "", ""]] };
+  const IMPORTS: ResultTable = { file: "Imports.csv", label: "Imports", guard: false, headers: ["", "Source Label", "Source Type", "Target Object", USED],
+    rows: [["Prices from the hub", "Hub / Prices", "SAVED VIEW", "Prices", "Nightly load"], ["1.1 Load regions", "Hub / Regions", "SAVED VIEW", "Regions", "Nightly load, Weekly load"]] };
+  const EXPORTS: ResultTable = { file: "Exports.csv", label: "Exports", guard: false, headers: ["", "Notes", USED], rows: [["Send plan", "", "Weekly load"]] };
+  const OTHERS: ResultTable = { file: "Other Actions.csv", label: "Other Actions", guard: false, headers: ["", "Notes", USED], rows: [["Delete old items", "", "Nightly load"]] };
+  /** Each process with its actions, in the order it runs them, as the export reads them out of the process's definition.
+   * Weekly load runs an action the Actions list does not have, and one of a kind Cardigan does not know. */
+  const PROCESS_ACTIONS: ProcessActions[] = [
+    { id: "118000000001", name: "Nightly load", actions: [{ id: "112000000002", name: "Prices from the hub", type: "IMPORT" },
+      { id: "112000000001", name: "1.1 Load regions", type: "IMPORT" }, { id: "117000000001", name: "Delete old items", type: "ACTION" }] },
+    { id: "118000000002", name: "Weekly load", actions: [{ id: "116000000001", name: "Send plan", type: "EXPORT" }, { id: "112000000001", name: "1.1 Load regions", type: "IMPORT" },
+      { id: "112000000099", name: "ID 112000000099", type: "IMPORT" }, { id: "117000000002", name: "Optimise", type: "OPTIMIZER" }] },
+    { id: "118000000003", name: "Empty", actions: [] }];
+  const WITH_PROCESSES: AnalysisResult = { ...BLUEPRINT, summary: [...BLUEPRINT.summary, "Processes: 3 rows", "Imports: 2 rows", "Exports: 1 rows", "Other Actions: 1 rows"],
+    tables: [...BLUEPRINT.tables, PROCESSES, IMPORTS, EXPORTS, OTHERS], processActions: PROCESS_ACTIONS };
+  /** The drawer's sections by their headings, and the Actions section's headings, rows and lines. */
+  const sections = () => page.all("#drawerBody .d-sec").map(section => section.querySelector("h3")?.textContent);
+  const steps = () => [page.texts("#drawerSteps th"), page.all("#drawerSteps tbody tr").map(row => row.children.map(cell => cell.textContent)), page.texts("#drawerSteps p")];
+  const links = () => page.all('#drawerSteps [data-act="step"]').map(link => link.textContent);
+  const openProcess = (name: string) => {
+    page.all('#tableWrap tbody [data-act="row"]')[firstCells().indexOf(name)].press();
+  };
+
+  it("lists the actions a process runs below All columns, numbered in the order it runs them, each with its kind, and each opens its own row's details", async () => {
+    await openWith(WITH_PROCESSES);
+    goTo(3);
+    openProcess("Nightly load");
+    expect([page.id("drawerTitle").textContent, sections()]).toEqual(["Nightly load", ["All columns", "Actions (3)"]]);
+    expect(steps()).toEqual([["#", "Action", "Kind"], [["1", "Prices from the hub", "Import"], ["2", "1.1 Load regions", "Import"], ["3", "Delete old items", "Other action"]], []]);
+    expect(links()).toEqual(["Prices from the hub", "1.1 Load regions", "Delete old items"]);
+    // An action's name opens its row of its own table, as a click on that row does.
+    page.all('#drawerSteps [data-act="step"]')[1].press();
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent, sections()]).toEqual(["1.1 Load regions", "Row 2 of Imports", ["All columns"]]);
+    page.key("Escape");
+    openProcess("Nightly load");
+    page.all('#drawerSteps [data-act="step"]')[2].press();
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual(["Delete old items", "Row 1 of Other Actions"]);
+  });
+
+  it("names as text an action whose row it cannot open, says a kind it does not know as Anaplan does, and says that a process runs none", async () => {
+    await openWith(WITH_PROCESSES);
+    goTo(3);
+    openProcess("Weekly load");
+    expect(steps()).toEqual([["#", "Action", "Kind"], [["1", "Send plan", "Export"], ["2", "1.1 Load regions", "Import"], ["3", "ID 112000000099", "Import"], ["4", "Optimise", "OPTIMIZER"]], []]);
+    // The action the Actions list does not have has no row; the other is of a kind no table lists.
+    expect(links()).toEqual(["Send plan", "1.1 Load regions"]);
+    page.key("Escape");
+    openProcess("Empty");
+    expect([sections(), steps(), page.has("#drawerSteps table")]).toEqual([["All columns", "Actions (0)"], [[], [], ["This process runs no action."]], false]);
+    page.key("Escape");
+    // A row of another table has no actions to list, though it names a process.
+    goTo(4);
+    page.all('#tableWrap tbody [data-act="row"]')[0].press();
+    expect(sections()).toEqual(["All columns"]);
+  });
+
+  it("lists, where the result has no process's own actions, those whose Used in Processes names it, by kind, and says that the order is not known", async () => {
+    const { processActions: _actions, ...earlier } = WITH_PROCESSES;
+    await openWith(earlier);
+    goTo(3);
+    openProcess("Nightly load");
+    expect(steps()).toEqual([["Action", "Kind"], [["Prices from the hub", "Import"], ["1.1 Load regions", "Import"], ["Delete old items", "Other action"]],
+      [PROCESS_LINES.unordered, PROCESS_LINES.earlier]]);
+    expect(links()).toEqual(["Prices from the hub", "1.1 Load regions", "Delete old items"]);
+    page.key("Escape");
+    // A cell that names several processes names this one among them.
+    openProcess("Weekly load");
+    expect(steps()[1]).toEqual([["1.1 Load regions", "Import"], ["Send plan", "Export"]]);
+    page.key("Escape");
+    openProcess("Empty");
+    expect(steps()).toEqual([[], [], [PROCESS_LINES.noneUsed, PROCESS_LINES.earlier]]);
+  });
+
+  it("says why, where a process's definition could not be read, under the actions whose Used in Processes names it", async () => {
+    const NOT_READ = "Cardigan could not read the actions of this process: the model did not give the processes' definitions. The diagnostic log says why.";
+    await openWith({ ...WITH_PROCESSES, processActions: PROCESS_ACTIONS.map(process => ({ ...process, actions: [], note: NOT_READ })) });
+    goTo(3);
+    openProcess("Nightly load");
+    expect(steps()).toEqual([["Action", "Kind"], [["Prices from the hub", "Import"], ["1.1 Load regions", "Import"], ["Delete old items", "Other action"]],
+      [PROCESS_LINES.unordered, NOT_READ]]);
+  });
+
+  it("writes every name and kind of a process's actions as text", async () => {
+    await openWith({ ...WITH_PROCESSES, processActions: [{ ...PROCESS_ACTIONS[0], actions: [{ id: "", name: `Load ${TAG}`, type: TAG }] }] });
+    goTo(3);
+    openProcess("Nightly load");
+    expect([strayImg(), steps()[1]]).toEqual([false, [["1", `Load ${TAG}`, TAG]]]);
   });
 });
