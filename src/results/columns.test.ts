@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { HEADERS, type TabName } from "../report.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
-import { APP_FILES, cardsNamed, cardsOf, COLUMN_CHOICES, columnIndex, columnsOf, FILTER_MAX, FILTER_MIN, MODEL_COUNTS, NUMBERS_HIDDEN, ROW_NAME_COLUMNS, rowColumns, rowKeys, rowNameIndex,
+import { APP_FILES, cardsNamed, cardsOf, COLUMN_CHOICES, columnIndex, columnsOf, FILTER_MAX, FILTER_MIN, MODEL_COUNTS, MODEL_HIDDEN, NUMBERS_HIDDEN, ROW_NAME_COLUMNS, rowColumns, rowKeys, rowNameIndex,
   writesNone } from "./columns.js";
 import { MODEL_FILE_ORDER } from "./result-view.js";
 
@@ -141,7 +141,10 @@ describe("The results page's columns", () => {
     expect([shown(table("Versions.csv", ["", "Cell Count"])), shown(table("Modules.csv", ["", "cell count"])),
       shown(table("Processes.csv", ["", "Start Date and Time (UTC)", "Most recent duration (ms)"])), shown(table("Time Ranges.csv", ["", "Start Period", "End Period"]))]).toEqual([[], [], [], []]);
     // Every file named is one the page knows a model's files by: it lists them all in the navigation's order.
-    expect([...MODEL_COUNTS.keys()].filter(file => !MODEL_FILE_ORDER.includes(file))).toEqual([]);
+    expect([...MODEL_COUNTS.keys(), ...MODEL_HIDDEN.keys()].filter(file => !MODEL_FILE_ORDER.includes(file))).toEqual([]);
+    // A Model Calendar setting's allowed values only guide filling the template in by hand: the column starts hidden.
+    const calendar = columnsOf(table("Model Calendar.csv", ["Section", "Setting", "Value", "Allowed values"]));
+    expect(calendar.map(column => [column.label, column.hidden])).toEqual([["Section", false], ["Setting", false], ["Value", false], ["Allowed values", true]]);
   });
 
   it("shows every column of a file it has no choices for as plain text: a model's files, odd names", () => {
