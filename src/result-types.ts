@@ -82,6 +82,10 @@ export interface ImportMapping {
   /** How an import into a list tells the list's items apart, as the dialog's "Items uniquely identified by" says it. None
    * for an import into a module, and none where the definition says it in no way the dialog knows. */
   matchedBy?: ItemMatch;
+  /** For an import into a module whose line items come from the header row: each header the modeller mapped to a line
+   * item by hand, with its line item, or ignored, in the order the definition writes them. None where no header is mapped
+   * by hand: the headers are then matched on names or codes when the import runs, and the definition stores none. */
+  headers?: ImportHeader[];
   /** Why there is no mapping, in words for the user, where the definition could not be read. */
   note?: string;
 }
@@ -94,6 +98,15 @@ export interface ItemMatch {
   properties?: string[];
   /** Whether the list is numbered, where the export knows: the dialog names the choices of a numbered list otherwise. */
   numbered?: boolean;
+}
+
+/** A header of the header row that the modeller mapped to a line item by hand, as the import's definition keeps it. */
+export interface ImportHeader {
+  /** The header, as the definition writes it. */
+  header: string;
+  /** The line item it is mapped to, by its name ("ID 1901000000003" where the model gives none); none where the header is
+   * ignored. */
+  lineItem?: string;
 }
 
 /** One of a model's processes, with the actions it runs. */
@@ -138,4 +151,13 @@ export interface MappedTarget {
   text?: string;
   /** A column's identifier as the definition writes it, where it gives neither the column's place nor its heading. */
   id?: string;
+  /** For a dimension of an import into a module, fed by a column or the header row, where the definition says how its items
+   * are matched: how many source values are mapped to items by hand, and how many are ignored. Both none is the dialog's
+   * "Match on names or codes". None where the definition does not say. */
+  items?: { byHand: number; ignored: number };
+  /** For Time, fed by a column or the header row: the format its periods are read by, or null where they are matched by
+   * their names. None where the definition does not say. */
+  periodFormat?: string | null;
+  /** For a line item formatted as a date: the format its column's dates are read by. */
+  dateFormat?: string;
 }
