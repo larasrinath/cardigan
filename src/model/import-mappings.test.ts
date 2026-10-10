@@ -83,6 +83,27 @@ describe("An import's mapping, read out of its definition", () => {
     expect([readDefinition(unnamed, NAMES, "Old list").mapping.targets[0].target, readDefinition(unnamed, NAMES).mapping.targets[0].target]).toEqual(["Old list", "Items"]);
   });
 
+  it("reads a mapping that has no target at all, as a list matched by its code has for its items' names, by its target's kind", () => {
+    // As the user's model has it (9 Oct 2026): a numbered list matched by its code, whose items' names are not mapped. The
+    // dialog writes that mapping with no target, and the definition with every key a live one holds.
+    const text = definition("HIERARCHY_DATA", DIVISION, [
+      { targetType: "hierarchyMemberEntityName", sourceType: "undefined" },
+      { targetType: "hierarchyProperty", target: "_4000000004_", sourceType: "column", sourceColumnNumber: 0, sourceColumnName: "Code", sourceColumnId: "#1" },
+      { targetType: "hierarchyProperty", target: "_4000000001_", sourceType: "column", sourceColumnNumber: 1, sourceColumnName: "Region", sourceColumnId: "#2" }],
+    { source: {}, propertyMatchKey: ["_4000000004_"], targetAreaSpecifications: [], periodFormats: {}, valueMaps: {}, aliasMaps: {}, dataFormatDefinitions: {},
+      dataFormatsByTarget: {}, allowDuplicateKeysInTarget: false, allowDuplicateKeysInSource: false, allowNameMangling: false });
+    const { mapping, shape } = readDefinition(text, NAMES);
+    expect(mapping).toEqual({ importType: "HIERARCHY_DATA", targets: [{ target: "Division", source: "none" }, { target: "Code", source: "column", column: 1, text: "Code" },
+      { target: "Parent", source: "column", column: 2, text: "Region" }] });
+    expect(shape).toBe("keys importType, target, mappings, source, propertyMatchKey, targetAreaSpecifications, periodFormats, valueMaps, aliasMaps, dataFormatDefinitions, "
+      + "dataFormatsByTarget, allowDuplicateKeysInTarget, allowDuplicateKeysInSource, allowNameMangling; 3 mappings: [targetType, sourceType] undefined ×1; "
+      + "[targetType, target, sourceType, sourceColumnNumber, sourceColumnName, sourceColumnId] column ×2");
+    // A target of any other kind with no target is named as a blank one is: by what the kind says, or by the kind's word.
+    const kinds = ["moduleDimension", "moduleLineItem", "hierarchyProperty", "somethingNew"].map(targetType => ({ targetType, sourceType: "undefined" }));
+    expect(readDefinition(definition("MODULE_DATA", PRICES, kinds), NAMES).mapping.targets).toEqual(["Line Items", "Value", "Property", "somethingNew"]
+      .map(target => ({ target, source: "none" })));
+  });
+
   it("lists no target of an import of another kind, which the page says what it loads of", () => {
     for (const kind of ["USERS", "VERSIONS", "LINE_ITEM_DEFINITION", "SOMETHING_NEW"]) {
       const text = definition(kind, 0, [{ targetType: "userData", target: "", item: "FIRST_NAME", sourceType: "column", sourceColumnId: "#2" }]);
