@@ -54,11 +54,14 @@ describe("The results page's files", () => {
     expect(declared(".brand img")).toEqual(["display:block"]);
   });
 
-  it("offers nothing to download: its header holds the run control and the theme's button, and the page no link that saves a file", () => {
-    // A result is shown on the page and saved nowhere. The header's controls are these two, the page's one link leads
+  it("offers nothing to download: its header holds the run control, the switch of the times' zone and the theme's button, and the page no link that saves a file", () => {
+    // A result is shown on the page and saved nowhere. The header's controls are these three, the page's one link leads
     // to a place in the page, and no word of it names a download, a zip or a CSV.
     const shell = new FakePage(html);
-    expect(shell.find(".hd-actions").children.map(child => [child.localName, child.id])).toEqual([["button", "runAgain"], ["button", "themeToggle"]]);
+    expect(shell.find(".hd-actions").children.map(child => [child.localName, child.id])).toEqual([["button", "runAgain"], ["div", "timesSwitch"], ["button", "themeToggle"]]);
+    // The switch is two buttons, Local first, after a word that names them; it is hidden until a result is shown.
+    expect([shell.id("timesSwitch").hidden, shell.all("#timesSwitch [data-times]").map(button => [button.dataset.times, button.textContent.trim()]), shell.texts("#timesSwitch .times-lab")])
+      .toEqual([true, [["local", "Local"], ["utc", "UTC"]], ["Times"]]);
     expect(opening.filter(tag => tag.name === "a" || tag.attributes.has("download")).map(tag => [...tag.attributes])).toEqual([[["class", "skip"], ["href", "#view"]]]);
     expect(html).not.toMatch(/download|\.zip|\.csv/i);
   });

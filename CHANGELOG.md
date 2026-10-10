@@ -2,6 +2,15 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version stands next to Cardigan's name at the top of the results page and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## 0.17.0 (10 October 2026)
+
+Times in your own time zone, or in UTC, as a switch in the header says.
+
+- **Local by default.** A model's Processes, Imports, Exports and Other Actions say when each action last started by your clock: the column's header names your time zone in the place of "(UTC)", such as "Start Date and Time (Europe/London)". The header and **About this export** say when the export was made the same way, About in both zones. **Times** in the header, **Local** or **UTC**, switches every time on the page at once; UTC shows them as Anaplan writes them, and the choice is kept for every results page, in the browser's local storage, beside the theme. (#49)
+- **A row's details say both.** A time in a row's details stands in the zone shown, then in the other: "2026-03-13 08:19:56 local · 2026-03-12 23:19:56 UTC". (#49)
+- **Search, sort and ranges follow.** The search finds a time as it is shown. The sort goes by the moment, also where the clocks went back an hour. A range of days on a column of times is days of the zone it was set in, and keeps the same rows when you switch zones or refresh the page: its filter says whose days they are where they are the other zone's. The tab keeps the range with its zone, and the column by the file's name for it, so the settings kept since 0.16.0 hold in either zone. (#49)
+- **What stays the same.** Dates without a time, such as when a page was last published, **Captured on** and a version's Edit From and To, are the same in either zone; the result holds every time as Anaplan wrote it, and the diagnostic log keeps its own times. (#49)
+
 ## 0.16.4 (10 October 2026)
 
 The navigation bar stays still.

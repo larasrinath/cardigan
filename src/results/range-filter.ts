@@ -10,6 +10,9 @@ export interface RangeState {
   from?: number;
   to?: number;
   blanks: boolean;
+  /** For a column of times (times.ts): the zone its days were set in, "UTC" or the viewer's. The range keeps the moments
+   * of those days in that zone, so the same rows whichever zone the times are shown in later. */
+  zone?: string;
 }
 
 /** What two boxes of a range say: their values, or why they say nothing a range can keep, with the box at fault. A box

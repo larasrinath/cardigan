@@ -12,6 +12,7 @@ import type { AnalysisResult, ResultTable } from "../result-types.js";
 import { FakeElement, FakeInput, FakePage, FakeSelect } from "./dom.test-support.js";
 import { GOLDEN_GRIDS, modelPage } from "./engine.test-support.js";
 import { fileWords, watchForFiles, type FileWatch } from "./no-file.test-support.js";
+import { fixTimeZone } from "./time-zone.test-support.js";
 
 // The page, the map's graph and the map's view together, each as it is built: a model's result arrives on the results
 // page as the tab sends one, "Model map" is chosen, and the page's own script has the real builder (map/build-graph.ts)
@@ -232,6 +233,8 @@ beforeEach(() => {
   vi.stubGlobal("requestAnimationFrame", (callback: () => void) => { callback(); return 0; });
   vi.stubGlobal("navigator", { clipboard: { writeText: async () => undefined } });
   vi.stubGlobal("chrome", { tabs: { connect: () => port = new FakePort() }, runtime: { lastError: undefined } });
+  // The viewer's clock is UTC's, on any machine: the page says its times in the viewer's zone (times.ts).
+  fixTimeZone("UTC");
 });
 afterEach(() => {
   // The page and its map made no file, started no download and went nowhere to save one.
