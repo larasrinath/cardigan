@@ -86,6 +86,13 @@ export interface ClientOptions {
 
 const STARTING = "Starting the analysis…";
 const RECEIVING = "Receiving the result…";
+/** How long the page waits for the tab to say whether it opened a module inside its page (`openInPage`): longer than the
+ * tab waits for the model's frame (bridge.ts `openInCore`), so that a tab of this build always answers in time. A tab
+ * whose content script is of an earlier build does not know the question and never answers. */
+export const OPEN_WAIT_MS = 1500;
+
+/** What the tab said of a module it was asked to open inside its page: whether it did, and how or why not, for the log. */
+export interface OpenAnswer { opened: boolean; detail: string }
 /** The page's own two failures, in the words the tab's messages use for what to do next (progress.ts): they name the run
  * control and the button beside the log as those read. */
 export const UNREADABLE = "Cardigan received a result it could not read. Refresh the Anaplan tab, then click the Cardigan icon again.";
@@ -143,6 +150,8 @@ export class ResultsClient {
   private repaired = false;
   /** The result being put together, between "result" and "done". */
   private pending: AnalysisResult | undefined;
+  /** The asks to open a module inside the tab's page that wait for their answer, by their nonce. */
+  private readonly opening = new Map<string, (answer: OpenAnswer | undefined) => void>();
 
   constructor(private readonly options: ClientOptions) {
     // Without a tab there is nothing to ask: the icon's click is no analysis asked for, and the run control stays "Run".
@@ -175,9 +184,61 @@ export class ResultsClient {
     this.options.onLog?.(this.log);
   }
 
-  /** A line of the page's own in the run's log, with its time: what became of the run's result on the page. */
+  /** A line of the page's own in the run's log, with its time: what became of the run's result on the page, and of what
+   * the page asked of the tab since. */
   note(line: string): void {
     this.append(stampLine(line));
+  }
+
+  /** Asks the tab to open the module `module` of the model `model` inside the Model Building page it shows, beside the
+   * modules open there (protocol.ts "open"). The ask goes on the port the page follows the tab on. Where that has closed,
+   * as once the tab has loaded another page, it goes on a port opened for it alone, which asks for no run and is let go
+   * once the ask is over. Resolves with the tab's answer; with nothing where the tab cannot be reached, where the port
+   * closes first, and where no answer comes within `waitMs`, as from a content script of an earlier build. */
+  openInPage(model: string, module: string, waitMs = OPEN_WAIT_MS): Promise<OpenAnswer | undefined> {
+    const nonce = crypto.randomUUID();
+    const message: PageMessage = { type: "open", nonce, model, module };
+    return new Promise(resolve => {
+      let over = false;
+      let own: TabPort | undefined;
+      const answered = (answer: OpenAnswer | undefined) => {
+        if (over) return;
+        over = true;
+        clearTimeout(timer);
+        this.opening.delete(nonce);
+        try { own?.disconnect(); } catch { /* it had closed already */ }
+        resolve(answer);
+      };
+      const timer = setTimeout(() => answered(undefined), waitMs);
+      this.opening.set(nonce, answered);
+      try {
+        if (!this.port) throw new Error("no port");
+        this.port.postMessage(message);
+        return;
+      } catch { /* no port, or one that has gone: one of the ask's own */ }
+      try {
+        const connect = this.options.connect;
+        if (!connect) return answered(undefined);
+        const port = own = connect();
+        port.onMessage.addListener(received => this.takeOpened(received));
+        port.onDisconnect.addListener(() => answered(undefined));
+        port.postMessage(message);
+      } catch {
+        answered(undefined);
+      }
+    });
+  }
+
+  /** An answer to an ask to open a module, from whichever port: the ask with its nonce takes it. */
+  private takeOpened(received: unknown): void {
+    const message = received as Partial<Extract<TabMessage, { type: "opened" }>> | null;
+    if (message?.type !== "opened" || typeof message.nonce !== "string") return;
+    this.opening.get(message.nonce)?.({ opened: message.opened === true, detail: text(message.detail) ? message.detail : "" });
+  }
+
+  /** The asks to open a module that still wait get no answer: their port has gone. */
+  private unopened(): void {
+    for (const answered of [...this.opening.values()]) answered(undefined);
   }
 
   private clearLog(): void {
@@ -190,6 +251,7 @@ export class ResultsClient {
     const old = this.port;
     this.port = undefined;
     try { old?.disconnect(); } catch { /* it had closed already */ }
+    this.unopened();
     this.subject = undefined;
     this.pending = undefined;
     if (!again) {
@@ -236,6 +298,8 @@ export class ResultsClient {
   private receive(received: unknown): void {
     if (!received || typeof received !== "object") return;
     const message = received as TabMessage;
+    // An answer to an ask to open a module belongs to no run: it is taken whatever the page is doing.
+    if (message.type === "opened") return this.takeOpened(message);
     if (message.type === "subject") {
       // Sent once per port. Only the first one starts a run, so a result on the page is never replaced unasked.
       if (this.subject) return;
@@ -299,6 +363,7 @@ export class ResultsClient {
 
   private closed(reason: string | undefined): void {
     this.port = undefined;
+    this.unopened();
     const why = reason ? `: ${reason}` : ".";
     if (this.state.phase === "connecting") {
       if (this.firstTry()) this.append(stampLine(`The tab did not answer${why}`));
