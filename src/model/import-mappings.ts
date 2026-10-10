@@ -1,6 +1,6 @@
 import { readsFile, SOURCE_TYPE } from "../file-imports.js";
 import type { Log } from "../progress.js";
-import type { ImportMapping, ItemMatch, MappedSource, MappedTarget } from "../result-types.js";
+import type { ImportHeader, ImportMapping, ItemMatch, MappedSource, MappedTarget } from "../result-types.js";
 import { plainText, type Grid, type GridRow } from "./grid.js";
 import type { Native } from "./native.js";
 
@@ -35,6 +35,24 @@ import type { Native } from "./native.js";
  *   properties numbers its items itself: the dialog refuses a column for their names then.
  * The definition holds no list of the file's columns: Anaplan keeps the file's own settings (its separator, its header
  * row) apart, and never its columns. So which columns after the last one mapped the file has is not known.
+ *
+ * An import into a module holds more of how its sources are read (view/ImportDefinition.js `_getDimensionsInfo`, and
+ * anaplan-sam's reading of the same definitions, src/domains/model-builder/definition-core.ts):
+ * - `valueMaps`, a list with an entry for each dimension the dialog showed, `{"targetType":"moduleDimension","target":
+ *   "_101000000001_","values":{…}}`, the line items' with a blank target. Its `values` take a source value, as the column
+ *   or the header row writes it, to the ID of the item it is mapped to by hand, or to -1 where the modeller ignored it
+ *   (view/MappedDimensionImportOptions.js `_onTargetSelectionChange`, `_onIgnoreButtonClick`). Empty `values` is the
+ *   dialog's "Match on names or codes": the items are matched when the import runs, and nothing of them is stored. Where
+ *   the line items come from the header row, the source values are the headers: each header mapped by hand, or ignored,
+ *   is stored with its text.
+ * - `periodFormats`, Time's entry `{"targetType":"moduleDimension","target":"_9000000001_","periodFormat":…}`: null where
+ *   the periods are matched by their names, else the format they are read by (view/TimeDimensionImportOptions.js).
+ * - `dataFormatsByTarget`, which takes a date line item's identifier to a key of `dataFormatDefinitions`, whose entry of
+ *   type "date" holds the format its column's dates are read by.
+ * - `aliasMaps` and `targetAreaSpecifications`, which the log describes: the codes behind the labels of `valueMaps`, and
+ *   which of a dimension's items the import clears first. Neither says more of the sources.
+ * A header the import matches when it runs, on a line item's name or code, is not stored anywhere: nor is any column the
+ * definition does not name.
  *
  * The words for a target are Anaplan's, as the dialog's `_getTargetLabel` gives them, where they are names; the lines and
  * the page's words are said where the dialog has none ("Time", "Line Items"). Every name is the model's own, out of a
@@ -140,6 +158,55 @@ function constantOf(mapping: Json): string | undefined {
   return /^_\d+_$/.test(value.trim()) && Number.isFinite(idOf(value)) ? asId(idOf(value)) : value;
 }
 
+/** A dimension's key among the parts of a definition that hold one entry for each dimension: its ID in digits, or "" for
+ * the line items, whose target is blank. */
+const targetKey = (target: unknown): string => {
+  const id = idOf(target);
+  return Number.isFinite(id) && id !== -1 ? String(id) : "";
+};
+
+/** What `valueMaps` holds for each dimension of an import into a module: each source value mapped by hand, with the ID of
+ * the item it is mapped to, or -1 where it is ignored, in the order the definition writes them. Undefined where the
+ * definition has no such list; a dimension it holds no entry for has none here. */
+function valueMapsOf(definition: Json): Map<string, [source: string, item: number][]> | undefined {
+  if (!Array.isArray(definition.valueMaps)) return undefined;
+  const found = new Map<string, [string, number][]>();
+  for (const entry of Array.from(definition.valueMaps as unknown[])) {
+    if (!isObject(entry) || !isObject(entry.values)) continue;
+    const key = targetKey(entry.target);
+    const pairs = found.get(key) ?? [];
+    for (const [source, item] of Object.entries(entry.values)) {
+      if (item === -1 || (typeof item === "number" && Number.isSafeInteger(item) && item > 0)) pairs.push([source, item]);
+    }
+    found.set(key, pairs);
+  }
+  return found;
+}
+
+/** How Time is read out of its source: null where its periods are matched by their names, else the format they are read
+ * by, out of `periodFormats`. Undefined where the definition says neither. */
+function periodFormatOf(definition: Json): string | null | undefined {
+  if (!Array.isArray(definition.periodFormats)) return undefined;
+  const time = Array.from(definition.periodFormats as unknown[]).find((entry): entry is Json => isObject(entry) && idOf(entry.target) === TIME);
+  if (!time || !Object.hasOwn(time, "periodFormat")) return undefined;
+  if (time.periodFormat === null) return null;
+  return isObject(time.periodFormat) && named(time.periodFormat.format) ? time.periodFormat.format : undefined;
+}
+
+/** The format each date line item's column is read by, by the line item's ID, out of `dataFormatsByTarget` and the entries of
+ * type "date" of `dataFormatDefinitions`. */
+function dateFormatsOf(definition: Json): Map<number, string> {
+  const found = new Map<number, string>();
+  const [byTarget, formats] = [definition.dataFormatsByTarget, definition.dataFormatDefinitions];
+  if (!isObject(byTarget) || !isObject(formats)) return found;
+  for (const [target, key] of Object.entries(byTarget)) {
+    const id = idOf(target);
+    const format = typeof key === "string" ? formats[key] : undefined;
+    if (Number.isFinite(id) && isObject(format) && format.type === "date" && named(format.format)) found.set(id, format.format);
+  }
+  return found;
+}
+
 /** What feeds a target, as the definition says it. */
 function sourceOf(mapping: Json): Pick<MappedTarget, "source" | "column" | "text" | "id"> {
   const word = mapping.sourceType;
@@ -226,16 +293,61 @@ function partShape(value: unknown): string {
 }
 
 /** More of how a definition is made, for the log: its first mapping fed by a column, by each of the three ways it can say
- * the column, each by its type and a short value; and its parts `source`, `dataFormatDefinitions` and
- * `dataFormatsByTarget`, by their types and keys. One live log then shows how a model's definitions write their columns,
- * and whether a part holds more about them. */
+ * the column, each by its type and a short value; its parts `source`, `dataFormatDefinitions` and `dataFormatsByTarget`,
+ * by their types and keys; and where it holds them, the parts that say how items are matched (`mapsLine`). One live log
+ * then shows how a model's definitions write their columns, and what they keep of how the sources are matched. */
 function detailsOf(definition: Json): string[] {
   const mappings: unknown[] = Array.isArray(definition.mappings) ? Array.from(definition.mappings as unknown[]) : [];
   const first = mappings.find((mapping): mapping is Json => isObject(mapping) && mapping.sourceType === "column");
   const column = first
     ? `first column: sourceColumnId ${logValue(first.sourceColumnId)}, sourceColumnNumber ${logValue(first.sourceColumnNumber)}, sourceColumnName ${logValue(first.sourceColumnName)}`
     : "no mapping from a column";
-  return [column, ["source", "dataFormatDefinitions", "dataFormatsByTarget"].map(key => `${key} ${partShape(definition[key])}`).join("; ")];
+  // The line on how items are matched is written where the definition holds any of its parts, as the dialog's do.
+  const maps = MATCHING_PARTS.some(key => definition[key] !== undefined) ? [mapsLine(definition)] : [];
+  return [column, ["source", "dataFormatDefinitions", "dataFormatsByTarget"].map(key => `${key} ${partShape(definition[key])}`).join("; "), ...maps];
+}
+
+/** The parts of a definition that say how items and periods are matched, which the dialog writes for an import into a
+ * module (view/ImportDefinition.js `_getDimensionsInfo`). */
+const MATCHING_PARTS = ["valueMaps", "aliasMaps", "targetAreaSpecifications", "periodFormats"] as const;
+
+/** A target of a part of a definition, for the log: a dimension's ID, or "line items" for the line items' blank target. */
+const whose = (target: unknown): string => (targetKey(target) === "" ? "line items" : targetKey(target));
+
+/** A list of a definition for the log, by how many entries it has and each of its first eight as `each` says it, one from
+ * the next by a bar. */
+function listed(value: unknown, each: (entry: Json) => string): string {
+  if (!Array.isArray(value)) return partShape(value);
+  const entries: unknown[] = Array.from(value as unknown[]);
+  const said = entries.slice(0, 8).map(entry => (isObject(entry) ? each(entry) : "?"));
+  return `list of ${entries.length}${said.length ? `: ${said.join(" | ")}${entries.length > 8 ? " | …" : ""}` : ""}`;
+}
+
+/** A source value of a value map for the log: its type and length, never its text, which is the import's source's own. */
+const sourceShape = ([source, item]: [string, unknown]): string =>
+  `text of ${source.length} ${source.length === 1 ? "character" : "characters"} ${item === -1 ? "ignored" : typeof item === "number" ? "to an ID" : `to ${logValue(item)}`}`;
+
+/** The parts of a definition that say how a dimension's items, and Time's periods, are matched, for the log:
+ * `valueMaps` by each dimension with how many source values it maps by hand and ignores, and the shapes of its first
+ * two; `aliasMaps` by each dimension with how many codes it holds; `targetAreaSpecifications` by each dimension's area;
+ * `periodFormats` by whether each matches names or holds a format. No source value is written: a log a user passes on
+ * holds the import's mapping, not its source's values. */
+function mapsLine(definition: Json): string {
+  const values = (entry: Json): [string, unknown][] => (isObject(entry.values) ? Object.entries(entry.values) : []);
+  const samples = Array.isArray(definition.valueMaps)
+    ? Array.from(definition.valueMaps as unknown[]).flatMap(entry => (isObject(entry) ? values(entry) : [])).slice(0, 2).map(sourceShape) : [];
+  const valueMaps = listed(definition.valueMaps, entry => {
+    const items = values(entry);
+    const mapped = items.filter(([, item]) => typeof item === "number" && Number.isSafeInteger(item) && item > 0).length;
+    const ignored = items.filter(([, item]) => item === -1).length;
+    const other = items.length - mapped - ignored;
+    return `${whose(entry.target)}: ${mapped} mapped, ${ignored} ignored${other ? `, ${other} of another kind` : ""}`;
+  }) + (samples.length ? ` (${samples.join("; ")})` : "");
+  const aliasMaps = listed(definition.aliasMaps, entry => `${whose(entry.target)}: ${values(entry).length}`);
+  const areas = listed(definition.targetAreaSpecifications, entry => `${whose(entry.target)}: ${logWord(entry.area)}`);
+  const periods = listed(definition.periodFormats, entry => `${whose(entry.target)}: ${entry.periodFormat === null ? "names"
+    : isObject(entry.periodFormat) && typeof entry.periodFormat.format === "string" ? `a format of ${entry.periodFormat.format.length} characters` : logValue(entry.periodFormat)}`);
+  return `valueMaps ${valueMaps}; aliasMaps ${aliasMaps}; targetAreaSpecifications ${areas}; periodFormats ${periods}`;
 }
 
 /** How an import into a list tells the list's items apart, as the dialog reads its definition
@@ -268,7 +380,7 @@ function matchOf(definition: Json, mappings: readonly Json[], into: number, name
  * an object, `details`. A definition that is no JSON, or JSON of another make (no list of mappings, a mapping that is no
  * object), gives the note that it could not be read. One of a kind whose mapping is not listed gives no targets: the page
  * says what it loads. */
-export function readDefinition(text: string, names: ImportNames, list?: string): { mapping: Pick<ImportMapping, "importType" | "targets" | "matchedBy" | "note">; shape: string; details: string[] } {
+export function readDefinition(text: string, names: ImportNames, list?: string): { mapping: Pick<ImportMapping, "importType" | "targets" | "matchedBy" | "headers" | "note">; shape: string; details: string[] } {
   if (text.trim() === "") return { mapping: { importType: "", targets: [], note: MAPPING_NOTES.noDefinition }, shape: "no definition", details: [] };
   let definition: unknown;
   try {
@@ -287,12 +399,42 @@ export function readDefinition(text: string, names: ImportNames, list?: string):
   const matchedBy = importType === HIERARCHY_DATA ? matchOf(definition, mappings as Json[], into, names) : undefined;
   // A numbered list told apart by code or by properties gives its items their names itself.
   const numbers = matchedBy?.numbered === true && (matchedBy.by === "code" || matchedBy.by === "properties");
-  const targets = (mappings as Json[]).map((mapping): MappedTarget => {
+  // An import into a module also holds how its dimensions' items, Time's periods and its dates are read.
+  const module = importType === MODULE_DATA;
+  const valueMaps = module ? valueMapsOf(definition) : undefined;
+  const period = module ? periodFormatOf(definition) : undefined;
+  const dates = module ? dateFormatsOf(definition) : new Map<number, string>();
+  let headers: ImportHeader[] | undefined;
+  // Where the line items come from the header row, each line item's values are in the column it heads: the dialog asks
+  // for no column of values then (view/ImportDefinitionModuleMapping.js `validate`), so the blank line item it keeps for
+  // one is no target.
+  const fromHeaderRow = module && (mappings as Json[]).some(mapping => mapping.targetType === "moduleDimension" && targetKey(mapping.target) === ""
+    && mapping.sourceType === "headerRow");
+  const kept = fromHeaderRow ? (mappings as Json[]).filter(mapping => !(mapping.targetType === "moduleLineItem" && targetKey(mapping.target) === ""
+    && mapping.sourceType === "undefined")) : (mappings as Json[]);
+  const targets = kept.map((mapping): MappedTarget => {
     const target = targetOf(mapping, importType, into, names, list);
     const source = sourceOf(mapping);
-    return numbers && mapping.targetType === "hierarchyMemberEntityName" && source.source === "none" ? { target, source: "numbered" } : { target, ...source };
+    if (numbers && mapping.targetType === "hierarchyMemberEntityName" && source.source === "none") return { target, source: "numbered" };
+    const read: MappedTarget = { target, ...source };
+    if (!module) return read;
+    const id = idOf(mapping.target);
+    if (mapping.targetType === "moduleLineItem") {
+      const format = Number.isFinite(id) ? dates.get(id) : undefined;
+      return format === undefined ? read : { ...read, dateFormat: format };
+    }
+    if (mapping.targetType !== "moduleDimension" || (source.source !== "column" && source.source !== "headerRow")) return read;
+    if (id === TIME) return period === undefined ? read : { ...read, periodFormat: period };
+    if (!valueMaps) return read;
+    const byHand = valueMaps.get(targetKey(mapping.target)) ?? [];
+    const ignored = byHand.filter(([, item]) => item === -1).length;
+    // The line items from the header row: the source values mapped by hand are the headers, each with its line item.
+    if (targetKey(mapping.target) === "" && source.source === "headerRow" && byHand.length) {
+      headers = byHand.map(([header, item]): ImportHeader => (item === -1 ? { header } : { header, lineItem: names.lineItem(item, into) ?? asId(item) }));
+    }
+    return { ...read, items: { byHand: byHand.length - ignored, ignored } };
   });
-  return { mapping: { importType, targets, ...(matchedBy ? { matchedBy } : {}) }, shape, details };
+  return { mapping: { importType, targets, ...(matchedBy ? { matchedBy } : {}), ...(headers ? { headers } : {}) }, shape, details };
 }
 
 /** The place of the Imports tab's column of that label, or -1. */
