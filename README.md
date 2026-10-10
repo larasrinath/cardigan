@@ -84,7 +84,7 @@ If Chrome says **Could not load javascript 'dist/content.js' for script** and **
 
 To check the download, compare it with the SHA-256 published with the release: `shasum -a 256 cardigan-<version>.zip` on a Mac, `certutil -hashfile cardigan-<version>.zip SHA256` on Windows.
 
-To update, unzip the new release over the same folder and click the reload icon on Cardigan's card in `chrome://extensions`. Your Anaplan tabs need no refresh: click the Cardigan icon on one.
+To update, unzip the new release over the same folder and click the reload icon on Cardigan's card in `chrome://extensions`. An app's tab needs no refresh: click the Cardigan icon on it. A model's tab that was open before the update needs one refresh: the part of Cardigan that reads a model runs inside the model's page, which keeps the earlier one until it is refreshed. If you forget, the results page says so and reads nothing.
 
 ## Use
 
@@ -172,7 +172,7 @@ You need Node 20.19+, 22.12+ or 24+.
 | `npm run package` | Builds, then writes the release zip |
 | `npm run icons` | Makes the four icons in `icons/` again from the logo, `icons/source.png` |
 
-To run from source, choose **Load unpacked** and select the repository root. After a rebuild, reload the extension, then click the icon on the Anaplan tab: that puts the new content script there. What reads a model inside the page (`src/model-content.ts`, `src/model/`, `src/bridge.ts`) is loaded only with the page, so refresh the tab after changing it. `dist/` is not in Git: build after every pull.
+To run from source, choose **Load unpacked** and select the repository root. After a rebuild, reload the extension, then click the icon on the Anaplan tab: that puts the new content script there. What reads a model inside the page (`src/model-content.ts`, `src/model/`, `src/bridge.ts`) is loaded only with the page, so refresh the tab after changing it. The build marks that reader with a hash of the version and the reader's own sources, which the first line of each bundle names, and the content script refuses a reader of another mark: the results page then asks for the refresh. `dist/` is not in Git: build after every pull.
 
 In the Anaplan tab, `src/content.ts` and `src/analyse.ts` read an app, and `src/model-content.ts` and `src/model/` read a model through the page's own client. `src/model-pages.ts` then reads the pages built on the model, as an app's pages are read. `src/card-reader/` reads a page's cards. `src/background.ts` opens the results page: `results.html`, `results.css` and `src/results/`. `src/map/` builds a model's map from the model's tables and draws it on the page, styled by `map.css`. `src/protocol.ts` lists the messages between the page and the tab, and `src/results/connection.ts` connects the two, putting the content script back into a tab that has none.
 
