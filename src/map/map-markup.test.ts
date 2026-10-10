@@ -13,6 +13,10 @@ type Texts = (index: number) => string;
 const hostile: Texts = index => HOSTILE[index % HOSTILE.length];
 const harmless: Texts = index => `word ${index}`;
 
+/** Glyphs that draw an arrow or a pointer as text: the arrows, the triangles that point, and the angle quotation marks.
+ * The page draws such a mark as an icon, or says it in words. */
+const ARROWS = /[\u2190-\u21ff\u27f0-\u27ff\u2900-\u297f\u2794\u279c-\u279e\u25b2-\u25c5\u00ab\u00bb\u2039\u203a]/;
+
 /** The attributes that may hold a text of a model: a tooltip and a name for a screen reader. Nothing else. */
 const TEXT_ATTRIBUTES = new Set(["title", "aria-label"]);
 
@@ -170,6 +174,17 @@ describe("The map's own markup", () => {
     // The module picker is a box to type into, with the same chevron, and its list under it.
     const picker = shell.querySelector(".map-picker")!;
     expect(picker.children.map(child => [child.localName, child.getAttribute("class")])).toEqual([["input", "map-picker-input"], ["svg", "map-select-chevron"], ["div", "map-panel map-picker-pop"]]);
+  });
+
+  it("draws its path's separators as chevrons, and writes no arrow glyph in its bar or in a node's details", () => {
+    const shell = parseMarkup(shellHtml(IDS, "Demand Plan"));
+    // Each separator is a drawn chevron, with no text of its own, that a screen reader is not told of.
+    expect(shell.querySelectorAll(".map-sep").map(sep => [sep.dataset.mapSep, sep.getAttribute("aria-hidden"), sep.textContent, sep.children.map(child => child.getAttribute("class"))]))
+      .toEqual([["show", "true", "", ["map-sep-chevron"]], ["group", "true", "", ["map-sep-chevron"]], ["module", "true", "", ["map-sep-chevron"]]]);
+    // The details' main button says where it leads in its words alone.
+    const details = inspectorHtml(inspectionOf(harmless));
+    expect(parseMarkup(details).querySelector('[data-map-act="open"]')?.textContent).toBe("word 6");
+    for (const html of [shellHtml(IDS, "Demand Plan"), details]) expect(html).not.toMatch(ARROWS);
   });
 
   it("makes every control a real button, list or box with a name", () => {
@@ -477,9 +492,9 @@ describe("The details' markup", () => {
 
   it("says where its main button leads by numbers alone", () => {
     const open = parseMarkup(inspectorHtml(inspection)).querySelector('[data-map-act="open"]')!;
-    expect([open.textContent, open.dataset.mapModule, open.dataset.mapSelect, open.dataset.mapSection]).toEqual(["Open its module with it selected →", "12", "34", undefined]);
+    expect([open.textContent, open.dataset.mapModule, open.dataset.mapSelect, open.dataset.mapSection]).toEqual(["Open its module with it selected", "12", "34", undefined]);
     const section = parseMarkup(inspectorHtml({ ...inspection, action: { label: "Open its 2 modules", section: 0 } })).querySelector('[data-map-act="open"]')!;
-    expect([section.textContent, section.dataset.mapSection, section.dataset.mapModule]).toEqual(["Open its 2 modules →", "0", undefined]);
+    expect([section.textContent, section.dataset.mapSection, section.dataset.mapModule]).toEqual(["Open its 2 modules", "0", undefined]);
     expect(parseMarkup(inspectorHtml({ ...inspection, action: undefined })).querySelector('[data-map-act="open"]')).toBeNull();
   });
 
