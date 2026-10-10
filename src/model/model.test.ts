@@ -958,7 +958,7 @@ describe("Model export: Model settings grids to tables", () => {
     for (const [file, text] of before) expect(written.get(file), file).toBe(since(file, text));
     expect(written.get(ACCESS_FILE_ADDED.file)).toBe(ACCESS_CSV);
     // Row by row, Model Details.csv has 0.8.1's rows, each in its place, with the two rows about the file, the row on
-    // Source Models, the Diagnostics row on the modules' IDs, the five on the imports' definitions, the four on the
+    // Source Models, the Diagnostics row on the modules' IDs, the seven on the imports' definitions, the four on the
     // processes' definitions, and after each of the eleven grids with rows the one on the time its page took, among them. The rows in other words than 0.8.1's are the five
     // named, in the file's order: on the layout, on Line Items, on the Actions list's files, on Imports and on the calendar.
     const lines = (text: string): string[] => parseCsv(text).map(row => row.join("\n"));
@@ -967,7 +967,7 @@ describe("Model export: Model settings grids to tables", () => {
     const gained = [...[ACCESS_FILE_ADDED.written, ACCESS_FILE_ADDED.howToRead, MODEL_ROW_ADDED, MODULE_IDS_ADDED.rows, LIST_IDS_ADDED.rows, MAPPINGS_ADDED.rows,
       PROCESSES_ADDED.rows].flatMap(row => lines(row.line)), ...paged];
     const stayed = details.filter(row => !gained.includes(row));
-    expect([details.length, stayed.length, gained.length, paged.length]).toEqual([detailsBefore.length + 25, detailsBefore.length, 25, 11]);
+    expect([details.length, stayed.length, gained.length, paged.length]).toEqual([detailsBefore.length + 27, detailsBefore.length, 27, 11]);
     expect(stayed.flatMap((row, index) => (row === detailsBefore[index] ? [] : [[detailsBefore[index], row]]))).toEqual(ACCESS_ROWS_REWORDED.map(row => [lines(row.was)[0], lines(row.now)[0]]));
     // Then every byte. Of 0.8.1's twelve files, Line Items.csv among them, only Model Details.csv and Other Actions.csv
     // have other bytes.
