@@ -2,6 +2,13 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version stands next to Cardigan's name at the top of the results page and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## 0.16.1 (10 October 2026)
+
+The navigation bar stays still.
+
+- **No tab moves.** A menu's button named the table shown in it, so it grew or shrank as a table was chosen, and every tab after it moved, by up to 79 pixels. The tab of the view shown was also set in bold, which widened it. Every entry and menu now keeps one width, as wide as the longest name it can show in bold, so neither choosing a table nor changing the view moves anything in the bar. A menu's icon, name and chevron stand together in the middle of its button. (#PR)
+- **What it costs.** A model's bar with every table is wider, about 1,400 pixels, and takes two lines in a narrower window, each tab keeping its place. The one menu of a window under 1,000 pixels wide is unchanged. (#PR)
+
 ## 0.16.0 (10 October 2026)
 
 A refresh of the results page keeps how you left the result, until the tab is closed.
