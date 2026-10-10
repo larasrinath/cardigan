@@ -129,13 +129,12 @@ input,select{font:inherit;color:inherit}
    tables under it. Where the line has no room, one such button stands in its place, which names the view shown and
    opens a menu of every item (see the narrow layout, below): the bar never scrolls. It keeps the header's sides. The
    entry of the view shown is marked as it always was, in the accent's colours with its words in bold, and so is the
-   button of the group that holds it, which keeps the group's own name. Its icon takes its colour; the others' are
-   quieter. */
+   button of the group that holds it, which names that entry. Its icon takes its colour; the others' are quieter. */
 .topnav{background:var(--panel);border-bottom:1px solid var(--border)}
 /* An item that does not fit goes to the next line rather than out of the bar, and keeps its place there whatever the
-   view: every item keeps one width (below). A model's line with every file the export writes needs about 1,200px of the
-   column, which a window 1,440px wide has; a narrower column has it on two lines. */
-.nav-list{display:flex;flex-wrap:wrap;align-items:center;gap:4px 2px;padding:6px var(--gutter)}
+   view: every item keeps one width (below). A model's line with every file the export writes needs about 1,285px of the
+   column, which a window 1,440px wide has, scrollbar and all; a narrower column has it on two lines. */
+.nav-list{display:flex;flex-wrap:wrap;align-items:center;gap:4px 1px;padding:6px var(--gutter)}
 .nav-compact{display:none;padding:6px var(--gutter)}
 .nav-item,.nav-group-btn{
   display:inline-flex;align-items:center;gap:6px;flex:none;white-space:nowrap;
@@ -152,17 +151,30 @@ input,select{font:inherit;color:inherit}
 .nav-group-btn .nav-chevron{margin-left:-2px;transition:transform .12s}
 .nav-group-btn[aria-expanded="true"] .nav-chevron{transform:rotate(180deg)}
 /* An item keeps one width whatever it shows and however it is marked, so that the items after it never move as the view
-   changes or a group's table is chosen. Its words never change: a group's button keeps the group's own name whichever of
-   its tables is shown (markup.ts `navHtml`). The mark of the view shown sets them in bold, so under them stands their room
-   (markup.ts `wordsHtml`, the words' data-room): the same words in bold, unseen and of no height, which give the words the
-   width of their bold. The room has no height, and holds nothing that scrolls. It is generated content with empty
-   alternative text: nothing reads it out. Nothing else of the marks changes a size: they change colours, and the chevron
-   only turns. The one menu of a narrow window, alone on its line, keeps no room. */
-.nav-item>span,.nav-group-btn>span{display:inline-flex;flex-direction:column;align-items:flex-start}
-.nav-item>span::after,.nav-group-btn>span::after{
+   changes or a group's table is chosen. Under what it shows stands its room (its data-room): every text it can show, one
+   to a line, in bold, unseen and of no height, so the widest sets its width. An entry's room is its own words (markup.ts
+   `wordsHtml`), which the mark of the view shown sets in bold; they keep to its left. A group's button names the table
+   shown when its group holds it (markup.ts `navHtml`): its room is its name and the label of each table of its menu, with
+   the room of its icon, its chevron and the gaps beside them, and what it shows, as one row, stands in the middle of it.
+   The room holds nothing that scrolls. It is generated content with empty alternative text: nothing reads it out.
+   Nothing else of the marks changes a size: they change colours, and the chevron only turns. The one menu of a narrow
+   window, alone on its line, keeps no room. */
+.nav-item>span{display:inline-flex;flex-direction:column;align-items:flex-start}
+.nav-group-btn[data-room]{display:inline-grid}
+.nav-row{grid-area:1/1;justify-self:center;display:inline-flex;align-items:center;gap:4px}
+.nav-item>span::after,.nav-group-btn[data-room]::after{
   content:attr(data-room);content:attr(data-room) / "";
   height:0;line-height:0;visibility:hidden;font-weight:600;white-space:pre;pointer-events:none;user-select:none;
 }
+.nav-group-btn[data-room]::after{grid-area:1/1;padding:0 12px 0 18px}
+/* The items of the line itself stand closer than the menus' entries, so that a model's line with every table, its groups
+   each as wide as their longest table's name, stands on one line in a window 1,440px wide, scrollbar and all: 1px
+   between items, 6px at each side of one (9px at a group's chevron), 4px between an icon and its words, and a smaller
+   chevron, 1px into its gap. The room of a group's icon, chevron and gaps (above) follows these. The menus, and the one
+   menu of a narrow window, keep the spacing of the rules above. */
+.nav-list>.nav-item,.nav-list>.nav-group>.nav-group-btn{padding-left:6px;padding-right:6px;gap:4px}
+.nav-list>.nav-group>.nav-group-btn{padding-right:9px}
+.nav-list>.nav-group>.nav-group-btn .nav-chevron{width:9px;height:9px;margin-left:-1px}
 /* A menu has the look of the page's popovers, and stands under its button, over the content and under the drawer. An
    entry of it is a row as wide as the menu. A long menu, the one of a narrow window, scrolls within itself rather than
    run past the window's foot, where the top of the page stays in sight. */
@@ -567,7 +579,7 @@ main:has(> #mapHost:not([hidden])){align-self:stretch;display:flex;flex-directio
   .meta-app{white-space:normal;overflow-wrap:anywhere}
   .toast{max-width:calc(100vw - 28px)}
 }
-/* An app's line, its seven tables each an entry of its own, needs about 880px of the column; a model's needs more, and
+/* An app's line, its seven tables each an entry of its own, needs about 795px of the column; a model's needs more, and
    wraps where it has less (above). Under 1000px wide the one menu stands in the line's place, whatever the result's
    kind. */
 @media (max-width:1000px){
