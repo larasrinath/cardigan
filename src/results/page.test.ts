@@ -365,6 +365,16 @@ describe("The results page's files", () => {
     expect([written.querySelectorAll(".d-dl dd .cell-list li .cell-t").length, written.querySelectorAll(".mini td .cell-list li .cell-t").length]).toEqual([2, 2]);
   });
 
+  it("makes every tile of the overview the same size: columns of one width, rows of one height, a name on one line, and no word under the number", () => {
+    const body = (name: string, selector: string) => rules(name).find(([found]) => found === selector)?.[1] ?? "";
+    const [grid, tile, label, number] = [body(".ov-grid", ".ov-grid"), body(".stat", ".stat"), body(".s-lab", ".stat .s-lab"), body(".s-num", ".stat .s-num")];
+    // Columns of one width, and every row as high as the highest: a tile never grows with its name or its number.
+    expect([/grid-template-columns:repeat\(auto-fill,minmax\(\d+px,1fr\)\)/.test(grid), grid.includes("grid-auto-rows:1fr"), tile.includes("min-width:0"), tile.includes("height:100%")])
+      .toEqual([true, true, true, true]);
+    // A name and a number keep to one line, cut with an ellipsis where they are too long; the line under the number is gone.
+    expect([["white-space:nowrap", "overflow:hidden", "text-overflow:ellipsis"].every(rule => label.includes(rule) && number.includes(rule)), rules(".s-sub").length]).toEqual([true, 0]);
+  });
+
   it("carries no demo left from the design: no sample name, no version, no preview control", () => {
     expect(html).not.toMatch(/Demo|Preview state|previewState|Assortment|0\.9\.3/);
     expect(opening.find(tag => tag.attributes.get("id") === "version")?.attributes.get("class")).toBe("ver");

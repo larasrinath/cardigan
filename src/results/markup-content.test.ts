@@ -476,16 +476,22 @@ describe("What the results page's markup shows", () => {
       bare.querySelector("#ovKept")?.innerHTML]).toEqual([[["Line Items", "120", "rows"]], 0, ["h1", "div", "p"], ""]);
   });
 
-  it("says on a tile how many rows there are in all, under the rows its table lists, where the two are not the same number", () => {
-    const view = parseMarkup(overviewHtml(overviewWith({ tiles: [{ label: "Line Items", count: 3511, inAll: 3632 }, { label: "Model Calendar", count: 0, inAll: 1 }, { label: "Modules", count: 121 },
-      { label: "Odd", count: 1, inAll: 0 }] })));
-    // The number in large is the table's; the line under it says how many there are in all, each with its own word for one row and
-    // for several. It does not say that they were read: a table's rows may be a template's, as a Model Calendar's are.
-    expect(view.querySelectorAll(".stat").map(tile => tile.children.map(text))).toEqual([["Line Items", "3511", "rows", "3632 rows in all"], ["Model Calendar", "0", "rows", "1 row in all"],
-      ["Modules", "121", "rows"], ["Odd", "1", "row", "0 rows in all"]]);
-    // Both lines under the number are the tile's small lines: the second needs no style of its own.
-    expect(view.querySelectorAll(".stat").map(tile => tile.children.map(child => [...["s-lab", "s-num", "s-sub"]].find(name => child.classList.contains(name))))).toEqual([
-      ["s-lab", "s-num", "s-sub", "s-sub"], ["s-lab", "s-num", "s-sub", "s-sub"], ["s-lab", "s-num", "s-sub"], ["s-lab", "s-num", "s-sub", "s-sub"]]);
+  it("says on a tile the one number of rows its table lists, with the word for a screen reader only, and the table's icon before its name", () => {
+    const view = parseMarkup(overviewHtml(overviewWith({ tiles: [{ label: "Line Items", count: 3511 }, { label: "Model Calendar", count: 21 }, { label: "Odd", count: 1 }, { label: "Bare", count: 2 }] }),
+      "none", [], ["Line Items.csv", "Model Calendar.csv", "Odd.csv"]));
+    // The name, the number, and the word "rows" or "row", which only a screen reader is given: no line of how many there are in all.
+    expect(view.querySelectorAll(".stat").map(tile => tile.children.map(child => [...["s-lab", "s-num", "sr-only"]].find(name => child.classList.contains(name))))).toEqual([
+      ["s-lab", "s-num", "sr-only"], ["s-lab", "s-num", "sr-only"], ["s-lab", "s-num", "sr-only"], ["s-lab", "s-num", "sr-only"]]);
+    expect(view.querySelectorAll(".stat").map(tile => tile.children.map(text))).toEqual([["Line Items", "3511", "rows"], ["Model Calendar", "21", "rows"], ["Odd", "1", "row"], ["Bare", "2", "rows"]]);
+    expect(view.querySelectorAll(".stat").some(tile => /in all/.test(tile.textContent))).toBe(false);
+    // The icon is the one the navigation has for the table's file, before its name. A file with no icon of its own has none,
+    // and a tile that names no file has none either: no stand-in.
+    const icons = view.querySelectorAll(".stat").map(tile => tile.querySelector(".s-lab svg")?.outerHTML);
+    expect(icons.map(Boolean)).toEqual([true, true, false, false]);
+    expect([icons[0] === parseMarkup(FILE_ICONS.get("Line Items.csv")!).querySelector("svg")?.outerHTML,
+      icons[1] === parseMarkup(FILE_ICONS.get("Model Calendar.csv")!).querySelector("svg")?.outerHTML]).toEqual([true, true]);
+    // The name is the tile's title as well, so that a name cut short by the tile is there whole.
+    expect(view.querySelectorAll(".stat .s-lab").map(label => label.getAttribute("title"))).toEqual(["Line Items", "Model Calendar", "Odd", "Bare"]);
   });
 
   it("shows in a row's drawer, after a cell that is said in words, the text that was read in its place, named as that", () => {

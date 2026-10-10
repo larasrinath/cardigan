@@ -597,7 +597,7 @@ describe("A model's result on the results page, with the map's real graph and th
     const has = (begins: string): boolean => words.some(text => text.startsWith(begins));
     expect([has("Each table is laid out as Anaplan's own export of the same Model settings grid: each row's name first"), has("The table lists every row of the grid: each module's own row, in bold, then its line items."),
       words.some(text => text.includes("14:02:05 Line Items: 16 rows × 25 columns; columns: Format | Formula | Summary")),
-      words.includes("31 rows in all"), has("5 rows about the model are not listed here: 3 hold a value, which the Overview has under About this export."),
+      !words.some(text => text.includes("rows in all")), has("5 rows about the model are not listed here: 3 hold a value, which the Overview has under About this export."),
       has("Every row of Anaplan's Line Items grid: 11 line items, and 5 modules' own rows, each in bold above its line items"), words.includes("Format as read"), words.includes("Open this row"),
       words.includes("Where an import takes its data from is in the Imports table, not on the map."), drawn.includes("Units")]).toEqual([true, true, true, true, true, true, true, true, true, true]);
   });
