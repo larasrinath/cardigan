@@ -248,22 +248,23 @@ export const ACCESS_READS_0_8_1 = ["LINE ITEMS 0+1", "LINE ITEMS 0+16", "MODULES
  * from prices.csv, in the grids it shares with 0.6.1's model, model/model.test.ts `GOLDEN_GRIDS`): the grid of the
  * imports' definitions, which hold each import's mapping (model/import-mappings.ts). It is read right after the Imports
  * tab, with the same row axis, a first row and then the rest (`reads`, after the read `after`). Its lines of the log come
- * right after the Imports tab's line (`said`, after the line `saidAfter`): the step, the grid's line, how the import's
- * definition is made, and how many were read. Model Details.csv has them as Diagnostics rows, each as the row's whole
- * line of the file (`rows`). Nothing else is read or said for the mappings, and no table is made of them: the result
- * carries them beside its tables. */
+ * right after the Imports tab's line (`said`, after the line `saidAfter`): what the tab holds, by Source Type, the step,
+ * the grid's line, how the import's definition is made, and how many were read and found. Model Details.csv has them as
+ * Diagnostics rows, each as the row's whole line of the file (`rows`). Nothing else is read or said for the mappings, and
+ * no table is made of them: the result carries them beside its tables. */
 export const MAPPINGS_ADDED = {
   after: "IMPORTS 0+2",
   reads: ["IMPORTS 0+1", "IMPORTS 0+2"],
   saidAfter: "Imports: 2 rows × 6 columns; columns: Source Label | Source Object | Source Type | Target Object | Target Type | Production Data",
-  said: ["Reading Import mappings…", "Import mappings: 2 rows × 2 columns; columns: Notes | Import Definition",
+  said: ["Import mappings: 2 imports; Source Types: SAVED VIEW ×1, FILE ×1; 1 mapping to read", "Reading Import mappings…", "Import mappings: 2 rows × 2 columns; columns: Notes | Import Definition",
     "Import mapping 112000000002: keys importType, target, mappings; 4 mappings: [targetType, target, sourceType, sourceColumnId, sourceColumnName] column ×4",
-    "Import mappings: 1 of 1 read"],
+    "Import mappings: 1 of 1 read; 1 found in the grid of definitions"],
   rows: {
     after: "Diagnostics,12:30:10,Imports: 2 rows × 6 columns; columns: Source Label | Source Object | Source Type | Target Object | Target Type | Production Data\r\n",
-    line: "Diagnostics,12:30:10,Reading Import mappings…\r\nDiagnostics,12:30:10,Import mappings: 2 rows × 2 columns; columns: Notes | Import Definition\r\n"
+    line: 'Diagnostics,12:30:10,"Import mappings: 2 imports; Source Types: SAVED VIEW ×1, FILE ×1; 1 mapping to read"\r\n'
+      + "Diagnostics,12:30:10,Reading Import mappings…\r\nDiagnostics,12:30:10,Import mappings: 2 rows × 2 columns; columns: Notes | Import Definition\r\n"
       + 'Diagnostics,12:30:10,"Import mapping 112000000002: keys importType, target, mappings; 4 mappings: [targetType, target, sourceType, sourceColumnId, sourceColumnName] column ×4"\r\n'
-      + "Diagnostics,12:30:10,Import mappings: 1 of 1 read\r\n",
+      + "Diagnostics,12:30:10,Import mappings: 1 of 1 read; 1 found in the grid of definitions\r\n",
   },
 } as const;
 
@@ -346,8 +347,8 @@ export const withAccessRows = (csv: string): string =>
   withRowsAdded(withRowsReworded(csv, ACCESS_ROWS_REWORDED), [ACCESS_FILE_ADDED.written, ACCESS_FILE_ADDED.howToRead, MODEL_ROW_ADDED, MODULE_IDS_ADDED.rows, MAPPINGS_ADDED.rows]);
 
 /** The model's zip as 0.8.1 wrote it but for that: every file's bytes as they are in `ACCESS_ZIP_0_8_1`, with five lines
- * of Model Details.csv replaced and eight added (three rows of the file's own, a Diagnostics row on the modules' IDs and
- * four on the imports' definitions), the cell added to each line of Other Actions.csv
+ * of Model Details.csv replaced and nine added (three rows of the file's own, a Diagnostics row on the modules' IDs and
+ * five on the imports' definitions), the cell added to each line of Other Actions.csv
  * (`MODEL_ACTIONS_COLUMN_ADDED` in golden-0.6.1.test-support.ts: 0.8.1's file is 0.6.1's, byte for byte), and the file put
  * in after Line Items.csv, written by zipStore with the same time on every entry. Line Items.csv is 0.8.1's own: 0.8.1
  * wrote its Format List column already. model/model.test.ts pins that zipStore writes `ACCESS_ZIP_0_8_1` itself, byte

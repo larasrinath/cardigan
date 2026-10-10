@@ -7,7 +7,7 @@ import { ACCESS_LABEL, accessTable } from "./access.js";
 import { actionKind, mergeImports, missingActionColumns, otherActionsTable, type ActionKind } from "./actions.js";
 import { CALENDAR_HEADERS, calendarRows } from "./calendar.js";
 import { gridTable, type Grid, type GridRow, type Table } from "./grid.js";
-import { fileImports, IMPORT_DEFINITION, importMappings, importNames } from "./import-mappings.js";
+import { fileImports, IMPORT_DEFINITION, importMappings, importNames, importsLine } from "./import-mappings.js";
 import { lineItemsTable } from "./lineitems.js";
 import { axis, loadNative, readGrid, typeIndex, type Native } from "./native.js";
 
@@ -187,8 +187,14 @@ export async function exportModel(progress: Progress, diagnostics: () => string,
   // Each import from a file with its mapping, out of its own definition (import-mappings.ts): one grid more, read only where
   // the Imports tab names such an import. It is no table, and its failure is none: the Imports table stands as it is, each
   // of those imports says that its mapping could not be read, and the log says why. The step is reported before the read,
-  // as every grid's is, so that an export asked to stop reads nothing more.
+  // as every grid's is, so that an export asked to stop reads nothing more. The log says first what the Imports tab holds,
+  // whether an import reads a file or not, and the result carries the mappings once the tab was read, none or not: a
+  // result without them is one an earlier version made.
   let mappings: ImportMapping[] | undefined;
+  if (imports) {
+    log(importsLine(imports));
+    mappings = [];
+  }
   if (imports && fileImports(imports).length) {
     progress.status("Reading Import mappings…");
     let definitions: Grid | undefined;

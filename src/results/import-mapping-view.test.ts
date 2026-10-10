@@ -99,6 +99,11 @@ describe("The mapping of a row of a model's Imports", () => {
     const cased: AnalysisResult = { ...MODEL, tables: [{ ...IMPORTS, rows: ROWS.map(row => row.map(cell => (cell === "FILE" ? " file " : cell))) }] };
     const table = fileView(cased, cased.tables[0]).table;
     expect(table.rows.map(row => mappingOfRow(cased, table, row)?.rows[0]?.[0])).toEqual(["Division", undefined, "First", "Second", undefined]);
+    // Names are told apart without the spaces around them: a row's and a mapping's, whichever has them.
+    const spaced: AnalysisResult = { ...MODEL, tables: [{ ...IMPORTS, rows: ROWS.map((row, index) => (index === 3 ? [" Prices ", ...row.slice(1)] : row)) }],
+      importMappings: [mapping("Division from HQ Network.csv ", "Division"), mapping("Prices", "First"), mapping(" Prices", "Second")] };
+    const spacedTable = fileView(spaced, spaced.tables[0]).table;
+    expect(spacedTable.rows.map(row => mappingOfRow(spaced, spacedTable, row)?.rows[0]?.[0])).toEqual(["Division", undefined, "First", "Second", undefined]);
   });
 
   it("is none for a result without mappings, as one an earlier version kept, or whose mappings are not as they should be, and none outside a model's Imports", () => {
