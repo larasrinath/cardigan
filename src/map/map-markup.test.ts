@@ -160,14 +160,15 @@ describe("The map's own markup", () => {
   it("stands each select with the page's chevron, which a screen reader is not told of, in a wrap that the stylesheet hides with it", () => {
     const shell = parseMarkup(shellHtml(IDS, "Demand Plan"));
     expect(shell.querySelectorAll(".map-select-wrap").map(wrap => [wrap.children.map(child => [child.localName, child.getAttribute("class"), child.getAttribute("aria-hidden")])]))
-      .toEqual([[[["select", "map-select map-section-select", null], ["svg", "map-select-chevron", "true"]]],
+      .toEqual([[[["select", "map-select map-grouping-select", null], ["svg", "map-select-chevron", "true"]]],
+        [[["select", "map-select map-section-select", null], ["svg", "map-select-chevron", "true"]]],
         [[["select", "map-select map-module-select", null], ["svg", "map-select-chevron", "true"]]]]);
   });
 
   it("makes every control a real button, list or box with a name", () => {
     const shell = parseMarkup(shellHtml(IDS, "Demand Plan"));
     const controls = shell.querySelectorAll("button, select, input");
-    expect(controls.map(control => control.localName).sort()).toEqual([...Array.from({ length: 10 }, () => "button"), "input", "input", "select", "select"]);
+    expect(controls.map(control => control.localName).sort()).toEqual([...Array.from({ length: 10 }, () => "button"), "input", "input", "select", "select", "select"]);
     const names: string[] = [];
     for (const control of controls) {
       const label = control.closest("label");
@@ -177,7 +178,7 @@ describe("The map's own markup", () => {
       if (control.localName === "button") expect(control.getAttribute("type")).toBe("button");
     }
     expect(names).toEqual([
-      "Modules", "Line items", "Show all modules", "Model section", "Module for line items", "Show line items of other modules", "Access drivers", "Search all sections, modules and line items",
+      "Modules", "Line items", "Group the modules", "Show all modules", "Model section", "Module for line items", "Show line items of other modules", "Access drivers", "Search all sections, modules and line items",
       "Whole map", "Legend", "About this map", "Zoom out", "Zoom in", "Fit",
     ]);
     expect(shell.querySelector(".map-search")?.getAttribute("aria-controls")).toBe("map-results-1");
