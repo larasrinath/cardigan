@@ -123,6 +123,23 @@ export interface ModelGraph {
    * and the Module Usage table of the pages built on the model. The map can group modules by them (map-groups.ts). A
    * graph without it has neither. */
   moduleFacts?: { functionalAreas: boolean; moduleUsage: boolean };
+  /** How the Modules file's Functional Area met the map's modules, where the file has that column (results/main.ts puts
+   * it in the run's log): how many different areas the map's modules have, how many of them have one, and the names
+   * one side has and the other lacks. A heading row of Modules is no module of the map, and is in neither list. */
+  areaCheck?: AreaCheck;
+}
+
+/** What the map made of the Modules file's Functional Area (`ModelGraph.areaCheck`). */
+export interface AreaCheck {
+  /** The different areas among the map's modules. */
+  areas: number;
+  /** The map's modules, and those of them with an area. */
+  modules: number;
+  withArea: number;
+  /** The names of the Modules file's rows that are no module of the map, and of the map's modules that have no row
+   * there, each in its file's order. */
+  rowsNotOnMap: string[];
+  modulesNotInFile: string[];
 }
 
 /** What the page tells the map about the model it draws. */
