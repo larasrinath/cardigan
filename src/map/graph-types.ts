@@ -66,7 +66,9 @@ export interface GraphNode {
   lastRun?: string;
   durationMs?: number;
   /** For a line item: the filters on the pages built on the model that have it as their condition, as the Page Filters
-   * table lists them (model-pages.ts), each by its app, its page and its card's number. No link comes of them. */
+   * table lists them (model-pages.ts), each by its app, its page and its card's number, with the modules it filters and
+   * the dimension it filters by. A filtered module of the map other than the line item's own is linked from the line
+   * item by a `page_filter` link. */
   pageFilters?: PageFilter[];
   /** A module's Functional Area, as the Modules file has it: Anaplan's own grouping of modules, which a model's builders
    * set. None where the module has none. */
@@ -75,8 +77,10 @@ export interface GraphNode {
   apps?: string[];
 }
 
-/** A filter of a card on a page, by where it is: the app, the page and the card's number on the page. */
-export interface PageFilter { app: string; page: string; card: string }
+/** A filter of a card on a page, by where it is: the app, the page and the card's number on the page; and what it
+ * filters: the modules of the map the card's filtered module names (`modules`, by their places in `ModelGraph.nodes`,
+ * none where the map has none of them), and the dimension it filters, as the table writes it ("" for none). */
+export interface PageFilter { app: string; page: string; card: string; modules?: number[]; dimension?: string }
 
 /** What a link says, read from its first node to its second:
  * - `reference`: the second's formula refers to the first (the first's Referenced By names the second).
@@ -85,6 +89,9 @@ export interface PageFilter { app: string; page: string; card: string }
  * - `applies`: the list or subset is a dimension of the module or line item.
  * - `format`: the list or subset is the format of the line item.
  * - `read_access`, `write_access`: the first drives who may read or write the second.
+ * - `page_filter`: the first, a line item, is the condition of a filter on a page built on the model, and the filter
+ *   narrows a card of the second, a module (the Page Filters table's Filtered module). Not what a formula reads: the map
+ *   draws it only where asked to, as it does the links of access drivers.
  * - `subset`: the list has the subset. `parent`: the first is the parent of the second (list hierarchy).
  * - `process_action`: the process runs the action.
  * - `import_target`: the import loads into the module or list. `export_source`: the module or list is what the export
@@ -94,7 +101,7 @@ export interface PageFilter { app: string; page: string; card: string }
  * Where a line item's Referenced By names something whose access driver it is, the link is the access link alone: the
  * export has one entry for the two, and a formula link is not drawn from it. */
 export type EdgeKind = "reference" | "list_formula" | "applies" | "format" | "read_access" | "write_access" | "subset" | "parent"
-  | "process_action" | "import_target" | "export_source" | "action_target";
+  | "process_action" | "import_target" | "export_source" | "action_target" | "page_filter";
 
 export type GraphEdge = readonly [from: number, to: number, kind: EdgeKind];
 
@@ -123,6 +130,9 @@ export interface ModelGraph {
    * and the Module Usage table of the pages built on the model. The map can group modules by them (map-groups.ts). A
    * graph without it has neither. */
   moduleFacts?: { functionalAreas: boolean; moduleUsage: boolean };
+  /** Whether the result has the Page Filters table of the pages built on the model (model-pages.ts): the map can draw
+   * page filter links only from it. An app's result, or one read before the table was made, has none. */
+  pageFilterTable?: boolean;
   /** How the Modules file's Functional Area met the map's modules, where the file has that column (results/main.ts puts
    * it in the run's log): how many different areas the map's modules have, how many of them have one, and the names
    * one side has and the other lacks. A heading row of Modules is no module of the map, and is in neither list. */
@@ -177,6 +187,8 @@ export interface MapView {
   others?: boolean;
   /** Whether the links of access drivers are drawn too. */
   access?: boolean;
+  /** Whether the links of page filters are drawn too. */
+  filters?: boolean;
 }
 
 /** The mounted map (map-view.ts). The page shows and hides it as its navigation goes: while hidden it draws nothing and

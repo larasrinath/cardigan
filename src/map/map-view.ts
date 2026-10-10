@@ -9,10 +9,10 @@ import { inspect, statusWords, traceWords, viewSentence, type Inspection, type T
 import { boundsOf, fullFrom, layoutGraph, sizeNodes } from "./map-layout.js";
 import { automaticGrouping, groupingsOf, type Grouping } from "./map-groups.js";
 import {
-  brokenHtml, emptyHtml, FULL_SAYS, fullIconHtml, groupingOptionsHtml, groupOptionsHtml, inspectorHtml, legendHtml, listHtml, notesHtml, pathRootHtml, pickerOptionsHtml, resultsHtml,
-  shellHtml, SHOW_GROUPS, SHOW_MODULES, showOptionsHtml, tooltipHtml, tracebarHtml, type Tip,
+  brokenHtml, emptyHtml, FILTERS_NONE, FILTERS_SAY, FULL_SAYS, fullIconHtml, groupingOptionsHtml, groupOptionsHtml, inspectorHtml, legendHtml, listHtml, notesHtml, pathRootHtml,
+  pickerOptionsHtml, resultsHtml, shellHtml, SHOW_GROUPS, SHOW_MODULES, showOptionsHtml, tooltipHtml, tracebarHtml, type Tip,
 } from "./map-markup.js";
-import { indexModel, isAccess, withGrouping, type MapModel } from "./map-model.js";
+import { indexModel, isAccess, isFilter, withGrouping, type MapModel } from "./map-model.js";
 import { FALLBACK, readPalette, type MapPalette } from "./map-palette.js";
 import { createSearch, matchNodes, searchText, type SearchHit } from "./map-search.js";
 import { formatCount, plural } from "./map-text.js";
@@ -134,7 +134,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   root.setAttribute("class", "map-root");
   root.hidden = true;
   const pickerId = `map-picker-${number}`;
-  root.innerHTML = shellHtml({ results: `map-results-${number}`, hints: `map-hints-${number}`, legend: `map-legend-${number}`, about: `map-about-${number}`, access: `map-access-${number}`, links: `map-links-${number}`, picker: pickerId }, options.modelName);
+  root.innerHTML = shellHtml({ results: `map-results-${number}`, hints: `map-hints-${number}`, legend: `map-legend-${number}`, about: `map-about-${number}`, access: `map-access-${number}`, filters: `map-filters-${number}`, links: `map-links-${number}`, picker: pickerId }, options.modelName);
   host.appendChild(root);
 
   const part = <T extends HTMLElement = HTMLElement>(selector: string): T => root.querySelector(selector) as T;
@@ -161,6 +161,8 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   const linksButton = part<HTMLButtonElement>('[data-map-act="links"]');
   const linksPop = part(".map-links-pop");
   const accessToggle = part<HTMLInputElement>(".map-access");
+  const filtersToggle = part<HTMLInputElement>(".map-filters");
+  const filtersNote = part(".map-filters-note");
   const fullButton = part<HTMLButtonElement>('[data-map-act="fullscreen"]');
   const searchInput = part<HTMLInputElement>(".map-search");
   const searchCount = part(".map-search-count");
@@ -203,6 +205,8 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   let moduleId: number | undefined;
   let expanded = false;
   let access = false;
+  /** Whether the links of the pages' filters are drawn: only where the model has some (`filtersDrawable`). */
+  let filters = false;
   /** A model whose modules stand under one heading, or under none: it has no sections to show, and opens on its modules. */
   let single = false;
   let onScreen: ViewGraph | undefined;
@@ -696,7 +700,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   function renderLegend(): void {
     if (!onScreen) return;
     // A model that has no sections to show has none in its legend either: its modules are one entry, as what they are.
-    legend.innerHTML = legendHtml(onScreen.kind === "drill" || single ? "On this map" : "Sections", onScreen.layers, hiddenLayers);
+    legend.innerHTML = legendHtml(onScreen.kind === "drill" || single ? "On this map" : "Sections", onScreen.layers, hiddenLayers, onScreen.edges.some(edge => edge.filter));
     legendButton.hidden = onScreen.layers.length === 0;
   }
 
@@ -745,8 +749,14 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     externalToggle.checked = expanded;
     buildZone.hidden = groupingField.hidden && externalCheck.hidden;
     accessToggle.checked = access;
+    // The links of the pages' filters can be drawn only where the model has some: otherwise the switch is off, and the
+    // note under it says why in its explanation's place.
+    const drawable = filtersDrawable();
+    filtersToggle.checked = filters;
+    filtersToggle.disabled = !drawable;
+    filtersNote.textContent = drawable ? FILTERS_SAY : model.graph.pageFilterTable ? FILTERS_NONE.links : FILTERS_NONE.table;
     // Which links are drawn is said on the button too, where more than formulas are.
-    linksButton.classList.toggle("map-on", access);
+    linksButton.classList.toggle("map-on", access || filters);
   }
 
   function renderInspector(): void {
@@ -988,11 +998,11 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   /** Builds the graph the view asks for, sizes its boxes to their names, and lays it out for the room it has. */
   function build(): void {
     if (!model || !fonts) return;
-    onScreen = view === "drill" && moduleId !== undefined ? moduleGraph(model, moduleId, expanded, access)
-      : grouped && section === undefined ? sectionsGraph(model, access) : modulesGraph(model, section, access);
+    onScreen = view === "drill" && moduleId !== undefined ? moduleGraph(model, moduleId, expanded, access, filters)
+      : grouped && section === undefined ? sectionsGraph(model, access, filters) : modulesGraph(model, section, access, filters);
     sizeNodes(onScreen, fonts.measure("label"), fonts.measure("item"));
     selected = selected && onScreen.byId.get(selected.id);
-    trace = selected ? traceNode(onScreen, model, selected.index, access) : undefined;
+    trace = selected ? traceNode(onScreen, model, selected.index, access, filters) : undefined;
     if (!selected) onlyTrace = false;
     refreshShown();
     matches = undefined;
@@ -1002,10 +1012,15 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     tellView();
   }
 
+  /** Whether the model has links of the pages' filters to draw. */
+  function filtersDrawable(): boolean {
+    return (model?.filterEdges.length ?? 0) > 0;
+  }
+
   /** Where the map is, as the page keeps it: the view, and in it the group, all modules or the module shown, by name, and
    * which links are drawn. The groups as a whole say no group, as does a model with no groups to show. */
   function viewNow(): MapView {
-    const drawn = access ? { access: true } : {};
+    const drawn = { ...(access ? { access: true } : {}), ...(filters ? { filters: true } : {}) };
     if (view === "drill" && moduleId !== undefined) {
       const module = model?.node(moduleId);
       if (module) return { view: "drill", module: module.name, ...(expanded ? { others: true } : {}), ...drawn };
@@ -1028,6 +1043,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   function takeView(left: MapView | undefined): void {
     if (!model || !left || typeof left !== "object") return;
     access = left.access === true;
+    filters = left.filters === true && filtersDrawable();
     if (left.view === "drill" && typeof left.module === "string") {
       const module = model.modules.find(each => each.name === left.module);
       if (module) {
@@ -1076,7 +1092,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     const had = selected !== undefined;
     selected = node;
     onlyTrace = false;
-    trace = node ? traceNode(onScreen, model, node.index, access) : undefined;
+    trace = node ? traceNode(onScreen, model, node.index, access, filters) : undefined;
     refreshShown();
     renderInspector();
     if (node && traced) announce(traced.sentence);
@@ -1127,12 +1143,12 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   }
 
   /** The module a list, a subset or a list's property stands beside on the map: the module of the first line item it is
-   * linked with, in the order of its links. A link of an access driver counts only while those links are drawn. Nothing
-   * for one that is linked with no line item. */
+   * linked with, in the order of its links. A link of an access driver, or of a page's filter, counts only while those
+   * links are drawn. Nothing for one that is linked with no line item. */
   function besideModule(raw: GraphNode): number | undefined {
     if (!model) return undefined;
     for (const edge of [...model.outgoing(raw.id), ...model.incoming(raw.id)]) {
-      if (isAccess(edge[2]) && !access) continue;
+      if ((isAccess(edge[2]) && !access) || (isFilter(edge[2]) && !filters)) continue;
       const other = model.node(edge[0] === raw.id ? edge[1] : edge[0]);
       const module = other?.kind === "lineItem" ? model.moduleOf(other) : undefined;
       if (module !== undefined) return module;
@@ -1397,6 +1413,11 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
       onlyTrace = false;
       build();
       if (onScreen) announce(`${access ? "Access driver links are drawn." : "Access driver links are not drawn."} ${viewSentence(onScreen, options.modelName)}`);
+    } else if (target === filtersToggle) {
+      filters = filtersToggle.checked && filtersDrawable();
+      onlyTrace = false;
+      build();
+      if (onScreen) announce(`${filters ? "Page filter links are drawn." : "Page filter links are not drawn."} ${viewSentence(onScreen, options.modelName)}`);
     }
   }));
 
