@@ -15,7 +15,7 @@ import { plainRows } from "./result-plain.js";
 import type { AnalysisResult, ResultTable } from "./result-types.js";
 import { getJson, RestError } from "./rest.js";
 import { StompConnection, StompError, type SubscribeOptions } from "./stomp.js";
-import { ANAPLAN_HOST, AT_A_TIME, eachAtMost, fileSafe, list, message, SCOPE_ID, seconds, text, type Obj } from "./util.js";
+import { ANAPLAN_HOST, AT_A_TIME, eachAtMost, fileSafe, list, message, SCOPE_ID, seconds, stepTimes, text, type Obj } from "./util.js";
 
 const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ENTITY_ID = /^[1-9]\d{0,17}$/;
@@ -815,6 +815,9 @@ export async function loadCatalog(scope: ModelScope, pages: readonly UxPageCardD
    * made once, on the host that answers it (after a redirect, the model's own). */
   const listed = new Set<string>();
   let compared: string | undefined;
+  /** How long each step took, from the first: those of the host the socket settled on, after a redirect the model's own. */
+  let time = stepTimes();
+  const began = Date.now();
 
   const moduleIds = new Set<string>();
   for (const ref of refs) {
@@ -855,15 +858,20 @@ export async function loadCatalog(scope: ModelScope, pages: readonly UxPageCardD
       const answers: NameAnswers = { moduleDimensions: [] };
       const reads: SocketReads = { scope, signal, connection, subscribe, settle, halted: () => signal?.aborted === true, ended: () => ended, catalog, listed, notes, progress,
         answers };
+      time = stepTimes();
       const started = Date.now();
       const waiting = setInterval(() => progress.status(`Reading names in ${scope.modelName}: ${Math.round((Date.now() - started) / 1000)} s, `
         + `model status ${status}. A model that is not open can take a few minutes to load…`), 5_000);
       try {
         progress.status(`Reading names in ${scope.modelName}…`);
-        const [views, lists] = await settle(Promise.allSettled([
-          subscribe(`core:/${ws}:${model}/moduleViews`, { body: {}, timeoutMs: LOAD_MS }),
-          subscribe(`core://${ws}:${model}/lists`, { body: {}, timeoutMs: LOAD_MS }),
-        ]));
+        // Connecting is counted with the names: from the first try, a redirect included.
+        const [views, lists] = await time.step("connection and names", async () => {
+          const answered = await settle(Promise.allSettled([
+            subscribe(`core:/${ws}:${model}/moduleViews`, { body: {}, timeoutMs: LOAD_MS }),
+            subscribe(`core://${ws}:${model}/lists`, { body: {}, timeoutMs: LOAD_MS }),
+          ]));
+          return answered;
+        });
         clearInterval(waiting);
         if (views.status === "fulfilled") {
           addModuleViews(catalog, views.value);
@@ -876,10 +884,12 @@ export async function loadCatalog(scope: ModelScope, pages: readonly UxPageCardD
           progress.log(`lists: ${selectionShape(lists.value)}`);
         } else notes.push(`${scope.modelName}: list names were not available (${message(lists.reason)}).`);
         progress.status(`Reading line items in ${scope.modelName}…`);
-        if (exported && compared === undefined) compared = await compareExported(reads, moduleIds, exported);
-        // Only the modules whose line items are not known yet: from the export, or from a read before a redirect.
-        const unknown = [...moduleIds].filter(id => !catalog.lineItemModules.has(id));
-        await settle(eachAtMost(unknown, AT_A_TIME, signal, moduleId => readLineItems(reads, moduleId)));
+        await time.step("line items", async () => {
+          if (exported && compared === undefined) compared = await compareExported(reads, moduleIds, exported);
+          // Only the modules whose line items are not known yet: from the export, or from a read before a redirect.
+          const unknown = [...moduleIds].filter(id => !catalog.lineItemModules.has(id));
+          await settle(eachAtMost(unknown, AT_A_TIME, signal, moduleId => readLineItems(reads, moduleId)));
+        });
         if (exported) {
           const named = [...catalog.lineItems.values()].filter(item => !listed.has(item.moduleId)).length;
           progress.log(`line items: ${named} named from the export, of ${exported.modules.length} modules; ${listed.size} of the ${moduleIds.size} modules the pages use `
@@ -887,12 +897,12 @@ export async function loadCatalog(scope: ModelScope, pages: readonly UxPageCardD
         }
 
         const needs = gridNeeds(pages);
-        await readModuleDimensions(reads, needs.modules);
-        await readItemNames(reads, needs.items);
-        await readViewLayouts(reads, refs);
-        await findFilterLineItems(reads, pages);
-        await readFilterItemNames(reads, pages, needs.modules);
-        await readDimensionNames(reads, pages);
+        await time.step("module dimensions", () => readModuleDimensions(reads, needs.modules));
+        await time.step("item names", () => readItemNames(reads, needs.items));
+        await time.step("saved views", () => readViewLayouts(reads, refs));
+        await time.step("filter line items", () => findFilterLineItems(reads, pages));
+        await time.step("filter item names", () => readFilterItemNames(reads, pages, needs.modules));
+        await time.step("dimension names", () => readDimensionNames(reads, pages));
         // Whatever a rule still holds unnamed, by what the rule's items are: it shows a live run's reader what was not found.
         const unnamed = unnamedFilterRules(pages.flatMap(page => page.cards), catalog);
         for (const line of unnamed.slice(0, MAX_LOGGED)) progress.log(line);
@@ -907,8 +917,9 @@ export async function loadCatalog(scope: ModelScope, pages: readonly UxPageCardD
   }
   signal?.throwIfAborted();
 
-  const actions = await readActionNames(scope, refs, modelHost, catalog, progress, signal);
+  const actions = await time.step("action names", () => readActionNames(scope, refs, modelHost, catalog, progress, signal));
   notes.push(...actions.notes);
+  progress.log(`${time.line()}; names of ${scope.modelName} in all ${seconds(Date.now() - began)}`);
   progress.log(`${scope.modelName}: ${catalog.modules.size} modules, ${catalog.views.size} saved views, ${catalog.dimensions.size} dimensions, `
     + `${catalog.lineItems.size} line items (${listed.size} modules read), ${catalog.actions.size} actions`);
   return { catalog, notes, failedActionTypes: actions.failedActionTypes };
@@ -963,7 +974,9 @@ function appUnread(error: unknown): unknown {
 export async function analyseApp(appGuid: string, progress: Progress, diagnostics: () => string, signal?: AbortSignal): Promise<AnalysisResult> {
   if (!GUID.test(appGuid)) throw new Failure("Open an app first: the address has no app ID.");
   progress.status("Reading the app…");
-  const app = (await getJson(`${DEFINITION}apps/${appGuid}?includeUnpublished=true&includeReportPages=true`, { apiVersion: "2" })
+  /** How long each step took: the log's one line on it comes before the report is built. */
+  const time = stepTimes();
+  const app = (await time.step("app", () => getJson(`${DEFINITION}apps/${appGuid}?includeUnpublished=true&includeReportPages=true`, { apiVersion: "2" }))
     .catch(error => { throw appUnread(error); })) as Obj;
   const appName = text(app?.name) ?? "App";
   const categories = new Map<string, string>();
@@ -979,8 +992,7 @@ export async function analyseApp(appGuid: string, progress: Progress, diagnostic
 
   /** Each page as the report takes it, at the page's place in the app's list, with what its cards are where it was read. */
   const slots: { input: PageInput; details?: UxPageCardDetails }[] = new Array(entries.length);
-  const started = Date.now();
-  await eachAtMost(entries, AT_A_TIME, signal, async (entry, index) => {
+  await time.step(`${entries.length} pages, ${AT_A_TIME} at a time`, () => eachAtMost(entries, AT_A_TIME, signal, async (entry, index) => {
     const pageName = pageNames.get(entry.guid) ?? entry.guid;
     progress.status(`Reading page ${index + 1} of ${entries.length}: ${pageName}`);
     const read = entry.hasPublishedVersion === false ? { state: "Not published" } : await readPublished(entry.guid, declaredType(entry), progress.log);
@@ -1006,8 +1018,7 @@ export async function analyseApp(appGuid: string, progress: Progress, diagnostic
       input.state = `Not analysed: ${message(error)}`;
       slots[index] = { input };
     }
-  });
-  progress.log(`app: ${entries.length} pages read in ${seconds(Date.now() - started)}, ${AT_A_TIME} at a time`);
+  }));
   const inputs: PageInput[] = slots.map(slot => slot.input);
   const described = new Map<PageInput, UxPageCardDetails>(slots.flatMap(slot => (slot.details ? [[slot.input, slot.details] as const] : [])));
 
@@ -1031,7 +1042,8 @@ export async function analyseApp(appGuid: string, progress: Progress, diagnostic
   }
   for (const { scope, inputs: group } of models.values()) {
     signal?.throwIfAborted();
-    const { catalog, notes, failedActionTypes } = await loadCatalog(scope, group.map(input => described.get(input)!), pageNames, progress, signal);
+    const { catalog, notes, failedActionTypes } = await time.step(`names of ${scope.modelName}`,
+      () => loadCatalog(scope, group.map(input => described.get(input)!), pageNames, progress, signal));
     summary.push(...notes);
     for (const input of group) {
       input.details = nameDetails(described.get(input)!, catalog);
@@ -1042,6 +1054,7 @@ export async function analyseApp(appGuid: string, progress: Progress, diagnostic
 
   // Stopped during its last read, the run had nothing left to be stopped before: it ends here, as a stopped run.
   signal?.throwIfAborted();
+  progress.log(time.line());
   progress.status("Building the report…");
   const report = buildReport(inputs);
   const analysed = inputs.filter(input => input.details).length;

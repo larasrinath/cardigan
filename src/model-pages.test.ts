@@ -157,11 +157,13 @@ describe("The pages built on a model", () => {
       [PAGE_A, PAGE_B], [[PAGE_A, "Demand board"], [PAGE_B, "Supply board"]]]);
     expect(use.status).toEqual(["Reading the pages built on this model…", "Reading the pages built on this model: 1 of 2", "Reading the pages built on this model: 2 of 2",
       "Reading the apps of the pages built on this model: 2", "Building the tables of the pages built on this model…"]);
-    // The list's fields are logged, never what they hold.
-    expect(use.log).toEqual(["pages built on the model: 2 entries; their fields: appGuid, guid, name; isPageBuilder true",
-      "pages built on the model: 2 read, 0 unpublished, 0 not read; 2 apps; 4 module usage rows, 2 page filters, 2 page actions"]);
+    // The list's fields are logged, never what they hold; last, how long each read of the step took.
+    const times = (line: string) => line.replace(/\d+\.\d\d s/g, "… s");
+    expect(use.log.map(times)).toEqual(["pages built on the model: 2 entries; their fields: appGuid, guid, name; isPageBuilder true",
+      "pages built on the model: 2 read, 0 unpublished, 0 not read; 2 apps; 4 module usage rows, 2 page filters, 2 page actions",
+      "Time: list of pages … s, 2 pages, 4 at a time … s, 2 apps … s, names … s"]);
     // What the step reported follows the export's own lines in the result's diagnostic log, which the Overview copies.
-    expect(logOf(result)).toEqual([use.status[0], use.log[0], ...use.status.slice(1), use.log[1]]);
+    expect(logOf(result)).toEqual([use.status[0], use.log[0], ...use.status.slice(1), use.log[1], use.log[2]]);
     expect(detailsOf(result).filter(row => row[0] === "Diagnostics").every(row => /^\d{2}:\d{2}:\d{2}$/.test(String(row[1])))).toBe(true);
 
     // Each module in the Modules table's order, by app and page; Factors is named by the export, as the service did not name
