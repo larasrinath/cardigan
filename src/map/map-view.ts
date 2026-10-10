@@ -1366,5 +1366,13 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
       stopWatching();
       root.remove();
     },
+    reveal(node) {
+      if (destroyed || broken || !shown || !model) return false;
+      const raw = graph.nodes[node];
+      if (!raw) return false;
+      navigate(raw);
+      focusDetails();
+      return selected?.raw?.id === raw.id;
+    },
   };
 }
