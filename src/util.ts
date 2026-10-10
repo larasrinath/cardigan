@@ -19,16 +19,19 @@ export const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, 
 export const seconds = (ms: number): string => `${(Math.max(0, ms) / 1000).toFixed(2)} s`;
 
 /** The times of the steps of a run, for one line of the diagnostic log, which a live run's reader looks at first:
- * "Time: names 1.20 s, line items 0.84 s". `step` times what it is given and keeps its time; `line` says them all. */
-export function stepTimes(): { step: <T>(what: string, work: () => Promise<T>) => Promise<T>; line: () => string } {
+ * "Time: names 1.20 s, line items 0.84 s". `step` times what it is given and keeps its time, `took` keeps a time that was
+ * measured otherwise, and `line` says them all, in the order they were kept. */
+export function stepTimes(): { step: <T>(what: string, work: () => Promise<T>) => Promise<T>; took: (what: string, ms: number) => void; line: () => string } {
   const times: string[] = [];
+  const took = (what: string, ms: number): void => { times.push(`${what} ${seconds(ms)}`); };
   return {
     step: async (what, work) => {
       const from = Date.now();
       const done = await work();
-      times.push(`${what} ${seconds(Date.now() - from)}`);
+      took(what, Date.now() - from);
       return done;
     },
+    took,
     line: () => `Time: ${times.join(", ")}`,
   };
 }

@@ -386,8 +386,8 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
       totals]);
     expect(log.at(-1)).toBe(totals);
     // Before the totals, how long each step took, and the model's names in all.
-    expect(log.at(-2)?.replace(/\d+\.\d\d s/g, "… s")).toBe("Time: connection and names … s, line items … s, module dimensions … s, item names … s, saved views … s, "
-      + "filter line items … s, filter item names … s, dimension names … s, action names … s; names of Synthetic model in all … s");
+    expect(log.at(-2)?.replace(/\d+\.\d\d s/g, "… s")).toBe("Time: connection … s, module and list names … s, line items … s, module dimensions … s, item names … s, "
+      + "saved views … s, filter line items … s, filter item names … s, dimension names … s, action names … s; names of Synthetic model in all … s");
   });
 
   it("starts a later run in the tab on the host the model data service sent the model to, and asks nobody else first", async () => {
