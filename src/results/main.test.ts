@@ -4683,7 +4683,7 @@ describe("The buttons at the top right of a row's details that open it in Anapla
     // The tab is asked first, and says it cannot: it goes to the module's address and comes to the front, and so does its
     // window; the details stay open behind it.
     await press("Model");
-    expect(asks()).toEqual([{ type: "open", nonce: expect.any(String), model: OPENS.id, module: "102000000001" }]);
+    expect(asks()).toEqual([{ type: "open", nonce: expect.any(String), model: OPENS.id, object: "102000000001" }]);
     expect([tabUpdates, windowUpdates, drawerOpen()]).toEqual([[[7, { url: link("102000000001"), active: true }]], [[3, { focused: true }]], true]);
     page.key("Escape");
     goTo(2);
@@ -4702,7 +4702,7 @@ describe("The buttons at the top right of a row's details that open it in Anapla
     openRow("Revenue");
     await press("Model");
     // The tab is asked for the module by the model's ID and the module's; it opens it, and is not sent anywhere.
-    expect(asks()).toEqual([{ type: "open", nonce: expect.any(String), model: OPENS.id, module: "102000000001" }]);
+    expect(asks()).toEqual([{ type: "open", nonce: expect.any(String), model: OPENS.id, object: "102000000001" }]);
     expect([tabUpdates, windowUpdates, tabCreates, drawerOpen()]).toEqual([[[7, { active: true }]], [[3, { focused: true }]], [], true]);
     expect(await openedLines()).toEqual(["Opened REV01 Revenue inside the Model Building page: Model Building opened it beside the modules open there."]);
     // Each ask has a nonce of its own.

@@ -51,11 +51,11 @@ if (window.top === window) {
   /** A Model Building page's model is read in its core frame; the classic page's, in this window. */
   const core = () => (MODEL_PATH.test(location.pathname) ? frame : own);
 
-  /** Opens a module of the model inside this Model Building page, beside the modules open there, through the model's core
-   * frame (model/open-module.ts), so that the page does not load afresh. Only where the page shows that model in Model
+  /** Opens a module or a list of the model inside this Model Building page, beside the tabs open there, through the
+   * model's core frame (model/open-object.ts), so that the page does not load afresh. Only where the page shows that model in Model
    * Building, and only through a frame of this build, which knows how: otherwise the results page loads the module's
    * address. A frame that checked in with an earlier copy of this script is greeted, to check in again. */
-  const open = async (model: string, module: string): Promise<Opened> => {
+  const open = async (model: string, object: string): Promise<Opened> => {
     const shown = MODEL_PATH.exec(location.pathname)?.[1];
     if (!shown) return { opened: false, detail: "the tab does not show Model Building" };
     if (shown.toUpperCase() !== model.toUpperCase()) return { opened: false, detail: "the tab shows another model" };
@@ -66,8 +66,8 @@ if (window.top === window) {
     const found = frame;
     if (!found || found.modelId.toUpperCase() !== model.toUpperCase()) return { opened: false, detail: "the model's frame has not checked in" };
     if (found.build !== BUILD) return { opened: false, detail: "the model's frame holds a reader of another build" };
-    return await openInCore(window, found, model, module)
-      ? { opened: true, detail: "Model Building opened it beside the modules open there" }
+    return await openInCore(window, found, model, object)
+      ? { opened: true, detail: "Model Building opened it beside the tabs open there" }
       : { opened: false, detail: "the model's frame did not open it" };
   };
 
