@@ -725,6 +725,42 @@ describe("The results page's script, on the page", () => {
     expect([box.value, page.document.activeElement === box, page.id("rowCount").textContent]).toEqual(["", true, "1–50 of 120 rows"]);
   });
 
+  it("GGMU: has a line for a word typed on the page itself, none for one typed in the search or on the map, and an answer of its own when a search for GGMU finds no row", async () => {
+    await openWith(MODEL);
+    goTo(1);
+    const toastSays = () => page.id("toast").textContent;
+    /** Types each character of a word as a key of its own, where the focus is. */
+    const typeKeys = (word: string) => { for (const key of word) page.key(key); };
+    typeKeys("ggmu");
+    expect([toastSays(), page.id("toast").classList.contains("show")]).toEqual(["Glory Glory Man United", true]);
+    // In the search box the keys are the search's, and say nothing. A search for GGMU that finds no row has its own
+    // answer; the heading, the count and the button that clears the search are as ever.
+    const box = page.id("tblSearch");
+    box.focus();
+    typeKeys("ls21");
+    box.type("GGMU");
+    expect([toastSays(), firstCells(), page.texts("#tableWrap .e-title"), page.texts("#tableWrap .e-sub"), page.id("rowCount").textContent, page.has('#tableWrap [data-act="reset"]')])
+      .toEqual(["Glory Glory Man United", [], ["No results"], ["United all the way."], "No rows (filtered from 120)", true]);
+    // A search that finds rows lists them as ever.
+    box.type("item 119");
+    expect([firstCells(), page.has("#tableWrap .e-sub")]).toEqual([["Line item 119"], false]);
+    // Off the box, the other words have their lines, and each line goes as every line of the toast does.
+    page.id("colBtn").focus();
+    typeKeys("ls21");
+    expect(toastSays()).toBe("LS21 · United all the way");
+    typeKeys("united");
+    expect(toastSays()).toBe("It's Man Utd we are talking about.");
+    typeKeys("saran");
+    expect(toastSays()).toBe("For Saran.");
+    await vi.advanceTimersByTimeAsync(2200);
+    expect(page.id("toast").classList.contains("show")).toBe(false);
+    // On the map the keys are the map's, and say nothing either.
+    choose("map");
+    mapMounts[0].button.focus();
+    typeKeys("ggmu");
+    expect([toastSays(), page.id("toast").classList.contains("show")]).toEqual(["For Saran.", false]);
+  });
+
   it("offers a filter in a model's table on each column that holds few different values, and filters by it", async () => {
     await openWith(MODEL);
     goTo(1);

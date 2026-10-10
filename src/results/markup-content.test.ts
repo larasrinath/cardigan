@@ -291,6 +291,24 @@ describe("What the results page's markup shows", () => {
     expect(parseMarkup(tableHtml(viewOf(CARDS, LINKS, { empty: own }))).textContent.includes("No card of this app")).toBe(false);
   });
 
+  it("GGMU: a search for it that finds no row says United all the way in the rows' place, and every other search as ever", () => {
+    const empty = (overrides: Partial<TableView>) => {
+      const view = parseMarkup(tableHtml(viewOf(CARDS, LINKS, { rows: [], total: 0, from: 0, to: 0, ...overrides })));
+      return [text(view.querySelector(".empty .e-title")), text(view.querySelector(".empty .e-sub")), view.querySelectorAll(".empty [data-act]").map(button => `${button.dataset.act}: ${text(button)}`),
+        text(view.querySelector("#rowCount"))];
+    };
+    const clear = ["reset: Clear search & filters"];
+    // In either case and with space around it. The heading, the button that clears the search and the count are as ever.
+    expect(empty({ search: "GGMU" })).toEqual(["No results", "United all the way.", clear, "No rows (filtered from 3)"]);
+    expect([empty({ search: " ggmu " })[1], empty({ search: "Ggmu", filtered: new Set([3]) }).slice(1, 3)]).toEqual(["United all the way.", ["United all the way.", clear]]);
+    // Any other search says what found nothing, and a table without rows says it has none.
+    expect([empty({ search: "ggmu 99" })[1], empty({ search: "gg mu" })[1]]).toEqual(["Nothing in Cards matches the current search.", "Nothing in Cards matches the current search."]);
+    expect(empty({ all: 0, search: "ggmu" }).slice(0, 2)).toEqual(["Cards has no rows", "Nothing was found for this table in this analysis."]);
+    // A search for it that finds rows lists them, with nothing in their place.
+    const found = parseMarkup(tableHtml(viewOf(CARDS, LINKS, { search: "ggmu" })));
+    expect([found.querySelectorAll("tbody tr").length, found.querySelectorAll(".empty").length, found.textContent.includes("United")]).toEqual([3, 0, false]);
+  });
+
   it("offers Previous and Next, each with the page it goes to and disabled where there is no such page, and no page's number", () => {
     /** Each button of the pager: its words, its name, the page it goes to (from 0), and "off" when it is disabled. */
     const pager = (page: number, pages: number) => parseMarkup(pagerHtml(page, pages, pages * 50, 50)).querySelectorAll(".pg-btn").map(button =>

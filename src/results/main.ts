@@ -9,6 +9,7 @@ import { cellLists, rowItems, type CellList } from "./cell-lists.js";
 import { columnWidths } from "./column-widths.js";
 import { cardsNamed, cardsOf, columnIndex, columnsOf, rowKeys, rowNameIndex, writesNone, type CardsTable, type Column, type RowKeys } from "./columns.js";
 import { describeState, openedJustNow, repairTab, ResultsClient, runLabel, tabIdFrom, withoutOpened, type RunState } from "./connection.js";
+import { listenForWords } from "./easter-eggs.js";
 import { mappingOfRow } from "./import-mapping-view.js";
 import { analysedLine, notKeptNote } from "./keep-notes.js";
 import { ResultKeeper } from "./keep-result.js";
@@ -1312,6 +1313,8 @@ document.addEventListener("keydown", event => {
 document.addEventListener("focusin", event => {
   if (event.target instanceof Element) closeNavMenus(event.target.closest("#topnav .nav-group"));
 });
+// A few words typed on the page itself have a line of their own (easter-eggs.ts). Every key goes on as it would without them.
+listenForWords(document, toast, () => el("mapHost").contains(document.activeElement));
 el("drawerClose").addEventListener("click", closeDrawer);
 // A click beside the drawer, on the scrim, closes it: the scrim is the drawer's alone.
 el("scrim").addEventListener("click", closeDrawer);

@@ -2,6 +2,7 @@ import { MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE } from "../page
 import type { Items } from "./cell-lists.js";
 import { headerWidth, ROW_BUTTON, WIDEST } from "./column-widths.js";
 import { APP_FILES, rowColumns, type Column } from "./columns.js";
+import { noMatchAnswer } from "./easter-eggs.js";
 import type { MappingView } from "./import-mapping-view.js";
 import { LINE_ITEMS_FILE } from "./line-items-view.js";
 import { ACCESS_FILE, MODEL_CALENDAR_FILE, MODULES_FILE, type Analysed, type CardSection, type Overview, type SectionCell } from "./result-view.js";
@@ -601,10 +602,12 @@ export function tableParts(view: TableView): TableParts {
       </div>`;
   } else if (view.total === 0) {
     const what = [...(searching ? ["search"] : []), ...(filtering ? ["column filters"] : []), ...(jumped ? ["page selection"] : [])].join(" and ");
+    // One search has an answer of its own when it finds nothing (easter-eggs.ts); any other says what found nothing.
+    const answer = noMatchAnswer(view.search);
     empty = `<div class="empty">
       <svg width="30" height="30" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" aria-hidden="true">${SEARCH_PATH}</svg>
       <div class="e-title">No results</div>
-      <div class="e-sub">Nothing in ${label} matches the current ${what}.</div>
+      <div class="e-sub">${answer === undefined ? `Nothing in ${label} matches the current ${what}.` : esc(answer)}</div>
       <button type="button" class="btn sm" data-act="reset">Clear search &amp; filters</button>
       </div>`;
   } else {
