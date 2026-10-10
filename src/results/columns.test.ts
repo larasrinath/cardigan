@@ -203,7 +203,7 @@ describe("The results page's columns", () => {
     expect(columnsOf(table("Line Items.csv", headers)).some(column => column.filter)).toBe(false);
   });
 
-  it("offers a filter past thirty texts where they repeat, but not on a row's name, free text, an ID, a measure, numbers or dates, or texts each in one row", () => {
+  it("offers a filter past thirty texts where they repeat, but not on a row's name, free text, an ID or texts each in one row; numbers and dates have a range", () => {
     expect([FREE_TEXT, MEASURES]).toEqual([["Formula", "Notes", "Text content", "Description"], ["Cell Count", "Populated Cell Count", "Memory Used", "Calculation Effort",
       "Item Count", "Next item index", "Most recent duration (ms)", "Start Date and Time (UTC)", "Last published"]]);
     const pad = (number: number) => String(number).padStart(2, "0");
@@ -213,9 +213,9 @@ describe("The results page's columns", () => {
       "": row => `Line ${row % 45}`,
       // Forty modules, each in several rows: the filter lists them.
       "Module Name": row => `Module ${row % 40}`,
-      // Free text, an ID and a measure, each by its header, with forty texts that repeat.
+      // Free text, an ID and a measure, each by its header, with forty texts that repeat. The measure holds numbers.
       Formula: row => `Units * ${row % 40}`, Notes: row => `Note ${row % 40}`, "Line item ID": row => `li-${row % 40}`, "Cell Count": row => String(row % 40),
-      // Numbers, a share and dates, by what they hold, under headers the page knows nothing of.
+      // Numbers, a share and dates, by what they hold, under headers the page knows nothing of: each is filtered by a range.
       Size: row => String(1000 + (row % 40)), Share: row => `${(row % 40) / 10}%`, Started: row => `2026-${pad(1 + (row % 12))}-${pad(1 + (row % 28))}`,
       // Codes, each in one row, beside blanks: the blank says nothing, so nothing that says something repeats.
       Code: row => (row % 3 ? "" : `C${row}`),
@@ -228,19 +228,61 @@ describe("The results page's columns", () => {
     const lineItems: ResultTable = { ...table("Line Items.csv", headers), rows: Array.from({ length: 90 }, (_, row) => headers.map(header => cells[header](row))) };
     const listed = new Map([[headers.indexOf("Applies To"), (text: string) => text.split(", ")]]);
     expect(Object.fromEntries(columnsOf(lineItems, listed).map(column => [column.label, column.filter]))).toEqual({
-      Name: false, "Module Name": true, Formula: false, Notes: false, "Line item ID": false, "Cell Count": false, Size: false, Share: false, Started: false, Code: false,
+      Name: false, "Module Name": true, Formula: false, Notes: false, "Line item ID": false, "Cell Count": true, Size: true, Share: true, Started: true, Code: false,
       "Applies To": true, "Is Summary": true, Few: true });
+    // The measure, the numbers, the share, the dates and the few figures are each filtered by a range; nothing else is.
+    expect(Object.fromEntries(columnsOf(lineItems, listed).filter(column => column.range).map(column => [column.label, column.range])))
+      .toEqual({ "Cell Count": "number", Size: "number", Share: "number", Started: "date", Few: "number" });
     // Read whole, each cell of Applies To stands in one row alone: it is the list's items that repeat.
     expect(columnsOf(lineItems).find(column => column.label === "Applies To")?.filter).toBe(false);
     // With thirty texts or fewer, each of them offers a filter, as it always did: a name, free text, an ID and a measure too.
     const few: ResultTable = { ...lineItems, rows: lineItems.rows.map(row => row.map(cell => cellText(cell).replace(/\d+/g, digits => String(Number(digits) % 3)))) };
     expect(columnsOf(few, listed).filter(column => !column.filter).map(column => column.label)).toEqual([]);
-    // In an app's table, a column the design shows as a number keeps to thirty texts, and any other column of many texts
-    // that repeat offers one: a button's action, beside its card's number.
+    // In an app's table, any column of many texts that repeat offers a list to tick, a button's action; its card's number,
+    // a number in each of ninety rows, is filtered by a range.
     const actions: ResultTable = { ...appTable("Action Buttons.csv"), rows: Array.from({ length: 90 }, (_, row) => HEADERS.Actions.map(header =>
       (header === "Card #" ? row : header === "Model action name" ? `Action ${row % 40}` : header === "Page" ? "Overview" : "-"))) };
-    const offered = columnsOf(actions).filter(column => column.filter).map(column => column.label);
-    expect([offered.includes("Model action name"), offered.includes("Card #")]).toEqual([true, false]);
+    const offered = columnsOf(actions).filter(column => column.filter).map(column => [column.label, column.range ?? "list"]);
+    expect([offered.find(([label]) => label === "Model action name"), offered.find(([label]) => label === "Card #")]).toEqual([["Model action name", "list"], ["Card #", "number"]]);
+  });
+
+  it("filters a column of numbers or of dates by a range rather than a list to tick: figures, counts, measures, a card's number, a date", () => {
+    // Source Models: five sources, whose Sources and Imports are figures. A list of 9, 10, 12 and 113 to tick says less than a range.
+    const sources: ResultTable = { ...table("Source Models.csv", ["", "Sources", "Imports", "Mapped To"]),
+      rows: [["Model A", "113", "113", "Products"], ["Model B", "10", "10", "Regions"], ["Model C", "10", "10", "Products"], ["Model D", "12", "14", "Time"], ["Model E", "9", "9", "Regions"]] };
+    expect(columnsOf(sources).map(column => [column.label, column.filter, column.range])).toEqual([
+      ["Name", true, undefined], ["Sources", true, "number"], ["Imports", true, "number"], ["Mapped To", true, undefined]]);
+    // An action's start, in UTC, and how long it last took, its thousands apart: a date and a number, by what they hold.
+    const actions: ResultTable = { ...table("Imports.csv", ["", "Start Date and Time (UTC)", "Most recent duration (ms)", "Source Type"]),
+      rows: [["Load", "2026-03-12 23:19:56", "1,582", "FILE"], ["Sort", "2026-03-13 08:00:00", "40", "FILE"], ["Copy", "", "", "MODEL"]] };
+    expect(columnsOf(actions).map(column => column.range)).toEqual([undefined, "date", "number", undefined]);
+    // In an app's files: a page's cards, a count, and when it was last published, where the dash says that it never was; a
+    // card's number, which the design shows as a number and a link.
+    const pages: ResultTable = { ...appTable("Pages.csv"), rows: [["App", "Overview", 12, "2026-10-01"], ["App", "Detail", 4, "-"]].map(([app, page, total, published]) =>
+      HEADERS.Pages.map(header => (header === "App" ? app : header === "Page" ? page : header === "Total cards" ? total : header === "Last published" ? published : "-"))) };
+    expect(Object.fromEntries(columnsOf(pages).filter(column => column.range).map(column => [column.label, column.range]))).toEqual({ "Total cards": "number", "Last published": "date" });
+    const cards: ResultTable = { ...appTable("Cards.csv"), rows: [1, 2, 3].map(number => HEADERS.Cards.map(header => (header === "Card #" ? number : header === "Card title" ? `Card ${number}` : "-"))) };
+    expect(columnsOf(cards).find(column => column.label === "Card #")).toMatchObject({ kind: "card", num: true, hidden: true, filter: true, range: "number" });
+  });
+
+  it("filters no row's name, ID, code or list of items by a range, and needs two texts, a blank among them, as any filter does", () => {
+    const rows = (...cells: string[][]) => cells;
+    const headers = ["", "Line item ID", "Code", "Parts", "Only", "Once", "Mixed", "Zeros"];
+    const lineItems: ResultTable = { ...table("Line Items.csv", headers), rows: rows(
+      ["101", "102000000001", "11", "1, 2", "5", "5", "7", "0040"],
+      ["202", "102000000002", "12", "3", "5", "", "seven", "0041"],
+      ["303", "102000000003", "13", "4, 5", "5", "", "8", "0042"]) };
+    const listed = new Map([[headers.indexOf("Parts"), (text: string) => text.split(", ")]]);
+    // The row's name, an ID and a code are figures here, and none of them a range; a list's items are ticked one by one; a
+    // column of one figure has nothing to choose, and one figure beside blanks keeps or leaves out the blanks; figures beside
+    // a word, and figures that begin with a zero, which are codes, are ticked.
+    expect(columnsOf(lineItems, listed).map(column => [column.label, column.filter, column.range ?? "list"])).toEqual([
+      ["Name", true, "list"], ["Line item ID", true, "list"], ["Code", true, "list"], ["Parts", true, "list"], ["Only", false, "list"], ["Once", true, "number"],
+      ["Mixed", true, "list"], ["Zeros", true, "list"]]);
+    // A column of IDs by the design's choice is no range either, whatever it holds.
+    const pages: ResultTable = { ...appTable("Pages.csv"), rows: [1, 2].map(at => HEADERS.Pages.map(header => (header === "Page" ? `Page ${at}` : header === "Page ID" ? String(at) : "-"))) };
+    expect(columnsOf(pages).find(column => column.label === "Page ID")).toMatchObject({ kind: "id", filter: true });
+    expect(columnsOf(pages).find(column => column.label === "Page ID")?.range).toBeUndefined();
   });
 
   it("always offers a filter on the data type of a line item's format, which the page adds to a model's Line Items, however many texts it holds", () => {

@@ -2,7 +2,7 @@ import { FILTER_USES, MODEL_PAGE_FILES, MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PA
 import type { TabName } from "../report.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
 import { FORMAT_TYPE, LINE_ITEMS_FILE } from "./line-items-view.js";
-import { cellText, filterItems, type ItemsOf, type Row } from "./table-engine.js";
+import { cellText, dayOf, filterItems, numberOf, saysNothing, type ItemsOf, type RangeKind, type Row } from "./table-engine.js";
 
 /** The names of an app export's files, by the report table each holds. The analysis writes its files under these names
  * (analyse.ts), and whatever the page knows about one of them, here or in result-view.ts, is keyed by a name from this
@@ -20,7 +20,8 @@ export const APP_FILES: Record<TabName, string> = {
  * built on a model are shown as the app's tables they are made from (`PAGE_FILE_CHOICES`). A file or a header that is
  * not listed here gets a plain text column. In any file, almost every column offers a filter by what it holds as well
  * (`offersFilter`): one with a few different texts always, and one with many unless it is a row's name or a code, free
- * text, an ID or a measure. A column whose cells list items is filtered by each item.
+ * text, an ID or a measure. A column whose cells list items is filtered by each item. A column of numbers or of dates is
+ * filtered by a range, from one to another, rather than by a list of its values to tick (`rangeOf`).
  *
  * Two kinds of column start hidden in every one of the app's tables: the IDs, and what only numbers a row's place, a
  * card's number and a section's (`NUMBERS_HIDDEN`). A row says where it belongs in words, by its page and its card's
@@ -42,8 +43,11 @@ export interface Column {
   kind: ColumnKind;
   /** Right-aligned, as the design shows numbers. */
   num: boolean;
-  /** Offers a filter on its values: by the design's choice, or by what it holds (`offersFilter`). */
+  /** Offers a filter on its values: by the design's choice, or by what it holds (`offersFilter`, `rangeOf`). */
   filter: boolean;
+  /** For a column of numbers or of dates: its filter is a range of that kind, from one value to another, and no list of
+   * values to tick (`rangeOf`). */
+  range?: RangeKind;
   /** Hidden until chosen in the column chooser. */
   hidden: boolean;
   /** Whether the dash alone in a cell (table-engine.ts `NONE`) says that there is nothing, as the page shows it, greyed: so
@@ -160,8 +164,9 @@ export const FILTER_MAX = 30;
 export const FREE_TEXT: readonly string[] = ["Formula", "Notes", "Text content", "Description"];
 /** The columns of a model's grids and of an app's files that hold a measure, a time or a running number, whatever the
  * cells look like: a module's or a line item's cells and memory, the work a line item takes, a list's items and its next
- * index, how long an action last took and when it started, and when a page was last published. With more than thirty
- * texts such a column offers no filter: a list of thousands of numbers to tick helps nobody. */
+ * index, how long an action last took and when it started, and when a page was last published. Such a column never offers
+ * a list to tick past thirty texts: a list of thousands of numbers helps nobody. Where its cells are numbers or dates, it
+ * is filtered by a range (`rangeOf`), as any such column is. */
 export const MEASURES: readonly string[] = ["Cell Count", "Populated Cell Count", "Memory Used", "Calculation Effort", "Item Count", "Next item index",
   "Most recent duration (ms)", "Start Date and Time (UTC)", "Last published"];
 
@@ -196,11 +201,41 @@ function offersFilter(rows: readonly Row[], index: number, items: ItemsOf | unde
 
 /** Whether a column may offer a filter past thirty texts: every column but the row's own name, which a model's grid
  * leaves unnamed in its first place and the search serves; free text; an ID; a number, as a count or as what the design
- * shows as a number; and a measure. Those offer one only as any column with few texts does. */
+ * shows as a number; and a measure. Those offer one only as any column with few texts does, or a range (`rangeOf`). */
 function wideFilter(header: string, index: number, choice: Choice): boolean {
   if (index === 0 && header === "") return false;
   if (FREE_TEXT.includes(header) || MEASURES.includes(header) || / IDs?$/.test(header)) return false;
   return choice.kind !== "id" && choice.kind !== "count" && choice.num !== true;
+}
+
+/** The columns whose numbers name a thing rather than measure it, by their header: a list item's or an action's code.
+ * Like an ID, such a number is found by the search and never filtered by a range. */
+const CODES: readonly string[] = ["Code"];
+
+/** Whether a column is filtered by a range, and of what (table-engine.ts `RangeKind`): one whose every cell that says
+ * something is a number (`numberOf`), or every such cell a date (`dayOf`), with two different texts at least, a cell that
+ * says nothing among them. A list of such values to tick says nothing a range does not say better: the Sources and Imports
+ * of Source Models, a module's Cell Count, an action's start, a card's number. Never a range: the row's own name, an ID, a
+ * code, free text, a column whose cells list items, and what the design shows as a tag, a page or colours. The rows are
+ * read until a text is neither a number nor a date, which a column of words shows at once. */
+function rangeOf(rows: readonly Row[], index: number, header: string, choice: Choice, none: boolean, listed: boolean): RangeKind | undefined {
+  if ((index === 0 && header === "") || listed || / IDs?$/.test(header) || CODES.includes(header) || FREE_TEXT.includes(header)) return undefined;
+  if (choice.kind === "id" || choice.kind === "tag" || choice.kind === "page" || choice.kind === "colours") return undefined;
+  let numbers = true;
+  let dates = true;
+  let says = false;
+  const texts = new Set<string>();
+  for (const row of rows) {
+    const text = cellText(row[index]);
+    if (texts.size < FILTER_MIN) texts.add(text);
+    if (saysNothing(text, none)) continue;
+    says = true;
+    if (numbers && numberOf(text) === undefined) numbers = false;
+    if (dates && dayOf(text) === undefined) dates = false;
+    if (!numbers && !dates) return undefined;
+  }
+  if (!says || texts.size < FILTER_MIN) return undefined;
+  return numbers ? "number" : "date";
 }
 
 /** A table's columns, in the order of its headers. The rows must be complete: which columns offer a filter depends on them.
@@ -212,8 +247,9 @@ export function columnsOf(table: ResultTable, lists?: ReadonlyMap<number, ItemsO
     const header = cellText(value);
     const choice = choices?.get(header) ?? {};
     const label = header !== "" ? header : index === 0 ? "Name" : `Column ${index + 1}`;
-    const filter = choice.filter === true || offersFilter(table.rows, index, lists?.get(index), wideFilter(header, index, choice));
-    return { index, label, kind: choice.kind ?? "text", num: choice.num === true, filter, hidden: choice.hidden === true, none };
+    const range = rangeOf(table.rows, index, header, choice, none, lists?.has(index) === true);
+    const filter = range !== undefined || choice.filter === true || offersFilter(table.rows, index, lists?.get(index), wideFilter(header, index, choice));
+    return { index, label, kind: choice.kind ?? "text", num: choice.num === true, filter, ...(range ? { range } : {}), hidden: choice.hidden === true, none };
   });
 }
 
