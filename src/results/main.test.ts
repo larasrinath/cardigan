@@ -4854,7 +4854,8 @@ describe("The buttons at the top right of a row's details that open it in Anapla
     page.key("Escape");
     choose(String(WITH_PAGES.tables.findIndex(table => table.file === PAGE_ACTIONS_FILE)));
     openRow("Import prices");
-    expect(opens()).toEqual([["App", `Open the app Planning ${TAG} in Anaplan`], ["Page", "Open the page Cost report in Anaplan"]]);
+    // The model's action is on the Actions page of Model Building.
+    expect(opens()).toEqual([["Model", "Open Actions in Model Building"], ["App", `Open the app Planning ${TAG} in Anaplan`], ["Page", "Open the page Cost report in Anaplan"]]);
     await press("Page");
     expect([tabUpdates.length, tabCreates]).toEqual([2, [[{ url: `${ORIGIN}/a/apps/app/${APP}/reports/${REPORT}`, active: true, index: OWN_TAB.index + 1, openerTabId: OWN_TAB.id }]]]);
   });
@@ -4866,7 +4867,8 @@ describe("The buttons at the top right of a row's details that open it in Anapla
     await openModel(earlier);
     choose(String(earlier.tables.findIndex(table => table.file === PAGE_ACTIONS_FILE)));
     openRow("Import prices");
-    expect([opens(), why()]).toEqual([[], "This result has no IDs for its apps and pages: an earlier version of Cardigan read it. Choose Run again to open them from here."]);
+    expect([opens(), why()]).toEqual([[["Model", "Open Actions in Model Building"]],
+      "This result has no IDs for its apps and pages: an earlier version of Cardigan read it. Choose Run again to open them from here."]);
   });
 
   it("opens one tab in the place of the Anaplan tab once that is closed, and every later address in that one", async () => {
@@ -4987,6 +4989,57 @@ describe("The buttons at the top right of a row's details that open it in Anapla
     // Time is no list of the model's: no button for it.
     row(2);
     expect(opens().map(([label]) => label)).toEqual(["Condition module", "Filtered module", "App", "Page"]);
+  });
+
+  it("opens the Model Building page each table of the model's settings is on, by its address in the model's tab: Time, Versions, Line Item Subsets, Actions, Source Models", async () => {
+    const one = (file: string, first: string): ResultTable => ({ file, label: file.replace(/\.csv$/, ""), guard: false, headers: ["", "Notes"], rows: [[first, "Kept"]] });
+    const pages: [file: string, row: string, page: string, id: string][] = [["Time Ranges.csv", "FY24 range", "Time", "9000000001"], ["Versions.csv", "Actual", "Versions", "9000000002"],
+      ["Line Item Subsets.csv", "Cost lines", "Line Item Subsets", "-5"], ["Processes.csv", "Nightly load", "Actions", "-19"], ["Imports.csv", "Prices from the hub", "Actions", "-19"],
+      ["Exports.csv", "Plan export", "Actions", "-19"], ["Other Actions.csv", "Order regions", "Actions", "-19"], ["Import Data Sources.csv", "Hub data", "Actions", "-19"],
+      ["Source Models.csv", "Hub", "Source Models", "-13"]];
+    const calendar = WITH_CALENDAR.tables.find(each => each.file === "Model Calendar.csv")!;
+    const SETTINGS: AnalysisResult = { ...OPENS, tables: [...OPENS.tables, calendar, ...pages.map(([file, row]) => one(file, row))] };
+    await openModel(SETTINGS);
+    for (const [file, row, name, id] of pages) {
+      table(SETTINGS, file);
+      openRow(row);
+      expect(opens(), file).toEqual([["Model", `Open ${name} in Model Building`]]);
+      await press("Model");
+      expect(tabUpdates.at(-1), file).toEqual([7, { url: link(id), active: true }]);
+      page.key("Escape");
+    }
+    // Model Calendar is on the Time page too.
+    table(SETTINGS, "Model Calendar.csv");
+    page.all('#tableWrap tbody [data-act="row"]')[0].press();
+    expect(opens()).toEqual([["Model", "Open Time in Model Building"]]);
+    // A page is opened by its address alone: the tab is asked to open nothing inside its page, and the log says the page.
+    expect([asks(), (await openedLines()).at(-1)]).toEqual([[], "Opened the Source Models page by its address in the Anaplan tab Cardigan read, which loads Model Building afresh."]);
+  });
+
+  it("opens a Dynamic Cell Access row's two modules, the driver's and the controlled one, one Model where they are one", async () => {
+    const access: ResultTable = { file: "Dynamic Cell Access.csv", label: "Dynamic Cell Access", guard: false,
+      headers: ["Driver Module", "Driver Line Item", "Access", "Controlled Module", "Controlled Line Item"],
+      rows: [["REV01 Revenue", "Open", "Write", "COST01 Costs", "Units"], ["REV01 Revenue", "Locked", "Read", "REV01 Revenue", "Price"]] };
+    const ACCESS: AnalysisResult = { ...OPENS, tables: [...OPENS.tables, access] };
+    await openModel(ACCESS);
+    table(ACCESS, "Dynamic Cell Access.csv");
+    const rows = () => page.all('#tableWrap tbody [data-act="row"]');
+    rows()[0].press();
+    expect(opens()).toEqual([["Driver module", "Open REV01 Revenue in Model Building"], ["Controlled module", "Open COST01 Costs in Model Building"]]);
+    await press("Controlled module");
+    expect(tabUpdates.at(-1)).toEqual([7, { url: link("102000000002"), active: true }]);
+    page.key("Escape");
+    rows()[1].press();
+    expect(opens()).toEqual([["Model", "Open REV01 Revenue in Model Building"]]);
+  });
+
+  it("says why no settings page opens where neither the result nor the tab says where the model is", async () => {
+    const versions: ResultTable = { file: "Versions.csv", label: "Versions", guard: false, headers: ["", "Notes"], rows: [["Actual", "Kept"]] };
+    const SETTINGS: AnalysisResult = { ...OPENS, tables: [...OPENS.tables, versions] };
+    await openModel(SETTINGS, { kind: "model", id: OPENS.id });
+    table(SETTINGS, "Versions.csv");
+    openRow("Actual");
+    expect([opens(), why()]).toEqual([[], "To open modules, apps and pages from here, open the model in Model Building, then click the Cardigan icon on that tab."]);
   });
 
   it("opens apps and pages in a tab of their own after the results page, every later one in that tab, and never sends the model's tab to an app", async () => {

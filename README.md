@@ -43,6 +43,22 @@ Then it reads the pages built on the model, in every app you can open, and makes
   - **Model** opens the row's module or list in Model Building: a line item opens its module, since Model Building opens modules, not single line items, and a row of **General Lists** opens its list. In **Page Filters**, **Condition module** and **Filtered module** open the filter's two modules, or one **Model** button where they are the same, and **Filtered list** opens the list the filtered dimension is, or the list of a subset. Where the Anaplan tab shows the model in Model Building, the module or the list opens there beside the tabs already open, as Model Building's own Modules list and General Lists open one, and the page does not load again. Anywhere else, the object's own link is loaded, which opens the model with that module or list alone. As in Model Building itself, a list opens only for a workspace administrator; to anyone else Anaplan says that it cannot find it.
   - **App** and **Page** open the app and the page in Anaplan, from **Module Usage**, **Page Filters** and **Page Actions**.
 
+  What **Model** opens, from each of a model's tables:
+
+  | Table | Model opens |
+  | --- | --- |
+  | Modules, Line Items, Module Usage | the module |
+  | Dynamic Cell Access | the driver's module and the controlled module (**Driver module**, **Controlled module**), or one **Model** where they are one |
+  | General Lists | the list |
+  | Page Filters | the condition line item's module and the filtered module, and the filtered dimension's list (**Filtered list**) |
+  | Model Calendar, Time Ranges | the Time page |
+  | Versions | the Versions page |
+  | Line Item Subsets | the Line Item Subsets page |
+  | Processes, Imports, Exports, Other Actions, Import Data Sources, Page Actions | the Actions page |
+  | Source Models | the Source Models page |
+
+  A page of the model's settings opens by its Model Building address, which loads Model Building afresh, and as a whole: its address does not say which row to select, and Model Building opens such a page inside itself through no way Cardigan can ask for.
+
   A button's title names what it opens, and only the buttons whose place is known are there. Modules and lists open in the Anaplan tab Cardigan read, which comes to the front with its window. Apps and pages open in a tab of their own: the first **App** or **Page** opens a new tab next to this page, and every later one uses that tab. No tab opens for each click, and the details stay open here. If the Anaplan tab has been closed, the first module or list opens one tab in its place, and every later one uses that; a closed tab of apps and pages is replaced the same way. A refresh of this page keeps both. Where the result keeps every row from a way to open it, as one an earlier version read, a line under the details' header says why. The Anaplan tab never goes to an app, so **Run again** reads the model again. A model tab that was open before an update of Cardigan loads the object's link the first time, which also gives it the update's reader; from then on modules and lists open beside the tabs already open.
 - **Dynamic Cell Access** lists each access driver with the line items it controls, one row per use, marked **Read** or **Write**. It is made from the **Read Access Driver** and **Write Access Driver** columns of Line Items, which name a driver only on the line item it controls.
 - The page says a format, a summary or an action's definition in words, such as "Number, 2 decimal places", "List: Products" or "Delete from Products using Selection". Click the row to see the definition as it was read, under **Format as read**, **Summary as read** or **Action as read**.
