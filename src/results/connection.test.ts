@@ -706,6 +706,20 @@ describe("A tab whose content script does not answer", () => {
     expect(loading.ports[1].posted).toEqual([RUN]);
   });
 
+  it("reads a tab that answers on the very last try, as one that answers at once: the page gives up only after it", async () => {
+    const waits: number[] = [];
+    const { client, ports, phases, log } = page({ repair: async () => ({ put: false }), retries: { count: 2, pauseMs: 500 }, wait: async ms => { waits.push(ms); } });
+    client.start();
+    for (let attempt = 0; attempt < 2; attempt++) { ports[attempt].drop(); await settle(); }
+    // Both tries after the first are used, and the page has not given up: the third port is the last one it opens.
+    expect([ports.length, waits, client.state.phase]).toEqual([3, [500, 500], "connecting"]);
+    ports[2].send({ type: "subject", subject: MODEL });
+    expect(ports[2].posted).toEqual([RUN]);
+    expect(phases()).toEqual(["connecting", "connecting", "connecting", "running"]);
+    // The run starts its own log: nothing says the tab could not be reached.
+    expect(log()).toEqual([]);
+  });
+
   it("drops the tries of a connection the run control has replaced", async () => {
     let finish: (repair: Repair) => void = () => undefined;
     const { client, ports, phases } = page({ repair: () => new Promise<Repair>(resolve => { finish = resolve; }), retries: { count: 3, pauseMs: 500 }, wait: now });

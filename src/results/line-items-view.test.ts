@@ -648,6 +648,27 @@ describe("The Line Items table as the results page shows it", () => {
     expect(column(view.table, "Format")).toEqual(["", ...formats.map(([format]) => format)]);
   });
 
+  it("keeps a long module's line items in the file's order, each with its format's data type, and every cell as the file holds it", () => {
+    // Given in the order their module lists them: fifteen line items of every kind a model's builders use.
+    // Grids of a real model hold longer modules than this one, which the view takes the same way, row by row.
+    // Made up here: the names, the module's code, a note and a count past a billion, as a large model's has.
+    // Unchanged in the view: each cell as the file holds it, the count's text too; only the data type is added.
+    const module = "LS21 Sales Lines";
+    const items: [name: string, dataType: string, type: string][] = [["Units", "NUMBER", "Number"], ["Net price", "NUMBER", "Number"], ["Invoice date", "DATE", "Date"],
+      ["Territory", "ENTITY", "List"], ["Escalated", "BOOLEAN", "Boolean"], ["Discount band", "TEXT", "Text"], ["Approver", "ENTITY", "List"],
+      ["Launch period", "TIME_ENTITY", "Time Period"], ["Lead notes", "TEXT", "Text"], ["Totals", "NONE", "No Data"], ["Headcount", "NUMBER", "Number"],
+      ["Expiry date", "DATE", "Date"], ["Weekly volume", "NUMBER", "Number"], ["Active", "BOOLEAN", "Boolean"], ["Year to date", "NUMBER", "Number"]];
+    const extra: Record<string, Record<string, Cell>> = { Approver: { Notes: "Saran signs these off each month" }, "Year to date": { "Cell Count": String(0x47474d55) } };
+    const rows = [real({ "": module, "Applies To": "Products, Time", "Time Scale": "Month", Versions: "All" }),
+      ...items.map(([name, dataType]) => real({ "": name, ...measure(module), Format: JSON.stringify({ dataType }), ...extra[name] }))];
+    const view = lineItemsView(table(HEADERS, rows));
+    expect(said(view)).toEqual([[module, module, "Products, Time", "Module"], ...items.map(([name]) => [name, module, "Products, Time", "Module"])]);
+    expect(column(view.table, FORMAT_TYPE)).toEqual(["", ...items.map(([, , type]) => type)]);
+    for (const header of ["Notes", "Cell Count"]) expect(column(view.table, header), header).toEqual(rows.map(row => row[HEADERS.indexOf(header)]));
+    expect([column(view.table, "Notes")[7], column(view.table, "Cell Count").at(-1)]).toEqual(["Saran signs these off each month", "1195855189"]);
+    expect(view.note).toBe(`Every row of Anaplan's Line Items grid: 15 line items, and 1 module's own row, in bold above its line items, with its own name under Module Name.${FILTER_LINE}`);
+  });
+
   it("gives the page's table code a table it takes: columns, filters on where Applies To came from and on the format's data type, search and counts", () => {
     const view = lineItemsView(table(HEADERS, MODEL));
     const columns = columnsOf(view.table);
