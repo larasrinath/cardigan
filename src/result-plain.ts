@@ -1,4 +1,4 @@
-import type { AnalysisResult, Cell, ResultTable } from "./result-types.js";
+import type { AnalysisResult, Cell, ImportMapping, MappedSource, MappedTarget, ResultTable } from "./result-types.js";
 
 /** A result leaves the place that made it as plain data: a window message from the model's core frame, then JSON on the port
  * to the results page. These keep it to what both carry unchanged, so a table is the same on either side, cell for
@@ -34,6 +34,38 @@ function readModuleIds(value: unknown): [string, string][] | undefined {
   return pairs;
 }
 
+/** What feeds a target of an import, by the result's word for it (result-types.ts `MappedSource`). */
+const SOURCES: ReadonlySet<string> = new Set<MappedSource>(["column", "constant", "prompt", "ignore", "headerRow", "none", "other"]);
+
+/** One target of an import's mapping, every field checked, or nothing when anything else is there. */
+function readTarget(value: unknown): MappedTarget | undefined {
+  const target = value as Partial<MappedTarget> | null;
+  if (!target || typeof target !== "object" || typeof target.target !== "string" || typeof target.source !== "string" || !SOURCES.has(target.source)
+      || (target.column !== undefined && !(Number.isSafeInteger(target.column) && target.column >= 1)) || (target.text !== undefined && typeof target.text !== "string")) return undefined;
+  return { target: target.target, source: target.source, ...(target.column !== undefined ? { column: target.column } : {}), ...(target.text !== undefined ? { text: target.text } : {}) };
+}
+
+/** A model's imports from a file with their mappings (result-types.ts `ImportMapping`), every field checked, or nothing when
+ * anything else is there. As for the modules' IDs, a result is not refused for them: the page only shows no mapping. The
+ * results page checks a result's mappings so too before it shows one, whoever kept the result. */
+export function readImportMappings(value: unknown): ImportMapping[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const mappings: ImportMapping[] = [];
+  for (const entry of Array.from(value as unknown[])) {
+    const mapping = entry as Partial<ImportMapping> | null;
+    if (!mapping || typeof mapping !== "object" || typeof mapping.id !== "string" || !/^\d{0,19}$/.test(mapping.id) || typeof mapping.name !== "string"
+        || typeof mapping.importType !== "string" || !Array.isArray(mapping.targets) || (mapping.note !== undefined && typeof mapping.note !== "string")) return undefined;
+    const targets: MappedTarget[] = [];
+    for (const item of Array.from(mapping.targets as unknown[])) {
+      const target = readTarget(item);
+      if (!target) return undefined;
+      targets.push(target);
+    }
+    mappings.push({ id: mapping.id, name: mapping.name, importType: mapping.importType, targets, ...(mapping.note !== undefined ? { note: mapping.note } : {}) });
+  }
+  return mappings;
+}
+
 /** Lists are read entry by entry (Array.from), so a hole counts as an entry that is not there: `every` would pass over it. */
 function readResult(value: unknown): AnalysisResult | undefined {
   const data = value as Partial<AnalysisResult> | null;
@@ -50,7 +82,9 @@ function readResult(value: unknown): AnalysisResult | undefined {
       ...(table.details === true ? { details: true as const } : {}) });
   }
   const moduleIds = data.kind === "model" ? readModuleIds(data.moduleIds) : undefined;
-  return { kind: data.kind, name: data.name, id: data.id, zipName: data.zipName, tables, summary: Array.from(data.summary, textOf), ...(moduleIds ? { moduleIds } : {}) };
+  const importMappings = data.kind === "model" ? readImportMappings(data.importMappings) : undefined;
+  return { kind: data.kind, name: data.name, id: data.id, zipName: data.zipName, tables, summary: Array.from(data.summary, textOf), ...(moduleIds ? { moduleIds } : {}),
+    ...(importMappings ? { importMappings } : {}) };
 }
 
 /** A result received from another window, with every field checked before use and nothing else kept; undefined when it is

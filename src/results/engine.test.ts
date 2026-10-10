@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DETAILS_FILE, TAB_FILES } from "../analyse.js";
 import { APP_ZIP_REWORDED, MODEL_ZIP_AS_NAMED, ZIPPED_AT } from "../golden-0.6.1.test-support.js";
-import { ACCESS_GRIDS, ACCESS_READS_0_8_1, ACCESS_ZIP_0_8_1, ACCESS_ZIP_WITH_FILE } from "../golden-0.8.1.test-support.js";
+import { ACCESS_GRIDS, ACCESS_READS_0_8_1, ACCESS_ZIP_0_8_1, ACCESS_ZIP_WITH_FILE, MAPPINGS_ADDED, withMappingsRead, withMappingsSaid } from "../golden-0.8.1.test-support.js";
 import { buildModelGraph } from "../map/build-graph.js";
 import { againstMap } from "../model/access.test-support.js";
 import { Failure, firstLine } from "../progress.js";
@@ -212,6 +212,11 @@ describe("The results page against the engine in the Anaplan tab", () => {
     // IMPORTS_ROW_REWORDED, MODEL_FILE_ADDED and MODEL_ROW_ADDED in golden-0.6.1.test-support.ts).
     expect(files(resultZip(result, ZIPPED_AT), "Model Details.csv")).toEqual(files(MODEL_ZIP_AS_NAMED, "Model Details.csv"));
     expect([result.kind, result.name, result.zipName]).toEqual(["model", "Demand: plan", "Demand plan - Model Export - 2026-09-28.zip"]);
+    // The mapping of the model's import from a file came with it, from the model's frame through the content script to the
+    // page, beside the tables: each target with the column that feeds it, as the import's definition says it.
+    expect(result.importMappings).toEqual([{ id: "112000000002", name: "Prices from prices.csv", importType: "MODULE_DATA", targets: [
+      { target: "Products", source: "column", column: 1, text: "Product" }, { target: "Time", source: "column", column: 2, text: "Month" },
+      { target: "Line Items", source: "column", column: 3, text: "Line item" }, { target: "Value", source: "column", column: 5, text: "Price" }] }]);
     // The page's one rule about a model's file fits the file the export writes: its name, its Section column, and the
     // template's five rows about the model, of which the export fills in three.
     const calendar = result.tables.find(table => table.file === MODEL_CALENDAR_FILE);
@@ -281,8 +286,9 @@ describe("The results page against the engine in the Anaplan tab", () => {
     await until(done(page), "the result");
     expectEngineResult(page, runs[0]);
     // The names came from the General Lists grid, read once and after Line Items: no grid is read for them.
-    expect(settings.reads).toEqual(["LINE ITEMS 0+1", "LINE ITEMS 0+4", "MODULES 0+1", "MODULES 0+2", "LISTS 0+1", "LISTS 0+2", "ACTIONS 0+1", "ACTIONS 0+10", "IMPORTS 0+1", "IMPORTS 0+2",
-      "DATA SOURCES 0+1", "TIME RANGES 0+1", "VERSIONS 0+1", "VERSIONS 0+2", "CALENDAR 0+1", "CALENDAR 0+10"]);
+    // The grid of the imports' definitions is read with the Imports tab's row axis, right after it (MAPPINGS_ADDED).
+    expect(settings.reads).toEqual(withMappingsRead(["LINE ITEMS 0+1", "LINE ITEMS 0+4", "MODULES 0+1", "MODULES 0+2", "LISTS 0+1", "LISTS 0+2", "ACTIONS 0+1", "ACTIONS 0+10", "IMPORTS 0+1", "IMPORTS 0+2",
+      "DATA SOURCES 0+1", "TIME RANGES 0+1", "VERSIONS 0+1", "VERSIONS 0+2", "CALENDAR 0+1", "CALENDAR 0+10"]));
     const { result } = page.held();
     const file = result.tables.find(table => table.file === "Line Items.csv");
     if (!file) throw new Error("The export wrote no Line Items.csv.");
@@ -311,8 +317,9 @@ describe("The results page against the engine in the Anaplan tab", () => {
     await until(done(page), "the result");
     expectEngineResult(page, runs[0]);
     // The names came from the General Lists grid, read once and before the Actions list: no grid is read for them.
-    expect(settings.reads).toEqual(["LINE ITEMS 0+1", "LINE ITEMS 0+4", "MODULES 0+1", "MODULES 0+2", "LISTS 0+1", "LISTS 0+2", "ACTIONS 0+1", "ACTIONS 0+12", "IMPORTS 0+1", "IMPORTS 0+2",
-      "DATA SOURCES 0+1", "TIME RANGES 0+1", "VERSIONS 0+1", "VERSIONS 0+2", "CALENDAR 0+1", "CALENDAR 0+10"]);
+    // The grid of the imports' definitions is read with the Imports tab's row axis, right after it (MAPPINGS_ADDED).
+    expect(settings.reads).toEqual(withMappingsRead(["LINE ITEMS 0+1", "LINE ITEMS 0+4", "MODULES 0+1", "MODULES 0+2", "LISTS 0+1", "LISTS 0+2", "ACTIONS 0+1", "ACTIONS 0+12", "IMPORTS 0+1", "IMPORTS 0+2",
+      "DATA SOURCES 0+1", "TIME RANGES 0+1", "VERSIONS 0+1", "VERSIONS 0+2", "CALENDAR 0+1", "CALENDAR 0+10"]));
     const { result } = page.held();
     const file = result.tables.find(table => table.file === "Other Actions.csv");
     if (!file) throw new Error("The export wrote no Other Actions.csv.");
@@ -334,11 +341,12 @@ describe("The results page against the engine in the Anaplan tab", () => {
     await until(done(page), "the result");
     expectEngineResult(page, runs[0]);
     // The file is made in the model's frame from the grids read for the other files: the frame reads what 0.8.1 read,
-    // which did not make the file, and reports the steps and the lines 0.8.1 reported, with none for this file.
-    expect(settings.reads).toEqual(ACCESS_READS_0_8_1);
+    // which did not make the file, and reports the steps and the lines 0.8.1 reported, with none for this file. What it
+    // reads and says more is for the imports' definitions, right after the Imports tab (MAPPINGS_ADDED).
+    expect(settings.reads).toEqual(withMappingsRead(ACCESS_READS_0_8_1));
     const { result } = page.held();
     const steps = (zip: Uint8Array): string[] => parseCsv(unzipText(zip).get("Model Details.csv") ?? "").filter(row => row[0] === "Diagnostics").map(row => row[2]);
-    expect(diagnosticLog(detailsOf(result)).map(line => line.slice(9))).toEqual(steps(ACCESS_ZIP_0_8_1));
+    expect(diagnosticLog(detailsOf(result)).map(line => line.slice(9))).toEqual(withMappingsSaid(steps(ACCESS_ZIP_0_8_1)));
     expect(page.statuses().filter(status => status.includes("Dynamic Cell Access"))).toEqual([]);
     // Written as a zip, what the page holds is, file for file, the zip 0.8.1 wrote for this model with the file put in
     // after Line Items.csv and its two rows in Model Details.csv (ACCESS_FILE_ADDED), with the column of Other Actions.csv
@@ -551,8 +559,10 @@ describe("The results page against the engine in the Anaplan tab", () => {
 
     modules.release();
     await until(done(next), "the next page's result");
-    // No grid was read a second time, and the result is whole: the rows read for the page that is gone are in it.
-    expect([runs.length, settings.reads.filter((read, index, all) => all.indexOf(read) !== index)]).toEqual([2, []]);
+    // No grid was read a second time, and the result is whole: the rows read for the page that is gone are in it. The
+    // reads that repeat one before them are the grid of the imports' definitions, read once with the Imports tab's row
+    // axis (MAPPINGS_ADDED).
+    expect([runs.length, settings.reads.filter((read, index, all) => all.indexOf(read) !== index)]).toEqual([2, MAPPINGS_ADDED.reads]);
     expectEngineResult(next, runs[1]);
     const { result } = next.held();
     expect(files(resultZip(result, ZIPPED_AT), "Model Details.csv")).toEqual(files(MODEL_ZIP_AS_NAMED, "Model Details.csv"));

@@ -2,6 +2,7 @@ import { MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE } from "../page
 import type { Items } from "./cell-lists.js";
 import { headerWidth, ROW_BUTTON, WIDEST } from "./column-widths.js";
 import { APP_FILES, rowColumns, type Column } from "./columns.js";
+import type { MappingView } from "./import-mapping-view.js";
 import { LINE_ITEMS_FILE } from "./line-items-view.js";
 import { ACCESS_FILE, MODEL_CALENDAR_FILE, MODULES_FILE, type Analysed, type CardSection, type Overview, type SectionCell } from "./result-view.js";
 import { cellText, groupedCount, NONE, type Row, type Sort } from "./table-engine.js";
@@ -722,13 +723,26 @@ const allColumns = (columns: readonly Column[], row: Row, links: Links, exported
       ? `${shown}<dt>${esc(readUnder?.get(column.index) ?? column.label)} as read</dt><dd><span class="cell-t">${esc(exported.get(column.index))}</span></dd>` : shown;
   }).join("")}</dl>`;
 
+/** A line under a drawer's table, in the small, quiet type of the card drawer's own line for a part it has none of. */
+const drawerLine = (text: string): string => `<p style="font-size:12px;color:var(--text-3);margin:4px 0 0">${esc(text)}</p>`;
+
+/** The mapping of an import from a file (import-mapping-view.ts): a row of Target and Source for each of its targets,
+ * then the lines under them, about the columns it does not use or about why there is no row to show. */
+export function importMappingHtml(mapping: MappingView): string {
+  const table = mapping.rows.length ? `<table class="mini"><thead><tr><th>Target</th><th>Source</th></tr></thead>
+      <tbody>${mapping.rows.map(([target, source]) => `<tr><td>${esc(target)}</td><td>${esc(source)}</td></tr>`).join("")}</tbody></table>` : "";
+  return `<div class="d-sec" id="drawerMapping"><h3>Mapping</h3>
+      ${table}${mapping.lines.map(drawerLine).join("")}</div>`;
+}
+
 /** One row in full: every column, hidden ones included, with nothing cut short, for each cell that is said in words the
  * text that was read (`exported`), named by the file's column it was read from where that is another (`readUnder`), and
- * for each cell that lists several items those items, one to a line (`items`). */
+ * for each cell that lists several items those items, one to a line (`items`). A row of an import from a file has its
+ * mapping after the columns (`mapping`). */
 export function rowDrawerHtml(columns: readonly Column[], row: Row, links: Links, exported?: ReadonlyMap<number, unknown>, items?: ReadonlyMap<number, Items>,
-  readUnder?: ReadonlyMap<number, string>): string {
+  readUnder?: ReadonlyMap<number, string>, mapping?: MappingView): string {
   return `<div class="d-sec"><h3>All columns</h3>
-    ${allColumns(columns, row, links, exported, items, readUnder)}</div>`;
+    ${allColumns(columns, row, links, exported, items, readUnder)}</div>${mapping ? importMappingHtml(mapping) : ""}`;
 }
 
 /** Under a row's name in the drawer: which row of which table it is. `position` is the row's place in the file, from 1. */

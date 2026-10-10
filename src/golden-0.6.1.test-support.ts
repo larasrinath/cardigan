@@ -343,10 +343,11 @@ export const MODEL_ROWS_FOR_THE_PAGE = {
 /** The row of "How to read" on Imports, which is deliberately not what 0.6.1 wrote, and not what 0.8.1 wrote either (the
  * two wrote it alike), as the row's whole line of the file. Since the results page shows an import's Source Object as
  * three columns, Source Model, Source Module and Saved View (results/result-view.ts), the row says so after what it said,
- * as the rows of "How to read" say what the page shows. */
+ * as the rows of "How to read" say what the page shows. And since the details of an import from a file end with its
+ * mapping (results/import-mapping-view.ts), it says that last, in words that name no file, as no word of the page does. */
 export const IMPORTS_ROW_REWORDED = {
   was: `How to read,Imports,"The Imports tab (source and target), then each import's columns from the Actions list (last run, duration, notes, Used in Processes, Used in Dashboards), matched on the import's ID. The Actions list's ""Import into …"" text is left out: Target Object and Target Type say the same."\r\n`,
-  now: `How to read,Imports,"The Imports tab (source and target), then each import's columns from the Actions list (last run, duration, notes, Used in Processes, Used in Dashboards), matched on the import's ID. The Actions list's ""Import into …"" text is left out: Target Object and Target Type say the same. Source Object is shown as three columns, Source Model, Source Module and Saved View, for an import from a module or a saved view: Source Model names this model where the import reads from this model itself. A row's details add Source Object as it was read. Any other Source Object stands as it is under Source Model."\r\n`,
+  now: `How to read,Imports,"The Imports tab (source and target), then each import's columns from the Actions list (last run, duration, notes, Used in Processes, Used in Dashboards), matched on the import's ID. The Actions list's ""Import into …"" text is left out: Target Object and Target Type say the same. Source Object is shown as three columns, Source Model, Source Module and Saved View, for an import from a module or a saved view: Source Model names this model where the import reads from this model itself. A row's details add Source Object as it was read. Any other Source Object stands as it is under Source Model. For an import of uploaded data, a row's details end with its Mapping, as the import's own definition holds it: what feeds each target, a column, a constant, a prompt or nothing, and which columns before the last one mapped are not used."\r\n`,
 } as const;
 
 /** 0.6.1's text of that file with the five rows as they are written now, the one on Line Items, the one on the Actions

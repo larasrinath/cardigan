@@ -295,10 +295,22 @@ class FakeDataPage implements CellSource {
 // One model: every Model settings grid the export reads, with the values a CSV has to quote (commas, quotes, line breaks)
 // and text that looks like a formula, an import the Imports tab does not list, and one grid the page's client does not have
 // (Source Models).
-export interface FakeGrid { columns: string[]; rows: { ids: number[]; labels: (string | null)[]; cells: string[] }[] }
+export interface FakeGrid { columns: string[]; columnIds?: number[]; rows: { ids: number[]; labels: (string | null)[]; cells: string[] }[] }
 const row = (id: number, label: string, ...cells: string[]) => ({ ids: [id], labels: [label], cells });
 const ACTION_COLUMNS = ["Action", "Start Date and Time (UTC)", "Most recent duration (ms)", "Notes", "Used in Processes", "Used in Dashboards"];
 const GOLDEN_RATIO = JSON.stringify({ summaryMethod: "RATIO", timeSummaryMethod: "RATIO", ratioNumeratorIdentifier: "_1901000000001_", ratioDenominatorIdentifier: "_1901000000002_" });
+/** The definitions of the golden model's two imports, as Anaplan's import dialog saves them (model/import-mappings.ts),
+ * in the grid of the imports against their properties, whose column of definitions the page's client knows by its ID.
+ * The import from a file loads Products from its first column, Time from its second, the line items from its third and
+ * their values from its fifth: its fourth column is not used. The other import loads a list from another model: its
+ * mapping is not read. */
+const PRICES_DEFINITION = JSON.stringify({ importType: "MODULE_DATA", target: "_102000000003_", mappings: [
+  { targetType: "moduleDimension", target: "_101000000001_", sourceType: "column", sourceColumnId: "#1", sourceColumnName: "Product" },
+  { targetType: "moduleDimension", target: "_9000000001_", sourceType: "column", sourceColumnId: "#2", sourceColumnName: "Month" },
+  { targetType: "moduleDimension", target: "", sourceType: "column", sourceColumnId: "#3", sourceColumnName: "Line item" },
+  { targetType: "moduleLineItem", target: "", sourceType: "column", sourceColumnId: "#5", sourceColumnName: "Price" }] });
+const REGIONS_DEFINITION = JSON.stringify({ importType: "HIERARCHY_DATA", target: "_101000000002_", mappings: [
+  { targetType: "hierarchyMemberEntityName", target: "", sourceType: "column", sourceColumnEntityLongId: 101000000009, sourceColumnName: "Region" }] });
 export const GOLDEN_GRIDS: Record<string, FakeGrid> = {
   "LINE ITEMS × LINE ITEM PROPERTIES": { columns: ["Formula", "Summary", "Notes"], rows: [
     { ids: [102000000001, -1], labels: ["Profitability", null], cells: ["", "", ""] },
@@ -321,6 +333,8 @@ export const GOLDEN_GRIDS: Record<string, FakeGrid> = {
   "IMPORTS × IMPORT PROPERTIES": { columns: ["Source Label", "Source Object", "Source Type", "Target Object", "Target Type", "Production Data"], rows: [
     row(112000000001, "1.1 Load regions", "Hub / Regions", "Hub / 'LIST - Regions'.Export", "SAVED VIEW", "Regions", "LIST", "false"),
     row(112000000002, "Prices from prices.csv", "prices.csv", "-", "FILE", "Prices", "MODULE", "false")] },
+  "IMPORTS × IMPORT DEFINITIONS": { columns: ["Notes", "Import Definition"], columnIds: [4000000017, 4000001300], rows: [
+    row(112000000001, "1.1 Load regions", "", REGIONS_DEFINITION), row(112000000002, "Prices from prices.csv", "From the price list", PRICES_DEFINITION)] },
   "DATA SOURCES × DATA SOURCE PROPERTIES": { columns: ["Type", "Used in Imports"], rows: [row(113000000001, "prices.csv", "FILE", "Prices from prices.csv")] },
   "TIME RANGES × TIME RANGE PROPERTIES": { columns: ["Start Period", "End Period"], rows: [row(123000000001, "FY24-FY25", "FY24", "FY25")] },
   "VERSIONS × VERSION PROPERTIES": { columns: ["Is Actual", "Switchover"], rows: [row(107000000001, "Actual", "true", ""), row(107000000002, "Forecast", "false", "@Current Period")] },
@@ -332,7 +346,7 @@ export const GOLDEN_GRIDS: Record<string, FakeGrid> = {
     row(CALENDAR_PROPERTIES["Include Quarter Totals"], "Quarter Totals", "true")] },
 };
 const GOLDEN_AXES: Record<string, string> = { MODULE_WITH_LINE_ITEM: "LINE ITEMS", LINE_ITEM_PROPERTY: "LINE ITEM PROPERTIES", MODULE_ALL: "MODULES", HIERARCHY: "LISTS",
-  ACTION_WITH_HEADING: "ACTIONS", IMPORT_ALL: "IMPORTS", IMPORT_DEFINITION_PROPERTY: "IMPORT PROPERTIES", IMPORT_DATA_SOURCE: "DATA SOURCES",
+  ACTION_WITH_HEADING: "ACTIONS", IMPORT_ALL: "IMPORTS", IMPORT_DEFINITION_PROPERTY: "IMPORT PROPERTIES", IMPORT_PROPERTY: "IMPORT DEFINITIONS", IMPORT_DATA_SOURCE: "DATA SOURCES",
   IMPORT_DATA_SOURCE_DETAILS_PROPERTY: "DATA SOURCE PROPERTIES", TIME_RANGE: "TIME RANGES", TIME_RANGE_PROPERTY: "TIME RANGE PROPERTIES", VERSION_ALL: "VERSIONS",
   VERSION_PROPERTY: "VERSION PROPERTIES", TIMESCALE_PROPERTY: "CALENDAR", EMPTY_1_0: "EMPTY" };
 
@@ -363,7 +377,7 @@ export function modelPage(grids: Record<string, FakeGrid> = GOLDEN_GRIDS) {
     void holds.wait(read).then(() => ok({ result: { viewRequestResults: [{ rowCount: grid.rows.length, columnCount: grid.columns.length,
       rowLabelPages: [{ start: startRow, count: slice.length, entityLongIds: Array.from({ length: dimensions }, (_, d) => slice.map(entry => entry.ids[d] ?? -1)),
         labels: Array.from({ length: dimensions }, (_, d) => slice.map(entry => entry.labels[d] ?? null)) }],
-      columnLabelPages: [{ start: 0, count: grid.columns.length, entityLongIds: [grid.columns.map((_, index) => 4000000001 + index)], labels: [grid.columns] }],
+      columnLabelPages: [{ start: 0, count: grid.columns.length, entityLongIds: [grid.columnIds ?? grid.columns.map((_, index) => 4000000001 + index)], labels: [grid.columns] }],
       dataPages: [{ startRow, rows: slice.map(entry => entry.cells) }] }] } }));
     return true;
   } };

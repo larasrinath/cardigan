@@ -9,6 +9,7 @@ import { cellLists, rowItems, type CellList } from "./cell-lists.js";
 import { columnWidths } from "./column-widths.js";
 import { cardsNamed, cardsOf, columnIndex, columnsOf, rowKeys, rowNameIndex, writesNone, type CardsTable, type Column, type RowKeys } from "./columns.js";
 import { describeState, openedJustNow, repairTab, ResultsClient, runLabel, tabIdFrom, withoutOpened, type RunState } from "./connection.js";
+import { mappingOfRow } from "./import-mapping-view.js";
 import { analysedLine, notKeptNote } from "./keep-notes.js";
 import { ResultKeeper } from "./keep-result.js";
 import {
@@ -693,7 +694,8 @@ function closeDrawer(): void {
  * such column or the cell says nothing, the first cell that does. A cell says nothing when it is empty, and in one of the
  * app's files when it is the dash the analysis writes for nothing to say (columns.ts `writesNone`): in a model's file
  * that dash is Anaplan's text, which names a row like any other. The line under the heading says which row of which
- * table it is, by its place among the rows the table lists, which a search, a filter or a sort does not change. */
+ * table it is, by its place among the rows the table lists, which a search, a filter or a sort does not change. A row of
+ * a model's Imports for an import from a file ends with the import's mapping (import-mapping-view.ts). */
 function openRowDrawer(entry: Shown, row: Row, opener: Element): void {
   const object = entry.objects && objectOf(entry.objects, row);
   if (entry.objects && object) return openObjectDrawer(entry.objects, object, opener);
@@ -703,7 +705,8 @@ function openRowDrawer(entry: Shown, row: Row, opener: Element): void {
   const named = entry.opensFrom ?? rowNameIndex(entry.table);
   const none = writesNone(entry.table);
   const name = (named === undefined ? "" : rowName([row[named] ?? ""], none)) || rowName(row, none) || `Row ${position}`;
-  openDrawer(name, rowDrawerSubHtml(position, cellText(entry.table.label)), rowDrawerHtml(entry.columns, row, entry.links, entry.exported?.get(row), rowItems(entry.lists, row), entry.readUnder), opener);
+  openDrawer(name, rowDrawerSubHtml(position, cellText(entry.table.label)),
+    rowDrawerHtml(entry.columns, row, entry.links, entry.exported?.get(row), rowItems(entry.lists, row), entry.readUnder, mappingOfRow(result, entry.table, row)), opener);
 }
 /** What an object's uses may link to: a page's cards and a card's details, where the result has the cards to show. */
 const useLinks = (): Links => ({ page: cards !== undefined, card: cards !== undefined });
