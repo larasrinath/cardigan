@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { RESULTS_PAGE } from "../protocol.js";
 import { FakePage, parseMarkup } from "./dom.test-support.js";
-import { cardDrawerHtml, keptCopyHtml, NAV_ICONS, navHtml, navItems, navMenuHtml, overviewHtml, rowDrawerHtml, runHtml, tableHtml } from "./markup.js";
+import { cardDrawerHtml, keptCopyHtml, navHtml, navItems, navMenuHtml, overviewHtml, rowDrawerHtml, runHtml, tableHtml } from "./markup.js";
 import { readMarkup } from "./markup.test-support.js";
 import { PAGE_IDS } from "./page-ids.js";
 
@@ -267,26 +267,22 @@ describe("The results page's files", () => {
   });
 
   it("keeps each item of the navigation one width whatever it shows and however it is marked, so that no item after it moves", () => {
-    // What an item shows stands over the room of every text it can show (markup.ts `roomOf`): one to a line, in the bold of
-    // the view shown, unseen, of no height, and read by nothing. The widest line sets the width. An entry's words keep to
-    // its left; a group's row, its icon, words and chevron, stands in the middle of the button, over the same cell.
-    expect(declared(".nav-item>span")).toEqual(["display:inline-flex;flex-direction:column;align-items:flex-start"]);
-    expect([declared(".nav-group-btn").includes("display:inline-grid"), declared(".nav-row")]).toEqual([true, ["grid-area:1/1;justify-self:center;display:inline-flex;align-items:center;gap:6px"]]);
-    const room = declared(".nav-item>span::after,.nav-group-btn::after")[0] ?? "";
+    // An item's words, an entry's or a group's button's, stand over their room (markup.ts `wordsHtml`): the same words in
+    // the bold of the view shown, unseen, of no height, and read by nothing, which give the words the width of their bold.
+    expect(declared(".nav-item>span,.nav-group-btn>span")).toEqual(["display:inline-flex;flex-direction:column;align-items:flex-start"]);
+    const room = declared(".nav-item>span::after,.nav-group-btn>span::after")[0] ?? "";
     expect(['content:attr(data-room) / "";', "height:0;", "line-height:0;", "visibility:hidden;", "white-space:pre;", "pointer-events:none;"].map(part => [part, room.includes(part)]))
       .toEqual(['content:attr(data-room) / "";', "height:0;", "line-height:0;", "visibility:hidden;", "white-space:pre;", "pointer-events:none;"].map(part => [part, true]));
     // The room's bold is the mark's bold: the words of the view shown take no more room than the room keeps.
     const bold = (body: string) => /font-weight:(\d+)/.exec(body)?.[1];
     expect([bold(room), bold(declared('.nav-item[aria-current="page"],.nav-group-btn[aria-current="true"]')[0] ?? "")]).toEqual(["600", "600"]);
-    // A group's room shares the button's one cell with its row, and keeps beside its texts the room of the row's two
-    // drawings and the gaps by them: the icon and a gap before, a gap and the chevron, drawn a little into the gap, after.
-    const px = (pattern: RegExp, body: string) => Number(pattern.exec(body)?.[1]);
-    const gap = px(/gap:(\d+)px/, declared(".nav-row")[0]);
-    const icon = px(/width="(\d+)"/, NAV_ICONS.modules);
-    const grouped = navItems([{ id: "1", label: "Modules", file: "Modules.csv" }, { id: "2", label: "Line Items", file: "Line Items.csv" }], true);
-    const chevron = px(/width="(\d+)"/, parseMarkup(navHtml(grouped, "1")).querySelector(".nav-chevron")?.outerHTML ?? "");
-    const pulled = -px(/margin-left:(-\d+)px/, declared(".nav-group-btn .nav-chevron")[0]);
-    expect(declared(".nav-group-btn::after")).toEqual([`grid-area:1/1;padding:0 ${gap + chevron - pulled}px 0 ${icon + gap}px`]);
+    // What the page writes is what these rules name: every item's words carry their room, those of a group's button the
+    // group's own name, whichever of its tables is shown.
+    const grouped = navItems([{ id: "overview", label: "Overview" }, { id: "1", label: "Modules", file: "Modules.csv" }, { id: "2", label: "Line Items", file: "Line Items.csv" }], true);
+    /** The room of each item's words, an entry's or a group's button's, in the order of the page: the words are a child of the item. */
+    const rooms = (current: string) => parseMarkup(navHtml(grouped, current)).querySelectorAll(".nav-item, .nav-group-btn")
+      .map(item => item.children.find(child => child.localName === "span")?.getAttribute("data-room"));
+    expect(["overview", "1", "2"].map(rooms)).toEqual(Array(3).fill(["Overview", "Modules", "Modules", "Line Items"]));
     // No mark of an item's state, the view shown, a hover, an open menu or the keyboard's focus, changes a size: they
     // change colours and turn the chevron, and that is all.
     const marks = [...rules(".nav-item"), ...rules(".nav-group-btn")].filter(([selector]) => /\[aria-current|:hover|\[aria-expanded|:focus/.test(selector));
