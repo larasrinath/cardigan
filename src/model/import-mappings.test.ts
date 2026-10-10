@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Grid } from "./grid.js";
-import { fileImports, IMPORT_DEFINITION, importMappings, importNames, MAPPING_NOTES, readDefinition, type ImportNames } from "./import-mappings.js";
+import { fileImports, IMPORT_DEFINITION, importMappings, importNames, importsLine, MAPPING_NOTES, readDefinition, type ImportNames } from "./import-mappings.js";
 import type { Native } from "./native.js";
 
 // Import definitions as Anaplan's import dialog saves them (anaplan/widgets/Mapping.js, view/ImportDefinitionModuleMapping.js,
@@ -150,10 +150,16 @@ describe("The mappings of a model's imports from a file", () => {
       { id: "112000000003", name: "Prices", importType: "MODULE_DATA", targets: [{ target: "Value", source: "column", column: 3 }] },
       // An import the grid holds no definition for says so: none of the imports from a file is left out.
       { id: "112000000004", name: "Gone", importType: "", targets: [], note: MAPPING_NOTES.noDefinition }]);
-    // The import from another model is neither read nor said; each import from a file has its line, and the last line counts.
+    // The import from another model is neither read nor said; each import from a file has its line, and the last line
+    // counts what was read and what the grid of definitions holds.
     expect(log).toEqual(["Import mapping 112000000001: keys importType, target, mappings; 1 mappings: [targetType, target, sourceType, sourceColumnId] column ×1",
       "Import mapping 112000000003: keys importType, target, mappings; 1 mappings: [targetType, target, sourceType, sourceColumnId] column ×1",
-      "Import mapping 112000000004: not in the grid of definitions", "Import mappings: 2 of 3 read"]);
+      "Import mapping 112000000004: not in the grid of definitions", "Import mappings: 2 of 3 read; 2 found in the grid of definitions"]);
+    // What the tab holds, said before anything is read: its imports by Source Type, as Anaplan writes each, and how many
+    // mappings are to be read.
+    expect(importsLine(TAB)).toBe("Import mappings: 4 imports; Source Types: FILE ×2, SAVED VIEW ×1, file ×1; 3 mappings to read");
+    expect(importsLine({ ...TAB, rows: TAB.rows.slice(1, 2).map(row => ({ ...row, cells: row.cells.map((cell, index) => (index === 2 ? " " : cell)) })) }))
+      .toBe("Import mappings: 1 imports; Source Types: blank ×1; 0 mappings to read");
   });
 
   it("say that they could not be read where the model gave no definitions, or none under the definitions' ID", () => {
@@ -161,12 +167,18 @@ describe("The mappings of a model's imports from a file", () => {
     const unread = importMappings(TAB, undefined, NAMES, line => log.push(line));
     expect(unread.map(mapping => [mapping.name, mapping.note, mapping.targets])).toEqual([["Division from HQ Network.csv", MAPPING_NOTES.notRead, []],
       ["Prices", MAPPING_NOTES.notRead, []], ["Gone", MAPPING_NOTES.notRead, []]]);
-    expect(log).toEqual(["Import mappings: 0 of 3 read"]);
-    // A grid without the column of definitions, as a client that numbers it otherwise would give: the definitions are
-    // looked for under the ID the client says, and are not taken from another column.
+    expect(log).toEqual(["Import mappings: 0 of 3 read; the model gave no grid of definitions"]);
+    // A client that numbers the column of definitions otherwise: the definitions are looked for under the ID the client
+    // says, then under the column's label, and are not taken from another column.
     const elsewhere = importMappings(TAB, DEFINITIONS, NAMES, line => log.push(line), 4000009999);
-    expect([new Set(elsewhere.map(mapping => mapping.note)), log.slice(1)]).toEqual([new Set([MAPPING_NOTES.notRead]),
-      ["Import mappings: no column of definitions among the 2 given", "Import mappings: 0 of 3 read"]]);
+    expect([elsewhere.map(mapping => mapping.note), log.at(-1)]).toEqual([[undefined, undefined, MAPPING_NOTES.noDefinition], "Import mappings: 2 of 3 read; 2 found in the grid of definitions"]);
+    log.length = 0;
+    const unlabelled: Grid = { ...DEFINITIONS, columns: DEFINITIONS.columns.map(column => ({ ...column, labels: [column.labels[0] === "Import Definition" ? "Definition" : column.labels[0]] })) };
+    const nowhere = importMappings(TAB, unlabelled, NAMES, line => log.push(line), 4000009999);
+    expect([new Set(nowhere.map(mapping => mapping.note)), log]).toEqual([new Set([MAPPING_NOTES.notRead]),
+      ["Import mappings: no column of definitions among the 2 given", "Import mappings: 0 of 3 read; the grid has no column of definitions"]]);
+    // A tab without its Source Type column names no import from a file, and the line on it says so.
+    expect(importsLine({ columns: TAB.columns.slice(0, 2), rows: TAB.rows })).toBe("Import mappings: 4 imports; the Imports tab has no Source Type column");
   });
 });
 
