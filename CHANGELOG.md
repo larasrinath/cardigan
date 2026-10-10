@@ -6,8 +6,8 @@ Every merged change that alters the extension has a version of its own: a new fe
 
 Three long names are shorter on the navigation bar, so a model's bar fits a narrower window.
 
-- **Shorter names on the bar.** **Model Calendar** shows as **Calendar**, **Dynamic Cell Access** as **Cell Access** and **Import Data Sources** as **Data Sources**, as a tab of their own and as a menu's tab that names the table shown. Hovering over one shows its full name, which is also what a screen reader says. The menus, the one menu of a window under 1,000 pixels wide, the tables' headings, the Overview's tiles and the search keep the full names. (#PR)
-- **A model's bar on one line from a window about 1,300 pixels wide.** Each menu's tab keeps the width of its longest name as the bar shows it, so a model's bar with every table needs about 1,170 pixels where it needed about 1,285, and stands on one line in a window about 1,300 pixels wide, scrollbar and all, where it needed about 1,410. Nothing in the bar moves as a table or a view is chosen. (#PR)
+- **Shorter names on the bar.** **Model Calendar** shows as **Calendar**, **Dynamic Cell Access** as **Cell Access** and **Import Data Sources** as **Data Sources**, as a tab of their own and as a menu's tab that names the table shown. Hovering over one shows its full name, which is also what a screen reader says. The menus, the one menu of a window under 1,000 pixels wide, the tables' headings, the Overview's tiles and the search keep the full names. (#53)
+- **A model's bar on one line from a window about 1,300 pixels wide.** Each menu's tab keeps the width of its longest name as the bar shows it, so a model's bar with every table needs about 1,170 pixels where it needed about 1,285, and stands on one line in a window about 1,300 pixels wide, scrollbar and all, where it needed about 1,410. Nothing in the bar moves as a table or a view is chosen. (#53)
 
 ## 0.18.0 (10 October 2026)
 
