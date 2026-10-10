@@ -231,9 +231,10 @@ describe("What the results page reads out of a result", () => {
       ["Files", "Line Items.csv", "5 rows"], ["Files", "Modules.csv", "2 rows"], ["Files", "Model Calendar.csv", "31 rows"], ["Files", "Imports.csv", "Not exported: the grid did not load"]]);
     const model = result("model", [details, blueprint, modules, calendar()], ["Line Items: 5 rows", "Modules: 2 rows", "Model Calendar: 31 rows", "Imports: not read"]);
     const overview = overviewOf(model);
-    // The table lists the 5 of the calendar's 31 rows that are settings with a value, and 3 line items of the grid's 5: each
-    // tile counts what its table lists, and says how many rows there are in all. A file whose table lists every row says one number.
-    expect(overview.tiles).toEqual([{ label: "Model Calendar", count: 5, inAll: 31 }, { label: "Modules", count: 2 }, { label: "Line Items", count: 3, inAll: 5 }]);
+    // The table lists the 5 of the calendar's 31 rows that are settings with a value: its tile counts what the table lists,
+    // and says how many rows there are in all. A file whose table lists every row says one number: Line Items lists the
+    // grid's 5 rows, the modules' own among them.
+    expect(overview.tiles).toEqual([{ label: "Model Calendar", count: 5, inAll: 31 }, { label: "Modules", count: 2 }, { label: "Line Items", count: 5 }]);
     // So the three rows that only count a file are left to the tiles, and the three summary lines that only count one are no notes.
     expect([overview.files, overview.notes]).toEqual([[["Imports", "Not exported: the grid did not load"]], ["Imports: not read"]]);
     // Every count the Details file gives is on the overview: under Tables, or on the file's tile, as one of its two numbers.
@@ -242,7 +243,7 @@ describe("What the results page reads out of a result", () => {
     expect(counted.map(row => (overview.files.some(([table, value]) => `${table}.csv` === row[0] && value === row[1]) ? "Tables" : onTile(row) ? "tile" : "lost"))).toEqual(["tile", "tile", "tile", "Tables"]);
     // A count in the Details file that is not the file's own stays under Tables, whatever the tile says.
     const other = overviewOf(result("model", [detailsTable("Model Details.csv", [["Files", "Line Items.csv", "3 rows"], ["Files", "Model Calendar.csv", "26 rows"]]), blueprint, calendar()]));
-    expect([other.tiles, other.files]).toEqual([[{ label: "Model Calendar", count: 5, inAll: 31 }, { label: "Line Items", count: 3, inAll: 5 }], [["Line Items", "3 rows"], ["Model Calendar", "26 rows"]]]);
+    expect([other.tiles, other.files]).toEqual([[{ label: "Model Calendar", count: 5, inAll: 31 }, { label: "Line Items", count: 5 }], [["Line Items", "3 rows"], ["Model Calendar", "26 rows"]]]);
     // An app's tables list every row: no tile of an app says a second number, a Where Used table by object neither.
     expect(overviewOf(result("app", [appDetails, appTable("Pages.csv", [{ Page: "Overview" }]), appTable("Where Used.csv", [{ Page: "Overview" }, { Page: "Overview" }])])).tiles)
       .toEqual([{ label: "Pages", count: 1 }, { label: "Model objects", count: 2 }]);
@@ -364,7 +365,7 @@ describe("What the results page reads out of a result", () => {
     expect(overviewOf(result("model", [only])).tiles).toEqual([{ label: "Model Calendar", count: 0, inAll: 5 }]);
   });
 
-  it("shows a model's Line Items file as a table of line items, and says what that leaves out and where a module without line items is", () => {
+  it("shows a model's Line Items file with every row, each module's own row a heading above its line items, and says what its rows are", () => {
     // The grid as the export writes it: each module's own row, then its line items; a dash under Applies To stands for the module's.
     const blueprint: ResultTable = { file: "Line Items.csv", label: "Line Items", guard: false, headers: ["", "Formula", "Applies To", "Module Name"], rows: [
       ["Revenue", "", "Products, Time", ""], ["Units", "", "-", "Revenue"], ["Price", "Units * 2", "Products", "Revenue"],
@@ -373,30 +374,35 @@ describe("What the results page reads out of a result", () => {
     expect(MODULES_FILE).toBe("Modules.csv");
     const model = result("model", [modelDetails, blueprint, modules]);
     const shown = fileView(model, blueprint);
-    // Line items only, each with its module after its name and the dimensions it really has, with where those came from.
+    // Every row, each with its module after its name, a module's own row its own name, and the dimensions it really has,
+    // with where those came from.
     expect(shown.table).toEqual({ ...blueprint, headers: ["", "Module Name", "Formula", "Applies To", "Applies To from"], rows: [
-      ["Units", "Revenue", "", "Products, Time", "Module"], ["Price", "Revenue", "Units * 2", "Products", "Line item"],
-      ["Rent", "Costs", "", "Regions", "Module"], ["Salaries", "Costs", "", "Regions", "Module"]] });
+      ["Revenue", "Revenue", "", "Products, Time", "Module"], ["Units", "Revenue", "", "Products, Time", "Module"], ["Price", "Revenue", "Units * 2", "Products", "Line item"],
+      ["--- Archive ---", "--- Archive ---", "", "", "Module"],
+      ["Costs", "Costs", "", "Regions", "Module"], ["Rent", "Costs", "", "Regions", "Module"], ["Salaries", "Costs", "", "Regions", "Module"]] });
     expect(shown.table).toEqual(lineItemsView(blueprint).table);
-    // The line is the view's own. Since the result has the Modules file, it also says where the module without line items is.
-    expect(shown.note).toBe("3 module rows are not listed here; each line item shows its module. 1 module has no line items, so it is not in this table. It is listed in the Modules table.");
-    expect(shown.note).toBe(`${lineItemsView(blueprint).note} It is listed in the Modules table.`);
+    // The modules' own rows are the page's headings: the very rows of the table it shows.
+    expect(shown.table.rows.filter(row => shown.headings?.has(row)).map(row => row[0])).toEqual(["Revenue", "--- Archive ---", "Costs"]);
+    // The line is the view's own. The table has no Format, so it says nothing of a filter on the format's data type.
+    expect(shown.note).toBe("Every row of Anaplan's Line Items grid: 4 line items, and 3 modules' own rows, each in bold above its line items, with its own name under Module Name.");
+    expect(shown.note).toBe(lineItemsView(blueprint).note);
     expect(shown.none).toBeUndefined();
-    // A grid of modules without line items leaves the table none of its rows: it says that, not that nothing was found.
+    // A grid of modules without line items lists them, and says that no line item is among them.
     const bare: ResultTable = { ...blueprint, rows: [["Revenue", "", "Products, Time", ""], ["Costs", "", "Regions", ""]] };
-    expect(fileView(result("model", [bare, modules]), bare)).toEqual({ table: { ...bare, headers: ["", "Module Name", "Formula", "Applies To", "Applies To from"], rows: [] },
-      note: "2 module rows are not listed here; each line item shows its module. 2 modules have no line items, so they are not in this table. They are listed in the Modules table.",
-      none: "Every row that was read is a module's own: no module has a line item." });
-    // Without the Modules file there is no table to name, and no module's name to check a row against: the line says that
-    // instead. With every module named by a line item there is nothing to add.
+    const bareShown = fileView(result("model", [bare, modules]), bare);
+    expect([bareShown.table, bareShown.note, bareShown.none]).toEqual([{ ...bare, headers: ["", "Module Name", "Formula", "Applies To", "Applies To from"],
+      rows: [["Revenue", "Revenue", "", "Products, Time", "Module"], ["Costs", "Costs", "", "Regions", "Module"]] },
+    "Every row of Anaplan's Line Items grid: no line items, and 2 modules' own rows, each in bold, with its own name under Module Name.", undefined]);
+    // Without the Modules file there is no module's name to check a row against: the line says that as well.
     expect(fileView(result("model", [modelDetails, blueprint]), blueprint).note)
       .toBe(`${lineItemsView(blueprint).note} The Modules table was not exported, so a row with only a name is taken for a module's row.`);
     const full: ResultTable = { ...blueprint, rows: blueprint.rows.filter(row => row[0] !== "--- Archive ---") };
-    expect(fileView(result("model", [full, modules]), full).note).toBe("2 module rows are not listed here; each line item shows its module.");
-    // Several such modules, and a Modules file under another label: the line names the table as the page does.
+    expect(fileView(result("model", [full, modules]), full).note)
+      .toBe("Every row of Anaplan's Line Items grid: 4 line items, and 2 modules' own rows, each in bold above its line items, with its own name under Module Name.");
+    // A module without line items is in the table, so the line does not send anyone to the Modules table for it.
     const two: ResultTable = { ...blueprint, rows: [...blueprint.rows, ["--- End ---", "", "", ""]] };
     expect(fileView(result("model", [two, { ...modules, label: "All modules", rows: [...modules.rows, ["--- End ---", ""]] }]), two).note)
-      .toBe("4 module rows are not listed here; each line item shows its module. 2 modules have no line items, so they are not in this table. They are listed in the All modules table.");
+      .toBe("Every row of Anaplan's Line Items grid: 4 line items, and 4 modules' own rows, each in bold above its line items, with its own name under Module Name.");
     // The file itself is as it was: a model's map is made of it.
     expect([blueprint.rows.length, blueprint.headers, blueprint.rows[1]]).toEqual([7, ["", "Formula", "Applies To", "Module Name"], ["Units", "", "-", "Revenue"]]);
     // The rule is that file's alone, in a model's result. An app's file of that name, a file of another name, and a Line
@@ -405,8 +411,8 @@ describe("What the results page reads out of a result", () => {
     const flat: ResultTable = { ...blueprint, headers: ["", "Formula", "Applies To", "Module"] };
     expect([fileView(result("app", [appDetails, blueprint]), blueprint), fileView(model, renamed), fileView(model, flat)]).toEqual([{ table: blueprint }, { table: renamed }, { table: flat }]);
     expect(fileView(model, flat).table).toBe(flat);
-    // The overview's tile counts the line items, as the navigation does; the modules' tile is the Modules file's.
-    expect(overviewOf(model).tiles).toEqual([{ label: "Modules", count: 3 }, { label: "Line Items", count: 4, inAll: 7 }]);
+    // The overview's tile counts the file's rows, every one, as Anaplan's grid does; the modules' tile is the Modules file's.
+    expect(overviewOf(model).tiles).toEqual([{ label: "Modules", count: 3 }, { label: "Line Items", count: 7 }]);
   });
 
   it("shows a model's Dynamic Cell Access file as it stands, under a line that says what it lists and how many of its rows have a driver that could not be matched", () => {
@@ -650,40 +656,46 @@ describe("What the results page reads out of a result", () => {
       return { rows: view.table.rows, note: view.note, tile: overviewOf(model).tiles.find(tile => tile.label === "Line Items") };
     };
     // A read that lost a row's cells gives of a line item only its name. Here that is Price, among its module's line
-    // items. No module is called Price: it stays in the table, as a line item whose module is not known, the line counts
-    // it, and the line item after it is still its module's.
+    // items. No module is called Price: it is a line item whose module is not known, the line counts it, and the line
+    // item after it is still its module's.
     const among = grid([["Revenue", "", "Products, Time", ""], ["Units", "", "-", "Revenue"], ["Price", "", "", ""], ["Sales", "Units * Price", "-", "Revenue"]]);
     expect(shown(among, [modules])).toEqual({
-      rows: [["Units", "Revenue", "", "Products, Time", "Module"], ["Price", "", "", "", ""], ["Sales", "Revenue", "Units * Price", "Products, Time", "Module"]],
-      note: "1 module row is not listed here; each line item shows its module, except 1 whose module is not known: it has no Module Name.",
-      tile: { label: "Line Items", count: 3, inAll: 4 } });
-    // And here it is the last row under its module: it is not a module with no line items, which the Modules table would list.
+      rows: [["Revenue", "Revenue", "", "Products, Time", "Module"], ["Units", "Revenue", "", "Products, Time", "Module"], ["Price", "", "", "", ""],
+        ["Sales", "Revenue", "Units * Price", "Products, Time", "Module"]],
+      note: "Every row of Anaplan's Line Items grid: 3 line items, and 1 module's own row, in bold above its line items, with its own name under Module Name. "
+        + "1 line item has no Module Name: its module is not known.",
+      tile: { label: "Line Items", count: 4 } });
+    // And here it is the last row under its module: it is a line item, not a module with nothing under its row.
     const last = grid([["Revenue", "", "Products, Time", ""], ["Units", "", "-", "Revenue"], ["Price", "", "", ""], ["Costs", "", "Regions", ""], ["Rent", "", "-", "Costs"]]);
     expect(shown(last, [modules])).toEqual({
-      rows: [["Units", "Revenue", "", "Products, Time", "Module"], ["Price", "", "", "", ""], ["Rent", "Costs", "", "Regions", "Module"]],
-      note: "2 module rows are not listed here; each line item shows its module, except 1 whose module is not known: it has no Module Name.",
-      tile: { label: "Line Items", count: 3, inAll: 5 } });
+      rows: [["Revenue", "Revenue", "", "Products, Time", "Module"], ["Units", "Revenue", "", "Products, Time", "Module"], ["Price", "", "", "", ""],
+        ["Costs", "Costs", "", "Regions", "Module"], ["Rent", "Costs", "", "Regions", "Module"]],
+      note: "Every row of Anaplan's Line Items grid: 3 line items, and 2 modules' own rows, each in bold above its line items, with its own name under Module Name. "
+        + "1 line item has no Module Name: its module is not known.",
+      tile: { label: "Line Items", count: 5 } });
     // The names are the Modules file's first column, as the file has it: a module the file lists is a module's own row
-    // also with nothing under it, and the line says where it is listed.
+    // also with nothing under it.
     const listed: ResultTable = { ...modules, rows: [...modules.rows, ["Price", ""]] };
     expect(shown(last, [listed])).toEqual({
-      rows: [["Units", "Revenue", "", "Products, Time", "Module"], ["Rent", "Costs", "", "Regions", "Module"]],
-      note: "3 module rows are not listed here; each line item shows its module. 1 module has no line items, so it is not in this table. It is listed in the Modules table.",
-      tile: { label: "Line Items", count: 2, inAll: 5 } });
+      rows: [["Revenue", "Revenue", "", "Products, Time", "Module"], ["Units", "Revenue", "", "Products, Time", "Module"], ["Price", "Price", "", "", "Module"],
+        ["Costs", "Costs", "", "Regions", "Module"], ["Rent", "Costs", "", "Regions", "Module"]],
+      note: "Every row of Anaplan's Line Items grid: 2 line items, and 3 modules' own rows, each in bold above its line items, with its own name under Module Name.",
+      tile: { label: "Line Items", count: 5 } });
     // A name is the Modules file's only as the file writes it: listed with a space before or after it, Price is not the
-    // row's name, and the row stays in the table as it does when the file does not list it at all.
+    // row's name, and the row is a line item, as it is when the file does not list it at all.
     for (const spaced of [" Price", "Price ", " Price "]) {
       expect(shown(last, [{ ...modules, rows: [...modules.rows, [spaced, ""]] }]), JSON.stringify(spaced)).toEqual(shown(last, [modules]));
     }
     // A result without the Modules file, or with one that lists nothing, has no names to give: such a row is taken for a
-    // module's own, as the view does by itself, and no table is said to list a module. The line says that the names could
-    // not be checked, and why: Price, of which only the name was read, is among the rows it counts as modules' own.
-    const without = "3 module rows are not listed here; each line item shows its module. 1 module has no line items, so it is not in this table.";
+    // module's own, as the view does by itself. The line says that the names could not be checked, and why: Price, of
+    // which only the name was read, is among the rows it counts as modules' own.
+    const without = "Every row of Anaplan's Line Items grid: 2 line items, and 3 modules' own rows, each in bold above its line items, with its own name under Module Name.";
     expect([shown(last, []).note, shown(last, [{ ...modules, rows: [] }]).note]).toEqual([
       `${without} The Modules table was not exported, so a row with only a name is taken for a module's row.`,
       `${without} The Modules table lists no modules, so a row with only a name is taken for a module's row.`]);
-    expect([shown(last, []).rows, lineItemsView(last).note]).toEqual([[["Units", "Revenue", "", "Products, Time", "Module"], ["Rent", "Costs", "", "Regions", "Module"]], without]);
-    expect(shown(among, []).rows).toEqual([["Units", "Revenue", "", "Products, Time", "Module"], ["Sales", "Revenue", "Units * Price", "-", "Module (not found)"]]);
+    expect([shown(last, []).rows, lineItemsView(last).note]).toEqual([shown(last, [listed]).rows, without]);
+    expect(shown(among, []).rows).toEqual([["Revenue", "Revenue", "", "Products, Time", "Module"], ["Units", "Revenue", "", "Products, Time", "Module"], ["Price", "Price", "", "", "Module"],
+      ["Sales", "Revenue", "Units * Price", "-", "Module (not found)"]]);
   });
 
   it("says under the Line Items table that no module's name could be checked, when the result has no Modules table with rows", () => {
@@ -691,7 +703,7 @@ describe("What the results page reads out of a result", () => {
     const grid = (rows: Cell[][]): ResultTable => ({ file: "Line Items.csv", label: "Line Items", guard: false, headers, rows });
     const modules = (rows: Cell[][], label = "Modules"): ResultTable => ({ file: MODULES_FILE, label, headers: ["", "Applies To"], rows, guard: false });
     const note = (file: ResultTable, ...others: ResultTable[]) => fileView(result("model", [modelDetails, file, ...others]), file).note;
-    const counted = "1 module row is not listed here; each line item shows its module.";
+    const counted = "Every row of Anaplan's Line Items grid: 2 line items, and 1 module's own row, in bold above its line items, with its own name under Module Name.";
     const whole = grid([["Revenue", "", "Products, Time", ""], ["Units", "", "-", "Revenue"], ["Price", "Units * 2", "Products", "Revenue"]]);
     // The Modules file failed to export: the result has none. The line says so, and what that means for a row with only a name.
     expect(note(whole)).toBe(`${counted} The Modules table was not exported, so a row with only a name is taken for a module's row.`);
@@ -700,17 +712,17 @@ describe("What the results page reads out of a result", () => {
     expect(note(whole, modules([], "All modules"))).toBe(`${counted} The All modules table lists no modules, so a row with only a name is taken for a module's row.`);
     // With a Modules table that has rows the names were checked, and nothing is added: also when it does not list this module.
     expect([note(whole, modules([["Revenue", "Products, Time"]])), note(whole, modules([["Costs", "Regions"]]))]).toEqual([counted, counted]);
-    // The sentence is the line's last: after the line items whose module is not known, and after the modules without line
-    // items, which no table is then said to list.
+    // The sentence is the line's last: after the line items whose module is not known.
     const mixed = grid([["Revenue", "", "Products, Time", ""], ["Units", "", "-", "Revenue"], ["Lost", "Units * 2", "-", ""], ["--- Archive ---", "", "", ""]]);
-    expect(note(mixed)).toBe("2 module rows are not listed here; each line item shows its module, except 1 whose module is not known: it has no Module Name. "
-      + "1 module has no line items, so it is not in this table. The Modules table was not exported, so a row with only a name is taken for a module's row.");
-    // A table none of whose rows is left says it too, under the line that counts them.
+    expect(note(mixed)).toBe("Every row of Anaplan's Line Items grid: 2 line items, and 2 modules' own rows, each in bold above its line items, with its own name under Module Name. "
+      + "1 line item has no Module Name: its module is not known. The Modules table was not exported, so a row with only a name is taken for a module's row.");
+    // A table of modules' own rows alone says it too, under the line that counts them.
     const bare = grid([["Revenue", "", "Products, Time", ""], ["Costs", "", "Regions", ""]]);
-    expect(fileView(result("model", [bare]), bare)).toMatchObject({ none: "Every row that was read is a module's own: no module has a line item.",
-      note: "2 module rows are not listed here; each line item shows its module. 2 modules have no line items, so they are not in this table. "
-        + "The Modules table was not exported, so a row with only a name is taken for a module's row." });
-    // A file the view does not apply to has no line at all, whatever the result holds: nothing was left out of its table.
+    const bareShown = fileView(result("model", [bare]), bare);
+    expect([bareShown.table.rows.length, bareShown.none, bareShown.note]).toEqual([2, undefined,
+      "Every row of Anaplan's Line Items grid: no line items, and 2 modules' own rows, each in bold, with its own name under Module Name. "
+        + "The Modules table was not exported, so a row with only a name is taken for a module's row."]);
+    // A file the view does not apply to has no line at all, whatever the result holds: it is shown as it stands.
     const flat = grid([["Units", "", "-", "Revenue"], ["Price", "Units * 2", "Products", "Revenue"]]);
     expect([fileView(result("model", [flat]), flat), fileView(result("app", [appDetails, whole]), whole)]).toEqual([{ table: flat }, { table: whole }]);
   });
@@ -768,7 +780,7 @@ describe("What the results page reads out of a result", () => {
     expect(fileView(app, lineItems).table).toBe(lineItems);
   });
 
-  it("says the words after a file's own rule: the Line Items table of line items has them in the columns the view moved", () => {
+  it("says the words after a file's own rule: the Line Items table has them in the columns the view moved", () => {
     const NUMBER = '{"dataType":"NUMBER"}';
     const RATIO = '{"summaryMethod":"RATIO","timeSummaryMethod":"RATIO","ratioNumeratorIdentifier":"_1901000000003_","ratioDenominatorIdentifier":"_1901000000002_"}';
     const blueprint: ResultTable = { file: "Line Items.csv", label: "Line Items", guard: false, headers: ["", "Format", "Summary", "Applies To", "Module Name", "Ratio Numerator", "Ratio Denominator"], rows: [
@@ -777,15 +789,22 @@ describe("What the results page reads out of a result", () => {
       ["Margin %", NUMBER, RATIO, "-", "Revenue", "Margin", "Units"]] };
     const model = result("model", [modelDetails, blueprint]);
     const shown = fileView(model, blueprint);
-    expect([shown.table.headers, shown.table.rows, shown.note]).toEqual([["", "Module Name", "Format", "Summary", "Applies To", "Applies To from", "Ratio Numerator", "Ratio Denominator"], [
-      ["Units", "Revenue", "Number", "Sum", "Products, Time", "Module", "", ""],
-      ["Margin %", "Revenue", "Number", "Ratio = Margin / Units", "Products, Time", "Module", "Margin", "Units"]],
-    "1 module row is not listed here; each line item shows its module. The Modules table was not exported, so a row with only a name is taken for a module's row."]);
-    // What is kept is by the shown table's rows and columns: Format stands third there, and second in the file.
+    expect([shown.table.headers, shown.table.rows, shown.note]).toEqual([["", "Module Name", "Format", "Format type", "Summary", "Applies To", "Applies To from", "Ratio Numerator",
+      "Ratio Denominator"], [
+      ["Revenue", "Revenue", "", "", "", "Products, Time", "Module", "", ""],
+      ["Units", "Revenue", "Number", "Number", "Sum", "Products, Time", "Module", "", ""],
+      ["Margin %", "Revenue", "Number", "Number", "Ratio = Margin / Units", "Products, Time", "Module", "Margin", "Units"]],
+    "Every row of Anaplan's Line Items grid: 2 line items, and 1 module's own row, in bold above its line items, with its own name under Module Name. "
+      + "To list only line items, untick (blank) in the filter of Format type, and No Data as well to leave out the line items that are headings. "
+      + "The Modules table was not exported, so a row with only a name is taken for a module's row."]);
+    // What is kept is by the shown table's rows and columns: Format stands third there, and second in the file; Summary
+    // stands after the format's data type, which is no definition and is not said again.
     expect([...shown.exported ?? []].map(([row, texts]) => [shown.table.rows.findIndex(candidate => candidate === row), [...texts]]))
-      .toEqual([[0, [[2, NUMBER], [3, '{"summaryMethod":"SUM","timeSummaryMethod":"SUM"}']]], [1, [[2, NUMBER], [3, RATIO]]]]);
-    // The words change no row: the tile counts the line items, as before.
-    expect(overviewOf(model).tiles).toEqual([{ label: "Line Items", count: 2, inAll: 3 }]);
+      .toEqual([[1, [[2, NUMBER], [4, '{"summaryMethod":"SUM","timeSummaryMethod":"SUM"}']]], [2, [[2, NUMBER], [4, RATIO]]]]);
+    // The module's own row is the shown table's heading, in the rows said in words as in the view's.
+    expect(shown.table.rows.filter(row => shown.headings?.has(row)).map(row => row[0])).toEqual(["Revenue"]);
+    // The words change no row: the tile counts the file's rows, as before.
+    expect(overviewOf(model).tiles).toEqual([{ label: "Line Items", count: 3 }]);
     expect(blueprint.rows[1]).toEqual(["Units", NUMBER, '{"summaryMethod":"SUM","timeSummaryMethod":"SUM"}', "-", "Revenue", "", ""]);
   });
 
@@ -811,15 +830,17 @@ describe("What the results page reads out of a result", () => {
     const kept = structuredClone(lineItems);
     const model = result("model", [modelDetails, lineItems]);
     const shown = fileView(model, lineItems);
-    // The view of line items keeps the column where the file has it, the last; the words stand in the Format column.
-    expect(shown.table.headers).toEqual(["", "Module Name", "Format", "Summary", "Applies To", "Applies To from", "Ratio Numerator", "Ratio Denominator", "Format List"]);
+    // The view keeps the column where the file has it, the last; the words stand in the Format column, and the data type
+    // after it says List for each of them.
+    expect(shown.table.headers).toEqual(["", "Module Name", "Format", "Format type", "Summary", "Applies To", "Applies To from", "Ratio Numerator", "Ratio Denominator", "Format List"]);
     const cells = (header: string) => shown.table.rows.map(row => row[shown.table.headers.indexOf(header)]);
-    expect([cells(""), cells("Format"), cells("Format List")]).toEqual([
-      ["Product", "Region", "Active product", "Units", "Spaces", "Named number", "Product again"],
-      ["List: Products", "List: Regions <b>& more</b>, filter: selective access", "List: ID 109000000004", "Number", "List: ID 101000000009", "Number", "List: Product catalogue"],
-      ["Products", "Regions <b>& more</b>", "", "", "  ", "Products", "Product catalogue"]]);
+    expect([cells(""), cells("Format"), cells("Format type"), cells("Format List")]).toEqual([
+      ["Orders", "Product", "Region", "Active product", "Units", "Spaces", "Named number", "Product again"],
+      ["", "List: Products", "List: Regions <b>& more</b>, filter: selective access", "List: ID 109000000004", "Number", "List: ID 101000000009", "Number", "List: Product catalogue"],
+      ["", "List", "List", "List", "Number", "List", "Number", "List"],
+      ["", "Products", "Regions <b>& more</b>", "", "", "  ", "Products", "Product catalogue"]]);
     // The text that was read is kept for the Format and the Summary, as before. The Format List cell is the file's own, and has none.
-    expect([...shown.exported?.get(shown.table.rows[0]) ?? []]).toEqual([[2, list(101000000007)], [3, NO_SUMMARY]]);
+    expect([...shown.exported?.get(shown.table.rows[1]) ?? []]).toEqual([[2, list(101000000007)], [4, NO_SUMMARY]]);
     // The column starts shown, as the two of a ratio do, and is a column like any other: plain text, with a filter by list.
     expect(columnsOf(shown.table).slice(-3).map(column => [column.label, column.kind, column.hidden, column.filter])).toEqual([
       ["Ratio Numerator", "text", false, false], ["Ratio Denominator", "text", false, false], ["Format List", "text", false, true]]);
