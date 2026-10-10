@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { stampLine } from "../details.js";
 import { IMPORTS_ROW_REWORDED, MODEL_ACTIONS_COLUMN_ADDED, MODEL_ACTIONS_ROW_REWORDED, MODEL_COLUMN_ADDED, MODEL_COLUMNS_ADDED, MODEL_FILE_ADDED, MODEL_ROW_ADDED, MODEL_ROW_REWORDED, MODEL_ROWS_FOR_THE_PAGE, MODEL_ZIP_0_6_1, MODEL_ZIP_AS_NAMED, withColumnAdded, withDetailsSince, ZIPPED_AT } from "../golden-0.6.1.test-support.js";
-import { ACCESS_CSV, ACCESS_FILE_ADDED, ACCESS_GRIDS, ACCESS_READS_0_8_1, ACCESS_ROWS_FOR_THE_PAGE, ACCESS_ROWS_REWORDED, ACCESS_ZIP_0_8_1, ACCESS_ZIP_WITH_FILE, MAPPINGS_ADDED, withAccessRows,
-  withMappingsRead, withMappingsSaid } from "../golden-0.8.1.test-support.js";
+import { ACCESS_CSV, ACCESS_FILE_ADDED, ACCESS_GRIDS, ACCESS_READS_0_8_1, ACCESS_ROWS_FOR_THE_PAGE, ACCESS_ROWS_REWORDED, ACCESS_ZIP_0_8_1, ACCESS_ZIP_WITH_FILE, MAPPINGS_ADDED,
+  MODULE_IDS_ADDED, withAccessRows, withLinesSaid, withMappingsRead } from "../golden-0.8.1.test-support.js";
 import { NOT_SCOPE_IDS, SCOPE_IDS } from "../guards.test-support.js";
 import { buildModelGraph } from "../map/build-graph.js";
 import { Failure } from "../progress.js";
@@ -15,7 +15,7 @@ import { ACCESS_HEADERS } from "./access.js";
 import { againstMap } from "./access.test-support.js";
 import { ACTION_LIST_COLUMN, actionKind, mergeImports, missingActionColumns, otherActionsTable } from "./actions.js";
 import { CALENDAR_HEADERS, CALENDAR_PROPERTIES, calendarKind, calendarRows } from "./calendar.js";
-import { exportModel, moduleIdsOf } from "./export.js";
+import { exportModel, moduleIdsLine, moduleIdsOf } from "./export.js";
 import { MAPPING_NOTES } from "./import-mappings.js";
 import * as grids from "./grid.js";
 import { cellText, gridTable, labelEntries, plainText, windowRows, type CellSource, type Grid, type GridRow } from "./grid.js";
@@ -939,14 +939,14 @@ describe("Model export: Model settings grids to tables", () => {
     for (const [file, text] of before) expect(written.get(file), file).toBe(since(file, text));
     expect(written.get(ACCESS_FILE_ADDED.file)).toBe(ACCESS_CSV);
     // Row by row, Model Details.csv has 0.8.1's rows, each in its place, with the two rows about the file, the row on
-    // Source Models and the four Diagnostics rows on the imports' definitions among them. The rows in other words than
-    // 0.8.1's are the five named, in the file's order: on the layout, on Line Items, on the Actions list's files, on
-    // Imports and on the calendar.
+    // Source Models, the Diagnostics row on the modules' IDs and the five on the imports' definitions among them. The rows
+    // in other words than 0.8.1's are the five named, in the file's order: on the layout, on Line Items, on the Actions
+    // list's files, on Imports and on the calendar.
     const lines = (text: string): string[] => parseCsv(text).map(row => row.join("\n"));
     const [details, detailsBefore] = [lines(written.get(ACCESS_FILE_ADDED.details)!), lines(before.get(ACCESS_FILE_ADDED.details)!)];
-    const gained = [ACCESS_FILE_ADDED.written, ACCESS_FILE_ADDED.howToRead, MODEL_ROW_ADDED, MAPPINGS_ADDED.rows].flatMap(row => lines(row.line));
+    const gained = [ACCESS_FILE_ADDED.written, ACCESS_FILE_ADDED.howToRead, MODEL_ROW_ADDED, MODULE_IDS_ADDED.rows, MAPPINGS_ADDED.rows].flatMap(row => lines(row.line));
     const stayed = details.filter(row => !gained.includes(row));
-    expect([details.length, stayed.length, gained.length]).toEqual([detailsBefore.length + 7, detailsBefore.length, 7]);
+    expect([details.length, stayed.length, gained.length]).toEqual([detailsBefore.length + 9, detailsBefore.length, 9]);
     expect(stayed.flatMap((row, index) => (row === detailsBefore[index] ? [] : [[detailsBefore[index], row]]))).toEqual(ACCESS_ROWS_REWORDED.map(row => [lines(row.was)[0], lines(row.now)[0]]));
     // Then every byte. Of 0.8.1's twelve files, Line Items.csv among them, only Model Details.csv and Other Actions.csv
     // have other bytes.
@@ -957,15 +957,16 @@ describe("Model export: Model settings grids to tables", () => {
     // The zip around the files is written as 0.8.1 wrote it: from 0.8.1's own files, it is 0.8.1's zip.
     expect(sameBytes(zipStore(golden, ZIPPED_AT), ACCESS_ZIP_0_8_1)).toBe(true);
     // So this run's zip is, byte for byte, 0.8.1's zip with that one file put in, that column added, those five rows
-    // reworded and those three rows added.
+    // reworded and those rows added.
     expect(sameBytes(zip, ACCESS_ZIP_WITH_FILE)).toBe(true);
 
     // Nothing is read for the file, and the export reports no step and no line more: the reads are 0.8.1's, in its order,
     // and so are the steps and the lines of the log, which the Diagnostics rows of Model Details.csv hold one by one, but
-    // for the grid of the imports' definitions, read and said right after the Imports tab (MAPPINGS_ADDED).
+    // for the line on the modules' IDs, said right after the Modules grid's (MODULE_IDS_ADDED), and the grid of the
+    // imports' definitions, read and said right after the Imports tab (MAPPINGS_ADDED).
     expect(reads).toEqual(withMappingsRead(ACCESS_READS_0_8_1));
     const log = (zipped: Map<string, string>): string[] => parseCsv(zipped.get(ACCESS_FILE_ADDED.details)!).filter(row => row[0] === "Diagnostics").map(row => `${row[1]} ${row[2]}`);
-    expect(said).toEqual(withMappingsSaid(log(before)));
+    expect(said).toEqual(withLinesSaid(log(before)));
     expect([log(written), said.filter(line => line.includes("Dynamic Cell Access"))]).toEqual([said, []]);
 
     // The file has its place right after Line Items in the result too: among the tables, in the summary and among the
@@ -1013,8 +1014,9 @@ describe("Model export: Model settings grids to tables", () => {
     /** The model exported with that Line Items grid: the file's text, the Details file's first three Files rows, what the
      * summary says of the file, and how many steps and lines the export reported. A file that is written is held against
      * the model map of the result's tables on the way: its rows are that map's access links, and what it could not match. */
-    /** How many steps and lines the export reports of this model: 0.8.1's, and those on the imports' definitions. */
-    const STEPS = 23 + MAPPINGS_ADDED.said.length;
+    /** How many steps and lines the export reports of this model: 0.8.1's, and those on the modules' IDs and on the imports'
+     * definitions. */
+    const STEPS = 23 + MODULE_IDS_ADDED.said.length + MAPPINGS_ADDED.said.length;
     const exported = async (lineItems: FakeGrid) => {
       const said: string[] = [];
       const result = await exportGoldenModel({ ...GOLDEN_GRIDS, ...ACCESS_GRIDS, [LINE_ITEMS]: lineItems }, [], said);
@@ -1157,8 +1159,9 @@ describe("Model export: Model settings grids to tables", () => {
     for (const table of result.tables.slice(1)) expect(table, table.file).toEqual(whole.tables.find(other => other.file === table.file));
     // The reason is in the Details file's row and, as any other file's failure is, in the log: one line more, after
     // the lines of the last grid, since the file is made once every grid is read. The file is still no step of its own.
-    // The steps and lines are 0.8.1's, with those on the imports' definitions (MAPPINGS_ADDED).
-    expect([said.length, saidWithout]).toEqual([23 + MAPPINGS_ADDED.said.length, [...said, "12:30:10 Dynamic Cell Access: no table"]]);
+    // The steps and lines are 0.8.1's, with those on the modules' IDs (MODULE_IDS_ADDED) and on the imports' definitions
+    // (MAPPINGS_ADDED).
+    expect([said.length, saidWithout]).toEqual([23 + MODULE_IDS_ADDED.said.length + MAPPINGS_ADDED.said.length, [...said, "12:30:10 Dynamic Cell Access: no table"]]);
     expect(result.tables[0].rows.filter(row => row[0] === "Diagnostics").at(-1)).toEqual(["Diagnostics", "12:30:10", "Dynamic Cell Access: no table"]);
   });
 });
@@ -1275,13 +1278,30 @@ describe("The modules' IDs a model's result keeps", () => {
     // The golden model: its two modules, the heading among them, read in Modules before Line Items names Profitability again.
     expect((await exportGoldenModel()).moduleIds).toEqual([["Profitability", "102000000001"], ["-- MODEL ADMIN", "102000000002"]]);
     const grid = (rows: [number, string][]): Grid => ({ columns: [], rows: rows.map(([id, name]) => ({ ids: [id], labels: [name], cells: [] })) });
-    // A client that cannot say an ID's type: an ID is a module's by the type it starts with, as Anaplan's long IDs carry it.
+    // An ID is a module's by the type it starts with, as Anaplan's long IDs carry it, whatever the client can say.
     const blind = { ids: {} } as never;
     expect(moduleIdsOf(blind, [grid([[102000000005, "Sales"], [1901000000001, "Units"], [-1, "Gone"], [102000000006, ""], [Number.NaN, "Odd"]]), undefined,
       grid([[102000000007, "Sales"], [102000000008, "Costs"]])])).toEqual([["Sales", "102000000005"], ["Costs", "102000000008"]]);
-    // A client that can say: its word is taken.
+    // A client whose numbers for the types are not the IDs' own takes no module away: one that calls every ID a list's, or
+    // says another number for every one, leaves each module that its ID says is one.
+    for (const type of [101, 5, Number.NaN]) {
+      const other = { ids: { getEntityTypeIndex: () => type } } as never;
+      expect(moduleIdsOf(other, [grid([[102000000009, "Listed"], [1901000000001, "Units"]])]), String(type)).toEqual([["Listed", "102000000009"]]);
+    }
+    // Its word adds an ID that does not start with a module's type, where it says the ID is a module's.
     const says = { ids: { getEntityTypeIndex: (id: number) => (id === 7 ? 102 : 101) } } as never;
-    expect(moduleIdsOf(says, [grid([[7, "Small"], [102000000009, "Listed"]])])).toEqual([["Small", "7"]]);
+    expect(moduleIdsOf(says, [grid([[7, "Small"], [8, "Other"], [102000000009, "Listed"]])])).toEqual([["Small", "7"], ["Listed", "102000000009"]]);
+  });
+
+  it("are carried however many were found, and said in the log with the first row listed", () => {
+    const grid = (rows: [number, string][]): Grid => ({ columns: [], rows: rows.map(([id, name]) => ({ ids: [id], labels: [name], cells: [] })) });
+    const says = { ids: { getEntityTypeIndex: (id: number) => Math.floor(id / 1e9) } } as never;
+    // The first row of Modules, or of Line Items where Modules has none or was not read: its ID and the client's type of it.
+    expect(moduleIdsLine(says, [grid([[102000000004, "-- Inputs --"], [102000000005, "Sales"]]), grid([[102000000005, "Sales"]])], 2))
+      .toBe("Module IDs: 2 found; the first row listed has ID 102000000004, of type 102 by the model's client");
+    expect(moduleIdsLine(says, [undefined, grid([[114000000001, "Units"]])], 0)).toBe("Module IDs: 0 found; the first row listed has ID 114000000001, of type 114 by the model's client");
+    expect(moduleIdsLine({ ids: {} } as never, [grid([[102000000004, "Sales"]])], 1)).toBe("Module IDs: 1 found; the first row listed has ID 102000000004, of type -1 by the model's client");
+    expect(moduleIdsLine(says, [undefined, grid([])], 0)).toBe("Module IDs: 0 found; no grid lists a module");
   });
 });
 
@@ -1326,19 +1346,31 @@ describe("The mappings of a model's imports from a file", () => {
     const result = await exportGoldenModel(GOLDEN_GRIDS, [], said, { posted, request });
     expect(posted.filter(sent => sent.params.viewDefinition.columnAxis === "IMPORT DEFINITIONS")).toEqual([]);
     expect(result.importMappings).toEqual([{ id: "112000000002", name: "Prices from prices.csv", importType: "", targets: [], note: MAPPING_NOTES.notRead }]);
-    expect(said.map(line => line.slice(9)).filter(line => line.includes("Import mapping"))).toEqual(["Reading Import mappings…", "Import mappings: Refusing to send anything but a read.",
-      "Import mappings: 0 of 1 read"]);
+    expect(said.map(line => line.slice(9)).filter(line => line.includes("Import mapping"))).toEqual(["Import mappings: 2 imports; Source Types: SAVED VIEW ×1, FILE ×1; 1 mapping to read", "Reading Import mappings…",
+      "Import mappings: Refusing to send anything but a read.", "Import mappings: 0 of 1 read; the model gave no grid of definitions"]);
     // The export goes on: every table is there, the Imports table as ever.
     expect(result.tables.map(table => table.file)).toEqual((await exportGoldenModel()).tables.map(table => table.file));
   });
 
-  it("are not read for a model without an import from a file, and the result then has none", async () => {
-    const reads: string[] = [];
+  it("are not read for a model without an import from a file, and the result then has none, which the log says by the tab's Source Types", async () => {
+    const [reads, said]: string[][] = [[], []];
     const tab = GOLDEN_GRIDS[IMPORTS_TAB];
     const noFile = { ...tab, rows: tab.rows.map(row => ({ ...row, cells: row.cells.map(cell => (cell === "FILE" ? "MODULE" : cell)) })) };
-    const result = await exportGoldenModel({ ...GOLDEN_GRIDS, [IMPORTS_TAB]: noFile }, reads);
-    expect([result.importMappings, reads.filter(read => read.startsWith("IMPORTS"))]).toEqual([undefined, ["IMPORTS 0+1", "IMPORTS 0+2"]]);
-    // Nor where the Imports tab could not be read: its imports are not known.
+    const result = await exportGoldenModel({ ...GOLDEN_GRIDS, [IMPORTS_TAB]: noFile }, reads, said);
+    // An empty list, not none: a result without mappings is one an earlier version made.
+    expect([result.importMappings, reads.filter(read => read.startsWith("IMPORTS"))]).toEqual([[], ["IMPORTS 0+1", "IMPORTS 0+2"]]);
+    expect(said.map(line => line.slice(9)).filter(line => line.includes("Import mapping"))).toEqual(["Import mappings: 2 imports; Source Types: SAVED VIEW ×1, MODULE ×1; 0 mappings to read"]);
+    // A Source Type that is no word is written as a question mark, and a word in other letters as it is; a tab without
+    // the column says so.
+    const odd = { ...tab, rows: tab.rows.map(row => ({ ...row, cells: row.cells.map(cell => (cell === "FILE" ? " file " : cell === "SAVED VIEW" ? "A <b>" : cell)) })) };
+    const oddSaid: string[] = [];
+    await exportGoldenModel({ ...GOLDEN_GRIDS, [IMPORTS_TAB]: odd }, [], oddSaid);
+    expect(oddSaid.find(line => line.includes("Import mappings: 2 imports"))?.slice(9)).toBe("Import mappings: 2 imports; Source Types: ? ×1, file ×1; 1 mapping to read");
+    const columnless = { columns: tab.columns.filter(column => column !== "Source Type"), rows: tab.rows.map(row => ({ ...row, cells: row.cells.filter((_, index) => tab.columns[index] !== "Source Type") })) };
+    const columnlessSaid: string[] = [];
+    expect((await exportGoldenModel({ ...GOLDEN_GRIDS, [IMPORTS_TAB]: columnless }, [], columnlessSaid)).importMappings).toEqual([]);
+    expect(columnlessSaid.filter(line => line.includes("Import mapping")).map(line => line.slice(9))).toEqual(["Import mappings: 2 imports; the Imports tab has no Source Type column"]);
+    // None where the Imports tab could not be read: its imports are not known.
     const { [IMPORTS_TAB]: _tab, ...withoutTab } = GOLDEN_GRIDS;
     expect((await exportGoldenModel(withoutTab)).importMappings).toBeUndefined();
   });
@@ -1352,8 +1384,8 @@ describe("The mappings of a model's imports from a file", () => {
     expect(result.importMappings).toEqual([{ id: "112000000002", name: "Prices from prices.csv", importType: "", targets: [], note: MAPPING_NOTES.notRead }]);
     // The read was sent, once, and the next grid read after it: the reason is in the log, and no table says it.
     expect(reads.slice(reads.indexOf("IMPORTS 0+2") + 1, reads.indexOf("IMPORTS 0+2") + 3)).toEqual(["IMPORTS 0+1", "DATA SOURCES 0+1"]);
-    expect(said.filter(line => line.includes("Import mapping"))).toEqual(["12:30:10 Reading Import mappings…", "12:30:10 Import mappings: The model rejected the read.",
-      "12:30:10 Import mappings: 0 of 1 read"]);
+    expect(said.filter(line => line.includes("Import mapping"))).toEqual(["12:30:10 Import mappings: 2 imports; Source Types: SAVED VIEW ×1, FILE ×1; 1 mapping to read", "12:30:10 Reading Import mappings…",
+      "12:30:10 Import mappings: The model rejected the read.", "12:30:10 Import mappings: 0 of 1 read; the model gave no grid of definitions"]);
     expect([result.summary.filter(line => /mapping/i.test(line)), result.tables[0].rows.filter(row => row[0] === "Notes")]).toEqual([[], []]);
     expect(result.tables.find(table => table.file === "Imports.csv")).toEqual((await exportGoldenModel()).tables.find(table => table.file === "Imports.csv"));
   });

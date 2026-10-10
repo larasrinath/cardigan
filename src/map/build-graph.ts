@@ -56,6 +56,8 @@ interface Reads<Column extends string> {
   objects: string;
   columns: readonly (readonly [column: Column, without?: string | null])[];
   also?: Partial<Record<Column, readonly string[]>>;
+  /** False for a file whose first column names no row: it is a column like any other, read by its header. */
+  rowNames?: false;
 }
 
 const LISTS = {
@@ -92,11 +94,11 @@ type LineItemColumn = (typeof LINE_ITEMS)["columns"][number][0];
 const PROCESSES = { file: PROCESSES_FILE, objects: "processes", columns: [["Notes"]] } as const satisfies Reads<string>;
 
 /** The filters on the pages built on the model, which a model's run reads from those pages (model-pages.ts): no settings
- * grid of the model, and nothing the map draws. A line item's details list those that have it as their condition. The
- * file's first column is the app. */
+ * grid of the model, and nothing the map draws. A line item's details list those that have it as their condition. Each
+ * column is read by its name: the file's order is the results page's. */
 const PAGE_FILTERS = {
-  file: PAGE_FILTERS_FILE, objects: "page filters",
-  columns: [["Page", null], ["Card #", null], ["Condition line item", null], ["Condition line item's module", null]],
+  file: PAGE_FILTERS_FILE, objects: "page filters", rowNames: false,
+  columns: [["App", null], ["Page", null], ["Card #", null], ["Condition line item", null], ["Condition line item's module", null]],
 } as const satisfies Reads<string>;
 
 /** The Imports tab's columns that say where an import takes its data from. The map does not draw a source: it only says
@@ -236,11 +238,13 @@ function tableOf<Column extends string>(tables: readonly ResultTable[], reads: R
   const headers: readonly unknown[] = Array.isArray(table.headers) ? table.headers : [];
   // Read row by row, so that a hole among the rows is a row with nothing in it: `map` would leave the hole.
   const rows: readonly Row[] = Array.isArray(table.rows) ? Array.from(table.rows, (row: unknown) => (Array.isArray(row) ? row as Row : [])) : [];
-  // The first column is the row's name, whatever its header: a column the map reads is the first of its name after it,
-  // and under another header only where the file has none of its own.
+  // The first column is the row's name, whatever its header, but in a file that says it names no row (`rowNames`): a
+  // column the map reads is the first of its name after it, and under another header only where the file has none of
+  // its own.
+  const first = reads.rowNames === false ? 0 : 1;
   const at = new Map<Column, number>();
   for (const [column] of reads.columns) {
-    const index = [column, ...(reads.also?.[column] ?? [])].map(header => headers.indexOf(header, 1)).find(place => place > 0);
+    const index = [column, ...(reads.also?.[column] ?? [])].map(header => headers.indexOf(header, first)).find(place => place >= first);
     if (index !== undefined) at.set(column, index);
   }
   const lacks: string[] = [];
@@ -833,7 +837,7 @@ function readPageFilters(draft: Draft, tables: readonly ResultTable[]): void {
     const [module, lineItem] = [table!.cell(row, "Condition line item's module"), table!.cell(row, "Condition line item")];
     const id = draft.items.get(module)?.get(lineItem) ?? draft.items.get(module.trim())?.get(lineItem.trim());
     if (id === undefined) continue;
-    (draft.nodes[id].pageFilters ??= []).push({ app: textOf(row[0]), page: table!.cell(row, "Page"), card: table!.cell(row, "Card #") });
+    (draft.nodes[id].pageFilters ??= []).push({ app: table!.cell(row, "App"), page: table!.cell(row, "Page"), card: table!.cell(row, "Card #") });
   }
 }
 

@@ -5,9 +5,9 @@ import type { UxPageType } from "./card-reader/definition-types.js";
 import { emptyCatalog } from "./catalog.js";
 import { diagnosticRows, stampLine, type DetailRow } from "./details.js";
 import { separator } from "./map/graph-names.js";
-import { FILTER_USES, MODULE_USAGE_FILE, MODULE_USAGE_HEADERS, NOT_ON_A_PAGE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE } from "./page-files.js";
+import { FILTER_USES, MODULE_USAGE_FILE, MODULE_USAGE_HEADERS, NOT_ON_A_PAGE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, PAGE_PLACE_HEADERS } from "./page-files.js";
 import type { Progress } from "./progress.js";
-import { buildReport, HEADERS, NONE, type Cell, type PageInput } from "./report.js";
+import { buildReport, HEADERS, NONE, PAGE_TYPE, type Cell, type PageInput } from "./report.js";
 import { plainRows } from "./result-plain.js";
 import type { AnalysisResult, ResultTable } from "./result-types.js";
 import { getJson, RestError } from "./rest.js";
@@ -38,9 +38,16 @@ export const NO_CUSTOMER = "the page's address names no customer, and the pages 
 /** What the Apps detail says when the list of pages built on the model is empty. */
 export const NO_APPS = "No app's pages use this model";
 
-/** Page Filters and Page Actions are an app's Filters and Action Buttons tables, with the app in front. */
-export const PAGE_FILTERS_HEADERS: readonly string[] = ["App", ...HEADERS.Filters];
-export const PAGE_ACTIONS_HEADERS: readonly string[] = ["App", ...HEADERS.Actions];
+/** Page Filters and Page Actions hold an app's Filters and Action Buttons rows, with their app and where their page is
+ * (`PAGE_PLACE_HEADERS`), in an order of their own (asked for by the user, 9 Oct 2026). A filter: what filters, the
+ * condition line item and its module, then what is filtered, the module and the dimension, then the condition, then
+ * where it is, by app, page, card and section, and last the columns that start hidden. A button: the model's action it
+ * runs, by name and type, then where it is, by app, page, card and its label, then how it behaves, and last the columns
+ * that start hidden. Every column of the app's table is there, and no other but the app and where the page is. */
+export const PAGE_FILTERS_HEADERS: readonly string[] = ["Condition line item's module", "Condition line item", "Filtered module", "Filtered dimension", "Operator", "Value",
+  "Show items that match", "Condition group", "Condition context", "Filter on", "App", "Page", "Card #", "Section #", ...PAGE_PLACE_HEADERS, "Card ID", "Line item ID"];
+export const PAGE_ACTIONS_HEADERS: readonly string[] = ["Model action name", "Action type", "App", "Page", "Card #", "Button label", "Runs automatically", "Cancel button",
+  "Name source", ...PAGE_PLACE_HEADERS, "Card ID", "Action ID"];
 
 /** The three files, each with the label the page shows it under: its name without the extension, as the export's are. */
 const FILES: readonly [file: string, label: string][] = [[MODULE_USAGE_FILE, "Module Usage"], [PAGE_FILTERS_FILE, "Page Filters"], [PAGE_ACTIONS_FILE, "Page Actions"]];
@@ -52,12 +59,15 @@ const HOW_TO_READ: readonly [detail: string, value: string][] = [
     + `one of its line items, or filters or formats by one of its line items. A module that no page read uses has one row, which says ${NOT_ON_A_PAGE}. `
     + "After them come the modules a page uses that the Modules table does not list, by their IDs: one marked (not in the model) is one a card "
     + "still points at that the model no longer has, or that you cannot see. Only published pages are read, and only those you can open."],
-  ["Page Filters", "The card filters on the pages built on this model, as an app's Filters table lists them, with the app in front: those of the "
-    + `cards that work on this model, by app, page and card. The ${FILTER_USES} column of Line Items counts the rows that have each line item as `
+  ["Page Filters", "The card filters on the pages built on this model, with the columns of an app's Filters table: those of the cards that work on "
+    + "this model, by app, page and card. Each row says first what filters, the condition line item's module and the line item, then what it "
+    + "filters, the module and the dimension, then the condition, and then where the filter is: its app, page, card and section. "
+    + `The ${FILTER_USES} column of Line Items counts the rows that have each line item as `
     + "their condition. It is empty, not 0, where a page could not be read, or a filter's condition line item could not be named: the line item "
     + "may be the condition of that filter."],
-  ["Page Actions", "The action buttons on the pages built on this model, as an app's Action Buttons table lists them, with the app in front: those "
-    + "of the cards that work on this model, by app, page and card."],
+  ["Page Actions", "The action buttons on the pages built on this model, with the columns of an app's Action Buttons table: those of the cards that "
+    + "work on this model, by app, page and card. Each row says first the model's action a button runs, by name and type, then where the button "
+    + "is, by app, page, card and label, and then how it behaves."],
 ];
 
 /** What the work reads through: a test passes its own. */
@@ -66,8 +76,9 @@ const LIVE: PageReads = { getJson, readPublished, loadCatalog };
 
 /** A page that was read, and what its cards are. */
 interface ReadPage { type: UxPageType; native: Obj; details: UxPageCardDetails }
-/** What a page gives the tables: its app and name, its rows of the two tables, and the modules it uses. */
-interface PageRows { app: string; page: string; filters: Cell[][]; actions: Cell[][]; modules: Set<string> }
+/** What a page gives the tables: its app and name, where it is (`PAGE_PLACE_HEADERS`, in their order), its rows of the two
+ * tables, and the modules it uses. */
+interface PageRows { app: string; page: string; place: Cell[]; filters: Cell[][]; actions: Cell[][]; modules: Set<string> }
 
 const byText = (a: string, b: string): number => a.localeCompare(b, undefined, { sensitivity: "base", numeric: true });
 const isObj = (value: unknown): value is Obj => !!value && typeof value === "object" && !Array.isArray(value);
@@ -182,15 +193,15 @@ function exportedModules(result: AnalysisResult): string[] {
 }
 
 /** Module Usage's rows: each module of the export in its order, with the pages that use it, and after them the modules the
- * pages use that the export does not list. A module that no page uses has its one row. */
+ * pages use that the export does not list. A module that no page uses has its one row, with no page to say where it is. */
 function moduleUsageRows(exported: readonly string[], pages: readonly PageRows[]): Cell[][] {
-  const uses = new Map<string, [app: string, page: string][]>();
+  const uses = new Map<string, PageRows[]>();
   for (const page of pages) {
-    for (const module of page.modules) uses.set(module, [...(uses.get(module) ?? []), [page.app, page.page]]);
+    for (const module of page.modules) uses.set(module, [...(uses.get(module) ?? []), page]);
   }
   const rowsOf = (module: string): Cell[][] => {
     const at = uses.get(module);
-    return at?.length ? at.map(([app, page]) => [module, app, page]) : [[module, NONE, NOT_ON_A_PAGE]];
+    return at?.length ? at.map(page => [module, page.app, page.page, ...page.place]) : [[module, NONE, NOT_ON_A_PAGE, ...PAGE_PLACE_HEADERS.map(() => NONE)]];
   };
   const listed = new Set(exported);
   const rest = [...uses.keys()].filter(module => !listed.has(module)).sort(byText);
@@ -331,9 +342,15 @@ async function withModelPages(result: AnalysisResult, customerId: string | undef
       const its = (card.modelId ?? pageModel).toLowerCase();
       return its === "" || its === model;
     }).map(card => card.id));
-    const kept = (headers: readonly string[], each: readonly Cell[][]): Cell[][] => {
-      const cardId = headers.indexOf("Card ID");
-      return each.filter(row => ours.has(String(row[cardId]))).map(row => [app, ...row]);
+    // Where the page is: its type in an app's Pages table's words, its app's ID and its own.
+    const place: Cell[] = [PAGE_TYPE[type] ?? NONE, details.appGuid || NONE, details.pageGuid || NONE];
+    const own: ReadonlyMap<string, Cell> = new Map<string, Cell>([["App", app], ...PAGE_PLACE_HEADERS.map((header, index): [string, Cell] => [header, place[index]])]);
+    /** This model's rows of one of the app's tables (`from`, its headers), each laid out in the columns `to` names: each
+     * cell under its own header, and the app and where the page is under theirs. */
+    const kept = (to: readonly string[], from: readonly string[], each: readonly Cell[][]): Cell[][] => {
+      const cardId = from.indexOf("Card ID");
+      const at = to.map(header => from.indexOf(header));
+      return each.filter(row => ours.has(String(row[cardId]))).map(row => to.map((header, index) => (at[index] >= 0 ? row[at[index]] : own.get(header)) ?? ""));
     };
     // A use names its card by its number: the Cards rows say which card has which.
     const [numberAt, idAt] = [HEADERS.Cards.indexOf("Card #"), HEADERS.Cards.indexOf("Card ID")];
@@ -347,7 +364,7 @@ async function withModelPages(result: AnalysisResult, customerId: string | undef
       const module = String(kind === "Module" ? row[nameAt] : kind === "Saved view" || kind === "Line item" ? row[moduleAt] : NONE).trim();
       if (module !== "" && module !== NONE) modules.add(module);
     }
-    return { app, page, filters: kept(HEADERS.Filters, report.Filters.rows), actions: kept(HEADERS.Actions, report.Actions.rows), modules };
+    return { app, page, place, filters: kept(PAGE_FILTERS_HEADERS, HEADERS.Filters, report.Filters.rows), actions: kept(PAGE_ACTIONS_HEADERS, HEADERS.Actions, report.Actions.rows), modules };
   }).sort((a, b) => byText(a.app, b.app) || byText(a.page, b.page));
 
   const usage = moduleUsageRows(exportedModules(result), built);
