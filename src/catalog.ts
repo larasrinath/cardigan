@@ -129,6 +129,47 @@ export function addLineItems(catalog: ModelCatalog, moduleId: string, json: unkn
   }
 }
 
+/** A model's line items as its export read them from the Line Items grid of Model settings (model-pages.ts
+ * `exportedLineItems`): what the line items listing would give for each module the grid lists, without asking the model
+ * data service again. */
+export interface ExportedLineItems {
+  /** Each line item: its ID, its name, its module's ID, and its Format's definition, in the classic client's words, which
+   * are the listing's (`lineItemFormat`), where the export has one. */
+  lineItems: { id: string; name: string; moduleId: string; format?: Obj }[];
+  /** The modules of the grid: each with all its line items among `lineItems`, a module that has none included. */
+  modules: string[];
+}
+
+/** The line items the export read, as if each of their modules had been read from the listing (`addLineItems`): their
+ * modules count as read, so that they are not asked for again. */
+export function addExportedLineItems(catalog: ModelCatalog, exported: ExportedLineItems): void {
+  for (const moduleId of exported.modules) catalog.lineItemModules.add(moduleId);
+  for (const { id, name, moduleId, format } of exported.lineItems) {
+    catalog.lineItems.set(id, { name, moduleId });
+    if (format) catalog.lineItemFormats.set(id, lineItemFormat(format, catalog));
+  }
+}
+
+/** Takes the line items the export read out of the catalog again, with their modules: each is then read from the listing,
+ * as it was before the export's were used. A line item or a module that a read of the listing gave since stays. */
+export function forgetExportedLineItems(catalog: ModelCatalog, exported: ExportedLineItems, listed: ReadonlySet<string>): void {
+  for (const moduleId of exported.modules) if (!listed.has(moduleId)) catalog.lineItemModules.delete(moduleId);
+  for (const { id, moduleId } of exported.lineItems) {
+    if (listed.has(moduleId) || catalog.lineItems.get(id)?.moduleId !== moduleId) continue;
+    catalog.lineItems.delete(id);
+    catalog.lineItemFormats.delete(id);
+  }
+}
+
+/** The line items a listing answer gives (`addLineItems`), by ID and name, in its order. */
+export function listedLineItems(json: unknown): { id: string; name: string }[] {
+  return list((json as Obj | undefined)?.data).flatMap(item => {
+    const id = idText(item.lineItemId);
+    const name = text(item.lineItemLabel);
+    return id && name ? [{ id, name }] : [];
+  });
+}
+
 /** `core://{ws}:{model}/applicableModules`: `data[] = {id, label}`; returns the module IDs. */
 export function applicableModuleIds(catalog: ModelCatalog, json: unknown): string[] {
   const ids: string[] = [];
