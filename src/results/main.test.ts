@@ -8,6 +8,7 @@ import { FRESH_MS, PORT_NAME, RESULTS_PAGE, type TabMessage } from "../protocol.
 import type { AnalysisResult, Cell, ImportMapping, ResultTable } from "../result-types.js";
 import { columnWidths } from "./column-widths.js";
 import { columnsOf } from "./columns.js";
+import { OPEN_WAIT_MS } from "./connection.js";
 import { FakeElement, FakeInput, FakePage, FakeSelect, parseMarkup } from "./dom.test-support.js";
 import { analysedLine, NOT_KEPT_NOTE, TOO_LARGE_NOTE } from "./keep-notes.js";
 import { KEPT_PREFIX, ResultKeeper, type KeptStorage } from "./keep-result.js";
@@ -4588,6 +4589,44 @@ describe("The buttons at the top right of a row's details that open it in Anapla
     { file: PAGE_ACTIONS_FILE, label: "Page Actions", guard: true, headers: [...PAGE_ACTIONS_HEADERS], rows: [
       pageRow(PAGE_ACTIONS_HEADERS, { "Model action name": "Import prices", "Button label": "Load prices", Page: "Cost report", ...place("Report", REPORT) })] }] };
   const link = (module: string) => `${ORIGIN}/a/modeling/customers/${CUSTOMER}/workspaces/${WORKSPACE}/models/${BLUEPRINT.id}/tabs/${module}`;
+  /** How the content script answers the page's ask to open a module inside the Model Building page it shows: that it did,
+   * that it could not, or nothing at all, as a content script of an earlier build that does not know the ask. */
+  let inPage: "opened" | "not" | "silent";
+  beforeEach(() => {
+    inPage = "not";
+    // Every port to the tab has the content script at its other end, which answers asks to open a module.
+    const tabs = (globalThis as unknown as { chrome: { tabs: { connect: (...args: unknown[]) => FakePort } } }).chrome.tabs;
+    const connect = tabs.connect;
+    tabs.connect = (...args: unknown[]) => {
+      const port = connect(...args);
+      answerOpens(port);
+      return port;
+    };
+  });
+  /** The content script at the other end of a port answers each ask to open a module as `inPage` says. */
+  const answerOpens = (port: FakePort) => {
+    const post = port.postMessage.bind(port);
+    port.postMessage = (message: unknown) => {
+      post(message);
+      const asked = message as { type?: string; nonce?: string };
+      if (asked.type !== "open" || inPage === "silent") return;
+      const opened = inPage === "opened";
+      queueMicrotask(() => port.send({ type: "opened", nonce: String(asked.nonce), opened, detail: opened ? "Model Building opened it beside the modules open there" : "the tab shows another model" }));
+    };
+  };
+  /** What the page asked the content script to open inside its page, in order. */
+  const asks = () => ports.flatMap(port => port.posted.filter(message => (message as { type?: string }).type === "open"));
+  /** The lines of the run's log that say how a module was opened, without their times, as the page's button beside a run
+   * copies that log: one of its kind is put on the page for the moment, and pressed. */
+  const openedLines = async () => {
+    const copy = page.document.createElement("button");
+    copy.dataset.act = "copy-run-log";
+    page.document.body.append(copy);
+    copy.press();
+    await settle();
+    copy.remove();
+    return (copied.at(-1) ?? "").split("\n").filter(line => / Opened /.test(line)).map(line => line.replace(/^\d\d:\d\d:\d\d /, ""));
+  };
   /** Opens the page on a model the tab shows in Model Building, as the content script says it: with its site and customer. */
   const openModel = async (result: AnalysisResult = OPENS, subject: object = { kind: "model", id: result.id, origin: ORIGIN, customer: CUSTOMER }) => {
     await open(clicked(7));
@@ -4600,17 +4639,18 @@ describe("The buttons at the top right of a row's details that open it in Anapla
   const openRow = (name: string) => page.all('#tableWrap tbody [data-act="row"]')[firstCells().indexOf(name)].press();
   /** The buttons at the top right of the details: each one's words and its title. */
   const opens = () => page.all("#drawerOpens button").map(button => [button.textContent.trim(), button.title]);
-  /** Presses the button of the details that says these words. */
+  /** Presses the button of the details that says these words, and lets what it starts come to its end: a module is asked
+   * of the tab first, which answers in a turn of its own. */
   const press = async (label: string) => {
     page.all("#drawerOpens button").find(button => button.textContent.trim() === label)!.press();
-    await settle();
+    for (let turn = 0; turn < 20; turn++) await Promise.resolve();
   };
   /** The line under the details' header, while it is shown. */
   const why = () => (page.id("drawerWhy").hidden ? undefined : page.id("drawerWhy").textContent);
   const drawerOpen = () => page.id("drawer").classList.contains("show");
   const toastSays = () => page.id("toast").textContent;
 
-  it("opens a line item's module, and a module, in Model Building in the Anaplan tab Cardigan read, and brings that tab's window to the front", async () => {
+  it("opens a line item's module, and a module, in Model Building in the Anaplan tab Cardigan read, by its address where the tab cannot open it inside its page, and brings that tab's window to the front", async () => {
     await openModel();
     goTo(1);
     // No row says that a double-click does anything, and a double-click does nothing.
@@ -4619,15 +4659,59 @@ describe("The buttons at the top right of a row's details that open it in Anapla
     expect([opens(), page.id("drawerOpens").hidden, why()]).toEqual([[["Model", "Open REV01 Revenue in Model Building"]], false, undefined]);
     page.id("scrim").dispatch("dblclick");
     await settle();
-    expect(tabUpdates).toEqual([]);
-    // The tab goes to the module and comes to the front, and so does its window; the details stay open behind it.
+    expect([tabUpdates, asks()]).toEqual([[], []]);
+    // The tab is asked first, and says it cannot: it goes to the module's address and comes to the front, and so does its
+    // window; the details stay open behind it.
     await press("Model");
+    expect(asks()).toEqual([{ type: "open", nonce: expect.any(String), model: OPENS.id, module: "102000000001" }]);
     expect([tabUpdates, windowUpdates, drawerOpen()]).toEqual([[[7, { url: link("102000000001"), active: true }]], [[3, { focused: true }]], true]);
     page.key("Escape");
     goTo(2);
     openRow("COST01 Costs");
     await press("Model");
     expect([tabUpdates.at(-1), windowUpdates.length, tabCreates]).toEqual([[7, { url: link("102000000002"), active: true }], 2, []]);
+    // The diagnostic log says which way each was opened, and why.
+    expect(await openedLines()).toEqual(["Opened REV01 Revenue by its address, which loads Model Building afresh: the tab shows another model.",
+      "Opened COST01 Costs by its address, which loads Model Building afresh: the tab shows another model."]);
+  });
+
+  it("opens a module inside the Model Building page where the tab can, beside the modules open there: the tab is only brought to the front, with its window", async () => {
+    inPage = "opened";
+    await openModel();
+    goTo(1);
+    openRow("Revenue");
+    await press("Model");
+    // The tab is asked for the module by the model's ID and the module's; it opens it, and is not sent anywhere.
+    expect(asks()).toEqual([{ type: "open", nonce: expect.any(String), model: OPENS.id, module: "102000000001" }]);
+    expect([tabUpdates, windowUpdates, tabCreates, drawerOpen()]).toEqual([[[7, { active: true }]], [[3, { focused: true }]], [], true]);
+    expect(await openedLines()).toEqual(["Opened REV01 Revenue inside the Model Building page: Model Building opened it beside the modules open there."]);
+    // Each ask has a nonce of its own.
+    page.key("Escape");
+    goTo(2);
+    openRow("COST01 Costs");
+    await press("Model");
+    expect([asks().length, new Set(asks().map(ask => (ask as { nonce: string }).nonce)).size, tabUpdates.at(-1)]).toEqual([2, 2, [7, { active: true }]]);
+  });
+
+  it("loads the module's address where the tab says nothing in time, as one with an earlier Cardigan's script, and asks again on a port of its own once the tab has loaded it", async () => {
+    inPage = "silent";
+    await openModel();
+    goTo(1);
+    openRow("Revenue");
+    await press("Model");
+    // The page waits for the answer a while, and the tab stays where it is meanwhile.
+    expect([asks().length, tabUpdates]).toEqual([1, []]);
+    await vi.advanceTimersByTimeAsync(OPEN_WAIT_MS - 1);
+    expect(tabUpdates).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect([tabUpdates, windowUpdates]).toEqual([[[7, { url: link("102000000001"), active: true }]], [[3, { focused: true }]]]);
+    expect(await openedLines()).toEqual(["Opened REV01 Revenue by its address, which loads Model Building afresh: the Anaplan tab did not answer."]);
+    // The port the page followed the tab on has closed, as once the tab has loaded the module's address: the page asks
+    // the tab again on a port of the ask's own, and the tab, now with this build's script, opens the module inside its page.
+    ports[0].drop();
+    inPage = "opened";
+    await press("Model");
+    expect([connects.length, asks().length, tabUpdates.slice(1)]).toEqual([2, 2, [[7, { active: true }]]]);
   });
 
   it("opens a module from its own row of Line Items, as from its row of Modules, with the map's button above", async () => {
@@ -4717,6 +4801,8 @@ describe("The buttons at the top right of a row's details that open it in Anapla
     // An app's name is written as text, in the title too.
     expect(strayImg()).toBe(false);
     expect(new Set(tabUpdates.map(([tab]) => tab))).toEqual(new Set([7]));
+    // An app and a page are another app's: their addresses are loaded, and the tab is asked to open nothing inside its page.
+    expect(asks()).toEqual([]);
   });
 
   it("opens a filter's two modules, its app and its page from Page Filters, one module where the two are one, and a button's app and page from Page Actions", async () => {
@@ -4761,8 +4847,9 @@ describe("The buttons at the top right of a row's details that open it in Anapla
     goTo(2);
     openRow("COST01 Costs");
     await press("Model");
-    // The next address goes to that tab, and no other is opened.
-    expect([tabUpdates.map(([tab]) => tab), tabCreates.length, windowUpdates.length]).toEqual([[7, 101], 1, 2]);
+    // The next address goes to that tab, and no other is opened. That tab is not the one this page is connected to: it is
+    // asked to open nothing inside its page.
+    expect([tabUpdates.map(([tab]) => tab), tabCreates.length, windowUpdates.length, asks().length]).toEqual([[7, 101], 1, 2, 1]);
     // A tab that can be neither used nor opened: the page says so.
     tabsRefuse = true;
     await press("Model");

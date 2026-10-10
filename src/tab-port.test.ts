@@ -3,7 +3,7 @@ import { assemble } from "./pieces.test-support.js";
 import { Failure, type Progress } from "./progress.js";
 import { PORT_NAME, ROWS_MAX, type Subject, type TabMessage } from "./protocol.js";
 import type { AnalysisResult, Cell } from "./result-types.js";
-import { BUSY, NOTHING_TO_ANALYSE, serveTab, SIGNED_OUT, UNSENT, type Seen, type Tab } from "./tab-port.js";
+import { BUSY, NOTHING_TO_ANALYSE, serveTab, SIGNED_OUT, UNSENT, type Opened, type Seen, type Tab } from "./tab-port.js";
 import { EXTENSION, FakePort } from "./tab-port.test-support.js";
 
 const APP: Seen = { kind: "app", id: "01234567-89ab-cdef-0123-456789abcdef" };
@@ -99,6 +99,49 @@ describe("The Anaplan tab's end of the port to the results page", () => {
     page.say({ type: "run" });
     expect(runs.map(run => run.subject)).toEqual([MODEL]);
     expect(page.take().slice(1)).toEqual([{ type: "log", text: "01:59:09 Cardigan dev: model FEDCBA9876543210FEDCBA9876543210 on us1a.app.anaplan.com" }]);
+  });
+
+  it("opens a module inside the tab's page when the page asks, and answers that very ask with what came of it, while a run goes on as well", async () => {
+    const asked: string[][] = [];
+    let answer = (): Promise<Opened> => Promise.resolve({ opened: true, detail: "Model Building opened it beside the modules open there" });
+    let connect: (port: chrome.runtime.Port) => void = () => undefined;
+    const runs: Seen[] = [];
+    serveTab({ id: EXTENSION, onConnect: { addListener: listener => { connect = listener; } } }, { host: "us1a.app.anaplan.com", subject: () => MODEL,
+      run: subject => { runs.push(subject); return new Promise<AnalysisResult>(() => undefined); }, signedOut: () => false,
+      open: (model, module) => { asked.push([model, module]); return answer(); } });
+    const page = new FakePort();
+    connect(page as unknown as chrome.runtime.Port);
+    page.say({ type: "run" });
+    page.take();
+    const opened = () => page.take().filter(message => message.type === "opened");
+    page.say({ type: "open", nonce: "ask-1", model: MODEL.id, module: "102000000001" });
+    await settle();
+    expect([opened(), asked, runs]).toEqual([[{ type: "opened", nonce: "ask-1", opened: true, detail: "Model Building opened it beside the modules open there" }],
+      [[MODEL.id, "102000000001"]], [MODEL]]);
+    // The tab could not, and says why; an open that fails says what failed.
+    answer = () => Promise.resolve({ opened: false, detail: "the tab shows another model" });
+    page.say({ type: "open", nonce: "ask-2", model: MODEL.id, module: "102000000002" });
+    answer = () => Promise.reject(new Error("the model's frame went away"));
+    page.say({ type: "open", nonce: "ask-3", model: MODEL.id, module: "102000000003" });
+    await settle();
+    expect(opened()).toEqual([{ type: "opened", nonce: "ask-2", opened: false, detail: "the tab shows another model" },
+      { type: "opened", nonce: "ask-3", opened: false, detail: "the model's frame went away" }]);
+    // An ask that is not as the page writes one opens nothing and is not answered: no nonce to answer with, a nonce that is
+    // no plain word, a model that is no 32-character ID, a module that is no ID in digits.
+    for (const odd of [{ type: "open" }, { type: "open", model: MODEL.id, module: "1" }, { type: "open", nonce: "an ask", model: MODEL.id, module: "1" },
+      { type: "open", nonce: "ask-4", model: "FEDCBA98", module: "1" }, { type: "open", nonce: "ask-5", model: MODEL.id, module: "10200000000x" },
+      { type: "open", nonce: "ask-6", model: MODEL.id, module: 102000000001 }, { type: "OPEN", nonce: "ask-7", model: MODEL.id, module: "1" }]) page.say(odd);
+    await settle();
+    expect([opened(), asked.length]).toEqual([[], 3]);
+  });
+
+  it("answers that it opens nothing in its page where the tab cannot, as one of a page that is no Model Building", async () => {
+    const { open } = tab(APP);
+    const page = open();
+    page.take();
+    page.say({ type: "open", nonce: "ask-1", model: MODEL.id, module: "102000000001" });
+    await settle();
+    expect(page.take()).toEqual([{ type: "opened", nonce: "ask-1", opened: false, detail: "this tab opens no module in its page" }]);
   });
 
   it("streams each step and each line of the log, stamped with its time, then the result in pieces and done", async () => {

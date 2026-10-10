@@ -785,8 +785,9 @@ const NOT_OPENED = "Cardigan could not open that in Anaplan.";
 const LONG_ID = /^[0-9A-Fa-f]{32}$/;
 const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** A button at the top right of a row's details, with where it leads: a box of the model map, or an address in Anaplan. */
-type Open = OpenButton & ({ kind: "map"; node: number } | { kind: "module" | "app" | "page"; url: string });
+/** A button at the top right of a row's details, with where it leads: a box of the model map, or an address in Anaplan. A
+ * module also has its ID and its name: Model Building can open it inside its page, by that ID. */
+type Open = OpenButton & ({ kind: "map"; node: number } | { kind: "module"; url: string; id: string; name: string } | { kind: "app" | "page"; url: string });
 /** The buttons of the row the details show, by their place: what a click on one of them opens. */
 let drawerOpens: readonly Open[] = [];
 
@@ -801,9 +802,9 @@ function siteOf(model: AnalysisResult): { origin: string; customer: string } | u
 }
 
 /** The address that opens a module of the model on the page in Model Building, as Model Building's own links write it (its
- * `/tabs/` and the module's ID); none for a module the export found no ID for; or why no module of the result can be
- * opened, in words for the user. */
-function moduleAddress(name: string): { url?: string; why?: string } {
+ * `/tabs/` and the module's ID), with that ID; none for a module the export found no ID for; or why no module of the
+ * result can be opened, in words for the user. */
+function moduleAddress(name: string): { url?: string; id?: string; why?: string } {
   if (result?.kind !== "model") return {};
   if (!Array.isArray(result.moduleIds)) return { why: EARLIER_IDS };
   if (!result.moduleIds.length) return { why: NO_IDS_FOUND };
@@ -812,7 +813,7 @@ function moduleAddress(name: string): { url?: string; why?: string } {
   const workspace = detailValue(detailsOf(result), "Model", "Workspace ID");
   if (!workspace || !LONG_ID.test(workspace) || !/^[0-9A-Za-z]{32}$/.test(result.id)) return { why: NO_WORKSPACE };
   const id = result.moduleIds.find(pair => Array.isArray(pair) && typeof pair[0] === "string" && pair[0].trim() === name)?.[1];
-  return typeof id === "string" && /^\d{1,19}$/.test(id) ? { url: `${site.origin}/a/modeling/customers/${site.customer}/workspaces/${workspace}/models/${result.id}/tabs/${id}` } : {};
+  return typeof id === "string" && /^\d{1,19}$/.test(id) ? { url: `${site.origin}/a/modeling/customers/${site.customer}/workspaces/${workspace}/models/${result.id}/tabs/${id}`, id } : {};
 }
 
 /** The ways a row of a model's tables leads elsewhere, as the buttons at the top right of its details show them, and why
@@ -839,7 +840,7 @@ function opensOf(entry: Shown, row: Row): { opens: Open[]; why: string | undefin
   const module = (name: string, label: string): void => {
     if (name === "" || name === NONE) return;
     const found = moduleAddress(name);
-    if (found.url !== undefined) opens.push({ kind: "module", url: found.url, label, title: `Open ${name} in Model Building` });
+    if (found.url !== undefined && found.id !== undefined) opens.push({ kind: "module", url: found.url, id: found.id, name, label, title: `Open ${name} in Model Building` });
     else why ??= found.why;
   };
   if (file === LINE_ITEMS_FILE) module(cell(MODULE_NAME), "Model");
@@ -872,10 +873,26 @@ function opensOf(entry: Shown, row: Row): { opens: Open[]; why: string | undefin
  * place with, which every later open from this page then goes to. */
 let openTab: number | undefined;
 
+/** A module the Anaplan tab may open inside its Model Building page: the model's ID, the module's, and its name for the log. */
+interface InPage { model: string; module: string; name: string }
+
 /** Opens an address in Anaplan: the Anaplan tab this page reads goes there, and it and its window come to the front. A page
  * never opens a tab for each address: only where that tab has been closed does it open one, which then takes its place
- * for every address after, and the user is told when neither could be done. */
-async function openInTab(url: string): Promise<void> {
+ * for every address after, and the user is told when neither could be done.
+ * A module (`inPage`) is first asked of the tab itself, which opens it inside the Model Building page it shows, beside the
+ * modules open there, where it can (content.ts): the page does not load afresh, and only comes to the front. Where the
+ * tab cannot, or says nothing in time, its address is loaded, which opens the model afresh with that module alone. The
+ * diagnostic log says which way was taken. */
+async function openInTab(url: string, inPage?: InPage): Promise<void> {
+  if (inPage && openTab === undefined && tabId !== undefined) {
+    const answer = await client.openInPage(inPage.model, inPage.module);
+    if (answer?.opened) {
+      client.note(`Opened ${inPage.name} inside the Model Building page: ${answer.detail}.`);
+      await toFront(await chrome.tabs.update(tabId, { active: true }).catch(() => undefined));
+      return;
+    }
+    client.note(`Opened ${inPage.name} by its address, which loads Model Building afresh: ${answer ? answer.detail : "the Anaplan tab did not answer"}.`);
+  }
   const into = openTab ?? tabId;
   let tab: chrome.tabs.Tab | undefined;
   let gone = into === undefined;
@@ -894,7 +911,11 @@ async function openInTab(url: string): Promise<void> {
     }
     if (tab?.id !== undefined) openTab = tab.id;
   }
-  // The tab is shown; a window that cannot be brought forward leaves it where it is.
+  await toFront(tab);
+}
+
+/** The window of a tab that is shown comes to the front; a window that cannot be brought forward stays where it is. */
+async function toFront(tab: chrome.tabs.Tab | undefined): Promise<void> {
   if (tab?.windowId !== undefined) await chrome.windows.update(tab.windowId, { focused: true }).catch(() => undefined);
 }
 
@@ -1184,10 +1205,11 @@ document.addEventListener("click", event => {
       // A way the row in the details leads elsewhere, by its place among the buttons (`opensOf`). The row's box on the
       // map: the details close, the map is shown, and the box is selected there as the map's own search selects one, with
       // its details beside it. An address in Anaplan: the Anaplan tab goes there and comes to the front, and the details
-      // stay open behind it.
+      // stay open behind it; a module opens inside the Model Building page where the tab can (`openInTab`).
       case "open": {
         const open = drawerOpens[Number(act.dataset.open)];
         if (!open) return;
+        if (open.kind === "module") return void openInTab(open.url, result?.kind === "model" ? { model: result.id, module: open.id, name: open.name } : undefined);
         if (open.kind !== "map") return void openInTab(open.url);
         closeDrawer();
         navTo("map");
