@@ -1,5 +1,5 @@
 import { stampLine } from "../details.js";
-import { FRESH_MS, OPENED_PARAM, TAB_PARAM, type PageMessage, type Subject, type TabMessage } from "../protocol.js";
+import { CONTENT_SCRIPT, CONTENT_SCRIPT_ORIGIN, FRESH_MS, OPENED_PARAM, TAB_PARAM, type PageMessage, type Subject, type TabMessage } from "../protocol.js";
 import type { AnalysisResult } from "../result-types.js";
 
 /** The results page's side of the port to the Anaplan tab's content script (protocol.ts): it connects, hears what the tab
@@ -41,9 +41,14 @@ export type RunState =
   | { phase: "no-tab" }
   /** The port is open and the tab has not said yet what it shows. */
   | { phase: "connecting" }
-  /** The port closed before the tab answered: its content script is not there. That is any tab that is not an Anaplan
-   * page, an Anaplan tab not refreshed since the extension was installed or reloaded, one still loading, or a closed one. */
+  /** The port closed before the tab answered, and kept doing so: its content script is not there, and could not be put
+   * there. That is an Anaplan tab that is still loading, or one open since before the extension was installed, updated or
+   * reloaded on a page that did not open with the icon. */
   | { phase: "unreachable" }
+  /** The tab shows something other than an Anaplan page: `shows` is its origin. */
+  | { phase: "not-anaplan"; shows: string }
+  /** The tab the page was opened for has been closed. */
+  | { phase: "tab-closed" }
   /** The tab is an Anaplan page that shows neither an app nor a model, or a model page that has not loaded its model yet. */
   | { phase: "no-subject" }
   /** The tab shows an app or a model, and nothing has asked for its analysis: the icon did not open this page just now. */
@@ -65,6 +70,15 @@ export interface ClientOptions {
   autoRun: boolean;
   /** Why Chrome closed a port (chrome.runtime.lastError), which it only says while the port's disconnect event runs. */
   closeReason?: () => string | undefined;
+  /** Puts the content script into the tab when it did not answer (`repairTab`). Tried once for each connection. */
+  repair?: () => Promise<Repair>;
+  /** How many more times, and how far apart, a tab that did not answer is asked again: it may still be loading. */
+  retries?: { count: number; pauseMs: number };
+  /** True when the tab no longer exists: asked when the tab first does not answer, so that a closed tab is said to be
+   * closed at once. */
+  tabGone?: () => Promise<boolean>;
+  /** Waits that long: setTimeout's, unless a test passes its own. */
+  wait?: (ms: number) => Promise<void>;
   onState(state: RunState): void;
   /** The diagnostic log changed; the lines are the run's so far. */
   onLog?(lines: readonly string[]): void;
@@ -79,6 +93,27 @@ export const NO_REASON = "The analysis stopped without saying why. Choose Run ag
 export const MAX_LOG_LINES = 3000;
 
 const text = (value: unknown): value is string => typeof value === "string";
+const pause = (ms: number) => new Promise<void>(resolve => { setTimeout(resolve, ms); });
+
+/** What putting the content script into a tab came to: it is there now, or it is not, with what the tab shows when that is
+ * no Anaplan page. */
+export type Repair = { put: true } | { put: false; notAnaplan?: string };
+
+/** Puts the content script into the tab, when the tab shows an Anaplan page. Chrome puts content scripts only into pages
+ * that load after the extension was installed, updated or reloaded; this puts it into one that was open before. Chrome
+ * allows it only in a tab the toolbar icon was clicked on, until that tab moves on (activeTab): otherwise nothing is put
+ * there, and nothing is said. */
+export async function repairTab(scripting: Pick<typeof chrome.scripting, "executeScript">, tabId: number): Promise<Repair> {
+  try {
+    const [probe] = await scripting.executeScript({ target: { tabId }, func: () => location.origin });
+    const origin = typeof probe?.result === "string" ? probe.result : "";
+    if (!CONTENT_SCRIPT_ORIGIN.test(origin)) return { put: false, notAnaplan: origin || "a page Cardigan cannot read" };
+    await scripting.executeScript({ target: { tabId }, files: [CONTENT_SCRIPT] });
+    return { put: true };
+  } catch {
+    return { put: false };
+  }
+}
 
 /** A "result" message's result, as far as putting it together needs: its tables with headers and rows, and its summary. */
 function isResult(value: unknown): value is AnalysisResult {
@@ -97,6 +132,11 @@ export class ResultsClient {
   readonly log: string[] = [];
   private port: TabPort | undefined;
   private subject: Subject | undefined;
+  /** The connection the page is on: each new one, from start or the run control, counts one up. */
+  private connection = 0;
+  /** How often this connection has asked the tab again, and whether its content script was put back. */
+  private attempts = 0;
+  private repaired = false;
   /** The result being put together, between "result" and "done". */
   private pending: AnalysisResult | undefined;
 
@@ -141,13 +181,19 @@ export class ResultsClient {
     this.options.onLog?.(this.log);
   }
 
-  private open(): void {
+  /** Opens a port to the tab. `again`: one more try of the same connection, whose log says why it tries again. */
+  private open(again = false): void {
     const old = this.port;
     this.port = undefined;
     try { old?.disconnect(); } catch { /* it had closed already */ }
     this.subject = undefined;
     this.pending = undefined;
-    this.clearLog();
+    if (!again) {
+      this.connection++;
+      this.attempts = 0;
+      this.repaired = false;
+      this.clearLog();
+    }
     const connect = this.options.connect;
     if (!connect) return this.set({ phase: "no-tab" });
     this.set({ phase: "connecting" });
@@ -155,8 +201,8 @@ export class ResultsClient {
     try {
       port = connect();
     } catch (error) {
-      this.append(stampLine(`The tab did not answer: ${error instanceof Error ? error.message : String(error)}`));
-      return this.set({ phase: "unreachable" });
+      if (this.firstTry()) this.append(stampLine(`The tab did not answer: ${error instanceof Error ? error.message : String(error)}`));
+      return void this.unanswered();
     }
     this.port = port;
     // A port that has been replaced no longer speaks for the tab: its late messages and its closing are ignored.
@@ -251,8 +297,8 @@ export class ResultsClient {
     this.port = undefined;
     const why = reason ? `: ${reason}` : ".";
     if (this.state.phase === "connecting") {
-      this.append(stampLine(`The tab did not answer${why}`));
-      this.set({ phase: "unreachable" });
+      if (this.firstTry()) this.append(stampLine(`The tab did not answer${why}`));
+      void this.unanswered();
     } else if (this.state.phase === "running") {
       this.pending = undefined;
       this.append(stampLine(`The connection to the tab closed${why}`));
@@ -260,6 +306,45 @@ export class ResultsClient {
     }
     // After a result, an error or "not an app or a model", and while the page waits for the run control, there is nothing
     // to say: the run control opens a new port.
+  }
+
+  /** The tab did not answer this connection. Its content script is put back once, and it is asked again for a while; then
+   * the page says that the tab is unreachable, or gone. A step whose connection the run control has replaced meanwhile
+   * ends there. Without a way to put the script back, to ask again or to look for the tab, it says so at once. */
+  private async unanswered(): Promise<void> {
+    const connection = this.connection;
+    const current = () => connection === this.connection && this.state.phase === "connecting";
+    const { repair, retries, tabGone } = this.options;
+    // A closed tab is said to be closed at once: there is nothing to put the script into, or to ask again.
+    if (this.firstTry() && tabGone && await Promise.resolve().then(tabGone).catch(() => false)) {
+      if (current()) this.set({ phase: "tab-closed" });
+      return;
+    }
+    if (repair && !this.repaired) {
+      this.repaired = true;
+      const repaired = await repair().catch((): Repair => ({ put: false }));
+      if (!current()) return;
+      if (repaired.put) {
+        this.append(stampLine("Cardigan put its content script into the tab, which had none."));
+        return this.open(true);
+      }
+      if (repaired.notAnaplan !== undefined) return this.set({ phase: "not-anaplan", shows: repaired.notAnaplan });
+    }
+    if (retries && this.attempts < retries.count) {
+      this.attempts++;
+      await (this.options.wait ?? pause)(retries.pauseMs);
+      if (current()) this.open(true);
+      return;
+    }
+    if (!current()) return;
+    // The log has the first try's line: the tries after it are counted, not each written down.
+    if (this.attempts) this.append(stampLine(`No answer after ${this.attempts} more ${this.attempts === 1 ? "try" : "tries"}.`));
+    this.set({ phase: "unreachable" });
+  }
+
+  /** True on the first try of this connection: the one whose failure the log has a line for. */
+  private firstTry(): boolean {
+    return this.attempts === 0 && !this.repaired;
   }
 }
 
@@ -279,7 +364,13 @@ export function describeState(state: RunState, asked: boolean): StateText {
       return { title: "Connecting", message: "Connecting to the Anaplan tab…", hint: "" };
     case "unreachable":
       return { title: "Not connected", message: "Cardigan cannot reach that tab.",
-        hint: "If it is an Anaplan app or model, refresh it, then click the Cardigan icon again." };
+        hint: `If it is an Anaplan app or model that is still loading, wait for it, then choose ${run}. Otherwise refresh it, then click the Cardigan icon on it.` };
+    case "not-anaplan":
+      return { title: "Not an Anaplan tab", message: `That tab shows ${state.shows}, not Anaplan.`,
+        hint: "Open an app or a model in Anaplan, then click the Cardigan icon on that tab." };
+    case "tab-closed":
+      return { title: "Tab closed", message: "The Anaplan tab this page was opened for has been closed.",
+        hint: "Open the app or model in Anaplan again, then click the Cardigan icon on that tab." };
     case "no-subject":
       return { title: "Nothing to analyse", message: "That Anaplan page is not an app or a model.",
         hint: `Open an app, or a model in Model Building, in that tab; if it is still loading, give it a moment. Then choose ${run}.` };
