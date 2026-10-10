@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeElement, FakePage } from "../results/dom.test-support.js";
-import type { ModelGraph, ModelMap, ModelMapOptions } from "./graph-types.js";
+import type { MapView, ModelGraph, ModelMap, ModelMapOptions } from "./graph-types.js";
 import type { Pen } from "./map-canvas.js";
 import { FALLBACK } from "./map-palette.js";
 import { mountModelMap, mountModelMapIn, PICKER_CAP, type MapEnvironment } from "./map-view.js";
@@ -2920,5 +2920,64 @@ describe("How the map groups modules", () => {
     part(".map-grouping-select").choose("role");
     env.settle();
     expect([sectionNames(), parts(".map-broken").length]).toEqual([["Data", "Input", "Calculation", "Output"], 0]);
+  });
+});
+
+describe("Where the viewer left the map, which the page keeps for a refresh", () => {
+  const heard: MapView[] = [];
+  /** Mounts the sample's map at a view the page kept, or at none, telling `heard` each view the map shows. */
+  const openAt = (view?: MapView, onView: (told: MapView) => void = told => { heard.push(told); }): void => {
+    heard.length = 0;
+    mount(sample().graph, { modelName: "Demand Plan", workspaceName: "Sandbox", ...(view ? { view } : {}), onView });
+    map.show();
+    env.resize(1200, 800);
+    env.settle();
+  };
+
+  it("tells the page where it is each time it shows another view or draws other links, each group and module by its name", () => {
+    openAt();
+    // Where it opens by itself: the groups as a whole.
+    expect([here(), heard.at(-1)]).toEqual(["Demand Plan", { view: "modules" }]);
+    toggleGroups();
+    expect([here(), heard.at(-1)]).toEqual(["All modules", { view: "modules", all: true }]);
+    part(".map-show-select").choose("1");
+    expect([here(), heard.at(-1)]).toEqual(["02: Calculations", { view: "modules", group: "02: Calculations" }]);
+    tickAccess();
+    expect(heard.at(-1)).toEqual({ view: "modules", group: "02: Calculations", access: true });
+    tab("drill").press();
+    pickModule("CAL01 - Revenue");
+    expect([here(), heard.at(-1)]).toEqual(["CAL01 - Revenue", { view: "drill", module: "CAL01 - Revenue", access: true }]);
+    part(".map-external").tick();
+    expect(heard.at(-1)).toEqual({ view: "drill", module: "CAL01 - Revenue", others: true, access: true });
+    // A box selected: where the map is stays as it was, and is told again as such or not at all.
+    const told = heard.length;
+    clickNode("Gross");
+    expect(heard.slice(told).every(view => view.view === "drill" && view.module === "CAL01 - Revenue")).toBe(true);
+  });
+
+  it("opens where the page kept it, as far as the model still has the group or the module, and otherwise as it opens by itself", () => {
+    openAt({ view: "drill", module: "INP02 - Prices", others: true, access: true });
+    expect([here(), part(".map-external").checked, part(".map-access").checked, heard[0]])
+      .toEqual(["INP02 - Prices", true, true, { view: "drill", module: "INP02 - Prices", others: true, access: true }]);
+    map.destroy();
+    openAt({ view: "modules", group: "Reporting" });
+    expect([here(), heard[0]]).toEqual(["Reporting", { view: "modules", group: "Reporting" }]);
+    map.destroy();
+    openAt({ view: "modules", all: true });
+    expect(here()).toBe("All modules");
+    map.destroy();
+    // A module or a group the model no longer has: the map opens as it does by itself, with the links it kept.
+    openAt({ view: "drill", module: "Gone", access: true });
+    expect([here(), part(".map-access").checked, heard[0]]).toEqual(["Demand Plan", true, { view: "modules", access: true }]);
+    map.destroy();
+    openAt({ view: "modules", group: "Gone" });
+    expect([here(), heard[0]]).toEqual(["Demand Plan", { view: "modules" }]);
+  });
+
+  it("goes on when the page cannot keep where it is", () => {
+    openAt(undefined, () => { throw new Error("no storage"); });
+    toggleGroups();
+    tab("drill").press();
+    expect([here(), parts(".map-broken").length]).toEqual(["INP01 - Volumes", 0]);
   });
 });
