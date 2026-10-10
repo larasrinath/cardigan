@@ -1277,11 +1277,13 @@ describe("The results page's script, on the page", () => {
     // The table: the calendar's settings that hold a value, none of the rows about the model, and a line that says where
     // those are and how many settings have no value. The template's guidance for filling it in by hand is not shown.
     goTo(3);
-    const settings = () => page.all("#tableWrap tbody tr").map(row => row.children[1].textContent.trim());
+    // Section starts hidden, as Allowed values does: it says the same of every setting listed. A row's first cell is its setting.
+    const settings = firstCells;
+    const headings = () => page.all("#tableWrap thead th").map(heading => heading.querySelector(".th-sort")?.textContent.trim());
     expect([page.texts("#view .view-note"), page.id("rowCount").textContent, page.id("live").textContent])
       .toEqual([[CALENDAR_NOTE], "1–5 of 5 rows", "Model Calendar: 5 rows"]);
-    expect([firstCells().every(section => section === "Model Calendar"), settings(), settings().filter(setting => ["Workspace", "Model", "Captured on"].includes(setting))])
-      .toEqual([true, ["Calendar Type", "Fiscal Year Starts", "Number of Past Years", "Number of Future Years", "Include Quarter Totals"], []]);
+    expect([headings(), settings(), settings().filter(setting => ["Workspace", "Model", "Captured on"].includes(setting))])
+      .toEqual([["Setting", "Value"], ["Calendar Type", "Fiscal Year Starts", "Number of Past Years", "Number of Future Years", "Include Quarter Totals"], []]);
     expect(page.all("#tableWrap thead th").map(cell => cell.textContent.trim()).filter(text => ["Applies to", "Notes"].includes(text))).toEqual([]);
     // The search reads the rows listed and no others: the calendar's type finds its row, the model's name finds none.
     const note = page.find("#view .view-note");
@@ -1290,7 +1292,7 @@ describe("The results page's script, on the page", () => {
     page.id("tblSearch").type("Model one");
     expect([settings(), page.id("rowCount").textContent]).toEqual([[], "No rows (filtered from 5)"]);
     page.id("tblSearch").type("");
-    // The line under the name was not written again meanwhile. Section holds one text in the rows listed: it offers no filter.
+    // The line under the name was not written again meanwhile. Section, hidden, offers no filter on screen.
     expect([page.find("#view .view-note") === note, filterable().includes("Section")]).toEqual([true, false]);
     // A row's drawer says its place among the rows the table lists.
     page.all('#tableWrap tbody [data-act="row"]')[0].press();
