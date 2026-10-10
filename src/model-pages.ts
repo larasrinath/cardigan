@@ -2,7 +2,7 @@ import { declaredType, loadCatalog, nameDetails, readPublished, type ModelScope 
 import { describePageCards } from "./card-reader/card-details.js";
 import type { UxPageCardDetails } from "./card-reader/card-types.js";
 import type { UxPageType } from "./card-reader/definition-types.js";
-import { emptyCatalog } from "./catalog.js";
+import { emptyCatalog, type ExportedLineItems } from "./catalog.js";
 import { diagnosticRows, stampLine, type DetailRow } from "./details.js";
 import { separator } from "./map/graph-names.js";
 import { FILTER_USES, MODULE_USAGE_FILE, MODULE_USAGE_HEADERS, NOT_ON_A_PAGE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, PAGE_PLACE_HEADERS } from "./page-files.js";
@@ -186,6 +186,46 @@ function moduleUsageRows(exported: readonly string[], pages: readonly PageRows[]
   return [...[...listed].flatMap(rowsOf), ...rest.flatMap(rowsOf)];
 }
 
+/** A module's ID: its entity type, 102, and nine digits more (model/export.ts `moduleIdsOf`). */
+const MODULE_ID = /^102\d{9}$/;
+
+/** The model's line items as the export read them: each row of the result's Line Items table with the IDs the export gave
+ * for it (`ids`, one pair for each row, in the table's order: the row's own ID, and the ID of a line item's module, which a
+ * module's own row has none of). A line item is named as the table names it, and its format is the table's Format, the
+ * classic client's definition, as the line items listing gives it. Every module of the table counts, one without line items
+ * too. Nothing where the IDs do not fit the table, row for row: the log says so, and the pages' names are read as before. */
+export function exportedLineItems(result: AnalysisResult, ids: readonly (readonly [string, string])[], log: (line: string) => void): ExportedLineItems | undefined {
+  const table = result.tables.find(each => each.file === "Line Items.csv");
+  if (!table || table.rows.length !== ids.length) {
+    log(`line items: the export's IDs do not fit its Line Items table (${ids.length} IDs, ${table ? `${table.rows.length} rows` : "no table"}): every module the pages use is read from the listing`);
+    return undefined;
+  }
+  const formatAt = table.headers.indexOf("Format");
+  const lineItems: ExportedLineItems["lineItems"] = [];
+  const modules = new Set<string>();
+  table.rows.forEach((row, index) => {
+    const [id, moduleId] = ids[index];
+    if (moduleId === "") {
+      if (MODULE_ID.test(id)) modules.add(id);
+      return;
+    }
+    const name = String(row[0] ?? "");
+    const cell = formatAt > 0 ? String(row[formatAt] ?? "") : "";
+    let format: Obj | undefined;
+    if (cell.startsWith("{")) {
+      try {
+        const parsed: unknown = JSON.parse(cell);
+        format = isObj(parsed) ? parsed : undefined;
+      } catch {
+        format = undefined;
+      }
+    }
+    modules.add(moduleId);
+    if (name !== "") lineItems.push({ id, name, moduleId, ...(format ? { format } : {}) });
+  });
+  return { lineItems, modules: [...modules] };
+}
+
 /** The step's own lines after the export's in the result's diagnostic log: the export wrote that log in the model's page
  * before this step began, and it is what the Overview copies, a refresh too. */
 function addLog(result: AnalysisResult, logged: readonly string[]): AnalysisResult {
@@ -197,9 +237,11 @@ function addLog(result: AnalysisResult, logged: readonly string[]): AnalysisResu
  * this export, the Line Items column, and the notes and How to read rows. `customerId` is the customer the Model Building
  * address names; without one, the tables are not made, and a note says why. The export was made before any of this is
  * read, so nothing here fails it: whatever goes wrong, but for a stop, leaves the three tables out with the reason. What
- * the step reports goes into the result's diagnostic log as well. */
+ * the step reports goes into the result's diagnostic log as well. `lineItemIds` are the IDs the export gave for the rows
+ * of its Line Items table (content.ts takes them off its result): the names the cards use are then read with the line
+ * items they make (`exportedLineItems`), and the modules of those are not read again. */
 export async function addModelPages(given: AnalysisResult, customerId: string | undefined, progress: Progress, signal?: AbortSignal,
-  reads: PageReads = LIVE): Promise<AnalysisResult> {
+  reads: PageReads = LIVE, lineItemIds?: readonly (readonly [string, string])[]): Promise<AnalysisResult> {
   signal?.throwIfAborted();
   const logged: string[] = [];
   const keep = (line: string): void => {
@@ -208,7 +250,7 @@ export async function addModelPages(given: AnalysisResult, customerId: string | 
   };
   const step: Progress = { status: text => { keep(text); progress.status(text); }, log: line => { keep(line); progress.log(line); } };
   try {
-    return addLog(await withModelPages(copied(given), customerId, step, signal, reads), logged);
+    return addLog(await withModelPages(copied(given), customerId, step, signal, reads, lineItemIds), logged);
   } catch (error) {
     if (signal?.aborted) throw signal.reason;
     step.log(`pages built on the model: ${message(error)}`);
@@ -222,7 +264,7 @@ export async function addModelPages(given: AnalysisResult, customerId: string | 
 }
 
 async function withModelPages(result: AnalysisResult, customerId: string | undefined, progress: Progress, signal: AbortSignal | undefined,
-  reads: PageReads): Promise<AnalysisResult> {
+  reads: PageReads, lineItemIds: readonly (readonly [string, string])[] | undefined): Promise<AnalysisResult> {
   const workspaceId = modelDetail(result, "Workspace ID");
   if (!customerId || !SCOPE_ID.test(customerId)) return leftOut(result, NO_CUSTOMER);
   if (!workspaceId || !SCOPE_ID.test(workspaceId) || !SCOPE_ID.test(result.id)) return leftOut(result, "the model's workspace or model ID could not be read");
@@ -294,8 +336,10 @@ async function withModelPages(result: AnalysisResult, customerId: string | undef
   // The names the cards use, from this model, as an app's pages are named. The export read every module's name and ID
   // from the model itself: a module the model data service did not name is named by them.
   const scope: ModelScope = { customerId, workspaceId, modelId: result.id, modelName: result.name };
+  // The line items the export read stand for the listing's, so that the modules the cards use are not read again.
+  const exported = pages.length && lineItemIds ? exportedLineItems(result, lineItemIds, progress.log) : undefined;
   const named = pages.length
-    ? await reads.loadCatalog(scope, pages.map(page => page.details), new Map(pages.map(page => [page.details.pageGuid, page.details.name])), progress, signal)
+    ? await reads.loadCatalog(scope, pages.map(page => page.details), new Map(pages.map(page => [page.details.pageGuid, page.details.name])), progress, signal, exported)
     : { catalog: emptyCatalog(), notes: [], failedActionTypes: [] };
   signal?.throwIfAborted();
   for (const [module, id] of result.moduleIds ?? []) if (!named.catalog.modules.has(id)) named.catalog.modules.set(id, module);

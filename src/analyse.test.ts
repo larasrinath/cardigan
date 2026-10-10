@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { UxPageCardDetails } from "./card-reader/card-types.js";
 import { analyseApp, DETAILS_FILE, loadCatalog, TAB_FILES } from "./analyse.js";
+import type { ExportedLineItems } from "./catalog.js";
 import { APP_DASH_PLAIN, APP_ROW_ON_TWO_LINES, APP_ROW_REWORDED, APP_ROWS_FOR_THE_PAGE, APP_ZIP_0_6_1, APP_ZIP_REWORDED, withAppRowsSince, withPlainDash, ZIPPED_AT } from "./golden-0.6.1.test-support.js";
 import { ANAPLAN_HOSTS, NOT_SCOPE_IDS, OTHER_HOSTS, SCOPE_IDS } from "./guards.test-support.js";
 import { assemble } from "./pieces.test-support.js";
@@ -907,6 +908,76 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
       at(`/modules/${MODULE}/dimensions/${LIST}`)]);
     expect(statuses).toEqual(["Reading names in Synthetic model…", "Reading line items in Synthetic model…", "Reading module dimensions in Synthetic model…",
       "Reading item names in Synthetic model…"]);
+  });
+
+  describe("with the line items the model's export read", () => {
+    const UNITS = "1901000000002";
+    /** The export's line items: Units in the grid's module, the rule's line item in a module no card shows, and a module
+     * with no line items. */
+    const exported = (): ExportedLineItems => ({
+      lineItems: [{ id: UNITS, name: "Units", moduleId: MODULE }, { id: FILTER_ITEM, name: "Include?", moduleId: MODULE_3, format: { dataType: "BOOLEAN" } }],
+      modules: [MODULE, MODULE_3, candidate(1)],
+    });
+    const named = (pages: UxPageCardDetails[], lineItems: ExportedLineItems) => {
+      const log: string[] = [];
+      return { log, result: loadCatalog(scope, pages, new Map(), { status: () => undefined, log: line => { log.push(line); } }, undefined, lineItems) };
+    };
+    const lineItemsLine = (log: string[]) => log.filter(line => line.startsWith("line items:"));
+
+    it("reads of their modules only one the pages use, to compare it with the listing, and the pages' other modules; the filter search has nothing to find", async () => {
+      serveModel({ [at(`/modules/${MODULE}/lineItems`)]: id => update(id, { data: [{ lineItemId: UNITS, lineItemLabel: "Units" }] }),
+        [at(`/modules/${candidate(2)}/lineItems`)]: id => update(id, { data: [{ lineItemId: LINE_ITEM, lineItemLabel: "Margin" }] }) });
+      const { log, result } = named(withGrid({ kind: "module", id: candidate(2) }), exported());
+      const { catalog, notes } = await result;
+      expect(notes).toEqual([]);
+      // The grid's module is read to compare; the module the export did not list is read as before; the rule's line item is
+      // the export's, so its module is not read, and no question is asked about the filtered dimension.
+      expect(destinations()).toEqual([at(""), MODULE_VIEWS, at("/lists"), at(`/modules/${MODULE}/lineItems`), at(`/modules/${candidate(2)}/lineItems`), at("/dimensions"),
+        at(`/modules/${MODULE}/dimensions/${LIST}`)]);
+      expect([catalog.lineItems.get(FILTER_ITEM), catalog.lineItemFormats.get(FILTER_ITEM)?.dataType, catalog.lineItems.get(LINE_ITEM), catalog.lineItems.get(UNITS)])
+        .toEqual([{ name: "Include?", moduleId: MODULE_3 }, "BOOLEAN", { name: "Margin", moduleId: candidate(2) }, { name: "Units", moduleId: MODULE }]);
+      // Every module of the export counts as read, one with no line items too.
+      expect([MODULE_3, candidate(1)].map(module => catalog.lineItemModules.has(module))).toEqual([true, true]);
+      expect(lineItemsLine(log)).toEqual([`line items: 1 named from the export, of 3 modules; 2 of the 2 modules the pages use read from the listing; `
+        + `the export and the listing agree on module ${MODULE}: 1 of 1 line items alike, by ID and name`]);
+      expect(log.at(-1)).toBe("Synthetic model: 0 modules, 0 saved views, 0 dimensions, 3 line items (2 modules read), 0 actions");
+    });
+
+    it("sets them aside where the listing differs, and reads every module the pages use as before, the filter search too", async () => {
+      serveModel({ [at(`/modules/${MODULE}/lineItems`)]: id => update(id, { data: [{ lineItemId: "1901000000099", lineItemLabel: "Units" }] }),
+        [at("/applicableModules")]: id => update(id, { data: [{ id: MODULE_3, label: "Module three" }] }),
+        [at(`/modules/${MODULE_3}/lineItems`)]: id => update(id, { data: [{ lineItemId: FILTER_ITEM, lineItemLabel: "Include?" }] }) });
+      const { log, result } = named(withGrid(), exported());
+      const { catalog } = await result;
+      // None of the export's line items is left; the listing's are there, and the search found the rule's line item.
+      expect([catalog.lineItems.get(UNITS), catalog.lineItems.get("1901000000099"), catalog.lineItems.get(FILTER_ITEM), searched()])
+        .toEqual([undefined, { name: "Units", moduleId: MODULE }, { name: "Include?", moduleId: MODULE_3 }, [MODULE_3]]);
+      expect([catalog.lineItemModules.has(candidate(1)), catalog.lineItemFormats.has(FILTER_ITEM)]).toEqual([false, false]);
+      expect(lineItemsLine(log)).toEqual([`line items: 0 named from the export, of 3 modules; 1 of the 1 modules the pages use read from the listing; `
+        + `the export and the listing differ on module ${MODULE}: 0 of 1 line items alike, by ID and name; the export's line items are set aside, `
+        + "and every module the pages use is read from the listing"]);
+      // A listing with no line item for a module the export gives some differs from it too.
+      serveModel();
+      const empty = named(withGrid(), exported());
+      await empty.result;
+      expect(lineItemsLine(empty.log).at(-1)).toContain(`differ on module ${MODULE}: 0 of 0 line items alike`);
+    });
+
+    it("keeps them when the listing refuses the module read to compare them, and reads nothing else for them", async () => {
+      serveModel({ [at(`/modules/${MODULE}/lineItems`)]: id => rejected(id, "LINE_ITEMS_UNAVAILABLE") });
+      const { log, result } = named(withGrid(), exported());
+      const { catalog } = await result;
+      expect([catalog.lineItems.get(UNITS), catalog.lineItems.get(FILTER_ITEM), destinations().filter(destination => destination.endsWith("/lineItems") || destination.endsWith("/applicableModules"))])
+        .toEqual([{ name: "Units", moduleId: MODULE }, { name: "Include?", moduleId: MODULE_3 }, [at(`/modules/${MODULE}/lineItems`)]]);
+      expect(lineItemsLine(log)).toEqual([`line items: 2 named from the export, of 3 modules; 0 of the 1 modules the pages use read from the listing; `
+        + `the listing of module ${MODULE} could not be read to compare (LINE_ITEMS_UNAVAILABLE): the export's line items are used`]);
+      // Nothing to compare where no page uses a module of theirs: each module the pages use is read.
+      serveModel();
+      const elsewhere = named([{ cards: [], references: [{ kind: "module", id: candidate(3) }] }] as unknown as UxPageCardDetails[], exported());
+      await elsewhere.result;
+      expect(lineItemsLine(elsewhere.log)).toEqual(["line items: 2 named from the export, of 3 modules; 1 of the 1 modules the pages use read from the listing; "
+        + "no page uses a module that the export listed with line items: nothing to compare"]);
+    });
   });
 
   it("reads no item names, and shows no status for them, when no grid shows or hides an item", async () => {
@@ -2068,10 +2139,11 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     const { catalog, notes } = await result;
     expect(notes).toEqual([]);
     expect(ScriptedSocket.sockets.map(socket => socket.host)).toEqual([FIRST, MODEL_HOST]);
-    // A read that ended with the connection says nothing about its module. On the model's own host those three are read,
-    // the five that the first host had answered are not read again, and the rule has its line item.
+    // A read that ended with the connection says nothing about its module. On the model's own host those three are read;
+    // the module the page shows and the five candidates that the first host had answered are not read again, and the rule
+    // has its line item.
     const read = (socket: ScriptedSocket) => socket.frames.filter(frame => frame.command === "SEND").flatMap(frame => /\/modules\/(\d+)\/lineItems$/.exec(frame.headers.destination)?.[1] ?? []);
-    expect(ScriptedSocket.sockets.map(read)).toEqual([[MODULE, ...candidates], [MODULE, ...candidates.slice(5)]]);
+    expect(ScriptedSocket.sockets.map(read)).toEqual([[MODULE, ...candidates], candidates.slice(5)]);
     expect(catalog.lineItems.get(FILTER_ITEM)).toEqual({ name: "Include?", moduleId: candidate(7) });
     // Each is still logged as a read that failed, as it always was.
     expect(log.filter(line => line.startsWith("line items of"))).toEqual(candidates.slice(5).map(module => `line items of module ${module}: REDIRECTION_REQUIRED`));
