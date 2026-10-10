@@ -355,7 +355,9 @@ td.num{font-variant-numeric:tabular-nums}
    - Its size is the room's, never its content's. It cuts nothing off: a map that asked for more height than its
      place has would show whole, and the page would scroll for it.
    - The map's own boxes are placed from it and stacked within it: none of them lies over the page's header, navigation,
-     drawer or popovers, whatever z-index it has.
+     drawer or popovers, whatever z-index it has. The one exception is the map itself while it fills the window, which
+     the user asked for where the browser would not give it the screen (map.css `.map-full-window`): the host then stands
+     over everything but the page's toasts.
    - The map takes nearly the whole width of the window, out of the page's column: the shell keeps 12px at each side
      while it is shown, at every width. The header, the navigation and the banners keep to the column here as well, so
      that nothing above the map moves sideways as it is shown and hidden. */
@@ -364,6 +366,7 @@ body:has(#mapHost:not([hidden])) > .banners,body:has(#mapHost:not([hidden])) > .
 body:has(#mapHost:not([hidden])) > .shell{flex:1 1 0;min-height:0;padding:12px}
 main:has(> #mapHost:not([hidden])){align-self:stretch;display:flex;flex-direction:column}
 #mapHost{position:relative;flex:1 1 0;min-height:320px;isolation:isolate}
+#mapHost:has(> .map-full-window){z-index:85}
 
 /* ---------- overview ---------- */
 .ov-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(158px,1fr));gap:12px;margin-bottom:16px}
