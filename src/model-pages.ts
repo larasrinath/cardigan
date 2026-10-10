@@ -1,8 +1,8 @@
-import { declaredType, loadCatalog, nameDetails, readPublished, type ModelScope } from "./analyse.js";
+import { declaredType, loadCatalog, loadCatalogWhen, nameDetails, readPublished, type CatalogInputs, type ModelScope } from "./analyse.js";
 import { describePageCards } from "./card-reader/card-details.js";
 import type { UxPageCardDetails } from "./card-reader/card-types.js";
 import type { UxPageType } from "./card-reader/definition-types.js";
-import { emptyCatalog, type ExportedLineItems } from "./catalog.js";
+import { emptyCatalog, type ExportedLineItems, type ModelCatalog } from "./catalog.js";
 import { diagnosticRows, stampLine, type DetailRow } from "./details.js";
 import { separator } from "./map/graph-names.js";
 import { FILTER_USES, MODULE_USAGE_FILE, MODULE_USAGE_HEADERS, NOT_ON_A_PAGE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, PAGE_PLACE_HEADERS } from "./page-files.js";
@@ -11,15 +11,20 @@ import { buildReport, HEADERS, NONE, PAGE_TYPE, type Cell, type PageInput } from
 import { plainRows } from "./result-plain.js";
 import type { AnalysisResult, ResultTable } from "./result-types.js";
 import { getJson, RestError } from "./rest.js";
-import { AT_A_TIME, eachAtMost, list, message, SCOPE_ID, stepTimes, text, type Obj } from "./util.js";
+import { AT_A_TIME, eachAtMost, list, message, SCOPE_ID, seconds, stepTimes, text, type Obj } from "./util.js";
 
-/** The pages built on a model, read after the model's export in the Anaplan tab (content.ts), with the signed-in session
- * and GET only, as an app's pages are read (analyse.ts): Model Building's own list of the pages built on the model, each
- * page's published version, the apps of those pages, and the names in the model that their cards use. From them the
- * model's result gets three tables, Module Usage, Page Filters and Page Actions (page-files.ts), the apps under About this
- * export, and a column in Line Items. Only a card that works on this model counts: one that names no other model, on a
- * page that names this model or none. A button names no model of its own: its card's is the model of its action. Nothing
- * here fails the export: what cannot be read is a note, and a run that is stopped ends as one. */
+/** The pages built on a model, read in the Anaplan tab (content.ts) with the signed-in session and GET only, as an app's
+ * pages are read (analyse.ts): Model Building's own list of the pages built on the model, each page's published version,
+ * the apps of those pages, and the names in the model that their cards use. From them the model's result gets three
+ * tables, Module Usage, Page Filters and Page Actions (page-files.ts), the apps under About this export, and a column in
+ * Line Items. Only a card that works on this model counts: one that names no other model, on a page that names this
+ * model or none. A button names no model of its own: its card's is the model of its action. Nothing here fails the
+ * export: what cannot be read is a note, and a run that is stopped ends as one.
+ *
+ * Where the tab's address names the customer, the workspace and the model, the pages and the model's names are read
+ * beside the model's export, which goes through the model's frame (`startModelPages`): neither needs anything of the
+ * export until the line items and the tables, and the three are read by different services. Otherwise they are read
+ * after it (`addModelPages`). */
 
 const DEFINITION = "/a/springboard-definition-service/";
 const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -70,12 +75,23 @@ const HOW_TO_READ: readonly [detail: string, value: string][] = [
     + "is, by app, page, card and label, and then how it behaves."],
 ];
 
-/** What the work reads through: a test passes its own. */
-export interface PageReads { getJson: typeof getJson; readPublished: typeof readPublished; loadCatalog: typeof loadCatalog }
-const LIVE: PageReads = { getJson, readPublished, loadCatalog };
+/** What the work reads through: a test passes its own. `loadCatalogWhen` reads a model's names before the pages and the
+ * export they are read for have come; without it, they are read with `loadCatalog` once those have come. */
+export interface PageReads { getJson: typeof getJson; readPublished: typeof readPublished; loadCatalog: typeof loadCatalog; loadCatalogWhen?: typeof loadCatalogWhen }
+const LIVE: PageReads = { getJson, readPublished, loadCatalog, loadCatalogWhen };
 
 /** A page that was read, and what its cards are. */
 interface ReadPage { type: UxPageType; native: Obj; details: UxPageCardDetails }
+/** What reading the pages built on a model gives, before any name: Model Building's list, the entries of it that name a
+ * page, the pages that were read, what could not be read and why, and the apps of the pages by their names. Or why the
+ * tables are not made at all (`left`). */
+interface PagesRead {
+  entries: Obj[]; items: Obj[]; pages: ReadPage[]; unread: string[]; unpublished: number;
+  appGuids: string[]; appNames: Map<string, string>; appsUnread: number;
+}
+/** The names a model's catalog gives, with its notes, as `loadCatalog` gives them. */
+type Named = { catalog: ModelCatalog; notes: string[]; failedActionTypes: string[] };
+const NO_NAMES = (): Named => ({ catalog: emptyCatalog(), notes: [], failedActionTypes: [] });
 /** What a page gives the tables: its app and name, where it is (`PAGE_PLACE_HEADERS`, in their order), its rows of the two
  * tables, and the modules it uses. */
 interface PageRows { app: string; page: string; place: Cell[]; filters: Cell[][]; actions: Cell[][]; modules: Set<string> }
@@ -263,21 +279,163 @@ export async function addModelPages(given: AnalysisResult, customerId: string | 
   }
 }
 
+/** What a model's run started of the pages built on the model, before its export came (`startModelPages`). */
+export interface ModelPagesStart {
+  /** The model's result with what the pages built on it say, once its export has come, as `addModelPages` gives it. */
+  finish(given: AnalysisResult, lineItemIds?: readonly (readonly [string, string])[]): Promise<AnalysisResult>;
+  /** The export failed, or the run was stopped: what was started is given up, and nothing more is read for it. */
+  abandon(reason: unknown): void;
+}
+
+/** What the tab's address says of the model: its customer, workspace and ID, and the host of the frame it is read in. */
+export interface ModelPagesIds { customerId?: string; workspaceId?: string; modelId: string; frameHost?: () => string | undefined }
+
+/** How a model's run reads the names its pages use: without the saved views' layouts, which only an app's Cards and Grid
+ * Sections tables show (analyse.ts `LoadOptions`). */
+const MODEL_NAMES = { viewLayouts: false } as const;
+
+/** The name a model's name reads go by until its export has come, which names the model. */
+const UNTIL_NAMED = "this model";
+
+/** Starts reading the pages built on a model at once, beside its export (content.ts): the list, each page, the apps, and
+ * the model's names. The pages and the first of the names need nothing of the export; the rest of the names wait for it
+ * (analyse.ts `loadCatalogWhen`), and the tables are made once it has come (`finish`). Until then the export's status is
+ * the one the results page shows: this step's is kept, and the latest is shown once the export has come. What it logs
+ * goes to the run's log as it happens, and after the export's lines in the result's diagnostic log. It needs the customer,
+ * the workspace and the model, from the tab's address: without them, or where the export names another workspace or
+ * model, the pages are read after the export, as `addModelPages` reads them. A line of the log says how long the export,
+ * the pages and the names took, and the run in all. */
+export function startModelPages(ids: ModelPagesIds, progress: Progress, signal?: AbortSignal, reads: PageReads = LIVE): ModelPagesStart {
+  const { customerId, workspaceId, modelId } = ids;
+  const after: ModelPagesStart = { finish: (given, lineItemIds) => addModelPages(given, customerId, progress, signal, reads, lineItemIds), abandon: () => undefined };
+  if (!customerId || !SCOPE_ID.test(customerId) || !workspaceId || !SCOPE_ID.test(workspaceId) || !SCOPE_ID.test(modelId) || signal?.aborted) return after;
+
+  const began = Date.now();
+  const logged: string[] = [];
+  const keep = (line: string): void => {
+    logged.push(stampLine(line));
+    if (logged.length > LOGGED_MAX) logged.splice(0, logged.length - LOGGED_MAX);
+  };
+  let [shown, held] = [false, undefined as string | undefined];
+  const step: Progress = { status: text => { keep(text); if (shown) progress.status(text); else held = text; }, log: line => { keep(line); progress.log(line); } };
+  // A stopped run stops what was started; so does an export that failed (`abandon`).
+  const background = new AbortController();
+  const stop = (): void => background.abort(signal?.reason);
+  signal?.addEventListener("abort", stop, { once: true });
+  const time = stepTimes();
+  const scope: ModelScope = { customerId, workspaceId, modelId, modelName: UNTIL_NAMED };
+  let came: (export_: { given: AnalysisResult; lineItemIds?: readonly (readonly [string, string])[] }) => void = () => undefined;
+  let failed: (reason: unknown) => void = () => undefined;
+  const exportCame = new Promise<{ given: AnalysisResult; lineItemIds?: readonly (readonly [string, string])[] }>((resolve, reject) => { came = resolve; failed = reject; });
+  exportCame.catch(() => undefined);
+
+  let [pagesMs, namesMs] = [0, 0];
+  const pagesWork = (async () => {
+    const from = Date.now();
+    try {
+      return await readPagesOf(customerId, modelId, step, background.signal, reads, time);
+    } finally {
+      pagesMs = Date.now() - from;
+    }
+  })();
+  pagesWork.catch(() => undefined);
+  const loadWhen: typeof loadCatalogWhen = reads.loadCatalogWhen
+    ?? ((on, inputs, progressOf, signalOf, options) => inputs.then(({ pages, pageNames, exported }) => reads.loadCatalog(on, pages, pageNames, progressOf, signalOf, exported, options)));
+  const namesWork = pagesWork.then(async (read): Promise<Named> => {
+    if ("left" in read || !read.pages.length) return NO_NAMES();
+    const inputs = exportCame.then(({ given, lineItemIds }): CatalogInputs => {
+      const exported = lineItemIds ? exportedLineItems(given, lineItemIds, step.log) : undefined;
+      return { pages: read.pages.map(page => page.details), pageNames: pageNamesOf(read), ...(exported ? { exported } : {}) };
+    });
+    const from = Date.now();
+    try {
+      return await time.step("names", () => loadWhen(scope, inputs, step, background.signal, { ...MODEL_NAMES, frameHost: ids.frameHost }));
+    } finally {
+      namesMs = Date.now() - from;
+    }
+  });
+  namesWork.catch(() => undefined);
+
+  const abandon = (reason: unknown): void => {
+    failed(reason);
+    background.abort(reason);
+    signal?.removeEventListener("abort", stop);
+  };
+  return {
+    abandon,
+    finish: async (given, lineItemIds) => {
+      const exportMs = Date.now() - began;
+      shown = true;
+      if (held !== undefined) progress.status(held);
+      // An export of another workspace or model than the address named: the pages are read for the export's, after it.
+      const [itsWorkspace, itsModel] = [modelDetail(given, "Workspace ID") ?? "", given.id];
+      if (itsWorkspace.toLowerCase() !== workspaceId.toLowerCase() || itsModel.toLowerCase() !== modelId.toLowerCase()) {
+        abandon(new Error("the export is of another workspace or model than the tab's address names"));
+        return after.finish(given, lineItemIds);
+      }
+      scope.modelName = given.name;
+      came({ given, ...(lineItemIds ? { lineItemIds } : {}) });
+      try {
+        const result = copied(given);
+        const read = await pagesWork;
+        if ("left" in read) return addLog(leftOut(result, read.left), logged);
+        const named = await namesWork;
+        signal?.throwIfAborted();
+        const built = tablesOf(result, read, named, step, time, [given.name, UNTIL_NAMED]);
+        step.log(`Run: export ${seconds(exportMs)}, pages ${seconds(pagesMs)}, names ${seconds(namesMs)}, overlapped; in all ${seconds(Date.now() - began)}`);
+        return addLog(built, logged);
+      } catch (error) {
+        if (signal?.aborted) throw signal.reason;
+        step.log(`pages built on the model: ${message(error)}`);
+        // From the export as it was handed over: the failed work may have added to its copy already.
+        try {
+          return addLog(leftOut(copied(given), error instanceof RestError ? unreadWhy(error) : `Cardigan could not make them: ${message(error)}`), logged);
+        } catch {
+          return given;
+        }
+      } finally {
+        signal?.removeEventListener("abort", stop);
+      }
+    },
+  };
+}
+
 async function withModelPages(result: AnalysisResult, customerId: string | undefined, progress: Progress, signal: AbortSignal | undefined,
   reads: PageReads, lineItemIds: readonly (readonly [string, string])[] | undefined): Promise<AnalysisResult> {
   const workspaceId = modelDetail(result, "Workspace ID");
   if (!customerId || !SCOPE_ID.test(customerId)) return leftOut(result, NO_CUSTOMER);
   if (!workspaceId || !SCOPE_ID.test(workspaceId) || !SCOPE_ID.test(result.id)) return leftOut(result, "the model's workspace or model ID could not be read");
 
-  // A failed read ends here, and `addModelPages` says why the tables are not made.
-  progress.status("Reading the pages built on this model…");
   /** How long each step took: the log's one line on it comes once the tables are made. */
   const time = stepTimes();
-  const answer = await time.step("list of pages", () => reads.getJson(`${DEFINITION}customer/${customerId}/model/${result.id}/pages`));
+  const read = await readPagesOf(customerId, result.id, progress, signal, reads, time);
+  if ("left" in read) return leftOut(result, read.left);
+
+  // The names the cards use, from this model, as an app's pages are named. The line items the export read stand for the
+  // listing's, so that the modules the cards use are not read again.
+  const scope: ModelScope = { customerId, workspaceId, modelId: result.id, modelName: result.name };
+  const exported = read.pages.length && lineItemIds ? exportedLineItems(result, lineItemIds, progress.log) : undefined;
+  const named = read.pages.length
+    ? await time.step("names", () => reads.loadCatalog(scope, read.pages.map(page => page.details), pageNamesOf(read), progress, signal, exported, MODEL_NAMES))
+    : NO_NAMES();
+  signal?.throwIfAborted();
+  return tablesOf(result, read, named, progress, time, [result.name]);
+}
+
+/** The pages' names by their IDs, as the catalog names a page. */
+const pageNamesOf = (read: PagesRead): Map<string, string> => new Map(read.pages.map(page => [page.details.pageGuid, page.details.name]));
+
+/** Model Building's list of the pages built on the model, each page's published version, a few at a time in the list's
+ * order, and the apps of those pages. A failed read of the list ends here, as does a session that has ended (it is
+ * rethrown, and `addModelPages` says why the tables are not made); a list in a form Cardigan does not read gives `left`. */
+async function readPagesOf(customerId: string, modelId: string, progress: Progress, signal: AbortSignal | undefined, reads: PageReads,
+  time: ReturnType<typeof stepTimes>): Promise<PagesRead | { left: string }> {
+  progress.status("Reading the pages built on this model…");
+  const answer = await time.step("list of pages", () => reads.getJson(`${DEFINITION}customer/${customerId}/model/${modelId}/pages`));
   const listed = Array.isArray(answer) ? answer : isObj(answer) && Array.isArray(answer.items) ? answer.items : undefined;
   if (!listed) {
     progress.log(`pages built on the model: the answer has no list of pages (${typeof answer})`);
-    return leftOut(result, "Anaplan's list of the pages built on this model was not in a form Cardigan reads");
+    return { left: "Anaplan's list of the pages built on this model was not in a form Cardigan reads" };
   }
   const entries = list(listed);
   // The entries' fields, never their values: a live run's log shows what Model Building's list holds.
@@ -333,20 +491,17 @@ async function withModelPages(result: AnalysisResult, customerId: string | undef
       progress.log(`app ${guid}: ${message(error)}`);
     }
   }));
+  return { entries, items, pages, unread, unpublished, appGuids, appNames, appsUnread };
+}
+
+/** The three tables, the Line Items column, and the notes and details, from the pages that were read and the names of the
+ * model. The export read every module's name and ID from the model itself: a module the model data service did not name
+ * is named by them. A note of the name reads that begins with the model's name (any of `names`, as the reads called it)
+ * loses it here, where the model is the one the notes are about. */
+function tablesOf(result: AnalysisResult, read: PagesRead, named: Named, progress: Progress, time: ReturnType<typeof stepTimes>, names: readonly string[]): AnalysisResult {
+  const { entries, items, pages, unread, unpublished, appGuids, appNames, appsUnread } = read;
   const appName = (guid: string): string => appNames.get(guid.toLowerCase()) ?? guid;
-
-  // The names the cards use, from this model, as an app's pages are named. The export read every module's name and ID
-  // from the model itself: a module the model data service did not name is named by them.
-  const scope: ModelScope = { customerId, workspaceId, modelId: result.id, modelName: result.name };
-  // The line items the export read stand for the listing's, so that the modules the cards use are not read again.
-  const exported = pages.length && lineItemIds ? exportedLineItems(result, lineItemIds, progress.log) : undefined;
-  const named = pages.length
-    ? await time.step("names", () => reads.loadCatalog(scope, pages.map(page => page.details), new Map(pages.map(page => [page.details.pageGuid, page.details.name])), progress,
-      signal, exported))
-    : { catalog: emptyCatalog(), notes: [], failedActionTypes: [] };
-  signal?.throwIfAborted();
   for (const [module, id] of result.moduleIds ?? []) if (!named.catalog.modules.has(id)) named.catalog.modules.set(id, module);
-
   progress.status("Building the tables of the pages built on this model…");
   const model = result.id.toLowerCase();
   const built: PageRows[] = pages.map(({ type, native, details }) => {
@@ -401,13 +556,12 @@ async function withModelPages(result: AnalysisResult, customerId: string | undef
   addFilterUses(result, filters, unread.length === 0);
 
   // The model's name starts a note of the name reads: here it is this model's.
-  const own = `${result.name}: `;
   const notes: string[] = [
     ...(unpublished ? [`${unpublished} of the ${items.length} pages built on this model ${unpublished === 1 ? "has" : "have"} no published version, so ${unpublished === 1 ? "it is" : "they are"} not in these tables.`] : []),
     ...(unread.length ? [`${unread.length} ${unread.length === 1 ? "page" : "pages"} could not be read, so a module on ${unread.length === 1 ? "it" : "one of them"} may show as ${NOT_ON_A_PAGE.toLowerCase()}: `
       + `${unread.slice(0, NAMED_UNREAD).join("; ")}${unread.length > NAMED_UNREAD ? `; and ${unread.length - NAMED_UNREAD} more` : ""}.`] : []),
     ...(appsUnread ? [`The names of ${appsUnread} ${appsUnread === 1 ? "app" : "apps"} could not be read: ${appsUnread === 1 ? "it is" : "they are"} shown by ID.`] : []),
-    ...named.notes.map(note => (note.startsWith(own) ? note.slice(own.length) : note)),
+    ...named.notes.map(note => names.reduce((said, name) => (said === note && note.startsWith(`${name}: `) ? note.slice(name.length + 2) : said), note)),
   ];
   result.summary.push(...FILES.map(([file, label]) => `${label}: ${rows(counted[file].length)}`), ...notes.map(note => `${ABOUT}: ${note}`));
   // The apps the list's pages are in. Without a page to tell them by, the apps are not known, and none are said.
