@@ -1,4 +1,4 @@
-import { FILTER_USES, MODEL_PAGE_FILES, MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE } from "../page-files.js";
+import { FILTER_USES, MODEL_PAGE_FILES, MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, PAGE_PLACE_HEADERS } from "../page-files.js";
 import type { TabName } from "../report.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
 import { FORMAT_TYPE, LINE_ITEMS_FILE } from "./line-items-view.js";
@@ -133,10 +133,13 @@ export const MODEL_HIDDEN: ReadonlyMap<string, readonly string[]> = new Map([["M
  * alone without the blanks, which are the modules' own rows, and leaves out the headings without No Data. */
 export const MODEL_FILTERED: ReadonlyMap<string, readonly string[]> = new Map([[LINE_ITEMS_FILE, [FORMAT_TYPE]]]);
 /** The tables of the pages built on a model (page-files.ts), which the run writes from an app's tables: Page Filters and
- * Page Actions are an app's Filters and Action Buttons with the app in front, and are shown as those are, with their IDs
- * and numbers hidden. Each of the three offers a filter on the app. */
+ * Page Actions hold an app's Filters and Action Buttons with their app, and are shown as those are, with their IDs and
+ * numbers hidden. Each of the three offers a filter on the app, and ends with where each page is, hidden: its type, as a
+ * tag, and its app's ID and its own, as IDs to copy (page-files.ts `PAGE_PLACE_HEADERS`). */
+const PAGE_PLACE: Readonly<Record<string, Choice>> = Object.fromEntries(PAGE_PLACE_HEADERS.map((header, index): [string, Choice] => [header, index === 0 ? { ...TAG, hidden: true } : HIDDEN_ID]));
 export const PAGE_FILE_CHOICES: ReadonlyMap<string, Readonly<Record<string, Choice>>> = new Map([
-  [MODULE_USAGE_FILE, { App: FILTER }], [PAGE_FILTERS_FILE, { App: FILTER, ...CHOICES.Filters }], [PAGE_ACTIONS_FILE, { App: FILTER, ...CHOICES.Actions }],
+  [MODULE_USAGE_FILE, { App: FILTER, ...PAGE_PLACE }], [PAGE_FILTERS_FILE, { App: FILTER, ...CHOICES.Filters, ...PAGE_PLACE }],
+  [PAGE_ACTIONS_FILE, { App: FILTER, ...CHOICES.Actions, ...PAGE_PLACE }],
 ]);
 const MODEL_CHOICES: ReadonlyMap<string, ReadonlyMap<string, Choice>> = new Map([
   ...[...new Set([...MODEL_COUNTS.keys(), ...MODEL_HIDDEN.keys(), ...MODEL_FILTERED.keys()])].map((file): [string, ReadonlyMap<string, Choice>] => [file,
@@ -202,7 +205,7 @@ export const ROW_NAME_COLUMNS: Record<TabName, string> = {
   Pages: "Page", Cards: "Card title", "Grid sections": "Source module", Filters: "Condition line item", Formatting: "Formatted line item",
   Actions: "Button label", "Where used": "Object name",
 };
-/** Page Filters and Page Actions, an app's Filters and Action Buttons with the app in front, are named as those are. */
+/** Page Filters and Page Actions, which hold an app's Filters and Action Buttons rows, are named as those are. */
 const ROW_NAMES: ReadonlyMap<string, string> = new Map([...(Object.keys(ROW_NAME_COLUMNS) as TabName[]).map((tab): [string, string] => [APP_FILES[tab], ROW_NAME_COLUMNS[tab]]),
   [PAGE_FILTERS_FILE, ROW_NAME_COLUMNS.Filters], [PAGE_ACTIONS_FILE, ROW_NAME_COLUMNS.Actions]]);
 

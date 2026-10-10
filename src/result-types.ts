@@ -37,14 +37,19 @@ export interface AnalysisResult {
   /** The lines listed after a run: counts and notes. */
   summary: string[];
   /** A model's modules, each by its name and its ID in the model (the entity's long ID, in digits), as the export read
-   * them: what the results page opens a module in Model Building by. None in an app's result, nor in one that an earlier
-   * version kept. Pairs, so that a module's name is never taken for a property of an object. */
+   * them: what the results page opens a module in Model Building by. Empty where the export found none; none in an app's
+   * result, nor in one that an earlier version kept. Pairs, so that a module's name is never taken for a property of an
+   * object. */
   moduleIds?: [name: string, id: string][];
   /** The mapping of each of a model's imports from a file (Source Type FILE in the Imports tab), in the order of that tab:
    * what feeds each target of the import, as the import's own definition says it. The results page shows it in the
-   * details of the import's row of Imports. None in an app's result, in a model's that has no import from a file, nor in
-   * one that an earlier version kept. */
+   * details of the import's row of Imports. Empty for a model that has no import from a file; none in an app's result, in
+   * a model's whose Imports tab could not be read, nor in one that an earlier version kept. */
   importMappings?: ImportMapping[];
+  /** Where a model read in Model Building is, as the Anaplan tab's address said it: the site's origin and the customer.
+   * The results page opens the model's modules there, and the apps and pages built on it. None in an app's result, in a
+   * model's read on the classic model page, whose address names no customer, nor in one that an earlier version kept. */
+  site?: { origin: string; customer: string };
 }
 
 /** One import from a file, with its mapping. The mapping is the import's own: it holds whether the file it was made with is

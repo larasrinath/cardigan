@@ -1,6 +1,7 @@
 import { buildModelGraph } from "../map/build-graph.js";
 import type { ModelGraph, ModelMap, ModelMapOptions } from "../map/graph-types.js";
 import { mountModelMap } from "../map/map-view.js";
+import { MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, PAGE_ROUTES } from "../page-files.js";
 import { CONTENT_SCRIPT_ORIGIN, PORT_NAME } from "../protocol.js";
 import { plainResult, textOf } from "../result-plain.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
@@ -14,8 +15,8 @@ import { analysedLine, notKeptNote } from "./keep-notes.js";
 import { ResultKeeper } from "./keep-result.js";
 import {
   cardDrawerHtml, cardDrawerSubHtml, colChooserHtml, colFilterHtml, headerMetaHtml, keptCopyHtml, MAP_FAILED, MAP_LABEL, mapHtml, MOON_ICON, navHtml, navItems, navMenuHtml,
-  noteBannerHtml, NOT_REMOVED_LINE, objectDrawerHtml, objectDrawerSubHtml, overviewHtml, rowDrawerHtml, rowDrawerSubHtml, runBannerHtml, runHtml, SUN_ICON, tableHtml, tableParts,
-  type KeptCopy, type Links, type NavEntry, type TableView,
+  noteBannerHtml, NOT_REMOVED_LINE, objectDrawerHtml, objectDrawerSubHtml, opensHtml, overviewHtml, rowDrawerHtml, rowDrawerSubHtml, runBannerHtml, runHtml, SUN_ICON, tableHtml,
+  tableParts, type KeptCopy, type Links, type NavEntry, type OpenButton, type TableView,
 } from "./markup.js";
 import type { PageId } from "./page-ids.js";
 import { LINE_ITEMS_FILE, MODULE_NAME } from "./line-items-view.js";
@@ -267,7 +268,6 @@ function tableView(entry: Shown): TableView {
     columns: entry.columns.filter(column => !entry.hidden.has(column.index)), widths: entry.widths, rows: page.rows, ...(entry.headings ? { headings: entry.headings } : {}),
     page: page.page, pages: page.pages, pageSize: state.pageSize, from: page.from, to: page.to, total: page.total, all: entry.table.rows.length,
     search: state.search, sort: entry.sort, filtered: new Set(entry.filters.keys()), context: state.context, links: entry.links,
-    ...(opensModules(entry) ? { rowTitle: OPEN_IN_ANAPLAN } : {}),
   };
 }
 /** The shade at the foot of the table's box goes once there is nothing more to scroll to. */
@@ -472,6 +472,7 @@ function clearResult(): void {
   currentSlice = [];
   drawerRow = undefined;
   drawerObject = undefined;
+  drawerOpens = [];
   state.view = "overview";
   state.search = "";
   state.context = undefined;
@@ -662,8 +663,14 @@ function openDrawer(title: string, subHtml: string, bodyHtml: string, opener?: E
   el("drawerTitle").textContent = title;
   el("drawerSub").innerHTML = subHtml;
   el("drawerBody").innerHTML = bodyHtml;
-  // A row of a model's Line Items or Modules that has its box on the map: the button at the top takes the user there.
-  el("drawerMap").hidden = !drawerRow || mapNodeOf(drawerRow.entry, drawerRow.row) === undefined;
+  // Where the row leads, at the top right: its box on the map, its module, its app and its page, as far as each is known;
+  // and under the header, why a way to open it that the result keeps from every row is not there.
+  const { opens, why } = drawerRow ? opensOf(drawerRow.entry, drawerRow.row) : { opens: [], why: undefined };
+  drawerOpens = opens;
+  el("drawerOpens").innerHTML = opensHtml(opens);
+  el("drawerOpens").hidden = !opens.length;
+  el("drawerWhy").textContent = why ?? "";
+  el("drawerWhy").hidden = why === undefined;
   const drawer = el("drawer");
   const scrim = el("scrim");
   drawer.hidden = false;
@@ -764,64 +771,128 @@ function rowFor(element: Element): { entry: Shown; row: Row } | undefined {
   return row ? { entry, row } : undefined;
 }
 
-/* ================= a module in Anaplan ================= */
-/** What a row of a model's Line Items or Modules says it does on a double-click. */
-const OPEN_IN_ANAPLAN = "Double-click to open its module in Anaplan";
-/** As long as a double-click may take after the click that opened its row's details. */
-const DOUBLE_CLICK_MS = 600;
-const NO_MODULE_IDS = "This result has no IDs for the model's modules: an earlier version of Cardigan read it. Choose Run again, then double-click the row again.";
-const NO_MODULE_ID = "Cardigan cannot open this row in Anaplan: the model gave no ID for its module.";
-const NOT_IN_MODEL_BUILDING = "To open a module from here, open the model in Model Building, then click the Cardigan icon on that tab.";
-const NO_WORKSPACE = "This result does not say which workspace the model is in. Choose Run again, then double-click the row again.";
-const TAB_GONE = "The Anaplan tab is closed. Open the model in Model Building, then click the Cardigan icon there.";
+/* ================= where a row leads ================= */
+/** Why a way to open a row is not in its details, where the result keeps it from every row: the line under the details'
+ * header says so. A row that has nothing to open, such as a heading or a module on no page, says nothing. */
+const EARLIER_IDS = "This result has no IDs for the model's modules: an earlier version of Cardigan read it. Choose Run again to open modules from here.";
+const NO_IDS_FOUND = "Cardigan found no IDs for this model's modules, so it cannot open them in Model Building. "
+  + "Choose Copy diagnostic log on the Overview and send the log.";
+const EARLIER_PAGES = "This result has no IDs for its apps and pages: an earlier version of Cardigan read it. Choose Run again to open them from here.";
+const NOT_IN_MODEL_BUILDING = "To open modules, apps and pages from here, open the model in Model Building, then click the Cardigan icon on that tab.";
+const NO_WORKSPACE = "This result does not say which workspace the model is in, so Cardigan cannot open its modules. Choose Run again.";
+/** What the page says when an address could be opened neither in the Anaplan tab nor in a tab of its own. */
+const NOT_OPENED = "Cardigan could not open that in Anaplan.";
 const LONG_ID = /^[0-9A-Fa-f]{32}$/;
+const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** The row a click last opened, and when: what a double-click opens the module of (the listener for "dblclick"). */
-let clickedRow: { entry: Shown; row: Row; at: number } | undefined;
+/** A button at the top right of a row's details, with where it leads: a box of the model map, or an address in Anaplan. */
+type Open = OpenButton & ({ kind: "map"; node: number } | { kind: "module" | "app" | "page"; url: string });
+/** The buttons of the row the details show, by their place: what a click on one of them opens. */
+let drawerOpens: readonly Open[] = [];
 
-/** Whether a table's rows open their module in Anaplan: a model's Line Items and Modules. */
-const opensModules = (entry: Shown): boolean => result?.kind === "model" && (entry.table.file === LINE_ITEMS_FILE || entry.table.file === MODULES_FILE);
-
-/** The module a row of a model's Line Items or Modules names: a line item's own module, or the module itself. None for any
- * other row, and for a row that names none. */
-function moduleOfRow(entry: Shown, row: Row): string | undefined {
-  if (!opensModules(entry)) return undefined;
-  const at = entry.table.file === LINE_ITEMS_FILE ? columnIndex(entry.table, MODULE_NAME) : 0;
-  const name = at === undefined ? "" : cellText(row[at]).trim();
-  return name === "" ? undefined : name;
-}
-
-/** The address that opens a module of the model on the page in Model Building, on the Anaplan tab's own site, as Model
- * Building's own links write it (its `/tabs/` and the module's ID); or what is missing for it, in words for the user. The
- * site and the customer are what the tab said of itself; the workspace is the result's, and so is the model. */
-function moduleLink(name: string): { url: string } | { problem: string } {
-  if (result?.kind !== "model") return { problem: NO_MODULE_ID };
-  if (!Array.isArray(result.moduleIds)) return { problem: NO_MODULE_IDS };
-  const id = result.moduleIds.find(pair => Array.isArray(pair) && typeof pair[0] === "string" && pair[0].trim() === name)?.[1];
-  if (typeof id !== "string" || !/^\d{1,19}$/.test(id)) return { problem: NO_MODULE_ID };
+/** Where the model on the page is in Anaplan, its site and its customer: as its result says them, or, for a result an
+ * earlier version kept, as the tab says them of the model it shows in Model Building. None for the classic model page
+ * opened on its own, whose address names no customer. */
+function siteOf(model: AnalysisResult): { origin: string; customer: string } | undefined {
   const shown = client.shows;
-  const origin = shown?.kind === "model" ? shown.origin : undefined;
-  const customer = shown?.kind === "model" ? shown.customer : undefined;
-  if (typeof origin !== "string" || !CONTENT_SCRIPT_ORIGIN.test(origin) || typeof customer !== "string" || !LONG_ID.test(customer)) return { problem: NOT_IN_MODEL_BUILDING };
-  const workspace = detailValue(detailsOf(result), "Model", "Workspace ID");
-  if (!workspace || !LONG_ID.test(workspace) || !/^[0-9A-Za-z]{32}$/.test(result.id)) return { problem: NO_WORKSPACE };
-  return { url: `${origin}/a/modeling/customers/${customer}/workspaces/${workspace}/models/${result.id}/tabs/${id}` };
+  const site = model.site ?? (shown?.kind === "model" ? { origin: shown.origin, customer: shown.customer } : undefined);
+  return typeof site?.origin === "string" && CONTENT_SCRIPT_ORIGIN.test(site.origin) && typeof site.customer === "string" && LONG_ID.test(site.customer)
+    ? { origin: site.origin, customer: site.customer } : undefined;
 }
 
-/** Opens a row's module in Model Building, in the Anaplan tab this page reads, and brings that tab and its window to the
- * front: the tab loads Model Building on the module. Model Building opens modules, not line items: a line item opens its
- * module. Where something needed is missing, the page says what to do. */
-async function openInAnaplan(entry: Shown, row: Row): Promise<void> {
-  const name = moduleOfRow(entry, row);
-  if (name === undefined) return;
-  const link = moduleLink(name);
-  if ("problem" in link) return toast(link.problem);
-  if (tabId === undefined) return toast(TAB_GONE);
+/** The address that opens a module of the model on the page in Model Building, as Model Building's own links write it (its
+ * `/tabs/` and the module's ID); none for a module the export found no ID for; or why no module of the result can be
+ * opened, in words for the user. */
+function moduleAddress(name: string): { url?: string; why?: string } {
+  if (result?.kind !== "model") return {};
+  if (!Array.isArray(result.moduleIds)) return { why: EARLIER_IDS };
+  if (!result.moduleIds.length) return { why: NO_IDS_FOUND };
+  const site = siteOf(result);
+  if (!site) return { why: NOT_IN_MODEL_BUILDING };
+  const workspace = detailValue(detailsOf(result), "Model", "Workspace ID");
+  if (!workspace || !LONG_ID.test(workspace) || !/^[0-9A-Za-z]{32}$/.test(result.id)) return { why: NO_WORKSPACE };
+  const id = result.moduleIds.find(pair => Array.isArray(pair) && typeof pair[0] === "string" && pair[0].trim() === name)?.[1];
+  return typeof id === "string" && /^\d{1,19}$/.test(id) ? { url: `${site.origin}/a/modeling/customers/${site.customer}/workspaces/${workspace}/models/${result.id}/tabs/${id}` } : {};
+}
+
+/** The ways a row of a model's tables leads elsewhere, as the buttons at the top right of its details show them, and why
+ * one that the result keeps from every row is not there. Model Building opens modules, not line items: a line item opens
+ * its module. The button that opens a row's one module is Model, as the user named it (9 Oct 2026).
+ * - Line Items and Modules: the row's box on the model map, and its module in Model Building.
+ * - Module Usage: the module, on the map and in Model Building, and the app and the page that use it.
+ * - Page Filters: the condition line item's module and the filtered module in Model Building, by those names, one Model
+ *   button where the two are one module, and the filter's app and page.
+ * - Page Actions: the button's app and page.
+ * Only a button whose box or address is known is there. An app's result has none. */
+function opensOf(entry: Shown, row: Row): { opens: Open[]; why: string | undefined } {
+  const opens: Open[] = [];
+  let why: string | undefined;
+  if (result?.kind !== "model") return { opens, why };
+  const model = result;
+  const file = entry.table.file;
+  const cell = (header: string): string => {
+    const at = columnIndex(entry.table, header);
+    return at === undefined ? "" : cellText(row[at]).trim();
+  };
+  const node = mapNodeOf(entry, row);
+  if (node !== undefined) opens.push({ kind: "map", node, label: "Model map", title: `Show ${cellText(row[0]).trim()} on the Model map` });
+  const module = (name: string, label: string): void => {
+    if (name === "" || name === NONE) return;
+    const found = moduleAddress(name);
+    if (found.url !== undefined) opens.push({ kind: "module", url: found.url, label, title: `Open ${name} in Model Building` });
+    else why ??= found.why;
+  };
+  if (file === LINE_ITEMS_FILE) module(cell(MODULE_NAME), "Model");
+  if (file === MODULES_FILE || file === MODULE_USAGE_FILE) module(cellText(row[0]).trim(), "Model");
+  if (file === PAGE_FILTERS_FILE) {
+    const [condition, filtered] = [cell("Condition line item's module"), cell("Filtered module")];
+    if (condition === filtered) module(condition, "Model");
+    else {
+      module(condition, "Condition module");
+      module(filtered, "Filtered module");
+    }
+  }
+  const app = cell("App");
+  if ((file === MODULE_USAGE_FILE || file === PAGE_FILTERS_FILE || file === PAGE_ACTIONS_FILE) && app !== "" && app !== NONE) {
+    const site = siteOf(model);
+    const [appId, pageId, route] = [cell("App ID"), cell("Page ID"), PAGE_ROUTES.get(cell("Page type"))];
+    if (columnIndex(entry.table, "App ID") === undefined) why ??= EARLIER_PAGES;
+    else if (!site) why ??= NOT_IN_MODEL_BUILDING;
+    else if (GUID.test(appId)) {
+      opens.push({ kind: "app", url: `${site.origin}/a/apps/app/${appId}`, label: "App", title: `Open the app ${app} in Anaplan` });
+      if (route !== undefined && GUID.test(pageId)) {
+        opens.push({ kind: "page", url: `${site.origin}/a/apps/app/${appId}/${route}/${pageId}`, label: "Page", title: `Open the page ${cell("Page")} in Anaplan` });
+      }
+    }
+  }
+  return { opens, why };
+}
+
+/** The tab an address is opened in once the Anaplan tab this page reads has been closed: the one tab an open took its
+ * place with, which every later open from this page then goes to. */
+let openTab: number | undefined;
+
+/** Opens an address in Anaplan: the Anaplan tab this page reads goes there, and it and its window come to the front. A page
+ * never opens a tab for each address: only where that tab has been closed does it open one, which then takes its place
+ * for every address after, and the user is told when neither could be done. */
+async function openInTab(url: string): Promise<void> {
+  const into = openTab ?? tabId;
   let tab: chrome.tabs.Tab | undefined;
-  try {
-    tab = await chrome.tabs.update(tabId, { url: link.url, active: true });
-  } catch {
-    return toast(TAB_GONE);
+  let gone = into === undefined;
+  if (into !== undefined) {
+    try {
+      tab = await chrome.tabs.update(into, { url, active: true });
+    } catch {
+      gone = true;
+    }
+  }
+  if (gone) {
+    try {
+      tab = await chrome.tabs.create({ url, active: true });
+    } catch {
+      return toast(NOT_OPENED);
+    }
+    if (tab?.id !== undefined) openTab = tab.id;
   }
   // The tab is shown; a window that cannot be brought forward leaves it where it is.
   if (tab?.windowId !== undefined) await chrome.windows.update(tab.windowId, { focused: true }).catch(() => undefined);
@@ -834,12 +905,12 @@ function graphFor(model: AnalysisResult): ModelGraph {
   return modelGraph;
 }
 
-/** The map's box for a row of a model's Line Items or Modules: the line item in its module, or the module, by their names.
- * A module's own row of Line Items is its module's. None for any other row, for a row the map does not draw (a heading,
- * a line item that names no module), and where the map cannot be drawn. */
+/** The map's box for a row of a model's Line Items, Modules or Module Usage: the line item in its module, or the module, by
+ * their names. A module's own row of Line Items is its module's. None for any other row, for a row the map does not draw
+ * (a heading, a line item that names no module, a module the model does not have), and where the map cannot be drawn. */
 function mapNodeOf(entry: Shown, row: Row): number | undefined {
   const file = entry.table.file;
-  if (result?.kind !== "model" || modelMap === "failed" || (file !== LINE_ITEMS_FILE && file !== MODULES_FILE)) return undefined;
+  if (result?.kind !== "model" || modelMap === "failed" || (file !== LINE_ITEMS_FILE && file !== MODULES_FILE && file !== MODULE_USAGE_FILE)) return undefined;
   let graph: ModelGraph;
   try {
     graph = graphFor(result);
@@ -847,7 +918,7 @@ function mapNodeOf(entry: Shown, row: Row): number | undefined {
     return undefined;
   }
   const name = cellText(row[0]).trim();
-  if (file === MODULES_FILE || entry.headings?.has(row)) return graph.nodes.find(node => node.kind === "module" && node.name.trim() === name)?.id;
+  if (file !== LINE_ITEMS_FILE || entry.headings?.has(row)) return graph.nodes.find(node => node.kind === "module" && node.name.trim() === name)?.id;
   const at = columnIndex(entry.table, MODULE_NAME);
   const module = at === undefined ? "" : cellText(row[at]).trim();
   return graph.nodes.find(node => node.kind === "lineItem" && node.name.trim() === name && node.module !== undefined
@@ -1110,21 +1181,21 @@ document.addEventListener("click", event => {
       case "card":
         if (from) openCard(cardsOfRow(from.entry, from.row), act);
         return;
-      // The row's box on the map: the details close, the map is shown, and the box is selected there as the map's own
-      // search selects one, with its details beside it.
-      case "map-node": {
-        const node = from && mapNodeOf(from.entry, from.row);
-        if (node === undefined) return;
+      // A way the row in the details leads elsewhere, by its place among the buttons (`opensOf`). The row's box on the
+      // map: the details close, the map is shown, and the box is selected there as the map's own search selects one, with
+      // its details beside it. An address in Anaplan: the Anaplan tab goes there and comes to the front, and the details
+      // stay open behind it.
+      case "open": {
+        const open = drawerOpens[Number(act.dataset.open)];
+        if (!open) return;
+        if (open.kind !== "map") return void openInTab(open.url);
         closeDrawer();
         navTo("map");
-        if (modelMap && modelMap !== "failed" && !modelMap.reveal(node)) toast("Not found on the map");
+        if (modelMap && modelMap !== "failed" && !modelMap.reveal(open.node)) toast("Not found on the map");
         return;
       }
       case "row":
-        if (from) {
-          clickedRow = { ...from, at: Date.now() };
-          openRowDrawer(from.entry, from.row, act);
-        }
+        if (from) openRowDrawer(from.entry, from.row, act);
         return;
       // A use of the object in the drawer, by its place among the object's uses: its page's cards, or its card.
       case "use-page":
@@ -1262,22 +1333,8 @@ document.addEventListener("click", event => {
   const tr = target.closest("#tableWrap tbody tr");
   if (tr && !target.closest("button, a, input, label, select")) {
     const from = rowFor(tr);
-    if (from) {
-      clickedRow = { ...from, at: Date.now() };
-      openRowDrawer(from.entry, from.row, tr.querySelector('[data-act="row"]') ?? tr);
-    }
+    if (from) openRowDrawer(from.entry, from.row, tr.querySelector('[data-act="row"]') ?? tr);
   }
-});
-// A double-click on a row of a model's Line Items or Modules opens the row's module in Anaplan. Its first click opened the
-// row's details, so its second fell on what the details put over the table: the row is the one the first click opened.
-document.addEventListener("dblclick", () => {
-  const clicked = clickedRow;
-  clickedRow = undefined;
-  if (!clicked || Date.now() - clicked.at > DOUBLE_CLICK_MS || moduleOfRow(clicked.entry, clicked.row) === undefined) return;
-  // What the double-click selected is no selection the user meant.
-  if (typeof window.getSelection === "function") window.getSelection()?.removeAllRanges();
-  if (el("drawer").classList.contains("show")) closeDrawer();
-  void openInAnaplan(clicked.entry, clicked.row);
 });
 document.addEventListener("input", event => {
   const entry = currentEntry();

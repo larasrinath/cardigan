@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DETAILS_FILE, TAB_FILES } from "../analyse.js";
 import { APP_ZIP_REWORDED, MODEL_ZIP_AS_NAMED, ZIPPED_AT } from "../golden-0.6.1.test-support.js";
-import { ACCESS_GRIDS, ACCESS_READS_0_8_1, ACCESS_ZIP_0_8_1, ACCESS_ZIP_WITH_FILE, MAPPINGS_ADDED, withMappingsRead, withMappingsSaid } from "../golden-0.8.1.test-support.js";
+import { ACCESS_GRIDS, ACCESS_READS_0_8_1, ACCESS_ZIP_0_8_1, ACCESS_ZIP_WITH_FILE, MAPPINGS_ADDED, withLinesSaid, withMappingsRead } from "../golden-0.8.1.test-support.js";
 import { buildModelGraph } from "../map/build-graph.js";
 import { againstMap } from "../model/access.test-support.js";
 import { Failure, firstLine } from "../progress.js";
@@ -344,11 +344,12 @@ describe("The results page against the engine in the Anaplan tab", () => {
     expectEngineResult(page, runs[0]);
     // The file is made in the model's frame from the grids read for the other files: the frame reads what 0.8.1 read,
     // which did not make the file, and reports the steps and the lines 0.8.1 reported, with none for this file. What it
-    // reads and says more is for the imports' definitions, right after the Imports tab (MAPPINGS_ADDED).
+    // says more is on the modules' IDs, right after the Modules grid (MODULE_IDS_ADDED), and what it reads and says more is
+    // for the imports' definitions, right after the Imports tab (MAPPINGS_ADDED).
     expect(settings.reads).toEqual(withMappingsRead(ACCESS_READS_0_8_1));
     const { result } = page.held();
     const steps = (zip: Uint8Array): string[] => parseCsv(unzipText(zip).get("Model Details.csv") ?? "").filter(row => row[0] === "Diagnostics").map(row => row[2]);
-    expect(diagnosticLog(detailsOf(result)).map(line => line.slice(9))).toEqual(withMappingsSaid(steps(ACCESS_ZIP_0_8_1)));
+    expect(diagnosticLog(detailsOf(result)).map(line => line.slice(9))).toEqual(withLinesSaid(steps(ACCESS_ZIP_0_8_1)));
     expect(page.statuses().filter(status => status.includes("Dynamic Cell Access"))).toEqual([]);
     // Written as a zip, what the page holds is, file for file, the zip 0.8.1 wrote for this model with the file put in
     // after Line Items.csv and its two rows in Model Details.csv (ACCESS_FILE_ADDED), with the column of Other Actions.csv
