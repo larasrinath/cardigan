@@ -1,4 +1,4 @@
-import { FILTER_USES, MODEL_PAGE_FILES, MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE } from "../page-files.js";
+import { FILTER_USES, MODEL_PAGE_FILES, MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, PAGE_PLACE_HEADERS } from "../page-files.js";
 import type { TabName } from "../report.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
 import { cellText, type Row } from "./table-engine.js";
@@ -127,10 +127,13 @@ export const MODEL_COUNTS: ReadonlyMap<string, readonly string[]> = new Map([
  * filling the template in by hand. Such a column is still in the column chooser, in the search and in the row's details. */
 export const MODEL_HIDDEN: ReadonlyMap<string, readonly string[]> = new Map([["Model Calendar.csv", ["Allowed values"]]]);
 /** The tables of the pages built on a model (page-files.ts), which the run writes from an app's tables: Page Filters and
- * Page Actions are an app's Filters and Action Buttons with the app in front, and are shown as those are, with their IDs
- * and numbers hidden. Each of the three offers a filter on the app. */
+ * Page Actions hold an app's Filters and Action Buttons with their app, and are shown as those are, with their IDs and
+ * numbers hidden. Each of the three offers a filter on the app, and ends with where each page is, hidden: its type, as a
+ * tag, and its app's ID and its own, as IDs to copy (page-files.ts `PAGE_PLACE_HEADERS`). */
+const PAGE_PLACE: Readonly<Record<string, Choice>> = Object.fromEntries(PAGE_PLACE_HEADERS.map((header, index): [string, Choice] => [header, index === 0 ? { ...TAG, hidden: true } : HIDDEN_ID]));
 export const PAGE_FILE_CHOICES: ReadonlyMap<string, Readonly<Record<string, Choice>>> = new Map([
-  [MODULE_USAGE_FILE, { App: FILTER }], [PAGE_FILTERS_FILE, { App: FILTER, ...CHOICES.Filters }], [PAGE_ACTIONS_FILE, { App: FILTER, ...CHOICES.Actions }],
+  [MODULE_USAGE_FILE, { App: FILTER, ...PAGE_PLACE }], [PAGE_FILTERS_FILE, { App: FILTER, ...CHOICES.Filters, ...PAGE_PLACE }],
+  [PAGE_ACTIONS_FILE, { App: FILTER, ...CHOICES.Actions, ...PAGE_PLACE }],
 ]);
 const MODEL_CHOICES: ReadonlyMap<string, ReadonlyMap<string, Choice>> = new Map([
   ...[...new Set([...MODEL_COUNTS.keys(), ...MODEL_HIDDEN.keys()])].map((file): [string, ReadonlyMap<string, Choice>] => [file,
