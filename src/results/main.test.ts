@@ -5249,7 +5249,7 @@ describe("The buttons at the top right of a row's details that open it in Anapla
     expect(opens().map(([label]) => label)).toEqual(["Condition module", "Filtered module", "App", "Page"]);
   });
 
-  it("opens the Model Building page each table of the model's settings is on, by its address in the model's tab: Time, Versions, Line Item Subsets, Actions, Source Models", async () => {
+  it("opens the Model Building page each table of the model's settings is on, asking the tab first and loading its address where the tab cannot: Time, Versions, Line Item Subsets, Actions, Source Models", async () => {
     const one = (file: string, first: string): ResultTable => ({ file, label: file.replace(/\.csv$/, ""), guard: false, headers: ["", "Notes"], rows: [[first, "Kept"]] });
     const pages: [file: string, row: string, page: string, id: string][] = [["Time Ranges.csv", "FY24 range", "Time", "9000000001"], ["Versions.csv", "Actual", "Versions", "9000000002"],
       ["Line Item Subsets.csv", "Cost lines", "Line Item Subsets", "-5"], ["Processes.csv", "Nightly load", "Actions", "-19"], ["Imports.csv", "Prices from the hub", "Actions", "-19"],
@@ -5270,8 +5270,32 @@ describe("The buttons at the top right of a row's details that open it in Anapla
     table(SETTINGS, "Model Calendar.csv");
     page.all('#tableWrap tbody [data-act="row"]')[0].press();
     expect(opens()).toEqual([["Model", "Open Time in Model Building"]]);
-    // A page is opened by its address alone: the tab is asked to open nothing inside its page, and the log says the page.
-    expect([asks(), (await openedLines()).at(-1)]).toEqual([[], "Opened the Source Models page by its address in the Anaplan tab Cardigan read, which loads Model Building afresh."]);
+    // Each page was asked of the tab first, by its ID, as a module is; the tab could not, so its address was loaded, and
+    // the log says the page and why.
+    expect(asks().map(ask => (ask as { object?: string }).object)).toEqual(pages.map(([, , , id]) => id));
+    expect((await openedLines()).at(-1)).toBe("Opened the Source Models page by its address in the Anaplan tab Cardigan read, which loads Model Building afresh: the tab shows another model.");
+  });
+
+  it("opens a settings page inside the Model Building page where the tab can, as Model Building's sidebar opens it, so that the modules and lists open there stay: the tab is only brought to the front", async () => {
+    inPage = "opened";
+    const versions: ResultTable = { file: "Versions.csv", label: "Versions", guard: false, headers: ["", "Notes"], rows: [["Actual", "Kept"]] };
+    const actions: ResultTable = { file: "Processes.csv", label: "Processes", guard: false, headers: ["", "Notes"], rows: [["Nightly load", "Kept"]] };
+    const SETTINGS: AnalysisResult = { ...OPENS, tables: [...OPENS.tables, versions, actions] };
+    await openModel(SETTINGS);
+    table(SETTINGS, "Versions.csv");
+    openRow("Actual");
+    await press("Model");
+    // The tab is asked for the page by the model's ID and the page's; it opens it, and is not sent anywhere.
+    expect(asks()).toEqual([{ type: "open", nonce: expect.any(String), model: OPENS.id, object: "9000000002" }]);
+    expect([tabUpdates, windowUpdates, tabCreates, drawerOpen()]).toEqual([[[7, { active: true }]], [[3, { focused: true }]], [], true]);
+    page.key("Escape");
+    // The Actions page, whose ID is below nought, goes the same way.
+    table(SETTINGS, "Processes.csv");
+    openRow("Nightly load");
+    await press("Model");
+    expect([asks().map(ask => (ask as { object?: string }).object), tabUpdates.at(-1)]).toEqual([["9000000002", "-19"], [7, { active: true }]]);
+    expect(await openedLines()).toEqual(["Opened the Versions page inside the Model Building page of the Anaplan tab Cardigan read: Model Building opened it beside the modules open there.",
+      "Opened the Actions page inside the Model Building page of the Anaplan tab Cardigan read: Model Building opened it beside the modules open there."]);
   });
 
   it("opens a Dynamic Cell Access row's two modules, the driver's and the controlled one, one Model where they are one", async () => {

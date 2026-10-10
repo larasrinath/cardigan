@@ -2,12 +2,18 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version stands next to Cardigan's name at the top of the results page and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
-## 0.16.2 (10 October 2026)
+## 0.16.3 (10 October 2026)
 
 The navigation bar stays still.
 
-- **No tab moves.** A menu's button named the table shown in it, so it grew or shrank as a table was chosen, and every tab after it moved, by up to 79 pixels. The tab of the view shown was also set in bold, which widened it. Every entry and menu now keeps one width, as wide as the longest name it can show in bold, so neither choosing a table nor changing the view moves anything in the bar. A menu's icon, name and chevron stand together in the middle of its button. (#47)
-- **What it costs.** A model's bar with every table is wider, about 1,400 pixels, and takes two lines in a narrower window, each tab keeping its place. The one menu of a window under 1,000 pixels wide is unchanged. (#47)
+- **No tab moves.** A menu's button named the table shown in it, so it grew or shrank as a table was chosen, and every tab after it moved, by up to 79 pixels; the tab of the view shown was set in bold, which widened it a little too. A menu's button now always shows its own icon and name, **Time**, **Lists**, **Modules** or **Actions**, and is marked while one of its tables is shown: its menu marks that table, and the table's own heading names it. Every entry and menu keeps the width of its words in bold, so neither choosing a table nor changing the view moves anything in the bar. (#47)
+- **What stays the same.** The bar is about as wide as it was: a model's with every table still stands on one line in a window 1,440 pixels wide. The one menu of a window under 1,000 pixels wide is unchanged. (#47)
+
+## 0.16.2 (10 October 2026)
+
+A page of the model's settings opens inside Model Building, as a module and a list do.
+
+- **Settings pages keep the tabs open in Model Building.** **Model** on a row of Model Calendar, Time Ranges, Versions, Line Item Subsets, Processes, Imports, Exports, Other Actions, Import Data Sources, Page Actions or Source Models opens its page (Time, Versions, Line Item Subsets, Actions or Source Models) inside the Model Building page the Anaplan tab shows, where it loaded the page's address, which loaded Model Building afresh and closed the modules and lists open there. Cardigan's script in the model's frame asks the frame to load the page, as the frame loads it when Model Building's own sidebar opens it; Model Building then makes it its settings tab and puts it in its address. Where the tab shows anything else, or the frame cannot, the page's address is loaded, as before, and the log says which way each went. (#46)
 
 ## 0.16.1 (10 October 2026)
 
