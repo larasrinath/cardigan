@@ -835,7 +835,7 @@ const allColumns = (columns: readonly Column[], row: Row, links: Links, exported
   readUnder?: ReadonlyMap<number, string>, times?: DrawerTimes): string =>
   `<dl class="d-dl">${rowColumns(columns, row).map(column => {
     // A time is said in both zones, the one the page shows first: the UTC text that was read stands in it.
-    const kind = times && timesOf(column.label);
+    const kind = times && timesOf(column.label, times.zone);
     const read = kind === "local" ? cellText(exported?.get(column.index) ?? row[column.index]) : kind === "utc" ? cellText(row[column.index]) : undefined;
     const both = read === undefined || !times ? undefined : bothTimes(read, times.mode, times.zone);
     if (both !== undefined) return `<dt>${esc(column.label)}</dt><dd><span class="cell-t">${esc(both)}</span></dd>`;

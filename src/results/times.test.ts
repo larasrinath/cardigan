@@ -40,10 +40,13 @@ describe("Times in the viewer's zone or in UTC", () => {
       .toEqual([{ from: at("2026-03-12T15:00:00Z"), to: at("2026-03-13T15:00:00Z") - 1 }, { to: at("2026-03-14T00:00:00Z") - 1 }, {}]);
   });
 
-  it("names a column of times by its header, local as the page shows it, and the file's name for it in either zone", () => {
-    expect(["Start Date and Time (UTC)", "Start Date and Time (local)", "Start Date and Time", "UTC offset"].map(timesOf)).toEqual(["utc", "local", undefined, undefined]);
-    expect([localHeader("Start Date and Time (UTC)"), fileLabel("Start Date and Time (local)"), fileLabel("Start Date and Time (UTC)"), fileLabel("Notes")])
-      .toEqual(["Start Date and Time (local)", "Start Date and Time (UTC)", "Start Date and Time (UTC)", "Notes"]);
+  it("names a column of times by its header, in the viewer's zone as the page shows it, and the file's name for it in either zone", () => {
+    expect(["Start Date and Time (UTC)", "Start Date and Time (Asia/Tokyo)", "Start Date and Time (Europe/Paris)", "Start Date and Time", "UTC offset"]
+      .map(header => timesOf(header, "Asia/Tokyo"))).toEqual(["utc", "local", undefined, undefined, undefined]);
+    // A viewer whose zone is UTC has no other: the header says UTC either way.
+    expect([timesOf("Start Date and Time (UTC)", "UTC"), fileLabel("Start Date and Time (UTC)", "UTC")]).toEqual(["utc", "Start Date and Time (UTC)"]);
+    expect([localHeader("Start Date and Time (UTC)", "Asia/Tokyo"), ...["Start Date and Time (Asia/Tokyo)", "Start Date and Time (UTC)", "Notes (Europe/Paris)", "Notes"].map(label => fileLabel(label, "Asia/Tokyo"))])
+      .toEqual(["Start Date and Time (Asia/Tokyo)", "Start Date and Time (UTC)", "Start Date and Time (UTC)", "Notes (Europe/Paris)", "Notes"]);
     expect([zoneWords("UTC", "Asia/Tokyo"), zoneWords("Asia/Tokyo", "Asia/Tokyo"), zoneWords("Europe/Paris", "Asia/Tokyo")]).toEqual(["UTC", "local", "Europe/Paris"]);
   });
 
@@ -55,14 +58,15 @@ describe("Times in the viewer's zone or in UTC", () => {
       headings: new Set([heading]) };
     expect(inTimeMode(view, "utc", "Asia/Tokyo")).toBe(view);
     const local = inTimeMode(view, "local", "Asia/Tokyo");
-    expect([local.table.headers, local.table.rows]).toEqual([["", "Start Date and Time (local)", "Notes"], [["Load", "2026-03-13 08:19:56", "Nightly"], ["Copy", "", ""], ["Odd", "soon", ""]]]);
+    expect(inTimeMode(view, "local", "UTC")).toBe(view);
+    expect([local.table.headers, local.table.rows]).toEqual([["", "Start Date and Time (Asia/Tokyo)", "Notes"], [["Load", "2026-03-13 08:19:56", "Nightly"], ["Copy", "", ""], ["Odd", "soon", ""]]]);
     // A changed row keeps what the view kept of it beside the time that was read; a row with no moment is the file's own,
     // a heading among them too.
     const [load] = local.table.rows;
     expect([[...(local.exported?.get(load) ?? [])], local.table.rows[1] === rows[1], local.headings?.has(heading), view.table.rows[0][1]])
       .toEqual([[[2, "Nightly as read"], [1, "2026-03-12 23:19:56"]], true, true, "2026-03-12 23:19:56"]);
     // A row is sorted and known by what was read: the same row in either zone.
-    expect([readText(local.exported, load, 1), readText(local.exported, load, 2), fileRow(local.table.headers, local.exported, load), [...momentsOf(local.table.rows, local.exported, 1).values()]])
+    expect([readText(local.exported, load, 1), readText(local.exported, load, 2), fileRow(local.table.headers, local.exported, load, "Asia/Tokyo"), [...momentsOf(local.table.rows, local.exported, 1).values()]])
       .toEqual(["2026-03-12 23:19:56", "Nightly as read", ["Load", "2026-03-12 23:19:56", "Nightly"], [at("2026-03-12T23:19:56Z"), undefined, undefined]]);
     expect([hasTimes(view), hasTimes({ table: { ...view.table, headers: ["", "Notes"] } })]).toEqual([true, false]);
   });
