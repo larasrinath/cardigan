@@ -805,14 +805,15 @@ export function rowDrawerHtml(columns: readonly Column[], row: Row, links: Links
     ${allColumns(columns, row, links, exported, items, readUnder)}</div>${mapping ? importMappingHtml(mapping) : ""}${process ? processActionsHtml(process.view, process.opens) : ""}`;
 }
 
-/** Where a button at the top right of a row's details leads: the model map, a module of the model in Model Building, an
- * app, or a page of an app. */
+/** Where a button at the top right of a row's details leads: the model map, a module or a list of the model in Model
+ * Building, an app, or a page of an app. */
 export type OpenKind = "map" | "module" | "app" | "page";
 /** One such button: where it leads, its few words, and what it opens, by name, which its title says. */
 export interface OpenButton { kind: OpenKind; label: string; title: string }
 
 /** The icon of each kind of button, a drawing of where it leads: the map's folded map, as the navigation's; the model, as a
- * box, for a module opened in it; an app as a window with its bar; and a page with its text, as the Pages table's. */
+ * box, for a module or a list opened in it; an app as a window with its bar; and a page with its text, as the Pages
+ * table's. */
 export const OPEN_ICONS: Readonly<Record<OpenKind, string>> = {
   map: NAV_ICONS.map,
   module: navIcon('<path d="M8 1.6 14 4.9v6.2L8 14.4 2 11.1V4.9Z"/><path d="M2 4.9 8 8.2l6-3.3M8 8.2v6.2"/>'),

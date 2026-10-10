@@ -316,6 +316,18 @@ export const MODULE_IDS_ADDED = {
   },
 } as const;
 
+/** What the export says that 0.8.1 did not, for any model, on the lists' IDs, by which the results page opens a list in
+ * Model Building (model/export.ts `listIdsLine`), as on the modules' (`MODULE_IDS_ADDED`): right after the General Lists
+ * grid's line, once that grid has been read, and as a Diagnostics row of Model Details.csv. Nothing is read for it. */
+export const LIST_IDS_ADDED = {
+  saidAfter: "General Lists: 2 rows × 2 columns; columns: Top Level Item | Production Data",
+  said: ["List IDs: 2 found; the first row listed has ID 101000000001, of type 101 by the model's client"],
+  rows: {
+    after: "Diagnostics,12:30:10,General Lists: 2 rows × 2 columns; columns: Top Level Item | Production Data\r\n",
+    line: `Diagnostics,12:30:10,"List IDs: 2 found; the first row listed has ID 101000000001, of type 101 by the model's client"\r\n`,
+  },
+} as const;
+
 /** Lines of the log as 0.8.1 said them, in order, with the lines of `added` right after its line `saidAfter`, which the log
  * must hold. A line stamped with its time gives the lines after it the same stamp. */
 function withSaid(lines: readonly string[], added: { saidAfter: string; said: readonly string[] }): string[] {
@@ -353,9 +365,11 @@ export function withPageTimeRows(csv: string): string {
 }
 
 /** Lines of the log as 0.8.1 said them, in order, with the lines the export says now that 0.8.1 did not: on the modules'
- * IDs (`MODULE_IDS_ADDED`), on the processes' definitions (`PROCESSES_ADDED`), on the imports' definitions
- * (`MAPPINGS_ADDED`), and on the time each grid's page took (`withPageTimes`), each where the export says them. */
-export const withLinesSaid = (lines: readonly string[]): string[] => withPageTimes(withSaid(withSaid(withSaid(lines, MODULE_IDS_ADDED), PROCESSES_ADDED), MAPPINGS_ADDED));
+ * IDs (`MODULE_IDS_ADDED`) and the lists' (`LIST_IDS_ADDED`), on the processes' definitions (`PROCESSES_ADDED`), on the
+ * imports' definitions (`MAPPINGS_ADDED`), and on the time each grid's page took (`withPageTimes`), each where the export
+ * says them. */
+export const withLinesSaid = (lines: readonly string[]): string[] =>
+  withPageTimes(withSaid(withSaid(withSaid(withSaid(lines, MODULE_IDS_ADDED), LIST_IDS_ADDED), PROCESSES_ADDED), MAPPINGS_ADDED));
 
 /** What is deliberately not what 0.8.1 wrote for this model because the export has gained a file: the file itself, which
  * stands right after Line Items.csv in the zip, and the two rows of Model Details.csv about it, each as the row's whole
@@ -397,11 +411,11 @@ export const ACCESS_ROWS_REWORDED = [ACCESS_ROWS_FOR_THE_PAGE[0], ACCESS_ROWS_FO
 
 /** 0.8.1's text of this model's Model Details.csv as the file is written now: those five rows in their present words,
  * the two rows about the file added, the row on Source Models, and the Diagnostics rows on the modules' IDs
- * (`MODULE_IDS_ADDED`), on the imports' definitions (`MAPPINGS_ADDED`) and on the time each grid's page took
- * (`withPageTimeRows`). */
+ * (`MODULE_IDS_ADDED`) and the lists' (`LIST_IDS_ADDED`), on the imports' definitions (`MAPPINGS_ADDED`) and on the time
+ * each grid's page took (`withPageTimeRows`). */
 export const withAccessRows = (csv: string): string =>
   withPageTimeRows(withRowsAdded(withRowsReworded(csv, ACCESS_ROWS_REWORDED), [ACCESS_FILE_ADDED.written, ACCESS_FILE_ADDED.howToRead, MODEL_ROW_ADDED, MODULE_IDS_ADDED.rows,
-    PROCESSES_ADDED.rows, MAPPINGS_ADDED.rows]));
+    LIST_IDS_ADDED.rows, PROCESSES_ADDED.rows, MAPPINGS_ADDED.rows]));
 
 /** The model's zip as 0.8.1 wrote it but for that: every file's bytes as they are in `ACCESS_ZIP_0_8_1`, with five lines
  * of Model Details.csv replaced and nine added (three rows of the file's own, a Diagnostics row on the modules' IDs and

@@ -801,13 +801,13 @@ describe("Opening a module in the Model Building page through the model's core f
     // nothing and is not answered.
     asked.length = 0;
     const other = new FakeWindow(SHELL);
-    core.receive({ protocol: PROTOCOL, type: "open", nonce: "ask", model: MODEL, module: MODULE }, SHELL, other.seenBy(core));
-    core.receive({ protocol: PROTOCOL, type: "open", nonce: "ask", model: MODEL, module: MODULE }, "https://example.com", shell.seenBy(core));
-    for (const odd of [{ nonce: 5, model: MODEL, module: MODULE }, { nonce: "ask", model: "FEDCBA98", module: MODULE }, { nonce: "ask", model: MODEL, module: "10200000000x" },
-      { nonce: "ask", model: MODEL, module: 102000000001 }, { nonce: "ask", model: MODEL }]) {
+    core.receive({ protocol: PROTOCOL, type: "open", nonce: "ask", model: MODEL, object: MODULE }, SHELL, other.seenBy(core));
+    core.receive({ protocol: PROTOCOL, type: "open", nonce: "ask", model: MODEL, object: MODULE }, "https://example.com", shell.seenBy(core));
+    for (const odd of [{ nonce: 5, model: MODEL, object: MODULE }, { nonce: "ask", model: "FEDCBA98", object: MODULE }, { nonce: "ask", model: MODEL, object: "10200000000x" },
+      { nonce: "ask", model: MODEL, object: 102000000001 }, { nonce: "ask", model: MODEL }]) {
       core.receive({ protocol: PROTOCOL, type: "open", ...odd }, SHELL, shell.seenBy(core));
     }
-    core.receive({ protocol: "another", type: "open", nonce: "ask", model: MODEL, module: MODULE }, SHELL, shell.seenBy(core));
+    core.receive({ protocol: "another", type: "open", nonce: "ask", model: MODEL, object: MODULE }, SHELL, shell.seenBy(core));
     await settle();
     expect(asked).toEqual([]);
     // Once stopped, the frame opens nothing more: the page's ask goes unanswered, and is given up after its wait.
@@ -818,12 +818,12 @@ describe("Opening a module in the Model Building page through the model's core f
 
   it("takes the answer only from the frame it asked, from that frame's origin and for its own ask, and gives up after its wait", async () => {
     const shell = new FakeWindow(SHELL);
-    const asked: { type: string; nonce: string; model: string; module: string }[] = [];
-    const source: Endpoint = { postMessage: message => { asked.push(message as { type: string; nonce: string; model: string; module: string }); } };
+    const asked: { type: string; nonce: string; model: string; object: string }[] = [];
+    const source: Endpoint = { postMessage: message => { asked.push(message as { type: string; nonce: string; model: string; object: string }); } };
     const handle: CoreHandle = { source, origin: CORE, modelId: MODEL, build: BUILD };
     let over: boolean | undefined;
     void openInCore(shell, handle, MODEL, MODULE, 60).then(opened => { over = opened; });
-    expect(asked).toEqual([{ protocol: PROTOCOL, type: "open", nonce: expect.any(String), model: MODEL, module: MODULE }]);
+    expect(asked).toEqual([{ protocol: PROTOCOL, type: "open", nonce: expect.any(String), model: MODEL, object: MODULE }]);
     const { nonce } = asked[0];
     const another: Endpoint = { postMessage: () => undefined };
     shell.receive({ protocol: PROTOCOL, type: "opened", nonce, opened: true }, CORE, another);
