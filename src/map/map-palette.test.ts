@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { COLOUR_TOKENS, contrast, FALLBACK, layerClass, layerColour, over, parseColor, readPalette, SECTION_COLOURS, sectionToken, type MapPalette, type Rgb } from "./map-palette.js";
+import { COLOUR_TOKENS, contrast, FALLBACK, layerClass, layerColour, layerStriped, over, parseColor, readPalette, SECTION_COLOURS, SECTION_MARKS, sectionToken, type MapPalette, type Rgb } from "./map-palette.js";
 
 const read = (name: string): string => readFileSync(new URL(`../../${name}`, import.meta.url), "utf8");
 const MAP_CSS = read("map.css");
@@ -91,7 +91,10 @@ describe("The palette the canvas draws with", () => {
     expect(SECTION_COLOURS).toBe(8);
     expect([sectionToken(0), sectionToken(7), sectionToken(8), sectionToken(17)]).toEqual(["--map-section-1", "--map-section-8", "--map-section-1", "--map-section-2"]);
     expect([layerColour(FALLBACK, "s0"), layerColour(FALLBACK, "s7"), layerColour(FALLBACK, "s8"), layerColour(FALLBACK, "s9")]).toEqual([FALLBACK.sections[0], FALLBACK.sections[7], FALLBACK.sections[0], FALLBACK.sections[1]]);
-    expect([layerClass("s0"), layerClass("s7"), layerClass("s8"), layerClass("s23")]).toEqual(["map-c-s1", "map-c-s8", "map-c-s1", "map-c-s8"]);
+    // The ninth to the sixteenth take the eight colours again in stripes, and the seventeenth starts again at the first.
+    expect([layerClass("s0"), layerClass("s7"), layerClass("s8"), layerClass("s15"), layerClass("s16"), layerClass("s23")])
+      .toEqual(["map-c-s1", "map-c-s8", "map-c-s1 map-c-striped", "map-c-s8 map-c-striped", "map-c-s1", "map-c-s8"]);
+    expect([SECTION_MARKS, ...["s0", "s7", "s8", "s15", "s16", "s24", "lineitem", "s8x"].map(layerStriped)]).toEqual([16, false, false, true, true, false, true, false, false]);
   });
 
   it("gives what is in a module's graph the colour of what it is", () => {

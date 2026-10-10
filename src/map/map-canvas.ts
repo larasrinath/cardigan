@@ -1,7 +1,7 @@
 import { minimapTransform, toWorld, type Camera, type MinimapTransform } from "./map-camera.js";
 import type { ViewGraph, ViewNode } from "./map-graphs.js";
 import { CARD, FULL_CARD_ZOOM, FULL_ITEM_ZOOM, hasSmallLine, ITEM } from "./map-layout.js";
-import { layerColour, type MapPalette } from "./map-palette.js";
+import { layerColour, layerStriped, type MapPalette } from "./map-palette.js";
 import { shorten, wrapLines, type TextMeasure } from "./map-text.js";
 import type { Trace } from "./map-trace.js";
 
@@ -363,9 +363,21 @@ function drawNodes(pen: Pen, scene: Scene, fonts: Fonts): void {
       pen.stroke();
       if (node.external) pen.setLineDash([]);
       else {
-        rail(pen, x, y, Math.min(w, Math.max(2.5, 4 * k)), h, radius);
+        const railWidth = Math.min(w, Math.max(2.5, 4 * k));
+        rail(pen, x, y, railWidth, h, radius);
         pen.fillStyle = colour;
         pen.fill();
+        // A section past the eighth has the colour of one before it, in stripes: its edge is cut into short pieces.
+        if (layerStriped(node.layer)) {
+          pen.setLineDash([2.5 * k, 3.5 * k]);
+          pen.beginPath();
+          pen.moveTo(x + railWidth / 2, y + radius);
+          pen.lineTo(x + railWidth / 2, y + h - radius);
+          pen.lineWidth = railWidth;
+          pen.strokeStyle = selected ? palette.nodeFillSelected : palette.nodeFill;
+          pen.stroke();
+          pen.setLineDash([]);
+        }
       }
     }
     if (selected || feeds || fed) {
