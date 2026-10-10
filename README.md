@@ -115,7 +115,7 @@ If Chrome says **Could not load javascript 'dist/content.js' for script** and **
 
 To check the download, compare it with the SHA-256 published with the release: `shasum -a 256 cardigan-<version>.zip` on a Mac, `certutil -hashfile cardigan-<version>.zip SHA256` on Windows.
 
-To update, unzip the new release over the same folder and click the reload icon on Cardigan's card in `chrome://extensions`. An app's tab needs no refresh: click the Cardigan icon on it. A model's tab that was open before the update needs one refresh: the part of Cardigan that reads a model runs inside the model's page, which keeps the earlier one until it is refreshed. If you forget, the results page says so and reads nothing.
+To update, unzip the new release over the same folder and click the reload icon on Cardigan's card in `chrome://extensions`. An app's tab needs no refresh: click the Cardigan icon on it. A model's tab that was open before the update needs one refresh: the part of Cardigan that reads a model runs inside the model's page, which keeps the earlier one until it is refreshed. If you forget, the results page says so and reads nothing. The version stands next to Cardigan's name at the top of the results page, and [CHANGELOG.md](CHANGELOG.md) says what each version brought.
 
 ## Use
 
@@ -215,10 +215,11 @@ In the Anaplan tab, `src/content.ts` and `src/analyse.ts` read an app, and `src/
 
 ### Release
 
-1. Set the new `version` in `manifest.json`, `package.json` and `package-lock.json` (two fields), and add the release to [CHANGELOG.md](CHANGELOG.md).
-2. Run `npm run check`.
-3. Run `npm run package`. It writes `release/cardigan-<version>.zip` and prints its SHA-256.
-4. Publish the zip with its SHA-256.
+Every merged change that alters the extension takes the next version, as the top of [CHANGELOG.md](CHANGELOG.md) says: the next minor version for a new feature, the next patch for a fix or a speed-up. Set it in `manifest.json`, `package.json` and `package-lock.json` (two fields), and give it a section in CHANGELOG.md whose changes end with their pull request's number. A version reaches the install steps above only once it is published:
+
+1. Run `npm run check`.
+2. Run `npm run package`. It writes `release/cardigan-<version>.zip` and prints its SHA-256.
+3. Publish the zip with its SHA-256.
 
 The zip holds the twelve files Chrome loads: `manifest.json`, four bundles, four icons, `results.html`, `results.css` and `map.css`. The same files always give the same bytes. The packager refuses a version that differs between `manifest.json` and `package.json`, a missing or stale bundle, a results page that loads a file outside the zip, and a manifest that asks for any permission but activeTab and scripting, or has no content security policy that keeps everything inside the package.
 
