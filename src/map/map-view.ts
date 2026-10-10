@@ -9,7 +9,7 @@ import {
   brokenHtml, emptyHtml, FULL_SAYS, fullIconHtml, groupingOptionsHtml, groupOptionsHtml, inspectorHtml, legendHtml, listHtml, notesHtml, pathRootHtml, pickerOptionsHtml, resultsHtml,
   shellHtml, SHOW_GROUPS, SHOW_MODULES, showOptionsHtml, tooltipHtml, tracebarHtml, type Tip,
 } from "./map-markup.js";
-import { indexModel, withGrouping, type MapModel } from "./map-model.js";
+import { indexModel, isAccess, withGrouping, type MapModel } from "./map-model.js";
 import { FALLBACK, readPalette, type MapPalette } from "./map-palette.js";
 import { createSearch, matchNodes, searchText, type SearchHit } from "./map-search.js";
 import { formatCount, plural } from "./map-text.js";
@@ -1046,15 +1046,35 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     setView("modules");
   }
 
+  /** The module a list, a subset or a list's property stands beside on the map: the module of the first line item it is
+   * linked with, in the order of its links. A link of an access driver counts only while those links are drawn. Nothing
+   * for one that is linked with no line item. */
+  function besideModule(raw: GraphNode): number | undefined {
+    if (!model) return undefined;
+    for (const edge of [...model.outgoing(raw.id), ...model.incoming(raw.id)]) {
+      if (isAccess(edge[2]) && !access) continue;
+      const other = model.node(edge[0] === raw.id ? edge[1] : edge[0]);
+      const module = other?.kind === "lineItem" ? model.moduleOf(other) : undefined;
+      if (module !== undefined) return module;
+    }
+    return undefined;
+  }
+
   /** Goes to an object of the model, wherever it is, and selects it: a module among its section's modules, a line item
-   * among its module's line items, anything else where it is on screen. */
+   * among its module's line items, a list (or its subset or property) beside the line items of the first module it is
+   * linked with where it is not on screen already, anything else where it is on screen. */
   function navigate(raw: GraphNode): void {
     if (!model) return;
     if (raw.kind === "module") {
       section = single ? undefined : model.sectionOf(raw);
       grouped = false;
       setView("modules");
-    } else if (raw.kind === "lineItem" && model.moduleOf(raw) !== undefined && (view !== "drill" || moduleId !== raw.module)) setView("drill", raw.module);
+    } else if (raw.kind === "lineItem") {
+      if (model.moduleOf(raw) !== undefined && (view !== "drill" || moduleId !== raw.module)) setView("drill", raw.module);
+    } else if (!onScreen?.byId.has(String(raw.id))) {
+      const module = besideModule(raw);
+      if (module !== undefined) setView("drill", module);
+    }
     pick(String(raw.id));
   }
 

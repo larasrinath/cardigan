@@ -2613,6 +2613,31 @@ describe("Going to an object the page names", () => {
     map.destroy();
     expect(map.reveal(gross)).toBe(false);
   });
+
+  it("goes to a list beside the line items of the first module it is linked with, and keeps the path in step with each place it goes to", () => {
+    const { graph, gross, margin, products } = sample();
+    open(graph);
+    // From the groups whole: the list stands among the line items of CAL01 - Revenue, whose Gross it formats.
+    expect(map.reveal(products)).toBe(true);
+    expect([text(".map-insp-name"), here(), part(".map-group-select").value, tab("drill").getAttribute("aria-pressed"), page.document.activeElement === part(".map-insp-name")])
+      .toEqual(["Products", "CAL01 - Revenue", "1", "true", true]);
+    // A module: the path's list names its group.
+    expect(map.reveal(margin)).toBe(true);
+    expect([here(), part(".map-show-select").value, part(".map-picker").hidden]).toEqual(["02: Calculations", "1", true]);
+    // A line item: the path names its module, after its group.
+    expect(map.reveal(gross)).toBe(true);
+    expect([here(), part(".map-group-select").value]).toEqual(["CAL01 - Revenue", "1"]);
+    // A list on screen already is selected where it stands.
+    expect(map.reveal(products)).toBe(true);
+    expect([text(".map-insp-name"), here()]).toEqual(["Products", "CAL01 - Revenue"]);
+    map.destroy();
+    // A list linked with no line item is on no map.
+    const make = new GraphMaker();
+    const lonely = make.list("Regions");
+    make.item(make.module("INP01 - Volumes", "01: Inputs"), "Units");
+    open(make.graph());
+    expect([map.reveal(lonely), here()]).toEqual([false, "Demand Plan"]);
+  });
 });
 
 describe("The bar's tools and the module picker", () => {
