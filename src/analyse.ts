@@ -96,14 +96,23 @@ export function forgetModelHosts(): void {
 }
 
 /** `work` gets the host that finally served the model, after any redirect. The socket starts on the host the service sent
- * this model to in an earlier run in this tab, where there was one, and on the page's own otherwise. A run that `signal`
- * has stopped opens no socket, and one stopped while its socket connects closes it at once, without waiting for the
- * service to answer: nothing is subscribed to for a stopped run. */
-async function withSocket<T>(scope: ModelScope, log: Log, signal: AbortSignal | undefined, work: (connection: StompConnection, host: string) => Promise<T>): Promise<T> {
+ * this model to in an earlier run in this tab, where there was one; else on the host of the frame the model is read in
+ * (`frameHost`, the model's own data centre), where that is another Anaplan host than the page's; and on the page's own
+ * otherwise. The service sends a socket on the page's host on to the model's: starting there spares that (seen live, 10 Oct
+ * 2026, on a model's first run in a tab). A socket that cannot be opened on the frame's host is opened on the page's, as
+ * before. A run that `signal` has stopped opens no socket, and one stopped while its socket connects closes it at once,
+ * without waiting for the service to answer: nothing is subscribed to for a stopped run. */
+async function withSocket<T>(scope: ModelScope, log: Log, signal: AbortSignal | undefined, work: (connection: StompConnection, host: string) => Promise<T>,
+  frameHost?: () => string | undefined): Promise<T> {
   const key = hostKey(scope);
-  let host = modelHosts.get(key) ?? location.host;
-  if (host !== location.host) log(`asking ${host} first: the model data service sent this model there before`);
-  for (let attempt = 0; attempt < 2; attempt++) {
+  const remembered = modelHosts.get(key);
+  const framed = remembered === undefined ? frameHost?.() : undefined;
+  const fromFrame = framed && ANAPLAN_HOST.test(framed) && framed.toLowerCase() !== location.host.toLowerCase() ? framed : undefined;
+  let host = remembered ?? fromFrame ?? location.host;
+  if (remembered !== undefined && remembered !== location.host) log(`asking ${host} first: the model data service sent this model there before`);
+  else if (fromFrame) log(`asking ${host} first: the model's frame is there`);
+  let [redirected, fellBack] = [false, false];
+  for (;;) {
     signal?.throwIfAborted();
     const session = crypto.randomUUID();
     const url = `wss://${host}/a/springboard-widget-data-service/ws?tracePath=springboard-ui&clientVersion=page-analyzer&clientSessionId=${session}`;
@@ -116,10 +125,18 @@ async function withSocket<T>(scope: ModelScope, log: Log, signal: AbortSignal | 
       signal?.throwIfAborted();
       return await work(connection, host);
     } catch (error) {
-      if (attempt === 0 && error instanceof StompError && error.code === "REDIRECTION_REQUIRED" && error.fqdn && ANAPLAN_HOST.test(error.fqdn)) {
+      if (!redirected && error instanceof StompError && error.code === "REDIRECTION_REQUIRED" && error.fqdn && ANAPLAN_HOST.test(error.fqdn)) {
         log(`redirected to ${error.fqdn}`);
         host = error.fqdn;
         modelHosts.set(key, host);
+        redirected = true;
+        continue;
+      }
+      // A socket the frame's host did not open: the page's host is asked, as it always was.
+      if (!connection && !fellBack && !redirected && host === fromFrame && !signal?.aborted) {
+        log(`the model data service on ${host} could not be reached (${message(error)}): asking ${location.host}`);
+        host = location.host;
+        fellBack = true;
         continue;
       }
       throw error;
@@ -127,7 +144,6 @@ async function withSocket<T>(scope: ModelScope, log: Log, signal: AbortSignal | 
       connection?.close();
     }
   }
-  throw new StompError("The model data service redirected more than once.");
 }
 
 export interface ModelScope { customerId: string; workspaceId: string; modelId: string; modelName: string }
@@ -342,32 +358,60 @@ async function readItemNames(reads: SocketReads, items: readonly { moduleId: str
   }
 }
 
-/** Saved views: rows, columns and context selectors from the metadata Page Builder's grid receives (exploratory: the message
- * types and top-level keys are logged so a live run shows what the service sends). */
+/** How many of the saved views the cards use are read before the others: where the service refuses every one of them and
+ * answers none, the others are not asked. A model's 233 saved views were refused one and all, live, in 5.3 s (10 Oct
+ * 2026). A view that answers shows that the others may, and they are read. */
+export const VIEW_TRIAL = 6;
+
+/** What Page Builder sends to subscribe to a grid card's saved view (designer.js: the options `iae` makes, with the client
+ * query options `nbt` adds): the view, by its ID, as an Anaplan grid's data source in this model, with no customisation and
+ * no transform, so that the grid comes as the view saves it, its rows, columns and pages in its first metadata message.
+ * Cardigan sent only the transforms and the client query options before, and the service refused every view (seen live,
+ * 10 Oct 2026). */
+export function viewOptions(workspaceId: string, modelId: string, viewId: string): Record<string, unknown> {
+  return { dataSourceType: "ANAPLAN_GRID", dataSourceId: viewId, modelId, workspaceId,
+    clientQueryOptions: { useCellIdTemplate: false, canHandleDedupedAuxData: false, canHandleNullColumnWidths: false }, transforms: [] };
+}
+
+/** Saved views: rows, columns and context selectors from the metadata Page Builder's grid receives (the message types and
+ * top-level keys are logged, so a live run shows what the service sends). The first VIEW_TRIAL are read first; where the
+ * service refuses each of them and answers none, the others are not asked, and the log and the note say so. A read that
+ * was not answered in its time, or was given up, is no refusal. */
 async function readViewLayouts(reads: SocketReads, refs: readonly UxEntityRef[]): Promise<void> {
   const { scope, subscribe, settle, catalog, notes, progress } = reads;
   const { workspaceId: ws, modelId: model } = scope;
   const viewIds = [...new Set(refs.filter(ref => ref.kind === "view").map(ref => entityId(ref.id)).filter((id): id is string => !!id))];
-  if (viewIds.length) {
-    progress.status(`Reading saved view layouts in ${scope.modelName}…`);
-    await settle(eachAtMost(viewIds, AT_A_TIME, reads.signal, async viewId => {
-      try {
-        const metadata = await subscribe(`core://${ws}:${model}/views/${viewId}`, {
-          accept: "widget/grid", messageType: "metadata", timeoutMs: 60_000,
-          body: { transforms: [], expandCollapseTransforms: [], clientQueryOptions: { useCellIdTemplate: false, canHandleDedupedAuxData: false, canHandleNullColumnWidths: false } },
-          onMessage: (type, keys) => progress.log(`view ${viewId}: ${type} {${keys.join(", ")}}`),
-        });
-        const layout = viewLayoutFromMetadata(metadata);
-        addMetadataDimensionNames(catalog, metadata);
-        if (layout) catalog.viewLayouts.set(viewId, layout);
-        else progress.log(`view ${viewId}: metadata without rows, columns or pages`);
-      } catch (error) {
-        progress.log(`view ${viewId}: ${message(error)}`);
+  if (!viewIds.length) return;
+  progress.status(`Reading saved view layouts in ${scope.modelName}…`);
+  let [answered, refused] = [0, 0];
+  let why: string | undefined;
+  const read = async (viewId: string): Promise<void> => {
+    try {
+      const metadata = await subscribe(`core://${ws}:${model}/views/${viewId}`, {
+        accept: "widget/grid", messageType: "metadata", timeoutMs: 60_000, body: viewOptions(ws, model, viewId),
+        onMessage: (type, keys) => progress.log(`view ${viewId}: ${type} {${keys.join(", ")}}`),
+      });
+      answered++;
+      const layout = viewLayoutFromMetadata(metadata);
+      addMetadataDimensionNames(catalog, metadata);
+      if (layout) catalog.viewLayouts.set(viewId, layout);
+      else progress.log(`view ${viewId}: metadata without rows, columns or pages`);
+    } catch (error) {
+      if (!(error instanceof StompError && (error.code === "TIMEOUT" || error.code === "GIVEN_UP"))) {
+        refused++;
+        why ??= message(error);
       }
-    }));
-    if (catalog.viewLayouts.size < viewIds.length) {
-      notes.push(`${scope.modelName}: ${viewIds.length - catalog.viewLayouts.size} of ${viewIds.length} saved views' rows, columns and context selectors could not be read.`);
+      progress.log(`view ${viewId}: ${message(error)}`);
     }
+  };
+  const [trial, others] = [viewIds.slice(0, VIEW_TRIAL), viewIds.slice(VIEW_TRIAL)];
+  await settle(eachAtMost(trial, AT_A_TIME, reads.signal, read));
+  const skipped = others.length > 0 && answered === 0 && refused === trial.length;
+  if (skipped) progress.log(`saved view layouts: the first ${trial.length} were refused (${why}), so the other ${others.length} were not asked`);
+  else await settle(eachAtMost(others, AT_A_TIME, reads.signal, read));
+  if (catalog.viewLayouts.size < viewIds.length) {
+    notes.push(`${scope.modelName}: ${viewIds.length - catalog.viewLayouts.size} of ${viewIds.length} saved views' rows, columns and context selectors could not be read`
+      + (skipped ? `: the service refused the first ${trial.length}, so the others were not asked.` : "."));
   }
 }
 
@@ -789,28 +833,64 @@ async function readDimensionNames(reads: SocketReads, pages: readonly UxPageCard
   if (left.length > MAX_LOGGED) progress.log(`dimensions with no name: ${left.length - MAX_LOGGED} more are not listed`);
 }
 
+/** What the names of a model are read for: the pages' described cards, the pages' names by their IDs, and the model's
+ * line items as its export read them, where the run has them (model-pages.ts). */
+export interface CatalogInputs { pages: readonly UxPageCardDetails[]; pageNames: ReadonlyMap<string, string>; exported?: ExportedLineItems }
+
+/** How the names of a model are read. `frameHost` is the host of the frame the model is read in: the socket starts there
+ * (withSocket). `viewLayouts: false` reads no saved view's rows, columns and context selectors: they are for an app's
+ * Cards and Grid Sections tables, which a model's run does not make (model-pages.ts), and a model's views can be many
+ * (233 in a live run, 10 Oct 2026). */
+export interface LoadOptions { frameHost?: () => string | undefined; viewLayouts?: boolean }
+
+/** Names for one model, for pages that were read already: an app's (`analyseApp`), or the pages built on a model, read
+ * after its export (model-pages.ts `addModelPages`). */
+export function loadCatalog(scope: ModelScope, pages: readonly UxPageCardDetails[], pageNames: ReadonlyMap<string, string>,
+  progress: Progress, signal?: AbortSignal, exported?: ExportedLineItems, options: LoadOptions = {}): Promise<{ catalog: ModelCatalog; notes: string[]; failedActionTypes: string[] }> {
+  return loadCatalogWhen(scope, Promise.resolve({ pages, pageNames, ...(exported ? { exported } : {}) }), progress, signal, options);
+}
+
 /** Names for one model. Like Page Builder, it asks for the data straight away and lets the service load the model: a
  * model that is not open reports status UNKNOWN until a data request loads it (observed live, 28 Sep 2026), so the
- * status is watched and logged, never waited for. `exported` are the model's line items as its export read them, where
- * the run has them (model-pages.ts): they are taken before anything is asked, and a module of theirs is not read from
- * the listing (`compareExported` says when one is, and why). A connection-level error such as REDIRECTION_REQUIRED fails every
- * subscription and is rethrown, so withSocket reconnects to the host it names. When `signal` asks the run to stop, the
- * socket work ends at once, as it does for a closed model, and the stop is rethrown instead of noted. A run that was
- * stopped before its socket had connected asks the model for nothing at all: subscribing can make the service load it.
- * Stopped later, while the action names are read, it reads no further list of them. */
-export async function loadCatalog(scope: ModelScope, pages: readonly UxPageCardDetails[], pageNames: ReadonlyMap<string, string>,
-  progress: Progress, signal?: AbortSignal, exported?: ExportedLineItems): Promise<{ catalog: ModelCatalog; notes: string[]; failedActionTypes: string[] }> {
+ * status is watched and logged, never waited for. `exported` (of `inputs`) are the model's line items as its export read
+ * them, where the run has them (model-pages.ts): they are taken before anything is asked of them, and a module of theirs
+ * is not read from the listing (`compareExported` says when one is, and why). A connection-level error such as
+ * REDIRECTION_REQUIRED fails every subscription and is rethrown, so withSocket reconnects to the host it names. When
+ * `signal` asks the run to stop, the socket work ends at once, as it does for a closed model, and the stop is rethrown
+ * instead of noted. A run that was stopped before its socket had connected asks the model for nothing at all: subscribing
+ * can make the service load it. Stopped later, while the action names are read, it reads no further list of them.
+ *
+ * `inputs` may come later than the socket: a model's run reads its names while its export is being read (model-pages.ts
+ * `startModelPages`), and the first step, the model's names of modules and lists, needs none of them. The socket connects
+ * and asks for those at once; the other steps wait for the inputs, and the Time line says how long they waited. Inputs
+ * that never come (the run's export failed, so its names are no longer wanted) end the work with that failure. */
+export async function loadCatalogWhen(scope: ModelScope, inputs: Promise<CatalogInputs>, progress: Progress, signal?: AbortSignal,
+  options: LoadOptions = {}): Promise<{ catalog: ModelCatalog; notes: string[]; failedActionTypes: string[] }> {
   const { workspaceId: ws, modelId: model } = scope;
   const catalog = emptyCatalog();
   const notes: string[] = [];
-  for (const [guid, pageName] of pageNames) catalog.pages.set(guid, pageName);
-  const refs = pages.flatMap(page => page.references);
+  /** The inputs once they have come, taken into the catalog as they come: the pages' names, and the export's line items. */
+  let given: CatalogInputs | undefined;
+  let refs: UxEntityRef[] = [];
+  const moduleIds = new Set<string>();
+  const arrived = inputs.then(value => {
+    given = value;
+    for (const [guid, pageName] of value.pageNames) catalog.pages.set(guid, pageName);
+    refs = value.pages.flatMap(page => page.references);
+    for (const ref of refs) {
+      if (ref.kind === "module" && ENTITY_ID.test(ref.id)) moduleIds.add(ref.id);
+      if (ref.moduleId && ENTITY_ID.test(ref.moduleId)) moduleIds.add(ref.moduleId);
+    }
+    if (value.exported) addExportedLineItems(catalog, value.exported);
+    return value;
+  });
+  arrived.catch(() => undefined);
   if (!SCOPE_ID.test(ws) || !SCOPE_ID.test(model)) {
+    await arrived;
     return { catalog, notes: [`${scope.modelName}: unexpected workspace or model ID; names were not looked up.`], failedActionTypes: ["IMPORT", "EXPORT", "PROCESS"] };
   }
   /** The host the model data service settled on (another data centre after a redirect). */
   let modelHost: string | undefined;
-  if (exported) addExportedLineItems(catalog, exported);
   /** The modules whose line items the listing gave, and what the comparison of the export's line items with it said: it is
    * made once, on the host that answers it (after a redirect, the model's own). */
   const listed = new Set<string>();
@@ -818,12 +898,6 @@ export async function loadCatalog(scope: ModelScope, pages: readonly UxPageCardD
   /** How long each step took, from the first: those of the host the socket settled on, after a redirect the model's own. */
   let time = stepTimes();
   const began = Date.now();
-
-  const moduleIds = new Set<string>();
-  for (const ref of refs) {
-    if (ref.kind === "module" && ENTITY_ID.test(ref.id)) moduleIds.add(ref.id);
-    if (ref.moduleId && ENTITY_ID.test(ref.moduleId)) moduleIds.add(ref.moduleId);
-  }
 
   try {
     await withSocket(scope, progress.log, signal, async (connection, host) => {
@@ -884,6 +958,8 @@ export async function loadCatalog(scope: ModelScope, pages: readonly UxPageCardD
           answers.lists = lists.value;
           progress.log(`lists: ${selectionShape(lists.value)}`);
         } else notes.push(`${scope.modelName}: list names were not available (${message(lists.reason)}).`);
+        // What the other steps read for: the pages and the export, which a model's run may still be reading.
+        const { pages, exported } = given ?? await time.step("waiting for the pages and the export", () => settle(arrived));
         progress.status(`Reading line items in ${scope.modelName}…`);
         await time.step("line items", async () => {
           if (exported && compared === undefined) compared = await compareExported(reads, moduleIds, exported);
@@ -900,7 +976,8 @@ export async function loadCatalog(scope: ModelScope, pages: readonly UxPageCardD
         const needs = gridNeeds(pages);
         await time.step("module dimensions", () => readModuleDimensions(reads, needs.modules));
         await time.step("item names", () => readItemNames(reads, needs.items));
-        await time.step("saved views", () => readViewLayouts(reads, refs));
+        if (options.viewLayouts !== false) await time.step("saved views", () => readViewLayouts(reads, refs));
+        else if (refs.some(ref => ref.kind === "view")) progress.log("saved views: their rows, columns and context selectors are not read, as no table of a model's run shows them");
         await time.step("filter line items", () => findFilterLineItems(reads, pages));
         await time.step("filter item names", () => readFilterItemNames(reads, pages, needs.modules));
         await time.step("dimension names", () => readDimensionNames(reads, pages));
@@ -912,11 +989,13 @@ export async function loadCatalog(scope: ModelScope, pages: readonly UxPageCardD
         clearInterval(waiting);
         signal?.removeEventListener("abort", halt);
       }
-    });
+    }, options.frameHost);
   } catch (error) {
     notes.push(`${scope.modelName}: names from the model data service were not available (${message(error)}); IDs are shown instead.`);
   }
   signal?.throwIfAborted();
+  // The inputs, if they have not come yet: their failure ends the work, for its names are no longer wanted.
+  await arrived;
 
   const actions = await time.step("action names", () => readActionNames(scope, refs, modelHost, catalog, progress, signal));
   notes.push(...actions.notes);
