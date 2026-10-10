@@ -295,35 +295,53 @@ export function navItems(entries: readonly NavEntry[], grouped: boolean): NavIte
  * not widen the item, and the items after it never move. */
 const wordsHtml = (words: string): string => `<span data-room="${esc(words)}">${esc(words)}</span>`;
 
-/** An entry: a button with its icon and its words, marked where it is the view shown. How many rows a table has is the
+/** The shorter words the navigation's line gives three tables whose names are long, by the name the analysis writes each
+ * file under, never by a table's words: so that a model's line with every table, whose groups keep the room of their
+ * longest names, stands on one line in a window about 1,300px wide. Only the line shows them: the group's menu, the one
+ * menu of a narrow window, the view's heading and the overview's tile name the table in full, and so does the line
+ * itself, as the tab's title and as what it says to a screen reader. A map, so that a name like that of an object's
+ * built-in property finds nothing. */
+export const NAV_SHORT_LABELS: ReadonlyMap<string, string> = new Map([[MODEL_CALENDAR_FILE, "Calendar"], [ACCESS_FILE, "Cell Access"], ["Import Data Sources.csv", "Data Sources"]]);
+
+/** What the line shows of an entry: the shorter words of its file, where it has them, and else its own. */
+const lineLabel = (entry: NavEntry): string => NAV_SHORT_LABELS.get(entry.file ?? "") ?? entry.label;
+
+/** The title and the name for a screen reader of an item of the line that shows an entry in shorter words: the entry's own.
+ * Nothing for one that shows its own. */
+const fullName = (entry: NavEntry | undefined): string =>
+  (entry && lineLabel(entry) !== entry.label ? ` title="${esc(entry.label)}" aria-label="${esc(entry.label)}"` : "");
+
+/** An entry: a button with its icon and its words, marked where it is the view shown. On the line (`onLine`) its words
+ * are its shorter ones where its file has them, with its own as its title and its name. How many rows a table has is the
  * overview's to say, on the table's tile. */
-const entryHtml = (entry: NavEntry, current: string): string =>
-  `<button type="button" class="nav-item" data-nav="${esc(entry.id)}"${entry.id === current ? ' aria-current="page"' : ""}>${entryIcon(entry)}${wordsHtml(entry.label)}</button>`;
+const entryHtml = (entry: NavEntry, current: string, onLine = false): string =>
+  `<button type="button" class="nav-item" data-nav="${esc(entry.id)}"${entry.id === current ? ' aria-current="page"' : ""}${onLine ? fullName(entry) : ""}>`
+  + `${entryIcon(entry)}${wordsHtml(onLine ? lineLabel(entry) : entry.label)}</button>`;
 
 /** A button that opens a menu, and the menu, which follows it on the page, so that Tab goes from the button into it: the
  * disclosure pattern. The button says whether its menu is open (main.ts opens and closes it), and names the menu it
- * controls by the menu's ID, which is the page's own. `here` marks the button of a group that holds the view shown.
- * Where `room` holds the texts the button can show, what it shows, `button` and the chevron, is one row, which stands in
- * the middle of the room of the widest of them in bold (results.css `data-room`), so that the button is as wide
- * whichever it shows and the items after it never move. */
-const menuHtml = (id: string, button: string, here: boolean, menu: string, room: readonly string[] = []): string =>
-  `<div class="nav-group"><button type="button" class="nav-group-btn" aria-expanded="false" aria-controls="${id}"${here ? ' aria-current="true"' : ""}`
+ * controls by the menu's ID, which is the page's own. `here` marks the button of a group that holds the view shown, and
+ * `named` is its title and name where its words are shorter than the entry's. Where `room` holds the texts the button can
+ * show, what it shows, `button` and the chevron, is one row, which stands in the middle of the room of the widest of them
+ * in bold (results.css `data-room`), so that the button is as wide whichever it shows and the items after it never move. */
+const menuHtml = (id: string, button: string, here: boolean, menu: string, room: readonly string[] = [], named = ""): string =>
+  `<div class="nav-group"><button type="button" class="nav-group-btn" aria-expanded="false" aria-controls="${id}"${here ? ' aria-current="true"' : ""}${named}`
   + (room.length ? ` data-room="${room.map(esc).join("\n")}"><span class="nav-row">${button}${NAV_CHEVRON}</span>` : `>${button}${NAV_CHEVRON}`)
   + `</button><div class="nav-menu" id="${id}" hidden>${menu}</div></div>`;
 
 /** The navigation as one line of items, in the order given: the overview, a model's groups among its tables, and a
  * model's map last (main.ts `navEntries`). A group is a button with an icon, a name and a chevron: the group's own, or,
  * where the group holds the view shown, that entry's, so that the bar says which table is shown. It keeps the room of
- * the widest of those names, so that no item of the bar changes its width as a table is chosen. The entry of the view
- * shown is marked as the page, in its group's menu where it has one, and the button of the group that holds it as
- * current. */
+ * the widest of those names, so that no item of the bar changes its width as a table is chosen. The line shows three
+ * long names in shorter words (`NAV_SHORT_LABELS`); a group's menu names its tables in full. The entry of the view shown
+ * is marked as the page, in its group's menu where it has one, and the button of the group that holds it as current. */
 export function navHtml(items: readonly NavItem[], current: string): string {
   return items.map(item => {
-    if (!isGroup(item)) return entryHtml(item, current);
+    if (!isGroup(item)) return entryHtml(item, current, true);
     const shown = item.entries.find(entry => entry.id === current);
-    const button = shown ? `${entryIcon(shown)}<span>${esc(shown.label)}</span>` : `${item.group.icon}<span>${item.group.label}</span>`;
+    const button = shown ? `${entryIcon(shown)}<span>${esc(lineLabel(shown))}</span>` : `${item.group.icon}<span>${item.group.label}</span>`;
     return menuHtml(item.group.id, button, shown !== undefined, item.entries.map(entry => entryHtml(entry, current)).join(""),
-      [item.group.label, ...item.entries.map(entry => entry.label)]);
+      [item.group.label, ...item.entries.map(lineLabel)], fullName(shown));
   }).join("");
 }
 
