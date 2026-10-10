@@ -53,6 +53,14 @@ describe("An import's mapping, in the drawer's words", () => {
     expect(columnLines([{ target: "Versions", source: "constant", text: "Actual" }, { target: "Products", source: "prompt" }])).toEqual(["No column is mapped."]);
   });
 
+  it("shows a target that is not mapped as Not mapped, as the list's items' names of a list matched by its code are", () => {
+    // As the export reads the user's import into a numbered list matched by its code (model/import-mappings.test.ts).
+    const BY_CODE: ImportMapping = { id: "112000000171", name: "Division by code", importType: "HIERARCHY_DATA",
+      targets: [{ target: "Division", source: "none" }, column("Code", 1, "Code"), column("Parent", 2, "Region")] };
+    expect(mappingView(BY_CODE)).toEqual({ rows: [["Division", "Not mapped"], ["Code", "Column 1: Code"], ["Parent", "Column 2: Region"]],
+      lines: ["Columns 1 and 2 are both used.", "Whether there are columns after column 2 is not known: Anaplan keeps the import's mapping, not the header row it was made from."] });
+  });
+
   it("shows a row of Target and Source for each target, or what stands in their place", () => {
     const DIVISION: ImportMapping = { id: "112000000001", name: "Division from HQ Network.csv", importType: "HIERARCHY_DATA",
       targets: [column("Division", 1, "Division Name"), column("Parent", 2, "Region"), { target: "Code", source: "none" }] };
