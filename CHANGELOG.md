@@ -2,6 +2,13 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version stands next to Cardigan's name at the top of the results page and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## 0.17.1 (10 October 2026)
+
+A menu's tab names the table shown again, and nothing in the bar moves.
+
+- **The table shown, in its menu's tab.** While a table of **Time**, **Lists**, **Modules** or **Actions** is shown, its menu's tab names it, with its icon, as it did before 0.16.4. Each menu's tab keeps the width of the longest name it can show, in bold, with what it shows in the middle, so choosing a table or another view moves nothing in the bar. (#50)
+- **A closer bar.** The bar's tabs stand closer: 6 pixels at each side of a tab, where there were 10 (9 at a menu's chevron, where there were 14), 4 between an icon and its words, where there were 6, 1 between tabs, where there were 2, and a chevron of 9 pixels, where it was 10. So a model's bar with every table needs about 1,285 pixels, where it would need 1,412 at the old spacing, and stands on one line in a window 1,440 pixels wide, scrollbar and all. An app's bar needs about 795. The menus' entries, and the one menu of a window under 1,000 pixels wide, keep their spacing. (#50)
+
 ## 0.17.0 (10 October 2026)
 
 Times in your own time zone, or in UTC, as a switch in the header says.
