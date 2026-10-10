@@ -1,4 +1,4 @@
-import { buildModelGraph } from "../map/build-graph.js";
+import { areaCheckLine, buildModelGraph } from "../map/build-graph.js";
 import type { MapView, ModelGraph, ModelMap, ModelMapOptions } from "../map/graph-types.js";
 import { mountModelMap } from "../map/map-view.js";
 import { MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, PAGE_ROUTES } from "../page-files.js";
@@ -1375,9 +1375,14 @@ async function toFront(tab: chrome.tabs.Tab | undefined): Promise<void> {
 }
 
 /* ================= model map ================= */
-/** The model's graph, built the first time the map or a row's details asks for it. It throws what keeps it from being made. */
+/** The model's graph, built the first time the map or a row's details asks for it. It throws what keeps it from being
+ * made. Where the result's Modules has a Functional Area column, the run's log says once how its rows met the map's
+ * modules, so that a module the map files under the wrong area can be told from one the export gave none. */
 function graphFor(model: AnalysisResult): ModelGraph {
-  modelGraph ??= buildModelGraph(model.tables);
+  if (!modelGraph) {
+    modelGraph = buildModelGraph(model.tables);
+    if (modelGraph.areaCheck) client.note(areaCheckLine(modelGraph.areaCheck));
+  }
   return modelGraph;
 }
 

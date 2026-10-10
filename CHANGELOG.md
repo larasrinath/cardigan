@@ -2,12 +2,22 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version stands next to Cardigan's name at the top of the results page and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
-## 0.16.1 (10 October 2026)
+## 0.16.2 (10 October 2026)
 
 The navigation bar stays still.
 
 - **No tab moves.** A menu's button named the table shown in it, so it grew or shrank as a table was chosen, and every tab after it moved, by up to 79 pixels. The tab of the view shown was also set in bold, which widened it. Every entry and menu now keeps one width, as wide as the longest name it can show in bold, so neither choosing a table nor changing the view moves anything in the bar. A menu's icon, name and chevron stand together in the middle of its button. (#47)
 - **What it costs.** A model's bar with every table is wider, about 1,400 pixels, and takes two lines in a narrower window, each tab keeping its place. The one menu of a window under 1,000 pixels wide is unchanged. (#47)
+
+## 0.16.1 (10 October 2026)
+
+The map opens on the functional areas its builders set, however many there are.
+
+- **The builders' groupings first.** The map opens on **Functional area** where three in five of the modules or more have one, in two areas or more, however many areas there are and however many modules each holds; and else on **Headings** where three in five or more stand under a heading row. It used to take either only with 3 to 15 sections, none holding more than half the modules, so a model with 22 functional areas opened on **Role in the data flow**. **Name prefix** keeps that test, and the role in the data flow is still the last resort. (#45)
+- **Functional areas in the order of their names.** The legend, the path's lists and the map list the areas in the order of their names, numbers as numbers ("000: Global System", "001: Users", "002: Parameters", "010: Reporting"), whatever their case, as Anaplan lists them, where they came in the order of their first modules. The modules with none are still last. (#45)
+- **A module's area found with spaces at either end.** A module is matched to its row of Modules by its name as written, and otherwise by its name without the spaces at its ends, whichever side has them, where no other module has that name. Before, only a row of Modules lost its spaces. The same holds for Module Usage. (#45)
+- **The log says how Modules met the map.** When the map's graph is first built, the run's log says how many areas the map's modules have, how many of them have one, which rows of Modules are no module of the map, and which modules of the map have no row in Modules, the first five of each, for example "Functional areas: 22 areas; 340 of the map's 352 modules have one; 0 rows of Modules are no module of the map; 2 modules of the map have no row in Modules: …". A heading row of Modules is in neither list. (#45)
+- **What stays the same.** Each module's area is its own row's; each box counts the modules and line items of its own group under the grouping shown; a switch of grouping renews the legend, the path's lists, the search and a module's details. Tests on a model of 22 areas now check each of these. (#45)
 
 ## 0.16.0 (10 October 2026)
 
