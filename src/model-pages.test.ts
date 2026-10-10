@@ -110,6 +110,11 @@ const run = (result: AnalysisResult, customer: string | undefined, use: Fake, si
   addModelPages(result, customer, { status: text => use.status.push(text), log: line => use.log.push(line) }, signal, use.reads);
 const rowsOf = (result: AnalysisResult, file: string) => result.tables.find(each => each.file === file)?.rows;
 const detailsOf = (result: AnalysisResult) => result.tables[0].rows;
+/** The lines the step adds to the result's diagnostic log, after the export's one, without their times. */
+const logOf = (result: AnalysisResult) => detailsOf(result).filter(row => row[0] === "Diagnostics").slice(1).map(row => row[2]);
+/** The result without those lines. */
+const withoutLog = (result: AnalysisResult): AnalysisResult => ({ ...result, tables: result.tables.map((table, index) => (index ? table
+  : { ...table, rows: table.rows.filter(row => row[0] !== "Diagnostics" || row[1] === "10:00:00") })) });
 const filterUses = (result: AnalysisResult) => result.tables.find(each => each.file === "Line Items.csv")!.rows.map(row => [row[0], row[4]]);
 const BOTH = [{ guid: PAGE_A, name: "Demand board", appGuid: APP_A }, { guid: PAGE_B, name: "Supply board" }];
 
@@ -148,6 +153,9 @@ describe("The pages built on a model", () => {
     // The list's fields are logged, never what they hold.
     expect(use.log).toEqual(["pages built on the model: 2 entries; their fields: appGuid, guid, name; isPageBuilder true",
       "pages built on the model: 2 read, 0 unpublished, 0 not read; 2 apps; 4 module usage rows, 2 page filters, 2 page actions"]);
+    // What the step reported follows the export's own lines in the result's diagnostic log, which the Overview copies.
+    expect(logOf(result)).toEqual([use.status[0], use.log[0], ...use.status.slice(1), use.log[1]]);
+    expect(detailsOf(result).filter(row => row[0] === "Diagnostics").every(row => /^\d{2}:\d{2}:\d{2}$/.test(String(row[1])))).toBe(true);
 
     // Each module in the Modules table's order, by app and page; Factors is named by the export, as the service did not name
     // it. A module no page uses has its one row.
@@ -169,7 +177,7 @@ describe("The pages built on a model", () => {
     expect(filterUses(result)).toEqual([["Demand", ""], ["Volume", 0], ["Factors", ""], ["Territory demand", 2], ["Unused", ""], ["Note", 0]]);
 
     // The apps right after the model's ID, one to a line; each file's row after the files'; how to read them after the rest.
-    expect(detailsOf(result).map(row => row.slice(0, 2).join(" / "))).toEqual(["Model / Model", "Model / Workspace", "Model / Model ID", "Model / Apps",
+    expect(detailsOf(withoutLog(result)).map(row => row.slice(0, 2).join(" / "))).toEqual(["Model / Model", "Model / Workspace", "Model / Model ID", "Model / Apps",
       "Model / Workspace ID", "Export / Exported at", "Files / Modules.csv", "Files / Line Items.csv", `Files / ${MODULE_USAGE_FILE}`, `Files / ${PAGE_FILTERS_FILE}`,
       `Files / ${PAGE_ACTIONS_FILE}`, "Notes / Source Models", "How to read / Modules", "How to read / Module Usage", "How to read / Page Filters",
       "How to read / Page Actions", "Diagnostics / 10:00:00"]);
@@ -225,6 +233,11 @@ describe("The pages built on a model", () => {
     for (const read of pending.reads) read.answer({ state: "Not published" });
     await expect(done).rejects.toThrow("Stopped: the results page was closed.");
     expect([pending.reads.length, use.asked]).toEqual([AT_A_TIME, [PAGES]]);
+
+    // A run stopped while its export was being handed over reads nothing at all.
+    const before = fake(entries, {});
+    await expect(run(exported(), CUSTOMER, before, AbortSignal.abort(new Error("Stopped.")))).rejects.toThrow("Stopped.");
+    expect([before.asked, before.status]).toEqual([[], []]);
   });
 
   it("ends the page reads when the session has ended, and says so", async () => {
@@ -235,7 +248,9 @@ describe("The pages built on a model", () => {
     const done = run(exported(), CUSTOMER, use);
     await vi.waitFor(() => expect(pending.reads).toHaveLength(AT_A_TIME));
     pending.reads[1].fail(new RestError("SIGNED_OUT", 401));
-    expect(await done).toEqual(withoutPages("you're signed out of Anaplan"));
+    const result = await done;
+    expect(withoutLog(result)).toEqual(withoutPages("you're signed out of Anaplan"));
+    expect(logOf(result).slice(-1)).toEqual(["pages built on the model: SIGNED_OUT (HTTP 401)"]);
     // The reads under way finish; none starts after them.
     for (const read of pending.reads) read.answer({ state: "Not published" });
     await new Promise(resolve => setTimeout(resolve, 0));
@@ -245,19 +260,21 @@ describe("The pages built on a model", () => {
   it("reads nothing where the address names no customer, and says why the three tables are not there", async () => {
     const use = fake(BOTH, { [PAGE_A]: demandBoard() });
     expect(await run(exported(), undefined, use)).toEqual(withoutPages(NO_CUSTOMER));
-    expect(use.asked).toEqual([]);
+    expect([use.asked, use.status, use.log]).toEqual([[], [], []]);
   });
 
   it("says why when the list of pages cannot be read: refused, signed out, failed, or not a list", async () => {
-    for (const [answer, why] of [
-      [new RestError("HTTP_ERROR", 403), "Anaplan refused the list of the pages built on this model"],
-      [new RestError("SIGNED_OUT", 401), "you're signed out of Anaplan"],
-      [new RestError("TIMEOUT"), "the list of the pages built on this model could not be read (TIMEOUT)"],
-      [{ pages: [] }, "Anaplan's list of the pages built on this model was not in a form Cardigan reads"],
+    for (const [answer, why, logged] of [
+      [new RestError("HTTP_ERROR", 403), "Anaplan refused the list of the pages built on this model", "HTTP_ERROR (HTTP 403)"],
+      [new RestError("SIGNED_OUT", 401), "you're signed out of Anaplan", "SIGNED_OUT (HTTP 401)"],
+      [new RestError("TIMEOUT"), "the list of the pages built on this model could not be read (TIMEOUT)", "TIMEOUT"],
+      [{ pages: [] }, "Anaplan's list of the pages built on this model was not in a form Cardigan reads", "the answer has no list of pages (object)"],
     ] as const) {
       const use = fake([], {});
       use.reads.getJson = vi.fn(async () => { if (answer instanceof Error) throw answer; return answer; }) as unknown as PageReads["getJson"];
-      expect(await run(exported(), CUSTOMER, use), why).toEqual(withoutPages(why));
+      const result = await run(exported(), CUSTOMER, use);
+      expect(withoutLog(result), why).toEqual(withoutPages(why));
+      expect(logOf(result), why).toEqual(["Reading the pages built on this model…", `pages built on the model: ${logged}`]);
       expect(vi.mocked(use.reads.readPublished), why).not.toHaveBeenCalled();
     }
   });
@@ -301,7 +318,17 @@ describe("The pages built on a model", () => {
   it("leaves the export as it was, with the three tables left out, when its own work fails", async () => {
     const use = fake(BOTH, { [PAGE_A]: demandBoard(), [PAGE_B]: supplyBoard });
     use.reads.loadCatalog = vi.fn(async () => { throw new Error("unexpected"); });
-    expect(await run(exported(), CUSTOMER, use)).toEqual(withoutPages("Cardigan could not make them: unexpected"));
-    expect(use.log.at(-1)).toBe("pages built on the model: unexpected");
+    const result = await run(exported(), CUSTOMER, use);
+    expect(withoutLog(result)).toEqual(withoutPages("Cardigan could not make them: unexpected"));
+    expect([use.log.at(-1), logOf(result).at(-1)]).toEqual(["pages built on the model: unexpected", "pages built on the model: unexpected"]);
+  });
+
+  it("leaves every count it cannot know empty where a filter's condition line item could not be named", async () => {
+    // The rule's line item is no line item the model's names have: the filter keeps its ID, and has no module.
+    const unnamed = board(PAGE_B, APP_B, "Supply board", MODEL, [grid(1, "Factors", MODULE_2, [leaf(["1901000000077"])]), grid(2, "Named", MODULE, [leaf([LI(9)])])]);
+    const result = await run(exported(), CUSTOMER, fake([{ guid: PAGE_B }], { [PAGE_B]: unnamed }));
+    expect(rowsOf(result, PAGE_FILTERS_FILE)!.map(row => [row[2], row[9], row[10], row[15]])).toEqual([[1, "1901000000077", "-", "-"], [2, "Territory demand", "Factors", LI(9)]]);
+    // Volume and Note may be the condition of the first filter: their counts are not known. Territory demand's is.
+    expect(filterUses(result)).toEqual([["Demand", ""], ["Volume", ""], ["Factors", ""], ["Territory demand", 1], ["Unused", ""], ["Note", ""]]);
   });
 });
