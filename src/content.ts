@@ -11,6 +11,8 @@ import { serveTab } from "./tab-port.js";
 
 const APP_PATH = /\/apps\/app\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:[/?#]|$)/i;
 const MODEL_PATH = /\/a\/modeling(?:-ui)?\/.*\/models\/([0-9A-Za-z]{32})(?:[/?#]|$)/;
+/** The customer a Model Building address names: the results page opens a module of the model with it. */
+const CUSTOMER_PATH = /\/a\/modeling(?:-ui)?\/customers\/([0-9A-Fa-f]{32})(?:[/?#]|$)/;
 
 /** This script can be put into a document more than once: by Chrome as the page loads, and by the results page when none
  * answers it, as in a tab that was open before Cardigan was installed, updated or reloaded (results/connection.ts). Only
@@ -33,8 +35,12 @@ if (window.top === window) {
   const subject = (): Subject => {
     const app = APP_PATH.exec(location.pathname)?.[1];
     if (app) return { kind: "app", id: app };
-    const model = MODEL_PATH.exec(location.pathname)?.[1] ?? own?.modelId;
-    return model ? { kind: "model", id: model } : { kind: "none" };
+    const building = MODEL_PATH.exec(location.pathname)?.[1];
+    const model = building ?? own?.modelId;
+    if (!model) return { kind: "none" };
+    // A model in Model Building says where it is, so that its modules can be opened there from the results page.
+    const customer = building ? CUSTOMER_PATH.exec(location.pathname)?.[1] : undefined;
+    return { kind: "model", id: model, ...(customer ? { origin: location.origin, customer } : {}) };
   };
   /** A Model Building page's model is read in its core frame; the classic page's, in this window. */
   const core = () => (MODEL_PATH.test(location.pathname) ? frame : own);

@@ -117,6 +117,20 @@ describe("The results page's connection to the Anaplan tab", () => {
   });
   afterEach(() => vi.useRealTimers());
 
+  it("keeps what the tab last said it shows after its port closes: where a module of a model in Model Building opens", () => {
+    const { client, ports } = page({ autoRun: false });
+    client.start();
+    expect(client.shows).toBeUndefined();
+    const subject = { kind: "model", id: MODEL.id, origin: "https://us1a.app.anaplan.com", customer: "0123456789abcdef0123456789abcdef" } as const;
+    ports[0].send({ type: "subject", subject });
+    // The tab goes to another page, as it does when a module opens there: what it said stays.
+    ports[0].drop();
+    expect(client.shows).toEqual(subject);
+    // A new connection asks afresh.
+    client.runAgain();
+    expect(client.shows).toBeUndefined();
+  });
+
   it("analyses an app by itself: one run as soon as the tab says what it shows, progress, then the result put together", () => {
     const { client, ports, states, phases, log } = page();
     client.start();

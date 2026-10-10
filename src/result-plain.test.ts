@@ -56,6 +56,13 @@ describe("A result as plain data", () => {
     expect(Object.keys(read!.tables[1])).toEqual(["file", "label", "headers", "rows", "guard"]);
     expect(plainResult({ ...result, kind: "model", summary: [1, null], tables: [{ ...result.tables[1], headers: ["", 2], details: false }] }))
       .toEqual({ ...result, kind: "model", summary: ["1", "null"], tables: [{ ...result.tables[1], headers: ["", "2"] }] });
+    // A model's modules and their IDs come along. Anything else in their place is left out, the result kept; an app has none.
+    const model = { ...result, kind: "model" as const, moduleIds: [["Sales", "102000000001"], ["-- Admin", "102000000002"]] };
+    expect(plainResult(model)).toEqual(model);
+    for (const moduleIds of [[["Sales", 102000000001]], [["Sales", "1x"]], [["Sales"]], [["Sales", "1", "2"]], "Sales", { Sales: "102000000001" }, [null]]) {
+      expect(plainResult({ ...model, moduleIds }), JSON.stringify(moduleIds)).toEqual({ ...result, kind: "model" });
+    }
+    expect(plainResult({ ...result, moduleIds: model.moduleIds })).toEqual(result);
   });
 
   it("takes a file name only when it is a name: no path, no drive, no line break, and the extension expected", () => {

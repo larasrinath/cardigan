@@ -36,4 +36,8 @@ export interface AnalysisResult {
   tables: ResultTable[];
   /** The lines listed after a run: counts and notes. */
   summary: string[];
+  /** A model's modules, each by its name and its ID in the model (the entity's long ID, in digits), as the export read
+   * them: what the results page opens a module in Model Building by. None in an app's result, nor in one that an earlier
+   * version kept. Pairs, so that a module's name is never taken for a property of an object. */
+  moduleIds?: [name: string, id: string][];
 }
