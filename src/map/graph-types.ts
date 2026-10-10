@@ -139,6 +139,27 @@ export interface ModelMapOptions {
   /** Called when the viewer chooses a grouping, with its kind, or with nothing where the choice is the map's own pick:
    * the page keeps it for the viewer's next map. The map keeps nothing itself. */
   onGrouping?: (kind: string | undefined) => void;
+  /** Where the viewer left this model's map, as `onView` last told it: the map opens there, as far as this model still
+   * has it, and otherwise as it opens by itself. */
+  view?: MapView;
+  /** Called each time the map shows another view, or draws other links, with where it is now: the page keeps it for a
+   * refresh of the page. The map keeps nothing itself. */
+  onView?: (view: MapView) => void;
+}
+
+/** Where a model's map is, as the page keeps it (graph-types.ts `ModelMapOptions`): its view, and in it what it shows,
+ * each module and group by its name. */
+export interface MapView {
+  view: "modules" | "drill";
+  /** In the Modules view: the one group shown, by its name; or all the modules, ungrouped (`all`); or, with neither, the
+   * groups as a whole, which is where the map opens by itself. */
+  group?: string;
+  all?: boolean;
+  /** In the Line items view: the module shown, by its name, and whether other modules' line items stand one by one. */
+  module?: string;
+  others?: boolean;
+  /** Whether the links of access drivers are drawn too. */
+  access?: boolean;
 }
 
 /** The mounted map (map-view.ts). The page shows and hides it as its navigation goes: while hidden it draws nothing and
