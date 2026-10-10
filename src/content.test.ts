@@ -276,19 +276,19 @@ describe("The content scripts on an Anaplan page", () => {
     const port = open();
     port.take();
     const opened = () => port.take().filter(message => message.type === "opened");
-    port.say({ type: "open", nonce: "ask-1", model: MODEL, module: "102000000001" });
+    port.say({ type: "open", nonce: "ask-1", model: MODEL, object: "102000000001" });
     await vi.advanceTimersByTimeAsync(0);
     // The frame is asked, by the model's ID and the module's, and its answer goes back to the page for that very ask.
     const ask = frame.asked.find(message => message.type === "open")!;
-    expect(ask).toEqual({ protocol: PROTOCOL, type: "open", nonce: expect.any(String), model: MODEL, module: "102000000001" });
+    expect(ask).toEqual({ protocol: PROTOCOL, type: "open", nonce: expect.any(String), model: MODEL, object: "102000000001" });
     hear({ protocol: PROTOCOL, type: "opened", nonce: ask.nonce, opened: true }, CORE, frame);
     await vi.advanceTimersByTimeAsync(0);
-    expect(opened()).toEqual([{ type: "opened", nonce: "ask-1", opened: true, detail: "Model Building opened it beside the modules open there" }]);
+    expect(opened()).toEqual([{ type: "opened", nonce: "ask-1", opened: true, detail: "Model Building opened it beside the tabs open there" }]);
     // A frame that says it could not, and one that says nothing in time.
-    port.say({ type: "open", nonce: "ask-2", model: MODEL.toLowerCase(), module: "102000000002" });
+    port.say({ type: "open", nonce: "ask-2", model: MODEL.toLowerCase(), object: "102000000002" });
     await vi.advanceTimersByTimeAsync(0);
     hear({ protocol: PROTOCOL, type: "opened", nonce: frame.asked.at(-1)!.nonce, opened: false }, CORE, frame);
-    port.say({ type: "open", nonce: "ask-3", model: MODEL, module: "102000000003" });
+    port.say({ type: "open", nonce: "ask-3", model: MODEL, object: "102000000003" });
     await vi.advanceTimersByTimeAsync(1000);
     expect(opened()).toEqual([{ type: "opened", nonce: "ask-2", opened: false, detail: "the model's frame did not open it" },
       { type: "opened", nonce: "ask-3", opened: false, detail: "the model's frame did not open it" }]);
@@ -304,7 +304,7 @@ describe("The content scripts on an Anaplan page", () => {
     const port = open();
     port.take();
     const ask = async (nonce: string) => {
-      port.say({ type: "open", nonce, model: MODEL, module: "102000000001" });
+      port.say({ type: "open", nonce, model: MODEL, object: "102000000001" });
       await vi.advanceTimersByTimeAsync(400);
       return port.take().filter(message => message.type === "opened").map(message => (message as { detail: string }).detail);
     };
@@ -323,7 +323,7 @@ describe("The content scripts on an Anaplan page", () => {
     await import("./content.js");
     const port = open();
     port.take();
-    port.say({ type: "open", nonce: "ask-1", model: MODEL, module: "102000000001" });
+    port.say({ type: "open", nonce: "ask-1", model: MODEL, object: "102000000001" });
     await vi.advanceTimersByTimeAsync(400);
     expect([inner.greeted, port.take()]).toEqual([[{ protocol: PROTOCOL, type: "hello" }],
       [{ type: "opened", nonce: "ask-1", opened: false, detail: "the model's frame has not checked in" }]]);
@@ -339,7 +339,7 @@ describe("The content scripts on an Anaplan page", () => {
     at("/core-webapp/anaplan/framework.jsp", "eu2a.app.anaplan.com");
     await import("./model-content.js");
     vi.advanceTimersByTime(1000);
-    for (const listener of [...heard]) listener({ data: { protocol: PROTOCOL, type: "open", nonce: "ask", model: MODEL, module: "102000000409" }, origin: SHELL, source: top });
+    for (const listener of [...heard]) listener({ data: { protocol: PROTOCOL, type: "open", nonce: "ask", model: MODEL, object: "102000000409" }, origin: SHELL, source: top });
     await vi.advanceTimersByTimeAsync(0);
     expect([published, top.posted.filter(message => (message as { type: string }).type === "opened")])
       .toEqual([[["anaplan/views", 102000000409]], [{ protocol: PROTOCOL, type: "opened", nonce: "ask", opened: true }]]);

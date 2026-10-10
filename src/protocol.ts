@@ -27,17 +27,17 @@ export const OPENED_PARAM = "opened";
 export const FRESH_MS = 60_000;
 
 /** What the Anaplan tab shows: an app, a model, or neither. For a model in Model Building, also the tab's site
- * (`origin`) and the customer its address names (`customer`): what the results page opens one of its modules with. */
+ * (`origin`) and the customer its address names (`customer`): what the results page opens its modules and lists with. */
 export type Subject = { kind: "app" | "model"; id: string; origin?: string; customer?: string } | { kind: "none" };
 
 /** Page to tab. */
 export type PageMessage =
   /** Analyse what the tab shows; progress and then the result follow. A "run" while one is in progress is ignored. */
   | { type: "run" }
-  /** Open a module of `model` inside the Model Building page the tab shows, beside the modules open there, as Model
-   * Building's own Modules list opens one. `module` is the module's ID. One "opened" answers it, with the same `nonce`;
-   * it can be asked at any time, while a run goes on or without one. */
-  | { type: "open"; nonce: string; model: string; module: string };
+  /** Open a module or a list of `model` inside the Model Building page the tab shows, beside the tabs open there, as
+   * Model Building's own Modules list and General Lists open one. `object` is the module's or the list's ID. One "opened"
+   * answers it, with the same `nonce`; it can be asked at any time, while a run goes on or without one. */
+  | { type: "open"; nonce: string; model: string; object: string };
 
 /** Tab to page. */
 export type TabMessage =
@@ -56,8 +56,8 @@ export type TabMessage =
    * An "error" can also arrive after "result" and "rows", in place of "done", when a piece of the result could not be
    * sent: the result is then incomplete and must not be shown. */
   | { type: "error"; message: string; code?: "SIGNED_OUT" }
-  /** The answer to an "open": whether the page took the module, and in a few words how, or why not, for the log. It
-   * belongs to no run. */
+  /** The answer to an "open": whether the page took the module or the list, and in a few words how, or why not, for the
+   * log. It belongs to no run. */
   | { type: "opened"; nonce: string; opened: boolean; detail: string };
 
 /** One "rows" message holds at most ROWS_MAX rows, and is cut earlier once the text of its cells passes ROWS_MAX_CHARS,
