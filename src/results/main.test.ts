@@ -5397,6 +5397,25 @@ describe("The mapping of an import from a file, in its row's details", () => {
     expect(sections()).toEqual(["All columns"]);
   });
 
+  it("says above the mapping of an import into a list how it tells the list's items apart, in the dialog's words", async () => {
+    // As the user's import into a numbered list: told apart by a property, its items' names numbered by the list itself,
+    // and its column named by its heading alone.
+    const BY_PROPERTIES: ImportMapping = { ...MAPPINGS[0], matchedBy: { by: "properties", properties: ["Manager"], numbered: true },
+      targets: [{ target: "Division", source: "numbered" }, { target: "Parent", source: "none" }, { target: "Manager", source: "column", text: "Manager" }] };
+    await openWith({ ...WITH_MAPPINGS, importMappings: [BY_PROPERTIES, MAPPINGS[1]] });
+    goTo(3);
+    openImport("Division from HQ Network.csv");
+    expect(mapping()).toEqual([[["Division", "Not mapped: the list numbers its items itself"], ["Parent", "Not mapped"], ["Manager", "Column headed Manager"]],
+      ["Items uniquely identified by: Combination of properties: Manager.", "Each column mapped is named by its heading alone, so Cardigan cannot say which columns are not used."]]);
+    // The line stands above the table, the line on the columns below it.
+    const html = page.id("drawerMapping").innerHTML;
+    expect([html.indexOf("Items uniquely identified by") < html.indexOf("<table"), html.indexOf("<table") < html.indexOf("Each column mapped")]).toEqual([true, true]);
+    page.key("Escape");
+    // An import into a module tells no items apart: it has no such line.
+    openImport("Prices from prices.csv");
+    expect(mapping()[1]).toEqual(["Column 1 is used.", "Whether there are columns after column 1 is not known: Anaplan keeps the import's mapping, not the header row it was made from."]);
+  });
+
   it("shows no mapping for a result an earlier version kept, which has none", async () => {
     const { importMappings: _mappings, ...earlier } = WITH_MAPPINGS;
     await openWith(earlier);

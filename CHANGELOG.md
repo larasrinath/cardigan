@@ -2,7 +2,7 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version stands next to Cardigan's name at the top of the results page and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
-## 0.15.2 (10 October 2026)
+## 0.15.3 (10 October 2026)
 
 An update no longer asks for a refresh of an open model's tab.
 
@@ -10,6 +10,15 @@ An update no longer asks for a refresh of an open model's tab.
 - **The new reader goes into the tab, in place of a refresh.** Where the model's page still holds the reader of an earlier version, the results page puts this version's into that tab, as Chrome does when the page loads, and reads the model. Pressing **Model** on a row does the same before it would load the module's link. Chrome allows this where the model is served from the tab's own Anaplan host. (#37)
 - **One click where it cannot.** Where the model is served from another Anaplan host, or the new reader does not answer, the results page offers **Refresh the Anaplan tab and run**: the tab reloads, and Cardigan reads the model as soon as it shows. A refresh closes the modules and lists open in Model Building, so nothing refreshes the tab unless you choose it. (#37)
 - **What stays the same.** The two permissions, activeTab and scripting; what is read from Anaplan; and a tab Cardigan was not opened on is never touched.
+
+## 0.15.2 (10 October 2026)
+
+An import's **Mapping** reads its columns as Anaplan saves them, and says how an import into a list tells its items apart.
+
+- **A column by its heading.** Anaplan's import dialog often saves a column by its heading, where Cardigan looked only for its number: on a live model every column of such an import read "A column the definition neither numbers nor names". It now reads "Column headed Product", or "Column 3: Product" where the import keeps both. A column saved by neither its place nor its heading is said by what identifies it, "Column with ID …", and where no column has a place the line under the table says Cardigan cannot tell which columns are not used, not that each is named by its heading. (#36)
+- **How a list's items are told apart.** Above the targets of an import into a list, a line says it as the dialog's **Items uniquely identified by** does: Name or code, Name only, Code only (Name (#ID) or Code for a numbered list), or a combination of properties, each named. A numbered list told apart by code or by properties numbers its items itself: its items' row says so, rather than "Not mapped". Whether a list is numbered comes from its row of General Lists. (#36)
+- **In the diagnostic log**, each import from a file has two more lines: how its definition writes its first column, each of the three ways by its type and at most 20 characters of its value, and the keys of its `source`, `dataFormatDefinitions` and `dataFormatsByTarget`. One live log then shows how a model's definitions write their columns. (#36)
+- **What stays the same.** What is read: the same grid of the imports' definitions, read once, and nothing sent. The tables are as they were.
 
 ## 0.15.1 (10 October 2026)
 
