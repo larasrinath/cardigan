@@ -1,7 +1,7 @@
 import { DETAILS_HEADERS, diagnosticRows, exportRows, type DetailRow } from "../details.js";
 import { Failure, SEND_LOG, type Log, type Progress, type Stop } from "../progress.js";
 import { plainRows } from "../result-plain.js";
-import type { AnalysisResult, ImportMapping, ResultTable } from "../result-types.js";
+import type { AnalysisResult, ImportMapping, ProcessActions, ResultTable } from "../result-types.js";
 import { fileSafe, message, text } from "../util.js";
 import { ACCESS_LABEL, accessTable } from "./access.js";
 import { actionKind, mergeImports, missingActionColumns, otherActionsTable, type ActionKind } from "./actions.js";
@@ -10,6 +10,7 @@ import { gridTable, type Grid, type GridRow, type Table } from "./grid.js";
 import { fileImports, IMPORT_DEFINITION, importMappings, importNames, importsLine } from "./import-mappings.js";
 import { lineItemsTable } from "./lineitems.js";
 import { axis, loadNative, readGrid, typeIndex, type Native } from "./native.js";
+import { PROCESS_DEFINITION, processActions, processesLine } from "./process-actions.js";
 
 /** One table per Model settings grid, laid out as Anaplan's own export of that grid (compared with exports from Model
  * settings, 28 Sep 2026): the Actions list split at its headings with its imports merged into the Imports tab (actions.ts),
@@ -31,7 +32,7 @@ const HOW_TO_READ: readonly [detail: string, value: string][] = [
   ["Layout", "Each table is laid out as Anaplan's own export of the same Model settings grid: each row's name first, then the grid's columns, with each cell's underlying value. Where a Format, a Summary or an Action holds a definition that can be said in words, the table says the words, and a row's details add the definition as it was read."],
   ["Line Items", "The table lists every row of the grid: each module's own row, in bold, then its line items. Each row names its module under Module Name, after its own name, a module's own row its own name. Applies To holds the dimensions a line item has, its module's where it has none of its own, and Applies To from says which. Format type, after Format, is the data type of a line item's format, and is blank on a module's own row: without (blank) its filter lists only line items, and without No Data it leaves out the line items that are headings. Three columns follow Anaplan's own. Ratio Numerator and Ratio Denominator name the line items a Ratio summary divides: the Summary's definition gives only their IDs. Format List names the list of a line item formatted as a list, as the General Lists table names it: the Format's definition gives only the list's ID. It is empty for any other format, for a list that is not in General Lists, such as a list subset or a line item subset, and when General Lists was not exported."],
   ["Dynamic Cell Access", "Not a Model settings grid: the Read Access Driver and Write Access Driver columns of Line Items, listed from the driver's side. One row for each use of a driver: the driver, Read or Write, and what it controls, each by module and name as Line Items has them. Rows follow the drivers' order in Line Items, Read before Write. A row with no Controlled Line Item is a module's own: its driver is set on the module's own row, which the Line Items table shows above the module's line items. A line item that shows a dash is listed with its module's driver. A driver that could not be matched comes last, once for its cell, with no Driver Module and the cell as it is written. That includes a driver that sits in a row the model map leaves out, which About this map counts. The table is not made when Line Items was not exported or lacks its Module Name column or a driver column."],
-  ["Processes, Exports and Other Actions", "The Actions list split at its headings, in its own columns: definition, last run (start time and duration), notes, the processes that use each action and the dashboards it appears on. One column follows Anaplan's own in Other Actions. Action List names the list an action deletes from or orders, as the General Lists table names it: the Action's definition gives only the list's ID. It is empty for any other action, for a list that is not in General Lists, and when General Lists was not exported."],
+  ["Processes, Exports and Other Actions", "The Actions list split at its headings, in its own columns: definition, last run (start time and duration), notes, the processes that use each action and the dashboards it appears on. One column follows Anaplan's own in Other Actions. Action List names the list an action deletes from or orders, as the General Lists table names it: the Action's definition gives only the list's ID. It is empty for any other action, for a list that is not in General Lists, and when General Lists was not exported. A process's row, in its details, lists the actions it runs, in the order it runs them, as the process's own definition holds them: each with its kind, and each opening its own row."],
   ["Imports", "The Imports tab (source and target), then each import's columns from the Actions list (last run, duration, notes, Used in Processes, Used in Dashboards), matched on the import's ID. The Actions list's \"Import into …\" text is left out: Target Object and Target Type say the same. Source Object is shown as three columns, Source Model, Source Module and Saved View, for an import from a module or a saved view: Source Model names this model where the import reads from this model itself. A row's details add Source Object as it was read. Any other Source Object stands as it is under Source Model. For an import of uploaded data, a row's details end with its Mapping, as the import's own definition holds it: what feeds each target, a column, a constant, a prompt or nothing, and which columns before the last one mapped are not used."],
   ["Import Data Sources", "Each data source, with the imports that use it."],
   ["Model Calendar", "Lists the calendar's settings that hold a value: those that do not apply to this calendar type, or that the model does not show, are left out. Months and days are their names, and Current Fiscal Year is shown with its dates, as the Model Calendar tab shows it."],
@@ -188,6 +189,26 @@ export async function exportModel(progress: Progress, diagnostics: () => string,
   }
   const ofKind = (kind: ActionKind) => (row: GridRow) => kinds.get(row) === kind;
   if (actions) add("Processes", gridTable(actions, ofKind("process")));
+  // Each process with the actions it runs, in their order, out of its own definition (process-actions.ts): one grid more,
+  // read only where the Actions list names a process, as the imports' definitions are read only where the Imports tab
+  // names an import from a file. It is no table, and its failure is none: the Processes table stands as it is, each
+  // process says that its actions could not be read, and the log says why. The result carries the processes once the
+  // Actions list was read, none or not: a result without them is one an earlier version made.
+  let processes: ProcessActions[] | undefined;
+  const own = actions?.rows.filter(ofKind("process")) ?? [];
+  if (actions) processes = [];
+  if (actions && own.length) {
+    log(processesLine(own.length));
+    progress.status("Reading Process actions…");
+    let definitions: Grid | undefined;
+    try {
+      definitions = await grid("Process actions", axis(native, "PROCESS"), axis(native, "PROCESS_PROPERTY"));
+    } catch (error) {
+      log(`Process actions: ${message(error)}`);
+    }
+    const column = native.constants.SYSTEM_PROPERTY_PROCESS_DEFINITION;
+    processes = processActions(own, definitions, actions.rows, log, typeof column === "number" ? column : PROCESS_DEFINITION);
+  }
   // The Imports tab is kept for the mappings of the imports from a file, which it names.
   const imports = await step("Imports", async () => {
     const tab = await grid("Imports", axis(native, "IMPORT_ALL"), axis(native, "IMPORT_DEFINITION_PROPERTY"));
@@ -281,5 +302,6 @@ export async function exportModel(progress: Progress, diagnostics: () => string,
   tables.unshift({ file: "Model Details.csv", label: "Model Details", headers: [...DETAILS_HEADERS], rows: plainRows(details), guard: true, details: true });
   const date = new Date().toISOString().slice(0, 10);
   return { kind: "model", name: model, id: native.modelId, zipName: `${fileSafe(model, "model")} - Model Export - ${date}.zip`, tables,
-    summary: [...summary, ...notes], moduleIds, ...(mappings ? { importMappings: mappings } : {}), ...(lineItemIds ? { lineItemIds } : {}) };
+    summary: [...summary, ...notes], moduleIds, ...(mappings ? { importMappings: mappings } : {}), ...(processes ? { processActions: processes } : {}),
+    ...(lineItemIds ? { lineItemIds } : {}) };
 }
