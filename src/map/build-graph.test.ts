@@ -397,6 +397,25 @@ describe("The model map's graph, from the tables of a model export", () => {
     }
   });
 
+  it("gives each module its Functional Area from Modules and its apps from Module Usage, and says which of the two the result has", () => {
+    const tables = [lineItems(moduleRow("REV01 Revenue"), item("REV01 Revenue", "Revenue"), moduleRow("REV02 Margin"), item("REV02 Margin", "Margin"), moduleRow("SYS01 Time"))];
+    const modules = file("Modules", ["", "Functional Area", "Applies To"], [["REV01 Revenue", " Sales ", ""], ["REV02 Margin", "-", ""], ["SYS01 Time", "Admin", ""], ["Gone", "Sales", ""], ["-- HEADING", "Sales", ""]]);
+    // A row for each module and page, and one with no app for a module that no page uses (model-pages.ts).
+    const usage = file("Module Usage", ["Module", "App", "Page", "Page type", "App ID", "Page ID"], [["REV01 Revenue", "Planning", "Board", "Board", "a", "p"],
+      ["REV01 Revenue", "Planning", "Grid", "Worksheet", "a", "q"], ["REV01 Revenue", "Pricing", "Rates", "Board", "b", "r"], ["REV02 Margin", "-", "Not on any page", "-", "-", "-"],
+      ["SYS01 Time ", "Admin app", "Setup", "Board", "c", "s"], ["Gone", "Planning", "Board", "Board", "a", "p"]]);
+    const facts = (graph: ModelGraph): unknown[] => graph.nodes.filter(node => node.kind === "module").map(node => [node.name, node.functionalArea, node.apps]);
+    const graph = buildModelGraph([...tables, modules, usage]);
+    // A name is found as written, or without the spaces at its ends; a cell with nothing or a dash says nothing.
+    expect([facts(graph), graph.moduleFacts]).toEqual([[["REV01 Revenue", "Sales", ["Planning", "Pricing"]], ["REV02 Margin", undefined, undefined], ["SYS01 Time", "Admin", ["Admin app"]]],
+      { functionalAreas: true, moduleUsage: true }]);
+    // Modules without the column, and no Module Usage: nothing of either. Nothing else of the graph changes with them.
+    const plain = buildModelGraph([...tables, modulesFile("REV01 Revenue", "REV02 Margin", "SYS01 Time")]);
+    expect([facts(plain), plain.moduleFacts]).toEqual([[["REV01 Revenue", undefined, undefined], ["REV02 Margin", undefined, undefined], ["SYS01 Time", undefined, undefined]], undefined]);
+    expect([graph.edges, graph.unresolved, graph.limitations, graph.sections]).toEqual([plain.edges, plain.unresolved, plain.limitations, plain.sections]);
+    expect(buildModelGraph([...tables, usage]).moduleFacts).toEqual({ functionalAreas: false, moduleUsage: true });
+  });
+
   it("takes a row with no Module Name for a line item, and leaves it out, when it has a format, a formula or a summary", () => {
     // Each of the three alone marks the row: a module's own row has none of them.
     const marked = (cells: Cells): string[] => {
