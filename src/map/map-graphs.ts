@@ -168,12 +168,12 @@ function aggregate(model: MapModel, edges: readonly GraphEdge[], endpoint: (node
   return [...links.values()];
 }
 
-/** The links between modules are the same for every section: they are counted once for a model, with and without the
- * access links. */
-const moduleLinkCache = new WeakMap<MapModel, { plain?: Link[]; access?: Link[] }>();
+/** The links between modules are the same for every section, and for every grouping of the modules: they are counted
+ * once for a model's graph, with and without the access links. */
+const moduleLinkCache = new WeakMap<MapModel["graph"], { plain?: Link[]; access?: Link[] }>();
 function moduleLinks(model: MapModel, access: boolean): Link[] {
-  let cached = moduleLinkCache.get(model);
-  if (!cached) moduleLinkCache.set(model, cached = {});
+  let cached = moduleLinkCache.get(model.graph);
+  if (!cached) moduleLinkCache.set(model.graph, cached = {});
   const which = access ? "access" : "plain";
   return cached[which] ??= aggregate(model, activeEdges(model, access), node => {
     const module = model.moduleOf(node);
