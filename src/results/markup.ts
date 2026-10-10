@@ -3,6 +3,7 @@ import type { Items } from "./cell-lists.js";
 import { headerWidth, ROW_BUTTON, WIDEST } from "./column-widths.js";
 import { APP_FILES, rowColumns, type Column } from "./columns.js";
 import type { MappingView } from "./import-mapping-view.js";
+import type { ProcessView } from "./process-actions-view.js";
 import { LINE_ITEMS_FILE } from "./line-items-view.js";
 import { ACCESS_FILE, MODEL_CALENDAR_FILE, MODULES_FILE, type Analysed, type CardSection, type Overview, type SectionCell } from "./result-view.js";
 import { cellText, groupedCount, NONE, type Row, type Sort } from "./table-engine.js";
@@ -782,14 +783,26 @@ export function importMappingHtml(mapping: MappingView): string {
       ${table}${mapping.lines.map(drawerLine).join("")}</div>`;
 }
 
+/** The actions of a process (process-actions-view.ts), with their number in the order the process runs them where that is
+ * known, each with its kind, then the lines under them. An action whose row the page can open, `opens` says by its place,
+ * is named by a link that opens that row's details; any other is named as text. */
+export function processActionsHtml(process: ProcessView, opens: readonly boolean[]): string {
+  const name = (step: ProcessView["steps"][number], index: number): string => (opens[index]
+    ? `<button type="button" class="link" data-act="step" data-step="${index}">${esc(step.name)}</button>` : esc(step.name));
+  const table = process.steps.length ? `<table class="mini"><thead><tr>${process.ordered ? "<th>#</th>" : ""}<th>Action</th><th>Kind</th></tr></thead>
+      <tbody>${process.steps.map((step, index) => `<tr>${process.ordered ? `<td>${index + 1}</td>` : ""}<td>${name(step, index)}</td><td>${esc(step.kind)}</td></tr>`).join("")}</tbody></table>` : "";
+  return `<div class="d-sec" id="drawerSteps"><h3>Actions (${process.steps.length})</h3>
+      ${table}${process.lines.map(drawerLine).join("")}</div>`;
+}
+
 /** One row in full: every column, hidden ones included, with nothing cut short, for each cell that is said in words the
  * text that was read (`exported`), named by the file's column it was read from where that is another (`readUnder`), and
  * for each cell that lists several items those items, one to a line (`items`). A row of an import from a file has its
- * mapping after the columns (`mapping`). */
+ * mapping after the columns (`mapping`), and a row of a process the actions it runs (`process`). */
 export function rowDrawerHtml(columns: readonly Column[], row: Row, links: Links, exported?: ReadonlyMap<number, unknown>, items?: ReadonlyMap<number, Items>,
-  readUnder?: ReadonlyMap<number, string>, mapping?: MappingView): string {
+  readUnder?: ReadonlyMap<number, string>, mapping?: MappingView, process?: { view: ProcessView; opens: readonly boolean[] }): string {
   return `<div class="d-sec"><h3>All columns</h3>
-    ${allColumns(columns, row, links, exported, items, readUnder)}</div>${mapping ? importMappingHtml(mapping) : ""}`;
+    ${allColumns(columns, row, links, exported, items, readUnder)}</div>${mapping ? importMappingHtml(mapping) : ""}${process ? processActionsHtml(process.view, process.opens) : ""}`;
 }
 
 /** Where a button at the top right of a row's details leads: the model map, a module of the model in Model Building, an
