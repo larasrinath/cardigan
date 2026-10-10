@@ -69,13 +69,13 @@ Cardigan needs Chrome 111 or later, on Windows or on a Mac. Nothing else has to 
 2. **Unzip it into a folder you keep.** Chrome loads the extension from that folder every time it starts. On Windows, right-click the zip and choose **Extract All...**; on a Mac, double-click it.
 3. **Look into the folder.** It must hold `manifest.json` and a `dist` folder with four `.js` files. If it holds `src` and `package.json` instead, it is the source code: go back to step 1.
 4. **Load it in Chrome.** Open `chrome://extensions`, turn on **Developer mode** at the top right, choose **Load unpacked** and select that folder.
-5. **Refresh your Anaplan tabs.** A tab that was open before needs one refresh. Then click the Cardigan icon; the puzzle icon in Chrome's toolbar lets you pin it there.
+5. **Click the Cardigan icon on an Anaplan tab.** An app that was open before needs no refresh: the click puts Cardigan's script there. A model in Model Building that was open before needs one refresh. The puzzle icon in Chrome's toolbar lets you pin Cardigan there.
 
 If Chrome says **Could not load javascript 'dist/content.js' for script** and **Could not load manifest**, the folder you selected has no `dist` folder: it is the source code, or a folder above or below the right one. Start again from step 1.
 
 To check the download, compare it with the SHA-256 published with the release: `shasum -a 256 cardigan-<version>.zip` on a Mac, `certutil -hashfile cardigan-<version>.zip SHA256` on Windows.
 
-To update, unzip the new release over the same folder, click the reload icon on Cardigan's card in `chrome://extensions`, then refresh your Anaplan tabs.
+To update, unzip the new release over the same folder and click the reload icon on Cardigan's card in `chrome://extensions`. Your Anaplan tabs need no refresh: click the Cardigan icon on one.
 
 ## Use
 
@@ -109,14 +109,15 @@ Closing the results page stops the reading.
 
 ### If it does not start
 
-- **Not connected**: refresh the Anaplan tab, then click the icon again. A tab that was open before Cardigan was installed, updated or reloaded needs this once.
+- **Not connected**: the Anaplan tab did not answer. A tab that was open before Cardigan was installed, updated or reloaded needs nothing: clicking the icon on it puts Cardigan's script back there. A tab that is still loading is asked again for a few seconds; if it still does not answer, wait for it and choose **Run again**, or refresh it and click the icon on it.
+- **Not an Anaplan tab** or **Tab closed**: the page says what the tab shows, or that it was closed. Open the app or model in Anaplan, then click the icon on that tab.
 - **Nothing to analyse**: the tab shows an Anaplan page that is neither an app nor a model. Open one there, let it load, then choose **Run again**.
 - When a reading stops, the page says what happened and what to do. **Copy diagnostic log** copies the log, to send with a report. It holds request paths, statuses and counts, and no cookies, tokens or cell values.
 - If the model map cannot be drawn, the page says so in the map's place. The tables are not affected, and **Copy diagnostic log** beside the message copies the reason.
 
 ## Privacy and permissions
 
-- Cardigan declares no permissions. Its scripts run only on `https://*.app.anaplan.com` and, for Australia, `https://*.app2.anaplan.com`, and add nothing to those pages.
+- Cardigan declares two permissions, **activeTab** and **scripting**, and neither comes with a warning. Together they let a click on its icon put its script back into that one Anaplan tab when Chrome has not, as in a tab that was open before Cardigan was installed, updated or reloaded. It asks for no access to any site. Its scripts run only on `https://*.app.anaplan.com` and, for Australia, `https://*.app2.anaplan.com`, and add nothing to those pages.
 - It reads nothing until you click its icon or choose **Run again**. It is read-only by construction: its web requests are GET requests to two Anaplan services, its socket client can only subscribe, and every request to a model is checked to carry no change.
 - Nothing is sent anywhere except those reads, and the results page loads nothing from the internet.
 - The kept result is in the browser's session storage for its tab, compressed and not encrypted.
@@ -156,9 +157,9 @@ You need Node 20.19+, 22.12+ or 24+.
 | `npm run package` | Builds, then writes the release zip |
 | `npm run icons` | Makes the four icons in `icons/` again from the logo, `icons/source.png` |
 
-To run from source, choose **Load unpacked** and select the repository root. After a rebuild, reload the extension and refresh the Anaplan tab. `dist/` is not in Git: build after every pull.
+To run from source, choose **Load unpacked** and select the repository root. After a rebuild, reload the extension, then click the icon on the Anaplan tab: that puts the new content script there. What reads a model inside the page (`src/model-content.ts`, `src/model/`, `src/bridge.ts`) is loaded only with the page, so refresh the tab after changing it. `dist/` is not in Git: build after every pull.
 
-In the Anaplan tab, `src/content.ts` and `src/analyse.ts` read an app, and `src/model-content.ts` and `src/model/` read a model through the page's own client. `src/card-reader/` reads a page's cards. `src/background.ts` opens the results page: `results.html`, `results.css` and `src/results/`. `src/map/` builds a model's map from the model's tables and draws it on the page, styled by `map.css`. `src/protocol.ts` lists the messages between the page and the tab.
+In the Anaplan tab, `src/content.ts` and `src/analyse.ts` read an app, and `src/model-content.ts` and `src/model/` read a model through the page's own client. `src/card-reader/` reads a page's cards. `src/background.ts` opens the results page: `results.html`, `results.css` and `src/results/`. `src/map/` builds a model's map from the model's tables and draws it on the page, styled by `map.css`. `src/protocol.ts` lists the messages between the page and the tab, and `src/results/connection.ts` connects the two, putting the content script back into a tab that has none.
 
 ### Release
 
@@ -167,7 +168,7 @@ In the Anaplan tab, `src/content.ts` and `src/analyse.ts` read an app, and `src/
 3. Run `npm run package`. It writes `release/cardigan-<version>.zip` and prints its SHA-256.
 4. Publish the zip with its SHA-256.
 
-The zip holds the twelve files Chrome loads: `manifest.json`, four bundles, four icons, `results.html`, `results.css` and `map.css`. The same files always give the same bytes. The packager refuses a version that differs between `manifest.json` and `package.json`, a missing or stale bundle, a results page that loads a file outside the zip, and a manifest that asks for a permission or has no content security policy that keeps everything inside the package.
+The zip holds the twelve files Chrome loads: `manifest.json`, four bundles, four icons, `results.html`, `results.css` and `map.css`. The same files always give the same bytes. The packager refuses a version that differs between `manifest.json` and `package.json`, a missing or stale bundle, a results page that loads a file outside the zip, and a manifest that asks for any permission but activeTab and scripting, or has no content security policy that keeps everything inside the package.
 
 ## Licence
 

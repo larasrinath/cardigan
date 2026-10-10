@@ -8,11 +8,18 @@ import type { AnalysisResult, Cell } from "./result-types.js";
  * - The page sends "run" by itself only when the icon has just opened it (OPENED_PARAM, FRESH_MS). A results page that is
  *   reloaded, restored from history or reopened later asks nothing until the user clicks Run again: by then its tab ID
  *   may belong to another tab.
+ * - A tab whose content script does not answer may have been open since before the extension was installed, updated or
+ *   reloaded: Chrome puts content scripts only into pages that load after that. The page then puts it into the tab itself
+ *   (CONTENT_SCRIPT), which the icon's click allows for that tab, and only on an Anaplan page (results/connection.ts).
  * Every message is plain JSON. */
 
 export const PORT_NAME = "cardigan-results";
 /** The results page: chrome.runtime.getURL(RESULTS_PAGE) + "?" + TAB_PARAM + "=" + the Anaplan tab's ID. */
 export const RESULTS_PAGE = "results.html";
+/** The content script in the Anaplan tab's own world, as the manifest names it. */
+export const CONTENT_SCRIPT = "dist/content.js";
+/** The pages the content scripts run on, as the manifest's matches say: every region's app host, Australia's included. */
+export const CONTENT_SCRIPT_ORIGIN = /^https:\/\/(?:[a-z0-9-]+\.)*app2?\.anaplan\.com$/i;
 export const TAB_PARAM = "tab";
 /** Also in the address: when the icon was clicked, as Date.now(). The page starts the analysis by itself only when that is
  * less than FRESH_MS ago, and then removes the parameter from its address, so a reload does not start another. */

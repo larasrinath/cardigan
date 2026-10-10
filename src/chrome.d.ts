@@ -20,7 +20,14 @@ declare namespace chrome {
   namespace tabs {
     interface Tab { id?: number; index: number; windowId?: number }
     function connect(tabId: number, info?: { name?: string }): runtime.Port;
+    /** Rejects when there is no tab with that ID. */
+    function get(tabId: number): Promise<Tab>;
     function create(properties: { url: string; index?: number; windowId?: number; openerTabId?: number; active?: boolean }): Promise<Tab>;
+  }
+  /** The "scripting" permission's, in a tab the toolbar icon was clicked on ("activeTab"). */
+  namespace scripting {
+    interface InjectionResult { result?: unknown; frameId?: number }
+    function executeScript(injection: { target: { tabId: number }; files?: string[]; func?: () => unknown }): Promise<InjectionResult[]>;
   }
   namespace action {
     const onClicked: { addListener(listener: (tab: tabs.Tab) => void): void };
