@@ -253,6 +253,10 @@ tbody td{
 }
 tbody tr:hover{background:var(--panel-2)}
 tbody tr:last-child td{border-bottom:0}
+/* A heading row, a module's own row of a model's Line Items, stands out above the rows under it, as in Anaplan's blueprint. */
+.table-wrap tr.heading{background:var(--panel-2)}
+.table-wrap tr.heading:hover{background:var(--panel-3)}
+.table-wrap tr.heading td{font-weight:600}
 td.num{font-variant-numeric:tabular-nums}
 .cell-t{display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom}
 .link{color:var(--accent);border-radius:var(--r-xs);text-align:left;max-width:100%;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom}

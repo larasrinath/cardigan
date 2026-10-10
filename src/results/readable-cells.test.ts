@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { actionWords, formatWords, mappingWords, MAX_DEFINITION_LENGTH, READABLE_HEADERS, readableCell, summaryWords, type CellNames } from "./readable-cells.js";
+import { actionWords, formatType, formatWords, mappingWords, MAX_DEFINITION_LENGTH, READABLE_HEADERS, readableCell, summaryWords, type CellNames } from "./readable-cells.js";
 
 // Every definition here is made up, in the shape Anaplan's own export of a settings grid writes one: no model's data.
 const cell = (definition: unknown): string => JSON.stringify(definition);
@@ -54,6 +54,20 @@ describe("A line item's Format in words", () => {
     for (const [definition, words] of types) expect(formatWords(cell(definition)), words).toBe(words);
     // A data type with nothing to choose says nothing else, whatever else its cell holds.
     expect(formatWords(cell({ dataType: "BOOLEAN", decimalPlaces: 2, textType: "DRILLTHRU_URI" }))).toBe("Boolean");
+  });
+
+  it("says a format's data type alone, by the same labels, for the Line Items table's Format type", () => {
+    const types: [definition: unknown, type: string][] = [[DEFAULT_NUMBER, "Number"], [{ ...DEFAULT_NUMBER, ...places(2), unitsType: "PERCENTAGE" }, "Number"],
+      [{ dataType: "BOOLEAN" }, "Boolean"], [{ dataType: "DATE" }, "Date"], [{ textType: "DRILLTHRU_URI", dataType: "TEXT" }, "Text"],
+      [{ periodType: { entityId: "MONTH", entityLabel: "Month" }, dataType: "TIME_ENTITY" }, "Time Period"], [{ hierarchyEntityLongId: 101000000007, dataType: "ENTITY" }, "List"],
+      [{ dataType: "NONE" }, "No Data"]];
+    for (const [definition, type] of types) expect(formatType(cell(definition)), type).toBe(type);
+    // A type with no label is said as the cell holds it, where the words leave the whole cell as it is.
+    expect([formatType(cell({ dataType: "DURATION" })), formatWords(cell({ dataType: "DURATION" }))]).toEqual(["DURATION", undefined]);
+    // Only the data type is read: an option the words cannot read leaves the type known.
+    expect([formatType(cell({ dataType: "NUMBER", decimalPlaces: "two" })), formatWords(cell({ dataType: "NUMBER", decimalPlaces: "two" }))]).toEqual(["Number", undefined]);
+    // A cell that is no definition, or one that names no data type, has none.
+    for (const text of [...NOT_A_DEFINITION, cell({ dataType: 7 }), cell({ dataType: "" }), cell({ dataType: null })]) expect(formatType(text), String(text).slice(0, 40)).toBeUndefined();
   });
 
   it("says nothing after Number for a number in Anaplan's default format", () => {
