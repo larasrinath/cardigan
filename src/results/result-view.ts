@@ -1,3 +1,4 @@
+import { MODEL_PAGE_FILES } from "../page-files.js";
 import type { AnalysisResult, Cell, ResultTable } from "../result-types.js";
 import { cellLists, type Items } from "./cell-lists.js";
 import { APP_FILES, cardsNamed, columnIndex, COLUMN_CHOICES, type CardsTable } from "./columns.js";
@@ -489,12 +490,13 @@ export function modelFacts(result: AnalysisResult): [setting: string, value: str
 /** The order of a model's files in the navigation and among the overview's tiles: the order of Anaplan's own Model
  * settings, with the Actions list's files in the order the owner gave. Each file is known by the name model/export.ts
  * writes it under. Dynamic Cell Access is none of Anaplan's settings: it is made from Line Items, and comes right after
- * it. Line Item Subsets is not exported yet, and has its place for when it is. A file of a result that is not listed
- * here comes after these, in the result's own order: a file that is renamed, or new, moves to the end and does not go
- * missing. */
+ * it. Line Item Subsets is not exported yet, and has its place for when it is. After the settings come the tables of the
+ * pages built on the model, Module Usage, Page Filters and Page Actions (page-files.ts), last before the map. A file of a
+ * result that is not listed here comes after these, in the result's own order: a file that is renamed, or new, moves to
+ * the end and does not go missing. */
 export const MODEL_FILE_ORDER: readonly string[] = [
   MODEL_CALENDAR_FILE, "Time Ranges.csv", "Versions.csv", "General Lists.csv", "Line Item Subsets.csv", MODULES_FILE, LINE_ITEMS_FILE, ACCESS_FILE,
-  "Processes.csv", IMPORTS_FILE, "Import Data Sources.csv", "Exports.csv", OTHER_ACTIONS_FILE, SOURCE_MODELS_FILE,
+  "Processes.csv", IMPORTS_FILE, "Import Data Sources.csv", "Exports.csv", OTHER_ACTIONS_FILE, SOURCE_MODELS_FILE, ...MODEL_PAGE_FILES,
 ];
 
 /** The result's files as the page lists them, in the navigation and as the overview's tiles: every file but the Details

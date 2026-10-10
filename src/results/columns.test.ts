@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { PAGE_ACTIONS_HEADERS, PAGE_FILTERS_HEADERS } from "../model-pages.js";
+import { MODEL_PAGE_FILES, MODULE_USAGE_FILE, MODULE_USAGE_HEADERS, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE } from "../page-files.js";
 import { HEADERS, type TabName } from "../report.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
 import { APP_FILES, cardsNamed, cardsOf, COLUMN_CHOICES, columnIndex, columnsOf, FILTER_MAX, FILTER_MIN, MODEL_COUNTS, MODEL_HIDDEN, NUMBERS_HIDDEN, ROW_NAME_COLUMNS, rowColumns, rowKeys, rowNameIndex,
@@ -131,11 +133,13 @@ describe("The results page's columns", () => {
     }
     // A model's files, as model/export.ts names them, and the headers of Anaplan's own grids: each count is a count, right-
     // aligned as a number is, and every other column of the file stays plain text, whatever number it holds.
-    expect([...MODEL_COUNTS]).toEqual([["Modules.csv", ["Cell Count", "Populated Cell Count"]], ["Line Items.csv", ["Cell Count", "Populated Cell Count"]], ["General Lists.csv", ["Item Count"]]]);
+    // Line Items also counts the page filters that have each line item as their condition, which a model's run adds.
+    expect([...MODEL_COUNTS]).toEqual([["Modules.csv", ["Cell Count", "Populated Cell Count"]], ["Line Items.csv", ["Cell Count", "Populated Cell Count", "Page Filters"]],
+      ["General Lists.csv", ["Item Count"]]]);
     expect(shown(table("Modules.csv", ["", "Applies To", "Cell Count", "Functional Area", "Notes"]))).toEqual([["Cell Count", "count", true]]);
     expect(shown(table("General Lists.csv", ["", "Parent Hierarchy", "Top Level Item", "Numbered List", "Item Count", "Next Item Index", "Notes"]))).toEqual([["Item Count", "count", true]]);
-    expect(shown(table("Line Items.csv", ["", "Format", "Time Range", "Cell Count", "Populated Cell Count", "Calculation Effort", "Code", "Module Name"])))
-      .toEqual([["Cell Count", "count", true], ["Populated Cell Count", "count", true]]);
+    expect(shown(table("Line Items.csv", ["", "Format", "Time Range", "Cell Count", "Populated Cell Count", "Calculation Effort", "Code", "Module Name", "Page Filters"])))
+      .toEqual([["Cell Count", "count", true], ["Populated Cell Count", "count", true], ["Page Filters", "count", true]]);
     // Another model file with a column of the same name is not known to count anything, nor is a count's header in
     // another case, and the files of actions keep their times and durations as text.
     expect([shown(table("Versions.csv", ["", "Cell Count"])), shown(table("Modules.csv", ["", "cell count"])),
@@ -145,6 +149,23 @@ describe("The results page's columns", () => {
     // A Model Calendar setting's allowed values only guide filling the template in by hand: the column starts hidden.
     const calendar = columnsOf(table("Model Calendar.csv", ["Section", "Setting", "Value", "Allowed values"]));
     expect(calendar.map(column => [column.label, column.hidden])).toEqual([["Section", false], ["Setting", false], ["Value", false], ["Allowed values", true]]);
+  });
+
+  it("shows the tables of the pages built on a model as the app's tables they are made from, each with a filter on the app", () => {
+    const choices = (file: string, headers: readonly string[]) => columnsOf(table(file, [...headers])).map(column => [column.label, column.kind, column.filter, column.hidden]);
+    expect(choices(MODULE_USAGE_FILE, MODULE_USAGE_HEADERS)).toEqual([["Module", "text", false, false], ["App", "text", true, false], ["Page", "text", false, false]]);
+    // Page Filters and Page Actions are an app's Filters and Action Buttons with the app in front: their columns are those
+    // tables' own, IDs and numbers hidden.
+    for (const [file, headers, tab] of [[PAGE_FILTERS_FILE, PAGE_FILTERS_HEADERS, "Filters"], [PAGE_ACTIONS_FILE, PAGE_ACTIONS_HEADERS, "Actions"]] as const) {
+      expect(headers, file).toEqual(["App", ...HEADERS[tab]]);
+      expect(choices(file, headers), file).toEqual([["App", "text", true, false], ...choices(APP_FILES[tab], HEADERS[tab])]);
+      expect(columnsOf(table(file, [...headers])).filter(column => column.hidden).map(column => column.label), file)
+        .toEqual(columnsOf(appTable(APP_FILES[tab])).filter(column => column.hidden).map(column => column.label));
+    }
+    // The run writes them, so the dash alone says there is nothing, and a row is named as the app's own tables name one.
+    expect(MODEL_PAGE_FILES.map(file => writesNone(table(file, ["App"])))).toEqual([true, true, true]);
+    expect([rowNameIndex(table(PAGE_FILTERS_FILE, [...PAGE_FILTERS_HEADERS])), rowNameIndex(table(PAGE_ACTIONS_FILE, [...PAGE_ACTIONS_HEADERS])),
+      rowNameIndex(table(MODULE_USAGE_FILE, [...MODULE_USAGE_HEADERS]))]).toEqual([9, 3, undefined]);
   });
 
   it("shows every column of a file it has no choices for as plain text: a model's files, odd names", () => {

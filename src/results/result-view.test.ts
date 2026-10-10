@@ -250,17 +250,22 @@ describe("What the results page reads out of a result", () => {
 
   it("lists a model's files in the order of Anaplan's Model settings, and an app's as the result has them", () => {
     // Dynamic Cell Access is no setting of Anaplan's: the export makes it from Line Items, and it comes right after it.
+    // After the settings, the tables of the pages built on the model, which a model's run adds (model-pages.ts): last
+    // before the map.
     expect(MODEL_FILE_ORDER).toEqual(["Model Calendar.csv", "Time Ranges.csv", "Versions.csv", "General Lists.csv", "Line Item Subsets.csv", "Modules.csv", "Line Items.csv",
-      "Dynamic Cell Access.csv", "Processes.csv", "Imports.csv", "Import Data Sources.csv", "Exports.csv", "Other Actions.csv", "Source Models.csv"]);
-    expect([MODEL_FILE_ORDER[0], new Set(MODEL_FILE_ORDER).size, MODEL_FILE_ORDER[MODEL_FILE_ORDER.indexOf("Line Items.csv") + 1]]).toEqual([MODEL_CALENDAR_FILE, 14, ACCESS_FILE]);
+      "Dynamic Cell Access.csv", "Processes.csv", "Imports.csv", "Import Data Sources.csv", "Exports.csv", "Other Actions.csv", "Source Models.csv",
+      "Module Usage.csv", "Page Filters.csv", "Page Actions.csv"]);
+    expect([MODEL_FILE_ORDER[0], new Set(MODEL_FILE_ORDER).size, MODEL_FILE_ORDER[MODEL_FILE_ORDER.indexOf("Line Items.csv") + 1]]).toEqual([MODEL_CALENDAR_FILE, 17, ACCESS_FILE]);
     const file = (name: string): ResultTable => ({ file: name, label: name.replace(/\.csv$/, ""), headers: ["", "Value"], rows: [], guard: false });
     /** The files of a result as the page lists them: each one's name and its place in the result. */
     const listed = (kind: "app" | "model", ...names: string[]) => listedTables(result(kind, [modelDetails, ...names.map(file)])).map(({ index, table }) => `${index} ${table.file}`);
-    // The export's own order (model/export.ts), after the Details file: every file moves to its place, and keeps its place in the result as its name.
+    // The export's own order (model/export.ts), after the Details file, and then the tables of the pages built on the
+    // model: every file moves to its place, and keeps its place in the result as its name.
     const written = ["Line Items.csv", "Dynamic Cell Access.csv", "Modules.csv", "General Lists.csv", "Processes.csv", "Imports.csv", "Import Data Sources.csv", "Exports.csv", "Other Actions.csv",
-      "Time Ranges.csv", "Versions.csv", "Source Models.csv", "Model Calendar.csv"];
+      "Time Ranges.csv", "Versions.csv", "Source Models.csv", "Model Calendar.csv", "Module Usage.csv", "Page Filters.csv", "Page Actions.csv"];
     expect(listed("model", ...written)).toEqual(["13 Model Calendar.csv", "10 Time Ranges.csv", "11 Versions.csv", "4 General Lists.csv", "3 Modules.csv", "1 Line Items.csv",
-      "2 Dynamic Cell Access.csv", "5 Processes.csv", "6 Imports.csv", "7 Import Data Sources.csv", "8 Exports.csv", "9 Other Actions.csv", "12 Source Models.csv"]);
+      "2 Dynamic Cell Access.csv", "5 Processes.csv", "6 Imports.csv", "7 Import Data Sources.csv", "8 Exports.csv", "9 Other Actions.csv", "12 Source Models.csv",
+      "14 Module Usage.csv", "15 Page Filters.csv", "16 Page Actions.csv"]);
     // Only the files the result has, in that order.
     expect(listed("model", "Imports.csv", "Line Items.csv", "Versions.csv")).toEqual(["3 Versions.csv", "2 Line Items.csv", "1 Imports.csv"]);
     // A file that is not in the order comes after those that are, in the result's order, and none is dropped: a renamed
@@ -278,7 +283,7 @@ describe("What the results page reads out of a result", () => {
       .toEqual(["1 Pages.csv", "2 Cards.csv", "3 Line Items.csv", "4 Model Calendar.csv", "5 Where Used.csv"]);
     // The overview's tiles follow the same order.
     expect(overviewOf(result("model", [modelDetails, ...written.map(file)])).tiles.map(tile => tile.label)).toEqual(["Model Calendar", "Time Ranges", "Versions", "General Lists", "Modules",
-      "Line Items", "Dynamic Cell Access", "Processes", "Imports", "Import Data Sources", "Exports", "Other Actions", "Source Models"]);
+      "Line Items", "Dynamic Cell Access", "Processes", "Imports", "Import Data Sources", "Exports", "Other Actions", "Source Models", "Module Usage", "Page Filters", "Page Actions"]);
   });
 
   // A model's Model Calendar file as the export writes it: the assessment template's rows, the first five about the model.

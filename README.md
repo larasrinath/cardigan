@@ -34,6 +34,8 @@ Cardigan reads every published page of the app. The **Overview** counts each tab
 
 Open the model in Model Building; the classic model page opened on its own works too. Cardigan reads the Model settings into twelve tables, in Anaplan's order, and makes a thirteenth, Dynamic Cell Access, from Line Items: Model Calendar, Time Ranges, Versions, General Lists, Modules, Line Items, Dynamic Cell Access, Processes, Imports, Import Data Sources, Exports, Other Actions and Source Models.
 
+Then it reads the pages built on the model, in every app you can open, and makes three more tables: **Module Usage**, **Page Filters** and **Page Actions**. They come last, before the map.
+
 - A table read from a Model settings grid is laid out as Anaplan's own export of that grid: each row's name first, then the grid's columns.
 - **Line Items** covers every module and lists each line item beside its module; a module's own row is not listed. Three columns follow Anaplan's own: **Ratio Numerator**, **Ratio Denominator** and **Format List**.
 - **Double-click a row of Line Items or Modules to open its module in Anaplan.** The Anaplan tab Cardigan read loads Model Building on that module and comes to the front; no new tab opens. The page reloads, and the model stays open. A line item opens its module: Model Building opens modules, not single line items. It works for a model read in Model Building, by this version or a later one; otherwise the page says what to do.
@@ -42,6 +44,10 @@ Open the model in Model Building; the classic model page opened on its own works
 - **Processes**, **Exports** and **Other Actions** are the Actions list, split at its headings. One column follows Anaplan's own in **Other Actions**: **Action List**, the list an action deletes from or orders, as General Lists names it. **Imports** joins each import's source and target with its last run, notes and processes.
 - In **Imports**, an import from a module or a saved view shows its **Source Object** as three columns, **Source Model**, **Source Module** and **Saved View**. For an import from the model itself, Source Model names the model. Click the row to see Source Object as it was read, under **Source Object as read**. Any other source, such as a file, stays as it is, under Source Model.
 - **Source Models** shows **Mapped To** as two columns, **Mapped Workspace** and **Mapped Model**: the workspace and the model each source model is mapped to, by name, or by ID where Anaplan gives no name. Click the row to see Mapped To as it was read, under **Mapped To as read**.
+- **Module Usage** lists each module with the apps and pages that use it, one row per module and page, in the order of Modules. A page uses a module when a card on it shows the module, a saved view of it or one of its line items, or filters or formats by one of its line items. A module that no page uses has one row, which says **Not on any page**. **App** has a filter.
+- **Page Filters** and **Page Actions** are an app's **Filters** and **Action Buttons** tables for those pages, with the app in front: every filter and every button of a card that works on this model, by app, page and card.
+- **Line Items** has one more column, **Page Filters**: how many page filters have the line item as their condition. It is empty rather than 0 when a page could not be read, or a filter's condition line item could not be named.
+- On the Overview, under **About this export**, **Apps** names the apps whose pages use the model, one per line, or says that no app's pages use it.
 - **Model Calendar** lists the calendar's settings that hold a value: a setting that does not apply to the model's calendar type, or that the model does not show, is left out, and so are the template's **Applies to** and **Notes** columns, which only guide filling it in by hand. Its **Allowed values** column starts hidden; the column chooser shows it. The template's rows about the model itself are not listed either: those that have a value, such as **Captured on**, are on the Overview, under **About this export**.
 
 ![A model's Dynamic Cell Access table: each access driver with the line items it controls, one row for each use, marked Read or Write](docs/images/model-dynamic-cell-access.png)
@@ -56,7 +62,7 @@ Open the model in Model Building; the classic model page opened on its own works
 - Double-click a section to open its modules, and a module to open its line items. **Show all modules** shows every module. `Esc` goes back a step.
 - An arrow from A to B means B reads A.
 - Click a box to see everything that feeds it, marked in blue, and everything it feeds, marked in red, directly or through others. The rest fades; **Only these** hides it. Dashes move along the marked links for as long as the box is selected, long ones towards it and short ones away from it; they stand still if your system is set to reduce motion.
-- The panel on the right gives the box's details: for a line item its formula, format and summary in words, and what feeds it and what it feeds directly.
+- The panel on the right gives the box's details: for a line item its formula, format and summary in words, and what feeds it and what it feeds directly. A line item's details also list the page filters that have it as their condition, by app, page and card, from **Page Filters**: the first ten, and how many more.
 - The search finds sections, modules and line items by name. In the **Legend**, click an entry to hide or show its boxes. **Access drivers** adds a link from each access driver to what it controls.
 - From **Line Items** or **Modules**, **Open in Model map**, at the top of a row's details, goes straight to that line item or module on the map, selected, with what feeds it and what it feeds.
 - Drag to move, scroll to zoom, press `F` for the whole map. **About this map** lists the keys. The map follows the page's theme.
@@ -90,7 +96,7 @@ Closing the results page stops the reading.
 ### The results page
 
 - The page stands in a column in the middle of the window, at most 1,400 pixels wide, with room at both sides that grows with the screen. A table wider than the column scrolls sideways in its own box. The model map takes the whole width of the window.
-- The navigation is a bar under the header, on one line, with an icon for each entry: the overview, each table and a model's map. A model's tables are grouped in menus, **Time**, **Lists**, **Modules** and **Actions**, with **Versions** and **Source Models** on their own; a group with only one table in the result is that table's entry. A menu's button names the table shown when it is one of the menu's. In a window narrower than 1,000 pixels, one menu holds every entry. The Overview's tiles say how many rows each table has, and a click on a tile opens its table.
+- The navigation is a bar under the header, on one line, with an icon for each entry: the overview, each table and a model's map. A model's tables are grouped in menus, **Time**, **Lists**, **Modules** and **Actions**, with **Versions**, **Source Models**, **Module Usage**, **Page Filters** and **Page Actions** on their own; a group with only one table in the result is that table's entry. A menu's button names the table shown when it is one of the menu's. In a window narrower than 1,000 pixels, one menu holds every entry. The Overview's tiles say how many rows each table has, and a click on a tile opens its table.
 - The search box looks in every column, shown or hidden. Press `/` to reach it.
 - Click a column's name to sort. A column with 2 to 30 different values also has a filter. The columns keep their widths whatever the sort, the page, the search or the filter.
 - Counts, such as **Cell Count** and **Item Count**, show their thousands with commas. A formatting rule's **Colour stops** show a square of each colour.
@@ -121,6 +127,7 @@ Closing the results page stops the reading.
 
 - Cardigan declares two permissions, **activeTab** and **scripting**, and neither comes with a warning. Together they let a click on its icon put its script back into that one Anaplan tab when Chrome has not, as in a tab that was open before Cardigan was installed, updated or reloaded. It asks for no access to any site. Its scripts run only on `https://*.app.anaplan.com` and, for Australia, `https://*.app2.anaplan.com`, and add nothing to those pages.
 - It reads nothing until you click its icon or choose **Run again**. It is read-only by construction: its web requests are GET requests to two Anaplan services, its socket client can only subscribe, and every request to a model is checked to carry no change.
+- A model's settings are read through the model's own page. After them, Cardigan reads the pages built on the model as it reads an app's: GET requests for Model Building's list of those pages, each page, each of their apps and the model's action names, and the model data socket for the other names the pages' cards use.
 - Nothing is sent anywhere except those reads, and the results page loads nothing from the internet.
 - A double-click on a row of a model's **Line Items** or **Modules** takes your Anaplan tab to that module in Model Building. That changes which page the tab shows, and nothing in the model.
 - The kept result is in the browser's session storage for its tab, compressed and not encrypted.
@@ -130,7 +137,10 @@ Closing the results page stops the reading.
 ## Limits
 
 - Only the published version of a page is read. A page never published is listed as "Not published".
-- Reading an app's names can make Anaplan load its model, as opening one of its pages would.
+- Reading an app's names, or those of the pages built on a model, can make Anaplan load the model, as opening one of its pages would.
+- **Module Usage**, **Page Filters** and **Page Actions** need the model open in Model Building at an address that names its customer (`/a/modeling/customers/…`), as Model Building's own links do: the pages built on a model are listed for its customer. Elsewhere, as on the classic model page opened on its own, the Overview lists them under **Tables** as "Not exported", with the reason, and so it does when Anaplan refuses the list of pages.
+- They hold only the published pages you can open. A page that cannot be read is named in a note: a module on it may show as **Not on any page**, and a line item's **Page Filters** count is empty rather than 0. So is the count where a filter's condition line item could not be named: the filter keeps the line item's ID.
+- They count a card for the model it works on: the page's, unless the card names another, which leaves it out. A button names no model of its own, so its card's decides.
 - A saved view's own filters, sorts and hidden items are set in the model and are not listed.
 - A card's shown or hidden items are named up to five per dimension, then counted. A text card's text is cut at 500 characters.
 - A filter rule's line item in a module that no card shows is looked for during at most 45 seconds per model. After that the rule keeps its IDs, and a note says so.
@@ -162,7 +172,7 @@ You need Node 20.19+, 22.12+ or 24+.
 
 To run from source, choose **Load unpacked** and select the repository root. After a rebuild, reload the extension, then click the icon on the Anaplan tab: that puts the new content script there. What reads a model inside the page (`src/model-content.ts`, `src/model/`, `src/bridge.ts`) is loaded only with the page, so refresh the tab after changing it. `dist/` is not in Git: build after every pull.
 
-In the Anaplan tab, `src/content.ts` and `src/analyse.ts` read an app, and `src/model-content.ts` and `src/model/` read a model through the page's own client. `src/card-reader/` reads a page's cards. `src/background.ts` opens the results page: `results.html`, `results.css` and `src/results/`. `src/map/` builds a model's map from the model's tables and draws it on the page, styled by `map.css`. `src/protocol.ts` lists the messages between the page and the tab, and `src/results/connection.ts` connects the two, putting the content script back into a tab that has none.
+In the Anaplan tab, `src/content.ts` and `src/analyse.ts` read an app, and `src/model-content.ts` and `src/model/` read a model through the page's own client. `src/model-pages.ts` then reads the pages built on the model, as an app's pages are read. `src/card-reader/` reads a page's cards. `src/background.ts` opens the results page: `results.html`, `results.css` and `src/results/`. `src/map/` builds a model's map from the model's tables and draws it on the page, styled by `map.css`. `src/protocol.ts` lists the messages between the page and the tab, and `src/results/connection.ts` connects the two, putting the content script back into a tab that has none.
 
 ### Release
 

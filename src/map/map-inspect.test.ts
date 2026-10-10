@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { LAYER, moduleGraph, modulesGraph, sectionsGraph, type ViewGraph, type ViewNode } from "./map-graphs.js";
-import { inspect, isHeading, layerOfObject, statusWords, traceWords, viewSentence } from "./map-inspect.js";
+import { FILTERS_LISTED, inspect, isHeading, layerOfObject, statusWords, traceWords, viewSentence } from "./map-inspect.js";
 import { indexModel } from "./map-model.js";
 import { GraphMaker } from "./map-fakes.test-support.js";
 
@@ -111,6 +111,23 @@ describe("What the details say of a line item", () => {
     expect(inspection.remark).toBeUndefined();
     // It is among its module's line items already: there is nowhere to open.
     expect(inspection.action).toBeUndefined();
+  });
+
+  it("lists the page filters that have it as their condition by app, page and card, and counts those past the first ten", () => {
+    const make = new GraphMaker();
+    const plan = make.module("PLN01 - Plan", "01: Inputs");
+    const filter = (n: number) => ({ app: "Planning app", page: `Page ${n}`, card: String(n) });
+    make.item(plan, "Show?", { format: "BOOLEAN", pageFilters: [filter(1), { app: "Another app", page: "Supply board", card: "" }] });
+    make.item(plan, "Include?", { format: "BOOLEAN", pageFilters: Array.from({ length: FILTERS_LISTED + 3 }, (_, index) => filter(index + 1)) });
+    make.item(plan, "Units");
+    const model = indexModel(make.graph());
+    const graph = moduleGraph(model, plan, false, false);
+    expect(inspect(model, graph, byName(graph, "Show?"), false).texts)
+      .toEqual([{ key: "pageFilters", title: "Page filters · 2", lines: ["Planning app · Page 1 · Card 1", "Another app · Supply board"] }]);
+    const many = inspect(model, graph, byName(graph, "Include?"), false).texts;
+    expect([FILTERS_LISTED, many.map(text => [text.title, text.lines.length, text.lines.at(-1)])])
+      .toEqual([10, [["Page filters · 13", 11, "And 3 more: the Page Filters table lists them all."]]]);
+    expect(inspect(model, graph, byName(graph, "Units"), false).texts).toEqual([]);
   });
 
   it("offers the way into its own module, with it selected, for a line item that stands beside another module's", () => {

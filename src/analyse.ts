@@ -53,7 +53,9 @@ const DIMENSION_NAMES_BUDGET_MS = 30_000;
  * dimension have their dimensions read. */
 const MAX_DIMENSION_QUESTIONS = 10;
 
-function declaredType(entry: Obj): UxPageType | undefined {
+/** A page entry's type as it says it, by any of the names it may use: an app record's page entry, or an entry of Model
+ * Building's list of the pages built on a model (model-pages.ts). */
+export function declaredType(entry: Obj): UxPageType | undefined {
   const raw = String(entry.pageType ?? entry.type ?? "").toUpperCase();
   if (raw.includes("BOARD")) return "BOARD";
   if (raw.includes("GRID") || raw.includes("WORKSHEET")) return "GRID-PAGE";
@@ -63,7 +65,7 @@ function declaredType(entry: Obj): UxPageType | undefined {
 
 /** The app record's page entries may not state a type, so every route is tried: a wrong route answers an error, which is
  * harmless for a read. A problem is reported only when no route returns the page. */
-async function readPublished(guid: string, declared: UxPageType | undefined, log: Log): Promise<{ type: UxPageType; native: Obj } | { state: string }> {
+export async function readPublished(guid: string, declared: UxPageType | undefined, log: Log): Promise<{ type: UxPageType; native: Obj } | { state: string }> {
   const order = declared ? [declared, ...PAGE_TYPES.filter(type => type !== declared)] : PAGE_TYPES;
   let problem: string | undefined;
   for (const type of order) {
@@ -118,6 +120,14 @@ async function inBatches<T>(items: readonly T[], size: number, work: (item: T) =
 }
 
 export interface ModelScope { customerId: string; workspaceId: string; modelId: string; modelName: string }
+
+/** A page's cards with the names a model's catalog gives them: each reference named, the values of filter rules named,
+ * the context the system sets said in words, and the context selectors a grid's dimensions make. As an app's pages are
+ * named (`analyseApp`), and the pages built on a model too (model-pages.ts). */
+export function nameDetails(details: UxPageCardDetails, catalog: ModelCatalog): UxPageCardDetails {
+  const named = nameFilterValues(nameCardDetails(details, resolveFromCatalog(details.references, catalog)), catalog);
+  return addDerivedContextSelectors(describeSystemContext(named, catalog), catalog);
+}
 
 const entityId = (value: unknown): string | undefined => (typeof value === "string" && ENTITY_ID.test(value) ? value : undefined);
 
@@ -950,9 +960,7 @@ export async function analyseApp(appGuid: string, progress: Progress, diagnostic
     const { catalog, notes, failedActionTypes } = await loadCatalog(scope, group.map(input => described.get(input)!), pageNames, progress, signal);
     summary.push(...notes);
     for (const input of group) {
-      const details = described.get(input)!;
-      const named = nameFilterValues(nameCardDetails(details, resolveFromCatalog(details.references, catalog)), catalog);
-      input.details = addDerivedContextSelectors(describeSystemContext(named, catalog), catalog);
+      input.details = nameDetails(described.get(input)!, catalog);
       input.dimensionNames = catalog.dimensions;
       input.failedActionTypes = failedActionTypes;
     }
