@@ -820,12 +820,12 @@ const allColumns = (columns: readonly Column[], row: Row, links: Links, exported
 const drawerLine = (text: string): string => `<p style="font-size:12px;color:var(--text-3);margin:4px 0 0">${esc(text)}</p>`;
 
 /** The mapping of an import from a file (import-mapping-view.ts): for an import into a list, how it tells the list's items
- * apart; a row of Target and Source for each of its targets; then the lines under them, about the columns it does not use
- * or about why there is no row to show. */
+ * apart; a row of Source and Target for each source and a target it feeds; then the lines under them, about the targets
+ * nothing feeds and the columns it does not use, or about why there is no row to show. */
 export function importMappingHtml(mapping: MappingView): string {
   const match = mapping.match === undefined ? "" : `<p style="font-size:12px;color:var(--text-2);margin:0 0 6px">${esc(mapping.match)}</p>`;
-  const table = mapping.rows.length ? `<table class="mini"><thead><tr><th>Target</th><th>Source</th></tr></thead>
-      <tbody>${mapping.rows.map(([target, source]) => `<tr><td>${esc(target)}</td><td>${esc(source)}</td></tr>`).join("")}</tbody></table>` : "";
+  const table = mapping.rows.length ? `<table class="mini"><thead><tr><th>Source</th><th>Target</th></tr></thead>
+      <tbody>${mapping.rows.map(([source, target]) => `<tr><td>${esc(source)}</td><td>${esc(target)}</td></tr>`).join("")}</tbody></table>` : "";
   return `<div class="d-sec" id="drawerMapping"><h3>Mapping</h3>
       ${match}${table}${mapping.lines.map(drawerLine).join("")}</div>`;
 }
