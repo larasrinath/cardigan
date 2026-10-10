@@ -231,10 +231,10 @@ describe("The results page itself against the engine in the Anaplan tab", () => 
     page.id("runAgain").press();
     await until(() => board.waiting === 1, "the second run to reach the board");
     await tab.quiet();
-    // The engine is in the middle of its second run. The page shows where that run is, above the first result, which is
-    // all still there, cell for cell.
+    // The engine is in the middle of its second run, which reads the app's pages a few at a time: it has begun the second
+    // page beside the board. The page shows where that run is, above the first result, which is all still there, cell for cell.
     expect([page.id("bannerText").textContent, page.id("banners").textContent.includes("The results below are from the earlier run.")])
-      .toEqual(["Reading page 1 of 2: Demand board", true]);
+      .toEqual(["Reading page 2 of 2: Draft page", true]);
     expect([page.document.title, navigation().length, page.id("runAgain").disabled]).toEqual(["Cardigan - Planning: app", 7, true]);
     expect(shownTables()).toEqual(first);
 

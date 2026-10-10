@@ -15,6 +15,35 @@ export const text = (value: unknown): string | undefined => (typeof value === "s
 export const message = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 export const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+/** A time a step took, for the diagnostic log: seconds with two decimals, "0.62 s". */
+export const seconds = (ms: number): string => `${(Math.max(0, ms) / 1000).toFixed(2)} s`;
+
+/** As many reads as a run keeps moving at a time, wherever it reads a list of things one by one: pages, apps, modules' line
+ * items, items' names, saved views. Anaplan is asked for no more than that at once. */
+export const AT_A_TIME = 4;
+
+/** Runs `work` on each item, at most `limit` at a time, starting them in the items' order: as soon as one ends, the next
+ * starts, so a slow item holds up only its own place. Once `signal` has stopped the run, no further item starts; the work
+ * under way is let end, and the run then ends with the stop's reason, so that nothing it started is still going after it.
+ * Once the work on one item has failed, no further item starts either, and the run ends at once with that failure. */
+export async function eachAtMost<T>(items: readonly T[], limit: number, signal: AbortSignal | undefined, work: (item: T, index: number) => Promise<void>): Promise<void> {
+  let next = 0;
+  let failed = false;
+  const lane = async (): Promise<void> => {
+    while (next < items.length && !failed && !signal?.aborted) {
+      const index = next++;
+      try {
+        await work(items[index], index);
+      } catch (error) {
+        failed = true;
+        throw error;
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(Math.max(1, limit), items.length) }, lane));
+  signal?.throwIfAborted();
+}
+
 /** `value` as part of a file name; `fallback` when nothing of it is left. */
 export function fileSafe(value: string, fallback: string): string {
   return value.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 80) || fallback;

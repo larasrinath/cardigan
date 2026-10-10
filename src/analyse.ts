@@ -14,7 +14,7 @@ import { plainRows } from "./result-plain.js";
 import type { AnalysisResult, ResultTable } from "./result-types.js";
 import { getJson, RestError } from "./rest.js";
 import { StompConnection, StompError, type SubscribeOptions } from "./stomp.js";
-import { ANAPLAN_HOST, fileSafe, list, message, SCOPE_ID, text, type Obj } from "./util.js";
+import { ANAPLAN_HOST, AT_A_TIME, eachAtMost, fileSafe, list, message, SCOPE_ID, seconds, text, type Obj } from "./util.js";
 
 const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ENTITY_ID = /^[1-9]\d{0,17}$/;
@@ -115,10 +115,6 @@ async function withSocket<T>(customerId: string, log: Log, signal: AbortSignal |
   throw new StompError("The model data service redirected more than once.");
 }
 
-async function inBatches<T>(items: readonly T[], size: number, work: (item: T) => Promise<void>): Promise<void> {
-  for (let i = 0; i < items.length; i += size) await Promise.all(items.slice(i, i + size).map(work));
-}
-
 export interface ModelScope { customerId: string; workspaceId: string; modelId: string; modelName: string }
 
 /** A page's cards with the names a model's catalog gives them: each reference named, the values of filter rules named,
@@ -215,9 +211,11 @@ async function readActionNames(scope: ModelScope, refs: readonly UxEntityRef[], 
  * sends nothing, whichever step asks, and such a read waits for no answer. `settle` ends every step that waits on the
  * socket: a failed connection is rethrown. `halted` is true once the run was asked to stop: a step that logs a refused read
  * and goes on ends instead. `ended` is true once the socket work was ended for any reason, a model that is closed or gone
- * included. */
+ * included. `signal` is the run's: a step that reads a list of things, a few at a time, starts no further read once it has
+ * stopped the run. */
 interface SocketReads {
   scope: ModelScope;
+  signal: AbortSignal | undefined;
   connection: StompConnection;
   subscribe: StompConnection["subscribe"];
   settle: <T>(work: Promise<T>) => Promise<T>;
@@ -276,7 +274,7 @@ async function readItemNames(reads: SocketReads, items: readonly { moduleId: str
   const { workspaceId: ws, modelId: model } = scope;
   if (items.length) {
     progress.status(`Reading item names in ${scope.modelName}…`);
-    await settle(inBatches(items, 4, async ({ moduleId, dimensionId, itemIds }) => {
+    await settle(eachAtMost(items, AT_A_TIME, reads.signal, async ({ moduleId, dimensionId, itemIds }) => {
       try {
         const named = addSelections(catalog, await subscribe(`core://${ws}:${model}/modules/${moduleId}/dimensions/${dimensionId}`,
           { accept: "widget/selection", body: { itemIds, filter: "" }, timeoutMs: LINE_ITEMS_MS }), { moduleId, dimensionId });
@@ -296,7 +294,7 @@ async function readViewLayouts(reads: SocketReads, refs: readonly UxEntityRef[])
   const viewIds = [...new Set(refs.filter(ref => ref.kind === "view").map(ref => entityId(ref.id)).filter((id): id is string => !!id))];
   if (viewIds.length) {
     progress.status(`Reading saved view layouts in ${scope.modelName}…`);
-    await settle(inBatches(viewIds, 4, async viewId => {
+    await settle(eachAtMost(viewIds, AT_A_TIME, reads.signal, async viewId => {
       try {
         const metadata = await subscribe(`core://${ws}:${model}/views/${viewId}`, {
           accept: "widget/grid", messageType: "metadata", timeoutMs: 60_000,
@@ -792,7 +790,7 @@ export async function loadCatalog(scope: ModelScope, pages: readonly UxPageCardD
       // model's status above is no read of a step: it is what says that the model closed.)
       const subscribe: StompConnection["subscribe"] = (destination, options) => (ended ? new Promise<never>(() => undefined) : connection.subscribe(destination, options));
       const answers: NameAnswers = { moduleDimensions: [] };
-      const reads: SocketReads = { scope, connection, subscribe, settle, halted: () => signal?.aborted === true, ended: () => ended, catalog, notes, progress, answers };
+      const reads: SocketReads = { scope, signal, connection, subscribe, settle, halted: () => signal?.aborted === true, ended: () => ended, catalog, notes, progress, answers };
       const started = Date.now();
       const waiting = setInterval(() => progress.status(`Reading names in ${scope.modelName}: ${Math.round((Date.now() - started) / 1000)} s, `
         + `model status ${status}. A model that is not open can take a few minutes to load…`), 5_000);
@@ -814,7 +812,7 @@ export async function loadCatalog(scope: ModelScope, pages: readonly UxPageCardD
           progress.log(`lists: ${selectionShape(lists.value)}`);
         } else notes.push(`${scope.modelName}: list names were not available (${message(lists.reason)}).`);
         progress.status(`Reading line items in ${scope.modelName}…`);
-        await settle(inBatches([...moduleIds], 4, moduleId => readLineItems(reads, moduleId)));
+        await settle(eachAtMost([...moduleIds], AT_A_TIME, signal, moduleId => readLineItems(reads, moduleId)));
 
         const needs = gridNeeds(pages);
         await readModuleDimensions(reads, needs.modules);
@@ -885,10 +883,11 @@ function appUnread(error: unknown): unknown {
   return new Failure(said, error.message);
 }
 
-/** The app's pages as the result's tables: App Details.csv, then the seven tables. `signal` stops the run (the results page that
- * asked for it went away): it starts no further page and asks nothing more for a model's names (loadCatalog), and it
- * rejects with the signal's reason. Only the page that is being read is finished first: the routes still to be tried for
- * it are tried. */
+/** The app's pages as the result's tables: App Details.csv, then the seven tables. The pages are read a few at a time
+ * (`AT_A_TIME`), started in the app's order, and the report takes them in that order whichever is answered first. `signal`
+ * stops the run (the results page that asked for it went away): it starts no further page and asks nothing more for a
+ * model's names (loadCatalog), and it rejects with the signal's reason. Only the pages that are being read are finished
+ * first: the routes still to be tried for them are tried. */
 export async function analyseApp(appGuid: string, progress: Progress, diagnostics: () => string, signal?: AbortSignal): Promise<AnalysisResult> {
   if (!GUID.test(appGuid)) throw new Failure("Open an app first: the address has no app ID.");
   progress.status("Reading the app…");
@@ -906,19 +905,19 @@ export async function analyseApp(appGuid: string, progress: Progress, diagnostic
   // The app record's page entries also carry the category name (observed live, 28 Sep 2026).
   const categoryOf = (guid: string | undefined, entry: Obj) => (guid ? categories.get(guid) : undefined) ?? text(entry.categoryName) ?? NONE;
 
-  const inputs: PageInput[] = [];
-  const described = new Map<PageInput, UxPageCardDetails>();
-  for (const [index, entry] of entries.entries()) {
-    signal?.throwIfAborted();
+  /** Each page as the report takes it, at the page's place in the app's list, with what its cards are where it was read. */
+  const slots: { input: PageInput; details?: UxPageCardDetails }[] = new Array(entries.length);
+  const started = Date.now();
+  await eachAtMost(entries, AT_A_TIME, signal, async (entry, index) => {
     const pageName = pageNames.get(entry.guid) ?? entry.guid;
     progress.status(`Reading page ${index + 1} of ${entries.length}: ${pageName}`);
     const read = entry.hasPublishedVersion === false ? { state: "Not published" } : await readPublished(entry.guid, declaredType(entry), progress.log);
     const base = { appName, pageName, pageGuid: entry.guid as string, appGuid, publishedAt: undefined as number | string | undefined };
     if ("state" in read) {
       const categoryGuid = text(entry.categoryGuid);
-      inputs.push({ ...base, categoryName: categoryOf(categoryGuid, entry), pageType: declaredType(entry) ?? NONE,
-        state: read.state, modelName: NONE, workspaceName: NONE, modelId: text(entry.modelId) ?? NONE });
-      continue;
+      slots[index] = { input: { ...base, categoryName: categoryOf(categoryGuid, entry), pageType: declaredType(entry) ?? NONE,
+        state: read.state, modelName: NONE, workspaceName: NONE, modelId: text(entry.modelId) ?? NONE } };
+      return;
     }
     const { type, native } = read;
     const categoryGuid = text(native.categoryGuid) ?? text(entry.categoryGuid);
@@ -930,12 +929,15 @@ export async function analyseApp(appGuid: string, progress: Progress, diagnostic
       publishedAt: typeof native.publishedAt === "number" || typeof native.publishedAt === "string" ? native.publishedAt : undefined,
     };
     try {
-      described.set(input, describePageCards(type, native));
+      slots[index] = { input, details: describePageCards(type, native) };
     } catch (error) {
       input.state = `Not analysed: ${message(error)}`;
+      slots[index] = { input };
     }
-    inputs.push(input);
-  }
+  });
+  progress.log(`app: ${entries.length} pages read in ${seconds(Date.now() - started)}, ${AT_A_TIME} at a time`);
+  const inputs: PageInput[] = slots.map(slot => slot.input);
+  const described = new Map<PageInput, UxPageCardDetails>(slots.flatMap(slot => (slot.details ? [[slot.input, slot.details] as const] : [])));
 
   // Report pages carry no model name (observed live, 28 Sep 2026): borrow it from another page on the same model.
   for (const [input, details] of described) if (input.modelId === NONE) input.modelId = details.modelId;
