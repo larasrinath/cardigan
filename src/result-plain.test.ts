@@ -90,7 +90,9 @@ describe("A result as plain data", () => {
   it("keeps a model's mappings of its imports from a file, every field checked, and leaves them out whole where anything is not as it should be", () => {
     const importMappings = [
       { id: "112000000001", name: "Division from HQ Network.csv", importType: "HIERARCHY_DATA", targets: [{ target: "Division", source: "column", column: 1, text: "Division Name" },
-        { target: "Parent", source: "constant", text: "All" }, { target: "Code", source: "none" }, { target: "Manager", source: "other", text: "field" }] },
+        { target: "Parent", source: "constant", text: "All" }, { target: "Code", source: "none" }, { target: "Manager", source: "other", text: "field" },
+        { target: "Region", source: "column", id: "f12" }, { target: "Batch", source: "numbered" }],
+      matchedBy: { by: "properties", properties: ["Manager", "Parent"], numbered: true } },
       { id: "", name: "Gone", importType: "", targets: [], note: "Cardigan could not read this import's mapping." }];
     const model = { ...result, kind: "model" as const, importMappings };
     const read = plainResult({ ...model, importMappings: importMappings.map(mapping => ({ ...mapping, extra: "<b>", targets: mapping.targets.map(target => ({ ...target, html: 1 })) })) });
@@ -101,7 +103,10 @@ describe("A result as plain data", () => {
     for (const odd of [{ ...mapping, id: "1x" }, { ...mapping, id: 112000000001 }, { ...mapping, name: null }, { ...mapping, importType: 1 }, { ...mapping, targets: "none" },
       { ...mapping, note: 7 }, { ...mapping, targets: [{ ...target, source: "file" }] }, { ...mapping, targets: [{ ...target, source: "toString" }] },
       { ...mapping, targets: [{ ...target, column: 0 }] }, { ...mapping, targets: [{ ...target, column: 1.5 }] }, { ...mapping, targets: [{ ...target, column: "1" }] },
-      { ...mapping, targets: [{ ...target, text: 3 }] }, { ...mapping, targets: [{ ...target, target: undefined }] }, { ...mapping, targets: [null] }, null, "mapping"]) {
+      { ...mapping, targets: [{ ...target, text: 3 }] }, { ...mapping, targets: [{ ...target, id: 12 }] }, { ...mapping, targets: [{ ...target, target: undefined }] },
+      { ...mapping, targets: [null] }, { ...mapping, matchedBy: { by: "toString" } }, { ...mapping, matchedBy: "code" }, { ...mapping, matchedBy: null },
+      { ...mapping, matchedBy: { by: "properties", properties: [1] } }, { ...mapping, matchedBy: { by: "properties", properties: "Manager" } },
+      { ...mapping, matchedBy: { by: "code", numbered: "yes" } }, null, "mapping"]) {
       expect(plainResult({ ...model, importMappings: [odd] }), JSON.stringify(odd)).toEqual({ ...result, kind: "model" });
     }
     expect(plainResult({ ...model, importMappings: { 0: mapping } })).toEqual({ ...result, kind: "model" });

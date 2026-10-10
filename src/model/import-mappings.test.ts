@@ -51,8 +51,19 @@ describe("An import's mapping, read out of its definition", () => {
       // `sourceColumnId` counts from 1, and is what the dialog matches a column by; `sourceColumnNumber` counts from 0.
       { sourceType: "column", sourceColumnId: "#4", sourceColumnNumber: 3 },
       { sourceType: "column", sourceColumnNumber: 0 },
+      { sourceType: "column", sourceColumnId: " # 7 " },
+      // A `sourceColumnId` that is no "#" and number is the column's heading: the dialog finds the column in the header row
+      // by it, as it does by `sourceColumnName` (view/ImportDefinitionModuleMapping.js `markColumn`). With no place the
+      // definition gives (-1, or nothing), the column is said by its heading alone.
       { sourceType: "column", sourceColumnId: "Price", sourceColumnName: "  " },
+      { sourceType: "column", sourceColumnNumber: -1, sourceColumnName: null, sourceColumnId: "Product " },
+      { sourceType: "column", sourceColumnNumber: 2, sourceColumnName: null, sourceColumnId: "Location" },
+      { sourceType: "column", sourceColumnNumber: "1", sourceColumnName: "Expiry", sourceColumnId: "Expiry Date" },
+      // A column given neither place nor heading is said by what the definition identifies it by, where it gives anything.
       { sourceType: "column", sourceColumnId: "#0", sourceColumnNumber: -1 },
+      { sourceType: "column", sourceColumnNumber: -1, sourceColumnName: "", sourceColumnId: null, sourceFieldId: "f12" },
+      { sourceType: "column", sourceColumnEntityLongId: 101000000009 },
+      { sourceType: "column", sourceColumnEntityLongId: -1, sourceColumnNumber: null },
       // A constant by its label; by the identifier of a list's item, said by its ID; by a value of its own; with none.
       { sourceType: "constant", sourceValue: "_200000000123_" },
       { sourceType: "constant", sourceValue: 12.5 },
@@ -63,7 +74,9 @@ describe("An import's mapping, read out of its definition", () => {
       { sourceType: 7 },
       {}].map(mapping => ({ targetType: "moduleLineItem", target: "", ...mapping }));
     const sources = readDefinition(definition("MODULE_DATA", PRICES, mappings), NAMES).mapping.targets.map(({ target, ...source }) => (target === "Value" ? source : target));
-    expect(sources).toEqual([{ source: "column", column: 4 }, { source: "column", column: 1 }, { source: "column" }, { source: "column" },
+    expect(sources).toEqual([{ source: "column", column: 4 }, { source: "column", column: 1 }, { source: "column", column: 7 },
+      { source: "column", text: "Price" }, { source: "column", text: "Product" }, { source: "column", column: 3, text: "Location" }, { source: "column", column: 2, text: "Expiry" },
+      { source: "column", id: "#0" }, { source: "column", id: "f12" }, { source: "column", id: "101000000009" }, { source: "column" },
       { source: "constant", text: "ID 200000000123" }, { source: "constant", text: "12.5" }, { source: "constant", text: "FY24" }, { source: "constant" },
       { source: "other", text: "field" }, { source: "other" }, { source: "other" }]);
   });
@@ -77,7 +90,7 @@ describe("An import's mapping, read out of its definition", () => {
       { targetType: "hierarchyProperty", target: id(ACTIVE), sourceType: "undefined" }], { propertyMatchKey: ["_4000000004_"] });
     expect(readDefinition(text, NAMES).mapping).toEqual({ importType: "HIERARCHY_DATA", targets: [
       { target: "Division", source: "column", column: 1 }, { target: "Parent", source: "column", column: 2 }, { target: "Code", source: "column", column: 4 },
-      { target: "Manager", source: "column", column: 7 }, { target: "ID 4100000000002", source: "none" }] });
+      { target: "Manager", source: "column", column: 7 }, { target: "ID 4100000000002", source: "none" }], matchedBy: { by: "code" } });
     // A list the model's names miss is named as the Imports tab names the import's target, and else plainly.
     const unnamed = definition("HIERARCHY_DATA", 101000000050, [{ targetType: "hierarchyMemberEntityName", target: "", sourceType: "column", sourceColumnId: "#1" }]);
     expect([readDefinition(unnamed, NAMES, "Old list").mapping.targets[0].target, readDefinition(unnamed, NAMES).mapping.targets[0].target]).toEqual(["Old list", "Items"]);
@@ -94,7 +107,7 @@ describe("An import's mapping, read out of its definition", () => {
       dataFormatsByTarget: {}, allowDuplicateKeysInTarget: false, allowDuplicateKeysInSource: false, allowNameMangling: false });
     const { mapping, shape } = readDefinition(text, NAMES);
     expect(mapping).toEqual({ importType: "HIERARCHY_DATA", targets: [{ target: "Division", source: "none" }, { target: "Code", source: "column", column: 1, text: "Code" },
-      { target: "Parent", source: "column", column: 2, text: "Region" }] });
+      { target: "Parent", source: "column", column: 2, text: "Region" }], matchedBy: { by: "code" } });
     expect(shape).toBe("keys importType, target, mappings, source, propertyMatchKey, targetAreaSpecifications, periodFormats, valueMaps, aliasMaps, dataFormatDefinitions, "
       + "dataFormatsByTarget, allowDuplicateKeysInTarget, allowDuplicateKeysInSource, allowNameMangling; 3 mappings: [targetType, sourceType] undefined ×1; "
       + "[targetType, target, sourceType, sourceColumnNumber, sourceColumnName, sourceColumnId] column ×2");
@@ -102,6 +115,62 @@ describe("An import's mapping, read out of its definition", () => {
     const kinds = ["moduleDimension", "moduleLineItem", "hierarchyProperty", "somethingNew"].map(targetType => ({ targetType, sourceType: "undefined" }));
     expect(readDefinition(definition("MODULE_DATA", PRICES, kinds), NAMES).mapping.targets).toEqual(["Line Items", "Value", "Property", "somethingNew"]
       .map(target => ({ target, source: "none" })));
+  });
+
+  it("says how an import into a list tells the list's items apart, as the dialog's Items uniquely identified by says it", () => {
+    const [NAME, PARENT, CODE] = [{ targetType: "hierarchyMemberEntityName", target: "", sourceType: "column", sourceColumnId: "#1" },
+      { targetType: "hierarchyProperty", target: "_4000000001_", sourceType: "column", sourceColumnId: "#2" },
+      { targetType: "hierarchyProperty", target: "_4000000004_", sourceType: "column", sourceColumnId: "#3" }];
+    const unmapped = (mapping: Record<string, unknown>) => ({ ...mapping, sourceType: "undefined" });
+    const matchOf = (mappings: unknown[], more: Record<string, unknown> = {}, names = NAMES) => readDefinition(definition("HIERARCHY_DATA", DIVISION, mappings, more), names).mapping.matchedBy;
+    // Without a key, as the dialog takes a definition made before the choice: by what the definition maps.
+    expect([matchOf([NAME, PARENT, unmapped(CODE)]), matchOf([unmapped(NAME), CODE]), matchOf([NAME, CODE]), matchOf([unmapped(NAME), PARENT])])
+      .toEqual([{ by: "name" }, { by: "code" }, { by: "nameOrCode" }, { by: "nameOrCode" }]);
+    // The key of names alone (SYSTEM_PROPERTY_ID), of codes alone, and of a combination of properties, each by its name.
+    expect([matchOf([NAME], { propertyMatchKey: ["_4000000010_"] }), matchOf([CODE], { propertyMatchKey: ["_4000000004_"] }),
+      matchOf([PARENT], { propertyMatchKey: [id(MANAGER), "_4000000001_", "_4000000004_", "_4100000000099_", "Odd"] }), matchOf([PARENT], { propertyMatchKey: [] })])
+      .toEqual([{ by: "name" }, { by: "code" }, { by: "properties", properties: ["Manager", "Parent", "Code", "ID 4100000000099", "Odd"] }, { by: "properties", properties: [] }]);
+    // A key that is no list says nothing; an import into a module has no items to tell apart.
+    expect([matchOf([NAME], { propertyMatchKey: "_4000000004_" }), readDefinition(definition("MODULE_DATA", PRICES, [], { propertyMatchKey: [] }), NAMES).mapping.matchedBy])
+      .toEqual([undefined, undefined]);
+  });
+
+  it("says that a numbered list told apart by code or by properties numbers its items itself, where the names know the list is numbered", () => {
+    const numbered = (list: number) => (list === DIVISION ? true : undefined);
+    const NUMBERED: ImportNames = { ...NAMES, numbered };
+    // As the user's import into a numbered list (10 Oct 2026): its items' names, Parent and Code not mapped, and its
+    // properties each from a column the definition names by its heading alone.
+    const mappings = [{ targetType: "hierarchyMemberEntityName", sourceType: "undefined" }, { targetType: "hierarchyProperty", target: "_4000000001_", sourceType: "undefined" },
+      { targetType: "hierarchyProperty", target: "_4000000004_", sourceType: "undefined" },
+      { targetType: "hierarchyProperty", target: id(MANAGER), sourceType: "column", sourceColumnNumber: -1, sourceColumnName: null, sourceColumnId: "Manager" }];
+    const read = (key: unknown, names: ImportNames) => readDefinition(definition("HIERARCHY_DATA", DIVISION, mappings, { propertyMatchKey: key }), names).mapping;
+    expect(read([id(MANAGER)], NUMBERED)).toEqual({ importType: "HIERARCHY_DATA", matchedBy: { by: "properties", properties: ["Manager"], numbered: true }, targets: [
+      { target: "Division", source: "numbered" }, { target: "Parent", source: "none" }, { target: "Code", source: "none" }, { target: "Manager", source: "column", text: "Manager" }] });
+    expect(read(["_4000000004_"], NUMBERED).targets[0]).toEqual({ target: "Division", source: "numbered" });
+    // By name (#ID), the list's items are named by the import; and where the names do not know the list, nothing is said of it.
+    expect([read(["_4000000010_"], NUMBERED).targets[0], read([id(MANAGER)], NAMES).targets[0], read([id(MANAGER)], NAMES).matchedBy])
+      .toEqual([{ target: "Division", source: "none" }, { target: "Division", source: "none" }, { by: "properties", properties: ["Manager"] }]);
+    expect(read([id(MANAGER)], { ...NAMES, numbered: () => false }).matchedBy).toEqual({ by: "properties", properties: ["Manager"], numbered: false });
+  });
+
+  it("says for the log how the first column is written, each way by its type and a short value, and the parts that could say more, by their keys", () => {
+    const text = definition("HIERARCHY_DATA", DIVISION, [{ targetType: "hierarchyMemberEntityName", sourceType: "undefined" },
+      { targetType: "hierarchyProperty", target: id(MANAGER), sourceType: "column", sourceColumnNumber: -1, sourceColumnName: null, sourceColumnId: "Inventory Quantity (U)" },
+      { targetType: "hierarchyProperty", target: "_4000000001_", sourceType: "column", sourceColumnId: "Secret second" }],
+    { source: { type: "FILE", "label with spaces": "x" }, dataFormatDefinitions: { fmt1: { type: "date" } }, dataFormatsByTarget: { [id(MANAGER)]: "fmt1" }, valueMaps: { "Secret value": "x" } });
+    expect(readDefinition(text, NAMES).details).toEqual([
+      'first column: sourceColumnId text "Inventory Quantity (…", sourceColumnNumber number -1, sourceColumnName null',
+      "source object of 2 keys: type, ?; dataFormatDefinitions object of 1 key: fmt1; dataFormatsByTarget object of 1 key: _4100000000001_"]);
+    // Every other kind of value is said by its type; a definition with no column, and parts it does not have, say so.
+    const odd = definition("MODULE_DATA", PRICES, [{ targetType: "moduleLineItem", sourceType: "column", sourceColumnId: 3, sourceColumnNumber: true, sourceColumnName: ["a"] }],
+      { source: [1, 2], dataFormatDefinitions: null, dataFormatsByTarget: "x" });
+    expect(readDefinition(odd, NAMES).details).toEqual(["first column: sourceColumnId number 3, sourceColumnNumber truth true, sourceColumnName list of 1",
+      "source list of 2; dataFormatDefinitions null; dataFormatsByTarget string"]);
+    expect(readDefinition(definition("MODULE_DATA", PRICES, [{ targetType: "moduleLineItem", sourceType: "prompt" }]), NAMES).details)
+      .toEqual(["no mapping from a column", "source absent; dataFormatDefinitions absent; dataFormatsByTarget absent"]);
+    // No value of a part is said, nor of a mapping but the first column's three ways.
+    expect(readDefinition(text, NAMES).details.join(" ")).not.toMatch(/Secret|FILE|date|"x"/);
+    expect([readDefinition("", NAMES).details, readDefinition("{", NAMES).details, readDefinition("[]", NAMES).details]).toEqual([[], [], []]);
   });
 
   it("lists no target of an import of another kind, which the page says what it loads of", () => {
@@ -167,14 +236,18 @@ describe("The mappings of a model's imports from a file", () => {
     const log: string[] = [];
     const mappings = importMappings(TAB, DEFINITIONS, NAMES, line => log.push(line));
     expect(mappings).toEqual([
-      { id: "112000000001", name: "Division from HQ Network.csv", importType: "HIERARCHY_DATA", targets: [{ target: "Division", source: "column", column: 1 }] },
+      { id: "112000000001", name: "Division from HQ Network.csv", importType: "HIERARCHY_DATA", targets: [{ target: "Division", source: "column", column: 1 }], matchedBy: { by: "name" } },
       { id: "112000000003", name: "Prices", importType: "MODULE_DATA", targets: [{ target: "Value", source: "column", column: 3 }] },
       // An import the grid holds no definition for says so: none of the imports from a file is left out.
       { id: "112000000004", name: "Gone", importType: "", targets: [], note: MAPPING_NOTES.noDefinition }]);
-    // The import from another model is neither read nor said; each import from a file has its line, and the last line
-    // counts what was read and what the grid of definitions holds.
+    // The import from another model is neither read nor said; each import from a file has its lines, how its definition
+    // is made, writes its first column and holds the parts that could say more, and the last line counts what was read
+    // and what the grid of definitions holds.
+    const parts = "source absent; dataFormatDefinitions absent; dataFormatsByTarget absent";
     expect(log).toEqual(["Import mapping 112000000001: keys importType, target, mappings; 1 mappings: [targetType, target, sourceType, sourceColumnId] column ×1",
+      'Import mapping 112000000001: first column: sourceColumnId text "#1", sourceColumnNumber absent, sourceColumnName absent', `Import mapping 112000000001: ${parts}`,
       "Import mapping 112000000003: keys importType, target, mappings; 1 mappings: [targetType, target, sourceType, sourceColumnId] column ×1",
+      'Import mapping 112000000003: first column: sourceColumnId text "#3", sourceColumnNumber absent, sourceColumnName absent', `Import mapping 112000000003: ${parts}`,
       "Import mapping 112000000004: not in the grid of definitions", "Import mappings: 2 of 3 read; 2 found in the grid of definitions"]);
     // What the tab holds, said before anything is read: its imports by Source Type, as Anaplan writes each, and how many
     // mappings are to be read.
@@ -220,6 +293,14 @@ describe("The names a definition's IDs are said by", () => {
     expect([names.list(PRODUCTS), names.list(REGIONS), names.list(109000000001), names.list(101000000099)]).toEqual(["Products", "Regions & areas", "Active products", undefined]);
     expect([names.lineItem(UNITS, PRICES), names.lineItem(PRICE, PRICES), names.lineItem(PRICE, 102000000099)]).toEqual(["Units", "Price", undefined]);
     expect([names.property(MANAGER, DIVISION), names.property(MANAGER, PRODUCTS), names.property(109000000001, DIVISION)]).toEqual(["Manager", undefined, "Active products"]);
+  });
+
+  it("say whether a list is numbered by its row's Numbered cell of General Lists, and nothing of a list the grid lacks", () => {
+    const general = grid([[4000000020, "Top Level"], [4000000021, "Numbered"]], [[PRODUCTS, "Products", "All", "false"], [DIVISION, "Division", "", " TRUE "], [REGIONS, "Regions", "", ""]]);
+    const names = importNames(native({}), { lists: general });
+    expect([names.numbered?.(PRODUCTS), names.numbered?.(DIVISION), names.numbered?.(REGIONS), names.numbered?.(101000000099)]).toEqual([false, true, undefined, undefined]);
+    // A grid without the column knows of no list whether it is numbered.
+    expect(importNames(native({}), { lists: grid([[4000000020, "Top Level"]], [[DIVISION, "Division", ""]]) }).numbered?.(DIVISION)).toBeUndefined();
   });
 
   it("are none, and no failure, where the model page has no such list or throws for it", () => {
