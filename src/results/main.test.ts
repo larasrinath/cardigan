@@ -4507,6 +4507,9 @@ describe("A double-click that opens a row's module in Anaplan", () => {
     await open(clicked(7));
     ports[0].send({ type: "subject", subject });
     sendResult(ports[0], result);
+    // The result is kept for a refresh before the test goes on: the clock the double-click moves would otherwise start the
+    // keeping, which would end after the test, with the page it writes to gone.
+    await letKeep();
   };
   /** A double-click on a row, by its first cell, as a browser gives it: its first click opens the row's details, its second
    * falls on the scrim the details put over the table, which closes them, and the double-click goes to the scrim. */
@@ -4572,6 +4575,7 @@ describe("A double-click that opens a row's module in Anaplan", () => {
 
   it("does nothing for an app's rows, which have no module to open", async () => {
     await openWith(RESULT);
+    await letKeep();
     goTo(2);
     expect(page.all("#tableWrap tbody tr").every(row => row.getAttribute("title") === null)).toBe(true);
     page.all('#tableWrap tbody [data-act="row"]')[0].press();
