@@ -21,7 +21,7 @@ import {
 } from "./markup.js";
 import type { PageId } from "./page-ids.js";
 import { LINE_ITEMS_FILE, MODULE_NAME } from "./line-items-view.js";
-import { analysedOf, cardParts, detailsOf, detailValue, diagnosticLog, fileView, listedTables, MODULES_FILE, overviewOf, type FileView } from "./result-view.js";
+import { ACCESS_FILE, analysedOf, cardParts, detailsOf, detailValue, diagnosticLog, fileView, listedTables, MODEL_CALENDAR_FILE, MODULES_FILE, overviewOf, type FileView } from "./result-view.js";
 import { cellText, NONE, pageOf, rememberingSelect, rowName, valueCounts, type Row, type Sort, type TableQuery } from "./table-engine.js";
 import { EVERY_USE, objectOf, WHERE_USED_FILE, whereUsedView, type WhereUsedObject, type WhereUsedView } from "./where-used-view.js";
 
@@ -806,6 +806,22 @@ const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** The model's file that lists its lists, as the export writes it. */
 const LISTS_FILE = "General Lists.csv";
 
+/** The Model Building page that shows Actions, Processes, Imports, Exports and Import Data Sources, each on a tab of it
+ * (anaplan/settings/Actions.js), and so the model's actions that pages' buttons run. */
+const ACTIONS_PAGE = { id: "-19", page: "Actions" } as const;
+/** The Model Building page each table of a model's settings is on, by the ID its own sidebar opens the page by, which its
+ * address names after `/tabs/` as for a module (modeling.js: the sidebar's items, and `processPendingObjectId`, which writes
+ * `/tabs/{id}` for any of them and opens the page as its settings tab). The Time page holds Model Calendar and Time Ranges
+ * (anaplan/settings/TimeAndTimeRanges.js). A page is opened by its address alone: Model Building opens a settings page
+ * inside itself through no way of the classic client's that this page could ask for, as it does a module or a list. Nor
+ * does the address say which row to select, so the page opens as it opens from the sidebar. */
+const SETTINGS_PAGES: ReadonlyMap<string, { id: string; page: string }> = new Map([
+  [MODEL_CALENDAR_FILE, { id: "9000000001", page: "Time" }], ["Time Ranges.csv", { id: "9000000001", page: "Time" }],
+  ["Versions.csv", { id: "9000000002", page: "Versions" }], ["Line Item Subsets.csv", { id: "-5", page: "Line Item Subsets" }],
+  ["Processes.csv", ACTIONS_PAGE], ["Imports.csv", ACTIONS_PAGE], ["Exports.csv", ACTIONS_PAGE], ["Other Actions.csv", ACTIONS_PAGE],
+  ["Import Data Sources.csv", ACTIONS_PAGE], ["Source Models.csv", { id: "-13", page: "Source Models" }],
+]);
+
 /** A button at the top right of a row's details, with where it leads: a box of the model map; a module or a list in Model
  * Building, which the model's tab opens (`openInModel`), inside its page by the object's ID where it can; or an app or a
  * page, which the tab of apps and pages opens (`openInAppTab`). `what` names it in the run's log. */
@@ -826,20 +842,29 @@ function siteOf(model: AnalysisResult): { origin: string; customer: string } | u
     ? { origin: site.origin, customer: site.customer } : undefined;
 }
 
-/** The address that opens a module or a list of the model on the page in Model Building, as Model Building's own links
- * write it (its `/tabs/` and the object's ID), with that ID; none for one the export found no ID for; or why none of its
- * kind in the result can be opened, in words for the user. */
+/** The start of the addresses of the model on the page in Model Building, as Model Building's own links write them, up to
+ * its `/tabs/`; or why there is none, in words for the user. */
+function modelBuilding(): { tabs?: string; why?: string } {
+  if (result?.kind !== "model") return {};
+  const site = siteOf(result);
+  if (!site) return { why: NOT_IN_MODEL_BUILDING };
+  const workspace = detailValue(detailsOf(result), "Model", "Workspace ID");
+  if (!workspace || !LONG_ID.test(workspace) || !/^[0-9A-Za-z]{32}$/.test(result.id)) return { why: NO_WORKSPACE };
+  return { tabs: `${site.origin}/a/modeling/customers/${site.customer}/workspaces/${workspace}/models/${result.id}/tabs/` };
+}
+
+/** The address that opens a module or a list of the model on the page in Model Building (its `/tabs/` and the object's ID),
+ * with that ID; none for one the export found no ID for; or why none of its kind in the result can be opened, in words
+ * for the user. */
 function objectAddress(kind: "module" | "list", name: string): { url?: string; id?: string; why?: string } {
   if (result?.kind !== "model") return {};
   const ids = kind === "module" ? result.moduleIds : result.listIds;
   if (!Array.isArray(ids)) return { why: kind === "module" ? EARLIER_IDS : EARLIER_LIST_IDS };
   if (!ids.length) return { why: kind === "module" ? NO_IDS_FOUND : NO_LIST_IDS_FOUND };
-  const site = siteOf(result);
-  if (!site) return { why: NOT_IN_MODEL_BUILDING };
-  const workspace = detailValue(detailsOf(result), "Model", "Workspace ID");
-  if (!workspace || !LONG_ID.test(workspace) || !/^[0-9A-Za-z]{32}$/.test(result.id)) return { why: NO_WORKSPACE };
+  const { tabs, why } = modelBuilding();
+  if (tabs === undefined) return { why };
   const id = ids.find(pair => Array.isArray(pair) && typeof pair[0] === "string" && pair[0].trim() === name)?.[1];
-  return typeof id === "string" && /^\d{1,19}$/.test(id) ? { url: `${site.origin}/a/modeling/customers/${site.customer}/workspaces/${workspace}/models/${result.id}/tabs/${id}`, id } : {};
+  return typeof id === "string" && /^\d{1,19}$/.test(id) ? { url: `${tabs}${id}`, id } : {};
 }
 
 /** The list a filter's dimension is, by the dimension's name: a list the export found an ID for, or, for a subset that
@@ -867,7 +892,10 @@ function listOfDimension(name: string): string | undefined {
  * - Page Filters: the condition line item's module and the filtered module in Model Building, by those names, one Model
  *   button where the two are one module; the list of the filtered dimension, where it is one; and the filter's app and
  *   page.
- * - Page Actions: the button's app and page.
+ * - Page Actions: the model's action, on the Actions page, and the button's app and page.
+ * - Dynamic Cell Access: the driver's module and the controlled module, one Model button where they are one.
+ * - Model Calendar, Time Ranges, Versions, Line Item Subsets, the action tables and Source Models: the Model Building page
+ *   the table is on (`SETTINGS_PAGES`), opened by its address.
  * Only a button whose box or address is known is there. An app's result has none. */
 function opensOf(entry: Shown, row: Row): { opens: Open[]; why: string | undefined } {
   const opens: Open[] = [];
@@ -902,6 +930,20 @@ function opensOf(entry: Shown, row: Row): { opens: Open[]; why: string | undefin
     }
     const list = listOfDimension(cell("Filtered dimension"));
     if (list !== undefined) inModel("list", list, "Filtered list", true);
+  }
+  if (file === ACCESS_FILE) {
+    const [driver, controlled] = [cell("Driver Module"), cell("Controlled Module")];
+    if (driver === controlled) inModel("module", driver, "Model");
+    else {
+      inModel("module", driver, "Driver module");
+      inModel("module", controlled, "Controlled module");
+    }
+  }
+  const settings = SETTINGS_PAGES.get(file) ?? (file === PAGE_ACTIONS_FILE && cell("Model action name") !== "" && cell("Model action name") !== NONE ? ACTIONS_PAGE : undefined);
+  if (settings) {
+    const { tabs, why: none } = modelBuilding();
+    if (tabs !== undefined) opens.push({ kind: "module", url: `${tabs}${settings.id}`, what: `the ${settings.page} page`, label: "Model", title: `Open ${settings.page} in Model Building` });
+    else why ??= none;
   }
   const app = cell("App");
   if ((file === MODULE_USAGE_FILE || file === PAGE_FILTERS_FILE || file === PAGE_ACTIONS_FILE) && app !== "" && app !== NONE) {
