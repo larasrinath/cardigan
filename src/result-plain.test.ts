@@ -63,6 +63,14 @@ describe("A result as plain data", () => {
       expect(plainResult({ ...model, moduleIds }), JSON.stringify(moduleIds)).toEqual({ ...result, kind: "model" });
     }
     expect(plainResult({ ...result, moduleIds: model.moduleIds })).toEqual(result);
+    // So does where a model was read: an Anaplan site's origin and a customer's ID. Anything else is left out.
+    const site = { origin: "https://us1a.app.anaplan.com", customer: "8a81b01368a3d0e30168b1c7a8d6000b" };
+    expect(plainResult({ ...model, site: { ...site, extra: "<b>" } })).toEqual({ ...model, site });
+    for (const odd of [{ ...site, origin: "https://evil.example.com" }, { ...site, origin: "http://us1a.app.anaplan.com" }, { ...site, customer: "8a81b013" },
+      { ...site, customer: 1 }, { origin: site.origin }, "us1a", null]) {
+      expect(plainResult({ ...model, site: odd }), JSON.stringify(odd)).toEqual(model);
+    }
+    expect(plainResult({ ...result, site })).toEqual(result);
   });
 
   it("keeps a model's mappings of its imports from a file, every field checked, and leaves them out whole where anything is not as it should be", () => {

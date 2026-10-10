@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ModelMapOptions } from "../map/graph-types.js";
+import { PAGE_ACTIONS_HEADERS, PAGE_FILTERS_HEADERS } from "../model-pages.js";
+import { MODULE_USAGE_FILE, MODULE_USAGE_HEADERS, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE } from "../page-files.js";
 import { CALENDAR_HEADERS, CALENDAR_PROPERTIES, calendarRows } from "../model/calendar.js";
 import { FRESH_MS, PORT_NAME, RESULTS_PAGE, type TabMessage } from "../protocol.js";
 import type { AnalysisResult, Cell, ImportMapping, ResultTable } from "../result-types.js";
@@ -175,9 +177,12 @@ let tabClosed: boolean;
  * `fileWords`): an import's Source Type, FILE, and the name of the file it reads. None but in a test that sets it: no word
  * of the page's own names a file in any test. */
 let theirs: RegExp | undefined;
-/** What the page asked of chrome.tabs.update and chrome.windows.update, in order. */
+/** What the page asked of chrome.tabs.update, chrome.tabs.create and chrome.windows.update, in order. A tab the page
+ * opens is numbered from 101. While `tabsRefuse` holds, the browser refuses to take any tab anywhere or to open one. */
 let tabUpdates: unknown[][];
+let tabCreates: unknown[][];
 let windowUpdates: unknown[][];
+let tabsRefuse: boolean;
 /** The page's address, each address the script changed it to, and whether changing it is refused. */
 let location: { search: string; pathname: string; hash: string };
 let replaced: string[];
@@ -265,7 +270,9 @@ beforeEach(() => {
   tabClosed = false;
   theirs = undefined;
   tabUpdates = [];
+  tabCreates = [];
   windowUpdates = [];
+  tabsRefuse = false;
   copied = [];
   clipboardRefuses = false;
   stored = new Map();
@@ -318,10 +325,16 @@ beforeEach(() => {
     tabs: {
       connect: (...args: unknown[]) => { connects.push(args); const port = new FakePort(); ports.push(port); return port; },
       get: async (id: number) => { if (tabClosed) throw new Error(`No tab with id: ${id}.`); return { id, index: 0 }; },
+      // `tabClosed` closes the tab the page was opened for, and none it opened itself.
       update: async (id: number, properties: unknown) => {
         tabUpdates.push([id, properties]);
-        if (tabClosed) throw new Error(`No tab with id: ${id}.`);
+        if (tabsRefuse || (tabClosed && id <= 100)) throw new Error(`No tab with id: ${id}.`);
         return { id, index: 0, windowId: 3 };
+      },
+      create: async (properties: unknown) => {
+        if (tabsRefuse) throw new Error("Tabs cannot be edited right now.");
+        tabCreates.push([properties]);
+        return { id: 100 + tabCreates.length, index: 1, windowId: 3 };
       },
     },
     // As in a tab the icon was not just clicked on: Chrome lets nothing be put into it.
@@ -4452,20 +4465,23 @@ describe("The ways from a count or a row to where it leads", () => {
     page.all('#tableWrap tbody [data-act="row"]')[at].press();
   };
   const drawerOpen = () => page.id("drawer").classList.contains("show");
+  /** The details' button that shows the row on the map, by its words and its title, if it has one. */
+  const mapButton = () => page.all("#drawerOpens button").find(button => button.textContent.trim() === "Model map");
 
-  it("opens a line item's box on the model map from the button at the top of its details, and a module's", async () => {
+  it("opens a line item's box on the model map from the button at the top right of its details, and a module's", async () => {
     mapNodes = blueprintNodes();
     await openWith(BLUEPRINT);
     goTo(1);
     openRow("Revenue");
-    expect([page.id("drawerTitle").textContent, page.id("drawerMap").hidden, page.id("drawerMap").textContent.trim()]).toEqual(["Revenue", false, "Open in Model map"]);
-    page.id("drawerMap").press();
+    expect([page.id("drawerTitle").textContent, page.id("drawerOpens").hidden, mapButton()?.title, mapButton()?.querySelectorAll("svg").length])
+      .toEqual(["Revenue", false, "Show Revenue on the Model map", 1]);
+    mapButton()!.press();
     // The details close, the map is shown, and the line item is selected on it.
     expect([drawerOpen(), shows(), mapAsked]).toEqual([false, ["Model map", "Model map"], ["build", "mount 1", "show 1", "reveal 1 3"]]);
     // A module's row: the module, among its section's.
     goTo(2);
     openRow("COST01 Costs");
-    page.id("drawerMap").press();
+    mapButton()!.press();
     expect([drawerOpen(), shows()[0], mapAsked.slice(4)]).toEqual([false, "Model map", ["hide 1", "show 1", "reveal 1 5"]]);
     // The graph is built once, for the button and the map both.
     expect(mapBuilds).toHaveLength(1);
@@ -4476,13 +4492,27 @@ describe("The ways from a count or a row to where it leads", () => {
     await openWith(BLUEPRINT);
     goTo(1);
     openRow("COST01 Costs");
-    expect([page.id("drawerTitle").textContent, page.id("drawerMap").hidden]).toEqual(["COST01 Costs", false]);
-    page.id("drawerMap").press();
+    expect([page.id("drawerTitle").textContent, mapButton()?.title]).toEqual(["COST01 Costs", "Show COST01 Costs on the Model map"]);
+    mapButton()!.press();
     expect([drawerOpen(), shows()[0], mapAsked]).toEqual([false, "Model map", ["build", "mount 1", "show 1", "reveal 1 5"]]);
     // A heading's own row there, which the map draws as no module, has none.
     goTo(1);
     openRow("--- Archive ---");
-    expect([drawerOpen(), page.id("drawerMap").hidden]).toEqual([true, true]);
+    expect([drawerOpen(), mapButton()]).toEqual([true, undefined]);
+  });
+
+  it("opens a module's box on the model map from its row of Module Usage", async () => {
+    mapNodes = blueprintNodes();
+    const usage: ResultTable = { file: MODULE_USAGE_FILE, label: "Module Usage", guard: true, headers: [...MODULE_USAGE_HEADERS],
+      rows: [["COST01 Costs", NONE, "Not on any page", NONE, NONE, NONE], ["Gone (not in the model)", NONE, "Not on any page", NONE, NONE, NONE]] };
+    await openWith({ ...BLUEPRINT, tables: [...BLUEPRINT.tables, usage] });
+    goTo(3);
+    openRow("Gone (not in the model)");
+    expect(mapButton()).toBeUndefined();
+    page.key("Escape");
+    openRow("COST01 Costs");
+    mapButton()!.press();
+    expect([drawerOpen(), shows()[0], mapAsked.at(-1)]).toEqual([false, "Model map", "reveal 1 5"]);
   });
 
   it("has no such button for a heading of Modules, nor for a line item the map does not draw", async () => {
@@ -4490,18 +4520,18 @@ describe("The ways from a count or a row to where it leads", () => {
     await openWith(BLUEPRINT);
     goTo(2);
     openRow("--- Archive ---");
-    expect(page.id("drawerMap").hidden).toBe(true);
+    expect(mapButton()).toBeUndefined();
     page.id("drawerClose").press();
     goTo(1);
     openRow("Cost");
-    expect(page.id("drawerMap").hidden).toBe(true);
+    expect(mapButton()).toBeUndefined();
   });
 
   it("has no such button for an app's rows, which have no map", async () => {
     await openWith(RESULT);
     goTo(2);
     page.all('#tableWrap tbody [data-act="row"]')[0].press();
-    expect([drawerOpen(), page.id("drawerMap").hidden, mapAsked]).toEqual([true, true, []]);
+    expect([drawerOpen(), page.id("drawerOpens").hidden, mapAsked]).toEqual([true, true, []]);
   });
 
   it("has no such button where the model's graph cannot be made", async () => {
@@ -4510,7 +4540,7 @@ describe("The ways from a count or a row to where it leads", () => {
     await openWith(BLUEPRINT);
     goTo(1);
     openRow("Revenue");
-    expect([drawerOpen(), page.id("drawerMap").hidden]).toEqual([true, true]);
+    expect([drawerOpen(), mapButton()]).toEqual([true, undefined]);
   });
 
   it("opens the table a tile of the overview counts, for an app", async () => {
@@ -4528,97 +4558,223 @@ describe("The ways from a count or a row to where it leads", () => {
   });
 });
 
-describe("A double-click that opens a row's module in Anaplan", () => {
+describe("The buttons at the top right of a row's details that open it in Anaplan", () => {
   const CUSTOMER = "8a81b01368a3d0e30168b1c7a8d6000b";
   const WORKSPACE = "8a81b08a5ce3b9c4015d0f4b2a3c00aa";
   const ORIGIN = "https://us1a.app.anaplan.com";
+  const [APP, BOARD, SHEET, REPORT] = ["0f1e2d3c-4b5a-4968-8778-695a4b3c2d1e", "11111111-2222-4333-8444-555555555555", "22222222-3333-4444-8555-666666666666",
+    "33333333-4444-4555-8666-777777777777"];
   /** BLUEPRINT as the export makes it now: its workspace in the Details file, and its modules' IDs. The heading has none. */
   const OPENS: AnalysisResult = {
     ...BLUEPRINT, tables: [{ ...BLUEPRINT.tables[0], rows: [...BLUEPRINT.tables[0].rows, ["Model", "Workspace ID", WORKSPACE]] }, ...BLUEPRINT.tables.slice(1)],
     moduleIds: [["REV01 Revenue", "102000000001"], ["COST01 Costs", "102000000002"]],
   };
+  /** A row of one of the tables of the pages built on a model, by its cells under these headers, the rest a dash. */
+  const pageRow = (headers: readonly string[], cells: Record<string, Cell>): Cell[] => headers.map(header => cells[header] ?? NONE);
+  const place = (type: string, page: string) => ({ App: `Planning ${TAG}`, "Page type": type, "App ID": APP, "Page ID": page });
+  /** The same model with the three tables of the pages built on it, as a run writes them (model-pages.ts). */
+  const WITH_PAGES: AnalysisResult = { ...OPENS, tables: [...OPENS.tables,
+    { file: MODULE_USAGE_FILE, label: "Module Usage", guard: true, headers: [...MODULE_USAGE_HEADERS], rows: [
+      pageRow(MODULE_USAGE_HEADERS, { Module: "REV01 Revenue", Page: "Revenue board", ...place("Board", BOARD) }),
+      pageRow(MODULE_USAGE_HEADERS, { Module: "REV01 Revenue", Page: "Revenue sheet", ...place("Worksheet", SHEET) }),
+      pageRow(MODULE_USAGE_HEADERS, { Module: "COST01 Costs", Page: "Cost report", ...place("Report", REPORT) }),
+      pageRow(MODULE_USAGE_HEADERS, { Module: "COST01 Costs", Page: "Odd page", ...place("Planning page", BOARD) }),
+      pageRow(MODULE_USAGE_HEADERS, { Module: "--- Archive ---", Page: "Not on any page" })] },
+    { file: PAGE_FILTERS_FILE, label: "Page Filters", guard: true, headers: [...PAGE_FILTERS_HEADERS], rows: [
+      pageRow(PAGE_FILTERS_HEADERS, { "Condition line item's module": "REV01 Revenue", "Condition line item": "Units", "Filtered module": "COST01 Costs", Page: "Revenue board",
+        ...place("Board", BOARD) }),
+      pageRow(PAGE_FILTERS_HEADERS, { "Condition line item's module": "REV01 Revenue", "Condition line item": "Price", "Filtered module": "REV01 Revenue", Page: "Revenue sheet",
+        ...place("Worksheet", SHEET) })] },
+    { file: PAGE_ACTIONS_FILE, label: "Page Actions", guard: true, headers: [...PAGE_ACTIONS_HEADERS], rows: [
+      pageRow(PAGE_ACTIONS_HEADERS, { "Model action name": "Import prices", "Button label": "Load prices", Page: "Cost report", ...place("Report", REPORT) })] }] };
   const link = (module: string) => `${ORIGIN}/a/modeling/customers/${CUSTOMER}/workspaces/${WORKSPACE}/models/${BLUEPRINT.id}/tabs/${module}`;
   /** Opens the page on a model the tab shows in Model Building, as the content script says it: with its site and customer. */
   const openModel = async (result: AnalysisResult = OPENS, subject: object = { kind: "model", id: result.id, origin: ORIGIN, customer: CUSTOMER }) => {
     await open(clicked(7));
     ports[0].send({ type: "subject", subject });
     sendResult(ports[0], result);
-    // The result is kept for a refresh before the test goes on: the clock the double-click moves would otherwise start the
-    // keeping, which would end after the test, with the page it writes to gone.
+    // The result is kept for a refresh before the test goes on, so that no keeping is left to end after the test.
     await letKeep();
   };
-  /** A double-click on a row, by its first cell, as a browser gives it: its first click opens the row's details, its second
-   * falls on the scrim the details put over the table, which closes them, and the double-click goes to the scrim. */
-  const doubleClick = async (name: string, between = 0) => {
-    const at = firstCells().indexOf(name);
-    page.all('#tableWrap tbody [data-act="row"]')[at].press();
-    page.id("scrim").press();
-    vi.advanceTimersByTime(between);
-    page.id("scrim").dispatch("dblclick");
+  /** Opens a row's details, by the text of its first cell. */
+  const openRow = (name: string) => page.all('#tableWrap tbody [data-act="row"]')[firstCells().indexOf(name)].press();
+  /** The buttons at the top right of the details: each one's words and its title. */
+  const opens = () => page.all("#drawerOpens button").map(button => [button.textContent.trim(), button.title]);
+  /** Presses the button of the details that says these words. */
+  const press = async (label: string) => {
+    page.all("#drawerOpens button").find(button => button.textContent.trim() === label)!.press();
     await settle();
   };
+  /** The line under the details' header, while it is shown. */
+  const why = () => (page.id("drawerWhy").hidden ? undefined : page.id("drawerWhy").textContent);
+  const drawerOpen = () => page.id("drawer").classList.contains("show");
   const toastSays = () => page.id("toast").textContent;
 
-  it("opens a line item's module, and a module, in the Anaplan tab Cardigan read, and brings that tab's window to the front", async () => {
+  it("opens a line item's module, and a module, in Model Building in the Anaplan tab Cardigan read, and brings that tab's window to the front", async () => {
     await openModel();
     goTo(1);
-    expect(page.all("#tableWrap tbody tr").map(row => row.getAttribute("title"))).toEqual(Array(8).fill("Double-click to open its module in Anaplan"));
-    await doubleClick("Revenue");
-    expect([tabUpdates, windowUpdates, page.id("drawer").classList.contains("show")]).toEqual([[[7, { url: link("102000000001"), active: true }]], [[3, { focused: true }]], false]);
+    // No row says that a double-click does anything, and a double-click does nothing.
+    expect(page.all("#tableWrap tbody tr").map(row => row.getAttribute("title"))).toEqual(Array(8).fill(null));
+    openRow("Revenue");
+    expect([opens(), page.id("drawerOpens").hidden, why()]).toEqual([[["Model", "Open REV01 Revenue in Model Building"]], false, undefined]);
+    page.id("scrim").dispatch("dblclick");
+    await settle();
+    expect(tabUpdates).toEqual([]);
+    // The tab goes to the module and comes to the front, and so does its window; the details stay open behind it.
+    await press("Model");
+    expect([tabUpdates, windowUpdates, drawerOpen()]).toEqual([[[7, { url: link("102000000001"), active: true }]], [[3, { focused: true }]], true]);
+    page.key("Escape");
     goTo(2);
-    await doubleClick("COST01 Costs");
-    expect([tabUpdates.at(-1), windowUpdates.length]).toEqual([[7, { url: link("102000000002"), active: true }], 2]);
+    openRow("COST01 Costs");
+    await press("Model");
+    expect([tabUpdates.at(-1), windowUpdates.length, tabCreates]).toEqual([[7, { url: link("102000000002"), active: true }], 2, []]);
   });
 
-  it("says what to do for a row whose module the model gave no ID for: a heading, or a module the export found none for", async () => {
+  it("opens a module from its own row of Line Items, as from its row of Modules, with the map's button above", async () => {
+    mapNodes = [{ id: 0, kind: "module", name: "REV01 Revenue" }, { id: 5, kind: "module", name: "COST01 Costs" }];
+    await openModel();
+    goTo(1);
+    openRow("COST01 Costs");
+    expect(opens()).toEqual([["Model map", "Show COST01 Costs on the Model map"], ["Model", "Open COST01 Costs in Model Building"]]);
+    await press("Model");
+    expect(tabUpdates).toEqual([[7, { url: link("102000000002"), active: true }]]);
+    // A heading's own row has neither: the map draws no module of it, and the export found no ID for it.
+    page.key("Escape");
+    openRow("--- Archive ---");
+    expect([opens(), page.id("drawerOpens").hidden]).toEqual([[], true]);
+  });
+
+  it("has the button only for a row whose module the export found an ID for: none for a heading, nor for a module without one", async () => {
     await openModel({ ...OPENS, moduleIds: [["REV01 Revenue", "102000000001"]] });
     goTo(2);
-    await doubleClick("--- Archive ---");
-    expect([toastSays(), tabUpdates]).toEqual(["Cardigan cannot open this row in Anaplan: the model gave no ID for its module.", []]);
-    await doubleClick("COST01 Costs");
-    expect([toastSays(), tabUpdates]).toEqual(["Cardigan cannot open this row in Anaplan: the model gave no ID for its module.", []]);
+    for (const name of ["--- Archive ---", "COST01 Costs"]) {
+      openRow(name);
+      expect([name, opens(), page.id("drawerOpens").hidden, why()]).toEqual([name, [], true, undefined]);
+      page.key("Escape");
+    }
   });
 
-  it("asks for a run again where the result has no IDs, as one an earlier version kept", async () => {
+  it("says why under the header where the result keeps every module from opening: one an earlier version kept", async () => {
     const { moduleIds: _ids, ...earlier } = OPENS;
     await openModel(earlier);
     goTo(1);
-    await doubleClick("Units");
-    expect([toastSays(), tabUpdates]).toEqual(["This result has no IDs for the model's modules: an earlier version of Cardigan read it. Choose Run again, then double-click the row again.", []]);
+    openRow("Units");
+    expect([opens(), why()]).toEqual([[], "This result has no IDs for the model's modules: an earlier version of Cardigan read it. Choose Run again to open modules from here."]);
   });
 
-  it("asks for the model in Model Building where the tab did not say where it is", async () => {
+  it("says why where the export found no module's ID, and asks for the log", async () => {
+    await openModel({ ...OPENS, moduleIds: [] });
+    goTo(1);
+    openRow("Units");
+    expect([opens(), why()]).toEqual([[], "Cardigan found no IDs for this model's modules, so it cannot open them in Model Building. "
+      + "Choose Copy diagnostic log on the Overview and send the log."]);
+  });
+
+  it("says why where neither the result nor the tab says where the model is, as for the classic model page", async () => {
     await openModel(OPENS, { kind: "model", id: OPENS.id });
     goTo(1);
-    await doubleClick("Units");
-    expect([toastSays(), tabUpdates]).toEqual(["To open a module from here, open the model in Model Building, then click the Cardigan icon on that tab.", []]);
+    openRow("Units");
+    expect([opens(), why()]).toEqual([[], "To open modules, apps and pages from here, open the model in Model Building, then click the Cardigan icon on that tab."]);
   });
 
-  it("says the Anaplan tab is closed where it is", async () => {
+  it("says why where the result does not say the model's workspace", async () => {
+    await openModel({ ...OPENS, tables: BLUEPRINT.tables });
+    goTo(1);
+    openRow("Units");
+    expect([opens(), why()]).toEqual([[], "This result does not say which workspace the model is in, so Cardigan cannot open its modules. Choose Run again."]);
+  });
+
+  it("opens the model where its result says it is, whatever the tab shows now", async () => {
+    await openModel({ ...OPENS, site: { origin: "https://eu2a.app.anaplan.com", customer: CUSTOMER.toUpperCase() } }, { kind: "app", id: APP });
+    goTo(1);
+    openRow("Units");
+    await press("Model");
+    expect(tabUpdates).toEqual([[7, { url: `https://eu2a.app.anaplan.com/a/modeling/customers/${CUSTOMER.toUpperCase()}/workspaces/${WORKSPACE}/models/${OPENS.id}/tabs/102000000001`,
+      active: true }]]);
+  });
+
+  it("opens a module, its app and its page from Module Usage, each page by its type's address, and nothing for a page of a type it does not know", async () => {
+    await openModel(WITH_PAGES);
+    choose(String(WITH_PAGES.tables.findIndex(table => table.file === MODULE_USAGE_FILE)));
+    const app = `${ORIGIN}/a/apps/app/${APP}`;
+    const pages = [["Revenue board", `${app}/boards/${BOARD}`], ["Revenue sheet", `${app}/worksheets/${SHEET}`], ["Cost report", `${app}/reports/${REPORT}`]];
+    for (const [row, [name, address]] of pages.entries()) {
+      page.all('#tableWrap tbody [data-act="row"]')[row].press();
+      expect(opens().map(([label]) => label), name).toEqual(["Model", "App", "Page"]);
+      expect(opens().slice(1).map(([, title]) => title), name).toEqual([`Open the app Planning ${TAG} in Anaplan`, `Open the page ${name} in Anaplan`]);
+      await press("App");
+      await press("Page");
+      expect(tabUpdates.slice(-2).map(([, properties]) => (properties as { url: string }).url), name).toEqual([app, address]);
+      page.key("Escape");
+    }
+    // A page whose type has no address of its own here: its app is opened, and it is not.
+    page.all('#tableWrap tbody [data-act="row"]')[3].press();
+    expect(opens().map(([label]) => label)).toEqual(["Model", "App"]);
+    page.key("Escape");
+    // A module on no page has no app and no page to open, and the heading no ID: nothing, and nothing to say.
+    page.all('#tableWrap tbody [data-act="row"]')[4].press();
+    expect([opens(), why()]).toEqual([[], undefined]);
+    // An app's name is written as text, in the title too.
+    expect(strayImg()).toBe(false);
+    expect(new Set(tabUpdates.map(([tab]) => tab))).toEqual(new Set([7]));
+  });
+
+  it("opens a filter's two modules, its app and its page from Page Filters, one module where the two are one, and a button's app and page from Page Actions", async () => {
+    await openModel(WITH_PAGES);
+    choose(String(WITH_PAGES.tables.findIndex(table => table.file === PAGE_FILTERS_FILE)));
+    openRow("REV01 Revenue");
+    expect(opens()).toEqual([["Condition module", "Open REV01 Revenue in Model Building"], ["Filtered module", "Open COST01 Costs in Model Building"],
+      ["App", `Open the app Planning ${TAG} in Anaplan`], ["Page", "Open the page Revenue board in Anaplan"]]);
+    await press("Condition module");
+    await press("Filtered module");
+    expect(tabUpdates.map(([, properties]) => (properties as { url: string }).url)).toEqual([link("102000000001"), link("102000000002")]);
+    page.key("Escape");
+    page.all('#tableWrap tbody [data-act="row"]')[1].press();
+    expect(opens().map(([label]) => label)).toEqual(["Model", "App", "Page"]);
+    page.key("Escape");
+    choose(String(WITH_PAGES.tables.findIndex(table => table.file === PAGE_ACTIONS_FILE)));
+    openRow("Import prices");
+    expect(opens()).toEqual([["App", `Open the app Planning ${TAG} in Anaplan`], ["Page", "Open the page Cost report in Anaplan"]]);
+    await press("Page");
+    expect(tabUpdates.at(-1)).toEqual([7, { url: `${ORIGIN}/a/apps/app/${APP}/reports/${REPORT}`, active: true }]);
+  });
+
+  it("says why the tables of the pages built on a model open no app and no page in a result an earlier version kept", async () => {
+    const earlier = { ...WITH_PAGES, tables: WITH_PAGES.tables.map(table => (table.file === PAGE_ACTIONS_FILE
+      ? { ...table, headers: table.headers.filter(header => !["Page type", "App ID", "Page ID"].includes(header)), rows: table.rows.map(row => row.slice(0, 9).concat(row.slice(12))) }
+      : table)) };
+    await openModel(earlier);
+    choose(String(earlier.tables.findIndex(table => table.file === PAGE_ACTIONS_FILE)));
+    openRow("Import prices");
+    expect([opens(), why()]).toEqual([[], "This result has no IDs for its apps and pages: an earlier version of Cardigan read it. Choose Run again to open them from here."]);
+  });
+
+  it("opens one tab in the place of the Anaplan tab once that is closed, and every later address in that one", async () => {
     await openModel();
     tabClosed = true;
     goTo(1);
-    await doubleClick("Units");
-    expect([toastSays(), tabUpdates.length, windowUpdates]).toEqual(["The Anaplan tab is closed. Open the model in Model Building, then click the Cardigan icon there.", 1, []]);
+    openRow("Units");
+    await press("Model");
+    // The closed tab is asked first; then one tab is opened, and comes to the front with its window.
+    expect([tabUpdates.map(([tab]) => tab), tabCreates, windowUpdates]).toEqual([[7], [[{ url: link("102000000001"), active: true }]], [[3, { focused: true }]]]);
+    page.key("Escape");
+    goTo(2);
+    openRow("COST01 Costs");
+    await press("Model");
+    // The next address goes to that tab, and no other is opened.
+    expect([tabUpdates.map(([tab]) => tab), tabCreates.length, windowUpdates.length]).toEqual([[7, 101], 1, 2]);
+    // A tab that can be neither used nor opened: the page says so.
+    tabsRefuse = true;
+    await press("Model");
+    expect([toastSays(), tabCreates.length]).toEqual(["Cardigan could not open that in Anaplan.", 1]);
   });
 
-  it("takes a second click that comes late for no double-click", async () => {
-    await openModel();
-    goTo(1);
-    await doubleClick("Units", 700);
-    expect(tabUpdates).toEqual([]);
-  });
-
-  it("does nothing for an app's rows, which have no module to open", async () => {
+  it("has no buttons for an app's rows, which have no module to open", async () => {
     await openWith(RESULT);
     await letKeep();
     goTo(2);
-    expect(page.all("#tableWrap tbody tr").every(row => row.getAttribute("title") === null)).toBe(true);
     page.all('#tableWrap tbody [data-act="row"]')[0].press();
-    page.id("scrim").press();
-    page.id("scrim").dispatch("dblclick");
-    await settle();
-    expect(tabUpdates).toEqual([]);
+    expect([page.id("drawer").classList.contains("show"), opens(), page.id("drawerOpens").hidden, why()]).toEqual([true, [], true, undefined]);
   });
 });
 

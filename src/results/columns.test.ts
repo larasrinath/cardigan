@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PAGE_ACTIONS_HEADERS, PAGE_FILTERS_HEADERS } from "../model-pages.js";
-import { MODEL_PAGE_FILES, MODULE_USAGE_FILE, MODULE_USAGE_HEADERS, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE } from "../page-files.js";
+import { MODEL_PAGE_FILES, MODULE_USAGE_FILE, MODULE_USAGE_HEADERS, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, PAGE_PLACE_HEADERS } from "../page-files.js";
 import { HEADERS, type TabName } from "../report.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
 import { APP_FILES, cardsNamed, cardsOf, COLUMN_CHOICES, columnIndex, columnsOf, FILTER_MAX, FILTER_MIN, MODEL_COUNTS, MODEL_FILTERED, MODEL_HIDDEN, NUMBERS_HIDDEN, ROW_NAME_COLUMNS, rowColumns, rowKeys, rowNameIndex,
@@ -153,19 +153,22 @@ describe("The results page's columns", () => {
 
   it("shows the tables of the pages built on a model as the app's tables they are made from, each with a filter on the app", () => {
     const choices = (file: string, headers: readonly string[]) => columnsOf(table(file, [...headers])).map(column => [column.label, column.kind, column.filter, column.hidden]);
-    expect(choices(MODULE_USAGE_FILE, MODULE_USAGE_HEADERS)).toEqual([["Module", "text", false, false], ["App", "text", true, false], ["Page", "text", false, false]]);
-    // Page Filters and Page Actions are an app's Filters and Action Buttons with the app in front: their columns are those
-    // tables' own, IDs and numbers hidden.
+    // Where each page is ends every one of the three, hidden: its type as a tag, and its app's ID and its own as IDs.
+    const place = [["Page type", "tag", true, true], ["App ID", "id", false, true], ["Page ID", "id", false, true]];
+    expect(choices(MODULE_USAGE_FILE, MODULE_USAGE_HEADERS)).toEqual([["Module", "text", false, false], ["App", "text", true, false], ["Page", "text", false, false], ...place]);
+    // Page Filters and Page Actions hold an app's Filters and Action Buttons in an order of their own, with the app and
+    // where the page is: each of the app's columns is shown as in the app's table, IDs and numbers hidden.
     for (const [file, headers, tab] of [[PAGE_FILTERS_FILE, PAGE_FILTERS_HEADERS, "Filters"], [PAGE_ACTIONS_FILE, PAGE_ACTIONS_HEADERS, "Actions"]] as const) {
-      expect(headers, file).toEqual(["App", ...HEADERS[tab]]);
-      expect(choices(file, headers), file).toEqual([["App", "text", true, false], ...choices(APP_FILES[tab], HEADERS[tab])]);
-      expect(columnsOf(table(file, [...headers])).filter(column => column.hidden).map(column => column.label), file)
-        .toEqual(columnsOf(appTable(APP_FILES[tab])).filter(column => column.hidden).map(column => column.label));
+      const own = new Map(choices(APP_FILES[tab], HEADERS[tab]).map(choice => [choice[0], choice]));
+      const theirs = new Map([["App", ["App", "text", true, false]], ...place.map(choice => [choice[0], choice] as const)]);
+      expect(choices(file, headers), file).toEqual(headers.map(header => own.get(header) ?? theirs.get(header)));
+      expect(columnsOf(table(file, [...headers])).filter(column => column.hidden).map(column => column.label).sort(), file)
+        .toEqual([...columnsOf(appTable(APP_FILES[tab])).filter(column => column.hidden).map(column => column.label), ...PAGE_PLACE_HEADERS].sort());
     }
     // The run writes them, so the dash alone says there is nothing, and a row is named as the app's own tables name one.
     expect(MODEL_PAGE_FILES.map(file => writesNone(table(file, ["App"])))).toEqual([true, true, true]);
     expect([rowNameIndex(table(PAGE_FILTERS_FILE, [...PAGE_FILTERS_HEADERS])), rowNameIndex(table(PAGE_ACTIONS_FILE, [...PAGE_ACTIONS_HEADERS])),
-      rowNameIndex(table(MODULE_USAGE_FILE, [...MODULE_USAGE_HEADERS]))]).toEqual([9, 3, undefined]);
+      rowNameIndex(table(MODULE_USAGE_FILE, [...MODULE_USAGE_HEADERS]))]).toEqual([1, 5, undefined]);
   });
 
   it("shows every column of a file it has no choices for as plain text: a model's files, odd names", () => {

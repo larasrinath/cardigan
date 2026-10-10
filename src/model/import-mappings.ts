@@ -34,6 +34,8 @@ import type { Native } from "./native.js";
 
 /** SYSTEM_PROPERTY_IMPORT_DEFINITION (anaplan/constants.js): the grid's column that holds each import's definition. */
 export const IMPORT_DEFINITION = 4000001300;
+/** The label of that column, by which it is found where the client numbers it otherwise. */
+const DEFINITION_LABEL = "import definition";
 /** MODEL_CONTENT_TIMESCALE_ENTITY_LONG_ID and MODEL_CONTENT_VERSION_ENTITY_LONG_ID: Time and Versions as a module's
  * dimensions. */
 const TIME = 9000000001;
@@ -194,17 +196,48 @@ export function fileImports(tab: Grid): GridRow[] {
   return at < 0 ? [] : tab.rows.filter(row => readsFile(row.cells[at]));
 }
 
+/** A Source Type as the log writes it: Anaplan's own word for a kind of source, such as FILE or SAVED VIEW, in letters and
+ * spaces; "blank" for an empty cell, and a question mark for anything else, which could be a value of the model's. */
+const typeWord = (cell: string | undefined): string => {
+  const word = (cell ?? "").trim();
+  return word === "" ? "blank" : /^[A-Za-z][A-Za-z _-]{0,29}$/.test(word) ? word : "?";
+};
+
+/** The log's line on the Imports tab, where the mappings start: how many imports it lists, each Source Type it holds with
+ * how many imports have it, and how many mappings are to be read, one for each import from a file; or that it has no
+ * Source Type column. One live log then tells whether an import from a file was found at all. As the page's other words,
+ * the line names no file: FILE is Anaplan's own word, as the tab holds it. */
+export function importsLine(tab: Grid): string {
+  const at = columnAt(tab, SOURCE_TYPE);
+  if (at < 0) return `Import mappings: ${tab.rows.length} imports; the Imports tab has no ${SOURCE_TYPE} column`;
+  const types = new Map<string, number>();
+  for (const row of tab.rows) types.set(typeWord(row.cells[at]), (types.get(typeWord(row.cells[at])) ?? 0) + 1);
+  const toRead = fileImports(tab).length;
+  return `Import mappings: ${tab.rows.length} imports; Source Types: ${[...types].map(([type, count]) => `${type} ×${count}`).join(", ") || "none"}; `
+    + `${toRead} ${toRead === 1 ? "mapping" : "mappings"} to read`;
+}
+
+/** The column of the grid of definitions that holds them: the one the client numbers `column`, or else the one labelled
+ * Import Definition, as a client that numbers it otherwise would give it; -1 where there is neither. No other column is
+ * taken for it. */
+function definitionsAt(definitions: Grid, column: number): number {
+  const byId = definitions.columns.findIndex(entry => entry.ids[0] === column);
+  return byId >= 0 ? byId : definitions.columns.findIndex(entry => (entry.labels[0] ?? "").trim().toLowerCase() === DEFINITION_LABEL);
+}
+
 /** Each import of the Imports tab that reads a file, in the tab's order, with its mapping: out of its definition's cell in
- * `definitions`, the grid of the imports against their properties, in the column `column`. Without that grid, which the
- * model did not give, each says so, and so does an import the grid has no definition for: none is left out, so that the
- * page has one for each such row of the Imports table. The log has a line for each: how its definition is made. */
+ * `definitions`, the grid of the imports against their properties, in its column of definitions (`definitionsAt`). Without
+ * that grid, which the model did not give, each says so, and so does an import the grid has no definition for: none is
+ * left out, so that the page has one for each such row of the Imports table. The log has a line for each, how its
+ * definition is made, and a last line that counts what was read and what was found, and says why nothing was where the
+ * grid or its column is missing. */
 export function importMappings(tab: Grid, definitions: Grid | undefined, names: ImportNames, log: Log, column = IMPORT_DEFINITION): ImportMapping[] {
   const imports = fileImports(tab);
   const target = columnAt(tab, "Target Object");
-  const at = definitions ? definitions.columns.findIndex(entry => entry.ids[0] === column) : -1;
+  const at = definitions ? definitionsAt(definitions, column) : -1;
   const byId = new Map((definitions?.rows ?? []).map(row => [row.ids[0], row]));
   if (definitions && at < 0) log(`Import mappings: no column of definitions among the ${definitions.columns.length} given`);
-  let read = 0;
+  let [found, read] = [0, 0];
   const mappings = imports.map((row): ImportMapping => {
     const id = Number.isSafeInteger(row.ids[0]) && row.ids[0] > 0 ? String(row.ids[0]) : "";
     const known = { id, name: row.labels[0] ?? "" };
@@ -214,6 +247,7 @@ export function importMappings(tab: Grid, definitions: Grid | undefined, names: 
       log(`Import mapping ${id || "?"}: not in the grid of definitions`);
       return { ...known, importType: "", targets: [], note: MAPPING_NOTES.noDefinition };
     }
+    found++;
     try {
       const { mapping, shape } = readDefinition(cell, names, target < 0 ? undefined : row.cells[target] || undefined);
       log(`Import mapping ${id || "?"}: ${shape}`);
@@ -225,7 +259,8 @@ export function importMappings(tab: Grid, definitions: Grid | undefined, names: 
     }
   });
   // The page shows the log, and no word of the page names a file: nor does this line.
-  log(`Import mappings: ${read} of ${imports.length} read`);
+  const where = !definitions ? "the model gave no grid of definitions" : at < 0 ? "the grid has no column of definitions" : `${found} found in the grid of definitions`;
+  log(`Import mappings: ${read} of ${imports.length} read; ${where}`);
   return mappings;
 }
 

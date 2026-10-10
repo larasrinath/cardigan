@@ -7,7 +7,8 @@ import { columnWidths } from "./column-widths.js";
 import { APP_FILES, cardsOf, columnsOf, rowKeys, type Column } from "./columns.js";
 import {
   cardDrawerHtml, cardDrawerSubHtml, cellHtml, colChooserHtml, colFilterHtml, coloursHtml, esc, FILE_ICONS, FORGOTTEN_LINE, headerMetaHtml, idPill, keptCopyHtml, MAP_LABEL, mapHtml,
-  MOON_ICON, NAV_GROUPS, NAV_ICONS, navHtml, navItems, navMenuHtml, noteBannerHtml, NOT_REMOVED_LINE, objectDrawerHtml, objectDrawerSubHtml, overviewHtml, pagerHtml, rowCellHtml, rowDrawerHtml,
+  MOON_ICON, NAV_GROUPS, NAV_ICONS, navHtml, navItems, navMenuHtml, noteBannerHtml, NOT_REMOVED_LINE, objectDrawerHtml, objectDrawerSubHtml, OPEN_ICONS, opensHtml, overviewHtml, pagerHtml,
+  rowCellHtml, rowDrawerHtml,
   rowDrawerSubHtml, runBannerHtml, runHtml, SUN_ICON, tableHtml, tableParts,
   type KeptCopy, type Links, type TableView,
 } from "./markup.js";
@@ -80,6 +81,25 @@ function viewOf(table: ResultTable, links: Links, overrides: Partial<TableView> 
   return { label: table.label, columns: columnsOf(table), widths: columnWidths(columnsOf(table), table.rows), rows: page.rows, page: page.page, pages: page.pages, pageSize: 50,
     from: page.from, to: page.to, total: page.total, all: table.rows.length, search: "", sort: undefined, filtered: new Set(), context: undefined, links, note: undefined, ...overrides };
 }
+
+describe("The buttons at the top right of a row's details", () => {
+  it("are filled buttons, each with the icon of where it leads and its words, named by their place, with what each opens as their title", () => {
+    const html = opensHtml([{ kind: "map", label: "Model map", title: "Show Revenue on the Model map" }, { kind: "module", label: "Model", title: `Open ${IMG} in Model Building` },
+      { kind: "app", label: "App", title: "Open the app Plan in Anaplan" }, { kind: "page", label: "Page", title: "Open the page Board in Anaplan" }]);
+    const buttons = parseMarkup(html).querySelectorAll("button");
+    expect(buttons.map(button => [button.getAttribute("class"), button.dataset.act, button.dataset.open, button.textContent, button.title])).toEqual([
+      ["btn primary sm", "open", "0", "Model map", "Show Revenue on the Model map"], ["btn primary sm", "open", "1", "Model", `Open ${IMG} in Model Building`],
+      ["btn primary sm", "open", "2", "App", "Open the app Plan in Anaplan"], ["btn primary sm", "open", "3", "Page", "Open the page Board in Anaplan"]]);
+    // A name in a title is text: no tag and no handler come of it. What a button opens is not in the markup.
+    expect([tagNames(html).includes("img"), attributeNames(html).filter(name => /^on/i.test(name)), html.includes("http")]).toEqual([false, [], false]);
+    // Each kind has its own icon: the map's and a page's as the navigation draws them, the model's and an app's of their own.
+    expect(buttons.map(button => button.querySelector("svg")?.outerHTML)).toEqual(Object.values(OPEN_ICONS).map(icon => parseMarkup(icon).innerHTML));
+    expect([OPEN_ICONS.map, OPEN_ICONS.page]).toEqual([NAV_ICONS.map, FILE_ICONS.get(APP_FILES.Pages)]);
+    expect(new Set([...Object.values(OPEN_ICONS), ...Object.values(NAV_ICONS), ...FILE_ICONS.values()]).size)
+      .toBe(new Set([...Object.values(NAV_ICONS), ...FILE_ICONS.values()]).size + 2);
+    expect(opensHtml([])).toBe("");
+  });
+});
 
 describe("The results page's escaping", () => {
   it("escapes the five characters that can end a text or a quoted attribute, and nothing else", () => {

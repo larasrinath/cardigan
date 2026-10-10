@@ -119,8 +119,9 @@ export function mappingOfRow(result: AnalysisResult | undefined, table: ResultTa
   if (type === undefined || !readsFile(row[type])) return undefined;
   const mappings = readImportMappings(result.importMappings);
   if (!mappings) return undefined;
-  const name = cellText(row[0]);
+  // Names are told apart without the spaces around them, on both sides alike.
+  const name = cellText(row[0]).trim();
   const at = table.rows.findIndex(candidate => candidate === row);
-  const place = table.rows.slice(0, Math.max(0, at)).filter(other => cellText(other[0]) === name && readsFile(other[type])).length;
-  return mappingView(mappings.filter(mapping => mapping.name === name)[place]);
+  const place = table.rows.slice(0, Math.max(0, at)).filter(other => cellText(other[0]).trim() === name && readsFile(other[type])).length;
+  return mappingView(mappings.filter(mapping => mapping.name.trim() === name)[place]);
 }
