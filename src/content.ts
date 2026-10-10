@@ -76,10 +76,12 @@ if (window.top === window) {
     current: () => page.cardiganServing === me,
     subject,
     // A model read in Model Building carries where it is, which the results page opens its modules, apps and pages by.
+    // The IDs of its line items come with the export for reading the pages built on it, and go no further: they are taken
+    // off the result here, so that the results page never holds them.
     run: (seen, progress, diagnostics, signal) => (seen.kind === "app"
       ? analyseApp(seen.id, progress, diagnostics, signal)
       : exportInCore(window, core, () => probes.values(), seen.id, progress, signal)
-        .then(result => addModelPages(result, seen.customer, progress, signal))
+        .then(({ lineItemIds, ...result }) => addModelPages(result, seen.customer, progress, signal, undefined, lineItemIds))
         .then(result => (seen.origin && seen.customer ? { ...result, site: { origin: seen.origin, customer: seen.customer } } : result))),
     signedOut: error => error instanceof RestError && error.code === "SIGNED_OUT",
     open,

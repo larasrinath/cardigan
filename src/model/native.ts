@@ -1,5 +1,5 @@
 import { Failure, REFRESH, SEND_LOG, type Log, type Stop } from "../progress.js";
-import { SCOPE_ID, sleep } from "../util.js";
+import { SCOPE_ID, seconds, sleep } from "../util.js";
 import { labelEntries, windowRows, type Grid } from "./grid.js";
 
 /** Reads Model settings grids through the classic model building client, the way its own settings tabs do: a
@@ -21,6 +21,9 @@ const MODULES = ["anaplan/data/ModelContentCache", "anaplan/data/Aggregator", "a
   "anaplan/constants", "anaplan/data/ViewRequestRequestGenerator", "anaplan/data/DataPageCache/_DataPage", "anaplan/utils/AxisHelper"];
 /** Cells requested per read, so large models are read in pages. */
 const CELLS_PER_READ = 40_000;
+/** The columns the first page of a grid is sized for, before the grid has said how many it has: more than any Model
+ * settings grid has (Line Items, the widest, has 27). The pages after it are sized for the grid's own. */
+const FIRST_PAGE_COLUMNS = 30;
 const MAX_ROWS = 250_000;
 /** How long a read waits for the model's answer. With the wait for the page to be idle before it (`waitIdle`), that is less
  * than the time the page waits for a frame that sends nothing (bridge.ts `runInCore`), so a read the model never answers
@@ -120,14 +123,21 @@ function selectorLabel(view: Any, page: Any, index: number): string | undefined 
   return at >= 0 && typeof labels[at] === "string" ? labels[at] as string : undefined;
 }
 
-/** Reads a whole grid in row pages; column labels come from the first read. `selectorLabels` shows list choices by label.
- * `stop` is asked before each page: an export that was asked to stop reads no further one. Asking is also how the model's
- * frame tells the page that waits for it that the export is still going (bridge.ts `serveCore`): nothing else is
- * reported between two pages, so it has to be asked before every one. */
+/** Reads a whole grid in row pages. The first page is asked for at once, sized for `FIRST_PAGE_COLUMNS`, and its answer
+ * says how many rows and columns the grid has, and the columns' labels: the classic client too asks for a page of a grid
+ * before it knows the grid's size, and is given what there is (anaplan/gridlet/ViewRequestGridModel.js `_getPageRequests`).
+ * The pages after it are sized for the grid's own columns. Should the first page give fewer rows than it was asked for,
+ * the next page starts where it ended. `selectorLabels` shows list choices by label. `stop` is asked before each page: an
+ * export that was asked to stop reads no further one. Asking is also how the model's frame tells the page that waits for
+ * it that the export is still going (bridge.ts `serveCore`): nothing else is reported between two pages, so it has to be
+ * asked before every one. Once the grid is read, the log says how long each of its pages took. */
 export async function readGrid(native: Native, rows: string, columns: string, name: string, log: Log, cellsPerRead = CELLS_PER_READ,
   selectorLabels = false, stop?: Stop): Promise<Grid> {
   const viewDefinition = { type: "MODEL_DEFINITION", staticContextIdentifiers: [], ...native.helper.getAxesForViewDefinition([rows], [columns]) };
-  const first = await readWindow(native, viewDefinition, 0, 1, selectorLabels);
+  const firstRows = Math.max(1, Math.floor(cellsPerRead / FIRST_PAGE_COLUMNS));
+  stop?.throwIfAborted();
+  let asked = Date.now();
+  const first = await readWindow(native, viewDefinition, 0, firstRows, selectorLabels);
   const rowCount = Number(first.rowCount) || 0;
   const columnCount = Number(first.columnCount) || 0;
   const columnLabels = labelEntries(first.columnLabelPages?.[0]);
@@ -136,10 +146,16 @@ export async function readGrid(native: Native, rows: string, columns: string, na
   const grid: Grid = { columns: columnLabels, rows: [] };
   const perRead = Math.max(1, Math.floor(cellsPerRead / Math.max(1, columnCount)));
   const currencies = native.cache.getAllCurrenciesLabelPage?.();
-  for (let start = 0; start < rowCount; start += perRead) {
-    stop?.throwIfAborted();
-    const count = Math.min(perRead, rowCount - start);
-    const view = start === 0 && count === 1 ? first : await readWindow(native, viewDefinition, start, count, selectorLabels);
+  /** How long each page took, said once the grid is read: nothing is reported between two pages. */
+  const took: string[] = [];
+  for (let start = 0; start < rowCount;) {
+    const count = Math.min(start === 0 ? firstRows : perRead, rowCount - start);
+    let view = first;
+    if (start > 0) {
+      stop?.throwIfAborted();
+      asked = Date.now();
+      view = await readWindow(native, viewDefinition, start, count, selectorLabels);
+    }
     const pages = (Array.isArray(view.dataPages) ? view.dataPages : []).map((page: Any) => {
       const data = new native.DataPage({ page, allCurrenciesLabelPage: currencies });
       if (!selectorLabels) return data;
@@ -148,8 +164,13 @@ export async function readGrid(native: Native, rows: string, columns: string, na
     });
     const labels = labelEntries(view.rowLabelPages?.[0]);
     if (labels.length !== count) log(`${name}: rows ${start}-${start + count - 1} returned ${labels.length} labels`);
-    grid.rows.push(...windowRows(labels, start, columnCount, pages));
+    // The first page may hold fewer rows than were asked for: the next page starts after those it holds.
+    const read = start === 0 && labels.length > 0 && labels.length < count ? labels.length : count;
+    took.push(`${name}: rows ${start}–${start + read - 1} in ${seconds(Date.now() - asked)}`);
+    grid.rows.push(...windowRows(labels.slice(0, read), start, columnCount, pages));
+    start += read;
   }
+  for (const line of took) log(line);
   return grid;
 }
 
