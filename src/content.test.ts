@@ -91,7 +91,11 @@ describe("The content scripts on an Anaplan page", () => {
     for (const [pathname, subject] of [
       [`/a/apps/app/${APP}`, { kind: "app", id: APP }], [`/a/springboard/apps/app/${APP}/page/board/${APP}`, { kind: "app", id: APP }],
       [`/a/apps/app/${APP.toUpperCase()}/`, { kind: "app", id: APP.toUpperCase() }],
-      [MODEL_BUILDING, { kind: "model", id: MODEL }], [`/a/modeling-ui/customers/${WS}/workspaces/${WS}/models/${MODEL}`, { kind: "model", id: MODEL }],
+      // A model in Model Building says where it is, its site and the customer its address names: the results page opens
+      // one of its modules there.
+      [MODEL_BUILDING, { kind: "model", id: MODEL, origin: SHELL, customer: WS }],
+      [`/a/modeling-ui/customers/${WS}/workspaces/${WS}/models/${MODEL}`, { kind: "model", id: MODEL, origin: SHELL, customer: WS }],
+      [`/a/modeling/workspaces/${WS}/models/${MODEL}`, { kind: "model", id: MODEL }], [`/a/modeling/customers/${WS.slice(1)}/models/${MODEL}`, { kind: "model", id: MODEL }],
       // An address that names both is the app's.
       [`/a/modeling/customers/${WS}/models/${MODEL}/apps/app/${APP}`, { kind: "app", id: APP }],
       ["/a/home", { kind: "none" }], ["/", { kind: "none" }], [`/a/apps/app/${APP.slice(1)}`, { kind: "none" }], [`/a/apps/app/${APP}x`, { kind: "none" }],
@@ -215,7 +219,7 @@ describe("The content scripts on an Anaplan page", () => {
     posted.length = 0;
 
     const port = open();
-    expect(port.take()).toEqual([{ type: "subject", subject: { kind: "model", id: MODEL } }]);
+    expect(port.take()).toEqual([{ type: "subject", subject: { kind: "model", id: MODEL, origin: SHELL, customer: WS } }]);
     port.say({ type: "run" });
     await vi.advanceTimersByTimeAsync(0);
     expect(frame.asked.map(message => message.type)).toEqual(["ack", "run"]);

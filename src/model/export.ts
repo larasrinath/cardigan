@@ -8,7 +8,7 @@ import { actionKind, mergeImports, missingActionColumns, otherActionsTable, type
 import { CALENDAR_HEADERS, calendarRows } from "./calendar.js";
 import { gridTable, type Grid, type GridRow, type Table } from "./grid.js";
 import { lineItemsTable } from "./lineitems.js";
-import { axis, loadNative, readGrid, typeIndex } from "./native.js";
+import { axis, loadNative, readGrid, typeIndex, type Native } from "./native.js";
 
 /** One table per Model settings grid, laid out as Anaplan's own export of that grid (compared with exports from Model
  * settings, 28 Sep 2026): the Actions list split at its headings with its imports merged into the Imports tab (actions.ts),
@@ -43,6 +43,27 @@ const NOTHING_READ = "Cardigan could not read any of this model's settings. Chec
  * Cell Access.csv after Line Items.csv where that file has what it is made from. Once the export was asked to stop,
  * `progress` throws at its next step and `stop` before the next page of a grid's rows (bridge.ts `serveCore`), and that
  * ends it. */
+/** The entity type of a module (native.ts `typeIndex`). */
+const MODULE_TYPE = 102;
+
+/** Each module's name and ID, from the grids that list modules: Modules, and Line Items, which has a row of each module's
+ * own above its line items. The results page opens a module in Model Building by its ID (results/main.ts). An ID is a
+ * module's where the model's client says so; where the client cannot say, by the type an ID starts with, as Anaplan's
+ * long IDs carry it (102 and nine more digits). A name is kept once, with its first ID. */
+export function moduleIdsOf(native: Native, grids: readonly (Grid | undefined)[]): [string, string][] {
+  const found = new Map<string, string>();
+  for (const grid of grids) {
+    for (const row of grid?.rows ?? []) {
+      const [id] = row.ids;
+      const name = row.labels[0] ?? "";
+      if (!Number.isSafeInteger(id) || id <= 0 || name === "" || found.has(name)) continue;
+      const type = typeIndex(native, id);
+      if (type === MODULE_TYPE || (type < 0 && Math.floor(id / 1e9) === MODULE_TYPE)) found.set(name, String(id));
+    }
+  }
+  return [...found];
+}
+
 export async function exportModel(progress: Progress, diagnostics: () => string, stop?: Stop): Promise<AnalysisResult> {
   const log: Log = progress.log;
   progress.status("Loading the model page's client…");
@@ -99,7 +120,12 @@ export async function exportModel(progress: Progress, diagnostics: () => string,
   // for the names. Nothing else moves: the reads, the steps and the lines of the log are in the order they had.
   const lineItemsAt = place();
   const lineItems = await step("Line Items", () => grid("Line Items", axis(native, "MODULE_WITH_LINE_ITEM"), axis(native, "LINE_ITEM_PROPERTY")));
-  await plain("Modules", () => axis(native, "MODULE_ALL"), () => native.axisHelper.getModuleSystemAxisIdentifier());
+  // Its grid is kept for the modules' IDs, which no table holds.
+  const modules = await step("Modules", async () => {
+    const read = await grid("Modules", axis(native, "MODULE_ALL"), native.axisHelper.getModuleSystemAxisIdentifier());
+    add("Modules", gridTable(read));
+    return read;
+  });
   const lists = await step("General Lists", async () => {
     const read = await grid("General Lists", axis(native, "HIERARCHY"), native.axisHelper.getHierarchySystemAxisIdentifier());
     add("General Lists", gridTable(read));
@@ -204,6 +230,7 @@ export async function exportModel(progress: Progress, diagnostics: () => string,
   ];
   tables.unshift({ file: "Model Details.csv", label: "Model Details", headers: [...DETAILS_HEADERS], rows: plainRows(details), guard: true, details: true });
   const date = new Date().toISOString().slice(0, 10);
+  const moduleIds = moduleIdsOf(native, [modules, lineItems]);
   return { kind: "model", name: model, id: native.modelId, zipName: `${fileSafe(model, "model")} - Model Export - ${date}.zip`, tables,
-    summary: [...summary, ...notes] };
+    summary: [...summary, ...notes], ...(moduleIds.length ? { moduleIds } : {}) };
 }

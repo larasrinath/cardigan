@@ -23,6 +23,12 @@ declare namespace chrome {
     /** Rejects when there is no tab with that ID. */
     function get(tabId: number): Promise<Tab>;
     function create(properties: { url: string; index?: number; windowId?: number; openerTabId?: number; active?: boolean }): Promise<Tab>;
+    /** Takes a tab to an address, and to the front of its window. Rejects when there is no tab with that ID. */
+    function update(tabId: number, properties: { url?: string; active?: boolean }): Promise<Tab | undefined>;
+  }
+  namespace windows {
+    /** Brings a window to the front. */
+    function update(windowId: number, info: { focused?: boolean }): Promise<unknown>;
   }
   /** The "scripting" permission's, in a tab the toolbar icon was clicked on ("activeTab"). */
   namespace scripting {
