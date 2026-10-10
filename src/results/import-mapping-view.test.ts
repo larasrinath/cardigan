@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { AnalysisResult, ImportMapping, MappedTarget, ResultTable } from "../result-types.js";
-import { columnLines, mappingOfRow, mappingView, NO_MAPPING, numbersWords, sourceWords } from "./import-mapping-view.js";
+import type { AnalysisResult, ImportMapping, ItemMatch, MappedTarget, ResultTable } from "../result-types.js";
+import { columnLines, mappingOfRow, mappingView, matchWords, NO_MAPPING, numbersWords, sourceWords } from "./import-mapping-view.js";
 import { fileView } from "./result-view.js";
 
 // Mappings as the model export reads them out of an import's definition (model/import-mappings.ts). The first import is
@@ -20,15 +20,39 @@ describe("An import's mapping, in the drawer's words", () => {
 
   it("says what feeds a target: a column by its place and heading, a constant's value, a prompt, nothing, or a source of another kind", () => {
     const said = ([
-      column("Division", 1, "Division Name"), column("Code", 4), column("Units", undefined, "Units"), column("Odd"),
+      column("Division", 1, "Division Name"), column("Code", 4), column("Units", undefined, "Units"), { target: "Region", source: "column", id: "f12" }, column("Odd"),
       { target: "Versions", source: "constant", text: "Actual" }, { target: "Versions", source: "constant" },
       { target: "Products", source: "prompt" }, { target: "Regions", source: "ignore" }, { target: "Line Items", source: "headerRow" },
-      { target: "Price", source: "none" }, { target: "Manager", source: "other", text: "field" }, { target: "Manager", source: "other" },
+      { target: "Price", source: "none" }, { target: "Batch", source: "numbered" }, { target: "Manager", source: "other", text: "field" }, { target: "Manager", source: "other" },
     ] as MappedTarget[]).map(sourceWords);
-    expect(said).toEqual(["Column 1: Division Name", "Column 4", "Column headed Units", "A column the definition neither numbers nor names", "Constant: Actual",
-      "Constant, with no value given", "Prompt: chosen each time the import runs", "Ignored", "Header row: each line item from the column it heads", "Not mapped",
-      "A source Cardigan does not know (field)", "A source Cardigan does not know"]);
+    expect(said).toEqual(["Column 1: Division Name", "Column 4", "Column headed Units", "Column with ID f12", "A column the definition neither numbers nor names",
+      "Constant: Actual", "Constant, with no value given", "Prompt: chosen each time the import runs", "Ignored", "Header row: each line item from the column it heads",
+      "Not mapped", "Not mapped: the list numbers its items itself", "A source Cardigan does not know (field)", "A source Cardigan does not know"]);
     expect(said.filter(words => NAMES_A_FILE.test(words))).toEqual([]);
+  });
+
+  it("says how an import into a list tells its items apart in the dialog's words, which name two choices otherwise for a numbered list", () => {
+    expect(([{ by: "nameOrCode" }, { by: "name" }, { by: "name", numbered: true }, { by: "code" }, { by: "code", numbered: true }, { by: "code", numbered: false },
+      { by: "properties", properties: ["Product"] }, { by: "properties", properties: ["Product", "Location", "Expiry Date"], numbered: true }, { by: "properties", properties: [] }] as ItemMatch[])
+      .map(matchWords)).toEqual(["Items uniquely identified by: Name or code.", "Items uniquely identified by: Name only.", "Items uniquely identified by: Name (#ID).",
+      "Items uniquely identified by: Code only.", "Items uniquely identified by: Code.", "Items uniquely identified by: Code only.",
+      "Items uniquely identified by: Combination of properties: Product.", "Items uniquely identified by: Combination of properties: Product, Location and Expiry Date.",
+      "Items uniquely identified by: Combination of properties, with none chosen."]);
+  });
+
+  it("shows the user's import into a numbered list as the dialog does: its items told apart by properties, each from a column named by its heading", () => {
+    // As the user saw it (10 Oct 2026) before this was read right: every column "neither numbers nor names", under a line
+    // that said each was named by its heading. The definition names each column by its heading alone.
+    const INVENTORY: ImportMapping = { id: "112000000883", name: "DL032 from inventory", importType: "HIERARCHY_DATA",
+      matchedBy: { by: "properties", properties: ["Product", "Location", "Production Date"], numbered: true },
+      targets: [{ target: "DL032 - Inventory #", source: "numbered" }, { target: "Parent", source: "none" }, { target: "Code", source: "none" },
+        column("Product", undefined, "Product"), column("Location", undefined, "Location"), column("Inventory Quantity (U)", undefined, "Qty")] };
+    expect(mappingView(INVENTORY)).toEqual({ match: "Items uniquely identified by: Combination of properties: Product, Location and Production Date.",
+      rows: [["DL032 - Inventory #", "Not mapped: the list numbers its items itself"], ["Parent", "Not mapped"], ["Code", "Not mapped"], ["Product", "Column headed Product"],
+        ["Location", "Column headed Location"], ["Inventory Quantity (U)", "Column headed Qty"]],
+      lines: ["Each column mapped is named by its heading alone, so Cardigan cannot say which columns are not used."] });
+    // A mapping without a way to tell items apart, as one into a module, has no such line.
+    expect(mappingView({ ...INVENTORY, matchedBy: undefined }).match).toBeUndefined();
   });
 
   it("names the columns before the last one mapped that no target takes, and says that what follows it is not known", () => {
@@ -49,6 +73,14 @@ describe("An import's mapping, in the drawer's words", () => {
       .toEqual(["Column 2 is not mapped by number. 2 targets name their columns by heading alone, and may use it.", AFTER(3)]);
     expect(columnLines([column("Units", undefined, "Units"), column("Price", undefined, "Price")]))
       .toEqual(["Each column mapped is named by its heading alone, so Cardigan cannot say which columns are not used."]);
+    // A column given neither place nor heading is not said to be named by its heading, alone or with others.
+    expect([columnLines([column("Units"), column("Price", undefined, "Price")]), columnLines([{ target: "Units", source: "column", id: "f12" }])])
+      .toEqual([["The definition gives no column's place, so Cardigan cannot say which columns are not used."],
+        ["The definition gives no column's place, so Cardigan cannot say which columns are not used."]]);
+    expect(columnLines([column("Products", 1), column("Units"), column("Price", undefined, "Price"), column("Value", 4)]))
+      .toEqual(["Columns 2 and 3 are not mapped by number. 2 targets give no place for their columns, and may use them.", AFTER(4)]);
+    expect(columnLines([column("Products", 1), { target: "Units", source: "column", id: "f12" }, column("Value", 3)]))
+      .toEqual(["Column 2 is not mapped by number. 1 target gives no place for its column, and may use it.", AFTER(3)]);
     // A mapping of constants and prompts alone maps no column.
     expect(columnLines([{ target: "Versions", source: "constant", text: "Actual" }, { target: "Products", source: "prompt" }])).toEqual(["No column is mapped."]);
   });
