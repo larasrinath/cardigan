@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ModelMapOptions } from "../map/graph-types.js";
+import type { AreaCheck, ModelMapOptions } from "../map/graph-types.js";
 import { PAGE_ACTIONS_HEADERS, PAGE_FILTERS_HEADERS } from "../model-pages.js";
 import { MODULE_USAGE_FILE, MODULE_USAGE_HEADERS, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE } from "../page-files.js";
 import { CALENDAR_HEADERS, CALENDAR_PROPERTIES, calendarRows } from "../model/calendar.js";
@@ -23,7 +23,7 @@ const mapStandIn = vi.hoisted(() => ({
   build: (_tables: unknown): unknown => { throw new Error("No test has set up the model map's stand-in."); },
   mount: (_host: unknown, _graph: unknown, _options: unknown): unknown => { throw new Error("No test has set up the model map's stand-in."); },
 }));
-vi.mock("../map/build-graph.js", () => ({ buildModelGraph: (tables: unknown) => mapStandIn.build(tables) }));
+vi.mock("../map/build-graph.js", async importOriginal => ({ ...await importOriginal<typeof import("../map/build-graph.js")>(), buildModelGraph: (tables: unknown) => mapStandIn.build(tables) }));
 vi.mock("../map/map-view.js", () => ({ mountModelMap: (host: unknown, graph: unknown, options: unknown) => mapStandIn.mount(host, graph, options) }));
 
 /** The page as it is packaged: the script runs on results.html itself, read by the stand-in page. */
@@ -215,6 +215,8 @@ let mapMounts: { host: FakeElement; graph: unknown; options: unknown; found: unk
 let mapThrows: Partial<Record<"build" | "mount" | "show" | "hide" | "themeChanged" | "destroy" | "reveal", unknown>>;
 /** The nodes of the graph the stand-in builds: none unless a test gives them. */
 let mapNodes: object[];
+/** What the stand-in's graph says of the Modules file's functional areas: nothing unless a test gives it. */
+let mapAreaCheck: AreaCheck | undefined;
 /** Whether the stand-in takes the focus into itself, to its button, each time it is shown. */
 let mapTakesFocus: boolean;
 /** What the stand-in tells the page of its stop while it is asked for one of these, or while it hears a click or a key
@@ -230,6 +232,7 @@ beforeEach(() => {
   mapMounts = [];
   mapThrows = {};
   mapNodes = [];
+  mapAreaCheck = undefined;
   mapTakesFocus = false;
   mapTells = {};
   const asked = (what: keyof typeof mapThrows, said: string) => {
@@ -238,7 +241,7 @@ beforeEach(() => {
   };
   mapStandIn.build = tables => {
     asked("build", "build");
-    const graph = { nodes: mapNodes, edges: [], unresolved: [], sections: [], limitations: [] };
+    const graph = { nodes: mapNodes, edges: [], unresolved: [], sections: [], limitations: [], ...(mapAreaCheck ? { areaCheck: mapAreaCheck } : {}) };
     mapBuilds.push({ tables, graph });
     return graph;
   };
@@ -1617,6 +1620,29 @@ describe("What a click, a key and typing do on the results page", () => {
     goTo(1);
     expect([headings(), column("Name").slice(0, 2), column("Applies To").slice(0, 2), page.all("#view .view-note").length, page.id("rowCount").textContent])
       .toEqual([["Name", "Format", "Formula", "Summary", "Applies To", "Module Name", "Ratio Numerator", "Ratio Denominator"], ["REV01 Revenue", "Units"], ["Products, Time", "-"], 0, "1–8 of 8 rows"]);
+  });
+
+  it("says once in the run's log how the Modules file's functional areas met the map, when it builds the map's graph", async () => {
+    mapAreaCheck = { areas: 22, modules: 30, withArea: 27, rowsNotOnMap: ["Gone"], modulesNotInFile: ["Missing", "Spare"] };
+    await openWith(BLUEPRINT);
+    /** The run's log lines about the areas, as the control that copies the run's log copies them. */
+    const areaLines = async (): Promise<string[]> => {
+      const copy = page.document.createElement("button");
+      copy.dataset.act = "copy-run-log";
+      page.document.body.append(copy);
+      copy.press();
+      await settle();
+      copy.remove();
+      return (copied.at(-1) ?? "").split("\n").filter(line => / Functional areas: /.test(line)).map(line => line.replace(/^\d\d:\d\d:\d\d /, ""));
+    };
+    expect(await areaLines()).toEqual([]);
+    page.find('#navList [data-nav="map"]').press();
+    expect(await areaLines()).toEqual(["Functional areas: 22 areas; 27 of the map's 30 modules have one; 1 row of Modules is no module of the map: Gone; "
+      + "2 modules of the map have no row in Modules: Missing; Spare."]);
+    // The graph is built once for the result: going back to the map says nothing more.
+    goTo(1);
+    page.find('#navList [data-nav="map"]').press();
+    expect(await areaLines()).toHaveLength(1);
   });
 
   it("shows a model's counts with their thousands apart, right-aligned, sorted by their numbers and found with or without commas, and keeps the result as it was", async () => {
