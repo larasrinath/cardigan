@@ -6,8 +6,9 @@ import { REFRESH_AND_RUN } from "./connection.js";
 import type { MappingView } from "./import-mapping-view.js";
 import type { ProcessView } from "./process-actions-view.js";
 import { LINE_ITEMS_FILE } from "./line-items-view.js";
+import type { RangeState } from "./range-filter.js";
 import { ACCESS_FILE, MODEL_CALENDAR_FILE, MODULES_FILE, type Analysed, type CardSection, type Overview, type SectionCell } from "./result-view.js";
-import { cellText, groupedCount, NONE, type Row, type Sort } from "./table-engine.js";
+import { cellText, dayText, groupedCount, NONE, type RangeColumn, type Row, type Sort } from "./table-engine.js";
 import { usedOn, type WhereUsedObject } from "./where-used-view.js";
 
 /** The results page's markup, as the design writes it: each function turns data into the HTML text the page then shows.
@@ -526,6 +527,9 @@ export interface TableView {
   sort: Sort | undefined;
   /** The columns with a filter in force. */
   filtered: ReadonlySet<number>;
+  /** For a column whose range is in force, what it keeps in a few words (range-filter.ts `rangeSummary`): its filter's
+   * button says it. */
+  ranged?: ReadonlyMap<number, string>;
   /** The page a jump from another table keeps. */
   context: string | undefined;
   links: Links;
@@ -590,9 +594,10 @@ export function tableParts(view: TableView): TableParts {
     const arrow = `<span class="dir" aria-hidden="true">${dir ? (dir === "asc" ? "▲" : "▼") : ""}</span>`;
     const name = esc(column.label);
     // A filter in force shows in more than the button's colour: the funnel is filled, where it is otherwise an outline,
-    // and the button's name says so. The page sets aria-expanded while the button's popover is open.
+    // and the button's name says so, with what a range keeps. The page sets aria-expanded while the button's popover is open.
     const active = view.filtered.has(column.index);
-    const says = `Filter by ${name}${active ? " (filter on)" : ""}`;
+    const range = active ? view.ranged?.get(column.index) : undefined;
+    const says = `Filter by ${name}${active ? ` (filter on${range ? `: ${esc(range)}` : ""})` : ""}`;
     const filter = column.filter ? `<button type="button" class="th-filter ${active ? "active" : ""}"
         data-colfilter="${column.index}" aria-label="${says}" aria-haspopup="dialog" aria-expanded="false" title="${says}">
         <svg width="11" height="11" viewBox="0 0 16 16" ${active ? 'fill="currentColor"' : 'fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"'} aria-hidden="true">${FILTER_PATH}</svg></button>` : "";
@@ -742,6 +747,36 @@ export function colFilterHtml(column: Column, values: FilterValues, selected: Re
       ${filterOptionsHtml(column, values, all, selected)}
     </div>
     ${finding ? `<div class="pop-note" role="status" data-fstatus>${esc(filterStatusText(values, all, ""))}</div>` : ""}`;
+}
+
+/** The filter of a column of numbers or of dates (columns.ts `range`): a range, from one value to another, in two boxes
+ * one under the other. A box left empty is an open end, and both ends are kept. A box for numbers shows the column's
+ * lowest or highest value as its placeholder, as the cells show it; a box for dates is the browser's own, held to the
+ * column's first and last day, and a line under them names both, and says that the column's times are UTC where its
+ * header says so. A column with cells that say nothing offers to keep them or leave them out, with how many there are.
+ * A line, empty until something cannot be read, says what is wrong, and a screen reader hears it at once. `state` is
+ * the range in force, whose boxes are written back as they were typed. */
+export function rangeFilterHtml(column: Column, read: RangeColumn, state: RangeState | undefined): string {
+  const date = column.range === "date";
+  const shown = (text: string) => (column.kind === "count" ? groupedCount(text) : text);
+  const lowest = read.lowest ? (date ? dayText(read.lowest.value) : shown(read.lowest.text)) : "";
+  const highest = read.highest ? (date ? dayText(read.highest.value) : shown(read.highest.text)) : "";
+  const box = (end: "from" | "to", label: string, edge: string, typed: string) => date
+    ? `<label class="pr-field"><span>${label}</span><input type="date" data-r${end} ${end === "from" ? "data-first" : ""} value="${esc(typed)}"
+        ${lowest ? `min="${esc(lowest)}" max="${esc(highest)}"` : ""} aria-describedby="rangeHint"></label>`
+    : `<label class="pr-field"><span>${label}</span><input type="text" inputmode="decimal" data-r${end} ${end === "from" ? "data-first" : ""} value="${esc(typed)}"
+        placeholder="${esc(edge)}" autocomplete="off" spellcheck="false" aria-describedby="rangeHint"></label>`;
+  const edges = lowest ? `${date ? "Earliest" : "Lowest"} ${lowest}, ${date ? "latest" : "highest"} ${highest}. ` : "";
+  const utc = date && /\bUTC\b/.test(column.label) ? "The column's dates and times are UTC. " : "";
+  const keep = state?.blanks !== false;
+  return `
+    <div class="pop-hd"><span>Filter: ${esc(column.label)}</span><button type="button" data-popact="clear">Clear</button></div>
+    <div class="pop-range">${box("from", "From", lowest, state?.fromText ?? "")}${box("to", "To", highest, state?.toText ?? "")}</div>
+    <div class="pop-note" id="rangeHint">${esc(utc)}${esc(edges)}${date ? "Whole days, both ends kept" : "Both ends kept"}; leave a box empty for no end there.</div>
+    ${read.blanks ? `<label class="pop-opt pr-blanks"><input type="checkbox" data-rblanks ${keep ? "checked" : ""}><span>Keep blank cells</span>
+      <span class="po-cnt">${esc(read.blanks)}<span class="sr-only"> ${read.blanks === 1 ? "row" : "rows"} in the whole table</span></span></label>` : ""}
+    <div class="pop-err" role="alert" data-rerr hidden></div>
+    <div class="pop-range-acts"><button type="button" class="btn sm primary" data-popact="apply">Apply</button></div>`;
 }
 
 /** The column chooser. A column that starts hidden because it holds IDs is marked as one; a number that starts hidden, a

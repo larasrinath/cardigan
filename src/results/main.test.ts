@@ -1289,11 +1289,13 @@ describe("The results page's script, on the page", () => {
     // The table: the calendar's settings that hold a value, none of the rows about the model, and a line that says where
     // those are and how many settings have no value. The template's guidance for filling it in by hand is not shown.
     goTo(3);
-    const settings = () => page.all("#tableWrap tbody tr").map(row => row.children[1].textContent.trim());
+    // Section starts hidden, as Allowed values does: it says the same of every setting listed. A row's first cell is its setting.
+    const settings = firstCells;
+    const headings = () => page.all("#tableWrap thead th").map(heading => heading.querySelector(".th-sort")?.textContent.trim());
     expect([page.texts("#view .view-note"), page.id("rowCount").textContent, page.id("live").textContent])
       .toEqual([[CALENDAR_NOTE], "1–5 of 5 rows", "Model Calendar: 5 rows"]);
-    expect([firstCells().every(section => section === "Model Calendar"), settings(), settings().filter(setting => ["Workspace", "Model", "Captured on"].includes(setting))])
-      .toEqual([true, ["Calendar Type", "Fiscal Year Starts", "Number of Past Years", "Number of Future Years", "Include Quarter Totals"], []]);
+    expect([headings(), settings(), settings().filter(setting => ["Workspace", "Model", "Captured on"].includes(setting))])
+      .toEqual([["Setting", "Value"], ["Calendar Type", "Fiscal Year Starts", "Number of Past Years", "Number of Future Years", "Include Quarter Totals"], []]);
     expect(page.all("#tableWrap thead th").map(cell => cell.textContent.trim()).filter(text => ["Applies to", "Notes"].includes(text))).toEqual([]);
     // The search reads the rows listed and no others: the calendar's type finds its row, the model's name finds none.
     const note = page.find("#view .view-note");
@@ -1302,7 +1304,7 @@ describe("The results page's script, on the page", () => {
     page.id("tblSearch").type("Model one");
     expect([settings(), page.id("rowCount").textContent]).toEqual([[], "No rows (filtered from 5)"]);
     page.id("tblSearch").type("");
-    // The line under the name was not written again meanwhile. Section holds one text in the rows listed: it offers no filter.
+    // The line under the name was not written again meanwhile. Section, hidden, offers no filter on screen.
     expect([page.find("#view .view-note") === note, filterable().includes("Section")]).toEqual([true, false]);
     // A row's drawer says its place among the rows the table lists.
     page.all('#tableWrap tbody [data-act="row"]')[0].press();
@@ -1638,10 +1640,12 @@ describe("What a click, a key and typing do on the results page", () => {
       expect(column("Name"), search).toEqual(found);
     }
     page.id("tblSearch").type("");
-    // The column's filter lists the counts as they are shown, and the row's drawer shows its count so as well.
+    // The column's filter is a range, whose boxes show the lowest and the highest count as the cells show them; leaving out
+    // the blank cells leaves out the one module without a count. The row's drawer shows its count with its commas as well.
     page.find('[data-colfilter="2"]').press();
-    expect(choices().map(([value]) => value)).toEqual(["(blank)", "12", "2,252,068", "15,389,009,578"]);
-    page.all("#popover input")[0].tick();
+    expect([page.find("#popover [data-rfrom]").getAttribute("placeholder"), page.find("#popover [data-rto]").getAttribute("placeholder"),
+      page.find("#popover .pr-blanks .po-cnt").textContent, page.has("#popover .pop-opt [data-fval]")]).toEqual(["12", "15,389,009,578", "1 row in the whole table", false]);
+    page.find("#popover [data-rblanks]").tick();
     expect(column("Name")).toEqual(["Revenue", "Cost", "Settings"]);
     page.key("Escape");
     page.all('#tableWrap tbody [data-act="row"]')[0].press();
@@ -1656,6 +1660,79 @@ describe("What a click, a key and typing do on the results page", () => {
     // What the page shows is its own: the result's tables hold their counts as they were read, as the map is given them.
     page.find('#navList [data-nav="map"]').press();
     expect(mapBuilds[0].tables).toEqual(counted.tables);
+  });
+
+  it("filters a column of numbers by a range, from and to as typed, either end open, and says what is wrong rather than filtering by it", async () => {
+    // Source Models: six source models, whose Sources and Imports are figures, one of them blank.
+    const rows = () => [["Model A", "113", "113", "Products"], ["Model B", "10", "10", "Regions"], ["Model C", "10", "10", "Products"], ["Model D", "12", "14", "Time"],
+      ["Model E", "9", "9", "Regions"], ["Model F", "", "", "Time"]];
+    const SOURCES: AnalysisResult = { ...MODEL, summary: ["Source Models: 6 rows"], tables: [MODEL.tables[0], { file: "Source Models.csv", label: "Source Models",
+      headers: ["", "Sources", "Imports", "Mapped To"], guard: false, rows: rows() }] };
+    await openWith(SOURCES);
+    goTo(1);
+    const names = () => column("Name");
+    const button = () => page.find('[data-colfilter="1"]');
+    // No list of figures to tick: two boxes, From with the focus, each showing the column's lowest or highest figure.
+    button().press();
+    const from = page.find("#popover [data-rfrom]");
+    const to = page.find("#popover [data-rto]");
+    expect([page.document.activeElement === from, from.getAttribute("placeholder"), to.getAttribute("placeholder"), page.texts("#popover .pr-field span"), page.has("#popover [data-fval]")])
+      .toEqual([true, "9", "113", ["From", "To"], false]);
+    // Enter keeps the rows from ten up, and the blank one, which the range keeps unless told not to.
+    from.type("10");
+    page.key("Enter");
+    expect([names(), page.id("rowCount").textContent, button().classList.contains("active"), button().getAttribute("aria-label"), page.id("popover").hidden])
+      .toEqual([["Model A", "Model B", "Model C", "Model D", "Model F"], "1–5 of 5 rows (filtered from 6)", true, "Filter by Sources (filter on: ≥ 10)", false]);
+    // To as well, and the blank cells left out: the box for blanks reads both boxes with it.
+    to.type("12");
+    page.find("#popover [data-rblanks]").tick();
+    expect([names(), button().getAttribute("aria-label")]).toEqual([["Model B", "Model C", "Model D"], "Filter by Sources (filter on: 10–12, no blanks)"]);
+    // What cannot be read is said, at its box, which has the focus, and the range stays as it was.
+    to.type("twelve");
+    page.find('#popover [data-popact="apply"]').press();
+    const problem = page.find("#popover [data-rerr]");
+    expect([problem.hidden, problem.textContent, to.getAttribute("aria-invalid"), page.document.activeElement === to, names()])
+      .toEqual([false, 'To: "twelve" is not a number. Write it as 1200, 1,200, -3.5 or 40%.', "true", true, ["Model B", "Model C", "Model D"]]);
+    // Typing again takes it back. From after To is said too, at From.
+    to.type("5");
+    expect([problem.hidden, to.hasAttribute("aria-invalid")]).toEqual([true, false]);
+    page.key("Enter");
+    expect([problem.textContent, from.getAttribute("aria-invalid"), page.document.activeElement === from, names()])
+      .toEqual(["From is after To: nothing lies between them.", "true", true, ["Model B", "Model C", "Model D"]]);
+    // Escape closes the filter and keeps the range, which the boxes say as typed when it opens again.
+    page.key("Escape");
+    expect([page.id("popover").hidden, names(), page.id("resetBtn").hidden]).toEqual([true, ["Model B", "Model C", "Model D"], false]);
+    button().press();
+    expect([page.find("#popover [data-rfrom]").value, page.find("#popover [data-rto]").value, page.find("#popover [data-rblanks]").checked]).toEqual(["10", "12", false]);
+    page.key("Escape");
+    // Reset clears a range, as it clears every filter.
+    page.id("resetBtn").press();
+    expect([names().length, button().classList.contains("active"), button().getAttribute("aria-label")]).toEqual([6, false, "Filter by Sources"]);
+    // Clear takes a range away and closes the filter.
+    button().press();
+    page.find("#popover [data-rfrom]").type("100");
+    page.key("Enter");
+    expect(names()).toEqual(["Model A", "Model F"]);
+    page.find('#popover [data-popact="clear"]').press();
+    expect([page.id("popover").hidden, names().length, button().classList.contains("active")]).toEqual([true, 6, false]);
+    // A range chooses what is shown, and nothing more: the result holds its rows as they were read, which the map is given.
+    page.find('#navList [data-nav="map"]').press();
+    expect([SOURCES.tables[1].rows, mapBuilds[0].tables]).toEqual([rows(), SOURCES.tables]);
+  });
+
+  it("filters a column of dates by whole days, as a box for dates gives them, and says that the column's times are UTC", async () => {
+    const DATED: AnalysisResult = { ...MODEL, summary: ["Imports: 3 rows"], tables: [MODEL.tables[0], { file: "Imports.csv", label: "Imports",
+      headers: ["", "Start Date and Time (UTC)", "Source Type"], guard: false, rows: [["Load", "2026-03-12 23:19:56", "MODEL"], ["Sort", "2026-03-13 00:00:01", "MODEL"], ["Copy", "", "MODEL"]] }] };
+    await openWith(DATED);
+    goTo(1);
+    page.find('[data-colfilter="1"]').press();
+    const from = page.find("#popover [data-rfrom]");
+    expect([from.getAttribute("type"), from.getAttribute("min"), from.getAttribute("max"), page.find("#rangeHint").textContent.trim()]).toEqual(["date", "2026-03-12", "2026-03-13",
+      "The column's dates and times are UTC. Earliest 2026-03-12, latest 2026-03-13. Whole days, both ends kept; leave a box empty for no end there."]);
+    // Until the 12th keeps the action that started late on the 12th, and the one that never ran.
+    page.find("#popover [data-rto]").type("2026-03-12");
+    page.find('#popover [data-popact="apply"]').press();
+    expect([column("Name"), page.find('[data-colfilter="1"]').getAttribute("aria-label")]).toEqual([["Load", "Copy"], "Filter by Start Date and Time (UTC) (filter on: until 2026-03-12)"]);
   });
 
   it("shows a model's Dynamic Cell Access right after its Line Items, as the file stands, under a line that says what it lists and how many drivers could not be matched", async () => {

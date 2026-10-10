@@ -17,13 +17,14 @@ import { ResultKeeper } from "./keep-result.js";
 import {
   cardDrawerHtml, cardDrawerSubHtml, colChooserHtml, colFilterHtml, filterMatches, filterOptionsHtml, filterStatusText, filterTickWords, headerMetaHtml, keptCopyHtml, MAP_FAILED,
   MAP_LABEL, mapHtml, MOON_ICON, navHtml, navItems, navMenuHtml,
-  noteBannerHtml, NOT_REMOVED_LINE, objectDrawerHtml, objectDrawerSubHtml, opensHtml, overviewHtml, rowDrawerHtml, rowDrawerSubHtml, runBannerHtml, runHtml, SUN_ICON, tableHtml,
-  tableParts, type KeptCopy, type Links, type NavEntry, type OpenButton, type TableView,
+  noteBannerHtml, NOT_REMOVED_LINE, objectDrawerHtml, objectDrawerSubHtml, opensHtml, overviewHtml, rangeFilterHtml, rowDrawerHtml, rowDrawerSubHtml, runBannerHtml, runHtml,
+  SUN_ICON, tableHtml, tableParts, type KeptCopy, type Links, type NavEntry, type OpenButton, type TableView,
 } from "./markup.js";
 import type { PageId } from "./page-ids.js";
 import { LINE_ITEMS_FILE, MODULE_NAME } from "./line-items-view.js";
 import { ACCESS_FILE, analysedOf, cardParts, detailsOf, detailValue, diagnosticLog, fileView, listedTables, MODEL_CALENDAR_FILE, MODULES_FILE, overviewOf, type FileView } from "./result-view.js";
-import { cellText, NONE, pageOf, rememberingSelect, rowName, valueCounts, type Row, type Sort, type TableQuery } from "./table-engine.js";
+import { rangeInForce, rangeSummary, readRange, type RangeState } from "./range-filter.js";
+import { cellText, NONE, pageOf, rangeColumn, rememberingSelect, rowName, valueCounts, type RangeColumn, type RangeQuery, type Row, type Sort, type TableQuery } from "./table-engine.js";
 import { EVERY_USE, objectOf, WHERE_USED_FILE, whereUsedView, type WhereUsedObject, type WhereUsedView } from "./where-used-view.js";
 
 /** The results page (results.html): the design's script, on the real result. It connects to the Anaplan tab the address
@@ -129,6 +130,11 @@ interface Shown {
   links: Links;
   /** Column -> the texts ticked in its filter; a column with every text ticked has no entry. */
   filters: Map<number, Set<string>>;
+  /** Column -> the range its filter keeps, for a column of numbers or of dates (columns.ts `range`); a column whose range
+   * keeps every row has no entry. */
+  ranges: Map<number, RangeState>;
+  /** Each column of numbers or of dates, read once: the first time its filter opens or keeps rows (`readColumn`). */
+  read: Map<number, RangeColumn>;
   hidden: Set<number>;
   sort: Sort | undefined;
   page: number;
@@ -192,6 +198,16 @@ let modelGraph: ModelGraph | undefined;
 let running = false;
 
 const defaultHidden = (columns: readonly Column[]): Set<number> => new Set(columns.filter(column => column.hidden).map(column => column.index));
+/** A column of numbers or of dates as its range reads it: its cells read once, the first time they are asked for, and kept
+ * while the table is on the page. Its values do not change: the table's rows are the result's. */
+function readColumn(entry: Shown, column: Column): RangeColumn {
+  let read = entry.read.get(column.index);
+  if (!read) {
+    read = rangeColumn(entry.table.rows, column.index, column.range ?? "number", column.none);
+    entry.read.set(column.index, read);
+  }
+  return read;
+}
 const currentEntry = (): Shown | undefined => (typeof state.view === "number" ? shown.get(state.view) : undefined);
 
 /* ================= header / theme ================= */
@@ -249,8 +265,15 @@ function navEntries(): NavEntry[] {
 
 function query(entry: Shown): TableQuery {
   const column = entry.keys.page;
+  // Each range in force, with its column read once: a page of a long table turned keeps the rows it chose.
+  const ranges = new Map<number, RangeQuery>();
+  for (const [index, range] of entry.ranges) {
+    const ofRange = entry.columns[index];
+    if (!ofRange?.range) continue;
+    ranges.set(index, { kind: ofRange.range, from: range.from, to: range.to, blanks: range.blanks, none: ofRange.none, values: readColumn(entry, ofRange).values });
+  }
   return {
-    search: state.search, filters: entry.filters, lists: entry.lists, sort: entry.sort,
+    search: state.search, filters: entry.filters, lists: entry.lists, ranges, sort: entry.sort,
     context: state.context !== undefined && column !== undefined ? { column, value: state.context } : undefined,
     // The search finds a count as the table shows it too, with its commas: in every column of counts, shown or hidden.
     counts: new Set(entry.columns.filter(shown => shown.kind === "count").map(shown => shown.index)),
@@ -269,7 +292,8 @@ function tableView(entry: Shown): TableView {
     ways: entry.ways && [{ way: "object", label: "By object", chosen: entry === entry.ways.object }, { way: "use", label: EVERY_USE, chosen: entry === entry.ways.use }],
     columns: entry.columns.filter(column => !entry.hidden.has(column.index)), widths: entry.widths, rows: page.rows, ...(entry.headings ? { headings: entry.headings } : {}),
     page: page.page, pages: page.pages, pageSize: state.pageSize, from: page.from, to: page.to, total: page.total, all: entry.table.rows.length,
-    search: state.search, sort: entry.sort, filtered: new Set(entry.filters.keys()), context: state.context, links: entry.links,
+    search: state.search, sort: entry.sort, filtered: new Set([...entry.filters.keys(), ...entry.ranges.keys()]), context: state.context, links: entry.links,
+    ranged: new Map([...entry.ranges].map(([index, range]) => [index, rangeSummary(entry.columns[index]?.range ?? "number", range)])),
   };
 }
 /** The shade at the foot of the table's box goes once there is nothing more to scroll to. */
@@ -418,7 +442,7 @@ function showResult(next: AnalysisResult, at: Date, back = false): void {
     const page = cards !== undefined && keys.page !== undefined;
     const entry: Shown = {
       index, table, note, none, empty, opensFrom, exported, readUnder, headings, lists, columns, keys, links: { page, card: page && keys.cardId !== undefined },
-      filters: new Map(), hidden: defaultHidden(columns), sort: undefined, page: 0,
+      filters: new Map(), ranges: new Map(), read: new Map(), hidden: defaultHidden(columns), sort: undefined, page: 0,
     };
     // A number that could be more than one card's opens none of them: there it is plain text.
     if (entry.links.card) entry.links.hasCard = row => cardsOfRow(entry, row).length < 2;
@@ -431,7 +455,7 @@ function showResult(next: AnalysisResult, at: Date, back = false): void {
       index, table: { ...file, headers: byObject.headers, rows: byObject.rows }, note: byObject.note, none: undefined, empty: undefined, opensFrom: undefined,
       exported: undefined, readUnder: undefined, headings: undefined, lists: new Map(), columns: byObject.columns,
       keys: { page: undefined, cardId: undefined, number: undefined }, links: { page: false, card: false },
-      filters: new Map(), hidden: defaultHidden(byObject.columns), sort: undefined, page: 0, objects: byObject,
+      filters: new Map(), ranges: new Map(), read: new Map(), hidden: defaultHidden(byObject.columns), sort: undefined, page: 0, objects: byObject,
     };
     entry.ways = object.ways = { object, use: entry };
     // As every use, a row names its card by its number, and the file has no column of card IDs. The view knows each use's
@@ -612,6 +636,7 @@ function openPopover(owner: string, anchor: Element, name: string, html: string)
  * column, or each item of a column whose cells list items. A filter of many values has a box that finds them: the list
  * shows what it finds, and its two buttons tick or untick all of that, listed or not. */
 function openColFilter(entry: Shown, column: Column, owner: string, anchor: Element): void {
+  if (column.range) return openRangeFilter(entry, column, owner, anchor);
   const items = entry.lists.get(column.index);
   const values = valueCounts(entry.table.rows, column.index, items);
   openPopover(owner, anchor, `Filter: ${column.label}`, colFilterHtml(column, values, entry.filters.get(column.index), items !== undefined));
@@ -663,6 +688,61 @@ function openColFilter(entry: Shown, column: Column, owner: string, anchor: Elem
   }
   popover.querySelector('[data-popact="all"]')?.addEventListener("click", () => {
     entry.filters.delete(column.index);
+    entry.page = 0;
+    updateTable(entry);
+    closePopover(true);
+  });
+}
+/** Opens the filter of a column of numbers or of dates: a range, from one value to another (markup.ts `rangeFilterHtml`).
+ * Its boxes are read when Enter is pressed in one of them or Apply is chosen, and the box for blank cells as it is ticked:
+ * a box that cannot be read is said to be wrong, and the range stays as it was. A range that keeps every row is no filter.
+ * The popover stays open, as a list's does, with the table drawn again behind it; Escape closes it, and Clear takes the
+ * range away. */
+function openRangeFilter(entry: Shown, column: Column, owner: string, anchor: Element): void {
+  const kind = column.range ?? "number";
+  openPopover(owner, anchor, `Filter: ${column.label}`, rangeFilterHtml(column, readColumn(entry, column), entry.ranges.get(column.index)));
+  const popover = el("popover");
+  const boxes = { from: popover.querySelector<HTMLInputElement>("[data-rfrom]"), to: popover.querySelector<HTMLInputElement>("[data-rto]") };
+  const blanks = popover.querySelector<HTMLInputElement>("[data-rblanks]");
+  const problem = popover.querySelector<HTMLElement>("[data-rerr]");
+  /** Says what is wrong, at the box at fault, or that nothing is. */
+  const say = (words: string, at?: "from" | "to") => {
+    for (const end of ["from", "to"] as const) {
+      if (end === at) boxes[end]?.setAttribute("aria-invalid", "true"); else boxes[end]?.removeAttribute("aria-invalid");
+    }
+    if (problem) {
+      problem.textContent = words;
+      problem.hidden = words === "";
+    }
+  };
+  const apply = () => {
+    const fromText = boxes.from?.value ?? "";
+    const toText = boxes.to?.value ?? "";
+    const read = readRange(kind, fromText, toText);
+    if ("problem" in read) {
+      say(read.problem, read.at);
+      boxes[read.at]?.focus();
+      return;
+    }
+    say("");
+    const range: RangeState = { fromText, toText, ...read, blanks: blanks ? blanks.checked : true };
+    if (rangeInForce(range)) entry.ranges.set(column.index, range); else entry.ranges.delete(column.index);
+    entry.page = 0;
+    updateTable(entry);
+  };
+  for (const box of [boxes.from, boxes.to]) {
+    box?.addEventListener("keydown", event => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      apply();
+    });
+    // What was wrong was what the box said before.
+    box?.addEventListener("input", () => { if (box.getAttribute("aria-invalid") === "true") say(""); });
+  }
+  blanks?.addEventListener("change", apply);
+  popover.querySelector('[data-popact="apply"]')?.addEventListener("click", apply);
+  popover.querySelector('[data-popact="clear"]')?.addEventListener("click", () => {
+    entry.ranges.delete(column.index);
     entry.page = 0;
     updateTable(entry);
     closePopover(true);
@@ -1499,6 +1579,7 @@ document.addEventListener("click", event => {
         state.context = undefined;
         if (entry) {
           entry.filters.clear();
+          entry.ranges.clear();
           entry.sort = undefined;
           entry.page = 0;
         }

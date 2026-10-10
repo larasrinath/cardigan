@@ -8,14 +8,14 @@ import { APP_FILES, cardsOf, columnsOf, rowKeys, type Column } from "./columns.j
 import {
   cardDrawerHtml, cardDrawerSubHtml, cellHtml, colChooserHtml, colFilterHtml, coloursHtml, esc, FILE_ICONS, FORGOTTEN_LINE, headerMetaHtml, idPill, keptCopyHtml, MAP_LABEL, mapHtml,
   MOON_ICON, NAV_GROUPS, NAV_ICONS, navHtml, navItems, navMenuHtml, noteBannerHtml, NOT_REMOVED_LINE, objectDrawerHtml, objectDrawerSubHtml, OPEN_ICONS, opensHtml, overviewHtml, pagerHtml,
-  rowCellHtml, rowDrawerHtml,
+  rangeFilterHtml, rowCellHtml, rowDrawerHtml,
   rowDrawerSubHtml, runBannerHtml, runHtml, SUN_ICON, tableHtml, tableParts,
   type KeptCopy, type Links, type TableView,
 } from "./markup.js";
 import { parseMarkup } from "./dom.test-support.js";
 import { decode, readMarkup, shownValues, structure } from "./markup.test-support.js";
 import { analysedOf, cardParts, detailsOf, fileView, MODEL_FILE_ORDER, overviewOf, type Overview } from "./result-view.js";
-import { pageOf, selectRows, valueCounts } from "./table-engine.js";
+import { pageOf, rangeColumn, selectRows, valueCounts } from "./table-engine.js";
 import { whereUsedView, type WhereUsedObject } from "./where-used-view.js";
 
 /** What an Anaplan user can type into a card title, a text card, a name or a formula. */
@@ -34,7 +34,7 @@ const hostile: Texts = index => HOSTILE[index % HOSTILE.length];
 const harmless: Texts = index => `word ${index}`;
 
 /** The attributes that may hold a value from a result: a tooltip, a label for screen readers, the search box and an ID to copy. */
-const VALUE_ATTRIBUTES = new Set(["title", "aria-label", "value", "data-copy"]);
+const VALUE_ATTRIBUTES = new Set(["title", "aria-label", "value", "placeholder", "data-copy"]);
 
 /** Builds a piece of markup twice, with hostile and with harmless texts in the same places, and checks that the data
  * changed nothing but text: the same elements with the same attributes, every hostile text shown exactly as typed, and
@@ -450,6 +450,11 @@ describe("The results page's escaping", () => {
   it("lets no text change the column filter, the column chooser or the drawer", () => {
     expectInert(text => colFilterHtml(column(0, text(0), "text", { filter: true }), [[text(1), 3], [text(2), 1], [text(3), 1]], new Set([text(1), text(3)])), 4);
     expectInert(text => colFilterHtml(column(0, text(0)), [[text(1), 3]], undefined), 2);
+    // A range: the column's name, its edges as their cells write them, and the range in force as it was typed.
+    expectInert(text => rangeFilterHtml(column(0, text(0), "text", { filter: true, range: "number" }),
+      { values: new Map(), lowest: { value: 1, text: text(1) }, highest: { value: 2, text: text(2) }, blanks: 1 }, { fromText: text(3), toText: text(4), blanks: false }), 5);
+    expectInert(text => rangeFilterHtml(column(0, text(0), "text", { filter: true, range: "date" }),
+      { values: new Map(), lowest: { value: 0, text: text(1) }, highest: { value: 1, text: text(2) }, blanks: 0 }, { fromText: text(3), toText: text(4), blanks: true }), 1);
     expectInert(text => colChooserHtml([column(0, text(0)), column(1, text(1), "id", { hidden: true }), column(2, text(2))], new Set([1])), 3);
     const columns = (text: Texts) => KINDS.map((kind, index) => column(index, text(index), kind));
     const row = (text: Texts): Cell[] => KINDS.map((_, index) => text(index + 2));
@@ -730,7 +735,9 @@ describe("A result whose every text is hostile, through every view of the page",
       pieces.push(tableHtml(viewOf(table, links, { search: SCRIPT, context: QUOTED })));
       pieces.push(tableHtml(viewOf(table, links, { columns: columns.filter(entry => !entry.hidden) })));
       pieces.push(colChooserHtml(columns, new Set()));
-      for (const entry of columns.filter(candidate => candidate.filter)) pieces.push(colFilterHtml(entry, valueCounts(table.rows, entry.index), undefined));
+      for (const entry of columns.filter(candidate => candidate.filter)) {
+        pieces.push(entry.range ? rangeFilterHtml(entry, rangeColumn(table.rows, entry.index, entry.range, entry.none), undefined) : colFilterHtml(entry, valueCounts(table.rows, entry.index), undefined));
+      }
       pieces.push(rowDrawerSubHtml(1, table.label));
       // As the page opens a row: each cell that lists several items listed one to a line (cell-lists.ts).
       const lists = cellLists(result, table);
