@@ -2,6 +2,7 @@ import { MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE } from "../page
 import type { Items } from "./cell-lists.js";
 import { headerWidth, ROW_BUTTON, WIDEST } from "./column-widths.js";
 import { APP_FILES, rowColumns, type Column } from "./columns.js";
+import { REFRESH_AND_RUN } from "./connection.js";
 import type { MappingView } from "./import-mapping-view.js";
 import type { ProcessView } from "./process-actions-view.js";
 import { LINE_ITEMS_FILE } from "./line-items-view.js";
@@ -423,6 +424,7 @@ export function runHtml(): string {
     <div class="panel" style="margin-bottom:12px"><div class="empty">
       <div class="e-title" id="runStatus"></div>
       <div class="e-sub" id="runHint"></div>
+      ${refreshButton("runRefresh")}
     </div></div>
     <details class="diag" id="runLog" open hidden>
       ${DIAGNOSTICS_SUMMARY}
@@ -441,7 +443,15 @@ export function runBannerHtml(): string {
       <div><div><strong id="bannerTitle"></strong></div>
         <div><span id="bannerText"></span> <span id="bannerHint"></span></div>
         <div>The results below are from the earlier run.</div></div>
+      ${refreshButton("bannerRefresh")}
       ${copyLogButton("copy-run-log", ' id="bannerCopy" style="margin-left:auto;flex:none" hidden')}</div>`;
+}
+
+/** The button that refreshes the Anaplan tab and runs again, when the tab still holds the model reader of an earlier
+ * build (results/connection.ts "old-reader"). Hidden in every other state: it is the only thing on the page that
+ * refreshes the tab. */
+function refreshButton(id: string): string {
+  return `<button type="button" class="btn primary" data-act="refresh-run" id="${id}" hidden>${esc(REFRESH_AND_RUN)}</button>`;
 }
 
 /** A note of the page's own above a result: one line, and the button that copies the run's log for a note whose reason

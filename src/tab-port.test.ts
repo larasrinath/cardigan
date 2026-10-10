@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { assemble } from "./pieces.test-support.js";
-import { Failure, type Progress } from "./progress.js";
+import { Failure, OldReader, type Progress } from "./progress.js";
 import { PORT_NAME, ROWS_MAX, type Subject, type TabMessage } from "./protocol.js";
 import type { AnalysisResult, Cell } from "./result-types.js";
 import { BUSY, NOTHING_TO_ANALYSE, serveTab, SIGNED_OUT, UNSENT, type Opened, type Seen, type Tab } from "./tab-port.js";
@@ -227,6 +227,29 @@ describe("The Anaplan tab's end of the port to the results page", () => {
     other.say({ type: "run" });
     await settle();
     expect(other.types().filter(type => type === "error")).toHaveLength(2);
+  });
+
+  it("tells a run that found a model's reader of another build by its code, with whether the page can reach its frame, and hands each run how the page asked for it", async () => {
+    const asked: unknown[] = [];
+    const fails: ((error: unknown) => void)[] = [];
+    let connect: (port: chrome.runtime.Port) => void = () => undefined;
+    serveTab({ id: EXTENSION, onConnect: { addListener: listener => { connect = listener; } } }, { host: "us1a.app.anaplan.com", subject: () => MODEL, signedOut: () => false,
+      run: (_subject, _progress, _diagnostics, _signal, how) => { asked.push(how); return new Promise<AnalysisResult>((_finish, fail) => { fails.push(fail); }); } });
+    const page = new FakePort();
+    connect(page as unknown as chrome.runtime.Port);
+    page.say({ type: "run" });
+    const stale = "This Anaplan tab was open before Cardigan was updated or reloaded, and still holds the earlier Cardigan's model reader.";
+    fails[0](new OldReader(stale, "the model's reader is build 0a1b2c3d4e5f; this script is build dev; its frame is on the page's own origin", true));
+    await settle();
+    expect(page.take().slice(-2)).toEqual([{ type: "log", text: "01:59:09 stopped: the model's reader is build 0a1b2c3d4e5f; this script is build dev; its frame is on the page's own origin" },
+      { type: "error", message: stale, code: "OLD_READER", renewable: true }]);
+    // A run asked for right after the page refreshed the tab says so to the tab; nothing else counts as that.
+    page.say({ type: "run", afterRefresh: true });
+    fails[1](new OldReader(stale, "its frame is on another host", false));
+    await settle();
+    expect(page.take().at(-1)).toEqual({ type: "error", message: stale, code: "OLD_READER", renewable: false });
+    page.say({ type: "run", afterRefresh: "yes" });
+    expect(asked).toEqual([{}, { afterRefresh: true }, {}]);
   });
 
   it("sends nothing for a run after its done or its error, whatever the run still reports, and none of it in the next run", async () => {

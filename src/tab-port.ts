@@ -1,6 +1,6 @@
 import { stampLine } from "./details.js";
 import { resultMessages } from "./pieces.js";
-import { failureOf, firstLine, SEND_LOG, type Progress } from "./progress.js";
+import { failureOf, firstLine, OldReader, SEND_LOG, type Progress } from "./progress.js";
 import { PORT_NAME, type PageMessage, type Subject, type TabMessage } from "./protocol.js";
 import type { AnalysisResult } from "./result-types.js";
 import { message } from "./util.js";
@@ -24,9 +24,12 @@ import { message } from "./util.js";
 /** An app or a model: something a run can read. */
 export type Seen = Exclude<Subject, { kind: "none" }>;
 
+/** How the page asked for a run (protocol.ts "run"): `afterRefresh`, right after it refreshed the tab for it. */
+export interface RunAsked { afterRefresh?: boolean }
+
 /** What became of an "open": whether the page took the module or the list, and in a few words how, or why not, for the
- * log. */
-export interface Opened { opened: boolean; detail: string }
+ * log. `oldReader`: not, because the model's frame holds a reader of another build. */
+export interface Opened { opened: boolean; detail: string; oldReader?: boolean }
 
 /** What this file needs from the content script around it. */
 export interface Tab {
@@ -35,8 +38,10 @@ export interface Tab {
   /** What the tab shows now. */
   subject(): Subject;
   /** Reads it. When `signal` stops the run, the promise rejects with the signal's reason. A run that fails rejects with a
-   * Failure (progress.ts), whose message the page is told as it is; any other error is told as an unexpected one. */
-  run(subject: Seen, progress: Progress, diagnostics: () => string, signal: AbortSignal): Promise<AnalysisResult>;
+   * Failure (progress.ts), whose message the page is told as it is; any other error is told as an unexpected one. An
+   * OldReader is told with its code, and with whether the page may put this build's reader into the tab. `asked` is how
+   * the page that started the run asked for it. */
+  run(subject: Seen, progress: Progress, diagnostics: () => string, signal: AbortSignal, asked?: RunAsked): Promise<AnalysisResult>;
   /** True for the error that means Anaplan's session has ended. */
   signedOut(error: unknown): boolean;
   /** False once a later copy of the content script serves the document: this one then leaves new results pages to it. */
@@ -95,7 +100,7 @@ export function serveTab(runtime: Pick<typeof chrome.runtime, "id" | "onConnect"
     }
   };
 
-  const start = (ports: Set<Port>) => {
+  const start = (ports: Set<Port>, asked: RunAsked = {}) => {
     const subject = tab.subject();
     if (subject.kind === "none") {
       for (const port of ports) send(port, { type: "error", message: NOTHING_TO_ANALYSE });
@@ -116,13 +121,15 @@ export function serveTab(runtime: Pick<typeof chrome.runtime, "id" | "onConnect"
     log(firstLine(subject.kind, subject.id, tab.host));
     const perform = async () => {
       try {
-        const result = await tab.run(subject, progress, () => current.lines.join("\r\n"), current.stop.signal);
+        const result = await tab.run(subject, progress, () => current.lines.join("\r\n"), current.stop.signal, asked);
         // A stopped run has no page left to tell, however it ends: a page that asks while it is ending waits for the next.
         for (const port of current.ports) deliver(port, result);
       } catch (error) {
         const failed = failureOf(error);
         log(`stopped: ${failed.detail ?? failed.message}`);
-        tell(tab.signedOut(error) ? { type: "error", message: SIGNED_OUT, code: "SIGNED_OUT" } : { type: "error", message: failed.message });
+        tell(tab.signedOut(error) ? { type: "error", message: SIGNED_OUT, code: "SIGNED_OUT" }
+          : error instanceof OldReader ? { type: "error", message: failed.message, code: "OLD_READER", renewable: error.renewable }
+          : { type: "error", message: failed.message });
       } finally {
         // In the same turn as the last message, so that nothing the run still reports can follow it.
         over = true;
@@ -146,11 +153,11 @@ export function serveTab(runtime: Pick<typeof chrome.runtime, "id" | "onConnect"
     } catch (error) {
       answer = { opened: false, detail: message(error) };
     }
-    send(port, { type: "opened", nonce: asked.nonce, opened: answer.opened === true, detail: String(answer.detail) });
+    send(port, { type: "opened", nonce: asked.nonce, opened: answer.opened === true, detail: String(answer.detail), ...(answer.oldReader === true ? { oldReader: true } : {}) });
   };
 
-  const ask = (port: Port) => {
-    if (!run) { start(new Set([port])); return; }
+  const ask = (port: Port, asked: RunAsked) => {
+    if (!run) { start(new Set([port]), asked); return; }
     if (run.ports.has(port)) return;
     if (run.stop.signal.aborted) {
       waiting.add(port);
@@ -174,7 +181,8 @@ export function serveTab(runtime: Pick<typeof chrome.runtime, "id" | "onConnect"
       if (run?.ports.delete(port) && !run.ports.size) run.stop.abort(new Error(NOBODY_LISTENING));
     });
     port.onMessage.addListener(received => {
-      if ((received as PageMessage | null)?.type === "run") ask(port);
+      const message = received as PageMessage | null;
+      if (message?.type === "run") ask(port, message.afterRefresh === true ? { afterRefresh: true } : {});
       const open = openAsked(received);
       if (open) void answerOpen(port, open);
     });

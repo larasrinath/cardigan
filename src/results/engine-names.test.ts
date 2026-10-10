@@ -4,7 +4,7 @@ import { REFRESH, SEND_LOG, UNEXPECTED } from "../progress.js";
 import { HEADERS } from "../report.js";
 import { BUSY, NOTHING_TO_ANALYSE, UNSENT } from "../tab-port.js";
 import { APP_FILES, COLUMN_CHOICES } from "./columns.js";
-import { NO_REASON, runLabel, UNREADABLE } from "./connection.js";
+import { describeState, NO_REASON, REFRESH_AND_RUN, runLabel, UNREADABLE } from "./connection.js";
 import { parseMarkup } from "./dom.test-support.js";
 import { noteBannerHtml, overviewHtml, runBannerHtml, runHtml } from "./markup.js";
 import { CARD_PARTS } from "./result-view.js";
@@ -38,11 +38,14 @@ describe("The names the results page and the engine know each other by", () => {
     const chosen = sentences.flatMap(sentence => sentence.split(/[Cc]hoose /).slice(1));
     expect(chosen.filter(rest => !controls.some(control => rest.startsWith(control)))).toEqual([]);
     expect(controls.map(control => chosen.filter(rest => rest.startsWith(control)).length)).toEqual([4, 3]);
-    // The button that copies a log reads exactly so wherever a failed run or a result shows its log.
+    // The button that copies a log reads exactly so wherever a failed run or a result shows its log. Where a run's
+    // failure shows, so does the button that refreshes the tab and runs again, which the page's own words for a tab
+    // that still holds an earlier reader tell the user to choose, by the name it reads.
     const overview = overviewHtml({ tiles: [], notes: [], about: [], files: [], howToRead: [], log: ["a line"] });
-    for (const html of [runHtml(), runBannerHtml(), noteBannerHtml(), overview]) {
-      expect(parseMarkup(html).querySelectorAll("button").map(button => button.textContent.trim())).toEqual(["Copy diagnostic log"]);
-    }
+    const buttons = (html: string) => parseMarkup(html).querySelectorAll("button").map(button => button.textContent.trim());
+    for (const html of [runHtml(), runBannerHtml()]) expect(buttons(html)).toEqual([REFRESH_AND_RUN, "Copy diagnostic log"]);
+    for (const html of [noteBannerHtml(), overview]) expect(buttons(html)).toEqual(["Copy diagnostic log"]);
+    for (const otherHost of [true, false]) expect(describeState({ phase: "old-reader", otherHost }, true).hint).toMatch(new RegExp(`^Choose ${REFRESH_AND_RUN}:`));
     // The page's own two failures say what to do in the engine's words.
     expect(UNREADABLE).toBe(`Cardigan received a result it could not read. ${REFRESH}`);
     expect(NO_REASON).toBe(`The analysis stopped without saying why. Choose ${again}. ${SEND_LOG}`);
