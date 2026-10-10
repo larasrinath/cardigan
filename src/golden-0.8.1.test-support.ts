@@ -274,14 +274,32 @@ export function withMappingsRead(reads: readonly string[]): string[] {
   return [...reads.slice(0, at + 1), ...MAPPINGS_ADDED.reads, ...reads.slice(at + 1)];
 }
 
-/** Lines of the log as 0.8.1 said them, in order, with the lines on the definitions where the export says them now. A
- * line stamped with its time gives the lines after it the same stamp. */
-export function withMappingsSaid(lines: readonly string[]): string[] {
-  const at = lines.findIndex(line => line === MAPPINGS_ADDED.saidAfter || line.endsWith(` ${MAPPINGS_ADDED.saidAfter}`));
-  if (at < 0) throw new Error("The log does not hold the Imports tab's line.");
-  const stamp = lines[at].slice(0, lines[at].length - MAPPINGS_ADDED.saidAfter.length);
-  return [...lines.slice(0, at + 1), ...MAPPINGS_ADDED.said.map(line => `${stamp}${line}`), ...lines.slice(at + 1)];
+/** What the export says that 0.8.1 did not, for any model: how many of the modules' IDs it found, which no table holds and
+ * by which the results page opens a module in Model Building (model/export.ts `moduleIdsLine`), with the first row of the
+ * grids that list modules, by its ID and the type the model's client says it is of. It is said right after the Modules
+ * grid's line (`said`, after the line `saidAfter`), once both grids that list modules have been read, and Model
+ * Details.csv has it as a Diagnostics row, as the row's whole line of the file (`rows`). Nothing is read for it. */
+export const MODULE_IDS_ADDED = {
+  saidAfter: "Modules: 5 rows × 2 columns; columns: Applies To | Cell Count",
+  said: ["Module IDs: 5 found; the first row listed has ID 102000000001, of type 102 by the model's client"],
+  rows: {
+    after: "Diagnostics,12:30:10,Modules: 5 rows × 2 columns; columns: Applies To | Cell Count\r\n",
+    line: `Diagnostics,12:30:10,"Module IDs: 5 found; the first row listed has ID 102000000001, of type 102 by the model's client"\r\n`,
+  },
+} as const;
+
+/** Lines of the log as 0.8.1 said them, in order, with the lines of `added` right after its line `saidAfter`, which the log
+ * must hold. A line stamped with its time gives the lines after it the same stamp. */
+function withSaid(lines: readonly string[], added: { saidAfter: string; said: readonly string[] }): string[] {
+  const at = lines.findIndex(line => line === added.saidAfter || line.endsWith(` ${added.saidAfter}`));
+  if (at < 0) throw new Error(`The log does not hold the line ${added.saidAfter}.`);
+  const stamp = lines[at].slice(0, lines[at].length - added.saidAfter.length);
+  return [...lines.slice(0, at + 1), ...added.said.map(line => `${stamp}${line}`), ...lines.slice(at + 1)];
 }
+
+/** Lines of the log as 0.8.1 said them, in order, with the lines the export says now that 0.8.1 did not: on the modules'
+ * IDs (`MODULE_IDS_ADDED`), and on the imports' definitions (`MAPPINGS_ADDED`), each where the export says them. */
+export const withLinesSaid = (lines: readonly string[]): string[] => withSaid(withSaid(lines, MODULE_IDS_ADDED), MAPPINGS_ADDED);
 
 /** What is deliberately not what 0.8.1 wrote for this model because the export has gained a file: the file itself, which
  * stands right after Line Items.csv in the zip, and the two rows of Model Details.csv about it, each as the row's whole
@@ -322,14 +340,14 @@ export const ACCESS_ROWS_FOR_THE_PAGE = [
 export const ACCESS_ROWS_REWORDED = [ACCESS_ROWS_FOR_THE_PAGE[0], ACCESS_ROWS_FOR_THE_PAGE[1], MODEL_ACTIONS_ROW_REWORDED, IMPORTS_ROW_REWORDED, ACCESS_ROWS_FOR_THE_PAGE[2]] as const;
 
 /** 0.8.1's text of this model's Model Details.csv as the file is written now: those five rows in their present words,
- * the two rows about the file added, the row on Source Models, and the Diagnostics rows on the imports' definitions
- * (`MAPPINGS_ADDED`). */
+ * the two rows about the file added, the row on Source Models, and the Diagnostics rows on the modules' IDs
+ * (`MODULE_IDS_ADDED`) and on the imports' definitions (`MAPPINGS_ADDED`). */
 export const withAccessRows = (csv: string): string =>
-  withRowsAdded(withRowsReworded(csv, ACCESS_ROWS_REWORDED), [ACCESS_FILE_ADDED.written, ACCESS_FILE_ADDED.howToRead, MODEL_ROW_ADDED, MAPPINGS_ADDED.rows]);
+  withRowsAdded(withRowsReworded(csv, ACCESS_ROWS_REWORDED), [ACCESS_FILE_ADDED.written, ACCESS_FILE_ADDED.howToRead, MODEL_ROW_ADDED, MODULE_IDS_ADDED.rows, MAPPINGS_ADDED.rows]);
 
 /** The model's zip as 0.8.1 wrote it but for that: every file's bytes as they are in `ACCESS_ZIP_0_8_1`, with five lines
- * of Model Details.csv replaced and seven added (three rows of the file's own and four Diagnostics rows on the imports'
- * definitions), the cell added to each line of Other Actions.csv
+ * of Model Details.csv replaced and eight added (three rows of the file's own, a Diagnostics row on the modules' IDs and
+ * four on the imports' definitions), the cell added to each line of Other Actions.csv
  * (`MODEL_ACTIONS_COLUMN_ADDED` in golden-0.6.1.test-support.ts: 0.8.1's file is 0.6.1's, byte for byte), and the file put
  * in after Line Items.csv, written by zipStore with the same time on every entry. Line Items.csv is 0.8.1's own: 0.8.1
  * wrote its Format List column already. model/model.test.ts pins that zipStore writes `ACCESS_ZIP_0_8_1` itself, byte
