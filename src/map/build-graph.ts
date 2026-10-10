@@ -1,3 +1,4 @@
+import { PAGE_FILTERS_FILE } from "../page-files.js";
 import { textOf as plainText } from "../result-plain.js";
 import type { Cell, ResultTable } from "../result-types.js";
 import { message } from "../util.js";
@@ -89,6 +90,14 @@ const LINE_ITEMS = {
 type LineItemColumn = (typeof LINE_ITEMS)["columns"][number][0];
 
 const PROCESSES = { file: PROCESSES_FILE, objects: "processes", columns: [["Notes"]] } as const satisfies Reads<string>;
+
+/** The filters on the pages built on the model, which a model's run reads from those pages (model-pages.ts): no settings
+ * grid of the model, and nothing the map draws. A line item's details list those that have it as their condition. The
+ * file's first column is the app. */
+const PAGE_FILTERS = {
+  file: PAGE_FILTERS_FILE, objects: "page filters",
+  columns: [["Page", null], ["Card #", null], ["Condition line item", null], ["Condition line item's module", null]],
+} as const satisfies Reads<string>;
 
 /** The Imports tab's columns that say where an import takes its data from. The map does not draw a source: it only says
  * where one is to be found, and says it of a file that has one of these. */
@@ -815,6 +824,19 @@ const targetInAction = (listOfId: ReadonlyMap<string, number>): TargetOf => (dra
 const sharedNames = (amount: number): string =>
   `${count(amount, "name fits both a line item and a list property of the same name, and is", "names fit both a line item and a list property of the same name, and are")} taken for the line item.`;
 
+/** Each line item's page filters: the rows of Page Filters that have it as their condition, found by the names of its
+ * module and its own, as written or, where nothing is, without the spaces at their ends. A row whose line item the map
+ * does not have says nothing, and neither does an export without the file. */
+function readPageFilters(draft: Draft, tables: readonly ResultTable[]): void {
+  const table = tableOf(tables, PAGE_FILTERS);
+  for (const row of table?.rows ?? []) {
+    const [module, lineItem] = [table!.cell(row, "Condition line item's module"), table!.cell(row, "Condition line item")];
+    const id = draft.items.get(module)?.get(lineItem) ?? draft.items.get(module.trim())?.get(lineItem.trim());
+    if (id === undefined) continue;
+    (draft.nodes[id].pageFilters ??= []).push({ app: textOf(row[0]), page: table!.cell(row, "Page"), card: table!.cell(row, "Card #") });
+  }
+}
+
 /** The graph of a model export's tables, with what it was made with: the draft, which knows every object by its name,
  * and what was read of Line Items. It throws whatever keeps a graph from being made. */
 function build(tables: readonly ResultTable[]): { graph: ModelGraph; draft: Draft; lineItems: LineItemsRead } {
@@ -834,6 +856,7 @@ function build(tables: readonly ResultTable[]): { graph: ModelGraph; draft: Draf
   // Many of the other actions work on no list: one that names none is as it should be.
   const otherActions = readActions(draft, tables, OTHER_ACTIONS, processes.known, { target: targetInAction(ids.listOfId) });
   const actions = [imports, exportActions, otherActions];
+  readPageFilters(draft, tables);
   const shared = draft.sharedWithProperty.size;
   const graph: ModelGraph = {
     nodes: draft.nodes,
