@@ -164,8 +164,9 @@ function conditionText(parts: ConditionParts): string {
   return parts.context === NONE ? text : `${text} (context: ${parts.context})`;
 }
 
+/** A rule's colour stops in words, joined with "; ": each its colour and the value it stands at ("#F5A5B1 at -10"). */
 function cfRuleText(rule: Obj): string {
-  return list(rule.pegs).map(peg => `${num(peg.value)} → ${peg.color}`).join("; ") || NONE;
+  return list(rule.pegs).map(peg => `${peg.color} at ${num(peg.value)}`).join("; ") || NONE;
 }
 
 function cfStyle(rule: Obj): string {
