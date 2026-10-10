@@ -1,5 +1,5 @@
 import { areaCheckLine, buildModelGraph } from "../map/build-graph.js";
-import type { ModelGraph, ModelMap, ModelMapOptions } from "../map/graph-types.js";
+import type { MapView, ModelGraph, ModelMap, ModelMapOptions } from "../map/graph-types.js";
 import { mountModelMap } from "../map/map-view.js";
 import { MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, PAGE_ROUTES } from "../page-files.js";
 import { CONTENT_SCRIPT_ORIGIN, PORT_NAME } from "../protocol.js";
@@ -25,6 +25,8 @@ import { LINE_ITEMS_FILE, MODULE_NAME } from "./line-items-view.js";
 import { ACCESS_FILE, analysedOf, cardParts, detailsOf, detailValue, diagnosticLog, fileView, listedTables, MODEL_CALENDAR_FILE, MODULES_FILE, overviewOf, type FileView } from "./result-view.js";
 import { rangeInForce, rangeSummary, readRange, type RangeState } from "./range-filter.js";
 import { cellText, NONE, pageOf, rangeColumn, rememberingSelect, rowName, valueCounts, type RangeColumn, type RangeQuery, type Row, type Sort, type TableQuery } from "./table-engine.js";
+import { DEFAULT_PAGE_SIZE, findRow, forgetKept, isMapAtStart, keepTable, objectKey, readKept, rowKey, subjectOf, takeTable, writeKept, type KeptDrawer, type KeptTable, type KeptView,
+  type ViewStorage } from "./view-keep.js";
 import { EVERY_USE, objectOf, WHERE_USED_FILE, whereUsedView, type WhereUsedObject, type WhereUsedView } from "./where-used-view.js";
 
 /** The results page (results.html): the design's script, on the real result. It connects to the Anaplan tab the address
@@ -196,6 +198,16 @@ let modelMap: ModelMap | "failed" | undefined;
 let modelGraph: ModelGraph | undefined;
 /** True while a run is going, so that a run that starts is told from one that goes on. */
 let running = false;
+/** What the tab keeps of how the result is looked at, for a refresh of the page (view-keep.ts): what was kept when the
+ * page loaded, and from then on what the page last made of it. Its subject is the result it was made on: another
+ * result's settings are not taken. */
+let looks: KeptView | undefined;
+/** The settings as last written, or as found when the page loaded: settings that are no different are not written again. */
+let looksText: string | undefined;
+/** Where the model map is, as it last said, where that is not where it opens by itself (`mapOptions`). */
+let mapLooks: MapView | undefined;
+/** The details that are open, as the tab keeps them: what a refresh opens again. */
+let drawerLooks: KeptDrawer | undefined;
 
 const defaultHidden = (columns: readonly Column[]): Set<number> => new Set(columns.filter(column => column.hidden).map(column => column.index));
 /** A column of numbers or of dates as its range reads it: its cells read once, the first time they are asked for, and kept
@@ -209,6 +221,115 @@ function readColumn(entry: Shown, column: Column): RangeColumn {
   return read;
 }
 const currentEntry = (): Shown | undefined => (typeof state.view === "number" ? shown.get(state.view) : undefined);
+
+/* ================= what the tab keeps of how the result is looked at ================= */
+/** The tab's session storage, where it has one. A browser that does not let the page have it throws when it is asked for:
+ * the page then keeps nothing, and works the same. */
+function tabStorage(): ViewStorage | undefined {
+  try {
+    return typeof sessionStorage === "undefined" || sessionStorage === null ? undefined : sessionStorage;
+  } catch {
+    return undefined;
+  }
+}
+/** A table's key in what the tab keeps: its file's name, and for the way an app's Where Used is shown by object, that
+ * way's own, for each way keeps what was chosen for it. */
+const tableKey = (entry: Shown): string => (entry.objects ? `${entry.table.file}#object` : entry.table.file);
+/** Every value a column's filter lists, ticked or not, as the filter lists them: each text of the column, or each item of
+ * a column whose cells list items. */
+const valuesOf = (entry: Shown, column: number): string[] => valueCounts(entry.table.rows, column, entry.lists.get(column)).map(([value]) => value);
+/** Every table the page holds for the result: each file once, and an app's Where Used in both its ways. */
+const everyTable = (): Shown[] => [...shown.values()].flatMap(entry => (entry.ways ? [entry.ways.object, entry.ways.use] : [entry]));
+
+/** How the result on the page is looked at now, as the tab keeps it: each table's filters, ranges, columns, order and page,
+ * the search and the jump of the table shown, how many rows a page lists, the way Where Used is shown, where the map is,
+ * and the details that are open. Nothing without a result. */
+function looksNow(): KeptView | undefined {
+  if (!result) return undefined;
+  const tables: Record<string, KeptTable> = {};
+  for (const entry of everyTable()) {
+    const kept = keepTable(entry, column => valuesOf(entry, column));
+    if (kept) tables[tableKey(entry)] = kept;
+  }
+  const searched = typeof state.view === "number" && (state.search !== "" || state.context !== undefined);
+  return {
+    subject: subjectOf(result), tables,
+    ...(state.pageSize !== DEFAULT_PAGE_SIZE ? { pageSize: state.pageSize } : {}),
+    ...(everyUse ? { everyUse: true } : {}),
+    ...(searched ? { search: { view: String(state.view), text: state.search, ...(state.context !== undefined ? { context: state.context } : {}) } } : {}),
+    ...(mapLooks ? { map: mapLooks } : {}),
+    ...(drawerLooks ? { drawer: drawerLooks } : {}),
+  };
+}
+
+/** How long the page waits after a change before it writes the settings: a few changes in a row are written once. */
+const LOOKS_DELAY_MS = 300;
+let looksTimer: ReturnType<typeof setTimeout> | undefined;
+/** Something the user chose has changed: the settings are written shortly, or as the page goes, whichever is first. */
+function rememberLooks(): void {
+  clearTimeout(looksTimer);
+  looksTimer = setTimeout(writeLooks, LOOKS_DELAY_MS);
+}
+/** Writes the settings as they are now, where they differ from those last written. Settings that say nothing take the
+ * place of none, and settings of another result take the place of those kept before: a new app or model starts clean. */
+function writeLooks(): void {
+  clearTimeout(looksTimer);
+  looksTimer = undefined;
+  const now = looksNow();
+  if (!now) return;
+  const text = JSON.stringify(now);
+  if (text === looksText) return;
+  looksText = text;
+  looks = now;
+  writeKept(tabStorage(), now);
+}
+/** The settings go: those the tab keeps, and what the page would write of them, until the user chooses something again. */
+function forgetLooks(): void {
+  clearTimeout(looksTimer);
+  looksTimer = undefined;
+  forgetKept(tabStorage());
+  looks = result ? { subject: subjectOf(result), tables: {} } : undefined;
+  looksText = looks && JSON.stringify(looks);
+}
+
+/** A table takes back what the tab keeps of it, where the result is the one the settings were made on: as far as its
+ * columns are still those the settings name. */
+function takeLooks(entry: Shown, kept: KeptView | undefined): void {
+  const table = kept?.tables[tableKey(entry)];
+  if (!table) return;
+  Object.assign(entry, takeTable(table, entry.columns, column => valuesOf(entry, column)));
+}
+
+/** Once a result that was brought back is on the page, on the view the address marked: the search and the jump of that
+ * view come back, and the details that were open open again, as far as the row is still there. */
+function takeBackLooks(): void {
+  const kept = looks;
+  if (!result || !kept || kept.subject !== subjectOf(result)) return;
+  if (currentEntry() && kept.search && kept.search.view === String(state.view)) {
+    state.search = kept.search.text;
+    state.context = kept.search.context;
+    renderAll();
+  }
+  if (kept.drawer) reopenDrawer(kept.drawer);
+}
+
+/** Opens the details that were open before a refresh: a row by what it holds, a card, or an object of Where Used by
+ * object. Where it is not there any more, or more than one row holds the same, nothing opens. */
+function reopenDrawer(drawer: KeptDrawer): void {
+  const opener = el("view");
+  const tables = everyTable();
+  if (drawer.kind === "object") {
+    const view = tables.find(entry => entry.objects)?.objects;
+    const found = view?.objects.filter(object => objectKey(object) === drawer.key) ?? [];
+    if (view && found.length === 1) openObjectDrawer(view, found[0], opener);
+    return;
+  }
+  const entry = tables.find(candidate => !candidate.objects && candidate.table.file === drawer.file);
+  const row = entry && findRow(entry.table.rows, drawer.key);
+  if (!entry || !row) return;
+  if (drawer.kind === "card") openCardDrawer(row, opener);
+  else openRowDrawer(entry, row, opener);
+}
 
 /* ================= header / theme ================= */
 function currentTheme(): "dark" | "light" {
@@ -317,6 +438,7 @@ function renderTable(entry: Shown): void {
   if (search) search.selectionStart = search.selectionEnd = search.value.length;
   markPopOwner();
   announceTable(view);
+  rememberLooks();
 }
 
 /** Draws again what follows the search, the filters, the sort and the page: the rows, the pager, the count, and whether
@@ -343,6 +465,7 @@ function updateTable(entry: Shown): void {
   updateFade(wrap);
   markPopOwner();
   announceTable(view);
+  rememberLooks();
 }
 
 function renderAll(): void {
@@ -369,6 +492,7 @@ function renderAll(): void {
   if (line) line.textContent = analysedLine(received, new Date());
   updateActions();
   markView();
+  rememberLooks();
 }
 
 /** A note of the page's own in the banner area above the result: when a result that was brought back was analysed, or
@@ -409,6 +533,8 @@ function showNotRemoved(): void {
  * banner of the run that has just ended. `back` is for a result the page kept before it was refreshed and has now brought back:
  * it is shown like any other, under a line that says when it was analysed. */
 function showResult(next: AnalysisResult, at: Date, back = false): void {
+  // How the result that is replaced was looked at is written first, as it is now: what of it fits the new result is taken.
+  if (result) writeLooks();
   // Focus that is inside what the new result replaces moves to the new view; anywhere else, in the header, it stays.
   const replaced = [el("view"), el("mapHost"), el("drawer"), el("popover")].some(part => part.contains(document.activeElement));
   closePopover();
@@ -423,6 +549,15 @@ function showResult(next: AnalysisResult, at: Date, back = false): void {
   result = next;
   received = at;
   broughtBack = back;
+  // What the tab keeps of how a result is looked at is taken where it was made on this app or model: on a result that
+  // came back after a refresh all of it, and on a run again what fits its tables. Another app or model starts clean.
+  const kept = looks?.subject === subjectOf(next) ? looks : undefined;
+  if (back && kept) {
+    everyUse = kept.everyUse === true;
+    state.pageSize = kept.pageSize ?? DEFAULT_PAGE_SIZE;
+  }
+  mapLooks = kept?.map;
+  drawerLooks = undefined;
   // A result that was brought back is kept: the tab's storage still holds what it came from. A run's result is not kept
   // yet: that follows once it is drawn (`keepLater`), and until it has succeeded there is no copy to forget. The overview
   // is drawn with the room for what it says of a kept copy, and `keepLater` fills that room or gives it up.
@@ -446,6 +581,7 @@ function showResult(next: AnalysisResult, at: Date, back = false): void {
     };
     // A number that could be more than one card's opens none of them: there it is plain text.
     if (entry.links.card) entry.links.hasCard = row => cardsOfRow(entry, row).length < 2;
+    takeLooks(entry, kept);
     shown.set(index, entry);
     if (!byObject || file !== whereUsed) continue;
     // The file in two ways. By object, the table is the view's: one row an object, in the view's own order and with its
@@ -457,6 +593,7 @@ function showResult(next: AnalysisResult, at: Date, back = false): void {
       keys: { page: undefined, cardId: undefined, number: undefined }, links: { page: false, card: false },
       filters: new Map(), ranges: new Map(), read: new Map(), hidden: defaultHidden(byObject.columns), sort: undefined, page: 0, objects: byObject,
     };
+    takeLooks(object, kept);
     entry.ways = object.ways = { object, use: entry };
     // As every use, a row names its card by its number, and the file has no column of card IDs. The view knows each use's
     // card where the result has it: there the number opens the card, as it does from the object's drawer.
@@ -501,6 +638,8 @@ function clearResult(): void {
   drawerObject = undefined;
   drawerOpens = [];
   drawerSteps = [];
+  mapLooks = undefined;
+  drawerLooks = undefined;
   state.view = "overview";
   state.search = "";
   state.context = undefined;
@@ -803,6 +942,7 @@ function openDrawer(title: string, subHtml: string, bodyHtml: string, opener?: E
   });
   el("drawerClose").focus();
   el("drawerBody").scrollTop = 0;
+  rememberLooks();
 }
 function closeDrawer(): void {
   const drawer = el("drawer");
@@ -818,6 +958,10 @@ function closeDrawer(): void {
   setBehindDrawer(false);
   if (state.lastFocus instanceof HTMLElement && document.contains(state.lastFocus)) state.lastFocus.focus();
   state.lastFocus = null;
+  if (drawerLooks) {
+    drawerLooks = undefined;
+    rememberLooks();
+  }
 }
 /** Any row, in full. Its heading is the row's own name: the cell of the column that names the file's rows (the one its
  * rows open from, where the file's rule names one, and else columns.ts `ROW_NAME_COLUMNS`), or, where the page knows no
@@ -831,6 +975,7 @@ function openRowDrawer(entry: Shown, row: Row, opener: Element): void {
   if (entry.objects && object) return openObjectDrawer(entry.objects, object, opener);
   drawerObject = undefined;
   drawerRow = { entry, row };
+  drawerLooks = { kind: "row", file: entry.table.file, key: rowKey(row) };
   const position = entry.table.rows.findIndex(candidate => candidate === row) + 1;
   const named = entry.opensFrom ?? rowNameIndex(entry.table);
   const none = writesNone(entry.table);
@@ -860,6 +1005,7 @@ const useLinks = (): Links => ({ page: cards !== undefined, card: cards !== unde
 function openObjectDrawer(view: WhereUsedView, object: WhereUsedObject, opener: Element): void {
   drawerRow = undefined;
   drawerObject = { view, object, all: false };
+  drawerLooks = { kind: "object", key: objectKey(object) };
   openDrawer(rowName([object.name], true) || rowName([object.type], true) || "Object", objectDrawerSubHtml(object, view.multiModel), objectDrawerHtml(object, useLinks(), false), opener);
 }
 /** The cards a row names, as rows of the Cards file. A row of that file is its own card. A row of another file names its
@@ -893,6 +1039,7 @@ function openCardDrawer(row: Row, opener: Element): void {
   const { sections, note } = cardParts(result, found, row);
   drawerObject = undefined;
   drawerRow = { entry, row };
+  drawerLooks = { kind: "card", file: entry.table.file, key: rowKey(row) };
   openDrawer(`Card ${cell("Card #")}${title !== "" && title !== NONE ? ` - ${title}` : ""}`,
     cardDrawerSubHtml(cellText(row[found.page]), cell("Card type"), cellText(row[found.cardId]), note), cardDrawerHtml(entry.columns, row, entry.links, sections, rowItems(entry.lists, row)), opener);
 }
@@ -1291,6 +1438,13 @@ function mapOptions(model: AnalysisResult, onFailure: (reason: string) => void):
     onGrouping: kind => {
       try { localStorage.setItem(MAP_GROUPING, kind ?? ""); } catch { /* not remembered */ }
     },
+    // Where the map was in this tab, for this model, and where it is now: the tab keeps it for a refresh of the page.
+    ...(mapLooks ? { view: mapLooks } : {}),
+    onView: view => {
+      if (result !== model) return;
+      mapLooks = isMapAtStart(view) ? undefined : view;
+      rememberLooks();
+    },
   };
 }
 
@@ -1623,6 +1777,8 @@ document.addEventListener("click", event => {
       // be removed.
       case "forget":
         if (!keeper.forget()) return showNotRemoved();
+        // How the result was looked at goes with it.
+        forgetLooks();
         dropMap();
         setKeptCopy("forgotten");
         focusOn("#keptLine", "#view");
@@ -1800,6 +1956,11 @@ function keepLater(kept: AnalysisResult, at: Date): void {
 
 el("version").textContent = `v${VERSION}`;
 applyTheme(currentTheme());
+// How the result was looked at before a refresh, as the tab keeps it; and what is chosen from now on is written before
+// the page goes, should it go before the settings were written.
+looks = readKept(tabStorage());
+looksText = looks && JSON.stringify(looks);
+window.addEventListener?.("pagehide", () => writeLooks());
 const tabId = tabIdFrom(location.search);
 const byIcon = openedByIcon();
 const keeper = new ResultKeeper({ tabId });
@@ -1841,8 +2002,10 @@ if (takingBack) {
     // forgotten: the page then waits for the run control, as one that kept nothing. What is shown opens on the view the
     // address marked.
     if (back.found && !result) {
-      if (showKept(back.result, back.received)) showMarked(marked);
-      else keeper.forget();
+      if (showKept(back.result, back.received)) {
+        showMarked(marked);
+        takeBackLooks();
+      } else keeper.forget();
     }
     // The state the page held back, or the one that belongs above the result: a run asked for meanwhile has its banner.
     if (client.state.phase !== "done") showRun(client.state);
