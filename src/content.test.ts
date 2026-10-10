@@ -268,6 +268,83 @@ describe("The content scripts on an Anaplan page", () => {
     expect(frame.asked.slice(2).map(message => [message.type, message.nonce === frame.asked[2].nonce])).toEqual([["run", true], ["stop", true]]);
   });
 
+  it("opens a module inside the Model Building page through the model's frame when the results page asks, and says what came of it", async () => {
+    at(MODEL_BUILDING);
+    await import("./content.js");
+    const frame = { asked: [] as { type: string; nonce?: string; model?: string; module?: string }[], postMessage(message: { type: string }) { this.asked.push(message); } };
+    hear({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD }, CORE, frame);
+    const port = open();
+    port.take();
+    const opened = () => port.take().filter(message => message.type === "opened");
+    port.say({ type: "open", nonce: "ask-1", model: MODEL, module: "102000000001" });
+    await vi.advanceTimersByTimeAsync(0);
+    // The frame is asked, by the model's ID and the module's, and its answer goes back to the page for that very ask.
+    const ask = frame.asked.find(message => message.type === "open")!;
+    expect(ask).toEqual({ protocol: PROTOCOL, type: "open", nonce: expect.any(String), model: MODEL, module: "102000000001" });
+    hear({ protocol: PROTOCOL, type: "opened", nonce: ask.nonce, opened: true }, CORE, frame);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(opened()).toEqual([{ type: "opened", nonce: "ask-1", opened: true, detail: "Model Building opened it beside the modules open there" }]);
+    // A frame that says it could not, and one that says nothing in time.
+    port.say({ type: "open", nonce: "ask-2", model: MODEL.toLowerCase(), module: "102000000002" });
+    await vi.advanceTimersByTimeAsync(0);
+    hear({ protocol: PROTOCOL, type: "opened", nonce: frame.asked.at(-1)!.nonce, opened: false }, CORE, frame);
+    port.say({ type: "open", nonce: "ask-3", model: MODEL, module: "102000000003" });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(opened()).toEqual([{ type: "opened", nonce: "ask-2", opened: false, detail: "the model's frame did not open it" },
+      { type: "opened", nonce: "ask-3", opened: false, detail: "the model's frame did not open it" }]);
+    // Nothing of it was read from Anaplan, and nothing was put on the page.
+    expect([vi.mocked(globalThis.fetch).mock.calls, vi.mocked(globalThis.WebSocket).mock.calls]).toEqual([[], []]);
+  });
+
+  it("opens no module inside the page where the page shows another model, no Model Building, or a frame of another build or none", async () => {
+    at(`/a/modeling/customers/${WS}/models/0123456789ABCDEF0123456789ABCDEF/modules`);
+    await import("./content.js");
+    const frame = { asked: [] as { type: string }[], postMessage(message: { type: string }) { this.asked.push(message); } };
+    hear({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: "0a1b2c3d4e5f" }, CORE, frame);
+    const port = open();
+    port.take();
+    const ask = async (nonce: string) => {
+      port.say({ type: "open", nonce, model: MODEL, module: "102000000001" });
+      await vi.advanceTimersByTimeAsync(400);
+      return port.take().filter(message => message.type === "opened").map(message => (message as { detail: string }).detail);
+    };
+    expect(await ask("another-model")).toEqual(["the tab shows another model"]);
+    at(MODEL_BUILDING);
+    expect(await ask("another-build")).toEqual(["the model's frame holds a reader of another build"]);
+    at(`/a/springboard/apps/app/${APP}/page/board/${APP}`);
+    expect(await ask("an-app")).toEqual(["the tab does not show Model Building"]);
+    expect(frame.asked.map(message => message.type)).toEqual(["ack"]);
+  });
+
+  it("greets the frames when no model's frame has checked in, and opens nothing where none does", async () => {
+    at(MODEL_BUILDING);
+    const inner = { greeted: [] as unknown[], frames: [], postMessage(message: unknown) { this.greeted.push(message); } };
+    page.frames = [inner];
+    await import("./content.js");
+    const port = open();
+    port.take();
+    port.say({ type: "open", nonce: "ask-1", model: MODEL, module: "102000000001" });
+    await vi.advanceTimersByTimeAsync(400);
+    expect([inner.greeted, port.take()]).toEqual([[{ protocol: PROTOCOL, type: "hello" }],
+      [{ type: "opened", nonce: "ask-1", opened: false, detail: "the model's frame has not checked in" }]]);
+  });
+
+  it("opens a module from the model's frame inside Model Building when the page around it asks, through the classic client's own topic", async () => {
+    const heard: Listener[] = [];
+    const top = { posted: [] as unknown[], postMessage(message: unknown) { this.posted.push(message); } };
+    const published: unknown[][] = [];
+    const topic = { publish: (...args: unknown[]) => { published.push(args); } };
+    vi.stubGlobal("window", { modelId: MODEL, workspaceId: WS, require: (_modules: string[], ready: (topic: unknown) => void) => ready(topic),
+      addEventListener: (_type: string, listener: Listener) => { heard.push(listener); }, removeEventListener: () => undefined, top });
+    at("/core-webapp/anaplan/framework.jsp", "eu2a.app.anaplan.com");
+    await import("./model-content.js");
+    vi.advanceTimersByTime(1000);
+    for (const listener of [...heard]) listener({ data: { protocol: PROTOCOL, type: "open", nonce: "ask", model: MODEL, module: "102000000409" }, origin: SHELL, source: top });
+    await vi.advanceTimersByTimeAsync(0);
+    expect([published, top.posted.filter(message => (message as { type: string }).type === "opened")])
+      .toEqual([[["anaplan/views", 102000000409]], [{ protocol: PROTOCOL, type: "opened", nonce: "ask", opened: true }]]);
+  });
+
   it("reads nothing of the pages built on a model where the address names no customer, and says so", async () => {
     at(`/a/modeling/workspaces/${WS}/models/${MODEL}`);
     await import("./content.js");
