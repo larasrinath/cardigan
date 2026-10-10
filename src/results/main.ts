@@ -1,7 +1,7 @@
 import { buildModelGraph } from "../map/build-graph.js";
 import type { ModelGraph, ModelMap, ModelMapOptions } from "../map/graph-types.js";
 import { mountModelMap } from "../map/map-view.js";
-import { PORT_NAME } from "../protocol.js";
+import { CONTENT_SCRIPT_ORIGIN, PORT_NAME } from "../protocol.js";
 import { plainResult, textOf } from "../result-plain.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
 import { VERSION } from "../version.js";
@@ -264,6 +264,7 @@ function tableView(entry: Shown): TableView {
     columns: entry.columns.filter(column => !entry.hidden.has(column.index)), widths: entry.widths, rows: page.rows,
     page: page.page, pages: page.pages, pageSize: state.pageSize, from: page.from, to: page.to, total: page.total, all: entry.table.rows.length,
     search: state.search, sort: entry.sort, filtered: new Set(entry.filters.keys()), context: state.context, links: entry.links,
+    ...(opensModules(entry) ? { rowTitle: OPEN_IN_ANAPLAN } : {}),
   };
 }
 /** The shade at the foot of the table's box goes once there is nothing more to scroll to. */
@@ -758,6 +759,69 @@ function rowFor(element: Element): { entry: Shown; row: Row } | undefined {
   return row ? { entry, row } : undefined;
 }
 
+/* ================= a module in Anaplan ================= */
+/** What a row of a model's Line Items or Modules says it does on a double-click. */
+const OPEN_IN_ANAPLAN = "Double-click to open its module in Anaplan";
+/** As long as a double-click may take after the click that opened its row's details. */
+const DOUBLE_CLICK_MS = 600;
+const NO_MODULE_IDS = "This result has no IDs for the model's modules: an earlier version of Cardigan read it. Choose Run again, then double-click the row again.";
+const NO_MODULE_ID = "Cardigan cannot open this row in Anaplan: the model gave no ID for its module.";
+const NOT_IN_MODEL_BUILDING = "To open a module from here, open the model in Model Building, then click the Cardigan icon on that tab.";
+const NO_WORKSPACE = "This result does not say which workspace the model is in. Choose Run again, then double-click the row again.";
+const TAB_GONE = "The Anaplan tab is closed. Open the model in Model Building, then click the Cardigan icon there.";
+const LONG_ID = /^[0-9A-Fa-f]{32}$/;
+
+/** The row a click last opened, and when: what a double-click opens the module of (the listener for "dblclick"). */
+let clickedRow: { entry: Shown; row: Row; at: number } | undefined;
+
+/** Whether a table's rows open their module in Anaplan: a model's Line Items and Modules. */
+const opensModules = (entry: Shown): boolean => result?.kind === "model" && (entry.table.file === LINE_ITEMS_FILE || entry.table.file === MODULES_FILE);
+
+/** The module a row of a model's Line Items or Modules names: a line item's own module, or the module itself. None for any
+ * other row, and for a row that names none. */
+function moduleOfRow(entry: Shown, row: Row): string | undefined {
+  if (!opensModules(entry)) return undefined;
+  const at = entry.table.file === LINE_ITEMS_FILE ? columnIndex(entry.table, MODULE_NAME) : 0;
+  const name = at === undefined ? "" : cellText(row[at]).trim();
+  return name === "" ? undefined : name;
+}
+
+/** The address that opens a module of the model on the page in Model Building, on the Anaplan tab's own site, as Model
+ * Building's own links write it (its `/tabs/` and the module's ID); or what is missing for it, in words for the user. The
+ * site and the customer are what the tab said of itself; the workspace is the result's, and so is the model. */
+function moduleLink(name: string): { url: string } | { problem: string } {
+  if (result?.kind !== "model") return { problem: NO_MODULE_ID };
+  if (!Array.isArray(result.moduleIds)) return { problem: NO_MODULE_IDS };
+  const id = result.moduleIds.find(pair => Array.isArray(pair) && typeof pair[0] === "string" && pair[0].trim() === name)?.[1];
+  if (typeof id !== "string" || !/^\d{1,19}$/.test(id)) return { problem: NO_MODULE_ID };
+  const shown = client.shows;
+  const origin = shown?.kind === "model" ? shown.origin : undefined;
+  const customer = shown?.kind === "model" ? shown.customer : undefined;
+  if (typeof origin !== "string" || !CONTENT_SCRIPT_ORIGIN.test(origin) || typeof customer !== "string" || !LONG_ID.test(customer)) return { problem: NOT_IN_MODEL_BUILDING };
+  const workspace = detailValue(detailsOf(result), "Model", "Workspace ID");
+  if (!workspace || !LONG_ID.test(workspace) || !/^[0-9A-Za-z]{32}$/.test(result.id)) return { problem: NO_WORKSPACE };
+  return { url: `${origin}/a/modeling/customers/${customer}/workspaces/${workspace}/models/${result.id}/tabs/${id}` };
+}
+
+/** Opens a row's module in Model Building, in the Anaplan tab this page reads, and brings that tab and its window to the
+ * front: the tab loads Model Building on the module. Model Building opens modules, not line items: a line item opens its
+ * module. Where something needed is missing, the page says what to do. */
+async function openInAnaplan(entry: Shown, row: Row): Promise<void> {
+  const name = moduleOfRow(entry, row);
+  if (name === undefined) return;
+  const link = moduleLink(name);
+  if ("problem" in link) return toast(link.problem);
+  if (tabId === undefined) return toast(TAB_GONE);
+  let tab: chrome.tabs.Tab | undefined;
+  try {
+    tab = await chrome.tabs.update(tabId, { url: link.url, active: true });
+  } catch {
+    return toast(TAB_GONE);
+  }
+  // The tab is shown; a window that cannot be brought forward leaves it where it is.
+  if (tab?.windowId !== undefined) await chrome.windows.update(tab.windowId, { focused: true }).catch(() => undefined);
+}
+
 /* ================= model map ================= */
 /** The model's graph, built the first time the map or a row's details asks for it. It throws what keeps it from being made. */
 function graphFor(model: AnalysisResult): ModelGraph {
@@ -1052,7 +1116,10 @@ document.addEventListener("click", event => {
         return;
       }
       case "row":
-        if (from) openRowDrawer(from.entry, from.row, act);
+        if (from) {
+          clickedRow = { ...from, at: Date.now() };
+          openRowDrawer(from.entry, from.row, act);
+        }
         return;
       // A use of the object in the drawer, by its place among the object's uses: its page's cards, or its card.
       case "use-page":
@@ -1190,8 +1257,22 @@ document.addEventListener("click", event => {
   const tr = target.closest("#tableWrap tbody tr");
   if (tr && !target.closest("button, a, input, label, select")) {
     const from = rowFor(tr);
-    if (from) openRowDrawer(from.entry, from.row, tr.querySelector('[data-act="row"]') ?? tr);
+    if (from) {
+      clickedRow = { ...from, at: Date.now() };
+      openRowDrawer(from.entry, from.row, tr.querySelector('[data-act="row"]') ?? tr);
+    }
   }
+});
+// A double-click on a row of a model's Line Items or Modules opens the row's module in Anaplan. Its first click opened the
+// row's details, so its second fell on what the details put over the table: the row is the one the first click opened.
+document.addEventListener("dblclick", () => {
+  const clicked = clickedRow;
+  clickedRow = undefined;
+  if (!clicked || Date.now() - clicked.at > DOUBLE_CLICK_MS || moduleOfRow(clicked.entry, clicked.row) === undefined) return;
+  // What the double-click selected is no selection the user meant.
+  if (typeof window.getSelection === "function") window.getSelection()?.removeAllRanges();
+  if (el("drawer").classList.contains("show")) closeDrawer();
+  void openInAnaplan(clicked.entry, clicked.row);
 });
 document.addEventListener("input", event => {
   const entry = currentEntry();

@@ -26,8 +26,9 @@ export const TAB_PARAM = "tab";
 export const OPENED_PARAM = "opened";
 export const FRESH_MS = 60_000;
 
-/** What the Anaplan tab shows: an app, a model, or neither. */
-export type Subject = { kind: "app" | "model"; id: string } | { kind: "none" };
+/** What the Anaplan tab shows: an app, a model, or neither. For a model in Model Building, also the tab's site
+ * (`origin`) and the customer its address names (`customer`): what the results page opens one of its modules with. */
+export type Subject = { kind: "app" | "model"; id: string; origin?: string; customer?: string } | { kind: "none" };
 
 /** Page to tab. */
 export type PageMessage =

@@ -132,6 +132,10 @@ export class ResultsClient {
   readonly log: string[] = [];
   private port: TabPort | undefined;
   private subject: Subject | undefined;
+  /** What the tab last said it shows: kept after its port closes, as it does when the tab goes to another page. */
+  get shows(): Subject | undefined {
+    return this.subject;
+  }
   /** The connection the page is on: each new one, from start or the run control, counts one up. */
   private connection = 0;
   /** How often this connection has asked the tab again, and whether its content script was put back. */

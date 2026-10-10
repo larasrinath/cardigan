@@ -22,6 +22,18 @@ export const plainRows = (rows: readonly (readonly unknown[])[]): Cell[][] => ro
 const fileName = (value: unknown, extension: string): value is string =>
   typeof value === "string" && value.endsWith(extension) && value.length > extension.length && !/[\\/:*?"<>|\u0000-\u001f]/.test(value);
 
+/** A model's modules and their IDs: pairs of a name and an ID of digits only, or nothing when anything else is there. A
+ * result is not refused for them: the page only cannot open its modules in Anaplan. */
+function readModuleIds(value: unknown): [string, string][] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const pairs: [string, string][] = [];
+  for (const pair of Array.from(value as unknown[])) {
+    if (!Array.isArray(pair) || pair.length !== 2 || typeof pair[0] !== "string" || typeof pair[1] !== "string" || !/^\d{1,19}$/.test(pair[1])) return undefined;
+    pairs.push([pair[0], pair[1]]);
+  }
+  return pairs;
+}
+
 /** Lists are read entry by entry (Array.from), so a hole counts as an entry that is not there: `every` would pass over it. */
 function readResult(value: unknown): AnalysisResult | undefined {
   const data = value as Partial<AnalysisResult> | null;
@@ -37,7 +49,8 @@ function readResult(value: unknown): AnalysisResult | undefined {
     tables.push({ file: table.file, label: table.label, headers: Array.from(table.headers, textOf), rows: plainRows(rows as unknown[][]), guard: table.guard,
       ...(table.details === true ? { details: true as const } : {}) });
   }
-  return { kind: data.kind, name: data.name, id: data.id, zipName: data.zipName, tables, summary: Array.from(data.summary, textOf) };
+  const moduleIds = data.kind === "model" ? readModuleIds(data.moduleIds) : undefined;
+  return { kind: data.kind, name: data.name, id: data.id, zipName: data.zipName, tables, summary: Array.from(data.summary, textOf), ...(moduleIds ? { moduleIds } : {}) };
 }
 
 /** A result received from another window, with every field checked before use and nothing else kept; undefined when it is

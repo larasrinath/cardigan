@@ -13,7 +13,7 @@ import { ACCESS_HEADERS } from "./access.js";
 import { againstMap } from "./access.test-support.js";
 import { ACTION_LIST_COLUMN, actionKind, mergeImports, missingActionColumns, otherActionsTable } from "./actions.js";
 import { CALENDAR_HEADERS, CALENDAR_PROPERTIES, calendarKind, calendarRows } from "./calendar.js";
-import { exportModel } from "./export.js";
+import { exportModel, moduleIdsOf } from "./export.js";
 import * as grids from "./grid.js";
 import { cellText, gridTable, labelEntries, plainText, windowRows, type CellSource, type Grid, type GridRow } from "./grid.js";
 import * as lineItems from "./lineitems.js";
@@ -1239,3 +1239,20 @@ async function exportGoldenModel(grids: Record<string, FakeGrid> = GOLDEN_GRIDS,
   return exportModel({ status: keep, log: keep },
     () => said?.join("\r\n") ?? "12:30:10 Loading the model page's client…\r\n12:30:10 Line Items: 4 rows × 3 columns; columns: Formula | Summary | Notes");
 }
+
+describe("The modules' IDs a model's result keeps", () => {
+  afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
+
+  it("are those of Modules and of the module rows of Line Items, each name once, for opening a module in Model Building", async () => {
+    // The golden model: its two modules, the heading among them, read in Modules before Line Items names Profitability again.
+    expect((await exportGoldenModel()).moduleIds).toEqual([["Profitability", "102000000001"], ["-- MODEL ADMIN", "102000000002"]]);
+    const grid = (rows: [number, string][]): Grid => ({ columns: [], rows: rows.map(([id, name]) => ({ ids: [id], labels: [name], cells: [] })) });
+    // A client that cannot say an ID's type: an ID is a module's by the type it starts with, as Anaplan's long IDs carry it.
+    const blind = { ids: {} } as never;
+    expect(moduleIdsOf(blind, [grid([[102000000005, "Sales"], [1901000000001, "Units"], [-1, "Gone"], [102000000006, ""], [Number.NaN, "Odd"]]), undefined,
+      grid([[102000000007, "Sales"], [102000000008, "Costs"]])])).toEqual([["Sales", "102000000005"], ["Costs", "102000000008"]]);
+    // A client that can say: its word is taken.
+    const says = { ids: { getEntityTypeIndex: (id: number) => (id === 7 ? 102 : 101) } } as never;
+    expect(moduleIdsOf(says, [grid([[7, "Small"], [102000000009, "Listed"]])])).toEqual([["Small", "7"]]);
+  });
+});
