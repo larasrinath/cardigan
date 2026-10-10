@@ -482,6 +482,9 @@ export interface TableView {
   /** The column whose cell opens a row, by its place in the table, for a table in which that is not the first column
    * shown. While that column is not among those shown, the first one opens the row, as in any table. */
   opensFrom?: number;
+  /** What a double-click on a row does, as every row's title says it: for a model's Line Items and Modules, which open the
+   * row's module in Anaplan. */
+  rowTitle?: string;
   /** The columns shown, in the table's order. */
   columns: readonly Column[];
   /** Each column's width in ch, by its place in the table's headers, worked out from every row of the table and not
@@ -595,7 +598,8 @@ export function tableParts(view: TableView): TableParts {
       <button type="button" class="btn sm" data-act="reset">Clear search &amp; filters</button>
       </div>`;
   } else {
-    body = view.rows.map(row => `<tr>${view.columns.map((column, position) =>
+    const tr = view.rowTitle === undefined ? "<tr>" : `<tr title="${esc(view.rowTitle)}">`;
+    body = view.rows.map(row => `${tr}${view.columns.map((column, position) =>
       `<td class="${column.num ? "num" : ""}">${position === opens ? rowCellHtml(column, row, view.links) : cellHtml(column, row, view.links)}</td>`).join("")}</tr>`).join("");
   }
 

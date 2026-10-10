@@ -36,6 +36,7 @@ Open the model in Model Building; the classic model page opened on its own works
 
 - A table read from a Model settings grid is laid out as Anaplan's own export of that grid: each row's name first, then the grid's columns.
 - **Line Items** covers every module and lists each line item beside its module; a module's own row is not listed. Three columns follow Anaplan's own: **Ratio Numerator**, **Ratio Denominator** and **Format List**.
+- **Double-click a row of Line Items or Modules to open its module in Anaplan.** The Anaplan tab Cardigan read loads Model Building on that module and comes to the front; no new tab opens. The page reloads, and the model stays open. A line item opens its module: Model Building opens modules, not single line items. It works for a model read in Model Building, by this version or a later one; otherwise the page says what to do.
 - **Dynamic Cell Access** lists each access driver with the line items it controls, one row per use, marked **Read** or **Write**. It is made from the **Read Access Driver** and **Write Access Driver** columns of Line Items, which name a driver only on the line item it controls.
 - The page says a format, a summary or an action's definition in words, such as "Number, 2 decimal places", "List: Products" or "Delete from Products using Selection". Click the row to see the definition as it was read, under **Format as read**, **Summary as read** or **Action as read**.
 - **Processes**, **Exports** and **Other Actions** are the Actions list, split at its headings. One column follows Anaplan's own in **Other Actions**: **Action List**, the list an action deletes from or orders, as General Lists names it. **Imports** joins each import's source and target with its last run, notes and processes.
@@ -121,6 +122,7 @@ Closing the results page stops the reading.
 - Cardigan declares two permissions, **activeTab** and **scripting**, and neither comes with a warning. Together they let a click on its icon put its script back into that one Anaplan tab when Chrome has not, as in a tab that was open before Cardigan was installed, updated or reloaded. It asks for no access to any site. Its scripts run only on `https://*.app.anaplan.com` and, for Australia, `https://*.app2.anaplan.com`, and add nothing to those pages.
 - It reads nothing until you click its icon or choose **Run again**. It is read-only by construction: its web requests are GET requests to two Anaplan services, its socket client can only subscribe, and every request to a model is checked to carry no change.
 - Nothing is sent anywhere except those reads, and the results page loads nothing from the internet.
+- A double-click on a row of a model's **Line Items** or **Modules** takes your Anaplan tab to that module in Model Building. That changes which page the tab shows, and nothing in the model.
 - The kept result is in the browser's session storage for its tab, compressed and not encrypted.
 
 [NOTICE.md](NOTICE.md) says the rest, including what closing a tab does and does not erase.

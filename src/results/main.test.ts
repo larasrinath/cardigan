@@ -171,6 +171,9 @@ let storeRefuses: Error | undefined;
 let lastError: { message?: string } | undefined;
 /** Whether the Anaplan tab the page was opened for has been closed, as chrome.tabs.get finds. */
 let tabClosed: boolean;
+/** What the page asked of chrome.tabs.update and chrome.windows.update, in order. */
+let tabUpdates: unknown[][];
+let windowUpdates: unknown[][];
 /** The page's address, each address the script changed it to, and whether changing it is refused. */
 let location: { search: string; pathname: string; hash: string };
 let replaced: string[];
@@ -256,6 +259,8 @@ beforeEach(() => {
   ports = [];
   connects = [];
   tabClosed = false;
+  tabUpdates = [];
+  windowUpdates = [];
   copied = [];
   clipboardRefuses = false;
   stored = new Map();
@@ -308,9 +313,15 @@ beforeEach(() => {
     tabs: {
       connect: (...args: unknown[]) => { connects.push(args); const port = new FakePort(); ports.push(port); return port; },
       get: async (id: number) => { if (tabClosed) throw new Error(`No tab with id: ${id}.`); return { id, index: 0 }; },
+      update: async (id: number, properties: unknown) => {
+        tabUpdates.push([id, properties]);
+        if (tabClosed) throw new Error(`No tab with id: ${id}.`);
+        return { id, index: 0, windowId: 3 };
+      },
     },
     // As in a tab the icon was not just clicked on: Chrome lets nothing be put into it.
     scripting: { executeScript: async () => { throw new Error("Cannot access contents of the page. Extension manifest must request permission to access the respective host."); } },
+    windows: { update: async (id: number, info: unknown) => { windowUpdates.push([id, info]); } },
     runtime: { get lastError() { return lastError; } },
   });
   vi.stubGlobal("navigator", { clipboard: { writeText: async (text: string) => {
@@ -4478,5 +4489,99 @@ describe("The ways from a count or a row to where it leads", () => {
     await openWith(BLUEPRINT);
     page.all("#view .stat").find(tile => tile.querySelector(".s-lab")?.textContent === "Modules")!.press();
     expect(shows()).toEqual(["Modules", "Modules"]);
+  });
+});
+
+describe("A double-click that opens a row's module in Anaplan", () => {
+  const CUSTOMER = "8a81b01368a3d0e30168b1c7a8d6000b";
+  const WORKSPACE = "8a81b08a5ce3b9c4015d0f4b2a3c00aa";
+  const ORIGIN = "https://us1a.app.anaplan.com";
+  /** BLUEPRINT as the export makes it now: its workspace in the Details file, and its modules' IDs. The heading has none. */
+  const OPENS: AnalysisResult = {
+    ...BLUEPRINT, tables: [{ ...BLUEPRINT.tables[0], rows: [...BLUEPRINT.tables[0].rows, ["Model", "Workspace ID", WORKSPACE]] }, ...BLUEPRINT.tables.slice(1)],
+    moduleIds: [["REV01 Revenue", "102000000001"], ["COST01 Costs", "102000000002"]],
+  };
+  const link = (module: string) => `${ORIGIN}/a/modeling/customers/${CUSTOMER}/workspaces/${WORKSPACE}/models/${BLUEPRINT.id}/tabs/${module}`;
+  /** Opens the page on a model the tab shows in Model Building, as the content script says it: with its site and customer. */
+  const openModel = async (result: AnalysisResult = OPENS, subject: object = { kind: "model", id: result.id, origin: ORIGIN, customer: CUSTOMER }) => {
+    await open(clicked(7));
+    ports[0].send({ type: "subject", subject });
+    sendResult(ports[0], result);
+    // The result is kept for a refresh before the test goes on: the clock the double-click moves would otherwise start the
+    // keeping, which would end after the test, with the page it writes to gone.
+    await letKeep();
+  };
+  /** A double-click on a row, by its first cell, as a browser gives it: its first click opens the row's details, its second
+   * falls on the scrim the details put over the table, which closes them, and the double-click goes to the scrim. */
+  const doubleClick = async (name: string, between = 0) => {
+    const at = firstCells().indexOf(name);
+    page.all('#tableWrap tbody [data-act="row"]')[at].press();
+    page.id("scrim").press();
+    vi.advanceTimersByTime(between);
+    page.id("scrim").dispatch("dblclick");
+    await settle();
+  };
+  const toastSays = () => page.id("toast").textContent;
+
+  it("opens a line item's module, and a module, in the Anaplan tab Cardigan read, and brings that tab's window to the front", async () => {
+    await openModel();
+    goTo(1);
+    expect(page.all("#tableWrap tbody tr").map(row => row.getAttribute("title"))).toEqual(Array(5).fill("Double-click to open its module in Anaplan"));
+    await doubleClick("Revenue");
+    expect([tabUpdates, windowUpdates, page.id("drawer").classList.contains("show")]).toEqual([[[7, { url: link("102000000001"), active: true }]], [[3, { focused: true }]], false]);
+    goTo(2);
+    await doubleClick("COST01 Costs");
+    expect([tabUpdates.at(-1), windowUpdates.length]).toEqual([[7, { url: link("102000000002"), active: true }], 2]);
+  });
+
+  it("says what to do for a row whose module the model gave no ID for: a heading, or a module the export found none for", async () => {
+    await openModel({ ...OPENS, moduleIds: [["REV01 Revenue", "102000000001"]] });
+    goTo(2);
+    await doubleClick("--- Archive ---");
+    expect([toastSays(), tabUpdates]).toEqual(["Cardigan cannot open this row in Anaplan: the model gave no ID for its module.", []]);
+    await doubleClick("COST01 Costs");
+    expect([toastSays(), tabUpdates]).toEqual(["Cardigan cannot open this row in Anaplan: the model gave no ID for its module.", []]);
+  });
+
+  it("asks for a run again where the result has no IDs, as one an earlier version kept", async () => {
+    const { moduleIds: _ids, ...earlier } = OPENS;
+    await openModel(earlier);
+    goTo(1);
+    await doubleClick("Units");
+    expect([toastSays(), tabUpdates]).toEqual(["This result has no IDs for the model's modules: an earlier version of Cardigan read it. Choose Run again, then double-click the row again.", []]);
+  });
+
+  it("asks for the model in Model Building where the tab did not say where it is", async () => {
+    await openModel(OPENS, { kind: "model", id: OPENS.id });
+    goTo(1);
+    await doubleClick("Units");
+    expect([toastSays(), tabUpdates]).toEqual(["To open a module from here, open the model in Model Building, then click the Cardigan icon on that tab.", []]);
+  });
+
+  it("says the Anaplan tab is closed where it is", async () => {
+    await openModel();
+    tabClosed = true;
+    goTo(1);
+    await doubleClick("Units");
+    expect([toastSays(), tabUpdates.length, windowUpdates]).toEqual(["The Anaplan tab is closed. Open the model in Model Building, then click the Cardigan icon there.", 1, []]);
+  });
+
+  it("takes a second click that comes late for no double-click", async () => {
+    await openModel();
+    goTo(1);
+    await doubleClick("Units", 700);
+    expect(tabUpdates).toEqual([]);
+  });
+
+  it("does nothing for an app's rows, which have no module to open", async () => {
+    await openWith(RESULT);
+    await letKeep();
+    goTo(2);
+    expect(page.all("#tableWrap tbody tr").every(row => row.getAttribute("title") === null)).toBe(true);
+    page.all('#tableWrap tbody [data-act="row"]')[0].press();
+    page.id("scrim").press();
+    page.id("scrim").dispatch("dblclick");
+    await settle();
+    expect(tabUpdates).toEqual([]);
   });
 });
