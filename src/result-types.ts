@@ -41,6 +41,10 @@ export interface AnalysisResult {
    * result, nor in one that an earlier version kept. Pairs, so that a module's name is never taken for a property of an
    * object. */
   moduleIds?: [name: string, id: string][];
+  /** A model's lists, each by its name and its ID in the model, as the export read them from General Lists: what the results
+   * page opens a list in Model Building by. Empty where the export found none; none in an app's result, nor in one that an
+   * earlier version kept. */
+  listIds?: [name: string, id: string][];
   /** The mapping of each of a model's imports from a file (Source Type FILE in the Imports tab), in the order of that tab:
    * what feeds each target of the import, as the import's own definition says it. The results page shows it in the
    * details of the import's row of Imports. Empty for a model that has no import from a file; none in an app's result, in

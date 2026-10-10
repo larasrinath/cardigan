@@ -63,6 +63,13 @@ describe("A result as plain data", () => {
       expect(plainResult({ ...model, moduleIds }), JSON.stringify(moduleIds)).toEqual({ ...result, kind: "model" });
     }
     expect(plainResult({ ...result, moduleIds: model.moduleIds })).toEqual(result);
+    // So do its lists and theirs, kept or left out alike.
+    const listIds = [["Products", "101000000017"], ["+ Regions", "101000000018"]];
+    expect(plainResult({ ...model, listIds })).toEqual({ ...model, listIds });
+    for (const odd of [[["Products", 101000000017]], [["Products"]], "Products", [null]]) {
+      expect(plainResult({ ...model, listIds: odd }), JSON.stringify(odd)).toEqual(model);
+    }
+    expect(plainResult({ ...result, listIds })).toEqual(result);
     // So do the IDs of a model's Line Items rows, a row's own and its module's, which a module's own row has none of.
     const lineItemIds = [["102000000001", ""], ["597000000011", "102000000001"]];
     expect(plainResult({ ...model, lineItemIds })).toEqual({ ...model, lineItemIds });

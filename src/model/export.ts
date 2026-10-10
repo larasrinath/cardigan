@@ -42,34 +42,46 @@ const HOW_TO_READ: readonly [detail: string, value: string][] = [
 const NOTHING_READ = "Cardigan could not read any of this model's settings. Check that the model is open and that you can see its Model settings in Anaplan, "
   + `then choose Run again. ${SEND_LOG}`;
 
-/** The entity type of a module: the first three digits of its ID, as Anaplan's long IDs carry their type (102 and nine
- * more digits), and the type the model's client says an ID is of (native.ts `typeIndex`). */
+/** The entity types of a module and of a list (a hierarchy, to the client): the first three digits of their IDs, as
+ * Anaplan's long IDs carry their type (102 or 101, and nine more digits), and the types the model's client says an ID is
+ * of (native.ts `typeIndex`). */
 const MODULE_TYPE = 102;
+const LIST_TYPE = 101;
 
-/** Each module's name and ID, from the grids that list modules: Modules, and Line Items, which has a row of each module's
- * own above its line items. The results page opens a module in Model Building by its ID (results/main.ts). An ID is a
- * module's by the type it starts with; the model's client is asked only of an ID that does not start so, and adds it
- * where it says it is a module's. Its word takes away no ID that starts with a module's type: the client's numbers for
- * the types could differ from the IDs' own, and then none would be found. A name is kept once, with its first ID. */
-export function moduleIdsOf(native: Native, grids: readonly (Grid | undefined)[]): [string, string][] {
+/** Each name and ID of one type of object, from the grids that list such objects. The results page opens a module or a list
+ * in Model Building by its ID (results/main.ts). An ID is of the type by the type it starts with; the model's client is
+ * asked only of an ID that does not start so, and adds it where it says it is of that type. Its word takes away no ID that
+ * starts with the type: the client's numbers for the types could differ from the IDs' own, and then none would be found.
+ * A name is kept once, with its first ID. */
+function idsOfType(native: Native, grids: readonly (Grid | undefined)[], type: number): [string, string][] {
   const found = new Map<string, string>();
   for (const grid of grids) {
     for (const row of grid?.rows ?? []) {
       const [id] = row.ids;
       const name = row.labels[0] ?? "";
       if (!Number.isSafeInteger(id) || id <= 0 || name === "" || found.has(name)) continue;
-      if (Math.floor(id / 1e9) === MODULE_TYPE || typeIndex(native, id) === MODULE_TYPE) found.set(name, String(id));
+      if (Math.floor(id / 1e9) === type || typeIndex(native, id) === type) found.set(name, String(id));
     }
   }
   return [...found];
 }
 
-/** The log's line on the modules' IDs: how many were found, and the first row of the grids that list modules, by its ID and
- * the type the model's client says it is of, which tell why an ID was not found. Nothing else of the row is written. */
-export function moduleIdsLine(native: Native, grids: readonly (Grid | undefined)[], found: number): string {
+/** Each module's name and ID, from the grids that list modules: Modules, and Line Items, which has a row of each module's
+ * own above its line items. */
+export const moduleIdsOf = (native: Native, grids: readonly (Grid | undefined)[]): [string, string][] => idsOfType(native, grids, MODULE_TYPE);
+/** Each list's name and ID, from the grid that lists the lists: General Lists. */
+export const listIdsOf = (native: Native, grids: readonly (Grid | undefined)[]): [string, string][] => idsOfType(native, grids, LIST_TYPE);
+
+/** The log's line on the IDs of one type of object: how many were found, and the first row of the grids that list them, by
+ * its ID and the type the model's client says it is of, which tell why an ID was not found. Nothing else of the row is
+ * written. */
+function idsLine(what: "Module" | "List", native: Native, grids: readonly (Grid | undefined)[], found: number): string {
   const row = grids.find(grid => grid?.rows.length)?.rows[0];
-  return `Module IDs: ${found} found; ${row ? `the first row listed has ID ${row.ids[0]}, of type ${typeIndex(native, row.ids[0])} by the model's client` : "no grid lists a module"}`;
+  return `${what} IDs: ${found} found; ${row ? `the first row listed has ID ${row.ids[0]}, of type ${typeIndex(native, row.ids[0])} by the model's client`
+    : `no grid lists a ${what.toLowerCase()}`}`;
 }
+export const moduleIdsLine = (native: Native, grids: readonly (Grid | undefined)[], found: number): string => idsLine("Module", native, grids, found);
+export const listIdsLine = (native: Native, grids: readonly (Grid | undefined)[], found: number): string => idsLine("List", native, grids, found);
 
 /** The IDs of each row of the Line Items grid, as the result carries them beside its Line Items table, row for row
  * (result-types.ts `lineItemIds`): the row's own, and for a line item its module's, the label's second entity, which a
@@ -82,7 +94,8 @@ export function lineItemIdsOf(grid: Grid): [string, string][] {
 /** The model's settings as the result's tables: Model Details.csv, then one file per grid that could be read, with Dynamic
  * Cell Access.csv after Line Items.csv where that file has what it is made from. Once the export was asked to stop,
  * `progress` throws at its next step and `stop` before the next page of a grid's rows (bridge.ts `serveCore`), and that
- * ends it. The result carries the modules' IDs, none found or not: a result without them is one an earlier version made. */
+ * ends it. The result carries the modules' IDs and the lists', none found or not: a result without them is one an earlier
+ * version made. */
 
 export async function exportModel(progress: Progress, diagnostics: () => string, stop?: Stop): Promise<AnalysisResult> {
   const log: Log = progress.log;
@@ -154,6 +167,9 @@ export async function exportModel(progress: Progress, diagnostics: () => string,
     add("General Lists", gridTable(read));
     return read;
   });
+  // General Lists has been read, or has failed: the lists' IDs are taken now, and the log says how many.
+  const listIds = listIdsOf(native, [lists]);
+  log(listIdsLine(native, [lists], listIds.length));
   /** The IDs of the Line Items table's rows, where the table was made: the pages built on the model are read with them. */
   let lineItemIds: [string, string][] | undefined;
   if (lineItems) {
@@ -281,5 +297,5 @@ export async function exportModel(progress: Progress, diagnostics: () => string,
   tables.unshift({ file: "Model Details.csv", label: "Model Details", headers: [...DETAILS_HEADERS], rows: plainRows(details), guard: true, details: true });
   const date = new Date().toISOString().slice(0, 10);
   return { kind: "model", name: model, id: native.modelId, zipName: `${fileSafe(model, "model")} - Model Export - ${date}.zip`, tables,
-    summary: [...summary, ...notes], moduleIds, ...(mappings ? { importMappings: mappings } : {}), ...(lineItemIds ? { lineItemIds } : {}) };
+    summary: [...summary, ...notes], moduleIds, listIds, ...(mappings ? { importMappings: mappings } : {}), ...(lineItemIds ? { lineItemIds } : {}) };
 }
