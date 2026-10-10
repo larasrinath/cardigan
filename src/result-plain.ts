@@ -23,9 +23,9 @@ export const plainRows = (rows: readonly (readonly unknown[])[]): Cell[][] => ro
 const fileName = (value: unknown, extension: string): value is string =>
   typeof value === "string" && value.endsWith(extension) && value.length > extension.length && !/[\\/:*?"<>|\u0000-\u001f]/.test(value);
 
-/** A model's modules and their IDs: pairs of a name and an ID of digits only, or nothing when anything else is there. A
- * result is not refused for them: the page only cannot open its modules in Anaplan. */
-function readModuleIds(value: unknown): [string, string][] | undefined {
+/** A model's modules or lists and their IDs: pairs of a name and an ID of digits only, or nothing when anything else is
+ * there. A result is not refused for them: the page only cannot open its modules or lists in Anaplan. */
+function readIds(value: unknown): [string, string][] | undefined {
   if (!Array.isArray(value)) return undefined;
   const pairs: [string, string][] = [];
   for (const pair of Array.from(value as unknown[])) {
@@ -105,11 +105,12 @@ function readResult(value: unknown): AnalysisResult | undefined {
     tables.push({ file: table.file, label: table.label, headers: Array.from(table.headers, textOf), rows: plainRows(rows as unknown[][]), guard: table.guard,
       ...(table.details === true ? { details: true as const } : {}) });
   }
-  const moduleIds = data.kind === "model" ? readModuleIds(data.moduleIds) : undefined;
+  const moduleIds = data.kind === "model" ? readIds(data.moduleIds) : undefined;
+  const listIds = data.kind === "model" ? readIds(data.listIds) : undefined;
   const importMappings = data.kind === "model" ? readImportMappings(data.importMappings) : undefined;
   const site = data.kind === "model" ? readSite(data.site) : undefined;
   const lineItemIds = data.kind === "model" ? readLineItemIds(data.lineItemIds) : undefined;
-  return { kind: data.kind, name: data.name, id: data.id, zipName: data.zipName, tables, summary: Array.from(data.summary, textOf), ...(moduleIds ? { moduleIds } : {}),
+  return { kind: data.kind, name: data.name, id: data.id, zipName: data.zipName, tables, summary: Array.from(data.summary, textOf), ...(moduleIds ? { moduleIds } : {}), ...(listIds ? { listIds } : {}),
     ...(importMappings ? { importMappings } : {}), ...(site ? { site } : {}), ...(lineItemIds ? { lineItemIds } : {}) };
 }
 

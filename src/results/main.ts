@@ -773,21 +773,27 @@ function rowFor(element: Element): { entry: Shown; row: Row } | undefined {
 
 /* ================= where a row leads ================= */
 /** Why a way to open a row is not in its details, where the result keeps it from every row: the line under the details'
- * header says so. A row that has nothing to open, such as a heading or a module on no page, says nothing. */
+ * header says so. A row that has nothing to open, such as a module on no page, says nothing. */
 const EARLIER_IDS = "This result has no IDs for the model's modules: an earlier version of Cardigan read it. Choose Run again to open modules from here.";
 const NO_IDS_FOUND = "Cardigan found no IDs for this model's modules, so it cannot open them in Model Building. "
+  + "Choose Copy diagnostic log on the Overview and send the log.";
+const EARLIER_LIST_IDS = "This result has no IDs for the model's lists: an earlier version of Cardigan read it. Choose Run again to open lists from here.";
+const NO_LIST_IDS_FOUND = "Cardigan found no IDs for this model's lists, so it cannot open them in Model Building. "
   + "Choose Copy diagnostic log on the Overview and send the log.";
 const EARLIER_PAGES = "This result has no IDs for its apps and pages: an earlier version of Cardigan read it. Choose Run again to open them from here.";
 const NOT_IN_MODEL_BUILDING = "To open modules, apps and pages from here, open the model in Model Building, then click the Cardigan icon on that tab.";
 const NO_WORKSPACE = "This result does not say which workspace the model is in, so Cardigan cannot open its modules. Choose Run again.";
-/** What the page says when an address could be opened neither in the Anaplan tab nor in a tab of its own. */
+/** What the page says when an address could be opened neither in the tab it goes to nor in a tab of its own. */
 const NOT_OPENED = "Cardigan could not open that in Anaplan.";
 const LONG_ID = /^[0-9A-Fa-f]{32}$/;
 const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** The model's file that lists its lists, as the export writes it. */
+const LISTS_FILE = "General Lists.csv";
 
-/** A button at the top right of a row's details, with where it leads: a box of the model map, or an address in Anaplan. A
- * module also has its ID and its name: Model Building can open it inside its page, by that ID. */
-type Open = OpenButton & ({ kind: "map"; node: number } | { kind: "module"; url: string; id: string; name: string } | { kind: "app" | "page"; url: string });
+/** A button at the top right of a row's details, with where it leads: a box of the model map; a module or a list in Model
+ * Building, which the model's tab opens (`openInModel`), inside its page by the object's ID where it can; or an app or a
+ * page, which the tab of apps and pages opens (`openInAppTab`). `what` names it in the run's log. */
+type Open = OpenButton & ({ kind: "map"; node: number } | { kind: "module"; url: string; object?: string; what: string } | { kind: "app" | "page"; url: string; what: string });
 /** The buttons of the row the details show, by their place: what a click on one of them opens. */
 let drawerOpens: readonly Open[] = [];
 
@@ -801,28 +807,47 @@ function siteOf(model: AnalysisResult): { origin: string; customer: string } | u
     ? { origin: site.origin, customer: site.customer } : undefined;
 }
 
-/** The address that opens a module of the model on the page in Model Building, as Model Building's own links write it (its
- * `/tabs/` and the module's ID), with that ID; none for a module the export found no ID for; or why no module of the
- * result can be opened, in words for the user. */
-function moduleAddress(name: string): { url?: string; id?: string; why?: string } {
+/** The address that opens a module or a list of the model on the page in Model Building, as Model Building's own links
+ * write it (its `/tabs/` and the object's ID), with that ID; none for one the export found no ID for; or why none of its
+ * kind in the result can be opened, in words for the user. */
+function objectAddress(kind: "module" | "list", name: string): { url?: string; id?: string; why?: string } {
   if (result?.kind !== "model") return {};
-  if (!Array.isArray(result.moduleIds)) return { why: EARLIER_IDS };
-  if (!result.moduleIds.length) return { why: NO_IDS_FOUND };
+  const ids = kind === "module" ? result.moduleIds : result.listIds;
+  if (!Array.isArray(ids)) return { why: kind === "module" ? EARLIER_IDS : EARLIER_LIST_IDS };
+  if (!ids.length) return { why: kind === "module" ? NO_IDS_FOUND : NO_LIST_IDS_FOUND };
   const site = siteOf(result);
   if (!site) return { why: NOT_IN_MODEL_BUILDING };
   const workspace = detailValue(detailsOf(result), "Model", "Workspace ID");
   if (!workspace || !LONG_ID.test(workspace) || !/^[0-9A-Za-z]{32}$/.test(result.id)) return { why: NO_WORKSPACE };
-  const id = result.moduleIds.find(pair => Array.isArray(pair) && typeof pair[0] === "string" && pair[0].trim() === name)?.[1];
+  const id = ids.find(pair => Array.isArray(pair) && typeof pair[0] === "string" && pair[0].trim() === name)?.[1];
   return typeof id === "string" && /^\d{1,19}$/.test(id) ? { url: `${site.origin}/a/modeling/customers/${site.customer}/workspaces/${workspace}/models/${result.id}/tabs/${id}`, id } : {};
 }
 
+/** The list a filter's dimension is, by the dimension's name: a list the export found an ID for, or, for a subset that
+ * General Lists names, the list it is a subset of, as the model's graph has it. None for anything else, such as Time. */
+function listOfDimension(name: string): string | undefined {
+  if (name === "" || name === NONE || result?.kind !== "model") return undefined;
+  if (result.listIds?.some(([list]) => list.trim() === name)) return name;
+  try {
+    const graph = graphFor(result);
+    const subset = graph.nodes.find(node => node.kind === "subset" && node.name.trim() === name);
+    const list = subset?.parent === undefined ? undefined : graph.nodes.find(node => node.id === subset.parent);
+    return list?.kind === "list" ? list.name.trim() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** The ways a row of a model's tables leads elsewhere, as the buttons at the top right of its details show them, and why
- * one that the result keeps from every row is not there. Model Building opens modules, not line items: a line item opens
- * its module. The button that opens a row's one module is Model, as the user named it (9 Oct 2026).
+ * one that the result keeps from every row is not there. Model Building opens modules and lists, not line items: a line
+ * item opens its module. The button that opens a row's one object in Model Building is Model, as the user named it (9 and
+ * 10 Oct 2026); a row with several says which each is.
  * - Line Items and Modules: the row's box on the model map, and its module in Model Building.
+ * - General Lists: the list, on the map and in Model Building.
  * - Module Usage: the module, on the map and in Model Building, and the app and the page that use it.
  * - Page Filters: the condition line item's module and the filtered module in Model Building, by those names, one Model
- *   button where the two are one module, and the filter's app and page.
+ *   button where the two are one module; the list of the filtered dimension, where it is one; and the filter's app and
+ *   page.
  * - Page Actions: the button's app and page.
  * Only a button whose box or address is known is there. An app's result has none. */
 function opensOf(entry: Shown, row: Row): { opens: Open[]; why: string | undefined } {
@@ -837,21 +862,27 @@ function opensOf(entry: Shown, row: Row): { opens: Open[]; why: string | undefin
   };
   const node = mapNodeOf(entry, row);
   if (node !== undefined) opens.push({ kind: "map", node, label: "Model map", title: `Show ${cellText(row[0]).trim()} on the Model map` });
-  const module = (name: string, label: string): void => {
+  /** A module or a list in Model Building, by its name, under these words; `quiet` where its kind may be missing for the row
+   * alone, and says nothing of the result. */
+  const inModel = (kind: "module" | "list", name: string, label: string, quiet = false): void => {
     if (name === "" || name === NONE) return;
-    const found = moduleAddress(name);
-    if (found.url !== undefined && found.id !== undefined) opens.push({ kind: "module", url: found.url, id: found.id, name, label, title: `Open ${name} in Model Building` });
-    else why ??= found.why;
+    const found = objectAddress(kind, name);
+    if (found.url !== undefined && found.id !== undefined) {
+      opens.push({ kind: "module", url: found.url, object: found.id, what: `the ${kind} ${name}`, label, title: `Open ${name} in Model Building` });
+    } else if (!quiet) why ??= found.why;
   };
-  if (file === LINE_ITEMS_FILE) module(cell(MODULE_NAME), "Model");
-  if (file === MODULES_FILE || file === MODULE_USAGE_FILE) module(cellText(row[0]).trim(), "Model");
+  if (file === LINE_ITEMS_FILE) inModel("module", cell(MODULE_NAME), "Model");
+  if (file === MODULES_FILE || file === MODULE_USAGE_FILE) inModel("module", cellText(row[0]).trim(), "Model");
+  if (file === LISTS_FILE) inModel("list", cellText(row[0]).trim(), "Model");
   if (file === PAGE_FILTERS_FILE) {
     const [condition, filtered] = [cell("Condition line item's module"), cell("Filtered module")];
-    if (condition === filtered) module(condition, "Model");
+    if (condition === filtered) inModel("module", condition, "Model");
     else {
-      module(condition, "Condition module");
-      module(filtered, "Filtered module");
+      inModel("module", condition, "Condition module");
+      inModel("module", filtered, "Filtered module");
     }
+    const list = listOfDimension(cell("Filtered dimension"));
+    if (list !== undefined) inModel("list", list, "Filtered list", true);
   }
   const app = cell("App");
   if ((file === MODULE_USAGE_FILE || file === PAGE_FILTERS_FILE || file === PAGE_ACTIONS_FILE) && app !== "" && app !== NONE) {
@@ -860,57 +891,140 @@ function opensOf(entry: Shown, row: Row): { opens: Open[]; why: string | undefin
     if (columnIndex(entry.table, "App ID") === undefined) why ??= EARLIER_PAGES;
     else if (!site) why ??= NOT_IN_MODEL_BUILDING;
     else if (GUID.test(appId)) {
-      opens.push({ kind: "app", url: `${site.origin}/a/apps/app/${appId}`, label: "App", title: `Open the app ${app} in Anaplan` });
+      opens.push({ kind: "app", url: `${site.origin}/a/apps/app/${appId}`, what: `the app ${app}`, label: "App", title: `Open the app ${app} in Anaplan` });
       if (route !== undefined && GUID.test(pageId)) {
-        opens.push({ kind: "page", url: `${site.origin}/a/apps/app/${appId}/${route}/${pageId}`, label: "Page", title: `Open the page ${cell("Page")} in Anaplan` });
+        const page = cell("Page");
+        opens.push({ kind: "page", url: `${site.origin}/a/apps/app/${appId}/${route}/${pageId}`, what: `the page ${page}`, label: "Page", title: `Open the page ${page} in Anaplan` });
       }
     }
   }
   return { opens, why };
 }
 
-/** The tab an address is opened in once the Anaplan tab this page reads has been closed: the one tab an open took its
- * place with, which every later open from this page then goes to. */
-let openTab: number | undefined;
+/* ----- the two tabs addresses open in ----- */
+/** The results page's own tab, as the browser says it, which a tab it opens is put after and opened by. None where the
+ * browser does not say. */
+let ownTabAsked: Promise<chrome.tabs.Tab | undefined> | undefined;
+const ownTab = (): Promise<chrome.tabs.Tab | undefined> => (ownTabAsked ??= (async () => {
+  try {
+    return await chrome.tabs.getCurrent();
+  } catch {
+    return undefined;
+  }
+})());
 
-/** A module the Anaplan tab may open inside its Model Building page: the model's ID, the module's, and its name for the log. */
-interface InPage { model: string; module: string; name: string }
+/** Whether the browser says that this results page opened the tab `id`: a tab ID kept for a refresh is used only then, so
+ * that an ID the browser has since given to another tab, as after a restart, sends that tab nowhere. */
+async function openedHere(id: number): Promise<boolean> {
+  const own = await ownTab();
+  if (own?.id === undefined) return false;
+  try {
+    return (await chrome.tabs.get(id)).openerTabId === own.id;
+  } catch {
+    return false;
+  }
+}
 
-/** Opens an address in Anaplan: the Anaplan tab this page reads goes there, and it and its window come to the front. A page
- * never opens a tab for each address: only where that tab has been closed does it open one, which then takes its place
- * for every address after, and the user is told when neither could be done.
- * A module (`inPage`) is first asked of the tab itself, which opens it inside the Model Building page it shows, beside the
- * modules open there, where it can (content.ts): the page does not load afresh, and only comes to the front. Where the
- * tab cannot, or says nothing in time, its address is loaded, which opens the model afresh with that module alone. The
- * diagnostic log says which way was taken. */
-async function openInTab(url: string, inPage?: InPage): Promise<void> {
-  if (inPage && openTab === undefined && tabId !== undefined) {
-    const answer = await client.openInPage(inPage.model, inPage.module);
+/** A tab this page opened itself for one kind of address, kept for a refresh of the page in its tab's session storage. Each
+ * read and write of that storage may fail: the page then keeps the tab only while it is open, and opens it again after a
+ * refresh. */
+class OwnTab {
+  private id: number | undefined;
+  private restored: Promise<void> | undefined;
+  constructor(private readonly key: string) {}
+
+  /** The tab, where this page has one: opened since it was loaded, or kept from before a refresh and still its own. */
+  async get(): Promise<number | undefined> {
+    await (this.restored ??= this.restore());
+    return this.id;
+  }
+
+  /** A tab opened in the place of the one before, or none. */
+  set(id: number | undefined): void {
+    this.id = id;
+    this.restored ??= Promise.resolve();
+    try {
+      if (id === undefined) sessionStorage.removeItem(this.key);
+      else sessionStorage.setItem(this.key, String(id));
+    } catch { /* kept while the page is open */ }
+  }
+
+  private async restore(): Promise<void> {
+    let kept: number | undefined;
+    try {
+      const value = Number(sessionStorage.getItem(this.key) ?? "");
+      kept = Number.isSafeInteger(value) && value > 0 ? value : undefined;
+    } catch { /* nothing kept to be had */ }
+    if (kept !== undefined && this.id === undefined && await openedHere(kept)) this.id = kept;
+  }
+}
+
+/** The tab that took the place of the Anaplan tab this page reads once that was closed, for every later module and list. */
+const modelTab = new OwnTab("cardigan-model-tab");
+/** The one tab this page opens apps and pages in, so that the model's tab never leaves the model. */
+const appTab = new OwnTab("cardigan-app-tab");
+
+/** Opens a tab for an address, after this page's own tab, and brings nothing else forward. None where it cannot. */
+async function newTab(url: string): Promise<chrome.tabs.Tab | undefined> {
+  const own = await ownTab();
+  try {
+    return await chrome.tabs.create({ url, active: true, ...(own?.id !== undefined ? { index: own.index + 1, openerTabId: own.id } : {}) });
+  } catch {
+    return undefined;
+  }
+}
+
+/** Opens a module or a list of the model in the model's tab: the Anaplan tab this page reads, or, once that was closed, the
+ * one tab that took its place. That tab and its window come to the front; the details stay open here.
+ * `object`, its ID, is first asked of the Anaplan tab itself, which opens it inside the Model Building page it shows,
+ * beside the tabs open there, where it can (content.ts): the page does not load afresh. Where it cannot, or says nothing in
+ * time, the address is loaded in the model's tab, which opens the model afresh with that object alone. The run's log says
+ * which tab took it, and which way. */
+async function openInModel(url: string, what: string, object?: string): Promise<void> {
+  const replacement = await modelTab.get();
+  let why: string | undefined;
+  if (object !== undefined && result?.kind === "model" && replacement === undefined && tabId !== undefined) {
+    const answer = await client.openInPage(result.id, object);
     if (answer?.opened) {
-      client.note(`Opened ${inPage.name} inside the Model Building page: ${answer.detail}.`);
+      client.note(`Opened ${what} inside the Model Building page of the Anaplan tab Cardigan read: ${answer.detail}.`);
       await toFront(await chrome.tabs.update(tabId, { active: true }).catch(() => undefined));
       return;
     }
-    client.note(`Opened ${inPage.name} by its address, which loads Model Building afresh: ${answer ? answer.detail : "the Anaplan tab did not answer"}.`);
+    why = answer ? answer.detail : "the Anaplan tab did not answer";
   }
-  const into = openTab ?? tabId;
-  let tab: chrome.tabs.Tab | undefined;
-  let gone = into === undefined;
+  const into = replacement ?? tabId;
   if (into !== undefined) {
     try {
-      tab = await chrome.tabs.update(into, { url, active: true });
-    } catch {
-      gone = true;
-    }
+      const tab = await chrome.tabs.update(into, { url, active: true });
+      client.note(`Opened ${what} by its address in ${into === tabId ? "the Anaplan tab Cardigan read" : "the tab that took its place"}, which loads Model Building afresh${
+        why === undefined ? "" : `: ${why}`}.`);
+      return void await toFront(tab);
+    } catch { /* closed: one tab takes its place */ }
   }
-  if (gone) {
+  const tab = await newTab(url);
+  if (!tab) return toast(NOT_OPENED);
+  modelTab.set(tab.id);
+  client.note(`Opened ${what} by its address in a new tab, as the model's tab was closed: later modules and lists open there.`);
+  await toFront(tab);
+}
+
+/** Opens an app or a page in the tab of apps and pages: the first one in a new tab after this page's own, every later one
+ * in that same tab, which comes to the front with its window. A tab of apps and pages that was closed is replaced by a new
+ * one, which every later app and page then uses. The model's tab never goes to an app, so Run again keeps reading the
+ * model. The run's log says which tab took it. */
+async function openInAppTab(url: string, what: string): Promise<void> {
+  const into = await appTab.get();
+  if (into !== undefined) {
     try {
-      tab = await chrome.tabs.create({ url, active: true });
-    } catch {
-      return toast(NOT_OPENED);
-    }
-    if (tab?.id !== undefined) openTab = tab.id;
+      const tab = await chrome.tabs.update(into, { url, active: true });
+      client.note(`Opened ${what} in the tab of apps and pages.`);
+      return void await toFront(tab);
+    } catch { /* closed: a new one takes its place */ }
   }
+  const tab = await newTab(url);
+  if (!tab) return toast(NOT_OPENED);
+  appTab.set(tab.id);
+  client.note(`Opened ${what} in a new tab${into === undefined ? "" : ", as the tab of apps and pages was closed"}: later apps and pages open there.`);
   await toFront(tab);
 }
 
@@ -926,12 +1040,15 @@ function graphFor(model: AnalysisResult): ModelGraph {
   return modelGraph;
 }
 
-/** The map's box for a row of a model's Line Items, Modules or Module Usage: the line item in its module, or the module, by
- * their names. A module's own row of Line Items is its module's. None for any other row, for a row the map does not draw
- * (a heading, a line item that names no module, a module the model does not have), and where the map cannot be drawn. */
+/** The map's box for a row of a model's Line Items, Modules, Module Usage or General Lists: the line item in its module, the
+ * module or the list, by their names. A module's own row of Line Items is its module's. None for any other row, for a row
+ * the map does not draw (a heading, a line item that names no module, a module or a list the model does not have), and
+ * where the map cannot be drawn. */
 function mapNodeOf(entry: Shown, row: Row): number | undefined {
   const file = entry.table.file;
-  if (result?.kind !== "model" || modelMap === "failed" || (file !== LINE_ITEMS_FILE && file !== MODULES_FILE && file !== MODULE_USAGE_FILE)) return undefined;
+  if (result?.kind !== "model" || modelMap === "failed" || (file !== LINE_ITEMS_FILE && file !== MODULES_FILE && file !== MODULE_USAGE_FILE && file !== LISTS_FILE)) {
+    return undefined;
+  }
   let graph: ModelGraph;
   try {
     graph = graphFor(result);
@@ -939,6 +1056,7 @@ function mapNodeOf(entry: Shown, row: Row): number | undefined {
     return undefined;
   }
   const name = cellText(row[0]).trim();
+  if (file === LISTS_FILE) return graph.nodes.find(node => node.kind === "list" && node.name.trim() === name)?.id;
   if (file !== LINE_ITEMS_FILE || entry.headings?.has(row)) return graph.nodes.find(node => node.kind === "module" && node.name.trim() === name)?.id;
   const at = columnIndex(entry.table, MODULE_NAME);
   const module = at === undefined ? "" : cellText(row[at]).trim();
@@ -1216,13 +1334,14 @@ document.addEventListener("click", event => {
         return;
       // A way the row in the details leads elsewhere, by its place among the buttons (`opensOf`). The row's box on the
       // map: the details close, the map is shown, and the box is selected there as the map's own search selects one, with
-      // its details beside it. An address in Anaplan: the Anaplan tab goes there and comes to the front, and the details
-      // stay open behind it; a module opens inside the Model Building page where the tab can (`openInTab`).
+      // its details beside it. A module or a list: the model's tab opens it, inside its Model Building page where it can
+      // (`openInModel`). An app or a page: the tab of apps and pages goes there (`openInAppTab`). Either tab comes to the
+      // front, and the details stay open behind it.
       case "open": {
         const open = drawerOpens[Number(act.dataset.open)];
         if (!open) return;
-        if (open.kind === "module") return void openInTab(open.url, result?.kind === "model" ? { model: result.id, module: open.id, name: open.name } : undefined);
-        if (open.kind !== "map") return void openInTab(open.url);
+        if (open.kind === "module") return void openInModel(open.url, open.what, open.object);
+        if (open.kind !== "map") return void openInAppTab(open.url, open.what);
         closeDrawer();
         navTo("map");
         if (modelMap && modelMap !== "failed" && !modelMap.reveal(open.node)) toast("Not found on the map");
