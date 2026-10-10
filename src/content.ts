@@ -99,7 +99,7 @@ if (window.top === window) {
     return seen.origin && seen.customer ? { ...read, site: { origin: seen.origin, customer: seen.customer } } : read;
   };
 
-  /** Opens a module or a list of the model inside this Model Building page, beside the tabs open there, through the
+  /** Opens a module, a list or a settings page of the model inside this Model Building page, beside the tabs open there, through the
    * model's core frame (model/open-object.ts), so that the page does not load afresh. Only where the page shows that model in Model
    * Building, and only through a frame of this build, which knows how: otherwise the results page loads the module's
    * address. A frame that checked in with an earlier copy of this script is greeted, to check in again. */

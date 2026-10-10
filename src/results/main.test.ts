@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ModelMapOptions } from "../map/graph-types.js";
+import type { AreaCheck, ModelMapOptions } from "../map/graph-types.js";
 import { PAGE_ACTIONS_HEADERS, PAGE_FILTERS_HEADERS } from "../model-pages.js";
 import { MODULE_USAGE_FILE, MODULE_USAGE_HEADERS, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE } from "../page-files.js";
 import { CALENDAR_HEADERS, CALENDAR_PROPERTIES, calendarRows } from "../model/calendar.js";
@@ -24,7 +24,7 @@ const mapStandIn = vi.hoisted(() => ({
   build: (_tables: unknown): unknown => { throw new Error("No test has set up the model map's stand-in."); },
   mount: (_host: unknown, _graph: unknown, _options: unknown): unknown => { throw new Error("No test has set up the model map's stand-in."); },
 }));
-vi.mock("../map/build-graph.js", () => ({ buildModelGraph: (tables: unknown) => mapStandIn.build(tables) }));
+vi.mock("../map/build-graph.js", async importOriginal => ({ ...await importOriginal<typeof import("../map/build-graph.js")>(), buildModelGraph: (tables: unknown) => mapStandIn.build(tables) }));
 vi.mock("../map/map-view.js", () => ({ mountModelMap: (host: unknown, graph: unknown, options: unknown) => mapStandIn.mount(host, graph, options) }));
 
 /** The page as it is packaged: the script runs on results.html itself, read by the stand-in page. */
@@ -216,6 +216,8 @@ let mapMounts: { host: FakeElement; graph: unknown; options: unknown; found: unk
 let mapThrows: Partial<Record<"build" | "mount" | "show" | "hide" | "themeChanged" | "destroy" | "reveal", unknown>>;
 /** The nodes of the graph the stand-in builds: none unless a test gives them. */
 let mapNodes: object[];
+/** What the stand-in's graph says of the Modules file's functional areas: nothing unless a test gives it. */
+let mapAreaCheck: AreaCheck | undefined;
 /** Whether the stand-in takes the focus into itself, to its button, each time it is shown. */
 let mapTakesFocus: boolean;
 /** What the stand-in tells the page of its stop while it is asked for one of these, or while it hears a click or a key
@@ -231,6 +233,7 @@ beforeEach(() => {
   mapMounts = [];
   mapThrows = {};
   mapNodes = [];
+  mapAreaCheck = undefined;
   mapTakesFocus = false;
   mapTells = {};
   const asked = (what: keyof typeof mapThrows, said: string) => {
@@ -239,7 +242,7 @@ beforeEach(() => {
   };
   mapStandIn.build = tables => {
     asked("build", "build");
-    const graph = { nodes: mapNodes, edges: [], unresolved: [], sections: [], limitations: [] };
+    const graph = { nodes: mapNodes, edges: [], unresolved: [], sections: [], limitations: [], ...(mapAreaCheck ? { areaCheck: mapAreaCheck } : {}) };
     mapBuilds.push({ tables, graph });
     return graph;
   };
@@ -1618,6 +1621,29 @@ describe("What a click, a key and typing do on the results page", () => {
     goTo(1);
     expect([headings(), column("Name").slice(0, 2), column("Applies To").slice(0, 2), page.all("#view .view-note").length, page.id("rowCount").textContent])
       .toEqual([["Name", "Format", "Formula", "Summary", "Applies To", "Module Name", "Ratio Numerator", "Ratio Denominator"], ["REV01 Revenue", "Units"], ["Products, Time", "-"], 0, "1–8 of 8 rows"]);
+  });
+
+  it("says once in the run's log how the Modules file's functional areas met the map, when it builds the map's graph", async () => {
+    mapAreaCheck = { areas: 22, modules: 30, withArea: 27, rowsNotOnMap: ["Gone"], modulesNotInFile: ["Missing", "Spare"] };
+    await openWith(BLUEPRINT);
+    /** The run's log lines about the areas, as the control that copies the run's log copies them. */
+    const areaLines = async (): Promise<string[]> => {
+      const copy = page.document.createElement("button");
+      copy.dataset.act = "copy-run-log";
+      page.document.body.append(copy);
+      copy.press();
+      await settle();
+      copy.remove();
+      return (copied.at(-1) ?? "").split("\n").filter(line => / Functional areas: /.test(line)).map(line => line.replace(/^\d\d:\d\d:\d\d /, ""));
+    };
+    expect(await areaLines()).toEqual([]);
+    page.find('#navList [data-nav="map"]').press();
+    expect(await areaLines()).toEqual(["Functional areas: 22 areas; 27 of the map's 30 modules have one; 1 row of Modules is no module of the map: Gone; "
+      + "2 modules of the map have no row in Modules: Missing; Spare."]);
+    // The graph is built once for the result: going back to the map says nothing more.
+    goTo(1);
+    page.find('#navList [data-nav="map"]').press();
+    expect(await areaLines()).toHaveLength(1);
   });
 
   it("shows a model's counts with their thousands apart, right-aligned, sorted by their numbers and found with or without commas, and keeps the result as it was", async () => {
@@ -5223,7 +5249,7 @@ describe("The buttons at the top right of a row's details that open it in Anapla
     expect(opens().map(([label]) => label)).toEqual(["Condition module", "Filtered module", "App", "Page"]);
   });
 
-  it("opens the Model Building page each table of the model's settings is on, by its address in the model's tab: Time, Versions, Line Item Subsets, Actions, Source Models", async () => {
+  it("opens the Model Building page each table of the model's settings is on, asking the tab first and loading its address where the tab cannot: Time, Versions, Line Item Subsets, Actions, Source Models", async () => {
     const one = (file: string, first: string): ResultTable => ({ file, label: file.replace(/\.csv$/, ""), guard: false, headers: ["", "Notes"], rows: [[first, "Kept"]] });
     const pages: [file: string, row: string, page: string, id: string][] = [["Time Ranges.csv", "FY24 range", "Time", "9000000001"], ["Versions.csv", "Actual", "Versions", "9000000002"],
       ["Line Item Subsets.csv", "Cost lines", "Line Item Subsets", "-5"], ["Processes.csv", "Nightly load", "Actions", "-19"], ["Imports.csv", "Prices from the hub", "Actions", "-19"],
@@ -5244,8 +5270,32 @@ describe("The buttons at the top right of a row's details that open it in Anapla
     table(SETTINGS, "Model Calendar.csv");
     page.all('#tableWrap tbody [data-act="row"]')[0].press();
     expect(opens()).toEqual([["Model", "Open Time in Model Building"]]);
-    // A page is opened by its address alone: the tab is asked to open nothing inside its page, and the log says the page.
-    expect([asks(), (await openedLines()).at(-1)]).toEqual([[], "Opened the Source Models page by its address in the Anaplan tab Cardigan read, which loads Model Building afresh."]);
+    // Each page was asked of the tab first, by its ID, as a module is; the tab could not, so its address was loaded, and
+    // the log says the page and why.
+    expect(asks().map(ask => (ask as { object?: string }).object)).toEqual(pages.map(([, , , id]) => id));
+    expect((await openedLines()).at(-1)).toBe("Opened the Source Models page by its address in the Anaplan tab Cardigan read, which loads Model Building afresh: the tab shows another model.");
+  });
+
+  it("opens a settings page inside the Model Building page where the tab can, as Model Building's sidebar opens it, so that the modules and lists open there stay: the tab is only brought to the front", async () => {
+    inPage = "opened";
+    const versions: ResultTable = { file: "Versions.csv", label: "Versions", guard: false, headers: ["", "Notes"], rows: [["Actual", "Kept"]] };
+    const actions: ResultTable = { file: "Processes.csv", label: "Processes", guard: false, headers: ["", "Notes"], rows: [["Nightly load", "Kept"]] };
+    const SETTINGS: AnalysisResult = { ...OPENS, tables: [...OPENS.tables, versions, actions] };
+    await openModel(SETTINGS);
+    table(SETTINGS, "Versions.csv");
+    openRow("Actual");
+    await press("Model");
+    // The tab is asked for the page by the model's ID and the page's; it opens it, and is not sent anywhere.
+    expect(asks()).toEqual([{ type: "open", nonce: expect.any(String), model: OPENS.id, object: "9000000002" }]);
+    expect([tabUpdates, windowUpdates, tabCreates, drawerOpen()]).toEqual([[[7, { active: true }]], [[3, { focused: true }]], [], true]);
+    page.key("Escape");
+    // The Actions page, whose ID is below nought, goes the same way.
+    table(SETTINGS, "Processes.csv");
+    openRow("Nightly load");
+    await press("Model");
+    expect([asks().map(ask => (ask as { object?: string }).object), tabUpdates.at(-1)]).toEqual([["9000000002", "-19"], [7, { active: true }]]);
+    expect(await openedLines()).toEqual(["Opened the Versions page inside the Model Building page of the Anaplan tab Cardigan read: Model Building opened it beside the modules open there.",
+      "Opened the Actions page inside the Model Building page of the Anaplan tab Cardigan read: Model Building opened it beside the modules open there."]);
   });
 
   it("opens a Dynamic Cell Access row's two modules, the driver's and the controlled one, one Model where they are one", async () => {
