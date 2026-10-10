@@ -956,13 +956,25 @@ const mapStopped = (reason: unknown): string => {
   return `Model map: stopped after it was drawn${why === "" ? "" : ` (${why})`}.`;
 };
 
+/** Where the page keeps how the viewer last chose to group the map's modules (map/map-groups.ts). */
+const MAP_GROUPING = "cardigan-map-grouping";
+
 /** What the page tells the map about the model: its name, which is the result's, and its workspace's, which the Details
  * file has under Model (model/export.ts). A dash there says that the export found none, so a workspace that is called
  * by the dash alone is taken for none as well. With them goes the way for the map to tell the page that it has stopped
- * (graph-types.ts `onFailure`). */
+ * (graph-types.ts `onFailure`), and how the viewer last chose to group the modules, which the page keeps in this
+ * browser for the viewer's next map: a convenience that a browser without storage goes without. */
 function mapOptions(model: AnalysisResult, onFailure: (reason: string) => void): ModelMapOptions {
   const workspace = detailValue(detailsOf(model), "Model", "Workspace")?.trim() ?? "";
-  return { modelName: cellText(model.name), ...(workspace === "" || workspace === NONE ? {} : { workspaceName: workspace }), onFailure };
+  let grouping: string | null = null;
+  try { grouping = localStorage.getItem(MAP_GROUPING); } catch { /* no storage: the map picks */ }
+  return {
+    modelName: cellText(model.name), ...(workspace === "" || workspace === NONE ? {} : { workspaceName: workspace }), onFailure, ...(grouping ? { grouping } : {}),
+    // The map's own pick is kept as no choice: the next map picks for itself again.
+    onGrouping: kind => {
+      try { localStorage.setItem(MAP_GROUPING, kind ?? ""); } catch { /* not remembered */ }
+    },
+  };
 }
 
 /** Tells a map that it is hidden, that the theme has changed, or that it is to go: the mounted one, unless another is

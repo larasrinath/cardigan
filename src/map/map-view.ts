@@ -4,8 +4,9 @@ import { createFonts, drawMinimap, drawScene, legibleFrom, type Fonts, type Pen 
 import { moduleGraph, modulesGraph, sectionsGraph, type Box, type ViewGraph, type ViewNode } from "./map-graphs.js";
 import { inspect, statusWords, traceWords, viewSentence, type Inspection, type TraceWords } from "./map-inspect.js";
 import { boundsOf, fullFrom, layoutGraph, sizeNodes } from "./map-layout.js";
-import { brokenHtml, crumbsHtml, emptyHtml, inspectorHtml, legendHtml, listHtml, moduleOptionsHtml, notesHtml, resultsHtml, sectionOptionsHtml, shellHtml, tooltipHtml, tracebarHtml, type Tip } from "./map-markup.js";
-import { indexModel, type MapModel } from "./map-model.js";
+import { automaticGrouping, groupingsOf, type Grouping } from "./map-groups.js";
+import { brokenHtml, crumbsHtml, emptyHtml, groupingOptionsHtml, inspectorHtml, legendHtml, listHtml, moduleOptionsHtml, notesHtml, resultsHtml, sectionOptionsHtml, shellHtml, tooltipHtml, tracebarHtml, type Tip } from "./map-markup.js";
+import { indexModel, withGrouping, type MapModel } from "./map-model.js";
 import { FALLBACK, readPalette, type MapPalette } from "./map-palette.js";
 import { createSearch, matchNodes, searchText, type SearchHit } from "./map-search.js";
 import { formatCount, plural } from "./map-text.js";
@@ -122,6 +123,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   const tabs = part(".map-tabs");
   const tools = part(".map-tools");
   const groupToggle = part<HTMLButtonElement>('[data-map-act="group"]');
+  const groupingSelect = part<HTMLSelectElement>(".map-grouping-select");
   const sectionSelect = part<HTMLSelectElement>(".map-section-select");
   const moduleSelect = part<HTMLSelectElement>(".map-module-select");
   const externalToggle = part<HTMLButtonElement>('[data-map-act="external"]');
@@ -154,6 +156,11 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   /* ---------- what the map holds ---------- */
 
   let model: MapModel | undefined;
+  /** The model with its sections as the graph's heading rows give them: what every grouping of its modules starts from. */
+  let base: MapModel | undefined;
+  /** The ways this model's modules can be grouped (map-groups.ts), and the one the map picks by itself. */
+  let groupings: Grouping[] = [];
+  let automatic: Grouping | undefined;
   let search: ReturnType<typeof createSearch> | undefined;
   /** The view: the modules (as sections, of one section, or all) or the line items of one module. */
   let view: "modules" | "drill" = "modules";
@@ -667,8 +674,11 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
       if (tab.dataset.mapView === "drill") tab.disabled = model.modules.length === 0;
     }
     const sections = grouped && section === undefined;
+    // How the modules are grouped is chosen among the modules, where the model can be grouped more than one way.
+    groupingSelect.hidden = view !== "modules" || groupings.length < 2;
+    groupingSelect.value = model.grouping?.kind ?? "";
     groupToggle.hidden = view !== "modules" || single;
-    groupToggle.textContent = sections ? "Show all modules" : "Group by section";
+    groupToggle.textContent = sections ? "Show all modules" : "Show sections";
     sectionSelect.hidden = view !== "modules" || single;
     sectionSelect.value = section === undefined ? "" : String(model.sectionIndex(section));
     moduleSelect.hidden = view !== "drill";
@@ -1063,7 +1073,19 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   root.addEventListener("change", guarded(event => {
     const target = event.target as HTMLElement | null;
     if (!model || !shown || !target) return;
-    if (target === sectionSelect) {
+    if (target === groupingSelect) {
+      const grouping = groupings.find(each => each.kind === groupingSelect.value);
+      if (!grouping || grouping === model.grouping) return;
+      // The page keeps the choice for the viewer's next map; the map's own pick is kept as no choice at all. A page that
+      // cannot keep it leaves the choice to hold here.
+      try {
+        options.onGrouping?.(grouping === automatic ? undefined : grouping.kind);
+      } catch { /* not kept */ }
+      // The model whole, grouped anew: the selection, the hidden layers and the search start afresh.
+      applyGrouping(grouping);
+      setView("modules");
+      if (onScreen) announce(`Modules grouped by ${grouping.label.toLowerCase()}. ${viewSentence(onScreen, options.modelName)}`);
+    } else if (target === sectionSelect) {
       section = sectionSelect.value === "" ? undefined : model.sections[Number(sectionSelect.value)];
       grouped = false;
       setView("modules");
@@ -1307,19 +1329,32 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   canvas.addEventListener("contextrestored", guarded(() => invalidate()));
   miniCanvas.addEventListener("contextrestored", guarded(() => invalidate()));
 
-  /** What is done once, at the first showing: the model is looked up, and the first view built. A model whose modules
-   * stand under one heading, or under none, opens on its modules: one box named after that heading would say nothing. */
-  function start(): void {
-    if (model) return;
-    model = indexModel(graph);
+  /** Files the modules into the sections a grouping makes, or into the graph's heading rows where there is none: the
+   * sections, the list of them and the search are then the grouping's, and the map is to show the model whole. A
+   * grouping that makes one section, or none, has no sections to show: the map shows its modules. */
+  function applyGrouping(grouping: Grouping | undefined): void {
+    if (!base) return;
+    model = grouping ? withGrouping(base, grouping) : base;
     single = model.sections.length <= 1;
     search = createSearch(model, !single);
     grouped = !single;
+    section = undefined;
     sectionSelect.innerHTML = sectionOptionsHtml(model.sections);
-    moduleSelect.innerHTML = moduleOptionsHtml(model.modules);
+  }
+
+  /** What is done once, at the first showing: the model is looked up, its modules grouped, and the first view built.
+   * The grouping is the one the viewer chose last where this model has it, and otherwise the map's own pick. */
+  function start(): void {
+    if (model) return;
+    base = indexModel(graph);
+    groupings = groupingsOf(base);
+    automatic = automaticGrouping(groupings);
+    groupingSelect.innerHTML = groupingOptionsHtml(groupings, automatic?.kind);
+    applyGrouping(groupings.find(grouping => grouping.kind === options.grouping) ?? automatic);
+    moduleSelect.innerHTML = moduleOptionsHtml(base.modules);
     // A heading row is a section of the map: the name the graph files modules under where they have none is no heading.
-    const headings = model.sections.filter(name => name !== NO_HEADING).length;
-    notes.innerHTML = notesHtml({ name: options.modelName, workspace: options.workspaceName, modules: model.modules.length, lineItems: model.lineItems.length, headings }, graph.limitations, graph.unresolved.length);
+    const headings = base.sections.filter(name => name !== NO_HEADING).length;
+    notes.innerHTML = notesHtml({ name: options.modelName, workspace: options.workspaceName, modules: base.modules.length, lineItems: base.lineItems.length, headings }, graph.limitations, graph.unresolved.length);
     build();
   }
 

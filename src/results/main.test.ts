@@ -3875,7 +3875,7 @@ describe("A model's map on the results page", () => {
     expect([mapMounts.length, mapMounts[0].graph === mapBuilds[0].graph, mapMounts[0].host === host(), mapMounts[0].found]).toEqual([1, true, true, [false, 0, "Model map"]]);
     // The model's name is the result's, and its workspace's is the Details file's. With them the map is given the way to
     // tell the page that it has stopped.
-    expect(mapMounts[0].options).toEqual({ modelName: "Model one", workspaceName: "Planning", onFailure: expect.any(Function) });
+    expect(mapMounts[0].options).toEqual({ modelName: "Model one", workspaceName: "Planning", onFailure: expect.any(Function), onGrouping: expect.any(Function) });
     // What the map made is in its place, and nowhere else on the page.
     expect([host().children.length, host().contains(mapMounts[0].button), page.all("button").filter(button => button === mapMounts[0].button).length]).toEqual([1, true, 1]);
 
@@ -3886,8 +3886,28 @@ describe("A model's map on the results page", () => {
       sendResult(ports[0], result);
       toMap();
       const { options } = mapMounts[mapMounts.length - 1];
-      expect([options, "workspaceName" in (options as object)], what).toEqual([{ modelName: "Model one", onFailure: expect.any(Function) }, false]);
+      expect([options, "workspaceName" in (options as object)], what).toEqual([{ modelName: "Model one", onFailure: expect.any(Function), onGrouping: expect.any(Function) }, false]);
     }
+  });
+
+  it("gives the map the grouping the viewer chose last, and keeps a new choice for the next map: the map's own pick as no choice", async () => {
+    stored.set("cardigan-map-grouping", "role");
+    await openWith(inWorkspace("Planning"));
+    toMap();
+    const { options } = mapMounts[0];
+    expect((options as { grouping?: string }).grouping).toBe("role");
+    const tell = (options as { onGrouping: (kind: string | undefined) => void }).onGrouping;
+    tell("dimension");
+    expect(stored.get("cardigan-map-grouping")).toBe("dimension");
+    tell(undefined);
+    expect(stored.get("cardigan-map-grouping")).toBe("");
+    // A browser that keeps nothing: the map is given no choice, and a new one is not kept, with nothing thrown.
+    storeRefuses = new Error("The storage is off.");
+    page.id("runAgain").press();
+    sendResult(ports[0], inWorkspace("Planning"));
+    toMap();
+    expect("grouping" in (mapMounts[mapMounts.length - 1].options as object)).toBe(false);
+    expect(() => (mapMounts[mapMounts.length - 1].options as { onGrouping: (kind: string) => void }).onGrouping("app")).not.toThrow();
   });
 
   it("shows the map in the view's place and hides it for another view; coming back shows it as it was left, without building it again", async () => {
@@ -4029,7 +4049,7 @@ describe("A model's map on the results page", () => {
       .toEqual([["destroy 2"], true, 0, ["Overview", "Overview"], "Cardigan - Model two", true]);
     // The new result's map is its own: built from its tables when its entry is chosen.
     toMap();
-    expect([mapAsked.slice(8), mapBuilds[2].tables, mapMounts[2].options]).toEqual([["build", "mount 3", "show 3"], next.tables, { modelName: "Model two", workspaceName: "Planning", onFailure: expect.any(Function) }]);
+    expect([mapAsked.slice(8), mapBuilds[2].tables, mapMounts[2].options]).toEqual([["build", "mount 3", "show 3"], next.tables, { modelName: "Model two", workspaceName: "Planning", onFailure: expect.any(Function), onGrouping: expect.any(Function) }]);
     // A run that starts while another view is shown ends the map too, and leaves that view where it is.
     goTo(1);
     page.id("runAgain").press();
@@ -4092,7 +4112,7 @@ describe("A model's map on the results page", () => {
     toMap();
     // Its map is built from the tables that came back, which are the result's, with the names the Details file gives.
     expect([mapAsked, mapBuilds[0].tables, mapMounts[0].options, mapMounts[0].host === host(), mapMounts[0].found, host().hidden])
-      .toEqual([["build", "mount 1", "show 1"], model.tables, { modelName: "Model one", workspaceName: "Planning", onFailure: expect.any(Function) }, true, [false, 0, "Model map"], false]);
+      .toEqual([["build", "mount 1", "show 1"], model.tables, { modelName: "Model one", workspaceName: "Planning", onFailure: expect.any(Function), onGrouping: expect.any(Function) }, true, [false, 0, "Model map"], false]);
     // It is shown and hidden as any other, under the same line, and the tab has still been asked nothing.
     toOverview();
     toMap();
