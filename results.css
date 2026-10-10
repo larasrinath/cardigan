@@ -563,7 +563,7 @@ main:has(> #mapHost:not([hidden])){align-self:stretch;display:flex;flex-directio
   .meta-app{white-space:normal;overflow-wrap:anywhere}
   .toast{max-width:calc(100vw - 28px)}
 }
-/* An app's line, its seven tables each an entry of its own, needs about 860px of the column; a model's needs more, and
+/* An app's line, its seven tables each an entry of its own, needs about 880px of the column; a model's needs more, and
    wraps where it has less (above). Under 1000px wide the one menu stands in the line's place, whatever the result's
    kind. */
 @media (max-width:1000px){
