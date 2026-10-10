@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { NONE as REPORT_NONE } from "../report.js";
 import type { Cell } from "../result-types.js";
-import { cellText, filterItems, groupedCount, NONE, pageOf, rememberingSelect, ROW_NAME_MAX, rowName, selectRows, sortRows, valueCounts, type ItemsOf,
-  type TableQuery } from "./table-engine.js";
+import { cellText, dayOf, dayText, filterItems, groupedCount, NONE, numberOf, pageOf, rangeColumn, rememberingSelect, ROW_NAME_MAX, rowName, saysNothing, selectRows,
+  sortRows, valueCounts, type ItemsOf, type RangeQuery, type TableQuery } from "./table-engine.js";
 
 // Page, Card #, Card title, Card type, Card ID
 const CARDS: Cell[][] = [
@@ -185,7 +185,8 @@ describe("The results page's table engine", () => {
     // Each part of the query counts. Every other query is asked straight after the first one, which is what is remembered
     // then, and each gives other rows or another order than it: a part left out of what is compared would show here.
     const others: Partial<TableQuery>[] = [{ search: "sa" }, { sort: { column: 2, dir: "desc" } }, { sort: { column: 1, dir: "asc" } }, { sort: undefined },
-      { context: { column: 0, value: "Stores" } }, { filters: new Map([[3, new Set(["Grid"])]]) }, { filters: new Map() }];
+      { context: { column: 0, value: "Stores" } }, { filters: new Map([[3, new Set(["Grid"])]]) }, { filters: new Map() },
+      { ranges: new Map([[1, { kind: "number", from: 2, blanks: true, none: true }]]) }];
     for (const changed of others) {
       const base = select(CARDS, query());
       const other = select(CARDS, { ...query(), ...changed });
@@ -234,5 +235,65 @@ describe("The results page's table engine", () => {
     expect(valueCounts([["a", ""], ["b"], ["c", "x"]], 1)).toEqual([["", 2], ["x", 1]]);
     // Texts that differ only in case are two values, always in the same order.
     expect(valueCounts([["b"], ["B"], ["a"], ["b"]], 0)).toEqual([["a", 1], ["B", 1], ["b", 2]]);
+  });
+
+  it("reads a number as a cell or a filter's box writes it: a sign, its thousands apart or not, a fraction, a percent sign", () => {
+    expect(["12", "1,582", "15,389,009,578", "-3.5", "+7", "40%", "0", "0.25", " 9 "].map(numberOf)).toEqual([12, 1582, 15389009578, -3.5, 7, 40, 0, 0.25, 9]);
+    // No number: a word; figures that begin with a zero, which are a code; thousands set apart wrongly, or by a space; a
+    // comma for a point; two points; nothing; the dash; a date.
+    expect(["twelve", "007", "0040", "1,58", "12,5", "1 582", "1.2.3", "", "-", "2026-03-12"].map(numberOf)).toEqual(Array(10).fill(undefined));
+  });
+
+  it("reads a date by the day it names, at any time of it, and only a day the calendar has", () => {
+    expect(["1970-01-01", "1970-01-02", "2026-03-12", "2026-03-12 23:19:56", "2026-03-12T00:00:00Z", "2026-03-12T08:30+05:30"].map(dayOf)).toEqual([0, 1, 20524, 20524, 20524, 20524]);
+    expect(["2026-02-30", "2026-13-01", "12/03/2026", "2026-3-12", "yesterday", "20524", ""].map(dayOf)).toEqual(Array(7).fill(undefined));
+    // A day back as a date's text, which a box for a date shows and takes.
+    expect([dayText(0), dayText(20524)]).toEqual(["1970-01-01", "2026-03-12"]);
+    // A cell says nothing when it is empty, and, where the table's dash says so, when it is the dash.
+    expect([saysNothing(" ", false), saysNothing("-", true), saysNothing("-", false), saysNothing(" - ", true), saysNothing("-5", true)]).toEqual([true, true, false, true, false]);
+  });
+
+  it("keeps the rows within a range of numbers, either end open, both ends kept, and the cells that say nothing only where the range keeps them", () => {
+    // A source model, its Sources and its Imports, as Source Models lists them: a blank, a dash and a thousand among them.
+    const rows: Cell[][] = [["A", "113", "113"], ["B", "10", "10"], ["C", "12", "14"], ["D", "9", "9"], ["E", "", "-"], ["F", "1,000", "2"]];
+    const range = (from?: number, to?: number, blanks = true, none = false): RangeQuery => ({ kind: "number", from, to, blanks, none });
+    const names = (...ranges: [number, RangeQuery][]) => selectRows(rows, all({ ranges: new Map(ranges) })).map(row => row[0]);
+    expect(names([1, range(10, 113)])).toEqual(["A", "B", "C", "E"]);
+    // An open end: at least ten, a thousand among them; at most ten.
+    expect([names([1, range(10)]), names([1, range(undefined, 10)])]).toEqual([["A", "B", "C", "E", "F"], ["B", "D", "E"]]);
+    // One number, and no blank.
+    expect(names([1, range(12, 12, false)])).toEqual(["C"]);
+    // Only the blank left out: an empty cell; the dash where the table's dash says nothing, and, in a model's table, where
+    // it is no number either, which a range cannot place.
+    expect([names([1, range(undefined, undefined, false)]), names([2, range(undefined, undefined, false, true)]), names([2, range(undefined, undefined, false, false)])])
+      .toEqual([["A", "B", "C", "D", "F"], ["A", "B", "C", "D", "F"], ["A", "B", "C", "D", "F"]]);
+    // Two ranges narrow each other; a blank kept by both stays.
+    expect(names([1, range(9, 12)], [2, range(10)])).toEqual(["B", "C", "E"]);
+    // A range works with a list's filter, the search and the sort, after them.
+    expect(selectRows(rows, all({ search: "1", filters: new Map([[0, new Set(["A", "B", "C", "F"])]]), ranges: new Map([[2, range(undefined, 100)]]), sort: { column: 0, dir: "desc" } }))
+      .map(row => row[0])).toEqual(["F", "C", "B"]);
+  });
+
+  it("keeps the rows within a range of dates by whole days, at any time of each day", () => {
+    const rows: Cell[][] = [["Load", "2026-03-12 23:19:56"], ["Sort", "2026-03-13 00:00:01"], ["Old", "2025-12-31 12:00:00"], ["Never", ""]];
+    const range = (from?: string, to?: string, blanks = true): RangeQuery => ({ kind: "date", from: from === undefined ? undefined : dayOf(from), to: to === undefined ? undefined : dayOf(to), blanks, none: false });
+    const names = (query: RangeQuery) => selectRows(rows, all({ ranges: new Map([[1, query]]) })).map(row => row[0]);
+    expect([names(range("2026-03-12", "2026-03-12")), names(range("2026-01-01", undefined, false)), names(range(undefined, "2026-03-12", false))])
+      .toEqual([["Load", "Never"], ["Load", "Sort"], ["Load", "Old"]]);
+  });
+
+  it("reads a column for its range once: each row's value, the lowest and the highest with the text of their cells, and how many say nothing", () => {
+    const rows: Cell[][] = [["a", "1,582"], ["b", "-"], ["c", "-3.5"], ["d", ""], ["e", 15389009578]];
+    const read = rangeColumn(rows, 1, "number", true);
+    expect([[...read.values.values()], read.lowest, read.highest, read.blanks])
+      .toEqual([[1582, undefined, -3.5, undefined, 15389009578], { value: -3.5, text: "-3.5" }, { value: 15389009578, text: "15389009578" }, 2]);
+    // A column of nothing but blanks has no lowest and no highest.
+    const blank: Cell[][] = [["a", ""], ["b", "-"]];
+    expect(rangeColumn(blank, 1, "number", true)).toEqual({ values: new Map([[blank[0], undefined], [blank[1], undefined]]), blanks: 2 });
+    // A range given the column read keeps rows by what was read, and does not read the cells again: here what was read says
+    // that the first row holds 5.
+    const values = new Map(read.values);
+    values.set(rows[0], 5);
+    expect(selectRows(rows, all({ ranges: new Map([[1, { kind: "number", from: 4, to: 6, blanks: false, none: true, values }]]) })).map(row => row[0])).toEqual(["a"]);
   });
 });

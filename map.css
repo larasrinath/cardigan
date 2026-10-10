@@ -42,6 +42,10 @@
 /* While the focus is anywhere in the map its keys work, and its edge says so, for a mouse as for the keyboard. The
    canvas in focus from the keyboard has the page's own ring as well (below). */
 .map-root:focus-within{border-color:color-mix(in srgb,var(--ring) 60%,var(--border-strong))}
+/* Full screen: the browser gives the map the screen, or, where it will not, the map fills the window over the page.
+   Either way it has no edge of its own: the screen's or the window's is its edge. */
+.map-root:fullscreen{width:100%;height:100%;border:0;border-radius:0}
+.map-root.map-full-window{position:fixed;inset:0;z-index:2147483000;width:auto;height:auto;min-height:0;border:0;border-radius:0}
 .map-root[hidden],.map-root [hidden]{display:none !important}
 .map-root *,.map-root *::before,.map-root *::after{box-sizing:border-box}
 :where(.map-root) button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
@@ -72,13 +76,18 @@
   pointer-events:auto;background:var(--panel);border:1px solid var(--border);border-radius:var(--r-md);
   box-shadow:0 1px 2px rgba(0,0,0,.05),0 4px 14px rgba(0,0,0,.07);
 }
-/* The bar keeps to one line where its parts fit with every name whole. Where they do not, the controls and the search
-   take a second line together and leave the first to where the map is. */
-.map-bar{grid-area:bar;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;min-width:0;padding:5px 8px;border-radius:16px}
+/* The bar has three parts: where the map is, how it is built, and its tools. Each keeps to one line; where a line is too
+   short for all three, a part takes the next line whole, never half of it. The tools stand at the right end of
+   whichever line they are on. */
+.map-bar{grid-area:bar;display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;min-width:0;padding:5px 8px;border-radius:16px}
+.map-zone{display:flex;flex-wrap:nowrap;align-items:center;gap:6px;min-width:0}
+.map-zone-path{flex:1 1 auto}
+.map-zone-build{flex:none;gap:10px}
+.map-zone-tools{flex:none;margin-left:auto}
 .map-free{grid-area:free;position:relative;min-width:0;min-height:0}
 .map-inspector{grid-area:details}
 
-/* ---------- the bar: the view's switch, where the map is, the controls, the search ---------- */
+/* ---------- the bar: where the map is, how it is built, its tools ---------- */
 .map-tabs{display:flex;flex:none;gap:2px;padding:2px;border-radius:999px;background:var(--panel-2)}
 .map-tab{padding:4px 12px;border-radius:999px;font-size:12.5px;font-weight:550;color:var(--text-2);white-space:nowrap;transition:background .15s,color .15s}
 .map-tab:hover:not(:disabled){color:var(--text)}
@@ -86,29 +95,32 @@
 .map-tab.map-active{background:var(--accent-soft);color:var(--accent-ink);font-weight:650}
 .map-tab:disabled{opacity:.45;cursor:not-allowed}
 
-/* Where the map is. It is as wide as its names, and shares the first line with the view's switch (which the 210px are
-   left for) whatever else fits there. Where a whole line is too short for the names, the workspace goes first, mark and
-   all (map-view.ts `fitCrumbs`); then the model and the section give way, down to a few letters each so that they can
-   still be pressed; what is on screen, the last name, is cut last. */
-.map-crumbs{display:flex;flex:1 1 auto;align-items:center;gap:6px;min-width:0;max-width:calc(100% - 210px);padding:0 4px;font-size:12.5px;color:var(--text-2);white-space:nowrap}
-.map-crumbs > *{min-width:0;overflow:hidden;text-overflow:ellipsis}
-.map-crumbs > .map-crumb-ws{display:flex;flex:none;gap:6px;overflow:visible}
-.map-title-name{flex:0 1000 auto;min-width:3em;font-size:12.5px;font-weight:650;color:var(--text)}
-.map-title-name.map-here{flex-shrink:1}
+/* Where the map is: the model's name, then its lists. The name gives way first, down to a few letters, so that it can
+   still be pressed; a list is cut at the end of its words, and keeps its chevron. */
+.map-crumbs{display:flex;flex:1 1 auto;align-items:center;gap:6px;min-width:0;padding:0 4px;font-size:12.5px;color:var(--text-2);white-space:nowrap}
+.map-path-root{display:flex;flex:0 1000 auto;min-width:3em;overflow:hidden}
+.map-title-name{min-width:0;overflow:hidden;text-overflow:ellipsis;font-size:12.5px;font-weight:650;color:var(--text)}
 .map-crumb{max-width:100%;overflow:hidden;text-overflow:ellipsis;color:var(--accent);font-weight:inherit;border-radius:var(--r-xs);vertical-align:bottom}
-.map-crumbs > .map-crumb{flex:0 1000 auto;min-width:3em}
 .map-crumb:hover{text-decoration:underline}
-.map-crumbs > span.map-here{flex:0 1 auto;color:var(--text);font-weight:600}
 .map-sep{flex:none;color:var(--text-3)}
-.map-crumbs > .map-sep{overflow:visible}
+.map-crumbs .map-select-wrap{flex:0 1 auto;min-width:96px}
+.map-crumbs .map-select{width:100%;max-width:240px}
+/* The module picker: a box to type into, with its list under it. */
+.map-picker{position:relative;display:inline-flex;flex:0 1 auto;align-items:center;min-width:120px}
+.map-picker-input{width:240px;max-width:100%;height:28px;padding:0 28px 0 12px;border:1px solid var(--border-strong);border-radius:999px;background:var(--panel);font-size:12px;text-overflow:ellipsis}
+.map-picker-input:focus{border-color:var(--ring)}
+.map-root .map-picker-input:focus-visible{outline:none;box-shadow:0 0 0 2px color-mix(in srgb,var(--ring) 30%,transparent)}
+.map-picker .map-select-chevron{position:absolute;right:11px;pointer-events:none;color:var(--text-3)}
+.map-picker-pop{position:absolute;left:0;top:calc(100% + 8px);z-index:6;width:360px;max-width:calc(100cqw - 24px);max-height:min(60cqh,440px);overflow:auto;padding:5px;border-color:var(--border-strong);box-shadow:var(--shadow);white-space:normal}
+.map-picker-opt{display:block;padding:7px 10px;border-radius:var(--r-sm);font-size:12.5px;color:var(--text);overflow-wrap:anywhere;cursor:pointer}
+.map-picker-opt:hover,.map-picker-opt.map-active{background:var(--panel-2)}
+.map-picker-opt.map-active{box-shadow:inset 2px 0 0 var(--accent)}
+.map-picker-opt small{display:block;margin-top:1px;font-size:11.5px;color:var(--text-2)}
+.map-picker-note{margin:0;padding:8px 10px;font-size:12px;color:var(--text-2)}
+/* A label before a list says what the list is for, in the bar's quiet words. */
+.map-field{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.map-field-label{font-size:12px;color:var(--text-3)}
 
-/* The controls and the search are one group: they stay together on whichever line they stand, at its right end, and
-   break into lines of their own only where a whole line is too short for them. The search is as wide as the line
-   leaves it, from 120px, which is all it asks for before the group takes a line of its own, to 210px: of what a line
-   has to spare, the group takes three parts in four, for the search. (The search's box asks for no width of its own:
-   a text box's usual width would count as the group's.) */
-.map-tools{display:flex;flex-wrap:wrap;flex:3 1 auto;justify-content:flex-end;align-items:center;gap:6px 10px;min-width:0}
-.map-controls{display:flex;flex-wrap:wrap;flex:0 1 auto;align-items:center;gap:6px;min-width:0}
 .map-btn{
   display:inline-flex;align-items:center;justify-content:center;gap:6px;height:28px;padding:0 11px;border-radius:999px;
   border:1px solid var(--border-strong);background:var(--panel);color:var(--text);
@@ -118,7 +130,17 @@
 .map-btn:disabled{opacity:.45;cursor:not-allowed}
 .map-btn.map-icon{width:28px;padding:0;font-size:15px;line-height:1}
 .map-btn.map-small{height:24px;padding:0 10px}
-.map-btn[aria-expanded="true"]{background:var(--accent-soft);color:var(--accent-ink);border-color:color-mix(in srgb,var(--accent) 35%,transparent)}
+.map-btn[aria-expanded="true"],.map-btn[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent-ink);border-color:color-mix(in srgb,var(--accent) 35%,transparent)}
+.map-btn-chevron{flex:none;margin-right:-2px;color:var(--text-3)}
+/* Links drawn beside the formulas' are said on the button: it has the accent's dot. */
+.map-links-btn.map-on::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--accent)}
+.map-links{position:relative;display:inline-flex}
+.map-links-pop{position:absolute;right:0;top:calc(100% + 8px);z-index:6;width:320px;max-width:calc(100cqw - 24px);padding:12px 14px;border-color:var(--border-strong);box-shadow:var(--shadow);white-space:normal}
+.map-links-row{display:flex;align-items:center;gap:8px;margin-top:6px;font-size:12.5px;color:var(--text)}
+.map-links-row b{font-weight:600}
+.map-links-tick{display:inline-flex;align-items:center;justify-content:center;width:13px;color:var(--accent);font-size:12px}
+.map-links-note{margin:2px 0 6px 21px;font-size:12px;line-height:1.5;color:var(--text-2)}
+.map-full-btn svg{flex:none}
 /* A select draws the chevron the results page's menus have, clear of the round end of its pill: a browser's own arrow
    stands close against it. A select the map hides takes its chevron with it. */
 .map-select-wrap{position:relative;display:inline-flex;align-items:center}
@@ -128,7 +150,7 @@
 .map-check{display:inline-flex;align-items:center;gap:6px;padding:0 2px;font-size:12px;color:var(--text-2);white-space:nowrap;cursor:pointer}
 .map-check input{margin:0;accent-color:var(--accent)}
 
-.map-searchwrap{position:relative;z-index:5;flex:1 1 120px;max-width:210px;min-width:120px;pointer-events:auto}
+.map-searchwrap{position:relative;z-index:5;flex:0 0 190px;min-width:120px;pointer-events:auto}
 .map-searchbox{display:flex;align-items:center;gap:7px;height:30px;padding:0 8px 0 11px;border:1px solid var(--border-strong);border-radius:999px;background:var(--panel);color:var(--text-3)}
 .map-searchbox:focus-within{border-color:var(--ring);box-shadow:0 0 0 2px color-mix(in srgb,var(--ring) 30%,transparent)}
 .map-searchbox svg{flex:none}
@@ -286,14 +308,15 @@
   .map-chrome{grid-template-columns:minmax(0,1fr) minmax(0,280px)}
 }
 /* Up to 760px wide the details come up from the foot, over at most two fifths of the height, in a row of their own:
-   they cover neither the bar nor the graph's room. The controls and the search have the bar's second line to
-   themselves, and the search takes what the controls leave of it. The small picture goes while the details are open. */
+   they cover neither the bar nor the graph's room. Each part of the bar has a line of its own, and the search takes
+   what the tools leave of theirs. The small picture goes while the details are open. */
 @container map (max-width:760px){
   .map-chrome{padding:8px;grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(96px,1fr) auto;grid-template-areas:"bar" "free" "details"}
   .map-has-inspector .map-chrome{grid-template-areas:"bar" "free" "details"}
   .map-inspector{max-height:40cqh}
-  .map-tools{flex:1 1 100%;justify-content:flex-start}
-  .map-searchwrap{max-width:none}
+  .map-zone-path,.map-zone-tools{flex:1 1 100%;margin-left:0}
+  .map-zone-tools .map-searchwrap{flex:1 1 auto}
+  .map-picker-input{width:180px}
   .map-has-inspector .map-corner{display:none}
   .map-foot{max-width:100%}
   .map-root:not(.map-has-inspector) .map-foot{max-width:calc(100% - 150px)}

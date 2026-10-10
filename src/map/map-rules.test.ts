@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { InspectLink } from "./map-inspect.js";
-import { brokenHtml, crumbsHtml, emptyHtml, inspectorHtml, legendHtml, LIST_CAP, notesHtml, resultsHtml, shellHtml, tooltipHtml, tracebarHtml } from "./map-markup.js";
+import { brokenHtml, emptyHtml, fullIconHtml, inspectorHtml, legendHtml, LIST_CAP, notesHtml, pathRootHtml, pickerOptionsHtml, resultsHtml, shellHtml, tooltipHtml, tracebarHtml } from "./map-markup.js";
 
 /** What the map may not do, checked in its own files: the stylesheet and the sources that are bundled. These are the
  * rules the map was built to; a change that breaks one fails here rather than on the page. */
@@ -69,12 +69,13 @@ describe("The map's sources", () => {
     const listened = [...view.matchAll(/(\w+)\.addEventListener\(/g)].map(match => match[1]);
     expect(new Set(listened)).toEqual(new Set(["root", "canvas", "miniCanvas"]));
     expect(found(view, /getElementById|getElementsBy|document\.querySelector|page\.querySelector|document\.body|page\.body|documentElement|removeEventListener/)).toEqual([]);
-    // What it asks of the page's document: to make its element, and which element has the focus.
+    // What it asks of the page's document: to make its element, and which element has the focus; and, in the browser's
+    // surroundings, which element fills the screen, and to leave the screen.
     const asked = [...view.matchAll(/\bpage\.(\w+)/g)].map(match => match[1]);
-    expect(new Set(asked)).toEqual(new Set(["createElement", "activeElement"]));
+    expect(new Set(asked)).toEqual(new Set(["createElement", "activeElement", "fullscreenElement", "exitFullscreen"]));
     // Lookups are from the map's element down.
     const lookedIn = [...view.matchAll(/(\w+)\.querySelector(?:All)?[<(]/g)].map(match => match[1]);
-    for (const owner of lookedIn) expect(["root", "inspector", "results", "holder", "tracebar", "crumbs"]).toContain(owner);
+    for (const owner of lookedIn) expect(["root", "inspector", "results", "holder", "tracebar", "pickerList"]).toContain(owner);
   });
 
   it("write markup only through the functions that escape it", () => {
@@ -137,8 +138,12 @@ describe("The map's stylesheet", () => {
     }
   });
 
-  it("fixes nothing to the window and measures nothing by it", () => {
-    expect(found(STYLES, /position\s*:\s*(?:fixed|sticky)/)).toEqual([]);
+  it("fixes nothing to the window and measures nothing by it, but the map itself while it fills the window", () => {
+    // The one rule fixed to the window is the map's own element's while it fills the window: the user asked for full
+    // screen, and the browser would not give it (map-view.ts `setFull`).
+    const rules = STYLES.replace(/\s*\n\s*/g, " ").split("}").map(rule => rule.trim()).filter(rule => /position\s*:\s*(?:fixed|sticky)/.test(rule));
+    expect(rules.map(rule => rule.slice(0, rule.indexOf("{")).trim())).toEqual([".map-root.map-full-window"]);
+    expect(found(STYLES, /position\s*:\s*sticky/)).toEqual([]);
     expect(found(STYLES, /\d(?:vw|vh|vmin|vmax|dvh|dvw|svh|svw|lvh|lvw)\b/)).toEqual([]);
     // The only question it asks of the window is whether the user wants less motion. Its sizes are its own element's.
     const media = selectors(STYLES).filter(selector => selector.startsWith("@media"));
@@ -181,9 +186,10 @@ describe("The map's stylesheet", () => {
     const links: InspectLink[] = Array.from({ length: LIST_CAP + 1 }, (_, index) => ({ raw: index, name: "Line", sub: "Module", caption: "read access", layer: layers[index % layers.length] }));
     const words = { feeds: "1 box feeds it", fed: "it feeds 2 boxes", sentence: "Line item Node selected." };
     const everything = [
-      shellHtml({ results: "map-results-1", hints: "map-hints-1", legend: "map-legend-1", about: "map-about-1", access: "map-access-1" }, "Model"),
+      shellHtml({ results: "map-results-1", hints: "map-hints-1", legend: "map-legend-1", about: "map-about-1", access: "map-access-1", links: "map-links-1", picker: "map-picker-1" }, "Model"),
       notesHtml({ name: "Model", workspace: "Workspace", modules: 2, lineItems: 3 }, ["A sentence."], 1),
-      crumbsHtml({ model: "Model", workspace: "Workspace", section: { index: 0, name: "Section" }, here: "Module" }), crumbsHtml({ model: "Model", workspace: "Workspace" }),
+      pathRootHtml("Model", "Workspace", true), pathRootHtml("Model", "Workspace", false), fullIconHtml(true),
+      pickerOptionsHtml("map-picker-1", [{ name: "Module", group: "Group" }, { name: "Other" }], 0),
       legendHtml("Sections", layers.map(key => ({ key, label: key, count: 1 })), new Set(["external"])), tracebarHtml("Node", words, false), tracebarHtml("Node", words, true),
       tooltipHtml({ layer: "s0", kind: "kind", name: "Node", lines: ["a line"], formula: "A + B" }),
       resultsHtml({ hits: [{ kind: "module", name: "Module", context: "Section" }], total: 2 }), resultsHtml({ hits: [], total: 0 }),
@@ -197,7 +203,7 @@ describe("The map's stylesheet", () => {
     // The classes the view sets: its element's own, and those that say a state.
     const view = code("map-view.ts");
     const states = new Set([...view.matchAll(/classList\.(?:add|remove|toggle)\("(map-[a-z0-9-]+)"/g)].map(match => match[1]));
-    expect([...states].sort()).toEqual(["map-active", "map-arriving", "map-dragging", "map-has-inspector", "map-off", "map-over-node", "map-show"]);
+    expect([...states].sort()).toEqual(["map-active", "map-arriving", "map-dragging", "map-full-window", "map-has-inspector", "map-off", "map-on", "map-over-node", "map-show"]);
     for (const name of states) written.add(name);
     for (const [, name] of view.matchAll(/setAttribute\("class", "(map-[a-z0-9-]+)"\)/g)) written.add(name);
     const styled = new Set([...STYLES.matchAll(/\.(map-[a-z][a-z0-9-]*)/g)].map(match => match[1]));
