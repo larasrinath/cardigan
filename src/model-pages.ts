@@ -3,7 +3,7 @@ import { describePageCards } from "./card-reader/card-details.js";
 import type { UxPageCardDetails } from "./card-reader/card-types.js";
 import type { UxPageType } from "./card-reader/definition-types.js";
 import { emptyCatalog } from "./catalog.js";
-import type { DetailRow } from "./details.js";
+import { diagnosticRows, stampLine, type DetailRow } from "./details.js";
 import { separator } from "./map/graph-names.js";
 import { FILTER_USES, MODULE_USAGE_FILE, MODULE_USAGE_HEADERS, NOT_ON_A_PAGE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE } from "./page-files.js";
 import type { Progress } from "./progress.js";
@@ -29,8 +29,12 @@ export const AT_A_TIME = 4;
 const ABOUT = "Pages built on the model";
 /** As many pages that could not be read as a note names. */
 const NAMED_UNREAD = 5;
-/** The address names the customer the pages are read for only in Model Building. */
-export const NO_CUSTOMER = "the model is not open in Model Building, whose address names the customer whose pages are read";
+/** As many lines of its own as this step adds to the result's diagnostic log, the latest: as many as a run's log keeps
+ * (tab-port.ts). */
+const LOGGED_MAX = 3000;
+/** Why the tables are not made where the tab's address names no customer: the classic model page opened on its own,
+ * or a Model Building address without one. */
+export const NO_CUSTOMER = "the page's address names no customer, and the pages built on a model are listed for its customer";
 /** What the Apps detail says when the list of pages built on the model is empty. */
 export const NO_APPS = "No app's pages use this model";
 
@@ -50,7 +54,8 @@ const HOW_TO_READ: readonly [detail: string, value: string][] = [
     + "still points at that the model no longer has, or that you cannot see. Only published pages are read, and only those you can open."],
   ["Page Filters", "The card filters on the pages built on this model, as an app's Filters table lists them, with the app in front: those of the "
     + `cards that work on this model, by app, page and card. The ${FILTER_USES} column of Line Items counts the rows that have each line item as `
-    + "their condition. It is empty, not 0, where a page could not be read: the line item may be the condition of a filter there."],
+    + "their condition. It is empty, not 0, where a page could not be read, or a filter's condition line item could not be named: the line item "
+    + "may be the condition of that filter."],
   ["Page Actions", "The action buttons on the pages built on this model, as an app's Action Buttons table lists them, with the app in front: those "
     + "of the cards that work on this model, by app, page and card."],
 ];
@@ -124,8 +129,9 @@ function addDetails(result: AnalysisResult, added: { files?: DetailRow[]; notes?
 }
 
 /** The Line Items table gets a column that counts, for each line item, the Page Filters rows that have it as their
- * condition. A module's own row has none. Where a page could not be read, a line item that no row names is not known to
- * be the condition of none, and its cell is empty; it is 0 only when every page was read. */
+ * condition. A module's own row has none. A line item that no row names is 0 only when every filter is known: where a page
+ * could not be read, or a row's condition line item could not be named (it has no module, and the ID stands for its name),
+ * the line item may be the condition of a filter, and its cell is empty. */
 function addFilterUses(result: AnalysisResult, filters: readonly Cell[][], everyPageRead: boolean): void {
   const table = result.tables.find(each => each.file === "Line Items.csv");
   const moduleAt = table?.headers.indexOf("Module Name") ?? -1;
@@ -133,16 +139,19 @@ function addFilterUses(result: AnalysisResult, filters: readonly Cell[][], every
   const [lineItemAt, itsModuleAt] = [PAGE_FILTERS_HEADERS.indexOf("Condition line item"), PAGE_FILTERS_HEADERS.indexOf("Condition line item's module")];
   const key = (module: string, lineItem: string): string => `${module}\n${lineItem}`;
   const counts = new Map<string, number>();
+  let unnamed = false;
   for (const row of filters) {
     const [lineItem, module] = [String(row[lineItemAt] ?? "").trim(), String(row[itsModuleAt] ?? "").trim()];
-    if (lineItem === "" || lineItem === NONE || module === "" || module === NONE) continue;
-    counts.set(key(module, lineItem), (counts.get(key(module, lineItem)) ?? 0) + 1);
+    if (lineItem === "" || lineItem === NONE) continue;
+    if (module === "" || module === NONE) unnamed = true;
+    else counts.set(key(module, lineItem), (counts.get(key(module, lineItem)) ?? 0) + 1);
   }
+  const none: Cell = everyPageRead && !unnamed ? 0 : "";
   const width = table.headers.length;
   table.headers = [...table.headers, FILTER_USES];
   table.rows = table.rows.map(row => {
     const module = String(row[moduleAt] ?? "").trim();
-    const count = module === "" ? "" : counts.get(key(module, String(row[0] ?? "").trim())) ?? (everyPageRead ? 0 : "");
+    const count = module === "" ? "" : counts.get(key(module, String(row[0] ?? "").trim())) ?? none;
     // The cell goes in the column's place: a row may be short of the headers, or hold cells beyond them.
     const cells: Cell[] = [...row];
     while (cells.length < width) cells.push("");
@@ -188,20 +197,35 @@ function moduleUsageRows(exported: readonly string[], pages: readonly PageRows[]
   return [...[...listed].flatMap(rowsOf), ...rest.flatMap(rowsOf)];
 }
 
+/** The step's own lines after the export's in the result's diagnostic log: the export wrote that log in the model's page
+ * before this step began, and it is what the Overview copies, a refresh too. */
+function addLog(result: AnalysisResult, logged: readonly string[]): AnalysisResult {
+  result.tables.find(table => table.details === true)?.rows.push(...plainRows(logged.flatMap(diagnosticRows)));
+  return result;
+}
+
 /** The model's result with what the pages built on the model say: the three tables (page-files.ts), the apps under About
  * this export, the Line Items column, and the notes and How to read rows. `customerId` is the customer the Model Building
  * address names; without one, the tables are not made, and a note says why. The export was made before any of this is
- * read, so nothing here fails it: whatever goes wrong, but for a stop, leaves the three tables out with the reason. */
+ * read, so nothing here fails it: whatever goes wrong, but for a stop, leaves the three tables out with the reason. What
+ * the step reports goes into the result's diagnostic log as well. */
 export async function addModelPages(given: AnalysisResult, customerId: string | undefined, progress: Progress, signal?: AbortSignal,
   reads: PageReads = LIVE): Promise<AnalysisResult> {
+  signal?.throwIfAborted();
+  const logged: string[] = [];
+  const keep = (line: string): void => {
+    logged.push(stampLine(line));
+    if (logged.length > LOGGED_MAX) logged.splice(0, logged.length - LOGGED_MAX);
+  };
+  const step: Progress = { status: text => { keep(text); progress.status(text); }, log: line => { keep(line); progress.log(line); } };
   try {
-    return await withModelPages(copied(given), customerId, progress, signal, reads);
+    return addLog(await withModelPages(copied(given), customerId, step, signal, reads), logged);
   } catch (error) {
     if (signal?.aborted) throw signal.reason;
-    progress.log(`pages built on the model: ${message(error)}`);
+    step.log(`pages built on the model: ${message(error)}`);
     // From the export as it was handed over: the failed work may have added to its copy already.
     try {
-      return leftOut(copied(given), error instanceof RestError ? unreadWhy(error) : `Cardigan could not make them: ${message(error)}`);
+      return addLog(leftOut(copied(given), error instanceof RestError ? unreadWhy(error) : `Cardigan could not make them: ${message(error)}`), logged);
     } catch {
       return given;
     }

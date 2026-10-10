@@ -16,12 +16,13 @@ const MODEL_BUILDING = `/a/modeling/customers/${WS}/models/${MODEL}/modules`;
 const exportedModel = (): AnalysisResult => ({ kind: "model", name: "Model one", id: MODEL, zipName: "Model one - Model Export - 2026-09-28.zip", summary: ["Versions: 1 rows"],
   tables: [{ file: "Model Details.csv", label: "Model Details", headers: ["Section", "Detail", "Value"], rows: [["Model", "Model", "Model one"], ["Model", "Workspace ID", WS]],
     guard: true, details: true }, { file: "Versions.csv", label: "Versions", headers: ["", "Is Actual"], rows: [["Actual", "true"]], guard: false }] });
-/** That export as the results page gets it when the pages built on the model are not read, for `why` (model-pages.ts). */
-function withoutPages(why: string): AnalysisResult {
+/** That export as the results page gets it when the pages built on the model are not read, for `why` (model-pages.ts),
+ * with what the step logged at the end of its diagnostic log. */
+function withoutPages(why: string, logged: string[] = []): AnalysisResult {
   const result = exportedModel();
   const files = ["Module Usage", "Page Filters", "Page Actions"];
   result.summary.push(...files.map(file => `${file}: not exported (${why}).`));
-  result.tables[0].rows.push(...files.map(file => ["Files", `${file}.csv`, `Not exported: ${why}`]));
+  result.tables[0].rows.push(...files.map(file => ["Files", `${file}.csv`, `Not exported: ${why}`]), ...logged.map(line => ["Diagnostics", "01:59:09", line]));
   return result;
 }
 
@@ -251,7 +252,7 @@ describe("The content scripts on an Anaplan page", () => {
       { type: "status", text: "Reading Versions…" }, { type: "log", text: "01:59:09 Reading Versions…" },
       { type: "status", text: "Reading the pages built on this model…" }, { type: "log", text: "01:59:09 Reading the pages built on this model…" },
       { type: "log", text: "01:59:09 pages built on the model: SIGNED_OUT (HTTP 401)" }]);
-    expect(assemble(port.received)).toEqual(withoutPages("you're signed out of Anaplan"));
+    expect(assemble(port.received)).toEqual(withoutPages("you're signed out of Anaplan", ["Reading the pages built on this model…", "pages built on the model: SIGNED_OUT (HTTP 401)"]));
     // The frame did the export's reading. This window asked Anaplan for one thing, with GET, opened no socket, and asked the frame nothing more.
     expect(vi.mocked(globalThis.fetch).mock.calls.map(([url, init]) => [url, init?.method]))
       .toEqual([[`${SHELL}/a/springboard-definition-service/customer/${WS}/model/${MODEL}/pages`, "GET"]]);
