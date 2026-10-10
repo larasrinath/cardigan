@@ -28,8 +28,9 @@ export const VIEW_KEY = "cardigan-view";
  * small part of that, so that a result kept later still fits. Filters of very many values are left out to stay under it. */
 export const MAX_VIEW_CHARS = 20_000;
 
-/** A filter as kept: the values left ticked (`t`) or those left out (`u`), whichever is the shorter list. Kept as the values
- * left out, a value that a new run brings is shown; kept as the values ticked, it is not, as the user chose only those. */
+/** A filter as kept: the values left ticked (`t`) or those left out (`u`), whichever is the shorter list, and the values
+ * left out where the two are as long. Kept as the values left out, a value that a new run brings is shown; kept as the
+ * values ticked, it is not, as the user chose only those. */
 export type KeptFilter = { t: string[] } | { u: string[] };
 
 /** One table's settings, each column by its key (`columnKeys`). */
@@ -133,7 +134,7 @@ export function keepTable(looks: TableLooks, valuesOf: (column: number) => reado
     if (key === undefined) continue;
     const unticked = valuesOf(index).filter(value => !ticked.has(value));
     if (!unticked.length) continue;
-    filters[key] = ticked.size <= unticked.length ? { t: [...ticked] } : { u: unticked };
+    filters[key] = ticked.size < unticked.length ? { t: [...ticked] } : { u: unticked };
   }
   if (Object.keys(filters).length) kept.filters = filters;
   const ranges: NonNullable<KeptTable["ranges"]> = {};

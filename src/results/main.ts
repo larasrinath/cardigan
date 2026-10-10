@@ -533,6 +533,8 @@ function showNotRemoved(): void {
  * banner of the run that has just ended. `back` is for a result the page kept before it was refreshed and has now brought back:
  * it is shown like any other, under a line that says when it was analysed. */
 function showResult(next: AnalysisResult, at: Date, back = false): void {
+  // How the result that is replaced was looked at is written first, as it is now: what of it fits the new result is taken.
+  if (result) writeLooks();
   // Focus that is inside what the new result replaces moves to the new view; anywhere else, in the header, it stays.
   const replaced = [el("view"), el("mapHost"), el("drawer"), el("popover")].some(part => part.contains(document.activeElement));
   closePopover();
