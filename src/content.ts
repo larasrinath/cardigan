@@ -1,15 +1,18 @@
 import { analyseApp } from "./analyse.js";
-import { exportInCore, watchCore, watchProbes, type CoreHandle, type FrameProbe } from "./bridge.js";
+import { exportInCore, greetFrames, openInCore, watchCore, watchProbes, type CoreHandle, type FrameProbe } from "./bridge.js";
 import { addModelPages } from "./model-pages.js";
 import type { Subject } from "./protocol.js";
 import { RestError } from "./rest.js";
-import { serveTab } from "./tab-port.js";
+import { serveTab, type Opened } from "./tab-port.js";
+import { sleep } from "./util.js";
+import { BUILD } from "./version.js";
 
 /** The page the user sees: the top window of an Anaplan tab, in the isolated world. It puts nothing on the page and reads
  * nothing from Anaplan until the results page, opened by the toolbar icon, connects and asks it to run (tab-port.ts). Then,
  * on an app page, it analyses the app's pages; on a Model Building page, it exports the model's settings through the
  * model's core frame (bridge.ts), and then reads the pages built on the model (model-pages.ts). Everything is read-only,
- * using the signed-in browser session. */
+ * using the signed-in browser session. Asked by the results page, it also opens one of the model's modules inside the
+ * Model Building page, as Model Building's own Modules list does: Cardigan itself sends Anaplan nothing for that. */
 
 const APP_PATH = /\/apps\/app\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:[/?#]|$)/i;
 const MODEL_PATH = /\/a\/modeling(?:-ui)?\/.*\/models\/([0-9A-Za-z]{32})(?:[/?#]|$)/;
@@ -48,6 +51,26 @@ if (window.top === window) {
   /** A Model Building page's model is read in its core frame; the classic page's, in this window. */
   const core = () => (MODEL_PATH.test(location.pathname) ? frame : own);
 
+  /** Opens a module of the model inside this Model Building page, beside the modules open there, through the model's core
+   * frame (model/open-module.ts), so that the page does not load afresh. Only where the page shows that model in Model
+   * Building, and only through a frame of this build, which knows how: otherwise the results page loads the module's
+   * address. A frame that checked in with an earlier copy of this script is greeted, to check in again. */
+  const open = async (model: string, module: string): Promise<Opened> => {
+    const shown = MODEL_PATH.exec(location.pathname)?.[1];
+    if (!shown) return { opened: false, detail: "the tab does not show Model Building" };
+    if (shown.toUpperCase() !== model.toUpperCase()) return { opened: false, detail: "the tab shows another model" };
+    if (!frame) {
+      greetFrames(window);
+      await sleep(300);
+    }
+    const found = frame;
+    if (!found || found.modelId.toUpperCase() !== model.toUpperCase()) return { opened: false, detail: "the model's frame has not checked in" };
+    if (found.build !== BUILD) return { opened: false, detail: "the model's frame holds a reader of another build" };
+    return await openInCore(window, found, model, module)
+      ? { opened: true, detail: "Model Building opened it beside the modules open there" }
+      : { opened: false, detail: "the model's frame did not open it" };
+  };
+
   serveTab(chrome.runtime, {
     host: location.host,
     current: () => page.cardiganServing === me,
@@ -59,5 +82,6 @@ if (window.top === window) {
         .then(result => addModelPages(result, seen.customer, progress, signal))
         .then(result => (seen.origin && seen.customer ? { ...result, site: { origin: seen.origin, customer: seen.customer } } : result))),
     signedOut: error => error instanceof RestError && error.code === "SIGNED_OUT",
+    open,
   });
 }
