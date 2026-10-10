@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { NONE as REPORT_NONE } from "../report.js";
 import type { Cell } from "../result-types.js";
-import { cellText, groupedCount, NONE, pageOf, rememberingSelect, ROW_NAME_MAX, rowName, selectRows, sortRows, valueCounts, type TableQuery } from "./table-engine.js";
+import { cellText, filterItems, groupedCount, NONE, pageOf, rememberingSelect, ROW_NAME_MAX, rowName, selectRows, sortRows, valueCounts, type ItemsOf,
+  type TableQuery } from "./table-engine.js";
 
 // Page, Card #, Card title, Card type, Card ID
 const CARDS: Cell[][] = [
@@ -98,6 +99,23 @@ describe("The results page's table engine", () => {
     // A missing cell is the blank value.
     const ragged: Cell[][] = [["a", "x"], ["b"], ["c", ""]];
     expect(selectRows(ragged, all({ filters: new Map([[1, new Set([""])]]) }))).toEqual([["b"], ["c", ""]]);
+  });
+
+  it("filters a column whose cells list items by each item: a row shows when any of its items is ticked", () => {
+    // Modules and what each applies to, as a model's grid writes them: names with a comma and a space between them. The
+    // cells are cut as cell-lists.ts cuts them; a cell that is no list is one item, its whole text, the blank included.
+    const modules: Cell[][] = [["Revenue", "Products, Regions, Time"], ["Cost", "Regions, Time"], ["Rates", "Products"], ["Notes", ""], ["Doubled", "Time, Time"]];
+    const items: ItemsOf = text => (text.includes(", ") ? text.split(", ") : undefined);
+    const lists = new Map([[1, items]]);
+    const names = (rows: readonly (readonly Cell[])[]) => rows.map(row => row[0]);
+    expect(names(selectRows(modules, all({ filters: new Map([[1, new Set(["Products"])]]), lists })))).toEqual(["Revenue", "Rates"]);
+    expect(names(selectRows(modules, all({ filters: new Map([[1, new Set(["Regions", ""])]]), lists })))).toEqual(["Revenue", "Cost", "Notes"]);
+    // Without the column's list, the filter reads the cell whole, as it always did.
+    expect(names(selectRows(modules, all({ filters: new Map([[1, new Set(["Products"])]]) })))).toEqual(["Rates"]);
+    // Its values are the items, each counted once for each row that lists it, however often the row lists it.
+    expect(valueCounts(modules, 1, items)).toEqual([["", 1], ["Products", 2], ["Regions", 2], ["Time", 3]]);
+    expect([filterItems(modules[4], 1, items), filterItems(modules[3], 1, items), filterItems(["x"], 1, items), filterItems(modules[2], 1, undefined)])
+      .toEqual([["Time"], [""], [""], ["Products"]]);
   });
 
   it("keeps the rows of the page a jump names, then applies the search and the filters to them", () => {

@@ -42,14 +42,29 @@ export const ROW_NAME_MAX = 120;
 
 export interface Sort { column: number; dir: "asc" | "desc" }
 
+/** How a column's cells list their items, as cell-lists.ts says: a cell's items, or nothing for a cell that is not cut,
+ * which is then one item, its whole text. The row is the cell's own. */
+export type ItemsOf = (text: string, row: Row) => readonly string[] | undefined;
+
+/** A cell's items as a column filter reads them: each item the cell lists, once, or the cell's whole text where it lists
+ * none. An empty cell is the one item that is blank. */
+export function filterItems(row: Row, column: number, items: ItemsOf | undefined): readonly string[] {
+  const text = cellText(row[column]);
+  const listed = items?.(text, row);
+  return listed ? [...new Set(listed)] : [text];
+}
+
 export interface TableQuery {
   /** Keeps the rows with this text in any column, whatever its case. */
   search: string;
   /** The columns whose counts the page shows grouped (`groupedCount`). The search finds a count in them as it is shown as
    * well as by its own digits: "15,389" and "15389" both find 15,389,009,578. */
   counts?: ReadonlySet<number>;
-  /** Column -> the cell texts to keep. A column without a set keeps every row; an empty set keeps none. */
+  /** Column -> the cell texts to keep. A column without a set keeps every row; an empty set keeps none. In a column that
+   * lists items (`lists`), the texts are items, and a row is kept when any of its items is one of them. */
   filters: ReadonlyMap<number, ReadonlySet<string>>;
+  /** The columns whose cells list several items, by their place: their filters read each item (`filterItems`). */
+  lists?: ReadonlyMap<number, ItemsOf>;
   sort?: Sort;
   /** A jump from another table: keeps the rows whose cell in `column` is exactly `value`. */
   context?: { column: number; value: string };
@@ -97,7 +112,10 @@ export function selectRows<T extends Row>(rows: readonly T[], query: TableQuery)
     return text.toLowerCase().includes(needle) || (counts?.has(column) === true && groupedCount(text).includes(needle));
   };
   if (needle) out = out.filter(row => row.some(found));
-  for (const [column, values] of query.filters) out = out.filter(row => values.has(cellText(row[column])));
+  for (const [column, values] of query.filters) {
+    const items = query.lists?.get(column);
+    out = items ? out.filter(row => filterItems(row, column, items).some(item => values.has(item))) : out.filter(row => values.has(cellText(row[column])));
+  }
   return query.sort ? sortRows(out, query.sort) : out;
 }
 
@@ -133,12 +151,12 @@ export function pageOf<T>(rows: readonly T[], page: number, size: number): Page<
   return { rows: rows.slice(start, start + size), page: current, pages, from: total === 0 ? 0 : start + 1, to: Math.min(total, start + size), total };
 }
 
-/** Each text a column holds, with the number of rows that hold it, in text order: what a column filter offers. */
-export function valueCounts(rows: readonly Row[], column: number): [value: string, count: number][] {
+/** Each text a column holds, with the number of rows that hold it, in text order: what a column filter offers. A column
+ * that lists items (`items`) offers each item, with the number of rows that list it. */
+export function valueCounts(rows: readonly Row[], column: number, items?: ItemsOf): [value: string, count: number][] {
   const counts = new Map<string, number>();
   for (const row of rows) {
-    const value = cellText(row[column]);
-    counts.set(value, (counts.get(value) ?? 0) + 1);
+    for (const value of items ? filterItems(row, column, items) : [cellText(row[column])]) counts.set(value, (counts.get(value) ?? 0) + 1);
   }
   return [...counts].sort(([a], [b]) => collator.compare(a, b) || (a < b ? -1 : a > b ? 1 : 0));
 }
