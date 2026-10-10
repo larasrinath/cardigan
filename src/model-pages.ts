@@ -11,7 +11,7 @@ import { buildReport, HEADERS, NONE, PAGE_TYPE, type Cell, type PageInput } from
 import { plainRows } from "./result-plain.js";
 import type { AnalysisResult, ResultTable } from "./result-types.js";
 import { getJson, RestError } from "./rest.js";
-import { AT_A_TIME, eachAtMost, list, message, SCOPE_ID, text, type Obj } from "./util.js";
+import { AT_A_TIME, eachAtMost, list, message, SCOPE_ID, stepTimes, text, type Obj } from "./util.js";
 
 /** The pages built on a model, read after the model's export in the Anaplan tab (content.ts), with the signed-in session
  * and GET only, as an app's pages are read (analyse.ts): Model Building's own list of the pages built on the model, each
@@ -271,7 +271,9 @@ async function withModelPages(result: AnalysisResult, customerId: string | undef
 
   // A failed read ends here, and `addModelPages` says why the tables are not made.
   progress.status("Reading the pages built on this model…");
-  const answer = await reads.getJson(`${DEFINITION}customer/${customerId}/model/${result.id}/pages`);
+  /** How long each step took: the log's one line on it comes once the tables are made. */
+  const time = stepTimes();
+  const answer = await time.step("list of pages", () => reads.getJson(`${DEFINITION}customer/${customerId}/model/${result.id}/pages`));
   const listed = Array.isArray(answer) ? answer : isObj(answer) && Array.isArray(answer.items) ? answer.items : undefined;
   if (!listed) {
     progress.log(`pages built on the model: the answer has no list of pages (${typeof answer})`);
@@ -296,7 +298,7 @@ async function withModelPages(result: AnalysisResult, customerId: string | undef
   // Each page's published version, a few at a time, in the list's order. A session that has ended ends the reads.
   const read: (ReadPage | undefined)[] = new Array(items.length);
   let [done, unpublished] = [0, 0];
-  await eachAtMost(items, AT_A_TIME, signal, async (item, index) => {
+  await time.step(`${items.length} pages, ${AT_A_TIME} at a time`, () => eachAtMost(items, AT_A_TIME, signal, async (item, index) => {
     const guid = item.guid as string;
     const page = item.hasPublishedVersion === false ? { state: "Not published" } : await reads.readPublished(guid, declaredType(item), progress.log);
     progress.status(`Reading the pages built on this model: ${++done} of ${items.length}`);
@@ -310,7 +312,7 @@ async function withModelPages(result: AnalysisResult, customerId: string | undef
     } catch (error) {
       unread.push(`${text(page.native.name) ?? text(item.name) ?? guid} (${message(error)})`);
     }
-  });
+  }));
   const pages = read.filter((page): page is ReadPage => page !== undefined);
 
   // The apps of the pages, by the name each app's record gives.
@@ -319,7 +321,7 @@ async function withModelPages(result: AnalysisResult, customerId: string | undef
   const appNames = new Map<string, string>();
   let appsUnread = 0;
   if (appGuids.length) progress.status(`Reading the apps of the pages built on this model: ${appGuids.length}`);
-  await eachAtMost(appGuids, AT_A_TIME, signal, async guid => {
+  await time.step(`${appGuids.length} apps`, () => eachAtMost(appGuids, AT_A_TIME, signal, async guid => {
     try {
       const app = await reads.getJson(`${DEFINITION}apps/${guid}?includeUnpublished=true&includeReportPages=true`, { apiVersion: "2" });
       const name = text(isObj(app) ? app.name : undefined);
@@ -330,7 +332,7 @@ async function withModelPages(result: AnalysisResult, customerId: string | undef
       appsUnread++;
       progress.log(`app ${guid}: ${message(error)}`);
     }
-  });
+  }));
   const appName = (guid: string): string => appNames.get(guid.toLowerCase()) ?? guid;
 
   // The names the cards use, from this model, as an app's pages are named. The export read every module's name and ID
@@ -339,7 +341,8 @@ async function withModelPages(result: AnalysisResult, customerId: string | undef
   // The line items the export read stand for the listing's, so that the modules the cards use are not read again.
   const exported = pages.length && lineItemIds ? exportedLineItems(result, lineItemIds, progress.log) : undefined;
   const named = pages.length
-    ? await reads.loadCatalog(scope, pages.map(page => page.details), new Map(pages.map(page => [page.details.pageGuid, page.details.name])), progress, signal, exported)
+    ? await time.step("names", () => reads.loadCatalog(scope, pages.map(page => page.details), new Map(pages.map(page => [page.details.pageGuid, page.details.name])), progress,
+      signal, exported))
     : { catalog: emptyCatalog(), notes: [], failedActionTypes: [] };
   signal?.throwIfAborted();
   for (const [module, id] of result.moduleIds ?? []) if (!named.catalog.modules.has(id)) named.catalog.modules.set(id, module);
@@ -417,5 +420,6 @@ async function withModelPages(result: AnalysisResult, customerId: string | undef
   });
   progress.log(`pages built on the model: ${pages.length} read, ${unpublished} unpublished, ${unread.length} not read; ${apps.length} apps; `
     + `${usage.length} module usage rows, ${filters.length} page filters, ${actions.length} page actions`);
+  progress.log(time.line());
   return result;
 }

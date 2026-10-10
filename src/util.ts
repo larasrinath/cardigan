@@ -18,6 +18,21 @@ export const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, 
 /** A time a step took, for the diagnostic log: seconds with two decimals, "0.62 s". */
 export const seconds = (ms: number): string => `${(Math.max(0, ms) / 1000).toFixed(2)} s`;
 
+/** The times of the steps of a run, for one line of the diagnostic log, which a live run's reader looks at first:
+ * "Time: names 1.20 s, line items 0.84 s". `step` times what it is given and keeps its time; `line` says them all. */
+export function stepTimes(): { step: <T>(what: string, work: () => Promise<T>) => Promise<T>; line: () => string } {
+  const times: string[] = [];
+  return {
+    step: async (what, work) => {
+      const from = Date.now();
+      const done = await work();
+      times.push(`${what} ${seconds(Date.now() - from)}`);
+      return done;
+    },
+    line: () => `Time: ${times.join(", ")}`,
+  };
+}
+
 /** As many reads as a run keeps moving at a time, wherever it reads a list of things one by one: pages, apps, modules' line
  * items, items' names, saved views. Anaplan is asked for no more than that at once. */
 export const AT_A_TIME = 4;

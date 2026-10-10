@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ANAPLAN_HOSTS, NOT_SCOPE_IDS, OTHER_HOSTS, SCOPE_IDS } from "./guards.test-support.js";
-import { ANAPLAN_HOST, AT_A_TIME, eachAtMost, fileSafe, list, message, SCOPE_ID, seconds, sleep, text } from "./util.js";
+import { ANAPLAN_HOST, AT_A_TIME, eachAtMost, fileSafe, list, message, SCOPE_ID, seconds, sleep, stepTimes, text } from "./util.js";
 
 describe("Page analyzer shared patterns and helpers", () => {
   afterEach(() => { vi.useRealTimers(); });
@@ -52,6 +52,22 @@ describe("Page analyzer shared patterns and helpers", () => {
 
   it("says a time a step took in seconds, with two decimals", () => {
     expect([seconds(0), seconds(620), seconds(1234), seconds(61_005), seconds(-5)]).toEqual(["0.00 s", "0.62 s", "1.23 s", "61.01 s", "0.00 s"]);
+  });
+
+  it("says in one line how long each step of a run took, in the order they ended, and gives back what each gave", async () => {
+    vi.useFakeTimers();
+    const time = stepTimes();
+    const names = time.step("names", async () => { await sleep(1200); return "named"; });
+    await vi.advanceTimersByTimeAsync(1200);
+    expect(await names).toBe("named");
+    const lineItems = time.step("line items", () => sleep(840));
+    await vi.advanceTimersByTimeAsync(840);
+    await lineItems;
+    expect(time.line()).toBe("Time: names 1.20 s, line items 0.84 s");
+    // A step that fails is not timed: its failure is passed on.
+    const failure = new Error("refused");
+    await expect(time.step("action names", () => Promise.reject(failure))).rejects.toBe(failure);
+    expect(time.line()).toBe("Time: names 1.20 s, line items 0.84 s");
   });
 
   /** Work that waits until the test answers it, item by item: what was started, in order, and how to end each. */

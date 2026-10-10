@@ -385,6 +385,9 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
       `Synthetic model: 1 processes named (from ${MODEL_HOST})`,
       totals]);
     expect(log.at(-1)).toBe(totals);
+    // Before the totals, how long each step took, and the model's names in all.
+    expect(log.at(-2)?.replace(/\d+\.\d\d s/g, "… s")).toBe("Time: connection and names … s, line items … s, module dimensions … s, item names … s, saved views … s, "
+      + "filter line items … s, filter item names … s, dimension names … s, action names … s; names of Synthetic model in all … s");
   });
 
   it("starts a later run in the tab on the host the model data service sent the model to, and asks nobody else first", async () => {
@@ -2703,8 +2706,8 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
       }
       return new Response("{}", { status: 404 });
     }));
-    const statuses: string[] = [];
-    const done = analyseApp("01234567-89ab-cdef-0123-456789abcdef", { status: text => { statuses.push(text); }, log: () => undefined }, () => "");
+    const [statuses, logged]: string[][] = [[], []];
+    const done = analyseApp("01234567-89ab-cdef-0123-456789abcdef", { status: text => { statuses.push(text); }, log: line => { logged.push(line); } }, () => "");
     await vi.waitFor(() => expect(boards).toHaveLength(4));
     expect(boards.map(board => board.page)).toEqual(pages.slice(0, 4).map(page => page.guid));
     // The third page is answered first: the fifth starts in its place, the others still waiting.
@@ -2720,6 +2723,8 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     expect(statuses.slice(1, 7)).toEqual(pages.map((page, index) => `Reading page ${index + 1} of 6: ${page.name}`));
     const table = result.tables.find(each => each.file === TAB_FILES.Pages)!;
     expect(table.rows.map(row => row[table.headers.indexOf("Page")])).toEqual(pages.map(page => page.name));
+    // The log says how long the app's record and its pages took to read, before the report is built.
+    expect(logged.filter(line => line.startsWith("Time: ")).map(line => line.replace(/\d+\.\d\d s/g, "… s"))).toEqual(["Time: app … s, 6 pages, 4 at a time … s"]);
   });
 
   it("writes each category and each model of the app on a line of its own, and the pages left unpublished on a line after those analysed", async () => {
