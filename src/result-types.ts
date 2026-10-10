@@ -79,8 +79,21 @@ export interface ImportMapping {
   /** Each target of an import into a module or a list, with what feeds it, in the definition's order: none for an import
    * of any other kind, and none where the definition could not be read. */
   targets: MappedTarget[];
+  /** How an import into a list tells the list's items apart, as the dialog's "Items uniquely identified by" says it. None
+   * for an import into a module, and none where the definition says it in no way the dialog knows. */
+  matchedBy?: ItemMatch;
   /** Why there is no mapping, in words for the user, where the definition could not be read. */
   note?: string;
+}
+
+/** How an import into a list tells the list's items apart (anaplan/view/ImportDefinitionHierarchyMapping.js): by their
+ * names or codes, by names alone, by codes alone, or by a combination of the list's properties. */
+export interface ItemMatch {
+  by: "nameOrCode" | "name" | "code" | "properties";
+  /** The properties that together tell an item apart, each by its name, where `by` is "properties". */
+  properties?: string[];
+  /** Whether the list is numbered, where the export knows: the dialog names the choices of a numbered list otherwise. */
+  numbered?: boolean;
 }
 
 /** One of a model's processes, with the actions it runs. */
@@ -108,9 +121,10 @@ export interface ProcessStep {
 }
 
 /** What feeds one target of an import: a column of the file, a constant, a prompt when the import runs, nothing (the target
- * is ignored), the file's header row (the line items, each from the column it heads), nothing mapped, or a source of
- * another kind, which `text` names by Anaplan's word. */
-export type MappedSource = "column" | "constant" | "prompt" | "ignore" | "headerRow" | "none" | "other";
+ * is ignored), the file's header row (the line items, each from the column it heads), nothing mapped, the list itself (a
+ * numbered list's items' names, which the list gives where its items are told apart by code or by properties: the dialog
+ * lets no column feed them then), or a source of another kind, which `text` names by Anaplan's word. */
+export type MappedSource = "column" | "constant" | "prompt" | "ignore" | "headerRow" | "none" | "numbered" | "other";
 
 export interface MappedTarget {
   /** The target by its name: a list, Time, Versions or Line Items, or a line item, for an import into a module; the list's
@@ -122,4 +136,6 @@ export interface MappedTarget {
   column?: number;
   /** A column's heading, where the definition keeps it; a constant's value; or Anaplan's word for a source of another kind. */
   text?: string;
+  /** A column's identifier as the definition writes it, where it gives neither the column's place nor its heading. */
+  id?: string;
 }

@@ -1,6 +1,6 @@
 import { readsFile, SOURCE_TYPE } from "../file-imports.js";
 import { readImportMappings } from "../result-plain.js";
-import type { AnalysisResult, ImportMapping, MappedTarget, ResultTable } from "../result-types.js";
+import type { AnalysisResult, ImportMapping, ItemMatch, MappedTarget, ResultTable } from "../result-types.js";
 import { columnIndex } from "./columns.js";
 import { IMPORTS_FILE } from "./result-view.js";
 import { cellText, type Row } from "./table-engine.js";
@@ -15,10 +15,15 @@ import { cellText, type Row } from "./table-engine.js";
  * its columns by their places, and some by their headings alone, and nothing of the file: not how many columns it has,
  * nor its header row. So a column before the last one mapped that no target takes is not used. Whether there are columns
  * after it is not known, and the page says so rather than guess. A column a target names by its heading alone could be
- * any of them: where there is one, the columns no number takes may be used after all, and the page says that. */
+ * any of them: where there is one, the columns no number takes may be used after all, and the page says that.
+ *
+ * Above the rows of an import into a list stands how it tells the list's items apart, in the dialog's own words: that is
+ * why a list's Name, Parent or Code may rightly be fed by nothing. */
 
-/** A mapping as the drawer shows it: a row of Target and Source for each target, then lines under them. */
+/** A mapping as the drawer shows it: for an import into a list, how it tells the list's items apart, above; a row of Target
+ * and Source for each target; then lines under them. */
 export interface MappingView {
+  match?: string;
   rows: [target: string, source: string][];
   lines: string[];
 }
@@ -51,12 +56,14 @@ const columnsWords = (numbers: readonly number[]): string => `${numbers.length =
 
 const said = (text: string | undefined): text is string => text !== undefined && text.trim() !== "";
 
-/** What feeds a target, in words: the column by its place and its heading, the constant's value, and so on. */
+/** What feeds a target, in words: the column by its place and its heading, the constant's value, and so on. A column the
+ * definition gives only an identifier for is said by it. */
 export function sourceWords(target: MappedTarget): string {
   switch (target.source) {
     case "column":
       if (target.column !== undefined) return said(target.text) ? `Column ${target.column}: ${target.text}` : `Column ${target.column}`;
-      return said(target.text) ? `Column headed ${target.text}` : "A column the definition neither numbers nor names";
+      if (said(target.text)) return `Column headed ${target.text}`;
+      return said(target.id) ? `Column with ID ${target.id}` : "A column the definition neither numbers nor names";
     case "constant":
       return said(target.text) ? `Constant: ${target.text}` : "Constant, with no value given";
     case "prompt":
@@ -67,27 +74,51 @@ export function sourceWords(target: MappedTarget): string {
       return "Header row: each line item from the column it heads";
     case "none":
       return "Not mapped";
+    case "numbered":
+      return "Not mapped: the list numbers its items itself";
     default:
       return said(target.text) ? `A source Cardigan does not know (${target.text})` : "A source Cardigan does not know";
   }
 }
 
+/** How an import into a list tells the list's items apart, in the dialog's words for its choice under "Items uniquely
+ * identified by" (anaplan/nls/importDefinitionHierarchyMapping), which for a numbered list names two choices otherwise. */
+export function matchWords(match: ItemMatch): string {
+  const choice = match.by === "nameOrCode" ? "Name or code"
+    : match.by === "name" ? (match.numbered ? "Name (#ID)" : "Name only")
+    : match.by === "code" ? (match.numbered ? "Code" : "Code only")
+    : `Combination of properties${match.properties?.length ? `: ${listWords(match.properties)}` : ", with none chosen"}`;
+  return `Items uniquely identified by: ${choice}.`;
+}
+
+/** Names as the page says them, in order: "Product", "Product and Location", "Product, Location and Expiry Date". */
+const listWords = (names: readonly string[]): string => (names.length < 2 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`);
+
 /** What the mapping says of the columns it does not use: those before the last column it maps that no target takes, and
- * that what lies after that column is not known. */
+ * that what lies after that column is not known. A target that gives no place for its column could take any column, so
+ * where there is one the columns no number takes may be used after all; and where none gives a place, nothing can be said
+ * of the columns. */
 export function columnLines(targets: readonly MappedTarget[]): string[] {
   const columns = targets.filter(target => target.source === "column");
   if (!columns.length) return ["No column is mapped."];
   const numbered = new Set(columns.flatMap(target => (target.column === undefined ? [] : [target.column])));
-  const headed = columns.length - columns.filter(target => target.column !== undefined).length;
-  if (!numbered.size) return ["Each column mapped is named by its heading alone, so Cardigan cannot say which columns are not used."];
+  const loose = columns.filter(target => target.column === undefined);
+  const headed = loose.every(target => said(target.text));
+  if (!numbered.size) {
+    return [headed ? "Each column mapped is named by its heading alone, so Cardigan cannot say which columns are not used."
+      : "The definition gives no column's place, so Cardigan cannot say which columns are not used."];
+  }
   const last = Math.max(...numbered);
   const unused = Array.from({ length: last }, (_, index) => index + 1).filter(column => !numbered.has(column));
   const be = (numbers: readonly number[]): string => (numbers.length === 1 ? "is" : "are");
   const allUsed = last === 1 ? "Column 1 is used." : last === 2 ? "Columns 1 and 2 are both used." : `Columns 1 to ${last} are all used.`;
   const lines = [unused.length ? `${columnsWords(unused)} ${be(unused)} not used.` : allUsed];
-  if (headed && unused.length) {
-    lines[0] = `${columnsWords(unused)} ${be(unused)} not mapped by number. ${headed === 1 ? "1 target names its column" : `${headed} targets name their columns`} `
-      + `by heading alone, and may use ${unused.length === 1 ? "it" : "them"}.`;
+  if (loose.length && unused.length) {
+    const them = unused.length === 1 ? "it" : "them";
+    const one = loose.length === 1;
+    lines[0] = `${columnsWords(unused)} ${be(unused)} not mapped by number. ` + (headed
+      ? `${one ? "1 target names its column" : `${loose.length} targets name their columns`} by heading alone, and may use ${them}.`
+      : `${one ? "1 target gives no place for its column" : `${loose.length} targets give no place for their columns`}, and may use ${them}.`);
   }
   lines.push(`Whether there are columns after column ${last} is not known: Anaplan keeps the import's mapping, not the header row it was made from.`);
   return lines;
@@ -102,8 +133,9 @@ export function mappingView(mapping: ImportMapping | undefined): MappingView {
     const loads = LOADS.get(mapping.importType);
     return { rows: [], lines: [`${loads ? `This import loads ${loads}.` : "This import loads neither a module nor a list."} ${ONLY_LISTED}`] };
   }
-  if (!mapping.targets.length) return { rows: [], lines: ["The import's definition maps no target."] };
-  return { rows: mapping.targets.map((target): [string, string] => [target.target, sourceWords(target)]), lines: columnLines(mapping.targets) };
+  const match = mapping.matchedBy ? { match: matchWords(mapping.matchedBy) } : {};
+  if (!mapping.targets.length) return { ...match, rows: [], lines: ["The import's definition maps no target."] };
+  return { ...match, rows: mapping.targets.map((target): [string, string] => [target.target, sourceWords(target)]), lines: columnLines(mapping.targets) };
 }
 
 /** The mapping for a row of a model's Imports, where its Source Type says that it reads a file (file-imports.ts
