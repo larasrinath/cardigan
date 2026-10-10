@@ -2,6 +2,12 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version stands next to Cardigan's name at the top of the results page and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## 0.16.2 (10 October 2026)
+
+A page of the model's settings opens inside Model Building, as a module and a list do.
+
+- **Settings pages keep the tabs open in Model Building.** **Model** on a row of Model Calendar, Time Ranges, Versions, Line Item Subsets, Processes, Imports, Exports, Other Actions, Import Data Sources, Page Actions or Source Models opens its page (Time, Versions, Line Item Subsets, Actions or Source Models) inside the Model Building page the Anaplan tab shows, where it loaded the page's address, which loaded Model Building afresh and closed the modules and lists open there. Cardigan's script in the model's frame asks the frame to load the page, as the frame loads it when Model Building's own sidebar opens it; Model Building then makes it its settings tab and puts it in its address. Where the tab shows anything else, or the frame cannot, the page's address is loaded, as before, and the log says which way each went. (#46)
+
 ## 0.16.1 (10 October 2026)
 
 The map opens on the functional areas its builders set, however many there are.
