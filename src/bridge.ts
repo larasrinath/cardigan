@@ -1,5 +1,5 @@
 import { stampLine } from "./details.js";
-import { Failure, failureOf, REFRESH, SEND_LOG, UNEXPECTED, type Progress, type Stop } from "./progress.js";
+import { Failure, failureOf, OldReader, REFRESH, SEND_LOG, UNEXPECTED, type Progress, type Stop } from "./progress.js";
 import { plainResult, textOf } from "./result-plain.js";
 import type { AnalysisResult } from "./result-types.js";
 import { SCOPE_ID, sleep } from "./util.js";
@@ -12,9 +12,19 @@ import { BUILD } from "./version.js";
  * the result (the export's files as tables) back. The shell can also ask it to open one of the model's modules or lists
  * in the page, as Model Building's own Modules list and General Lists open one (`openInCore`).
  * Each side accepts messages only from the other window and only from an Anaplan origin. On the classic model page opened
- * on its own there is no frame: the core side runs in the page's own window, and the other window is that same window. */
+ * on its own there is no frame: the core side runs in the page's own window, and the other window is that same window.
+ *
+ * A frame can hold two readers: the one Chrome put there as the page loaded, and one of a later build that the results
+ * page put beside it since (results/connection.ts `renewReader`). Checking in is common to all of them (PROTOCOL), so
+ * that the page hears every reader and the build each is of. What sets a reader to work, and what it answers, goes on a
+ * channel of its own (RUN_PROTOCOL), each message with its build, and a reader takes only its own build's: so only the
+ * reader of the content script's build reads the model or opens anything. A reader made before that channel listens on
+ * PROTOCOL alone, and hears none of it. */
 
 export const PROTOCOL = "cardigan-model-export";
+/** The channel of a run and of an ask to open: "run", "stop" and "open" to the reader, and "status", "log", "alive",
+ * "done", "error" and "opened" back. Every message on it says its build (version.ts `BUILD`). */
+export const RUN_PROTOCOL = "cardigan-model-reader";
 export const ANAPLAN_ORIGIN = /^https:\/\/[a-z0-9.-]+\.anaplan\.com$/i;
 const WAIT_FOR_CORE_MS = 20_000;
 /** Why an export that was asked to stop ends. */
@@ -49,6 +59,13 @@ const ours = (event: MessageEvent): Message | undefined => {
   const data = event.data as Message | null;
   return data && typeof data === "object" && data.protocol === PROTOCOL && ANAPLAN_ORIGIN.test(event.origin) ? data : undefined;
 };
+/** A message of a run or of an ask to open, of this very build: one of another build is for another reader. */
+const ofThisBuild = (event: MessageEvent): Message | undefined => {
+  const data = event.data as Message | null;
+  return data && typeof data === "object" && data.protocol === RUN_PROTOCOL && data.build === BUILD && ANAPLAN_ORIGIN.test(event.origin) ? data : undefined;
+};
+/** A message on the run channel, with this build. */
+const onRun = (message: Message): Message => ({ protocol: RUN_PROTOCOL, build: BUILD, ...message });
 
 /** Shell side: remembers the model's core frame when it announces itself, and acknowledges it. */
 export function watchCore(self: MessageTarget, onCore: (core: CoreHandle) => void): void {
@@ -79,13 +96,13 @@ export function runInCore(self: MessageTarget, core: CoreHandle, progress: Progr
     };
     /** Ends the run while the frame may still be exporting for it: the frame is told to stop. */
     const giveUp = (error: unknown) => {
-      core.source.postMessage({ protocol: PROTOCOL, type: "stop", nonce }, core.origin);
+      core.source.postMessage(onRun({ type: "stop", nonce }), core.origin);
       finish({ error });
     };
     const idle = () => { clearTimeout(timer); timer = setTimeout(() => giveUp(new Failure(QUIET, `the model's frame sent nothing for ${idleMs / 1000} s`)), idleMs); };
     const stop = () => giveUp(signal?.reason ?? new Error(STOPPED));
     const listener = (event: MessageEvent) => {
-      const data = ours(event);
+      const data = ofThisBuild(event);
       if (!data || event.source !== (core.source as unknown) || event.origin !== core.origin || data.nonce !== nonce) return;
       // Whatever the frame sends for this run starts the wait again. For "alive" that is all: it is not passed on.
       idle();
@@ -105,18 +122,40 @@ export function runInCore(self: MessageTarget, core: CoreHandle, progress: Progr
     self.addEventListener("message", listener);
     signal?.addEventListener("abort", stop, { once: true });
     idle();
-    core.source.postMessage({ protocol: PROTOCOL, type: "run", nonce }, core.origin);
+    core.source.postMessage(onRun({ type: "run", nonce }), core.origin);
   });
+}
+
+/** How long the page waits, once a reader of another build has checked in, for one of this build to check in as well. One
+ * that the results page has just put into the frame does within a second or two (results/connection.ts `renewReader`). */
+const OWN_READER_WAIT_MS = 4000;
+
+/** The origin of the page a window holds, or nothing where it cannot be read. */
+function originOf(self: Window): string | undefined {
+  try {
+    const origin = (self as { location?: { origin?: unknown } }).location?.origin;
+    return typeof origin === "string" ? origin : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Shell side: the model's own frame (the classic client inside this page) does the reading. Waits for it to check in,
  * asking every frame once a second, then runs the export there. `model` is the model the page's address names. A frame
- * whose reader is of another build than this script, or says none, is not asked: the tab has to be refreshed first
- * (`OLD_READER`), and the log says which builds the two are. */
+ * whose reader is of another build than this script, or says none, is not asked: after a few seconds more for one of
+ * this build to check in beside it, the run fails with `OLD_READER` (progress.ts `OldReader`). That says whether the
+ * frame is on this page's origin, where the results page may put this build's reader itself, and the log says which
+ * builds the two are. */
 export async function exportInCore(self: Window, core: () => CoreHandle | undefined, probes: () => Iterable<FrameProbe>, model: string, progress: Progress,
   signal?: AbortSignal, waitMs = WAIT_FOR_CORE_MS): Promise<AnalysisResult> {
   const deadline = Date.now() + waitMs;
-  while (!core() && Date.now() < deadline) {
+  /** When a reader of another build was first heard, while none of this build has been. */
+  let otherSince: number | undefined;
+  for (;;) {
+    const found = core();
+    if (found?.build === BUILD) break;
+    if (found) otherSince ??= Date.now();
+    if (Date.now() >= deadline || (otherSince !== undefined && Date.now() - otherSince >= OWN_READER_WAIT_MS)) break;
     signal?.throwIfAborted();
     progress.status("Waiting for the model's frame…");
     greetFrames(self);
@@ -127,7 +166,12 @@ export async function exportInCore(self: Window, core: () => CoreHandle | undefi
   for (const probe of seen) progress.log(describeProbe(probe));
   const found = core();
   if (!found) throw new Failure(NO_MODEL, seen.length ? `the model's frame did not answer; ${seen.length} frame(s) reported in` : "no frame reported in");
-  if (found.build !== BUILD) throw new Failure(OLD_READER, `the model's reader is ${found.build === undefined ? "of a build that names none" : `build ${found.build}`}; this script is build ${BUILD}`);
+  if (found.build !== BUILD) {
+    const page = originOf(self);
+    const renewable = page !== undefined && found.origin === page;
+    throw new OldReader(OLD_READER, `the model's reader is ${found.build === undefined ? "of a build that names none" : `build ${found.build}`}; this script is build ${BUILD}; `
+      + `its frame is ${renewable ? "on the page's own origin" : `on ${found.origin}, the page on ${page ?? "an origin it does not say"}`}`, renewable);
+  }
   if (found.modelId.toUpperCase() !== model.toUpperCase()) progress.log("the model frame reports a different model than this page's address");
   return runInCore(self, found, progress, undefined, signal);
 }
@@ -147,23 +191,24 @@ export function openInCore(self: MessageTarget, core: CoreHandle, model: string,
       resolve(opened);
     };
     const listener = (event: MessageEvent) => {
-      const data = ours(event);
+      const data = ofThisBuild(event);
       if (data?.type === "opened" && data.nonce === nonce && event.source === (core.source as unknown) && event.origin === core.origin) finish(data.opened === true);
     };
     const timer = setTimeout(() => finish(false), waitMs);
     self.addEventListener("message", listener);
-    core.source.postMessage({ protocol: PROTOCOL, type: "open", nonce, model, object }, core.origin);
+    core.source.postMessage(onRun({ type: "open", nonce, model, object }), core.origin);
   });
 }
 
 /** Core side: opens a module or a list when the top window asks (`openInCore`), and says whether it did. `opener` does
- * the opening (model/open-object.ts); the object's ID and the model's are checked before it is asked. */
-export function serveOpen(self: MessageTarget, top: Endpoint, opener: (model: string, object: string) => Promise<boolean>): () => void {
+ * the opening (model/open-object.ts); the object's ID and the model's are checked before it is asked. `current` is false
+ * once a later reader serves this frame (model-content.ts): this one then opens nothing. */
+export function serveOpen(self: MessageTarget, top: Endpoint, opener: (model: string, object: string) => Promise<boolean>, current: () => boolean = () => true): () => void {
   const listener = (event: MessageEvent) => {
-    const data = ours(event);
-    if (data?.type !== "open" || event.source !== (top as unknown) || typeof data.nonce !== "string" || typeof data.model !== "string" || !SCOPE_ID.test(data.model)
+    const data = ofThisBuild(event);
+    if (data?.type !== "open" || event.source !== (top as unknown) || !current() || typeof data.nonce !== "string" || typeof data.model !== "string" || !SCOPE_ID.test(data.model)
       || typeof data.object !== "string" || !/^\d{1,19}$/.test(data.object)) return;
-    const reply = (opened: boolean) => top.postMessage({ protocol: PROTOCOL, type: "opened", nonce: data.nonce, opened }, event.origin);
+    const reply = (opened: boolean) => top.postMessage(onRun({ type: "opened", nonce: data.nonce, opened }), event.origin);
     opener(data.model, data.object).then(reply, () => reply(false));
   };
   self.addEventListener("message", listener);
@@ -217,19 +262,24 @@ export function greetFrames(root: Window, depth = 0): void {
  * grid it reads, whichever comes first: the read that is under way is let finish, and nothing is read after it. A "run"
  * that arrives before then takes the export over, so a second export never starts beside the first. An export that is
  * not stopped tells the top window before each page of a grid that it is still going ("alive"), which is all that keeps
- * the top window waiting while a grid of many pages is read (runInCore). */
+ * the top window waiting while a grid of many pages is read (runInCore). It takes a run only of its own build, on the run
+ * channel (RUN_PROTOCOL). `current` is false once a later reader serves this frame (model-content.ts): this one then
+ * neither announces itself nor takes a run. */
 export function serveCore(self: MessageTarget, top: Endpoint, modelId: () => string | undefined,
-  exporter: (progress: Progress, diagnostics: () => string, stop: Stop) => Promise<AnalysisResult>, announceMs = 2000, announceForMs = 10 * 60_000): () => void {
+  exporter: (progress: Progress, diagnostics: () => string, stop: Stop) => Promise<AnalysisResult>, announceMs = 2000, announceForMs = 10 * 60_000,
+  current: () => boolean = () => true): () => void {
   let running: { nonce: string; origin: string; stopped: boolean } | undefined;
-  const announce = () => { const id = modelId(); if (id) top.postMessage({ protocol: PROTOCOL, type: "core-ready", modelId: id, build: BUILD }, "*"); };
+  const announce = () => { const id = current() ? modelId() : undefined; if (id) top.postMessage({ protocol: PROTOCOL, type: "core-ready", modelId: id, build: BUILD }, "*"); };
   const timer = setInterval(announce, announceMs);
   const stopAnnouncing = setTimeout(() => clearInterval(timer), announceForMs);
   announce();
   const listener = (event: MessageEvent) => {
-    const data = ours(event);
-    if (!data || event.source !== (top as unknown)) return;
-    if (data.type === "ack") { clearInterval(timer); return; }
-    if (data.type === "hello") { announce(); return; }
+    if (event.source !== (top as unknown)) return;
+    const common = ours(event);
+    if (common?.type === "ack") { clearInterval(timer); return; }
+    if (common?.type === "hello") { announce(); return; }
+    const data = ofThisBuild(event);
+    if (!data || !current()) return;
     if (data.type === "stop") { if (running && data.nonce === running.nonce) running.stopped = true; return; }
     if (data.type !== "run" || typeof data.nonce !== "string") return;
     if (running) {
@@ -237,7 +287,7 @@ export function serveCore(self: MessageTarget, top: Endpoint, modelId: () => str
       return;
     }
     const run = running = { nonce: data.nonce, origin: event.origin, stopped: false };
-    const reply = (message: Message) => top.postMessage({ protocol: PROTOCOL, nonce: run.nonce, ...message }, run.origin);
+    const reply = (message: Message) => top.postMessage(onRun({ nonce: run.nonce, ...message }), run.origin);
     const lines: string[] = [];
     /** What ends a stopped export: every step asks it first. */
     const check = () => { if (run.stopped) throw new Error(STOPPED); };

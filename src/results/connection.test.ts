@@ -2,10 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FRESH_MS, ROWS_MAX, type TabMessage } from "../protocol.js";
 import type { AnalysisResult, Cell } from "../result-types.js";
 import { resultZip } from "../result-zip.test-support.js";
-import { CONTENT_SCRIPT } from "../protocol.js";
+import { CONTENT_SCRIPT, MODEL_READER } from "../protocol.js";
 import {
-  describeState, MAX_LOG_LINES, NO_REASON, OPEN_WAIT_MS, openedJustNow, repairTab, ResultsClient, runLabel, tabIdFrom, UNREADABLE, withoutOpened, type Repair, type RunState,
-  type TabPort,
+  describeState, MAX_LOG_LINES, NO_REASON, OPEN_WAIT_MS, openedJustNow, REFRESH_AND_RUN, reloadTab, renewReader, repairTab, ResultsClient, runLabel, tabIdFrom, UNREADABLE,
+  withoutOpened, type Renewal, type Repair, type RunState, type TabPort,
 } from "./connection.js";
 
 /** A port as the page holds it. What the page posts arrives as a copy, as Chrome delivers it, and so does what the tab sends. */
@@ -43,7 +43,8 @@ class FakePort implements TabPort {
 /** A page's client with every port it opened, every state it was told and the log as last shown. Unless a test says
  * otherwise, it is a page the icon has just opened. */
 function page(options: { noTab?: boolean; closeReason?: string; connect?: () => TabPort; autoRun?: boolean; repair?: () => Promise<Repair>;
-  retries?: { count: number; pauseMs: number }; tabGone?: () => Promise<boolean>; wait?: (ms: number) => Promise<void> } = {}) {
+  retries?: { count: number; pauseMs: number }; tabGone?: () => Promise<boolean>; wait?: (ms: number) => Promise<void>; renew?: () => Promise<Renewal>;
+  reload?: () => Promise<void> } = {}) {
   const ports: FakePort[] = [];
   const states: RunState[] = [];
   let shownLog: string[] = [];
@@ -59,6 +60,8 @@ function page(options: { noTab?: boolean; closeReason?: string; connect?: () => 
     retries: options.retries,
     tabGone: options.tabGone,
     wait: options.wait,
+    renew: options.renew,
+    reload: options.reload,
     onState: state => states.push(state),
     onLog: lines => { shownLog = [...lines]; },
   });
@@ -825,5 +828,164 @@ describe("A tab whose content script does not answer", () => {
     expect(await repairTab(scripting(""), 7)).toEqual({ put: false, notAnaplan: "a page Cardigan cannot read" });
     expect(calls).toEqual(["probe", "probe"]);
     expect(await repairTab(scripting(new Error("Cannot access contents of the page.")), 7)).toEqual({ put: false });
+  });
+});
+
+describe("A model whose frame still holds the reader of an earlier build", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(Date.UTC(2026, 9, 10, 14, 2, 5)));
+  });
+  afterEach(() => { vi.useRealTimers(); });
+  /** Lets the steps that wait on a promise go on. */
+  const settle = async () => { for (let step = 0; step < 10; step++) await Promise.resolve(); };
+  const STALE = "This Anaplan tab was open before Cardigan was updated or reloaded, and still holds the earlier Cardigan's model reader.";
+  /** What the tab says when a run found the reader of an earlier build: the line of its log first, then the error. */
+  const refused = (port: FakePort, renewable: boolean) => {
+    port.send({ type: "log", text: "14:02:05 stopped: the model's reader is build 0a1b2c3d4e5f; this script is build dev" });
+    port.send({ type: "error", message: `${STALE} Refresh the Anaplan tab, wait until the model shows, then choose Run again.`, code: "OLD_READER", renewable });
+  };
+  const result = (port: FakePort) => {
+    port.send({ type: "result", result: empty() });
+    full().tables.forEach((table, index) => port.send({ type: "rows", table: index, rows: table.rows }));
+    port.send({ type: "done" });
+  };
+
+  it("puts this build's reader into the tab, where the frame is within reach, and reads the model again at once on the same port, the log going on", async () => {
+    const renew = vi.fn(async (): Promise<Renewal> => ({ put: true, frames: 3 }));
+    const reload = vi.fn(async () => undefined);
+    const { client, ports, states, log } = page({ renew, reload });
+    client.start();
+    ports[0].send({ type: "subject", subject: MODEL });
+    refused(ports[0], true);
+    await settle();
+    expect([renew.mock.calls.length, ports.length, ports[0].posted]).toEqual([1, 1, [RUN, RUN]]);
+    expect(states.slice(1)).toEqual([{ phase: "running", status: "Starting the analysis…" }, { phase: "running", status: "Putting Cardigan's new model reader into the Anaplan tab…" },
+      { phase: "running", status: "Starting the analysis…" }]);
+    expect(log()).toEqual(["14:02:05 stopped: the model's reader is build 0a1b2c3d4e5f; this script is build dev",
+      "14:02:05 Cardigan put its model reader into the tab (3 frames) in place of a refresh, and reads the model again."]);
+    result(ports[0]);
+    expect(client.state.phase).toBe("done");
+    // Nothing refreshed the tab.
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it("says the tab needs a refresh where the frame is on another Anaplan host, puts nothing there, and refreshes the tab only when asked, then reads the model once it shows", async () => {
+    const renew = vi.fn(async (): Promise<Renewal> => ({ put: true, frames: 1 }));
+    let loaded: () => void = () => undefined;
+    const reload = vi.fn(() => new Promise<void>(resolve => { loaded = resolve; }));
+    const { client, ports, states, log } = page({ renew, reload });
+    client.start();
+    ports[0].send({ type: "subject", subject: MODEL });
+    refused(ports[0], false);
+    await settle();
+    expect([renew.mock.calls.length, client.state]).toEqual([0, { phase: "old-reader", otherHost: true }]);
+    expect(log().at(-1)).toBe("14:02:05 The model's frame is on another Anaplan host than the tab's page: Chrome lets Cardigan put its reader there only with a refresh.");
+    expect(describeState(client.state, true)).toEqual({ title: "The Anaplan tab needs a refresh",
+      message: `${STALE} The model is served from another Anaplan host than the page around it, where Chrome lets Cardigan put its new reader only when the tab is refreshed.`,
+      hint: `Choose ${REFRESH_AND_RUN}: the tab reloads, and Cardigan reads the model as soon as it shows. The refresh closes the modules and lists you have open in Model Building.` });
+    // Nothing refreshes the tab by itself, however long the page waits.
+    await settle();
+    expect(reload).not.toHaveBeenCalled();
+
+    // The user asks: the port is let go first, so that its closing is no interruption, and the tab is refreshed.
+    const asking = client.refreshAndRun();
+    expect([reload.mock.calls.length, ports[0].closedByPage, client.state]).toEqual([1, true, { phase: "running", status: "Refreshing the Anaplan tab…" }]);
+    ports[0].drop();
+    expect(client.state.phase).toBe("running");
+    loaded();
+    await asking;
+    // Once the page has loaded, a new port, and a run that waits for the model's frame to open again.
+    expect(ports).toHaveLength(2);
+    ports[1].send({ type: "subject", subject: MODEL });
+    expect(ports[1].posted).toEqual([{ type: "run", afterRefresh: true }]);
+    expect(log()).toContain("14:02:05 Refreshing the Anaplan tab, as asked, so that it loads this build's model reader.");
+    result(ports[1]);
+    expect(client.state.phase).toBe("done");
+    expect(states.map(state => (state.phase === "running" ? state.status : state.phase))).toEqual(["connecting", "Starting the analysis…", "old-reader", "Refreshing the Anaplan tab…",
+      "connecting", "Starting the analysis…", "Receiving the result…", "done"]);
+    // The next run is a run like any other.
+    client.runAgain();
+    expect(ports[1].posted.at(-1)).toEqual(RUN);
+    expect([renew.mock.calls.length, reload.mock.calls.length]).toEqual([0, 1]);
+  });
+
+  it("says the tab needs a refresh when the reader it put there does not answer, or Chrome refuses it, tries once per run asked for, and never refreshes unasked", async () => {
+    const answers: Renewal[] = [{ put: true, frames: 2 }, { put: false, why: "Cannot access contents of the page." }];
+    const renew = vi.fn(async (): Promise<Renewal> => answers.shift() ?? { put: true, frames: 1 });
+    const reload = vi.fn(async () => undefined);
+    const { client, ports, log } = page({ renew, reload });
+    client.start();
+    ports[0].send({ type: "subject", subject: MODEL });
+    refused(ports[0], true);
+    await settle();
+    // The reader put there did not check in: the run finds the earlier one again, and nothing is put there a second time.
+    refused(ports[0], true);
+    await settle();
+    expect([renew.mock.calls.length, client.state]).toEqual([1, { phase: "old-reader", otherHost: false }]);
+    expect(describeState(client.state, true).message).toBe(`${STALE} Cardigan could not put its new reader into the open page.`);
+    // Run again tries once more: Chrome refuses this time, and the log says why.
+    client.runAgain();
+    refused(ports[0], true);
+    await settle();
+    expect([renew.mock.calls.length, client.state]).toEqual([2, { phase: "old-reader", otherHost: false }]);
+    expect(log().at(-1)).toBe("14:02:05 Cardigan could not put its model reader into the tab: Cannot access contents of the page.");
+    expect(reload).not.toHaveBeenCalled();
+    // Without a way to put the reader there, the page says at once that the tab needs a refresh.
+    const bare = page({});
+    bare.client.start();
+    bare.ports[0].send({ type: "subject", subject: MODEL });
+    refused(bare.ports[0], true);
+    await settle();
+    expect(bare.client.state).toEqual({ phase: "old-reader", otherHost: false });
+  });
+
+  it("refreshes nothing outside that state, and says so when the tab cannot be refreshed: closed, or as it was", async () => {
+    const reload = vi.fn(async () => { throw new Error("No tab with id: 7."); });
+    let gone = true;
+    const { client, ports, log } = page({ reload, tabGone: async () => gone });
+    client.start();
+    await client.refreshAndRun();
+    ports[0].send({ type: "subject", subject: MODEL });
+    await client.refreshAndRun();
+    expect(reload).not.toHaveBeenCalled();
+    refused(ports[0], false);
+    await settle();
+    await client.refreshAndRun();
+    expect([reload.mock.calls.length, client.state]).toEqual([1, { phase: "tab-closed" }]);
+    expect(log().at(-1)).toBe("14:02:05 The Anaplan tab could not be refreshed: No tab with id: 7.");
+    // A tab that is still there stays as it was: the button is offered again.
+    gone = false;
+    const other = page({ reload, tabGone: async () => gone });
+    other.client.start();
+    other.ports[0].send({ type: "subject", subject: MODEL });
+    refused(other.ports[0], false);
+    await settle();
+    await other.client.refreshAndRun();
+    expect(other.client.state).toEqual({ phase: "old-reader", otherHost: true });
+  });
+
+  it("puts the reader into every frame of the tab within reach, in the page's own world, and refreshes a tab and waits for its page to load", async () => {
+    const injections: unknown[] = [];
+    const scripting = (outcome: unknown[] | Error) => ({ executeScript: async (injection: unknown) => {
+      injections.push(injection);
+      if (outcome instanceof Error) throw outcome;
+      return outcome as { frameId?: number }[];
+    } });
+    expect(await renewReader(scripting([{ frameId: 0 }, { frameId: 3 }, { frameId: 4 }]), 7)).toEqual({ put: true, frames: 3 });
+    expect(injections).toEqual([{ target: { tabId: 7, allFrames: true }, files: [MODEL_READER], world: "MAIN" }]);
+    expect(await renewReader(scripting(new Error("Cannot access contents of the page.")), 7)).toEqual({ put: false, why: "Cannot access contents of the page." });
+
+    const asked: string[] = [];
+    const statuses = ["loading", "loading", "complete"];
+    const tabs = { reload: async (id: number) => { asked.push(`reload ${id}`); }, get: async (id: number) => { asked.push(`get ${id}`); return { id, index: 0, status: statuses.shift() ?? "loading" }; } };
+    const waits: number[] = [];
+    await reloadTab(tabs, 7, async ms => { waits.push(ms); });
+    expect([asked, waits]).toEqual([["reload 7", "get 7", "get 7", "get 7"], [500, 500, 500]]);
+    // A page that never says it has loaded is waited for no longer than the limit.
+    asked.length = 0;
+    waits.length = 0;
+    await reloadTab(tabs, 7, async ms => { waits.push(ms); }, 500, 2000);
+    expect([asked.length, waits]).toEqual([5, [500, 500, 500, 500]]);
   });
 });

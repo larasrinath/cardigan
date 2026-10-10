@@ -9,7 +9,7 @@ import { VERSION } from "../version.js";
 import { cellLists, rowItems, type CellList } from "./cell-lists.js";
 import { columnWidths } from "./column-widths.js";
 import { cardsNamed, cardsOf, columnIndex, columnsOf, rowKeys, rowNameIndex, writesNone, type CardsTable, type Column, type RowKeys } from "./columns.js";
-import { describeState, openedJustNow, repairTab, ResultsClient, runLabel, tabIdFrom, withoutOpened, type RunState } from "./connection.js";
+import { describeState, openedJustNow, reloadTab, renewReader, repairTab, ResultsClient, runLabel, tabIdFrom, withoutOpened, type RunState } from "./connection.js";
 import { mappingOfRow } from "./import-mapping-view.js";
 import { processOfRow, type StepView } from "./process-actions-view.js";
 import { analysedLine, notKeptNote } from "./keep-notes.js";
@@ -505,7 +505,7 @@ function showKept(kept: unknown, at: Date): boolean {
 }
 
 /** The states in which a run did not start or did not finish. */
-const STOPPED: ReadonlySet<RunState["phase"]> = new Set(["unreachable", "not-anaplan", "tab-closed", "no-subject", "failed", "interrupted"]);
+const STOPPED: ReadonlySet<RunState["phase"]> = new Set(["unreachable", "not-anaplan", "tab-closed", "no-subject", "failed", "interrupted", "old-reader"]);
 
 /** Connecting, running, or why there is no new result. Before the first result this is the whole view. Once a result is on
  * the page it stays there until a new one is complete, and the same words stand in the banner area above it: a run that
@@ -540,6 +540,8 @@ function showRun(runState: RunState): void {
     set("#runStatus", text.message);
     set("#runHint", text.hint);
   }
+  // The one control that refreshes the Anaplan tab, there only while the tab still holds the reader of an earlier build.
+  for (const button of document.querySelectorAll("#runRefresh, #bannerRefresh")) (button as HTMLElement).hidden = runState.phase !== "old-reader";
   showLog(client.log);
   updateActions();
   announce(text.message);
@@ -1072,17 +1074,31 @@ async function newTab(url: string): Promise<chrome.tabs.Tab | undefined> {
   }
 }
 
+/** How long a model's reader just put into the tab takes to check in with the tab's content script: it looks for the
+ * model once a second (model-content.ts). */
+const READER_CHECKS_IN_MS = 1500;
+
 /** Opens a module or a list of the model in the model's tab: the Anaplan tab this page reads, or, once that was closed, the
  * one tab that took its place. That tab and its window come to the front; the details stay open here.
  * `object`, its ID, is first asked of the Anaplan tab itself, which opens it inside the Model Building page it shows,
- * beside the tabs open there, where it can (content.ts): the page does not load afresh. Where it cannot, or says nothing in
- * time, the address is loaded in the model's tab, which opens the model afresh with that object alone. The run's log says
- * which tab took it, and which way. */
+ * beside the tabs open there, where it can (content.ts): the page does not load afresh. A tab whose model's frame still
+ * holds the reader of an earlier build is given this build's first, as a run gives it (connection.ts `renewReader`), and
+ * asked again. Where it cannot, or says nothing in time, the address is loaded in the model's tab, which opens the model
+ * afresh with that object alone. The run's log says which tab took it, and which way. */
 async function openInModel(url: string, what: string, object?: string): Promise<void> {
   const replacement = await modelTab.get();
   let why: string | undefined;
   if (object !== undefined && result?.kind === "model" && replacement === undefined && tabId !== undefined) {
-    const answer = await client.openInPage(result.id, object);
+    let answer = await client.openInPage(result.id, object);
+    if (answer?.oldReader && !answer.opened) {
+      const renewal = await renewReader(chrome.scripting, tabId);
+      client.note(renewal.put ? `Cardigan put its model reader into the tab (${renewal.frames} ${renewal.frames === 1 ? "frame" : "frames"}), to open ${what} inside the page.`
+        : `Cardigan could not put its model reader into the tab: ${renewal.why}`);
+      if (renewal.put) {
+        await new Promise(resolve => { setTimeout(resolve, READER_CHECKS_IN_MS); });
+        answer = await client.openInPage(result.id, object);
+      }
+    }
     if (answer?.opened) {
       client.note(`Opened ${what} inside the Model Building page of the Anaplan tab Cardigan read: ${answer.detail}.`);
       await toFront(await chrome.tabs.update(tabId, { active: true }).catch(() => undefined));
@@ -1507,6 +1523,11 @@ document.addEventListener("click", event => {
       case "copy-run-log":
         void copyText(client.log.join("\n"), "the diagnostic log");
         return;
+      // The tab still holds the model reader of an earlier build, and this build's could not take its place: the tab is
+      // refreshed, and the model read once it shows. Only this button refreshes the tab.
+      case "refresh-run":
+        void client.refreshAndRun();
+        return;
       // The copy the tab keeps for a refresh goes: the result stays on the page, with its tables. A model's map that
       // was built from it goes with the copy, and its entry builds it afresh when it is next chosen.
       // The control goes with what it removed: the line that says so takes its place and the focus. The page
@@ -1703,6 +1724,10 @@ const client = new ResultsClient({
   // A tab open since before Cardigan was installed, updated or reloaded has no content script until the page puts it there,
   // which the icon's click allows. A tab that is still loading answers within a few seconds.
   repair: tabId === undefined ? undefined : () => repairTab(chrome.scripting, tabId),
+  // Nor this build's model reader, which the page puts beside the earlier one where the icon's click reaches the model's
+  // frame. Where it does not, the page offers to refresh the tab, and refreshes it only when the user asks.
+  renew: tabId === undefined ? undefined : () => renewReader(chrome.scripting, tabId),
+  reload: tabId === undefined ? undefined : () => reloadTab(chrome.tabs, tabId),
   retries: { count: 10, pauseMs: 500 },
   tabGone: tabId === undefined ? undefined : () => chrome.tabs.get(tabId).then(() => false, () => true),
   onState: next => {

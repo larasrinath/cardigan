@@ -5,6 +5,7 @@ import type { Subject } from "./protocol.js";
 import { RestError } from "./rest.js";
 import { serveTab, type Opened } from "./tab-port.js";
 import { sleep } from "./util.js";
+import { withVersion } from "./version-label.js";
 import { BUILD } from "./version.js";
 
 /** The page the user sees: the top window of an Anaplan tab, in the isolated world. It puts nothing on the page and reads
@@ -27,13 +28,25 @@ const CUSTOMER_PATH = /\/a\/modeling(?:-ui)?\/customers\/([0-9A-Fa-f]{32})(?:[/?
 const page = window as unknown as { cardiganServing?: symbol };
 const me = Symbol("cardigan");
 
+/** How long a run waits for the model's frame when the results page has just refreshed the tab for it (protocol.ts "run"
+ * `afterRefresh`): a model takes a while to open again. Otherwise the export waits as long as it always has. */
+const AFTER_REFRESH_WAIT_MS = 180_000;
+
+/** Whether a reader that checks in takes the place of the one held: a reader of this build is never replaced by one of
+ * another. A frame can hold both, after the results page put this build's beside the one Chrome put there
+ * (results/connection.ts `renewReader`), and each says so when greeted: this build's is the one asked. One of another
+ * build is held until one of this build checks in, so that a run can say why it reads nothing. */
+const takes = (found: CoreHandle, held: CoreHandle | undefined): boolean => found.build === BUILD || held?.build !== BUILD;
+
 if (window.top === window) {
   page.cardiganServing = me;
   /** The model's holder as it announced itself: a core frame inside this page, or this window itself. */
   let frame: CoreHandle | undefined;
   let own: CoreHandle | undefined;
   const probes = new Map<string, FrameProbe>();
-  watchCore(window, found => { if (found.source === (window as unknown)) own = found; else frame = found; });
+  watchCore(window, found => {
+    if (found.source === (window as unknown)) { if (takes(found, own)) own = found; } else if (takes(found, frame)) frame = found;
+  });
   watchProbes(window, probe => { probes.set(`${probe.host}${probe.path}`, probe); });
 
   /** An app or a model, by the page's address. The classic model page opened on its own names no model in its address: it
@@ -65,7 +78,7 @@ if (window.top === window) {
     }
     const found = frame;
     if (!found || found.modelId.toUpperCase() !== model.toUpperCase()) return { opened: false, detail: "the model's frame has not checked in" };
-    if (found.build !== BUILD) return { opened: false, detail: "the model's frame holds a reader of another build" };
+    if (found.build !== BUILD) return { opened: false, detail: "the model's frame holds a reader of another build", oldReader: true };
     return await openInCore(window, found, model, object)
       ? { opened: true, detail: "Model Building opened it beside the tabs open there" }
       : { opened: false, detail: "the model's frame did not open it" };
@@ -77,11 +90,12 @@ if (window.top === window) {
     subject,
     // A model read in Model Building carries where it is, which the results page opens its modules, apps and pages by.
     // The IDs of its line items come with the export for reading the pages built on it, and go no further: they are taken
-    // off the result here, so that the results page never holds them.
-    run: (seen, progress, diagnostics, signal) => (seen.kind === "app"
+    // off the result here, so that the results page never holds them. The export says it was made with this version,
+    // whichever version the model's reader is of (version-label.ts).
+    run: (seen, progress, diagnostics, signal, asked) => (seen.kind === "app"
       ? analyseApp(seen.id, progress, diagnostics, signal)
-      : exportInCore(window, core, () => probes.values(), seen.id, progress, signal)
-        .then(({ lineItemIds, ...result }) => addModelPages(result, seen.customer, progress, signal, undefined, lineItemIds))
+      : exportInCore(window, core, () => probes.values(), seen.id, progress, signal, asked?.afterRefresh ? AFTER_REFRESH_WAIT_MS : undefined)
+        .then(({ lineItemIds, ...result }) => addModelPages(withVersion(result), seen.customer, progress, signal, undefined, lineItemIds))
         .then(result => (seen.origin && seen.customer ? { ...result, site: { origin: seen.origin, customer: seen.customer } } : result))),
     signedOut: error => error instanceof RestError && error.code === "SIGNED_OUT",
     open,
