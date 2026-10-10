@@ -65,7 +65,13 @@ export interface GraphNode {
   action?: string;
   lastRun?: string;
   durationMs?: number;
+  /** For a line item: the filters on the pages built on the model that have it as their condition, as the Page Filters
+   * table lists them (model-pages.ts), each by its app, its page and its card's number. No link comes of them. */
+  pageFilters?: PageFilter[];
 }
+
+/** A filter of a card on a page, by where it is: the app, the page and the card's number on the page. */
+export interface PageFilter { app: string; page: string; card: string }
 
 /** What a link says, read from its first node to its second:
  * - `reference`: the second's formula refers to the first (the first's Referenced By names the second).

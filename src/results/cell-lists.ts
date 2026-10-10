@@ -1,4 +1,5 @@
 import { knownNames, knownSequence, type KnownNames } from "../map/graph-names.js";
+import { PAGE_FILTERS_FILE } from "../page-files.js";
 import type { TabName } from "../report.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
 import { APP_FILES, columnIndex } from "./columns.js";
@@ -194,6 +195,8 @@ const usedInProcesses = namesIn(PROCESSES_FILE);
  * result has no names of their kind to cut by: an action's Used in Dashboards, and a line item's Data Tags. A list's
  * Parent Hierarchy is one name, as are a driver and a format's list. */
 const MODEL_LISTS: Record<string, Record<string, ListRule>> = {
+  // An app's Filters table with the app in front (page-files.ts): its cells list as that table's do.
+  [PAGE_FILTERS_FILE]: APP_LISTS.Filters,
   [LISTS_FILE]: { Subsets: names, Properties: properties, "Referenced in Applies To": names, "Referenced as Format": names, "Referenced in Formula": names },
   [MODULES_FILE]: { "Applies To": names },
   [LINE_ITEMS_FILE]: { "Applies To": names, "Referenced By": names },
