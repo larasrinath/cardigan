@@ -4085,7 +4085,7 @@ describe("A model's map on the results page", () => {
     expect([mapMounts.length, mapMounts[0].graph === mapBuilds[0].graph, mapMounts[0].host === host(), mapMounts[0].found]).toEqual([1, true, true, [false, 0, "Model map"]]);
     // The model's name is the result's, and its workspace's is the Details file's. With them the map is given the way to
     // tell the page that it has stopped.
-    expect(mapMounts[0].options).toEqual({ modelName: "Model one", workspaceName: "Planning", onFailure: expect.any(Function), onGrouping: expect.any(Function) });
+    expect(mapMounts[0].options).toEqual({ modelName: "Model one", workspaceName: "Planning", onFailure: expect.any(Function), onGrouping: expect.any(Function), onView: expect.any(Function) });
     // What the map made is in its place, and nowhere else on the page.
     expect([host().children.length, host().contains(mapMounts[0].button), page.all("button").filter(button => button === mapMounts[0].button).length]).toEqual([1, true, 1]);
 
@@ -4096,7 +4096,7 @@ describe("A model's map on the results page", () => {
       sendResult(ports[0], result);
       toMap();
       const { options } = mapMounts[mapMounts.length - 1];
-      expect([options, "workspaceName" in (options as object)], what).toEqual([{ modelName: "Model one", onFailure: expect.any(Function), onGrouping: expect.any(Function) }, false]);
+      expect([options, "workspaceName" in (options as object)], what).toEqual([{ modelName: "Model one", onFailure: expect.any(Function), onGrouping: expect.any(Function), onView: expect.any(Function) }, false]);
     }
   });
 
@@ -4259,7 +4259,7 @@ describe("A model's map on the results page", () => {
       .toEqual([["destroy 2"], true, 0, ["Overview", "Overview"], "Cardigan - Model two", true]);
     // The new result's map is its own: built from its tables when its entry is chosen.
     toMap();
-    expect([mapAsked.slice(8), mapBuilds[2].tables, mapMounts[2].options]).toEqual([["build", "mount 3", "show 3"], next.tables, { modelName: "Model two", workspaceName: "Planning", onFailure: expect.any(Function), onGrouping: expect.any(Function) }]);
+    expect([mapAsked.slice(8), mapBuilds[2].tables, mapMounts[2].options]).toEqual([["build", "mount 3", "show 3"], next.tables, { modelName: "Model two", workspaceName: "Planning", onFailure: expect.any(Function), onGrouping: expect.any(Function), onView: expect.any(Function) }]);
     // A run that starts while another view is shown ends the map too, and leaves that view where it is.
     goTo(1);
     page.id("runAgain").press();
@@ -4322,7 +4322,7 @@ describe("A model's map on the results page", () => {
     toMap();
     // Its map is built from the tables that came back, which are the result's, with the names the Details file gives.
     expect([mapAsked, mapBuilds[0].tables, mapMounts[0].options, mapMounts[0].host === host(), mapMounts[0].found, host().hidden])
-      .toEqual([["build", "mount 1", "show 1"], model.tables, { modelName: "Model one", workspaceName: "Planning", onFailure: expect.any(Function), onGrouping: expect.any(Function) }, true, [false, 0, "Model map"], false]);
+      .toEqual([["build", "mount 1", "show 1"], model.tables, { modelName: "Model one", workspaceName: "Planning", onFailure: expect.any(Function), onGrouping: expect.any(Function), onView: expect.any(Function) }, true, [false, 0, "Model map"], false]);
     // It is shown and hidden as any other, under the same line, and the tab has still been asked nothing.
     toOverview();
     toMap();
