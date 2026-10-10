@@ -123,12 +123,14 @@ input,select{font:inherit;color:inherit}
    the tables and a model's map, each an entry with its icon and its words. A model's tables stand in groups (markup.ts
    `NAV_GROUPS`): a group is a button with an icon of its own, its name and a chevron, which opens a menu of the group's
    tables under it. Where the line has no room, one such button stands in its place, which names the view shown and
-   opens a menu of every item (see the narrow layout, below): the bar is one line, and never scrolls. It keeps the
-   header's sides. The entry of the view shown is marked as it always was, in the accent's colours with its words in
-   bold, and so is the button of the group that holds it. Its icon takes its colour; the others' are quieter. */
+   opens a menu of every item (see the narrow layout, below): the bar never scrolls. It keeps the header's sides. The
+   entry of the view shown is marked as it always was, in the accent's colours with its words in bold, and so is the
+   button of the group that holds it, which keeps the group's own name. Its icon takes its colour; the others' are
+   quieter. */
 .topnav{background:var(--panel);border-bottom:1px solid var(--border)}
-/* An item that does not fit goes to the next line rather than out of the bar. No line the page knows needs that at a
-   width it is shown at, but a model's file that no group names stands in the line on its own, and lengthens it. */
+/* An item that does not fit goes to the next line rather than out of the bar, and keeps its place there whatever the
+   view: every item keeps one width (below). A model's line with every file the export writes needs about 1,200px of the
+   column, which a window 1,440px wide has; a narrower column has it on two lines. */
 .nav-list{display:flex;flex-wrap:wrap;align-items:center;gap:4px 2px;padding:6px var(--gutter)}
 .nav-compact{display:none;padding:6px var(--gutter)}
 .nav-item,.nav-group-btn{
@@ -145,6 +147,18 @@ input,select{font:inherit;color:inherit}
 .nav-group-btn{padding-right:14px}
 .nav-group-btn .nav-chevron{margin-left:-2px;transition:transform .12s}
 .nav-group-btn[aria-expanded="true"] .nav-chevron{transform:rotate(180deg)}
+/* An item keeps one width whatever it shows and however it is marked, so that the items after it never move as the view
+   changes or a group's table is chosen. Its words never change: a group's button keeps the group's own name whichever of
+   its tables is shown (markup.ts `navHtml`). The mark of the view shown sets them in bold, so under them stands their room
+   (markup.ts `wordsHtml`, the words' data-room): the same words in bold, unseen and of no height, which give the words the
+   width of their bold. The room has no height, and holds nothing that scrolls. It is generated content with empty
+   alternative text: nothing reads it out. Nothing else of the marks changes a size: they change colours, and the chevron
+   only turns. The one menu of a narrow window, alone on its line, keeps no room. */
+.nav-item>span,.nav-group-btn>span{display:inline-flex;flex-direction:column;align-items:flex-start}
+.nav-item>span::after,.nav-group-btn>span::after{
+  content:attr(data-room);content:attr(data-room) / "";
+  height:0;line-height:0;visibility:hidden;font-weight:600;white-space:pre;pointer-events:none;user-select:none;
+}
 /* A menu has the look of the page's popovers, and stands under its button, over the content and under the drawer. An
    entry of it is a row as wide as the menu. A long menu, the one of a narrow window, scrolls within itself rather than
    run past the window's foot, where the top of the page stays in sight. */
@@ -549,9 +563,9 @@ main:has(> #mapHost:not([hidden])){align-self:stretch;display:flex;flex-directio
   .meta-app{white-space:normal;overflow-wrap:anywhere}
   .toast{max-width:calc(100vw - 28px)}
 }
-/* The navigation's line needs about 860px of the column with the entry of the view shown in bold: an app's, its seven
-   tables each an entry of its own, a little more than a model's, its tables in groups. Under 1000px wide the column has
-   less room than that with some to spare, and the one menu stands in the line's place, whatever the result's kind. */
+/* An app's line, its seven tables each an entry of its own, needs about 880px of the column; a model's needs more, and
+   wraps where it has less (above). Under 1000px wide the one menu stands in the line's place, whatever the result's
+   kind. */
 @media (max-width:1000px){
   .nav-list{display:none}
   .nav-compact{display:flex}
