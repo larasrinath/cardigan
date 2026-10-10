@@ -3,6 +3,7 @@ import { NO_CUSTOMER } from "./model-pages.js";
 import { assemble } from "./pieces.test-support.js";
 import type { AnalysisResult } from "./result-types.js";
 import { EXTENSION, FakePort } from "./tab-port.test-support.js";
+import { BUILD } from "./version.js";
 
 // The two bundles' entry points run on import; each test imports one afresh against a stand-in page.
 const WS = "0123456789abcdef0123456789abcdef";
@@ -133,20 +134,20 @@ describe("The content scripts on an Anaplan page", () => {
 
     // A frame inside the page that holds a model does not make the page a model page: only a Model Building address does.
     const frame = { postMessage: vi.fn() };
-    hear({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL }, CORE, frame);
+    hear({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD }, CORE, frame);
     expect(open().received).toEqual([{ type: "subject", subject: { kind: "none" } }]);
     // Nor does anything that is not from an Anaplan origin, or names no model ID.
-    hear({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL }, "https://evil.example.com", page);
+    hear({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD }, "https://evil.example.com", page);
     hear({ protocol: PROTOCOL, type: "core-ready", modelId: "not-a-model" }, CORE, page);
     expect(open().received).toEqual([{ type: "subject", subject: { kind: "none" } }]);
     expect(posted).toEqual([]);
 
     // The main-world script of this same window announces the model it holds: acknowledged, and now a model page.
-    hear({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL }, CORE, page);
+    hear({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD }, CORE, page);
     expect(posted).toEqual([{ protocol: PROTOCOL, type: "ack" }]);
     expect(open().received).toEqual([{ type: "subject", subject: { kind: "model", id: MODEL } }]);
     // It stays one whatever a frame inside it announces afterwards, and it is this window that is asked to export.
-    hear({ protocol: PROTOCOL, type: "core-ready", modelId: WS }, CORE, frame);
+    hear({ protocol: PROTOCOL, type: "core-ready", modelId: WS, build: BUILD }, CORE, frame);
     const port = open();
     expect(port.received).toEqual([{ type: "subject", subject: { kind: "model", id: MODEL } }]);
     port.say({ type: "run" });
@@ -212,7 +213,7 @@ describe("The content scripts on an Anaplan page", () => {
     at(MODEL_BUILDING);
     await import("./content.js");
     // Only this window itself says it holds a model: no frame has checked in.
-    hear({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL }, SHELL, page);
+    hear({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD }, SHELL, page);
     expect(posted).toEqual([{ protocol: PROTOCOL, type: "ack" }]);
     const port = open();
     port.say({ type: "run" });
@@ -227,10 +228,10 @@ describe("The content scripts on an Anaplan page", () => {
     at(MODEL_BUILDING);
     await import("./content.js");
     const frame = { asked: [] as { type: string; nonce?: string }[], postMessage(message: { type: string; nonce?: string }) { this.asked.push(message); } };
-    hear({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL }, CORE, frame);
+    hear({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD }, CORE, frame);
     expect(frame.asked).toEqual([{ protocol: PROTOCOL, type: "ack" }]);
     // The page's own window announcing a model does not take the frame's place: Model Building reads in the frame, as it always has.
-    hear({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL }, SHELL, page);
+    hear({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD }, SHELL, page);
     posted.length = 0;
 
     const port = open();
@@ -269,7 +270,7 @@ describe("The content scripts on an Anaplan page", () => {
     at(`/a/modeling/workspaces/${WS}/models/${MODEL}`);
     await import("./content.js");
     const frame = { asked: [] as { type: string; nonce?: string }[], postMessage(message: { type: string; nonce?: string }) { this.asked.push(message); } };
-    hear({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL }, CORE, frame);
+    hear({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD }, CORE, frame);
     const port = open();
     expect(port.take()).toEqual([{ type: "subject", subject: { kind: "model", id: MODEL } }]);
     port.say({ type: "run" });
@@ -286,7 +287,7 @@ describe("The content scripts on an Anaplan page", () => {
     at("/core-webapp/anaplan/framework.jsp", "eu2a.app.anaplan.com");
     await import("./model-content.js");
     vi.advanceTimersByTime(1000);
-    expect(top.posted).toContainEqual({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL });
+    expect(top.posted).toContainEqual({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD });
     expect(connect).toBeUndefined();
   });
 
@@ -299,7 +300,7 @@ describe("The content scripts on an Anaplan page", () => {
       loader: "undefined", model: "undefined", workspace: "undefined" } }]);
     Object.assign(page, { require: () => undefined, modelId: MODEL, workspaceId: WS });
     vi.advanceTimersByTime(1000);
-    expect(posted).toContainEqual({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL });
+    expect(posted).toContainEqual({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD });
     // It serves this window: one listener, for what the content script of the same window asks.
     expect(listeners).toHaveLength(1);
   });

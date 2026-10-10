@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { describeProbe, exportInCore, NO_MODEL, probeFrame, PROTOCOL, QUIET, runInCore, serveCore, UNREADABLE, watchCore, watchProbes, type CoreHandle, type Endpoint,
-  type FrameProbe } from "./bridge.js";
+import { describeProbe, exportInCore, NO_MODEL, OLD_READER, probeFrame, PROTOCOL, QUIET, runInCore, serveCore, UNREADABLE, watchCore, watchProbes, type CoreHandle,
+  type Endpoint, type FrameProbe } from "./bridge.js";
 import { NOT_SCOPE_IDS, SCOPE_IDS } from "./guards.test-support.js";
 import { readGrid, type Native } from "./model/native.js";
 import { Failure, UNEXPECTED, type Progress, type Stop } from "./progress.js";
 import type { AnalysisResult, Cell } from "./result-types.js";
+import { BUILD } from "./version.js";
 
 /** Two windows that talk like browser windows: posting to a window as another window holds it delivers a cloned message
  * there, from that other window's origin, with `source` set to the sender as the receiver holds it. A window can also hold
@@ -155,8 +156,10 @@ describe("Model export bridge between the Model Building page and the model's co
     expect(UNREADABLE).toBe("Cardigan could not read what the model's page sent back. Refresh the Anaplan tab, then click the Cardigan icon again. "
       + "If it keeps happening, choose Copy diagnostic log and send the log.");
     expect(UNEXPECTED).toBe("Cardigan ran into a problem it did not expect. Choose Run again. If it keeps happening, choose Copy diagnostic log and send the log.");
+    expect(OLD_READER).toBe("This Anaplan tab was open before Cardigan was updated or reloaded, and still holds the earlier Cardigan's model reader. "
+      + "Refresh the Anaplan tab, wait until the model shows, then choose Run again.");
     // No number, code or word a developer would use is left in them.
-    for (const message of [NO_MODEL, QUIET, UNREADABLE, UNEXPECTED]) expect(message).not.toMatch(/\d|frame|HTTP|chrome:|extension/i);
+    for (const message of [NO_MODEL, QUIET, UNREADABLE, UNEXPECTED, OLD_READER]) expect(message).not.toMatch(/\d|frame|HTTP|chrome:|extension/i);
   });
 
   it("takes progress and the result only from the frame it asked, from that frame's origin and for its own run", async () => {
@@ -650,7 +653,7 @@ describe("Model export bridge between the Model Building page and the model's co
       return exported();
     }, 5);
     await settle();
-    expect(found).toEqual({ source: itself, origin: CORE, modelId: MODEL });
+    expect(found).toEqual({ source: itself, origin: CORE, modelId: MODEL, build: BUILD });
     // Acknowledged like a frame: the announcements stop.
     await settle();
     const seen = announcements;
@@ -682,7 +685,7 @@ describe("Model export bridge between the Model Building page and the model's co
     expect(greeted).toEqual(Array(3).fill({ protocol: PROTOCOL, type: "hello" }));
     expect(asked).toEqual([]);
 
-    core = { source, origin: CORE, modelId: MODEL };
+    core = { source, origin: CORE, modelId: MODEL, build: BUILD };
     await vi.advanceTimersByTimeAsync(1000);
     expect(asked.map(message => message.type)).toEqual(["run"]);
     shell.receive({ protocol: PROTOCOL, type: "done", nonce: asked[0].nonce, result: exported() }, CORE, source);
@@ -714,7 +717,7 @@ describe("Model export bridge between the Model Building page and the model's co
     const asked: { nonce: string }[] = [];
     const source: Endpoint = { postMessage: message => { asked.push(message as { nonce: string }); } };
     const { lines, progress } = collect();
-    const run = exportInCore(shell, () => ({ source, origin: CORE, modelId: SCOPE_IDS[0] }), () => [], MODEL, progress);
+    const run = exportInCore(shell, () => ({ source, origin: CORE, modelId: SCOPE_IDS[0], build: BUILD }), () => [], MODEL, progress);
     await vi.advanceTimersByTimeAsync(0);
     (shell as unknown as FakeWindow).receive({ protocol: PROTOCOL, type: "done", nonce: asked[0].nonce, result: exported() }, CORE, source);
     await expect(run).resolves.toEqual(exported());
@@ -732,5 +735,41 @@ describe("Model export bridge between the Model Building page and the model's co
     await vi.advanceTimersByTimeAsync(1000);
     expect(await outcome).toBe("Stopped: the results page was closed.");
     expect(lines).toEqual(Array(2).fill("status: Waiting for the model's frame…"));
+  });
+
+  it("reads a model only with a reader of its own build: one left in the tab from before an update is not asked, and the tab is to be refreshed", async () => {
+    // The reader says its build when it checks in, and the page takes it as it is said: a mark of a few letters and digits.
+    const shell = new FakeWindow(SHELL);
+    const core = new FakeWindow(CORE);
+    const found: CoreHandle[] = [];
+    watchCore(shell, handle => { found.push(handle); });
+    for (const build of [BUILD, "0a1b2c3d4e5f", undefined, 12, "", "a b", "x".repeat(41)]) {
+      shell.seenBy(core).postMessage({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build }, "*");
+    }
+    await settle();
+    expect(found.map(handle => handle.build)).toEqual([BUILD, "0a1b2c3d4e5f", undefined, undefined, undefined, undefined, undefined]);
+    // A reader of this build is asked to export.
+    const asked: { type: string; nonce: string }[] = [];
+    const source: Endpoint = { postMessage: message => { asked.push(message as { type: string; nonce: string }); } };
+    const run = exportInCore(shell as unknown as Window, () => ({ source, origin: CORE, modelId: MODEL, build: BUILD }), () => [], MODEL, collect().progress);
+    await settle();
+    shell.receive({ protocol: PROTOCOL, type: "done", nonce: asked[0].nonce, result: exported() }, CORE, source);
+    await expect(run).resolves.toEqual(exported());
+    // One of another build, or one that says none, as a reader made before builds were marked, is asked nothing: the
+    // user is told to refresh the tab, and the log which builds the two are.
+    asked.length = 0;
+    const refused = (build?: string) => {
+      const { lines, progress } = collect();
+      return failed(exportInCore(shell as unknown as Window, () => ({ source, origin: CORE, modelId: MODEL, ...(build === undefined ? {} : { build }) }), () => [], MODEL,
+        progress)).then(outcome => [outcome, lines]);
+    };
+    expect(await refused("0a1b2c3d4e5f")).toEqual([[OLD_READER, `the model's reader is build 0a1b2c3d4e5f; this script is build ${BUILD}`], []]);
+    expect(await refused()).toEqual([[OLD_READER, `the model's reader is of a build that names none; this script is build ${BUILD}`], []]);
+    expect(asked).toEqual([]);
+    // The reader says the build it was made in.
+    const posts: unknown[] = [];
+    const stop = serveCore(core, { postMessage: message => { posts.push(message); } }, () => MODEL, async () => exported(), 60_000);
+    expect(posts).toEqual([{ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD }]);
+    stop();
   });
 });
