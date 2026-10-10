@@ -183,11 +183,36 @@ const namesIn = (file: string): ListRule => (_table, result) => {
 };
 const usedInProcesses = namesIn(PROCESSES_FILE);
 
+/** A module's line items, as the Modules grid lists them: their names without quotes, with a comma and a space between
+ * them, where a name may hold a comma and a space itself ("Rate, net"). They are cut only into the names of the module's
+ * own line items in the Line Items table, the rows that name the module under Module Name: as those names one after
+ * another in the table's order where the cell is just that, and otherwise where the cell reads only one way into them
+ * (`cutKnown`). A module the Line Items table has no row of, and a result without that table, leave the cell whole. */
+const moduleLineItems: ListRule = (_table, result) => {
+  const items = result.tables.find(table => table.file === LINE_ITEMS_FILE);
+  const owner = items && columnIndex(items, "Module Name");
+  if (!items || owner === undefined) return undefined;
+  const byModule = new Map<string, string[]>();
+  for (const row of items.rows) {
+    const module = cellText(row[owner]);
+    const name = cellText(row[0]);
+    if (module.trim() === "" || name.trim() === "") continue;
+    const names = byModule.get(module);
+    if (names) names.push(name);
+    else byModule.set(module, [name]);
+  }
+  return (text, row) => {
+    const names = byModule.get(cellText(row[0]));
+    if (!names) return undefined;
+    return names.join(COMMA) === text ? asList([...names]) : cutKnown(text, knownNames(new Set(names)));
+  };
+};
+
 /** A model's columns that list items, by file and header. The names a cell gives are written as the export writes names
  * (map/graph-names.ts), which the model map reads in the same columns: a list's subsets, its properties and the three
- * columns that say what uses it, and what a module or a line item applies to and what refers to a line item. An action's
+ * columns that say what uses it, and what a module or a line item applies to and what refers to it. An action's
  * processes, and a data source's imports, are named without quotes, and are cut into the names of the Processes and the
- * Imports tables. The Model Calendar's list is the template's: its allowed values, joined with " | ", since a value may
+ * Imports tables; a module's line items are too, and are cut into the names of its rows of the Line Items table. The Model Calendar's list is the template's: its allowed values, joined with " | ", since a value may
  * hold a comma ("Weeks: 4-4-5, 4-5-4 or 5-4-4"). The kinds of calendar a row applies to are the template's guidance,
  * which the page leaves out (result-view.ts `CALENDAR_GUIDANCE`).
  *
@@ -198,11 +223,12 @@ const MODEL_LISTS: Record<string, Record<string, ListRule>> = {
   // An app's Filters rows with their app (page-files.ts): its cells list as that table's do, column by column.
   [PAGE_FILTERS_FILE]: APP_LISTS.Filters,
   [LISTS_FILE]: { Subsets: names, Properties: properties, "Referenced in Applies To": names, "Referenced as Format": names, "Referenced in Formula": names },
-  [MODULES_FILE]: { "Applies To": names },
+  [MODULES_FILE]: { "Applies To": names, "Referenced By": names, "Line Items": moduleLineItems },
   [LINE_ITEMS_FILE]: { "Applies To": names, "Referenced By": names },
   [PROCESSES_FILE]: { "Used in Processes": usedInProcesses },
   [IMPORTS_FILE]: { "Used in Processes": usedInProcesses },
-  [DATA_SOURCES_FILE]: { "Used in Imports": namesIn(IMPORTS_FILE) },
+  // Anaplan's grid heads the column Imports; the tests' exports, as earlier ones, write it Used in Imports.
+  [DATA_SOURCES_FILE]: { "Used in Imports": namesIn(IMPORTS_FILE), Imports: namesIn(IMPORTS_FILE) },
   [EXPORTS_FILE]: { "Used in Processes": usedInProcesses },
   [OTHER_ACTIONS_FILE]: { "Used in Processes": usedInProcesses },
   [CALENDAR_FILE]: { "Allowed values": joinedWith(BAR) },
