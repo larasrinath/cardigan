@@ -46,6 +46,11 @@ export interface AnalysisResult {
    * details of the import's row of Imports. Empty for a model that has no import from a file; none in an app's result, in
    * a model's whose Imports tab could not be read, nor in one that an earlier version kept. */
   importMappings?: ImportMapping[];
+  /** The actions each of a model's processes runs, in the order it runs them, as the process's own definition holds them:
+   * one entry for each process of the Actions list, in that list's order. The results page lists them in the details of the
+   * process's row of Processes. Empty for a model without a process; none in an app's result, in a model's whose Actions
+   * list could not be read, nor in one that an earlier version kept. */
+  processActions?: ProcessActions[];
   /** Where a model read in Model Building is, as the Anaplan tab's address said it: the site's origin and the customer.
    * The results page opens the model's modules there, and the apps and pages built on it. None in an app's result, in a
    * model's read on the classic model page, whose address names no customer, nor in one that an earlier version kept. */
@@ -67,6 +72,30 @@ export interface ImportMapping {
   targets: MappedTarget[];
   /** Why there is no mapping, in words for the user, where the definition could not be read. */
   note?: string;
+}
+
+/** One of a model's processes, with the actions it runs. */
+export interface ProcessActions {
+  /** The process's ID in the model (the entity's long ID, in digits) and its name, as the Actions list lists it. The page
+   * finds a process's row by the name: the Processes table has no column of IDs. */
+  id: string;
+  name: string;
+  /** Its actions, in the order the process runs them: none where it runs none, and none where its definition could not be
+   * read. */
+  actions: ProcessStep[];
+  /** Why its actions are not known, in words for the user, where the definition could not be read. */
+  note?: string;
+}
+
+/** One action a process runs. */
+export interface ProcessStep {
+  /** The action's ID in the model, in digits; empty where the definition names it in no way Cardigan knows. */
+  id: string;
+  /** The action's name, as the Actions list names it; "ID 112000000001" for an action the list does not have. */
+  name: string;
+  /** Anaplan's word for its kind, as the process's definition says it: IMPORT, EXPORT, ACTION for any other action, and
+   * others the definition may hold; empty where it says none. */
+  type: string;
 }
 
 /** What feeds one target of an import: a column of the file, a constant, a prompt when the import runs, nothing (the target

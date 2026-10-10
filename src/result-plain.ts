@@ -1,5 +1,5 @@
 import { CONTENT_SCRIPT_ORIGIN } from "./protocol.js";
-import type { AnalysisResult, Cell, ImportMapping, MappedSource, MappedTarget, ResultTable } from "./result-types.js";
+import type { AnalysisResult, Cell, ImportMapping, MappedSource, MappedTarget, ProcessActions, ProcessStep, ResultTable } from "./result-types.js";
 
 /** A result leaves the place that made it as plain data: a window message from the model's core frame, then JSON on the port
  * to the results page. These keep it to what both carry unchanged, so a table is the same on either side, cell for
@@ -76,6 +76,27 @@ export function readImportMappings(value: unknown): ImportMapping[] | undefined 
   return mappings;
 }
 
+/** A model's processes with the actions each runs (result-types.ts `ProcessActions`), every field checked, or nothing when
+ * anything else is there. As for the mappings, a result is not refused for them: the page only lists no process's
+ * actions by them. The results page checks them so too before it lists them, whoever kept the result. */
+export function readProcessActions(value: unknown): ProcessActions[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const processes: ProcessActions[] = [];
+  for (const entry of Array.from(value as unknown[])) {
+    const process = entry as Partial<ProcessActions> | null;
+    if (!process || typeof process !== "object" || typeof process.id !== "string" || !/^\d{0,19}$/.test(process.id) || typeof process.name !== "string"
+        || !Array.isArray(process.actions) || (process.note !== undefined && typeof process.note !== "string")) return undefined;
+    const actions: ProcessStep[] = [];
+    for (const item of Array.from(process.actions as unknown[])) {
+      const step = item as Partial<ProcessStep> | null;
+      if (!step || typeof step !== "object" || typeof step.id !== "string" || !/^\d{0,19}$/.test(step.id) || typeof step.name !== "string" || typeof step.type !== "string") return undefined;
+      actions.push({ id: step.id, name: step.name, type: step.type });
+    }
+    processes.push({ id: process.id, name: process.name, actions, ...(process.note !== undefined ? { note: process.note } : {}) });
+  }
+  return processes;
+}
+
 /** Lists are read entry by entry (Array.from), so a hole counts as an entry that is not there: `every` would pass over it. */
 function readResult(value: unknown): AnalysisResult | undefined {
   const data = value as Partial<AnalysisResult> | null;
@@ -93,9 +114,10 @@ function readResult(value: unknown): AnalysisResult | undefined {
   }
   const moduleIds = data.kind === "model" ? readModuleIds(data.moduleIds) : undefined;
   const importMappings = data.kind === "model" ? readImportMappings(data.importMappings) : undefined;
+  const processActions = data.kind === "model" ? readProcessActions(data.processActions) : undefined;
   const site = data.kind === "model" ? readSite(data.site) : undefined;
   return { kind: data.kind, name: data.name, id: data.id, zipName: data.zipName, tables, summary: Array.from(data.summary, textOf), ...(moduleIds ? { moduleIds } : {}),
-    ...(importMappings ? { importMappings } : {}), ...(site ? { site } : {}) };
+    ...(importMappings ? { importMappings } : {}), ...(processActions ? { processActions } : {}), ...(site ? { site } : {}) };
 }
 
 /** A result received from another window, with every field checked before use and nothing else kept; undefined when it is
