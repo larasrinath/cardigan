@@ -2,6 +2,14 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version stands next to Cardigan's name at the top of the results page and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## 0.15.7 (10 October 2026)
+
+An import's **Mapping** reads from the source to the target.
+
+- **The source first.** Each row of **Mapping** is a source and the target it feeds, **Source** then **Target**: the file's columns first, by their headers, in the file's order where the import gives the columns' places, then the constants, the prompts and the header row. A column that feeds two targets has a row for each, together. (#41)
+- **No empty sources.** A target that nothing feeds is no longer a row reading "Not mapped": one line under the table names every such target, "Not mapped: Parent and Code", with why in brackets where there is more to say, "(the list numbers its items itself)" or "(ignored)". (#41)
+- **What stays the same.** What is read, the line above the table on how a list's items are told apart, the lines on the columns not used, and the diagnostic log.
+
 ## 0.15.6 (10 October 2026)
 
 No arrow drawn as text anywhere on the page.
