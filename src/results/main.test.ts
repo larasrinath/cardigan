@@ -5377,14 +5377,14 @@ describe("The mapping of an import from a file, in its row's details", () => {
     openImport("Division from HQ Network.csv");
     expect([page.id("drawerTitle").textContent, sections()]).toEqual(["Division from HQ Network.csv", ["All columns", "Mapping"]]);
     // The import's file is no longer available, and its mapping is shown all the same: the mapping is the import's own.
-    expect(mapping()).toEqual([[["Division", "Column 1: Division Name"], ["Parent", "Column 2: Region"], ["Code", "Column 4"], ["Manager", "Column 7: Manager"], ["Active", "Not mapped"]],
+    expect(mapping()).toEqual([[["Division", "Division Name"], ["Parent", "Region"], ["Code", "Column 4"], ["Manager", "Manager"], ["Active", "Not mapped"]],
       ["Columns 3, 5 and 6 are not used.", "Whether there are columns after column 7 is not known: Anaplan keeps the import's mapping, not the header row it was made from."]]);
     expect(page.texts("#drawerMapping th")).toEqual(["Target", "Source"]);
     page.key("Escape");
     // An import into a module: a constant, the line items from the header row, a line item by its column's heading alone.
     openImport("Prices from prices.csv");
-    expect(mapping()).toEqual([[["Products", "Column 1: Product"], ["Versions", "Constant: Actual"], ["Line Items", "Header row: each line item from the column it heads"],
-      ["Price", "Column headed Price"]], ["Column 1 is used.",
+    expect(mapping()).toEqual([[["Products", "Product"], ["Versions", "Constant: Actual"], ["Line Items", "Header row: each line item from the column it heads"],
+      ["Price", "Price"]], ["Column 1 is used.",
       "Whether there are columns after column 1 is not known: Anaplan keeps the import's mapping, not the header row it was made from."]]);
     page.key("Escape");
     // An import from another model has no mapping: its details are All columns alone.
@@ -5405,7 +5405,7 @@ describe("The mapping of an import from a file, in its row's details", () => {
     await openWith({ ...WITH_MAPPINGS, importMappings: [BY_PROPERTIES, MAPPINGS[1]] });
     goTo(3);
     openImport("Division from HQ Network.csv");
-    expect(mapping()).toEqual([[["Division", "Not mapped: the list numbers its items itself"], ["Parent", "Not mapped"], ["Manager", "Column headed Manager"]],
+    expect(mapping()).toEqual([[["Division", "Not mapped: the list numbers its items itself"], ["Parent", "Not mapped"], ["Manager", "Manager"]],
       ["Items uniquely identified by: Combination of properties: Manager.", "Each column mapped is named by its heading alone, so Cardigan cannot say which columns are not used."]]);
     // The line stands above the table, the line on the columns below it.
     const html = page.id("drawerMapping").innerHTML;
@@ -5431,7 +5431,7 @@ describe("The mapping of an import from a file, in its row's details", () => {
     await eventually(() => page.document.title === `Cardigan - ${WITH_MAPPINGS.name}`, "the result to come back");
     goTo(3);
     openImport("Prices from prices.csv");
-    expect([sections(), mapping()[0][0]]).toEqual([["All columns", "Mapping"], ["Products", "Column 1: Product"]]);
+    expect([sections(), mapping()[0][0]]).toEqual([["All columns", "Mapping"], ["Products", "Product"]]);
   });
 
   it("says why there is no mapping to show: one that could not be read, or an import of another kind", async () => {
@@ -5458,7 +5458,7 @@ describe("The mapping of an import from a file, in its row's details", () => {
       { target: "Parent", source: "constant", text: TAG }, { target: "Code", source: "other", text: TAG }] }] });
     goTo(3);
     openImport("Division from HQ Network.csv");
-    expect([strayImg(), mapping()[0]]).toEqual([false, [[`Division ${TAG}`, `Column 1: Name ${TAG}`], ["Parent", `Constant: ${TAG}`], ["Code", `A source Cardigan does not know (${TAG})`]]]);
+    expect([strayImg(), mapping()[0]]).toEqual([false, [[`Division ${TAG}`, `Name ${TAG}`], ["Parent", `Constant: ${TAG}`], ["Code", `A source Cardigan does not know (${TAG})`]]]);
   });
 });
 

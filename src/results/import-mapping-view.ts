@@ -56,13 +56,14 @@ const columnsWords = (numbers: readonly number[]): string => `${numbers.length =
 
 const said = (text: string | undefined): text is string => text !== undefined && text.trim() !== "";
 
-/** What feeds a target, in words: the column by its place and its heading, the constant's value, and so on. A column the
- * definition gives only an identifier for is said by it. */
+/** What feeds a target, in words: a column by the file's header for it alone, where the definition keeps it, and by its
+ * place where it keeps only that; the constant's value, and so on. A column the definition gives only an identifier for
+ * is said by it. The place of a column with a header still counts in the lines under the mapping (`columnLines`). */
 export function sourceWords(target: MappedTarget): string {
   switch (target.source) {
     case "column":
-      if (target.column !== undefined) return said(target.text) ? `Column ${target.column}: ${target.text}` : `Column ${target.column}`;
-      if (said(target.text)) return `Column headed ${target.text}`;
+      if (said(target.text)) return target.text;
+      if (target.column !== undefined) return `Column ${target.column}`;
       return said(target.id) ? `Column with ID ${target.id}` : "A column the definition neither numbers nor names";
     case "constant":
       return said(target.text) ? `Constant: ${target.text}` : "Constant, with no value given";
