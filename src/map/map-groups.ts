@@ -13,8 +13,10 @@ import type { MapModel } from "./map-model.js";
  * - App: the app whose pages use the module, from the Module Usage table.
  * - Main dimension: the first list the module applies to.
  *
- * The map opens on the first of functional area, headings and name prefix that groups the model well (`isGood`), and
- * otherwise on the role in the data flow, which every model with modules has (`automaticGrouping`). */
+ * The map opens on the functional areas where the model's builders filed most modules into them, and otherwise on the
+ * heading rows where they did so with those (`isBuilt`), however many groups either makes: the builders chose them.
+ * Otherwise it opens on the name prefixes where they group the model well (`isGood`), and else on the role in the data
+ * flow, which every model with modules has (`automaticGrouping`). */
 
 export type GroupingKind = "functionalArea" | "headings" | "prefix" | "role" | "app" | "dimension";
 
@@ -80,10 +82,17 @@ function grouped(model: MapModel, spec: Spec, assign: (module: GraphNode) => str
 
 /* ---------- functional area and headings: what the model's builders set ---------- */
 
+/** Names in the order a reader expects of names that are numbered: "2: Inputs" before "10: Reports", whatever their
+ * case. Two names that this order holds equal keep their own order. */
+const byName = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" }).compare;
+
+/** The modules by their Functional Area, the areas in the order of their names, which is how Anaplan lists them and how
+ * a model's builders number them ("000: Global System", "002: Parameters"), and the modules with none last. */
 function byFunctionalArea(model: MapModel): Grouping | undefined {
   const areaOf = (module: GraphNode): string => module.functionalArea?.trim() ?? "";
-  if (!model.modules.some(module => areaOf(module) !== "")) return undefined;
-  return grouped(model, { kind: "functionalArea", label: "Functional area", source: "from functional areas", rest: NO_FUNCTIONAL_AREA },
+  const areas = [...new Set(model.modules.map(areaOf).filter(area => area !== ""))];
+  if (!areas.length) return undefined;
+  return grouped(model, { kind: "functionalArea", label: "Functional area", source: "from functional areas", rest: NO_FUNCTIONAL_AREA, order: areas.sort(byName) },
     module => areaOf(module) || NO_FUNCTIONAL_AREA);
 }
 
@@ -269,8 +278,8 @@ export function groupingsOf(model: MapModel): Grouping[] {
   return [byFunctionalArea(model), byHeadings(model), byPrefix(model), byRole(model), byApp(model), byDimension(model)].filter((each): each is Grouping => each !== undefined);
 }
 
-/** What groups a model well enough for the map to open on by itself: from 3 to 15 groups, none holding more than half
- * the modules, and no more than a fifth of them in the group of what the grouping cannot place. */
+/** What groups a model well enough for the map to open on a grouping it learnt by itself: from 3 to 15 groups, none
+ * holding more than half the modules, and no more than a fifth of them in the group of what the grouping cannot place. */
 export const GOOD = { least: 3, most: 15, largest: 0.5, rest: 0.2 } as const;
 
 export function isGood(grouping: Grouping): boolean {
@@ -283,14 +292,36 @@ export function isGood(grouping: Grouping): boolean {
   return sizes.size >= GOOD.least && sizes.size <= GOOD.most && largest <= total * GOOD.largest && rest <= total * GOOD.rest;
 }
 
-/** The order the map tries groupings in when it opens. */
-export const AUTOMATIC: readonly GroupingKind[] = ["functionalArea", "headings", "prefix", "role"];
+/** When a grouping the model's builders made is the map's own pick: where at least this part of the modules are in a
+ * group of it, and not in the group of what it cannot place, and they are in this many groups or more. */
+export const BUILT = { share: 0.6, least: 2 } as const;
 
-/** The grouping the map opens on by itself: the first of `AUTOMATIC` that is good, and otherwise the role in the data
- * flow. Nothing for a model with no grouping at all. */
+/** Whether the model's builders filed most of its modules by a grouping of theirs (functional areas, heading rows):
+ * `BUILT.share` of them or more in its groups, in `BUILT.least` groups or more, however many and however large. */
+export function isBuilt(grouping: Grouping): boolean {
+  const total = grouping.groupOf.size;
+  if (total === 0) return false;
+  const placed = [...grouping.groupOf.values()].filter(group => group !== grouping.rest);
+  return placed.length >= total * BUILT.share && new Set(placed).size >= BUILT.least;
+}
+
+/** The groupings the model's builders made, which the map opens on where they filed most modules (`isBuilt`), in that
+ * order; then the one it learns from the names, which it opens on where it groups the model well (`isGood`). */
+export const BUILDERS: readonly GroupingKind[] = ["functionalArea", "headings"];
+export const LEARNT: readonly GroupingKind[] = ["prefix"];
+/** The order the map tries groupings in when it opens. */
+export const AUTOMATIC: readonly GroupingKind[] = [...BUILDERS, ...LEARNT, "role"];
+
+/** The grouping the map opens on by itself: the functional areas or the heading rows where the builders filed most
+ * modules by them, else the name prefixes where they are good, and otherwise the role in the data flow. Nothing for a
+ * model with no grouping at all. */
 export function automaticGrouping(groupings: readonly Grouping[]): Grouping | undefined {
   const of = (kind: GroupingKind): Grouping | undefined => groupings.find(grouping => grouping.kind === kind);
-  for (const kind of AUTOMATIC) {
+  for (const kind of BUILDERS) {
+    const grouping = of(kind);
+    if (grouping && isBuilt(grouping)) return grouping;
+  }
+  for (const kind of LEARNT) {
     const grouping = of(kind);
     if (grouping && isGood(grouping)) return grouping;
   }

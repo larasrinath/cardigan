@@ -3,7 +3,7 @@ import { textOf as plainText } from "../result-plain.js";
 import type { Cell, ResultTable } from "../result-types.js";
 import { message } from "../util.js";
 import { definitionOf, idOf, integer, knownNames, knownSequence, nothing, separator, splitOutside, stripChars, unquote, type KnownNames } from "./graph-names.js";
-import type { EdgeKind, GraphEdge, GraphNode, ModelGraph, Unresolved } from "./graph-types.js";
+import type { AreaCheck, EdgeKind, GraphEdge, GraphNode, ModelGraph, Unresolved } from "./graph-types.js";
 
 /** The model map's graph, made from the tables of a model export and from nothing else. It started as the owner's
  * prototype builder (build_model_data.py) in the export's own tables. The prototype read three of Anaplan's CSV exports:
@@ -853,16 +853,33 @@ function readPageFilters(draft: Draft, tables: readonly ResultTable[]): void {
 }
 
 /** What the Modules file and the Module Usage table say of each module of the map, found by its name as written or,
- * where no module has that, without the spaces at its ends: its Functional Area, and the apps whose pages use it. A row
- * of a module the map does not have says nothing, nor does a cell that holds nothing or a dash. Gives back which of the
- * two the result has. */
-function readModuleFacts(draft: Draft, tables: readonly ResultTable[]): NonNullable<ModelGraph["moduleFacts"]> {
-  const moduleNamed = (name: string): number | undefined => draft.modules.get(name) ?? draft.modules.get(name.trim());
+ * where no module has that, by the name without the spaces at its ends on either side, where one module alone has it:
+ * its Functional Area, and the apps whose pages use it. A row of a module the map does not have says nothing, nor does a
+ * cell that holds nothing or a dash. Gives back which of the two the result has, and, where Modules has the Functional
+ * Area column, how its rows met the map's modules (`AreaCheck`). */
+function readModuleFacts(draft: Draft, tables: readonly ResultTable[]): NonNullable<ModelGraph["moduleFacts"]> & { areaCheck?: AreaCheck } {
+  // The map's modules by their names without the spaces at their ends, where no two share one: a name the Line Items
+  // file wrote with a space at an end is found from a Modules row without it, and the other way round.
+  const trimmed = new Map<string, number | undefined>();
+  for (const [name, id] of draft.modules) {
+    const key = name.trim();
+    trimmed.set(key, trimmed.has(key) ? undefined : id);
+  }
+  const moduleNamed = (name: string): number | undefined => draft.modules.get(name) ?? trimmed.get(name.trim());
   const modules = tableOf(tables, MODULES);
+  const inFile = new Set<number>();
+  const rowsNotOnMap: string[] = [];
   for (const row of modules?.rows ?? []) {
+    const name = textOf(row[0]);
+    const id = moduleNamed(name);
+    if (id === undefined) {
+      // A heading row of Modules stands for no module of the map: it is no row the map lacks.
+      if (!separator(name) && name.trim() !== "") rowsNotOnMap.push(name.trim());
+      continue;
+    }
+    inFile.add(id);
     const area = modules!.cell(row, "Functional Area").trim();
-    const id = nothing(area) ? undefined : moduleNamed(textOf(row[0]));
-    if (id !== undefined) draft.nodes[id].functionalArea = area;
+    if (!nothing(area)) draft.nodes[id].functionalArea = area;
   }
   const usage = tableOf(tables, MODULE_USAGE);
   for (const row of usage?.rows ?? []) {
@@ -872,7 +889,29 @@ function readModuleFacts(draft: Draft, tables: readonly ResultTable[]): NonNulla
     const apps = draft.nodes[id].apps ??= [];
     if (!apps.includes(app)) apps.push(app);
   }
-  return { functionalAreas: modules?.has("Functional Area") ?? false, moduleUsage: usage !== undefined };
+  const functionalAreas = modules?.has("Functional Area") ?? false;
+  if (!functionalAreas) return { functionalAreas, moduleUsage: usage !== undefined };
+  const mapModules = [...draft.modules.values()];
+  const areas = new Set(mapModules.flatMap(id => (draft.nodes[id].functionalArea === undefined ? [] : [draft.nodes[id].functionalArea!])));
+  const areaCheck: AreaCheck = {
+    areas: areas.size, modules: mapModules.length, withArea: mapModules.filter(id => draft.nodes[id].functionalArea !== undefined).length,
+    rowsNotOnMap, modulesNotInFile: mapModules.filter(id => !inFile.has(id)).map(id => draft.nodes[id].name),
+  };
+  return { functionalAreas, moduleUsage: usage !== undefined, areaCheck };
+}
+
+/** How many names of a side the log line gives: the first of them, then how many more there are. */
+const NAMES_SAID = 5;
+
+/** The run's log line for how the Modules file's Functional Area met the map's modules (`AreaCheck`): how many areas,
+ * how many of the map's modules have one, and the names each side has that the other lacks, the first five of them. A
+ * module the map files under "No functional area" that should be under an area is one of those names, or has a dash or
+ * nothing in its Functional Area cell. */
+export function areaCheckLine(check: AreaCheck): string {
+  const names = (list: readonly string[]): string => (list.length === 0 ? "" : `: ${list.slice(0, NAMES_SAID).join("; ")}${list.length > NAMES_SAID ? `; and ${list.length - NAMES_SAID} more` : ""}`);
+  return `Functional areas: ${count(check.areas, "area", "areas")}; ${check.withArea} of the map's ${count(check.modules, "module has", "modules have")} one; `
+    + `${count(check.rowsNotOnMap.length, "row of Modules is", "rows of Modules are")} no module of the map${names(check.rowsNotOnMap)}; `
+    + `${count(check.modulesNotInFile.length, "module of the map has", "modules of the map have")} no row in Modules${names(check.modulesNotInFile)}.`;
 }
 
 /** The graph of a model export's tables, with what it was made with: the draft, which knows every object by its name,
@@ -895,7 +934,7 @@ function build(tables: readonly ResultTable[]): { graph: ModelGraph; draft: Draf
   const otherActions = readActions(draft, tables, OTHER_ACTIONS, processes.known, { target: targetInAction(ids.listOfId) });
   const actions = [imports, exportActions, otherActions];
   readPageFilters(draft, tables);
-  const moduleFacts = readModuleFacts(draft, tables);
+  const { areaCheck, ...moduleFacts } = readModuleFacts(draft, tables);
   const shared = draft.sharedWithProperty.size;
   const graph: ModelGraph = {
     nodes: draft.nodes,
@@ -915,6 +954,7 @@ function build(tables: readonly ResultTable[]): { graph: ModelGraph; draft: Draf
       ...(imports.sources ? [IMPORT_SOURCES] : []),
     ],
     ...(moduleFacts.functionalAreas || moduleFacts.moduleUsage ? { moduleFacts } : {}),
+    ...(areaCheck ? { areaCheck } : {}),
   };
   return { graph, draft, lineItems };
 }
