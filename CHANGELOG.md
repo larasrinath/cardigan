@@ -2,6 +2,16 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version stands next to Cardigan's name at the top of the results page and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## 0.18.0 (10 October 2026)
+
+The model map draws the pages' filters too, as it draws access drivers: from each filter line item to the module it filters.
+
+- **Page filters in the Links panel.** Beside **Access drivers**, a box **Page filters**: "Boolean line items used as filters on the pages built on the model. Tick to draw an arrow from each filter line item to the module it filters." It is off until ticked, and the tab keeps the tick with the map's other settings. Where the result has no **Page Filters** table, or none of its filters has a line item of the model as its condition, the box cannot be ticked, and its note says which. (#PRNUM)
+- **One arrow for each line item and module.** A filter's line item, its **Condition line item**, has an arrow to each module of the map its **Filtered module** names, a filter of more than one module's sections to each of them, once however many cards it filters there. A filter of the line item's own module draws none. In the groups and among all modules the arrows run between their boxes, and among a module's line items each module filtered stands beside them. (#PRNUM)
+- **Drawn apart.** The arrows are plum dashes that stand still, counted apart from the formula links between the same two boxes, with a line in the legend that says what they are while they are drawn. A trace follows them only while they are drawn; no formula link, no list of what feeds what, and no module's role counts them. (#PRNUM)
+- **In the details.** A line item's page filters now say what each filters, and by which dimension, beside its app, page and card, and **Modules it filters on pages** lists the modules, each with where. A module's details list **Filtered on pages by**: the line items whose filters filter it. Both are there whether the arrows are drawn or not. (#PRNUM)
+- **What stays the same.** What is read, the tables, and the map's formula and access links. The Links panel's mark for formulas is drawn, no character. (#PRNUM)
+
 ## 0.17.1 (10 October 2026)
 
 A menu's tab names the table shown again, and nothing in the bar moves.
