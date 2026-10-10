@@ -81,7 +81,7 @@ describe("The widths of a table's columns", () => {
     expect(width("count", 1234567)).toBe(width("text", "1,234,567"));
     expect(width("count", "n/a")).toBe(width("text", "n/a"));
     // A rule's colour stops have a square before each colour's code, and each square takes room.
-    const stops = "0 → #FFFFFF; 50 → #F9E95C; 100 → #1F46B4";
+    const stops = "#FFFFFF at 0; #F9E95C at 50; #1F46B4 at 100";
     expect((width("colours", stops) ?? 0) - (width("text", stops) ?? 0)).toBeGreaterThanOrEqual(6);
     expect(width("colours", "Background")).toBe(width("text", "Background"));
     // An empty cell and the dash need no more than the header.

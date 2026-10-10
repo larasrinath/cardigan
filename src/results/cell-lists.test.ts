@@ -221,7 +221,7 @@ describe("What an app's cell lists, item by item, for the drawer: the report's o
       { Rows: ["Product", "Region"], "Context selectors": ["Territory (visible, synced to page)", "Channel (hidden)"],
         Filters: ["Rows, match all: Volume [Demand] is equal to true", "Rows, match all: Price [Demand] is greater than 10 (context: Territory = current; Time = current)"],
         "Sorts & hidden items": ["Product: sorted (1 sort key)", "Product: 2 items hidden (North, South)"],
-        "Conditional formatting": ["Background colour on Volume: 0 → #FFFFFF; 100,000 → #627786", "Font colour on Price: 0 → #FFFFFF; 100,000 → #627786"],
+        "Conditional formatting": ["Background colour on Volume: #FFFFFF at 0; #627786 at 100,000", "Font colour on Price: #FFFFFF at 0; #627786 at 100,000"],
         "Card settings": ["Read-only", "pivot on", "filter/sort on", "CSV export off"] },
       // A combined grid's item is a section's. Rows that the two sections share are one item, and so are the context
       // selectors of the one section that has any: their semicolon is the section's own.
@@ -252,9 +252,9 @@ describe("What an app's cell lists, item by item, for the drawer: the report's o
       { "Context selectors": ["Orders", "Region"] }]);
     // The filtered dimensions and the values are names and values with a comma between them, which either may hold.
     expect(listedIn("Filters")).toEqual([{}, { "Condition context": ["Territory = current", "Time = current"] }, { "Filtered module": ["Demand", "Factors"] }]);
-    expect(report.Formatting.rows.map(row => row[HEADERS.Formatting.indexOf("Colour stops")])).toEqual(["0 → #FFFFFF; 100,000 → #627786", "0 → #FFFFFF; 100,000 → #627786",
+    expect(report.Formatting.rows.map(row => row[HEADERS.Formatting.indexOf("Colour stops")])).toEqual(["#FFFFFF at 0; #627786 at 100,000", "#FFFFFF at 0; #627786 at 100,000",
       "2 icons (arrow up, flag red); no threshold values set"]);
-    expect(listedIn("Formatting")).toEqual([{ "Colour stops": ["0 → #FFFFFF", "100,000 → #627786"] }, { "Colour stops": ["0 → #FFFFFF", "100,000 → #627786"] }, {}]);
+    expect(listedIn("Formatting")).toEqual([{ "Colour stops": ["#FFFFFF at 0", "#627786 at 100,000"] }, { "Colour stops": ["#FFFFFF at 0", "#627786 at 100,000"] }, {}]);
     // The page's views by kind, in the report's words alone.
     expect(listedIn("Pages")).toEqual([{ "Grid & chart views": ["1 custom view", "1 saved view", "2 combined grids"] }]);
     expect([listedIn("Actions").every(cells => Object.keys(cells).length === 0), listedIn("Where used").every(cells => Object.keys(cells).length === 0)]).toEqual([true, true]);

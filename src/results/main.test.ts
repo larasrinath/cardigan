@@ -476,9 +476,10 @@ const firstCells = () => page.all("#tableWrap tbody tr").map(row => row.children
 const filterable = () => page.all("#tableWrap thead th").filter(heading => heading.querySelector("[data-colfilter]")).map(heading => heading.querySelector(".th-sort")?.textContent.trim());
 /** The open filter's choices: each one's text, its count, and whether it is ticked. */
 const choices = () => page.all("#popover .pop-opt").map(option => [option.children[1].textContent, option.querySelector(".po-cnt")?.childNodes[0].textContent, option.children[0].checked]);
-/** The pager's buttons: each one's words, with brackets around one that is disabled. */
+/** The pager's buttons: each one's name without its "page", Previous or Next, with brackets around one that is
+ * disabled. The buttons have no text: each draws a chevron, and its aria-label names it. */
 const pagerButtons = () => page.all("#pager .pg-btn").map(button => {
-  const words = button.textContent.trim();
+  const words = (button.getAttribute("aria-label") ?? "").replace(/ page$/, "") + (button.textContent.trim() ? ` (text: ${button.textContent.trim()})` : "");
   return button.disabled ? `(${words})` : words;
 });
 
@@ -732,7 +733,7 @@ describe("The results page's script, on the page", () => {
     goTo(1);
     const box = page.id("tblSearch");
     const kept = [box, page.find(".toolbar"), page.id("tableWrap"), page.id("pager"), page.id("colBtn"), page.find("#view h1")];
-    expect([page.id("rowCount").textContent, firstCells().length, page.id("resetBtn").hidden, pagerButtons()]).toEqual(["1–50 of 120 rows", 50, true, ["(‹)", "›"]]);
+    expect([page.id("rowCount").textContent, firstCells().length, page.id("resetBtn").hidden, pagerButtons()]).toEqual(["1–50 of 120 rows", 50, true, ["(Previous)", "Next"]]);
 
     box.type("item 11");
     // The box is the very element the user is typing into, with what was typed and the focus still in it.
@@ -740,7 +741,7 @@ describe("The results page's script, on the page", () => {
     expect([box.value, page.document.activeElement === box]).toEqual(["item 11", true]);
     expect(firstCells()).toEqual(["Line item 11", ...Array.from({ length: 10 }, (_, index) => `Line item ${110 + index}`)]);
     expect(page.id("live").textContent).toBe("Line Items: 11 rows");
-    expect([page.id("rowCount").textContent, page.id("resetBtn").hidden, pagerButtons()]).toEqual(["1–11 of 11 rows (filtered from 120)", false, ["(‹)", "(›)"]]);
+    expect([page.id("rowCount").textContent, page.id("resetBtn").hidden, pagerButtons()]).toEqual(["1–11 of 11 rows (filtered from 120)", false, ["(Previous)", "(Next)"]]);
     expect(page.id("searchWrap").classList.contains("has-value")).toBe(true);
 
     // Each further letter does the same, and so does taking letters away.
@@ -910,9 +911,9 @@ describe("The results page's script, on the page", () => {
 
     // The pager: Next stays Next while there is a next page; on the last page it is disabled, and Previous takes the focus.
     page.find('.pg-btn[aria-label="Next page"]').press();
-    expect([focus(), pagerButtons(), page.id("rowCount").textContent]).toEqual([["Next page", true], ["‹", "›"], "51–100 of 120 rows"]);
+    expect([focus(), pagerButtons(), page.id("rowCount").textContent]).toEqual([["Next page", true], ["Previous", "Next"], "51–100 of 120 rows"]);
     page.document.activeElement.press();
-    expect([focus(), pagerButtons(), page.id("rowCount").textContent]).toEqual([["Previous page", true], ["‹", "(›)"], "101–120 of 120 rows"]);
+    expect([focus(), pagerButtons(), page.id("rowCount").textContent]).toEqual([["Previous page", true], ["Previous", "(Next)"], "101–120 of 120 rows"]);
 
     // Rows per page: the list itself, with what was chosen.
     page.id("pageSize").choose("100");
@@ -945,18 +946,18 @@ describe("The results page's script, on the page", () => {
       steps.push(where());
     }
     expect(steps).toEqual([
-      ["Next page", true, "26–50 of 120 rows", "‹ ›"],
-      ["Next page", true, "51–75 of 120 rows", "‹ ›"],
-      ["Next page", true, "76–100 of 120 rows", "‹ ›"],
+      ["Next page", true, "26–50 of 120 rows", "Previous Next"],
+      ["Next page", true, "51–75 of 120 rows", "Previous Next"],
+      ["Next page", true, "76–100 of 120 rows", "Previous Next"],
       // The last page: Next is disabled, so Previous has the focus, and the next Enter turns the page back.
-      ["Previous page", true, "101–120 of 120 rows", "‹ (›)"],
-      ["Previous page", true, "76–100 of 120 rows", "‹ ›"],
-      ["Previous page", true, "51–75 of 120 rows", "‹ ›"],
-      ["Previous page", true, "26–50 of 120 rows", "‹ ›"],
+      ["Previous page", true, "101–120 of 120 rows", "Previous (Next)"],
+      ["Previous page", true, "76–100 of 120 rows", "Previous Next"],
+      ["Previous page", true, "51–75 of 120 rows", "Previous Next"],
+      ["Previous page", true, "26–50 of 120 rows", "Previous Next"],
       // The first page: Previous is disabled, so Next has the focus, and the walk goes on forward.
-      ["Next page", true, "1–25 of 120 rows", "(‹) ›"],
-      ["Next page", true, "26–50 of 120 rows", "‹ ›"],
-      ["Next page", true, "51–75 of 120 rows", "‹ ›"],
+      ["Next page", true, "1–25 of 120 rows", "(Previous) Next"],
+      ["Next page", true, "26–50 of 120 rows", "Previous Next"],
+      ["Next page", true, "51–75 of 120 rows", "Previous Next"],
     ]);
   });
 
@@ -1510,7 +1511,7 @@ describe("What a click, a key and typing do on the results page", () => {
   /** What the view and the navigation each say is shown: the view's heading, and the words of the entry marked as current. */
   const shows = () => [page.texts("#view h1")[0], page.texts('#navList [aria-current="page"] span')[0]];
   /** The headings of the columns on screen. */
-  const headings = () => page.all("#tableWrap thead .th-sort").map(button => button.textContent.trim().replace(/[▲▼]$/, ""));
+  const headings = () => page.all("#tableWrap thead .th-sort").map(button => button.textContent.trim());
   /** The rows on screen, by the text of one column, which is named by its heading. */
   const column = (heading: string) => page.all("#tableWrap tbody tr").map(row => row.children[headings().indexOf(heading)].textContent.trim());
   /** The links of the rows on screen that open a card. In the Cards table that is each row's title; a card's number is
@@ -2392,11 +2393,11 @@ describe("What a click, a key and typing do on the results page", () => {
     await openWith(MODEL);
     goTo(1);
     const range = () => [firstCells()[0], firstCells()[firstCells().length - 1], page.id("rowCount").textContent, pagerButtons().join(" ")];
-    expect(range()).toEqual(["Line item 1", "Line item 50", "1–50 of 120 rows", "(‹) ›"]);
+    expect(range()).toEqual(["Line item 1", "Line item 50", "1–50 of 120 rows", "(Previous) Next"]);
     page.find('.pg-btn[aria-label="Next page"]').press();
-    expect(range()).toEqual(["Line item 51", "Line item 100", "51–100 of 120 rows", "‹ ›"]);
+    expect(range()).toEqual(["Line item 51", "Line item 100", "51–100 of 120 rows", "Previous Next"]);
     page.find('.pg-btn[aria-label="Next page"]').press();
-    expect(range()).toEqual(["Line item 101", "Line item 120", "101–120 of 120 rows", "‹ (›)"]);
+    expect(range()).toEqual(["Line item 101", "Line item 120", "101–120 of 120 rows", "Previous (Next)"]);
     // A button that is off does nothing.
     page.find('.pg-btn[aria-label="Next page"]').press();
     expect(range()[2]).toBe("101–120 of 120 rows");
@@ -2404,9 +2405,9 @@ describe("What a click, a key and typing do on the results page", () => {
     expect(range().slice(0, 3)).toEqual(["Line item 51", "Line item 100", "51–100 of 120 rows"]);
     // Rows per page: the table starts again at its first page, and every table keeps the size.
     page.id("pageSize").choose("25");
-    expect(range()).toEqual(["Line item 1", "Line item 25", "1–25 of 120 rows", "(‹) ›"]);
+    expect(range()).toEqual(["Line item 1", "Line item 25", "1–25 of 120 rows", "(Previous) Next"]);
     page.id("pageSize").choose("100");
-    expect(range()).toEqual(["Line item 1", "Line item 100", "1–100 of 120 rows", "(‹) ›"]);
+    expect(range()).toEqual(["Line item 1", "Line item 100", "1–100 of 120 rows", "(Previous) Next"]);
     goTo(2);
     expect(page.id("pageSize").value).toBe("100");
   });
@@ -2418,17 +2419,17 @@ describe("What a click, a key and typing do on the results page", () => {
     const places = () => [page.id("view").children.map(child => child.id || child.localName), page.find(".toolbar").children.map(child => child.id)];
     const expected = [["h1", "div", "tableWrap"], ["searchWrap", "colBtn", "resetBtn", "rowCount", "pager"]];
     expect(places()).toEqual(expected);
-    expect([page.id("rowCount").textContent, pagerButtons().join(" "), page.id("pager").contains(page.id("pageSize")), page.id("pageSize").value]).toEqual(["1–50 of 120 rows", "(‹) ›", true, "50"]);
+    expect([page.id("rowCount").textContent, pagerButtons().join(" "), page.id("pager").contains(page.id("pageSize")), page.id("pageSize").value]).toEqual(["1–50 of 120 rows", "(Previous) Next", true, "50"]);
     // A page turn, another number of rows per page and a search draw the pager again, where it stands.
     const pager = page.id("pager");
     page.find('.pg-btn[aria-label="Next page"]').press();
     page.id("pageSize").choose("25");
     page.id("tblSearch").type("item 1");
-    expect([places(), page.id("pager") === pager, page.id("rowCount").textContent, pagerButtons().join(" ")]).toEqual([expected, true, "1–25 of 32 rows (filtered from 120)", "(‹) ›"]);
+    expect([places(), page.id("pager") === pager, page.id("rowCount").textContent, pagerButtons().join(" ")]).toEqual([expected, true, "1–25 of 32 rows (filtered from 120)", "(Previous) Next"]);
     // A table of one page has its count, its two buttons, both disabled, and the list of page sizes there as well.
     goTo(2);
     expect([places(), page.id("rowCount").textContent, pagerButtons().join(" "), page.id("pager").contains(page.id("pageSize")), page.id("pageSize").value])
-      .toEqual([expected, "1–2 of 2 rows", "(‹) (›)", true, "25"]);
+      .toEqual([expected, "1–2 of 2 rows", "(Previous) (Next)", true, "25"]);
     // With no row to show, the count says so and the pager is there, empty.
     page.id("tblSearch").type("no such module");
     expect([places(), page.id("rowCount").textContent, page.id("pager").children]).toEqual([expected, "No rows (filtered from 2)", []]);
@@ -2661,7 +2662,7 @@ describe("An app's Where Used table, by object and by use", () => {
     [["Overview", 1, "Sales", "Grid", "card-a"], ["Overview", 2, "Margin", "KPI", "card-b"], ["Stores", 1, "Stores grid", "Grid", "card-c"]]);
 
   /** The headings of the columns on screen, and the rows on screen by the text of one column. */
-  const headings = () => page.all("#tableWrap thead .th-sort").map(button => button.textContent.trim().replace(/[▲▼]$/, ""));
+  const headings = () => page.all("#tableWrap thead .th-sort").map(button => button.textContent.trim());
   const column = (heading: string) => page.all("#tableWrap tbody tr").map(row => row.children[headings().indexOf(heading)].textContent.trim());
   /** The switch: each way's words, with a mark on the one that is shown, as assistive technology is told and as it looks. */
   const ways = () => page.all("#tableWays button").map(button => `${button.textContent.trim()}${button.getAttribute("aria-pressed") === "true" ? " (shown)" : ""}${button.classList.contains("primary") ? " filled" : ""}`);

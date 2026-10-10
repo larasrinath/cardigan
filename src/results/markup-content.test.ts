@@ -124,19 +124,20 @@ describe("What the results page's markup shows", () => {
   });
 
   it("heads a table with the columns shown, in their order, each with the sort button of that column", () => {
-    /** Each heading: its name, the column its sort button carries, how it says it is sorted and the arrow it shows. */
+    /** Each heading: its name, the column its sort button carries, how it says it is sorted, the way its sort mark points
+     * ("asc", "desc", or nothing) and whether it is a number's. The mark is drawn: the button's text is the name alone. */
     const heads = (view: TableView) => parseMarkup(tableHtml(view)).querySelectorAll("thead th").map(heading => {
       const button = heading.querySelector(".th-sort");
-      const arrow = text(heading.querySelector(".dir"));
-      return [text(button).slice(0, text(button).length - arrow.length), button?.dataset.sort, heading.getAttribute("aria-sort"), arrow, heading.classList.contains("num")];
+      const mark = heading.querySelector(".dir")?.dataset.dir ?? "";
+      return [text(button), button?.dataset.sort, heading.getAttribute("aria-sort"), mark, heading.classList.contains("num")];
     });
     expect(heads(viewOf(CARDS, LINKS))).toEqual([["Page", "0", "none", "", false], ["Card #", "1", "none", "", true], ["Card title", "2", "none", "", false],
       ["Card type", "3", "none", "", false], ["Card ID", "4", "none", "", false]]);
     // With columns hidden, a heading still carries its own column, not its place among the ones shown.
     const some = columnsOf(CARDS).filter(entry => [1, 3, 4].includes(entry.index));
     expect(heads(viewOf(CARDS, LINKS, { columns: some, sort: { column: 3, dir: "asc" } }))).toEqual([["Card #", "1", "none", "", true],
-      ["Card type", "3", "ascending", "▲", false], ["Card ID", "4", "none", "", false]]);
-    expect(heads(viewOf(CARDS, LINKS, { columns: some, sort: { column: 4, dir: "desc" } })).map(heading => heading.slice(2, 4))).toEqual([["none", ""], ["none", ""], ["descending", "▼"]]);
+      ["Card type", "3", "ascending", "asc", false], ["Card ID", "4", "none", "", false]]);
+    expect(heads(viewOf(CARDS, LINKS, { columns: some, sort: { column: 4, dir: "desc" } })).map(heading => heading.slice(2, 4))).toEqual([["none", ""], ["none", ""], ["descending", "desc"]]);
     // A sort on a column that is not shown marks none of the ones that are.
     expect(heads(viewOf(CARDS, LINKS, { columns: some, sort: { column: 0, dir: "asc" } })).map(heading => heading[2])).toEqual(["none", "none", "none"]);
     // A model's file: the unnamed columns get the page's names, and each sort button its place among the file's headers.
@@ -292,19 +293,24 @@ describe("What the results page's markup shows", () => {
   });
 
   it("offers Previous and Next, each with the page it goes to and disabled where there is no such page, and no page's number", () => {
-    /** Each button of the pager: its words, its name, the page it goes to (from 0), and "off" when it is disabled. */
+    /** Which way a pager button's chevron points: it has no text, and its name is its aria-label. */
+    const way = (button: FakeElement): string => {
+      const drawn = { "M10 4 6 8l4 4": "left", "M6 4l4 4-4 4": "right" }[button.querySelector("svg.pg-chevron path")?.getAttribute("d") ?? ""];
+      return text(button) === "" && drawn ? drawn : `text: ${text(button)}`;
+    };
+    /** Each button of the pager: its chevron's way, its name, the page it goes to (from 0), and "off" when it is disabled. */
     const pager = (page: number, pages: number) => parseMarkup(pagerHtml(page, pages, pages * 50, 50)).querySelectorAll(".pg-btn").map(button =>
-      [text(button), button.getAttribute("aria-label"), button.dataset.page, button.disabled ? "off" : ""]);
-    expect(pager(0, 3)).toEqual([["‹", "Previous page", "-1", "off"], ["›", "Next page", "1", ""]]);
-    expect(pager(1, 3)).toEqual([["‹", "Previous page", "0", ""], ["›", "Next page", "2", ""]]);
-    expect(pager(2, 3)).toEqual([["‹", "Previous page", "1", ""], ["›", "Next page", "3", "off"]]);
-    expect(pager(0, 1)).toEqual([["‹", "Previous page", "-1", "off"], ["›", "Next page", "1", "off"]]);
+      [way(button), button.getAttribute("aria-label"), button.dataset.page, button.disabled ? "off" : ""]);
+    expect(pager(0, 3)).toEqual([["left", "Previous page", "-1", "off"], ["right", "Next page", "1", ""]]);
+    expect(pager(1, 3)).toEqual([["left", "Previous page", "0", ""], ["right", "Next page", "2", ""]]);
+    expect(pager(2, 3)).toEqual([["left", "Previous page", "1", ""], ["right", "Next page", "3", "off"]]);
+    expect(pager(0, 1)).toEqual([["left", "Previous page", "-1", "off"], ["right", "Next page", "1", "off"]]);
     // Many pages: the same two buttons side by side and then the choice of rows per page, with no page's number between
     // them, no gap where numbers were left out, and nothing that marks a page as the one shown. The count that stands
     // before the pager says which rows are shown.
     const long = parseMarkup(`<div class="pager">${pagerHtml(10, 20, 1000, 50)}</div>`).querySelector(".pager");
-    expect(long?.children.map(item => (item.localName === "button" ? `${text(item)}>${item.dataset.page}` : item.getAttribute("class"))))
-      .toEqual(["‹>9", "›>11", "per-page"]);
+    expect(long?.children.map(item => (item.localName === "button" ? `${way(item)}>${item.dataset.page}` : item.getAttribute("class"))))
+      .toEqual(["left>9", "right>11", "per-page"]);
     expect([long?.querySelectorAll("[aria-current]").length, long?.textContent.includes("…")]).toEqual([0, false]);
     // Rows per page: the three sizes, with the one in force selected.
     for (const size of [25, 50, 100]) {
