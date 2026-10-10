@@ -82,21 +82,26 @@ Then it reads the pages built on the model, in every app you can open, and makes
 
 ![The model map as it opens: the eight sections of a model as boxes, with arrows between the sections that feed one another and the legend of the sections at the lower left](docs/images/map-sections.png)
 
-- The map groups the modules into sections, and opens on them. The switch in the map's bar chooses how, and marks the map's own pick as automatic:
-  - **By functional area**: each module's Functional Area, from Modules.
-  - **By headings**: the modules under one heading, a module whose name starts with `--`, such as `-- Inputs --`.
-  - **By name prefix**: the code a module's name starts with, such as INP for `INP01 Volumes`, where enough modules share it: three, and at least one in fifty. The rest are under **Other**. The codes are learnt from the model's own names; none is built in.
-  - **By role in the data flow**: Data, Input, System, Calculation or Output, worked out from what the model does with each module, never from its name. An import loads into a Data module, which is mostly without formulas. An Input module is mostly without formulas. A System module applies to no list, and three or more other modules read it. A Calculation module is mostly formulas that another module reads. An Output module's formulas no other module reads, or an export takes it.
-  - **By app**: the app whose pages show the module, from Module Usage, or **Several apps**, or **Not on any page**.
-  - **By main dimension**: the first list the module applies to, a subset as its list, or **Time only**, or **No dimensions**.
+- The bar across the top of the map has three parts, each on one line; on a narrow map each part takes a line of its own.
+  - **Where the map is.** The **Modules** and **Line items** switch, then a path that starts with the model's name, which leads back to the groups as a whole. In the Modules view the path's list says what is shown: **All groups**, **All modules**, or one group, with how many modules it holds. In the Line items view the path names the module's group, then the module. Click the module, or Tab to it, and type: the picker lists the group's modules until you type, and then every module whose name holds what you typed, at most 200 at once. Choose another group, or **All groups**, to list those modules instead. The path follows the map wherever it goes. The page's header names the workspace, so the path does not; the model's name says it when the pointer rests on it.
+  - **How the map is built.** **Group by** in the Modules view; **Other modules' line items** in the Line items view, which shows those line items one by one, ticked, or one box for each other module.
+  - **Its tools.** **Links** opens a panel of the links the map draws: formulas, always, and **Access drivers**, where you tick it. Read and Write Access Drivers are line items that decide which cells of a module or line item someone can see or edit (Anaplan's dynamic cell access); ticked, the map draws an arrow from each driver to what it controls. Then the search, and **Full screen**.
+- The map groups the modules into sections, and opens on them. **Group by** chooses how, and marks the map's own pick as automatic:
+  - **Functional area**: each module's Functional Area, from Modules.
+  - **Headings**: the modules under one heading, a module whose name starts with `--`, such as `-- Inputs --`.
+  - **Name prefix**: the code a module's name starts with, such as INP for `INP01 Volumes`, where enough modules share it: three, and at least one in fifty. The rest are under **Other**. The codes are learnt from the model's own names; none is built in.
+  - **Role in the data flow**: Data, Input, System, Calculation or Output, worked out from what the model does with each module, never from its name. An import loads into a Data module, which is mostly without formulas. An Input module is mostly without formulas. A System module applies to no list, and three or more other modules read it. A Calculation module is mostly formulas that another module reads. An Output module's formulas no other module reads, or an export takes it.
+  - **App**: the app whose pages show the module, from Module Usage, or **Several apps**, or **Not on any page**.
+  - **Main dimension**: the first list the module applies to, a subset as its list, or **Time only**, or **No dimensions**.
 - The map's own pick is the first of functional area, headings and name prefix that groups the model well: from 3 to 15 sections, none with more than half the modules, and at most a fifth of them left over. Otherwise it is the role in the data flow. A choice of yours is kept in this browser for the next map. A grouping that makes one section shows the modules instead.
 - A module's details say its section and where it comes from, such as "INP · from module names", and for a role, why. The search says the section and where it comes from too. The ninth to the sixteenth section have the first eight colours again, in stripes.
-- Double-click a section to open its modules, and a module to open its line items. **Show all modules** shows every module, and **Show sections** goes back. `Esc` goes back a step.
+- Double-click a section to open its modules, and a module to open its line items. The path's list shows **All modules**, one group's, or **All groups** again. `Esc` goes back a step.
 - An arrow from A to B means B reads A.
 - Click a box to see everything that feeds it, marked in blue, and everything it feeds, marked in red, directly or through others. The rest fades; **Only these** hides it. Dashes move along the marked links for as long as the box is selected, long ones towards it and short ones away from it; they stand still if your system is set to reduce motion.
 - The panel on the right gives the box's details: for a line item its formula, format and summary in words, and what feeds it and what it feeds directly. A line item's details also list the page filters that have it as their condition, by app, page and card, from **Page Filters**: the first ten, and how many more.
-- The search finds sections, modules and line items by name. In the **Legend**, click an entry to hide or show its boxes. **Access drivers** adds a link from each access driver to what it controls.
-- From **Line Items**, **Modules** or **Module Usage**, **Model map**, at the top right of a row's details, goes straight to that line item or module on the map, selected, with what feeds it and what it feeds.
+- The search finds sections, modules and line items by name. In the **Legend**, click an entry to hide or show its boxes.
+- From **Line Items**, **Modules**, **Module Usage** or **General Lists**, **Model map**, at the top right of a row's details, goes straight to that line item, module or list on the map, selected, with what feeds it and what it feeds. A list is shown beside the line items of the first module it is linked with; a list linked with no line item is on no map.
+- **Full screen**, at the end of the bar, gives the map the whole screen, with its bar, details and legend. The button and `Esc` leave it. Where the browser will not give it the screen, the map fills the browser's window instead, and `Esc` leaves that too.
 - Drag to move, scroll to zoom, press `F` for the whole map. **About this map** lists the keys. The map follows the page's theme.
 
 ![The model map in the dark theme, on one module's line items: one line item is selected, the boxes that feed it are marked in blue and the boxes it feeds in red, and a panel on the right gives its details, with its formula](docs/images/map-line-items.png)
@@ -115,7 +120,7 @@ If Chrome says **Could not load javascript 'dist/content.js' for script** and **
 
 To check the download, compare it with the SHA-256 published with the release: `shasum -a 256 cardigan-<version>.zip` on a Mac, `certutil -hashfile cardigan-<version>.zip SHA256` on Windows.
 
-To update, unzip the new release over the same folder and click the reload icon on Cardigan's card in `chrome://extensions`. An app's tab needs no refresh: click the Cardigan icon on it. A model's tab that was open before the update needs one refresh: the part of Cardigan that reads a model runs inside the model's page, which keeps the earlier one until it is refreshed. If you forget, the results page says so and reads nothing.
+To update, unzip the new release over the same folder and click the reload icon on Cardigan's card in `chrome://extensions`. An app's tab needs no refresh: click the Cardigan icon on it. A model's tab that was open before the update needs one refresh: the part of Cardigan that reads a model runs inside the model's page, which keeps the earlier one until it is refreshed. If you forget, the results page says so and reads nothing. The version stands next to Cardigan's name at the top of the results page, and [CHANGELOG.md](CHANGELOG.md) says what each version brought.
 
 ## Use
 
@@ -215,10 +220,11 @@ In the Anaplan tab, `src/content.ts` and `src/analyse.ts` read an app, and `src/
 
 ### Release
 
-1. Set the new `version` in `manifest.json`, `package.json` and `package-lock.json` (two fields), and add the release to [CHANGELOG.md](CHANGELOG.md).
-2. Run `npm run check`.
-3. Run `npm run package`. It writes `release/cardigan-<version>.zip` and prints its SHA-256.
-4. Publish the zip with its SHA-256.
+Every merged change that alters the extension takes the next version, as the top of [CHANGELOG.md](CHANGELOG.md) says: the next minor version for a new feature, the next patch for a fix or a speed-up. Set it in `manifest.json`, `package.json` and `package-lock.json` (two fields), and give it a section in CHANGELOG.md whose changes end with their pull request's number. A version reaches the install steps above only once it is published:
+
+1. Run `npm run check`.
+2. Run `npm run package`. It writes `release/cardigan-<version>.zip` and prints its SHA-256.
+3. Publish the zip with its SHA-256.
 
 The zip holds the twelve files Chrome loads: `manifest.json`, four bundles, four icons, `results.html`, `results.css` and `map.css`. The same files always give the same bytes. The packager refuses a version that differs between `manifest.json` and `package.json`, a missing or stale bundle, a results page that loads a file outside the zip, and a manifest that asks for any permission but activeTab and scripting, or has no content security policy that keeps everything inside the package.
 
