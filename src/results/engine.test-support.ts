@@ -311,6 +311,10 @@ const PRICES_DEFINITION = JSON.stringify({ importType: "MODULE_DATA", target: "_
   { targetType: "moduleLineItem", target: "", sourceType: "column", sourceColumnId: "#5", sourceColumnName: "Price" }] });
 const REGIONS_DEFINITION = JSON.stringify({ importType: "HIERARCHY_DATA", target: "_101000000002_", mappings: [
   { targetType: "hierarchyMemberEntityName", target: "", sourceType: "column", sourceColumnEntityLongId: 101000000009, sourceColumnName: "Region" }] });
+/** Nightly load's definition, as Anaplan's process dialog writes it (model/process-actions.ts): the import from a file, the
+ * import of the regions, then the deletion, each node naming the next, until the end. */
+const NIGHTLY_DEFINITION = JSON.stringify({ nodes: { 0: { type: "IMPORT", action: "_112000000002_", next: "1" }, 1: { type: "IMPORT", action: "_112000000001_", next: "2" },
+  2: { type: "ACTION", action: "_117000000001_", next: "_END_" }, _END_: { type: "END", next: null } }, start: "0", useDetailedResults: false });
 export const GOLDEN_GRIDS: Record<string, FakeGrid> = {
   "LINE ITEMS × LINE ITEM PROPERTIES": { columns: ["Formula", "Summary", "Notes"], rows: [
     { ids: [102000000001, -1], labels: ["Profitability", null], cells: ["", "", ""] },
@@ -335,6 +339,7 @@ export const GOLDEN_GRIDS: Record<string, FakeGrid> = {
     row(112000000002, "Prices from prices.csv", "prices.csv", "-", "FILE", "Prices", "MODULE", "false")] },
   "IMPORTS × IMPORT DEFINITIONS": { columns: ["Notes", "Import Definition"], columnIds: [4000000017, 4000001300], rows: [
     row(112000000001, "1.1 Load regions", "", REGIONS_DEFINITION), row(112000000002, "Prices from prices.csv", "From the price list", PRICES_DEFINITION)] },
+  "PROCESSES × PROCESS DEFINITIONS": { columns: ["Process Definition"], columnIds: [4000001900], rows: [row(118000000001, "Nightly load", NIGHTLY_DEFINITION)] },
   "DATA SOURCES × DATA SOURCE PROPERTIES": { columns: ["Type", "Used in Imports"], rows: [row(113000000001, "prices.csv", "FILE", "Prices from prices.csv")] },
   "TIME RANGES × TIME RANGE PROPERTIES": { columns: ["Start Period", "End Period"], rows: [row(123000000001, "FY24-FY25", "FY24", "FY25")] },
   "VERSIONS × VERSION PROPERTIES": { columns: ["Is Actual", "Switchover"], rows: [row(107000000001, "Actual", "true", ""), row(107000000002, "Forecast", "false", "@Current Period")] },
@@ -348,7 +353,8 @@ export const GOLDEN_GRIDS: Record<string, FakeGrid> = {
 const GOLDEN_AXES: Record<string, string> = { MODULE_WITH_LINE_ITEM: "LINE ITEMS", LINE_ITEM_PROPERTY: "LINE ITEM PROPERTIES", MODULE_ALL: "MODULES", HIERARCHY: "LISTS",
   ACTION_WITH_HEADING: "ACTIONS", IMPORT_ALL: "IMPORTS", IMPORT_DEFINITION_PROPERTY: "IMPORT PROPERTIES", IMPORT_PROPERTY: "IMPORT DEFINITIONS", IMPORT_DATA_SOURCE: "DATA SOURCES",
   IMPORT_DATA_SOURCE_DETAILS_PROPERTY: "DATA SOURCE PROPERTIES", TIME_RANGE: "TIME RANGES", TIME_RANGE_PROPERTY: "TIME RANGE PROPERTIES", VERSION_ALL: "VERSIONS",
-  VERSION_PROPERTY: "VERSION PROPERTIES", TIMESCALE_PROPERTY: "CALENDAR", EMPTY_1_0: "EMPTY" };
+  VERSION_PROPERTY: "VERSION PROPERTIES", TIMESCALE_PROPERTY: "CALENDAR", EMPTY_1_0: "EMPTY", PROCESS: "PROCESSES",
+  PROCESS_PROPERTY: "PROCESS DEFINITIONS" };
 
 /** The grid the Line Items file is read from, by its two axes. */
 export const LINE_ITEMS = "LINE ITEMS × LINE ITEM PROPERTIES";
