@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AnalysisResult, ImportMapping, ItemMatch, MappedTarget, ResultTable } from "../result-types.js";
-import { columnLines, mappingOfRow, mappingView, matchWords, NO_MAPPING, numbersWords, sourceWords, unfedLine } from "./import-mapping-view.js";
+import { columnLines, HEADER_ROW_BY_HAND, HEADER_ROW_MATCHED, HEADER_ROW_UNSTORED, lineItemsOf, mappingOfRow, mappingView, matchWords, NO_MAPPING, numbersWords, sourceWords,
+  unfedLine } from "./import-mapping-view.js";
 import { fileView } from "./result-view.js";
 
 // Mappings as the model export reads them out of an import's definition (model/import-mappings.ts). The first import is
@@ -26,7 +27,7 @@ describe("An import's mapping, in the drawer's words", () => {
       { target: "Price", source: "none" }, { target: "Batch", source: "numbered" }, { target: "Manager", source: "other", text: "field" }, { target: "Manager", source: "other" },
     ] as MappedTarget[]).map(sourceWords);
     expect(said).toEqual(["Division Name", "Column 4", "Units", "Column with ID f12", "A column the definition neither numbers nor names",
-      "Constant: Actual", "Constant, with no value given", "Prompt: chosen each time the import runs", "Ignored", "Header row: each line item from the column it heads",
+      "Constant: Actual", "Constant, with no value given", "Prompt: chosen each time the import runs", "Ignored", "Header row: each column whose header is a line item's name or code",
       "Not mapped", "Not mapped: the list numbers its items itself", "A source Cardigan does not know (field)", "A source Cardigan does not know"]);
     expect(said.filter(words => NAMES_A_FILE.test(words))).toEqual([]);
   });
@@ -134,8 +135,8 @@ describe("An import's mapping, in the drawer's words", () => {
     expect(mappingView(MIXED)).toEqual({
       rows: [["Column 2", "Regions"], ["Column 2", "Territory"], ["Price", "Discount"], ["Price", "Products"], ["Value", "Value"], ["Units", "Units"],
         ["Column with ID f12", "Region code"], ["Constant: Actual", "Versions"], ["Prompt: chosen each time the import runs", "Channel"],
-        ["Header row: each line item from the column it heads", "Line Items"], ["A source Cardigan does not know (field)", "Manager"]],
-      lines: ["Not mapped: Active.", "Columns 1, 3 and 5 are not mapped by number. 3 targets give no place for their columns, and may use them.",
+        [HEADER_ROW_MATCHED, "Line Items"], ["A source Cardigan does not know (field)", "Manager"]],
+      lines: ["Not mapped: Active.", HEADER_ROW_UNSTORED, "Columns 1, 3 and 5 are not mapped by number. 3 targets give no place for their columns, and may use them.",
         "Whether there are columns after column 6 is not known: Anaplan keeps the import's mapping, not the header row it was made from."] });
     // Every target is on the page: in a row, or in the line under the mapping.
     const view = mappingView(MIXED);
@@ -154,6 +155,55 @@ describe("An import's mapping, in the drawer's words", () => {
       rows: headings.map(heading => [heading, heading]),
       lines: ["Not mapped: IL010 - Product Hierarchy Import (the list numbers its items itself) and Parent.",
         "Each column mapped is named by its heading alone, so Cardigan cannot say which columns are not used."] });
+  });
+
+  it("shows the headers of the header row mapped by hand, each with its line item, then those ignored, and says the definition keeps no other", () => {
+    // As Anaplan keeps an import into a module whose line items come from the header row, two headers mapped to line
+    // items by hand and one ignored (model/import-mappings.ts); Price's own column also names its header.
+    const BY_HAND: ImportMapping = { id: "112000000020", name: "Rates", importType: "MODULE_DATA", targets: [
+      { ...column("Resources #", undefined, "Resource"), items: { byHand: 0, ignored: 0 } },
+      { target: "Line Items", source: "headerRow", items: { byHand: 2, ignored: 1 } },
+      column("Price", undefined, "Price (EUR)")],
+    headers: [{ header: "Price (EUR)", lineItem: "Price" }, { header: "Hours", lineItem: "Hours booked" }, { header: "Notes" }] };
+    expect(mappingView(BY_HAND)).toEqual({
+      // Price (EUR) is said once, by Price's own column; the header ignored feeds nothing, and stands after the columns.
+      rows: [["Resource", "Resources #"], ["Price (EUR)", "Price"], ["Hours", "Hours booked"], ["Notes", "Ignored"],
+        [HEADER_ROW_BY_HAND, "Line Items", "Mapped by hand: 2 headers, 1 ignored"]],
+      lines: ["Items of Resources # are matched on their names or codes when the import runs.",
+        "Anaplan stores the headers mapped by hand; any other header of the header row is not known.",
+        "Each column mapped is named by its heading alone, so Cardigan cannot say which columns are not used."] });
+  });
+
+  it("says under the header row matched on names or codes the line items a header can match, the first five and how many more, and opens to all", () => {
+    const MATCHED: ImportMapping = { id: "112000000021", name: "Resources", importType: "MODULE_DATA", targets: [
+      { ...column("MDL3801 - Resources #", undefined, "Resource"), items: { byHand: 0, ignored: 0 } }, { target: "Line Items", source: "headerRow", items: { byHand: 0, ignored: 0 } }] };
+    const many = ["Cost", "Hours", "Rate", "Start Date", "End Date", "Notes", "Active"];
+    expect(mappingView(MATCHED, many)).toEqual({
+      rows: [["Resource", "MDL3801 - Resources #"], [HEADER_ROW_MATCHED, "Line Items", "Line items a header can match: Cost, Hours, Rate, Start Date, End Date and 2 more", many]],
+      lines: ["Items of MDL3801 - Resources # are matched on their names or codes when the import runs.", HEADER_ROW_UNSTORED,
+        "Each column mapped is named by its heading alone, so Cardigan cannot say which columns are not used."] });
+    // Five or fewer are said in full, and with none known the row says nothing more.
+    expect(mappingView(MATCHED, ["Cost", "Hours"]).rows[1]).toEqual([HEADER_ROW_MATCHED, "Line Items", "Line items a header can match: Cost and Hours"]);
+    expect(mappingView(MATCHED).rows[1]).toEqual([HEADER_ROW_MATCHED, "Line Items"]);
+    // With no column but the header row, no line says that no column is mapped: the header row's columns are.
+    expect(mappingView({ ...MATCHED, targets: [MATCHED.targets[1]] }).lines).toEqual([HEADER_ROW_UNSTORED]);
+  });
+
+  it("says under a source how it is read: items mapped by hand and ignored, Time's period format or names, a date line item's format", () => {
+    const READ: ImportMapping = { id: "112000000022", name: "Sales", importType: "MODULE_DATA", targets: [
+      { ...column("Products", 1, "Product"), items: { byHand: 3, ignored: 2 } },
+      { ...column("Regions", 2, "Region"), items: { byHand: 1, ignored: 0 } },
+      { ...column("Time", 3, "Month"), periodFormat: "MMM YY" },
+      { ...column("Ship Date", 4, "Shipped"), dateFormat: "DD/MM/YYYY" },
+      { ...column("Channel", 5, "Channel"), items: { byHand: 0, ignored: 0 } }] };
+    expect(mappingView(READ)).toEqual({ rows: [["Product", "Products", "3 items mapped by hand, 2 ignored"], ["Region", "Regions", "1 item mapped by hand"],
+      ["Month", "Time", "Period format: MMM YY"], ["Shipped", "Ship Date", "Date format: DD/MM/YYYY"], ["Channel", "Channel"]],
+    lines: ["Items of Channel are matched on their names or codes when the import runs.", "Columns 1 to 5 are all used.",
+      "Whether there are columns after column 5 is not known: Anaplan keeps the import's mapping, not the header row it was made from."] });
+    expect(mappingView({ ...READ, targets: [{ ...column("Time", 1, "Month"), periodFormat: null }] }).rows).toEqual([["Month", "Time", "Periods matched by their names"]]);
+    // No word of these names a file.
+    const view = mappingView(READ);
+    expect([...view.rows.flat(), ...view.lines, HEADER_ROW_MATCHED, HEADER_ROW_BY_HAND, HEADER_ROW_UNSTORED].filter(words => typeof words === "string" && NAMES_A_FILE.test(words))).toEqual([]);
   });
 
   it("names in one line the targets nothing feeds, with why where there is more to say, and has no such line where every target has a source", () => {
@@ -209,6 +259,21 @@ describe("The mapping of a row of a model's Imports", () => {
     expect(mappingOfRow(MODEL, { ...IMPORTS, file: "Import Data Sources.csv" }, ROWS[0])).toBeUndefined();
     expect(mappingOfRow(MODEL, { ...IMPORTS, headers: HEADERS.map(header => (header === "Source Type" ? "Kind" : header)) }, ROWS[0])).toBeUndefined();
     expect(mappingOfRow(undefined, IMPORTS, ROWS[0])).toBeUndefined();
+  });
+
+  it("knows the line items a header can match by the import's Target Object and the result's Line Items: the module's, but those that hold no data", () => {
+    const LINE_ITEMS: ResultTable = { file: "Line Items.csv", label: "Line Items", guard: false, headers: ["", "Format", "Module Name"], rows: [
+      ["Prices", "", ""], ["Price", '{"dataType":"NUMBER"}', "Prices"], ["-- Inputs --", '{"dataType":"NONE"}', "Prices"], ["Units", '{"dataType":"NUMBER"}', " Prices "],
+      ["Other", '{"dataType":"NUMBER"}', "Costs"]] };
+    const HEADER_ROW: ImportMapping = { id: "", name: "Prices", importType: "MODULE_DATA", targets: [{ target: "Line Items", source: "headerRow", items: { byHand: 0, ignored: 0 } }] };
+    const withLines: AnalysisResult = { ...MODEL, tables: [IMPORTS, LINE_ITEMS], importMappings: [mapping("Division from HQ Network.csv", "Division"), HEADER_ROW] };
+    const table = fileView(withLines, IMPORTS).table;
+    expect(lineItemsOf(withLines, table, table.rows[2])).toEqual(["Price", "Units"]);
+    expect(mappingOfRow(withLines, table, table.rows[2])?.rows).toEqual([[HEADER_ROW_MATCHED, "Line Items", "Line items a header can match: Price and Units"]]);
+    // Where headers are mapped by hand, the line items are not said; nor where the result has no Line Items.
+    const byHand: AnalysisResult = { ...withLines, importMappings: [withLines.importMappings![0], { ...HEADER_ROW, headers: [{ header: "Cost", lineItem: "Price" }] }] };
+    expect(mappingOfRow(byHand, table, table.rows[2])?.rows).toEqual([["Cost", "Price"], [HEADER_ROW_BY_HAND, "Line Items"]]);
+    expect(lineItemsOf(MODEL, table, table.rows[2])).toBeUndefined();
   });
 
   it("says that it has none where the result has mappings but none for the row's import", () => {

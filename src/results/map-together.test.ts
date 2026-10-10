@@ -525,15 +525,21 @@ describe("A model's result on the results page, with the map's real graph and th
     // Run again: the map of the result on the page goes as the run starts, and the overview stands in its place.
     page.id("runAgain").press();
     expect([port.posted, host().hidden, host().children.length, root.isConnected, around.watching, page.texts("#view h1")]).toEqual([[{ type: "run" }, { type: "run" }], true, 0, false, 0, ["Overview"]]);
-    // The earlier result is still on the page while the run goes: its entry draws its map afresh, from the start.
+    // The earlier result is still on the page while the run goes: its entry draws its map afresh, where it was left in
+    // this tab (results/view-keep.ts): the module's line items. The box selected and the search's text start anew.
     toMap();
-    expect([host().children[0] === root, where(), shownStatus(), part(".map-inspector").hidden, part(".map-search").value]).toEqual([false, ["Model one"], "3 sections · 2 links", true, ""]);
+    expect([host().children[0] === root, where(), shownStatus(), part(".map-inspector").hidden, part(".map-search").value])
+      .toEqual([false, ["Model one", "02 Calculations", REVENUE], "4 line items · 3 outside the module · 10 links", true, ""]);
 
     // The new result takes the page: the earlier one's map goes with it.
     send(LATER);
     expect([page.document.title, host().hidden, host().children.length, around.watching, page.texts("#view h1")]).toEqual(["Cardigan - Model two", true, 0, 0, ["Overview"]]);
-    // The new result's map is of the new model: its name, and the module and the link it has more.
+    // The new result's map is of the new model: its name, and the module and the link it has more. It is the same model,
+    // read again: its map opens where this tab left the model's map, the module's line items, and its Modules view lists
+    // every module.
     toMap();
+    expect(where()).toEqual(["Model two", "02 Calculations", REVENUE]);
+    part('[data-map-view="modules"]').press();
     part(".map-show-select").choose("modules");
     around.shows();
     expect([where(), shownStatus()]).toEqual([["Model two", "All modules"], "5 modules · 4 links"]);

@@ -1,5 +1,5 @@
 import { CONTENT_SCRIPT_ORIGIN } from "./protocol.js";
-import type { AnalysisResult, Cell, ImportMapping, ItemMatch, MappedSource, MappedTarget, ProcessActions, ProcessStep, ResultTable } from "./result-types.js";
+import type { AnalysisResult, Cell, ImportHeader, ImportMapping, ItemMatch, MappedSource, MappedTarget, ProcessActions, ProcessStep, ResultTable } from "./result-types.js";
 
 /** A result leaves the place that made it as plain data: a window message from the model's core frame, then JSON on the port
  * to the results page. These keep it to what both carry unchanged, so a table is the same on either side, cell for
@@ -61,14 +61,35 @@ function readSite(value: unknown): { origin: string; customer: string } | undefi
 /** What feeds a target of an import, by the result's word for it (result-types.ts `MappedSource`). */
 const SOURCES: ReadonlySet<string> = new Set<MappedSource>(["column", "constant", "prompt", "ignore", "headerRow", "none", "numbered", "other"]);
 
+/** A count of a mapping: a whole number, nought or more. */
+const isCount = (value: unknown): value is number => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+
 /** One target of an import's mapping, every field checked, or nothing when anything else is there. */
 function readTarget(value: unknown): MappedTarget | undefined {
   const target = value as Partial<MappedTarget> | null;
   if (!target || typeof target !== "object" || typeof target.target !== "string" || typeof target.source !== "string" || !SOURCES.has(target.source)
       || (target.column !== undefined && !(Number.isSafeInteger(target.column) && target.column >= 1)) || (target.text !== undefined && typeof target.text !== "string")
-      || (target.id !== undefined && typeof target.id !== "string")) return undefined;
+      || (target.id !== undefined && typeof target.id !== "string")
+      || (target.items !== undefined && !(target.items && typeof target.items === "object" && isCount(target.items.byHand) && isCount(target.items.ignored)))
+      || (target.periodFormat !== undefined && target.periodFormat !== null && typeof target.periodFormat !== "string")
+      || (target.dateFormat !== undefined && typeof target.dateFormat !== "string")) return undefined;
   return { target: target.target, source: target.source, ...(target.column !== undefined ? { column: target.column } : {}), ...(target.text !== undefined ? { text: target.text } : {}),
-    ...(target.id !== undefined ? { id: target.id } : {}) };
+    ...(target.id !== undefined ? { id: target.id } : {}), ...(target.items !== undefined ? { items: { byHand: target.items.byHand, ignored: target.items.ignored } } : {}),
+    ...(target.periodFormat !== undefined ? { periodFormat: target.periodFormat } : {}), ...(target.dateFormat !== undefined ? { dateFormat: target.dateFormat } : {}) };
+}
+
+/** The headers of an import mapped by hand, every field checked: undefined where there are none, and false where anything
+ * else is there. */
+function readHeaders(value: unknown): ImportHeader[] | undefined | false {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) return false;
+  const headers: ImportHeader[] = [];
+  for (const entry of Array.from(value as unknown[])) {
+    const header = entry as Partial<ImportHeader> | null;
+    if (!header || typeof header !== "object" || typeof header.header !== "string" || (header.lineItem !== undefined && typeof header.lineItem !== "string")) return false;
+    headers.push({ header: header.header, ...(header.lineItem !== undefined ? { lineItem: header.lineItem } : {}) });
+  }
+  return headers;
 }
 
 /** How the ways an import into a list tells its items apart are written (result-types.ts `ItemMatch`). */
@@ -102,9 +123,10 @@ export function readImportMappings(value: unknown): ImportMapping[] | undefined 
       targets.push(target);
     }
     const matchedBy = readMatch(mapping.matchedBy);
-    if (matchedBy === false) return undefined;
+    const headers = readHeaders(mapping.headers);
+    if (matchedBy === false || headers === false) return undefined;
     mappings.push({ id: mapping.id, name: mapping.name, importType: mapping.importType, targets, ...(matchedBy ? { matchedBy } : {}),
-      ...(mapping.note !== undefined ? { note: mapping.note } : {}) });
+      ...(headers ? { headers } : {}), ...(mapping.note !== undefined ? { note: mapping.note } : {}) });
   }
   return mappings;
 }
