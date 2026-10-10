@@ -3,9 +3,10 @@ import { nameCardDetails } from "./card-reader/card-naming.js";
 import type { UxEntityRef, UxPageCardDetails } from "./card-reader/card-types.js";
 import type { UxPageType } from "./card-reader/definition-types.js";
 import {
-  addActions, addLineItems, addLists, addMetadataDimensionNames, addModuleDimensions, addModuleViews, addSelections, applicableModuleIds, describeFormat,
-  describeSystemContext, emptyCatalog, entityType, filterItemNeeds, filterLineItemSearch, moduleViewsShape, nameFilterValues, resolveFromCatalog, selectionShape,
-  unnamedDimensionIds, unnamedFilterRules, unresolvedFilterItems, viewLayoutFromMetadata, type ModelCatalog,
+  addActions, addExportedLineItems, addLineItems, addLists, addMetadataDimensionNames, addModuleDimensions, addModuleViews, addSelections, applicableModuleIds,
+  describeFormat, describeSystemContext, emptyCatalog, entityType, filterItemNeeds, filterLineItemSearch, forgetExportedLineItems, listedLineItems, moduleViewsShape,
+  nameFilterValues, resolveFromCatalog, selectionShape, unnamedDimensionIds, unnamedFilterRules, unresolvedFilterItems, viewLayoutFromMetadata, type ExportedLineItems,
+  type ModelCatalog,
 } from "./catalog.js";
 import { DETAILS_HEADERS, diagnosticRows, exportRows, type DetailRow } from "./details.js";
 import { Failure, REFRESH, SEND_LOG, type Log, type Progress } from "./progress.js";
@@ -222,6 +223,8 @@ interface SocketReads {
   halted: () => boolean;
   ended: () => boolean;
   catalog: ModelCatalog;
+  /** The modules whose line items the listing gave (`readLineItems`), whichever step read them. */
+  listed: Set<string>;
   notes: string[];
   progress: Progress;
   answers: NameAnswers;
@@ -237,16 +240,55 @@ interface NameAnswers { lists?: unknown; moduleViews?: unknown; moduleDimensions
  * hundreds of them, and sums them up in lines of its own), and it is given up when the signal aborts. That is no refusal:
  * the module is not remembered, and nothing is logged. A read that is refused is logged either way. */
 async function readLineItems(reads: SocketReads, moduleId: string, givingUp?: AbortSignal): Promise<void> {
-  const { scope, connection, subscribe, catalog, progress } = reads;
+  const { scope, connection, subscribe, catalog, listed, progress } = reads;
   const { workspaceId: ws, modelId: model } = scope;
   try {
     addLineItems(catalog, moduleId, await subscribe(`core://${ws}:${model}/modules/${moduleId}/lineItems`,
       { body: {}, timeoutMs: LINE_ITEMS_MS, ...(givingUp ? { quiet: true, signal: givingUp } : {}) }));
+    listed.add(moduleId);
   } catch (error) {
     if (givingUp?.aborted) return;
     if (!connection.failed) catalog.unreadableModules.add(moduleId);
     progress.log(`line items of module ${moduleId}: ${message(error)}`);
   }
+}
+
+/** Whether the line items the export read (model-pages.ts) are those the listing gives. Of the modules the pages use, the
+ * first that the export listed with line items is read from the listing all the same, and the two are compared line item
+ * by line item, by ID and by name. Where they agree, the export's line items stand for the listing's for every other
+ * module of theirs, and those modules are not read again. Where they differ, the export's are set aside, and every module
+ * the pages use is read from the listing, as before: a mismatch costs time, never a name. A comparison that cannot be
+ * made, because the listing refused the read, keeps the export's: their names are the model's own, from its Model
+ * settings. Either way the module that was read keeps what the listing gave. A failed connection and a stopped run are
+ * rethrown, as a read of any step rethrows them. Returns what the log says of it. */
+async function compareExported(reads: SocketReads, used: ReadonlySet<string>, exported: ExportedLineItems): Promise<string> {
+  const { scope, connection, subscribe, settle, halted, catalog, listed } = reads;
+  const { workspaceId: ws, modelId: model } = scope;
+  const ofModule = new Map<string, Map<string, string>>();
+  for (const { id, name, moduleId } of exported.lineItems) {
+    const items = ofModule.get(moduleId) ?? new Map<string, string>();
+    items.set(id, name);
+    ofModule.set(moduleId, items);
+  }
+  const moduleId = [...used].find(id => ofModule.has(id));
+  if (moduleId === undefined) return "no page uses a module that the export listed with line items: nothing to compare";
+  let json: unknown;
+  try {
+    json = await settle(subscribe(`core://${ws}:${model}/modules/${moduleId}/lineItems`, { body: {}, timeoutMs: LINE_ITEMS_MS }));
+  } catch (error) {
+    if (connection.failed || halted()) throw error;
+    return `the listing of module ${moduleId} could not be read to compare (${message(error)}): the export's line items are used`;
+  }
+  const given = listedLineItems(json);
+  const known = ofModule.get(moduleId)!;
+  const alike = given.filter(item => known.get(item.id) === item.name).length;
+  const agree = given.length > 0 && alike === given.length;
+  if (!agree) forgetExportedLineItems(catalog, exported, listed);
+  addLineItems(catalog, moduleId, json);
+  listed.add(moduleId);
+  return agree ? `the export and the listing agree on module ${moduleId}: ${alike} of ${given.length} line items alike, by ID and name`
+    : `the export and the listing differ on module ${moduleId}: ${alike} of ${given.length} line items alike, by ID and name; the export's line items `
+      + "are set aside, and every module the pages use is read from the listing";
 }
 
 /** Context selectors: each section's module dimensions, the list Page Builder's grid section settings read. */
@@ -735,13 +777,15 @@ async function readDimensionNames(reads: SocketReads, pages: readonly UxPageCard
 
 /** Names for one model. Like Page Builder, it asks for the data straight away and lets the service load the model: a
  * model that is not open reports status UNKNOWN until a data request loads it (observed live, 28 Sep 2026), so the
- * status is watched and logged, never waited for. A connection-level error such as REDIRECTION_REQUIRED fails every
+ * status is watched and logged, never waited for. `exported` are the model's line items as its export read them, where
+ * the run has them (model-pages.ts): they are taken before anything is asked, and a module of theirs is not read from
+ * the listing (`compareExported` says when one is, and why). A connection-level error such as REDIRECTION_REQUIRED fails every
  * subscription and is rethrown, so withSocket reconnects to the host it names. When `signal` asks the run to stop, the
  * socket work ends at once, as it does for a closed model, and the stop is rethrown instead of noted. A run that was
  * stopped before its socket had connected asks the model for nothing at all: subscribing can make the service load it.
  * Stopped later, while the action names are read, it reads no further list of them. */
 export async function loadCatalog(scope: ModelScope, pages: readonly UxPageCardDetails[], pageNames: ReadonlyMap<string, string>,
-  progress: Progress, signal?: AbortSignal): Promise<{ catalog: ModelCatalog; notes: string[]; failedActionTypes: string[] }> {
+  progress: Progress, signal?: AbortSignal, exported?: ExportedLineItems): Promise<{ catalog: ModelCatalog; notes: string[]; failedActionTypes: string[] }> {
   const { workspaceId: ws, modelId: model } = scope;
   const catalog = emptyCatalog();
   const notes: string[] = [];
@@ -752,6 +796,11 @@ export async function loadCatalog(scope: ModelScope, pages: readonly UxPageCardD
   }
   /** The host the model data service settled on (another data centre after a redirect). */
   let modelHost: string | undefined;
+  if (exported) addExportedLineItems(catalog, exported);
+  /** The modules whose line items the listing gave, and what the comparison of the export's line items with it said: it is
+   * made once, on the host that answers it (after a redirect, the model's own). */
+  const listed = new Set<string>();
+  let compared: string | undefined;
 
   const moduleIds = new Set<string>();
   for (const ref of refs) {
@@ -790,7 +839,8 @@ export async function loadCatalog(scope: ModelScope, pages: readonly UxPageCardD
       // model's status above is no read of a step: it is what says that the model closed.)
       const subscribe: StompConnection["subscribe"] = (destination, options) => (ended ? new Promise<never>(() => undefined) : connection.subscribe(destination, options));
       const answers: NameAnswers = { moduleDimensions: [] };
-      const reads: SocketReads = { scope, signal, connection, subscribe, settle, halted: () => signal?.aborted === true, ended: () => ended, catalog, notes, progress, answers };
+      const reads: SocketReads = { scope, signal, connection, subscribe, settle, halted: () => signal?.aborted === true, ended: () => ended, catalog, listed, notes, progress,
+        answers };
       const started = Date.now();
       const waiting = setInterval(() => progress.status(`Reading names in ${scope.modelName}: ${Math.round((Date.now() - started) / 1000)} s, `
         + `model status ${status}. A model that is not open can take a few minutes to load…`), 5_000);
@@ -812,7 +862,15 @@ export async function loadCatalog(scope: ModelScope, pages: readonly UxPageCardD
           progress.log(`lists: ${selectionShape(lists.value)}`);
         } else notes.push(`${scope.modelName}: list names were not available (${message(lists.reason)}).`);
         progress.status(`Reading line items in ${scope.modelName}…`);
-        await settle(eachAtMost([...moduleIds], AT_A_TIME, signal, moduleId => readLineItems(reads, moduleId)));
+        if (exported && compared === undefined) compared = await compareExported(reads, moduleIds, exported);
+        // Only the modules whose line items are not known yet: from the export, or from a read before a redirect.
+        const unknown = [...moduleIds].filter(id => !catalog.lineItemModules.has(id));
+        await settle(eachAtMost(unknown, AT_A_TIME, signal, moduleId => readLineItems(reads, moduleId)));
+        if (exported) {
+          const named = [...catalog.lineItems.values()].filter(item => !listed.has(item.moduleId)).length;
+          progress.log(`line items: ${named} named from the export, of ${exported.modules.length} modules; ${listed.size} of the ${moduleIds.size} modules the pages use `
+            + `read from the listing; ${compared}`);
+        }
 
         const needs = gridNeeds(pages);
         await readModuleDimensions(reads, needs.modules);
@@ -838,7 +896,7 @@ export async function loadCatalog(scope: ModelScope, pages: readonly UxPageCardD
   const actions = await readActionNames(scope, refs, modelHost, catalog, progress, signal);
   notes.push(...actions.notes);
   progress.log(`${scope.modelName}: ${catalog.modules.size} modules, ${catalog.views.size} saved views, ${catalog.dimensions.size} dimensions, `
-    + `${catalog.lineItems.size} line items (${catalog.lineItemModules.size} modules read), ${catalog.actions.size} actions`);
+    + `${catalog.lineItems.size} line items (${listed.size} modules read), ${catalog.actions.size} actions`);
   return { catalog, notes, failedActionTypes: actions.failedActionTypes };
 }
 

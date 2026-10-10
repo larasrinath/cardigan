@@ -244,7 +244,8 @@ describe("The content scripts on an Anaplan page", () => {
     hear({ protocol: PROTOCOL, type: "status", nonce, text: "Reading Versions…" }, CORE, frame);
     // The frame's sign of life before each page of a grid is for this script alone: the results page is sent nothing for it.
     hear({ protocol: PROTOCOL, type: "alive", nonce }, CORE, frame);
-    hear({ protocol: PROTOCOL, type: "done", nonce, result: exportedModel() }, CORE, frame);
+    // The export comes with the IDs of its line items, for reading the pages built on the model: they go no further.
+    hear({ protocol: PROTOCOL, type: "done", nonce, result: { ...exportedModel(), lineItemIds: [["102000000001", ""], ["1901000000001", "102000000001"]] } }, CORE, frame);
     await vi.advanceTimersByTimeAsync(0);
     // Then this window reads the pages built on the model, for the customer the address names. Anaplan answers that the
     // session has ended: the export is handed on all the same, and says why it has no tables of those pages.
@@ -354,8 +355,9 @@ describe("The content scripts on an Anaplan page", () => {
     expect(port.take()).toEqual([{ type: "subject", subject: { kind: "model", id: MODEL } }]);
     port.say({ type: "run" });
     await vi.advanceTimersByTimeAsync(0);
-    hear({ protocol: PROTOCOL, type: "done", nonce: frame.asked[1].nonce, result: exportedModel() }, CORE, frame);
+    hear({ protocol: PROTOCOL, type: "done", nonce: frame.asked[1].nonce, result: { ...exportedModel(), lineItemIds: [["102000000001", ""]] } }, CORE, frame);
     await vi.advanceTimersByTimeAsync(0);
+    // The IDs of the export's line items are not handed on, here either.
     expect(assemble(port.received)).toEqual(withoutPages(NO_CUSTOMER));
     expect([vi.mocked(globalThis.fetch).mock.calls, vi.mocked(globalThis.WebSocket).mock.calls]).toEqual([[], []]);
   });

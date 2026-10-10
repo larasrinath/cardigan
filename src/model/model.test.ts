@@ -15,7 +15,7 @@ import { ACCESS_HEADERS } from "./access.js";
 import { againstMap } from "./access.test-support.js";
 import { ACTION_LIST_COLUMN, actionKind, mergeImports, missingActionColumns, otherActionsTable } from "./actions.js";
 import { CALENDAR_HEADERS, CALENDAR_PROPERTIES, calendarKind, calendarRows } from "./calendar.js";
-import { exportModel, moduleIdsLine, moduleIdsOf } from "./export.js";
+import { exportModel, lineItemIdsOf, moduleIdsLine, moduleIdsOf } from "./export.js";
 import { MAPPING_NOTES } from "./import-mappings.js";
 import * as grids from "./grid.js";
 import { cellText, gridTable, labelEntries, plainText, windowRows, type CellSource, type Grid, type GridRow } from "./grid.js";
@@ -1291,6 +1291,19 @@ describe("The modules' IDs a model's result keeps", () => {
     // Its word adds an ID that does not start with a module's type, where it says the ID is a module's.
     const says = { ids: { getEntityTypeIndex: (id: number) => (id === 7 ? 102 : 101) } } as never;
     expect(moduleIdsOf(says, [grid([[7, "Small"], [8, "Other"], [102000000009, "Listed"]])])).toEqual([["Small", "7"], ["Listed", "102000000009"]]);
+  });
+
+  it("come with the IDs of each row of Line Items, beside its table, row for row: its own, and a line item's module's", async () => {
+    const result = await exportGoldenModel();
+    const table = result.tables.find(each => each.file === "Line Items.csv")!;
+    expect([table.rows.map(row => row[0]), result.lineItemIds]).toEqual([["Profitability", "Profit", "Revenue", "Margin %"],
+      [["102000000001", ""], ["1901000000001", "102000000001"], ["1901000000002", "102000000001"], ["1901000000003", "102000000001"]]]);
+    // An ID that is no whole number above 0 is given as none.
+    expect(lineItemIdsOf({ columns: [], rows: [{ ids: [Number.NaN, 102000000005], labels: ["Odd", "Sales"], cells: [] }, { ids: [0], labels: ["Zero"], cells: [] },
+      { ids: [1901000000009, 1.5], labels: ["Half", "?"], cells: [] }] })).toEqual([["", "102000000005"], ["", ""], ["1901000000009", ""]]);
+    // Without a Line Items table there are none.
+    const rest = Object.fromEntries(Object.entries(GOLDEN_GRIDS).filter(([grid]) => grid !== "LINE ITEMS × LINE ITEM PROPERTIES"));
+    expect(Object.hasOwn(await exportGoldenModel(rest), "lineItemIds")).toBe(false);
   });
 
   it("are carried however many were found, and said in the log with the first row listed", () => {
