@@ -1,3 +1,4 @@
+import { FILTER_USES, MODEL_PAGE_FILES, MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE } from "../page-files.js";
 import type { TabName } from "../report.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
 import { cellText, type Row } from "./table-engine.js";
@@ -13,8 +14,9 @@ export const APP_FILES: Record<TabName, string> = {
 /** How the results page shows each column. Columns come from a table's headers. The design's choices for the app's seven
  * files are kept by header name: which columns offer a filter, which start hidden, which are numbers, and which are shown
  * as an ID to copy, a tag, a link or a count. Every cell shows its own text whatever the choice; a count shows it with its
- * thousands apart. Of a model export's files the page knows only the columns that count something (`MODEL_COUNTS`). A file
- * or a header that is not listed here gets a plain text column. In any file, a column that holds only a few different
+ * thousands apart. Of a model export's files the page knows only the columns that count something (`MODEL_COUNTS`) and
+ * those that start hidden (`MODEL_HIDDEN`); the tables of the pages built on a model are shown as the app's tables they are
+ * made from (`PAGE_FILE_CHOICES`). A file or a header that is not listed here gets a plain text column. In any file, a column that holds only a few different
  * texts offers a filter as well, so a model's tables can be filtered too.
  *
  * Two kinds of column start hidden in every one of the app's tables: the IDs, and what only numbers a row's place, a
@@ -98,32 +100,44 @@ const CHOICES: Record<TabName, Record<string, Choice>> = {
 export const COLUMN_CHOICES: ReadonlyMap<string, ReadonlyMap<string, Choice>> = new Map(
   (Object.keys(CHOICES) as TabName[]).map((tab): [string, ReadonlyMap<string, Choice>] => [APP_FILES[tab], new Map(Object.entries(CHOICES[tab]))]));
 
-/** The app's files by name: a set, so that a file with the name of an object's built-in property is none of them. */
-const APP_FILE_NAMES: ReadonlySet<string> = new Set(Object.values(APP_FILES));
+/** The files the analysis writes by name: the app's, and the tables of the pages built on a model (page-files.ts). A set,
+ * so that a file with the name of an object's built-in property is none of them. */
+const WRITTEN_FILES: ReadonlySet<string> = new Set([...Object.values(APP_FILES), ...MODEL_PAGE_FILES]);
 
-/** Whether a table is one of the app's files, which the analysis writes (report.ts): there, and only there, the dash
- * alone in a cell (table-engine.ts `NONE`) is the analysis's own, which says that there is nothing. A model's files are
- * Anaplan's own grids, where Anaplan writes that dash itself, in Applies To on a heading row of Modules and in Source
- * Object of a file import, and the page leaves it in Applies To of a line item whose module is not found
- * (line-items-view.ts). There it is a text like any other, and the page shows it as one. */
-export const writesNone = (table: ResultTable): boolean => APP_FILE_NAMES.has(table.file);
+/** Whether a table is one the analysis writes (report.ts): one of the app's files, or a table of the pages built on a
+ * model. There, and only there, the dash alone in a cell (table-engine.ts `NONE`) is the analysis's own, which says that
+ * there is nothing. A model's other files are Anaplan's own grids, where Anaplan writes that dash itself, in Applies To on
+ * a heading row of Modules and in Source Object of a file import, and the page leaves it in Applies To of a line item
+ * whose module is not found (line-items-view.ts). There it is a text like any other, and the page shows it as one. */
+export const writesNone = (table: ResultTable): boolean => WRITTEN_FILES.has(table.file);
 
 /** The columns of a model export's files that count something, by file and header: a module's cells, a line item's cells
  * and a list's items. The files are named as model/export.ts writes them, and the headers are those of Anaplan's own
  * Model settings grids, which the export keeps: Modules and Line Items count their cells as Cell Count in a Classic model
  * and as Populated Cell Count in a Polaris one, and General Lists count their items as Item Count. Every other column
  * of a model's files is plain text: the grids' other numbers are no counts of things (Calculation Effort is a measure of
- * the work a line item takes, Most recent duration (ms) a time, Code a code), or they name a year, a period or an ID. */
+ * the work a line item takes, Most recent duration (ms) a time, Code a code), or they name a year, a period or an ID. A
+ * model's run adds one count to Line Items, which is no column of Anaplan's: how many of the page filters have the line
+ * item as their condition (model-pages.ts). */
 const CELL_COUNTS = ["Cell Count", "Populated Cell Count"];
 export const MODEL_COUNTS: ReadonlyMap<string, readonly string[]> = new Map([
-  ["Modules.csv", CELL_COUNTS], ["Line Items.csv", CELL_COUNTS], ["General Lists.csv", ["Item Count"]],
+  ["Modules.csv", CELL_COUNTS], ["Line Items.csv", [...CELL_COUNTS, FILTER_USES]], ["General Lists.csv", ["Item Count"]],
 ]);
 /** The columns of a model export's files that start hidden: a Model Calendar setting's allowed values, which only guide
  * filling the template in by hand. Such a column is still in the column chooser, in the search and in the row's details. */
 export const MODEL_HIDDEN: ReadonlyMap<string, readonly string[]> = new Map([["Model Calendar.csv", ["Allowed values"]]]);
-const MODEL_CHOICES: ReadonlyMap<string, ReadonlyMap<string, Choice>> = new Map([...new Set([...MODEL_COUNTS.keys(), ...MODEL_HIDDEN.keys()])].map(file => [file,
-  new Map<string, Choice>([...(MODEL_COUNTS.get(file) ?? []).map((header): [string, Choice] => [header, COUNT]),
-    ...(MODEL_HIDDEN.get(file) ?? []).map((header): [string, Choice] => [header, { hidden: true }])])]));
+/** The tables of the pages built on a model (page-files.ts), which the run writes from an app's tables: Page Filters and
+ * Page Actions are an app's Filters and Action Buttons with the app in front, and are shown as those are, with their IDs
+ * and numbers hidden. Each of the three offers a filter on the app. */
+export const PAGE_FILE_CHOICES: ReadonlyMap<string, Readonly<Record<string, Choice>>> = new Map([
+  [MODULE_USAGE_FILE, { App: FILTER }], [PAGE_FILTERS_FILE, { App: FILTER, ...CHOICES.Filters }], [PAGE_ACTIONS_FILE, { App: FILTER, ...CHOICES.Actions }],
+]);
+const MODEL_CHOICES: ReadonlyMap<string, ReadonlyMap<string, Choice>> = new Map([
+  ...[...new Set([...MODEL_COUNTS.keys(), ...MODEL_HIDDEN.keys()])].map((file): [string, ReadonlyMap<string, Choice>] => [file,
+    new Map<string, Choice>([...(MODEL_COUNTS.get(file) ?? []).map((header): [string, Choice] => [header, COUNT]),
+      ...(MODEL_HIDDEN.get(file) ?? []).map((header): [string, Choice] => [header, { hidden: true }])])]),
+  ...[...PAGE_FILE_CHOICES].map(([file, choices]): [string, ReadonlyMap<string, Choice>] => [file, new Map(Object.entries(choices))]),
+]);
 
 /** A column of any file offers a filter when it holds at least this many different texts and at most that many: with one
  * there is nothing to choose, and more than thirty are a list to search, not to tick. */
@@ -181,7 +195,9 @@ export const ROW_NAME_COLUMNS: Record<TabName, string> = {
   Pages: "Page", Cards: "Card title", "Grid sections": "Source module", Filters: "Condition line item", Formatting: "Formatted line item",
   Actions: "Button label", "Where used": "Object name",
 };
-const ROW_NAMES: ReadonlyMap<string, string> = new Map((Object.keys(ROW_NAME_COLUMNS) as TabName[]).map(tab => [APP_FILES[tab], ROW_NAME_COLUMNS[tab]]));
+/** Page Filters and Page Actions, an app's Filters and Action Buttons with the app in front, are named as those are. */
+const ROW_NAMES: ReadonlyMap<string, string> = new Map([...(Object.keys(ROW_NAME_COLUMNS) as TabName[]).map((tab): [string, string] => [APP_FILES[tab], ROW_NAME_COLUMNS[tab]]),
+  [PAGE_FILTERS_FILE, ROW_NAME_COLUMNS.Filters], [PAGE_ACTIONS_FILE, ROW_NAME_COLUMNS.Actions]]);
 
 /** The place of the column that names a table's rows; undefined for a file the page knows no such column of, and for a
  * table that lacks it. */

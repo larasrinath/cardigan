@@ -5,9 +5,7 @@ import type { UxPageType } from "./card-reader/definition-types.js";
 import { emptyCatalog } from "./catalog.js";
 import type { DetailRow } from "./details.js";
 import { separator } from "./map/graph-names.js";
-import {
-  FILTER_USES, MODULE_USAGE_FILE, MODULE_USAGE_HEADERS, NOT_ON_A_PAGE, PAGE_ACTIONS_FILE, PAGE_ACTIONS_HEADERS, PAGE_FILTERS_FILE, PAGE_FILTERS_HEADERS,
-} from "./page-files.js";
+import { FILTER_USES, MODULE_USAGE_FILE, MODULE_USAGE_HEADERS, NOT_ON_A_PAGE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE } from "./page-files.js";
 import type { Progress } from "./progress.js";
 import { buildReport, HEADERS, NONE, type Cell, type PageInput } from "./report.js";
 import { plainRows } from "./result-plain.js";
@@ -35,6 +33,10 @@ const NAMED_UNREAD = 5;
 export const NO_CUSTOMER = "the model is not open in Model Building, whose address names the customer whose pages are read";
 /** What the Apps detail says when the list of pages built on the model is empty. */
 export const NO_APPS = "No app's pages use this model";
+
+/** Page Filters and Page Actions are an app's Filters and Action Buttons tables, with the app in front. */
+export const PAGE_FILTERS_HEADERS: readonly string[] = ["App", ...HEADERS.Filters];
+export const PAGE_ACTIONS_HEADERS: readonly string[] = ["App", ...HEADERS.Actions];
 
 /** The three files, each with the label the page shows it under: its name without the extension, as the export's are. */
 const FILES: readonly [file: string, label: string][] = [[MODULE_USAGE_FILE, "Module Usage"], [PAGE_FILTERS_FILE, "Page Filters"], [PAGE_ACTIONS_FILE, "Page Actions"]];
