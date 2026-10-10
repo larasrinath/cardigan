@@ -110,6 +110,19 @@ describe("A result as plain data", () => {
       expect(plainResult({ ...model, importMappings: [odd] }), JSON.stringify(odd)).toEqual({ ...result, kind: "model" });
     }
     expect(plainResult({ ...model, importMappings: { 0: mapping } })).toEqual({ ...result, kind: "model" });
+    // What a definition holds of how its sources are read: kept where every field is as it should be, and else the whole.
+    const read2 = { id: "112000000020", name: "Rates", importType: "MODULE_DATA", targets: [{ target: "Products", source: "column", text: "Product", items: { byHand: 2, ignored: 1 } },
+      { target: "Time", source: "column", column: 2, periodFormat: null }, { target: "Month end", source: "column", column: 3, periodFormat: "MMM YY" },
+      { target: "Ship Date", source: "column", column: 4, dateFormat: "DD/MM/YYYY" }, { target: "Line Items", source: "headerRow", items: { byHand: 0, ignored: 0 } }],
+    headers: [{ header: "Cost (EUR)", lineItem: "Cost" }, { header: "Comment" }] };
+    expect(plainResult({ ...model, importMappings: [read2] })).toEqual({ ...model, importMappings: [read2] });
+    const items = read2.targets[0];
+    for (const odd of [{ ...read2, targets: [{ ...items, items: { byHand: -1, ignored: 0 } }] }, { ...read2, targets: [{ ...items, items: { byHand: 1.5, ignored: 0 } }] },
+      { ...read2, targets: [{ ...items, items: { byHand: 1 } }] }, { ...read2, targets: [{ ...items, items: null }] }, { ...read2, targets: [{ ...items, periodFormat: 7 }] },
+      { ...read2, targets: [{ ...items, dateFormat: null }] }, { ...read2, headers: "Cost" }, { ...read2, headers: [{ header: 1 }] }, { ...read2, headers: [{ header: "A", lineItem: 2 }] },
+      { ...read2, headers: [null] }]) {
+      expect(plainResult({ ...model, importMappings: [odd] }), JSON.stringify(odd)).toEqual({ ...result, kind: "model" });
+    }
     // An app has none.
     expect(plainResult({ ...result, importMappings })).toEqual(result);
   });
