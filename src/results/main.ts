@@ -22,7 +22,9 @@ import {
 } from "./markup.js";
 import type { PageId } from "./page-ids.js";
 import { LINE_ITEMS_FILE, MODULE_NAME } from "./line-items-view.js";
-import { ACCESS_FILE, analysedOf, cardParts, detailsOf, detailValue, diagnosticLog, fileView, listedTables, MODEL_CALENDAR_FILE, MODULES_FILE, overviewOf, type FileView } from "./result-view.js";
+import { ACCESS_FILE, analysedOf, cardParts, detailsOf, detailValue, diagnosticLog, fileView, listedTables, MODEL_CALENDAR_FILE, MODULES_FILE, overviewOf, type Analysed, type FileView,
+  type Overview } from "./result-view.js";
+import { bothTimes, browserZone, chosenTime, fileRow, hasTimes, inTimeMode, momentRange, momentsOf, readText, storedTimeMode, storeTimeMode, timesOf, zoneWords, type TimeMode } from "./times.js";
 import { rangeInForce, rangeSummary, readRange, type RangeState } from "./range-filter.js";
 import { cellText, NONE, pageOf, rangeColumn, rememberingSelect, rowName, valueCounts, type RangeColumn, type RangeQuery, type Row, type Sort, type TableQuery } from "./table-engine.js";
 import { DEFAULT_PAGE_SIZE, findRow, forgetKept, isMapAtStart, keepTable, objectKey, readKept, rowKey, subjectOf, takeTable, writeKept, type KeptDrawer, type KeptTable, type KeptView,
@@ -137,6 +139,11 @@ interface Shown {
   ranges: Map<number, RangeState>;
   /** Each column of numbers or of dates, read once: the first time its filter opens or keeps rows (`readColumn`). */
   read: Map<number, RangeColumn>;
+  /** Each column of times as moments, read once: the first time a range of days set in a zone keeps rows by it (`readMoments`). */
+  moments?: Map<number, ReadonlyMap<Row, number | undefined>>;
+  /** For a file with a column of times (times.ts): the table as the file's rule and its words give it, with its times in
+   * UTC, from which `table` is said in the zone chosen, again each time the viewer chooses another. */
+  base?: FileView;
   hidden: Set<number>;
   sort: Sort | undefined;
   page: number;
@@ -208,6 +215,13 @@ let looksText: string | undefined;
 let mapLooks: MapView | undefined;
 /** The details that are open, as the tab keeps them: what a refresh opens again. */
 let drawerLooks: KeptDrawer | undefined;
+/** Which zone the page says its times in (times.ts): the viewer's own unless the viewer chose UTC, which is kept for every
+ * result and tab. */
+let timeMode: TimeMode = storedTimeMode();
+/** The viewer's own zone, as the browser names it. */
+const ownZone = browserZone() ?? "UTC";
+/** The zone the times on the page are in now. */
+const shownZone = (): string => (timeMode === "local" ? ownZone : "UTC");
 
 const defaultHidden = (columns: readonly Column[]): Set<number> => new Set(columns.filter(column => column.hidden).map(column => column.index));
 /** A column of numbers or of dates as its range reads it: its cells read once, the first time they are asked for, and kept
@@ -325,7 +339,7 @@ function reopenDrawer(drawer: KeptDrawer): void {
     return;
   }
   const entry = tables.find(candidate => !candidate.objects && candidate.table.file === drawer.file);
-  const row = entry && findRow(entry.table.rows, drawer.key);
+  const row = entry && findShownRow(entry, drawer.key);
   if (!entry || !row) return;
   if (drawer.kind === "card") openCardDrawer(row, opener);
   else openRowDrawer(entry, row, opener);
@@ -349,6 +363,73 @@ function toggleTheme(): void {
   const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
   try { localStorage.setItem("cardigan-theme", next); } catch { /* not remembered */ }
   applyTheme(next);
+}
+
+/* ================= times ================= */
+/** The switch says which zone the times are in: that zone's button is the filled one, and pressed. Each button's title
+ * names its zone, the viewer's own by the name the browser gives it. */
+function showTimes(): void {
+  for (const button of document.querySelectorAll<HTMLElement>("#timesSwitch [data-times]")) {
+    const chosen = button.dataset.times === timeMode;
+    button.classList.toggle("primary", chosen);
+    button.setAttribute("aria-pressed", String(chosen));
+    button.title = button.dataset.times === "utc" ? "Times in UTC, as Anaplan writes them" : `Times in your time zone, ${ownZone}`;
+  }
+}
+/** The viewer chose a zone: it is kept for every result and tab, and every time on the page is said in it now. */
+function setTimeMode(mode: TimeMode): void {
+  if (mode === timeMode) return;
+  timeMode = mode;
+  storeTimeMode(mode);
+  showTimes();
+  retime();
+  announce(mode === "local" ? `Times in your time zone, ${ownZone}.` : "Times in UTC.");
+}
+/** Says every time on the page again in the zone chosen: each table with a column of times, from the file's own table,
+ * and the header's and the overview's time. What the user chose of each table stays as it was: its filters, ranges,
+ * hidden columns, order and page, each by the column's place, which a zone does not move. A range of days keeps the rows
+ * it kept, in the zone its days were set in. A filter's popover closes; the details cannot be open, as the switch is
+ * behind them. */
+function retime(): void {
+  if (!result) return;
+  closePopover();
+  for (const entry of everyTable()) {
+    if (!entry.base) continue;
+    const timed = inTimeMode(entry.base, timeMode, ownZone);
+    entry.table = timed.table;
+    entry.exported = timed.exported;
+    entry.headings = timed.headings;
+    entry.lists = cellLists(result, entry.table);
+    entry.columns = columnsOf(entry.table, entry.lists);
+    entry.keys = rowKeys(entry.table);
+    entry.read = new Map();
+    entry.moments = undefined;
+    entry.widths = undefined;
+  }
+  el("hdMeta").innerHTML = headerMetaHtml(timedAnalysed(analysedOf(result)));
+  renderAll();
+}
+/** What the header says of the result, with the time of the export in the zone chosen. */
+const timedAnalysed = (analysed: Analysed): Analysed =>
+  (analysed.exportedOn === undefined ? analysed : { ...analysed, exportedOn: chosenTime(analysed.exportedOn, timeMode, ownZone) });
+/** The overview with each time it says, the export's among what it says about the export, in both zones, the one chosen
+ * first. */
+const timedOverview = (overview: Overview): Overview =>
+  ({ ...overview, about: overview.about.map(([detail, value]): [string, string] => [detail, bothTimes(value, timeMode, ownZone) ?? value]) });
+/** What a range's filter says of the zone of its column's times, for a column of times, where its days were set in the
+ * other zone also that: they keep the same rows in either. Nothing for any other column. */
+function zoneLine(column: Column, range: RangeState | undefined): string | undefined {
+  const kind = timesOf(column.label);
+  if (kind === undefined) return undefined;
+  const times = kind === "local" ? `The column's dates and times are in your time zone, ${ownZone}. ` : "The column's dates and times are UTC. ";
+  const days = range?.zone !== undefined && range.zone !== shownZone() ? `The days set are ${zoneWords(range.zone, ownZone)} days, which keep the same rows in either zone. ` : "";
+  return `${times}${days}`;
+}
+/** The one row of a table with this key, as the tab keeps rows: by what the file holds, its times as they were read. */
+function findShownRow(entry: Shown, key: string): Row | undefined {
+  const asRead = entry.table.rows.map(row => fileRow(entry.table.headers, entry.exported, row));
+  const found = findRow(asRead, key);
+  return found && entry.table.rows[asRead.indexOf(found)];
 }
 /** A text node, as Node.TEXT_NODE names it. */
 const TEXT_NODE = 3;
@@ -390,15 +471,52 @@ function query(entry: Shown): TableQuery {
   const ranges = new Map<number, RangeQuery>();
   for (const [index, range] of entry.ranges) {
     const ofRange = entry.columns[index];
-    if (!ofRange?.range) continue;
-    ranges.set(index, { kind: ofRange.range, from: range.from, to: range.to, blanks: range.blanks, none: ofRange.none, values: readColumn(entry, ofRange).values });
+    if (ofRange?.range) ranges.set(index, rangeQuery(entry, ofRange, range));
   }
+  const sortKeys = timeSortKeys(entry);
   return {
-    search: state.search, filters: entry.filters, lists: entry.lists, ranges, sort: entry.sort,
+    search: state.search, filters: entry.filters, lists: entry.lists, ranges, sort: entry.sort, ...(sortKeys ? { sortKeys } : {}),
     context: state.context !== undefined && column !== undefined ? { column, value: state.context } : undefined,
     // The search finds a count as the table shows it too, with its commas: in every column of counts, shown or hidden.
     counts: new Set(entry.columns.filter(shown => shown.kind === "count").map(shown => shown.index)),
   };
+}
+
+/** A range as the table keeps rows by it. Days set on a column of times keep the moments of those days in the zone they
+ * were set in (times.ts `momentRange`): the same rows whichever zone the times are shown in now. Any other range keeps
+ * rows by the column's own values. */
+function rangeQuery(entry: Shown, column: Column, range: RangeState): RangeQuery {
+  const kept = { kind: column.range ?? "number", blanks: range.blanks, none: column.none } as const;
+  if (range.zone !== undefined && column.range === "date" && timesOf(column.label) !== undefined) {
+    return { ...kept, ...momentRange(range.from, range.to, range.zone), values: readMoments(entry, column) };
+  }
+  return { ...kept, from: range.from, to: range.to, values: readColumn(entry, column).values };
+}
+
+/** A column of times as the moments its cells name, read from the UTC text the file holds, once. */
+function readMoments(entry: Shown, column: Column): ReadonlyMap<Row, number | undefined> {
+  entry.moments ??= new Map();
+  let read = entry.moments.get(column.index);
+  if (!read) {
+    read = momentsOf(entry.table.rows, entry.exported, column.index);
+    entry.moments.set(column.index, read);
+  }
+  return read;
+}
+
+/** Each column of times said in the viewer's zone sorts by the UTC text that was read, which runs as the moments do. */
+function timeSortKeys(entry: Shown): Map<number, (row: Row) => string> | undefined {
+  if (timeMode !== "local" || !entry.base) return undefined;
+  const keys = new Map<number, (row: Row) => string>();
+  for (const column of entry.columns) if (timesOf(column.label) === "local") keys.set(column.index, row => readText(entry.exported, row, column.index));
+  return keys.size ? keys : undefined;
+}
+
+/** What a range keeps, as its column's filter button says it, with the zone its days were set in where that is not the
+ * zone the times are shown in now. */
+function rangeWords(column: Column | undefined, range: RangeState): string {
+  const words = rangeSummary(column?.range ?? "number", range);
+  return range.zone !== undefined && range.zone !== shownZone() ? `${words} (${zoneWords(range.zone, ownZone)} days)` : words;
 }
 
 /** What a table shows now: the page of rows the search, the filters, the sort and the jump leave, and what the user chose. */
@@ -414,7 +532,7 @@ function tableView(entry: Shown): TableView {
     columns: entry.columns.filter(column => !entry.hidden.has(column.index)), widths: entry.widths, rows: page.rows, ...(entry.headings ? { headings: entry.headings } : {}),
     page: page.page, pages: page.pages, pageSize: state.pageSize, from: page.from, to: page.to, total: page.total, all: entry.table.rows.length,
     search: state.search, sort: entry.sort, filtered: new Set([...entry.filters.keys(), ...entry.ranges.keys()]), context: state.context, links: entry.links,
-    ranged: new Map([...entry.ranges].map(([index, range]) => [index, rangeSummary(entry.columns[index]?.range ?? "number", range)])),
+    ranged: new Map([...entry.ranges].map(([index, range]) => [index, rangeWords(entry.columns[index], range)])),
   };
 }
 /** The shade at the foot of the table's box goes once there is nothing more to scroll to. */
@@ -485,7 +603,7 @@ function renderAll(): void {
   if (entry) renderTable(entry);
   else if (onMap) enterMap(result);
   // Each tile opens its table: the tiles are in the navigation's order, which `listedTables` gives.
-  else el("view").innerHTML = overviewHtml(overviewOf(result), keptCopy, listedTables(result).map(({ index }) => index));
+  else el("view").innerHTML = overviewHtml(timedOverview(overviewOf(result)), keptCopy, listedTables(result).map(({ index }) => index));
   // The line above a result that was brought back says "today" by the clock: each view says it anew, so that it is still
   // true on a page left open past midnight.
   const line = broughtBack ? find("#noteText") : null;
@@ -570,14 +688,16 @@ function showResult(next: AnalysisResult, at: Date, back = false): void {
   const whereUsed = byObject && next.tables.find(table => table.file === WHERE_USED_FILE);
   for (const { index, table: file } of listedTables(next)) {
     // What the page counts, filters and searches is the table as it shows it: the columns' filters follow its rows too.
-    const { table, note, none, empty, opensFrom, exported, readUnder, headings } = fileView(next, file);
+    // A file's times are said in the zone chosen, from the table as the file gives them, which is kept to say them again.
+    const base = fileView(next, file);
+    const { table, note, none, empty, opensFrom, exported, readUnder, headings } = inTimeMode(base, timeMode, ownZone);
     const lists = cellLists(next, table);
     const columns = columnsOf(table, lists);
     const keys = rowKeys(table);
     const page = cards !== undefined && keys.page !== undefined;
     const entry: Shown = {
       index, table, note, none, empty, opensFrom, exported, readUnder, headings, lists, columns, keys, links: { page, card: page && keys.cardId !== undefined },
-      filters: new Map(), ranges: new Map(), read: new Map(), hidden: defaultHidden(columns), sort: undefined, page: 0,
+      filters: new Map(), ranges: new Map(), read: new Map(), hidden: defaultHidden(columns), sort: undefined, page: 0, ...(hasTimes(base) ? { base } : {}),
     };
     // A number that could be more than one card's opens none of them: there it is plain text.
     if (entry.links.card) entry.links.hasCard = row => cardsOfRow(entry, row).length < 2;
@@ -609,8 +729,9 @@ function showResult(next: AnalysisResult, at: Date, back = false): void {
   state.context = undefined;
   const analysed = analysedOf(next);
   document.title = `Cardigan - ${analysed.name}`;
-  el("hdMeta").innerHTML = headerMetaHtml(analysed);
+  el("hdMeta").innerHTML = headerMetaHtml(timedAnalysed(analysed));
   el("topnav").hidden = false;
+  el("timesSwitch").hidden = false;
   renderAll();
   if (replaced) el("view").focus({ preventScroll: true });
   if (!back) return announce(`Analysis finished: ${analysed.name}`);
@@ -648,6 +769,8 @@ function clearResult(): void {
     const part = document.getElementById(id);
     if (part) part.innerHTML = "";
   }
+  const times = document.getElementById("timesSwitch" satisfies PageId);
+  if (times) times.hidden = true;
 }
 
 /** Shows a result the page kept before it was refreshed (keep-result.ts). What comes back is read as a result once more,
@@ -839,7 +962,7 @@ function openColFilter(entry: Shown, column: Column, owner: string, anchor: Elem
  * range away. */
 function openRangeFilter(entry: Shown, column: Column, owner: string, anchor: Element): void {
   const kind = column.range ?? "number";
-  openPopover(owner, anchor, `Filter: ${column.label}`, rangeFilterHtml(column, readColumn(entry, column), entry.ranges.get(column.index)));
+  openPopover(owner, anchor, `Filter: ${column.label}`, rangeFilterHtml(column, readColumn(entry, column), entry.ranges.get(column.index), zoneLine(column, entry.ranges.get(column.index))));
   const popover = el("popover");
   const boxes = { from: popover.querySelector<HTMLInputElement>("[data-rfrom]"), to: popover.querySelector<HTMLInputElement>("[data-rto]") };
   const blanks = popover.querySelector<HTMLInputElement>("[data-rblanks]");
@@ -864,7 +987,8 @@ function openRangeFilter(entry: Shown, column: Column, owner: string, anchor: El
       return;
     }
     say("");
-    const range: RangeState = { fromText, toText, ...read, blanks: blanks ? blanks.checked : true };
+    // Days set on a column of times are days in the zone the times are shown in, and keep those days' rows in either.
+    const range: RangeState = { fromText, toText, ...read, blanks: blanks ? blanks.checked : true, ...(timesOf(column.label) ? { zone: shownZone() } : {}) };
     if (rangeInForce(range)) entry.ranges.set(column.index, range); else entry.ranges.delete(column.index);
     entry.page = 0;
     updateTable(entry);
@@ -975,7 +1099,8 @@ function openRowDrawer(entry: Shown, row: Row, opener: Element): void {
   if (entry.objects && object) return openObjectDrawer(entry.objects, object, opener);
   drawerObject = undefined;
   drawerRow = { entry, row };
-  drawerLooks = { kind: "row", file: entry.table.file, key: rowKey(row) };
+  // A row is kept by what the file holds, its times as they were read: the same row in either zone.
+  drawerLooks = { kind: "row", file: entry.table.file, key: rowKey(fileRow(entry.table.headers, entry.exported, row)) };
   const position = entry.table.rows.findIndex(candidate => candidate === row) + 1;
   const named = entry.opensFrom ?? rowNameIndex(entry.table);
   const none = writesNone(entry.table);
@@ -985,7 +1110,7 @@ function openRowDrawer(entry: Shown, row: Row, opener: Element): void {
   drawerSteps = process ? process.steps.map(stepRow) : [];
   openDrawer(name, rowDrawerSubHtml(position, cellText(entry.table.label)),
     rowDrawerHtml(entry.columns, row, entry.links, entry.exported?.get(row), rowItems(entry.lists, row), entry.readUnder, mappingOfRow(result, entry.table, row),
-      process && { view: process, opens: drawerSteps.map(Boolean) }), opener);
+      process && { view: process, opens: drawerSteps.map(Boolean) }, { mode: timeMode, zone: ownZone }), opener);
 }
 /** The row of an action a process runs: the one row of its name in the table of its kind, as the page shows that table.
  * None where the result has no such table, or where none of its rows, or more than one, has the name: which is meant is
@@ -1890,6 +2015,10 @@ el("drawerClose").addEventListener("click", closeDrawer);
 // A click beside the drawer, on the scrim, closes it: the scrim is the drawer's alone.
 el("scrim").addEventListener("click", closeDrawer);
 el("themeToggle").addEventListener("click", toggleTheme);
+el("timesSwitch").addEventListener("click", event => {
+  const mode = (event.target instanceof Element ? event.target.closest<HTMLElement>("[data-times]") : null)?.dataset.times;
+  if (mode === "local" || mode === "utc") setTimeMode(mode);
+});
 el("runAgain").addEventListener("click", () => client.runAgain());
 window.matchMedia?.("(prefers-color-scheme: dark)").addEventListener("change", event => {
   let stored: string | null = null;
@@ -1951,6 +2080,7 @@ function keepLater(kept: AnalysisResult, at: Date): void {
 
 el("version").textContent = `v${VERSION}`;
 applyTheme(currentTheme());
+showTimes();
 // How the result was looked at before a refresh, as the tab keeps it; and what is chosen from now on is written before
 // the page goes, should it go before the settings were written.
 looks = readKept(tabStorage());

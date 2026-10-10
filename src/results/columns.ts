@@ -165,11 +165,11 @@ export const FILTER_MAX = 30;
 export const FREE_TEXT: readonly string[] = ["Formula", "Notes", "Text content", "Description"];
 /** The columns of a model's grids and of an app's files that hold a measure, a time or a running number, whatever the
  * cells look like: a module's or a line item's cells and memory, the work a line item takes, a list's items and its next
- * index, how long an action last took and when it started, and when a page was last published. Such a column never offers
- * a list to tick past thirty texts: a list of thousands of numbers helps nobody. Where its cells are numbers or dates, it
- * is filtered by a range (`rangeOf`), as any such column is. */
+ * index, how long an action last took and when it started, in UTC or as the viewer's clock read it (times.ts), and when a
+ * page was last published. Such a column never offers a list to tick past thirty texts: a list of thousands of numbers
+ * helps nobody. Where its cells are numbers or dates, it is filtered by a range (`rangeOf`), as any such column is. */
 export const MEASURES: readonly string[] = ["Cell Count", "Populated Cell Count", "Memory Used", "Calculation Effort", "Item Count", "Next item index",
-  "Most recent duration (ms)", "Start Date and Time (UTC)", "Last published"];
+  "Most recent duration (ms)", "Start Date and Time (UTC)", "Start Date and Time (local)", "Last published"];
 
 /** A text that is a number or a date, however it is written: digits with their signs, separators and a percent sign, or
  * a date that starts with its year or its day. A column of nothing else, past thirty texts, is a measure as well. */

@@ -206,7 +206,7 @@ describe("The results page's columns", () => {
 
   it("offers a filter past thirty texts where they repeat, but not on a row's name, free text, an ID or texts each in one row; numbers and dates have a range", () => {
     expect([FREE_TEXT, MEASURES]).toEqual([["Formula", "Notes", "Text content", "Description"], ["Cell Count", "Populated Cell Count", "Memory Used", "Calculation Effort",
-      "Item Count", "Next item index", "Most recent duration (ms)", "Start Date and Time (UTC)", "Last published"]]);
+      "Item Count", "Next item index", "Most recent duration (ms)", "Start Date and Time (UTC)", "Start Date and Time (local)", "Last published"]]);
     const pad = (number: number) => String(number).padStart(2, "0");
     /** Ninety rows of a model's Line Items, and what each column holds in each. */
     const cells: Record<string, (row: number) => string> = {
