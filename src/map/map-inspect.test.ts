@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { LAYER, moduleGraph, modulesGraph, sectionsGraph, type ViewGraph, type ViewNode } from "./map-graphs.js";
 import { FILTERS_LISTED, inspect, isHeading, layerOfObject, statusWords, traceWords, viewSentence } from "./map-inspect.js";
 import { indexModel } from "./map-model.js";
-import { GraphMaker } from "./map-fakes.test-support.js";
+import { filteredModel, GraphMaker } from "./map-fakes.test-support.js";
 
 function sample() {
   const make = new GraphMaker();
@@ -342,5 +342,27 @@ describe("What the map says aloud when a view opens", () => {
     // A section of one module, with the one module of another section it reads: not two modules.
     expect(viewSentence(modulesGraph(model, "02: Calculations", false), "Demand Model")).toBe("02: Calculations: 1 module, with 1 module of other sections, 1 link.");
     expect(viewSentence(moduleGraph(model, revenue, false, false), "Demand Model")).toBe("Line items of CAL01 - Revenue: 4 line items, with 3 outside the module, 4 links.");
+  });
+});
+
+describe("What the details say of the pages' filters", () => {
+  it("lists the modules a line item filters and the line items that filter a module, with where, whether their links are drawn or not", () => {
+    const { graph, flt, show } = filteredModel();
+    const model = indexModel(graph);
+    const own = moduleGraph(model, flt, false, false);
+    const item = inspect(model, own, byName(own, "Show?"), false);
+    const filters = item.lists.find(list => list.key === "filters");
+    expect([filters?.title, filters?.links.map(link => [link.name, link.caption])]).toEqual(["Modules it filters on pages · 2", [
+      ["REV01 - Revenue", "Planning · Demand · Card 3 · by Products · 1 more card"], ["MAR01 - Margin", "Planning · Demand · Card 4 · by Products"]]]);
+    // What it feeds is what formulas read: no module it filters is among it.
+    expect(item.lists.find(list => list.key === "used")?.links.map(link => link.name)).toEqual(["Revenue"]);
+    expect(item.texts.find(text => text.key === "pageFilters")?.lines).toEqual(["REV01 - Revenue · Planning · Demand · Card 3 · by Products",
+      "REV01 - Revenue, MAR01 - Margin · Planning · Demand · Card 4 · by Products"]);
+    const modules = modulesGraph(model, undefined, false);
+    const module = inspect(model, modules, byName(modules, "MAR01 - Margin"), false);
+    const by = module.lists.find(list => list.key === "filteredBy");
+    expect([by?.title, by?.links.map(link => [link.raw, link.name, link.sub, link.caption])]).toEqual(["Filtered on pages by · 1", [[show, "Show?", "FLT01 - Filters", "Planning · Demand · Card 4 · by Products"]]]);
+    // A module no filter names lists none.
+    expect(inspect(model, modules, byName(modules, "FLT01 - Filters"), false).lists.some(list => list.key === "filteredBy")).toBe(false);
   });
 });

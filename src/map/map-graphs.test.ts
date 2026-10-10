@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { LAYER, moduleGraph, modulesGraph, sectionLayer, sectionsGraph, type ViewGraph } from "./map-graphs.js";
 import { indexModel } from "./map-model.js";
-import { GraphMaker } from "./map-fakes.test-support.js";
+import { filteredModel, GraphMaker } from "./map-fakes.test-support.js";
 
 /** Three sections. Inputs feed Calculations, Calculations feed Reporting and read each other, and a flag of the inputs
  * drives who may write a calculation. */
@@ -232,5 +232,22 @@ describe("The graph of a module's line items", () => {
     expect(sectionsGraph(model, false).nodes.map(node => [node.w, node.h])[0]).toEqual([232, 49]);
     expect(modulesGraph(model, undefined, false).nodes.map(node => [node.w, node.h])[0]).toEqual([232, 49]);
     expect(graph.nodes.every(node => node.lines.length === 1 && node.lines[0] === node.label)).toBe(true);
+  });
+});
+
+describe("The links of the pages' filters in the graphs", () => {
+  it("are drawn only where asked to, counted apart from the formula links between the same two boxes, and marked as filters", () => {
+    const { graph, flt, rev, mar, show } = filteredModel();
+    const model = indexModel(graph);
+    const links = (view: ViewGraph): [string, string, number, boolean][] => view.edges.map(edge => [view.nodes[edge.s].fullName, view.nodes[edge.t].fullName, edge.w, edge.filter === true]);
+    expect(links(modulesGraph(model, undefined, false))).toEqual([["FLT01 - Filters", "REV01 - Revenue", 1, false]]);
+    expect(links(modulesGraph(model, undefined, false, true))).toEqual([["FLT01 - Filters", "REV01 - Revenue", 1, false], ["FLT01 - Filters", "REV01 - Revenue", 1, true],
+      ["FLT01 - Filters", "MAR01 - Margin", 1, true]]);
+    expect(links(sectionsGraph(model, false, true))).toEqual([["01: Inputs", "02: Calculations", 1, false], ["01: Inputs", "02: Calculations", 1, true], ["01: Inputs", "03: Reporting", 1, true]]);
+    // Among the line items of the filter's module, each module it filters stands beside them as the module itself.
+    const own = moduleGraph(model, flt, false, false, true);
+    expect(own.edges.filter(edge => edge.filter).map(edge => [own.nodes[edge.s].fullName, own.nodes[edge.t].kind, own.nodes[edge.t].raw?.id, own.nodes[edge.t].external, edge.refs]))
+      .toEqual([["Show?", "module", rev, true, [[show, rev, "page_filter"]]], ["Show?", "module", mar, true, [[show, mar, "page_filter"]]]]);
+    expect(moduleGraph(model, flt, false, false).edges.some(edge => edge.filter)).toBe(false);
   });
 });
