@@ -2,6 +2,18 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version stands next to Cardigan's name at the top of the results page and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## 0.14.0 (10 October 2026)
+
+The Model map's bar says where the map is, how it is built and what its tools are, and the map can fill the screen.
+
+- **The map's bar in three parts.** Each keeps to one line, and on a narrow map each takes a line of its own, never half of one. (#33)
+  - **Where the map is.** The **Modules** and **Line items** switch, then a path that starts with the model's name, which leads back to the groups as a whole. In the Modules view the path's list says what is shown: **All groups**, **All modules**, or one group, with how many modules it holds; it replaces **Show sections** and the list of sections. In the Line items view the path names the module's group and then the module, so the module's name is no longer said twice: the group narrows the module picker, a box to type into that lists the group's modules until something is typed, and then every module whose name holds it, at most 200 at once, with the arrows, Enter and Escape. It replaces the list of every module. The path follows the map wherever it goes: a double-click, the search, Escape, a row's **Model map**. The page's header names the workspace, so the path no longer does; the model's name says it on hover. (#33)
+  - **How the map is built.** **Group by**, now under its label, offers each grouping by its name, the map's own pick as "Headings · automatic". In the Line items view, the box **Other modules' line items**, ticked while those line items stand one by one, replaces the button whose words changed with what it did. (#33)
+  - **Its tools.** **Links** opens a panel of the links the map draws: formulas, always, and **Access drivers**, a box, with what they are in a modeller's words: line items that decide which cells someone can see or edit. Its button has a dot while access drivers are drawn. Then the search, and full screen. (#33)
+- **Full screen.** A button at the end of the bar gives the map the whole screen, with its bar, its details and its legend, and draws it for the new size; the button and Escape leave it, and the button says which it will do, whichever way the screen was left. Where the browser will not give the map the screen, the map fills the browser's window instead, over the page but for its toasts, and Escape and the button leave that too. A map that is hidden leaves either. (#33)
+- **A list's Model map.** From a row of **General Lists**, **Model map** shows the list beside the line items of the first module it is linked with, selected, where the map showed nothing before. A list linked with no line item is on no map. (#33)
+- **What stays the same.** What the map draws and how it groups modules, and everything Cardigan reads.
+
 ## 0.13.0 (10 October 2026)
 
 Buttons that open a row's module, list, app or page in Anaplan, every row of Line Items, a model map grouped six ways, fewer reads, a process's actions in their order, and filters on almost every column.
