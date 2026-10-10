@@ -262,7 +262,7 @@ function looksNow(): KeptView | undefined {
   if (!result) return undefined;
   const tables: Record<string, KeptTable> = {};
   for (const entry of everyTable()) {
-    const kept = keepTable(entry, column => valuesOf(entry, column));
+    const kept = keepTable(entry, column => valuesOf(entry, column), ownZone);
     if (kept) tables[tableKey(entry)] = kept;
   }
   const searched = typeof state.view === "number" && (state.search !== "" || state.context !== undefined);
@@ -311,7 +311,7 @@ function forgetLooks(): void {
 function takeLooks(entry: Shown, kept: KeptView | undefined): void {
   const table = kept?.tables[tableKey(entry)];
   if (!table) return;
-  Object.assign(entry, takeTable(table, entry.columns, column => valuesOf(entry, column)));
+  Object.assign(entry, takeTable(table, entry.columns, column => valuesOf(entry, column), ownZone));
 }
 
 /** Once a result that was brought back is on the page, on the view the address marked: the search and the jump of that
@@ -400,7 +400,7 @@ function retime(): void {
     entry.exported = timed.exported;
     entry.headings = timed.headings;
     entry.lists = cellLists(result, entry.table);
-    entry.columns = columnsOf(entry.table, entry.lists);
+    entry.columns = columnsOf(entry.table, entry.lists, ownZone);
     entry.keys = rowKeys(entry.table);
     entry.read = new Map();
     entry.moments = undefined;
@@ -419,7 +419,7 @@ const timedOverview = (overview: Overview): Overview =>
 /** What a range's filter says of the zone of its column's times, for a column of times, where its days were set in the
  * other zone also that: they keep the same rows in either. Nothing for any other column. */
 function zoneLine(column: Column, range: RangeState | undefined): string | undefined {
-  const kind = timesOf(column.label);
+  const kind = timesOf(column.label, ownZone);
   if (kind === undefined) return undefined;
   const times = kind === "local" ? `The column's dates and times are in your time zone, ${ownZone}. ` : "The column's dates and times are UTC. ";
   const days = range?.zone !== undefined && range.zone !== shownZone() ? `The days set are ${zoneWords(range.zone, ownZone)} days, which keep the same rows in either zone. ` : "";
@@ -427,7 +427,7 @@ function zoneLine(column: Column, range: RangeState | undefined): string | undef
 }
 /** The one row of a table with this key, as the tab keeps rows: by what the file holds, its times as they were read. */
 function findShownRow(entry: Shown, key: string): Row | undefined {
-  const asRead = entry.table.rows.map(row => fileRow(entry.table.headers, entry.exported, row));
+  const asRead = entry.table.rows.map(row => fileRow(entry.table.headers, entry.exported, row, ownZone));
   const found = findRow(asRead, key);
   return found && entry.table.rows[asRead.indexOf(found)];
 }
@@ -487,7 +487,7 @@ function query(entry: Shown): TableQuery {
  * rows by the column's own values. */
 function rangeQuery(entry: Shown, column: Column, range: RangeState): RangeQuery {
   const kept = { kind: column.range ?? "number", blanks: range.blanks, none: column.none } as const;
-  if (range.zone !== undefined && column.range === "date" && timesOf(column.label) !== undefined) {
+  if (range.zone !== undefined && column.range === "date" && timesOf(column.label, ownZone) !== undefined) {
     return { ...kept, ...momentRange(range.from, range.to, range.zone), values: readMoments(entry, column) };
   }
   return { ...kept, from: range.from, to: range.to, values: readColumn(entry, column).values };
@@ -508,7 +508,7 @@ function readMoments(entry: Shown, column: Column): ReadonlyMap<Row, number | un
 function timeSortKeys(entry: Shown): Map<number, (row: Row) => string> | undefined {
   if (timeMode !== "local" || !entry.base) return undefined;
   const keys = new Map<number, (row: Row) => string>();
-  for (const column of entry.columns) if (timesOf(column.label) === "local") keys.set(column.index, row => readText(entry.exported, row, column.index));
+  for (const column of entry.columns) if (timesOf(column.label, ownZone) === "local") keys.set(column.index, row => readText(entry.exported, row, column.index));
   return keys.size ? keys : undefined;
 }
 
@@ -697,7 +697,7 @@ function showResult(next: AnalysisResult, at: Date, back = false): void {
     const base = fileView(next, file);
     const { table, note, none, empty, opensFrom, exported, readUnder, headings } = inTimeMode(base, timeMode, ownZone);
     const lists = cellLists(next, table);
-    const columns = columnsOf(table, lists);
+    const columns = columnsOf(table, lists, ownZone);
     const keys = rowKeys(table);
     const page = cards !== undefined && keys.page !== undefined;
     const entry: Shown = {
@@ -993,7 +993,7 @@ function openRangeFilter(entry: Shown, column: Column, owner: string, anchor: El
     }
     say("");
     // Days set on a column of times are days in the zone the times are shown in, and keep those days' rows in either.
-    const range: RangeState = { fromText, toText, ...read, blanks: blanks ? blanks.checked : true, ...(timesOf(column.label) ? { zone: shownZone() } : {}) };
+    const range: RangeState = { fromText, toText, ...read, blanks: blanks ? blanks.checked : true, ...(timesOf(column.label, ownZone) ? { zone: shownZone() } : {}) };
     if (rangeInForce(range)) entry.ranges.set(column.index, range); else entry.ranges.delete(column.index);
     entry.page = 0;
     updateTable(entry);
@@ -1105,7 +1105,7 @@ function openRowDrawer(entry: Shown, row: Row, opener: Element): void {
   drawerObject = undefined;
   drawerRow = { entry, row };
   // A row is kept by what the file holds, its times as they were read: the same row in either zone.
-  drawerLooks = { kind: "row", file: entry.table.file, key: rowKey(fileRow(entry.table.headers, entry.exported, row)) };
+  drawerLooks = { kind: "row", file: entry.table.file, key: rowKey(fileRow(entry.table.headers, entry.exported, row, ownZone)) };
   const position = entry.table.rows.findIndex(candidate => candidate === row) + 1;
   const named = entry.opensFrom ?? rowNameIndex(entry.table);
   const none = writesNone(entry.table);

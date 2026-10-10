@@ -5856,7 +5856,7 @@ describe("Times in the viewer's own zone, or in UTC, as the switch in the header
     expect(page.id("hdMeta").textContent).toContain("Exported 2026-10-03 23:02 local");
     expect(about()).toEqual([["Exported on", "2026-10-03 23:02 local · 2026-10-03 14:02 UTC"]]);
     goTo(1);
-    expect([headings(), column("Start Date and Time (local)")]).toEqual([["Name", "Start Date and Time (local)", "Source Type"],
+    expect([headings(), column("Start Date and Time (Asia/Tokyo)")]).toEqual([["Name", "Start Date and Time (Asia/Tokyo)", "Source Type"],
       ["2026-03-13 08:19:56", "2026-03-13 09:00:01", "2026-03-14 05:00:00", ""]]);
     // The search finds a time as it is shown, and not as it was read.
     page.id("tblSearch").type("08:19");
@@ -5866,7 +5866,7 @@ describe("Times in the viewer's own zone, or in UTC, as the switch in the header
     page.id("tblSearch").type("");
     // A row's details say the time in both zones, the one shown first, and nothing more of it.
     page.all('#tableWrap tbody [data-act="row"]')[0].press();
-    expect([page.texts("#drawerBody dt"), page.texts("#drawerBody dd")]).toEqual([["Name", "Start Date and Time (local)", "Source Type"],
+    expect([page.texts("#drawerBody dt"), page.texts("#drawerBody dd")]).toEqual([["Name", "Start Date and Time (Asia/Tokyo)", "Source Type"],
       ["Load", "2026-03-13 08:19:56 local · 2026-03-12 23:19:56 UTC", "MODEL"]]);
     page.key("Escape");
     vi.advanceTimersByTime(300);
@@ -5900,7 +5900,7 @@ describe("Times in the viewer's own zone, or in UTC, as the switch in the header
     expect([pressed(), headings()[1]]).toEqual([["utc"], "Start Date and Time (UTC)"]);
     // And Local takes them back to the viewer's clock.
     page.find('#timesSwitch [data-times="local"]').press();
-    expect([pressed(), column("Start Date and Time (local)").includes("2026-03-13 08:19:56"), stored.get(TIMES_KEY), page.id("live").textContent])
+    expect([pressed(), column("Start Date and Time (Asia/Tokyo)").includes("2026-03-13 08:19:56"), stored.get(TIMES_KEY), page.id("live").textContent])
       .toEqual([["local"], true, "local", "Times in your time zone, Asia/Tokyo."]);
   });
 
@@ -5932,14 +5932,14 @@ describe("Times in the viewer's own zone, or in UTC, as the switch in the header
     expect(firstCells()).toEqual(["Sort", "Late", "Copy"]);
     page.find('#timesSwitch [data-times="local"]').press();
     expect([firstCells(), page.find('[data-colfilter="1"]').getAttribute("aria-label")])
-      .toEqual([["Sort", "Late", "Copy"], "Filter by Start Date and Time (local) (filter on: on 2026-03-13 (UTC days))"]);
+      .toEqual([["Sort", "Late", "Copy"], "Filter by Start Date and Time (Asia/Tokyo) (filter on: on 2026-03-13 (UTC days))"]);
   });
 
   it("says local times where the browser's storage cannot be read, and switches all the same, keeping nothing", async () => {
     storeRefuses = new Error("The storage is not available.");
     await openWith(TIMED);
     goTo(1);
-    expect([pressed(), headings()[1]]).toEqual([["local"], "Start Date and Time (local)"]);
+    expect([pressed(), headings()[1]]).toEqual([["local"], "Start Date and Time (Asia/Tokyo)"]);
     page.find('#timesSwitch [data-times="utc"]').press();
     expect([pressed(), headings()[1], stored.size]).toEqual([["utc"], "Start Date and Time (UTC)", 0]);
   });

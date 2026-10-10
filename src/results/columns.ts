@@ -3,6 +3,7 @@ import type { TabName } from "../report.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
 import { FORMAT_TYPE, LINE_ITEMS_FILE } from "./line-items-view.js";
 import { cellText, dayOf, filterItems, numberOf, saysNothing, type ItemsOf, type RangeKind, type Row } from "./table-engine.js";
+import { fileLabel } from "./times.js";
 
 /** The names of an app export's files, by the report table each holds. The analysis writes its files under these names
  * (analyse.ts), and whatever the page knows about one of them, here or in result-view.ts, is keyed by a name from this
@@ -165,11 +166,11 @@ export const FILTER_MAX = 30;
 export const FREE_TEXT: readonly string[] = ["Formula", "Notes", "Text content", "Description"];
 /** The columns of a model's grids and of an app's files that hold a measure, a time or a running number, whatever the
  * cells look like: a module's or a line item's cells and memory, the work a line item takes, a list's items and its next
- * index, how long an action last took and when it started, in UTC or as the viewer's clock read it (times.ts), and when a
- * page was last published. Such a column never offers a list to tick past thirty texts: a list of thousands of numbers
+ * index, how long an action last took and when it started, and when a page was last published. A column of times is known
+ * by the file's name for it, in whichever zone the page shows its times (times.ts `fileLabel`). Such a column never offers a list to tick past thirty texts: a list of thousands of numbers
  * helps nobody. Where its cells are numbers or dates, it is filtered by a range (`rangeOf`), as any such column is. */
 export const MEASURES: readonly string[] = ["Cell Count", "Populated Cell Count", "Memory Used", "Calculation Effort", "Item Count", "Next item index",
-  "Most recent duration (ms)", "Start Date and Time (UTC)", "Start Date and Time (local)", "Last published"];
+  "Most recent duration (ms)", "Start Date and Time (UTC)", "Last published"];
 
 /** A text that is a number or a date, however it is written: digits with their signs, separators and a percent sign, or
  * a date that starts with its year or its day. A column of nothing else, past thirty texts, is a measure as well. */
@@ -202,10 +203,11 @@ function offersFilter(rows: readonly Row[], index: number, items: ItemsOf | unde
 
 /** Whether a column may offer a filter past thirty texts: every column but the row's own name, which a model's grid
  * leaves unnamed in its first place and the search serves; free text; an ID; a number, as a count or as what the design
- * shows as a number; and a measure. Those offer one only as any column with few texts does, or a range (`rangeOf`). */
-function wideFilter(header: string, index: number, choice: Choice): boolean {
+ * shows as a number; and a measure. Those offer one only as any column with few texts does, or a range (`rangeOf`). `zone`
+ * is the viewer's, in which a column of times may be shown. */
+function wideFilter(header: string, index: number, choice: Choice, zone: string): boolean {
   if (index === 0 && header === "") return false;
-  if (FREE_TEXT.includes(header) || MEASURES.includes(header) || / IDs?$/.test(header)) return false;
+  if (FREE_TEXT.includes(header) || MEASURES.includes(fileLabel(header, zone)) || / IDs?$/.test(header)) return false;
   return choice.kind !== "id" && choice.kind !== "count" && choice.num !== true;
 }
 
@@ -240,8 +242,9 @@ function rangeOf(rows: readonly Row[], index: number, header: string, choice: Ch
 }
 
 /** A table's columns, in the order of its headers. The rows must be complete: which columns offer a filter depends on them.
- * `lists` are the columns whose cells list items, by their place (cell-lists.ts): their filters read each item. */
-export function columnsOf(table: ResultTable, lists?: ReadonlyMap<number, ItemsOf>): Column[] {
+ * `lists` are the columns whose cells list items, by their place (cell-lists.ts): their filters read each item. `zone` is
+ * the viewer's, where the table's times are shown in it (times.ts `inTimeMode`); UTC, the default, is the file's own. */
+export function columnsOf(table: ResultTable, lists?: ReadonlyMap<number, ItemsOf>, zone = "UTC"): Column[] {
   const choices = COLUMN_CHOICES.get(table.file) ?? MODEL_CHOICES.get(table.file);
   const none = writesNone(table);
   return table.headers.map((value, index) => {
@@ -249,7 +252,7 @@ export function columnsOf(table: ResultTable, lists?: ReadonlyMap<number, ItemsO
     const choice = choices?.get(header) ?? {};
     const label = header !== "" ? header : index === 0 ? "Name" : `Column ${index + 1}`;
     const range = rangeOf(table.rows, index, header, choice, none, lists?.has(index) === true);
-    const filter = range !== undefined || choice.filter === true || offersFilter(table.rows, index, lists?.get(index), wideFilter(header, index, choice));
+    const filter = range !== undefined || choice.filter === true || offersFilter(table.rows, index, lists?.get(index), wideFilter(header, index, choice, zone));
     return { index, label, kind: choice.kind ?? "text", num: choice.num === true, filter, ...(range ? { range } : {}), hidden: choice.hidden === true, none };
   });
 }

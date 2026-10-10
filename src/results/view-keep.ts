@@ -77,11 +77,12 @@ export const subjectOf = (result: { kind: string; id: string }): string => `${re
 
 /** Each column's key: its label, and where two columns of the table have one label, the label and which of them it is
  * ("Notes #2"). The label is what the user knows a column by, and what a new run's table names it by too. A column of
- * times is keyed by the file's name for it, whichever zone its times are shown in (times.ts `fileLabel`). */
-export function columnKeys(columns: readonly Pick<Column, "label">[]): string[] {
+ * times is keyed by the file's name for it, whichever zone its times are shown in (times.ts `fileLabel`): `zone` is the
+ * viewer's, in which they may be. */
+export function columnKeys(columns: readonly Pick<Column, "label">[], zone = "UTC"): string[] {
   const seen = new Map<string, number>();
   return columns.map(({ label: shown }) => {
-    const label = fileLabel(shown);
+    const label = fileLabel(shown, zone);
     const count = (seen.get(label) ?? 0) + 1;
     seen.set(label, count);
     return count === 1 ? label : `${label} #${count}`;
@@ -125,8 +126,8 @@ export interface TableLooks {
 
 /** A table's settings as they are kept, or nothing where it has none: no filter, range, column shown or hidden otherwise
  * than the page starts it, order or page. `valuesOf` gives every value a column's filter lists, ticked or not. */
-export function keepTable(looks: TableLooks, valuesOf: (column: number) => readonly string[]): KeptTable | undefined {
-  const keys = columnKeys(looks.columns);
+export function keepTable(looks: TableLooks, valuesOf: (column: number) => readonly string[], zone = "UTC"): KeptTable | undefined {
+  const keys = columnKeys(looks.columns, zone);
   const keyOf = (index: number): string | undefined => {
     const at = looks.columns.findIndex(column => column.index === index);
     return at < 0 ? undefined : keys[at];
@@ -174,8 +175,8 @@ export interface TakenTable {
  * the same file is taken and the rest let go. A filter keeps only the values the column still has; one that would keep
  * every value is no filter. A range whose ends cannot be read for the column is let go, and so is one on a column that
  * is no longer one of numbers or of dates. */
-export function takeTable(kept: KeptTable, columns: readonly Pick<Column, "index" | "label" | "range" | "hidden">[], valuesOf: (column: number) => readonly string[]): TakenTable {
-  const keys = columnKeys(columns);
+export function takeTable(kept: KeptTable, columns: readonly Pick<Column, "index" | "label" | "range" | "hidden">[], valuesOf: (column: number) => readonly string[], zone = "UTC"): TakenTable {
+  const keys = columnKeys(columns, zone);
   const byKey = new Map(keys.map((key, at) => [key, columns[at]]));
   const filters = new Map<number, Set<string>>();
   for (const [key, filter] of Object.entries(kept.filters ?? {})) {

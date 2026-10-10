@@ -100,15 +100,15 @@ describe("What the tab keeps of how a result is looked at", () => {
   });
 
   it("keeps a column of times by the file's name for it in either zone, and a range of its days with the zone they were set in", () => {
-    // Shown in the viewer's zone, the column is "(local)"; it is kept as the file names it, and taken back in UTC.
-    const local: TableLooks["columns"] = [{ index: 0, label: "Name", hidden: false }, { index: 1, label: "Start Date and Time (local)", range: "date", hidden: false }];
+    // Shown in the viewer's zone, the column's header names the zone; it is kept as the file names it, and taken back in UTC.
+    const local: TableLooks["columns"] = [{ index: 0, label: "Name", hidden: false }, { index: 1, label: "Start Date and Time (Asia/Tokyo)", range: "date", hidden: false }];
     const utc: TableLooks["columns"] = [local[0], { ...local[1], label: "Start Date and Time (UTC)" }];
-    expect(columnKeys(local)).toEqual(["Name", "Start Date and Time (UTC)"]);
+    expect([columnKeys(local, "Asia/Tokyo"), columnKeys(local)]).toEqual([["Name", "Start Date and Time (UTC)"], ["Name", "Start Date and Time (Asia/Tokyo)"]]);
     const set: RangeState = { fromText: "2026-03-13", toText: "", from: Date.parse("2026-03-13T00:00:00Z") / 86_400_000, blanks: true, zone: "Asia/Tokyo" };
-    const kept = keepTable({ ...looks(), columns: local, hidden: new Set(), ranges: new Map([[1, set]]), sort: { column: 1, dir: "desc" } }, () => [])!;
+    const kept = keepTable({ ...looks(), columns: local, hidden: new Set(), ranges: new Map([[1, set]]), sort: { column: 1, dir: "desc" } }, () => [], "Asia/Tokyo")!;
     expect(kept).toEqual({ ranges: { "Start Date and Time (UTC)": { from: "2026-03-13", to: "", blanks: true, zone: "Asia/Tokyo" } }, sort: { column: "Start Date and Time (UTC)", dir: "desc" } });
-    const taken = takeTable(kept, utc, () => []);
-    expect([taken.ranges.get(1), taken.sort]).toEqual([set, { column: 1, dir: "desc" }]);
+    const taken = takeTable(kept, utc, () => [], "Asia/Tokyo");
+    expect([taken.ranges.get(1), taken.sort, takeTable(kept, local, () => [], "Asia/Tokyo").ranges.get(1)]).toEqual([set, { column: 1, dir: "desc" }, set]);
     // A range of another column, with no zone, is kept and taken back without one.
     expect(takeTable({ ranges: { "Start Date and Time (UTC)": { from: "2026-03-13", to: "", blanks: true } } }, utc, () => []).ranges.get(1)?.zone).toBeUndefined();
   });

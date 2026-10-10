@@ -5,9 +5,10 @@ import { cellText } from "./table-engine.js";
 /** The times the page shows, in the viewer's own time zone or in UTC, as the viewer chooses (the switch in the page's
  * header). Anaplan writes a time in UTC: an action's start in the Actions list ("2026-03-12 23:19:56", under a header that
  * ends "(UTC)"), and the export's own time in its Details file ("2026-10-03 14:02 UTC"). In the viewer's zone the page says
- * the same moment as the viewer's clock read it, and says that it does: a column's header ends "(local)" in the place of
- * "(UTC)". A date with no time is no moment, and stays as it is: a day is no later in one zone than in another. The
- * result holds the times as they were read, whichever the page shows. Text in, text out: nothing here reads a page. */
+ * the same moment as the viewer's clock read it, and says which zone that is: a column's header names the zone in the
+ * place of "(UTC)", "Start Date and Time (Europe/London)". A date with no time is no moment, and stays as it is: a day is
+ * no later in one zone than in another. The result holds the times as they were read, whichever the page shows. Text in,
+ * text out: nothing here reads a page. */
 
 export type TimeMode = "local" | "utc";
 
@@ -107,34 +108,37 @@ function clockAsUtc(at: number, zone: string): number {
   return Date.UTC(year, month - 1, day, hour, minute, second);
 }
 
-/** The end of a header that says its column holds times in UTC, and the end the page gives it in the viewer's zone. */
+/** The end of a header that says its column holds times in UTC, and the end the page gives it in the viewer's zone: the
+ * zone's name, as the browser gives it. */
 const UTC_END = /\s*\(UTC\)$/;
-const LOCAL_END = " (local)";
+const zoneEnd = (zone: string): string => ` (${zone})`;
 
-/** Whether a column, by its header, holds times in UTC, holds them in the viewer's zone as the page shows them, or is
- * no column of times. */
-export function timesOf(header: string): TimeMode | undefined {
+/** Whether a column, by its header, holds times in UTC, holds them in the viewer's zone (`zone`) as the page shows them,
+ * or is no column of times. A viewer whose zone is UTC has no column of the other kind: the page says UTC either way. */
+export function timesOf(header: string, zone: string): TimeMode | undefined {
   if (UTC_END.test(header)) return "utc";
-  return header.endsWith(LOCAL_END) ? "local" : undefined;
+  return zone !== "UTC" && header.endsWith(zoneEnd(zone)) ? "local" : undefined;
 }
 
-/** A column of times as the page shows it in the viewer's zone: "Start Date and Time (local)". */
-export const localHeader = (header: string): string => header.replace(UTC_END, LOCAL_END);
+/** A column of times as the page shows it in the viewer's zone: "Start Date and Time (Europe/London)". */
+export const localHeader = (header: string, zone: string): string => header.replace(UTC_END, zoneEnd(zone));
 
 /** A column's name as the file has it, whichever zone the page shows its times in: what the tab keeps a column's settings
- * by (view-keep.ts `columnKeys`), so that they are the same column's in either. */
-export const fileLabel = (label: string): string => (label.endsWith(LOCAL_END) ? `${label.slice(0, -LOCAL_END.length)} (UTC)` : label);
+ * by (view-keep.ts `columnKeys`), so that they are the same column's in either, and what a column is known by as a
+ * measure (columns.ts `MEASURES`). Any other column's name is its own. */
+export const fileLabel = (label: string, zone: string): string =>
+  (timesOf(label, zone) === "local" ? `${label.slice(0, -zoneEnd(zone).length)} (UTC)` : label);
 
-/** A file's table with its times in the zone chosen. In UTC the table is the file's, as it was read. In the viewer's zone
- * each cell of a column of UTC times that names a moment says it as the viewer's clock read it, the column's header ends
- * "(local)", and the text that was read is kept for the cell in `exported`, as a cell said in words keeps its own: a row's
- * drawer shows both times, and the table is sorted by the moment (`sortKey`). A cell that names no moment stays as it is.
- * What the view kept of a row before stays kept, also in the copy of the row with its times changed, and a row shown as a
- * heading is one in its copy too. */
+/** A file's table with its times in the zone chosen. In UTC the table is the file's, as it was read, and so it is for a
+ * viewer whose zone is UTC. In another zone each cell of a column of UTC times that names a moment says it as the viewer's
+ * clock read it, the column's header names the zone (`localHeader`), and the text that was read is kept for the cell in
+ * `exported`, as a cell said in words keeps its own: a row's drawer shows both times, and the table is sorted by the
+ * moment (`sortKey`). A cell that names no moment stays as it is. What the view kept of a row before stays kept, also in
+ * the copy of the row with its times changed, and a row shown as a heading is one in its copy too. */
 export function inTimeMode(view: FileView, mode: TimeMode, zone: string): FileView {
   const { table } = view;
-  const columns = table.headers.flatMap((header, index) => (timesOf(cellText(header)) === "utc" ? [index] : []));
-  if (mode === "utc" || !columns.length) return view;
+  const columns = table.headers.flatMap((header, index) => (UTC_END.test(cellText(header)) ? [index] : []));
+  if (mode === "utc" || zone === "UTC" || !columns.length) return view;
   const exported = new Map(view.exported ?? []);
   const rows = table.rows.map(row => {
     let said: Cell[] | undefined;
@@ -151,13 +155,13 @@ export function inTimeMode(view: FileView, mode: TimeMode, zone: string): FileVi
     exported.set(said, texts);
     return said;
   });
-  const headers = table.headers.map((header, index) => (columns.includes(index) ? localHeader(cellText(header)) : header));
+  const headers = table.headers.map((header, index) => (columns.includes(index) ? localHeader(cellText(header), zone) : header));
   const headings = view.headings && new Set(rows.filter((row, index) => view.headings?.has(table.rows[index])));
   return { ...view, table: { ...table, headers, rows }, exported, ...(headings ? { headings } : {}) };
 }
 
 /** Whether a file's table has a column of UTC times, which the switch says again in another zone. */
-export const hasTimes = (view: FileView): boolean => view.table.headers.some(header => timesOf(cellText(header)) === "utc");
+export const hasTimes = (view: FileView): boolean => view.table.headers.some(header => UTC_END.test(cellText(header)));
 
 /** A cell of a column of times as the file has it: the UTC text that was read, where the page says the cell in the
  * viewer's zone, and else the cell's own text. A row is sorted by it, as it runs as the moments do where the clock's own
@@ -166,14 +170,14 @@ export function readText(exported: FileView["exported"], row: readonly Cell[], i
   return cellText(exported?.get(row)?.get(index) ?? row[index]);
 }
 
-/** A row as the file has its times: each cell of a column of times as it was read, every other cell as the page shows it.
- * What the tab keeps a row by (view-keep.ts `rowKey`) is the same in either zone. */
-export function fileRow(headers: readonly Cell[], exported: FileView["exported"], row: readonly Cell[]): readonly Cell[] {
+/** A row as the file has its times: each cell of a column of times in the viewer's zone (`zone`) as it was read, every
+ * other cell as the page shows it. What the tab keeps a row by (view-keep.ts `rowKey`) is the same in either zone. */
+export function fileRow(headers: readonly Cell[], exported: FileView["exported"], row: readonly Cell[], zone: string): readonly Cell[] {
   const said = exported?.get(row);
   if (!said) return row;
   let copy: Cell[] | undefined;
   headers.forEach((header, index) => {
-    if (timesOf(cellText(header)) !== "local" || !said.has(index)) return;
+    if (timesOf(cellText(header), zone) !== "local" || !said.has(index)) return;
     copy ??= [...row];
     copy[index] = said.get(index) ?? "";
   });
