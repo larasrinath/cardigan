@@ -225,6 +225,30 @@ describe("What the results page's markup shows", () => {
     expect(text(parseMarkup(rowCellHtml(columns[1], rows[0], NO_LINKS)).querySelector('[data-act="row"]'))).toBe("15,389,009,578");
   });
 
+  it("lists a value of several items one to a line with their count, a long one's rest behind Show all, and an item that names a row as a link", () => {
+    const columns = [column(0, "Name"), column(1, "Referenced By"), column(2, "Line Items"), column(3, "Notes")];
+    const many = Array.from({ length: 20 }, (_, at) => `Item ${at + 1}`);
+    const row: Cell[] = ["SYS100 Time", "'REV01 Revenue', 'Gone'", many.join(", "), "Kept, as it is"];
+    const items = new Map<number, readonly string[]>([[1, ["'REV01 Revenue'", "'Gone'"]], [2, many]]);
+    const opens = new Map<number, readonly (number | undefined)[]>([[1, [0, undefined]], [2, many.map((_, at) => at + 1)]]);
+    const drawer = parseMarkup(rowDrawerHtml(columns, row, NO_LINKS, undefined, items, undefined, undefined, undefined, undefined, opens));
+    // The count stands beside the column's name; a value that lists nothing is said whole, with no count.
+    expect(drawer.querySelectorAll("dt").map(text)).toEqual(["Name", "Referenced By (2)", "Line Items (20)", "Notes"]);
+    const [, referenced, lineItems, notes] = drawer.querySelectorAll("dd");
+    // An item with a row is a link carrying the row's number; one without is its text.
+    expect(referenced.querySelectorAll("li").map(item => [text(item), item.querySelector('[data-act="item"]')?.dataset.item])).toEqual([["'REV01 Revenue'", "0"], ["'Gone'", undefined]]);
+    // Twelve of twenty are shown; the other eight follow, hidden until found or shown, and the button says how many in all.
+    const [first, rest] = lineItems.querySelectorAll(".cell-list");
+    expect([first.querySelectorAll("li").map(text), rest.querySelectorAll("li").map(text), lineItems.querySelector(".cell-rest")?.getAttribute("hidden")]).toEqual([many.slice(0, 12), many.slice(12), "until-found"]);
+    expect(["textContent", "data-all", "aria-expanded"].map(name => (name === "textContent" ? text(lineItems.querySelector(".cell-more")) : lineItems.querySelector(".cell-more")?.getAttribute(name))))
+      .toEqual(["Show all 20", "20", "false"]);
+    expect(text(notes)).toBe("Kept, as it is");
+    // Up to fifteen items show whole, with no button; and nothing here draws an arrow of text.
+    const fifteen = parseMarkup(rowDrawerHtml(columns, row, NO_LINKS, undefined, new Map([[2, many.slice(0, 15)]])));
+    expect([fifteen.querySelectorAll("dd")[2].querySelectorAll("li").length, fifteen.querySelectorAll(".cell-more").length]).toEqual([15, 0]);
+    expect(/[→←›‹▲▼»«]/.test(drawer.textContent)).toBe(false);
+  });
+
   it("frames a table with its name, the search as typed, the count, and Reset when something is in force", () => {
     const frame = (overrides: Partial<TableView>) => {
       const view = parseMarkup(tableHtml(viewOf(CARDS, LINKS, overrides)));
