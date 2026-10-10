@@ -6,10 +6,11 @@ import { parseCsv, safeCell, toCsv, zipEntries, zipStore } from "./zip.test-supp
  *
  * Made once by running 0.6.1's own analyseApp and exportModel on those fixtures, with the clock at 2026-09-28 12:30:10 UTC and
  * the time zone UTC (a zip entry carries its time as local time). Never regenerate them from newer code: a difference means the
- * export changed. What is deliberately written otherwise since is named below: rows of the app's Details file and the dash
- * its other files hold for nothing to say, and of the model's files two columns, rows of its Details file, the two rows
- * about a file the export has gained, and a row of "How to read" on Source Models (`APP_ROW_REWORDED`,
- * `APP_ROWS_FOR_THE_PAGE`, `APP_ROW_ON_TWO_LINES`, `APP_DASH_PLAIN`, `MODEL_COLUMN_ADDED`, `MODEL_ACTIONS_COLUMN_ADDED`,
+ * export changed. What is deliberately written otherwise since is named below: rows of the app's Details file, the dash
+ * its other files hold for nothing to say and how they write a rule's colour stops, and of the model's files two columns,
+ * rows of its Details file, the two rows about a file the export has gained, and a row of "How to read" on Source Models
+ * (`APP_ROW_REWORDED`, `APP_ROWS_FOR_THE_PAGE`, `APP_ROW_ON_TWO_LINES`, `APP_DASH_PLAIN`, `APP_STOPS_IN_WORDS`,
+ * `MODEL_COLUMN_ADDED`, `MODEL_ACTIONS_COLUMN_ADDED`,
  * `MODEL_ROW_REWORDED`, `MODEL_ACTIONS_ROW_REWORDED`, `MODEL_ROWS_FOR_THE_PAGE`, `IMPORTS_ROW_REWORDED`, `MODEL_FILE_ADDED`,
  * `MODEL_ROW_ADDED`). A test then compares with 0.6.1's zip but for what is named, and the zips themselves stay as they are.
  *
@@ -170,13 +171,43 @@ export function withPlainDash(csv: string): string {
   return csv.charCodeAt(0) === 0xfeff ? text : text.slice(1);
 }
 
-/** The app's zip as 0.6.1 wrote it but for those rows and the dash: every file's bytes as they are in `APP_ZIP_0_6_1`, with
- * those lines of App Details.csv replaced and each cell of the dash in the other files written as it is now, by zipStore
- * with the same time on every entry. A file that holds neither keeps its bytes. analyse.test.ts pins that zipStore
+/** How a formatting rule's colour stops are deliberately not written as 0.6.1 wrote them: 0.6.1 wrote each stop as its
+ * value, an arrow and its colour ("-10 → #F5A5B1"), and the analysis writes its colour, " at " and its value now
+ * ("#F5A5B1 at -10"), with the stops joined with "; " as they were (report.ts `cfRuleText`). Of this app's files, Cards
+ * (a card's rules in words) and Conditional Formatting (a rule's stops) hold stops; no other file of the app does, and no
+ * file of a model's zip. */
+export const APP_STOPS_IN_WORDS = { was: " → ", now: " at " } as const;
+
+/** One stop as 0.6.1 wrote it: its value, as report.ts `num` writes a number, the arrow, and its colour, which ends the stop
+ * where "; ", " | " or the cell's end follows. */
+const STOP_0_6_1 = /(-?[\d,.]+) → ([^;|]+?)(?=; | \| |$)/g;
+
+/** 0.6.1's text of one of the app's files with its colour stops as they are written now (`APP_STOPS_IN_WORDS`): each cell
+ * that held stops holds them in words, guarded as the file's cells are, and every other cell is as it was. A cell that
+ * 0.6.1 guarded, because it started with a stop's minus sign, is read without its guard. A file without stops is given
+ * back as it is, and a cell whose arrow this cannot read as a stop's throws. `csv` is the file's text as toCsv wrote it,
+ * with its byte order mark or without. */
+export function withStopsInWords(csv: string): string {
+  if (!csv.includes(APP_STOPS_IN_WORDS.was)) return csv;
+  const [headers, ...rows] = parseCsv(csv).map(row => row.map(cell => {
+    if (!cell.includes(APP_STOPS_IN_WORDS.was)) return cell;
+    const unguarded = /^'[=+\-@]/.test(cell) ? cell.slice(1) : cell;
+    const now = unguarded.replace(STOP_0_6_1, (_, value: string, colour: string) => `${colour}${APP_STOPS_IN_WORDS.now}${value}`);
+    if (now.includes(APP_STOPS_IN_WORDS.was.trim())) throw new Error(`0.6.1's file holds an arrow that is no colour stop's: ${cell}`);
+    return safeCell(now);
+  }));
+  const text = toCsv(headers, rows, false);
+  return csv.charCodeAt(0) === 0xfeff ? text : text.slice(1);
+}
+
+/** The app's zip as 0.6.1 wrote it but for those rows, the dash and the colour stops: every file's bytes as they are in
+ * `APP_ZIP_0_6_1`, with those lines of App Details.csv replaced and each cell of the dash or of colour stops in the other
+ * files written as it is now, by zipStore with the same time on every entry. A file that holds none of them keeps its
+ * bytes. analyse.test.ts pins that zipStore
  * writes `APP_ZIP_0_6_1` itself, byte for byte, from the files as they are, so what differs from this zip differs from 0.6.1. */
 export const APP_ZIP_REWORDED = zipStore(zipEntries(APP_ZIP_0_6_1).map(entry => {
   const text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(entry.data);
-  const now = withPlainDash(entry.name === "App Details.csv" ? withAppRowsSince(text) : text);
+  const now = withStopsInWords(withPlainDash(entry.name === "App Details.csv" ? withAppRowsSince(text) : text));
   return now === text ? entry : { name: entry.name, data: new TextEncoder().encode(now) };
 }), ZIPPED_AT);
 

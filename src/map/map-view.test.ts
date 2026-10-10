@@ -1051,7 +1051,7 @@ describe("The map's views", () => {
     act("crumb").press();
     expect(here()).toBe("Demand Plan");
     clickNode("01: Inputs");
-    expect(act("open").textContent).toBe("Open its 2 modules →");
+    expect(act("open").textContent).toBe("Open its 2 modules");
     act("open").press();
     expect(here()).toBe("01: Inputs");
     act("crumb").press();
@@ -1263,13 +1263,13 @@ describe("Selecting a node on the map", () => {
     expect([here(), text(".map-kind")]).toEqual(["All modules", "MODULE"]);
     expect(text(".map-insp-name")).not.toBe("CAL01 - Revenue");
     clickNode("CAL01 - Revenue");
-    expect([act("open").textContent, act("open").dataset.mapModule]).toEqual(["Open its 3 line items →", String(revenue)]);
+    expect([act("open").textContent, act("open").dataset.mapModule]).toEqual(["Open its 3 line items", String(revenue)]);
     act("open").press();
     expect(here()).toBe("CAL01 - Revenue");
     // With the line items of other modules shown one by one, each leads to its own module.
     part(".map-external").tick();
     clickNode("Units");
-    expect([act("open").textContent, act("open").dataset.mapSelect]).toEqual(["Open its module with it selected →", String(units)]);
+    expect([act("open").textContent, act("open").dataset.mapSelect]).toEqual(["Open its module with it selected", String(units)]);
     act("open").press();
     expect([here(), text(".map-insp-name")]).toEqual(["INP01 - Volumes", "Units"]);
   });
