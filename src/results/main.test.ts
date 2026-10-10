@@ -4585,17 +4585,17 @@ describe("The buttons at the top right of a row's details that open it in Anapla
     // No row says that a double-click does anything, and a double-click does nothing.
     expect(page.all("#tableWrap tbody tr").map(row => row.getAttribute("title"))).toEqual(Array(5).fill(null));
     openRow("Revenue");
-    expect([opens(), page.id("drawerOpens").hidden, why()]).toEqual([[["Module", "Open REV01 Revenue in Model Building"]], false, undefined]);
+    expect([opens(), page.id("drawerOpens").hidden, why()]).toEqual([[["Model", "Open REV01 Revenue in Model Building"]], false, undefined]);
     page.id("scrim").dispatch("dblclick");
     await settle();
     expect(tabUpdates).toEqual([]);
     // The tab goes to the module and comes to the front, and so does its window; the details stay open behind it.
-    await press("Module");
+    await press("Model");
     expect([tabUpdates, windowUpdates, drawerOpen()]).toEqual([[[7, { url: link("102000000001"), active: true }]], [[3, { focused: true }]], true]);
     page.key("Escape");
     goTo(2);
     openRow("COST01 Costs");
-    await press("Module");
+    await press("Model");
     expect([tabUpdates.at(-1), windowUpdates.length, tabCreates]).toEqual([[7, { url: link("102000000002"), active: true }], 2, []]);
   });
 
@@ -4643,7 +4643,7 @@ describe("The buttons at the top right of a row's details that open it in Anapla
     await openModel({ ...OPENS, site: { origin: "https://eu2a.app.anaplan.com", customer: CUSTOMER.toUpperCase() } }, { kind: "app", id: APP });
     goTo(1);
     openRow("Units");
-    await press("Module");
+    await press("Model");
     expect(tabUpdates).toEqual([[7, { url: `https://eu2a.app.anaplan.com/a/modeling/customers/${CUSTOMER.toUpperCase()}/workspaces/${WORKSPACE}/models/${OPENS.id}/tabs/102000000001`,
       active: true }]]);
   });
@@ -4655,7 +4655,7 @@ describe("The buttons at the top right of a row's details that open it in Anapla
     const pages = [["Revenue board", `${app}/boards/${BOARD}`], ["Revenue sheet", `${app}/worksheets/${SHEET}`], ["Cost report", `${app}/reports/${REPORT}`]];
     for (const [row, [name, address]] of pages.entries()) {
       page.all('#tableWrap tbody [data-act="row"]')[row].press();
-      expect(opens().map(([label]) => label), name).toEqual(["Module", "App", "Page"]);
+      expect(opens().map(([label]) => label), name).toEqual(["Model", "App", "Page"]);
       expect(opens().slice(1).map(([, title]) => title), name).toEqual([`Open the app Planning ${TAG} in Anaplan`, `Open the page ${name} in Anaplan`]);
       await press("App");
       await press("Page");
@@ -4664,7 +4664,7 @@ describe("The buttons at the top right of a row's details that open it in Anapla
     }
     // A page whose type has no address of its own here: its app is opened, and it is not.
     page.all('#tableWrap tbody [data-act="row"]')[3].press();
-    expect(opens().map(([label]) => label)).toEqual(["Module", "App"]);
+    expect(opens().map(([label]) => label)).toEqual(["Model", "App"]);
     page.key("Escape");
     // A module on no page has no app and no page to open, and the heading no ID: nothing, and nothing to say.
     page.all('#tableWrap tbody [data-act="row"]')[4].press();
@@ -4685,7 +4685,7 @@ describe("The buttons at the top right of a row's details that open it in Anapla
     expect(tabUpdates.map(([, properties]) => (properties as { url: string }).url)).toEqual([link("102000000001"), link("102000000002")]);
     page.key("Escape");
     page.all('#tableWrap tbody [data-act="row"]')[1].press();
-    expect(opens().map(([label]) => label)).toEqual(["Module", "App", "Page"]);
+    expect(opens().map(([label]) => label)).toEqual(["Model", "App", "Page"]);
     page.key("Escape");
     choose(String(WITH_PAGES.tables.findIndex(table => table.file === PAGE_ACTIONS_FILE)));
     openRow("Import prices");
@@ -4709,18 +4709,18 @@ describe("The buttons at the top right of a row's details that open it in Anapla
     tabClosed = true;
     goTo(1);
     openRow("Units");
-    await press("Module");
+    await press("Model");
     // The closed tab is asked first; then one tab is opened, and comes to the front with its window.
     expect([tabUpdates.map(([tab]) => tab), tabCreates, windowUpdates]).toEqual([[7], [[{ url: link("102000000001"), active: true }]], [[3, { focused: true }]]]);
     page.key("Escape");
     goTo(2);
     openRow("COST01 Costs");
-    await press("Module");
+    await press("Model");
     // The next address goes to that tab, and no other is opened.
     expect([tabUpdates.map(([tab]) => tab), tabCreates.length, windowUpdates.length]).toEqual([[7, 101], 1, 2]);
     // A tab that can be neither used nor opened: the page says so.
     tabsRefuse = true;
-    await press("Module");
+    await press("Model");
     expect([toastSays(), tabCreates.length]).toEqual(["Cardigan could not open that in Anaplan.", 1]);
   });
 

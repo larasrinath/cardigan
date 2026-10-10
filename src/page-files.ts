@@ -16,6 +16,10 @@ export const MODEL_PAGE_FILES: readonly string[] = [MODULE_USAGE_FILE, PAGE_FILT
  * says it (Board, Worksheet or Report), its app's ID and its own. The results page opens the app and the page in Anaplan
  * by them (results/main.ts). */
 export const PAGE_PLACE_HEADERS: readonly string[] = ["Page type", "App ID", "Page ID"];
+/** The part of a page's address in Anaplan for its type, by the type as the Page type column says it (report.ts
+ * `PAGE_TYPE`), as Model Building's own links to the pages built on a model write it (modeling.js): a board's, a
+ * worksheet's and a report's. A page of another type has no address here. */
+export const PAGE_ROUTES: ReadonlyMap<string, string> = new Map([["Board", "boards"], ["Worksheet", "worksheets"], ["Report", "reports"]]);
 
 export const MODULE_USAGE_HEADERS: readonly string[] = ["Module", "App", "Page", ...PAGE_PLACE_HEADERS];
 

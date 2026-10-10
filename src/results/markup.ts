@@ -747,12 +747,11 @@ export type OpenKind = "map" | "module" | "app" | "page";
 /** One such button: where it leads, its few words, and what it opens, by name, which its title says. */
 export interface OpenButton { kind: OpenKind; label: string; title: string }
 
-/** The icon of each kind of button, a drawing of where it leads, as the navigation draws the same things: the map's folded
- * map, a module's blocks as the Modules group's, an app as a window with its bar, and a page with its text as the Pages
- * table's. */
+/** The icon of each kind of button, a drawing of where it leads: the map's folded map, as the navigation's; the model, as a
+ * box, for a module opened in it; an app as a window with its bar; and a page with its text, as the Pages table's. */
 export const OPEN_ICONS: Readonly<Record<OpenKind, string>> = {
   map: NAV_ICONS.map,
-  module: NAV_ICONS.modules,
+  module: navIcon('<path d="M8 1.6 14 4.9v6.2L8 14.4 2 11.1V4.9Z"/><path d="M2 4.9 8 8.2l6-3.3M8 8.2v6.2"/>'),
   app: navIcon('<rect x="1.8" y="2.6" width="12.4" height="10.8" rx="2"/><path d="M1.8 6h12.4"/><path d="M4.2 4.3h.01M6.2 4.3h.01" stroke-width="1.8"/>'),
   page: FILE_ICONS.get(APP_FILES.Pages) ?? NAV_ICONS.table,
 };
