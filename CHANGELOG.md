@@ -2,6 +2,16 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version stands next to Cardigan's name at the top of the results page and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## 0.15.9 (10 October 2026)
+
+An import's Mapping shows every source its definition knows of, and says what it cannot know.
+
+- **Headers mapped by hand.** Where an import into a module takes its line items from the header row, each header the modeller mapped to a line item by hand is a row of its own, with that line item, and each header ignored a row that says **Ignored**, after the other columns. Anaplan keeps them in the definition's value map for the line items, which the export now reads. (#43)
+- **How the other sources are read.** Under a source, a line says how many of a dimension's items are mapped by hand and how many ignored, the format **Time**'s periods are read by or that they are matched by their names, and a date line item's format, where the import keeps them. A line under the table names the dimensions matched on their items' names or codes when the import runs. (#43)
+- **What is not stored, said.** Where nothing is mapped by hand, the header row is matched on the line items' names or codes when the import runs, and Anaplan stores no such match: a line says so, and the header row's row lists the line items of the module a header can match, the first five and **Show all**. (#43)
+- **No single column of values with the header row.** An import whose line items come from the header row no longer lists **Value** as not mapped: each line item's values are in the column it heads, and Anaplan's dialog asks for no such column. (#43)
+- **The log.** Each import's definition has one more line where it holds them, on how its items are matched: each dimension's items mapped by hand and ignored, the type and length of the first two source values but never their text, and the parts on codes, the items cleared first and **Time**'s format. (#43)
+
 ## 0.15.8 (10 October 2026)
 
 A model's run reads its pages and names while it reads its settings, and spares the reads it never used.

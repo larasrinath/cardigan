@@ -160,7 +160,9 @@ describe("An import's mapping, read out of its definition", () => {
     { source: { type: "FILE", "label with spaces": "x" }, dataFormatDefinitions: { fmt1: { type: "date" } }, dataFormatsByTarget: { [id(MANAGER)]: "fmt1" }, valueMaps: { "Secret value": "x" } });
     expect(readDefinition(text, NAMES).details).toEqual([
       'first column: sourceColumnId text "Inventory Quantity (…", sourceColumnNumber number -1, sourceColumnName null',
-      "source object of 2 keys: type, ?; dataFormatDefinitions object of 1 key: fmt1; dataFormatsByTarget object of 1 key: _4100000000001_"]);
+      "source object of 2 keys: type, ?; dataFormatDefinitions object of 1 key: fmt1; dataFormatsByTarget object of 1 key: _4100000000001_",
+      // The parts on how items are matched, where it holds any: a value map that is no list, by its keys, a value's as "?".
+      "valueMaps object of 1 key: ?; aliasMaps absent; targetAreaSpecifications absent; periodFormats absent"]);
     // Every other kind of value is said by its type; a definition with no column, and parts it does not have, say so.
     const odd = definition("MODULE_DATA", PRICES, [{ targetType: "moduleLineItem", sourceType: "column", sourceColumnId: 3, sourceColumnNumber: true, sourceColumnName: ["a"] }],
       { source: [1, 2], dataFormatDefinitions: null, dataFormatsByTarget: "x" });
@@ -171,6 +173,66 @@ describe("An import's mapping, read out of its definition", () => {
     // No value of a part is said, nor of a mapping but the first column's three ways.
     expect(readDefinition(text, NAMES).details.join(" ")).not.toMatch(/Secret|FILE|date|"x"/);
     expect([readDefinition("", NAMES).details, readDefinition("{", NAMES).details, readDefinition("[]", NAMES).details]).toEqual([[], [], []]);
+  });
+
+  it("reads what an import into a module holds of its sources: headers and items mapped by hand or ignored, Time's period format and a date's format", () => {
+    // As Anaplan's import dialog writes them (view/ImportDefinition.js `_getDimensionsInfo`, view/MappedDimensionImportOptions.js,
+    // view/TimeDimensionImportOptions.js) and anaplan-sam reads them (definition-core.ts): a value map for each dimension
+    // shown, the line items' with a blank target; -1 for a source value ignored; Time's period format; a date line item's
+    // format behind its key.
+    const SOLD = 200000000001;
+    const text = definition("MODULE_DATA", PRICES, [
+      { targetType: "moduleDimension", target: id(PRODUCTS), sourceType: "column", sourceColumnNumber: -1, sourceColumnName: null, sourceColumnId: "Product" },
+      { targetType: "moduleDimension", target: "_9000000001_", sourceType: "column", sourceColumnId: "#2", sourceColumnName: "Month" },
+      { targetType: "moduleDimension", target: id(REGIONS), sourceType: "column", sourceColumnId: "#3" },
+      { targetType: "moduleDimension", target: "", sourceType: "headerRow" },
+      { targetType: "moduleLineItem", target: id(UNITS), sourceType: "column", sourceColumnName: "Units" },
+      { targetType: "moduleLineItem", target: id(PRICE), sourceType: "column", sourceColumnName: "Price" },
+      // The line item a single column of values would feed, which the dialog does not ask for with the header row.
+      { targetType: "moduleLineItem", target: "", sourceType: "undefined" }], {
+      valueMaps: [{ targetType: "moduleDimension", target: id(PRODUCTS), values: { "Prod A": SOLD, "Old prod": -1 } },
+        { targetType: "moduleDimension", target: id(REGIONS), values: {} },
+        { targetType: "moduleDimension", target: "", values: { "Unit count": UNITS, "Price (EUR)": PRICE, Notes: -1, "Odd one": "x", "Nought": 0 } }],
+      aliasMaps: [{ targetType: "moduleDimension", target: "", values: {} }],
+      targetAreaSpecifications: [{ target: id(PRODUCTS), area: "ALL_ITEMS" }, { target: "", area: "MATCHED_ITEMS" }],
+      periodFormats: [{ targetType: "moduleDimension", target: "_9000000001_", periodFormat: { format: "MMM YY", locale: "en_GB" } }],
+      dataFormatDefinitions: { fmt: { type: "date", format: "DD/MM/YYYY", active: true }, num: { type: "number", format: "0.00" } },
+      dataFormatsByTarget: { [id(PRICE)]: "fmt", [id(UNITS)]: "num" } });
+    const { mapping, details } = readDefinition(text, NAMES);
+    expect(mapping).toEqual({ importType: "MODULE_DATA", targets: [
+      // Each dimension fed by a column says how many of its items are mapped by hand and ignored: none of either is the
+      // dialog's Match on names or codes.
+      { target: "Products", source: "column", text: "Product", items: { byHand: 1, ignored: 1 } },
+      { target: "Time", source: "column", column: 2, text: "Month", periodFormat: "MMM YY" },
+      { target: "+ Regions", source: "column", column: 3, items: { byHand: 0, ignored: 0 } },
+      { target: "Line Items", source: "headerRow", items: { byHand: 2, ignored: 1 } },
+      { target: "Units", source: "column", text: "Units" },
+      { target: "Price", source: "column", text: "Price", dateFormat: "DD/MM/YYYY" }],
+    // The headers mapped by hand, each with its line item, and the one ignored; a value that is no item's ID is no mapping.
+    headers: [{ header: "Unit count", lineItem: "Units" }, { header: "Price (EUR)", lineItem: "Price" }, { header: "Notes" }] });
+    // The log says how each part is made, and no value of the import's source.
+    expect(details[2]).toBe("valueMaps list of 3: 101000000001: 1 mapped, 1 ignored | 101000000002: 0 mapped, 0 ignored | line items: 2 mapped, 1 ignored, 2 of another kind "
+      + "(text of 6 characters to an ID; text of 8 characters ignored); aliasMaps list of 1: line items: 0; "
+      + "targetAreaSpecifications list of 2: 101000000001: ALL_ITEMS | line items: MATCHED_ITEMS; periodFormats list of 1: 9000000001: a format of 6 characters");
+    expect(details[2]).not.toMatch(/Prod|Unit count|Notes|MMM|DD\/MM/);
+  });
+
+  it("says that Time's periods are matched by their names, takes the parts of no other make, and reads none of them for an import into a list", () => {
+    const time = { targetType: "moduleDimension", target: "_9000000001_", sourceType: "column", sourceColumnId: "#1" };
+    const read = (more: Record<string, unknown>, importType = "MODULE_DATA") => readDefinition(definition(importType, PRICES, [time,
+      { targetType: "moduleDimension", target: id(PRODUCTS), sourceType: "column", sourceColumnId: "#2" }], more), NAMES).mapping.targets;
+    expect(read({ periodFormats: [{ targetType: "moduleDimension", target: "_9000000001_", periodFormat: null }], valueMaps: [] })).toEqual([
+      { target: "Time", source: "column", column: 1, periodFormat: null }, { target: "Products", source: "column", column: 2, items: { byHand: 0, ignored: 0 } }]);
+    // Parts of another make say nothing: a value map that is no list, a period format with no format, entries that are no objects.
+    expect(read({ periodFormats: [{ target: "_9000000001_", periodFormat: { locale: "en_GB" } }], valueMaps: { [id(PRODUCTS)]: { A: 1 } } })).toEqual([
+      { target: "Time", source: "column", column: 1 }, { target: "Products", source: "column", column: 2 }]);
+    expect(read({ periodFormats: "MMM", valueMaps: [null, { target: id(PRODUCTS), values: [1] }] })).toEqual([
+      { target: "Time", source: "column", column: 1 }, { target: "Products", source: "column", column: 2, items: { byHand: 0, ignored: 0 } }]);
+    // An import into a list reads none of them; a definition with none of the parts says nothing of them, and the log has
+    // no line on them.
+    expect(read({ periodFormats: [{ target: "_9000000001_", periodFormat: null }], valueMaps: [] }, "HIERARCHY_DATA")).toEqual([
+      { target: "Time", source: "column", column: 1 }, { target: "Products", source: "column", column: 2 }]);
+    expect(readDefinition(definition("MODULE_DATA", PRICES, [time]), NAMES).details).toHaveLength(2);
   });
 
   it("lists no target of an import of another kind, which the page says what it loads of", () => {

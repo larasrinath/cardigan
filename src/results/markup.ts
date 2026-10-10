@@ -838,8 +838,13 @@ const drawerLine = (text: string): string => `<p style="font-size:12px;color:var
  * nothing feeds and the columns it does not use, or about why there is no row to show. */
 export function importMappingHtml(mapping: MappingView): string {
   const match = mapping.match === undefined ? "" : `<p style="font-size:12px;color:var(--text-2);margin:0 0 6px">${esc(mapping.match)}</p>`;
+  // What more a row says of how its source is read stands under the source; a line that shows the first of many names
+  // opens to all of them.
+  const note = (text: string, all: readonly string[] | undefined): string => (all?.length
+    ? `<details class="m-note"><summary>${esc(text)} <span class="m-all">Show all</span></summary><span>${esc(all.join(", "))}</span></details>`
+    : `<span class="m-note">${esc(text)}</span>`);
   const table = mapping.rows.length ? `<table class="mini"><thead><tr><th>Source</th><th>Target</th></tr></thead>
-      <tbody>${mapping.rows.map(([source, target]) => `<tr><td>${esc(source)}</td><td>${esc(target)}</td></tr>`).join("")}</tbody></table>` : "";
+      <tbody>${mapping.rows.map(([source, target, more, all]) => `<tr><td>${esc(source)}${more === undefined ? "" : note(more, all)}</td><td>${esc(target)}</td></tr>`).join("")}</tbody></table>` : "";
   return `<div class="d-sec" id="drawerMapping"><h3>Mapping</h3>
       ${match}${table}${mapping.lines.map(drawerLine).join("")}</div>`;
 }
