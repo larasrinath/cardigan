@@ -31,8 +31,8 @@ describe("The CSV and the zip the tests write a result as", () => {
   it("quotes cells, adds a byte order mark and keeps formula-like text as text", () => {
     expect(toCsv(["A", "B"], [["=SUM(1)", 'say "hi", ok'], [3, "line\nbreak"]]))
       .toBe('\ufeffA,B\r\n\'=SUM(1),"say ""hi"", ok"\r\n3,line / break\r\n');
-    expect([safeCell("-10 → #F5A5B1"), safeCell("+cmd"), safeCell("@x"), safeCell("-1+1"), safeCell(0), safeCell(undefined)])
-      .toEqual(["'-10 → #F5A5B1", "'+cmd", "'@x", "'-1+1", "0", ""]);
+    expect([safeCell("-10 and below"), safeCell("+cmd"), safeCell("@x"), safeCell("-1+1"), safeCell(0), safeCell(undefined)])
+      .toEqual(["'-10 and below", "'+cmd", "'@x", "'-1+1", "0", ""]);
     // A plain number cannot be a formula, so it keeps its sign without an apostrophe showing in Excel.
     expect([safeCell("-1"), safeCell("+2"), safeCell("-0.5"), safeCell(-3)]).toEqual(["-1", "+2", "-0.5", "-3"]);
   });

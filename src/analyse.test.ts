@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { UxPageCardDetails } from "./card-reader/card-types.js";
 import { analyseApp, DETAILS_FILE, forgetModelHosts, loadCatalog, loadCatalogWhen, TAB_FILES, VIEW_TRIAL, type CatalogInputs } from "./analyse.js";
 import type { ExportedLineItems } from "./catalog.js";
-import { APP_DASH_PLAIN, APP_ROW_ON_TWO_LINES, APP_ROW_REWORDED, APP_ROWS_FOR_THE_PAGE, APP_ZIP_0_6_1, APP_ZIP_REWORDED, withAppRowsSince, withPlainDash, ZIPPED_AT } from "./golden-0.6.1.test-support.js";
+import { APP_DASH_PLAIN, APP_ROW_ON_TWO_LINES, APP_ROW_REWORDED, APP_ROWS_FOR_THE_PAGE, APP_STOPS_IN_WORDS, APP_ZIP_0_6_1, APP_ZIP_REWORDED, withAppRowsSince, withPlainDash,
+  withStopsInWords, ZIPPED_AT } from "./golden-0.6.1.test-support.js";
 import { ANAPLAN_HOSTS, NOT_SCOPE_IDS, OTHER_HOSTS, SCOPE_IDS } from "./guards.test-support.js";
 import { assemble } from "./pieces.test-support.js";
 import { Failure } from "./progress.js";
@@ -2958,7 +2959,7 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     expect([(noApp as Failure).message, (noApp as Failure).detail]).toEqual(["Open an app first: the address has no app ID.", undefined]);
   });
 
-  it("writes the zip 0.6.1 wrote for the same app, byte for byte but for five rows of App Details.csv and the dash for nothing to say, which are named, and returns each file as a table", async () => {
+  it("writes the zip 0.6.1 wrote for the same app, byte for byte but for five rows of App Details.csv, the dash for nothing to say and a rule's colour stops, which are named, and returns each file as a table", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date(Date.UTC(2026, 8, 28, 12, 30, 10)));
     const result = await analyseGoldenApp();
@@ -2972,17 +2973,23 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     // rows speak of the page's tables (APP_ROWS_FOR_THE_PAGE): two say "table" where they said "file" and named a file,
     // and the one on how long IDs are written for Excel is gone. The dash that the other files hold where there is
     // nothing to say is a plain hyphen where 0.6.1 wrote an em dash, guarded as any cell that starts with a hyphen
-    // (APP_DASH_PLAIN). (The two other known differences, the build's name in the "Exported with" row and in the first
-    // Diagnostics line, do not show here.) Everything else is what 0.6.1 wrote, byte for byte.
+    // (APP_DASH_PLAIN). A rule's colour stops are each written as its colour and the value it stands at, where 0.6.1 wrote
+    // the value, an arrow and the colour (APP_STOPS_IN_WORDS). (The two other known differences, the build's name in the
+    // "Exported with" row and in the first Diagnostics line, do not show here.) Everything else is what 0.6.1 wrote, byte
+    // for byte.
     // File by file first, so that a difference shows as text: 0.6.1's files in their order, each with its text, of
     // App Details.csv every line but those five, each of which stood there once, and in the other files each dash as the
-    // hyphen. Five of the seven files hold the dash, and no file holds 0.6.1's dash any more.
+    // hyphen and each rule's stops in words. Five of the seven files hold the dash and two hold stops, and no file holds
+    // 0.6.1's dash or its arrow any more.
     const [written, before] = [unzipText(zip), unzipText(APP_ZIP_0_6_1)];
     expect([...written.keys()]).toEqual([...before.keys()]);
-    for (const [file, text] of before) expect(written.get(file), file).toBe(withPlainDash(file === DETAILS_FILE ? withAppRowsSince(text) : text));
+    for (const [file, text] of before) expect(written.get(file), file).toBe(withStopsInWords(withPlainDash(file === DETAILS_FILE ? withAppRowsSince(text) : text)));
     const dashed = [...before].filter(([, text]) => text.includes(APP_DASH_PLAIN.was)).map(([file]) => file);
     expect(dashed).toEqual(["Pages.csv", "Cards.csv", "Grid Sections.csv", "Action Buttons.csv", "Where Used.csv"]);
     expect([...written].filter(([, text]) => text.includes(APP_DASH_PLAIN.was)).map(([file]) => file)).toEqual([]);
+    const stopped = [...before].filter(([, text]) => text.includes(APP_STOPS_IN_WORDS.was)).map(([file]) => file);
+    expect(stopped).toEqual(["Cards.csv", "Conditional Formatting.csv"]);
+    expect([...written].filter(([, text]) => text.includes(APP_STOPS_IN_WORDS.was.trim())).map(([file]) => file)).toEqual([]);
     // Row by row: the rows of 0.6.1's file that are no longer there are the five named, in the file's order, and the
     // rows that 0.6.1's file did not have are the four they are written as now. The fifth is written as nothing.
     const named = [APP_ROW_ON_TWO_LINES, APP_ROWS_FOR_THE_PAGE[0], APP_ROWS_FOR_THE_PAGE[1], APP_ROW_REWORDED, APP_ROWS_FOR_THE_PAGE[2]];
@@ -2995,14 +3002,15 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     // The row on the pages analysed holds a line break, which the file writes as " / ": the table the page reads holds
     // the break itself, and no semicolon.
     expect(result.tables[0].rows.find(row => row[1] === "Pages analysed")).toEqual(["App", "Pages analysed", "1 of 1 (published versions)\n1 unpublished, not analysed"]);
-    // Then every byte. Of the eight files, App Details.csv and the five that hold the dash have other bytes than 0.6.1's:
-    // Filters.csv and Conditional Formatting.csv have 0.6.1's own.
+    // Then every byte. Of the eight files, App Details.csv, the five that hold the dash and the two that hold colour stops
+    // (Cards.csv holds both) have other bytes than 0.6.1's: Filters.csv has 0.6.1's own.
     const [files, golden] = [zipEntries(zip), zipEntries(APP_ZIP_0_6_1)];
     expect(files.filter((file, index) => !sameBytes(file.data, golden[index].data)).map(file => file.name))
-      .toEqual(golden.map(file => file.name).filter(name => name === DETAILS_FILE || dashed.includes(name)));
+      .toEqual(golden.map(file => file.name).filter(name => name === DETAILS_FILE || dashed.includes(name) || stopped.includes(name)));
     // The zip around the files is written as 0.6.1 wrote it: from 0.6.1's own files, it is 0.6.1's zip.
     expect(sameBytes(zipStore(golden, ZIPPED_AT), APP_ZIP_0_6_1)).toBe(true);
-    // So this run's zip is, byte for byte, 0.6.1's zip with those five rows and the dash written as they are named.
+    // So this run's zip is, byte for byte, 0.6.1's zip with those five rows, the dash and the colour stops written as they
+    // are named.
     expect(sameBytes(zip, APP_ZIP_REWORDED)).toBe(true);
 
     expect([result.kind, result.name, result.id, result.zipName]).toEqual(["app", "Planning: app", GOLDEN_APP, "Planning app - App Export - 2026-09-28.zip"]);

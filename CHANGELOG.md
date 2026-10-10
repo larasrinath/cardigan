@@ -2,6 +2,32 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version stands next to Cardigan's name at the top of the results page and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## 0.15.6 (10 October 2026)
+
+No arrow drawn as text anywhere on the page.
+
+- **The map's buttons say their words alone.** A box's details offer "Open its 15 line items", where they read "Open its 15 line items →"; so does every other button there. (#40)
+- **Marks are drawn.** The map's path separates its parts with a chevron, as its lists draw theirs; the pager's **Previous** and **Next** each draw a chevron, and a sorted column's mark is a chevron up or down, in place of the text marks they showed. Screen readers hear the buttons' names and the header's sort, as before. (#40)
+- **Colour stops in words.** A formatting rule's stops read "#F5A5B1 at -10; #627786 at 100,000", where they read "-10 → #F5A5B1; 100,000 → #627786", in **Conditional Formatting** and in a card's **Conditional formatting**. Each colour still has its square, the filter still lists each stop, and the search finds them as written. (#40)
+- **What stays the same.** What is read, every other table cell for cell, and how the page sorts, filters and turns its pages. (#40)
+
+## 0.15.5 (10 October 2026)
+
+Clicking a box on the model map no longer moves the map.
+
+- **A box you click stays where it is.** The details open beside the picture, and the camera stays put while the box is whole in view and clear of the details, the legend, the notes, the line at the foot and the small picture. Where one of them would cover the box, or it stands partly outside the map, the map moves by no more than it takes to uncover the box, sideways or up and down, at the same size. It is never fitted again, and never taken nearer or further away, for a click. Clicking another box, with the details open, moves nothing unless the details cover that box. (#39)
+- **Clearing the selection moves nothing.** With `Esc`, a click beside every box, a click on the box selected, or the details' close button, the map stays where it is. It no longer goes back to where it stood before the selection, nor is the whole map fitted again; the line at the foot says how much of it is in view, and its button shows the whole. (#39)
+- **A box you go to is still brought into view.** The search, a link in the details, **Model map** from a row of the results and the arrow keys bring the box beside the details, with the boxes it has links with where they fit, as before. (#39)
+- **A click may shake a little.** A press that moves up to 5 pixels with a mouse, 8 with a pen or 10 with a finger is a click, and moves neither the box nor the map. (#39)
+- **What stays the same.** What the map draws, the trace of what feeds a box and what it feeds, dragging a box or the map, zooming, and `F` for the whole map. (#39)
+
+## 0.15.4 (10 October 2026)
+
+An import's **Mapping** names a column by the file's header for it.
+
+- **The header alone.** Where an import keeps the header of the file's column that feeds a target, its **Source** reads that header and nothing else, "Product" where it read "Column headed Product" or "Column 3: Product". A column the import keeps only by its place reads "Column 3", as before, and one it keeps only by an identifier "Column with ID …". (#38)
+- **What stays the same.** The lines under the mapping, which still count the columns by their places; what is read; and the diagnostic log. (#38)
+
 ## 0.15.3 (10 October 2026)
 
 An update no longer asks for a refresh of an open model's tab.

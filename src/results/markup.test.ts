@@ -28,6 +28,10 @@ const ENTITY = "&lt;b&gt; &amp;amp; &quot;";
 const CLOSERS = "</td></tr></table></div><iframe src=//evil.example></iframe><!-- ";
 const HOSTILE = [IMG, QUOTED, SCRIPT, BREAK_OUT, BREAK_OUT_SINGLE, ENTITY, CLOSERS];
 
+/** Glyphs that draw an arrow or a pointer as text: the arrows, the triangles that point, and the angle quotation marks.
+ * The page draws such a mark as an icon, or says it in words. */
+const ARROWS = /[\u2190-\u21ff\u27f0-\u27ff\u2900-\u297f\u2794\u279c-\u279e\u25b2-\u25c5\u00ab\u00bb\u2039\u203a]/;
+
 /** Texts for one build of a piece of markup: the hostile ones in turn, or a harmless word in their place. */
 type Texts = (index: number) => string;
 const hostile: Texts = index => HOSTILE[index % HOSTILE.length];
@@ -339,23 +343,25 @@ describe("The results page's escaping", () => {
     expect([none.querySelector(".e-title")?.textContent, none.querySelector(".e-sub")?.textContent]).toEqual(["Filters has no rows", "Nothing was found for this table in this analysis."]);
   });
 
-  it("keeps a header as wide sorted as not: the arrow's place is in every header, and a sort changes only the arrow and what the header says", () => {
+  it("keeps a header as wide sorted as not: the sort mark's place is in every header, and a sort changes only the mark and what the header says", () => {
     const table: ResultTable = { file: "Cards.csv", label: "Cards", headers: ["Page", "Card #", "Card title", "Card type"], guard: true,
       rows: [["Overview", 1, "Sales", "Grid"], ["Stores", 2, "A title far longer than the others", "KPI"], ["Overview", 3, "Margin", "Grid"]] };
-    /** Each header as written, without the arrow and without what it says of the sort: what gives it its width. */
+    /** Each header as written, without the sort mark and without what it says of the sort: what gives it its width. */
     const heads = (sort: TableView["sort"]) => parseMarkup(tableParts(viewOf(table, LINKS, { sort })).grid).querySelectorAll("thead th")
-      .map(heading => heading.outerHTML.replace(/ aria-sort="(none|ascending|descending)"/, "").replace(/[▲▼]/, ""));
+      .map(heading => heading.outerHTML.replace(/ aria-sort="(none|ascending|descending)"/, "").replace(/ data-dir="(asc|desc)"/, "").replace(/(<span class="dir"[^>]*>)<svg[\s\S]*?<\/svg>/, "$1"));
     const colgroup = (sort: TableView["sort"]) => parseMarkup(tableParts(viewOf(table, LINKS, { sort })).grid).querySelector("colgroup")?.outerHTML;
     const unsorted = heads(undefined);
-    // Every header holds the arrow's place, empty while its column is not sorted.
+    // Every header holds the sort mark's place, empty while its column is not sorted.
     expect(parseMarkup(tableParts(viewOf(table, LINKS)).grid).querySelectorAll("thead th").map(heading => heading.querySelectorAll(".th-sort .dir").length)).toEqual([1, 1, 1, 1]);
     for (const sort of [{ column: 2, dir: "asc" }, { column: 2, dir: "desc" }, { column: 0, dir: "asc" }, { column: 1, dir: "desc" }] as const) {
       expect(heads(sort), JSON.stringify(sort)).toEqual(unsorted);
       // The columns' widths are those of the table unsorted, to the character.
       expect(colgroup(sort), JSON.stringify(sort)).toBe(colgroup(undefined));
-      // The arrow itself is in the sorted column's header, and in no other.
-      expect(parseMarkup(tableParts(viewOf(table, LINKS, { sort })).grid).querySelectorAll(".dir").map(arrow => arrow.textContent))
-        .toEqual(table.headers.map((_, index) => (index === sort.column ? (sort.dir === "asc" ? "▲" : "▼") : "")));
+      // The mark itself is in the sorted column's header, and in no other: a chevron that points the way the column runs,
+      // drawn, with no text of its own.
+      const marks = parseMarkup(tableParts(viewOf(table, LINKS, { sort })).grid).querySelectorAll(".dir");
+      expect(marks.map(mark => [mark.dataset.dir ?? "", mark.querySelectorAll("svg").length, mark.textContent]))
+        .toEqual(table.headers.map((_, index) => (index === sort.column ? [sort.dir, 1, ""] : ["", 0, ""])));
     }
   });
 
@@ -627,19 +633,21 @@ describe("A formatting rule's colours", () => {
   });
 
   it("shows each colour of a colour stop as a square of that colour before its code, and keeps the rest as text", () => {
-    const stops = "0 → #FFFFFF; 3 → #F9E95C; 5 → #1F46B4; 9 → #000";
+    const stops = "#FFFFFF at 0; #F9E95C at 3; #1F46B4 at 5; #000 at 9";
     expect(squares(coloursHtml(stops))).toEqual([["#FFFFFF", "--swatch:#FFFFFF", "true", ""], ["#F9E95C", "--swatch:#F9E95C", "true", ""],
       ["#1F46B4", "--swatch:#1F46B4", "true", ""], ["#000", "--swatch:#000", "true", ""]]);
     expect(parseMarkup(coloursHtml(stops)).textContent).toBe(stops);
     // A card's rules one after another, as the Cards file writes them; a colour may be written in small letters.
-    const card = "Border colour on Name (values from CF Input #): 0 → #FFFFFF; 3 → #F9E95C | Background on Delete? (values from CF Input #): 1 → #f9e95c";
+    const card = "Border colour on Name (values from CF Input #): #FFFFFF at 0; #F9E95C at 3 | Background on Delete? (values from CF Input #): #f9e95c at 1";
     expect(squares(coloursHtml(card)).map(([code]) => code)).toEqual(["#FFFFFF", "#F9E95C", "#f9e95c"]);
     expect(parseMarkup(coloursHtml(card)).textContent).toBe(card);
   });
 
   it("shows a square for nothing but a colour stop's colour written as # and three or six hexadecimal digits", () => {
-    for (const text of ["Item #123 (values from Count #)", "0 → red; 1 → rgb(0,0,0)", "0 → #12345", "0 → #1234567", "0 → #GGGGGG", "0 →#FFFFFF",
-      "0 → #FFFFFF7", `0 → #FFF" onmouseover="alert(1)`, "0 → #FFF<b>", "0 → #FFFFFFx", ""]) {
+    // A colour stands at the start of a stop, and " at " follows it: a code anywhere else is text, and so is one that is
+    // not three or six hexadecimal digits.
+    for (const text of ["Item #123 (values from Count #)", "red at 0; rgb(0,0,0) at 1", "#12345 at 0", "#1234567 at 0", "#GGGGGG at 0", "#FFFFFFat 0",
+      "#FFFFFF at0", "x#FFFFFF at 0", "Count #FFF at 3", "#FFFFFF7 at 0", `#FFF" onmouseover="alert(1) at 0`, "#FFF<b> at 0", "#FFFFFFx at 0", ""]) {
       expect(squares(coloursHtml(text)), text).toEqual([]);
       expect(parseMarkup(coloursHtml(text)).textContent, text).toBe(text);
     }
@@ -647,21 +655,33 @@ describe("A formatting rule's colours", () => {
 
   it("shows the squares in a table's cell, with the whole text as its tooltip, and in the row's drawer, where the text is read in full", () => {
     const colours = column(0, "Colour stops", "colours");
-    const stops = "0 → #FFFFFF; 3 → #F9E95C";
+    const stops = "#FFFFFF at 0; #F9E95C at 3";
     expect([parseMarkup(cellHtml(colours, [stops], LINKS)).querySelector(".cell-t")?.getAttribute("title"), squares(cellHtml(colours, [stops], LINKS)).length]).toEqual([stops, 2]);
     expect([parseMarkup(cellHtml(colours, [stops], LINKS, true)).querySelector(".cell-t")?.hasAttribute("title"), squares(cellHtml(colours, [stops], LINKS, true)).length]).toEqual([false, 2]);
     // A dash stays a dash, and an empty cell stays empty.
     expect([cellHtml(colours, ["-"], LINKS), cellHtml(colours, [""], LINKS)]).toEqual(['<span class="dash">-</span>', ""]);
     // In a card's details, the column that holds colour stops shows their squares, and only that one.
     const drawer = cardDrawerHtml([], [], LINKS, [{ title: "Conditional formatting", none: "formatting rules", headings: ["Style", "Colour stops"], colours: [false, true],
-      rows: [["0 → #FFFFFF", stops]] }]);
+      rows: [["#FFFFFF at 0", stops]] }]);
     expect(squares(drawer).map(([code]) => code)).toEqual(["#FFFFFF", "#F9E95C"]);
     // The stops a drawer lists one to a line, in a card's part or in a row's own column: each line has its square.
-    const items = ["0 → #FFFFFF", "3 → #F9E95C"];
+    const items = ["#FFFFFF at 0", "#F9E95C at 3"];
     for (const html of [cardDrawerHtml([], [], LINKS, [{ title: "Conditional formatting", none: "formatting rules", headings: ["Colour stops"], colours: [true], rows: [[items]] }]),
       rowDrawerHtml([colours], [stops], LINKS, undefined, new Map([[0, items]]))]) {
       expect(parseMarkup(html).querySelectorAll(".cell-list li").map(item => [item.textContent, item.querySelectorAll(".swatch").length])).toEqual([[items[0], 1], [items[1], 1]]);
     }
+  });
+
+  it("writes no arrow glyph: colour stops are said in words, and the pager and a sorted header draw their chevrons", () => {
+    const stops = "#F5A5B1 at -10; #627786 at 100,000";
+    expect(squares(coloursHtml(stops)).map(([code]) => code)).toEqual(["#F5A5B1", "#627786"]);
+    const table: ResultTable = { file: "Cards.csv", label: "Cards", headers: ["Page", "Colour stops"], guard: true, rows: [["Overview", stops]] };
+    const parts = tableParts(viewOf(table, LINKS, { sort: { column: 1, dir: "desc" } }));
+    for (const html of [coloursHtml(stops), parts.grid, parts.pager, pagerHtml(1, 3, 150, 50)]) expect(html).not.toMatch(ARROWS);
+    // Each mark is drawn, and says nothing to a screen reader, which hears the buttons' names and the header's aria-sort.
+    const pager = parseMarkup(pagerHtml(1, 3, 150, 50));
+    expect(pager.querySelectorAll(".pg-btn").map(button => [button.textContent.trim(), button.querySelectorAll("svg.pg-chevron").length, button.querySelector("svg")?.getAttribute("aria-hidden")]))
+      .toEqual([["", 1, "true"], ["", 1, "true"]]);
   });
 });
 
@@ -675,7 +695,7 @@ describe("A result whose every text is hostile, through every view of the page",
     // first and third card are one card as far as the files say, and its second is told from them by its number. A rule's
     // colour stops hold colours, with their squares, beside their hostile text.
     rows: Array.from({ length: rows }, (_, index) => headers.map(header => (header === "Page" ? QUOTED : header === "Card ID" ? SCRIPT : header === "Card #" ? (index % 2 ? IMG : CLOSERS)
-      : header === "Colour stops" ? `${text()} → #F9E95C; 1 → #1f46b4` : text()))),
+      : header === "Colour stops" ? `#F9E95C at ${text()}; #1f46b4 at 1` : text()))),
   });
   const result: AnalysisResult = {
     kind: "app", name: IMG, id: SCRIPT, zipName: `${QUOTED}.zip`, summary: [text(), text()],
