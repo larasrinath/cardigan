@@ -130,9 +130,10 @@ const CELL_COUNTS = ["Cell Count", "Populated Cell Count"];
 export const MODEL_COUNTS: ReadonlyMap<string, readonly string[]> = new Map([
   ["Modules.csv", CELL_COUNTS], ["Line Items.csv", [...CELL_COUNTS, FILTER_USES]], ["General Lists.csv", ["Item Count"]],
 ]);
-/** The columns of a model export's files that start hidden: a Model Calendar setting's allowed values, which only guide
- * filling the template in by hand. Such a column is still in the column chooser, in the search and in the row's details. */
-export const MODEL_HIDDEN: ReadonlyMap<string, readonly string[]> = new Map([["Model Calendar.csv", ["Allowed values"]]]);
+/** The columns of a model export's files that start hidden: a Model Calendar's Section, which says the same of every
+ * setting the table lists, and a setting's allowed values, which only guide filling the template in by hand. Such a
+ * column is still in the column chooser, in the search and in the row's details. */
+export const MODEL_HIDDEN: ReadonlyMap<string, readonly string[]> = new Map([["Model Calendar.csv", ["Section", "Allowed values"]]]);
 /** The columns of a model's tables that always offer a filter, however many different texts they hold: the data type of a
  * line item's format, which the page adds to Line Items after Format (line-items-view.ts). Its filter lists the line items
  * alone without the blanks, which are the modules' own rows, and leaves out the headings without No Data. */

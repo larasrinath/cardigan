@@ -2,6 +2,13 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version stands next to Cardigan's name at the top of the results page and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## 0.15.1 (10 October 2026)
+
+Model Calendar's Section starts hidden.
+
+- **Model Calendar's Section starts hidden**, as its Allowed values do: every setting the table lists is in the same section, so the column said the same on every row. The column chooser shows it, the search reads it, and a row's details list it. (#PR)
+- **What stays the same.** What is read, and what the table holds.
+
 ## 0.15.0 (10 October 2026)
 
 A column of numbers or of dates is filtered by a range, from one value to another, rather than by a list of its values to tick.

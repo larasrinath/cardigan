@@ -147,9 +147,10 @@ describe("The results page's columns", () => {
       shown(table("Processes.csv", ["", "Start Date and Time (UTC)", "Most recent duration (ms)"])), shown(table("Time Ranges.csv", ["", "Start Period", "End Period"]))]).toEqual([[], [], [], []]);
     // Every file named is one the page knows a model's files by: it lists them all in the navigation's order.
     expect([...MODEL_COUNTS.keys(), ...MODEL_HIDDEN.keys(), ...MODEL_FILTERED.keys()].filter(file => !MODEL_FILE_ORDER.includes(file))).toEqual([]);
-    // A Model Calendar setting's allowed values only guide filling the template in by hand: the column starts hidden.
+    // A Model Calendar's Section says the same of every setting the table lists, and a setting's allowed values only
+    // guide filling the template in by hand: both columns start hidden.
     const calendar = columnsOf(table("Model Calendar.csv", ["Section", "Setting", "Value", "Allowed values"]));
-    expect(calendar.map(column => [column.label, column.hidden])).toEqual([["Section", false], ["Setting", false], ["Value", false], ["Allowed values", true]]);
+    expect(calendar.map(column => [column.label, column.hidden])).toEqual([["Section", true], ["Setting", false], ["Value", false], ["Allowed values", true]]);
   });
 
   it("shows the tables of the pages built on a model as the app's tables they are made from, each with a filter on the app", () => {
