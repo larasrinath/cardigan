@@ -2568,6 +2568,42 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     expect(rows.filter(row => row[state] === "Not published")).toHaveLength(1);
   });
 
+  it("reads an app's pages four at a time, started in the app's order, and lists them in that order whichever is answered first", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(Date.UTC(2026, 8, 28, 1, 59, 9)));
+    const pages = Array.from({ length: 6 }, (_, index) => ({ guid: guid(4001 + index), name: `Page ${index + 1}`, pageType: "BOARD", hasPublishedVersion: true }));
+    // Each page's board waits until the test answers it; the other routes answer at once that there is no such page.
+    const boards: { page: string; answer: () => void }[] = [];
+    let [open, most] = [0, 0];
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      const path = new URL(url).pathname;
+      if (path.includes("/apps/")) return new Response(JSON.stringify({ name: "Plan", pages }), { status: 200 });
+      if (path.includes("/boards/")) {
+        most = Math.max(most, ++open);
+        await new Promise<void>(resolve => { boards.push({ page: path.split("/").pop()!, answer: resolve }); });
+        open--;
+      }
+      return new Response("{}", { status: 404 });
+    }));
+    const statuses: string[] = [];
+    const done = analyseApp("01234567-89ab-cdef-0123-456789abcdef", { status: text => { statuses.push(text); }, log: () => undefined }, () => "");
+    await vi.waitFor(() => expect(boards).toHaveLength(4));
+    expect(boards.map(board => board.page)).toEqual(pages.slice(0, 4).map(page => page.guid));
+    // The third page is answered first: the fifth starts in its place, the others still waiting.
+    boards[2].answer();
+    await vi.waitFor(() => expect(boards).toHaveLength(5));
+    expect(boards[4].page).toBe(pages[4].guid);
+    // The rest are answered last first, and the sixth page as soon as it is asked.
+    for (const index of [4, 3, 1, 0]) boards[index].answer();
+    await vi.waitFor(() => expect(boards).toHaveLength(6));
+    boards[5].answer();
+    const result = await done;
+    expect([most, boards.map(board => board.page)]).toEqual([4, pages.map(page => page.guid)]);
+    expect(statuses.slice(1, 7)).toEqual(pages.map((page, index) => `Reading page ${index + 1} of 6: ${page.name}`));
+    const table = result.tables.find(each => each.file === TAB_FILES.Pages)!;
+    expect(table.rows.map(row => row[table.headers.indexOf("Page")])).toEqual(pages.map(page => page.name));
+  });
+
   it("writes each category and each model of the app on a line of its own, and the pages left unpublished on a line after those analysed", async () => {
     // The app of the 0.6.1 zip with three categories, and with a second board, on a model of another workspace, beside
     // its own board and the page it never published. The second model is not scripted: it answers every read with no

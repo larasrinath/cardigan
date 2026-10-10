@@ -512,9 +512,10 @@ describe("The results page against the engine in the Anaplan tab", () => {
     const secondRead = service.hold(path => path.includes("/apps/") && service.reads.filter(earlier => earlier.includes("/apps/")).length === 2);
     const page = resultsPage(tab);
     await until(() => board.waiting === 1, "the run to reach the board");
-    // The run waits for Anaplan's answer about the board; the page has heard all that was sent so far.
+    // The run waits for Anaplan's answer about the board, and has begun the app's other page beside it: the pages are read
+    // a few at a time. The page has heard all that was sent so far.
     await tab.quiet();
-    expect(page.client.state).toEqual({ phase: "running", status: "Reading page 1 of 2: Demand board" });
+    expect(page.client.state).toEqual({ phase: "running", status: "Reading page 2 of 2: Draft page" });
     const told = page.ports[0].heard.length;
 
     // The page is closed, and the icon is clicked again at once: the next page asks while the stopped run is still ending.
@@ -588,12 +589,12 @@ describe("The results page against the engine in the Anaplan tab", () => {
     expect(page.says()).toEqual({ title: "The analysis stopped", message: "The Anaplan tab was closed or left the page before the analysis finished.",
       hint: "Open the app or model again, then click the Cardigan icon or choose Run again." });
     expect(page.client.log).toEqual([firstLine("app", GOLDEN_APP, APP_HOST), "Reading the app…", runs[0].said[1], "Reading page 1 of 2: Demand board",
-      "The connection to the tab closed."].map(stamped));
+      "Reading page 2 of 2: Draft page", "The connection to the tab closed."].map(stamped));
     // (In a browser the content script's run ends with its page. Here it is let run out: what it still sends reaches nobody.)
     board.release();
     await until(() => runs[0].ended, "the old run to end");
     await tab.quiet();
-    expect([page.client.state.phase, page.ports[0].open, page.phases()]).toEqual(["interrupted", false, ["connecting", "running", "running", "running", "interrupted"]]);
+    expect([page.client.state.phase, page.ports[0].open, page.phases()]).toEqual(["interrupted", false, ["connecting", "running", "running", "running", "running", "interrupted"]]);
 
     // While the tab is still loading nobody answers there: Run again says so, with Chrome's reason in the log.
     page.client.runAgain();
@@ -699,10 +700,10 @@ describe("The results page against the engine in the Anaplan tab", () => {
     // is and every line of its log so far.
     const second = resultsPage(tab);
     await tab.quiet();
-    expect(first.client.state).toEqual({ phase: "running", status: "Reading page 1 of 2: Demand board" });
+    expect(first.client.state).toEqual({ phase: "running", status: "Reading page 2 of 2: Draft page" });
     expect(second.client.state).toEqual(first.client.state);
     expect(second.client.log).toEqual(first.client.log);
-    expect(second.client.log).toHaveLength(4);
+    expect(second.client.log).toHaveLength(5);
     expect(runs).toHaveLength(1);
 
     board.release();

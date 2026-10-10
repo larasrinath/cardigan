@@ -11,7 +11,7 @@ import { buildReport, HEADERS, NONE, PAGE_TYPE, type Cell, type PageInput } from
 import { plainRows } from "./result-plain.js";
 import type { AnalysisResult, ResultTable } from "./result-types.js";
 import { getJson, RestError } from "./rest.js";
-import { list, message, SCOPE_ID, text, type Obj } from "./util.js";
+import { AT_A_TIME, eachAtMost, list, message, SCOPE_ID, text, type Obj } from "./util.js";
 
 /** The pages built on a model, read after the model's export in the Anaplan tab (content.ts), with the signed-in session
  * and GET only, as an app's pages are read (analyse.ts): Model Building's own list of the pages built on the model, each
@@ -23,8 +23,8 @@ import { list, message, SCOPE_ID, text, type Obj } from "./util.js";
 
 const DEFINITION = "/a/springboard-definition-service/";
 const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-/** As many pages, and as many apps, as are read at a time. */
-export const AT_A_TIME = 4;
+/** As many pages, and as many apps, as are read at a time: as many as a run reads of anything at a time (util.ts). */
+export { AT_A_TIME };
 /** The detail the Details file notes these reads under. */
 const ABOUT = "Pages built on the model";
 /** As many pages that could not be read as a note names. */
@@ -83,28 +83,6 @@ interface PageRows { app: string; page: string; place: Cell[]; filters: Cell[][]
 const byText = (a: string, b: string): number => a.localeCompare(b, undefined, { sensitivity: "base", numeric: true });
 const isObj = (value: unknown): value is Obj => !!value && typeof value === "object" && !Array.isArray(value);
 const rows = (count: number): string => `${count} rows`;
-
-/** Runs `work` on each item, at most `limit` at a time, starting them in the items' order. Once `signal` has stopped
- * the run, or the work on one item has failed, no further item starts, and the run ends with the stop's reason or that
- * failure. */
-async function eachAtMost<T>(items: readonly T[], limit: number, signal: AbortSignal | undefined, work: (item: T, index: number) => Promise<void>): Promise<void> {
-  let next = 0;
-  let failed = false;
-  const lane = async (): Promise<void> => {
-    try {
-      while (next < items.length && !failed) {
-        signal?.throwIfAborted();
-        const index = next++;
-        await work(items[index], index);
-      }
-    } catch (error) {
-      failed = true;
-      throw error;
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, lane));
-  signal?.throwIfAborted();
-}
 
 /** Why the pages could not be read, in a few words for a note. */
 function unreadWhy(error: unknown): string {
