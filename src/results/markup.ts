@@ -1,3 +1,4 @@
+import { MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE } from "../page-files.js";
 import type { Items } from "./cell-lists.js";
 import { headerWidth, ROW_BUTTON, WIDEST } from "./column-widths.js";
 import { APP_FILES, rowColumns, type Column } from "./columns.js";
@@ -183,7 +184,8 @@ const NAV_CHEVRON = '<svg class="nav-chevron" width="10" height="10" viewBox="0 
 const SELECT_CHEVRON = NAV_CHEVRON.replace('class="nav-chevron"', 'class="select-chevron"');
 
 /** The icon of each file the page knows by name, a drawing of what the file lists: the app's seven (columns.ts
- * `APP_FILES`) and a model's (result-view.ts `MODEL_FILE_ORDER`), each under the name the analysis writes it under. An
+ * `APP_FILES`) and a model's (result-view.ts `MODEL_FILE_ORDER`), the tables of the pages built on it among them, each
+ * under the name the analysis writes it under. An
  * entry's icon is found by that name and by nothing else, never by the entry's words: those are the file's label, which
  * is a result's like any of its texts. A file of any other name has the table's icon (`NAV_ICONS.table`). A map, so that a
  * name like that of an object's built-in property finds nothing. */
@@ -231,6 +233,13 @@ export const FILE_ICONS: ReadonlyMap<string, string> = new Map([
   ["Other Actions.csv", navIcon('<path d="M9 1.8 3 9.2h4.6L7 14.2l6-7.4H8.4Z"/>')],
   // A server: the other models that an import reads from.
   ["Source Models.csv", navIcon('<rect x="2" y="2.2" width="12" height="5" rx="1.3"/><rect x="2" y="8.8" width="12" height="5" rx="1.3"/><path d="M4.8 4.7h.01M4.8 11.3h.01" stroke-width="2"/>')],
+  // A box on a page: a module where a page shows it.
+  [MODULE_USAGE_FILE, navIcon('<path d="M9.2 1.8H4.5A1.5 1.5 0 0 0 3 3.3v9.4a1.5 1.5 0 0 0 1.5 1.5h7a1.5 1.5 0 0 0 1.5-1.5V5.6Z"/><path d="M9.2 1.8v3.8H13"/>'
+    + '<rect x="5.4" y="8" width="5.2" height="3.8" rx="0.9"/>')],
+  // A funnel beside lines: the filters of a page's cards.
+  [PAGE_FILTERS_FILE, navIcon('<path d="M1.8 3h7.4L6.4 6.6v4.6l-1.8 1.4v-6Z"/><path d="M11.4 4h2.8M11.4 8h2.8M11.4 12h2.8"/>')],
+  // A button that a pointer clicks: the buttons of a page's cards.
+  [PAGE_ACTIONS_FILE, navIcon('<rect x="1.8" y="2.2" width="10.4" height="5.6" rx="2.8"/><path d="M8.6 8.6l5.4 2.2-2.3.7-.7 2.3Z"/>')],
 ]);
 
 /** An entry's icon: the overview's, a model's map's, or that of the entry's file, by the file's name alone. */

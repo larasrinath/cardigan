@@ -45,6 +45,21 @@ export interface Inspection {
   notes?: string;
 }
 
+/** As many of a line item's page filters as its details list: the rest are counted. */
+export const FILTERS_LISTED = 10;
+
+/** The filters on the pages built on the model that have a line item as their condition, a line each: the app, the page
+ * and the card's number, as the Page Filters table has them. Of more than `FILTERS_LISTED`, the rest are counted, and the
+ * table has them all. */
+function pageFiltersText(raw: GraphNode): InspectText[] {
+  const filters = raw.pageFilters ?? [];
+  if (!filters.length) return [];
+  const lines = filters.slice(0, FILTERS_LISTED).map(({ app, page, card }) => [app, page, card === "" ? "" : `Card ${card}`].filter(part => part !== "").join(" · "));
+  const more = filters.length - FILTERS_LISTED;
+  if (more > 0) lines.push(`And ${formatCount(more)} more: the Page Filters table lists them all.`);
+  return [{ key: "pageFilters", title: `Page filters · ${formatCount(filters.length)}`, lines }];
+}
+
 const KIND_NAMES: Record<GraphNode["kind"], string> = { list: "LIST", subset: "LIST SUBSET", property: "LIST PROPERTY", module: "MODULE", lineItem: "LINE ITEM", process: "PROCESS", action: "ACTION" };
 
 /** A line item with the format No Data: a model's builders use one as a heading among a module's line items. */
@@ -189,7 +204,7 @@ function inspectObject(model: MapModel, node: ViewNode, raw: GraphNode, access: 
     // A line item of another module can be gone to in its own module. One of the module on screen is already there.
     ...(module && node.external ? { action: { label: "Open its module with it selected", module: module.id, select: raw.id } } : {}),
     ...(formula !== undefined ? { formula } : raw.kind === "lineItem" ? { remark: isHeading(raw) ? "No formula. Its format is No Data: a heading among the line items." : "No formula." } : {}),
-    lists: linkLists(related(model, raw.id, true, access), related(model, raw.id, false, access)), texts: [],
+    lists: linkLists(related(model, raw.id, true, access), related(model, raw.id, false, access)), texts: pageFiltersText(raw),
   };
 }
 

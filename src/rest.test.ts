@@ -18,10 +18,12 @@ describe("Page analyzer REST reads", () => {
 
   it("reads only the two services the analyser needs, by paths of plain segments, and refuses any other path before anything is sent", async () => {
     const [GUID, WS, MODEL] = ["01234567-89ab-cdef-0123-456789abcdef", "0123456789abcdef0123456789abcdef", "FEDCBA9876543210FEDCBA9876543210"];
-    // Every shape of path the analysis asks for (analyse.ts): the app, a page on each of its routes, and a model's actions.
+    // Every shape of path the analysis asks for (analyse.ts): the app, a page on each of its routes, and a model's actions;
+    // and Model Building's list of the pages built on a model (model-pages.ts), which takes no change to what is allowed.
     const read = [`/a/springboard-definition-service/apps/${GUID}?includeUnpublished=true&includeReportPages=true`,
       ...["boards", "grid-pages", "reports"].map(route => `/a/springboard-definition-service/${route}/${GUID}`),
-      ...["imports", "exports", "processes"].map(key => `/a/collaboration-actions-service/workspaces/${WS}/models/${MODEL}/${key}`)];
+      ...["imports", "exports", "processes"].map(key => `/a/collaboration-actions-service/workspaces/${WS}/models/${MODEL}/${key}`),
+      `/a/springboard-definition-service/customer/${WS}/model/${MODEL}/pages`];
     for (const path of read) await expect(getJson(path), path).resolves.toEqual({ imports: [] });
     expect(calls().map(([url]) => url)).toEqual(read.map(path => `https://${PAGE_HOST}${path}`));
 

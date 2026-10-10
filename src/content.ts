@@ -1,5 +1,6 @@
 import { analyseApp } from "./analyse.js";
 import { exportInCore, watchCore, watchProbes, type CoreHandle, type FrameProbe } from "./bridge.js";
+import { addModelPages } from "./model-pages.js";
 import type { Subject } from "./protocol.js";
 import { RestError } from "./rest.js";
 import { serveTab } from "./tab-port.js";
@@ -7,11 +8,13 @@ import { serveTab } from "./tab-port.js";
 /** The page the user sees: the top window of an Anaplan tab, in the isolated world. It puts nothing on the page and reads
  * nothing from Anaplan until the results page, opened by the toolbar icon, connects and asks it to run (tab-port.ts). Then,
  * on an app page, it analyses the app's pages; on a Model Building page, it exports the model's settings through the
- * model's core frame (bridge.ts). Everything is read-only, using the signed-in browser session. */
+ * model's core frame (bridge.ts), and then reads the pages built on the model (model-pages.ts). Everything is read-only,
+ * using the signed-in browser session. */
 
 const APP_PATH = /\/apps\/app\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:[/?#]|$)/i;
 const MODEL_PATH = /\/a\/modeling(?:-ui)?\/.*\/models\/([0-9A-Za-z]{32})(?:[/?#]|$)/;
-/** The customer a Model Building address names: the results page opens a module of the model with it. */
+/** The customer a Model Building address names: the results page opens a module of the model with it, and the pages
+ * built on the model are read for it. */
 const CUSTOMER_PATH = /\/a\/modeling(?:-ui)?\/customers\/([0-9A-Fa-f]{32})(?:[/?#]|$)/;
 
 /** This script can be put into a document more than once: by Chrome as the page loads, and by the results page when none
@@ -51,7 +54,8 @@ if (window.top === window) {
     subject,
     run: (seen, progress, diagnostics, signal) => (seen.kind === "app"
       ? analyseApp(seen.id, progress, diagnostics, signal)
-      : exportInCore(window, core, () => probes.values(), seen.id, progress, signal)),
+      : exportInCore(window, core, () => probes.values(), seen.id, progress, signal)
+        .then(result => addModelPages(result, seen.customer, progress, signal))),
     signedOut: error => error instanceof RestError && error.code === "SIGNED_OUT",
   });
 }
