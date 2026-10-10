@@ -4,7 +4,8 @@
 
 Shortcuts to where a row or a count leads.
 
-- **Open in Model map.** The details of a line item or a module, from **Line Items** or **Modules**, have **Open in Model map** at the top right. It closes the details and shows the map on that line item, inside its module's view, or on that module among its section's, selected, with what feeds it and what it feeds. A heading of Modules, and a line item the map does not draw, have no such button.
+- **Open in Model map.** The details of a line item or a module, from **Line Items** or **Modules**, have **Open in Model map** at the top right, a filled button with the map's icon. It closes the details and shows the map on that line item, inside its module's view, or on that module among its section's, selected, with what feeds it and what it feeds. A heading of Modules, and a line item the map does not draw, have no such button.
+- **Model Calendar's Allowed values start hidden.** They only guide filling the template in by hand; the column chooser shows them, and a row's details list them.
 - **The Overview's tiles open their tables.** A click on a tile, for an app or a model, opens the table it counts, as the table's entry in the navigation does.
 - **What stays the same.** What is read from Anaplan, and what the tables hold.
 
