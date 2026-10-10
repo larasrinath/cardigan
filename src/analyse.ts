@@ -858,14 +858,15 @@ export async function loadCatalog(scope: ModelScope, pages: readonly UxPageCardD
       const answers: NameAnswers = { moduleDimensions: [] };
       const reads: SocketReads = { scope, signal, connection, subscribe, settle, halted: () => signal?.aborted === true, ended: () => ended, catalog, listed, notes, progress,
         answers };
+      // The connection's time, from the first try: a redirect, and the try before it, included.
       time = stepTimes();
+      time.took("connection", Date.now() - began);
       const started = Date.now();
       const waiting = setInterval(() => progress.status(`Reading names in ${scope.modelName}: ${Math.round((Date.now() - started) / 1000)} s, `
         + `model status ${status}. A model that is not open can take a few minutes to load…`), 5_000);
       try {
         progress.status(`Reading names in ${scope.modelName}…`);
-        // Connecting is counted with the names: from the first try, a redirect included.
-        const [views, lists] = await time.step("connection and names", async () => {
+        const [views, lists] = await time.step("module and list names", async () => {
           const answered = await settle(Promise.allSettled([
             subscribe(`core:/${ws}:${model}/moduleViews`, { body: {}, timeoutMs: LOAD_MS }),
             subscribe(`core://${ws}:${model}/lists`, { body: {}, timeoutMs: LOAD_MS }),

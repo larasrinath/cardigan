@@ -64,10 +64,13 @@ describe("Page analyzer shared patterns and helpers", () => {
     await vi.advanceTimersByTimeAsync(840);
     await lineItems;
     expect(time.line()).toBe("Time: names 1.20 s, line items 0.84 s");
+    // A time measured otherwise is kept in its turn.
+    time.took("connection", 2_340);
+    expect(time.line()).toBe("Time: names 1.20 s, line items 0.84 s, connection 2.34 s");
     // A step that fails is not timed: its failure is passed on.
     const failure = new Error("refused");
     await expect(time.step("action names", () => Promise.reject(failure))).rejects.toBe(failure);
-    expect(time.line()).toBe("Time: names 1.20 s, line items 0.84 s");
+    expect(time.line()).toBe("Time: names 1.20 s, line items 0.84 s, connection 2.34 s");
   });
 
   /** Work that waits until the test answers it, item by item: what was started, in order, and how to end each. */
