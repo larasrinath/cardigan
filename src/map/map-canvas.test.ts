@@ -135,6 +135,21 @@ describe("The map's picture", () => {
     expect(pen.named("stroke").filter(call => call.strokeStyle === FALLBACK.nodeBorder).map(call => call.dash)).toEqual([[], [], []]);
   });
 
+  it("cuts the strip of a section past the eighth into pieces: the colour of the section eight before it, in stripes", () => {
+    const make = new GraphMaker();
+    for (let index = 0; index < 10; index++) make.item(make.module(`M${index} - Module`, `${index}: Section`), "Value");
+    const model = indexModel(make.graph());
+    const ninth = ready(modulesGraph(model, "8: Section", false));
+    const { pen } = draw(sceneOf(ninth));
+    // Its strip has the first colour, and is then cut by short strokes of the box's own fill down its middle.
+    const strip = pen.named("fill").filter(call => call.fillStyle === FALLBACK.sections[0]);
+    const cuts = pen.named("stroke").filter(call => call.strokeStyle === FALLBACK.nodeFill);
+    expect([strip.length, cuts.length, cuts[0]?.dash.length, cuts[0]?.lineWidth]).toEqual([1, 1, 2, 4]);
+    expect(pen.calls.indexOf(strip[0])).toBeLessThan(pen.calls.indexOf(cuts[0]));
+    // The first eight sections' strips are whole.
+    expect(draw(sceneOf(ready(modulesGraph(model, "0: Section", false)))).pen.named("stroke").filter(call => call.strokeStyle === FALLBACK.nodeFill)).toEqual([]);
+  });
+
   it("leaves out a node that is not shown, and every link to it", () => {
     const { graph } = sample();
     const shown = new Uint8Array(graph.nodes.length).fill(1);

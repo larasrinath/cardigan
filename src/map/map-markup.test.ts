@@ -341,8 +341,8 @@ describe("The map's panels", () => {
     expect(legend.querySelector(".map-legend-title")?.textContent).toBe("On this map");
     expect(legend.querySelectorAll("button").map(item => [item.dataset.mapLayer, item.getAttribute("aria-pressed"), item.classList.contains("map-off"), item.querySelector(".map-legend-name")?.textContent, item.querySelector(".map-legend-count")?.textContent]))
       .toEqual([["lineitem", "true", false, "Line items", "1,200"], ["external", "false", true, "Other modules", "3"], ["s9", "true", false, "10: Archive", "1"]]);
-    // A colour is a class of the stylesheet's: the tenth section has the second colour.
-    expect(legend.querySelectorAll(".map-dot").map(dot => dot.getAttribute("class"))).toEqual(["map-dot map-c-lineitem", "map-dot map-c-external", "map-dot map-c-s2"]);
+    // A colour is a class of the stylesheet's: the tenth section has the second colour, in stripes.
+    expect(legend.querySelectorAll(".map-dot").map(dot => dot.getAttribute("class"))).toEqual(["map-dot map-c-lineitem", "map-dot map-c-external", "map-dot map-c-s2 map-c-striped"]);
     expect([legend.querySelector(".map-legend-note")?.localName, legend.querySelector(".map-legend-note")?.textContent]).toEqual(["p", LINK_SAYS]);
   });
 

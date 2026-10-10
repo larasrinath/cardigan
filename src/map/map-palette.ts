@@ -90,6 +90,10 @@ export const COLOUR_TOKENS: Record<Colour, string> = {
 };
 export const SECTION_COLOURS = 8;
 export const sectionToken = (place: number): string => `--map-section-${(place % SECTION_COLOURS) + 1}`;
+/** How many sections are told apart by their colour: the eight colours, then the eight again in stripes. A ninth hue
+ * would be one too close to another; the stripes are a second sign beside the colour. After the sixteenth the first
+ * comes again, and a section's name always stands with its colour. */
+export const SECTION_MARKS = 2 * SECTION_COLOURS;
 
 /** What stands in for a token the styles do not give, or give as no colour: the light theme, so that a map without its
  * stylesheet is still drawn. */
@@ -130,10 +134,16 @@ export function layerColour(palette: MapPalette, layer: string): string {
   return palette[LAYER_COLOURS.get(layer) ?? "external"];
 }
 
+/** Whether a layer is a section whose colour is striped: the ninth to the sixteenth, and so on (`SECTION_MARKS`). */
+export function layerStriped(layer: string): boolean {
+  const section = SECTION_LAYER.exec(layer);
+  return section !== null && Number(section[1]) % SECTION_MARKS >= SECTION_COLOURS;
+}
+
 /** The class that gives an element a layer's colour as its background (map.css): for a dot beside a name. It is one
- * of a fixed set, whatever the layer is called. */
+ * of a fixed set, whatever the layer is called, with the class of stripes for a section whose colour is striped. */
 export function layerClass(layer: string): string {
   const section = SECTION_LAYER.exec(layer);
-  if (section) return `map-c-s${(Number(section[1]) % SECTION_COLOURS) + 1}`;
+  if (section) return `map-c-s${(Number(section[1]) % SECTION_COLOURS) + 1}${layerStriped(layer) ? " map-c-striped" : ""}`;
   return `map-c-${LAYER_COLOURS.has(layer) ? layer : "external"}`;
 }
