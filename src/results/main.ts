@@ -1,4 +1,4 @@
-import { buildModelGraph } from "../map/build-graph.js";
+import { areaCheckLine, buildModelGraph } from "../map/build-graph.js";
 import type { MapView, ModelGraph, ModelMap, ModelMapOptions } from "../map/graph-types.js";
 import { mountModelMap } from "../map/map-view.js";
 import { MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, PAGE_ROUTES } from "../page-files.js";
@@ -603,7 +603,12 @@ function renderAll(): void {
   if (entry) renderTable(entry);
   else if (onMap) enterMap(result);
   // Each tile opens its table: the tiles are in the navigation's order, which `listedTables` gives.
-  else el("view").innerHTML = overviewHtml(timedOverview(overviewOf(result)), keptCopy, listedTables(result).map(({ index }) => index));
+  else {
+    // Each tile opens its table, and has the table's icon from the navigation: both by the table's file, in the tiles' order.
+    // A time the overview says, the export's, is said in both zones, the one chosen first.
+    const listed = listedTables(result);
+    el("view").innerHTML = overviewHtml(timedOverview(overviewOf(result)), keptCopy, listed.map(({ index }) => index), listed.map(({ table }) => table.file));
+  }
   // The line above a result that was brought back says "today" by the clock: each view says it anew, so that it is still
   // true on a page left open past midnight.
   const line = broughtBack ? find("#noteText") : null;
@@ -1203,9 +1208,9 @@ const ACTIONS_PAGE = { id: "-19", page: "Actions" } as const;
 /** The Model Building page each table of a model's settings is on, by the ID its own sidebar opens the page by, which its
  * address names after `/tabs/` as for a module (modeling.js: the sidebar's items, and `processPendingObjectId`, which writes
  * `/tabs/{id}` for any of them and opens the page as its settings tab). The Time page holds Model Calendar and Time Ranges
- * (anaplan/settings/TimeAndTimeRanges.js). A page is opened by its address alone: Model Building opens a settings page
- * inside itself through no way of the classic client's that this page could ask for, as it does a module or a list. Nor
- * does the address say which row to select, so the page opens as it opens from the sidebar. */
+ * (anaplan/settings/TimeAndTimeRanges.js). A page is opened as a module is (`openInModel`): inside the Model Building page
+ * the tab shows, as its sidebar opens it (model/open-object.ts), so that the tabs open there stay, and by its address
+ * where the tab cannot. Neither way says which row to select, so the page opens as it opens from the sidebar. */
 const SETTINGS_PAGES: ReadonlyMap<string, { id: string; page: string }> = new Map([
   [MODEL_CALENDAR_FILE, { id: "9000000001", page: "Time" }], ["Time Ranges.csv", { id: "9000000001", page: "Time" }],
   ["Versions.csv", { id: "9000000002", page: "Versions" }], ["Line Item Subsets.csv", { id: "-5", page: "Line Item Subsets" }],
@@ -1213,8 +1218,9 @@ const SETTINGS_PAGES: ReadonlyMap<string, { id: string; page: string }> = new Ma
   ["Import Data Sources.csv", ACTIONS_PAGE], ["Source Models.csv", { id: "-13", page: "Source Models" }],
 ]);
 
-/** A button at the top right of a row's details, with where it leads: a box of the model map; a module or a list in Model
- * Building, which the model's tab opens (`openInModel`), inside its page by the object's ID where it can; or an app or a
+/** A button at the top right of a row's details, with where it leads: a box of the model map; a module, a list or a
+ * settings page in Model Building, which the model's tab opens (`openInModel`), inside its page by the object's ID where
+ * it can; or an app or a
  * page, which the tab of apps and pages opens (`openInAppTab`). `what` names it in the run's log. */
 type Open = OpenButton & ({ kind: "map"; node: number } | { kind: "module"; url: string; object?: string; what: string } | { kind: "app" | "page"; url: string; what: string });
 /** The buttons of the row the details show, by their place: what a click on one of them opens. */
@@ -1286,7 +1292,7 @@ function listOfDimension(name: string): string | undefined {
  * - Page Actions: the model's action, on the Actions page, and the button's app and page.
  * - Dynamic Cell Access: the driver's module and the controlled module, one Model button where they are one.
  * - Model Calendar, Time Ranges, Versions, Line Item Subsets, the action tables and Source Models: the Model Building page
- *   the table is on (`SETTINGS_PAGES`), opened by its address.
+ *   the table is on (`SETTINGS_PAGES`), opened inside the page where the tab can, as a module is.
  * Only a button whose box or address is known is there. An app's result has none. */
 function opensOf(entry: Shown, row: Row): { opens: Open[]; why: string | undefined } {
   const opens: Open[] = [];
@@ -1333,7 +1339,9 @@ function opensOf(entry: Shown, row: Row): { opens: Open[]; why: string | undefin
   const settings = SETTINGS_PAGES.get(file) ?? (file === PAGE_ACTIONS_FILE && cell("Model action name") !== "" && cell("Model action name") !== NONE ? ACTIONS_PAGE : undefined);
   if (settings) {
     const { tabs, why: none } = modelBuilding();
-    if (tabs !== undefined) opens.push({ kind: "module", url: `${tabs}${settings.id}`, what: `the ${settings.page} page`, label: "Model", title: `Open ${settings.page} in Model Building` });
+    if (tabs !== undefined) {
+      opens.push({ kind: "module", url: `${tabs}${settings.id}`, object: settings.id, what: `the ${settings.page} page`, label: "Model", title: `Open ${settings.page} in Model Building` });
+    }
     else why ??= none;
   }
   const app = cell("App");
@@ -1430,7 +1438,7 @@ async function newTab(url: string): Promise<chrome.tabs.Tab | undefined> {
  * model once a second (model-content.ts). */
 const READER_CHECKS_IN_MS = 1500;
 
-/** Opens a module or a list of the model in the model's tab: the Anaplan tab this page reads, or, once that was closed, the
+/** Opens a module, a list or a settings page of the model in the model's tab: the Anaplan tab this page reads, or, once that was closed, the
  * one tab that took its place. That tab and its window come to the front; the details stay open here.
  * `object`, its ID, is first asked of the Anaplan tab itself, which opens it inside the Model Building page it shows,
  * beside the tabs open there, where it can (content.ts): the page does not load afresh. A tab whose model's frame still
@@ -1500,9 +1508,14 @@ async function toFront(tab: chrome.tabs.Tab | undefined): Promise<void> {
 }
 
 /* ================= model map ================= */
-/** The model's graph, built the first time the map or a row's details asks for it. It throws what keeps it from being made. */
+/** The model's graph, built the first time the map or a row's details asks for it. It throws what keeps it from being
+ * made. Where the result's Modules has a Functional Area column, the run's log says once how its rows met the map's
+ * modules, so that a module the map files under the wrong area can be told from one the export gave none. */
 function graphFor(model: AnalysisResult): ModelGraph {
-  modelGraph ??= buildModelGraph(model.tables);
+  if (!modelGraph) {
+    modelGraph = buildModelGraph(model.tables);
+    if (modelGraph.areaCheck) client.note(areaCheckLine(modelGraph.areaCheck));
+  }
   return modelGraph;
 }
 

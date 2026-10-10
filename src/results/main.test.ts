@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ModelMapOptions } from "../map/graph-types.js";
+import type { AreaCheck, ModelMapOptions } from "../map/graph-types.js";
 import { PAGE_ACTIONS_HEADERS, PAGE_FILTERS_HEADERS } from "../model-pages.js";
 import { MODULE_USAGE_FILE, MODULE_USAGE_HEADERS, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE } from "../page-files.js";
 import { CALENDAR_HEADERS, CALENDAR_PROPERTIES, calendarRows } from "../model/calendar.js";
@@ -26,7 +26,7 @@ const mapStandIn = vi.hoisted(() => ({
   build: (_tables: unknown): unknown => { throw new Error("No test has set up the model map's stand-in."); },
   mount: (_host: unknown, _graph: unknown, _options: unknown): unknown => { throw new Error("No test has set up the model map's stand-in."); },
 }));
-vi.mock("../map/build-graph.js", () => ({ buildModelGraph: (tables: unknown) => mapStandIn.build(tables) }));
+vi.mock("../map/build-graph.js", async importOriginal => ({ ...await importOriginal<typeof import("../map/build-graph.js")>(), buildModelGraph: (tables: unknown) => mapStandIn.build(tables) }));
 vi.mock("../map/map-view.js", () => ({ mountModelMap: (host: unknown, graph: unknown, options: unknown) => mapStandIn.mount(host, graph, options) }));
 
 /** The page as it is packaged: the script runs on results.html itself, read by the stand-in page. */
@@ -218,6 +218,8 @@ let mapMounts: { host: FakeElement; graph: unknown; options: unknown; found: unk
 let mapThrows: Partial<Record<"build" | "mount" | "show" | "hide" | "themeChanged" | "destroy" | "reveal", unknown>>;
 /** The nodes of the graph the stand-in builds: none unless a test gives them. */
 let mapNodes: object[];
+/** What the stand-in's graph says of the Modules file's functional areas: nothing unless a test gives it. */
+let mapAreaCheck: AreaCheck | undefined;
 /** Whether the stand-in takes the focus into itself, to its button, each time it is shown. */
 let mapTakesFocus: boolean;
 /** What the stand-in tells the page of its stop while it is asked for one of these, or while it hears a click or a key
@@ -233,6 +235,7 @@ beforeEach(() => {
   mapMounts = [];
   mapThrows = {};
   mapNodes = [];
+  mapAreaCheck = undefined;
   mapTakesFocus = false;
   mapTells = {};
   const asked = (what: keyof typeof mapThrows, said: string) => {
@@ -241,7 +244,7 @@ beforeEach(() => {
   };
   mapStandIn.build = tables => {
     asked("build", "build");
-    const graph = { nodes: mapNodes, edges: [], unresolved: [], sections: [], limitations: [] };
+    const graph = { nodes: mapNodes, edges: [], unresolved: [], sections: [], limitations: [], ...(mapAreaCheck ? { areaCheck: mapAreaCheck } : {}) };
     mapBuilds.push({ tables, graph });
     return graph;
   };
@@ -1285,9 +1288,9 @@ describe("The results page's script, on the page", () => {
     await openWith(WITH_CALENDAR);
     const file = WITH_CALENDAR.tables[3];
     expect([file.rows.length, file.rows.filter(row => row[0] === "Model").length]).toEqual([31, 5]);
-    // The overview: the file's tile counts the rows its table lists. What the file says about the model stands with what
-    // the Details file says about the export, after it, and without the model's name, which that has said.
-    expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Model Calendar", "5", "rows", "31 rows in all"], ["Modules", "2", "rows"], ["Line Items", "120", "rows"]]);
+    // The overview: the file's tile counts the rows its table lists, and only those. What the file says about the model
+    // stands with what the Details file says about the export, after it, and without the model's name, which that has said.
+    expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Model Calendar", "5", "rows"], ["Modules", "2", "rows"], ["Line Items", "120", "rows"]]);
     expect([page.texts("#ovAbout h2"), page.texts("#ovAbout dt"), page.texts("#ovAbout dd")])
       .toEqual([["About this export"], ["Model", "Anaplan host", "Workspace", "Captured on"], ["Model one", "us1a.app.anaplan.com", "Main", "2026-10-03"]]);
     // The navigation lists the same tables in the same order, and counts nothing: the tiles count the rows.
@@ -1332,9 +1335,9 @@ describe("The results page's script, on the page", () => {
     const file = WITH_CALENDAR.tables[3];
     const only: AnalysisResult = { ...WITH_CALENDAR, tables: [...WITH_CALENDAR.tables.slice(0, 3), { ...file, rows: file.rows.slice(0, 5) }] };
     await openWith(only);
-    // The tile counts the rows the table lists, none, and says the five there are in all. The table keeps its entry in the
-    // navigation.
-    expect(page.all("#view .stat")[0].children.map(child => child.textContent)).toEqual(["Model Calendar", "0", "rows", "5 rows in all"]);
+    // The tile counts the rows the table lists, none, and says nothing of the five the file has. The table keeps its entry
+    // in the navigation.
+    expect(page.all("#view .stat")[0].children.map(child => child.textContent)).toEqual(["Model Calendar", "0", "rows"]);
     expect(entryLabel(page.find('#navList [data-nav="3"]'))).toBe("Model Calendar");
     goTo(3);
     // The line under the name says where the five rows are. In the rows' place the table says that none is the calendar's
@@ -1623,6 +1626,29 @@ describe("What a click, a key and typing do on the results page", () => {
     goTo(1);
     expect([headings(), column("Name").slice(0, 2), column("Applies To").slice(0, 2), page.all("#view .view-note").length, page.id("rowCount").textContent])
       .toEqual([["Name", "Format", "Formula", "Summary", "Applies To", "Module Name", "Ratio Numerator", "Ratio Denominator"], ["REV01 Revenue", "Units"], ["Products, Time", "-"], 0, "1–8 of 8 rows"]);
+  });
+
+  it("says once in the run's log how the Modules file's functional areas met the map, when it builds the map's graph", async () => {
+    mapAreaCheck = { areas: 22, modules: 30, withArea: 27, rowsNotOnMap: ["Gone"], modulesNotInFile: ["Missing", "Spare"] };
+    await openWith(BLUEPRINT);
+    /** The run's log lines about the areas, as the control that copies the run's log copies them. */
+    const areaLines = async (): Promise<string[]> => {
+      const copy = page.document.createElement("button");
+      copy.dataset.act = "copy-run-log";
+      page.document.body.append(copy);
+      copy.press();
+      await settle();
+      copy.remove();
+      return (copied.at(-1) ?? "").split("\n").filter(line => / Functional areas: /.test(line)).map(line => line.replace(/^\d\d:\d\d:\d\d /, ""));
+    };
+    expect(await areaLines()).toEqual([]);
+    page.find('#navList [data-nav="map"]').press();
+    expect(await areaLines()).toEqual(["Functional areas: 22 areas; 27 of the map's 30 modules have one; 1 row of Modules is no module of the map: Gone; "
+      + "2 modules of the map have no row in Modules: Missing; Spare."]);
+    // The graph is built once for the result: going back to the map says nothing more.
+    goTo(1);
+    page.find('#navList [data-nav="map"]').press();
+    expect(await areaLines()).toHaveLength(1);
   });
 
   it("shows a model's counts with their thousands apart, right-aligned, sorted by their numbers and found with or without commas, and keeps the result as it was", async () => {
@@ -2535,19 +2561,17 @@ describe("What a click, a key and typing do on the results page", () => {
     /** Every text the overview shows, with its closed sections' as well. */
     const texts = () => [...page.texts("#view dt"), ...page.texts("#view dd"), ...page.texts("#view .warn-list li"), ...page.id("diagLog").textContent.split("\n")];
     /** What each file's tile says of its rows, by the file's own name, which is its entry's in the navigation (the tiles
-     * stand in the same order): the number its table lists, and under it the number there is in all where that is another. */
-    const tiles = () => tableEntries().flatMap((item, index) => {
-      const tile = page.all("#view .stat")[index];
-      const file = `${entryLabel(item)}.csv`;
-      return [`${file}: ${tile.querySelector(".s-num")?.textContent} rows`, ...tile.querySelectorAll(".s-sub").slice(1).map(line => `${file}: ${line.textContent.replace(/ in all$/, "")}`)];
-    });
+     * stand in the same order): the number its table lists. */
+    const tiles = () => tableEntries().map((item, index) => `${entryLabel(item)}.csv: ${page.all("#view .stat")[index].querySelector(".s-num")?.textContent} rows`);
     /** The rows of a result's Details file that the overview does not say: a detail and its value, a note, a line of the log, or a file's tile. */
     const unsaid = (result: AnalysisResult) => {
       const shown = texts();
       return result.tables[0].rows.map(row => row.map(String)).filter(([section, detail, value]) => {
         if (section === "Diagnostics") return !shown.includes(detail ? `${detail} ${value}` : value);
         if (section === "Notes") return !shown.includes(`${detail}: ${value}`);
-        if (section === "Files" && /^\d+ rows$/.test(value)) return !tiles().includes(`${detail}: ${value}`);
+        // A count of the file's own rows is its tile's number, but for a Model Calendar's: its table leaves rows out, and the
+        // line under the table's name says how many.
+        if (section === "Files" && /^\d+ rows$/.test(value)) return !tiles().includes(`${detail}: ${value}`) && detail !== "Model Calendar.csv";
         // Any other Files row is said under the name the page has for the table: the file's own name is shown nowhere.
         if (section === "Files") return !(shown.includes(detail.replace(/\.csv$/, "")) && shown.includes(value));
         return !(shown.includes(detail) && shown.includes(value));
@@ -2590,12 +2614,14 @@ describe("What a click, a key and typing do on the results page", () => {
     expect(counted.tables[0].rows.filter(row => row[0] === "Files")).toEqual([["Files", "Line Items.csv", "8 rows"], ["Files", "Modules.csv", "3 rows"], ["Files", "Model Calendar.csv", "31 rows"]]);
     page.id("runAgain").press();
     sendResult(ports[0], counted);
-    // The tiles count what the tables list, 5 settings and every row of Line Items, and the calendar's says the 31 there
-    // are in all under that: no count of the Details file is lost, and no row of it is.
-    expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Model Calendar", "5", "rows", "31 rows in all"], ["Modules", "3", "rows"],
+    // The tiles count what the tables list, 5 settings and every row of Line Items, and nothing more: the calendar's 31 are
+    // said by the line under its table's name, which counts the rows it leaves out. No row of the Details file is lost.
+    expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Model Calendar", "5", "rows"], ["Modules", "3", "rows"],
       ["Line Items", "8", "rows"]]);
-    expect([tiles(), unsaid(counted), page.has("#ovFiles"), page.has("#view .warn-list")]).toEqual([["Model Calendar.csv: 5 rows", "Model Calendar.csv: 31 rows", "Modules.csv: 3 rows",
+    expect([tiles(), unsaid(counted), page.has("#ovFiles"), page.has("#view .warn-list")]).toEqual([["Model Calendar.csv: 5 rows", "Modules.csv: 3 rows",
       "Line Items.csv: 8 rows"], [], false, false]);
+    goTo(3);
+    expect(page.texts("#view .view-note")).toEqual([CALENDAR_NOTE]);
   });
 
   it("says what was copied as text, whatever the ID holds, for a moment", async () => {
@@ -5230,7 +5256,7 @@ describe("The buttons at the top right of a row's details that open it in Anapla
     expect(opens().map(([label]) => label)).toEqual(["Condition module", "Filtered module", "App", "Page"]);
   });
 
-  it("opens the Model Building page each table of the model's settings is on, by its address in the model's tab: Time, Versions, Line Item Subsets, Actions, Source Models", async () => {
+  it("opens the Model Building page each table of the model's settings is on, asking the tab first and loading its address where the tab cannot: Time, Versions, Line Item Subsets, Actions, Source Models", async () => {
     const one = (file: string, first: string): ResultTable => ({ file, label: file.replace(/\.csv$/, ""), guard: false, headers: ["", "Notes"], rows: [[first, "Kept"]] });
     const pages: [file: string, row: string, page: string, id: string][] = [["Time Ranges.csv", "FY24 range", "Time", "9000000001"], ["Versions.csv", "Actual", "Versions", "9000000002"],
       ["Line Item Subsets.csv", "Cost lines", "Line Item Subsets", "-5"], ["Processes.csv", "Nightly load", "Actions", "-19"], ["Imports.csv", "Prices from the hub", "Actions", "-19"],
@@ -5251,8 +5277,32 @@ describe("The buttons at the top right of a row's details that open it in Anapla
     table(SETTINGS, "Model Calendar.csv");
     page.all('#tableWrap tbody [data-act="row"]')[0].press();
     expect(opens()).toEqual([["Model", "Open Time in Model Building"]]);
-    // A page is opened by its address alone: the tab is asked to open nothing inside its page, and the log says the page.
-    expect([asks(), (await openedLines()).at(-1)]).toEqual([[], "Opened the Source Models page by its address in the Anaplan tab Cardigan read, which loads Model Building afresh."]);
+    // Each page was asked of the tab first, by its ID, as a module is; the tab could not, so its address was loaded, and
+    // the log says the page and why.
+    expect(asks().map(ask => (ask as { object?: string }).object)).toEqual(pages.map(([, , , id]) => id));
+    expect((await openedLines()).at(-1)).toBe("Opened the Source Models page by its address in the Anaplan tab Cardigan read, which loads Model Building afresh: the tab shows another model.");
+  });
+
+  it("opens a settings page inside the Model Building page where the tab can, as Model Building's sidebar opens it, so that the modules and lists open there stay: the tab is only brought to the front", async () => {
+    inPage = "opened";
+    const versions: ResultTable = { file: "Versions.csv", label: "Versions", guard: false, headers: ["", "Notes"], rows: [["Actual", "Kept"]] };
+    const actions: ResultTable = { file: "Processes.csv", label: "Processes", guard: false, headers: ["", "Notes"], rows: [["Nightly load", "Kept"]] };
+    const SETTINGS: AnalysisResult = { ...OPENS, tables: [...OPENS.tables, versions, actions] };
+    await openModel(SETTINGS);
+    table(SETTINGS, "Versions.csv");
+    openRow("Actual");
+    await press("Model");
+    // The tab is asked for the page by the model's ID and the page's; it opens it, and is not sent anywhere.
+    expect(asks()).toEqual([{ type: "open", nonce: expect.any(String), model: OPENS.id, object: "9000000002" }]);
+    expect([tabUpdates, windowUpdates, tabCreates, drawerOpen()]).toEqual([[[7, { active: true }]], [[3, { focused: true }]], [], true]);
+    page.key("Escape");
+    // The Actions page, whose ID is below nought, goes the same way.
+    table(SETTINGS, "Processes.csv");
+    openRow("Nightly load");
+    await press("Model");
+    expect([asks().map(ask => (ask as { object?: string }).object), tabUpdates.at(-1)]).toEqual([["9000000002", "-19"], [7, { active: true }]]);
+    expect(await openedLines()).toEqual(["Opened the Versions page inside the Model Building page of the Anaplan tab Cardigan read: Model Building opened it beside the modules open there.",
+      "Opened the Actions page inside the Model Building page of the Anaplan tab Cardigan read: Model Building opened it beside the modules open there."]);
   });
 
   it("opens a Dynamic Cell Access row's two modules, the driver's and the controlled one, one Model where they are one", async () => {

@@ -2,6 +2,31 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version stands next to Cardigan's name at the top of the results page and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## 0.16.3 (10 October 2026)
+
+The Overview's tiles say one number each, with their table's icon, and are all the same size.
+
+- **One number on a tile.** A tile shows the number of rows its table lists, and nothing else: the line of how many rows there are in all is gone, and so is the word "rows" under the number, which only a screen reader is told. Where a table leaves rows of its file out, as Model Calendar does with the rows about the model and the settings that have no value, the line under the table's name says how many and why. (#48)
+- **The table's icon on its tile.** Each tile shows, before its table's name, the icon the navigation has for that table, for a model's tables and an app's alike. (#48)
+- **Every tile the same size.** The tiles stand in columns of one width and rows of one height, whatever their names and numbers. A name too long for its tile ends in an ellipsis, and the tile's title holds it whole. In a narrow window the tiles keep their size and flow into fewer columns. (#48)
+- **What stays the same.** A click on a tile opens its table, and what the Overview says about the export is as before. (#48)
+
+## 0.16.2 (10 October 2026)
+
+A page of the model's settings opens inside Model Building, as a module and a list do.
+
+- **Settings pages keep the tabs open in Model Building.** **Model** on a row of Model Calendar, Time Ranges, Versions, Line Item Subsets, Processes, Imports, Exports, Other Actions, Import Data Sources, Page Actions or Source Models opens its page (Time, Versions, Line Item Subsets, Actions or Source Models) inside the Model Building page the Anaplan tab shows, where it loaded the page's address, which loaded Model Building afresh and closed the modules and lists open there. Cardigan's script in the model's frame asks the frame to load the page, as the frame loads it when Model Building's own sidebar opens it; Model Building then makes it its settings tab and puts it in its address. Where the tab shows anything else, or the frame cannot, the page's address is loaded, as before, and the log says which way each went. (#46)
+
+## 0.16.1 (10 October 2026)
+
+The map opens on the functional areas its builders set, however many there are.
+
+- **The builders' groupings first.** The map opens on **Functional area** where three in five of the modules or more have one, in two areas or more, however many areas there are and however many modules each holds; and else on **Headings** where three in five or more stand under a heading row. It used to take either only with 3 to 15 sections, none holding more than half the modules, so a model with 22 functional areas opened on **Role in the data flow**. **Name prefix** keeps that test, and the role in the data flow is still the last resort. (#45)
+- **Functional areas in the order of their names.** The legend, the path's lists and the map list the areas in the order of their names, numbers as numbers ("000: Global System", "001: Users", "002: Parameters", "010: Reporting"), whatever their case, as Anaplan lists them, where they came in the order of their first modules. The modules with none are still last. (#45)
+- **A module's area found with spaces at either end.** A module is matched to its row of Modules by its name as written, and otherwise by its name without the spaces at its ends, whichever side has them, where no other module has that name. Before, only a row of Modules lost its spaces. The same holds for Module Usage. (#45)
+- **The log says how Modules met the map.** When the map's graph is first built, the run's log says how many areas the map's modules have, how many of them have one, which rows of Modules are no module of the map, and which modules of the map have no row in Modules, the first five of each, for example "Functional areas: 22 areas; 340 of the map's 352 modules have one; 0 rows of Modules are no module of the map; 2 modules of the map have no row in Modules: …". A heading row of Modules is in neither list. (#45)
+- **What stays the same.** Each module's area is its own row's; each box counts the modules and line items of its own group under the grouping shown; a switch of grouping renews the legend, the path's lists, the search and a module's details. Tests on a model of 22 areas now check each of these. (#45)
+
 ## 0.16.0 (10 October 2026)
 
 A refresh of the results page keeps how you left the result, until the tab is closed.
