@@ -6,8 +6,8 @@ Every merged change that alters the extension has a version of its own: a new fe
 
 An import's **Mapping** names a column by the file's header for it.
 
-- **The header alone.** Where an import keeps the header of the file's column that feeds a target, its **Source** reads that header and nothing else, "Product" where it read "Column headed Product" or "Column 3: Product". A column the import keeps only by its place reads "Column 3", as before, and one it keeps only by an identifier "Column with ID …".
-- **What stays the same.** The lines under the mapping, which still count the columns by their places; what is read; and the diagnostic log.
+- **The header alone.** Where an import keeps the header of the file's column that feeds a target, its **Source** reads that header and nothing else, "Product" where it read "Column headed Product" or "Column 3: Product". A column the import keeps only by its place reads "Column 3", as before, and one it keeps only by an identifier "Column with ID …". (#38)
+- **What stays the same.** The lines under the mapping, which still count the columns by their places; what is read; and the diagnostic log. (#38)
 
 ## 0.15.3 (10 October 2026)
 
