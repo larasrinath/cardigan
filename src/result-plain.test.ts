@@ -63,6 +63,13 @@ describe("A result as plain data", () => {
       expect(plainResult({ ...model, moduleIds }), JSON.stringify(moduleIds)).toEqual({ ...result, kind: "model" });
     }
     expect(plainResult({ ...result, moduleIds: model.moduleIds })).toEqual(result);
+    // So do the IDs of a model's Line Items rows, a row's own and its module's, which a module's own row has none of.
+    const lineItemIds = [["102000000001", ""], ["597000000011", "102000000001"]];
+    expect(plainResult({ ...model, lineItemIds })).toEqual({ ...model, lineItemIds });
+    for (const ids of [[["", ""]], [["5970x", "102000000001"]], [[597000000011, "102000000001"]], [["597000000011"]], [["1", "2", "3"]], "597000000011", [null]]) {
+      expect(plainResult({ ...model, lineItemIds: ids }), JSON.stringify(ids)).toEqual(model);
+    }
+    expect(plainResult({ ...result, lineItemIds })).toEqual(result);
     // So does where a model was read: an Anaplan site's origin and a customer's ID. Anything else is left out.
     const site = { origin: "https://us1a.app.anaplan.com", customer: "5555eeee6666ffff7777aaaa8888bbbb" };
     expect(plainResult({ ...model, site: { ...site, extra: "<b>" } })).toEqual({ ...model, site });

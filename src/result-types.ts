@@ -51,6 +51,11 @@ export interface AnalysisResult {
    * process's row of Processes. Empty for a model without a process; none in an app's result, in a model's whose Actions
    * list could not be read, nor in one that an earlier version kept. */
   processActions?: ProcessActions[];
+  /** The IDs of each row of a model's Line Items table, in the table's order: the row's own (the entity's long ID, in
+   * digits), and the ID of a line item's module, empty for a module's own row. The export gives them, and the content script
+   * reads the pages built on the model with them (model-pages.ts), so that the modules the pages use are not read again:
+   * it takes them off the result before the result leaves the Anaplan tab. No results page holds them. */
+  lineItemIds?: [id: string, moduleId: string][];
   /** Where a model read in Model Building is, as the Anaplan tab's address said it: the site's origin and the customer.
    * The results page opens the model's modules there, and the apps and pages built on it. None in an app's result, in a
    * model's read on the classic model page, whose address names no customer, nor in one that an earlier version kept. */

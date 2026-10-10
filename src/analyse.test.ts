@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { UxPageCardDetails } from "./card-reader/card-types.js";
-import { analyseApp, DETAILS_FILE, loadCatalog, TAB_FILES } from "./analyse.js";
+import { analyseApp, DETAILS_FILE, forgetModelHosts, loadCatalog, TAB_FILES } from "./analyse.js";
+import type { ExportedLineItems } from "./catalog.js";
 import { APP_DASH_PLAIN, APP_ROW_ON_TWO_LINES, APP_ROW_REWORDED, APP_ROWS_FOR_THE_PAGE, APP_ZIP_0_6_1, APP_ZIP_REWORDED, withAppRowsSince, withPlainDash, ZIPPED_AT } from "./golden-0.6.1.test-support.js";
 import { ANAPLAN_HOSTS, NOT_SCOPE_IDS, OTHER_HOSTS, SCOPE_IDS } from "./guards.test-support.js";
 import { assemble } from "./pieces.test-support.js";
@@ -137,6 +138,8 @@ const everyReadEnded = () => {
 
 describe("Page analyzer name loading against the live socket behaviour", () => {
   beforeEach(() => {
+    // Each test is a tab that has not seen the model yet: its first socket starts on the page's host.
+    forgetModelHosts();
     ScriptedSocket.sockets = [];
     ScriptedSocket.closing = fire => { setTimeout(fire, 0); };
     vi.stubGlobal("WebSocket", ScriptedSocket);
@@ -173,12 +176,15 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     expect(catalog.actions.get("112000000901")).toBe("Import demand");
     expect(log).toEqual(expect.arrayContaining(["model status UNKNOWN", `redirected to ${MODEL_HOST}`]));
 
+    // The import names are asked of the model's own host first, where the redirect sent the socket: cross-origin, so the
+    // XSRF cookie is not echoed (it is only to the page's own origin).
     const fetch = vi.mocked(globalThis.fetch);
     expect(fetch).toHaveBeenCalledOnce();
     const [url, init] = fetch.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe(`https://${FIRST}/a/collaboration-actions-service/workspaces/${WS}/models/${MODEL}/imports`);
-    expect(init).toMatchObject({ method: "GET", credentials: "include", mode: "same-origin", redirect: "error" });
-    expect(init.headers).toMatchObject({ "X-XSRF-TOKEN": "xsrf-value", "X-TracePath": "springboard-ui" });
+    expect(url).toBe(`https://${MODEL_HOST}/a/collaboration-actions-service/workspaces/${WS}/models/${MODEL}/imports`);
+    expect(init).toMatchObject({ method: "GET", credentials: "include", mode: "cors", redirect: "error" });
+    expect(init.headers).toMatchObject({ "X-TracePath": "springboard-ui" });
+    expect(init.headers).not.toHaveProperty("X-XSRF-TOKEN");
 
     // Read-only on both connections: subscriptions, update-subscription and disconnects only.
     const sent = ScriptedSocket.sockets.flatMap(socket => socket.frames);
@@ -186,7 +192,7 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     expect(sent.filter(frame => frame.command === "SEND").every(frame => frame.headers["action-type"] === "update-subscription")).toBe(true);
   });
 
-  it("reads import names from the model's own host when the page's host refuses, and reports a lookup that failed everywhere", async () => {
+  it("reads import names from the model's own host first, from the page's when the model's refuses, and reports a lookup that failed everywhere", async () => {
     ScriptedSocket.reply = (socket, frame) => {
       if (frame.command === "CONNECT") { socket.serve("CONNECTED\nversion:1.2\nserver:test\n\n\0"); return; }
       if (frame.command === "SEND" && frame.headers.destination === `core://${WS}:${MODEL}` && socket.host === FIRST) {
@@ -203,9 +209,19 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     expect(catalog.actions.get("112000000901")).toBe("Import demand");
     expect([notes, failedActionTypes]).toEqual([[], []]);
     const calls = vi.mocked(globalThis.fetch).mock.calls as [string, RequestInit][];
-    expect(calls.map(([url]) => new URL(url).host)).toEqual([FIRST, MODEL_HOST]);
-    expect(calls[1][1]).toMatchObject({ method: "GET", mode: "cors", credentials: "include", redirect: "error" });
-    expect(calls[1][1].headers).not.toHaveProperty("X-XSRF-TOKEN"); // the XSRF cookie is echoed only to the page's own origin
+    expect(calls.map(([url]) => new URL(url).host)).toEqual([MODEL_HOST]);
+    expect(calls[0][1]).toMatchObject({ method: "GET", mode: "cors", credentials: "include", redirect: "error" });
+    expect(calls[0][1].headers).not.toHaveProperty("X-XSRF-TOKEN"); // the XSRF cookie is echoed only to the page's own origin
+
+    // Where the model's host refuses, the page's own is asked, same-origin, with the XSRF cookie echoed.
+    ScriptedSocket.sockets = [];
+    vi.stubGlobal("fetch", answer(FIRST));
+    const fallback = await run().result;
+    expect(fallback.catalog.actions.get("112000000901")).toBe("Import demand");
+    const asked = vi.mocked(globalThis.fetch).mock.calls as [string, RequestInit][];
+    expect(asked.map(([url]) => new URL(url).host)).toEqual([MODEL_HOST, FIRST]);
+    expect(asked[1][1]).toMatchObject({ method: "GET", mode: "same-origin" });
+    expect(asked[1][1].headers).toMatchObject({ "X-XSRF-TOKEN": "xsrf-value" });
 
     ScriptedSocket.sockets = [];
     vi.stubGlobal("fetch", answer("nowhere.app.anaplan.com"));
@@ -263,6 +279,8 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
 
   it("follows a redirect to any Anaplan host", async () => {
     for (const host of ANAPLAN_HOSTS) {
+      // Each host in a tab of its own, which has not seen the model sent anywhere.
+      forgetModelHosts();
       ScriptedSocket.sockets = [];
       ScriptedSocket.reply = (socket, frame) => {
         if (frame.command === "CONNECT") socket.serve(CONNECTED);
@@ -325,7 +343,7 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     }
   });
 
-  it("reads imports, exports and processes in that order, the page's host before the model's, after the socket's notes", async () => {
+  it("reads imports, exports and processes in that order, the model's host before the page's after a redirect, after the socket's notes", async () => {
     ScriptedSocket.reply = (socket, frame) => {
       if (frame.command === "CONNECT") { socket.serve("CONNECTED\nversion:1.2\nserver:test\n\n\0"); return; }
       if (frame.command !== "SEND") return;
@@ -352,21 +370,52 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     const { catalog, notes, failedActionTypes } = await result;
 
     const path = `/a/collaboration-actions-service/workspaces/${WS}/models/${MODEL}`;
-    expect(vi.mocked(globalThis.fetch).mock.calls.map(([url]) => url)).toEqual([`https://${FIRST}${path}/imports`, `https://${FIRST}${path}/exports`,
-      `https://${MODEL_HOST}${path}/exports`, `https://${FIRST}${path}/processes`, `https://${MODEL_HOST}${path}/processes`]);
+    expect(vi.mocked(globalThis.fetch).mock.calls.map(([url]) => url)).toEqual([`https://${MODEL_HOST}${path}/imports`, `https://${MODEL_HOST}${path}/exports`,
+      `https://${FIRST}${path}/exports`, `https://${MODEL_HOST}${path}/processes`]);
     expect([...catalog.actions]).toEqual([["112000000901", "Import demand"], ["118000000901", "Nightly load"]]);
     expect(failedActionTypes).toEqual(["EXPORT"]);
     expect(notes).toEqual(["Synthetic model: list names were not available (LISTS_UNAVAILABLE).",
-      "Synthetic model: could not read the model's exports (HTTP_ERROR (HTTP 500)); their buttons show the card label."]);
+      "Synthetic model: could not read the model's exports (HTTP_ERROR (HTTP 403)); their buttons show the card label."]);
     const totals = "Synthetic model: 0 modules, 0 saved views, 0 dimensions, 0 line items (1 modules read), 2 actions";
+    // The page's host is not asked for the processes, which refuses a model it does not serve with a network error.
     expect(log.filter(line => line.startsWith("Synthetic model: "))).toEqual([
-      `Synthetic model: 1 imports named (from ${FIRST})`,
-      `Synthetic model: exports from ${FIRST} answered HTTP_ERROR (HTTP 500)`,
+      `Synthetic model: 1 imports named (from ${MODEL_HOST})`,
       `Synthetic model: exports from ${MODEL_HOST} answered HTTP_ERROR (HTTP 403)`,
-      `Synthetic model: processes from ${FIRST} answered NETWORK_ERROR`,
+      `Synthetic model: exports from ${FIRST} answered HTTP_ERROR (HTTP 500)`,
       `Synthetic model: 1 processes named (from ${MODEL_HOST})`,
       totals]);
     expect(log.at(-1)).toBe(totals);
+    // Before the totals, how long each step took, and the model's names in all.
+    expect(log.at(-2)?.replace(/\d+\.\d\d s/g, "… s")).toBe("Time: connection … s, module and list names … s, line items … s, module dimensions … s, item names … s, "
+      + "saved views … s, filter line items … s, filter item names … s, dimension names … s, action names … s; names of Synthetic model in all … s");
+  });
+
+  it("starts a later run in the tab on the host the model data service sent the model to, and asks nobody else first", async () => {
+    // The first host sends the model to its own; the model's host answers everything with no data.
+    ScriptedSocket.reply = (socket, frame) => {
+      if (frame.command === "CONNECT") socket.serve(CONNECTED);
+      else if (frame.command === "SEND" && frame.headers.destination === at("") && socket.host === FIRST) {
+        socket.serve(`ERROR\n\n${JSON.stringify({ error: "REDIRECTION_REQUIRED", fqdn: MODEL_HOST })}\0`);
+      } else if (frame.command === "SEND") socket.serve(update(frame.headers.id, { data: [] }));
+    };
+    const first = run();
+    await first.result;
+    expect(ScriptedSocket.sockets.map(socket => socket.host)).toEqual([FIRST, MODEL_HOST]);
+    // The next run of the same model goes to the model's host at once, and says so; nothing is redirected.
+    ScriptedSocket.sockets = [];
+    const next = run();
+    await next.result;
+    expect(ScriptedSocket.sockets.map(socket => socket.host)).toEqual([MODEL_HOST]);
+    expect(next.log.filter(line => /^(asking|redirected)/.test(line))).toEqual([`asking ${MODEL_HOST} first: the model data service sent this model there before`]);
+    // Another model of the tab starts on the page's host, as any model does that the tab has not seen sent elsewhere.
+    ScriptedSocket.sockets = [];
+    await run(pages, { ...scope, modelId: "0123456789ABCDEF0123456789ABCDEF" }).result;
+    expect(ScriptedSocket.sockets.map(socket => socket.host)).toEqual([FIRST]);
+    // A tab that has just been opened has not seen it, and starts on the page's host again.
+    forgetModelHosts();
+    ScriptedSocket.sockets = [];
+    await run().result;
+    expect(ScriptedSocket.sockets.map(socket => socket.host)).toEqual([FIRST, MODEL_HOST]);
   });
 
   it("asks a host once when the model is served from the page's own host", async () => {
@@ -868,8 +917,9 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     const stopped = new Error("Stopped: the results page was closed.");
     const three = [{ cards: [], references: [{ kind: "action", id: "112000000901", actionType: "IMPORT" }, { kind: "action", id: "116000000901", actionType: "EXPORT" },
       { kind: "action", id: "118000000901", actionType: "PROCESS" }] }] as unknown as UxPageCardDetails[];
-    // The model is served from its own host after a redirect, so each of the three lists is asked of the page's host and then,
-    // if that fails, of the model's. The run is stopped while the first read is under way, whether that read answers or fails.
+    // The model is served from its own host after a redirect, so each of the three lists is asked of the model's host and
+    // then, if that fails, of the page's. The run is stopped while the first read is under way, whether that read answers or
+    // fails.
     for (const answered of [200, 500]) {
       ScriptedSocket.sockets = [];
       ScriptedSocket.reply = (socket, frame) => {
@@ -883,17 +933,17 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
       const { log, result } = run(three, scope, stopping.signal);
       await expect(result, String(answered)).rejects.toBe(stopped);
       expect(vi.mocked(globalThis.fetch).mock.calls.map(([url]) => url), String(answered))
-        .toEqual([`https://${FIRST}/a/collaboration-actions-service/workspaces/${WS}/models/${MODEL}/imports`]);
+        .toEqual([`https://${MODEL_HOST}/a/collaboration-actions-service/workspaces/${WS}/models/${MODEL}/imports`]);
       // Nor is the model summed up for the log: the run has ended.
       expect(log.filter(line => line.startsWith("Synthetic model: ")).map(line => line.replace(/^Synthetic model: /, "")), String(answered))
-        .toEqual(answered === 200 ? [`0 imports named (from ${FIRST})`] : [`imports from ${FIRST} answered HTTP_ERROR (HTTP 500)`]);
+        .toEqual(answered === 200 ? [`0 imports named (from ${MODEL_HOST})`] : [`imports from ${MODEL_HOST} answered HTTP_ERROR (HTTP 500)`]);
     }
-    // Not stopped, all three lists are read: from the model's host too where the page's fails.
+    // Not stopped, all three lists are read: from the page's host too where the model's fails.
     ScriptedSocket.sockets = [];
     vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 500 })));
     await run(three, scope, new AbortController().signal).result;
     expect(vi.mocked(globalThis.fetch).mock.calls.map(([url]) => new URL(url as string).host + new URL(url as string).pathname.replace(/.*\//, "/")))
-      .toEqual([`${FIRST}/imports`, `${MODEL_HOST}/imports`, `${FIRST}/exports`, `${MODEL_HOST}/exports`, `${FIRST}/processes`, `${MODEL_HOST}/processes`]);
+      .toEqual([`${MODEL_HOST}/imports`, `${FIRST}/imports`, `${MODEL_HOST}/exports`, `${FIRST}/exports`, `${MODEL_HOST}/processes`, `${FIRST}/processes`]);
   });
 
   it("does not look for filter line items once the shown modules' line items name every filter condition", async () => {
@@ -907,6 +957,76 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
       at(`/modules/${MODULE}/dimensions/${LIST}`)]);
     expect(statuses).toEqual(["Reading names in Synthetic model…", "Reading line items in Synthetic model…", "Reading module dimensions in Synthetic model…",
       "Reading item names in Synthetic model…"]);
+  });
+
+  describe("with the line items the model's export read", () => {
+    const UNITS = "1901000000002";
+    /** The export's line items: Units in the grid's module, the rule's line item in a module no card shows, and a module
+     * with no line items. */
+    const exported = (): ExportedLineItems => ({
+      lineItems: [{ id: UNITS, name: "Units", moduleId: MODULE }, { id: FILTER_ITEM, name: "Include?", moduleId: MODULE_3, format: { dataType: "BOOLEAN" } }],
+      modules: [MODULE, MODULE_3, candidate(1)],
+    });
+    const named = (pages: UxPageCardDetails[], lineItems: ExportedLineItems) => {
+      const log: string[] = [];
+      return { log, result: loadCatalog(scope, pages, new Map(), { status: () => undefined, log: line => { log.push(line); } }, undefined, lineItems) };
+    };
+    const lineItemsLine = (log: string[]) => log.filter(line => line.startsWith("line items:"));
+
+    it("reads of their modules only one the pages use, to compare it with the listing, and the pages' other modules; the filter search has nothing to find", async () => {
+      serveModel({ [at(`/modules/${MODULE}/lineItems`)]: id => update(id, { data: [{ lineItemId: UNITS, lineItemLabel: "Units" }] }),
+        [at(`/modules/${candidate(2)}/lineItems`)]: id => update(id, { data: [{ lineItemId: LINE_ITEM, lineItemLabel: "Margin" }] }) });
+      const { log, result } = named(withGrid({ kind: "module", id: candidate(2) }), exported());
+      const { catalog, notes } = await result;
+      expect(notes).toEqual([]);
+      // The grid's module is read to compare; the module the export did not list is read as before; the rule's line item is
+      // the export's, so its module is not read, and no question is asked about the filtered dimension.
+      expect(destinations()).toEqual([at(""), MODULE_VIEWS, at("/lists"), at(`/modules/${MODULE}/lineItems`), at(`/modules/${candidate(2)}/lineItems`), at("/dimensions"),
+        at(`/modules/${MODULE}/dimensions/${LIST}`)]);
+      expect([catalog.lineItems.get(FILTER_ITEM), catalog.lineItemFormats.get(FILTER_ITEM)?.dataType, catalog.lineItems.get(LINE_ITEM), catalog.lineItems.get(UNITS)])
+        .toEqual([{ name: "Include?", moduleId: MODULE_3 }, "BOOLEAN", { name: "Margin", moduleId: candidate(2) }, { name: "Units", moduleId: MODULE }]);
+      // Every module of the export counts as read, one with no line items too.
+      expect([MODULE_3, candidate(1)].map(module => catalog.lineItemModules.has(module))).toEqual([true, true]);
+      expect(lineItemsLine(log)).toEqual([`line items: 1 named from the export, of 3 modules; 2 of the 2 modules the pages use read from the listing; `
+        + `the export and the listing agree on module ${MODULE}: 1 of 1 line items alike, by ID and name`]);
+      expect(log.at(-1)).toBe("Synthetic model: 0 modules, 0 saved views, 0 dimensions, 3 line items (2 modules read), 0 actions");
+    });
+
+    it("sets them aside where the listing differs, and reads every module the pages use as before, the filter search too", async () => {
+      serveModel({ [at(`/modules/${MODULE}/lineItems`)]: id => update(id, { data: [{ lineItemId: "1901000000099", lineItemLabel: "Units" }] }),
+        [at("/applicableModules")]: id => update(id, { data: [{ id: MODULE_3, label: "Module three" }] }),
+        [at(`/modules/${MODULE_3}/lineItems`)]: id => update(id, { data: [{ lineItemId: FILTER_ITEM, lineItemLabel: "Include?" }] }) });
+      const { log, result } = named(withGrid(), exported());
+      const { catalog } = await result;
+      // None of the export's line items is left; the listing's are there, and the search found the rule's line item.
+      expect([catalog.lineItems.get(UNITS), catalog.lineItems.get("1901000000099"), catalog.lineItems.get(FILTER_ITEM), searched()])
+        .toEqual([undefined, { name: "Units", moduleId: MODULE }, { name: "Include?", moduleId: MODULE_3 }, [MODULE_3]]);
+      expect([catalog.lineItemModules.has(candidate(1)), catalog.lineItemFormats.has(FILTER_ITEM)]).toEqual([false, false]);
+      expect(lineItemsLine(log)).toEqual([`line items: 0 named from the export, of 3 modules; 1 of the 1 modules the pages use read from the listing; `
+        + `the export and the listing differ on module ${MODULE}: 0 of 1 line items alike, by ID and name; the export's line items are set aside, `
+        + "and every module the pages use is read from the listing"]);
+      // A listing with no line item for a module the export gives some differs from it too.
+      serveModel();
+      const empty = named(withGrid(), exported());
+      await empty.result;
+      expect(lineItemsLine(empty.log).at(-1)).toContain(`differ on module ${MODULE}: 0 of 0 line items alike`);
+    });
+
+    it("keeps them when the listing refuses the module read to compare them, and reads nothing else for them", async () => {
+      serveModel({ [at(`/modules/${MODULE}/lineItems`)]: id => rejected(id, "LINE_ITEMS_UNAVAILABLE") });
+      const { log, result } = named(withGrid(), exported());
+      const { catalog } = await result;
+      expect([catalog.lineItems.get(UNITS), catalog.lineItems.get(FILTER_ITEM), destinations().filter(destination => destination.endsWith("/lineItems") || destination.endsWith("/applicableModules"))])
+        .toEqual([{ name: "Units", moduleId: MODULE }, { name: "Include?", moduleId: MODULE_3 }, [at(`/modules/${MODULE}/lineItems`)]]);
+      expect(lineItemsLine(log)).toEqual([`line items: 2 named from the export, of 3 modules; 0 of the 1 modules the pages use read from the listing; `
+        + `the listing of module ${MODULE} could not be read to compare (LINE_ITEMS_UNAVAILABLE): the export's line items are used`]);
+      // Nothing to compare where no page uses a module of theirs: each module the pages use is read.
+      serveModel();
+      const elsewhere = named([{ cards: [], references: [{ kind: "module", id: candidate(3) }] }] as unknown as UxPageCardDetails[], exported());
+      await elsewhere.result;
+      expect(lineItemsLine(elsewhere.log)).toEqual(["line items: 2 named from the export, of 3 modules; 1 of the 1 modules the pages use read from the listing; "
+        + "no page uses a module that the export listed with line items: nothing to compare"]);
+    });
   });
 
   it("reads no item names, and shows no status for them, when no grid shows or hides an item", async () => {
@@ -2068,10 +2188,11 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     const { catalog, notes } = await result;
     expect(notes).toEqual([]);
     expect(ScriptedSocket.sockets.map(socket => socket.host)).toEqual([FIRST, MODEL_HOST]);
-    // A read that ended with the connection says nothing about its module. On the model's own host those three are read,
-    // the five that the first host had answered are not read again, and the rule has its line item.
+    // A read that ended with the connection says nothing about its module. On the model's own host those three are read;
+    // the module the page shows and the five candidates that the first host had answered are not read again, and the rule
+    // has its line item.
     const read = (socket: ScriptedSocket) => socket.frames.filter(frame => frame.command === "SEND").flatMap(frame => /\/modules\/(\d+)\/lineItems$/.exec(frame.headers.destination)?.[1] ?? []);
-    expect(ScriptedSocket.sockets.map(read)).toEqual([[MODULE, ...candidates], [MODULE, ...candidates.slice(5)]]);
+    expect(ScriptedSocket.sockets.map(read)).toEqual([[MODULE, ...candidates], candidates.slice(5)]);
     expect(catalog.lineItems.get(FILTER_ITEM)).toEqual({ name: "Include?", moduleId: candidate(7) });
     // Each is still logged as a read that failed, as it always was.
     expect(log.filter(line => line.startsWith("line items of"))).toEqual(candidates.slice(5).map(module => `line items of module ${module}: REDIRECTION_REQUIRED`));
@@ -2566,6 +2687,44 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     const [page, state] = [headers.indexOf("Page"), headers.indexOf("Publish state")];
     expect(rows.map(row => [row[page], row[state]])).toEqual([["Draft", "Not published"], ["Restricted", "Not analysed: no access"]]);
     expect(rows.filter(row => row[state] === "Not published")).toHaveLength(1);
+  });
+
+  it("reads an app's pages four at a time, started in the app's order, and lists them in that order whichever is answered first", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(Date.UTC(2026, 8, 28, 1, 59, 9)));
+    const pages = Array.from({ length: 6 }, (_, index) => ({ guid: guid(4001 + index), name: `Page ${index + 1}`, pageType: "BOARD", hasPublishedVersion: true }));
+    // Each page's board waits until the test answers it; the other routes answer at once that there is no such page.
+    const boards: { page: string; answer: () => void }[] = [];
+    let [open, most] = [0, 0];
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      const path = new URL(url).pathname;
+      if (path.includes("/apps/")) return new Response(JSON.stringify({ name: "Plan", pages }), { status: 200 });
+      if (path.includes("/boards/")) {
+        most = Math.max(most, ++open);
+        await new Promise<void>(resolve => { boards.push({ page: path.split("/").pop()!, answer: resolve }); });
+        open--;
+      }
+      return new Response("{}", { status: 404 });
+    }));
+    const [statuses, logged]: string[][] = [[], []];
+    const done = analyseApp("01234567-89ab-cdef-0123-456789abcdef", { status: text => { statuses.push(text); }, log: line => { logged.push(line); } }, () => "");
+    await vi.waitFor(() => expect(boards).toHaveLength(4));
+    expect(boards.map(board => board.page)).toEqual(pages.slice(0, 4).map(page => page.guid));
+    // The third page is answered first: the fifth starts in its place, the others still waiting.
+    boards[2].answer();
+    await vi.waitFor(() => expect(boards).toHaveLength(5));
+    expect(boards[4].page).toBe(pages[4].guid);
+    // The rest are answered last first, and the sixth page as soon as it is asked.
+    for (const index of [4, 3, 1, 0]) boards[index].answer();
+    await vi.waitFor(() => expect(boards).toHaveLength(6));
+    boards[5].answer();
+    const result = await done;
+    expect([most, boards.map(board => board.page)]).toEqual([4, pages.map(page => page.guid)]);
+    expect(statuses.slice(1, 7)).toEqual(pages.map((page, index) => `Reading page ${index + 1} of 6: ${page.name}`));
+    const table = result.tables.find(each => each.file === TAB_FILES.Pages)!;
+    expect(table.rows.map(row => row[table.headers.indexOf("Page")])).toEqual(pages.map(page => page.name));
+    // The log says how long the app's record and its pages took to read, before the report is built.
+    expect(logged.filter(line => line.startsWith("Time: ")).map(line => line.replace(/\d+\.\d\d s/g, "… s"))).toEqual(["Time: app … s, 6 pages, 4 at a time … s"]);
   });
 
   it("writes each category and each model of the app on a line of its own, and the pages left unpublished on a line after those analysed", async () => {
