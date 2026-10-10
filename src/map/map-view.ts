@@ -1,4 +1,4 @@
-import type { GraphNode, ModelGraph, ModelMap, ModelMapOptions } from "./graph-types.js";
+import type { GraphNode, MapView, ModelGraph, ModelMap, ModelMapOptions } from "./graph-types.js";
 import {
   boxAround, bringIntoView, centreOn, countInView, defaultInsets, easeCamera, fitCameraIn, hitNode, insetsOf, reveal as revealIn, roomsBeside, stepFrom, toScreen, toWorld, zoomAt,
   type Area, type Camera, type Direction, type Insets, type MinimapTransform,
@@ -999,6 +999,52 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     renderChrome();
     arrange();
     renderStatus();
+    tellView();
+  }
+
+  /** Where the map is, as the page keeps it: the view, and in it the group, all modules or the module shown, by name, and
+   * which links are drawn. The groups as a whole say no group, as does a model with no groups to show. */
+  function viewNow(): MapView {
+    const drawn = access ? { access: true } : {};
+    if (view === "drill" && moduleId !== undefined) {
+      const module = model?.node(moduleId);
+      if (module) return { view: "drill", module: module.name, ...(expanded ? { others: true } : {}), ...drawn };
+    }
+    if (section !== undefined) return { view: "modules", group: section, ...drawn };
+    return { view: "modules", ...(!grouped && !single ? { all: true } : {}), ...drawn };
+  }
+
+  /** Tells the page where the map is now, each time it builds a view. What the page does with it is its own: a call that
+   * throws changes nothing here. */
+  function tellView(): void {
+    try {
+      options.onView?.(viewNow());
+    } catch { /* not kept */ }
+  }
+
+  /** Takes up where the viewer left this model's map, as the page kept it (`options.view`), before the first view is
+   * built: the links drawn, then the module shown with its line items, or the group shown, or all the modules. What the
+   * model no longer has, a module or a group of that name, is let go, and the map opens as it opens by itself. */
+  function takeView(left: MapView | undefined): void {
+    if (!model || !left || typeof left !== "object") return;
+    access = left.access === true;
+    if (left.view === "drill" && typeof left.module === "string") {
+      const module = model.modules.find(each => each.name === left.module);
+      if (module) {
+        view = "drill";
+        moduleId = module.id;
+        expanded = left.others === true;
+        return;
+      }
+    }
+    if (single) return;
+    if (typeof left.group === "string" && model.sections.includes(left.group)) {
+      section = left.group;
+      grouped = false;
+    } else if (left.all === true) {
+      section = undefined;
+      grouped = false;
+    }
   }
 
   /** Goes to a view: the selection, the hidden layers and the search start afresh there. */
@@ -1637,7 +1683,8 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   }
 
   /** What is done once, at the first showing: the model is looked up, its modules grouped, and the first view built.
-   * The grouping is the one the viewer chose last where this model has it, and otherwise the map's own pick. */
+   * The grouping is the one the viewer chose last where this model has it, and otherwise the map's own pick. The view is
+   * where the viewer left this model's map in this tab, where the page kept that (`takeView`). */
   function start(): void {
     if (model) return;
     base = indexModel(graph);
@@ -1648,6 +1695,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     // A heading row is a section of the map: the name the graph files modules under where they have none is no heading.
     const headings = base.sections.filter(name => name !== NO_HEADING).length;
     notes.innerHTML = notesHtml({ name: options.modelName, workspace: options.workspaceName, modules: base.modules.length, lineItems: base.lineItems.length, headings }, graph.limitations, graph.unresolved.length);
+    takeView(options.view);
     build();
   }
 
