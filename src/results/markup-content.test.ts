@@ -4,10 +4,10 @@ import { columnWidths, headerWidth, ROW_BUTTON, WIDEST } from "./column-widths.j
 import { columnsOf, type Column } from "./columns.js";
 import { parseMarkup, type FakeElement } from "./dom.test-support.js";
 import { cardDrawerHtml, cardDrawerSubHtml, cellHtml, colChooserHtml, colFilterHtml, FILE_ICONS, FILTER_FIND_FROM, FILTER_LISTED_MAX, filterMatches, filterOptionsHtml, filterStatusText,
-  filterTickWords, FORGOTTEN_LINE, keptCopyHtml, MAP_FAILED, MAP_LABEL, mapHtml, NAV_ICONS, navHtml, navItems, navMenuHtml, NOT_REMOVED_LINE, objectDrawerHtml, objectDrawerSubHtml, overviewHtml, pagerHtml, rowCellHtml, rowDrawerHtml, tableHtml, USES_AT_FIRST, type KeptCopy, type Links, type NavItem,
+  filterTickWords, FORGOTTEN_LINE, keptCopyHtml, MAP_FAILED, MAP_LABEL, mapHtml, NAV_ICONS, navHtml, navItems, navMenuHtml, NOT_REMOVED_LINE, objectDrawerHtml, objectDrawerSubHtml, overviewHtml, pagerHtml, rangeFilterHtml, rowCellHtml, rowDrawerHtml, tableHtml, USES_AT_FIRST, type KeptCopy, type Links, type NavItem,
   type TableView } from "./markup.js";
 import type { Overview } from "./result-view.js";
-import { NONE, pageOf, selectRows } from "./table-engine.js";
+import { dayOf, NONE, pageOf, rangeColumn, selectRows } from "./table-engine.js";
 import type { WhereUsedObject } from "./where-used-view.js";
 
 // What each piece of markup shows: the right value in the right place. markup.test.ts checks that no value can change the
@@ -381,6 +381,53 @@ describe("What the results page's markup shows", () => {
     expect([text(parseMarkup(colFilterHtml(column(2, "Applies To"), values(3), undefined, true)).querySelector(".pop-note")),
       parseMarkup(colFilterHtml(column(2, "Applies To"), values(3), undefined)).querySelectorAll(".pop-note").length])
       .toEqual(["Each item is listed on its own: a row shows when any of its items is ticked.", 0]);
+  });
+
+  it("gives a column of numbers a range: two boxes with its lowest and highest, the blank cells to keep or leave out, a line for what is wrong, and Apply", () => {
+    const read = rangeColumn([["a", "113"], ["b", "9"], ["c", ""], ["d", "2252068"]], 1, "number", true);
+    const sources = column(1, "Sources", "text", { filter: true, range: "number" });
+    const popover = parseMarkup(rangeFilterHtml(sources, read, undefined));
+    const [from, to] = [popover.querySelector("[data-rfrom]"), popover.querySelector("[data-rto]")];
+    // Two boxes for figures, each named on its left, From to have the focus first, both empty and showing an edge of the column.
+    expect([from?.getAttribute("type"), from?.getAttribute("inputmode"), from?.getAttribute("placeholder"), to?.getAttribute("placeholder"), from?.value, to?.value,
+      from?.dataset.first !== undefined, to?.dataset.first]).toEqual(["text", "decimal", "9", "2252068", "", "", true, undefined]);
+    expect([popover.querySelectorAll(".pr-field").map(field => text(field.querySelector("span"))), popover.querySelectorAll(".pop-hd").map(text)]).toEqual([["From", "To"], ["Filter: SourcesClear"]]);
+    // The line under them names both edges and says how the ends work, and each box is described by it.
+    expect([text(popover.querySelector("#rangeHint")), from?.getAttribute("aria-describedby"), to?.getAttribute("aria-describedby")])
+      .toEqual(["Lowest 9, highest 2252068. Both ends kept; leave a box empty for no end there.", "rangeHint", "rangeHint"]);
+    // The one blank cell is kept until unticked; the line for what is wrong is empty and hidden, and a screen reader hears it.
+    const problem = popover.querySelector("[data-rerr]");
+    expect([popover.querySelector("[data-rblanks]")?.checked, text(popover.querySelector(".pr-blanks .po-cnt")), problem?.hidden, problem?.getAttribute("role"), text(problem)])
+      .toEqual([true, "1 row in the whole table", true, "alert", ""]);
+    expect(popover.querySelectorAll("[data-popact]").map(button => [button.dataset.popact, text(button)])).toEqual([["clear", "Clear"], ["apply", "Apply"]]);
+    // A count's edges show with their thousands apart; a range in force writes its boxes back as typed, and its blanks as left
+    // out; a column with no blank cell has no box for them.
+    const counted = parseMarkup(rangeFilterHtml({ ...sources, kind: "count" }, read, { fromText: "10", toText: "1,000", from: 10, to: 1000, blanks: false }));
+    expect([counted.querySelector("[data-rto]")?.getAttribute("placeholder"), counted.querySelector("[data-rfrom]")?.value, counted.querySelector("[data-rto]")?.value,
+      counted.querySelector("[data-rblanks]")?.checked]).toEqual(["2,252,068", "10", "1,000", false]);
+    expect(parseMarkup(rangeFilterHtml(sources, rangeColumn([["a", "1"], ["b", "2"]], 1, "number", true), undefined)).querySelectorAll("[data-rblanks]").length).toBe(0);
+  });
+
+  it("gives a column of dates the browser's boxes for dates, held to its first and last day, and says that its times are UTC where its header does", () => {
+    const started = column(1, "Start Date and Time (UTC)", "text", { filter: true, range: "date", none: false });
+    const read = rangeColumn([["a", "2026-03-12 23:19:56"], ["b", "2026-10-09 08:00:00"]], 1, "date", false);
+    const popover = parseMarkup(rangeFilterHtml(started, read, { fromText: "2026-03-01", toText: "", from: dayOf("2026-03-01"), blanks: true }));
+    const from = popover.querySelector("[data-rfrom]");
+    expect([from?.getAttribute("type"), from?.getAttribute("min"), from?.getAttribute("max"), from?.value, popover.querySelector("[data-rto]")?.value, popover.querySelectorAll("[data-rblanks]").length])
+      .toEqual(["date", "2026-03-12", "2026-10-09", "2026-03-01", "", 0]);
+    expect(text(popover.querySelector("#rangeHint"))).toBe("The column's dates and times are UTC. Earliest 2026-03-12, latest 2026-10-09. Whole days, both ends kept; leave a box empty for no end there.");
+    // A column of dates whose header says nothing of UTC says nothing of it.
+    expect(text(parseMarkup(rangeFilterHtml({ ...started, label: "Last published" }, read, undefined)).querySelector("#rangeHint")))
+      .toBe("Earliest 2026-03-12, latest 2026-10-09. Whole days, both ends kept; leave a box empty for no end there.");
+  });
+
+  it("says on a filter's button that its filter is on, and what a range in force keeps", () => {
+    const button = (view: TableView, index: number) => parseMarkup(tableHtml(view)).querySelector(`[data-colfilter="${index}"]`);
+    const columns = columnsOf(CARDS).map(entry => ({ ...entry, filter: true }));
+    const view = viewOf(CARDS, LINKS, { columns, filtered: new Set([1, 3]), ranged: new Map([[1, "2–3"]]) });
+    expect([1, 3, 0].map(index => [button(view, index)?.getAttribute("aria-label"), button(view, index)?.title, button(view, index)?.classList.contains("active")])).toEqual([
+      ["Filter by Card # (filter on: 2–3)", "Filter by Card # (filter on: 2–3)", true], ["Filter by Card type (filter on)", "Filter by Card type (filter on)", true],
+      ["Filter by Page", "Filter by Page", false]]);
   });
 
   it("lists every column in the chooser, ticked when shown, each box carrying its own column", () => {
