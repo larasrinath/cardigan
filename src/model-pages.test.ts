@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { loadCatalog } from "./analyse.js";
 import { addActions, addLineItems, addLists, addModuleViews, emptyCatalog } from "./catalog.js";
-import { addModelPages, AT_A_TIME, exportedLineItems, NO_APPS, NO_CUSTOMER, PAGE_ACTIONS_HEADERS, PAGE_FILTERS_HEADERS, type PageReads } from "./model-pages.js";
+import { addModelPages, AT_A_TIME, exportedLineItems, NO_APPS, NO_CUSTOMER, PAGE_ACTIONS_HEADERS, PAGE_FILTERS_HEADERS, startModelPages, type PageReads } from "./model-pages.js";
 import { MODULE_USAGE_FILE, MODULE_USAGE_HEADERS, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, PAGE_PLACE_HEADERS, PAGE_ROUTES } from "./page-files.js";
 import { HEADERS, PAGE_TYPE } from "./report.js";
 import type { AnalysisResult } from "./result-types.js";
@@ -155,6 +155,8 @@ describe("The pages built on a model", () => {
     const [scope, details, names] = vi.mocked(use.reads.loadCatalog).mock.calls[0];
     expect([scope, details.map(page => page.pageGuid), [...names]]).toEqual([{ customerId: CUSTOMER, workspaceId: WS, modelId: MODEL, modelName: "Model one" },
       [PAGE_A, PAGE_B], [[PAGE_A, "Demand board"], [PAGE_B, "Supply board"]]]);
+    // Without the saved views' layouts, which only an app's Cards and Grid Sections tables show.
+    expect(vi.mocked(use.reads.loadCatalog).mock.calls[0][6]).toEqual({ viewLayouts: false });
     expect(use.status).toEqual(["Reading the pages built on this model…", "Reading the pages built on this model: 1 of 2", "Reading the pages built on this model: 2 of 2",
       "Reading the apps of the pages built on this model: 2", "Building the tables of the pages built on this model…"]);
     // The list's fields are logged, never what they hold; last, how long each read of the step took.
@@ -391,5 +393,94 @@ describe("The pages built on a model", () => {
       .toEqual([[1, "1901000000077", "-", "-"], [2, "Territory demand", "Factors", LI(9)]]);
     // Volume and Note may be the condition of the first filter: their counts are not known. Territory demand's is.
     expect(filterUses(result)).toEqual([["Demand", ""], ["Volume", ""], ["Factors", ""], ["Territory demand", 1], ["Unused", ""], ["Note", ""]]);
+  });
+});
+
+describe("The pages built on a model, read beside its export", () => {
+  const IDS = { customerId: CUSTOMER, workspaceId: WS, modelId: MODEL };
+  const begin = (use: Fake, signal?: AbortSignal, ids: Parameters<typeof startModelPages>[0] = IDS) =>
+    startModelPages(ids, { status: text => use.status.push(text), log: line => use.log.push(line) }, signal, use.reads);
+  /** The result the step makes when it reads after the export, for comparison. */
+  const after = () => run(exported(), CUSTOMER, fake(BOTH, { [PAGE_A]: demandBoard(), [PAGE_B]: supplyBoard }));
+  const tick = () => new Promise(resolve => setTimeout(resolve, 0));
+
+  it("reads the list, each page and the apps before the export has come, names them once it has, and makes the tables it makes after the export", async () => {
+    const use = fake(BOTH, { [PAGE_A]: demandBoard(), [PAGE_B]: supplyBoard });
+    const started = begin(use);
+    // The export is still being read: the pages and their apps are, too; the names wait for it.
+    await vi.waitFor(() => expect(use.asked).toEqual([PAGES, `page ${PAGE_A}`, `page ${PAGE_B}`, appRead(APP_A), appRead(APP_B)]));
+    await tick();
+    expect(use.asked).not.toContain("names");
+    // Meanwhile the export's status is the page's: this step's are kept for the log, and none is shown.
+    expect(use.status).toEqual([]);
+    const result = await started.finish(exported());
+    // Once the export has come, the step's latest status is shown, and the names are read for this model.
+    expect(use.status).toEqual(["Reading the apps of the pages built on this model: 2", "Building the tables of the pages built on this model…"]);
+    expect(use.asked.at(-1)).toBe("names");
+    expect(vi.mocked(use.reads.loadCatalog).mock.calls[0][0]).toEqual({ customerId: CUSTOMER, workspaceId: WS, modelId: MODEL, modelName: "Model one" });
+    // No saved view's layout is read: no table of a model's run shows it.
+    expect(vi.mocked(use.reads.loadCatalog).mock.calls[0][6]).toEqual({ viewLayouts: false, frameHost: undefined });
+    expect(withoutLog(result)).toEqual(withoutLog(await after()));
+    // The log says how long the export, the pages and the names took, and the run in all; the result's log says it too.
+    expect(use.log.at(-1)?.replace(/\d+\.\d\d s/g, "… s")).toBe("Run: export … s, pages … s, names … s, overlapped; in all … s");
+    expect(logOf(result).at(-1)).toBe(use.log.at(-1));
+    expect(logOf(result).slice(0, 2)).toEqual(["Reading the pages built on this model…", use.log[0]]);
+  });
+
+  it("gives up what it started when the export fails: no further page is read, and nothing is named", async () => {
+    const entries = Array.from({ length: 10 }, (_, index) => ({ guid: guid(5000 + index) }));
+    const use = fake(entries, {});
+    const pending = waiting();
+    use.reads.readPublished = pending.readPublished;
+    const started = begin(use);
+    await vi.waitFor(() => expect(pending.reads).toHaveLength(AT_A_TIME));
+    started.abandon(new Error("the export failed"));
+    for (const read of pending.reads) read.answer({ state: "Not published" });
+    await tick();
+    expect([pending.reads.length, use.asked]).toEqual([AT_A_TIME, [PAGES]]);
+    expect(use.reads.loadCatalog).not.toHaveBeenCalled();
+  });
+
+  it("stops with the run: no further page is read, and the run ends with the stop", async () => {
+    const entries = Array.from({ length: 10 }, (_, index) => ({ guid: guid(5000 + index) }));
+    const use = fake(entries, {});
+    const pending = waiting();
+    use.reads.readPublished = pending.readPublished;
+    const stop = new AbortController();
+    const started = begin(use, stop.signal);
+    await vi.waitFor(() => expect(pending.reads).toHaveLength(AT_A_TIME));
+    stop.abort(new Error("Stopped: the results page was closed."));
+    for (const read of pending.reads) read.answer({ state: "Not published" });
+    await expect(started.finish(exported())).rejects.toThrow("Stopped: the results page was closed.");
+    expect(pending.reads).toHaveLength(AT_A_TIME);
+    // A run stopped before it began reads nothing beside its export.
+    const before = fake(entries, {});
+    begin(before, AbortSignal.abort(new Error("Stopped.")));
+    await tick();
+    expect(before.asked).toEqual([]);
+  });
+
+  it("says why the tables are not there when the list of pages cannot be read while the export is", async () => {
+    const use = fake([], {});
+    use.reads.getJson = vi.fn(async () => { throw new RestError("SIGNED_OUT", 401); }) as unknown as PageReads["getJson"];
+    const started = begin(use);
+    await tick();
+    const result = await started.finish(exported());
+    expect(withoutLog(result)).toEqual(withoutPages("you're signed out of Anaplan"));
+    expect(logOf(result)).toEqual(["Reading the pages built on this model…", "pages built on the model: SIGNED_OUT (HTTP 401)"]);
+  });
+
+  it("reads after the export, as before, where the address names no workspace, or the export is of another workspace or model", async () => {
+    for (const ids of [{ customerId: CUSTOMER, modelId: MODEL }, { customerId: CUSTOMER, workspaceId: "ffffffffffffffffffffffffffffffff", modelId: MODEL },
+      { ...IDS, modelId: OTHER_MODEL }]) {
+      const use = fake(BOTH, { [PAGE_A]: demandBoard(), [PAGE_B]: supplyBoard });
+      const started = begin(use, undefined, ids);
+      await tick();
+      const result = await started.finish(exported());
+      expect(withoutLog(result), JSON.stringify(ids)).toEqual(withoutLog(await after()));
+      // The names are read for the export's workspace and model, after it.
+      expect(vi.mocked(use.reads.loadCatalog).mock.calls.at(-1)?.[0], JSON.stringify(ids)).toEqual({ customerId: CUSTOMER, workspaceId: WS, modelId: MODEL, modelName: "Model one" });
+      expect(use.log.some(line => line.startsWith("Run: ")), JSON.stringify(ids)).toBe(false);
+    }
   });
 });
