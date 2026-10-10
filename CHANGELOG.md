@@ -6,10 +6,10 @@ Every merged change that alters the extension has a version of its own: a new fe
 
 No arrow drawn as text anywhere on the page.
 
-- **The map's buttons say their words alone.** A box's details offer "Open its 15 line items", where they read "Open its 15 line items →"; so does every other button there. (#PR)
-- **Marks are drawn.** The map's path separates its parts with a chevron, as its lists draw theirs; the pager's **Previous** and **Next** each draw a chevron, and a sorted column's mark is a chevron up or down, in place of the text marks they showed. Screen readers hear the buttons' names and the header's sort, as before. (#PR)
-- **Colour stops in words.** A formatting rule's stops read "#F5A5B1 at -10; #627786 at 100,000", where they read "-10 → #F5A5B1; 100,000 → #627786", in **Conditional Formatting** and in a card's **Conditional formatting**. Each colour still has its square, the filter still lists each stop, and the search finds them as written. (#PR)
-- **What stays the same.** What is read, every other table cell for cell, and how the page sorts, filters and turns its pages. (#PR)
+- **The map's buttons say their words alone.** A box's details offer "Open its 15 line items", where they read "Open its 15 line items →"; so does every other button there. (#40)
+- **Marks are drawn.** The map's path separates its parts with a chevron, as its lists draw theirs; the pager's **Previous** and **Next** each draw a chevron, and a sorted column's mark is a chevron up or down, in place of the text marks they showed. Screen readers hear the buttons' names and the header's sort, as before. (#40)
+- **Colour stops in words.** A formatting rule's stops read "#F5A5B1 at -10; #627786 at 100,000", where they read "-10 → #F5A5B1; 100,000 → #627786", in **Conditional Formatting** and in a card's **Conditional formatting**. Each colour still has its square, the filter still lists each stop, and the search finds them as written. (#40)
+- **What stays the same.** What is read, every other table cell for cell, and how the page sorts, filters and turns its pages. (#40)
 
 ## 0.15.4 (10 October 2026)
 
