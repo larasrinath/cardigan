@@ -99,6 +99,20 @@ describe("What the tab keeps of how a result is looked at", () => {
     expect(takeTable({ filters: { Format: { u: ["Gone"] } } }, columns, after).filters).toEqual(new Map());
   });
 
+  it("keeps a column of times by the file's name for it in either zone, and a range of its days with the zone they were set in", () => {
+    // Shown in the viewer's zone, the column is "(local)"; it is kept as the file names it, and taken back in UTC.
+    const local: TableLooks["columns"] = [{ index: 0, label: "Name", hidden: false }, { index: 1, label: "Start Date and Time (local)", range: "date", hidden: false }];
+    const utc: TableLooks["columns"] = [local[0], { ...local[1], label: "Start Date and Time (UTC)" }];
+    expect(columnKeys(local)).toEqual(["Name", "Start Date and Time (UTC)"]);
+    const set: RangeState = { fromText: "2026-03-13", toText: "", from: Date.parse("2026-03-13T00:00:00Z") / 86_400_000, blanks: true, zone: "Asia/Tokyo" };
+    const kept = keepTable({ ...looks(), columns: local, hidden: new Set(), ranges: new Map([[1, set]]), sort: { column: 1, dir: "desc" } }, () => [])!;
+    expect(kept).toEqual({ ranges: { "Start Date and Time (UTC)": { from: "2026-03-13", to: "", blanks: true, zone: "Asia/Tokyo" } }, sort: { column: "Start Date and Time (UTC)", dir: "desc" } });
+    const taken = takeTable(kept, utc, () => []);
+    expect([taken.ranges.get(1), taken.sort]).toEqual([set, { column: 1, dir: "desc" }]);
+    // A range of another column, with no zone, is kept and taken back without one.
+    expect(takeTable({ ranges: { "Start Date and Time (UTC)": { from: "2026-03-13", to: "", blanks: true } } }, utc, () => []).ranges.get(1)?.zone).toBeUndefined();
+  });
+
   it("lets a range go whose ends cannot be read for the column, or that keeps every row", () => {
     const columns: TableLooks["columns"] = [{ index: 0, label: "Count", range: "number", hidden: false }, { index: 1, label: "When", range: "date", hidden: false }];
     const taken = takeTable({ ranges: { Count: { from: "ten", to: "", blanks: true }, When: { from: "", to: "", blanks: true } } }, columns, () => []);
@@ -115,12 +129,16 @@ describe("What the tab keeps of how a result is looked at", () => {
     expect(readKept(tab)).toBeUndefined();
     tab.held.set(VIEW_KEY, JSON.stringify({
       subject: "model:ABC", pageSize: 30, everyUse: "yes", search: { view: "2", text: "rev", context: 4 },
-      tables: { "Line Items.csv": { filters: { Format: { t: ["Number"] }, Bad: { t: [1] } }, ranges: { Count: { from: "1", to: "", blanks: "no" } }, sort: { column: "Format", dir: "up" }, page: -1, hidden: ["Notes"] }, Odd: 3 },
+      tables: { "Line Items.csv": { filters: { Format: { t: ["Number"] }, Bad: { t: [1] } }, ranges: { Count: { from: "1", to: "", blanks: "no" },
+        Started: { from: "2026-03-13", to: "", blanks: true, zone: "Asia/Tokyo" }, Ended: { from: "2026-03-14", to: "", blanks: true, zone: 9 } },
+        sort: { column: "Format", dir: "up" }, page: -1, hidden: ["Notes"] }, Odd: 3 },
       map: { view: "drill", module: "Revenue", others: true, access: "yes" }, drawer: { kind: "row", file: "Line Items.csv", key: "3:abc" },
     }));
+    // A range's zone is read where it is a name, and left out where it is not: the range stays, set in no zone.
     expect(readKept(tab)).toEqual({
       subject: "model:ABC", search: { view: "2", text: "rev" },
-      tables: { "Line Items.csv": { filters: { Format: { t: ["Number"] } }, ranges: {}, hidden: ["Notes"] } },
+      tables: { "Line Items.csv": { filters: { Format: { t: ["Number"] } }, ranges: { Started: { from: "2026-03-13", to: "", blanks: true, zone: "Asia/Tokyo" },
+        Ended: { from: "2026-03-14", to: "", blanks: true } }, hidden: ["Notes"] } },
       map: { view: "drill", module: "Revenue", others: true }, drawer: { kind: "row", file: "Line Items.csv", key: "3:abc" },
     });
   });
