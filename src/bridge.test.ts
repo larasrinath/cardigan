@@ -596,8 +596,8 @@ describe("Model export bridge between the Model Building page and the model's co
           dataPages: [{ startRow, rows: ids.map(() => ["", "", ""]) }] }] } }), 60_000);
         return true;
       } } } as unknown as Native;
-    /** The export of that grid, six cells at a time: the first read, then thirty pages of two rows. Half an hour, and after
-     * the line that follows the first read it has nothing to report until it is done. `asks` is whether it asks the frame's
+    /** The export of that grid, six cells at a time: the first page, of one row, then thirty pages of two rows or fewer. Half
+     * an hour, and after the line that follows the first page it has nothing to report until the grid is read. `asks` is whether it asks the frame's
      * check before each page, as the export does (model/native.ts `readGrid`). */
     let diagnostic = "";
     const reading = (asks: boolean) => async (progress: Progress, diagnostics: () => string, check: Stop) => {
@@ -623,12 +623,14 @@ describe("Model export bridge between the Model Building page and the model's co
 
     const kept = await exporting(true);
     expect(kept.outcome).toBe(60);
-    expect(reads).toEqual(["0+1", ...Array.from({ length: 30 }, (_, page) => `${page * 2}+2`)]);
-    // What keeps the page waiting is no step and no line: the page is shown nothing more, and the log the export writes
-    // into Model Details.csv has no more rows.
+    expect(reads).toEqual(["0+1", ...Array.from({ length: 29 }, (_, page) => `${1 + page * 2}+2`), "59+1"]);
+    // What keeps the page waiting between the pages is no step and no line: the page is shown nothing until the grid is
+    // read, and then how long each page took, which the log the export writes into Model Details.csv has as well.
     const logged = "Line Items: 60 rows × 3 columns; columns: Formula | Summary | Notes";
-    expect(kept.lines).toEqual(["status: Reading Line Items…", `log: ${logged}`]);
-    expect(diagnostic).toBe(`01:59:09 Reading Line Items…\r\n02:00:09 ${logged}`);
+    const took = ["Line Items: rows 0–0 in 60.00 s", ...Array.from({ length: 29 }, (_, page) => `Line Items: rows ${1 + page * 2}–${2 + page * 2} in 60.00 s`),
+      "Line Items: rows 59–59 in 60.00 s"];
+    expect(kept.lines).toEqual(["status: Reading Line Items…", `log: ${logged}`, ...took.map(line => `log: ${line}`)]);
+    expect(diagnostic).toBe([`01:59:09 Reading Line Items…`, `02:00:09 ${logged}`, ...took.map(line => `02:30:09 ${line}`)].join("\r\n"));
 
     // Read without asking before each page, as it was, the same grid is given up on five minutes after that line.
     expect((await exporting(false)).outcome).toEqual([QUIET, "the model's frame sent nothing for 300 s"]);
