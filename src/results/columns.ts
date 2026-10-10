@@ -2,7 +2,7 @@ import { FILTER_USES, MODEL_PAGE_FILES, MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PA
 import type { TabName } from "../report.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
 import { FORMAT_TYPE, LINE_ITEMS_FILE } from "./line-items-view.js";
-import { cellText, type Row } from "./table-engine.js";
+import { cellText, filterItems, type ItemsOf, type Row } from "./table-engine.js";
 
 /** The names of an app export's files, by the report table each holds. The analysis writes its files under these names
  * (analyse.ts), and whatever the page knows about one of them, here or in result-view.ts, is keyed by a name from this
@@ -18,8 +18,9 @@ export const APP_FILES: Record<TabName, string> = {
  * thousands apart. Of a model export's files the page knows only the columns that count something (`MODEL_COUNTS`), those
  * that start hidden (`MODEL_HIDDEN`) and those that always offer a filter (`MODEL_FILTERED`); the tables of the pages
  * built on a model are shown as the app's tables they are made from (`PAGE_FILE_CHOICES`). A file or a header that is
- * not listed here gets a plain text column. In any file, a column that holds only a few different texts offers a filter
- * as well, so a model's tables can be filtered too.
+ * not listed here gets a plain text column. In any file, almost every column offers a filter by what it holds as well
+ * (`offersFilter`): one with a few different texts always, and one with many unless it is a row's name or a code, free
+ * text, an ID or a measure. A column whose cells list items is filtered by each item.
  *
  * Two kinds of column start hidden in every one of the app's tables: the IDs, and what only numbers a row's place, a
  * card's number and a section's (`NUMBERS_HIDDEN`). A row says where it belongs in words, by its page and its card's
@@ -41,7 +42,7 @@ export interface Column {
   kind: ColumnKind;
   /** Right-aligned, as the design shows numbers. */
   num: boolean;
-  /** Offers a filter on its values: by the design's choice, or because it holds few enough different texts to tick. */
+  /** Offers a filter on its values: by the design's choice, or by what it holds (`offersFilter`). */
   filter: boolean;
   /** Hidden until chosen in the column chooser. */
   hidden: boolean;
@@ -150,32 +151,69 @@ const MODEL_CHOICES: ReadonlyMap<string, ReadonlyMap<string, Choice>> = new Map(
 ]);
 
 /** A column of any file offers a filter when it holds at least this many different texts and at most that many: with one
- * there is nothing to choose, and more than thirty are a list to search, not to tick. */
+ * there is nothing to choose, and up to thirty are a short list to tick. */
 export const FILTER_MIN = 2;
 export const FILTER_MAX = 30;
 
-/** For each column of a table, whether it holds few enough different texts for a filter. A cell a row does not have is
- * the blank text, as the filter lists it. Once a column has passed the most, its cells are no longer looked at. */
-function fewTexts(table: ResultTable): boolean[] {
-  const texts = table.headers.map(() => new Set<string>());
-  for (const row of table.rows) {
-    texts.forEach((seen, index) => {
-      if (seen.size <= FILTER_MAX) seen.add(cellText(row[index]));
-    });
+/** The columns that hold text written freely, which is read whole and never picked out of a list: a line item's formula,
+ * a note, a card's text. With more than thirty texts such a column offers no filter: the search finds a word in it. */
+export const FREE_TEXT: readonly string[] = ["Formula", "Notes", "Text content", "Description"];
+/** The columns of a model's grids and of an app's files that hold a measure, a time or a running number, whatever the
+ * cells look like: a module's or a line item's cells and memory, the work a line item takes, a list's items and its next
+ * index, how long an action last took and when it started, and when a page was last published. With more than thirty
+ * texts such a column offers no filter: a list of thousands of numbers to tick helps nobody. */
+export const MEASURES: readonly string[] = ["Cell Count", "Populated Cell Count", "Memory Used", "Calculation Effort", "Item Count", "Next item index",
+  "Most recent duration (ms)", "Start Date and Time (UTC)", "Last published"];
+
+/** A text that is a number or a date, however it is written: digits with their signs, separators and a percent sign, or
+ * a date that starts with its year or its day. A column of nothing else, past thirty texts, is a measure as well. */
+const NUMBER_OR_DATE = /^(?:[-+]?[\d.,\s]*\d[\d.,\s]*%?|\d{4}-\d{1,2}-\d{1,2}\b.*|\d{1,2}[/.]\d{1,2}[/.]\d{2,4}\b.*)$/;
+
+/** Whether a column offers a filter by what it holds. Each text counts once for each row it is in; in a column whose
+ * cells list items (`items`), each item counts, as its filter lists them (table-engine.ts `filterItems`).
+ * - From two to thirty different texts: always.
+ * - More than thirty: only where `wide`, and only where some text that says something stands in two rows or more, and
+ *   some such text is no number and no date. A column whose every text stands in one row alone is a name or a code of
+ *   each row, which the search finds; a column of numbers or dates is a measure.
+ * The rows are read until the answer is known: a column with many texts that repeat is known early. */
+function offersFilter(rows: readonly Row[], index: number, items: ItemsOf | undefined, wide: boolean): boolean {
+  const seen = new Set<string>();
+  let repeated = false;
+  let worded = false;
+  const read = (item: string): void => {
+    const says = item.trim() !== "";
+    if (seen.has(item)) repeated ||= says;
+    else seen.add(item);
+    if (says && !worded && !NUMBER_OR_DATE.test(item.trim())) worded = true;
+  };
+  for (const row of rows) {
+    if (items) filterItems(row, index, items).forEach(read);
+    else read(cellText(row[index]));
+    if (seen.size > FILTER_MAX && (!wide || (repeated && worded))) return wide;
   }
-  return texts.map(seen => seen.size >= FILTER_MIN && seen.size <= FILTER_MAX);
+  return seen.size >= FILTER_MIN && (seen.size <= FILTER_MAX || (wide && repeated && worded));
 }
 
-/** A table's columns, in the order of its headers. The rows must be complete: which columns offer a filter depends on them. */
-export function columnsOf(table: ResultTable): Column[] {
+/** Whether a column may offer a filter past thirty texts: every column but the row's own name, which a model's grid
+ * leaves unnamed in its first place and the search serves; free text; an ID; a number, as a count or as what the design
+ * shows as a number; and a measure. Those offer one only as any column with few texts does. */
+function wideFilter(header: string, index: number, choice: Choice): boolean {
+  if (index === 0 && header === "") return false;
+  if (FREE_TEXT.includes(header) || MEASURES.includes(header) || / IDs?$/.test(header)) return false;
+  return choice.kind !== "id" && choice.kind !== "count" && choice.num !== true;
+}
+
+/** A table's columns, in the order of its headers. The rows must be complete: which columns offer a filter depends on them.
+ * `lists` are the columns whose cells list items, by their place (cell-lists.ts): their filters read each item. */
+export function columnsOf(table: ResultTable, lists?: ReadonlyMap<number, ItemsOf>): Column[] {
   const choices = COLUMN_CHOICES.get(table.file) ?? MODEL_CHOICES.get(table.file);
-  const few = fewTexts(table);
   const none = writesNone(table);
   return table.headers.map((value, index) => {
     const header = cellText(value);
     const choice = choices?.get(header) ?? {};
     const label = header !== "" ? header : index === 0 ? "Name" : `Column ${index + 1}`;
-    return { index, label, kind: choice.kind ?? "text", num: choice.num === true, filter: choice.filter === true || few[index], hidden: choice.hidden === true, none };
+    const filter = choice.filter === true || offersFilter(table.rows, index, lists?.get(index), wideFilter(header, index, choice));
+    return { index, label, kind: choice.kind ?? "text", num: choice.num === true, filter, hidden: choice.hidden === true, none };
   });
 }
 

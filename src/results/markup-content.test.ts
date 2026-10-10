@@ -3,8 +3,8 @@ import type { Cell, ResultTable } from "../result-types.js";
 import { columnWidths, headerWidth, ROW_BUTTON, WIDEST } from "./column-widths.js";
 import { columnsOf, type Column } from "./columns.js";
 import { parseMarkup, type FakeElement } from "./dom.test-support.js";
-import { cardDrawerHtml, cardDrawerSubHtml, cellHtml, colChooserHtml, colFilterHtml, FILE_ICONS, FORGOTTEN_LINE, keptCopyHtml, MAP_FAILED, MAP_LABEL, mapHtml, NAV_ICONS, navHtml, navItems, navMenuHtml,
-  NOT_REMOVED_LINE, objectDrawerHtml, objectDrawerSubHtml, overviewHtml, pagerHtml, rowCellHtml, rowDrawerHtml, tableHtml, USES_AT_FIRST, type KeptCopy, type Links, type NavItem,
+import { cardDrawerHtml, cardDrawerSubHtml, cellHtml, colChooserHtml, colFilterHtml, FILE_ICONS, FILTER_FIND_FROM, FILTER_LISTED_MAX, filterMatches, filterOptionsHtml, filterStatusText,
+  filterTickWords, FORGOTTEN_LINE, keptCopyHtml, MAP_FAILED, MAP_LABEL, mapHtml, NAV_ICONS, navHtml, navItems, navMenuHtml, NOT_REMOVED_LINE, objectDrawerHtml, objectDrawerSubHtml, overviewHtml, pagerHtml, rowCellHtml, rowDrawerHtml, tableHtml, USES_AT_FIRST, type KeptCopy, type Links, type NavItem,
   type TableView } from "./markup.js";
 import type { Overview } from "./result-view.js";
 import { NONE, pageOf, selectRows } from "./table-engine.js";
@@ -343,6 +343,44 @@ describe("What the results page's markup shows", () => {
     const counts = [["", 1], ["12", 2], ["2252068", 1], ["n/a", 1]] as const;
     expect(parseMarkup(colFilterHtml(column(2, "Cell Count", "count"), counts, undefined)).querySelectorAll(".pop-opt").map(option => [text(option.children[1]), option.querySelector("input")?.dataset.fval]))
       .toEqual([["(blank)", "0"], ["12", "1"], ["2,252,068", "2"], ["n/a", "3"]]);
+  });
+
+  it("gives a filter of many values a box that finds them, two buttons that tick or untick what it finds, and a line that says how many", () => {
+    expect([FILTER_FIND_FROM, FILTER_LISTED_MAX]).toEqual([15, 300]);
+    /** A column's values: `count` texts, each in two rows, and a blank. */
+    const values = (count: number) => [["", 3] as const, ...Array.from({ length: count }, (_, at) => [`Store ${String(at + 1).padStart(3, "0")}`, 2] as const)];
+    // Up to fifteen values, the filter is the plain list it always was: no box, no buttons, no line.
+    const few = parseMarkup(colFilterHtml(column(2, "Store"), values(14), undefined));
+    expect([few.querySelectorAll("input[type=search]").length, few.querySelectorAll("[data-popact]").map(button => button.dataset.popact), few.querySelectorAll("[role=status]").length])
+      .toEqual([0, ["all"], 0]);
+    // More: a box to find a value, named for a screen reader and marked to have the focus first, the two buttons, and the line.
+    const many = parseMarkup(colFilterHtml(column(2, "Store"), values(40), new Set(["Store 001"])));
+    const box = many.querySelector("input[type=search]");
+    expect([box?.getAttribute("aria-label"), box?.dataset.first !== undefined, box?.dataset.ffind !== undefined]).toEqual(["Find a value of Store", true, true]);
+    expect(many.querySelectorAll("[data-popact]").map(button => [button.dataset.popact, text(button)])).toEqual([["all", "Show all"], ["tick", "Tick all"], ["untick", "Untick all"]]);
+    expect([text(many.querySelector("[role=status]")), many.querySelectorAll(".pop-opt").length]).toEqual(["41 values.", 41]);
+    // The box finds a value by its text as the list shows it, whatever the case: the blank by its word in brackets, and a
+    // count with its thousands apart. Nothing typed finds every value.
+    const stores = values(40);
+    expect([filterMatches(column(2, "Store"), stores, "store 01").length, filterMatches(column(2, "Store"), stores, "BLANK"), filterMatches(column(2, "Store"), stores, " ").length])
+      .toEqual([10, [0], 41]);
+    expect(filterMatches(column(2, "Cell Count", "count"), [["2252068", 1], ["12", 1]], "2,252")).toEqual([0]);
+    // What it finds is listed, each box with its place among all the values, ticked as the filter has it.
+    const found = parseMarkup(filterOptionsHtml(column(2, "Store"), stores, [2, 5], new Set(["Store 002"])));
+    expect(found.querySelectorAll(".pop-opt").map(option => [text(option.children[1]), option.querySelector("input")?.dataset.fval, option.querySelector("input")?.checked]))
+      .toEqual([["Store 002", "2", true], ["Store 005", "5", false]]);
+    expect([text(parseMarkup(filterOptionsHtml(column(2, "Store"), stores, [], undefined)).querySelector(".pop-empty")), filterStatusText(stores, [2, 5], "00"), filterStatusText(stores, [], "zz")])
+      .toEqual(["No value matches", "2 of 41 values match.", "0 of 41 values match."]);
+    // The buttons say what they tick: all while nothing is typed, the matches once something is.
+    expect([filterTickWords(""), filterTickWords("st")]).toEqual([["Tick all", "Untick all"], ["Tick matches", "Untick matches"]]);
+    // At most three hundred are listed at once, and the line says to type to narrow the list.
+    const most = values(450);
+    const listed = parseMarkup(colFilterHtml(column(2, "Store"), most, undefined));
+    expect([listed.querySelectorAll(".pop-opt").length, text(listed.querySelector("[role=status]"))]).toEqual([300, "451 values. The first 300 are listed: type to narrow the list."]);
+    // A column whose cells list items says how its rows are kept.
+    expect([text(parseMarkup(colFilterHtml(column(2, "Applies To"), values(3), undefined, true)).querySelector(".pop-note")),
+      parseMarkup(colFilterHtml(column(2, "Applies To"), values(3), undefined)).querySelectorAll(".pop-note").length])
+      .toEqual(["Each item is listed on its own: a row shows when any of its items is ticked.", 0]);
   });
 
   it("lists every column in the chooser, ticked when shown, each box carrying its own column", () => {
