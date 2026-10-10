@@ -2,7 +2,7 @@ import { declaredType, loadCatalog, nameDetails, readPublished, type ModelScope 
 import { describePageCards } from "./card-reader/card-details.js";
 import type { UxPageCardDetails } from "./card-reader/card-types.js";
 import type { UxPageType } from "./card-reader/definition-types.js";
-import { emptyCatalog } from "./catalog.js";
+import { emptyCatalog, type ExportedLineItems } from "./catalog.js";
 import { diagnosticRows, stampLine, type DetailRow } from "./details.js";
 import { separator } from "./map/graph-names.js";
 import { FILTER_USES, MODULE_USAGE_FILE, MODULE_USAGE_HEADERS, NOT_ON_A_PAGE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, PAGE_PLACE_HEADERS } from "./page-files.js";
@@ -11,7 +11,7 @@ import { buildReport, HEADERS, NONE, PAGE_TYPE, type Cell, type PageInput } from
 import { plainRows } from "./result-plain.js";
 import type { AnalysisResult, ResultTable } from "./result-types.js";
 import { getJson, RestError } from "./rest.js";
-import { list, message, SCOPE_ID, text, type Obj } from "./util.js";
+import { AT_A_TIME, eachAtMost, list, message, SCOPE_ID, stepTimes, text, type Obj } from "./util.js";
 
 /** The pages built on a model, read after the model's export in the Anaplan tab (content.ts), with the signed-in session
  * and GET only, as an app's pages are read (analyse.ts): Model Building's own list of the pages built on the model, each
@@ -23,8 +23,8 @@ import { list, message, SCOPE_ID, text, type Obj } from "./util.js";
 
 const DEFINITION = "/a/springboard-definition-service/";
 const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-/** As many pages, and as many apps, as are read at a time. */
-export const AT_A_TIME = 4;
+/** As many pages, and as many apps, as are read at a time: as many as a run reads of anything at a time (util.ts). */
+export { AT_A_TIME };
 /** The detail the Details file notes these reads under. */
 const ABOUT = "Pages built on the model";
 /** As many pages that could not be read as a note names. */
@@ -83,28 +83,6 @@ interface PageRows { app: string; page: string; place: Cell[]; filters: Cell[][]
 const byText = (a: string, b: string): number => a.localeCompare(b, undefined, { sensitivity: "base", numeric: true });
 const isObj = (value: unknown): value is Obj => !!value && typeof value === "object" && !Array.isArray(value);
 const rows = (count: number): string => `${count} rows`;
-
-/** Runs `work` on each item, at most `limit` at a time, starting them in the items' order. Once `signal` has stopped
- * the run, or the work on one item has failed, no further item starts, and the run ends with the stop's reason or that
- * failure. */
-async function eachAtMost<T>(items: readonly T[], limit: number, signal: AbortSignal | undefined, work: (item: T, index: number) => Promise<void>): Promise<void> {
-  let next = 0;
-  let failed = false;
-  const lane = async (): Promise<void> => {
-    try {
-      while (next < items.length && !failed) {
-        signal?.throwIfAborted();
-        const index = next++;
-        await work(items[index], index);
-      }
-    } catch (error) {
-      failed = true;
-      throw error;
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, lane));
-  signal?.throwIfAborted();
-}
 
 /** Why the pages could not be read, in a few words for a note. */
 function unreadWhy(error: unknown): string {
@@ -208,6 +186,46 @@ function moduleUsageRows(exported: readonly string[], pages: readonly PageRows[]
   return [...[...listed].flatMap(rowsOf), ...rest.flatMap(rowsOf)];
 }
 
+/** A module's ID: its entity type, 102, and nine digits more (model/export.ts `moduleIdsOf`). */
+const MODULE_ID = /^102\d{9}$/;
+
+/** The model's line items as the export read them: each row of the result's Line Items table with the IDs the export gave
+ * for it (`ids`, one pair for each row, in the table's order: the row's own ID, and the ID of a line item's module, which a
+ * module's own row has none of). A line item is named as the table names it, and its format is the table's Format, the
+ * classic client's definition, as the line items listing gives it. Every module of the table counts, one without line items
+ * too. Nothing where the IDs do not fit the table, row for row: the log says so, and the pages' names are read as before. */
+export function exportedLineItems(result: AnalysisResult, ids: readonly (readonly [string, string])[], log: (line: string) => void): ExportedLineItems | undefined {
+  const table = result.tables.find(each => each.file === "Line Items.csv");
+  if (!table || table.rows.length !== ids.length) {
+    log(`line items: the export's IDs do not fit its Line Items table (${ids.length} IDs, ${table ? `${table.rows.length} rows` : "no table"}): every module the pages use is read from the listing`);
+    return undefined;
+  }
+  const formatAt = table.headers.indexOf("Format");
+  const lineItems: ExportedLineItems["lineItems"] = [];
+  const modules = new Set<string>();
+  table.rows.forEach((row, index) => {
+    const [id, moduleId] = ids[index];
+    if (moduleId === "") {
+      if (MODULE_ID.test(id)) modules.add(id);
+      return;
+    }
+    const name = String(row[0] ?? "");
+    const cell = formatAt > 0 ? String(row[formatAt] ?? "") : "";
+    let format: Obj | undefined;
+    if (cell.startsWith("{")) {
+      try {
+        const parsed: unknown = JSON.parse(cell);
+        format = isObj(parsed) ? parsed : undefined;
+      } catch {
+        format = undefined;
+      }
+    }
+    modules.add(moduleId);
+    if (name !== "") lineItems.push({ id, name, moduleId, ...(format ? { format } : {}) });
+  });
+  return { lineItems, modules: [...modules] };
+}
+
 /** The step's own lines after the export's in the result's diagnostic log: the export wrote that log in the model's page
  * before this step began, and it is what the Overview copies, a refresh too. */
 function addLog(result: AnalysisResult, logged: readonly string[]): AnalysisResult {
@@ -219,9 +237,11 @@ function addLog(result: AnalysisResult, logged: readonly string[]): AnalysisResu
  * this export, the Line Items column, and the notes and How to read rows. `customerId` is the customer the Model Building
  * address names; without one, the tables are not made, and a note says why. The export was made before any of this is
  * read, so nothing here fails it: whatever goes wrong, but for a stop, leaves the three tables out with the reason. What
- * the step reports goes into the result's diagnostic log as well. */
+ * the step reports goes into the result's diagnostic log as well. `lineItemIds` are the IDs the export gave for the rows
+ * of its Line Items table (content.ts takes them off its result): the names the cards use are then read with the line
+ * items they make (`exportedLineItems`), and the modules of those are not read again. */
 export async function addModelPages(given: AnalysisResult, customerId: string | undefined, progress: Progress, signal?: AbortSignal,
-  reads: PageReads = LIVE): Promise<AnalysisResult> {
+  reads: PageReads = LIVE, lineItemIds?: readonly (readonly [string, string])[]): Promise<AnalysisResult> {
   signal?.throwIfAborted();
   const logged: string[] = [];
   const keep = (line: string): void => {
@@ -230,7 +250,7 @@ export async function addModelPages(given: AnalysisResult, customerId: string | 
   };
   const step: Progress = { status: text => { keep(text); progress.status(text); }, log: line => { keep(line); progress.log(line); } };
   try {
-    return addLog(await withModelPages(copied(given), customerId, step, signal, reads), logged);
+    return addLog(await withModelPages(copied(given), customerId, step, signal, reads, lineItemIds), logged);
   } catch (error) {
     if (signal?.aborted) throw signal.reason;
     step.log(`pages built on the model: ${message(error)}`);
@@ -244,14 +264,16 @@ export async function addModelPages(given: AnalysisResult, customerId: string | 
 }
 
 async function withModelPages(result: AnalysisResult, customerId: string | undefined, progress: Progress, signal: AbortSignal | undefined,
-  reads: PageReads): Promise<AnalysisResult> {
+  reads: PageReads, lineItemIds: readonly (readonly [string, string])[] | undefined): Promise<AnalysisResult> {
   const workspaceId = modelDetail(result, "Workspace ID");
   if (!customerId || !SCOPE_ID.test(customerId)) return leftOut(result, NO_CUSTOMER);
   if (!workspaceId || !SCOPE_ID.test(workspaceId) || !SCOPE_ID.test(result.id)) return leftOut(result, "the model's workspace or model ID could not be read");
 
   // A failed read ends here, and `addModelPages` says why the tables are not made.
   progress.status("Reading the pages built on this model…");
-  const answer = await reads.getJson(`${DEFINITION}customer/${customerId}/model/${result.id}/pages`);
+  /** How long each step took: the log's one line on it comes once the tables are made. */
+  const time = stepTimes();
+  const answer = await time.step("list of pages", () => reads.getJson(`${DEFINITION}customer/${customerId}/model/${result.id}/pages`));
   const listed = Array.isArray(answer) ? answer : isObj(answer) && Array.isArray(answer.items) ? answer.items : undefined;
   if (!listed) {
     progress.log(`pages built on the model: the answer has no list of pages (${typeof answer})`);
@@ -276,7 +298,7 @@ async function withModelPages(result: AnalysisResult, customerId: string | undef
   // Each page's published version, a few at a time, in the list's order. A session that has ended ends the reads.
   const read: (ReadPage | undefined)[] = new Array(items.length);
   let [done, unpublished] = [0, 0];
-  await eachAtMost(items, AT_A_TIME, signal, async (item, index) => {
+  await time.step(`${items.length} pages, ${AT_A_TIME} at a time`, () => eachAtMost(items, AT_A_TIME, signal, async (item, index) => {
     const guid = item.guid as string;
     const page = item.hasPublishedVersion === false ? { state: "Not published" } : await reads.readPublished(guid, declaredType(item), progress.log);
     progress.status(`Reading the pages built on this model: ${++done} of ${items.length}`);
@@ -290,7 +312,7 @@ async function withModelPages(result: AnalysisResult, customerId: string | undef
     } catch (error) {
       unread.push(`${text(page.native.name) ?? text(item.name) ?? guid} (${message(error)})`);
     }
-  });
+  }));
   const pages = read.filter((page): page is ReadPage => page !== undefined);
 
   // The apps of the pages, by the name each app's record gives.
@@ -299,7 +321,7 @@ async function withModelPages(result: AnalysisResult, customerId: string | undef
   const appNames = new Map<string, string>();
   let appsUnread = 0;
   if (appGuids.length) progress.status(`Reading the apps of the pages built on this model: ${appGuids.length}`);
-  await eachAtMost(appGuids, AT_A_TIME, signal, async guid => {
+  await time.step(`${appGuids.length} apps`, () => eachAtMost(appGuids, AT_A_TIME, signal, async guid => {
     try {
       const app = await reads.getJson(`${DEFINITION}apps/${guid}?includeUnpublished=true&includeReportPages=true`, { apiVersion: "2" });
       const name = text(isObj(app) ? app.name : undefined);
@@ -310,14 +332,17 @@ async function withModelPages(result: AnalysisResult, customerId: string | undef
       appsUnread++;
       progress.log(`app ${guid}: ${message(error)}`);
     }
-  });
+  }));
   const appName = (guid: string): string => appNames.get(guid.toLowerCase()) ?? guid;
 
   // The names the cards use, from this model, as an app's pages are named. The export read every module's name and ID
   // from the model itself: a module the model data service did not name is named by them.
   const scope: ModelScope = { customerId, workspaceId, modelId: result.id, modelName: result.name };
+  // The line items the export read stand for the listing's, so that the modules the cards use are not read again.
+  const exported = pages.length && lineItemIds ? exportedLineItems(result, lineItemIds, progress.log) : undefined;
   const named = pages.length
-    ? await reads.loadCatalog(scope, pages.map(page => page.details), new Map(pages.map(page => [page.details.pageGuid, page.details.name])), progress, signal)
+    ? await time.step("names", () => reads.loadCatalog(scope, pages.map(page => page.details), new Map(pages.map(page => [page.details.pageGuid, page.details.name])), progress,
+      signal, exported))
     : { catalog: emptyCatalog(), notes: [], failedActionTypes: [] };
   signal?.throwIfAborted();
   for (const [module, id] of result.moduleIds ?? []) if (!named.catalog.modules.has(id)) named.catalog.modules.set(id, module);
@@ -395,5 +420,6 @@ async function withModelPages(result: AnalysisResult, customerId: string | undef
   });
   progress.log(`pages built on the model: ${pages.length} read, ${unpublished} unpublished, ${unread.length} not read; ${apps.length} apps; `
     + `${usage.length} module usage rows, ${filters.length} page filters, ${actions.length} page actions`);
+  progress.log(time.line());
   return result;
 }

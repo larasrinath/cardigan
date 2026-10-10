@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { loadCatalog } from "./analyse.js";
 import { addActions, addLineItems, addLists, addModuleViews, emptyCatalog } from "./catalog.js";
-import { addModelPages, AT_A_TIME, NO_APPS, NO_CUSTOMER, PAGE_ACTIONS_HEADERS, PAGE_FILTERS_HEADERS, type PageReads } from "./model-pages.js";
+import { addModelPages, AT_A_TIME, exportedLineItems, NO_APPS, NO_CUSTOMER, PAGE_ACTIONS_HEADERS, PAGE_FILTERS_HEADERS, type PageReads } from "./model-pages.js";
 import { MODULE_USAGE_FILE, MODULE_USAGE_HEADERS, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, PAGE_PLACE_HEADERS, PAGE_ROUTES } from "./page-files.js";
 import { HEADERS, PAGE_TYPE } from "./report.js";
 import type { AnalysisResult } from "./result-types.js";
@@ -157,11 +157,13 @@ describe("The pages built on a model", () => {
       [PAGE_A, PAGE_B], [[PAGE_A, "Demand board"], [PAGE_B, "Supply board"]]]);
     expect(use.status).toEqual(["Reading the pages built on this model…", "Reading the pages built on this model: 1 of 2", "Reading the pages built on this model: 2 of 2",
       "Reading the apps of the pages built on this model: 2", "Building the tables of the pages built on this model…"]);
-    // The list's fields are logged, never what they hold.
-    expect(use.log).toEqual(["pages built on the model: 2 entries; their fields: appGuid, guid, name; isPageBuilder true",
-      "pages built on the model: 2 read, 0 unpublished, 0 not read; 2 apps; 4 module usage rows, 2 page filters, 2 page actions"]);
+    // The list's fields are logged, never what they hold; last, how long each read of the step took.
+    const times = (line: string) => line.replace(/\d+\.\d\d s/g, "… s");
+    expect(use.log.map(times)).toEqual(["pages built on the model: 2 entries; their fields: appGuid, guid, name; isPageBuilder true",
+      "pages built on the model: 2 read, 0 unpublished, 0 not read; 2 apps; 4 module usage rows, 2 page filters, 2 page actions",
+      "Time: list of pages … s, 2 pages, 4 at a time … s, 2 apps … s, names … s"]);
     // What the step reported follows the export's own lines in the result's diagnostic log, which the Overview copies.
-    expect(logOf(result)).toEqual([use.status[0], use.log[0], ...use.status.slice(1), use.log[1]]);
+    expect(logOf(result)).toEqual([use.status[0], use.log[0], ...use.status.slice(1), use.log[1], use.log[2]]);
     expect(detailsOf(result).filter(row => row[0] === "Diagnostics").every(row => /^\d{2}:\d{2}:\d{2}$/.test(String(row[1])))).toBe(true);
 
     // Each module in the Modules table's order, by app and page; Factors is named by the export, as the service did not name
@@ -229,6 +231,38 @@ describe("The pages built on a model", () => {
     expect(cellsOf(result, PAGE_FILTERS_FILE, "Page", "Card #", "Filtered module")).toEqual([["Mixed board", 2, "Demand"]]);
     expect(rowsOf(result, MODULE_USAGE_FILE)).toEqual([["Demand", "Another app", "Mixed board", "Board", APP_B, PAGE_C], ["Factors", "Another app", "Mixed board", "Board", APP_B, PAGE_C],
       ["Unused", "-", "Not on any page", "-", "-", "-"]]);
+  });
+
+  it("names the cards with the line items the export read: each row's IDs make a line item of its module, with the table's name and Format", async () => {
+    const result = exported();
+    const listFormat = { dataType: "ENTITY", hierarchyEntityLongId: Number(LIST) };
+    result.tables[2].rows[1][3] = JSON.stringify(listFormat);
+    result.tables[2].rows[5][3] = "{not a definition";
+    const UNUSED = "102000000903";
+    const ids: [string, string][] = [[MODULE, ""], [LI(1), MODULE], [MODULE_2, ""], [LI(9), MODULE_2], [UNUSED, ""], [LI(12), UNUSED]];
+    const lines: string[] = [];
+    const lineItems = exportedLineItems(result, ids, line => lines.push(line));
+    // A line item has its module's ID, and its format where its Format cell holds a definition; a module's own row is a
+    // module, one with no line items among them.
+    expect(lineItems).toEqual({ lineItems: [{ id: LI(1), name: "Volume", moduleId: MODULE, format: listFormat }, { id: LI(9), name: "Territory demand", moduleId: MODULE_2 },
+      { id: LI(12), name: "Note", moduleId: UNUSED }], modules: [MODULE, MODULE_2, UNUSED] });
+    // IDs that do not fit the table, row for row, give none, and the log says so: the names are read as before.
+    expect(exportedLineItems(result, ids.slice(1), line => lines.push(line))).toBeUndefined();
+    expect(exportedLineItems({ ...result, tables: result.tables.slice(0, 2) }, ids, line => lines.push(line))).toBeUndefined();
+    expect(lines).toEqual(["line items: the export's IDs do not fit its Line Items table (5 IDs, 6 rows): every module the pages use is read from the listing",
+      "line items: the export's IDs do not fit its Line Items table (6 IDs, no table): every module the pages use is read from the listing"]);
+
+    // The step hands them to the reading of the names; the result it makes is the one it makes without them.
+    const use = fake(BOTH, { [PAGE_A]: demandBoard(), [PAGE_B]: supplyBoard });
+    const added = await addModelPages(result, CUSTOMER, { status: () => undefined, log: () => undefined }, undefined, use.reads, ids);
+    expect(vi.mocked(use.reads.loadCatalog).mock.calls.map(call => call[5])).toEqual([lineItems]);
+    const without = fake(BOTH, { [PAGE_A]: demandBoard(), [PAGE_B]: supplyBoard });
+    const plain = await addModelPages(result, CUSTOMER, { status: () => undefined, log: () => undefined }, undefined, without.reads);
+    expect([vi.mocked(without.reads.loadCatalog).mock.calls.map(call => call[5]), withoutLog(added)]).toEqual([[undefined], withoutLog(plain)]);
+    // No page to name, no line items handed over.
+    const none = fake([], {});
+    await addModelPages(result, CUSTOMER, { status: () => undefined, log: () => undefined }, undefined, none.reads, ids);
+    expect(none.reads.loadCatalog).not.toHaveBeenCalled();
   });
 
   it(`reads at most ${AT_A_TIME} pages at a time, starting them in the list's order`, async () => {

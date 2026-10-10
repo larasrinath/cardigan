@@ -35,6 +35,20 @@ function readModuleIds(value: unknown): [string, string][] | undefined {
   return pairs;
 }
 
+/** A model's Line Items rows' IDs (result-types.ts `lineItemIds`): pairs of an ID of digits and a module's ID of digits or
+ * none, or nothing when anything else is there. As for the modules' IDs, a result is not refused for them: the pages
+ * built on the model are only read without them. */
+function readLineItemIds(value: unknown): [string, string][] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const pairs: [string, string][] = [];
+  for (const pair of Array.from(value as unknown[])) {
+    if (!Array.isArray(pair) || pair.length !== 2 || typeof pair[0] !== "string" || typeof pair[1] !== "string" || !/^\d{1,19}$/.test(pair[0])
+        || !/^\d{0,19}$/.test(pair[1])) return undefined;
+    pairs.push([pair[0], pair[1]]);
+  }
+  return pairs;
+}
+
 /** Where a model was read: an Anaplan site's origin, as the content scripts run on, and a customer's ID, or nothing when
  * anything else is there. As for the modules' IDs, a result is not refused for it: the page only cannot open the model's
  * modules, apps and pages by it. */
@@ -94,8 +108,9 @@ function readResult(value: unknown): AnalysisResult | undefined {
   const moduleIds = data.kind === "model" ? readModuleIds(data.moduleIds) : undefined;
   const importMappings = data.kind === "model" ? readImportMappings(data.importMappings) : undefined;
   const site = data.kind === "model" ? readSite(data.site) : undefined;
+  const lineItemIds = data.kind === "model" ? readLineItemIds(data.lineItemIds) : undefined;
   return { kind: data.kind, name: data.name, id: data.id, zipName: data.zipName, tables, summary: Array.from(data.summary, textOf), ...(moduleIds ? { moduleIds } : {}),
-    ...(importMappings ? { importMappings } : {}), ...(site ? { site } : {}) };
+    ...(importMappings ? { importMappings } : {}), ...(site ? { site } : {}), ...(lineItemIds ? { lineItemIds } : {}) };
 }
 
 /** A result received from another window, with every field checked before use and nothing else kept; undefined when it is
