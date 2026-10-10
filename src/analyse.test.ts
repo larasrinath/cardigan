@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { UxPageCardDetails } from "./card-reader/card-types.js";
-import { analyseApp, DETAILS_FILE, loadCatalog, TAB_FILES } from "./analyse.js";
+import { analyseApp, DETAILS_FILE, forgetModelHosts, loadCatalog, TAB_FILES } from "./analyse.js";
 import type { ExportedLineItems } from "./catalog.js";
 import { APP_DASH_PLAIN, APP_ROW_ON_TWO_LINES, APP_ROW_REWORDED, APP_ROWS_FOR_THE_PAGE, APP_ZIP_0_6_1, APP_ZIP_REWORDED, withAppRowsSince, withPlainDash, ZIPPED_AT } from "./golden-0.6.1.test-support.js";
 import { ANAPLAN_HOSTS, NOT_SCOPE_IDS, OTHER_HOSTS, SCOPE_IDS } from "./guards.test-support.js";
@@ -138,6 +138,8 @@ const everyReadEnded = () => {
 
 describe("Page analyzer name loading against the live socket behaviour", () => {
   beforeEach(() => {
+    // Each test is a tab that has not seen the model yet: its first socket starts on the page's host.
+    forgetModelHosts();
     ScriptedSocket.sockets = [];
     ScriptedSocket.closing = fire => { setTimeout(fire, 0); };
     vi.stubGlobal("WebSocket", ScriptedSocket);
@@ -174,12 +176,15 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     expect(catalog.actions.get("112000000901")).toBe("Import demand");
     expect(log).toEqual(expect.arrayContaining(["model status UNKNOWN", `redirected to ${MODEL_HOST}`]));
 
+    // The import names are asked of the model's own host first, where the redirect sent the socket: cross-origin, so the
+    // XSRF cookie is not echoed (it is only to the page's own origin).
     const fetch = vi.mocked(globalThis.fetch);
     expect(fetch).toHaveBeenCalledOnce();
     const [url, init] = fetch.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe(`https://${FIRST}/a/collaboration-actions-service/workspaces/${WS}/models/${MODEL}/imports`);
-    expect(init).toMatchObject({ method: "GET", credentials: "include", mode: "same-origin", redirect: "error" });
-    expect(init.headers).toMatchObject({ "X-XSRF-TOKEN": "xsrf-value", "X-TracePath": "springboard-ui" });
+    expect(url).toBe(`https://${MODEL_HOST}/a/collaboration-actions-service/workspaces/${WS}/models/${MODEL}/imports`);
+    expect(init).toMatchObject({ method: "GET", credentials: "include", mode: "cors", redirect: "error" });
+    expect(init.headers).toMatchObject({ "X-TracePath": "springboard-ui" });
+    expect(init.headers).not.toHaveProperty("X-XSRF-TOKEN");
 
     // Read-only on both connections: subscriptions, update-subscription and disconnects only.
     const sent = ScriptedSocket.sockets.flatMap(socket => socket.frames);
@@ -187,7 +192,7 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     expect(sent.filter(frame => frame.command === "SEND").every(frame => frame.headers["action-type"] === "update-subscription")).toBe(true);
   });
 
-  it("reads import names from the model's own host when the page's host refuses, and reports a lookup that failed everywhere", async () => {
+  it("reads import names from the model's own host first, from the page's when the model's refuses, and reports a lookup that failed everywhere", async () => {
     ScriptedSocket.reply = (socket, frame) => {
       if (frame.command === "CONNECT") { socket.serve("CONNECTED\nversion:1.2\nserver:test\n\n\0"); return; }
       if (frame.command === "SEND" && frame.headers.destination === `core://${WS}:${MODEL}` && socket.host === FIRST) {
@@ -204,9 +209,19 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     expect(catalog.actions.get("112000000901")).toBe("Import demand");
     expect([notes, failedActionTypes]).toEqual([[], []]);
     const calls = vi.mocked(globalThis.fetch).mock.calls as [string, RequestInit][];
-    expect(calls.map(([url]) => new URL(url).host)).toEqual([FIRST, MODEL_HOST]);
-    expect(calls[1][1]).toMatchObject({ method: "GET", mode: "cors", credentials: "include", redirect: "error" });
-    expect(calls[1][1].headers).not.toHaveProperty("X-XSRF-TOKEN"); // the XSRF cookie is echoed only to the page's own origin
+    expect(calls.map(([url]) => new URL(url).host)).toEqual([MODEL_HOST]);
+    expect(calls[0][1]).toMatchObject({ method: "GET", mode: "cors", credentials: "include", redirect: "error" });
+    expect(calls[0][1].headers).not.toHaveProperty("X-XSRF-TOKEN"); // the XSRF cookie is echoed only to the page's own origin
+
+    // Where the model's host refuses, the page's own is asked, same-origin, with the XSRF cookie echoed.
+    ScriptedSocket.sockets = [];
+    vi.stubGlobal("fetch", answer(FIRST));
+    const fallback = await run().result;
+    expect(fallback.catalog.actions.get("112000000901")).toBe("Import demand");
+    const asked = vi.mocked(globalThis.fetch).mock.calls as [string, RequestInit][];
+    expect(asked.map(([url]) => new URL(url).host)).toEqual([MODEL_HOST, FIRST]);
+    expect(asked[1][1]).toMatchObject({ method: "GET", mode: "same-origin" });
+    expect(asked[1][1].headers).toMatchObject({ "X-XSRF-TOKEN": "xsrf-value" });
 
     ScriptedSocket.sockets = [];
     vi.stubGlobal("fetch", answer("nowhere.app.anaplan.com"));
@@ -264,6 +279,8 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
 
   it("follows a redirect to any Anaplan host", async () => {
     for (const host of ANAPLAN_HOSTS) {
+      // Each host in a tab of its own, which has not seen the model sent anywhere.
+      forgetModelHosts();
       ScriptedSocket.sockets = [];
       ScriptedSocket.reply = (socket, frame) => {
         if (frame.command === "CONNECT") socket.serve(CONNECTED);
@@ -326,7 +343,7 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     }
   });
 
-  it("reads imports, exports and processes in that order, the page's host before the model's, after the socket's notes", async () => {
+  it("reads imports, exports and processes in that order, the model's host before the page's after a redirect, after the socket's notes", async () => {
     ScriptedSocket.reply = (socket, frame) => {
       if (frame.command === "CONNECT") { socket.serve("CONNECTED\nversion:1.2\nserver:test\n\n\0"); return; }
       if (frame.command !== "SEND") return;
@@ -353,21 +370,49 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     const { catalog, notes, failedActionTypes } = await result;
 
     const path = `/a/collaboration-actions-service/workspaces/${WS}/models/${MODEL}`;
-    expect(vi.mocked(globalThis.fetch).mock.calls.map(([url]) => url)).toEqual([`https://${FIRST}${path}/imports`, `https://${FIRST}${path}/exports`,
-      `https://${MODEL_HOST}${path}/exports`, `https://${FIRST}${path}/processes`, `https://${MODEL_HOST}${path}/processes`]);
+    expect(vi.mocked(globalThis.fetch).mock.calls.map(([url]) => url)).toEqual([`https://${MODEL_HOST}${path}/imports`, `https://${MODEL_HOST}${path}/exports`,
+      `https://${FIRST}${path}/exports`, `https://${MODEL_HOST}${path}/processes`]);
     expect([...catalog.actions]).toEqual([["112000000901", "Import demand"], ["118000000901", "Nightly load"]]);
     expect(failedActionTypes).toEqual(["EXPORT"]);
     expect(notes).toEqual(["Synthetic model: list names were not available (LISTS_UNAVAILABLE).",
-      "Synthetic model: could not read the model's exports (HTTP_ERROR (HTTP 500)); their buttons show the card label."]);
+      "Synthetic model: could not read the model's exports (HTTP_ERROR (HTTP 403)); their buttons show the card label."]);
     const totals = "Synthetic model: 0 modules, 0 saved views, 0 dimensions, 0 line items (1 modules read), 2 actions";
+    // The page's host is not asked for the processes, which refuses a model it does not serve with a network error.
     expect(log.filter(line => line.startsWith("Synthetic model: "))).toEqual([
-      `Synthetic model: 1 imports named (from ${FIRST})`,
-      `Synthetic model: exports from ${FIRST} answered HTTP_ERROR (HTTP 500)`,
+      `Synthetic model: 1 imports named (from ${MODEL_HOST})`,
       `Synthetic model: exports from ${MODEL_HOST} answered HTTP_ERROR (HTTP 403)`,
-      `Synthetic model: processes from ${FIRST} answered NETWORK_ERROR`,
+      `Synthetic model: exports from ${FIRST} answered HTTP_ERROR (HTTP 500)`,
       `Synthetic model: 1 processes named (from ${MODEL_HOST})`,
       totals]);
     expect(log.at(-1)).toBe(totals);
+  });
+
+  it("starts a later run in the tab on the host the model data service sent the model to, and asks nobody else first", async () => {
+    // The first host sends the model to its own; the model's host answers everything with no data.
+    ScriptedSocket.reply = (socket, frame) => {
+      if (frame.command === "CONNECT") socket.serve(CONNECTED);
+      else if (frame.command === "SEND" && frame.headers.destination === at("") && socket.host === FIRST) {
+        socket.serve(`ERROR\n\n${JSON.stringify({ error: "REDIRECTION_REQUIRED", fqdn: MODEL_HOST })}\0`);
+      } else if (frame.command === "SEND") socket.serve(update(frame.headers.id, { data: [] }));
+    };
+    const first = run();
+    await first.result;
+    expect(ScriptedSocket.sockets.map(socket => socket.host)).toEqual([FIRST, MODEL_HOST]);
+    // The next run of the same model goes to the model's host at once, and says so; nothing is redirected.
+    ScriptedSocket.sockets = [];
+    const next = run();
+    await next.result;
+    expect(ScriptedSocket.sockets.map(socket => socket.host)).toEqual([MODEL_HOST]);
+    expect(next.log.filter(line => /^(asking|redirected)/.test(line))).toEqual([`asking ${MODEL_HOST} first: the model data service sent this model there before`]);
+    // Another model of the tab starts on the page's host, as any model does that the tab has not seen sent elsewhere.
+    ScriptedSocket.sockets = [];
+    await run(pages, { ...scope, modelId: "0123456789ABCDEF0123456789ABCDEF" }).result;
+    expect(ScriptedSocket.sockets.map(socket => socket.host)).toEqual([FIRST]);
+    // A tab that has just been opened has not seen it, and starts on the page's host again.
+    forgetModelHosts();
+    ScriptedSocket.sockets = [];
+    await run().result;
+    expect(ScriptedSocket.sockets.map(socket => socket.host)).toEqual([FIRST, MODEL_HOST]);
   });
 
   it("asks a host once when the model is served from the page's own host", async () => {
@@ -869,8 +914,9 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     const stopped = new Error("Stopped: the results page was closed.");
     const three = [{ cards: [], references: [{ kind: "action", id: "112000000901", actionType: "IMPORT" }, { kind: "action", id: "116000000901", actionType: "EXPORT" },
       { kind: "action", id: "118000000901", actionType: "PROCESS" }] }] as unknown as UxPageCardDetails[];
-    // The model is served from its own host after a redirect, so each of the three lists is asked of the page's host and then,
-    // if that fails, of the model's. The run is stopped while the first read is under way, whether that read answers or fails.
+    // The model is served from its own host after a redirect, so each of the three lists is asked of the model's host and
+    // then, if that fails, of the page's. The run is stopped while the first read is under way, whether that read answers or
+    // fails.
     for (const answered of [200, 500]) {
       ScriptedSocket.sockets = [];
       ScriptedSocket.reply = (socket, frame) => {
@@ -884,17 +930,17 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
       const { log, result } = run(three, scope, stopping.signal);
       await expect(result, String(answered)).rejects.toBe(stopped);
       expect(vi.mocked(globalThis.fetch).mock.calls.map(([url]) => url), String(answered))
-        .toEqual([`https://${FIRST}/a/collaboration-actions-service/workspaces/${WS}/models/${MODEL}/imports`]);
+        .toEqual([`https://${MODEL_HOST}/a/collaboration-actions-service/workspaces/${WS}/models/${MODEL}/imports`]);
       // Nor is the model summed up for the log: the run has ended.
       expect(log.filter(line => line.startsWith("Synthetic model: ")).map(line => line.replace(/^Synthetic model: /, "")), String(answered))
-        .toEqual(answered === 200 ? [`0 imports named (from ${FIRST})`] : [`imports from ${FIRST} answered HTTP_ERROR (HTTP 500)`]);
+        .toEqual(answered === 200 ? [`0 imports named (from ${MODEL_HOST})`] : [`imports from ${MODEL_HOST} answered HTTP_ERROR (HTTP 500)`]);
     }
-    // Not stopped, all three lists are read: from the model's host too where the page's fails.
+    // Not stopped, all three lists are read: from the page's host too where the model's fails.
     ScriptedSocket.sockets = [];
     vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 500 })));
     await run(three, scope, new AbortController().signal).result;
     expect(vi.mocked(globalThis.fetch).mock.calls.map(([url]) => new URL(url as string).host + new URL(url as string).pathname.replace(/.*\//, "/")))
-      .toEqual([`${FIRST}/imports`, `${MODEL_HOST}/imports`, `${FIRST}/exports`, `${MODEL_HOST}/exports`, `${FIRST}/processes`, `${MODEL_HOST}/processes`]);
+      .toEqual([`${MODEL_HOST}/imports`, `${FIRST}/imports`, `${MODEL_HOST}/exports`, `${FIRST}/exports`, `${MODEL_HOST}/processes`, `${FIRST}/processes`]);
   });
 
   it("does not look for filter line items once the shown modules' line items name every filter condition", async () => {

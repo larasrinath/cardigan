@@ -85,11 +85,24 @@ export async function readPublished(guid: string, declared: UxPageType | undefin
   return { state: problem ? `Not analysed: ${problem}` : "Not published" };
 }
 
-/** `work` gets the host that finally served the model, after any redirect. A run that `signal` has stopped opens no socket,
- * and one stopped while its socket connects closes it at once, without waiting for the service to answer: nothing is
- * subscribed to for a stopped run. */
-async function withSocket<T>(customerId: string, log: Log, signal: AbortSignal | undefined, work: (connection: StompConnection, host: string) => Promise<T>): Promise<T> {
-  let host = location.host;
+/** The host the model data service sent each model to, by its workspace and model, as this tab has seen it: a later run
+ * starts its socket there, and asks the actions service there first (`readActionNames`), instead of being sent there again.
+ * It lasts as long as the content script, in this tab only, and is kept nowhere. */
+const modelHosts = new Map<string, string>();
+const hostKey = (scope: ModelScope): string => `${scope.workspaceId}:${scope.modelId}`.toUpperCase();
+/** Forgets where each model was found, as a tab that has just been opened has never seen it: a test starts so. */
+export function forgetModelHosts(): void {
+  modelHosts.clear();
+}
+
+/** `work` gets the host that finally served the model, after any redirect. The socket starts on the host the service sent
+ * this model to in an earlier run in this tab, where there was one, and on the page's own otherwise. A run that `signal`
+ * has stopped opens no socket, and one stopped while its socket connects closes it at once, without waiting for the
+ * service to answer: nothing is subscribed to for a stopped run. */
+async function withSocket<T>(scope: ModelScope, log: Log, signal: AbortSignal | undefined, work: (connection: StompConnection, host: string) => Promise<T>): Promise<T> {
+  const key = hostKey(scope);
+  let host = modelHosts.get(key) ?? location.host;
+  if (host !== location.host) log(`asking ${host} first: the model data service sent this model there before`);
   for (let attempt = 0; attempt < 2; attempt++) {
     signal?.throwIfAborted();
     const session = crypto.randomUUID();
@@ -98,7 +111,7 @@ async function withSocket<T>(customerId: string, log: Log, signal: AbortSignal |
     try {
       connection = await StompConnection.open(url, {
         "enabled-features": "", "accept-language": navigator.language || "en", "close-mode": "error-frame", "page-visible": "true",
-        ...(customerId ? { "anaplan-customer": customerId } : {}),
+        ...(scope.customerId ? { "anaplan-customer": scope.customerId } : {}),
       }, log, signal);
       signal?.throwIfAborted();
       return await work(connection, host);
@@ -106,6 +119,7 @@ async function withSocket<T>(customerId: string, log: Log, signal: AbortSignal |
       if (attempt === 0 && error instanceof StompError && error.code === "REDIRECTION_REQUIRED" && error.fqdn && ANAPLAN_HOST.test(error.fqdn)) {
         log(`redirected to ${error.fqdn}`);
         host = error.fqdn;
+        modelHosts.set(key, host);
         continue;
       }
       throw error;
@@ -173,9 +187,9 @@ export function addDerivedContextSelectors(details: UxPageCardDetails, catalog: 
 }
 
 /** Import, export and process names. A model in another data centre is served from its own host: the page's host
- * answered the first live run with a redirect, which a same-origin read refuses (a network error). `modelHost` is the
- * host the model data service settled on, when it connected. A run that `signal` has stopped reads no further list: the
- * stop is rethrown. */
+ * answered the first live run with a redirect, which a same-origin read refuses (a network error, after a wait). So each
+ * list is asked first of `modelHost`, the host the model data service settled on, when it connected, and only then, if
+ * that fails, of the page's own. A run that `signal` has stopped reads no further list: the stop is rethrown. */
 async function readActionNames(scope: ModelScope, refs: readonly UxEntityRef[], modelHost: string | undefined, catalog: ModelCatalog,
   progress: Progress, signal?: AbortSignal): Promise<{ notes: string[]; failedActionTypes: string[] }> {
   const { workspaceId: ws, modelId: model } = scope;
@@ -185,7 +199,7 @@ async function readActionNames(scope: ModelScope, refs: readonly UxEntityRef[], 
   for (const [type, key] of [["IMPORT", "imports"], ["EXPORT", "exports"], ["PROCESS", "processes"]] as const) {
     if (!actionTypes.has(type)) continue;
     const path = `/a/collaboration-actions-service/workspaces/${ws}/models/${model}/${key}`;
-    const hosts = [...new Set([location.host, ...(modelHost ? [modelHost] : [])])];
+    const hosts = [...new Set([...(modelHost ? [modelHost] : []), location.host])];
     let problem: string | undefined;
     for (const host of hosts) {
       signal?.throwIfAborted();
@@ -809,7 +823,7 @@ export async function loadCatalog(scope: ModelScope, pages: readonly UxPageCardD
   }
 
   try {
-    await withSocket(scope.customerId, progress.log, signal, async (connection, host) => {
+    await withSocket(scope, progress.log, signal, async (connection, host) => {
       modelHost = host;
       let status = "not reported yet";
       let stop: (error: Error) => void = () => undefined;
