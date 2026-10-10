@@ -1,7 +1,7 @@
 import { DETAILS_HEADERS, diagnosticRows, exportRows, type DetailRow } from "../details.js";
 import { Failure, SEND_LOG, type Log, type Progress, type Stop } from "../progress.js";
 import { plainRows } from "../result-plain.js";
-import type { AnalysisResult, ImportMapping, ResultTable } from "../result-types.js";
+import type { AnalysisResult, ImportMapping, ProcessActions, ResultTable } from "../result-types.js";
 import { fileSafe, message, text } from "../util.js";
 import { ACCESS_LABEL, accessTable } from "./access.js";
 import { actionKind, mergeImports, missingActionColumns, otherActionsTable, type ActionKind } from "./actions.js";
@@ -10,6 +10,7 @@ import { gridTable, type Grid, type GridRow, type Table } from "./grid.js";
 import { fileImports, IMPORT_DEFINITION, importMappings, importNames, importsLine } from "./import-mappings.js";
 import { lineItemsTable } from "./lineitems.js";
 import { axis, loadNative, readGrid, typeIndex, type Native } from "./native.js";
+import { PROCESS_DEFINITION, processActions, processesLine } from "./process-actions.js";
 
 /** One table per Model settings grid, laid out as Anaplan's own export of that grid (compared with exports from Model
  * settings, 28 Sep 2026): the Actions list split at its headings with its imports merged into the Imports tab (actions.ts),
@@ -188,6 +189,26 @@ export async function exportModel(progress: Progress, diagnostics: () => string,
   }
   const ofKind = (kind: ActionKind) => (row: GridRow) => kinds.get(row) === kind;
   if (actions) add("Processes", gridTable(actions, ofKind("process")));
+  // Each process with the actions it runs, in their order, out of its own definition (process-actions.ts): one grid more,
+  // read only where the Actions list names a process, as the imports' definitions are read only where the Imports tab
+  // names an import from a file. It is no table, and its failure is none: the Processes table stands as it is, each
+  // process says that its actions could not be read, and the log says why. The result carries the processes once the
+  // Actions list was read, none or not: a result without them is one an earlier version made.
+  let processes: ProcessActions[] | undefined;
+  const own = actions?.rows.filter(ofKind("process")) ?? [];
+  if (actions) processes = [];
+  if (actions && own.length) {
+    log(processesLine(own.length));
+    progress.status("Reading Process actions…");
+    let definitions: Grid | undefined;
+    try {
+      definitions = await grid("Process actions", axis(native, "PROCESS"), axis(native, "PROCESS_PROPERTY"));
+    } catch (error) {
+      log(`Process actions: ${message(error)}`);
+    }
+    const column = native.constants.SYSTEM_PROPERTY_PROCESS_DEFINITION;
+    processes = processActions(own, definitions, actions.rows, log, typeof column === "number" ? column : PROCESS_DEFINITION);
+  }
   // The Imports tab is kept for the mappings of the imports from a file, which it names.
   const imports = await step("Imports", async () => {
     const tab = await grid("Imports", axis(native, "IMPORT_ALL"), axis(native, "IMPORT_DEFINITION_PROPERTY"));
@@ -281,5 +302,6 @@ export async function exportModel(progress: Progress, diagnostics: () => string,
   tables.unshift({ file: "Model Details.csv", label: "Model Details", headers: [...DETAILS_HEADERS], rows: plainRows(details), guard: true, details: true });
   const date = new Date().toISOString().slice(0, 10);
   return { kind: "model", name: model, id: native.modelId, zipName: `${fileSafe(model, "model")} - Model Export - ${date}.zip`, tables,
-    summary: [...summary, ...notes], moduleIds, ...(mappings ? { importMappings: mappings } : {}), ...(lineItemIds ? { lineItemIds } : {}) };
+    summary: [...summary, ...notes], moduleIds, ...(mappings ? { importMappings: mappings } : {}), ...(processes ? { processActions: processes } : {}),
+    ...(lineItemIds ? { lineItemIds } : {}) };
 }
