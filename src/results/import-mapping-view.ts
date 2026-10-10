@@ -1,15 +1,17 @@
 import { readsFile, SOURCE_TYPE } from "../file-imports.js";
 import { readImportMappings } from "../result-plain.js";
-import type { AnalysisResult, ImportMapping, ItemMatch, MappedTarget, ResultTable } from "../result-types.js";
+import type { AnalysisResult, ImportMapping, ItemMatch, MappedSource, MappedTarget, ResultTable } from "../result-types.js";
 import { columnIndex } from "./columns.js";
 import { IMPORTS_FILE } from "./result-view.js";
 import { cellText, type Row } from "./table-engine.js";
 
 /** The mapping of an import from a file, as the details of its row of a model's Imports show it, under All columns: each
- * target of the import with what feeds it, then what the mapping says of the columns it does not use. It is the import's
- * own definition, which the export read (model/import-mappings.ts), so an import whose file is no longer available shows
- * it as well. No word here names a file: the page names none (no-file.test-support.ts), and says "column" and "the header
- * row" where the dialog says file's columns.
+ * source that feeds a target of the import, with the target it feeds, the columns first and in their order; then a line
+ * that names the targets nothing feeds, and what the mapping says of the columns it does not use. The source comes first
+ * because the import is read from its source: a target that nothing feeds is no row, with nothing in its Source, but a
+ * name in that line. It is the import's own definition, which the export read (model/import-mappings.ts), so an import
+ * whose file is no longer available shows it as well. No word here names a file: the page names none
+ * (no-file.test-support.ts), and says "column" and "the header row" where the dialog says file's columns.
  *
  * Which columns an import does not use can be said up to the last column it maps, and no further. The definition keeps
  * its columns by their places, and some by their headings alone, and nothing of the file: not how many columns it has,
@@ -20,11 +22,11 @@ import { cellText, type Row } from "./table-engine.js";
  * Above the rows of an import into a list stands how it tells the list's items apart, in the dialog's own words: that is
  * why a list's Name, Parent or Code may rightly be fed by nothing. */
 
-/** A mapping as the drawer shows it: for an import into a list, how it tells the list's items apart, above; a row of Target
- * and Source for each target; then lines under them. */
+/** A mapping as the drawer shows it: for an import into a list, how it tells the list's items apart, above; a row of Source
+ * and Target for each source and a target it feeds; then lines under them. */
 export interface MappingView {
   match?: string;
-  rows: [target: string, source: string][];
+  rows: [source: string, target: string][];
   lines: string[];
 }
 
@@ -95,6 +97,61 @@ export function matchWords(match: ItemMatch): string {
 /** Names as the page says them, in order: "Product", "Product and Location", "Product, Location and Expiry Date". */
 const listWords = (names: readonly string[]): string => (names.length < 2 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`);
 
+/** The kinds of source that feed a target from outside the columns, in the order the mapping lists them after the columns:
+ * a source of a kind Cardigan does not know comes last. */
+const NOT_COLUMNS: readonly MappedSource[] = ["constant", "prompt", "headerRow", "other"];
+
+/** The kinds of target that nothing feeds: one not mapped, one the import ignores, and the items' names of a list that
+ * numbers its items itself; each with what the line under the mapping says of it in brackets, where there is more to say. */
+const UNFED: ReadonlyMap<MappedSource, string | undefined> = new Map<MappedSource, string | undefined>([
+  ["none", undefined], ["ignore", "ignored"], ["numbered", "the list numbers its items itself"]]);
+
+/** A heading as the dialog matches one with the header row: without the spaces around it, and in any case. */
+const headingKey = (text: string): string => text.trim().toLowerCase();
+
+/** The rows of a mapping, Source then Target. First each column that feeds a target, with every target it feeds together:
+ * the columns with a place in their order, then the others in the definition's. A column kept by its heading alone is the
+ * column of that heading where another target gives its place, and stands with it. Each row of a column says it as the
+ * best of its targets does: by the header a target with its place keeps, else by any header kept for it. Then the constants, the prompts, the header row and any
+ * source of another kind, each kind in the definition's order. A target that nothing feeds has no row. */
+function sourceRows(targets: readonly MappedTarget[]): [string, string][] {
+  const columns = targets.filter(target => target.source === "column");
+  const placeOf = new Map<string, number>();
+  for (const target of columns) {
+    if (target.column !== undefined && said(target.text) && !placeOf.has(headingKey(target.text))) placeOf.set(headingKey(target.text), target.column);
+  }
+  const groups = new Map<string, { place?: number; first: number; targets: MappedTarget[] }>();
+  columns.forEach((target, index) => {
+    const place = target.column ?? (said(target.text) ? placeOf.get(headingKey(target.text)) : undefined);
+    // A column is one by its place, else by its heading, else by its identifier; one with none of them stands alone.
+    const key = place !== undefined ? `#${place}` : said(target.text) ? `h ${headingKey(target.text)}` : said(target.id) ? `i ${target.id.trim()}` : `n ${index}`;
+    const group = groups.get(key);
+    if (group) group.targets.push(target);
+    else groups.set(key, { ...(place !== undefined ? { place } : {}), first: index, targets: [target] });
+  });
+  // A column without a place comes after those with one: two without one stand in the order of the definition.
+  const ordered = [...groups.values()].sort((a, b) => (a.place ?? Infinity) - (b.place ?? Infinity) || a.first - b.first);
+  const rows = ordered.flatMap(group => {
+    const words = sourceWords(group.targets.find(target => target.column !== undefined && said(target.text))
+      ?? group.targets.find(target => said(target.text)) ?? group.targets[0]);
+    return group.targets.map((target): [string, string] => [words, target.target]);
+  });
+  for (const kind of NOT_COLUMNS) {
+    for (const target of targets) if (target.source === kind) rows.push([sourceWords(target), target.target]);
+  }
+  return rows;
+}
+
+/** The line under a mapping that names the targets nothing feeds, in the definition's order, each with why where there is
+ * more to say than that; none where every target has a source. */
+export function unfedLine(targets: readonly MappedTarget[]): string | undefined {
+  const unfed = targets.filter(target => UNFED.has(target.source)).map(target => {
+    const why = UNFED.get(target.source);
+    return why ? `${target.target} (${why})` : target.target;
+  });
+  return unfed.length ? `Not mapped: ${listWords(unfed)}.` : undefined;
+}
+
 /** What the mapping says of the columns it does not use: those before the last column it maps that no target takes, and
  * that what lies after that column is not known. A target that gives no place for its column could take any column, so
  * where there is one the columns no number takes may be used after all; and where none gives a place, nothing can be said
@@ -136,7 +193,8 @@ export function mappingView(mapping: ImportMapping | undefined): MappingView {
   }
   const match = mapping.matchedBy ? { match: matchWords(mapping.matchedBy) } : {};
   if (!mapping.targets.length) return { ...match, rows: [], lines: ["The import's definition maps no target."] };
-  return { ...match, rows: mapping.targets.map((target): [string, string] => [target.target, sourceWords(target)]), lines: columnLines(mapping.targets) };
+  const unfed = unfedLine(mapping.targets);
+  return { ...match, rows: sourceRows(mapping.targets), lines: [...(unfed === undefined ? [] : [unfed]), ...columnLines(mapping.targets)] };
 }
 
 /** The mapping for a row of a model's Imports, where its Source Type says that it reads a file (file-imports.ts

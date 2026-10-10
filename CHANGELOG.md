@@ -14,6 +14,14 @@ A model's run reads its pages and names while it reads its settings, and spares 
 - **Timings.** The model's names have a line for any time they waited for the settings, and a last line of the log says how long the settings, the pages and the names took, and the run in all: "Run: export … s, pages … s, names … s, overlapped; in all … s". (#42)
 - **What stays the same.** The tables, cell for cell; at most four reads at a time of each kind; read-only reads; a closed results page still stops the run between reads; a run that names no workspace in its address, such as the classic model page opened on its own, reads its pages after the settings, as before. (#42)
 
+## 0.15.7 (10 October 2026)
+
+An import's **Mapping** reads from the source to the target.
+
+- **The source first.** Each row of **Mapping** is a source and the target it feeds, **Source** then **Target**: the file's columns first, by their headers, in the file's order where the import gives the columns' places, then the constants, the prompts and the header row. A column that feeds two targets has a row for each, together. (#41)
+- **No empty sources.** A target that nothing feeds is no longer a row reading "Not mapped": one line under the table names every such target, "Not mapped: Parent and Code", with why in brackets where there is more to say, "(the list numbers its items itself)" or "(ignored)". (#41)
+- **What stays the same.** What is read, the line above the table on how a list's items are told apart, the lines on the columns not used, and the diagnostic log.
+
 ## 0.15.6 (10 October 2026)
 
 No arrow drawn as text anywhere on the page.

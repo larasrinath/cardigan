@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AnalysisResult, ImportMapping, ItemMatch, MappedTarget, ResultTable } from "../result-types.js";
-import { columnLines, mappingOfRow, mappingView, matchWords, NO_MAPPING, numbersWords, sourceWords } from "./import-mapping-view.js";
+import { columnLines, mappingOfRow, mappingView, matchWords, NO_MAPPING, numbersWords, sourceWords, unfedLine } from "./import-mapping-view.js";
 import { fileView } from "./result-view.js";
 
 // Mappings as the model export reads them out of an import's definition (model/import-mappings.ts). The first import is
@@ -40,17 +40,18 @@ describe("An import's mapping, in the drawer's words", () => {
       "Items uniquely identified by: Combination of properties, with none chosen."]);
   });
 
-  it("shows the user's import into a numbered list as the dialog does: its items told apart by properties, each from a column named by its heading", () => {
+  it("shows the user's import into a numbered list as the dialog does: its items told apart by properties, each column named by its heading", () => {
     // As the user saw it (10 Oct 2026) before this was read right: every column "neither numbers nor names", under a line
     // that said each was named by its heading. The definition names each column by its heading alone.
     const INVENTORY: ImportMapping = { id: "112000000883", name: "DL032 from inventory", importType: "HIERARCHY_DATA",
       matchedBy: { by: "properties", properties: ["Product", "Location", "Production Date"], numbered: true },
       targets: [{ target: "DL032 - Inventory #", source: "numbered" }, { target: "Parent", source: "none" }, { target: "Code", source: "none" },
         column("Product", undefined, "Product"), column("Location", undefined, "Location"), column("Inventory Quantity (U)", undefined, "Qty")] };
+    // Each source comes first, with the target it feeds; the targets nothing feeds are no rows, but names in a line.
     expect(mappingView(INVENTORY)).toEqual({ match: "Items uniquely identified by: Combination of properties: Product, Location and Production Date.",
-      rows: [["DL032 - Inventory #", "Not mapped: the list numbers its items itself"], ["Parent", "Not mapped"], ["Code", "Not mapped"], ["Product", "Product"],
-        ["Location", "Location"], ["Inventory Quantity (U)", "Qty"]],
-      lines: ["Each column mapped is named by its heading alone, so Cardigan cannot say which columns are not used."] });
+      rows: [["Product", "Product"], ["Location", "Location"], ["Qty", "Inventory Quantity (U)"]],
+      lines: ["Not mapped: DL032 - Inventory # (the list numbers its items itself), Parent and Code.",
+        "Each column mapped is named by its heading alone, so Cardigan cannot say which columns are not used."] });
     // A mapping without a way to tell items apart, as one into a module, has no such line.
     expect(mappingView({ ...INVENTORY, matchedBy: undefined }).match).toBeUndefined();
   });
@@ -85,19 +86,19 @@ describe("An import's mapping, in the drawer's words", () => {
     expect(columnLines([{ target: "Versions", source: "constant", text: "Actual" }, { target: "Products", source: "prompt" }])).toEqual(["No column is mapped."]);
   });
 
-  it("shows a target that is not mapped as Not mapped, as the list's items' names of a list matched by its code are", () => {
+  it("names a target that is not mapped under the mapping, as the list's items' names of a list matched by its code are, and gives it no row", () => {
     // As the export reads the user's import into a numbered list matched by its code (model/import-mappings.test.ts).
     const BY_CODE: ImportMapping = { id: "112000000171", name: "Division by code", importType: "HIERARCHY_DATA",
       targets: [{ target: "Division", source: "none" }, column("Code", 1, "Code"), column("Parent", 2, "Region")] };
-    expect(mappingView(BY_CODE)).toEqual({ rows: [["Division", "Not mapped"], ["Code", "Code"], ["Parent", "Region"]],
-      lines: ["Columns 1 and 2 are both used.", "Whether there are columns after column 2 is not known: Anaplan keeps the import's mapping, not the header row it was made from."] });
+    expect(mappingView(BY_CODE)).toEqual({ rows: [["Code", "Code"], ["Region", "Parent"]],
+      lines: ["Not mapped: Division.", "Columns 1 and 2 are both used.", "Whether there are columns after column 2 is not known: Anaplan keeps the import's mapping, not the header row it was made from."] });
   });
 
-  it("shows a row of Target and Source for each target, or what stands in their place", () => {
+  it("shows a row of Source and Target for each source and the target it feeds, or what stands in their place", () => {
     const DIVISION: ImportMapping = { id: "112000000001", name: "Division from HQ Network.csv", importType: "HIERARCHY_DATA",
       targets: [column("Division", 1, "Division Name"), column("Parent", 2, "Region"), { target: "Code", source: "none" }] };
-    expect(mappingView(DIVISION)).toEqual({ rows: [["Division", "Division Name"], ["Parent", "Region"], ["Code", "Not mapped"]],
-      lines: ["Columns 1 and 2 are both used.", "Whether there are columns after column 2 is not known: Anaplan keeps the import's mapping, not the header row it was made from."] });
+    expect(mappingView(DIVISION)).toEqual({ rows: [["Division Name", "Division"], ["Region", "Parent"]],
+      lines: ["Not mapped: Code.", "Columns 1 and 2 are both used.", "Whether there are columns after column 2 is not known: Anaplan keeps the import's mapping, not the header row it was made from."] });
     // An import whose definition could not be read says why; one of another kind says what it loads.
     expect(mappingView({ ...DIVISION, importType: "", targets: [], note: "Cardigan could not read this import's mapping." }))
       .toEqual({ rows: [], lines: ["Cardigan could not read this import's mapping."] });
@@ -110,6 +111,60 @@ describe("An import's mapping, in the drawer's words", () => {
     expect(mappingView({ ...DIVISION, importType: "MODULE_DATA", targets: [] })).toEqual({ rows: [], lines: ["The import's definition maps no target."] });
     expect(mappingView(undefined)).toEqual({ rows: [], lines: [NO_MAPPING] });
     expect([NO_MAPPING].filter(line => NAMES_A_FILE.test(line))).toEqual([]);
+  });
+
+  it("lists the sources first: each column with every target it feeds, those with a place in their order, then constants, prompts, the header row and a source of another kind", () => {
+    const MIXED: ImportMapping = { id: "112000000010", name: "Sales", importType: "MODULE_DATA", targets: [
+      { target: "Versions", source: "constant", text: "Actual" },
+      // Column 4 by its heading alone, in another case: it stands with column 4, said by the header kept with its place.
+      column("Discount", undefined, "price"),
+      column("Value", 6, "Value"),
+      { target: "Line Items", source: "headerRow" },
+      column("Products", 4, "Price"),
+      column("Regions", 2),
+      // A column by its heading alone, of a heading no target gives a place for, and one by its identifier alone.
+      column("Units", undefined, "Units"),
+      { target: "Channel", source: "prompt" },
+      { target: "Region code", source: "column", id: "f12" },
+      { target: "Manager", source: "other", text: "field" },
+      // Column 2 again: its two targets stand together.
+      column("Territory", 2),
+      { target: "Active", source: "none" },
+    ] };
+    expect(mappingView(MIXED)).toEqual({
+      rows: [["Column 2", "Regions"], ["Column 2", "Territory"], ["Price", "Discount"], ["Price", "Products"], ["Value", "Value"], ["Units", "Units"],
+        ["Column with ID f12", "Region code"], ["Constant: Actual", "Versions"], ["Prompt: chosen each time the import runs", "Channel"],
+        ["Header row: each line item from the column it heads", "Line Items"], ["A source Cardigan does not know (field)", "Manager"]],
+      lines: ["Not mapped: Active.", "Columns 1, 3 and 5 are not mapped by number. 3 targets give no place for their columns, and may use them.",
+        "Whether there are columns after column 6 is not known: Anaplan keeps the import's mapping, not the header row it was made from."] });
+    // Every target is on the page: in a row, or in the line under the mapping.
+    const view = mappingView(MIXED);
+    const words = [...view.rows.flat(), ...view.lines].join("\n");
+    expect(MIXED.targets.filter(target => !words.includes(target.target)).map(target => target.target)).toEqual([]);
+  });
+
+  it("shows the user's import into a numbered list of levels: each header with the target it feeds, and the list's items and Parent in the line under them", () => {
+    // As the user's IL010 showed on 10 Oct 2026: every column kept by its heading alone, the list told apart by two properties.
+    const headings = ["Code", ...[1, 2, 3, 4, 5, 6, 7].flatMap(level => [`Level${level}`, `Level${level}Code`]), "Delete?", "ProcessLevel", "ProcessLevelCode", "TransactionLevel",
+      "TransactionLevelCode"];
+    const IL010: ImportMapping = { id: "112000000880", name: "IL010 - Product Hierarchy Import", importType: "HIERARCHY_DATA",
+      matchedBy: { by: "properties", properties: ["ProcessLevelCode", "TransactionLevelCode"], numbered: true },
+      targets: [{ target: "IL010 - Product Hierarchy Import", source: "numbered" }, { target: "Parent", source: "none" }, ...headings.map(heading => column(heading, undefined, heading))] };
+    expect(mappingView(IL010)).toEqual({ match: "Items uniquely identified by: Combination of properties: ProcessLevelCode and TransactionLevelCode.",
+      rows: headings.map(heading => [heading, heading]),
+      lines: ["Not mapped: IL010 - Product Hierarchy Import (the list numbers its items itself) and Parent.",
+        "Each column mapped is named by its heading alone, so Cardigan cannot say which columns are not used."] });
+  });
+
+  it("names in one line the targets nothing feeds, with why where there is more to say, and has no such line where every target has a source", () => {
+    expect(unfedLine([{ target: "Batch", source: "numbered" }, column("Code", 1), { target: "Parent", source: "none" }, { target: "Regions", source: "ignore" }]))
+      .toBe("Not mapped: Batch (the list numbers its items itself), Parent and Regions (ignored).");
+    expect(unfedLine([{ target: "Parent", source: "none" }])).toBe("Not mapped: Parent.");
+    expect(unfedLine([column("Code", 1), { target: "Versions", source: "constant", text: "Actual" }, { target: "Products", source: "prompt" }])).toBeUndefined();
+    // A mapping that feeds none of its targets has no row: the line names them all.
+    expect(mappingView({ id: "112000000011", name: "Nothing", importType: "HIERARCHY_DATA", targets: [{ target: "Parent", source: "none" }, { target: "Code", source: "ignore" }] }))
+      .toEqual({ rows: [], lines: ["Not mapped: Parent and Code (ignored).", "No column is mapped."] });
+    expect(["Not mapped: Batch (the list numbers its items itself) and Regions (ignored)."].filter(line => NAMES_A_FILE.test(line))).toEqual([]);
   });
 });
 
@@ -128,7 +183,7 @@ describe("The mapping of a row of a model's Imports", () => {
   /** The Imports table as the page shows it, its rows each in its place (result-view.ts `fileView`), and the mapping of each. */
   const shown = (result: AnalysisResult) => {
     const table = fileView(result, IMPORTS).table;
-    return table.rows.map(row => mappingOfRow(result, table, row)?.rows[0]?.[0]);
+    return table.rows.map(row => mappingOfRow(result, table, row)?.rows[0]?.[1]);
   };
 
   it("is that of the import of the row's name, among imports of one name the one in the row's place, for a row whose Source Type is FILE alone", () => {
@@ -138,12 +193,12 @@ describe("The mapping of a row of a model's Imports", () => {
     // The rule is the export's: a Source Type that says FILE in another case, or with spaces, reads a file too.
     const cased: AnalysisResult = { ...MODEL, tables: [{ ...IMPORTS, rows: ROWS.map(row => row.map(cell => (cell === "FILE" ? " file " : cell))) }] };
     const table = fileView(cased, cased.tables[0]).table;
-    expect(table.rows.map(row => mappingOfRow(cased, table, row)?.rows[0]?.[0])).toEqual(["Division", undefined, "First", "Second", undefined]);
+    expect(table.rows.map(row => mappingOfRow(cased, table, row)?.rows[0]?.[1])).toEqual(["Division", undefined, "First", "Second", undefined]);
     // Names are told apart without the spaces around them: a row's and a mapping's, whichever has them.
     const spaced: AnalysisResult = { ...MODEL, tables: [{ ...IMPORTS, rows: ROWS.map((row, index) => (index === 3 ? [" Prices ", ...row.slice(1)] : row)) }],
       importMappings: [mapping("Division from HQ Network.csv ", "Division"), mapping("Prices", "First"), mapping(" Prices", "Second")] };
     const spacedTable = fileView(spaced, spaced.tables[0]).table;
-    expect(spacedTable.rows.map(row => mappingOfRow(spaced, spacedTable, row)?.rows[0]?.[0])).toEqual(["Division", undefined, "First", "Second", undefined]);
+    expect(spacedTable.rows.map(row => mappingOfRow(spaced, spacedTable, row)?.rows[0]?.[1])).toEqual(["Division", undefined, "First", "Second", undefined]);
   });
 
   it("is none for a result without mappings, as one an earlier version kept, or whose mappings are not as they should be, and none outside a model's Imports", () => {
@@ -160,7 +215,7 @@ describe("The mapping of a row of a model's Imports", () => {
     const few: AnalysisResult = { ...MODEL, importMappings: [mapping("Prices", "First")] };
     const table = fileView(few, IMPORTS).table;
     expect(table.rows.map(row => mappingOfRow(few, table, row))).toEqual([{ rows: [], lines: [NO_MAPPING] }, undefined,
-      { rows: [["First", "Column 1"]], lines: ["Column 1 is used.", "Whether there are columns after column 1 is not known: Anaplan keeps the import's mapping, not the header row it was made from."] },
+      { rows: [["Column 1", "First"]], lines: ["Column 1 is used.", "Whether there are columns after column 1 is not known: Anaplan keeps the import's mapping, not the header row it was made from."] },
       { rows: [], lines: [NO_MAPPING] }, undefined]);
   });
 });
