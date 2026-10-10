@@ -60,7 +60,9 @@ const ONCE = [2 ** 30, 0] as const;
 /** Puts the extension's scripts into a tab, wired as content.ts and model-content.ts wire them. The content script of the
  * page the user sees answers the results page: an app it analyses itself, and a session that has ended is told by the
  * read's own code. A model is exported in its core frame, another window inside the page: the content script asks that
- * frame, and the export's steps, its log and its result come back as window messages (bridge.ts). `core` is that frame's
+ * frame, and the export's steps, its log and its result come back as window messages (bridge.ts). The reads that follow
+ * the export in content.ts, of the pages built on the model, are not made here: their own tests and content.test.ts
+ * hold them (model-pages.ts). `core` is that frame's
  * host, for a tab whose page holds a model, as a Model Building page does; the frame's script then reports what the frame
  * holds and serves the real export there. Returns the runs, as they are started. */
 export function serveEngine(tab: FakeTab, page: { host: string; shows: Subject; core?: string }): EngineRun[] {

@@ -797,8 +797,9 @@ describe("A result whose every text is hostile, through every view of the page",
   it("gathers a model's files in groups that keep the order of Model settings: each file the order names stands in one group or on its own, once, where the order has it", () => {
     const entries = MODEL_FILE_ORDER.map((file, index) => ({ id: String(index + 1), label: file.replace(/\.csv$/, ""), file }));
     const items = navItems(entries, true);
-    // The line: Time, Versions, Lists, Modules, Actions, Source Models.
-    expect(items.map(item => ("entries" in item ? `${item.group.label}: ${item.entries.length}` : item.label))).toEqual(["Time: 2", "Versions", "Lists: 2", "Modules: 3", "Actions: 5", "Source Models"]);
+    // The line: Time, Versions, Lists, Modules, Actions, Source Models, and the three tables of the pages built on the model.
+    expect(items.map(item => ("entries" in item ? `${item.group.label}: ${item.entries.length}` : item.label))).toEqual(["Time: 2", "Versions", "Lists: 2", "Modules: 3", "Actions: 5", "Source Models",
+      "Module Usage", "Page Filters", "Page Actions"]);
     // Nothing is left out, and nothing moves: the items, opened up, are the order itself.
     expect(items.flatMap(item => ("entries" in item ? item.entries : [item])).map(entry => entry.file)).toEqual([...MODEL_FILE_ORDER]);
     // Every file of a group is one the order names, and none is in two groups. Each group's ID is its menu's, of letters
