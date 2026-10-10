@@ -2,6 +2,16 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version stands next to Cardigan's name at the top of the results page and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## 0.15.5 (10 October 2026)
+
+Clicking a box on the model map no longer moves the map.
+
+- **A box you click stays where it is.** The details open beside the picture, and the camera stays put while the box is whole in view and clear of the details, the legend, the notes, the line at the foot and the small picture. Where one of them would cover the box, or it stands partly outside the map, the map moves by no more than it takes to uncover the box, sideways or up and down, at the same size. It is never fitted again, and never taken nearer or further away, for a click. Clicking another box, with the details open, moves nothing unless the details cover that box. (#39)
+- **Clearing the selection moves nothing.** With `Esc`, a click beside every box, a click on the box selected, or the details' close button, the map stays where it is. It no longer goes back to where it stood before the selection, nor is the whole map fitted again; the line at the foot says how much of it is in view, and its button shows the whole. (#39)
+- **A box you go to is still brought into view.** The search, a link in the details, **Model map** from a row of the results and the arrow keys bring the box beside the details, with the boxes it has links with where they fit, as before. (#39)
+- **A click may shake a little.** A press that moves up to 5 pixels with a mouse, 8 with a pen or 10 with a finger is a click, and moves neither the box nor the map. (#39)
+- **What stays the same.** What the map draws, the trace of what feeds a box and what it feeds, dragging a box or the map, zooming, and `F` for the whole map. (#39)
+
 ## 0.15.4 (10 October 2026)
 
 An import's **Mapping** names a column by the file's header for it.
