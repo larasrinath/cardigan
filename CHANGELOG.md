@@ -2,6 +2,17 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version stands next to Cardigan's name at the top of the results page and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## 0.15.0 (10 October 2026)
+
+A column of numbers or of dates is filtered by a range, from one value to another, rather than by a list of its values to tick.
+
+- **From and To.** A column whose every value is a number, or every value a date, has two boxes in its filter instead of a list: the counts (**Cell Count**, **Item Count**, an app's card counts), a card's or a section's number, an action's duration and start, when a page was last published, and any column of figures, such as the **Sources** and **Imports** of Source Models. Either box may stay empty, for no end there, and both ends are kept: from 3 to 3 keeps card 3. Past 30 values such a column had no filter, and up to 30 it listed its figures to tick. (#34)
+  - **Numbers** are read as the cells write them: with a sign, their thousands apart or not, a fraction and a percent sign (40% is 40). A box for numbers shows the column's lowest or highest value until something is typed, with its thousands apart in a column of counts. Figures that begin with a zero, such as 0040, are a code and no number, and an ID or a **Code** is never filtered by a range. (#34)
+  - **Dates** are whole days, read by the day they name whatever their time: until 12 March keeps an action that started late on 12 March. A box for dates is the browser's own, held to the column's first and last day, and where the column's header says UTC, the filter says that its dates and times are. (#34)
+  - **Blank cells**: where the column has any, **Keep blank cells**, with how many there are, keeps them or leaves them out. (#34)
+- **Set, said and cleared.** **Enter** in a box or **Apply** sets the range, and the box for blank cells as it is ticked. A box that cannot be read, or a From after its To, says what is wrong at that box, for a screen reader too, and the range stays as it was. The filter's button says what the range keeps, such as "≥ 10", "10–12, no blanks" or "until 2026-03-12"; **Clear** takes it away, and **Reset** clears ranges with the other filters. Each column is read once for its range, the first time its filter opens or keeps rows. (#34)
+- **What stays the same.** A column of words keeps its list to tick, and a column that lists items is filtered by each item; the result itself is never changed by a filter. (#34)
+
 ## 0.14.0 (10 October 2026)
 
 The Model map's bar says where the map is, how it is built and what its tools are, and the map can fill the screen.

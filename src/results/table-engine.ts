@@ -54,6 +54,106 @@ export function filterItems(row: Row, column: number, items: ItemsOf | undefined
   return listed ? [...new Set(listed)] : [text];
 }
 
+/** A column of numbers or of dates, which a range filters rather than a list to tick (columns.ts `rangeOf`): numbers from
+ * one to another, dates from one day to another. */
+export type RangeKind = "number" | "date";
+
+/** A number as a cell or a filter's box writes it: digits with a sign or without, their thousands apart with commas or
+ * not ("1,582"), a fraction after a point, and a percent sign or not ("40%"). Digits that begin with a zero ("007") are a
+ * code and no number, as they are no count to group (`groupedCount`). */
+const NUMBER_TEXT = /^([-+]?)(\d{1,3}(?:,\d{3})+|\d+)(\.\d+)?%?$/;
+/** A date as a model's grids and an app's files write it: its year, month and day, and a time after them or not
+ * ("2026-03-12 23:19:56", "2026-10-09"), which is also what a box for a date gives. */
+const DATE_TEXT = /^(\d{4})-(\d{2})-(\d{2})(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/;
+const DAY = 86_400_000;
+
+/** The number a text writes, or nothing for a text that is no number (`NUMBER_TEXT`). A percentage is its number: "40%" is
+ * 40, as a box that says 40 reads it. A cell count larger than a number holds exactly is read near enough to compare. */
+export function numberOf(text: string): number | undefined {
+  const match = NUMBER_TEXT.exec(text.trim());
+  if (!match || /^0\d/.test(match[2])) return undefined;
+  const value = Number(`${match[1]}${match[2].replace(/,/g, "")}${match[3] ?? ""}`);
+  return Number.isFinite(value) ? value : undefined;
+}
+
+/** The day a text names, counted from 1 January 1970, or nothing for a text that is no date (`DATE_TEXT`), or names a day
+ * no calendar has, such as 30 February. A time after the date is left aside: a range of dates is one of whole days, so a
+ * cell is kept on the day it names, at any time of it, and the time is the column's own, UTC where its header says so. */
+export function dayOf(text: string): number | undefined {
+  const match = DATE_TEXT.exec(text.trim());
+  if (!match) return undefined;
+  const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  const time = Date.UTC(year, month - 1, day);
+  const date = new Date(time);
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day ? time / DAY : undefined;
+}
+
+/** A day as a date's text, its year, month and day ("2026-03-12"): what a box for a date shows and takes. */
+export const dayText = (day: number): string => new Date(day * DAY).toISOString().slice(0, 10);
+
+/** What a text is worth in a range of this kind: its number, or its day. */
+export const rangeValue = (text: string, kind: RangeKind): number | undefined => (kind === "number" ? numberOf(text) : dayOf(text));
+
+/** Whether a cell says nothing, as a range reads it: it is empty, or in a table where the dash says that there is nothing
+ * (`none`, columns.ts `writesNone`), it is the dash. */
+export const saysNothing = (text: string, none: boolean): boolean => {
+  const trimmed = text.trim();
+  return trimmed === "" || (none && trimmed === NONE);
+};
+
+/** A column of numbers or of dates, read once (`rangeColumn`): each row's value by the row, nothing for a cell that says
+ * nothing; the lowest and the highest, with the text of the first cell that holds each; and how many cells say nothing. A
+ * range filter reads it when it opens and when it keeps rows, so a column's cells are read once however often it does. */
+export interface RangeColumn {
+  values: ReadonlyMap<Row, number | undefined>;
+  lowest?: { value: number; text: string };
+  highest?: { value: number; text: string };
+  blanks: number;
+}
+
+export function rangeColumn(rows: readonly Row[], column: number, kind: RangeKind, none: boolean): RangeColumn {
+  const values = new Map<Row, number | undefined>();
+  let lowest: RangeColumn["lowest"];
+  let highest: RangeColumn["highest"];
+  let blanks = 0;
+  for (const row of rows) {
+    const text = cellText(row[column]).trim();
+    const value = saysNothing(text, none) ? undefined : rangeValue(text, kind);
+    values.set(row, value);
+    if (value === undefined) {
+      blanks++;
+      continue;
+    }
+    if (!lowest || value < lowest.value) lowest = { value, text };
+    if (!highest || value > highest.value) highest = { value, text };
+  }
+  return { values, ...(lowest ? { lowest } : {}), ...(highest ? { highest } : {}), blanks };
+}
+
+/** A range a column's rows are kept by: from and to, each in the column's own terms (a number, or a day, `rangeValue`),
+ * either of them left open, both ends kept; and whether a cell that says nothing is kept. `values` is the column read once
+ * (`rangeColumn`); without it, each cell is read where the range needs it. */
+export interface RangeQuery {
+  kind: RangeKind;
+  from?: number;
+  to?: number;
+  blanks: boolean;
+  /** Whether the table's dash says that there is nothing (columns.ts `writesNone`). */
+  none: boolean;
+  values?: ReadonlyMap<Row, number | undefined>;
+}
+
+/** Whether a row's cell lies within a range. A cell that says nothing, or that is no number or no date of the range's
+ * kind, is kept only where the range keeps blank cells. */
+function inRange(row: Row, column: number, range: RangeQuery): boolean {
+  const value = range.values?.has(row) ? range.values.get(row) : (() => {
+    const text = cellText(row[column]);
+    return saysNothing(text, range.none) ? undefined : rangeValue(text, range.kind);
+  })();
+  if (value === undefined) return range.blanks;
+  return (range.from === undefined || value >= range.from) && (range.to === undefined || value <= range.to);
+}
+
 export interface TableQuery {
   /** Keeps the rows with this text in any column, whatever its case. */
   search: string;
@@ -65,6 +165,8 @@ export interface TableQuery {
   filters: ReadonlyMap<number, ReadonlySet<string>>;
   /** The columns whose cells list several items, by their place: their filters read each item (`filterItems`). */
   lists?: ReadonlyMap<number, ItemsOf>;
+  /** Column -> the range its rows are kept by, for a column of numbers or of dates. A column without one keeps every row. */
+  ranges?: ReadonlyMap<number, RangeQuery>;
   sort?: Sort;
   /** A jump from another table: keeps the rows whose cell in `column` is exactly `value`. */
   context?: { column: number; value: string };
@@ -98,8 +200,8 @@ export function sortRows<T extends Row>(rows: readonly T[], sort: Sort): T[] {
   return rows.map((_, index) => index).sort((a, b) => sign * compare(a, b) || a - b).map(index => rows[index]);
 }
 
-/** The rows a table shows for a query: the jump's rows, then the search, then every column filter, then the sort. The
- * rows given are never changed. */
+/** The rows a table shows for a query: the jump's rows, then the search, then every column filter, a list's and a range's,
+ * then the sort. The rows given are never changed. */
 export function selectRows<T extends Row>(rows: readonly T[], query: TableQuery): readonly T[] {
   let out = rows;
   const { context } = query;
@@ -116,6 +218,7 @@ export function selectRows<T extends Row>(rows: readonly T[], query: TableQuery)
     const items = query.lists?.get(column);
     out = items ? out.filter(row => filterItems(row, column, items).some(item => values.has(item))) : out.filter(row => values.has(cellText(row[column])));
   }
+  for (const [column, range] of query.ranges ?? []) out = out.filter(row => inRange(row, column, range));
   return query.sort ? sortRows(out, query.sort) : out;
 }
 
@@ -125,7 +228,7 @@ export function rememberingSelect(): <T extends Row>(rows: readonly T[], query: 
   let last: { rows: readonly Row[]; key: string; selected: readonly Row[] } | undefined;
   return <T extends Row>(rows: readonly T[], query: TableQuery): readonly T[] => {
     const key = JSON.stringify([query.search, [...query.filters].map(([column, values]) => [column, [...values]]), query.sort ?? null, query.context ?? null,
-      [...(query.counts ?? [])]]);
+      [...(query.counts ?? [])], [...(query.ranges ?? [])].map(([column, range]) => [column, range.kind, range.from ?? null, range.to ?? null, range.blanks, range.none])]);
     if (!last || last.rows !== rows || last.key !== key) last = { rows, key, selected: selectRows(rows, query) };
     return last.selected as readonly T[];
   };
