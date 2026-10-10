@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import { PAGE_FILTERS_HEADERS } from "../model-pages.js";
 import { HEADERS } from "../report.js";
 import type { Cell, ResultTable } from "../result-types.js";
-import { buildModelGraph } from "./build-graph.js";
+import { areaCheckLine, buildModelGraph } from "./build-graph.js";
+import { automaticGrouping, groupingsOf, type Grouping } from "./map-groups.js";
+import { sectionsGraph } from "./map-graphs.js";
+import { indexModel, withGrouping } from "./map-model.js";
 import { definitionOf, idOf, integer, knownNames, knownSequence, nothing, separator, splitOutside, stripChars, unquote } from "./graph-names.js";
 import type { EdgeKind, GraphNode, ModelGraph } from "./graph-types.js";
 
@@ -414,6 +417,58 @@ describe("The model map's graph, from the tables of a model export", () => {
     expect([facts(plain), plain.moduleFacts]).toEqual([[["REV01 Revenue", undefined, undefined], ["REV02 Margin", undefined, undefined], ["SYS01 Time", undefined, undefined]], undefined]);
     expect([graph.edges, graph.unresolved, graph.limitations, graph.sections]).toEqual([plain.edges, plain.unresolved, plain.limitations, plain.sections]);
     expect(buildModelGraph([...tables, usage]).moduleFacts).toEqual({ functionalAreas: false, moduleUsage: true });
+  });
+
+  it("files each module of a model with 22 functional areas into its own area, whatever spaces its name has on either side, and says how Modules met the map", () => {
+    // 22 modules, each with one to three line items, under two heading rows; the last two share an area. One module is
+    // named as an area and a heading are, one is written with spaces in Line Items, another with spaces in Modules.
+    const names = Array.from({ length: 22 }, (_, index) => `M${String(index).padStart(2, "0")} Module`);
+    names[3] = " M03 Prices ";
+    const rows: Cells[] = [heading("--- 000: Global System ---")];
+    names.forEach((name, index) => {
+      if (index === 11) rows.push(heading("--- 002: Parameters ---"));
+      rows.push(moduleRow(name), ...Array.from({ length: (index % 3) + 1 }, (_, at) => item(name, `Value ${at + 1}`)));
+    });
+    for (const name of ["002: Parameters", "Loose", "Dashed", "Missing"]) rows.push(moduleRow(name), item(name, "Value 1"));
+    const areaOf = (index: number): string => `${String(Math.min(index, 20)).padStart(3, "0")}: Area ${Math.min(index, 20)}`;
+    // Modules lists the heading rows too, as an export does: each is a module of the model that only divides the list.
+    const modules = file("Modules", ["", "Functional Area", "Applies To"], [["--- 000: Global System ---", "", ""], ["--- 002: Parameters ---", "000: Area 0", ""],
+      ...names.map((name, index) => [index === 4 ? `  ${name} ` : name.trim(), areaOf(index), ""]),
+      ["002: Parameters", "002: Parameters", ""], ["Loose", "", ""], ["Dashed", "-", ""], ["Gone", "009: Area 9", ""], ["-- HEADING", "000: Area 0", ""]]);
+    const graph = buildModelGraph([lineItems(...rows), modules]);
+
+    // Each module has the area its own row of Modules gives it, found by its name with or without the spaces at its ends;
+    // a row with nothing or a dash gives none, and a module with no row has none.
+    const areas = graph.nodes.filter(node => node.kind === "module").map(node => [node.name.trim(), node.functionalArea]);
+    expect(areas).toEqual([...names.map((name, index) => [name.trim(), areaOf(index)]), ["002: Parameters", "002: Parameters"], ["Loose", undefined], ["Dashed", undefined], ["Missing", undefined]]);
+    expect(graph.areaCheck).toEqual({ areas: 22, modules: 26, withArea: 23, rowsNotOnMap: ["Gone"], modulesNotInFile: ["Missing"] });
+    expect(areaCheckLine(graph.areaCheck!)).toBe("Functional areas: 22 areas; 23 of the map's 26 modules have one; 1 row of Modules is no module of the map: Gone; "
+      + "1 module of the map has no row in Modules: Missing.");
+
+    // The map opens on the areas, 22 of them, in the order of their names, the modules with none last.
+    const model = indexModel(graph);
+    const area = groupingsOf(model).find(grouping => grouping.kind === "functionalArea")!;
+    expect([automaticGrouping(groupingsOf(model))?.kind, area.groups.length, area.groups.slice(0, 4), area.groups.at(-1)])
+      .toEqual(["functionalArea", 23, ["000: Area 0", "001: Area 1", "002: Area 2", "002: Parameters"], "No functional area"]);
+    // Each box counts the modules of its own group and their line items: those of the grouping on screen, never those of
+    // the heading rows.
+    const boxes = (grouping: Grouping): [string, string][] => sectionsGraph(withGrouping(model, grouping), false).nodes.map(node => [node.label, node.meta]);
+    const areaBoxes = new Map(boxes(area));
+    expect([areaBoxes.get("000: Area 0"), areaBoxes.get("002: Parameters"), areaBoxes.get("020: Area 20"), areaBoxes.get("No functional area"), areaBoxes.size])
+      .toEqual(["1 module · 1 line item", "1 module · 1 line item", "2 modules · 4 line items", "3 modules · 3 line items", 23]);
+    const headings = groupingsOf(model).find(grouping => grouping.kind === "headings")!;
+    expect(boxes(headings)).toEqual([["000: Global System", "11 modules · 21 line items"], ["002: Parameters", "15 modules · 26 line items"]]);
+    // Without the Functional Area column, Modules says nothing of areas, and the log has no line for them.
+    expect(buildModelGraph([lineItems(...rows), modulesFile(...names, "Loose")]).areaCheck).toBeUndefined();
+  });
+
+  it("says in one line how the Modules file's areas met the map, its lists of names cut to the first five", () => {
+    expect(areaCheckLine({ areas: 1, modules: 1, withArea: 1, rowsNotOnMap: [], modulesNotInFile: [] }))
+      .toBe("Functional areas: 1 area; 1 of the map's 1 module has one; 0 rows of Modules are no module of the map; 0 modules of the map have no row in Modules.");
+    const many = Array.from({ length: 7 }, (_, index) => `Module ${index + 1}`);
+    expect(areaCheckLine({ areas: 0, modules: 7, withArea: 0, rowsNotOnMap: many, modulesNotInFile: many }))
+      .toBe("Functional areas: 0 areas; 0 of the map's 7 modules have one; 7 rows of Modules are no module of the map: Module 1; Module 2; Module 3; Module 4; Module 5; and 2 more; "
+        + "7 modules of the map have no row in Modules: Module 1; Module 2; Module 3; Module 4; Module 5; and 2 more.");
   });
 
   it("takes a row with no Module Name for a line item, and leaves it out, when it has a format, a formula or a summary", () => {

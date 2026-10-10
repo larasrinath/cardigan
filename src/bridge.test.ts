@@ -889,6 +889,10 @@ describe("Opening a module in the Model Building page through the model's core f
     expect(await openInCore(shell, handle!, MODEL, MODULE)).toBe(false);
     opens = () => Promise.reject(new Error("no client"));
     expect(await openInCore(shell, handle!, MODEL, MODULE)).toBe(false);
+    // A settings page is asked for by its ID as a module is, though it is below nought.
+    opens = async () => true;
+    expect(await openInCore(shell, handle!, MODEL, "-19")).toBe(true);
+    expect(asked.at(-1)).toEqual([MODEL, "-19"]);
     // The frame takes an ask only from the page around it, and only one as the page writes it: anything else opens
     // nothing and is not answered.
     asked.length = 0;
@@ -896,7 +900,8 @@ describe("Opening a module in the Model Building page through the model's core f
     core.receive({ ...RUN, type: "open", nonce: "ask", model: MODEL, object: MODULE }, SHELL, other.seenBy(core));
     core.receive({ ...RUN, type: "open", nonce: "ask", model: MODEL, object: MODULE }, "https://example.com", shell.seenBy(core));
     for (const odd of [{ nonce: 5, model: MODEL, object: MODULE }, { nonce: "ask", model: "FEDCBA98", object: MODULE }, { nonce: "ask", model: MODEL, object: "10200000000x" },
-      { nonce: "ask", model: MODEL, object: 102000000001 }, { nonce: "ask", model: MODEL }]) {
+      { nonce: "ask", model: MODEL, object: 102000000001 }, { nonce: "ask", model: MODEL }, { nonce: "ask", model: MODEL, object: "--19" },
+      { nonce: "ask", model: MODEL, object: "19-" }]) {
       core.receive({ ...RUN, type: "open", ...odd }, SHELL, shell.seenBy(core));
     }
     core.receive({ protocol: "another", type: "open", nonce: "ask", model: MODEL, object: MODULE }, SHELL, shell.seenBy(core));

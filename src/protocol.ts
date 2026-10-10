@@ -41,8 +41,9 @@ export type PageMessage =
    * `afterRefresh`: the page has just refreshed the tab for this run (results/connection.ts `refreshAndRun`), so a
    * model's frame may take a while yet to open again: the tab waits for it longer. */
   | { type: "run"; afterRefresh?: boolean }
-  /** Open a module or a list of `model` inside the Model Building page the tab shows, beside the tabs open there, as
-   * Model Building's own Modules list and General Lists open one. `object` is the module's or the list's ID. One "opened"
+  /** Open a module, a list or a settings page of `model` inside the Model Building page the tab shows, beside the tabs
+   * open there, as Model Building's own Modules list, General Lists and sidebar open one. `object` is the module's, the
+   * list's or the settings page's ID (model/open-object.ts `SETTINGS_PAGES`). One "opened"
    * answers it, with the same `nonce`; it can be asked at any time, while a run goes on or without one. */
   | { type: "open"; nonce: string; model: string; object: string };
 
