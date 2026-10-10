@@ -38,7 +38,12 @@ Then it reads the pages built on the model, in every app you can open, and makes
 
 - A table read from a Model settings grid is laid out as Anaplan's own export of that grid: each row's name first, then the grid's columns.
 - **Line Items** covers every module and lists each line item beside its module; a module's own row is not listed. Three columns follow Anaplan's own: **Ratio Numerator**, **Ratio Denominator** and **Format List**.
-- **Double-click a row of Line Items or Modules to open its module in Anaplan.** The Anaplan tab Cardigan read loads Model Building on that module and comes to the front; no new tab opens. The page reloads, and the model stays open. A line item opens its module: Model Building opens modules, not single line items. It works for a model read in Model Building, by this version or a later one; otherwise the page says what to do.
+- **Open a row where it leads, from the top right of its details.** Buttons there, one under another, each with its icon:
+  - **Model map** shows a line item or a module on the map, from **Line Items**, **Modules** or **Module Usage**.
+  - **Module** opens the row's module in Model Building: a line item opens its module, since Model Building opens modules, not single line items. In **Page Filters**, **Condition module** and **Filtered module** open the filter's two modules, or one **Module** where they are the same.
+  - **App** and **Page** open the app and the page in Anaplan, from **Module Usage**, **Page Filters** and **Page Actions**.
+
+  A button's title names what it opens, and only the buttons whose place is known are there. Everything opens in the Anaplan tab Cardigan read, which comes to the front with its window; no new tab opens, and the details stay open here. If that tab has been closed, the first button opens one tab in its place, and every later button uses that one. Where the result keeps every row from a way to open it, as one an earlier version read, a line under the details' header says why. **Run again** analyses what that tab shows: after **App** or **Page** that is the app, so open the model there again first, with a **Module** button, to read the model again.
 - **Dynamic Cell Access** lists each access driver with the line items it controls, one row per use, marked **Read** or **Write**. It is made from the **Read Access Driver** and **Write Access Driver** columns of Line Items, which name a driver only on the line item it controls.
 - The page says a format, a summary or an action's definition in words, such as "Number, 2 decimal places", "List: Products" or "Delete from Products using Selection". Click the row to see the definition as it was read, under **Format as read**, **Summary as read** or **Action as read**.
 - **Processes**, **Exports** and **Other Actions** are the Actions list, split at its headings. One column follows Anaplan's own in **Other Actions**: **Action List**, the list an action deletes from or orders, as General Lists names it. **Imports** joins each import's source and target with its last run, notes and processes.
@@ -66,7 +71,7 @@ Then it reads the pages built on the model, in every app you can open, and makes
 - Click a box to see everything that feeds it, marked in blue, and everything it feeds, marked in red, directly or through others. The rest fades; **Only these** hides it. Dashes move along the marked links for as long as the box is selected, long ones towards it and short ones away from it; they stand still if your system is set to reduce motion.
 - The panel on the right gives the box's details: for a line item its formula, format and summary in words, and what feeds it and what it feeds directly. A line item's details also list the page filters that have it as their condition, by app, page and card, from **Page Filters**: the first ten, and how many more.
 - The search finds sections, modules and line items by name. In the **Legend**, click an entry to hide or show its boxes. **Access drivers** adds a link from each access driver to what it controls.
-- From **Line Items** or **Modules**, **Open in Model map**, at the top of a row's details, goes straight to that line item or module on the map, selected, with what feeds it and what it feeds.
+- From **Line Items**, **Modules** or **Module Usage**, **Model map**, at the top right of a row's details, goes straight to that line item or module on the map, selected, with what feeds it and what it feeds.
 - Drag to move, scroll to zoom, press `F` for the whole map. **About this map** lists the keys. The map follows the page's theme.
 
 ![The model map in the dark theme, on one module's line items: one line item is selected, the boxes that feed it are marked in blue and the boxes it feeds in red, and a panel on the right gives its details, with its formula](docs/images/map-line-items.png)
@@ -131,7 +136,7 @@ Closing the results page stops the reading.
 - It reads nothing until you click its icon or choose **Run again**. It is read-only by construction: its web requests are GET requests to two Anaplan services, its socket client can only subscribe, and every request to a model is checked to carry no change.
 - A model's settings are read through the model's own page, and so is each import's saved mapping, as Anaplan's own import dialog reads it. After them, Cardigan reads the pages built on the model as it reads an app's: GET requests for Model Building's list of those pages, each page, each of their apps and the model's action names, and the model data socket for the other names the pages' cards use.
 - Nothing is sent anywhere except those reads, and the results page loads nothing from the internet.
-- A double-click on a row of a model's **Line Items** or **Modules** takes your Anaplan tab to that module in Model Building. That changes which page the tab shows, and nothing in the model.
+- The buttons in a row's details take your Anaplan tab to a module in Model Building, or to an app or a page; if that tab has been closed, the first opens one tab in its place. That changes which page the tab shows, and nothing in the model or the app.
 - The kept result is in the browser's session storage for its tab, compressed and not encrypted.
 
 [NOTICE.md](NOTICE.md) says the rest, including what closing a tab does and does not erase.
@@ -139,6 +144,7 @@ Closing the results page stops the reading.
 ## Limits
 
 - Only the published version of a page is read. A page never published is listed as "Not published".
+- A page that is no board, worksheet or report has no **Page** button in a row's details: its app's opens all the same.
 - Reading an app's names, or those of the pages built on a model, can make Anaplan load the model, as opening one of its pages would.
 - **Module Usage**, **Page Filters** and **Page Actions** need the model open in Model Building at an address that names its customer (`/a/modeling/customers/…`), as Model Building's own links do: the pages built on a model are listed for its customer. Elsewhere, as on the classic model page opened on its own, the Overview lists them under **Tables** as "Not exported", with the reason, and so it does when Anaplan refuses the list of pages.
 - They hold only the published pages you can open. A page that cannot be read is named in a note: a module on it may show as **Not on any page**, and a line item's **Page Filters** count is empty rather than 0. So is the count where a filter's condition line item could not be named: the filter keeps the line item's ID.

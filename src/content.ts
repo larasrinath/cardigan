@@ -52,10 +52,12 @@ if (window.top === window) {
     host: location.host,
     current: () => page.cardiganServing === me,
     subject,
+    // A model read in Model Building carries where it is, which the results page opens its modules, apps and pages by.
     run: (seen, progress, diagnostics, signal) => (seen.kind === "app"
       ? analyseApp(seen.id, progress, diagnostics, signal)
       : exportInCore(window, core, () => probes.values(), seen.id, progress, signal)
-        .then(result => addModelPages(result, seen.customer, progress, signal))),
+        .then(result => addModelPages(result, seen.customer, progress, signal))
+        .then(result => (seen.origin && seen.customer ? { ...result, site: { origin: seen.origin, customer: seen.customer } } : result))),
     signedOut: error => error instanceof RestError && error.code === "SIGNED_OUT",
   });
 }

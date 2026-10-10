@@ -4,9 +4,11 @@
 
 /** Each module, with the pages that use it and their apps: one row for each module and page. */
 export const MODULE_USAGE_FILE = "Module Usage.csv";
-/** The card filters on those pages that work on this model: an app's Filters table, with the app in front. */
+/** The card filters on those pages that work on this model: an app's Filters rows, with their app, in an order of their own
+ * (model-pages.ts `PAGE_FILTERS_HEADERS`). */
 export const PAGE_FILTERS_FILE = "Page Filters.csv";
-/** The action buttons on those pages that run this model's actions: an app's Action Buttons table, with the app in front. */
+/** The action buttons on those pages that run this model's actions: an app's Action Buttons rows, with their app, in an
+ * order of their own (model-pages.ts `PAGE_ACTIONS_HEADERS`). */
 export const PAGE_ACTIONS_FILE = "Page Actions.csv";
 export const MODEL_PAGE_FILES: readonly string[] = [MODULE_USAGE_FILE, PAGE_FILTERS_FILE, PAGE_ACTIONS_FILE];
 

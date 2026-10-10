@@ -1,3 +1,4 @@
+import { CONTENT_SCRIPT_ORIGIN } from "./protocol.js";
 import type { AnalysisResult, Cell, ImportMapping, MappedSource, MappedTarget, ResultTable } from "./result-types.js";
 
 /** A result leaves the place that made it as plain data: a window message from the model's core frame, then JSON on the port
@@ -32,6 +33,15 @@ function readModuleIds(value: unknown): [string, string][] | undefined {
     pairs.push([pair[0], pair[1]]);
   }
   return pairs;
+}
+
+/** Where a model was read: an Anaplan site's origin, as the content scripts run on, and a customer's ID, or nothing when
+ * anything else is there. As for the modules' IDs, a result is not refused for it: the page only cannot open the model's
+ * modules, apps and pages by it. */
+function readSite(value: unknown): { origin: string; customer: string } | undefined {
+  const site = value as { origin?: unknown; customer?: unknown } | null;
+  return site && typeof site === "object" && typeof site.origin === "string" && CONTENT_SCRIPT_ORIGIN.test(site.origin) && typeof site.customer === "string"
+    && /^[0-9A-Fa-f]{32}$/.test(site.customer) ? { origin: site.origin, customer: site.customer } : undefined;
 }
 
 /** What feeds a target of an import, by the result's word for it (result-types.ts `MappedSource`). */
@@ -83,8 +93,9 @@ function readResult(value: unknown): AnalysisResult | undefined {
   }
   const moduleIds = data.kind === "model" ? readModuleIds(data.moduleIds) : undefined;
   const importMappings = data.kind === "model" ? readImportMappings(data.importMappings) : undefined;
+  const site = data.kind === "model" ? readSite(data.site) : undefined;
   return { kind: data.kind, name: data.name, id: data.id, zipName: data.zipName, tables, summary: Array.from(data.summary, textOf), ...(moduleIds ? { moduleIds } : {}),
-    ...(importMappings ? { importMappings } : {}) };
+    ...(importMappings ? { importMappings } : {}), ...(site ? { site } : {}) };
 }
 
 /** A result received from another window, with every field checked before use and nothing else kept; undefined when it is
