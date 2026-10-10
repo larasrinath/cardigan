@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import type { loadCatalog } from "./analyse.js";
 import { addActions, addLineItems, addLists, addModuleViews, emptyCatalog } from "./catalog.js";
 import { addModelPages, AT_A_TIME, NO_APPS, NO_CUSTOMER, PAGE_ACTIONS_HEADERS, PAGE_FILTERS_HEADERS, type PageReads } from "./model-pages.js";
-import { MODULE_USAGE_FILE, MODULE_USAGE_HEADERS, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, PAGE_PLACE_HEADERS } from "./page-files.js";
-import { HEADERS } from "./report.js";
+import { MODULE_USAGE_FILE, MODULE_USAGE_HEADERS, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, PAGE_PLACE_HEADERS, PAGE_ROUTES } from "./page-files.js";
+import { HEADERS, PAGE_TYPE } from "./report.js";
 import type { AnalysisResult } from "./result-types.js";
 import { RestError } from "./rest.js";
 import type { Obj } from "./util.js";
@@ -209,6 +209,8 @@ describe("The pages built on a model", () => {
       expect(headers.slice(-5), tab).toEqual([...PAGE_PLACE_HEADERS, "Card ID", tab === "Filters" ? "Line item ID" : "Action ID"]);
     }
     expect(MODULE_USAGE_HEADERS).toEqual(["Module", "App", "Page", "Page type", "App ID", "Page ID"]);
+    // Each type the Page type column can say has its address, by which the results page opens the page.
+    expect([...PAGE_ROUTES.keys()].sort()).toEqual(Object.values(PAGE_TYPE).sort());
   });
 
   it("keeps a card by the model it works on: its own where it names one, the page's otherwise", async () => {

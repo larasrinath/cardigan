@@ -84,18 +84,19 @@ function viewOf(table: ResultTable, links: Links, overrides: Partial<TableView> 
 
 describe("The buttons at the top right of a row's details", () => {
   it("are filled buttons, each with the icon of where it leads and its words, named by their place, with what each opens as their title", () => {
-    const html = opensHtml([{ kind: "map", label: "Model map", title: "Show Revenue on the Model map" }, { kind: "module", label: "Module", title: `Open ${IMG} in Model Building` },
+    const html = opensHtml([{ kind: "map", label: "Model map", title: "Show Revenue on the Model map" }, { kind: "module", label: "Model", title: `Open ${IMG} in Model Building` },
       { kind: "app", label: "App", title: "Open the app Plan in Anaplan" }, { kind: "page", label: "Page", title: "Open the page Board in Anaplan" }]);
     const buttons = parseMarkup(html).querySelectorAll("button");
     expect(buttons.map(button => [button.getAttribute("class"), button.dataset.act, button.dataset.open, button.textContent, button.title])).toEqual([
-      ["btn primary sm", "open", "0", "Model map", "Show Revenue on the Model map"], ["btn primary sm", "open", "1", "Module", `Open ${IMG} in Model Building`],
+      ["btn primary sm", "open", "0", "Model map", "Show Revenue on the Model map"], ["btn primary sm", "open", "1", "Model", `Open ${IMG} in Model Building`],
       ["btn primary sm", "open", "2", "App", "Open the app Plan in Anaplan"], ["btn primary sm", "open", "3", "Page", "Open the page Board in Anaplan"]]);
     // A name in a title is text: no tag and no handler come of it. What a button opens is not in the markup.
     expect([tagNames(html).includes("img"), attributeNames(html).filter(name => /^on/i.test(name)), html.includes("http")]).toEqual([false, [], false]);
-    // Each kind has its own icon, as the navigation draws the same things: the map's, the Modules group's and the Pages table's.
+    // Each kind has its own icon: the map's and a page's as the navigation draws them, the model's and an app's of their own.
     expect(buttons.map(button => button.querySelector("svg")?.outerHTML)).toEqual(Object.values(OPEN_ICONS).map(icon => parseMarkup(icon).innerHTML));
-    expect([OPEN_ICONS.map, OPEN_ICONS.module, OPEN_ICONS.page]).toEqual([NAV_ICONS.map, NAV_ICONS.modules, FILE_ICONS.get(APP_FILES.Pages)]);
-    expect(new Set(Object.values(OPEN_ICONS)).size).toBe(4);
+    expect([OPEN_ICONS.map, OPEN_ICONS.page]).toEqual([NAV_ICONS.map, FILE_ICONS.get(APP_FILES.Pages)]);
+    expect(new Set([...Object.values(OPEN_ICONS), ...Object.values(NAV_ICONS), ...FILE_ICONS.values()]).size)
+      .toBe(new Set([...Object.values(NAV_ICONS), ...FILE_ICONS.values()]).size + 2);
     expect(opensHtml([])).toBe("");
   });
 });

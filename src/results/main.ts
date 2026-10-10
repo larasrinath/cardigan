@@ -1,7 +1,7 @@
 import { buildModelGraph } from "../map/build-graph.js";
 import type { ModelGraph, ModelMap, ModelMapOptions } from "../map/graph-types.js";
 import { mountModelMap } from "../map/map-view.js";
-import { MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE } from "../page-files.js";
+import { MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, PAGE_ROUTES } from "../page-files.js";
 import { CONTENT_SCRIPT_ORIGIN, PORT_NAME } from "../protocol.js";
 import { plainResult, textOf } from "../result-plain.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
@@ -782,10 +782,6 @@ const NO_WORKSPACE = "This result does not say which workspace the model is in, 
 const NOT_OPENED = "Cardigan could not open that in Anaplan.";
 const LONG_ID = /^[0-9A-Fa-f]{32}$/;
 const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-/** The part of a page's address for its type, by the type as an app's Pages table says it, as Model Building's own links
- * to the pages built on a model write it (modeling.js): a board's, a worksheet's and a report's. A page of another type
- * has no address here. */
-const PAGE_ROUTES: ReadonlyMap<string, string> = new Map([["Board", "boards"], ["Worksheet", "worksheets"], ["Report", "reports"]]);
 
 /** A button at the top right of a row's details, with where it leads: a box of the model map, or an address in Anaplan. */
 type Open = OpenButton & ({ kind: "map"; node: number } | { kind: "module" | "app" | "page"; url: string });
@@ -819,11 +815,11 @@ function moduleAddress(name: string): { url?: string; why?: string } {
 
 /** The ways a row of a model's tables leads elsewhere, as the buttons at the top right of its details show them, and why
  * one that the result keeps from every row is not there. Model Building opens modules, not line items: a line item opens
- * its module.
+ * its module. The button that opens a row's one module is Model, as the user named it (9 Oct 2026).
  * - Line Items and Modules: the row's box on the model map, and its module in Model Building.
  * - Module Usage: the module, on the map and in Model Building, and the app and the page that use it.
- * - Page Filters: the condition line item's module and the filtered module in Model Building, one button where the two
- *   are one module, and the filter's app and page.
+ * - Page Filters: the condition line item's module and the filtered module in Model Building, by those names, one Model
+ *   button where the two are one module, and the filter's app and page.
  * - Page Actions: the button's app and page.
  * Only a button whose box or address is known is there. An app's result has none. */
 function opensOf(entry: Shown, row: Row): { opens: Open[]; why: string | undefined } {
@@ -844,11 +840,11 @@ function opensOf(entry: Shown, row: Row): { opens: Open[]; why: string | undefin
     if (found.url !== undefined) opens.push({ kind: "module", url: found.url, label, title: `Open ${name} in Model Building` });
     else why ??= found.why;
   };
-  if (file === LINE_ITEMS_FILE) module(cell(MODULE_NAME), "Module");
-  if (file === MODULES_FILE || file === MODULE_USAGE_FILE) module(cellText(row[0]).trim(), "Module");
+  if (file === LINE_ITEMS_FILE) module(cell(MODULE_NAME), "Model");
+  if (file === MODULES_FILE || file === MODULE_USAGE_FILE) module(cellText(row[0]).trim(), "Model");
   if (file === PAGE_FILTERS_FILE) {
     const [condition, filtered] = [cell("Condition line item's module"), cell("Filtered module")];
-    if (condition === filtered) module(condition, "Module");
+    if (condition === filtered) module(condition, "Model");
     else {
       module(condition, "Condition module");
       module(filtered, "Filtered module");
