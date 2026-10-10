@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import type { loadCatalog } from "./analyse.js";
 import { addActions, addLineItems, addLists, addModuleViews, emptyCatalog } from "./catalog.js";
-import { addModelPages, AT_A_TIME, NO_APPS, NO_CUSTOMER, type PageReads } from "./model-pages.js";
-import { MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE } from "./page-files.js";
+import { addModelPages, AT_A_TIME, NO_APPS, NO_CUSTOMER, PAGE_ACTIONS_HEADERS, PAGE_FILTERS_HEADERS, type PageReads } from "./model-pages.js";
+import { MODULE_USAGE_FILE, MODULE_USAGE_HEADERS, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, PAGE_PLACE_HEADERS } from "./page-files.js";
+import { HEADERS } from "./report.js";
 import type { AnalysisResult } from "./result-types.js";
 import { RestError } from "./rest.js";
 import type { Obj } from "./util.js";
@@ -109,6 +110,12 @@ function fake(entries: Obj[], pages: Record<string, Obj | string>, apps: Record<
 const run = (result: AnalysisResult, customer: string | undefined, use: Fake, signal?: AbortSignal) =>
   addModelPages(result, customer, { status: text => use.status.push(text), log: line => use.log.push(line) }, signal, use.reads);
 const rowsOf = (result: AnalysisResult, file: string) => result.tables.find(each => each.file === file)?.rows;
+/** A table's cells under these headers, row by row. */
+const cellsOf = (result: AnalysisResult, file: string, ...headers: string[]) => {
+  const table = result.tables.find(each => each.file === file)!;
+  const at = headers.map(header => table.headers.indexOf(header));
+  return table.rows.map(row => at.map(index => row[index]));
+};
 const detailsOf = (result: AnalysisResult) => result.tables[0].rows;
 /** The lines the step adds to the result's diagnostic log, after the export's one, without their times. */
 const logOf = (result: AnalysisResult) => detailsOf(result).filter(row => row[0] === "Diagnostics").slice(1).map(row => row[2]);
@@ -159,18 +166,22 @@ describe("The pages built on a model", () => {
 
     // Each module in the Modules table's order, by app and page; Factors is named by the export, as the service did not name
     // it. A module no page uses has its one row.
-    expect(rowsOf(result, MODULE_USAGE_FILE)).toEqual([["Demand", "Planning app", "Demand board"], ["Factors", "Another app", "Supply board"],
-      ["Factors", "Planning app", "Demand board"], ["Unused", "-", "Not on any page"]]);
-    // The cards that name another model are left out, and the others keep the numbers the app's own tables give them.
+    // Each row says where its page is too: the page's type, its app's ID and its own.
+    expect(rowsOf(result, MODULE_USAGE_FILE)).toEqual([["Demand", "Planning app", "Demand board", "Board", APP_A, PAGE_A], ["Factors", "Another app", "Supply board", "Board", APP_B, PAGE_B],
+      ["Factors", "Planning app", "Demand board", "Board", APP_A, PAGE_A], ["Unused", "-", "Not on any page", "-", "-", "-"]]);
+    // The cards that name another model are left out, and the others keep the numbers the app's own tables give them. A
+    // filter says what filters, what it filters, its condition and where it is; a button, the model's action it runs,
+    // where it is and how it behaves.
     expect(rowsOf(result, PAGE_FILTERS_FILE)).toEqual([
-      ["Another app", "Supply board", 1, "1", "Factors", "Rows", "Product", "1", "All", "Territory demand", "Factors", "is equal to", "true", "-", guid(1), LI(9)],
-      ["Planning app", "Demand board", 3, "1", "Demand", "Rows", "Product", "1", "All", "Territory demand", "Factors", "is not equal to", "0", "Territory = current", guid(3), LI(9)]]);
+      ["Factors", "Territory demand", "Factors", "Product", "is equal to", "true", "All", "1", "-", "Rows", "Another app", "Supply board", 1, "1", "Board", APP_B, PAGE_B, guid(1), LI(9)],
+      ["Factors", "Territory demand", "Demand", "Product", "is not equal to", "0", "All", "1", "Territory = current", "Rows", "Planning app", "Demand board", 3, "1", "Board", APP_A, PAGE_A,
+        guid(3), LI(9)]]);
     expect(rowsOf(result, PAGE_ACTIONS_FILE)).toEqual([
-      ["Planning app", "Demand board", 2, "Reload plan", "Import", "Import demand", "Model", "Yes (default)", "n/a", guid(2), "112000000901"],
-      ["Planning app", "Demand board", 2, "Run nightly", "Process", "Nightly process", "Model", "Yes (default)", "Cancel allowed", guid(2), "118000000901"]]);
-    expect(result.tables.slice(3).map(table => [table.file, table.label, table.headers.slice(0, 3), table.guard])).toEqual([
-      [MODULE_USAGE_FILE, "Module Usage", ["Module", "App", "Page"], true], [PAGE_FILTERS_FILE, "Page Filters", ["App", "Page", "Card #"], true],
-      [PAGE_ACTIONS_FILE, "Page Actions", ["App", "Page", "Card #"], true]]);
+      ["Import demand", "Import", "Planning app", "Demand board", 2, "Reload plan", "Yes (default)", "n/a", "Model", "Board", APP_A, PAGE_A, guid(2), "112000000901"],
+      ["Nightly process", "Process", "Planning app", "Demand board", 2, "Run nightly", "Yes (default)", "Cancel allowed", "Model", "Board", APP_A, PAGE_A, guid(2), "118000000901"]]);
+    expect(result.tables.slice(3).map(table => [table.file, table.label, table.headers, table.guard])).toEqual([
+      [MODULE_USAGE_FILE, "Module Usage", MODULE_USAGE_HEADERS, true], [PAGE_FILTERS_FILE, "Page Filters", PAGE_FILTERS_HEADERS, true],
+      [PAGE_ACTIONS_FILE, "Page Actions", PAGE_ACTIONS_HEADERS, true]]);
 
     // Line Items counts the filters that have each line item as their condition: none is 0, as every page was read.
     expect(result.tables[2].headers).toEqual([...LINE_ITEMS_HEADERS, "Page Filters"]);
@@ -188,21 +199,34 @@ describe("The pages built on a model", () => {
     expect(given).toEqual(exported());
   });
 
+  it("lays Page Filters and Page Actions out in an order of their own: every column of the app's table, its app, and where its page is", () => {
+    // What filters, what is filtered, the condition, then where; the model's action, then where, then how the button behaves.
+    expect(PAGE_FILTERS_HEADERS.slice(0, 4)).toEqual(["Condition line item's module", "Condition line item", "Filtered module", "Filtered dimension"]);
+    expect(PAGE_ACTIONS_HEADERS.slice(0, 6)).toEqual(["Model action name", "Action type", "App", "Page", "Card #", "Button label"]);
+    // No column of the app's table is lost, and none is there twice; the IDs come last.
+    for (const [headers, tab] of [[PAGE_FILTERS_HEADERS, "Filters"], [PAGE_ACTIONS_HEADERS, "Actions"]] as const) {
+      expect([...headers].sort(), tab).toEqual(["App", ...HEADERS[tab], ...PAGE_PLACE_HEADERS].sort());
+      expect(headers.slice(-5), tab).toEqual([...PAGE_PLACE_HEADERS, "Card ID", tab === "Filters" ? "Line item ID" : "Action ID"]);
+    }
+    expect(MODULE_USAGE_HEADERS).toEqual(["Module", "App", "Page", "Page type", "App ID", "Page ID"]);
+  });
+
   it("keeps a card by the model it works on: its own where it names one, the page's otherwise", async () => {
     // The same board with its two outer cards naming no model: they work on the page's, this one, and are kept with their numbers.
     const same = await run(exported(), CUSTOMER, fake(BOTH, { [PAGE_A]: demandBoard(null) }));
-    expect(rowsOf(same, PAGE_FILTERS_FILE)!.map(row => [row[1], row[2]])).toEqual([["Demand board", 1], ["Demand board", 3]]);
-    expect(rowsOf(same, PAGE_ACTIONS_FILE)!.map(row => [row[1], row[2], row[3]])).toEqual([["Demand board", 2, "Reload plan"], ["Demand board", 2, "Run nightly"],
+    expect(cellsOf(same, PAGE_FILTERS_FILE, "Page", "Card #")).toEqual([["Demand board", 1], ["Demand board", 3]]);
+    expect(cellsOf(same, PAGE_ACTIONS_FILE, "Page", "Card #", "Button label")).toEqual([["Demand board", 2, "Reload plan"], ["Demand board", 2, "Run nightly"],
       ["Demand board", 4, "Load elsewhere"]]);
     // A module the model does not have comes after the Modules table's, by its ID, as the app's own tables show it.
-    expect(rowsOf(same, MODULE_USAGE_FILE)!.at(-1)).toEqual([`${OTHER_MODULE} (not in the model)`, "Planning app", "Demand board"]);
+    expect(rowsOf(same, MODULE_USAGE_FILE)!.at(-1)).toEqual([`${OTHER_MODULE} (not in the model)`, "Planning app", "Demand board", "Board", APP_A, PAGE_A]);
 
     // A page built on another model: only its card that names this model is kept.
     const mixed = board(PAGE_C, APP_B, "Mixed board", OTHER_MODEL, [grid(1, "Theirs", OTHER_MODULE, [leaf(["1901000000077"])]),
       grid(2, "Ours", MODULE, [leaf([LI(9)])], { modelId: MODEL })]);
     const result = await run(exported(), CUSTOMER, fake([{ guid: PAGE_C, name: "Mixed board" }], { [PAGE_C]: mixed }));
-    expect(rowsOf(result, PAGE_FILTERS_FILE)!.map(row => [row[1], row[2], row[4]])).toEqual([["Mixed board", 2, "Demand"]]);
-    expect(rowsOf(result, MODULE_USAGE_FILE)).toEqual([["Demand", "Another app", "Mixed board"], ["Factors", "Another app", "Mixed board"], ["Unused", "-", "Not on any page"]]);
+    expect(cellsOf(result, PAGE_FILTERS_FILE, "Page", "Card #", "Filtered module")).toEqual([["Mixed board", 2, "Demand"]]);
+    expect(rowsOf(result, MODULE_USAGE_FILE)).toEqual([["Demand", "Another app", "Mixed board", "Board", APP_B, PAGE_C], ["Factors", "Another app", "Mixed board", "Board", APP_B, PAGE_C],
+      ["Unused", "-", "Not on any page", "-", "-", "-"]]);
   });
 
   it(`reads at most ${AT_A_TIME} pages at a time, starting them in the list's order`, async () => {
@@ -306,7 +330,7 @@ describe("The pages built on a model", () => {
   it("says plainly that no app's pages use the model, and names no apps where no page tells them", async () => {
     const none = await run(exported(), CUSTOMER, fake([], {}));
     expect(detailsOf(none)[3]).toEqual(["Model", "Apps", NO_APPS]);
-    expect(rowsOf(none, MODULE_USAGE_FILE)).toEqual([["Demand", "-", "Not on any page"], ["Factors", "-", "Not on any page"], ["Unused", "-", "Not on any page"]]);
+    expect(rowsOf(none, MODULE_USAGE_FILE)).toEqual(["Demand", "Factors", "Unused"].map(module => [module, "-", "Not on any page", "-", "-", "-"]));
     expect([rowsOf(none, PAGE_FILTERS_FILE), rowsOf(none, PAGE_ACTIONS_FILE)]).toEqual([[], []]);
     expect(filterUses(none).map(([, count]) => count)).toEqual(["", 0, "", 0, "", 0]);
 
@@ -327,7 +351,8 @@ describe("The pages built on a model", () => {
     // The rule's line item is no line item the model's names have: the filter keeps its ID, and has no module.
     const unnamed = board(PAGE_B, APP_B, "Supply board", MODEL, [grid(1, "Factors", MODULE_2, [leaf(["1901000000077"])]), grid(2, "Named", MODULE, [leaf([LI(9)])])]);
     const result = await run(exported(), CUSTOMER, fake([{ guid: PAGE_B }], { [PAGE_B]: unnamed }));
-    expect(rowsOf(result, PAGE_FILTERS_FILE)!.map(row => [row[2], row[9], row[10], row[15]])).toEqual([[1, "1901000000077", "-", "-"], [2, "Territory demand", "Factors", LI(9)]]);
+    expect(cellsOf(result, PAGE_FILTERS_FILE, "Card #", "Condition line item", "Condition line item's module", "Line item ID"))
+      .toEqual([[1, "1901000000077", "-", "-"], [2, "Territory demand", "Factors", LI(9)]]);
     // Volume and Note may be the condition of the first filter: their counts are not known. Territory demand's is.
     expect(filterUses(result)).toEqual([["Demand", ""], ["Volume", ""], ["Factors", ""], ["Territory demand", 1], ["Unused", ""], ["Note", ""]]);
   });
