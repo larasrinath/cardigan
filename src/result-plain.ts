@@ -1,5 +1,5 @@
 import { CONTENT_SCRIPT_ORIGIN } from "./protocol.js";
-import type { AnalysisResult, Cell, ImportMapping, MappedSource, MappedTarget, ProcessActions, ProcessStep, ResultTable } from "./result-types.js";
+import type { AnalysisResult, Cell, ImportMapping, ItemMatch, MappedSource, MappedTarget, ProcessActions, ProcessStep, ResultTable } from "./result-types.js";
 
 /** A result leaves the place that made it as plain data: a window message from the model's core frame, then JSON on the port
  * to the results page. These keep it to what both carry unchanged, so a table is the same on either side, cell for
@@ -59,14 +59,30 @@ function readSite(value: unknown): { origin: string; customer: string } | undefi
 }
 
 /** What feeds a target of an import, by the result's word for it (result-types.ts `MappedSource`). */
-const SOURCES: ReadonlySet<string> = new Set<MappedSource>(["column", "constant", "prompt", "ignore", "headerRow", "none", "other"]);
+const SOURCES: ReadonlySet<string> = new Set<MappedSource>(["column", "constant", "prompt", "ignore", "headerRow", "none", "numbered", "other"]);
 
 /** One target of an import's mapping, every field checked, or nothing when anything else is there. */
 function readTarget(value: unknown): MappedTarget | undefined {
   const target = value as Partial<MappedTarget> | null;
   if (!target || typeof target !== "object" || typeof target.target !== "string" || typeof target.source !== "string" || !SOURCES.has(target.source)
-      || (target.column !== undefined && !(Number.isSafeInteger(target.column) && target.column >= 1)) || (target.text !== undefined && typeof target.text !== "string")) return undefined;
-  return { target: target.target, source: target.source, ...(target.column !== undefined ? { column: target.column } : {}), ...(target.text !== undefined ? { text: target.text } : {}) };
+      || (target.column !== undefined && !(Number.isSafeInteger(target.column) && target.column >= 1)) || (target.text !== undefined && typeof target.text !== "string")
+      || (target.id !== undefined && typeof target.id !== "string")) return undefined;
+  return { target: target.target, source: target.source, ...(target.column !== undefined ? { column: target.column } : {}), ...(target.text !== undefined ? { text: target.text } : {}),
+    ...(target.id !== undefined ? { id: target.id } : {}) };
+}
+
+/** How the ways an import into a list tells its items apart are written (result-types.ts `ItemMatch`). */
+const MATCHES: ReadonlySet<string> = new Set<ItemMatch["by"]>(["nameOrCode", "name", "code", "properties"]);
+
+/** How an import into a list tells its items apart, every field checked: undefined where there is none, and false where
+ * anything else is there. */
+function readMatch(value: unknown): ItemMatch | undefined | false {
+  if (value === undefined) return undefined;
+  const match = value as Partial<ItemMatch> | null;
+  if (!match || typeof match !== "object" || typeof match.by !== "string" || !MATCHES.has(match.by)
+      || (match.properties !== undefined && !(Array.isArray(match.properties) && Array.from(match.properties as unknown[]).every(name => typeof name === "string")))
+      || (match.numbered !== undefined && typeof match.numbered !== "boolean")) return false;
+  return { by: match.by, ...(match.properties !== undefined ? { properties: Array.from(match.properties) } : {}), ...(match.numbered !== undefined ? { numbered: match.numbered } : {}) };
 }
 
 /** A model's imports from a file with their mappings (result-types.ts `ImportMapping`), every field checked, or nothing when
@@ -85,7 +101,10 @@ export function readImportMappings(value: unknown): ImportMapping[] | undefined 
       if (!target) return undefined;
       targets.push(target);
     }
-    mappings.push({ id: mapping.id, name: mapping.name, importType: mapping.importType, targets, ...(mapping.note !== undefined ? { note: mapping.note } : {}) });
+    const matchedBy = readMatch(mapping.matchedBy);
+    if (matchedBy === false) return undefined;
+    mappings.push({ id: mapping.id, name: mapping.name, importType: mapping.importType, targets, ...(matchedBy ? { matchedBy } : {}),
+      ...(mapping.note !== undefined ? { note: mapping.note } : {}) });
   }
   return mappings;
 }
