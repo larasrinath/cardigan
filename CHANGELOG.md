@@ -6,10 +6,10 @@ Every merged change that alters the extension has a version of its own: a new fe
 
 The Overview's tiles say one number each, with their table's icon, and are all the same size.
 
-- **One number on a tile.** A tile shows the number of rows its table lists, and nothing else: the line of how many rows there are in all is gone, and so is the word "rows" under the number, which only a screen reader is told. Where a table leaves rows of its file out, as Model Calendar does with the rows about the model and the settings that have no value, the line under the table's name says how many and why. (#PR)
-- **The table's icon on its tile.** Each tile shows, before its table's name, the icon the navigation has for that table, for a model's tables and an app's alike. (#PR)
-- **Every tile the same size.** The tiles stand in columns of one width and rows of one height, whatever their names and numbers. A name too long for its tile ends in an ellipsis, and the tile's title holds it whole. In a narrow window the tiles keep their size and flow into fewer columns. (#PR)
-- **What stays the same.** A click on a tile opens its table, and what the Overview says about the export is as before. (#PR)
+- **One number on a tile.** A tile shows the number of rows its table lists, and nothing else: the line of how many rows there are in all is gone, and so is the word "rows" under the number, which only a screen reader is told. Where a table leaves rows of its file out, as Model Calendar does with the rows about the model and the settings that have no value, the line under the table's name says how many and why. (#48)
+- **The table's icon on its tile.** Each tile shows, before its table's name, the icon the navigation has for that table, for a model's tables and an app's alike. (#48)
+- **Every tile the same size.** The tiles stand in columns of one width and rows of one height, whatever their names and numbers. A name too long for its tile ends in an ellipsis, and the tile's title holds it whole. In a narrow window the tiles keep their size and flow into fewer columns. (#48)
+- **What stays the same.** A click on a tile opens its table, and what the Overview says about the export is as before. (#48)
 
 ## 0.16.2 (10 October 2026)
 
