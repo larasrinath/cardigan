@@ -62,15 +62,34 @@ export class StompError extends Error {
   constructor(message: string, readonly code?: string, readonly fqdn?: string) { super(message); }
 }
 
-function errorFromBody(body: string, fallback: string): StompError {
+/** As much of a body that is no JSON as an error says: the start of it. */
+const BODY_SAID = 200;
+
+/** Why the data service refused a read, or ended the connection, as far as the frame says. The service's body
+ * `{error, reason, fqdn}` gives its code, its words, and the host a redirect names. Page Builder reads more of a refusal
+ * (designer.js `eft`): the frame's `status-code` and `error-code` headers, and a body's `name` and `message`, or the body
+ * itself where it is no JSON. So does this, so that the diagnostic log says why a read was refused (seen live, 10 Oct
+ * 2026: a model's saved views were all refused, and the log said only that they were). Where nothing says why,
+ * `fallback` does. A status code is added to what is said, where the frame gives one. */
+function errorFromFrame(frame: StompFrame, fallback: string): StompError {
+  let parsed: Record<string, unknown> | undefined;
   try {
-    const parsed = JSON.parse(body) as { error?: unknown; fqdn?: unknown; reason?: unknown; errorCode?: unknown };
-    const code = typeof parsed.error === "string" ? parsed.error : typeof parsed.errorCode === "string" ? parsed.errorCode : undefined;
-    const reason = typeof parsed.reason === "string" ? parsed.reason : undefined;
-    return new StompError(reason ?? code ?? fallback, code, typeof parsed.fqdn === "string" ? parsed.fqdn : undefined);
+    const value: unknown = JSON.parse(frame.body);
+    parsed = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
   } catch {
-    return new StompError(fallback);
+    parsed = undefined;
   }
+  const word = (key: string): string | undefined => {
+    const value = parsed?.[key];
+    return typeof value === "string" && value.trim() !== "" ? value : undefined;
+  };
+  const headerCode = frame.headers["error-code"]?.trim() || undefined;
+  const code = word("error") ?? word("errorCode") ?? headerCode ?? word("name");
+  const body = parsed === undefined && frame.body.trim() !== "" ? frame.body.trim().slice(0, BODY_SAID) : undefined;
+  const said = word("reason") ?? word("message") ?? body ?? code;
+  const status = frame.headers["status-code"]?.trim();
+  const withStatus = (text: string): string => (status && !text.includes(status) ? `${text.replace(/\.$/, "")} (status ${status})${text.endsWith(".") ? "." : ""}` : text);
+  return new StompError(withStatus(said ?? fallback), code, word("fqdn"));
 }
 
 export interface SubscribeOptions {
@@ -145,7 +164,7 @@ export class StompConnection {
             connection.heartbeat = setInterval(() => { if (socket.readyState === WebSocket.OPEN) socket.send("\n"); }, 20_000);
             finish();
           } else if (frame.command === "ERROR") {
-            const error = errorFromBody(frame.body, frame.headers.message ?? "The model data service returned an error.");
+            const error = errorFromFrame(frame, frame.headers.message ?? "The model data service returned an error.");
             log(`ERROR frame: ${error.code ?? error.message}${error.fqdn ? ` (redirect to ${error.fqdn})` : ""}`);
             connection.fail(error);
             finish(error);
@@ -208,11 +227,11 @@ export class StompConnection {
       options.signal?.addEventListener("abort", onAbort, { once: true });
       this.handlers.set(id, frame => {
         const type = frame.headers["message-type"];
-        if (type === "error") { stop(errorFromBody(frame.body, `The data service rejected ${destination}.`)); return; }
+        if (type === "error") { stop(errorFromFrame(frame, `The data service rejected ${destination}.`)); return; }
         if (type === "action-status") {
           try {
             const status = JSON.parse(frame.body) as { status?: unknown };
-            if (status.status !== "success") stop(errorFromBody(frame.body, `The data service rejected ${destination}.`));
+            if (status.status !== "success") stop(errorFromFrame(frame, `The data service rejected ${destination}.`));
           } catch { stop(new StompError(`Unreadable status for ${destination}.`)); }
           return;
         }

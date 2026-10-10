@@ -110,6 +110,27 @@ describe("Page analyzer socket client", () => {
     connection.close();
   });
 
+  it("says why a read was refused as Page Builder reads it: the frame's status and error code, the body's name and message, or the body itself", async () => {
+    vi.stubGlobal("WebSocket", FakeSocket);
+    const [connection, socket] = await connected();
+    const refusal = async (headers: string, body: string) => {
+      const read = connection.subscribe("core://ws:model/views/273000000038");
+      const { id } = socket.frames().at(-1)!.headers;
+      socket.serve(`MESSAGE\nsubscription:${id}\nmessage-type:error\n${headers}\n${body}\0`);
+      return read.catch((error: unknown) => error as StompError);
+    };
+    // The service's own body, as before: its code and words, with the frame's status where it gives one.
+    expect(await refusal("", '{"error":"VIEW_UNAVAILABLE"}')).toMatchObject({ message: "VIEW_UNAVAILABLE", code: "VIEW_UNAVAILABLE" });
+    expect(await refusal("status-code:404\n", '{"name":"ModuleViewNotFoundError","message":"No such view"}'))
+      .toMatchObject({ message: "No such view (status 404)", code: "ModuleViewNotFoundError" });
+    expect(await refusal("status-code:400\nerror-code:BAD_REQUEST\n", "")).toMatchObject({ message: "BAD_REQUEST (status 400)", code: "BAD_REQUEST" });
+    // A body that is no JSON is said as it came, cut short; with nothing to say, the read is named, with its status.
+    expect(await refusal("status-code:403\n", `Forbidden ${"x".repeat(300)}`)).toMatchObject({ message: `Forbidden ${"x".repeat(190)} (status 403)` });
+    expect(await refusal("status-code:500\n", "")).toMatchObject({ message: "The data service rejected core://ws:model/views/273000000038 (status 500).", code: undefined });
+    expect(await refusal("", "")).toMatchObject({ message: "The data service rejected core://ws:model/views/273000000038." });
+    connection.close();
+  });
+
   it("ignores an update for another subscription revision, as Page Builder does", async () => {
     vi.stubGlobal("WebSocket", FakeSocket);
     const [connection, socket] = await connected();
