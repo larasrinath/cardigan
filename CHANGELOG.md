@@ -2,13 +2,17 @@
 
 ## 0.12.0 (9 October 2026)
 
-Shortcuts to where a row or a count leads.
+Shortcuts to where a row or a count leads, and the pages built on a model.
 
 - **Open in Model map.** The details of a line item or a module, from **Line Items** or **Modules**, have **Open in Model map** at the top right, a filled button with the map's icon. It closes the details and shows the map on that line item, inside its module's view, or on that module among its section's, selected, with what feeds it and what it feeds. A heading of Modules, and a line item the map does not draw, have no such button.
 - **Double-click a row to open its module in Anaplan.** A double-click on a row of a model's **Line Items** or **Modules** takes the Anaplan tab Cardigan read to that module in Model Building, and brings the tab to the front; no new tab opens. A line item opens its module. The tab loads Model Building's own link to the module, so the page reloads while the model stays open: switching modules inside the page through Anaplan's app shell could not be checked, and is not tried. The rows say so when the pointer rests on them. A model's result now keeps each module's ID, and the content script tells the results page the site and the customer of a model in Model Building; a result an earlier version kept has no IDs, and the page says to run it again.
 - **Model Calendar's Allowed values start hidden.** They only guide filling the template in by hand; the column chooser shows them, and a row's details list them.
 - **The Overview's tiles open their tables.** A click on a tile, for an app or a model, opens the table it counts, as the table's entry in the navigation does.
-- **What stays the same.** What is read from Anaplan, and what the tables hold.
+- **Module Usage, Page Filters and Page Actions.** After a model's settings, Cardigan reads the pages built on the model, in every app you can open, with GET requests and the model data socket, as an app's pages are read: Model Building's list of those pages, each page's published version (four at a time), the name of each app, and the names the cards use. Three tables follow Source Models, last before the map, each on its own in the navigation. **Module Usage** lists each module with the apps and pages that use it, in the order of Modules, or says **Not on any page**. **Page Filters** and **Page Actions** are an app's Filters and Action Buttons tables with the app in front, for the cards that work on this model. A page that cannot be read is named in a note. Without a customer in the address, as on the classic model page, or when Anaplan refuses the list, the three tables are listed as not exported, with the reason, and the export is kept. What the step reports joins the result's diagnostic log.
+- **Line Items counts its page filters.** A **Page Filters** column says how many page filters have the line item as their condition: empty rather than 0 when a page could not be read, or a filter's condition line item could not be named.
+- **The Overview names the apps.** Under **About this export**, **Apps**, after Model ID, names the apps whose pages use the model, one per line, or says that no app's pages use it.
+- **The map lists a line item's page filters.** A line item's details on the Model map list the page filters that have it as their condition, by app, page and card: the first ten, and how many more. The map reads them from the Page Filters table, and nothing more from Anaplan.
+- **What stays the same.** How an app and a model's settings are read, and what their tables hold, but for the Page Filters column of Line Items.
 
 ## 0.11.2 (9 October 2026)
 
