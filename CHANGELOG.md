@@ -11,6 +11,13 @@ Times in your own time zone, or in UTC, as a switch in the header says.
 - **Search, sort and ranges follow.** The search finds a time as it is shown. The sort goes by the moment, also where the clocks went back an hour. A range of days on a column of times is days of the zone it was set in, and keeps the same rows when you switch zones or refresh the page: its filter says whose days they are where they are the other zone's. The tab keeps the range with its zone, and the column by the file's name for it, so the settings kept since 0.16.0 hold in either zone.
 - **What stays the same.** Dates without a time, such as when a page was last published, **Captured on** and a version's Edit From and To, are the same in either zone; the result holds every time as Anaplan wrote it, and the diagnostic log keeps its own times.
 
+## 0.16.4 (10 October 2026)
+
+The navigation bar stays still.
+
+- **No tab moves.** A menu's button named the table shown in it, so it grew or shrank as a table was chosen, and every tab after it moved, by up to 79 pixels; the tab of the view shown was set in bold, which widened it a little too. A menu's button now always shows its own icon and name, **Time**, **Lists**, **Modules** or **Actions**, and is marked while one of its tables is shown: its menu marks that table, and the table's own heading names it. Every entry and menu keeps the width of its words in bold, so neither choosing a table nor changing the view moves anything in the bar. (#47)
+- **What stays the same.** The bar is about as wide as it was: a model's with every table still stands on one line in a window 1,440 pixels wide. The one menu of a window under 1,000 pixels wide is unchanged. (#47)
+
 ## 0.16.3 (10 October 2026)
 
 The Overview's tiles say one number each, with their table's icon, and are all the same size.

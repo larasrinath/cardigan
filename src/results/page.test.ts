@@ -269,6 +269,30 @@ describe("The results page's files", () => {
       .map(selector => written.querySelectorAll(selector).length)).toEqual([6, 2, 2, 2, 2, 1, 1, 2, 1, 0]);
   });
 
+  it("keeps each item of the navigation one width whatever it shows and however it is marked, so that no item after it moves", () => {
+    // An item's words, an entry's or a group's button's, stand over their room (markup.ts `wordsHtml`): the same words in
+    // the bold of the view shown, unseen, of no height, and read by nothing, which give the words the width of their bold.
+    expect(declared(".nav-item>span,.nav-group-btn>span")).toEqual(["display:inline-flex;flex-direction:column;align-items:flex-start"]);
+    const room = declared(".nav-item>span::after,.nav-group-btn>span::after")[0] ?? "";
+    expect(['content:attr(data-room) / "";', "height:0;", "line-height:0;", "visibility:hidden;", "white-space:pre;", "pointer-events:none;"].map(part => [part, room.includes(part)]))
+      .toEqual(['content:attr(data-room) / "";', "height:0;", "line-height:0;", "visibility:hidden;", "white-space:pre;", "pointer-events:none;"].map(part => [part, true]));
+    // The room's bold is the mark's bold: the words of the view shown take no more room than the room keeps.
+    const bold = (body: string) => /font-weight:(\d+)/.exec(body)?.[1];
+    expect([bold(room), bold(declared('.nav-item[aria-current="page"],.nav-group-btn[aria-current="true"]')[0] ?? "")]).toEqual(["600", "600"]);
+    // What the page writes is what these rules name: every item's words carry their room, those of a group's button the
+    // group's own name, whichever of its tables is shown.
+    const grouped = navItems([{ id: "overview", label: "Overview" }, { id: "1", label: "Modules", file: "Modules.csv" }, { id: "2", label: "Line Items", file: "Line Items.csv" }], true);
+    /** The room of each item's words, an entry's or a group's button's, in the order of the page: the words are a child of the item. */
+    const rooms = (current: string) => parseMarkup(navHtml(grouped, current)).querySelectorAll(".nav-item, .nav-group-btn")
+      .map(item => item.children.find(child => child.localName === "span")?.getAttribute("data-room"));
+    expect(["overview", "1", "2"].map(rooms)).toEqual(Array(3).fill(["Overview", "Modules", "Modules", "Line Items"]));
+    // No mark of an item's state, the view shown, a hover, an open menu or the keyboard's focus, changes a size: they
+    // change colours and turn the chevron, and that is all.
+    const marks = [...rules(".nav-item"), ...rules(".nav-group-btn")].filter(([selector]) => /\[aria-current|:hover|\[aria-expanded|:focus/.test(selector));
+    expect(marks.length).toBeGreaterThan(0);
+    expect(marks.filter(([, body]) => /(^|;)\s*(padding|margin|border(-width)?|width|min-width|max-width|height|font-size|letter-spacing|gap)\s*:/.test(body))).toEqual([]);
+  });
+
   it("keeps the header and the navigation at the top of the window together, as one box, which a window under 640px wide, or a narrow one that is short, lets scroll away", () => {
     // The box of the two stays at the top, over the content that scrolls under it. The header has no place of its own:
     // the navigation needs to know nothing of the header's height, which grows as the header wraps.
