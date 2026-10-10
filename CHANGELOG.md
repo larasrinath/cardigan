@@ -2,6 +2,18 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version stands next to Cardigan's name at the top of the results page and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## 0.15.8 (10 October 2026)
+
+A model's run reads its pages and names while it reads its settings, and spares the reads it never used.
+
+- **The pages and the first names beside the settings.** Where the Anaplan tab's address names the customer, the workspace and the model, as Model Building's does, Cardigan reads the list of the pages built on the model, each page and their apps while it reads the Model settings, and connects to the model data socket for the names of the model's modules and lists at the same time. The line items, the rest of the names and the tables wait for the settings. Meanwhile the status line says what the settings are at. A live run of 30 s spent 10.5 s on the settings and then 17.7 s on the pages and the names, one after the other; most of those now take place during the 10.5 s. (#42)
+- **No saved view's layout for a model.** A model's run asks for no saved view's rows, columns and context selectors, which only an app's **Cards** and **Grid Sections** tables show. The live run asked for 233 and spent 5.3 s on them. (#42)
+- **Saved views asked for as Page Builder asks.** An app's run asks for a saved view with the options Page Builder sends for a grid card's view, as an Anaplan grid's data source, by its ID, in its model, where it sent only the grid's options and every view was refused. It reads the first 6 before the others, and where each of those is refused and none answers, the others are not asked; the log and the note say so. (#42)
+- **The model's own host first.** In Model Building, the model data socket starts on the host the model's own page is served from, its data centre, so the first run in a tab is no longer sent there by a redirect; where that host cannot be reached, it starts on the tab's host, as before. (#42)
+- **A refusal says why.** Where Anaplan refuses a read, the log gives the status code and the reason the refusal carries, as Page Builder reads them, where it said only that the read was refused. (#42)
+- **Timings.** The model's names have a line for any time they waited for the settings, and a last line of the log says how long the settings, the pages and the names took, and the run in all: "Run: export … s, pages … s, names … s, overlapped; in all … s". (#42)
+- **What stays the same.** The tables, cell for cell; at most four reads at a time of each kind; read-only reads; a closed results page still stops the run between reads; a run that names no workspace in its address, such as the classic model page opened on its own, reads its pages after the settings, as before. (#42)
+
 ## 0.15.7 (10 October 2026)
 
 An import's **Mapping** reads from the source to the target.
