@@ -4,8 +4,9 @@
 /* The map's own colours, for both themes. Panels, text, borders, the accent and the fonts are the results page's tokens;
    these are what a map needs on top of them. They are set on the map's own element, so nothing outside it changes, and
    the canvas reads them from there (map-palette.ts names each one).
-   - The eight section colours are one set of hues in a fixed order, stepped for each theme. A model with more than
-     eight sections starts again at the first; a section's name always stands with its colour.
+   - The eight section colours are one set of hues in a fixed order, stepped for each theme. The ninth to the sixteenth
+     section take them again in stripes; after that the first comes again. A section's name always stands with its
+     colour.
    - A node is a panel on the canvas: its fill, border and text are the page's panel, border and text. Text on a node is
      never in a section's colour, so it has the page's own contrast in both themes.
    - A link is a line that says something: its colour stands 3 to 1 against the canvas in both themes. */
@@ -149,8 +150,11 @@
 /* A dot beside a name says the layer's colour. What stands beside the graph has no colour of its own: its dot is hollow
    and dashed, as its box is. */
 .map-dot{flex:none;width:9px;height:9px;border-radius:3px}
-.map-c-s1{background:var(--map-section-1)} .map-c-s2{background:var(--map-section-2)} .map-c-s3{background:var(--map-section-3)} .map-c-s4{background:var(--map-section-4)}
-.map-c-s5{background:var(--map-section-5)} .map-c-s6{background:var(--map-section-6)} .map-c-s7{background:var(--map-section-7)} .map-c-s8{background:var(--map-section-8)}
+.map-c-s1{--map-c:var(--map-section-1);background:var(--map-c)} .map-c-s2{--map-c:var(--map-section-2);background:var(--map-c)} .map-c-s3{--map-c:var(--map-section-3);background:var(--map-c)} .map-c-s4{--map-c:var(--map-section-4);background:var(--map-c)}
+.map-c-s5{--map-c:var(--map-section-5);background:var(--map-c)} .map-c-s6{--map-c:var(--map-section-6);background:var(--map-c)} .map-c-s7{--map-c:var(--map-section-7);background:var(--map-c)} .map-c-s8{--map-c:var(--map-section-8);background:var(--map-c)}
+/* The ninth to the sixteenth section have the colours of the first eight in stripes, as their boxes' edges have them on
+   the canvas: two sections of one colour are told apart by more than their colour. */
+.map-dot.map-c-striped{background:repeating-linear-gradient(135deg,var(--map-c) 0 2px,transparent 2px 3.5px);box-shadow:inset 0 0 0 1.5px var(--map-c)}
 .map-c-lineitem{background:var(--map-line-item)} .map-c-heading{background:var(--map-heading)} .map-c-list{background:var(--map-list)} .map-c-property{background:var(--map-property)}
 .map-c-external{border:1.5px dashed var(--map-external)}
 /* What feeds the node selected and what it feeds: each has its colour and its sign, which stands before the words of the

@@ -1,4 +1,4 @@
-import { PAGE_FILTERS_FILE } from "../page-files.js";
+import { MODULE_USAGE_FILE, PAGE_FILTERS_FILE } from "../page-files.js";
 import { textOf as plainText } from "../result-plain.js";
 import type { Cell, ResultTable } from "../result-types.js";
 import { message } from "../util.js";
@@ -99,6 +99,17 @@ const PROCESSES = { file: PROCESSES_FILE, objects: "processes", columns: [["Note
 const PAGE_FILTERS = {
   file: PAGE_FILTERS_FILE, objects: "page filters", rowNames: false,
   columns: [["App", null], ["Page", null], ["Card #", null], ["Condition line item", null], ["Condition line item's module", null]],
+} as const satisfies Reads<string>;
+
+/** The Modules file read for what it says of each module beyond Line Items: its Functional Area, Anaplan's own grouping
+ * of a model's modules. The map can group modules by it (map-groups.ts); without it the map does without that grouping,
+ * and says nothing of it. */
+const MODULES = { file: MODULES_FILE, objects: "modules", columns: [["Functional Area", null]] } as const satisfies Reads<string>;
+
+/** The pages built on the model that use each module (model-pages.ts): a row for each module and page, by the module's
+ * name, with the page's app. A module that no page uses has a row with no app. Each column is read by its name. */
+const MODULE_USAGE = {
+  file: MODULE_USAGE_FILE, objects: "module usage", rowNames: false, columns: [["Module", null], ["App", null]],
 } as const satisfies Reads<string>;
 
 /** The Imports tab's columns that say where an import takes its data from. The map does not draw a source: it only says
@@ -841,6 +852,29 @@ function readPageFilters(draft: Draft, tables: readonly ResultTable[]): void {
   }
 }
 
+/** What the Modules file and the Module Usage table say of each module of the map, found by its name as written or,
+ * where no module has that, without the spaces at its ends: its Functional Area, and the apps whose pages use it. A row
+ * of a module the map does not have says nothing, nor does a cell that holds nothing or a dash. Gives back which of the
+ * two the result has. */
+function readModuleFacts(draft: Draft, tables: readonly ResultTable[]): NonNullable<ModelGraph["moduleFacts"]> {
+  const moduleNamed = (name: string): number | undefined => draft.modules.get(name) ?? draft.modules.get(name.trim());
+  const modules = tableOf(tables, MODULES);
+  for (const row of modules?.rows ?? []) {
+    const area = modules!.cell(row, "Functional Area").trim();
+    const id = nothing(area) ? undefined : moduleNamed(textOf(row[0]));
+    if (id !== undefined) draft.nodes[id].functionalArea = area;
+  }
+  const usage = tableOf(tables, MODULE_USAGE);
+  for (const row of usage?.rows ?? []) {
+    const app = usage!.cell(row, "App").trim();
+    const id = nothing(app) ? undefined : moduleNamed(usage!.cell(row, "Module"));
+    if (id === undefined) continue;
+    const apps = draft.nodes[id].apps ??= [];
+    if (!apps.includes(app)) apps.push(app);
+  }
+  return { functionalAreas: modules?.has("Functional Area") ?? false, moduleUsage: usage !== undefined };
+}
+
 /** The graph of a model export's tables, with what it was made with: the draft, which knows every object by its name,
  * and what was read of Line Items. It throws whatever keeps a graph from being made. */
 function build(tables: readonly ResultTable[]): { graph: ModelGraph; draft: Draft; lineItems: LineItemsRead } {
@@ -861,6 +895,7 @@ function build(tables: readonly ResultTable[]): { graph: ModelGraph; draft: Draf
   const otherActions = readActions(draft, tables, OTHER_ACTIONS, processes.known, { target: targetInAction(ids.listOfId) });
   const actions = [imports, exportActions, otherActions];
   readPageFilters(draft, tables);
+  const moduleFacts = readModuleFacts(draft, tables);
   const shared = draft.sharedWithProperty.size;
   const graph: ModelGraph = {
     nodes: draft.nodes,
@@ -879,6 +914,7 @@ function build(tables: readonly ResultTable[]): { graph: ModelGraph; draft: Draf
       LINKS,
       ...(imports.sources ? [IMPORT_SOURCES] : []),
     ],
+    ...(moduleFacts.functionalAreas || moduleFacts.moduleUsage ? { moduleFacts } : {}),
   };
   return { graph, draft, lineItems };
 }

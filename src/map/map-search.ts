@@ -38,8 +38,12 @@ export function createSearch(model: MapModel, sections = true): (typed: string, 
       const modules = model.modules.filter(module => model.sectionOf(module) === section).length;
       return { hit: { kind: "section" as const, section: index, name: section, context: `Section · ${plural(modules, "module")}` }, name: section.toLowerCase(), text: section.toLowerCase() };
     }),
-    // A module says its section, where the map has sections to show.
-    ...model.modules.map(module => ({ hit: { kind: "module" as const, node: module, name: module.name, context: sections ? `Module · ${model.sectionOf(module)}` : "Module" }, name: module.name.toLowerCase(), text: module.name.toLowerCase() })),
+    // A module says its section, where the map has sections to show, and where the section comes from where the map
+    // chose how to group the modules.
+    ...model.modules.map(module => ({
+      hit: { kind: "module" as const, node: module, name: module.name, context: sections ? ["Module", model.sectionOf(module), ...(model.grouping ? [model.grouping.source] : [])].join(" · ") : "Module" },
+      name: module.name.toLowerCase(), text: module.name.toLowerCase(),
+    })),
     ...model.lineItems.map(item => {
       const module = model.node(item.module)?.name ?? "";
       return { hit: { kind: "lineItem" as const, node: item, name: item.name, context: module }, name: item.name.toLowerCase(), text: `${item.name} ${module}`.toLowerCase() };
@@ -62,13 +66,13 @@ export function createSearch(model: MapModel, sections = true): (typed: string, 
   };
 }
 
-/** Each object's name in lower case, made once for a model. */
-const lowered = new WeakMap<MapModel, Map<number, string>>();
+/** Each object's name in lower case, made once for a model's graph, whichever grouping its modules are in. */
+const lowered = new WeakMap<MapModel["graph"], Map<number, string>>();
 function namesOf(model: MapModel): Map<number, string> {
-  let names = lowered.get(model);
+  let names = lowered.get(model.graph);
   if (!names) {
     names = new Map(model.graph.nodes.map(node => [node.id, node.name.toLowerCase()]));
-    lowered.set(model, names);
+    lowered.set(model.graph, names);
   }
   return names;
 }

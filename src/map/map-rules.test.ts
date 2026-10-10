@@ -35,7 +35,7 @@ function selectors(styles: string): string[] {
 
 describe("The map's sources", () => {
   it("are the map's own files, and take nothing from the rest of the extension but the contract and the page's words for a cell", () => {
-    expect(SOURCES).toEqual(["map-camera.ts", "map-canvas.ts", "map-graphs.ts", "map-inspect.ts", "map-layout.ts", "map-markup.ts", "map-model.ts", "map-palette.ts", "map-search.ts", "map-text.ts", "map-trace.ts", "map-view.ts"]);
+    expect(SOURCES).toEqual(["map-camera.ts", "map-canvas.ts", "map-graphs.ts", "map-groups.ts", "map-inspect.ts", "map-layout.ts", "map-markup.ts", "map-model.ts", "map-palette.ts", "map-search.ts", "map-text.ts", "map-trace.ts", "map-view.ts"]);
     const outside: string[] = [];
     for (const name of SOURCES) {
       const imports = [...source(name).matchAll(/from "([^"]+)"/g)].map(match => match[1]);
@@ -177,7 +177,7 @@ describe("The map's stylesheet", () => {
   it("has no rule for a class the map never writes, and a rule for every class the view sets to say a state", () => {
     const written = new Set<string>();
     // The classes of the markup: every class of everything it writes, with every part it can write and every colour.
-    const layers = [...Array.from({ length: 8 }, (_, place) => `s${place}`), "lineitem", "heading", "external", "list", "property"];
+    const layers = [...Array.from({ length: 16 }, (_, place) => `s${place}`), "lineitem", "heading", "external", "list", "property"];
     const links: InspectLink[] = Array.from({ length: LIST_CAP + 1 }, (_, index) => ({ raw: index, name: "Line", sub: "Module", caption: "read access", layer: layers[index % layers.length] }));
     const words = { feeds: "1 box feeds it", fed: "it feeds 2 boxes", sentence: "Line item Node selected." };
     const everything = [

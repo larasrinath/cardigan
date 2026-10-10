@@ -65,8 +65,16 @@ Then it reads the pages built on the model, in every app you can open, and makes
 
 ![The model map as it opens: the eight sections of a model as boxes, with arrows between the sections that feed one another and the legend of the sections at the lower left](docs/images/map-sections.png)
 
-- The map opens on the model's sections. A section is the modules under one heading: a module whose name starts with `--`, such as `-- Inputs --`. Without headings it opens on the modules.
-- Double-click a section to open its modules, and a module to open its line items. **Show all modules** shows every module. `Esc` goes back a step.
+- The map groups the modules into sections, and opens on them. The switch in the map's bar chooses how, and marks the map's own pick as automatic:
+  - **By functional area**: each module's Functional Area, from Modules.
+  - **By headings**: the modules under one heading, a module whose name starts with `--`, such as `-- Inputs --`.
+  - **By name prefix**: the code a module's name starts with, such as INP for `INP01 Volumes`, where enough modules share it: three, and at least one in fifty. The rest are under **Other**. The codes are learnt from the model's own names; none is built in.
+  - **By role in the data flow**: Data, Input, System, Calculation or Output, worked out from what the model does with each module, never from its name. An import loads into a Data module, which is mostly without formulas. An Input module is mostly without formulas. A System module applies to no list, and three or more other modules read it. A Calculation module is mostly formulas that another module reads. An Output module's formulas no other module reads, or an export takes it.
+  - **By app**: the app whose pages show the module, from Module Usage, or **Several apps**, or **Not on any page**.
+  - **By main dimension**: the first list the module applies to, a subset as its list, or **Time only**, or **No dimensions**.
+- The map's own pick is the first of functional area, headings and name prefix that groups the model well: from 3 to 15 sections, none with more than half the modules, and at most a fifth of them left over. Otherwise it is the role in the data flow. A choice of yours is kept in this browser for the next map. A grouping that makes one section shows the modules instead.
+- A module's details say its section and where it comes from, such as "INP · from module names", and for a role, why. The search says the section and where it comes from too. The ninth to the sixteenth section have the first eight colours again, in stripes.
+- Double-click a section to open its modules, and a module to open its line items. **Show all modules** shows every module, and **Show sections** goes back. `Esc` goes back a step.
 - An arrow from A to B means B reads A.
 - Click a box to see everything that feeds it, marked in blue, and everything it feeds, marked in red, directly or through others. The rest fades; **Only these** hides it. Dashes move along the marked links for as long as the box is selected, long ones towards it and short ones away from it; they stand still if your system is set to reduce motion.
 - The panel on the right gives the box's details: for a line item its formula, format and summary in words, and what feeds it and what it feeds directly. A line item's details also list the page filters that have it as their condition, by app, page and card, from **Page Filters**: the first ten, and how many more.
@@ -138,6 +146,7 @@ Closing the results page stops the reading.
 - Nothing is sent anywhere except those reads, and the results page loads nothing from the internet.
 - The buttons in a row's details take your Anaplan tab to a module in Model Building, or to an app or a page; if that tab has been closed, the first opens one tab in its place. That changes which page the tab shows, and nothing in the model or the app. Where the tab shows the model in Model Building, a module is opened inside that page through the classic Model Building client's own way of opening one, the one its Modules list uses: Cardigan sends Anaplan nothing for it.
 - The kept result is in the browser's session storage for its tab, compressed and not encrypted.
+- The theme you chose, and how you chose to group the map's modules, are kept in the browser's local storage: a word each, nothing of your app or model.
 
 [NOTICE.md](NOTICE.md) says the rest, including what closing a tab does and does not erase.
 

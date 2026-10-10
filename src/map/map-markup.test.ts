@@ -160,14 +160,15 @@ describe("The map's own markup", () => {
   it("stands each select with the page's chevron, which a screen reader is not told of, in a wrap that the stylesheet hides with it", () => {
     const shell = parseMarkup(shellHtml(IDS, "Demand Plan"));
     expect(shell.querySelectorAll(".map-select-wrap").map(wrap => [wrap.children.map(child => [child.localName, child.getAttribute("class"), child.getAttribute("aria-hidden")])]))
-      .toEqual([[[["select", "map-select map-section-select", null], ["svg", "map-select-chevron", "true"]]],
+      .toEqual([[[["select", "map-select map-grouping-select", null], ["svg", "map-select-chevron", "true"]]],
+        [[["select", "map-select map-section-select", null], ["svg", "map-select-chevron", "true"]]],
         [[["select", "map-select map-module-select", null], ["svg", "map-select-chevron", "true"]]]]);
   });
 
   it("makes every control a real button, list or box with a name", () => {
     const shell = parseMarkup(shellHtml(IDS, "Demand Plan"));
     const controls = shell.querySelectorAll("button, select, input");
-    expect(controls.map(control => control.localName).sort()).toEqual([...Array.from({ length: 10 }, () => "button"), "input", "input", "select", "select"]);
+    expect(controls.map(control => control.localName).sort()).toEqual([...Array.from({ length: 10 }, () => "button"), "input", "input", "select", "select", "select"]);
     const names: string[] = [];
     for (const control of controls) {
       const label = control.closest("label");
@@ -177,7 +178,7 @@ describe("The map's own markup", () => {
       if (control.localName === "button") expect(control.getAttribute("type")).toBe("button");
     }
     expect(names).toEqual([
-      "Modules", "Line items", "Show all modules", "Model section", "Module for line items", "Show line items of other modules", "Access drivers", "Search all sections, modules and line items",
+      "Modules", "Line items", "Group the modules", "Show all modules", "Model section", "Module for line items", "Show line items of other modules", "Access drivers", "Search all sections, modules and line items",
       "Whole map", "Legend", "About this map", "Zoom out", "Zoom in", "Fit",
     ]);
     expect(shell.querySelector(".map-search")?.getAttribute("aria-controls")).toBe("map-results-1");
@@ -340,8 +341,8 @@ describe("The map's panels", () => {
     expect(legend.querySelector(".map-legend-title")?.textContent).toBe("On this map");
     expect(legend.querySelectorAll("button").map(item => [item.dataset.mapLayer, item.getAttribute("aria-pressed"), item.classList.contains("map-off"), item.querySelector(".map-legend-name")?.textContent, item.querySelector(".map-legend-count")?.textContent]))
       .toEqual([["lineitem", "true", false, "Line items", "1,200"], ["external", "false", true, "Other modules", "3"], ["s9", "true", false, "10: Archive", "1"]]);
-    // A colour is a class of the stylesheet's: the tenth section has the second colour.
-    expect(legend.querySelectorAll(".map-dot").map(dot => dot.getAttribute("class"))).toEqual(["map-dot map-c-lineitem", "map-dot map-c-external", "map-dot map-c-s2"]);
+    // A colour is a class of the stylesheet's: the tenth section has the second colour, in stripes.
+    expect(legend.querySelectorAll(".map-dot").map(dot => dot.getAttribute("class"))).toEqual(["map-dot map-c-lineitem", "map-dot map-c-external", "map-dot map-c-s2 map-c-striped"]);
     expect([legend.querySelector(".map-legend-note")?.localName, legend.querySelector(".map-legend-note")?.textContent]).toEqual(["p", LINK_SAYS]);
   });
 

@@ -1,4 +1,5 @@
 import type { EdgeKind, GraphEdge, GraphNode, ModelGraph, Unresolved } from "./graph-types.js";
+import type { Grouping } from "./map-groups.js";
 
 /** A model's graph, looked up the ways the map asks for it: its modules and their line items, its sections, the links
  * that make a dependency (a formula's, and who may read or write), and each node's links in and out. It reads the graph
@@ -39,6 +40,9 @@ export interface MapModel {
   outgoing(id: number): readonly GraphEdge[];
   actionsOf(module: number): readonly ModuleAction[];
   unresolvedOf(id: number): readonly Unresolved[];
+  /** How the modules are filed into the sections, where the map chose a grouping (`withGrouping`); none where the
+   * sections are the heading rows the graph gives. */
+  readonly grouping?: Grouping;
 }
 
 const NONE: readonly never[] = [];
@@ -123,4 +127,17 @@ export function indexModel(graph: ModelGraph): MapModel {
     actionsOf: module => actions.get(module) ?? NONE,
     unresolvedOf: id => unresolved.get(id) ?? NONE,
   };
+}
+
+/** The same model with its modules filed by a grouping (map-groups.ts): its sections are the grouping's groups, and the
+ * section of a module, and of its line items, is the module's group. Anything else keeps its own: a list its heading in
+ * General Lists. Nothing else of the model changes. */
+export function withGrouping(model: MapModel, grouping: Grouping): MapModel {
+  const sections = [...grouping.groups];
+  const place = new Map(sections.map((section, index) => [section, index]));
+  const sectionOf = (node: GraphNode): string => {
+    const module = model.moduleOf(node);
+    return (module === undefined ? undefined : grouping.groupOf.get(module)) ?? model.sectionOf(node);
+  };
+  return { ...model, sections, sectionOf, sectionIndex: section => place.get(section) ?? -1, grouping };
 }

@@ -68,6 +68,11 @@ export interface GraphNode {
   /** For a line item: the filters on the pages built on the model that have it as their condition, as the Page Filters
    * table lists them (model-pages.ts), each by its app, its page and its card's number. No link comes of them. */
   pageFilters?: PageFilter[];
+  /** A module's Functional Area, as the Modules file has it: Anaplan's own grouping of modules, which a model's builders
+   * set. None where the module has none. */
+  functionalArea?: string;
+  /** A module's apps: those whose pages use it, as the Module Usage table has them, each once, in the table's order. */
+  apps?: string[];
 }
 
 /** A filter of a card on a page, by where it is: the app, the page and the card's number on the page. */
@@ -114,6 +119,10 @@ export interface ModelGraph {
   /** In plain sentences, what this graph could not hold: a file that was not exported or lacks a column the map reads,
    * and what no export says (list members, the order a process runs its actions in). */
   limitations: string[];
+  /** Which of the tables that say more of each module the result has: the Modules file with a Functional Area column,
+   * and the Module Usage table of the pages built on the model. The map can group modules by them (map-groups.ts). A
+   * graph without it has neither. */
+  moduleFacts?: { functionalAreas: boolean; moduleUsage: boolean };
 }
 
 /** What the page tells the map about the model it draws. */
@@ -124,6 +133,12 @@ export interface ModelMapOptions {
    * says so in its own place; this is for the page's diagnostic log. (A map that cannot draw its first picture throws
    * from `show` or from the mounting itself, and the page says so in its own words.) */
   onFailure?: (reason: string) => void;
+  /** How the viewer last chose to group modules, by the kind of grouping (map-groups.ts `GroupingKind`): the map opens
+   * on it where this model has it, and otherwise on the grouping it picks itself. */
+  grouping?: string;
+  /** Called when the viewer chooses a grouping, with its kind, or with nothing where the choice is the map's own pick:
+   * the page keeps it for the viewer's next map. The map keeps nothing itself. */
+  onGrouping?: (kind: string | undefined) => void;
 }
 
 /** The mounted map (map-view.ts). The page shows and hides it as its navigation goes: while hidden it draws nothing and
