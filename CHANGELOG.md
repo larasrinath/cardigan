@@ -2,6 +2,15 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version stands next to Cardigan's name at the top of the results page and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## 0.16.3 (10 October 2026)
+
+The Overview's tiles say one number each, with their table's icon, and are all the same size.
+
+- **One number on a tile.** A tile shows the number of rows its table lists, and nothing else: the line of how many rows there are in all is gone, and so is the word "rows" under the number, which only a screen reader is told. Where a table leaves rows of its file out, as Model Calendar does with the rows about the model and the settings that have no value, the line under the table's name says how many and why. (#PR)
+- **The table's icon on its tile.** Each tile shows, before its table's name, the icon the navigation has for that table, for a model's tables and an app's alike. (#PR)
+- **Every tile the same size.** The tiles stand in columns of one width and rows of one height, whatever their names and numbers. A name too long for its tile ends in an ellipsis, and the tile's title holds it whole. In a narrow window the tiles keep their size and flow into fewer columns. (#PR)
+- **What stays the same.** A click on a tile opens its table, and what the Overview says about the export is as before. (#PR)
+
 ## 0.16.2 (10 October 2026)
 
 A page of the model's settings opens inside Model Building, as a module and a list do.
