@@ -18,8 +18,11 @@ declare namespace chrome {
     const onConnect: { addListener(listener: (port: Port) => void): void };
   }
   namespace tabs {
-    interface Tab { id?: number; index: number; windowId?: number }
+    /** `openerTabId`: the tab that opened this one, where one did and the browser still says so. */
+    interface Tab { id?: number; index: number; windowId?: number; openerTabId?: number }
     function connect(tabId: number, info?: { name?: string }): runtime.Port;
+    /** The tab of the extension's page that asks: undefined for a page that is in no tab. */
+    function getCurrent(): Promise<Tab | undefined>;
     /** Rejects when there is no tab with that ID. */
     function get(tabId: number): Promise<Tab>;
     function create(properties: { url: string; index?: number; windowId?: number; openerTabId?: number; active?: boolean }): Promise<Tab>;

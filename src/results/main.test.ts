@@ -5,7 +5,7 @@ import { PAGE_ACTIONS_HEADERS, PAGE_FILTERS_HEADERS } from "../model-pages.js";
 import { MODULE_USAGE_FILE, MODULE_USAGE_HEADERS, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE } from "../page-files.js";
 import { CALENDAR_HEADERS, CALENDAR_PROPERTIES, calendarRows } from "../model/calendar.js";
 import { FRESH_MS, PORT_NAME, RESULTS_PAGE, type TabMessage } from "../protocol.js";
-import type { AnalysisResult, Cell, ImportMapping, ResultTable } from "../result-types.js";
+import type { AnalysisResult, Cell, ImportMapping, ProcessActions, ResultTable } from "../result-types.js";
 import { columnWidths } from "./column-widths.js";
 import { columnsOf } from "./columns.js";
 import { OPEN_WAIT_MS } from "./connection.js";
@@ -14,6 +14,7 @@ import { analysedLine, NOT_KEPT_NOTE, TOO_LARGE_NOTE } from "./keep-notes.js";
 import { KEPT_PREFIX, ResultKeeper, type KeptStorage } from "./keep-result.js";
 import { FILE_ICONS, FORGOTTEN_LINE, keptCopyHtml, MAP_FAILED, NAV_ICONS, NOT_REMOVED_LINE } from "./markup.js";
 import { fileWords, watchForFiles, type FileWatch } from "./no-file.test-support.js";
+import { PROCESS_LINES } from "./process-actions-view.js";
 import { NONE } from "./table-engine.js";
 
 /** What stands in for the model map (src/map). The page calls its two functions and drives what the second returns; how
@@ -179,11 +180,15 @@ let tabClosed: boolean;
  * of the page's own names a file in any test. */
 let theirs: RegExp | undefined;
 /** What the page asked of chrome.tabs.update, chrome.tabs.create and chrome.windows.update, in order. A tab the page
- * opens is numbered from 101. While `tabsRefuse` holds, the browser refuses to take any tab anywhere or to open one. */
+ * opens is numbered from 101, and the browser says which tab opened it. While `tabsRefuse` holds, the browser refuses to
+ * take any tab anywhere or to open one. `closedTabs` are tabs the page opened that the user has closed since. */
 let tabUpdates: unknown[][];
 let tabCreates: unknown[][];
 let windowUpdates: unknown[][];
 let tabsRefuse: boolean;
+let closedTabs: Set<number>;
+/** The tab the results page itself is in, as chrome.tabs.getCurrent says it, after the Anaplan tab it was opened for. */
+const OWN_TAB = { id: 50, index: 2, windowId: 3 };
 /** The page's address, each address the script changed it to, and whether changing it is refused. */
 let location: { search: string; pathname: string; hash: string };
 let replaced: string[];
@@ -274,6 +279,7 @@ beforeEach(() => {
   tabCreates = [];
   windowUpdates = [];
   tabsRefuse = false;
+  closedTabs = new Set();
   copied = [];
   clipboardRefuses = false;
   stored = new Map();
@@ -325,11 +331,16 @@ beforeEach(() => {
   vi.stubGlobal("chrome", {
     tabs: {
       connect: (...args: unknown[]) => { connects.push(args); const port = new FakePort(); ports.push(port); return port; },
-      get: async (id: number) => { if (tabClosed) throw new Error(`No tab with id: ${id}.`); return { id, index: 0 }; },
-      // `tabClosed` closes the tab the page was opened for, and none it opened itself.
+      get: async (id: number) => {
+        if ((tabClosed && id <= 100) || closedTabs.has(id)) throw new Error(`No tab with id: ${id}.`);
+        const opener = id > 100 ? (tabCreates[id - 101]?.[0] as { openerTabId?: number } | undefined)?.openerTabId : undefined;
+        return { id, index: 0, ...(opener === undefined ? {} : { openerTabId: opener }) };
+      },
+      getCurrent: async () => OWN_TAB,
+      // `tabClosed` closes the tab the page was opened for, and none it opened itself; `closedTabs`, those it opened.
       update: async (id: number, properties: unknown) => {
         tabUpdates.push([id, properties]);
-        if (tabsRefuse || (tabClosed && id <= 100)) throw new Error(`No tab with id: ${id}.`);
+        if (tabsRefuse || (tabClosed && id <= 100) || closedTabs.has(id)) throw new Error(`No tab with id: ${id}.`);
         return { id, index: 0, windowId: 3 };
       },
       create: async (properties: unknown) => {
@@ -760,6 +771,47 @@ describe("The results page's script, on the page", () => {
     page.key("Escape");
     goTo(2);
     expect(filterable()).toEqual(["Name", "Functional Area"]);
+  });
+
+  it("filters a column of lists by each item, and a filter of many values by what its box finds: its buttons tick or untick all of that", async () => {
+    // Sixty modules, each applying to Products and to one of twenty regions, as a model's grid writes names, each region in
+    // three modules; and each in one of three functional areas.
+    const region = (at: number) => `Region ${String((at % 20) + 1).padStart(2, "0")}`;
+    const MANY: AnalysisResult = { ...MODEL, summary: ["Modules: 60 rows"], tables: [MODEL.tables[0], { file: "Modules.csv", label: "Modules",
+      headers: ["", "Applies To", "Functional Area"], guard: false, rows: Array.from({ length: 60 }, (_, at) => [`Module ${at + 1}`, `Products, ${region(at)}`, `Area ${at % 3}`]) }] };
+    await openWith(MANY);
+    goTo(1);
+    // Every cell of Applies To is its own, but its items repeat: the column offers a filter. The modules' names do not.
+    expect(filterable()).toEqual(["Applies To", "Functional Area"]);
+    page.find('[data-colfilter="1"]').press();
+    // Each item once, with the rows that list it, Products first; with more than fifteen, a box finds them, and has the focus.
+    const box = page.find("#popover [data-ffind]");
+    expect([choices().length, choices()[0], choices()[1], page.document.activeElement === box, page.find("#popover [data-fstatus]").textContent, page.find("#popover .pop-note").textContent])
+      .toEqual([21, ["Products", "60", true], ["Region 01", "3", true], true, "21 values.", "Each item is listed on its own: a row shows when any of its items is ticked."]);
+    // The box narrows the list, whatever the case, and the buttons say they work on what it finds.
+    box.type("region 0");
+    expect([choices().map(([value]) => value), page.find("#popover [data-fstatus]").textContent, page.texts("#popover [data-popact]")])
+      .toEqual([Array.from({ length: 9 }, (_, at) => `Region 0${at + 1}`), "9 of 21 values match.", ["Show all", "Tick matches", "Untick matches"]]);
+    // Unticking what it finds keeps every row while Products, which each of them lists, is ticked.
+    page.find('#popover [data-popact="untick"]').press();
+    expect([choices().every(([, , ticked]) => !ticked), page.id("rowCount").textContent, page.find('[data-colfilter="1"]').classList.contains("active")])
+      .toEqual([true, "1–50 of 60 rows", true]);
+    // Without Products, a row shows only by its region: the nine regions found are gone, and their twenty-seven modules.
+    box.type("PRODUCTS");
+    page.find('#popover [data-popact="untick"]').press();
+    expect([choices(), page.id("rowCount").textContent]).toEqual([[["Products", "60", false]], "1–33 of 33 rows (filtered from 60)"]);
+    // Ticking what it finds brings its rows back; with nothing typed, the buttons work on every value.
+    box.type("");
+    expect([page.texts("#popover [data-popact]"), page.find("#popover [data-fstatus]").textContent]).toEqual([["Show all", "Tick all", "Untick all"], "21 values."]);
+    page.find('#popover [data-popact="tick"]').press();
+    expect([choices().every(([, , ticked]) => ticked), page.id("rowCount").textContent, page.find('[data-colfilter="1"]').classList.contains("active")])
+      .toEqual([true, "1–50 of 60 rows", false]);
+    // A box ticked in the narrowed list is the value it shows, whatever its place in the list.
+    box.type("region 20");
+    page.all("#popover .pop-opt input")[0].tick();
+    expect([choices(), page.id("rowCount").textContent]).toEqual([[["Region 20", "3", false]], "1–50 of 60 rows"]);
+    page.find('#popover [data-popact="all"]').press();
+    expect([page.id("popover").hidden, page.find('[data-colfilter="1"]').classList.contains("active")]).toEqual([true, false]);
   });
 
   it("shows a table from its first page again after a sort, a search or a filter, and after leaving a search behind", async () => {
@@ -1866,7 +1918,7 @@ describe("What a click, a key and typing do on the results page", () => {
     expect(copied).toEqual(["card-a", "card-gone"]);
   });
 
-  it("lists one to a line, in a row's drawer and in a card's, a cell that the report joined from several items; the table, its search and its filter read the cell as it is", async () => {
+  it("lists one to a line, in a row's drawer and in a card's, a cell that the report joined from several items; the table and its search read the cell as it is, its filter each item", async () => {
     /** An app whose Cards table has a grid of one section and a combined grid, with the columns the report joins, and a
      * filter whose context is two dimensions. */
     const JOINED: AnalysisResult = { ...APP, tables: [APP.tables[0], APP.tables[1],
@@ -1900,12 +1952,17 @@ describe("What a click, a key and typing do on the results page", () => {
     expect(page.all("#drawerBody .mini tbody tr").map(entry => entry.children.map(cell => (cell.querySelector(".cell-list") ? cell.querySelectorAll("li").map(text => text.textContent) : cell.textContent))))
       .toEqual([["1", "", "", NONE, "Sales", ["Time = current", "Version = Actual"]]]);
     page.key("Escape");
-    // The search finds the cell as the table shows it, the report's separator and all; the filter lists the cells whole.
+    // The search finds the cell as the table shows it, the report's separator and all. The filter lists each item the
+    // drawer lists, once, with the rows that list it: a section of the combined grid is one item, its own semicolon and all.
     page.id("tblSearch").type("channel (hidden) | section 2");
     expect([column("Card title"), page.id("rowCount").textContent]).toEqual([["Plan"], "1–1 of 1 row (filtered from 2)"]);
     page.id("tblSearch").type("");
     page.find(`[data-colfilter="${4}"]`).press();
-    expect(choices().map(([value]) => value).sort()).toEqual([...SELECTORS].sort());
+    expect(choices().map(([value, count]) => [value, count]).sort()).toEqual([["Channel (hidden)", "1"], ["Section 1: Territory (visible, synced to page); Channel (hidden)", "1"],
+      ["Section 2: Store (hidden)", "1"], ["Territory (visible, synced to page)", "1"]]);
+    // A row shows when any of its items is ticked: without the first card's two items, the combined grid stays.
+    page.all("#popover input").filter((_, at) => ["Channel (hidden)", "Territory (visible, synced to page)"].includes(choices()[at][0])).forEach(box => box.tick());
+    expect([column("Card title"), page.id("rowCount").textContent]).toEqual([["Plan"], "1–1 of 1 row (filtered from 2)"]);
   });
 
   it("opens the card a link stands for: the one on that row's page, with its parts", async () => {
@@ -4683,7 +4740,7 @@ describe("The buttons at the top right of a row's details that open it in Anapla
     // The tab is asked first, and says it cannot: it goes to the module's address and comes to the front, and so does its
     // window; the details stay open behind it.
     await press("Model");
-    expect(asks()).toEqual([{ type: "open", nonce: expect.any(String), model: OPENS.id, module: "102000000001" }]);
+    expect(asks()).toEqual([{ type: "open", nonce: expect.any(String), model: OPENS.id, object: "102000000001" }]);
     expect([tabUpdates, windowUpdates, drawerOpen()]).toEqual([[[7, { url: link("102000000001"), active: true }]], [[3, { focused: true }]], true]);
     page.key("Escape");
     goTo(2);
@@ -4691,8 +4748,8 @@ describe("The buttons at the top right of a row's details that open it in Anapla
     await press("Model");
     expect([tabUpdates.at(-1), windowUpdates.length, tabCreates]).toEqual([[7, { url: link("102000000002"), active: true }], 2, []]);
     // The diagnostic log says which way each was opened, and why.
-    expect(await openedLines()).toEqual(["Opened REV01 Revenue by its address, which loads Model Building afresh: the tab shows another model.",
-      "Opened COST01 Costs by its address, which loads Model Building afresh: the tab shows another model."]);
+    expect(await openedLines()).toEqual(["Opened the module REV01 Revenue by its address in the Anaplan tab Cardigan read, which loads Model Building afresh: the tab shows another model.",
+      "Opened the module COST01 Costs by its address in the Anaplan tab Cardigan read, which loads Model Building afresh: the tab shows another model."]);
   });
 
   it("opens a module inside the Model Building page where the tab can, beside the modules open there: the tab is only brought to the front, with its window", async () => {
@@ -4702,9 +4759,9 @@ describe("The buttons at the top right of a row's details that open it in Anapla
     openRow("Revenue");
     await press("Model");
     // The tab is asked for the module by the model's ID and the module's; it opens it, and is not sent anywhere.
-    expect(asks()).toEqual([{ type: "open", nonce: expect.any(String), model: OPENS.id, module: "102000000001" }]);
+    expect(asks()).toEqual([{ type: "open", nonce: expect.any(String), model: OPENS.id, object: "102000000001" }]);
     expect([tabUpdates, windowUpdates, tabCreates, drawerOpen()]).toEqual([[[7, { active: true }]], [[3, { focused: true }]], [], true]);
-    expect(await openedLines()).toEqual(["Opened REV01 Revenue inside the Model Building page: Model Building opened it beside the modules open there."]);
+    expect(await openedLines()).toEqual(["Opened the module REV01 Revenue inside the Model Building page of the Anaplan tab Cardigan read: Model Building opened it beside the modules open there."]);
     // Each ask has a nonce of its own.
     page.key("Escape");
     goTo(2);
@@ -4725,7 +4782,7 @@ describe("The buttons at the top right of a row's details that open it in Anapla
     expect(tabUpdates).toEqual([]);
     await vi.advanceTimersByTimeAsync(1);
     expect([tabUpdates, windowUpdates]).toEqual([[[7, { url: link("102000000001"), active: true }]], [[3, { focused: true }]]]);
-    expect(await openedLines()).toEqual(["Opened REV01 Revenue by its address, which loads Model Building afresh: the Anaplan tab did not answer."]);
+    expect(await openedLines()).toEqual(["Opened the module REV01 Revenue by its address in the Anaplan tab Cardigan read, which loads Model Building afresh: the Anaplan tab did not answer."]);
     // The port the page followed the tab on has closed, as once the tab has loaded the module's address: the page asks
     // the tab again on a port of the ask's own, and the tab, now with this build's script, opens the module inside its page.
     ports[0].drop();
@@ -4802,15 +4859,19 @@ describe("The buttons at the top right of a row's details that open it in Anapla
     choose(String(WITH_PAGES.tables.findIndex(table => table.file === MODULE_USAGE_FILE)));
     const app = `${ORIGIN}/a/apps/app/${APP}`;
     const pages = [["Revenue board", `${app}/boards/${BOARD}`], ["Revenue sheet", `${app}/worksheets/${SHEET}`], ["Cost report", `${app}/reports/${REPORT}`]];
+    const addresses: string[] = [];
     for (const [row, [name, address]] of pages.entries()) {
       page.all('#tableWrap tbody [data-act="row"]')[row].press();
       expect(opens().map(([label]) => label), name).toEqual(["Model", "App", "Page"]);
       expect(opens().slice(1).map(([, title]) => title), name).toEqual([`Open the app Planning ${TAG} in Anaplan`, `Open the page ${name} in Anaplan`]);
       await press("App");
       await press("Page");
-      expect(tabUpdates.slice(-2).map(([, properties]) => (properties as { url: string }).url), name).toEqual([app, address]);
+      addresses.push(app, address);
       page.key("Escape");
     }
+    // The first app opens the tab of apps and pages, after the results page's own, and every address after it goes there.
+    expect(tabCreates).toEqual([[{ url: app, active: true, index: OWN_TAB.index + 1, openerTabId: OWN_TAB.id }]]);
+    expect(tabUpdates).toEqual(addresses.slice(1).map(url => [101, { url, active: true }]));
     // A page whose type has no address of its own here: its app is opened, and it is not.
     page.all('#tableWrap tbody [data-act="row"]')[3].press();
     expect(opens().map(([label]) => label)).toEqual(["Model", "App"]);
@@ -4820,9 +4881,8 @@ describe("The buttons at the top right of a row's details that open it in Anapla
     expect([opens(), why()]).toEqual([[], undefined]);
     // An app's name is written as text, in the title too.
     expect(strayImg()).toBe(false);
-    expect(new Set(tabUpdates.map(([tab]) => tab))).toEqual(new Set([7]));
-    // An app and a page are another app's: their addresses are loaded, and the tab is asked to open nothing inside its page.
-    expect(asks()).toEqual([]);
+    // The model's tab never goes to an app: it is asked to open nothing inside its page, and is sent nowhere.
+    expect([asks(), tabUpdates.filter(([tab]) => tab === 7)]).toEqual([[], []]);
   });
 
   it("opens a filter's two modules, its app and its page from Page Filters, one module where the two are one, and a button's app and page from Page Actions", async () => {
@@ -4840,9 +4900,10 @@ describe("The buttons at the top right of a row's details that open it in Anapla
     page.key("Escape");
     choose(String(WITH_PAGES.tables.findIndex(table => table.file === PAGE_ACTIONS_FILE)));
     openRow("Import prices");
-    expect(opens()).toEqual([["App", `Open the app Planning ${TAG} in Anaplan`], ["Page", "Open the page Cost report in Anaplan"]]);
+    // The model's action is on the Actions page of Model Building.
+    expect(opens()).toEqual([["Model", "Open Actions in Model Building"], ["App", `Open the app Planning ${TAG} in Anaplan`], ["Page", "Open the page Cost report in Anaplan"]]);
     await press("Page");
-    expect(tabUpdates.at(-1)).toEqual([7, { url: `${ORIGIN}/a/apps/app/${APP}/reports/${REPORT}`, active: true }]);
+    expect([tabUpdates.length, tabCreates]).toEqual([2, [[{ url: `${ORIGIN}/a/apps/app/${APP}/reports/${REPORT}`, active: true, index: OWN_TAB.index + 1, openerTabId: OWN_TAB.id }]]]);
   });
 
   it("says why the tables of the pages built on a model open no app and no page in a result an earlier version kept", async () => {
@@ -4852,7 +4913,8 @@ describe("The buttons at the top right of a row's details that open it in Anapla
     await openModel(earlier);
     choose(String(earlier.tables.findIndex(table => table.file === PAGE_ACTIONS_FILE)));
     openRow("Import prices");
-    expect([opens(), why()]).toEqual([[], "This result has no IDs for its apps and pages: an earlier version of Cardigan read it. Choose Run again to open them from here."]);
+    expect([opens(), why()]).toEqual([[["Model", "Open Actions in Model Building"]],
+      "This result has no IDs for its apps and pages: an earlier version of Cardigan read it. Choose Run again to open them from here."]);
   });
 
   it("opens one tab in the place of the Anaplan tab once that is closed, and every later address in that one", async () => {
@@ -4862,7 +4924,8 @@ describe("The buttons at the top right of a row's details that open it in Anapla
     openRow("Units");
     await press("Model");
     // The closed tab is asked first; then one tab is opened, and comes to the front with its window.
-    expect([tabUpdates.map(([tab]) => tab), tabCreates, windowUpdates]).toEqual([[7], [[{ url: link("102000000001"), active: true }]], [[3, { focused: true }]]]);
+    expect([tabUpdates.map(([tab]) => tab), tabCreates, windowUpdates]).toEqual([[7], [[{ url: link("102000000001"), active: true, index: OWN_TAB.index + 1, openerTabId: OWN_TAB.id }]],
+      [[3, { focused: true }]]]);
     page.key("Escape");
     goTo(2);
     openRow("COST01 Costs");
@@ -4874,6 +4937,211 @@ describe("The buttons at the top right of a row's details that open it in Anapla
     tabsRefuse = true;
     await press("Model");
     expect([toastSays(), tabCreates.length]).toEqual(["Cardigan could not open that in Anaplan.", 1]);
+  });
+
+  it("keeps the tab that took the closed Anaplan tab's place for a refresh of the results page, and sends the next module there", async () => {
+    // The result says where the model is, as a run in Model Building makes it: a refreshed page has no tab to say it.
+    await openModel({ ...OPENS, site: { origin: ORIGIN, customer: CUSTOMER } });
+    tabClosed = true;
+    goTo(1);
+    openRow("Units");
+    await press("Model");
+    expect(tabCreates.length).toBe(1);
+    // A refresh shows the kept result; the next module goes to that same tab, and no other is opened.
+    await refresh();
+    goTo(1);
+    openRow("Units");
+    await press("Model");
+    expect([tabCreates.length, tabUpdates.at(-1)]).toEqual([1, [101, { url: link("102000000001"), active: true }]]);
+  });
+
+  /** The model with its General Lists, the lists' IDs, and filters on a list, on one of its subsets and on Time. */
+  const LISTS: ResultTable = { file: "General Lists.csv", label: "General Lists", guard: false, headers: ["", "Subsets", "Item Count"],
+    rows: [["Products", "Active Products", "120"], ["Regions", "", "8"], ["--- Archive ---", "", "0"]] };
+  const filterOn = (dimension: string, module = "COST01 Costs") => pageRow(PAGE_FILTERS_HEADERS, { "Condition line item's module": "REV01 Revenue",
+    "Condition line item": "Units", "Filtered module": module, "Filtered dimension": dimension, Page: "Revenue board", ...place("Board", BOARD) });
+  const WITH_LISTS: AnalysisResult = { ...OPENS, listIds: [["Products", "101000000017"], ["Regions", "101000000018"]],
+    tables: [...OPENS.tables, LISTS, { file: PAGE_FILTERS_FILE, label: "Page Filters", guard: true, headers: [...PAGE_FILTERS_HEADERS],
+      rows: [filterOn("Products"), filterOn("Active Products", "REV01 Revenue"), filterOn("Time")] }] };
+  const table = (result: AnalysisResult, file: string) => choose(String(result.tables.findIndex(each => each.file === file)));
+  /** Refreshes the results page, which shows the result it kept once it has read it back. */
+  const refresh = async () => {
+    await open("?tab=7");
+    await eventually(() => page.has('#navList [data-nav="1"]'), "the kept result to come back");
+  };
+
+  it("opens a list from its row of General Lists: on the map, and in Model Building, inside the page where the tab can", async () => {
+    mapNodes = [{ id: 3, kind: "list", name: "Products" }, { id: 4, kind: "subset", name: "Active Products", parent: 3 }];
+    inPage = "opened";
+    await openModel(WITH_LISTS);
+    table(WITH_LISTS, "General Lists.csv");
+    openRow("Products");
+    expect([opens(), why()]).toEqual([[["Model map", "Show Products on the Model map"], ["Model", "Open Products in Model Building"]], undefined]);
+    await press("Model");
+    // The tab is asked for the list by its ID, as for a module, and opens it beside the tabs open there.
+    expect(asks()).toEqual([{ type: "open", nonce: expect.any(String), model: OPENS.id, object: "101000000017" }]);
+    expect([tabUpdates, tabCreates]).toEqual([[[7, { active: true }]], []]);
+    page.key("Escape");
+    // Where the tab cannot, the list's own Model Building link is loaded in the model's tab.
+    inPage = "not";
+    openRow("Regions");
+    expect(opens()).toEqual([["Model", "Open Regions in Model Building"]]);
+    await press("Model");
+    expect(tabUpdates.at(-1)).toEqual([7, { url: link("101000000018"), active: true }]);
+    expect(await openedLines()).toEqual(["Opened the list Products inside the Model Building page of the Anaplan tab Cardigan read: Model Building opened it beside the modules open there.",
+      "Opened the list Regions by its address in the Anaplan tab Cardigan read, which loads Model Building afresh: the tab shows another model."]);
+    page.key("Escape");
+    // A list the export found no ID for has no Model button, and nothing is said of it.
+    openRow("--- Archive ---");
+    expect([opens(), why()]).toEqual([[], undefined]);
+  });
+
+  it("says why no list opens in a result an earlier version kept, and nothing of a filter's dimension", async () => {
+    const { listIds: _ids, ...earlier } = WITH_LISTS;
+    await openModel(earlier);
+    table(earlier, "General Lists.csv");
+    openRow("Products");
+    expect([opens(), why()]).toEqual([[], "This result has no IDs for the model's lists: an earlier version of Cardigan read it. Choose Run again to open lists from here."]);
+    page.key("Escape");
+    // A filter's dimension says nothing of it: its modules still open.
+    table(earlier, PAGE_FILTERS_FILE);
+    page.all('#tableWrap tbody [data-act="row"]')[0].press();
+    expect([opens().map(([label]) => label), why()]).toEqual([["Condition module", "Filtered module", "App", "Page"], undefined]);
+  });
+
+  it("says why no list opens where the export found no list's ID, and asks for the log", async () => {
+    await openModel({ ...WITH_LISTS, listIds: [] });
+    table(WITH_LISTS, "General Lists.csv");
+    openRow("Products");
+    expect([opens(), why()]).toEqual([[], "Cardigan found no IDs for this model's lists, so it cannot open them in Model Building. "
+      + "Choose Copy diagnostic log on the Overview and send the log."]);
+  });
+
+  it("opens the list a filter's dimension is from Page Filters, a subset's list too, and none for Time", async () => {
+    mapNodes = [{ id: 3, kind: "list", name: "Products" }, { id: 4, kind: "subset", name: "Active Products", parent: 3 }];
+    await openModel(WITH_LISTS);
+    table(WITH_LISTS, PAGE_FILTERS_FILE);
+    const row = (at: number) => page.all('#tableWrap tbody [data-act="row"]')[at].press();
+    row(0);
+    expect(opens()).toEqual([["Condition module", "Open REV01 Revenue in Model Building"], ["Filtered module", "Open COST01 Costs in Model Building"],
+      ["Filtered list", "Open Products in Model Building"], ["App", `Open the app Planning ${TAG} in Anaplan`], ["Page", "Open the page Revenue board in Anaplan"]]);
+    await press("Filtered list");
+    expect(tabUpdates).toEqual([[7, { url: link("101000000017"), active: true }]]);
+    page.key("Escape");
+    // A subset opens its list; the one module of the filter is one Model button.
+    row(1);
+    expect(opens().map(([label, title]) => `${label}: ${title}`).slice(0, 2)).toEqual(["Model: Open REV01 Revenue in Model Building", "Filtered list: Open Products in Model Building"]);
+    page.key("Escape");
+    // Time is no list of the model's: no button for it.
+    row(2);
+    expect(opens().map(([label]) => label)).toEqual(["Condition module", "Filtered module", "App", "Page"]);
+  });
+
+  it("opens the Model Building page each table of the model's settings is on, by its address in the model's tab: Time, Versions, Line Item Subsets, Actions, Source Models", async () => {
+    const one = (file: string, first: string): ResultTable => ({ file, label: file.replace(/\.csv$/, ""), guard: false, headers: ["", "Notes"], rows: [[first, "Kept"]] });
+    const pages: [file: string, row: string, page: string, id: string][] = [["Time Ranges.csv", "FY24 range", "Time", "9000000001"], ["Versions.csv", "Actual", "Versions", "9000000002"],
+      ["Line Item Subsets.csv", "Cost lines", "Line Item Subsets", "-5"], ["Processes.csv", "Nightly load", "Actions", "-19"], ["Imports.csv", "Prices from the hub", "Actions", "-19"],
+      ["Exports.csv", "Plan export", "Actions", "-19"], ["Other Actions.csv", "Order regions", "Actions", "-19"], ["Import Data Sources.csv", "Hub data", "Actions", "-19"],
+      ["Source Models.csv", "Hub", "Source Models", "-13"]];
+    const calendar = WITH_CALENDAR.tables.find(each => each.file === "Model Calendar.csv")!;
+    const SETTINGS: AnalysisResult = { ...OPENS, tables: [...OPENS.tables, calendar, ...pages.map(([file, row]) => one(file, row))] };
+    await openModel(SETTINGS);
+    for (const [file, row, name, id] of pages) {
+      table(SETTINGS, file);
+      openRow(row);
+      expect(opens(), file).toEqual([["Model", `Open ${name} in Model Building`]]);
+      await press("Model");
+      expect(tabUpdates.at(-1), file).toEqual([7, { url: link(id), active: true }]);
+      page.key("Escape");
+    }
+    // Model Calendar is on the Time page too.
+    table(SETTINGS, "Model Calendar.csv");
+    page.all('#tableWrap tbody [data-act="row"]')[0].press();
+    expect(opens()).toEqual([["Model", "Open Time in Model Building"]]);
+    // A page is opened by its address alone: the tab is asked to open nothing inside its page, and the log says the page.
+    expect([asks(), (await openedLines()).at(-1)]).toEqual([[], "Opened the Source Models page by its address in the Anaplan tab Cardigan read, which loads Model Building afresh."]);
+  });
+
+  it("opens a Dynamic Cell Access row's two modules, the driver's and the controlled one, one Model where they are one", async () => {
+    const access: ResultTable = { file: "Dynamic Cell Access.csv", label: "Dynamic Cell Access", guard: false,
+      headers: ["Driver Module", "Driver Line Item", "Access", "Controlled Module", "Controlled Line Item"],
+      rows: [["REV01 Revenue", "Open", "Write", "COST01 Costs", "Units"], ["REV01 Revenue", "Locked", "Read", "REV01 Revenue", "Price"]] };
+    const ACCESS: AnalysisResult = { ...OPENS, tables: [...OPENS.tables, access] };
+    await openModel(ACCESS);
+    table(ACCESS, "Dynamic Cell Access.csv");
+    const rows = () => page.all('#tableWrap tbody [data-act="row"]');
+    rows()[0].press();
+    expect(opens()).toEqual([["Driver module", "Open REV01 Revenue in Model Building"], ["Controlled module", "Open COST01 Costs in Model Building"]]);
+    await press("Controlled module");
+    expect(tabUpdates.at(-1)).toEqual([7, { url: link("102000000002"), active: true }]);
+    page.key("Escape");
+    rows()[1].press();
+    expect(opens()).toEqual([["Model", "Open REV01 Revenue in Model Building"]]);
+  });
+
+  it("says why no settings page opens where neither the result nor the tab says where the model is", async () => {
+    const versions: ResultTable = { file: "Versions.csv", label: "Versions", guard: false, headers: ["", "Notes"], rows: [["Actual", "Kept"]] };
+    const SETTINGS: AnalysisResult = { ...OPENS, tables: [...OPENS.tables, versions] };
+    await openModel(SETTINGS, { kind: "model", id: OPENS.id });
+    table(SETTINGS, "Versions.csv");
+    openRow("Actual");
+    expect([opens(), why()]).toEqual([[], "To open modules, apps and pages from here, open the model in Model Building, then click the Cardigan icon on that tab."]);
+  });
+
+  it("opens apps and pages in a tab of their own after the results page, every later one in that tab, and never sends the model's tab to an app", async () => {
+    await openModel(WITH_PAGES);
+    table(WITH_PAGES, MODULE_USAGE_FILE);
+    const app = `${ORIGIN}/a/apps/app/${APP}`;
+    page.all('#tableWrap tbody [data-act="row"]')[0].press();
+    await press("App");
+    // The first opens a tab after the results page's own, which it opened, and brings it to the front with its window.
+    expect([tabCreates, tabUpdates, windowUpdates]).toEqual([[[{ url: app, active: true, index: OWN_TAB.index + 1, openerTabId: OWN_TAB.id }]], [], [[3, { focused: true }]]]);
+    await press("Page");
+    expect([tabCreates.length, tabUpdates]).toEqual([1, [[101, { url: `${app}/boards/${BOARD}`, active: true }]]]);
+    // The module goes to the model's tab, which the tab of apps and pages leaves alone, and back.
+    await press("Model");
+    await press("App");
+    expect(tabUpdates.map(([tab]) => tab)).toEqual([101, 7, 101]);
+    expect(await openedLines()).toEqual([`Opened the app Planning ${TAG} in a new tab: later apps and pages open there.`, "Opened the page Revenue board in the tab of apps and pages.",
+      "Opened the module REV01 Revenue by its address in the Anaplan tab Cardigan read, which loads Model Building afresh: the tab shows another model.",
+      `Opened the app Planning ${TAG} in the tab of apps and pages.`]);
+  });
+
+  it("opens a new tab of apps and pages where the user closed the one before, and uses that one after", async () => {
+    await openModel(WITH_PAGES);
+    table(WITH_PAGES, MODULE_USAGE_FILE);
+    page.all('#tableWrap tbody [data-act="row"]')[0].press();
+    await press("App");
+    closedTabs.add(101);
+    await press("Page");
+    await press("App");
+    expect([tabCreates.map(([properties]) => (properties as { url: string }).url), tabUpdates.map(([tab]) => tab)])
+      .toEqual([[`${ORIGIN}/a/apps/app/${APP}`, `${ORIGIN}/a/apps/app/${APP}/boards/${BOARD}`], [101, 102]]);
+    expect((await openedLines())[1]).toBe("Opened the page Revenue board in a new tab, as the tab of apps and pages was closed: later apps and pages open there.");
+    // A tab that can be neither used nor opened: the page says so, and the model's tab is not used in its place.
+    tabsRefuse = true;
+    await press("Page");
+    expect([toastSays(), tabUpdates.filter(([tab]) => tab === 7)]).toEqual(["Cardigan could not open that in Anaplan.", []]);
+  });
+
+  it("keeps the tab of apps and pages for a refresh of the results page, and uses a kept tab only where the browser says this page opened it", async () => {
+    await openModel({ ...WITH_PAGES, site: { origin: ORIGIN, customer: CUSTOMER } });
+    table(WITH_PAGES, MODULE_USAGE_FILE);
+    page.all('#tableWrap tbody [data-act="row"]')[0].press();
+    await press("App");
+    expect(session.held.get("cardigan-app-tab")).toBe("101");
+    await refresh();
+    table(WITH_PAGES, MODULE_USAGE_FILE);
+    page.all('#tableWrap tbody [data-act="row"]')[0].press();
+    await press("Page");
+    expect([tabCreates.length, tabUpdates]).toEqual([1, [[101, { url: `${ORIGIN}/a/apps/app/${APP}/boards/${BOARD}`, active: true }]]]);
+    // A tab ID kept for this page that the browser does not say it opened, as after a restart: it is sent nowhere.
+    session.held.set("cardigan-app-tab", "7");
+    await refresh();
+    table(WITH_PAGES, MODULE_USAGE_FILE);
+    page.all('#tableWrap tbody [data-act="row"]')[0].press();
+    await press("App");
+    expect([tabCreates.length, tabUpdates.length, session.held.get("cardigan-app-tab")]).toEqual([2, 1, "102"]);
   });
 
   it("has no buttons for an app's rows, which have no module to open", async () => {
@@ -4988,5 +5256,100 @@ describe("The mapping of an import from a file, in its row's details", () => {
     goTo(3);
     openImport("Division from HQ Network.csv");
     expect([strayImg(), mapping()[0]]).toEqual([false, [[`Division ${TAG}`, `Column 1: Name ${TAG}`], ["Parent", `Constant: ${TAG}`], ["Code", `A source Cardigan does not know (${TAG})`]]]);
+  });
+});
+
+describe("The actions of a process, in its row's details", () => {
+  const USED = "Used in Processes";
+  /** A model's Processes, then three tables of the actions they run, each with its Used in Processes, as the export writes
+   * them: the Actions list split at its headings, the imports merged into the Imports tab. */
+  const PROCESSES: ResultTable = { file: "Processes.csv", label: "Processes", guard: false, headers: ["", "Notes", USED, "Used in Dashboards"],
+    rows: [["Nightly load", "Runs at 2am", "", "Admin"], ["Weekly load", "", "", ""], ["Empty", "", "", ""]] };
+  const IMPORTS: ResultTable = { file: "Imports.csv", label: "Imports", guard: false, headers: ["", "Source Label", "Source Type", "Target Object", USED],
+    rows: [["Prices from the hub", "Hub / Prices", "SAVED VIEW", "Prices", "Nightly load"], ["1.1 Load regions", "Hub / Regions", "SAVED VIEW", "Regions", "Nightly load, Weekly load"]] };
+  const EXPORTS: ResultTable = { file: "Exports.csv", label: "Exports", guard: false, headers: ["", "Notes", USED], rows: [["Send plan", "", "Weekly load"]] };
+  const OTHERS: ResultTable = { file: "Other Actions.csv", label: "Other Actions", guard: false, headers: ["", "Notes", USED], rows: [["Delete old items", "", "Nightly load"]] };
+  /** Each process with its actions, in the order it runs them, as the export reads them out of the process's definition.
+   * Weekly load runs an action the Actions list does not have, and one of a kind Cardigan does not know. */
+  const PROCESS_ACTIONS: ProcessActions[] = [
+    { id: "118000000001", name: "Nightly load", actions: [{ id: "112000000002", name: "Prices from the hub", type: "IMPORT" },
+      { id: "112000000001", name: "1.1 Load regions", type: "IMPORT" }, { id: "117000000001", name: "Delete old items", type: "ACTION" }] },
+    { id: "118000000002", name: "Weekly load", actions: [{ id: "116000000001", name: "Send plan", type: "EXPORT" }, { id: "112000000001", name: "1.1 Load regions", type: "IMPORT" },
+      { id: "112000000099", name: "ID 112000000099", type: "IMPORT" }, { id: "117000000002", name: "Optimise", type: "OPTIMIZER" }] },
+    { id: "118000000003", name: "Empty", actions: [] }];
+  const WITH_PROCESSES: AnalysisResult = { ...BLUEPRINT, summary: [...BLUEPRINT.summary, "Processes: 3 rows", "Imports: 2 rows", "Exports: 1 rows", "Other Actions: 1 rows"],
+    tables: [...BLUEPRINT.tables, PROCESSES, IMPORTS, EXPORTS, OTHERS], processActions: PROCESS_ACTIONS };
+  /** The drawer's sections by their headings, and the Actions section's headings, rows and lines. */
+  const sections = () => page.all("#drawerBody .d-sec").map(section => section.querySelector("h3")?.textContent);
+  const steps = () => [page.texts("#drawerSteps th"), page.all("#drawerSteps tbody tr").map(row => row.children.map(cell => cell.textContent)), page.texts("#drawerSteps p")];
+  const links = () => page.all('#drawerSteps [data-act="step"]').map(link => link.textContent);
+  const openProcess = (name: string) => {
+    page.all('#tableWrap tbody [data-act="row"]')[firstCells().indexOf(name)].press();
+  };
+
+  it("lists the actions a process runs below All columns, numbered in the order it runs them, each with its kind, and each opens its own row's details", async () => {
+    await openWith(WITH_PROCESSES);
+    goTo(3);
+    openProcess("Nightly load");
+    expect([page.id("drawerTitle").textContent, sections()]).toEqual(["Nightly load", ["All columns", "Actions (3)"]]);
+    expect(steps()).toEqual([["#", "Action", "Kind"], [["1", "Prices from the hub", "Import"], ["2", "1.1 Load regions", "Import"], ["3", "Delete old items", "Other action"]], []]);
+    expect(links()).toEqual(["Prices from the hub", "1.1 Load regions", "Delete old items"]);
+    // An action's name opens its row of its own table, as a click on that row does.
+    page.all('#drawerSteps [data-act="step"]')[1].press();
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent, sections()]).toEqual(["1.1 Load regions", "Row 2 of Imports", ["All columns"]]);
+    page.key("Escape");
+    openProcess("Nightly load");
+    page.all('#drawerSteps [data-act="step"]')[2].press();
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual(["Delete old items", "Row 1 of Other Actions"]);
+  });
+
+  it("names as text an action whose row it cannot open, says a kind it does not know as Anaplan does, and says that a process runs none", async () => {
+    await openWith(WITH_PROCESSES);
+    goTo(3);
+    openProcess("Weekly load");
+    expect(steps()).toEqual([["#", "Action", "Kind"], [["1", "Send plan", "Export"], ["2", "1.1 Load regions", "Import"], ["3", "ID 112000000099", "Import"], ["4", "Optimise", "OPTIMIZER"]], []]);
+    // The action the Actions list does not have has no row; the other is of a kind no table lists.
+    expect(links()).toEqual(["Send plan", "1.1 Load regions"]);
+    page.key("Escape");
+    openProcess("Empty");
+    expect([sections(), steps(), page.has("#drawerSteps table")]).toEqual([["All columns", "Actions (0)"], [[], [], ["This process runs no action."]], false]);
+    page.key("Escape");
+    // A row of another table has no actions to list, though it names a process.
+    goTo(4);
+    page.all('#tableWrap tbody [data-act="row"]')[0].press();
+    expect(sections()).toEqual(["All columns"]);
+  });
+
+  it("lists, where the result has no process's own actions, those whose Used in Processes names it, by kind, and says that the order is not known", async () => {
+    const { processActions: _actions, ...earlier } = WITH_PROCESSES;
+    await openWith(earlier);
+    goTo(3);
+    openProcess("Nightly load");
+    expect(steps()).toEqual([["Action", "Kind"], [["Prices from the hub", "Import"], ["1.1 Load regions", "Import"], ["Delete old items", "Other action"]],
+      [PROCESS_LINES.unordered, PROCESS_LINES.earlier]]);
+    expect(links()).toEqual(["Prices from the hub", "1.1 Load regions", "Delete old items"]);
+    page.key("Escape");
+    // A cell that names several processes names this one among them.
+    openProcess("Weekly load");
+    expect(steps()[1]).toEqual([["1.1 Load regions", "Import"], ["Send plan", "Export"]]);
+    page.key("Escape");
+    openProcess("Empty");
+    expect(steps()).toEqual([[], [], [PROCESS_LINES.noneUsed, PROCESS_LINES.earlier]]);
+  });
+
+  it("says why, where a process's definition could not be read, under the actions whose Used in Processes names it", async () => {
+    const NOT_READ = "Cardigan could not read the actions of this process: the model did not give the processes' definitions. The diagnostic log says why.";
+    await openWith({ ...WITH_PROCESSES, processActions: PROCESS_ACTIONS.map(process => ({ ...process, actions: [], note: NOT_READ })) });
+    goTo(3);
+    openProcess("Nightly load");
+    expect(steps()).toEqual([["Action", "Kind"], [["Prices from the hub", "Import"], ["1.1 Load regions", "Import"], ["Delete old items", "Other action"]],
+      [PROCESS_LINES.unordered, NOT_READ]]);
+  });
+
+  it("writes every name and kind of a process's actions as text", async () => {
+    await openWith({ ...WITH_PROCESSES, processActions: [{ ...PROCESS_ACTIONS[0], actions: [{ id: "", name: `Load ${TAG}`, type: TAG }] }] });
+    goTo(3);
+    openProcess("Nightly load");
+    expect([strayImg(), steps()[1]]).toEqual([false, [["1", `Load ${TAG}`, TAG]]]);
   });
 });

@@ -114,23 +114,23 @@ describe("The Anaplan tab's end of the port to the results page", () => {
     page.say({ type: "run" });
     page.take();
     const opened = () => page.take().filter(message => message.type === "opened");
-    page.say({ type: "open", nonce: "ask-1", model: MODEL.id, module: "102000000001" });
+    page.say({ type: "open", nonce: "ask-1", model: MODEL.id, object: "102000000001" });
     await settle();
     expect([opened(), asked, runs]).toEqual([[{ type: "opened", nonce: "ask-1", opened: true, detail: "Model Building opened it beside the modules open there" }],
       [[MODEL.id, "102000000001"]], [MODEL]]);
     // The tab could not, and says why; an open that fails says what failed.
     answer = () => Promise.resolve({ opened: false, detail: "the tab shows another model" });
-    page.say({ type: "open", nonce: "ask-2", model: MODEL.id, module: "102000000002" });
+    page.say({ type: "open", nonce: "ask-2", model: MODEL.id, object: "102000000002" });
     answer = () => Promise.reject(new Error("the model's frame went away"));
-    page.say({ type: "open", nonce: "ask-3", model: MODEL.id, module: "102000000003" });
+    page.say({ type: "open", nonce: "ask-3", model: MODEL.id, object: "102000000003" });
     await settle();
     expect(opened()).toEqual([{ type: "opened", nonce: "ask-2", opened: false, detail: "the tab shows another model" },
       { type: "opened", nonce: "ask-3", opened: false, detail: "the model's frame went away" }]);
     // An ask that is not as the page writes one opens nothing and is not answered: no nonce to answer with, a nonce that is
     // no plain word, a model that is no 32-character ID, a module that is no ID in digits.
-    for (const odd of [{ type: "open" }, { type: "open", model: MODEL.id, module: "1" }, { type: "open", nonce: "an ask", model: MODEL.id, module: "1" },
-      { type: "open", nonce: "ask-4", model: "FEDCBA98", module: "1" }, { type: "open", nonce: "ask-5", model: MODEL.id, module: "10200000000x" },
-      { type: "open", nonce: "ask-6", model: MODEL.id, module: 102000000001 }, { type: "OPEN", nonce: "ask-7", model: MODEL.id, module: "1" }]) page.say(odd);
+    for (const odd of [{ type: "open" }, { type: "open", model: MODEL.id, object: "1" }, { type: "open", nonce: "an ask", model: MODEL.id, object: "1" },
+      { type: "open", nonce: "ask-4", model: "FEDCBA98", object: "1" }, { type: "open", nonce: "ask-5", model: MODEL.id, object: "10200000000x" },
+      { type: "open", nonce: "ask-6", model: MODEL.id, object: 102000000001 }, { type: "OPEN", nonce: "ask-7", model: MODEL.id, object: "1" }]) page.say(odd);
     await settle();
     expect([opened(), asked.length]).toEqual([[], 3]);
   });
@@ -139,9 +139,9 @@ describe("The Anaplan tab's end of the port to the results page", () => {
     const { open } = tab(APP);
     const page = open();
     page.take();
-    page.say({ type: "open", nonce: "ask-1", model: MODEL.id, module: "102000000001" });
+    page.say({ type: "open", nonce: "ask-1", model: MODEL.id, object: "102000000001" });
     await settle();
-    expect(page.take()).toEqual([{ type: "opened", nonce: "ask-1", opened: false, detail: "this tab opens no module in its page" }]);
+    expect(page.take()).toEqual([{ type: "opened", nonce: "ask-1", opened: false, detail: "this tab opens nothing in its page" }]);
   });
 
   it("streams each step and each line of the log, stamped with its time, then the result in pieces and done", async () => {
