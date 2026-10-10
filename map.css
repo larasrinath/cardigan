@@ -102,7 +102,7 @@
 .map-title-name{min-width:0;overflow:hidden;text-overflow:ellipsis;font-size:12.5px;font-weight:650;color:var(--text)}
 .map-crumb{max-width:100%;overflow:hidden;text-overflow:ellipsis;color:var(--accent);font-weight:inherit;border-radius:var(--r-xs);vertical-align:bottom}
 .map-crumb:hover{text-decoration:underline}
-.map-sep{flex:none;color:var(--text-3)}
+.map-sep{display:inline-flex;align-items:center;flex:none;color:var(--text-3)}
 .map-crumbs .map-select-wrap{flex:0 1 auto;min-width:96px}
 .map-crumbs .map-select{width:100%;max-width:240px}
 /* The module picker: a box to type into, with its list under it. */

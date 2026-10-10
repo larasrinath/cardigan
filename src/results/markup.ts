@@ -66,9 +66,10 @@ const isNone = (column: Column, text: string): boolean => column.none && text ==
 
 const plain = (text: string): string => `<span class="cell-t" title="${esc(text)}">${esc(text)}</span>`;
 
-/** A colour stop as report.ts `cfRuleText` writes it, its value, an arrow and its colour, where the colour is `#` and three
- * or six hexadecimal digits and ends the stop. A colour written in any other way stays text. */
-const COLOUR_STOP = /(→ )(#(?:[0-9A-Fa-f]{6}|[0-9A-Fa-f]{3}))(?=;|\s|$)/g;
+/** The colour of a colour stop as report.ts `cfRuleText` writes it, its colour, " at " and its value: `#` and three or
+ * six hexadecimal digits that start a stop, where the text starts or after "; ", ": " or " | " (a card's rules, one after
+ * another, each after its own words), and that " at " follows. A colour written in any other way stays text. */
+const COLOUR_STOP = /(?<=^|[;:|] )#(?:[0-9A-Fa-f]{6}|[0-9A-Fa-f]{3})(?= at )/g;
 
 /** A text that holds colour stops, each colour as a small square of that colour before its code, as design tools show a
  * colour. The square only shows what the code says, so screen readers skip it. The colour is written into its style only
@@ -77,8 +78,8 @@ export function coloursHtml(text: string): string {
   let html = "";
   let from = 0;
   for (const match of text.matchAll(COLOUR_STOP)) {
-    const at = (match.index ?? 0) + match[1].length;
-    const colour = match[2];
+    const at = match.index ?? 0;
+    const colour = match[0];
     html += `${esc(text.slice(from, at))}<span class="colour"><span class="swatch" style="--swatch:${colour}" aria-hidden="true"></span>${colour}</span>`;
     from = at + colour.length;
   }
@@ -535,14 +536,26 @@ export interface TableView {
   links: Links;
 }
 
+/** A sorted column's mark: a chevron up for ascending, down for descending, drawn as the pager's are. */
+const SORT_CHEVRON = {
+  asc: '<svg width="9" height="9" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 10 4-4 4 4"/></svg>',
+  desc: '<svg width="9" height="9" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 6 4 4 4-4"/></svg>',
+} as const;
+
+/** The pager's chevrons, drawn as the page's other chevrons are: a stroke in the colour of the button's text. Each
+ * button is named by its aria-label, so the chevron itself is hidden from screen readers. */
+const PAGE_CHEVRON = (path: string): string => `<svg class="pg-chevron" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${path}"/></svg>`;
+const PREVIOUS = PAGE_CHEVRON("M10 4 6 8l4 4");
+const NEXT = PAGE_CHEVRON("M6 4l4 4-4 4");
+
 /** The pager: Previous and Next, each disabled where there is no page to turn to, and the choice of rows per page. It
  * names no page by its number: the count that stands just before it says which rows are shown and of how many
  * ("51–100 of 229 rows"), and that is what tells the user where they are in the table. */
 export function pagerHtml(page: number, pages: number, total: number, pageSize: number): string {
   if (total === 0) return "";
   return `
-    <button type="button" class="pg-btn" data-page="${page - 1}" ${page === 0 ? "disabled" : ""} aria-label="Previous page">‹</button>
-    <button type="button" class="pg-btn" data-page="${page + 1}" ${page >= pages - 1 ? "disabled" : ""} aria-label="Next page">›</button>
+    <button type="button" class="pg-btn" data-page="${page - 1}" ${page === 0 ? "disabled" : ""} aria-label="Previous page">${PREVIOUS}</button>
+    <button type="button" class="pg-btn" data-page="${page + 1}" ${page >= pages - 1 ? "disabled" : ""} aria-label="Next page">${NEXT}</button>
     <span class="per-page">Rows per page
       <span class="select"><select id="pageSize" aria-label="Rows per page">
         ${[25, 50, 100].map(size => `<option value="${size}" ${size === pageSize ? "selected" : ""}>${size}</option>`).join("")}
@@ -589,9 +602,10 @@ export function tableParts(view: TableView): TableParts {
   const head = view.columns.map(column => {
     const dir = view.sort?.column === column.index ? view.sort.dir : undefined;
     const aria = dir ? (dir === "asc" ? "ascending" : "descending") : "none";
-    // The arrow's place is in every header, empty where the column is not sorted, and the stylesheet gives it the same
-    // room either way (`.th-sort .dir`): a sort changes what it shows, not how wide the header is.
-    const arrow = `<span class="dir" aria-hidden="true">${dir ? (dir === "asc" ? "▲" : "▼") : ""}</span>`;
+    // The sort mark's place is in every header, empty where the column is not sorted, and the stylesheet gives it the same
+    // room either way (`.th-sort .dir`): a sort changes what it shows, not how wide the header is. The mark is a chevron
+    // that points the way the column runs, up from its least for ascending, and the header's aria-sort says it in words.
+    const arrow = `<span class="dir" aria-hidden="true"${dir ? ` data-dir="${dir}"` : ""}>${dir ? SORT_CHEVRON[dir] : ""}</span>`;
     const name = esc(column.label);
     // A filter in force shows in more than the button's colour: the funnel is filled, where it is otherwise an outline,
     // and the button's name says so, with what a range keeps. The page sets aria-expanded while the button's popover is open.
