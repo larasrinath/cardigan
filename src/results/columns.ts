@@ -118,7 +118,12 @@ const CELL_COUNTS = ["Cell Count", "Populated Cell Count"];
 export const MODEL_COUNTS: ReadonlyMap<string, readonly string[]> = new Map([
   ["Modules.csv", CELL_COUNTS], ["Line Items.csv", CELL_COUNTS], ["General Lists.csv", ["Item Count"]],
 ]);
-const MODEL_CHOICES: ReadonlyMap<string, ReadonlyMap<string, Choice>> = new Map([...MODEL_COUNTS].map(([file, headers]) => [file, new Map(headers.map(header => [header, COUNT]))]));
+/** The columns of a model export's files that start hidden: a Model Calendar setting's allowed values, which only guide
+ * filling the template in by hand. Such a column is still in the column chooser, in the search and in the row's details. */
+export const MODEL_HIDDEN: ReadonlyMap<string, readonly string[]> = new Map([["Model Calendar.csv", ["Allowed values"]]]);
+const MODEL_CHOICES: ReadonlyMap<string, ReadonlyMap<string, Choice>> = new Map([...new Set([...MODEL_COUNTS.keys(), ...MODEL_HIDDEN.keys()])].map(file => [file,
+  new Map<string, Choice>([...(MODEL_COUNTS.get(file) ?? []).map((header): [string, Choice] => [header, COUNT]),
+    ...(MODEL_HIDDEN.get(file) ?? []).map((header): [string, Choice] => [header, { hidden: true }])])]));
 
 /** A column of any file offers a filter when it holds at least this many different texts and at most that many: with one
  * there is nothing to choose, and more than thirty are a list to search, not to tick. */
