@@ -200,7 +200,7 @@ describe("The results page against the engine in the Anaplan tab", () => {
     expect(page.client.log).toEqual([firstLine("model", MODEL, SHELL_HOST), ...runs[0].said].map(stamped));
     expect(runs[0].said.slice(0, 2)).toEqual([`frame ${MODEL_HOST}/core-webapp/anaplan/framework.jsp: loader=function model=id workspace=id`, "Loading the model page's client…"]);
     // Every grid was read through the frame's client, a first row and then the rest.
-    expect(settings.reads.slice(0, 4)).toEqual(["LINE ITEMS 0+1", "LINE ITEMS 0+4", "MODULES 0+1", "MODULES 0+2"]);
+    expect(settings.reads.slice(0, 2)).toEqual(["LINE ITEMS 0+1333", "MODULES 0+1333"]);
     const { result } = page.held();
     expect(detailsOf(result)?.file).toBe("Model Details.csv");
     // The log the result carries is the frame's own, which begins with the export: inside Model Building it has neither
@@ -287,8 +287,8 @@ describe("The results page against the engine in the Anaplan tab", () => {
     expectEngineResult(page, runs[0]);
     // The names came from the General Lists grid, read once and after Line Items: no grid is read for them.
     // The grid of the imports' definitions is read with the Imports tab's row axis, right after it (MAPPINGS_ADDED).
-    expect(settings.reads).toEqual(withMappingsRead(["LINE ITEMS 0+1", "LINE ITEMS 0+4", "MODULES 0+1", "MODULES 0+2", "LISTS 0+1", "LISTS 0+2", "ACTIONS 0+1", "ACTIONS 0+10", "IMPORTS 0+1", "IMPORTS 0+2",
-      "DATA SOURCES 0+1", "TIME RANGES 0+1", "VERSIONS 0+1", "VERSIONS 0+2", "CALENDAR 0+1", "CALENDAR 0+10"]));
+    expect(settings.reads).toEqual(withMappingsRead(["LINE ITEMS 0+1333", "MODULES 0+1333", "LISTS 0+1333", "ACTIONS 0+1333", "IMPORTS 0+1333",
+      "DATA SOURCES 0+1333", "TIME RANGES 0+1333", "VERSIONS 0+1333", "CALENDAR 0+1333"]));
     const { result } = page.held();
     const file = result.tables.find(table => table.file === "Line Items.csv");
     if (!file) throw new Error("The export wrote no Line Items.csv.");
@@ -320,8 +320,8 @@ describe("The results page against the engine in the Anaplan tab", () => {
     expectEngineResult(page, runs[0]);
     // The names came from the General Lists grid, read once and before the Actions list: no grid is read for them.
     // The grid of the imports' definitions is read with the Imports tab's row axis, right after it (MAPPINGS_ADDED).
-    expect(settings.reads).toEqual(withMappingsRead(["LINE ITEMS 0+1", "LINE ITEMS 0+4", "MODULES 0+1", "MODULES 0+2", "LISTS 0+1", "LISTS 0+2", "ACTIONS 0+1", "ACTIONS 0+12", "IMPORTS 0+1", "IMPORTS 0+2",
-      "DATA SOURCES 0+1", "TIME RANGES 0+1", "VERSIONS 0+1", "VERSIONS 0+2", "CALENDAR 0+1", "CALENDAR 0+10"]));
+    expect(settings.reads).toEqual(withMappingsRead(["LINE ITEMS 0+1333", "MODULES 0+1333", "LISTS 0+1333", "ACTIONS 0+1333", "IMPORTS 0+1333",
+      "DATA SOURCES 0+1333", "TIME RANGES 0+1333", "VERSIONS 0+1333", "CALENDAR 0+1333"]));
     const { result } = page.held();
     const file = result.tables.find(table => table.file === "Other Actions.csv");
     if (!file) throw new Error("The export wrote no Other Actions.csv.");
@@ -424,7 +424,7 @@ describe("The results page against the engine in the Anaplan tab", () => {
     await until(done(page), "the result");
 
     // The engine read the grid a window of rows at a time, and sent the file's rows on in pieces of 500.
-    expect(settings.reads.filter(entry => entry.startsWith("LINE ITEMS "))).toEqual(["LINE ITEMS 0+1", "LINE ITEMS 0+1739", "LINE ITEMS 1739+1739", "LINE ITEMS 3478+1522"]);
+    expect(settings.reads.filter(entry => entry.startsWith("LINE ITEMS "))).toEqual(["LINE ITEMS 0+1333", "LINE ITEMS 1333+1739", "LINE ITEMS 3072+1739", "LINE ITEMS 4811+189"]);
     const pieces = page.ports[0].heard.filter((message): message is { type: "rows"; table: number; rows: unknown[] } => (message as { type?: string }).type === "rows");
     expect(pieces.filter(piece => piece.table === 1).map(piece => piece.rows.length)).toEqual(Array(5000 / ROWS_MAX).fill(ROWS_MAX));
     // No message came near what Chrome allows one: the largest is a piece of rows, a few hundred kilobytes.
@@ -559,7 +559,7 @@ describe("The results page against the engine in the Anaplan tab", () => {
     // page's run takes over the one that is under way (bridge.ts `serveCore`) instead of starting a second beside it.
     const next = resultsPage(tab);
     await tab.quiet();
-    expect([next.client.state, runs.length, settings.reads]).toEqual([{ phase: "running", status: "Starting the analysis…" }, 2, ["LINE ITEMS 0+1", "LINE ITEMS 0+4", "MODULES 0+1"]]);
+    expect([next.client.state, runs.length, settings.reads]).toEqual([{ phase: "running", status: "Starting the analysis…" }, 2, ["LINE ITEMS 0+1333", "MODULES 0+1333"]]);
 
     modules.release();
     await until(done(next), "the next page's result");
