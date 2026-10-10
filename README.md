@@ -2,7 +2,7 @@
 
 Cardigan is a Chrome extension for Anaplan. Open an app or a model, click the Cardigan icon, and it reads what the app's pages or the model's settings hold. The result opens on a page of its own, where you can search, sort and filter each table. For a model, the page also draws a map of what feeds what.
 
-Cardigan makes no file and offers no download: the results page is the only place to see a result. The last result is kept for its tab in the browser's session storage, so that a refresh brings it back.
+Cardigan makes no file and offers no download: the results page is the only place to see a result. The last result is kept for its tab in the browser's session storage, so that a refresh brings it back, as you left it.
 
 Cardigan only reads, with your own signed-in session, and nothing it reads leaves your browser. It is an independent project, not affiliated with Anaplan: see [NOTICE.md](NOTICE.md).
 
@@ -160,7 +160,8 @@ Closing the results page stops the reading.
 
 - **Run again** reads the Anaplan tab again. The result on the page stays until the new one is complete.
 - The last finished result is kept for its tab, so a refresh brings it back without reading Anaplan, on the table or the map that was shown. A line above it says when it was analysed.
-- **Forget this result**, on the Overview, removes the kept copy at once. The result stays on the page until you refresh or close it.
+- A refresh keeps how you left the result too, until the tab is closed: each table's filters and ranges, the columns you showed or hid, its sort and its page; the rows a page lists; the search of the table you were on; how **Where Used** is listed; where the model map was, its group or module and its links; and a row's details that were open. **Run again** on the same app or model keeps what still fits its tables, each column by its name; another app or model starts clean. **Reset** clears a table's.
+- **Forget this result**, on the Overview, removes the kept copy at once, and how you left it. The result stays on the page until you refresh or close it.
 - Only the icon starts a reading unasked. A results page that is reloaded, duplicated or reopened waits for **Run** or **Run again**.
 
 ### If it does not start
@@ -179,7 +180,7 @@ Closing the results page stops the reading.
 - A model's settings are read through the model's own page, and so are each import's saved mapping, as Anaplan's own import dialog reads it, and each process's saved list of actions, as Anaplan's Actions tab reads it. Beside them, Cardigan reads the pages built on the model as it reads an app's: GET requests for Model Building's list of those pages, each page, each of their apps and the model's action names, and the model data socket for the other names the pages' cards use. The line items it reads from the model's settings name most of those: the socket is asked for the line items of one module, to compare the two, and of a module they do not cover. It is asked for no saved view's rows, columns and context selectors, which only an app's tables show. The socket goes to the Anaplan host the model's own page is served from, its data centre, where Anaplan would otherwise send it.
 - Nothing is sent anywhere except those reads, and the results page loads nothing from the internet.
 - The buttons in a row's details take your Anaplan tab to a module or a list in Model Building; if that tab has been closed, the first opens one tab in its place. Apps and pages open in one more tab, which the first **App** or **Page** opens next to the results page and every later one reuses. That changes which page a tab shows, and nothing in the model or the app. Where the Anaplan tab shows the model in Model Building, a module or a list is opened inside that page through the classic Model Building client's own way of opening one, the one its Modules list and General Lists use: Cardigan sends Anaplan nothing for it.
-- The kept result is in the browser's session storage for its tab, compressed and not encrypted.
+- The kept result is in the browser's session storage for its tab, compressed and not encrypted. So is how you left it, beside it: the values you filtered on and the search you typed can be names from your app or model.
 - The theme you chose, and how you chose to group the map's modules, are kept in the browser's local storage: a word each, nothing of your app or model.
 
 [NOTICE.md](NOTICE.md) says the rest, including what closing a tab does and does not erase.
@@ -205,7 +206,7 @@ Closing the results page stops the reading.
 - The map draws sections, modules, line items and the lists that formulas name. Processes and actions are not drawn; a module's details name the imports that load into it.
 - **About this map**, at the foot of the map, says what the map leaves out and could not place for this model, such as a line item named twice in one module.
 - A large view is shown whole with names cut short: point at a box to read its name. One too large even for that opens on its start, and **Whole map** shows all of it.
-- The map's view is not kept: a refresh, **Run again** or **Forget this result** starts it afresh.
+- The map keeps its view, group or module and links, for a refresh and for **Run again** on the same model; not its zoom and position, the box selected, its search or full screen. **Forget this result** starts it afresh.
 - A result over 64 MB as JSON, or 9 MB compressed, is not kept for a refresh; the page says so.
 - Anaplan can change the internal services Cardigan reads without notice: see [NOTICE.md](NOTICE.md).
 

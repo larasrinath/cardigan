@@ -2,7 +2,7 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version stands next to Cardigan's name at the top of the results page and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
-## 0.15.10 (10 October 2026)
+## 0.16.1 (10 October 2026)
 
 The map opens on the functional areas its builders set, however many there are.
 
@@ -11,6 +11,16 @@ The map opens on the functional areas its builders set, however many there are.
 - **A module's area found with spaces at either end.** A module is matched to its row of Modules by its name as written, and otherwise by its name without the spaces at its ends, whichever side has them, where no other module has that name. Before, only a row of Modules lost its spaces. The same holds for Module Usage. (#45)
 - **The log says how Modules met the map.** When the map's graph is first built, the run's log says how many areas the map's modules have, how many of them have one, which rows of Modules are no module of the map, and which modules of the map have no row in Modules, the first five of each, for example "Functional areas: 22 areas; 340 of the map's 352 modules have one; 0 rows of Modules are no module of the map; 2 modules of the map have no row in Modules: …". A heading row of Modules is in neither list. (#45)
 - **What stays the same.** Each module's area is its own row's; each box counts the modules and line items of its own group under the grouping shown; a switch of grouping renews the legend, the path's lists, the search and a module's details. Tests on a model of 22 areas now check each of these. (#45)
+
+## 0.16.0 (10 October 2026)
+
+A refresh of the results page keeps how you left the result, until the tab is closed.
+
+- **Tables as you left them.** Each table keeps its filters, its ranges, the columns you showed or hid, its sort and its page; the page keeps the rows it lists, the search of the table shown and how **Where Used** is listed. A page the table no longer has shows as its last. (#44)
+- **The map where you left it.** Its view, the group or the module it showed, other modules' line items and access drivers' links. Its zoom, position, selection and search start afresh. (#44)
+- **The details that were open** open again, found by what their row holds; where no row or more than one holds it now, none opens. (#44)
+- **Run again** on the same app or model keeps what still fits its tables, each column by its name: a filter on **Format type** stays, a column that is gone is let go, and one that is new starts as it always does. Another app or model starts clean. **Reset** clears a table's, and **Forget this result** all of it. (#44)
+- **Where it is kept.** The tab's session storage, beside the kept result, a few thousand characters at most; a tab whose storage is missing, full or refuses works the same and keeps nothing. [NOTICE.md](NOTICE.md) says what is kept. (#44)
 
 ## 0.15.9 (10 October 2026)
 
