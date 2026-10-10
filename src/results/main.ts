@@ -11,6 +11,7 @@ import { columnWidths } from "./column-widths.js";
 import { cardsNamed, cardsOf, columnIndex, columnsOf, rowKeys, rowNameIndex, writesNone, type CardsTable, type Column, type RowKeys } from "./columns.js";
 import { describeState, openedJustNow, repairTab, ResultsClient, runLabel, tabIdFrom, withoutOpened, type RunState } from "./connection.js";
 import { mappingOfRow } from "./import-mapping-view.js";
+import { processOfRow, type StepView } from "./process-actions-view.js";
 import { analysedLine, notKeptNote } from "./keep-notes.js";
 import { ResultKeeper } from "./keep-result.js";
 import {
@@ -473,6 +474,7 @@ function clearResult(): void {
   drawerRow = undefined;
   drawerObject = undefined;
   drawerOpens = [];
+  drawerSteps = [];
   state.view = "overview";
   state.search = "";
   state.context = undefined;
@@ -714,8 +716,22 @@ function openRowDrawer(entry: Shown, row: Row, opener: Element): void {
   const named = entry.opensFrom ?? rowNameIndex(entry.table);
   const none = writesNone(entry.table);
   const name = (named === undefined ? "" : rowName([row[named] ?? ""], none)) || rowName(row, none) || `Row ${position}`;
+  // A process's row lists the actions it runs: each opens its own row, where its table has one row of its name.
+  const process = processOfRow(result, entry.table, row);
+  drawerSteps = process ? process.steps.map(stepRow) : [];
   openDrawer(name, rowDrawerSubHtml(position, cellText(entry.table.label)),
-    rowDrawerHtml(entry.columns, row, entry.links, entry.exported?.get(row), rowItems(entry.lists, row), entry.readUnder, mappingOfRow(result, entry.table, row)), opener);
+    rowDrawerHtml(entry.columns, row, entry.links, entry.exported?.get(row), rowItems(entry.lists, row), entry.readUnder, mappingOfRow(result, entry.table, row),
+      process && { view: process, opens: drawerSteps.map(Boolean) }), opener);
+}
+/** The row of an action a process runs: the one row of its name in the table of its kind, as the page shows that table.
+ * None where the result has no such table, or where none of its rows, or more than one, has the name: which is meant is
+ * then not known. */
+function stepRow(step: StepView): { entry: Shown; row: Row } | undefined {
+  const entry = step.file === undefined ? undefined : [...shown.values()].find(candidate => candidate.table.file === step.file);
+  if (!entry) return undefined;
+  const named = entry.opensFrom ?? rowNameIndex(entry.table) ?? 0;
+  const found = entry.table.rows.filter(candidate => cellText(candidate[named]).trim() === step.name.trim());
+  return found.length === 1 ? { entry, row: found[0] } : undefined;
 }
 /** What an object's uses may link to: a page's cards and a card's details, where the result has the cards to show. */
 const useLinks = (): Links => ({ page: cards !== undefined, card: cards !== undefined });
@@ -796,6 +812,9 @@ const LISTS_FILE = "General Lists.csv";
 type Open = OpenButton & ({ kind: "map"; node: number } | { kind: "module"; url: string; object?: string; what: string } | { kind: "app" | "page"; url: string; what: string });
 /** The buttons of the row the details show, by their place: what a click on one of them opens. */
 let drawerOpens: readonly Open[] = [];
+/** For a process's row in the details, the row of each action it runs, by the action's place among them, where the page
+ * has one: what a click on the action's name opens. */
+let drawerSteps: readonly ({ entry: Shown; row: Row } | undefined)[] = [];
 
 /** Where the model on the page is in Anaplan, its site and its customer: as its result says them, or, for a result an
  * earlier version kept, as the tab says them of the model it shows in Model Building. None for the classic model page
@@ -1350,6 +1369,12 @@ document.addEventListener("click", event => {
       case "row":
         if (from) openRowDrawer(from.entry, from.row, act);
         return;
+      // An action of the process in the details, by its place among them: its own row's details.
+      case "step": {
+        const to = drawerSteps[Number(act.dataset.step)];
+        if (to) openRowDrawer(to.entry, to.row, act);
+        return;
+      }
       // A use of the object in the drawer, by its place among the object's uses: its page's cards, or its card.
       case "use-page":
       case "use-card": {
