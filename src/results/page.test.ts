@@ -298,9 +298,9 @@ describe("The results page's files", () => {
       .toEqual([["width:var(--width)"], ["width:min(var(--width),50cqi - 9px)"], "position:sticky;left:0"]);
     expect(every.filter(([selector, body]) => selector.includes(":first-child") && selector.includes("table-wrap") && /(^|;)\s*(max-)?width/.test(body)).map(([selector]) => selector))
       .toEqual([".table-wrap col:first-child"]);
-    // The sort arrow keeps its room in every header, sorted or not, and never gives it up; a header's name takes a second
+    // The sort mark keeps its room in every header, sorted or not, and never gives it up; a header's name takes a second
     // line rather than run into the next header's. Every other table's headers stay on one line, as they were.
-    expect(declared(".th-sort .dir")).toEqual(["color:var(--accent);font-size:9px;width:9px;flex:none"]);
+    expect(declared(".th-sort .dir")).toEqual(["display:inline-flex;align-items:center;color:var(--accent);width:9px;flex:none"]);
     expect([declared(".table-wrap thead th"), declared("thead th")[0].includes("white-space:nowrap")]).toEqual([["white-space:normal;overflow-wrap:anywhere"], true]);
     // A row keeps to one line: a text wider than its column ends in an ellipsis, in the cell and in the text's own box.
     expect([declared("tbody td")[0].includes("white-space:nowrap;overflow:hidden;text-overflow:ellipsis"), declared(".cell-t")[0].includes("max-width:100%;overflow:hidden;text-overflow:ellipsis")])

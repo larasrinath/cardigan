@@ -975,9 +975,9 @@ describe("What the results page reads out of a result", () => {
       colours: [false, false, false, false, false], rows: [] });
     // The colour stops of a formatting rule are the one part of a card whose colours show as squares, a stop to a line.
     const formatting = appTable("Conditional Formatting.csv", [{ Page: "Overview", "Card ID": "card-a", "Section #": "1", "Format style": "Background",
-      "Formatted line item": "Sales", "Colour driven by": "Sales", "Colour stops": "0 → #FFFFFF; 3 → #F9E95C" }]);
+      "Formatted line item": "Sales", "Colour driven by": "Sales", "Colour stops": "#FFFFFF at 0; #F9E95C at 3" }]);
     expect(cardSections(result("app", [formatting]), "Overview", "card-a").map(part => [part.title, part.colours, part.rows]))
-      .toEqual([["Conditional formatting", [false, false, false, false, true], [["1", "Background", "Sales", "Sales", ["0 → #FFFFFF", "3 → #F9E95C"]]]]]);
+      .toEqual([["Conditional formatting", [false, false, false, false, true], [["1", "Background", "Sales", "Sales", ["#FFFFFF at 0", "#F9E95C at 3"]]]]]);
     expect(parts.flatMap(part => part.colours)).not.toContain(true);
     expect(cardSections(result("app", [sections]), "Overview (copy)", "card-a")[0].rows.map(row => row[2])).toEqual(["REP09 Copy"]);
     expect(cardSections(result("app", [sections]), "Stores", "card-a")[0].rows).toEqual([]);
@@ -1000,7 +1000,7 @@ describe("What the results page reads out of a result", () => {
         "Condition line item": "Sales", Operator: "is greater than", Value: "10, 20", "Condition context": "Time = current; Version = Actual" },
       { Page: "Overview", "Card ID": "card-a", "Section #": "1", "Condition line item": "Margin %", Operator: "is not blank", "Condition context": "Time = current" }]);
     const formatting = appTable("Conditional Formatting.csv", [
-      { Page: "Overview", "Card ID": "card-a", "Section #": "1", "Format style": "Background", "Formatted line item": "Sales", "Colour stops": "0 → #FFFFFF; 100,000 → #627786" },
+      { Page: "Overview", "Card ID": "card-a", "Section #": "1", "Format style": "Background", "Formatted line item": "Sales", "Colour stops": "#FFFFFF at 0; #627786 at 100,000" },
       // A KPI's indicator says what it has in one sentence, whose semicolon is no join of the report's.
       { Page: "Overview", "Card ID": "card-a", "Format style": "KPI indicator – threshold icons", "Formatted line item": "KPI value",
         "Colour stops": "2 icons (arrow up, flag red); no threshold values set" }]);
@@ -1010,11 +1010,11 @@ describe("What the results page reads out of a result", () => {
     expect(filterPart.rows).toEqual([
       ["1, 2 (shared rows)", NONE, "Products, Regions", "1 · All", "Sales is greater than 10, 20", ["Time = current", "Version = Actual"]],
       ["1", NONE, NONE, NONE, "Margin % is not blank", "Time = current"]]);
-    expect(formattingPart.rows).toEqual([["1", "Background", "Sales", NONE, ["0 → #FFFFFF", "100,000 → #627786"]], [NONE, "KPI indicator – threshold icons", "KPI value", NONE,
+    expect(formattingPart.rows).toEqual([["1", "Background", "Sales", NONE, ["#FFFFFF at 0", "#627786 at 100,000"]], [NONE, "KPI indicator – threshold icons", "KPI value", NONE,
       "2 icons (arrow up, flag red); no threshold values set"]]);
     // The tables themselves are as the report wrote them.
     expect([filters.rows[0][filters.headers.indexOf("Condition context")], formatting.rows[0][formatting.headers.indexOf("Colour stops")]])
-      .toEqual(["Time = current; Version = Actual", "0 → #FFFFFF; 100,000 → #627786"]);
+      .toEqual(["Time = current; Version = Actual", "#FFFFFF at 0; #627786 at 100,000"]);
   });
 
   // Two pages are called Overview, and the second is a copy that kept its cards' IDs. The files have only a page's name,
