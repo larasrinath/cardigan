@@ -534,8 +534,12 @@ describe("A model's result on the results page, with the map's real graph and th
     // The new result takes the page: the earlier one's map goes with it.
     send(LATER);
     expect([page.document.title, host().hidden, host().children.length, around.watching, page.texts("#view h1")]).toEqual(["Cardigan - Model two", true, 0, 0, ["Overview"]]);
-    // The new result's map is of the new model: its name, and the module and the link it has more.
+    // The new result's map is of the new model: its name, and the module and the link it has more. It is the same model,
+    // read again: its map opens where this tab left the model's map, the module's line items, and its Modules view lists
+    // every module.
     toMap();
+    expect(where()).toEqual(["Model two", "02 Calculations", REVENUE]);
+    part('[data-map-view="modules"]').press();
     part(".map-show-select").choose("modules");
     around.shows();
     expect([where(), shownStatus()]).toEqual([["Model two", "All modules"], "5 modules · 4 links"]);

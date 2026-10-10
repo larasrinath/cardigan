@@ -12,6 +12,7 @@ import { OPEN_WAIT_MS } from "./connection.js";
 import { FakeElement, FakeInput, FakePage, FakeSelect, parseMarkup } from "./dom.test-support.js";
 import { analysedLine, NOT_KEPT_NOTE, TOO_LARGE_NOTE } from "./keep-notes.js";
 import { KEPT_PREFIX, ResultKeeper, type KeptStorage } from "./keep-result.js";
+import { VIEW_KEY } from "./view-keep.js";
 import { FILE_ICONS, FORGOTTEN_LINE, keptCopyHtml, MAP_FAILED, NAV_ICONS, NOT_REMOVED_LINE } from "./markup.js";
 import { fileWords, watchForFiles, type FileWatch } from "./no-file.test-support.js";
 import { PROCESS_LINES } from "./process-actions-view.js";
@@ -5559,5 +5560,178 @@ describe("The actions of a process, in its row's details", () => {
     goTo(3);
     openProcess("Nightly load");
     expect([strayImg(), steps()[1]]).toEqual([false, [["1", `Load ${TAG}`, TAG]]]);
+  });
+});
+
+describe("How a result was looked at, kept through a refresh of the page until the tab is closed", () => {
+  const refreshed = "?tab=42";
+  const back = (name: string) => eventually(() => page.document.title === `Cardigan - ${name}`, "the result to come back");
+  /** Lets the page write how its result is looked at, which it does a moment after the last change. */
+  const letLooksKeep = () => vi.advanceTimersByTime(1000);
+  /** What the tab keeps of it, as the page wrote it. */
+  const looksKept = (): unknown => {
+    const text = session.held.get(VIEW_KEY);
+    return text === undefined ? undefined : JSON.parse(text);
+  };
+  /** The model with Source Models too, whose Sources are figures: its filter is a range. */
+  const SOURCED: AnalysisResult = { ...MODEL, summary: [...MODEL.summary, "Source Models: 3 rows"], tables: [...MODEL.tables, { file: "Source Models.csv", label: "Source Models",
+    headers: ["", "Sources", "Mapped To"], guard: false, rows: [["Model A", "113", "Products"], ["Model B", "10", "Regions"], ["Model C", "9", "Time"]] }] };
+  const headings = () => page.all("#tableWrap thead .th-sort").map(button => button.childNodes[0]?.textContent?.trim() ?? "");
+  const active = (column: number) => page.find(`[data-colfilter="${column}"]`).classList.contains("active");
+  const sortOf = (column: number) => page.find(`[data-sort="${column}"]`).closest("th")?.getAttribute("aria-sort");
+  /** Leaves Cost out of Module's filter, sorts by Format and hides Formula: on Line Items, which is shown. */
+  const lookAtLineItems = () => {
+    page.find('[data-colfilter="3"]').press();
+    page.all("#popover input")[0].tick();
+    page.key("Escape");
+    page.find('[data-sort="1"]').press();
+    page.id("colBtn").press();
+    page.find('#popover input[data-col="2"]').tick();
+    page.key("Escape");
+  };
+
+  it("keeps each table's filters, range, columns, order and page, the rows a page lists and the search of the table shown", async () => {
+    await openWith(SOURCED);
+    await letKeep();
+    // Nothing chosen yet: the tab keeps the result, and nothing of how it is looked at.
+    letLooksKeep();
+    expect(looksKept()).toBeUndefined();
+    goTo(1);
+    lookAtLineItems();
+    page.id("pageSize").choose("25");
+    page.find('.pg-btn[aria-label="Next page"]').press();
+    const lineItems = [headings(), page.id("rowCount").textContent, firstCells()];
+    expect(lineItems.slice(0, 2)).toEqual([["Name", "Format", "Module"], "26–50 of 60 rows (filtered from 120)"]);
+    // Source Models: Sources of ten or more, and a search.
+    goTo(3);
+    page.find('[data-colfilter="1"]').press();
+    page.find("#popover [data-rfrom]").type("10");
+    page.key("Enter");
+    page.key("Escape");
+    page.id("tblSearch").type("model b");
+    expect(firstCells()).toEqual(["Model B"]);
+    letLooksKeep();
+    expect(looksKept()).toMatchObject({ subject: `model:${MODEL.id}`, pageSize: 25, search: { view: "3", text: "model b" } });
+    // Only what the page started otherwise is kept, each column by its name.
+    expect((looksKept() as { tables: unknown }).tables).toEqual({
+      "Line Items.csv": { filters: { Module: { u: ["Cost"] } }, hidden: ["Formula"], sort: { column: "Format", dir: "asc" }, page: 1 },
+      "Source Models.csv": { ranges: { Sources: { from: "10", to: "", blanks: true } } },
+    });
+
+    // The page is refreshed, on Source Models, as its address marks: the table comes back as it was left.
+    await open(`${refreshed}#3`);
+    await back("Model one");
+    expect([page.id("tblSearch").value, firstCells(), active(1), page.id("pageSize").value]).toEqual(["model b", ["Model B"], true, "25"]);
+    // So does Line Items, on its second page.
+    goTo(1);
+    expect([headings(), page.id("rowCount").textContent, firstCells(), active(3), sortOf(1)]).toEqual([...lineItems, true, "ascending"]);
+  });
+
+  it("keeps what still fits when the same model is read again with other columns, and starts clean for another model", async () => {
+    await openWith(MODEL);
+    goTo(1);
+    lookAtLineItems();
+    // Read again: the same model, whose Formula column is named Expression now.
+    const AGAIN: AnalysisResult = { ...MODEL, tables: [MODEL.tables[0], { ...MODEL.tables[1], headers: ["", "Format", "Expression", "Module"] }, MODEL.tables[2]] };
+    page.id("runAgain").press();
+    sendResult(ports[0], AGAIN);
+    goTo(1);
+    // Module's filter and the order by Format fit, and stay. Expression is not Formula: it is shown.
+    expect([headings(), active(3), sortOf(1), page.id("rowCount").textContent]).toEqual([["Name", "Format", "Expression", "Module"], true, "ascending", "1–50 of 60 rows (filtered from 120)"]);
+    letLooksKeep();
+    expect(looksKept()).toMatchObject({ subject: `model:${MODEL.id}` });
+    // Another model: nothing of this one's, and nothing kept until something is chosen on it.
+    page.id("runAgain").press();
+    sendResult(ports[0], { ...MODEL, id: "FEDCBA9876543210FEDCBA9876543210", name: "Model two" });
+    goTo(1);
+    expect([headings(), active(3), sortOf(1), page.id("rowCount").textContent]).toEqual([["Name", "Format", "Formula", "Module"], false, "none", "1–50 of 120 rows"]);
+    letLooksKeep();
+    expect(looksKept()).toBeUndefined();
+  });
+
+  it("clears what is kept of a table with Reset, and all of it with Forget this result", async () => {
+    await openWith(MODEL);
+    await letKeep();
+    goTo(1);
+    page.find('[data-colfilter="1"]').press();
+    page.all("#popover input")[0].tick();
+    page.key("Escape");
+    letLooksKeep();
+    expect(looksKept()).toMatchObject({ tables: { "Line Items.csv": { filters: { Format: { u: ["Boolean"] } } } } });
+    page.id("resetBtn").press();
+    letLooksKeep();
+    expect(looksKept()).toBeUndefined();
+    page.find('[data-sort="0"]').press();
+    letLooksKeep();
+    expect(looksKept()).toMatchObject({ tables: { "Line Items.csv": { sort: { column: "Name", dir: "asc" } } } });
+    // Forgotten with the result: at once, and nothing is written again by itself.
+    choose("overview");
+    page.find('#ovKept [data-act="forget"]').press();
+    letLooksKeep();
+    expect([looksKept(), kept()]).toEqual([undefined, false]);
+  });
+
+  it("shows a page that the table no longer has as its last, and opens again the details that were open", async () => {
+    await openWith(MODEL);
+    await letKeep();
+    session.held.set(VIEW_KEY, JSON.stringify({ subject: `model:${MODEL.id}`, tables: { "Line Items.csv": { page: 9 } } }));
+    await open(`${refreshed}#1`);
+    await back("Model one");
+    expect(page.id("rowCount").textContent).toBe("101–120 of 120 rows");
+    // A row's details, opened: a refresh opens them again, found by what the row holds.
+    page.all('#tableWrap tbody [data-act="row"]')[2].press();
+    expect(page.id("drawerTitle").textContent).toBe("Line item 103");
+    letLooksKeep();
+    await open(`${refreshed}#1`);
+    await back("Model one");
+    expect([page.id("drawer").hidden, page.id("drawerTitle").textContent]).toEqual([false, "Line item 103"]);
+    // Closed, they stay closed.
+    page.id("drawerClose").press();
+    letLooksKeep();
+    await open(`${refreshed}#1`);
+    await back("Model one");
+    expect(page.id("drawer").hidden).toBe(true);
+  });
+
+  it("gives the map where it was left, as the map said, and nothing where it was where it opens by itself", async () => {
+    await openWith(MODEL);
+    await letKeep();
+    choose("map");
+    const options = () => mapMounts[mapMounts.length - 1].options as ModelMapOptions;
+    expect("view" in options()).toBe(false);
+    options().onView?.({ view: "drill", module: "Revenue", access: true });
+    letLooksKeep();
+    await open(`${refreshed}#map`);
+    await back("Model one");
+    expect(options().view).toEqual({ view: "drill", module: "Revenue", access: true });
+    options().onView?.({ view: "modules" });
+    letLooksKeep();
+    expect(looksKept()).toBeUndefined();
+  });
+
+  /** Lets the page try to keep the result it has just drawn, which the tab's storage does not let it: the page says so. */
+  const keepingFails = async () => {
+    vi.advanceTimersByTime(0);
+    await eventually(() => page.has("#noteBanner"), "the note that the result is not kept");
+  };
+
+  it("works the same where the tab's storage refuses what it is given", async () => {
+    session.refuses = "QuotaExceededError";
+    await openWith(MODEL);
+    await keepingFails();
+    goTo(1);
+    page.find('[data-sort="0"]').press();
+    letLooksKeep();
+    expect([sortOf(0), page.id("rowCount").textContent, session.held.size]).toEqual(["ascending", "1–50 of 120 rows", 0]);
+  });
+
+  it("works the same where the tab has no session storage", async () => {
+    vi.stubGlobal("sessionStorage", undefined);
+    await openWith(MODEL);
+    await keepingFails();
+    goTo(1);
+    page.find('[data-sort="0"]').press();
+    letLooksKeep();
+    expect([sortOf(0), page.id("rowCount").textContent]).toEqual(["ascending", "1–50 of 120 rows"]);
   });
 });
