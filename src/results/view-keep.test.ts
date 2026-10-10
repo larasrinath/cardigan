@@ -171,6 +171,15 @@ describe("What the tab keeps of how a result is looked at", () => {
     expect(keptText({ subject: "x".repeat(MAX_VIEW_CHARS), tables: {} })).toBeUndefined();
   });
 
+  it("keeps whether the map draws the links of page filters, and knows a map that draws them is not where it opens by itself", () => {
+    const tab = storage();
+    tab.held.set(VIEW_KEY, JSON.stringify({ subject: "model:ABC", tables: {}, map: { view: "modules", filters: true, access: true } }));
+    expect(readKept(tab)?.map).toEqual({ view: "modules", access: true, filters: true });
+    tab.held.set(VIEW_KEY, JSON.stringify({ subject: "model:ABC", tables: {}, map: { view: "modules", filters: "yes" } }));
+    expect(readKept(tab)?.map).toEqual({ view: "modules" });
+    expect([isMapAtStart({ view: "modules", filters: true }), isMapAtStart({ view: "modules" })]).toEqual([false, true]);
+  });
+
   it("knows an object of Where Used by all four of its names, and the map where it opens by itself", () => {
     expect(objectKey({ type: "Module", name: "REP01", module: "-", model: "Model one" })).not.toBe(objectKey({ type: "Module", name: "REP01", module: "-", model: "Model two" }));
     expect([isMapAtStart({ view: "modules" }), isMapAtStart({ view: "modules", all: true }), isMapAtStart({ view: "modules", access: true }), isMapAtStart({ view: "drill", module: "A" })])

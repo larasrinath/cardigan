@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { ModelGraph } from "./graph-types.js";
 import { automaticGrouping, BUILT, GOOD, groupingsOf, isBuilt, isGood, leadingCode, roleOf, type Flow, type Grouping, type GroupingKind } from "./map-groups.js";
 import { indexModel, withGrouping } from "./map-model.js";
-import { GraphMaker } from "./map-fakes.test-support.js";
+import { filteredModel, GraphMaker } from "./map-fakes.test-support.js";
 
 /** The groupings of a graph, by kind. */
 function groupingsBy(graph: ModelGraph): Map<GroupingKind, Grouping> {
@@ -280,5 +280,12 @@ describe("The model with its modules grouped", () => {
     expect(model.sectionOf(products)).toBe(base.sectionOf(products));
     expect([base.sections, base.sectionOf(graph.nodes[settings]), base.grouping]).toEqual([["Ungrouped"], "Ungrouped", undefined]);
     expect([model.modules, model.lineItems, model.formulaEdges]).toEqual([base.modules, base.lineItems, base.formulaEdges]);
+  });
+});
+
+describe("The pages' filters and the roles of modules", () => {
+  it("works out a module's role from its formulas and access, never from the pages' filters", () => {
+    const role = (graph: ModelGraph) => groupingsOf(indexModel(graph)).find(grouping => grouping.kind === "role")?.groupOf;
+    expect(role(filteredModel().graph)).toEqual(role(filteredModel(false).graph));
   });
 });

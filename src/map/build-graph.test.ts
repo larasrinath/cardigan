@@ -400,6 +400,33 @@ describe("The model map's graph, from the tables of a model export", () => {
     }
   });
 
+  it("links a page filter's line item to each module of the map its filter narrows, once, but its own, and keeps where it is and by what", () => {
+    const tables = [lineItems(moduleRow("FLT01 Filters"), item("FLT01 Filters", "Show?"), item("FLT01 Filters", "Active?"), moduleRow("REV01 Revenue"), item("REV01 Revenue", "Revenue"),
+      moduleRow("REV02 Margin"), item("REV02 Margin", "Margin"))];
+    const filter = (card: number, lineItem: string, filtered: string, dimension: string): Cell[] => PAGE_FILTERS_HEADERS.map(header =>
+      ({ App: "Planning app", Page: "Demand board", "Card #": card, "Condition line item": lineItem, "Condition line item's module": "FLT01 Filters", "Filtered module": filtered,
+        "Filtered dimension": dimension } as Record<string, Cell>)[header] ?? "-");
+    const filters = file("Page Filters", [...PAGE_FILTERS_HEADERS], [filter(3, "Show?", "REV01 Revenue", "Products"), filter(4, "Show?", "REV01 Revenue", "Products"),
+      // A filter of sections of two modules names both, as the report joins them; a name with a space at its end is found.
+      filter(5, "Show?", "REV01 Revenue; REV02 Margin ", "Regions"),
+      // Its own module, and a module the map does not have: no link, and the line item's filters say where all the same.
+      filter(6, "Active?", "FLT01 Filters", "-"), filter(7, "Active?", "Gone", "Products")]);
+    const graph = buildModelGraph([...tables, filters]);
+    const id = (name: string): number => graph.nodes.find(node => node.name === name)!.id;
+    // One link for each pair, however many cards: from the line item to the module.
+    expect(graph.edges.filter(([, , kind]) => kind === "page_filter")).toEqual([[id("Show?"), id("REV01 Revenue"), "page_filter"], [id("Show?"), id("REV02 Margin"), "page_filter"]]);
+    expect(graph.nodes[id("Show?")].pageFilters).toEqual([
+      { app: "Planning app", page: "Demand board", card: "3", modules: [id("REV01 Revenue")], dimension: "Products" },
+      { app: "Planning app", page: "Demand board", card: "4", modules: [id("REV01 Revenue")], dimension: "Products" },
+      { app: "Planning app", page: "Demand board", card: "5", modules: [id("REV01 Revenue"), id("REV02 Margin")], dimension: "Regions" }]);
+    expect(graph.nodes[id("Active?")].pageFilters).toEqual([
+      { app: "Planning app", page: "Demand board", card: "6", modules: [id("FLT01 Filters")] }, { app: "Planning app", page: "Demand board", card: "7", dimension: "Products" }]);
+    // The graph says the table is there, for the map to say so where it has no link to draw; without it, nothing.
+    expect([graph.pageFilterTable, buildModelGraph(tables).pageFilterTable]).toEqual([true, undefined]);
+    // Every other link is what the tables give without it.
+    expect(graph.edges.filter(([, , kind]) => kind !== "page_filter")).toEqual(buildModelGraph(tables).edges);
+  });
+
   it("gives each module its Functional Area from Modules and its apps from Module Usage, and says which of the two the result has", () => {
     const tables = [lineItems(moduleRow("REV01 Revenue"), item("REV01 Revenue", "Revenue"), moduleRow("REV02 Margin"), item("REV02 Margin", "Margin"), moduleRow("SYS01 Time"))];
     const modules = file("Modules", ["", "Functional Area", "Applies To"], [["REV01 Revenue", " Sales ", ""], ["REV02 Margin", "-", ""], ["SYS01 Time", "Admin", ""], ["Gone", "Sales", ""], ["-- HEADING", "Sales", ""]]);

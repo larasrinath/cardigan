@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ModelGraph } from "./graph-types.js";
-import { indexModel, isAccess, UNGROUPED } from "./map-model.js";
-import { GraphMaker } from "./map-fakes.test-support.js";
+import { indexModel, isAccess, isFilter, UNGROUPED } from "./map-model.js";
+import { filteredModel, GraphMaker } from "./map-fakes.test-support.js";
 
 /** Two sections, three modules, one of them above the first heading. */
 function sample() {
@@ -117,5 +117,19 @@ describe("The model the map looks things up in", () => {
     const model = indexModel(make.graph());
     expect(model.unresolvedOf(revenue).map(entry => entry.reference)).toEqual(["Old Module.Total", "Old List"]);
     expect(model.unresolvedOf(units)).toEqual([]);
+  });
+});
+
+describe("The links of the pages' filters in the model", () => {
+  it("are kept apart from the formula and access links, in and out of their nodes, and each module knows the line items that filter it", () => {
+    const { graph, show, rev, mar, revenue } = filteredModel();
+    const model = indexModel(graph);
+    expect([isFilter("page_filter"), isFilter("reference"), isFilter("write_access"), isAccess("page_filter")]).toEqual([true, false, false, false]);
+    expect([model.filterEdges, model.formulaEdges, model.accessEdges]).toEqual([[[show, rev, "page_filter"], [show, mar, "page_filter"]], [[show, revenue, "reference"]], []]);
+    expect([model.outgoing(show), model.incoming(rev), model.incoming(mar)]).toEqual([[[show, rev, "page_filter"], [show, mar, "page_filter"], [show, revenue, "reference"]],
+      [[show, rev, "page_filter"]], [[show, mar, "page_filter"]]]);
+    // Each module filtered, with the line items that filter it and where: the cards that name it, and no other.
+    const filters = (module: number): [number, string[]][] => model.filtersOf(module).map(({ item, uses }) => [item.id, uses.map(use => use.card)]);
+    expect([filters(rev), filters(mar), filters(show)]).toEqual([[[show, ["3", "4"]]], [[show, ["4"]]], []]);
   });
 });

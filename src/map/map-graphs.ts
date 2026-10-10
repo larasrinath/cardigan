@@ -1,5 +1,5 @@
 import type { GraphEdge, GraphNode } from "./graph-types.js";
-import type { MapModel } from "./map-model.js";
+import { isFilter, type MapModel } from "./map-model.js";
 import { plural, splitName } from "./map-text.js";
 
 /** The three graphs the map draws of one model, each made of the model's own links counted together:
@@ -9,7 +9,8 @@ import { plural, splitName } from "./map-text.js";
  * - the line items of one module, with what they read and feed outside it: line items of other modules, as one node
  *   for each module or one by one, and the lists and properties their formulas name.
  * A link from a thing to itself is no link between two modules or sections; between line items it stays, as the loop a
- * formula that reads its own line item makes. */
+ * formula that reads its own line item makes. The links of the pages' filters, where they are drawn, are counted apart
+ * from the others between the same two boxes: they are drawn in a style of their own (`ViewEdge.filter`). */
 
 export type ViewNodeKind = "section" | "module" | "lineItem" | "externalModule" | "externalItem" | "list" | "property";
 
@@ -59,6 +60,9 @@ export interface ViewEdge {
   readonly w: number;
   /** Those links, in a module's graph: the trace follows them one by one. */
   readonly refs?: readonly GraphEdge[];
+  /** Whether it counts the links of the pages' filters (map-model.ts `isFilter`), which are never counted together with
+   * the others: it is drawn in a style of its own. */
+  readonly filter?: boolean;
 }
 
 /** A layer of the legend: what its nodes are, and how many there are. In the graph of sections a layer is one section,
@@ -104,7 +108,10 @@ interface Draft {
   external: boolean;
   side?: "in" | "out" | "both";
 }
-interface Link { s: string; t: string; w: number; refs?: GraphEdge[] }
+interface Link { s: string; t: string; w: number; refs?: GraphEdge[]; filter?: boolean }
+
+/** The key a link is counted under: its two ends, and apart for a page filter's link. */
+const linkKey = (s: string, t: string, filter: boolean): string => `${s}>${t}${filter ? ">filter" : ""}`;
 
 const LAYER_LABELS: Record<string, string> = { [LAYER.lineItem]: "Line items", [LAYER.heading]: "No Data line items (headings)", [LAYER.list]: "Lists and subsets", [LAYER.property]: "List properties" };
 
@@ -126,7 +133,7 @@ function finish(model: MapModel, kind: ViewGraph["kind"], name: string, drafts: 
     const from = byId.get(link.s);
     const to = byId.get(link.t);
     if (!from || !to) continue;
-    edges.push({ s: from.index, t: to.index, w: link.w, ...(link.refs ? { refs: link.refs } : {}) });
+    edges.push({ s: from.index, t: to.index, w: link.w, ...(link.refs ? { refs: link.refs } : {}), ...(link.filter ? { filter: true } : {}) });
     out[from.index].push(to.index);
     into[to.index].push(from.index);
   }
@@ -148,34 +155,37 @@ function finish(model: MapModel, kind: ViewGraph["kind"], name: string, drafts: 
   return { kind, name, nodes, edges, byId, out, in: into, layers, local, bounds: { x: 0, y: 0, w: 1, h: 1 } };
 }
 
-/** The model's formula links, with those of who may read and write when `access` is on, in the graph's order. */
-function activeEdges(model: MapModel, access: boolean): readonly GraphEdge[] {
-  return access ? [...model.formulaEdges, ...model.accessEdges] : model.formulaEdges;
+/** The model's formula links, with those of who may read and write when `access` is on, and those of the pages' filters
+ * when `filters` is, in that order. */
+function activeEdges(model: MapModel, access: boolean, filters: boolean): readonly GraphEdge[] {
+  if (!access && !filters) return model.formulaEdges;
+  return [...model.formulaEdges, ...(access ? model.accessEdges : []), ...(filters ? model.filterEdges : [])];
 }
 
 /** Links counted together by what each end belongs to. An end that belongs to nothing drops its link, and so does a
  * link whose two ends belong to the same thing. */
 function aggregate(model: MapModel, edges: readonly GraphEdge[], endpoint: (node: GraphNode | undefined) => string | undefined): Link[] {
   const links = new Map<string, Link>();
-  for (const [from, to] of edges) {
+  for (const [from, to, kind] of edges) {
     const s = endpoint(model.node(from));
     const t = endpoint(model.node(to));
     if (s === undefined || t === undefined || s === t) continue;
-    const key = `${s}>${t}`;
+    const filter = isFilter(kind);
+    const key = linkKey(s, t, filter);
     const link = links.get(key);
-    if (link) link.w++; else links.set(key, { s, t, w: 1 });
+    if (link) link.w++; else links.set(key, { s, t, w: 1, ...(filter ? { filter } : {}) });
   }
   return [...links.values()];
 }
 
 /** The links between modules are the same for every section, and for every grouping of the modules: they are counted
- * once for a model's graph, with and without the access links. */
-const moduleLinkCache = new WeakMap<MapModel["graph"], { plain?: Link[]; access?: Link[] }>();
-function moduleLinks(model: MapModel, access: boolean): Link[] {
+ * once for a model's graph, for each choice of the links drawn. */
+const moduleLinkCache = new WeakMap<MapModel["graph"], Partial<Record<string, Link[]>>>();
+function moduleLinks(model: MapModel, access: boolean, filters: boolean): Link[] {
   let cached = moduleLinkCache.get(model.graph);
   if (!cached) moduleLinkCache.set(model.graph, cached = {});
-  const which = access ? "access" : "plain";
-  return cached[which] ??= aggregate(model, activeEdges(model, access), node => {
+  const which = `${access ? "access" : "plain"}${filters ? "+filters" : ""}`;
+  return cached[which] ??= aggregate(model, activeEdges(model, access, filters), node => {
     const module = model.moduleOf(node);
     return module === undefined ? undefined : String(module);
   });
@@ -191,7 +201,7 @@ function moduleDraft(model: MapModel, raw: GraphNode, external: boolean, inSecti
 }
 
 /** The model's sections as nodes. */
-export function sectionsGraph(model: MapModel, access: boolean): ViewGraph {
+export function sectionsGraph(model: MapModel, access: boolean, filters = false): ViewGraph {
   const drafts: Draft[] = model.sections.map((section, index) => {
     const members = model.modules.filter(module => model.sectionOf(module) === section);
     const lineItems = members.reduce((count, module) => count + model.itemsOf(module.id).length, 0);
@@ -201,7 +211,7 @@ export function sectionsGraph(model: MapModel, access: boolean): ViewGraph {
       members: members.map(module => module.id), external: false,
     };
   });
-  const links = aggregate(model, activeEdges(model, access), node => {
+  const links = aggregate(model, activeEdges(model, access, filters), node => {
     const module = model.node(model.moduleOf(node));
     return module ? `section${model.sectionIndex(model.sectionOf(module))}` : undefined;
   });
@@ -209,10 +219,10 @@ export function sectionsGraph(model: MapModel, access: boolean): ViewGraph {
 }
 
 /** The modules of one section, or all modules when no section is named. */
-export function modulesGraph(model: MapModel, section: string | undefined, access: boolean): ViewGraph {
+export function modulesGraph(model: MapModel, section: string | undefined, access: boolean, filters = false): ViewGraph {
   const own = new Set<number>();
   for (const module of model.modules) if (section === undefined || model.sectionOf(module) === section) own.add(module.id);
-  const links = moduleLinks(model, access).filter(link => own.has(Number(link.s)) || own.has(Number(link.t)));
+  const links = moduleLinks(model, access, filters).filter(link => own.has(Number(link.s)) || own.has(Number(link.t)));
   const shown = new Set(own);
   for (const link of links) {
     shown.add(Number(link.s));
@@ -225,7 +235,7 @@ export function modulesGraph(model: MapModel, section: string | undefined, acces
 
 /** The line items of one module and what they read and feed outside it. `expanded` shows the line items of other
  * modules one by one; otherwise one node stands for all those of a module. */
-export function moduleGraph(model: MapModel, moduleId: number, expanded: boolean, access: boolean): ViewGraph {
+export function moduleGraph(model: MapModel, moduleId: number, expanded: boolean, access: boolean, filters = false): ViewGraph {
   const module = model.node(moduleId);
   const owned = model.itemsOf(moduleId);
   const own = new Set(owned.map(item => item.id));
@@ -272,17 +282,18 @@ export function moduleGraph(model: MapModel, moduleId: number, expanded: boolean
   };
 
   const links = new Map<string, Link>();
-  for (const edge of activeEdges(model, access)) {
+  for (const edge of activeEdges(model, access, filters)) {
     if (!own.has(edge[0]) && !own.has(edge[1])) continue;
     const s = endpoint(edge[0]);
     const t = endpoint(edge[1]);
     if (s === undefined || t === undefined) continue;
-    const key = `${s}>${t}`;
+    const filter = isFilter(edge[2]);
+    const key = linkKey(s, t, filter);
     const link = links.get(key);
     if (link) {
       link.w++;
       link.refs!.push(edge);
-    } else links.set(key, { s, t, w: 1, refs: [edge] });
+    } else links.set(key, { s, t, w: 1, refs: [edge], ...(filter ? { filter } : {}) });
   }
 
   const fed = new Set<string>();

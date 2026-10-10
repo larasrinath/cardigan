@@ -4,8 +4,8 @@ import type { MapView, ModelGraph, ModelMap, ModelMapOptions } from "./graph-typ
 import type { Pen } from "./map-canvas.js";
 import { FALLBACK } from "./map-palette.js";
 import { mountModelMap, mountModelMapIn, PICKER_CAP, type MapEnvironment } from "./map-view.js";
-import { FakePen, GraphMaker, HOSTILE, type PenCall } from "./map-fakes.test-support.js";
-import { ACCESS_SAYS, FULL_SAYS } from "./map-markup.js";
+import { FakePen, filteredModel, GraphMaker, HOSTILE, type PenCall } from "./map-fakes.test-support.js";
+import { ACCESS_SAYS, FILTERS_NONE, FILTERS_SAY, FULL_SAYS } from "./map-markup.js";
 
 /** A page with a control outside the map, and the place the map is put into. */
 const SHELL = '<!DOCTYPE html><html lang="en" data-theme="light"><head><title>Page</title></head><body><button type="button" id="outside">Outside</button><main id="main"><div id="host"></div></main></body></html>';
@@ -3024,5 +3024,58 @@ describe("Where the viewer left the map, which the page keeps for a refresh", ()
     toggleGroups();
     tab("drill").press();
     expect([here(), parts(".map-broken").length]).toEqual(["INP01 - Volumes", 0]);
+  });
+});
+
+describe("The links of the pages' filters on the map", () => {
+  /** Ticks Page filters in the panel of links, which is opened for it where it is closed. */
+  function tickFilters(): void {
+    if (part(".map-links-pop").hidden) act("links").press();
+    part(".map-filters").tick();
+  }
+  /** The graph of a result with a Page Filters table. */
+  const withTable = (graph: ModelGraph): ModelGraph => ({ ...graph, pageFilterTable: true });
+  /** Mounts a graph at a view the page kept, or at none, telling `heard` each view the map shows. */
+  function openWith(graph: ModelGraph, heard: MapView[] = [], view?: MapView): void {
+    mount(graph, { modelName: "Demand Plan", ...(view ? { view } : {}), onView: told => { heard.push(told); } });
+    map.show();
+    env.resize(1200, 800);
+    env.settle();
+  }
+  const note = (): string => text(`#${part(".map-filters").getAttribute("aria-describedby")}`);
+
+  it("are drawn where ticked, in dashes of their own with a line in the legend, said aloud, told to the page, and taken off again", () => {
+    const heard: MapView[] = [];
+    openWith(withTable(filteredModel().graph), heard);
+    expect([part(".map-filters").disabled, part(".map-filters").checked, note()]).toEqual([false, false, FILTERS_SAY]);
+    expect([status(), parts(".map-legend-filter").length]).toEqual([expect.stringContaining("1 link"), 0]);
+    tickFilters();
+    expect([part(".map-filters").checked, act("links").classList.contains("map-on"), heard.at(-1)]).toEqual([true, true, { view: "modules", filters: true }]);
+    expect(text(".map-live")).toMatch(/^Page filter links are drawn\. /);
+    expect([status(), parts(".map-legend-filter").length]).toEqual([expect.stringContaining("3 links"), 1]);
+    env.settle();
+    expect(linksDrawn().filter(call => call.dash.join(",") === "5,3.5").length).toBe(2);
+    tickFilters();
+    expect([part(".map-filters").checked, act("links").classList.contains("map-on"), heard.at(-1), status()]).toEqual([false, false, { view: "modules" }, expect.stringContaining("1 link")]);
+    expect(text(".map-live")).toMatch(/^Page filter links are not drawn\. /);
+  });
+
+  it("opens with them drawn where the page kept the tick", () => {
+    const heard: MapView[] = [];
+    openWith(withTable(filteredModel().graph), heard, { view: "modules", filters: true });
+    expect([part(".map-filters").checked, act("links").classList.contains("map-on"), heard[0]]).toEqual([true, true, { view: "modules", filters: true }]);
+  });
+
+  it("cannot be ticked where the result has no Page Filters table, or none of its filters has a line item of the model as its condition, and says why", () => {
+    openWith(sample().graph);
+    expect([part(".map-filters").disabled, part(".map-filters").checked, note()]).toEqual([true, false, FILTERS_NONE.table]);
+    map.destroy();
+    openWith(withTable(sample().graph));
+    expect([part(".map-filters").disabled, note()]).toEqual([true, FILTERS_NONE.links]);
+    map.destroy();
+    // A tick the page kept for a model with nothing to draw is let go.
+    const heard: MapView[] = [];
+    openWith(sample().graph, heard, { view: "modules", filters: true });
+    expect([part(".map-filters").checked, heard[0]]).toEqual([false, { view: "modules" }]);
   });
 });

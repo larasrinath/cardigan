@@ -9,12 +9,13 @@
      colour.
    - A node is a panel on the canvas: its fill, border and text are the page's panel, border and text. Text on a node is
      never in a section's colour, so it has the page's own contrast in both themes.
-   - A link is a line that says something: its colour stands 3 to 1 against the canvas in both themes. */
+   - A link is a line that says something: its colour stands 3 to 1 against the canvas in both themes. A page filter's
+     link has a colour of its own, plum, which no trace and no formula's link has, and is drawn in dashes. */
 .map-root{
   --map-canvas-bg:#f6f4ee; --map-grid:rgba(25,25,25,.1);
   --map-node-fill:var(--panel); --map-node-fill-selected:var(--panel-2); --map-node-border:var(--border-strong);
   --map-node-text:var(--text); --map-node-text-2:var(--text-2);
-  --map-edge:#8b8880;
+  --map-edge:#8b8880; --map-filter:#a8458f;
   --map-section-1:#2a78d6; --map-section-2:#eb6834; --map-section-3:#1baf7a; --map-section-4:#eda100;
   --map-section-5:#e87ba4; --map-section-6:#008300; --map-section-7:#4a3aa7; --map-section-8:#e34948;
   --map-line-item:#4a3aa7; --map-heading:#b3b0a5; --map-external:#898781; --map-list:#1baf7a; --map-property:#eb6834;
@@ -22,7 +23,7 @@
 }
 :root[data-theme="dark"] .map-root{
   --map-canvas-bg:#111110; --map-grid:rgba(250,249,245,.08);
-  --map-node-fill-selected:var(--panel-3); --map-edge:#6b6963;
+  --map-node-fill-selected:var(--panel-3); --map-edge:#6b6963; --map-filter:#d97ac0;
   --map-section-1:#3987e5; --map-section-2:#d95926; --map-section-3:#199e70; --map-section-4:#c98500;
   --map-section-5:#d55181; --map-section-6:#008300; --map-section-7:#9085e9; --map-section-8:#e66767;
   --map-line-item:#9085e9; --map-heading:#5f5d55; --map-external:#898781; --map-list:#199e70; --map-property:#d95926;
@@ -138,7 +139,9 @@
 .map-links-pop{position:absolute;right:0;top:calc(100% + 8px);z-index:6;width:320px;max-width:calc(100cqw - 24px);padding:12px 14px;border-color:var(--border-strong);box-shadow:var(--shadow);white-space:normal}
 .map-links-row{display:flex;align-items:center;gap:8px;margin-top:6px;font-size:12.5px;color:var(--text)}
 .map-links-row b{font-weight:600}
-.map-links-tick{display:inline-flex;align-items:center;justify-content:center;width:13px;color:var(--accent);font-size:12px}
+.map-links-tick{flex:none;width:13px;height:13px;color:var(--accent)}
+/* A switch of links the result cannot draw is off and dim; the note under it says why. */
+.map-check:has(input:disabled){cursor:default;color:var(--text-3)}
 .map-links-note{margin:2px 0 6px 21px;font-size:12px;line-height:1.5;color:var(--text-2)}
 .map-full-btn svg{flex:none}
 /* A select draws the chevron the results page's menus have, clear of the round end of its pill: a browser's own arrow
@@ -223,6 +226,9 @@
 .map-legend-item.map-off .map-legend-name{text-decoration:line-through;color:var(--text-3)}
 .map-legend-item.map-off .map-dot{opacity:.35}
 .map-legend-note{margin:6px 0 0;padding:8px 8px 4px;border-top:1px solid var(--border);font-size:11.5px;color:var(--text-2)}
+/* What a page filter's link means, beside a piece of its line: the same colour and dashes the canvas draws it in. */
+.map-legend-filter{display:flex;align-items:center;gap:8px;margin-top:0;border-top:0;padding-top:2px}
+.map-line-filter{flex:none;width:22px;height:0;border-top:2px dashed var(--map-filter)}
 .map-about-title{margin:12px 0 4px}
 .map-about-title:first-child{margin-top:0}
 .map-about-line,.map-hints{font-size:12px;line-height:1.6;color:var(--text-2)}

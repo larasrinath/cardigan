@@ -7,7 +7,7 @@ import { indexModel } from "./map-model.js";
 import { FALLBACK } from "./map-palette.js";
 import { lineWidth } from "./map-text.js";
 import { traceNode } from "./map-trace.js";
-import { FakePen, GraphMaker, HOSTILE, type PenCall } from "./map-fakes.test-support.js";
+import { FakePen, filteredModel, GraphMaker, HOSTILE, type PenCall } from "./map-fakes.test-support.js";
 
 const PLAIN: Camera = { ox: 0, oy: 0, k: 1 };
 /** A room wide enough for the ranks of a small graph at full size. */
@@ -608,5 +608,16 @@ describe("The small picture of the whole graph", () => {
     const blank = new FakePen();
     expect(drawMinimap(blank as unknown as Pen, sceneOf(empty), 196, 128)).toBeUndefined();
     expect(blank.calls.map(call => call.name)).toEqual(["clearRect"]);
+  });
+});
+
+describe("A page filter's link in the map's picture", () => {
+  it("is drawn in its own colour and in dashes that stand still, where a formula's link is a plain line in the links' colour", () => {
+    const model = indexModel(filteredModel().graph);
+    const { pen } = draw(sceneOf(ready(modulesGraph(model, undefined, false, true)), { time: 1000 }));
+    const filters = pen.named("stroke").filter(call => call.strokeStyle === FALLBACK.filter);
+    const formulas = pen.named("stroke").filter(call => call.strokeStyle === FALLBACK.edge);
+    expect([filters.length, filters.map(call => [call.dash.join(","), call.dashOffset]), formulas.length, formulas.map(call => call.dash.length)])
+      .toEqual([2, [["5,3.5", 0], ["5,3.5", 0]], 1, [0]]);
   });
 });
