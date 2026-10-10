@@ -40,4 +40,43 @@ export interface AnalysisResult {
    * them: what the results page opens a module in Model Building by. None in an app's result, nor in one that an earlier
    * version kept. Pairs, so that a module's name is never taken for a property of an object. */
   moduleIds?: [name: string, id: string][];
+  /** The mapping of each of a model's imports from a file (Source Type FILE in the Imports tab), in the order of that tab:
+   * what feeds each target of the import, as the import's own definition says it. The results page shows it in the
+   * details of the import's row of Imports. None in an app's result, in a model's that has no import from a file, nor in
+   * one that an earlier version kept. */
+  importMappings?: ImportMapping[];
+}
+
+/** One import from a file, with its mapping. The mapping is the import's own: it holds whether the file it was made with is
+ * still there or not. */
+export interface ImportMapping {
+  /** The import's ID in the model (the entity's long ID, in digits) and its name, as the Imports tab lists it. The page
+   * finds an import's row by the name: the Imports table has no column of IDs. */
+  id: string;
+  name: string;
+  /** Anaplan's word for what the import loads, as its definition says it: MODULE_DATA into a module, HIERARCHY_DATA into a
+   * list, and others such as USERS, VERSIONS or LINE_ITEM_DEFINITION. Empty where the definition says none. */
+  importType: string;
+  /** Each target of an import into a module or a list, with what feeds it, in the definition's order: none for an import
+   * of any other kind, and none where the definition could not be read. */
+  targets: MappedTarget[];
+  /** Why there is no mapping, in words for the user, where the definition could not be read. */
+  note?: string;
+}
+
+/** What feeds one target of an import: a column of the file, a constant, a prompt when the import runs, nothing (the target
+ * is ignored), the file's header row (the line items, each from the column it heads), nothing mapped, or a source of
+ * another kind, which `text` names by Anaplan's word. */
+export type MappedSource = "column" | "constant" | "prompt" | "ignore" | "headerRow" | "none" | "other";
+
+export interface MappedTarget {
+  /** The target by its name: a list, Time, Versions or Line Items, or a line item, for an import into a module; the list's
+   * items, Parent, Code or a property, for an import into a list. A target the model gave no name for is named by its ID
+   * ("ID 1901000000003"). */
+  target: string;
+  source: MappedSource;
+  /** A column's place in the file, counted from 1, where the definition gives it. */
+  column?: number;
+  /** A column's heading, where the definition keeps it; a constant's value; or Anaplan's word for a source of another kind. */
+  text?: string;
 }
