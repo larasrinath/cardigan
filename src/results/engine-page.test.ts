@@ -14,6 +14,8 @@ import { KEPT_PREFIX } from "./keep-result.js";
 import { fileWords, watchForFiles, type FileWatch } from "./no-file.test-support.js";
 import { FakeTab } from "./port-pair.test-support.js";
 import { overviewOf } from "./result-view.js";
+import { fixTimeZone } from "./time-zone.test-support.js";
+import { bothTimes } from "./times.js";
 
 // The results page itself against the engine: the page's script on results.html at one end of the port, the content
 // script's real side around the real analysis of an app at the other, and Anaplan's answers scripted. From the address
@@ -85,6 +87,8 @@ describe("The results page itself against the engine in the Anaplan tab", () => 
     vi.stubGlobal("HTMLSelectElement", FakeSelect);
     vi.stubGlobal("requestAnimationFrame", (callback: () => void) => { callback(); return 0; });
     vi.stubGlobal("navigator", { clipboard: { writeText: async () => undefined } });
+    // The viewer's clock is UTC's, on any machine: the page says its times in the viewer's zone (times.ts).
+    fixTimeZone("UTC");
     // The extension's messaging as the page has it: chrome.tabs.connect opens a port to the tab.
     vi.stubGlobal("chrome", {
       tabs: { connect: (tabId: number, info: { name: string }) => { connects.push([tabId, info]); return tab.connect(info.name); } },
@@ -150,10 +154,12 @@ describe("The results page itself against the engine in the Anaplan tab", () => 
     return { tiles: page.all("#view .stat").map(tile => tile.children.map(child => child.textContent)), about: pairs("#ovAbout"), files: pairs("#ovFiles"), notes: page.texts("#view .warn-list li"),
       howToRead: pairs("#ovHowTo"), log: page.id("diagLog").textContent.split("\n") };
   };
-  /** The same of a result, as the page reads it out of the result's Details file and counts its tables. */
+  /** The same of a result, as the page reads it out of the result's Details file and counts its tables. A time it says,
+   * the export's, it says in both zones, the viewer's first (times.ts). */
   const overviewFor = (result: AnalysisResult) => {
     const { tiles, about, files: named, notes, howToRead, log } = overviewOf(result);
-    return { tiles: tiles.map(tile => [tile.label, String(tile.count), tile.count === 1 ? "row" : "rows"]), about, files: named, notes, howToRead, log };
+    return { tiles: tiles.map(tile => [tile.label, String(tile.count), tile.count === 1 ? "row" : "rows"]),
+      about: about.map(([detail, value]) => [detail, bothTimes(value, "local", "UTC") ?? value]), files: named, notes, howToRead, log };
   };
 
   it("runs by itself for the page the icon has just opened, and shows what the engine found, cell for cell", async () => {
