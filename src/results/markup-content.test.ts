@@ -777,47 +777,53 @@ describe("What the results page's markup shows", () => {
     expect(navItems(entries, false)).toEqual(entries);
   });
 
-  it("writes a group as a button that names its menu, which follows it closed, with the group's own icon, name and chevron whichever table is shown, marked where it holds the view shown", () => {
+  it("writes a group as a button that names its menu, which follows it closed, with an icon, a name and a chevron: the group's, or the entry's of the view shown that it holds", () => {
     const items = navItems([{ id: "overview", label: "Overview" }, { id: "3", label: "Modules", file: "Modules.csv" }, { id: "1", label: "Line Items", file: "Line Items.csv" }], true);
     const line = parseMarkup(navHtml(items, "1"));
     const group = line.querySelector(".nav-group");
     const button = group?.querySelector(".nav-group-btn");
     const menu = group?.querySelector(".nav-menu");
     expect([line.children.map(child => child.getAttribute("class")), group?.children.map(child => child.localName), button?.getAttribute("type"), button?.getAttribute("aria-expanded"),
-      button?.getAttribute("aria-controls"), menu?.id, menu?.hidden, button?.getAttribute("aria-current"), text(button), button?.children.map(child => child.localName), button?.hasAttribute("data-nav")])
-      .toEqual([["nav-item", "nav-group"], ["button", "div"], "button", "false", "navGroupModules", "navGroupModules", true, "true", "Modules", ["svg", "span", "svg"], false]);
-    // The button keeps the group's own icon and name while one of its tables is shown, then the chevron, the two drawings
-    // hidden from a screen reader: the bar's words never change, so it never moves. The view's heading names the table.
-    expect([button?.children[0].outerHTML, button?.children[2].getAttribute("class"), button?.children.map(child => child.getAttribute("aria-hidden"))])
-      .toEqual([parseMarkup(NAV_ICONS.modules).innerHTML, "nav-chevron", ["true", null, "true"]]);
+      button?.getAttribute("aria-controls"), menu?.id, menu?.hidden, button?.getAttribute("aria-current"), text(button), button?.children.map(child => child.getAttribute("class")), button?.hasAttribute("data-nav")])
+      .toEqual([["nav-item", "nav-group"], ["button", "div"], "button", "false", "navGroupModules", "navGroupModules", true, "true", "Line Items", ["nav-row"], false]);
+    // The button says which table is shown, in one row: that entry's icon and name, then the chevron, the two drawings
+    // hidden from a screen reader.
+    const row = button?.querySelector(".nav-row");
+    expect([row?.children.map(child => child.localName), row?.children[0].outerHTML, row?.children[2].getAttribute("class"), row?.children.map(child => child.getAttribute("aria-hidden"))])
+      .toEqual([["svg", "span", "svg"], parseMarkup(FILE_ICONS.get("Line Items.csv") ?? "").innerHTML, "nav-chevron", ["true", null, "true"]]);
     // The menu holds the group's entries, the one of the view shown marked as the page, which no other element of the line is.
     expect([menu?.querySelectorAll(".nav-item").map(item => [item.dataset.nav, text(item), item.getAttribute("aria-current")]), line.querySelectorAll('[aria-current="page"]').length])
       .toEqual([[["3", "Modules", null], ["1", "Line Items", "page"]], 1]);
-    // A group that does not hold the view shown is not marked, and its button is the same: the group's own icon and name.
+    // A group that does not hold the view shown is not marked, and its button has the group's own icon and name.
     const elsewhere = parseMarkup(navHtml(items, "overview")).querySelector(".nav-group-btn");
-    expect([elsewhere?.hasAttribute("aria-current"), text(elsewhere), elsewhere?.children[0].outerHTML]).toEqual([false, "Modules", parseMarkup(NAV_ICONS.modules).innerHTML]);
+    expect([elsewhere?.hasAttribute("aria-current"), text(elsewhere), elsewhere?.querySelector(".nav-row")?.children[0].outerHTML]).toEqual([false, "Modules", parseMarkup(NAV_ICONS.modules).innerHTML]);
   });
 
-  it("keeps each item's words, and their room in bold under them, the same whichever view is shown, so that no item changes its width and none after it moves", () => {
+  it("keeps the room of every text an item can show under it, so that no item changes its width and none after it moves", () => {
     const items = navItems([{ id: "overview", label: "Overview" }, { id: "5", label: "Processes", file: "Processes.csv" }, { id: "6", label: "Imports", file: "Imports.csv" },
       { id: "7", label: "Import Data Sources", file: "Import Data Sources.csv" }, { id: "8", label: "Other <b>x</b>", file: "Other Actions.csv" }, { id: "map", label: MAP_LABEL }], true);
-    /** The words each item of the line shows, its group's button's for a group, and the room the words keep under them. */
+    /** What each item of the line shows, and the room it keeps, one text to a line, as the browser reads it: an entry's
+     * under its words, a group's under its button's row. */
     const roomed = (current: string) => parseMarkup(navHtml(items, current)).children.map(child => {
-      const words = (child.querySelector(".nav-group-btn") ?? child).querySelector("span");
-      return [text(words), words?.getAttribute("data-room")];
+      const button = child.querySelector(".nav-group-btn");
+      const words = (button ?? child).querySelector(button ? ".nav-row span" : "span");
+      return [text(words), (button ?? words)?.getAttribute("data-room")];
     });
-    // Every item's room is its own words, which the mark of the view shown sets in bold: they take no more room then. A
-    // group's words are its own name whichever of its tables is shown, so the line is the same for every view.
-    const same = [["Overview", "Overview"], ["Actions", "Actions"], ["Model map", "Model map"]];
-    expect(["overview", "5", "7", "8", "map"].map(roomed)).toEqual(Array(5).fill(same));
+    // An entry's room is its own words: marked as the view shown, in bold, it takes no more room than it has.
+    expect(roomed("overview")[0]).toEqual(["Overview", "Overview"]);
+    expect(roomed("map")[2]).toEqual(["Model map", "Model map"]);
+    // A group's room is its name and every table's label in its menu, whichever it shows: the group's name, or the label of
+    // the table shown in it. So the group keeps the width of the widest, and the entries after it stay where they are.
+    const group = "Actions\nProcesses\nImports\nImport Data Sources\nOther <b>x</b>";
+    expect(["overview", "5", "7", "8"].map(current => roomed(current)[1])).toEqual([["Actions", group], ["Processes", group], ["Import Data Sources", group], ["Other <b>x</b>", group]]);
     // The menu's entries keep their own words as their room, as every entry does.
     expect(parseMarkup(navHtml(items, "7")).querySelectorAll(".nav-menu .nav-item span").map(span => [text(span), span.getAttribute("data-room")]))
       .toEqual([["Processes", "Processes"], ["Imports", "Imports"], ["Import Data Sources", "Import Data Sources"], ["Other <b>x</b>", "Other <b>x</b>"]]);
     // The room is a text, never markup: a label that holds a tag gives no element.
     expect(parseMarkup(navHtml(items, "8")).querySelectorAll("b").length).toBe(0);
-    // The one menu of a narrow window stands alone on its line: its button's words keep no room, and it grows with the
-    // view's name.
-    expect(parseMarkup(navMenuHtml(items, "7", "Import Data Sources")).querySelector(".nav-group-btn span")?.hasAttribute("data-room")).toBe(false);
+    // The one menu of a narrow window stands alone on its line: its button keeps no room, and grows with the view's name.
+    const compact = parseMarkup(navMenuHtml(items, "7", "Import Data Sources")).querySelector(".nav-group-btn");
+    expect([compact?.hasAttribute("data-room"), compact?.querySelectorAll(".nav-row").length]).toEqual([false, 0]);
   });
 
   it("writes the one menu of a narrow window: a button that names the view shown, as text, and every item in the line's order, a model's groups each in a section under its name", () => {
