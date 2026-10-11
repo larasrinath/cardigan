@@ -22,20 +22,36 @@ describe("Anaplan spinner words", () => {
     expect(poolForStatus("Unknown step: Reading Line Items…")).toBe("opening");
   });
 
-  it("gates engine words and leaves the map phrase out of every app pool", () => {
+  it("keeps the expanded count of each pool and two phrases per engine", () => {
+    expect(Object.fromEntries(Object.entries(WORD_POOLS).map(([pool, words]) => [pool, words.length])))
+      .toEqual({ opening: 12, time: 12, lists: 12, modules: 16, actions: 12, pages: 12, finishing: 8 });
+    expect(ENGINE_WORDS).toEqual({
+      Classic: ["Hyperblocking…", "Riding the Hyperblock…"],
+      Polaris: ["Polarising…", "Following the North Star…"],
+    });
+  });
+
+  it("gates engine words and leaves both map phrases out of every app pool", () => {
     for (const pool of Object.keys(WORD_POOLS) as WordPool[]) {
       for (const kind of ["app", "model"] as const) {
         for (const engine of [undefined, "Classic", "Polaris"] as const) {
           const words = wordsForPool(pool, kind, engine);
-          for (const [name, word] of Object.entries(ENGINE_WORDS)) expect(words.includes(word)).toBe(pool === "finishing" && name === engine);
-          expect(words.includes("Drawing the model map…")).toBe(pool === "finishing" && kind === "model");
+          for (const [name, phrases] of Object.entries(ENGINE_WORDS)) {
+            for (const word of phrases) expect(words.includes(word)).toBe(pool === "finishing" && name === engine);
+          }
+          for (const word of ["Drawing the model map…", "Drawing the arrows…"]) {
+            expect(words.includes(word)).toBe(pool === "finishing" && kind === "model");
+          }
+          const base = WORD_POOLS[pool].filter(word => kind === "model" || !["Drawing the model map…", "Drawing the arrows…"].includes(word));
+          expect(words).toEqual([...base, ...(pool === "finishing" && engine ? ENGINE_WORDS[engine] : [])]);
         }
       }
     }
   });
 
   it("uses only the approved read-only words, with ellipses and no text arrows, in every pool", () => {
-    expect(ALL_WORDS).toHaveLength(32);
+    expect(ALL_WORDS).toHaveLength(88);
+    expect(new Set(ALL_WORDS).size).toBe(ALL_WORDS.length);
     const forbidden = /\b(?:Importing|Exporting|Restoring|Rolling back|Archiving|Syncing|Deploying|Publishing|Saving|Deleting|Breaking back|Recalculating)\b/i;
     for (const word of ALL_WORDS) {
       expect(word).not.toMatch(forbidden);

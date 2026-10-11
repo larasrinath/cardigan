@@ -629,7 +629,7 @@ describe("The results page's escaping", () => {
 
   it("holds no text of a run in the run's view or in its banner: the page sets each part as plain text", () => {
     const ids = (html: string) => readMarkup(html).tags.flatMap(tag => (tag.attributes.has("id") ? [tag.attributes.get("id")] : []));
-    const words = (html: string) => readMarkup(html).texts.map(text => text.trim()).filter(text => text !== "");
+    const words = (html: string) => readMarkup(html).texts.map(text => decode(text).trim()).filter(text => text !== "");
     expect(ids(runHtml())).toEqual(["runCard", "runIcon", "runTitle", "runStatus", "runHint", "runRefresh", "runRetry", "runCopy", "runLog", "diagLog"]);
     expect(words(runHtml())).toEqual([...ALL_WORDS, "Refresh the Anaplan tab and run", "Run again", "Copy diagnostic log", "Show diagnostics", "Hide diagnostics"]);
     expect(ids(runBannerHtml())).toEqual(["runBanner", "bannerTitle", "bannerText", "bannerHint", "bannerRefresh", "bannerCopy"]);

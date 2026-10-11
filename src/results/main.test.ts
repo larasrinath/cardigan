@@ -22,8 +22,7 @@ import { ABOUT_SHOWN } from "./result-view.js";
 import { NONE } from "./table-engine.js";
 import { fixTimeZone } from "./time-zone.test-support.js";
 import { TIMES_KEY } from "./times.js";
-import { WORD_POOLS } from "./spinner-words.js";
-import { SPINNER_WORD_INTERVAL_MS } from "./pixel-loader.js";
+import { ALL_WORDS, ENGINE_WORDS, WORD_PACE_MS, WORD_POOLS } from "./spinner-words.js";
 
 /** What stands in for the model map (src/map). The page calls its two functions and drives what the second returns; how
  * a graph is built and a map drawn is not the page's, and is tested with them. Each test is given its own stand-ins. */
@@ -580,12 +579,12 @@ describe("The results page's script, on the page", () => {
     const first = word.textContent;
     expect(WORD_POOLS.modules).toContain(first);
     expect(word.getAttribute("aria-hidden")).toBe("true");
-    vi.advanceTimersByTime(SPINNER_WORD_INTERVAL_MS - 1);
+    vi.advanceTimersByTime(WORD_PACE_MS.modules - 1);
     expect(word.textContent).toBe(first);
     vi.advanceTimersByTime(1);
     const second = word.textContent;
     expect(second).not.toBe(first);
-    vi.advanceTimersByTime(SPINNER_WORD_INTERVAL_MS);
+    vi.advanceTimersByTime(WORD_PACE_MS.modules);
     expect(word.textContent).not.toBe(second);
     expect(word.textContent).toBe(first);
     expect(page.id("runStatus").textContent).toBe("Reading Line Items…");
@@ -593,6 +592,29 @@ describe("The results page's script, on the page", () => {
     ports[0].send({ type: "status", text: "Reading page 2 of 40: Demand board" });
     expect(WORD_POOLS.pages).toContain(word.textContent);
     expect(page.id("runStatus").textContent).toBe("Reading page 2 of 40: Demand board");
+    vi.advanceTimersByTime(WORD_PACE_MS.pages - 1);
+    expect(word.textContent).toBe(WORD_POOLS.pages[0]);
+    ports[0].send({ type: "status", text: "Reading Time Ranges…" });
+    expect(word.textContent).toBe(WORD_POOLS.time[0]);
+    vi.advanceTimersByTime(WORD_PACE_MS.time - 1);
+    expect(word.textContent).toBe(WORD_POOLS.time[0]);
+    vi.advanceTimersByTime(1);
+    expect(word.textContent).toBe(WORD_POOLS.time[1]);
+    expect(page.id("runStatus").textContent).toBe("Reading Time Ranges…");
+    expect(page.find(".run-word-row").title).toBe("Reading Time Ranges…");
+    expect(page.id("live").textContent).toBe("");
+  });
+
+  it("reserves space for every phrase including the longest and both engines before the run knows its kind or engine", async () => {
+    await open(clicked(42));
+    const sizes = page.all(".run-word-size");
+    expect(sizes.map(word => word.textContent)).toEqual(ALL_WORDS);
+    const longest = ALL_WORDS.reduce((longest, word) => word.length > longest.length ? word : longest);
+    expect(sizes.some(word => word.textContent === longest)).toBe(true);
+    expect(page.find(".run-words").getAttribute("aria-hidden")).toBe("true");
+    ports[0].send({ type: "subject", subject: { kind: "app", id: RESULT.id } });
+    ports[0].send({ type: "status", text: "Building the report…" });
+    expect(page.all(".run-word-size")).toEqual(sizes);
   });
 
   it("uses the browser's reduced motion preference and follows a change to it", async () => {
@@ -605,29 +627,34 @@ describe("The results page's script, on the page", () => {
     ports[0].send({ type: "status", text: "Reading Modules…" });
     const word = page.find(".run-word");
     const first = word.textContent;
-    vi.advanceTimersByTime(20 * SPINNER_WORD_INTERVAL_MS);
+    vi.advanceTimersByTime(20 * WORD_PACE_MS.modules);
     expect(word.textContent).toBe(first);
     ports[0].send({ type: "status", text: "Reading Line Items…" });
     const next = word.textContent;
     expect(next).not.toBe(first);
     media.matches = false;
     media.addEventListener.mock.calls[0][1]();
-    vi.advanceTimersByTime(SPINNER_WORD_INTERVAL_MS);
+    vi.advanceTimersByTime(WORD_PACE_MS.modules);
     expect(word.textContent).not.toBe(next);
   });
 
-  it.each(["Classic", "Polaris"])("hears the %s engine line during the run and never draws a map for an app", async engine => {
+  it.each(["Classic", "Polaris"] as const)("hears both %s phrases only after its engine line and never draws a map for an app", async engine => {
     vi.spyOn(Math, "random").mockReturnValue(0.99);
     await open(clicked(42));
     ports[0].send({ type: "subject", subject: { kind: "app", id: RESULT.id } });
     ports[0].send({ type: "status", text: "Building the report…" });
     const word = page.find(".run-word");
-    expect(word.textContent).toBe("Connecting the plans…");
-    vi.advanceTimersByTime(20 * SPINNER_WORD_INTERVAL_MS);
-    expect(word.textContent).toBe("Connecting the plans…");
+    expect(word.textContent).toBe("Almost there…");
+    for (let tick = 0; tick < 20; tick++) {
+      vi.advanceTimersByTime(WORD_PACE_MS.finishing);
+      expect(["Wrapping up…", "Almost there…"]).toContain(word.textContent);
+      expect(Object.values(ENGINE_WORDS).flat()).not.toContain(word.textContent);
+    }
     ports[0].send({ type: "log", text: `14:02:05 Engine: ${engine} (from the Line Items columns)` });
-    vi.advanceTimersByTime(SPINNER_WORD_INTERVAL_MS);
-    expect(word.textContent).toBe(engine === "Classic" ? "Hyperblocking…" : "Polarising…");
+    vi.advanceTimersByTime(WORD_PACE_MS.finishing);
+    expect(word.textContent).toBe(ENGINE_WORDS[engine][1]);
+    vi.advanceTimersByTime(WORD_PACE_MS.finishing);
+    expect(word.textContent).toBe(ENGINE_WORDS[engine][0]);
   });
 
   it("keeps progress in the card until a result arrives, then keeps the header run control through another run and failure", async () => {

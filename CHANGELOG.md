@@ -6,6 +6,14 @@ Every merged change that alters the extension has a version of its own: a new fe
 
 - **Blank cells for lone dashes.** Model and app tables treat lone dashes as blank in cells, details, search, sort and filters, including kept filters; Line Items keeps its inheritance dashes, and stored results stay unchanged.
 
+## 0.34.5 (11 October 2026)
+
+- **More spinner words, with a pace for each step.** The run card has more phrases, changing every half second for Time, Lists and Finishing and every one and a half seconds for Opening, Modules, Actions and Pages; each engine has two phrases once known, and map phrases stay with model runs. (#117)
+
+## 0.34.4 (11 October 2026)
+
+- **Map controls together.** Zoom out, Zoom in, Fit, Minimap, Legend and About share one row at the bottom left, followed by counts that fit their words; the minimap opens at the right, and panels stay apart on narrow maps. (#116)
+
 ## 0.34.3 (11 October 2026)
 
 - **One way to tick all values.** Value filters drop Show all; ticking every value with the checkbox or one by one clears the filter and its saved choice. (#115)
