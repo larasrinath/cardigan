@@ -2,6 +2,13 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version is in the menu of Cardigan's icon in Chrome's toolbar and on its About page, and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## Unreleased
+
+- **Trust the full line item export.** Once the kept export covers every module in the module listing, filter IDs it lacks need no module search. An incomplete export searches only the uncovered modules, at most four at a time. Missing line items and unnamed filter context keep their existing words. The diagnostic log says how much the export covered and keeps the Time and Run lines.
+- **Fewer dimension questions.** A dimension ID absent from the lists, module views and module dimensions needs no lookup of its modules. The remaining questions run up to four at once. Dimensions that have no name keep their IDs.
+- **Names compared as text.** HTML entities in line item listings are decoded once before comparison and naming. A literal `&amp;` stays literal, and an encoded ampersand no longer counts as a changed name.
+- **The engine after the client loads.** Check-in no longer reads the engine. For a run, the frame first loads its client through the asynchronous loader, then reads the workspace's engine. Polaris gets its full-read Overview note; both engines keep the full reader and the Polaris-columns cross-check.
+
 ## 0.29.8 (11 October 2026)
 
 - **Switching tabs closes the details.** Choosing another table, the Overview or the Model map in navigation clears the open row without moving the new table. Coming back or refreshing keeps the panel closed; links within details, the **Table** and **Model map** buttons, and **Run again** still keep or open their row. (#88)
