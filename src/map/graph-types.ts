@@ -68,7 +68,7 @@ export interface GraphNode {
   /** For a line item: the filters on the pages built on the model that have it as their condition, as the Page Filters
    * table lists them (model-pages.ts), each by its app, its page and its card's number, with the modules it filters and
    * the dimension it filters by. A filtered module of the map other than the line item's own is linked from the line
-   * item by a `page_filter` link. */
+   * item by a `page_filter` link; the line item's own module is no link, and the map marks the module for it instead. */
   pageFilters?: PageFilter[];
   /** A module's Functional Area, as the Modules file has it: Anaplan's own grouping of modules, which a model's builders
    * set. None where the module has none. */
@@ -133,10 +133,29 @@ export interface ModelGraph {
   /** Whether the result has the Page Filters table of the pages built on the model (model-pages.ts): the map can draw
    * page filter links only from it. An app's result, or one read before the table was made, has none. */
   pageFilterTable?: boolean;
+  /** How that table's rows met the map's line items, where the result has it (results/main.ts puts it in the run's log,
+   * and the map says from it why it has nothing to draw). */
+  pageFilterCheck?: PageFilterCheck;
   /** How the Modules file's Functional Area met the map's modules, where the file has that column (results/main.ts puts
    * it in the run's log): how many different areas the map's modules have, how many of them have one, and the names
    * one side has and the other lacks. A heading row of Modules is no module of the map, and is in neither list. */
   areaCheck?: AreaCheck;
+}
+
+/** What the map made of the Page Filters table (`ModelGraph.pageFilterCheck`): its rows; those whose condition line item
+ * is a line item of the map, and of them those that filter only that line item's own module, those that filter another
+ * module of the map, and those that filter no module of the map; those that name no condition line item; and those
+ * whose condition is no line item of the map, with each such one named once by its module and its own name
+ * ("Module · Line item"), in the table's order. */
+export interface PageFilterCheck {
+  rows: number;
+  found: number;
+  own: number;
+  other: number;
+  nowhere: number;
+  unnamed: number;
+  notFound: number;
+  missing: string[];
 }
 
 /** What the map made of the Modules file's Functional Area (`ModelGraph.areaCheck`). */

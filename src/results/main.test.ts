@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AreaCheck, ModelMapOptions } from "../map/graph-types.js";
+import type { AreaCheck, ModelMapOptions, PageFilterCheck } from "../map/graph-types.js";
 import { PAGE_ACTIONS_HEADERS, PAGE_FILTERS_HEADERS } from "../model-pages.js";
 import { MODULE_USAGE_FILE, MODULE_USAGE_HEADERS, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE } from "../page-files.js";
 import { CALENDAR_HEADERS, CALENDAR_PROPERTIES, calendarRows } from "../model/calendar.js";
@@ -220,6 +220,8 @@ let mapThrows: Partial<Record<"build" | "mount" | "show" | "hide" | "themeChange
 let mapNodes: object[];
 /** What the stand-in's graph says of the Modules file's functional areas: nothing unless a test gives it. */
 let mapAreaCheck: AreaCheck | undefined;
+/** What the stand-in's graph says of the Page Filters table: nothing unless a test gives it. */
+let mapFilterCheck: PageFilterCheck | undefined;
 /** Whether the stand-in takes the focus into itself, to its button, each time it is shown. */
 let mapTakesFocus: boolean;
 /** What the stand-in tells the page of its stop while it is asked for one of these, or while it hears a click or a key
@@ -236,6 +238,7 @@ beforeEach(() => {
   mapThrows = {};
   mapNodes = [];
   mapAreaCheck = undefined;
+  mapFilterCheck = undefined;
   mapTakesFocus = false;
   mapTells = {};
   const asked = (what: keyof typeof mapThrows, said: string) => {
@@ -244,7 +247,8 @@ beforeEach(() => {
   };
   mapStandIn.build = tables => {
     asked("build", "build");
-    const graph = { nodes: mapNodes, edges: [], unresolved: [], sections: [], limitations: [], ...(mapAreaCheck ? { areaCheck: mapAreaCheck } : {}) };
+    const graph = { nodes: mapNodes, edges: [], unresolved: [], sections: [], limitations: [], ...(mapAreaCheck ? { areaCheck: mapAreaCheck } : {}),
+      ...(mapFilterCheck ? { pageFilterTable: true, pageFilterCheck: mapFilterCheck } : {}) };
     mapBuilds.push({ tables, graph });
     return graph;
   };
@@ -1649,6 +1653,28 @@ describe("What a click, a key and typing do on the results page", () => {
     goTo(1);
     page.find('#navList [data-nav="map"]').press();
     expect(await areaLines()).toHaveLength(1);
+  });
+
+  it("says once in the run's log how the Page Filters table met the map, when it builds the map's graph", async () => {
+    mapFilterCheck = { rows: 32, found: 31, own: 30, other: 1, nowhere: 0, unnamed: 0, notFound: 1, missing: ["MDM381 - Resources # · Gone"] };
+    await openWith(BLUEPRINT);
+    /** The run's log lines about the page filters, as the control that copies the run's log copies them. */
+    const filterLines = async (): Promise<string[]> => {
+      const copy = page.document.createElement("button");
+      copy.dataset.act = "copy-run-log";
+      page.document.body.append(copy);
+      copy.press();
+      await settle();
+      copy.remove();
+      return (copied.at(-1) ?? "").split("\n").filter(line => / Page filters: /.test(line)).map(line => line.replace(/^\d\d:\d\d:\d\d /, ""));
+    };
+    expect(await filterLines()).toEqual([]);
+    page.find('#navList [data-nav="map"]').press();
+    expect(await filterLines()).toEqual(["Page filters: 32 rows; 31 with the condition line item on the map (30 on its own module, 1 on another module); "
+      + "1 with a line item the map does not have: MDM381 - Resources # · Gone."]);
+    goTo(1);
+    page.find('#navList [data-nav="map"]').press();
+    expect(await filterLines()).toHaveLength(1);
   });
 
   it("shows a model's counts with their thousands apart, right-aligned, sorted by their numbers and found with or without commas, and keeps the result as it was", async () => {

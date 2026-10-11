@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { ModelGraph } from "./graph-types.js";
 import { automaticGrouping, BUILT, GOOD, groupingsOf, isBuilt, isGood, leadingCode, roleOf, type Flow, type Grouping, type GroupingKind } from "./map-groups.js";
 import { indexModel, withGrouping } from "./map-model.js";
-import { filteredModel, GraphMaker } from "./map-fakes.test-support.js";
+import { filteredModel, GraphMaker, ownFilteredModel } from "./map-fakes.test-support.js";
 
 /** The groupings of a graph, by kind. */
 function groupingsBy(graph: ModelGraph): Map<GroupingKind, Grouping> {
@@ -127,6 +127,17 @@ describe("The ways the map groups a model's modules", () => {
       ["Notes", "No line items", "No line items: Its line items are all headings, so nothing tells its role."],
     ]);
     expect([role?.source, role?.rest]).toEqual(["from the data flow", "No line items"]);
+  });
+
+  it("gives a module that its own line items filter on pages the role it has without those filters", () => {
+    // A filter on a page reads no data: a module's own filters, which the map marks, and a filter on another module,
+    // which it links, leave each module's role and its reasons as they are.
+    for (const mixed of [false, true]) {
+      const { graph } = ownFilteredModel(mixed);
+      const plain: ModelGraph = { ...graph, nodes: graph.nodes.map(({ pageFilters: _, ...node }) => node), edges: graph.edges.filter(([, , kind]) => kind !== "page_filter") };
+      const [filtered, unfiltered] = [groupingsBy(graph).get("role"), groupingsBy(plain).get("role")];
+      expect([groupsOf(graph, filtered), [...filtered?.whyOf?.values() ?? []]], String(mixed)).toEqual([groupsOf(plain, unfiltered), [...unfiltered?.whyOf?.values() ?? []]]);
+    }
   });
 
   it("takes the first rule that holds for a role, and says where a page shows a module", () => {
