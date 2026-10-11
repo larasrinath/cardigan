@@ -2,6 +2,10 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version is in the menu of Cardigan's icon in Chrome's toolbar and on its About page, and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## Unreleased
+
+- **More named import targets.** List imports look up every unnamed numeric target in the list's properties grid once, logging how many IDs it names and the target type of any left unnamed.
+
 ## 0.34.14 (11 October 2026)
 
 - **Minimap beside details.** The minimap moves beside the open details, or hides when space is tight, keeping your choice; Fit and the box counts follow its place. (#130)
