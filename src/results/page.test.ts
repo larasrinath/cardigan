@@ -525,7 +525,8 @@ describe("The results page's files", () => {
     expect(css).toContain("@keyframes pixel-on{0%,100%{opacity:.15}50%{opacity:1}}");
     expect(declared(".reading .run-word")[0]).toContain("linear-gradient(90deg,var(--text-3) 35%,var(--ink) 50%,var(--text-3) 65%)");
     expect(declared(".reading .run-word")[0]).toContain("animation:shimmer-text 1.4s linear infinite");
-    expect(declared(".reading #runStatus")[0]).toBe("display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--text-3)");
+    expect(declared(".sr-only")).toEqual(["position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0"]);
+    expect(rules("#runStatus")).toEqual([]);
     expect(declared(".run-word-row")).toEqual(["display:none"]);
     expect(declared(".reading .run-word-row")[0]).toBe("display:flex;align-items:center;gap:10px;width:max-content;max-width:100%;margin-bottom:4px");
     // Every phrase shares the same grid cell; the widest rendered phrase reserves room regardless of the current pool.

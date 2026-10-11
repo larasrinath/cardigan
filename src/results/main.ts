@@ -876,14 +876,18 @@ function showRun(runState: RunState): void {
     }
     set("#runTitle", text.title);
     set("#runStatus", text.message);
+    const reading = runState.phase === "running" || runState.phase === "connecting";
+    find("#runStatus")?.classList.toggle("sr-only", reading);
+    const wordRow = find(".run-word-row");
+    if (wordRow) wordRow.title = text.message;
     set("#runHint", text.hint);
     const icon = find("#runIcon");
     if (icon && icon.dataset.phase !== runState.phase) {
       icon.innerHTML = runIconHtml(runState.phase);
-      icon.hidden = runState.phase === "running" || runState.phase === "connecting";
+      icon.hidden = reading;
       icon.dataset.phase = runState.phase;
     }
-    find("#runCard")?.classList.toggle("reading", runState.phase === "running" || runState.phase === "connecting");
+    find("#runCard")?.classList.toggle("reading", reading);
   }
   // The one control that refreshes the Anaplan tab, there only while the tab still holds the reader of an earlier build.
   const refresh = runState.phase === "old-reader" || runState.phase === "missing-reader";

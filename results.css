@@ -422,7 +422,6 @@ body:has(.run-state) > .banners:empty{display:none}
 .run-words > span{grid-area:1/1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .run-word-size{visibility:hidden}
 .reading .run-word{background:linear-gradient(90deg,var(--text-3) 35%,var(--ink) 50%,var(--text-3) 65%);background-size:200% 100%;background-clip:text;-webkit-background-clip:text;color:transparent;animation:shimmer-text 1.4s linear infinite}
-.reading #runStatus{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--text-3)}
 .reading .run-elapsed{display:block;flex:none;width:9ch;font-family:var(--mono);font-size:12px;font-variant-numeric:tabular-nums;color:var(--text-3)}
 .run-card .view-title{margin:0 0 10px}
 .run-card p{margin:0 0 12px;line-height:1.6}
