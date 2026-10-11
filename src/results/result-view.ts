@@ -400,6 +400,7 @@ const USED_IN_PROCESSES = "Used in Processes";
 const ACTION = "Action";
 
 const processesRule: FileRule = (file, result) => {
+  if (result.engine === "polaris") return undefined;
   const used = columnIndex(file, USED_IN_PROCESSES);
   const action = columnIndex(file, ACTION);
   const left = new Set<number>([0]);

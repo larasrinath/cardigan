@@ -1,6 +1,6 @@
 # Cardigan
 
-Cardigan is a Chrome extension for Anaplan. Open an app or a model, click the Cardigan icon, and it reads what the app's pages or the model's settings hold. The result opens on a page of its own, where you can search, sort and filter each table. For a Classic model, the page also draws a map of what feeds what. Polaris models get a partial result for now.
+Cardigan is a Chrome extension for Anaplan. Open an app or a model, click the Cardigan icon, and it reads what the app's pages or the model's settings hold. The result opens on a page of its own, where you can search, sort and filter each table. The page also draws a map of what feeds what. Polaris models get partial settings and a map when formulas were read.
 
 Cardigan makes no file and offers no download: the results page is the only place to see a result. The last result is kept for its tab in the browser's session storage, so that a refresh brings it back, as you left it.
 
@@ -34,7 +34,39 @@ Cardigan reads every published page of the app. The **Overview** counts each tab
 
 Open the model in Model Building; the classic model page opened on its own works too. Cardigan checks the model's engine first, with GET requests using the signed-in session. It reads the model's `engine` from the platform gateway (`hyperblock` means Classic; `calculation_engine` means Polaris), then tries the selected workspace's `dataEngineType` if needed. A Classic frame answering is the next fallback; an unknown engine continues with the Classic reader. The diagnostic log records the raw values and the chosen path.
 
-**Polaris, for now:** **Modules** by name, with the dimensions the model data service supplies; **General Lists** by name and ID; and **Module Usage**, **Page Filters** and **Page Actions** from the published pages built on the model. Cardigan does not wait for a Classic frame. These are partial tables, not a Polaris settings read: dimensions that were not supplied stay empty, and list settings are not read. Only tiles and tabs with data are shown. The Overview says why **Line Items**, **Actions** and the **Model map** are absent. About this export keeps its usual rows: Workspace, Workspace ID, Model, Model ID and Apps.
+**Polaris:** Cardigan reads the partial settings described below without waiting for a Classic frame. Only tiles and tabs with data are shown. About this export keeps Workspace, Workspace ID, Model, Model ID and Apps.
+
+#### What Cardigan reads on Polaris
+
+| Table | Read now |
+| --- | --- |
+| **Modules** | Name, Applies To, Time Scale, Time Range, Versions and Notes from the metadata service, kept as strings; Dimensions separately from moduleViews. Metadata joins by unique exact module names because the probe did not establish its module ID field. Functional Area stays empty. |
+| **Line Items** | One row per returned line item: Name, Module Name, Format, Formula, Applies To, Summary, Time Scale, Time Range, Versions and Notes. Format type is derived only from a certain type label. |
+| **General Lists** | Name, Parent Hierarchy from parentId, and Display Name Property where its ID has a name. Properties and Subset Count stay blank: the probe found no property definitions or verified per-list subset membership. The extra entries in lists with subsets do not prove which list owns them. |
+| **Imports, Exports, Processes** | Names and IDs from the same listings that name page buttons; imports also keep Import Type and Import Data Source ID. Categories are not translated into guessed targets. The probe's export listing was empty; no export definitions were established. |
+| **Versions** | Names only. |
+| **Module Usage, Page Filters, Page Actions** | Published pages built on the model, as before. |
+
+The **Model map** is available when line items with formulas were read. A Polaris adapter matches quoted and bare names, including module-qualified line items, to the returned dictionaries. It does not evaluate formulas; unknown or ambiguous references remain visible as unresolved. The probe's formula sample had name-like references and no numeric ID-token evidence, so numbers are never substituted with object names. Formula text stays as read. Classic keeps its existing graph builder and reference columns.
+
+Not read yet: Model Calendar, Time Ranges, Line Item Subsets, Dynamic Cell Access, Other Actions, Source Models, list properties and per-list subset membership, module functional area assignments, import mappings and process steps. Import and process details say explicitly that their mapping or steps are not read yet.
+
+All new requests are GETs to the narrowly allowed metadata routes, with `Accept: application/json`, `x-api-version: 1` and `X-TracePath: springboard-ui`; lists and module dimensions reuse existing socket subscriptions. Line items use one request per module, at most four at once, with a 60-second timeout per request. Closing the last results page stops queued reads. Action listings are reused, with no detail requests. A refused, timed-out or malformed source is skipped independently, including HTTP 503 from an optional Polaris source.
+
+Listing completeness is unknown: the receipts established no paging keys or continuation contract. The reader defensively recognizes continuation, more/last, count, offset and page-size markers, logs them, and warns on the Overview when an answer may be cut short. It does not follow unverified continuation URLs or invent missing rows.
+
+For a live Polaris run, use **Copy diagnostic log** and look for these exact line prefixes (counts and seconds vary):
+
+- `Polaris source read: llmModules (` and `Polaris source read: llmVersions (`
+- `Polaris source read: subsets (` — the entry count is not a per-list subset count.
+- `Polaris source read: imports (`, `Polaris source read: exports (` and `Polaris source read: processes (`
+- `Polaris line items: <answered>/<modules> modules answered, <rows> line items, <formulas> formulas, <empty> empty modules; at most 4 requests at once; <seconds> s`
+- `Time: Polaris metadata <seconds> s, Polaris line items <seconds> s; Polaris settings in all <seconds> s`
+- `Polaris source unavailable: <source> (HTTP <code>)` — sources are `llmModules`, `llmVersions`, `llmLineItems module <id>`, `moduleViews`, `lists`, `subsets`, `socket`, `imports`, `exports`, `processes` or `pages`; non-HTTP failures give their reason in the parentheses.
+- `Polaris paging metadata: <source> (<keys>)` and `Polaris possibly incomplete: <source> (<rows> rows; continuation not read)` when detected.
+- `Polaris inventory:`, `Polaris coverage:` and `Polaris partial result:` — the final counts, unavailable/incomplete source counts and whether the Model map is available.
+
+#### Classic settings
 
 **Classic:** Cardigan reads the Model settings into twelve tables, in Anaplan's order, and makes a thirteenth, DCA (Dynamic Cell Access), from Line Items: Model Calendar, Time Ranges, Versions, General Lists, Modules, Line Items, DCA, Processes, Imports, Data Sources, Exports, Other Actions and Source Models. The page calls two of them by shorter names than Anaplan's: **Data Sources** is Anaplan's Import Data Sources, and **DCA** is Dynamic Cell Access, which its tab and its tile say in full when hovered and to a screen reader.
 

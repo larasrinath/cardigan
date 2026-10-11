@@ -10,6 +10,15 @@ Access drivers can be found at a glance on the Model map.
 - **What it controls.** A driver's hover card counts the line items and modules it controls, separately for read and write. Its details say Read, Write or both, and **Controls** links to each target with its access role. A controlled line item's **Access driven by** links back to its drivers. These lists stay readable with the arrows off.
 - **The same places.** Ticking Access drivers adds marks and arrows without moving any box or the camera, including boxes dragged by hand. With no access drivers to show, the switch is off and its note says why; a result without driver columns, as on Polaris, says they were not read.
 
+## 0.28.0 (11 October 2026)
+
+Polaris reads the settings the live probe found, with its limits kept visible.
+
+- **Modules and line items.** Modules keep Applies To, Time, Versions and Notes, with dimensions from the socket. Each module's line items are read by one GET, four at a time: Format, Formula, dimensions, summary, Time, Versions and Notes stay as read. Only certain format labels give a Format type. Functional Area stays empty. (#79)
+- **Lists and actions.** Lists name their parent and their display property where an ID has a name. The probe did not establish list properties or per-list subset membership, so Properties and Subset Count stay blank. Imports, exports and processes reuse the listings read for page buttons; details say mappings and steps are not read yet. Versions lists names. (#79)
+- **A Polaris map.** Once formulas were read, the map matches their names to returned line items and lists. Unknown and ambiguous references stay unresolved; numeric literals stay numbers. The tables keep their original strings. Classic's map and settings reads stay as before. (#79)
+- **Partial, said.** The Overview names what was read and what is still missing, with only populated tables in its tiles and tabs. A source that fails is logged and skipped on its own. Possible paging is logged and noted without guessing missing rows; completeness remains unknown. The log counts line-item requests and records their time. Closing the results page stops queued requests. (#79)
+
 ## 0.27.0 (11 October 2026)
 
 The Model map's details lead into the box, back to its table, and into Model Building.
