@@ -8,7 +8,7 @@ import type { ProcessView } from "./process-actions-view.js";
 import type { SourceModelView } from "./source-model-view.js";
 import { LINE_ITEMS_FILE } from "./line-items-view.js";
 import type { RangeState } from "./range-filter.js";
-import { ACCESS_FILE, MODEL_CALENDAR_FILE, MODULES_FILE, type Analysed, type CardSection, type Overview, type SectionCell } from "./result-view.js";
+import { ACCESS_FILE, MODEL_CALENDAR_FILE, MODULES_FILE, type Analysed, type CardSection, type Overview, type OverviewTile, type SectionCell } from "./result-view.js";
 import { cellText, dayText, groupedCount, NONE, type RangeColumn, type Row, type Sort } from "./table-engine.js";
 import { bothTimes, timesOf, type TimeMode } from "./times.js";
 import { usedOn, type WhereUsedObject } from "./where-used-view.js";
@@ -455,7 +455,7 @@ export function overviewHtml(overview: Overview, copy: KeptCopy = "none", views:
         const icon = file === undefined ? "" : FILE_ICONS.get(file) ?? "";
         // A short name is said in full to a screen reader, and as the name's title.
         const name = tile.full ? `<span aria-hidden="true">${esc(tile.label)}</span><span class="sr-only">${esc(tile.full)}</span>` : esc(tile.label);
-        const parts = `<span class="s-lab" title="${esc(tile.full ?? tile.label)}">${icon}${name}</span><span class="s-num">${esc(tile.value ?? tile.count)}</span>`
+        const parts = `<span class="s-lab" title="${esc(tile.full ?? tile.label)}">${icon}${name}</span><span class="s-num${numberSize(tile)}">${esc(tile.value ?? tile.count)}</span>`
           + (tile.value === undefined ? `<span class="sr-only">${tile.count === 1 ? "row" : "rows"}</span>` : "")
           + (tile.detail === undefined ? "" : `<span class="s-detail">${esc(tile.detail)}</span>`);
         const named = tile.title === undefined ? "" : ` title="${esc(tile.title)}"`;
@@ -465,6 +465,15 @@ export function overviewHtml(overview: Overview, copy: KeptCopy = "none", views:
       }).join("")}
     </div>${about}
     <p class="ov-kept" id="ovKept">${keptCopyHtml(copy)}</p>${notes}${files}${howToRead}${log}`;
+}
+
+/** The class that sizes a tile's number (results.css `.s-num`): none for a count of up to four figures, which is drawn at
+ * full size in any tile; one by its length for a longer count, which a narrow tile draws smaller, so that it is never cut;
+ * and one for the Model Calendar's word in the number's place. */
+function numberSize(tile: OverviewTile): string {
+  if (tile.value !== undefined) return " s-word";
+  const figures = String(tile.count).length;
+  return figures <= 4 ? "" : figures === 5 ? " s-n5" : figures === 6 ? " s-n6" : " s-n7";
 }
 
 /* ---------- the run, before there is a result ---------- */
