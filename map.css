@@ -133,9 +133,11 @@
 }
 .map-btn:hover:not(:disabled){background:var(--panel-2)}
 .map-btn:disabled{opacity:.45;cursor:not-allowed}
-.map-btn.map-icon{width:28px;padding:0;font-size:15px;line-height:1}
+.map-btn.map-icon{width:28px;padding:0;font-size:15px;line-height:1;color:var(--text-3)}
+.map-btn.map-icon:where(:hover,:focus-visible){color:var(--text)}
 .map-btn.map-small{height:24px;padding:0 10px}
 .map-btn[aria-expanded="true"],.map-btn[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent-ink);border-color:color-mix(in srgb,var(--accent) 35%,transparent)}
+.map-btn.map-icon:is([aria-expanded="true"],[aria-pressed="true"]){background:var(--accent-soft)}
 .map-btn-chevron{flex:none;margin-right:-2px;color:var(--text-3)}
 /* Links drawn beside the formulas' are said on the button: it has the accent's dot. */
 .map-links-btn::before{content:"";flex:none;width:7px;height:7px;border-radius:50%;background:var(--accent);visibility:hidden}
