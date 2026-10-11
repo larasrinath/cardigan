@@ -6,6 +6,18 @@ Every merged change that alters the extension has a version of its own: a new fe
 
 - **Simpler column filters.** Every value list has a find box with a checkbox to tick or untick all matches; the heading and visible count line are gone, with counts still announced and a note when more than 300 values match.
 
+## 0.34.0 (11 October 2026)
+
+- **More heading marks.** Model headings can start with `--`, `==`, `**`, `<<` or `>>`, including after spaces. Group names drop the marks at both ends; rows made only of marks stay Ungrouped. The map, its Headings grouping and counts, and the model's pages list use the same rule. (#112)
+
+## 0.33.4 (11 October 2026)
+
+- **Quicker spinner words.** The run card picks a phrase at random every half second without repeating the previous one; two phrases alternate, one stays, and reduced motion keeps one per step. (#111)
+
+## 0.33.3 (11 October 2026)
+
+- **Versions under its own heading.** Dimensions gives Time, Versions and Lists a heading whenever tables from two or more sub-groups are present, with every table at the same indent in both the bar's menu and the narrow window's menu. (#110)
+
 ## 0.33.2 (11 October 2026)
 
 - **A shorter reading card.** The real step is in the word's tooltip and announced to screen readers; messages stay visible when the run stops. (#109)

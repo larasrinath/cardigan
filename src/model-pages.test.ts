@@ -145,6 +145,15 @@ function waiting() {
 }
 
 describe("The pages built on a model", () => {
+  it("leaves every heading style out of Module Usage and keeps modules starting with single marks", async () => {
+    const result = exported();
+    const objects = ["*Archive", "=Total", "<Draft>", "- Revenue"];
+    result.tables.find(table => table.file === "Modules.csv")!.rows.push(
+      ...[" -- Admin -- ", " == Inputs == ", " ** Calc ** ", " << Outputs >> ", "<<>>", "*****", " .-=*<>. ", "", ...objects].map(name => [name, ""]));
+    const pages = await run(result, CUSTOMER, fake([], {}));
+    expect(rowsOf(pages, MODULE_USAGE_FILE)?.map(row => row[0])).toEqual(["Demand", "Factors", "Unused", ...objects]);
+  });
+
   it("makes Polaris Module Usage, Page Filters and Page Actions from the published pages without a settings export", async () => {
     const use = fake(BOTH, { [PAGE_A]: demandBoard(), [PAGE_B]: supplyBoard });
     const result = await readPolarisModel({ customerId: CUSTOMER, workspaceId: WS, modelId: MODEL },
