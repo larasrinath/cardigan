@@ -86,6 +86,8 @@ export function mountModelMap(host: HTMLElement, graph: ModelGraph, options: Mod
 
 /** The minimap's size in CSS pixels (map.css gives its canvas the same). */
 const MINIMAP = { width: 196, height: 128 } as const;
+const MINIMAP_GAP = 10;
+const MINIMAP_MOVE_MS = 160;
 /** The room kept between the graph and the panels around it when it is fitted. */
 const FIT_MARGIN = 20;
 const ARROWS: Record<string, Direction> = { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down" };
@@ -138,6 +140,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   const miniCanvas = part<HTMLCanvasElement>(".map-minimap");
   const stats = part(".map-stats");
   const miniWrap = part(".map-minimap-wrap");
+  const miniRoom = part(".map-minimap-room");
   const miniButton = part<HTMLButtonElement>('[data-map-act="minimap"]');
   const notes = part(".map-notes");
   const pathRoot = part(".map-path-root");
@@ -220,6 +223,8 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   /** Whether the links of the pages' filters are drawn: only where the model has some (`filtersDrawable`). */
   let filters = false;
   let minimapOpen = true;
+  let minimapRight = 0;
+  let minimapMovingUntil = 0;
   /** A model whose modules stand under one heading, or under none: it has no sections to show, and opens on its modules. */
   let single = false;
   let onScreen: ViewGraph | undefined;
@@ -296,7 +301,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     frame = undefined;
     if (!shown || destroyed || broken || !fonts || !onScreen || width <= 0 || height <= 0) return;
     drawn = true;
-    let moving = false;
+    let moving = time < minimapMovingUntil;
     if (heading) {
       const step = easeCamera(camera, heading, lastFrame ? time - lastFrame : 1000 / 60);
       camera = step.camera;
@@ -307,9 +312,13 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     const scene = { graph: onScreen, camera, width, height, palette, shown: shownNodes, trace, matches, order, time: moves ? time : undefined, formulas };
     pen.setTransform(ratio, 0, 0, ratio, 0, 0);
     const tracing = drawScene(pen, scene, fonts);
-    if (miniPen && minimapOpen) {
+    if (miniPen && !miniWrap.hidden) {
       miniPen.setTransform(ratio, 0, 0, ratio, 0, 0);
       minimap = drawMinimap(miniPen, scene, MINIMAP.width, MINIMAP.height);
+    }
+    if (minimapMovingUntil) {
+      renderStatus();
+      if (time >= minimapMovingUntil) minimapMovingUntil = 0;
     }
     // The line at the foot says what is in view where the camera has come to rest: it is written for where the camera
     // is going as soon as it sets out (`go`), and here for a camera the user has moved.
@@ -397,6 +406,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     ratio = nextRatio;
     if (width <= 0 || height <= 0) return;
     sizeCanvases();
+    placeMinimap();
     // A picture that shows the whole graph is laid out for the new room and fitted again, so that it grows and shrinks
     // with its place; one in which a box was dragged keeps its places. One the user has moved keeps its middle where it was.
     if (needsFit || !laidOut || (wantsWhole && !moved)) arrange();
@@ -424,6 +434,37 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     return { left: box.left - outer.left, top: box.top - outer.top, right: box.right - outer.left, bottom: box.bottom - outer.top };
   }
 
+  /** Keep the small picture beside the details, leaving room for the left panels and controls too. Hiding for lack
+   * of space never changes the user's choice. The room clips the slide before it can cross the details. */
+  function placeMinimap(): void {
+    const room = areaOf(free);
+    const details = selected ? areaOf(selectionPanel) : undefined;
+    const right = room && details ? Math.max(0, room.right - details.left + MINIMAP_GAP) : 0;
+    const miniWidth = MINIMAP.width + 14; // The canvas, padding and border in map.css.
+    const leftPanels = [areaOf(navigation), areaOf(legend), areaOf(about)].filter((area): area is Area => area !== undefined);
+    const leftEdge = room ? Math.max(room.left + 200, ...leftPanels.map(area => area.right)) : 0;
+    miniWrap.hidden = !minimapOpen || !!(room && details && room.right - right - miniWidth < leftEdge + MINIMAP_GAP);
+    miniRoom.style.clipPath = `inset(-20px ${right}px -20px -20px)`;
+    miniWrap.style.right = `${right}px`;
+    if (right !== minimapRight) minimapMovingUntil = motion() && !miniWrap.hidden ? env.now() + MINIMAP_MOVE_MS : 0;
+    minimapRight = right;
+  }
+
+  /** Only the visible part covers boxes during a slide. Fit also leaves room at the destination. */
+  function minimapArea(fitting = false): Area | undefined {
+    if (miniWrap.hidden) return undefined;
+    const box = areaOf(miniWrap);
+    const room = areaOf(free);
+    if (!box || !room) return box;
+    const edge = room.right - minimapRight;
+    const visible = { ...box, right: Math.min(box.right, edge) };
+    if (fitting && minimapMovingUntil) {
+      visible.left = Math.min(visible.left, edge - (box.right - box.left));
+      visible.right = edge;
+    }
+    return visible.right > visible.left ? visible : undefined;
+  }
+
   /** The rooms the panels leave the picture, measured where the page is laid out: the part of the canvas under the bar
    * and beside the details (`map-free`), clear of what stands in it: the legend and the notes while they are open, the
    * row of controls and counts, and the small picture. None where the panels leave no room worth the name; nothing where
@@ -431,7 +472,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   function freeRooms(): Insets[] | undefined {
     const freeArea = areaOf(free);
     if (!freeArea || freeArea.right - freeArea.left <= 2 * FIT_MARGIN || freeArea.bottom - freeArea.top <= 2 * FIT_MARGIN) return undefined;
-    const panels = [areaOf(legend), areaOf(about), areaOf(navigation), areaOf(miniWrap), areaOf(selectionPanel)].filter((area): area is Area => area !== undefined);
+    const panels = [areaOf(legend), areaOf(about), areaOf(navigation), minimapArea(true), areaOf(selectionPanel)].filter((area): area is Area => area !== undefined);
     return roomsBeside(freeArea, panels).map(room => insetsOf(room, width, height, FIT_MARGIN)).filter(room => width - room.l - room.r > 80 && height - room.t - room.b > 60);
   }
 
@@ -449,7 +490,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   function openRooms(): Insets[] {
     const freeArea = areaOf(free);
     if (!freeArea) return [defaultInsets(width, height, selected !== undefined)];
-    const panels = [areaOf(legend), areaOf(about), areaOf(navigation), areaOf(miniWrap), areaOf(selectionPanel)].filter((area): area is Area => area !== undefined);
+    const panels = [areaOf(legend), areaOf(about), areaOf(navigation), minimapArea(), areaOf(selectionPanel)].filter((area): area is Area => area !== undefined);
     const found = roomsBeside(freeArea, panels).map(room => insetsOf(room, width, height));
     return found.length ? found : [insetsOf(freeArea, width, height)];
   }
@@ -637,7 +678,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     for (let pass = 0; pass < 3; pass++) {
       // In view is what stands in the graph's own room: a box under the bar or the details is not, nor is one under the
       // controls and counts, the legend, the notes or the small picture.
-      const covered = [areaOf(navigation), areaOf(legend), areaOf(about), areaOf(miniWrap), areaOf(selectionPanel)].filter((area): area is Area => area !== undefined);
+      const covered = [areaOf(navigation), areaOf(legend), areaOf(about), minimapArea(), areaOf(selectionPanel)].filter((area): area is Area => area !== undefined);
       const places = covered.map(area => `${area.left} ${area.top} ${area.right} ${area.bottom}`).join(", ");
       if (places === counted) break;
       counted = places;
@@ -697,7 +738,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
 
   function renderControls(): void {
     if (!model) return;
-    miniWrap.hidden = !minimapOpen;
+    placeMinimap();
     miniButton.setAttribute("aria-pressed", String(minimapOpen));
     miniButton.title = minimapOpen ? "Hide minimap" : "Show minimap";
     groupingField.hidden = false;
@@ -733,6 +774,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
       inspector.hidden = true;
       inspector.innerHTML = "";
       pageOpens = [];
+      placeMinimap();
       return;
     }
     inspection = inspect(model, onScreen, selected, access);
@@ -741,6 +783,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     inspector.innerHTML = inspectorHtml(inspection, traced, pageOpens, onlyTrace);
     inspector.hidden = false;
     part(".map-insp-body").scrollTop = 0;
+    placeMinimap();
   }
 
   function renderTrace(): void {
@@ -1350,6 +1393,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     show(panel, open);
     const other = panel === legend ? about : legend;
     if (open && !other.hidden && (width <= NARROW || freeRooms()?.length === 0)) show(other, false);
+    placeMinimap();
     renderStatus();
     invalidate();
     tellView();
@@ -1421,7 +1465,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
       case "about": setPanel(about, about.hidden); break;
       case "minimap":
         minimapOpen = !minimapOpen;
-        miniWrap.hidden = !minimapOpen;
+        placeMinimap();
         miniButton.setAttribute("aria-pressed", String(minimapOpen));
         miniButton.title = minimapOpen ? "Hide minimap" : "Show minimap";
         renderStatus();
@@ -1831,6 +1875,8 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   // the picture is drawn again then, without waiting for the user to do something.
   canvas.addEventListener("contextrestored", guarded(() => invalidate()));
   miniCanvas.addEventListener("contextrestored", guarded(() => invalidate()));
+  // CSS starts its transition when styles are next painted, which can be after the drawing clock started.
+  miniWrap.addEventListener("transitionend", guarded(() => renderStatus()));
 
   /** Files the modules into the sections a grouping makes, or into the graph's heading rows where there is none: the
    * sections, the list of them and the search are then the grouping's, and the map is to show the model whole. A

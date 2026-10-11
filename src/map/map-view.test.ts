@@ -3,6 +3,7 @@ import { FakeElement, FakePage } from "../results/dom.test-support.js";
 import type { MapView, ModelGraph, ModelMap, ModelMapOptions } from "./graph-types.js";
 import type { Pen } from "./map-canvas.js";
 import * as drawing from "./map-canvas.js";
+import * as cameraMath from "./map-camera.js";
 import { isMapAtStart, keptText, readKept, VIEW_KEY } from "../results/view-keep.js";
 import { FALLBACK } from "./map-palette.js";
 import { accessMarkedModel, twinBoxesModel } from "./map-fakes.test-support.js";
@@ -2531,6 +2532,98 @@ describe("The room the map's picture has", () => {
     return make.graph();
   };
   const overlaps = (box: { x: number; y: number; w: number; h: number }, [left, top, right, bottom]: Place): boolean => box.x < right && box.x + box.w > left && box.y < bottom && box.y + box.h > top;
+
+  /** The floating details share the canvas's room; the minimap's inline offset is laid out by the browser. */
+  function openWithFloatingDetails(initialWidth = 1200, options: Partial<ModelMapOptions> = {}): (width: number) => void {
+    let width = initialWidth;
+    mount(sectionsOf(6), { modelName: "Demand Plan", ...options });
+    const details = (): Place => root().classList.contains("map-has-inspector") ? [width - 390, 56, width - 10, 746] : [0, 0, 0, 0];
+    layOut({
+      ".map-canvas": () => [0, 0, width, 800], ".map-free": () => [10, 56, width - 10, 790],
+      ".map-selection": details, ".map-inspector": details,
+      ".map-navigation": NAVIGATION, ".map-legend": LEGEND,
+      ".map-minimap-wrap": () => {
+        const right = width - 10 - Number.parseFloat(part(".map-minimap-wrap").style.right || "0");
+        return [right - 210, 648, right, 790];
+      },
+    });
+    map.show(); env.resize(width, 800); env.settle();
+    return next => { width = next; env.resize(width, 800); env.settle(); };
+  }
+
+  it("slides the minimap beside details, preserves the other panels, and returns it to the corner on close", () => {
+    openWithFloatingDetails();
+    const mini = part(".map-minimap-wrap");
+    const corner = mini.getBoundingClientRect();
+    const fixed = [part(".map-navigation").getBoundingClientRect(), part(".map-legend").getBoundingClientRect()];
+    clickNode("1: Section 1"); env.settle();
+    const beside = mini.getBoundingClientRect();
+    expect(mini.hidden).toBe(false);
+    expect(beside.right + 10).toBe(part(".map-inspector").getBoundingClientRect().left);
+    expect(beside.bottom).toBe(corner.bottom);
+    expect([part(".map-navigation").getBoundingClientRect(), part(".map-legend").getBoundingClientRect()]).toEqual(fixed);
+    act("close").press(); env.settle();
+    expect(mini.getBoundingClientRect()).toEqual(corner);
+  });
+
+  it("hides in a narrow room and restores on resize or close without changing the kept toggle", () => {
+    const kept: MapView[] = [];
+    const resize = openWithFloatingDetails(760, { onView: view => kept.push(view) });
+    const mini = part(".map-minimap-wrap");
+    expect(mini.hidden).toBe(false);
+    clickNode("1: Section 1"); env.settle();
+    expect([mini.hidden, act("minimap").getAttribute("aria-pressed"), kept.at(-1)?.minimap]).toEqual([true, "true", undefined]);
+    const calls = env.mini.calls.length;
+    act("zoom-in").press(); env.settle();
+    expect(env.mini.calls).toHaveLength(calls);
+    resize(1200);
+    expect(mini.hidden).toBe(false);
+    resize(760);
+    expect(mini.hidden).toBe(true);
+    act("close").press(); env.settle();
+    expect([mini.hidden, act("minimap").getAttribute("aria-pressed"), kept.at(-1)?.minimap]).toEqual([false, "true", undefined]);
+    act("minimap").press();
+    clickNode("1: Section 1"); act("close").press(); env.settle();
+    expect([mini.hidden, act("minimap").getAttribute("aria-pressed"), kept.at(-1)?.minimap]).toEqual([true, "false", false]);
+  });
+
+  it("counts and fits around the minimap's new place, and stops reserving it while hidden", () => {
+    const counted = vi.spyOn(cameraMath, "countInView");
+    try {
+      const resize = openWithFloatingDetails();
+      clickNode("1: Section 1"); env.settle();
+      const beside = { left: 590, top: 648, right: 800, bottom: 790 };
+      const covered = () => counted.mock.calls.at(-1)![4];
+      expect(covered()).toContainEqual(beside);
+      expect(covered()).not.toContainEqual({ left: 980, top: 648, right: 1190, bottom: 790 });
+      act("fit").press(); env.settle();
+      for (const box of boxes().values()) {
+        expect(overlaps(box, [590, 648, 800, 790])).toBe(false);
+        expect(overlaps(box, [810, 56, 1190, 746])).toBe(false);
+      }
+      resize(760);
+      expect(covered()).toHaveLength(3); // Controls, legend and details; no hidden minimap.
+      act("close").press(); env.settle();
+      expect(covered()).toContainEqual({ left: 540, top: 648, right: 750, bottom: 790 });
+    } finally { counted.mockRestore(); }
+  });
+
+  it("counts only the visible part during the slide and measures again when the CSS transition ends", () => {
+    const counted = vi.spyOn(cameraMath, "countInView");
+    try {
+      openWithFloatingDetails();
+      env.reduced = false;
+      clickNode("1: Section 1");
+      // Mid-slide: its right edge is still behind the clipping boundary beside the details.
+      layOut({ ".map-minimap-wrap": [650, 648, 860, 790] });
+      env.frame();
+      expect(counted.mock.calls.at(-1)![4]).toContainEqual({ left: 650, top: 648, right: 800, bottom: 790 });
+      env.frame(200);
+      layOut({ ".map-minimap-wrap": [590, 648, 800, 790] });
+      part(".map-minimap-wrap").dispatch("transitionend");
+      expect(counted.mock.calls.at(-1)![4]).toContainEqual({ left: 590, top: 648, right: 800, bottom: 790 });
+    } finally { counted.mockRestore(); }
+  });
 
   it("fits the picture into what is free of the canvas: under the bar, and clear of the legend, the line at the foot and the small picture", () => {
     openLaidOut();

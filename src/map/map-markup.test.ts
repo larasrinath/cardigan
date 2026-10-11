@@ -463,7 +463,8 @@ describe("The map's own markup", () => {
     expect(shell.querySelector(".map-zone-tools")?.children.map(child => child.getAttribute("class"))).toEqual(["map-links", "map-searchwrap", "map-btn map-icon map-full-btn"]);
     expect(shell.querySelector(".map-free")?.children.map(child => child.getAttribute("class"))).toEqual(["map-foot", "map-empty"]);
     // The legend and the notes stand over the line at the foot, whatever its height.
-    expect(shell.querySelector(".map-foot")?.children.map(child => child.getAttribute("class"))).toEqual(["map-navigation", "map-over", "map-panel map-minimap-wrap"]);
+    expect(shell.querySelector(".map-foot")?.children.map(child => child.getAttribute("class"))).toEqual(["map-navigation", "map-over", "map-minimap-room"]);
+    expect(shell.querySelector(".map-minimap-room")?.children.map(child => child.getAttribute("class"))).toEqual(["map-panel map-minimap-wrap"]);
     // At the foot: one control row, left panels and a separate minimap. The trace shares the details column.
     expect(shell.querySelector(".map-selection")?.children.map(child => child.getAttribute("class"))).toEqual(["map-panel map-inspector"]);
     expect(shell.querySelector(".map-over")?.children.map(child => child.getAttribute("class"))).toEqual(["map-panel map-legend", "map-panel map-about"]);

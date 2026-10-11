@@ -69,9 +69,9 @@ describe("The map's sources", () => {
 
   it("listen and look only inside the map's own element", () => {
     const view = code("map-view.ts");
-    // Every listener is on the map's element, its canvas or its small picture: the page's elements are never listened to.
+    // Every listener is on the map's element, its canvas or its small picture and wrapper: the page's elements are never listened to.
     const listened = [...view.matchAll(/(\w+)\.addEventListener\(/g)].map(match => match[1]);
-    expect(new Set(listened)).toEqual(new Set(["root", "canvas", "miniCanvas"]));
+    expect(new Set(listened)).toEqual(new Set(["root", "canvas", "miniCanvas", "miniWrap"]));
     expect(found(view, /getElementById|getElementsBy|document\.querySelector|page\.querySelector|document\.body|page\.body|documentElement|removeEventListener/)).toEqual([]);
     // What it asks of the page's document: to make its element, and which element has the focus; and, in the browser's
     // surroundings, which element fills the screen, and to leave the screen.
@@ -98,7 +98,7 @@ describe("The map's sources", () => {
   it("set styles only for a place on the canvas, never for a colour or from a model's text", () => {
     const view = code("map-view.ts");
     const styled = [...view.matchAll(/\.style\.(\w+) =/g)].map(match => match[1]);
-    expect(new Set(styled)).toEqual(new Set(["left", "top"]));
+    expect(new Set(styled)).toEqual(new Set(["left", "top", "right", "clipPath"]));
   });
 
   it("load no font and no file", () => {
@@ -192,6 +192,8 @@ describe("The map's stylesheet", () => {
     for (const property of ["overflow:hidden", "white-space:nowrap", "padding:0 11px"]) expect(rules(".map-stats")).toContain(property);
     for (const selector of [".map-over", ".map-minimap-wrap"]) expect(rules(selector)).toContain("position:absolute");
     for (const property of ["right:0", "bottom:0"]) expect(rules(".map-minimap-wrap")).toContain(property);
+    expect(rules(".map-minimap-wrap")).toContain("transition:right .16s ease-out");
+    for (const property of ["position:absolute", "inset:0", "pointer-events:none"]) expect(rules(".map-minimap-room")).toContain(property);
     expect(rules(".map-over")).toContain("inset:0 auto 44px 0");
     expect(rules('.map-foot:has(.map-minimap-wrap:not([hidden])) .map-over')).toContain("width:min(650px,calc(100% - 220px))");
     expect(rules('.map-foot:has(.map-minimap-wrap:not([hidden])) .map-navigation')).toContain("max-width:calc(100% - 220px)");
