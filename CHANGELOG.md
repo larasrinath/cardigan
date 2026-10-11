@@ -2,13 +2,13 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version is in the menu of Cardigan's icon in Chrome's toolbar and on its About page, and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
-## Unreleased
+## 0.27.0 (11 October 2026)
 
 The Model map's details lead into the box, back to its table, and into Model Building.
 
-- **One row of buttons.** The box's name comes first, with its kind under it. A module offers **Show its N line items**, a group **Show its N modules**. **Table** opens the matching row in Line Items, Modules or General Lists with its details open. **Model** opens the module or list in Model Building, using the same opening as the tables and the IDs the run already read; a line item opens its module. A button with nowhere to go is left out.
-- **The trace in one place.** Its counts and **Only these** sit under the buttons in the details. The separate trace card is gone. Closing the details clears the selection. Opening and closing them leaves every box and the camera in place. Raw format and summary values sit last under **As read**, folded at first.
-- **Back to the same box.** A row's **Model map** button keeps the table's details for the return. **Table** brings the row into view, with its details open; **Model map** selects that box again. The table keeps its sort and column choices, and its search and filters where they include the row.
+- **One row of buttons.** The box's name comes first, with its kind under it. A module offers **Show its N line items**, a group **Show its N modules**. **Table** opens the matching row in Line Items, Modules or General Lists with its details open. **Model** opens the module or list in Model Building, using the same opening as the tables and the IDs the run already read; a line item opens its module. A button with nowhere to go is left out. (#78)
+- **The trace in one place.** Its counts and **Only these** sit under the buttons in the details. The separate trace card is gone. Closing the details clears the selection. Opening and closing them leaves every box and the camera in place. Raw format and summary values sit last under **As read**, folded at first. (#78)
+- **Back to the same box.** A row's **Model map** button keeps the table's details for the return. **Table** brings the row into view, with its details open; **Model map** selects that box again. The table keeps its sort and column choices, and its search and filters where they include the row. (#78)
 
 ## 0.26.0 (11 October 2026)
 
