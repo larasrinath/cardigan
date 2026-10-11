@@ -1,7 +1,7 @@
 import { reportFrame, serveCore, serveOpen } from "./bridge.js";
 import { stampLine } from "./details.js";
 import { exportModel } from "./model/export.js";
-import { modelOnPage } from "./model/native.js";
+import { dataEngineTypeOnPage, modelOnPage } from "./model/native.js";
 import { openObject } from "./model/open-object.js";
 import { firstLine } from "./progress.js";
 
@@ -42,7 +42,7 @@ const watch = setInterval(() => {
     clearInterval(watch);
   } else if (modelOnPage()) {
     clearInterval(watch);
-    if (window.top) serveCore(window, window.top, modelOnPage, window.top === window ? exportOwnPage : exportModel, undefined, undefined, current);
+    if (window.top) serveCore(window, window.top, modelOnPage, window.top === window ? exportOwnPage : exportModel, undefined, undefined, current, dataEngineTypeOnPage);
     if (window.top && window.top !== window) serveOpen(window, window.top, openObject, current);
   } else if (Date.now() - started > 10 * 60_000) {
     clearInterval(watch);

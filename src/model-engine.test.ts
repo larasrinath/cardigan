@@ -1,72 +1,67 @@
-import { describe, expect, it, vi } from "vitest";
-import { detectModelEngine, parseEngine } from "./model-engine.js";
-import { RestError } from "./rest.js";
+import { readFileSync } from "node:fs";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { engineCrossCheck, engineLine, knownDataEngineType, parseEngine } from "./model-engine.js";
+import { dataEngineTypeOnPage } from "./model/native.js";
 
-const scope = { customerId: "A".repeat(32), workspaceId: "B".repeat(32), modelId: "C".repeat(32) };
-const base = `/a/springboard-platform-gateway-service/customers/${scope.customerId}/workspaces`;
-const progress = () => ({ status: vi.fn(), log: vi.fn() });
+describe("Calculation engine from the model's page", () => {
+  afterEach(() => vi.unstubAllGlobals());
 
-describe("Calculation engine detection", () => {
-  it.each([["hyperblock", "classic"], ["calculation_engine", "polaris"], [undefined, "unknown"], ["future_engine", "unknown"],
-    [null, "unknown"], [17, "unknown"], [{ engine: "hyperblock" }, "unknown"], ["CALCULATION_ENGINE", "polaris"]])("parses %j as %s", (raw, expected) => {
-    expect(parseEngine(raw)).toBe(expected);
+  it.each([
+    ["HYPERBLOCK", "classic", "Engine: Classic (dataEngineType HYPERBLOCK)"],
+    ["CALCULATION_ENGINE", "polaris", "Engine: Polaris (dataEngineType CALCULATION_ENGINE)"],
+    ...[undefined, null, 17, {}, "future_engine", "hyperblock", "Polaris"].map(value =>
+      [value, "unknown", "Engine: unknown (dataEngineType missing or unrecognized)"]),
+  ])("reads and maps %j without making any request", (raw, expected, line) => {
+    const getWorkspaceInfo = vi.fn(function (this: unknown) { expect(this).toBe(cache); return { dataEngineType: raw }; });
+    const cache = new Proxy({ getWorkspaceInfo }, {
+      get(target, key) { if (key !== "getWorkspaceInfo") throw new Error("Only the workspace getter may be read"); return target.getWorkspaceInfo; },
+      set() { throw new Error("The cache must not be changed"); },
+    });
+    const require = vi.fn((id: string) => { expect(id).toBe("anaplan/data/ModelContentCache"); return cache; });
+    vi.stubGlobal("window", { require });
+    vi.stubGlobal("fetch", vi.fn(() => { throw new Error("No requests"); }));
+    vi.stubGlobal("WebSocket", vi.fn(() => { throw new Error("No requests"); }));
+    const value = dataEngineTypeOnPage();
+    expect(value).toBe(knownDataEngineType(raw));
+    expect(parseEngine(value)).toBe(expected);
+    expect(engineLine(value)).toBe(line);
+    expect(getWorkspaceInfo).toHaveBeenCalledOnce();
+    expect(require).toHaveBeenCalledExactlyOnceWith("anaplan/data/ModelContentCache");
+    expect(fetch).not.toHaveBeenCalled();
+    expect(WebSocket).not.toHaveBeenCalled();
   });
 
-  it.each(["hyperblock", "calculation_engine"])("reads one model before any fallback: %s", async engine => {
-    const read = vi.fn(async () => ({ engine, label: "Practice plan", workspaceName: "Practice workspace" }));
-    const log = progress();
-    expect(await detectModelEngine(scope, log, undefined, read)).toEqual({ engine: parseEngine(engine), modelName: "Practice plan", workspaceName: "Practice workspace" });
-    expect(read.mock.calls).toHaveLength(1);
-    expect(read).toHaveBeenCalledWith(`${base}/${scope.workspaceId}/models/${scope.modelId}`, { timeoutMs: 5000 });
-    expect(log.log).toHaveBeenCalledWith("Engine detection: model details fields: engine, label, workspaceName");
+  it.each([undefined, null, [], 12, "cache", {}, { getWorkspaceInfo: 1 },
+    ...[undefined, null, [], 12, "info", {}].map(info => ({ getWorkspaceInfo: () => info })),
+    { getWorkspaceInfo() { throw new Error("Still opening"); } },
+    { get getWorkspaceInfo() { throw new Error("Unavailable getter"); } },
+    { getWorkspaceInfo: () => ({ get dataEngineType() { throw new Error("Unavailable field"); } }) },
+  ])("leaves an unavailable or malformed cache unknown (%#)", cache => {
+    vi.stubGlobal("window", { require: () => cache });
+    expect(dataEngineTypeOnPage()).toBeUndefined();
   });
 
-  it.each([{}, { engine: "future_engine" }])("uses only this workspace's engine after %j, before the frames", async model => {
-    const read = vi.fn().mockResolvedValueOnce(model).mockResolvedValueOnce([
-      { WorkspaceGuid: "D".repeat(32), dataEngineType: "hyperblock" },
-      { WorkspaceGuid: scope.workspaceId.toLowerCase(), Name: "Practice workspace", dataEngineType: "calculation_engine" },
-    ]);
-    const log = progress();
-    expect(await detectModelEngine(scope, log, undefined, read)).toMatchObject({ engine: "polaris" });
-    expect(read).toHaveBeenLastCalledWith(base, { timeoutMs: 5000 });
-    expect(log.log).toHaveBeenCalledWith("Engine detection: workspace entry fields: Name, WorkspaceGuid, dataEngineType");
+  it.each([{}, { require: true }, { require() { throw new Error("Module not loaded"); } },
+    { get require() { throw new Error("Loader unavailable"); } }])("leaves an unavailable loader unknown (%#)", page => {
+    vi.stubGlobal("window", page);
+    expect(dataEngineTypeOnPage()).toBeUndefined();
   });
 
-  it("survives refused or unfamiliar details without claiming to know the engine", async () => {
-    const read = vi.fn().mockRejectedValueOnce(new RestError("HTTP_ERROR", 403)).mockResolvedValueOnce([{ WorkspaceGuid: scope.workspaceId, dataEngineType: "other" }]);
-    const log = progress();
-    expect((await detectModelEngine(scope, log, undefined, read)).engine).toBe("unknown");
-    expect(log.log.mock.calls.at(-1)?.[0]).toBe("Engine detection: unknown; trying the Classic reader first");
+  it.each(["Populated Cell Count", "Calculation Complexity"])("cross-checks %s without replacing the decision", column => {
+    expect(engineCrossCheck("classic", [column])).toBe("Engine cross-check: Polaris-only Line Items columns disagree with dataEngineType HYPERBLOCK (Classic).");
+    expect(engineCrossCheck("unknown", [column])).toBe("Engine cross-check: Polaris-only Line Items columns found; dataEngineType is unknown.");
+    expect(engineCrossCheck("polaris", [column])).toBeUndefined();
+    for (const engine of ["classic", "polaris", "unknown"] as const) expect(engineCrossCheck(engine, ["Cell Count"])).toBeUndefined();
   });
 
-  it("does not request details without the scoped IDs, and stops between reads", async () => {
-    const read = vi.fn(async () => ({}));
-    expect((await detectModelEngine({ modelId: scope.modelId }, progress(), undefined, read)).engine).toBe("unknown");
-    expect(read).not.toHaveBeenCalled();
-    const stop = new AbortController();
-    read.mockImplementation(async () => { stop.abort(new Error("closed")); return {}; });
-    await expect(detectModelEngine(scope, progress(), stop.signal, read)).rejects.toThrow("closed");
-    expect(read).toHaveBeenCalledOnce();
-  });
-
-  it.each(["engine", "engineType", "calculationEngine", "modelType", "isPolaris", "dataEngineType"])("checks %s in either gateway response without logging values", async field => {
-    for (const where of ["model", "workspace"]) for (const value of ["hyperblock", "CALCULATION_ENGINE"]) {
-      const details = { engine: "unfamiliar private value", [field]: value, label: "Invented private name", nested: { secret: "Invented secret" } };
-      const read = vi.fn().mockResolvedValueOnce(where === "model" ? details : {})
-        .mockResolvedValueOnce([{ WorkspaceGuid: scope.workspaceId, ...details }]);
-      const log = progress();
-      expect((await detectModelEngine(scope, log, undefined, read)).engine).toBe(parseEngine(value));
-      const lines = log.log.mock.calls.flat().join("\n");
-      for (const secret of [value, "unfamiliar private value", "Invented private name", "Invented secret", scope.workspaceId]) expect(lines).not.toContain(secret);
-      expect(lines).toContain(`Engine detection: ${where === "model" ? "model details" : "workspace entry"} fields:`);
-    }
-  });
-
-  it.each([[true, "polaris"], [false, "classic"], ["true", "unknown"], [1, "unknown"], ["Polaris", "unknown"]])("recognises only a boolean isPolaris flag or the original engine strings: %j", async (isPolaris, expected) => {
-    for (const where of ["model", "workspace"]) {
-      const read = vi.fn().mockResolvedValueOnce(where === "model" ? { isPolaris } : {})
-        .mockResolvedValueOnce(where === "workspace" ? [{ WorkspaceGuid: scope.workspaceId, isPolaris }] : []);
-      expect((await detectModelEngine(scope, progress(), undefined, read)).engine).toBe(expected);
+  it("keeps NOTICE's request table aligned with the removed gateway probe", () => {
+    const notice = readFileSync(new URL("../NOTICE.md", import.meta.url), "utf8");
+    expect(notice).toContain("getWorkspaceInfo().dataEngineType");
+    expect(notice).toContain("Model and workspace names, only for a read without a Classic client.");
+    expect(notice).toContain("Workspace name, only when the model details did not supply it for a read without a Classic client.");
+    expect(readFileSync(new URL("./model-engine.ts", import.meta.url), "utf8")).not.toMatch(/getJson|springboard-platform-gateway-service|ENGINE_FIELDS/);
+    for (const route of ["modules", "versions", "line-items/{module}"]) {
+      expect(notice).toContain(`/a/llm-data-service/meta-data/workspace/{workspace}/model/{model}/${route}`);
     }
   });
 });
