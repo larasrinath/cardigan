@@ -2,7 +2,7 @@ import { unquote } from "../map/graph-names.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
 import { cellLists } from "./cell-lists.js";
 import { columnIndex } from "./columns.js";
-import { IMPORTS_FILE, SOURCE_MODELS_FILE } from "./result-view.js";
+import { IMPORTS_FILE, SOURCE_MODELS_FILE, tableLabel } from "./result-view.js";
 import { sourceObjectOf } from "./source-object.js";
 import { cellText, type Row } from "./table-engine.js";
 
@@ -142,7 +142,8 @@ export function sourceModelOfRow(result: AnalysisResult | undefined, table: Resu
   }
   if (!sources.length && !imports.size) return undefined;
 
-  const dataLabel = cellText(data?.label ?? "Import Data Sources");
+  // The lines name the tables as the page does (result-view.ts `tableLabel`): Import Data Sources is Data Sources.
+  const dataLabel = tableLabel(data ?? { file: DATA_SOURCES_FILE, label: "Import Data Sources" });
   const sourcesAt = columnIndex(table, SOURCES);
   const importsAt = columnIndex(table, IMPORTS);
   return {
@@ -150,6 +151,6 @@ export function sourceModelOfRow(result: AnalysisResult | undefined, table: Resu
     imports: [...imports].map(([importName, from]) => ({ name: importName, from })),
     sourceLines: sources.length ? countLine(sourcesAt === undefined ? undefined : numberIn(row[sourcesAt]), sources.length, SOURCES, dataLabel) : [],
     importLines: countLine(importsAt === undefined ? undefined : numberIn(row[importsAt]), imports.size, IMPORTS,
-      sources.length ? dataLabel : cellText(importsTable?.label ?? "Imports")),
+      sources.length ? dataLabel : tableLabel(importsTable ?? { file: IMPORTS_FILE, label: "Imports" })),
   };
 }

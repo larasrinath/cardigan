@@ -2,13 +2,22 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version stands next to Cardigan's name at the top of the results page and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
-## 0.18.8 (10 October 2026)
+## 0.18.9 (10 October 2026)
 
 Three small mends: a module's code on the model map, what Forget this result forgets, and two tests that a busy machine could fail.
 
 - **A module's code, told from its name whatever stands between.** The map sets a module's code apart from the rest of its name. It took off a dash between spaces (" - ") or a space alone, so a name such as "CLM101 : - Stat Combos: Without Order History" showed ": - Stat Combos: Without Order History". Now any mix of spaces, colons and dashes between the code and the rest is taken off: "CLM101 : - Stat Combos", "FIN03: Cash", "X_1 — Y". A colon with no dash takes only a word of capitals and digits for a code, so "Note: Revenue Plan" stays whole, and a mark written against the rest stays with it ("SYS01 -Time"). (#63)
 - **Forget this result forgets where the map was.** Forgetting removed what the tab kept, but the page went on holding where the map had been left: the map built afresh after it took that place back and wrote it to the tab again. It now opens where it opens by itself, and nothing comes back. (#63)
 - **Tests that hold on a busy machine.** The page tests now tell a page it goes, as a browser does when a refresh replaces it, so what a page was about to write lands in its own test and never in the next one's storage. The check that a table of 200,000 rows has its column widths worked out quickly counts the cells read and takes the process's own time, not the clock. (#63)
+
+## 0.18.8 (10 October 2026)
+
+Two of a model's tables have shorter names on the page.
+
+- **Data Sources.** Anaplan's Import Data Sources is called **Data Sources**: in the navigation and the Actions menu, on its tile, as its table's heading, in a row's details, in the Overview's rows about it, and in a source model's details, whose lines say what was found in Data Sources, as does the log's note on a source model found in neither table. (#60)
+- **DCA.** Dynamic Cell Access is called **DCA**, in the same places and in the Modules menu. Its tab, its group's button and its tile say "Dynamic Cell Access (DCA)" when hovered and to a screen reader, and a screen reader hears the full name when the table is shown. (#60)
+- **The navigation is narrower.** The model bar needs about 99px less: about 1,184px instead of 1,283px, so it fits on one line from a window about 1,314px wide instead of 1,413px. (#60)
+- **What stays the same.** What is read, and the tables themselves. The export's own log and status lines keep Anaplan's names. A result kept from an earlier version shows the new names as well, since the page names these two tables by their files.
 
 ## 0.18.7 (10 October 2026)
 

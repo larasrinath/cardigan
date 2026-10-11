@@ -26,7 +26,7 @@ import {
 import type { PageId } from "./page-ids.js";
 import { LINE_ITEMS_FILE, MODULE_NAME } from "./line-items-view.js";
 import { ACCESS_FILE, analysedOf, cardParts, detailsOf, detailValue, diagnosticLog, fileView, IMPORTS_FILE, listedTables, MODEL_CALENDAR_FILE, MODULES_FILE, overviewOf,
-  SOURCE_MODELS_FILE, type Analysed, type FileView, type Overview } from "./result-view.js";
+  SOURCE_MODELS_FILE, tableFullLabel, tableLabel, type Analysed, type FileView, type Overview } from "./result-view.js";
 import { bothTimes, browserZone, chosenTime, fileRow, hasTimes, inTimeMode, momentRange, momentsOf, readText, storedTimeMode, storeTimeMode, timesOf, zoneWords, type TimeMode } from "./times.js";
 import { rangeInForce, rangeSummary, readRange, type RangeState } from "./range-filter.js";
 import { cellText, NONE, pageOf, rangeColumn, rememberingSelect, rowName, valueCounts, type RangeColumn, type RangeQuery, type Row, type Sort, type TableQuery } from "./table-engine.js";
@@ -466,7 +466,10 @@ function updateActions(): void {
 function navEntries(): NavEntry[] {
   return [
     { id: "overview", label: "Overview" },
-    ...[...shown.values()].map(entry => ({ id: String(entry.index), label: cellText(entry.table.label), file: entry.table.file })),
+    ...[...shown.values()].map(entry => {
+      const full = tableFullLabel(entry.table);
+      return { id: String(entry.index), label: tableLabel(entry.table), file: entry.table.file, ...(full ? { full } : {}) };
+    }),
     // A model's map, after its files. An app has none.
     ...(result?.kind === "model" ? [{ id: "map", label: MAP_LABEL }] : []),
   ];
@@ -534,7 +537,7 @@ function tableView(entry: Shown): TableView {
   // The columns' widths come from all the table's rows, whatever the search, the filters, the sort and the page leave.
   entry.widths ??= columnWidths(entry.columns, entry.table.rows);
   return {
-    label: cellText(entry.table.label), note: entry.note, none: entry.none, empty: entry.empty, opensFrom: entry.opensFrom,
+    label: tableLabel(entry.table), note: entry.note, none: entry.none, empty: entry.empty, opensFrom: entry.opensFrom,
     ways: entry.ways && [{ way: "object", label: "By object", chosen: entry === entry.ways.object }, { way: "use", label: EVERY_USE, chosen: entry === entry.ways.use }],
     columns: entry.columns.filter(column => !entry.hidden.has(column.index)), widths: entry.widths, rows: page.rows, ...(entry.headings ? { headings: entry.headings } : {}),
     page: page.page, pages: page.pages, pageSize: state.pageSize, from: page.from, to: page.to, total: page.total, all: entry.table.rows.length,
@@ -547,8 +550,10 @@ function updateFade(wrap: HTMLElement): void {
   wrap.classList.toggle("at-end", wrap.scrollTop + wrap.clientHeight >= wrap.scrollHeight - 6);
   wrap.classList.toggle("no-scroll", wrap.scrollHeight <= wrap.clientHeight + 2);
 }
-const announceTable = (view: TableView): void =>
-  announce(`${view.label}: ${view.total === 1 ? "1 row" : `${view.total} rows`}${view.context !== undefined ? `, filtered to ${view.context}` : ""}`);
+/** Tells a screen reader which table is shown and how many rows it has: a table the page calls by a short name, by the
+ * name that stands for in full (result-view.ts `tableFullLabel`). */
+const announceTable = (view: TableView, entry: Shown): void =>
+  announce(`${tableFullLabel(entry.table) ?? view.label}: ${view.total === 1 ? "1 row" : `${view.total} rows`}${view.context !== undefined ? `, filtered to ${view.context}` : ""}`);
 
 /** Draws a table's view whole: its name, its toolbar with the search box, its rows and its pager. */
 function renderTable(entry: Shown): void {
@@ -562,7 +567,7 @@ function renderTable(entry: Shown): void {
   const search = find<HTMLInputElement>("#tblSearch");
   if (search) search.selectionStart = search.selectionEnd = search.value.length;
   markPopOwner();
-  announceTable(view);
+  announceTable(view, entry);
   rememberLooks();
 }
 
@@ -589,7 +594,7 @@ function updateTable(entry: Shown): void {
   find("#searchWrap")?.classList.toggle("has-value", view.search !== "");
   updateFade(wrap);
   markPopOwner();
-  announceTable(view);
+  announceTable(view, entry);
   rememberLooks();
 }
 
@@ -605,7 +610,7 @@ function renderAll(): void {
   const items = navItems(navEntries(), result.kind === "model");
   el("navList").innerHTML = navHtml(items, String(state.view));
   spreadLine(el("navList"));
-  el("navCompact").innerHTML = navMenuHtml(items, String(state.view), entry ? cellText(entry.table.label) : onMap ? MAP_LABEL : "Overview");
+  el("navCompact").innerHTML = navMenuHtml(items, String(state.view), entry ? tableLabel(entry.table) : onMap ? MAP_LABEL : "Overview");
   // The map gives its room back before another view is drawn, which measures the room it has.
   if (!onMap) leaveMap();
   if (entry) renderTable(entry);
@@ -1126,7 +1131,7 @@ function openRowDrawer(entry: Shown, row: Row, opener: Element): void {
   const opens = itemOpens(entry, row, items);
   const source = sourceModelOfRow(result, entry.table, row);
   if (!source) noteNoSources(entry.table, row);
-  openDrawer(name, rowDrawerSubHtml(position, cellText(entry.table.label)),
+  openDrawer(name, rowDrawerSubHtml(position, tableLabel(entry.table)),
     rowDrawerHtml(entry.columns, row, entry.links, entry.exported?.get(row), items, entry.readUnder, mappingOfRow(result, entry.table, row),
       process && { view: process, opens: drawerSteps.map(Boolean) }, { mode: timeMode, zone: ownZone }, opens, source && sourceOpens(source)), opener);
 }
@@ -1169,7 +1174,8 @@ function noteNoSources(table: ResultTable, row: Row): void {
   notedSources.set(result, noted);
   if (name === "" || noted.has(name)) return;
   noted.add(name);
-  client.note(`Source model ${name}: no row of Import Data Sources or Imports names it, so its details list none of its sources.`);
+  const named = (file: string, label: string): string => tableLabel(result?.tables.find(each => each.file === file) ?? { file, label });
+  client.note(`Source model ${name}: no row of ${named(DATA_SOURCES_FILE, "Import Data Sources")} or ${named(IMPORTS_FILE, "Imports")} names it, so its details list none of its sources.`);
 }
 /** Shows the rest of a long list in the details, the items after its first ones, or hides them again: `control` is the
  * button under them (markup.ts `itemsHtml`), which says which it will do. Hidden, they stay where the browser's find in
