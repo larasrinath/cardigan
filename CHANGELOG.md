@@ -2,6 +2,17 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version is in the menu of Cardigan's icon in Chrome's toolbar and on its About page, and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## 0.21.0 (10 October 2026)
+
+Page filters run from a filter's line item to the line items it filters, and Page Filters says which those are.
+
+- **Filtered line items.** **Page Filters**, and an app's **Filters** table, have a column after **Filtered dimension** that says which line items the filter's grid shows: **All line items**, **Only** or **All except** with the line items' names in full, a name that holds a comma in single quotes, or the Line Items selector's words, or that Line Items is on no axis and no selector. Where a filter is shared by sections of a combined grid that show different line items, each section says its own after its module, and the row's details list them one to a line. Nothing new is read from Anaplan: the page's cards always said it. (#PR)
+- **Arrows among a module's line items.** With **Page filters** ticked, the **Line items** view draws a plum dashed arrow from each filter line item to each line item it filters. A module's own filter, such as Incomplete Records filtering its module's rows, is arrows inside the module; the filter line item that its grid shows too keeps the funnel, and so does one whose grid does not say which line items it shows. A filter on another module's grid points at that module's box, and the filtered module shows the filter's module pointing at each line item it filters. (#PR)
+- **Modules and groups as before.** Between modules a filter is one arrow for each filter line item and each other module whose grid it filters, however many line items, and a module its own line items filter keeps its funnel with the count, as a group keeps its count of such modules. (#PR)
+- **Where the boxes stand.** The line items that formulas link keep their places when page filters are drawn: the filters' arrows are drawn over them, and close no circle of formulas. A line item that only filters link stands next to the line item that filters it, not at the end beyond other modules' boxes. (#PR)
+- **What a filter does, said.** While page filters are drawn, a line item's hover card says where it filters ("Page filter on Data Hub · Admin · Card 1 · by Customers") and what filters it ("Filtered on pages by Incomplete Records"). Its details list **Line items it filters on pages** and **Filtered on pages by**, and each filter's line says how many line items it filters. The note under **Page filters**, the legend and the run's log say what each kind of picture shows, and the log counts the filters that say which line items they filter. (#PR)
+- **A result read before.** A result an earlier version kept has no **Filtered line items**: the map draws its filters to the modules they filter, as before, and the note under **Page filters** says to run the model again. (#PR)
+
 ## 0.20.1 (10 October 2026)
 
 What a page built on a model points at that the model doesn't have now reads plainly.
