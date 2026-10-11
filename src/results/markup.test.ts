@@ -37,8 +37,9 @@ type Texts = (index: number) => string;
 const hostile: Texts = index => HOSTILE[index % HOSTILE.length];
 const harmless: Texts = index => `word ${index}`;
 
-/** The attributes that may hold a value from a result: a tooltip, a label for screen readers, the search box and an ID to copy. */
-const VALUE_ATTRIBUTES = new Set(["title", "aria-label", "value", "placeholder", "data-copy", "data-room"]);
+/** The attributes that may hold a value from a result: a tooltip, a label for screen readers, the search box, an ID to copy, and
+ * the texts a navigation item keeps the room of or is measured by. */
+const VALUE_ATTRIBUTES = new Set(["title", "aria-label", "value", "placeholder", "data-copy", "data-room", "data-labels"]);
 
 /** Builds a piece of markup twice, with hostile and with harmless texts in the same places, and checks that the data
  * changed nothing but text: the same elements with the same attributes, every hostile text shown exactly as typed, and
@@ -813,7 +814,7 @@ describe("A result whose every text is hostile, through every view of the page",
     const html = everyView().join("\n");
     const elements = new Set(["button", "circle", "col", "colgroup", "dd", "details", "div", "dl", "dt", "em", "h1", "h2", "h3", "input", "kbd", "label", "li", "option", "p", "path", "pre", "rect",
       "section", "select", "span", "strong", "summary", "svg", "table", "tbody", "td", "th", "thead", "tr", "ul"]);
-    const attributes = /^(aria-[a-z]+|data-(act|nav|copy|sort|colfilter|col|fval|page|popact|way|use|room|ov-open)|class|type|title|style|id|hidden|open|disabled|checked|selected|value|placeholder|tabindex|role|scope|width|height|viewBox|fill|stroke|stroke-width|stroke-linecap|stroke-linejoin|d|cx|cy|r|x|y|rx)$/;
+    const attributes = /^(aria-[a-z]+|data-(act|nav|copy|sort|colfilter|col|fval|page|popact|way|use|room|labels|ov-open)|class|type|title|style|id|hidden|open|disabled|checked|selected|value|placeholder|tabindex|role|scope|width|height|viewBox|fill|stroke|stroke-width|stroke-linecap|stroke-linejoin|d|cx|cy|r|x|y|rx)$/;
     expect(tagNames(html).filter(name => !elements.has(name))).toEqual([]);
     expect(attributeNames(html).filter(name => !attributes.test(name))).toEqual([]);
     // The table, the drawer and the popovers are all there: this is the whole page, not a corner of it.

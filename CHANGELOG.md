@@ -13,6 +13,14 @@ Page filters run from a filter's line item to the line items it filters, and Pag
 - **What a filter does, said.** While page filters are drawn, a line item's hover card says where it filters ("Page filter on Data Hub · Admin · Card 1 · by Customers") and what filters it ("Filtered on pages by Incomplete Records"). Its details list **Line items it filters on pages** and **Filtered on pages by**, and each filter's line says how many line items it filters. The note under **Page filters**, the legend and the run's log say what each kind of picture shows, and the log counts the filters that say which line items they filter. (#PR)
 - **A result read before.** A result an earlier version kept has no **Filtered line items**: the map draws its filters to the modules they filter, as before, and the note under **Page filters** says to run the model again. (#PR)
 
+## 0.20.2 (10 October 2026)
+
+Equal gaps between the navigation's tabs, and still nothing moves.
+
+- **Equal gaps.** Where the tabs fit on one line, the gaps between them are now all the same. Before, **Time**, **Modules** and **Actions** each kept the room of the longest name they can show, such as Model Calendar, even while they showed their own shorter name, so the gaps around them were up to twice the others'. Each tab now takes the room of what it shows when it is not the view shown, and the bar shares out the rest as the gaps. (#69)
+- **Nothing else moves.** The tab of the view shown, in bold, and a menu's button naming the table shown in it, such as **Model Calendar** in place of **Time**, grow from their middle into the gaps beside them, and no other tab moves, by as much as a pixel. Where the bar is too narrow for a name to grow so, its menu keeps the extra room it needs beside its own name, so the gaps around it are wider there: a model's bar with every table has all its gaps equal in a window about 1,480 pixels wide or wider, and fits on one line from about 1,280. A menu opens under its button, wherever the button stands. (#69)
+- **What stays the same.** The tabs, their names and their order; the menus and their entries; and the one menu that stands in the bar's place in a window narrower than 1,000 pixels. (#69)
+
 ## 0.20.1 (10 October 2026)
 
 What a page built on a model points at that the model doesn't have now reads plainly.
