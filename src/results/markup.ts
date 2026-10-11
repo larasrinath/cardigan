@@ -500,7 +500,14 @@ function numberSize(tile: OverviewTile & Partial<CalendarTile>): string {
 
 /* ---------- the run, before there is a result ---------- */
 
-/** A drawn mark for the run's state. The adjacent heading names it for assistive technology. */
+/** The page's one refresh icon: the circular arrow of the Run again button, in that button's box of 16 by 16. results.html
+ * draws that arrow in its own markup (`#runAgain .run-icon`), which the page's script leaves as it is: main.ts gives the
+ * button its pixel grid and its words, never its drawing. So results.html holds a copy of these paths; a test holds the two
+ * the same. */
+const REFRESH_PATH = '<path d="M14.4 3.3v3.5h-3.5"/><path d="M12.95 9.75a5.25 5.25 0 1 1-1.24-5.46l2.7 2.54"/>';
+
+/** A drawn mark for the run's state. The adjacent heading names it for assistive technology. Every mark is 24 pixels wide,
+ * with a line 1.6 pixels wide. */
 export function runIconHtml(phase: RunState["phase"]): string {
   if (phase === "connecting" || phase === "running") return "";
   const kind = phase === "old-reader" || phase === "missing-reader" ? "refresh"
@@ -510,9 +517,12 @@ export function runIconHtml(phase: RunState["phase"]): string {
     info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7v.2"/>',
     warning: '<path d="m10.3 4-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3l-8-14a2 2 0 0 0-3.4 0Z"/><path d="M12 9v5M12 17v.2"/>',
     clock: '<circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/>',
-    refresh: '<path d="M20 4v6h-6M4 20v-6h6"/><path d="M4.6 8a8.5 8.5 0 0 1 14-3L20 10M4 14l1.4 5a8.5 8.5 0 0 0 14-3"/>',
+    refresh: REFRESH_PATH,
   };
-  return `<svg data-run-icon="${kind}" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[kind]}</svg>`;
+  // The refresh mark keeps the Run again button's box of 16 by 16, which the mark's 24 pixels draw half as large again: its
+  // line is two thirds of 1.6 in that box, to be as heavy as the other marks' lines.
+  const refresh = kind === "refresh";
+  return `<svg data-run-icon="${kind}" width="24" height="24" viewBox="${refresh ? "0 0 16 16" : "0 0 24 24"}" fill="none" stroke="currentColor" stroke-width="${refresh ? "1.0667" : "1.6"}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[kind]}</svg>`;
 }
 
 /** The view while the page connects and the analysis runs, and when it could not: a heading, the status or the message,

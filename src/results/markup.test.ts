@@ -1,6 +1,8 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { ALL_WORDS } from "./spinner-words.js";
 import { DETAILS_HEADERS } from "../details.js";
+import { RESULTS_PAGE } from "../protocol.js";
 import { HEADERS } from "../report.js";
 import type { AnalysisResult, Cell, ResultTable } from "../result-types.js";
 import { cellLists, rowItems } from "./cell-lists.js";
@@ -13,7 +15,7 @@ import {
   rowDrawerSubHtml, runBannerHtml, runHtml, runIconHtml, SUN_ICON, tableHtml, tableParts,
   type AboutLink, type KeptCopy, type Links, type TableView,
 } from "./markup.js";
-import { parseMarkup } from "./dom.test-support.js";
+import { FakePage, parseMarkup } from "./dom.test-support.js";
 import { decode, readMarkup, shownValues, structure } from "./markup.test-support.js";
 import { analysedOf, cardParts, detailsOf, fileView, MODEL_FILE_ORDER, overviewOf, type Overview } from "./result-view.js";
 import { pageOf, rangeColumn, selectRows, valueCounts } from "./table-engine.js";
@@ -966,6 +968,28 @@ describe("A result whose every text is hostile, through every view of the page",
     }
     expect(new Set(cases.map(([phase]) => runIconHtml(phase))).size).toBe(4);
     expect([runIconHtml("connecting"), runIconHtml("running")]).toEqual(["", ""]);
+  });
+
+  it("draws the refresh mark as the Run again button's drawing, the page's one refresh icon, at the card's size and with its marks' line", () => {
+    // The button as the page is packaged, and its drawing without the spinner that stands beside it in its svg.
+    const runAgain = new FakePage(readFileSync(new URL(`../../${RESULTS_PAGE}`, import.meta.url), "utf8")).find("#runAgain svg");
+    const drawing = runAgain.querySelector(".run-icon")?.innerHTML;
+    const look = ["viewBox", "fill", "stroke", "stroke-linecap", "stroke-linejoin"];
+    for (const phase of ["missing-reader", "old-reader"] as const) {
+      const mark = parseMarkup(runIconHtml(phase)).querySelector("svg")!;
+      // The same paths, in the same box, with the same ends and corners: the same arrow, larger.
+      expect(mark.innerHTML).toBe(drawing);
+      expect(look.map(name => mark.getAttribute(name))).toEqual(look.map(name => runAgain.getAttribute(name)));
+    }
+    // Every mark is 24 pixels wide in its tile, and its line 1.6 pixels wide whatever its box: a box drawn larger draws its
+    // line as much wider. The marks other than refresh keep their box of 24 by 24 and their line.
+    const marks = (["no-tab", "maintenance", "failed", "old-reader"] as const).map(phase => parseMarkup(runIconHtml(phase)).querySelector("svg")!);
+    for (const mark of marks) {
+      expect([mark.getAttribute("width"), mark.getAttribute("height")]).toEqual(["24", "24"]);
+      expect(Number(mark.getAttribute("stroke-width")) * 24 / Number(mark.getAttribute("viewBox")?.split(" ")[2])).toBeCloseTo(1.6, 3);
+    }
+    expect(marks.map(mark => [mark.getAttribute("data-run-icon"), mark.getAttribute("viewBox"), mark.getAttribute("stroke-width")])).toEqual([
+      ["info", "0 0 24 24", "1.6"], ["clock", "0 0 24 24", "1.6"], ["warning", "0 0 24 24", "1.6"], ["refresh", "0 0 16 16", "1.0667"]]);
   });
 
   it("announces the real status separately from the silent pixels and elapsed time", () => {

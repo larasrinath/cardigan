@@ -2,6 +2,10 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version is in the menu of Cardigan's icon in Chrome's toolbar and on its About page, and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## 0.34.17 (11 October 2026)
+
+- **One refresh icon.** The **Refresh the Anaplan tab** card shows the circular arrow of the **Run again** button, at the card's size and line weight, in place of two arcs whose arrowheads did not meet them. (#134)
+
 ## 0.34.16 (11 October 2026)
 
 - **Import mappings name more.** A target or constant still shown as an ID is named from what Model Building's client knows of it, and a constant into Time by its period, from the Model Calendar's choices. Headers mapped by hand are listed under the header row, each with its line item, in place of their count. An ID nothing names stays, and the diagnostic log says what kind of entity it is. (#133)
