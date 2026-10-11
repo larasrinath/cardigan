@@ -2,14 +2,14 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version is in the menu of Cardigan's icon in Chrome's toolbar and on its About page, and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
-## Unreleased
+## 0.25.0 (11 October 2026)
 
 One details panel, in the same order wherever a row opens.
 
-- **Read beside the table.** The details leave the table usable, with no scrim. Click another row to read it there. A link inside the panel shows **Back** to return to the previous row. The header stays whole above the panel, with Timezone, Run again and the theme button together.
-- **The same order.** The row's name and table, the buttons for opening it elsewhere, then Mapping, Actions, or Sources and Imports. **All columns** follows in the table's order, hidden columns after. A section's column is not repeated, so a process lists its actions once. Raw values sit last under **As read**, folded at first.
-- **Names open their rows.** A single item links as several do. Module Name, Target Object, DCA's line items, a page filter's condition line item and modules, a page action's model action and a data source's Source Model link where one row matches. Missing and unmatched names stay plain. DCA and Page Filters offer **Model map** where the box exists.
-- **Keyboard and kept place.** The panel is a labelled region. Opening it moves focus inside; **Esc** closes it and returns focus to the opening row. The open row still comes back after refresh or Run again where it exists.
+- **Read beside the table.** The details leave the table usable, with no scrim. Click another row to read it there. A link inside the panel shows **Back** to return to the previous row. The header stays whole above the panel, with Timezone, Run again and the theme button together. (#75)
+- **The same order.** The row's name and table, the buttons for opening it elsewhere, then Mapping, Actions, or Sources and Imports. **All columns** follows in the table's order, hidden columns after. A section's column is not repeated, so a process lists its actions once. Raw values sit last under **As read**, folded at first. (#75)
+- **Names open their rows.** A single item links as several do. Module Name, Target Object, DCA's line items, a page filter's condition line item and modules, a page action's model action and a data source's Source Model link where one row matches. Missing and unmatched names stay plain. DCA and Page Filters offer **Model map** where the box exists. (#75)
+- **Keyboard and kept place.** The panel is a labelled region. Opening it moves focus inside; **Esc** closes it and returns focus to the opening row. The open row still comes back after refresh or Run again where it exists. (#75)
 
 ## 0.24.0 (11 October 2026)
 
