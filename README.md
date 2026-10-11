@@ -85,6 +85,7 @@ The map shows how a model's groups, modules and line items connect. It is built 
 - The details' name, kind and opening buttons stay in place while the content below scrolls, as in the tables' details. Selecting another box starts its details at the top. Very long names wrap and scroll within the header so the content keeps room.
 - Zoom out, Zoom in, Fit, Minimap, Legend and About share the controls row at the bottom left. **About** explains the map and its limits.
 - **Minimap** and **Legend** start open; the legend starts closed on very small maps and is absent when there are no layers. Both keep your open or closed choice for the tab. **Fit** leaves room for the open panels.
+- The minimap moves beside open details. If there is too little room, it hides until the details close, keeping your choice.
 
 ![Model map grouped by functional area with Links open](docs/images/map-groups.png)
 

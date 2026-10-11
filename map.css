@@ -199,7 +199,8 @@
 .map-navigation .map-btn svg{flex:none}
 .map-status{flex:0 1 auto;min-width:0;height:28px;font-size:12px;color:var(--text-2);font-variant-numeric:tabular-nums;pointer-events:none}
 .map-stats{display:block;max-width:100%;box-sizing:border-box;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;padding:0 11px;line-height:26px;border:1px solid var(--border-strong);border-radius:999px;background:var(--panel);pointer-events:auto}
-.map-minimap-wrap{position:absolute;right:0;bottom:0;padding:6px;line-height:0}
+.map-minimap-room{position:absolute;inset:0;pointer-events:none}
+.map-minimap-wrap{position:absolute;right:0;bottom:0;padding:6px;line-height:0;transition:right .16s ease-out}
 .map-minimap{display:block;width:196px;height:128px;border-radius:var(--r-xs);background:var(--map-canvas-bg);cursor:crosshair}
 /* Keep the row and both left panels clear of the 210px minimap, including long counts and About text. */
 .map-foot:has(.map-minimap-wrap:not([hidden])) .map-navigation{max-width:calc(100% - 220px)}

@@ -240,7 +240,7 @@ export function shellHtml(ids: ShellIds, modelName: string): string {
       </p>
     </div>
     </div>
-    <div class="map-panel map-minimap-wrap" id="${esc(ids.legend)}-minimap" hidden><canvas class="map-minimap" width="196" height="128" aria-hidden="true"></canvas></div>
+    <div class="map-minimap-room"><div class="map-panel map-minimap-wrap" id="${esc(ids.legend)}-minimap" hidden><canvas class="map-minimap" width="196" height="128" aria-hidden="true"></canvas></div></div>
     </div>
     <div class="map-empty" hidden></div>
   </div>
