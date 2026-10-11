@@ -6,6 +6,10 @@ Every merged change that alters the extension has a version of its own: a new fe
 
 - **A shorter reading card.** The real step is in the word's tooltip and announced to screen readers; messages stay visible when the run stops.
 
+## 0.33.1 (11 October 2026)
+
+- **A plain question mark for About.** The map's About button drops the inner circle and draws a larger, centred question mark. (#108)
+
 ## 0.33.0 (11 October 2026)
 
 - **A shorter menu bar.** A model's bar has seven tabs: Overview, **Dimensions**, Modules, Actions, Source Models, **App Usage** and Model map. Dimensions holds Model Calendar and Time Ranges under a Time heading, Versions, and General Lists and Line Item Subsets under a Lists heading; App Usage holds Module Usage, Page Filters and Page Actions. A heading shows only where two or more of its tables are in the result, a group of one table is that table's own tab, and the arrow keys move through a menu's tables. The bar fits on one line from 1,000 pixels wide. An app's bar, the tables and the Overview are unchanged. (#107)
