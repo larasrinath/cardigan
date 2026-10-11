@@ -78,18 +78,20 @@ input,select{font:inherit;color:inherit}
    screen. It has no background of its own, so it stands on the header as it is in both themes. */
 .brand img{display:block}
 .brand-name{font-size:15px;font-weight:650;letter-spacing:.01em}
-.ver{font-family:var(--mono);font-size:11px;color:var(--text-2);background:var(--panel-2);border:1px solid var(--border);border-radius:999px;padding:1px 8px;margin-left:8px;vertical-align:2px}
-/* The name keeps 200px beside the brand and the actions; when the three no longer fit on one line, the header wraps. */
-.meta{min-width:0;flex:1 1 200px}
+/* The result's name, on one line: it gives way first, cut with an ellipsis (its title holds it whole), and the header
+   wraps only when even 120px of it no longer fit beside the brand and the actions. */
+.meta{min-width:0;flex:1 1 120px}
 .meta:empty{flex-basis:0}
 .meta-app{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.meta-sub{color:var(--text-2);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.meta-sub .dotsep{margin:0 6px;color:var(--text-3)}
 .hd-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;flex:0 1 auto}
-/* Which zone the page says its times in (times.ts): two buttons, the one in force filled, after a quiet word that names
-   them. Both have the same padding and weight filled or not, so choosing one moves nothing. */
-.times{display:inline-flex;align-items:center;gap:4px;flex:none}
-.times-lab{font-size:11.5px;color:var(--text-3);margin-right:2px}
+/* The Timezone pill (times.ts): the zone the page says its times in, and a press for the other. Its zone's word sits in
+   one cell of a grid with the other zone's, kept but unseen, so the pill is as wide for UTC as for Local and a press
+   moves nothing beside it. */
+.btn.tz{gap:5px}
+.tz-lab{color:var(--text-2)}
+.tz-words{display:inline-grid}
+.tz-words > span{grid-area:1/1}
+.tz-words > span:not(.on){visibility:hidden}
 .btn{
   display:inline-flex;align-items:center;gap:7px;border-radius:999px;
   border:1px solid var(--border-strong);background:var(--panel);color:var(--text);
@@ -459,6 +461,12 @@ main:has(> #mapHost:not([hidden])){align-self:stretch;display:flex;flex-directio
    and its models do, and one on each line where it says two, as the pages analysed do when pages were left unpublished.
    The list shows those lines as the value has them. Spaces are as in any other text, and a long line still wraps. */
 #ovAbout .dl dd{white-space:pre-line}
+/* A model's name, and an app's, opens it in Anaplan: the page's link, with the icon of the details' button that opens the
+   same kind of thing after the name. The lines of a value with a link among them stand in one element, one under another
+   as any value's lines do, rather than side by side as the value's parts would in the row. */
+#ovAbout .ov-lines{min-width:0}
+#ovAbout .ov-open{display:inline-flex;align-items:center;gap:5px}
+#ovAbout .ov-open svg{flex:none;width:12px;height:12px}
 .diag{background:var(--panel);border:1px solid var(--border);border-radius:var(--r-md)}
 .diag summary{
   cursor:pointer;padding:12px 16px;font-weight:600;font-size:13px;list-style:none;display:flex;align-items:center;gap:8px;
@@ -604,13 +612,25 @@ main:has(> #mapHost:not([hidden])){align-self:stretch;display:flex;flex-directio
   .view-note{max-width:calc(2*var(--measure))}
 }
 
+/* ---------- the About page (about.html) ---------- */
+/* One card in the middle of the window, in the page's colours and either theme: the logo, the name and the version, what
+   Cardigan is, that it only reads, and where to read more. */
+.about{min-height:100vh;display:grid;place-items:center;padding:24px var(--edge)}
+.about-card{width:min(100%,460px);text-align:center;background:var(--panel);border:1px solid var(--border);border-radius:var(--r-md);padding:32px 28px}
+.about-logo{display:block;margin:0 auto 12px}
+.about-name{font-size:20px;font-weight:650;letter-spacing:.01em}
+.about-version{margin:4px 0 18px;font-family:var(--mono);font-size:12px;color:var(--text-2)}
+.about-what{margin:0 0 10px;line-height:1.55}
+.about-safe{margin:0 0 20px;font-size:12.5px;color:var(--text-2)}
+.about-links{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;justify-content:center;gap:8px 20px}
+.about-links a{color:var(--accent);text-underline-offset:2px}
+
 /* ---------- responsive ---------- */
 @media (max-width:1120px){
   /* The sides are the gutter's here as well, which narrows with the window by itself: the header, the navigation, the
      banners and the content keep to the same column at every width. Nothing slides in over the content. */
   .hd{gap:10px}
   .shell{padding-bottom:28px}
-  .meta-app{white-space:normal;overflow-wrap:anywhere}
   .toast{max-width:calc(100vw - 28px)}
 }
 /* An app's line, its seven tables each an entry of its own, needs about 795px of the column; a model's needs more, and

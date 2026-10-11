@@ -8,7 +8,7 @@ import { FRESH_MS, PORT_NAME, RESULTS_PAGE, type TabMessage } from "../protocol.
 import type { AnalysisResult, Cell, ImportMapping, ProcessActions, ResultTable } from "../result-types.js";
 import { columnWidths } from "./column-widths.js";
 import { columnsOf } from "./columns.js";
-import { OPEN_WAIT_MS } from "./connection.js";
+import { OPEN_WAIT_MS, SHOWN_WAIT_MS } from "./connection.js";
 import { FakeElement, FakeInput, FakePage, FakeSelect, parseMarkup } from "./dom.test-support.js";
 import { analysedLine, NOT_KEPT_NOTE, TOO_LARGE_NOTE } from "./keep-notes.js";
 import { KEPT_PREFIX, ResultKeeper, type KeptStorage } from "./keep-result.js";
@@ -499,7 +499,8 @@ const pagerButtons = () => page.all("#pager .pg-btn").map(button => {
 describe("The results page's script, on the page", () => {
   it("connects to the tab its address names, lets the analysis run by itself, shows the progress and then the result", async () => {
     await open(clicked(42));
-    expect(page.id("version").textContent).toBe("vdev");
+    // The header says no version: the toolbar icon's menu and the About page do.
+    expect(page.document.getElementById("version")).toBe(null);
     expect(connects).toEqual([[42, { name: PORT_NAME }]]);
     expect(page.id("runStatus").textContent).toBe("Connecting to the Anaplan tab…");
     expect(ports[0].posted).toEqual([]);
@@ -526,7 +527,10 @@ describe("The results page's script, on the page", () => {
     // The header says what was analysed, as text: the name's own tag is not one on the page.
     expect(page.texts("#hdMeta .meta-app")).toEqual(["Demo <img src=x onerror=alert(1)> app"]);
     expect(strayImg()).toBe(false);
-    expect(page.find("#hdMeta .meta-sub").textContent).toContain("us1a.app.anaplan.com");
+    // The name is all the header says of the result, whole in its title where the header cuts it: where it was read and
+    // when are the overview's to say.
+    expect([page.id("hdMeta").children.length, page.find("#hdMeta .meta-app").title, page.id("hdMeta").textContent.includes("us1a.app.anaplan.com")])
+      .toEqual([1, "Demo <img src=x onerror=alert(1)> app", false]);
     // The notes are a panel of the overview, one line each: the summary, and the Notes rows of the Details file. The banner
     // area holds none of them.
     expect([page.texts("#view .panel h2"), page.texts("#view .warn-list li")]).toEqual([["Notes"], ["1 of 1 pages analysed, 2 cards.", "Archive: Not published"]]);
@@ -5471,6 +5475,107 @@ describe("The buttons at the top right of a row's details that open it in Anapla
     page.all('#tableWrap tbody [data-act="row"]')[0].press();
     expect([page.id("drawer").classList.contains("show"), opens(), page.id("drawerOpens").hidden, why()]).toEqual([true, [], true, undefined]);
   });
+
+  describe("The names under About this export that open what they name in Anaplan", () => {
+    const TWINS = ["44444444-5555-4666-8777-888888888888", "55555555-6666-4777-8888-999999999999"];
+    /** WITH_PAGES as a run writes it now, with the model's apps under Apps (model-pages.ts): one whose pages the tables
+     * list, one they do not, and two apps of one name. */
+    const WITH_APPS: AnalysisResult = { ...WITH_PAGES, tables: WITH_PAGES.tables.map(table => {
+      if (table.details) return { ...table, rows: [...table.rows, ["Model", "Apps", `Planning ${TAG}\nNo rows app\nTwin app`]] };
+      if (table.file !== MODULE_USAGE_FILE) return table;
+      return { ...table, rows: [...table.rows, ...TWINS.map(id => pageRow(MODULE_USAGE_HEADERS, { Module: "COST01 Costs", App: "Twin app", Page: "Twin page", "Page type": "Board", "App ID": id, "Page ID": BOARD }))] };
+    }) };
+    /** The model's own address in Model Building, as Model Building's own links to a model write it. */
+    const HOME = `${ORIGIN}/a/modeling/customers/${CUSTOMER}/workspaces/${WORKSPACE}/models/${OPENS.id}`;
+    const IN_MODEL_BUILDING = { kind: "model", id: OPENS.id, origin: ORIGIN, customer: CUSTOMER };
+    const links = () => page.all('#ovAbout [data-act="ov-open"]');
+    /** Clicks the link of this name, then has the tab answer the port the page opens to ask it what it shows, if it opens
+     * one: with what `shows` says, by closing it at once as a tab without the content script does ("gone"), or not at all
+     * ("silent"). Then lets what the click started come to its end. */
+    const follow = async (name: string, shows: object | "gone" | "silent" = IN_MODEL_BUILDING) => {
+      const before = ports.length;
+      links().find(link => link.textContent === name)!.press();
+      for (let turn = 0; turn < 50 && ports.length === before; turn++) await Promise.resolve();
+      for (const port of ports.slice(before)) {
+        if (shows === "gone") port.drop();
+        else if (shows !== "silent") port.send({ type: "subject", subject: shows as Extract<TabMessage, { type: "subject" }>["subject"] });
+      }
+      for (let turn = 0; turn < 50; turn++) await Promise.resolve();
+    };
+
+    it("opens the model from its name in the model's tab: only brought to the front where that tab shows it in Model Building already, and otherwise at Model Building's own address for it", async () => {
+      await openModel(WITH_APPS);
+      // The model's name and the one app that one ID alone goes with are links, which say what they open.
+      expect(links().map(link => [link.textContent, link.title, link.getAttribute("aria-label")])).toEqual([["Model one", "Open Model one in Model Building", "Open Model one in Model Building"],
+        [`Planning ${TAG}`, `Open Planning ${TAG} in Anaplan`, `Open Planning ${TAG} in Anaplan`]]);
+      await follow("Model one");
+      // The tab is asked what it shows now, on a port of the ask's own, which asks for nothing and is let go: it shows the
+      // model in Model Building, so it is only brought to the front, with its window, and nothing is loaded.
+      expect([connects.at(-1), ports.at(-1)!.posted]).toEqual([[7, { name: PORT_NAME }], []]);
+      expect([tabUpdates, windowUpdates, tabCreates]).toEqual([[[7, { active: true }]], [[3, { focused: true }]], []]);
+      // Anything else: the model's address is loaded in that tab, whatever it shows, and the log says why.
+      for (const shows of [{ ...IN_MODEL_BUILDING, id: "FEDCBA9876543210FEDCBA9876543210" }, { kind: "model", id: OPENS.id.toLowerCase() }, { kind: "app", id: APP }, { kind: "none" }, "gone"]) {
+        await follow("Model one", shows);
+      }
+      links()[0].press();
+      await vi.advanceTimersByTimeAsync(SHOWN_WAIT_MS);
+      for (let turn = 0; turn < 50; turn++) await Promise.resolve();
+      expect(tabUpdates.slice(1)).toEqual(Array(6).fill([7, { url: HOME, active: true }]));
+      const loaded = (why: string) => `Opened the model Model one by its address in the Anaplan tab Cardigan read, which loads Model Building afresh: ${why}.`;
+      expect(await openedLines()).toEqual(["Opened the model Model one in the Anaplan tab Cardigan read, which shows it in Model Building already: the tab is only brought to the front.",
+        loaded("the tab shows another model"), loaded("the tab shows the model outside Model Building"), loaded("the tab shows an app"), loaded("the tab shows no model"),
+        loaded("the tab did not say what it shows"), loaded("the tab did not say what it shows")]);
+      // Nothing is asked to open inside the page, and no tab of apps is used.
+      expect([asks(), tabCreates]).toEqual([[], []]);
+    });
+
+    it("asks the tab that took the closed Anaplan tab's place what it shows, and opens the model there", async () => {
+      await openModel(WITH_APPS);
+      tabClosed = true;
+      await follow("Model one", "gone");
+      expect([tabUpdates, tabCreates]).toEqual([[[7, { url: HOME, active: true }]], [[{ url: HOME, active: true, index: OWN_TAB.index + 1, openerTabId: OWN_TAB.id }]]]);
+      await follow("Model one");
+      expect([connects.at(-1), tabUpdates.at(-1), tabCreates.length]).toEqual([[101, { name: PORT_NAME }], [101, { active: true }], 1]);
+      await follow("Model one", { kind: "app", id: APP });
+      expect([tabUpdates.at(-1), tabCreates.length]).toEqual([[101, { url: HOME, active: true }], 1]);
+    });
+
+    it("opens an app from its name in the tab of apps and pages, every time the same one, never the model's; an app of no row, or of a name two apps share, stays plain", async () => {
+      await openModel(WITH_APPS);
+      const apps = page.all("#ovAbout dd").find(value => value.textContent.includes("Twin app"))!;
+      // The value keeps its lines, one app to a line, with the one link among them.
+      expect([apps.textContent, apps.querySelectorAll('[data-act="ov-open"]').map(link => link.textContent)]).toEqual([`Planning ${TAG}\nNo rows app\nTwin app`, [`Planning ${TAG}`]]);
+      const app = `${ORIGIN}/a/apps/app/${APP}`;
+      await follow(`Planning ${TAG}`);
+      expect([tabCreates, tabUpdates, windowUpdates, ports.length]).toEqual([[[{ url: app, active: true, index: OWN_TAB.index + 1, openerTabId: OWN_TAB.id }]], [], [[3, { focused: true }]], 1]);
+      await follow(`Planning ${TAG}`);
+      expect([tabCreates.length, tabUpdates]).toEqual([1, [[101, { url: app, active: true }]]]);
+      // The model goes to the model's tab, which the tab of apps and pages leaves alone.
+      await follow("Model one", { kind: "app", id: APP });
+      expect(tabUpdates.map(([tab]) => tab)).toEqual([101, 7]);
+      expect((await openedLines()).slice(0, 2)).toEqual([`Opened the app Planning ${TAG} in a new tab: later apps and pages open there.`, `Opened the app Planning ${TAG} in the tab of apps and pages.`]);
+    });
+
+    it("leaves every name plain where the page does not know where the model is: neither the tab nor the result says its site", async () => {
+      await openModel(WITH_APPS, { kind: "model", id: OPENS.id });
+      expect([links(), page.all("#ovAbout dd").some(value => value.textContent === "Model one")]).toEqual([[], true]);
+    });
+
+    it("leaves the apps plain for a result an earlier version read, whose tables have no app's ID: the model's name alone opens", async () => {
+      const earlier: AnalysisResult = { ...WITH_APPS, tables: WITH_APPS.tables.map(table => {
+        const at = table.headers.indexOf("App ID");
+        return at < 0 ? table : { ...table, headers: table.headers.filter((_, index) => index !== at), rows: table.rows.map(row => row.filter((_, index) => index !== at)) };
+      }) };
+      await openModel(earlier);
+      expect(links().map(link => link.textContent)).toEqual(["Model one"]);
+    });
+
+    it("has none for an app's result", async () => {
+      await openWith(RESULT);
+      await letKeep();
+      expect([page.has("#ovAbout"), links()]).toEqual([true, []]);
+    });
+  });
 });
 
 describe("The mapping of an import from a file, in its row's details", () => {
@@ -6070,7 +6175,7 @@ describe("How a result was looked at, kept through a refresh of the page until t
   });
 });
 
-describe("Times in the viewer's own zone, or in UTC, as the switch in the header says", () => {
+describe("Times in the viewer's own zone, or in UTC, as the Timezone pill in the header says", () => {
   /** A model whose Imports have started at these moments, UTC as Anaplan writes them, and whose export was made at 14:02
    * UTC. The viewer's clock is Japan's, nine hours ahead (`fixTimeZone`). */
   const TIMED: AnalysisResult = { ...MODEL, summary: ["Imports: 4 rows"], tables: [
@@ -6079,9 +6184,10 @@ describe("Times in the viewer's own zone, or in UTC, as the switch in the header
       rows: [["Load", "2026-03-12 23:19:56", "MODEL"], ["Sort", "2026-03-13 00:00:01", "MODEL"], ["Late", "2026-03-13 20:00:00", "MODEL"], ["Copy", "", "MODEL"]] }] };
   const headings = () => page.all("#tableWrap thead .th-sort").map(button => button.childNodes[0]?.textContent?.trim() ?? "");
   const column = (heading: string) => page.all("#tableWrap tbody tr").map(row => row.children[headings().indexOf(heading)].textContent.trim());
-  /** The zone the switch says the times are in: its pressed button's. */
-  const pressed = () => page.all("#timesSwitch [data-times]").filter(button => button.getAttribute("aria-pressed") === "true").map(button => button.dataset.times);
-  const filled = () => page.all("#timesSwitch [data-times]").filter(button => button.classList.contains("primary")).map(button => button.dataset.times);
+  /** The zone the Timezone pill says the times are in: the word it shows. */
+  const zone = () => page.all("#timeZone [data-tz]").filter(word => word.classList.contains("on")).map(word => word.dataset.tz);
+  /** A press of the pill: the times in the other zone. */
+  const switchZone = () => page.id("timeZone").press();
   const about = () => page.texts("#ovAbout dt").map((detail, index) => [detail, page.texts("#ovAbout dd")[index]]).filter(([detail]) => detail === "Exported on");
   const sortOf = (index: number) => page.find(`[data-sort="${index}"]`).closest("th")?.getAttribute("aria-sort");
   const rangeTo = (from: string, to: string) => {
@@ -6094,14 +6200,15 @@ describe("Times in the viewer's own zone, or in UTC, as the switch in the header
   it("says each time in the viewer's zone, unless the viewer chose UTC: the column's header says local, and the switch Local", async () => {
     // No result yet: the switch is hidden.
     await open(clicked(42));
-    expect(page.id("timesSwitch").hidden).toBe(true);
+    expect(page.id("timeZone").hidden).toBe(true);
     ports[0].send({ type: "subject", subject: { kind: "app", id: TIMED.id } });
     sendResult(ports[0], TIMED);
-    // With a result, it shows, on Local: the button filled and pressed, each button's title naming its zone.
-    expect([page.id("timesSwitch").hidden, pressed(), filled(), page.all("#timesSwitch [data-times]").map(button => button.title)])
-      .toEqual([false, ["local"], ["local"], ["Times in your time zone, Asia/Tokyo", "Times in UTC, as Anaplan writes them"]]);
-    // The header says when the export was made, by the viewer's clock; the overview says it in both zones, that one first.
-    expect(page.id("hdMeta").textContent).toContain("Exported 2026-10-03 23:02 local");
+    // With a result, it shows, on Local: its words say the zone in force, its name what a press does, and its title names
+    // the viewer's zone.
+    expect([page.id("timeZone").hidden, zone(), page.id("timeZone").getAttribute("aria-label"), page.id("timeZone").title])
+      .toEqual([false, ["local"], "Timezone: Local. Switch to UTC", "Times in your time zone, Asia/Tokyo. Press to say them in UTC."]);
+    // The header no longer says when the export was made; the overview says it in both zones, the viewer's first.
+    expect(page.id("hdMeta").textContent).not.toContain("Exported");
     expect(about()).toEqual([["Exported on", "2026-10-03 23:02 local · 2026-10-03 14:02 UTC"]]);
     goTo(1);
     expect([headings(), column("Start Date and Time (Asia/Tokyo)")]).toEqual([["Name", "Start Date and Time (Asia/Tokyo)", "Source Type"],
@@ -6127,12 +6234,12 @@ describe("Times in the viewer's own zone, or in UTC, as the switch in the header
     await openWith(TIMED);
     goTo(1);
     page.find('[data-sort="1"]').press();
-    page.find('#timesSwitch [data-times="utc"]').press();
-    // The table shown is said anew, as the file has it, in the order it had; the header and the overview follow.
-    expect([pressed(), filled(), headings(), column("Start Date and Time (UTC)"), sortOf(1), stored.get(TIMES_KEY), page.id("live").textContent])
-      .toEqual([["utc"], ["utc"], ["Name", "Start Date and Time (UTC)", "Source Type"], ["", "2026-03-12 23:19:56", "2026-03-13 00:00:01", "2026-03-13 20:00:00"], "ascending",
+    switchZone();
+    // The table shown is said anew, as the file has it, in the order it had; the pill and the overview follow.
+    expect([zone(), headings(), column("Start Date and Time (UTC)"), sortOf(1), stored.get(TIMES_KEY), page.id("live").textContent])
+      .toEqual([["utc"], ["Name", "Start Date and Time (UTC)", "Source Type"], ["", "2026-03-12 23:19:56", "2026-03-13 00:00:01", "2026-03-13 20:00:00"], "ascending",
         "utc", "Times in UTC."]);
-    expect(page.id("hdMeta").textContent).toContain("Exported 2026-10-03 14:02 UTC");
+    expect([page.id("timeZone").getAttribute("aria-label"), page.id("timeZone").title]).toEqual(["Timezone: UTC. Switch to Local", "Times in UTC, as Anaplan writes them. Press to say them in your time zone."]);
     page.all('#tableWrap tbody [data-act="row"]')[1].press();
     expect(page.texts("#drawerBody dd")[1]).toBe("2026-03-12 23:19:56 UTC · 2026-03-13 08:19:56 local");
     page.key("Escape");
@@ -6145,10 +6252,10 @@ describe("Times in the viewer's own zone, or in UTC, as the switch in the header
     port.send({ type: "subject", subject: { kind: "app", id: TIMED.id } });
     sendResult(port, TIMED);
     goTo(1);
-    expect([pressed(), headings()[1]]).toEqual([["utc"], "Start Date and Time (UTC)"]);
+    expect([zone(), headings()[1]]).toEqual([["utc"], "Start Date and Time (UTC)"]);
     // And Local takes them back to the viewer's clock.
-    page.find('#timesSwitch [data-times="local"]').press();
-    expect([pressed(), column("Start Date and Time (Asia/Tokyo)").includes("2026-03-13 08:19:56"), stored.get(TIMES_KEY), page.id("live").textContent])
+    switchZone();
+    expect([zone(), column("Start Date and Time (Asia/Tokyo)").includes("2026-03-13 08:19:56"), stored.get(TIMES_KEY), page.id("live").textContent])
       .toEqual([["local"], true, "local", "Times in your time zone, Asia/Tokyo."]);
   });
 
@@ -6160,7 +6267,7 @@ describe("Times in the viewer's own zone, or in UTC, as the switch in the header
     rangeTo("2026-03-13", "2026-03-13");
     expect(firstCells()).toEqual(["Load", "Sort", "Copy"]);
     // In UTC the same rows stay: Load started on the 12th there, yet within the viewer's 13th. The filter says whose days.
-    page.find('#timesSwitch [data-times="utc"]').press();
+    switchZone();
     expect([firstCells(), page.find('[data-colfilter="1"]').getAttribute("aria-label")])
       .toEqual([["Load", "Sort", "Copy"], "Filter by Start Date and Time (UTC) (filter on: on 2026-03-13 (local days))"]);
     page.find('[data-colfilter="1"]').press();
@@ -6178,7 +6285,7 @@ describe("Times in the viewer's own zone, or in UTC, as the switch in the header
     // Days set in UTC are UTC days: the 13th there is Sort's and Late's.
     rangeTo("2026-03-13", "2026-03-13");
     expect(firstCells()).toEqual(["Sort", "Late", "Copy"]);
-    page.find('#timesSwitch [data-times="local"]').press();
+    switchZone();
     expect([firstCells(), page.find('[data-colfilter="1"]').getAttribute("aria-label")])
       .toEqual([["Sort", "Late", "Copy"], "Filter by Start Date and Time (Asia/Tokyo) (filter on: on 2026-03-13 (UTC days))"]);
   });
@@ -6187,8 +6294,8 @@ describe("Times in the viewer's own zone, or in UTC, as the switch in the header
     storeRefuses = new Error("The storage is not available.");
     await openWith(TIMED);
     goTo(1);
-    expect([pressed(), headings()[1]]).toEqual([["local"], "Start Date and Time (Asia/Tokyo)"]);
-    page.find('#timesSwitch [data-times="utc"]').press();
-    expect([pressed(), headings()[1], stored.size]).toEqual([["utc"], "Start Date and Time (UTC)", 0]);
+    expect([zone(), headings()[1]]).toEqual([["local"], "Start Date and Time (Asia/Tokyo)"]);
+    switchZone();
+    expect([zone(), headings()[1], stored.size]).toEqual([["utc"], "Start Date and Time (UTC)", 0]);
   });
 });

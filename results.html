@@ -21,19 +21,19 @@
   <header class="hd">
     <div class="brand">
       <img src="icons/128.png" alt="" width="26" height="26">
-      <span class="brand-name">Cardigan<span class="ver" id="version"></span></span>
+      <span class="brand-name">Cardigan</span>
     </div>
     <div class="meta" id="hdMeta"></div>
     <div class="hd-actions">
+      <button type="button" class="btn tz" id="timeZone" aria-label="Timezone: Local. Switch to UTC" hidden>
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="6.2"/><path d="M1.8 8h12.4"/><path d="M8 1.8c1.7 1.7 2.6 3.9 2.6 6.2S9.7 12.5 8 14.2C6.3 12.5 5.4 10.3 5.4 8S6.3 3.5 8 1.8Z"/></svg>
+        <span class="tz-lab" aria-hidden="true">Timezone:</span>
+        <span class="tz-words" aria-hidden="true"><span data-tz="local" class="on">Local</span><span data-tz="utc">UTC</span></span>
+      </button>
       <button class="btn" id="runAgain" title="Analyse the Anaplan tab again">
         <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.4 3.3v3.5h-3.5"/><path d="M12.95 9.75a5.25 5.25 0 1 1-1.24-5.46l2.7 2.54"/></svg>
         Run again
       </button>
-      <div class="times" id="timesSwitch" role="group" aria-label="Times" hidden>
-        <span class="times-lab" aria-hidden="true">Times</span>
-        <button type="button" class="btn sm" data-times="local" aria-pressed="true">Local</button>
-        <button type="button" class="btn sm" data-times="utc" aria-pressed="false">UTC</button>
-      </div>
       <button id="themeToggle" class="icon-btn" aria-label="Switch colour theme" title="Switch colour theme"></button>
     </div>
   </header>

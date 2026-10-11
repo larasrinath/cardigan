@@ -5,11 +5,10 @@ import { MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, PAGE_ROUTES } 
 import { CONTENT_SCRIPT_ORIGIN, PORT_NAME } from "../protocol.js";
 import { plainResult, textOf } from "../result-plain.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
-import { VERSION } from "../version.js";
 import { cellLists, rowItems, type CellList } from "./cell-lists.js";
 import { columnWidths } from "./column-widths.js";
 import { cardsNamed, cardsOf, columnIndex, columnsOf, rowKeys, rowNameIndex, writesNone, type CardsTable, type Column, type RowKeys } from "./columns.js";
-import { describeState, openedJustNow, reloadTab, renewReader, repairTab, ResultsClient, runLabel, tabIdFrom, withoutOpened, type RunState } from "./connection.js";
+import { askShown, describeState, openedJustNow, reloadTab, renewReader, repairTab, ResultsClient, runLabel, tabIdFrom, withoutOpened, type RunState } from "./connection.js";
 import { mappingOfRow } from "./import-mapping-view.js";
 import { spreadLine } from "./nav-spread.js";
 import { itemRows, type NamedRows } from "./item-links.js";
@@ -21,13 +20,13 @@ import {
   cardDrawerHtml, cardDrawerSubHtml, colChooserHtml, colFilterHtml, filterMatches, filterOptionsHtml, filterStatusText, filterTickWords, headerMetaHtml, keptCopyHtml, MAP_FAILED,
   MAP_LABEL, mapHtml, MOON_ICON, navHtml, navItems, navMenuHtml,
   noteBannerHtml, NOT_REMOVED_LINE, objectDrawerHtml, objectDrawerSubHtml, opensHtml, overviewHtml, rangeFilterHtml, rowDrawerHtml, rowDrawerSubHtml, runBannerHtml, runHtml,
-  SUN_ICON, tableHtml, tableParts, type KeptCopy, type Links, type NavEntry, type OpenButton, type TableView,
+  SUN_ICON, tableHtml, tableParts, type AboutLink, type KeptCopy, type Links, type NavEntry, type OpenButton, type TableView,
 } from "./markup.js";
 import type { PageId } from "./page-ids.js";
 import { LINE_ITEMS_FILE, MODULE_NAME } from "./line-items-view.js";
 import { ACCESS_FILE, analysedOf, cardParts, detailsOf, detailValue, diagnosticLog, fileView, IMPORTS_FILE, listedTables, MODEL_CALENDAR_FILE, MODULES_FILE, overviewOf,
-  SOURCE_MODELS_FILE, tableFullLabel, tableLabel, type Analysed, type FileView, type Overview } from "./result-view.js";
-import { bothTimes, browserZone, chosenTime, fileRow, hasTimes, inTimeMode, momentRange, momentsOf, readText, storedTimeMode, storeTimeMode, timesOf, zoneWords, type TimeMode } from "./times.js";
+  SOURCE_MODELS_FILE, tableFullLabel, tableLabel, type FileView, type Overview } from "./result-view.js";
+import { bothTimes, browserZone, fileRow, hasTimes, inTimeMode, momentRange, momentsOf, readText, storedTimeMode, storeTimeMode, timesOf, zoneWords, type TimeMode } from "./times.js";
 import { rangeInForce, rangeSummary, readRange, type RangeState } from "./range-filter.js";
 import { cellText, NONE, pageOf, rangeColumn, rememberingSelect, rowName, valueCounts, type RangeColumn, type RangeQuery, type Row, type Sort, type TableQuery } from "./table-engine.js";
 import { DEFAULT_PAGE_SIZE, findRow, forgetKept, isMapAtStart, keepTable, objectKey, readKept, rowKey, subjectOf, takeTable, writeKept, type KeptDrawer, type KeptTable, type KeptView,
@@ -373,15 +372,15 @@ function toggleTheme(): void {
 }
 
 /* ================= times ================= */
-/** The switch says which zone the times are in: that zone's button is the filled one, and pressed. Each button's title
- * names its zone, the viewer's own by the name the browser gives it. */
+/** The Timezone pill says which zone the times are in, and a press says them in the other. Its words are the zone in
+ * force, Local or UTC; it keeps room for the longer of the two, so the switch moves nothing beside it. Its name says what
+ * a press does, and its title names the zone in force, the viewer's own by the name the browser gives it. */
 function showTimes(): void {
-  for (const button of document.querySelectorAll<HTMLElement>("#timesSwitch [data-times]")) {
-    const chosen = button.dataset.times === timeMode;
-    button.classList.toggle("primary", chosen);
-    button.setAttribute("aria-pressed", String(chosen));
-    button.title = button.dataset.times === "utc" ? "Times in UTC, as Anaplan writes them" : `Times in your time zone, ${ownZone}`;
-  }
+  const pill = el<HTMLButtonElement>("timeZone");
+  const local = timeMode === "local";
+  for (const word of pill.querySelectorAll<HTMLElement>("[data-tz]")) word.classList.toggle("on", word.dataset.tz === timeMode);
+  pill.setAttribute("aria-label", local ? "Timezone: Local. Switch to UTC" : "Timezone: UTC. Switch to Local");
+  pill.title = local ? `Times in your time zone, ${ownZone}. Press to say them in UTC.` : "Times in UTC, as Anaplan writes them. Press to say them in your time zone.";
 }
 /** The viewer chose a zone: it is kept for every result and tab, and every time on the page is said in it now. */
 function setTimeMode(mode: TimeMode): void {
@@ -393,7 +392,7 @@ function setTimeMode(mode: TimeMode): void {
   announce(mode === "local" ? `Times in your time zone, ${ownZone}.` : "Times in UTC.");
 }
 /** Says every time on the page again in the zone chosen: each table with a column of times, from the file's own table,
- * and the header's and the overview's time. What the user chose of each table stays as it was: its filters, ranges,
+ * and the overview's time. What the user chose of each table stays as it was: its filters, ranges,
  * hidden columns, order and page, each by the column's place, which a zone does not move. A range of days keeps the rows
  * it kept, in the zone its days were set in. A filter's popover closes; the details cannot be open, as the switch is
  * behind them. */
@@ -413,12 +412,8 @@ function retime(): void {
     entry.moments = undefined;
     entry.widths = undefined;
   }
-  el("hdMeta").innerHTML = headerMetaHtml(timedAnalysed(analysedOf(result)));
   renderAll();
 }
-/** What the header says of the result, with the time of the export in the zone chosen. */
-const timedAnalysed = (analysed: Analysed): Analysed =>
-  (analysed.exportedOn === undefined ? analysed : { ...analysed, exportedOn: chosenTime(analysed.exportedOn, timeMode, ownZone) });
 /** The overview with each time it says, the export's among what it says about the export, in both zones, the one chosen
  * first. */
 const timedOverview = (overview: Overview): Overview =>
@@ -618,9 +613,11 @@ function renderAll(): void {
   // Each tile opens its table: the tiles are in the navigation's order, which `listedTables` gives.
   else {
     // Each tile opens its table, and has the table's icon from the navigation: both by the table's file, in the tiles' order.
-    // A time the overview says, the export's, is said in both zones, the one chosen first.
+    // A time the overview says, the export's, is said in both zones, the one chosen first. A model's name and its apps' under
+    // About this export open them in Anaplan, where the page knows where they are.
     const listed = listedTables(result);
-    el("view").innerHTML = overviewHtml(timedOverview(overviewOf(result)), keptCopy, listed.map(({ index }) => index), listed.map(({ table }) => table.file));
+    const overview = timedOverview(overviewOf(result));
+    el("view").innerHTML = overviewHtml(overview, keptCopy, listed.map(({ index }) => index), listed.map(({ table }) => table.file), aboutLinks(overview.about));
   }
   // The line above a result that was brought back says "today" by the clock: each view says it anew, so that it is still
   // true on a page left open past midnight.
@@ -747,9 +744,9 @@ function showResult(next: AnalysisResult, at: Date, back = false): void {
   state.context = undefined;
   const analysed = analysedOf(next);
   document.title = `Cardigan - ${analysed.name}`;
-  el("hdMeta").innerHTML = headerMetaHtml(timedAnalysed(analysed));
+  el("hdMeta").innerHTML = headerMetaHtml(analysed);
   el("topnav").hidden = false;
-  el("timesSwitch").hidden = false;
+  el("timeZone").hidden = false;
   renderAll();
   if (replaced) el("view").focus({ preventScroll: true });
   if (!back) return announce(`Analysis finished: ${analysed.name}`);
@@ -787,7 +784,7 @@ function clearResult(): void {
     const part = document.getElementById(id);
     if (part) part.innerHTML = "";
   }
-  const times = document.getElementById("timesSwitch" satisfies PageId);
+  const times = document.getElementById("timeZone" satisfies PageId);
   if (times) times.hidden = true;
 }
 
@@ -1343,15 +1340,17 @@ function siteOf(model: AnalysisResult): { origin: string; customer: string } | u
     ? { origin: site.origin, customer: site.customer } : undefined;
 }
 
-/** The start of the addresses of the model on the page in Model Building, as Model Building's own links write them, up to
- * its `/tabs/`; or why there is none, in words for the user. */
-function modelBuilding(): { tabs?: string; why?: string } {
+/** The address of the model on the page in Model Building, as Model Building's own links to a model write it (modeling.js:
+ * the model menu of its header, and the route of a model, whose `/tabs/` and object are optional), and the start of the
+ * addresses of its objects, up to that `/tabs/`; or why there is none, in words for the user. */
+function modelBuilding(): { address?: string; tabs?: string; why?: string } {
   if (result?.kind !== "model") return {};
   const site = siteOf(result);
   if (!site) return { why: NOT_IN_MODEL_BUILDING };
   const workspace = detailValue(detailsOf(result), "Model", "Workspace ID");
   if (!workspace || !LONG_ID.test(workspace) || !/^[0-9A-Za-z]{32}$/.test(result.id)) return { why: NO_WORKSPACE };
-  return { tabs: `${site.origin}/a/modeling/customers/${site.customer}/workspaces/${workspace}/models/${result.id}/tabs/` };
+  const address = `${site.origin}/a/modeling/customers/${site.customer}/workspaces/${workspace}/models/${result.id}`;
+  return { address, tabs: `${address}/tabs/` };
 }
 
 /** The address that opens a module or a list of the model on the page in Model Building (its `/tabs/` and the object's ID),
@@ -1465,6 +1464,62 @@ function opensOf(entry: Shown, row: Row): { opens: Open[]; why: string | undefin
   return { opens, why };
 }
 
+/** What a name under About this export opens in Anaplan: the model, in Model Building in the model's tab (`openInModel`),
+ * or an app, in the tab of apps and pages (`openInAppTab`). `what` names it in the run's log. */
+type AboutOpen = { kind: "model" | "app"; url: string; what: string };
+/** What each name under About this export opens, by its place among them, as the overview was last drawn (`aboutLinks`). */
+let aboutOpens: readonly AboutOpen[] = [];
+
+/** The IDs of the apps of the pages built on a model, by the app's name, as the tables of those pages say them for each of
+ * their rows (model-pages.ts): Module Usage, Page Filters and Page Actions. An app whose pages none of them lists has none,
+ * two apps of one name have both, and a result an earlier version read has no App ID column, and so none at all. */
+function appIdsByName(model: AnalysisResult): Map<string, Set<string>> {
+  const ids = new Map<string, Set<string>>();
+  for (const table of model.tables) {
+    if (table.file !== MODULE_USAGE_FILE && table.file !== PAGE_FILTERS_FILE && table.file !== PAGE_ACTIONS_FILE) continue;
+    const [nameAt, idAt] = [columnIndex(table, "App"), columnIndex(table, "App ID")];
+    if (nameAt === undefined || idAt === undefined) continue;
+    for (const row of table.rows) {
+      const [name, id] = [cellText(row[nameAt]).trim(), cellText(row[idAt]).trim()];
+      if (name !== "" && name !== NONE && GUID.test(id)) ids.set(name, (ids.get(name) ?? new Set()).add(id.toLowerCase()));
+    }
+  }
+  return ids;
+}
+
+/** The names under About this export that open what they name in Anaplan, for a model's result: the model's own, in Model
+ * Building, where the page knows the model's address there (`modelBuilding`); and each of the model's apps under Apps that
+ * one app ID alone goes with (`appIdsByName`), where the page knows the model's site. Any other name stays plain: an app
+ * that two IDs go with could be either of them. What each opens is kept in `aboutOpens`, by the same place among them. An
+ * app's result has none. */
+function aboutLinks(about: Overview["about"]): AboutLink[] {
+  const links: AboutLink[] = [];
+  const opens: AboutOpen[] = [];
+  if (result?.kind === "model") {
+    const model = result;
+    const { address } = modelBuilding();
+    const name = cellText(model.name).trim();
+    const own = about.findIndex(([detail, value]) => detail === "Model" && value.trim() === name);
+    if (address !== undefined && own >= 0) {
+      links.push({ row: own, line: 0, kind: "model" });
+      opens.push({ kind: "model", url: address, what: `the model ${name}` });
+    }
+    const site = siteOf(model);
+    const apps = about.findIndex(([detail]) => detail === "Apps");
+    if (site && apps >= 0) {
+      const ids = appIdsByName(model);
+      about[apps][1].split("\n").forEach((line, at) => {
+        const [id, other] = [...ids.get(line.trim()) ?? []];
+        if (id === undefined || other !== undefined) return;
+        links.push({ row: apps, line: at, kind: "app" });
+        opens.push({ kind: "app", url: `${site.origin}/a/apps/app/${id}`, what: `the app ${line.trim()}` });
+      });
+    }
+  }
+  aboutOpens = opens;
+  return links;
+}
+
 /* ----- the two tabs addresses open in ----- */
 /** The results page's own tab, as the browser says it, which a tab it opens is put after and opened by. None where the
  * browser does not say. */
@@ -1548,10 +1603,29 @@ const READER_CHECKS_IN_MS = 1500;
  * beside the tabs open there, where it can (content.ts): the page does not load afresh. A tab whose model's frame still
  * holds the reader of an earlier build is given this build's first, as a run gives it (connection.ts `renewReader`), and
  * asked again. Where it cannot, or says nothing in time, the address is loaded in the model's tab, which opens the model
- * afresh with that object alone. The run's log says which tab took it, and which way. */
+ * afresh with that object alone. Without `object`, `url` is the model's own address: the model's tab is asked what it
+ * shows now (connection.ts `askShown`), and one that shows the model in Model Building already is only brought to the
+ * front, with what is open there; any other loads the address. The run's log says which tab took it, and which way. */
 async function openInModel(url: string, what: string, object?: string): Promise<void> {
   const replacement = await modelTab.get();
+  const into = replacement ?? tabId;
+  const where = into === tabId ? "the Anaplan tab Cardigan read" : "the tab that took its place";
   let why: string | undefined;
+  if (object === undefined && result?.kind === "model" && into !== undefined) {
+    const model = result.id.toUpperCase();
+    const shown = await askShown(() => chrome.tabs.connect(into, { name: PORT_NAME }), () => chrome.runtime.lastError);
+    const same = shown?.kind === "model" && shown.id.toUpperCase() === model;
+    // Model Building's address names its customer, which the classic model page's does not (content.ts `subject`).
+    if (same && shown.customer !== undefined) {
+      const tab = await chrome.tabs.update(into, { active: true }).catch(() => undefined);
+      if (tab) {
+        client.note(`Opened ${what} in ${where}, which shows it in Model Building already: the tab is only brought to the front.`);
+        return void await toFront(tab);
+      }
+    }
+    why = shown === undefined ? "the tab did not say what it shows" : same ? "the tab shows the model outside Model Building"
+      : shown.kind === "model" ? "the tab shows another model" : shown.kind === "app" ? "the tab shows an app" : "the tab shows no model";
+  }
   if (object !== undefined && result?.kind === "model" && replacement === undefined && tabId !== undefined) {
     let answer = await client.openInPage(result.id, object);
     if (answer?.oldReader && !answer.opened) {
@@ -1570,12 +1644,10 @@ async function openInModel(url: string, what: string, object?: string): Promise<
     }
     why = answer ? answer.detail : "the Anaplan tab did not answer";
   }
-  const into = replacement ?? tabId;
   if (into !== undefined) {
     try {
       const tab = await chrome.tabs.update(into, { url, active: true });
-      client.note(`Opened ${what} by its address in ${into === tabId ? "the Anaplan tab Cardigan read" : "the tab that took its place"}, which loads Model Building afresh${
-        why === undefined ? "" : `: ${why}`}.`);
+      client.note(`Opened ${what} by its address in ${where}, which loads Model Building afresh${why === undefined ? "" : `: ${why}`}.`);
       return void await toFront(tab);
     } catch { /* closed: one tab takes its place */ }
   }
@@ -1940,6 +2012,14 @@ document.addEventListener("click", event => {
         if (modelMap && modelMap !== "failed" && !modelMap.reveal(open.node)) toast("Not found on the map");
         return;
       }
+      // A name under About this export, by its place among them (`aboutLinks`): the model, in the model's tab, which is only
+      // brought to the front where it shows the model in Model Building already (`openInModel`); an app, in the tab of apps
+      // and pages (`openInAppTab`).
+      case "ov-open": {
+        const open = aboutOpens[Number(act.dataset.ovOpen)];
+        if (!open) return;
+        return void (open.kind === "model" ? openInModel(open.url, open.what) : openInAppTab(open.url, open.what));
+      }
       case "row":
         if (from) openRowDrawer(from.entry, from.row, act);
         return;
@@ -2145,10 +2225,7 @@ el("drawerClose").addEventListener("click", closeDrawer);
 // A click beside the drawer, on the scrim, closes it: the scrim is the drawer's alone.
 el("scrim").addEventListener("click", closeDrawer);
 el("themeToggle").addEventListener("click", toggleTheme);
-el("timesSwitch").addEventListener("click", event => {
-  const mode = (event.target instanceof Element ? event.target.closest<HTMLElement>("[data-times]") : null)?.dataset.times;
-  if (mode === "local" || mode === "utc") setTimeMode(mode);
-});
+el("timeZone").addEventListener("click", () => setTimeMode(timeMode === "local" ? "utc" : "local"));
 el("runAgain").addEventListener("click", () => client.runAgain());
 // The navigation's line is told again how wide its items are whenever it changes size, as when a window that was too narrow
 // for it widens: it is measured only where it is laid out (nav-spread.ts).
@@ -2211,7 +2288,6 @@ function keepLater(kept: AnalysisResult, at: Date): void {
   setTimeout(keep, KEEP_WITHOUT_FRAME_MS);
 }
 
-el("version").textContent = `v${VERSION}`;
 applyTheme(currentTheme());
 showTimes();
 // How the result was looked at before a refresh, as the tab keeps it; and what is chosen from now on is written before

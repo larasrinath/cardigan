@@ -54,14 +54,20 @@ describe("The results page's files", () => {
     expect(declared(".brand img")).toEqual(["display:block"]);
   });
 
-  it("offers nothing to download: its header holds the run control, the switch of the times' zone and the theme's button, and the page no link that saves a file", () => {
-    // A result is shown on the page and saved nowhere. The header's controls are these three, the page's one link leads
-    // to a place in the page, and no word of it names a download, a zip or a CSV.
+  it("offers nothing to download: its header holds the Timezone pill, the run control and the theme's button, and the page no link that saves a file", () => {
+    // A result is shown on the page and saved nowhere. The header's controls are these three, in this order, the page's one
+    // link leads to a place in the page, and no word of it names a download, a zip or a CSV.
     const shell = new FakePage(html);
-    expect(shell.find(".hd-actions").children.map(child => [child.localName, child.id])).toEqual([["button", "runAgain"], ["div", "timesSwitch"], ["button", "themeToggle"]]);
-    // The switch is two buttons, Local first, after a word that names them; it is hidden until a result is shown.
-    expect([shell.id("timesSwitch").hidden, shell.all("#timesSwitch [data-times]").map(button => [button.dataset.times, button.textContent.trim()]), shell.texts("#timesSwitch .times-lab")])
-      .toEqual([true, [["local", "Local"], ["utc", "UTC"]], ["Times"]]);
+    expect(shell.find(".hd-actions").children.map(child => [child.localName, child.id])).toEqual([["button", "timeZone"], ["button", "runAgain"], ["button", "themeToggle"]]);
+    // The Timezone pill is one button with a drawn globe: "Timezone:" and the zone in force, Local, with UTC beside it in the
+    // same place, unseen, so that the pill is as wide for either. Its name says what a press does. It is hidden until a
+    // result is shown.
+    const pill = shell.id("timeZone");
+    expect([pill.hidden, pill.getAttribute("type"), pill.getAttribute("aria-label"), pill.querySelectorAll("svg").length, shell.texts("#timeZone .tz-lab"),
+      shell.all("#timeZone [data-tz]").map(word => [word.dataset.tz, word.textContent, word.classList.contains("on")])])
+      .toEqual([true, "button", "Timezone: Local. Switch to UTC", 1, ["Timezone:"], [["local", "Local", true], ["utc", "UTC", false]]]);
+    // The zone's two words share one cell of a grid, and the one not in force keeps its room unseen.
+    expect([declared(".tz-words"), declared(".tz-words > span"), declared(".tz-words > span:not(.on)")]).toEqual([["display:inline-grid"], ["grid-area:1/1"], ["visibility:hidden"]]);
     expect(opening.filter(tag => tag.name === "a" || tag.attributes.has("download")).map(tag => [...tag.attributes])).toEqual([[["class", "skip"], ["href", "#view"]]]);
     expect(html).not.toMatch(/download|\.zip|\.csv/i);
   });
@@ -206,10 +212,19 @@ describe("The results page's files", () => {
       [0, ["2 of 2 (published versions)", "1 unpublished, not analysed"]], [0, ["Model one (Workspace one)", "Model two (Workspace two)"]], [0, ["6"]]]);
     // The stylesheet shows those lines as the value has them, by one rule, which names what the markup writes: the values
     // of that list, and of no other list of details. No rule keeps the lines of a value under Tables or of how to read
-    // the tables, which are shown as they always were.
-    expect(rules("#ovAbout")).toEqual([["#ovAbout .dl dd", "white-space:pre-line"]]);
+    // the tables, which are shown as they always were. The list's other rules are for its links (below).
+    expect(rules("#ovAbout")).toEqual([["#ovAbout .dl dd", "white-space:pre-line"], ["#ovAbout .ov-lines", "min-width:0"],
+      ["#ovAbout .ov-open", "display:inline-flex;align-items:center;gap:5px"], ["#ovAbout .ov-open svg", "flex:none;width:12px;height:12px"]]);
     expect([written.querySelectorAll(".dl dd").length, values.length]).toEqual([6, 4]);
     expect(rules(".dl dd").filter(([, body]) => body.includes("white-space"))).toEqual([["#ovAbout .dl dd", "white-space:pre-line"]]);
+    // A value with a link among its lines, as a model's apps are, keeps them in one element of their own, its text still
+    // the value's, line for line: the row lays out its value's parts side by side, and the lines are one part. A value
+    // that is one link is the link alone. The rules for the links name what the markup writes.
+    const linked = parseMarkup(overviewHtml({ tiles: [], notes: [], about: [["Model", "Model one"], ["Apps", "App one\nApp two\nApp three"]], files: [], howToRead: [], log: [] },
+      "none", [], [], [{ row: 0, line: 0, kind: "model" }, { row: 1, line: 1, kind: "app" }]));
+    expect(linked.querySelectorAll("#ovAbout .dl dd").map(value => [value.children.map(child => child.getAttribute("class")), value.textContent.split("\n")]))
+      .toEqual([[["link ov-open"], ["Model one"]], [["ov-lines"], ["App one", "App two", "App three"]]]);
+    expect(["#ovAbout .ov-lines", "#ovAbout .ov-open", "#ovAbout .ov-open svg"].map(selector => linked.querySelectorAll(selector).length)).toEqual([1, 2, 2]);
   });
 
   it("holds the navigation in a bar of its own under the header, the two the top of the page, hidden until there is a result, with nothing that puts it away", () => {
@@ -456,8 +471,8 @@ describe("The results page's files", () => {
 
   it("carries no demo left from the design: no sample name, no version, no preview control", () => {
     expect(html).not.toMatch(/Demo|Preview state|previewState|Assortment|0\.9\.3/);
-    expect(opening.find(tag => tag.attributes.get("id") === "version")?.attributes.get("class")).toBe("ver");
-    expect(html).toContain("<span class=\"ver\" id=\"version\"></span>");
+    // The version is no longer in the header: the toolbar icon's menu and the About page say it (background.ts, about.html).
+    expect([opening.some(tag => tag.attributes.get("id") === "version"), html.includes('class="ver"'), /\.ver\b/.test(css)]).toEqual([false, false, false]);
     expect(css).not.toMatch(/preview-lab/);
   });
 });

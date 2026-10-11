@@ -4,11 +4,11 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import { bundleOptions, READER_ENTRY, readerMark } from './reader-mark.mjs';
 
-// Bundles the extension's scripts (two content scripts, the service worker and the results page's script), including the
-// card reader (src/card-reader), into classic scripts that Chrome loads unpacked. Unminified so the loaded code stays
+// Bundles the extension's scripts (two content scripts, the service worker, the results page's script and the About page's),
+// including the card reader (src/card-reader), into classic scripts that Chrome loads unpacked. Unminified so the loaded code stays
 // reviewable.
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-// The results page shows the manifest version in its header, so a reload can be confirmed there.
+// The bundles carry the manifest's version: the export and the diagnostic log say it, and so does the About page.
 const { version } = JSON.parse(readFileSync(path.join(root, 'manifest.json'), 'utf8'));
 
 // content.js: the app page analysis (isolated world). model-export.js: the model export, which runs in the classic model
@@ -16,8 +16,9 @@ const { version } = JSON.parse(readFileSync(path.join(root, 'manifest.json'), 'u
 // model map's graph (src/map/build-graph.ts) too: the export makes its Dynamic Cell Access file from that graph's access
 // links. background.js: the service worker behind the toolbar icon. results.js: the results page's script, which
 // results.html loads as a classic script. It holds the model map (src/map) as well, through the page's imports: the map
-// has no bundle of its own.
-const BUNDLES = [['content.ts', 'content.js'], [READER_ENTRY, 'model-export.js'], ['background.ts', 'background.js'], ['results/main.ts', 'results.js']];
+// has no bundle of its own. about.js: the About page's script, which sets its theme and writes the version.
+const BUNDLES = [['content.ts', 'content.js'], [READER_ENTRY, 'model-export.js'], ['background.ts', 'background.js'], ['results/main.ts', 'results.js'],
+  ['about.ts', 'about.js']];
 
 // The mark of the model's reader, model-export.js, in every bundle of the build: made from the reader's code alone, so
 // that a new version that leaves the reader as it was keeps its mark (scripts/reader-mark.mjs).

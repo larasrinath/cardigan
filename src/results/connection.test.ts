@@ -4,7 +4,7 @@ import type { AnalysisResult, Cell } from "../result-types.js";
 import { resultZip } from "../result-zip.test-support.js";
 import { CONTENT_SCRIPT, MODEL_READER } from "../protocol.js";
 import {
-  describeState, MAX_LOG_LINES, NO_REASON, OPEN_WAIT_MS, openedJustNow, REFRESH_AND_RUN, reloadTab, renewReader, repairTab, ResultsClient, runLabel, tabIdFrom, UNREADABLE,
+  askShown, describeState, MAX_LOG_LINES, NO_REASON, OPEN_WAIT_MS, openedJustNow, REFRESH_AND_RUN, reloadTab, renewReader, repairTab, ResultsClient, runLabel, tabIdFrom, UNREADABLE,
   withoutOpened, type Renewal, type Repair, type RunState, type TabPort,
 } from "./connection.js";
 
@@ -692,6 +692,37 @@ describe("The results page's connection to the Anaplan tab", () => {
     // A page whose address names no tab asks nothing.
     const { client: none } = page({ noTab: true });
     expect(await none.openInPage(MODEL.id, "102000000005")).toBeUndefined();
+  });
+
+  it("asks a tab what it shows now on a port of the ask's own, which asks for nothing and is let go once the tab has said it", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const ports: FakePort[] = [];
+    const connect = () => {
+      const port = new FakePort();
+      ports.push(port);
+      return port;
+    };
+    const SITE = { origin: "https://us1a.app.anaplan.com", customer: "5555eeee6666ffff7777aaaa8888bbbb" };
+    // What the tab says as the port opens, with the site where it says both its parts; what is no subject is passed over.
+    const asked = askShown(connect);
+    ports[0].send({ type: "status", text: "Reading…" });
+    ports[0].send({ type: "subject", subject: { kind: "model", id: 5 } });
+    ports[0].send({ type: "subject", subject: { kind: "model", id: MODEL.id, ...SITE, extra: "kept out" } });
+    expect([await asked, ports[0].posted, ports[0].closedByPage]).toEqual([{ ...MODEL, ...SITE }, [], true]);
+    const halfSite = askShown(connect);
+    ports[1].send({ type: "subject", subject: { ...APP, origin: SITE.origin } });
+    const none = askShown(connect);
+    ports[2].send({ type: "subject", subject: { kind: "none" } });
+    expect([await halfSite, await none]).toEqual([APP, { kind: "none" }]);
+    // A port Chrome closes at once, as to a tab without the content script: nothing, and why Chrome closed it is read,
+    // so that Chrome does not report it unread. One that cannot be opened, and a tab that says nothing in time: nothing.
+    let read = 0;
+    const closed = askShown(connect, () => { read++; });
+    ports[3].drop();
+    const refused = askShown(() => { throw new Error("No tab with id: 7."); });
+    const silent = askShown(connect, undefined, 1000);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect([await closed, read, await refused, await silent, ports[4].closedByPage]).toEqual([undefined, 1, undefined, undefined, true]);
   });
 
   it("does not change what the tab sent: the result is the page's own copy", () => {
