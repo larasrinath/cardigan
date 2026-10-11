@@ -208,6 +208,9 @@ describe("The map's own markup", () => {
     ]);
     expect(shell.querySelector(".map-grouping-field")?.textContent).toBe("Group by");
     expect(shell.querySelector(".map-search")?.getAttribute("aria-controls")).toBe("map-results-1");
+    // The search box draws no key: its title and aria-keyshortcuts say that / reaches it.
+    expect([shell.querySelectorAll(".map-searchbox kbd").length, shell.querySelector(".map-search")?.getAttribute("aria-keyshortcuts"), shell.querySelector(".map-search")?.getAttribute("title")])
+      .toEqual([0, "/", "Search the model. Press / to jump here."]);
     expect(shell.querySelector(".map-results")?.id).toBe("map-results-1");
     // Nothing that looks like a control is a div or a span.
     expect(shell.querySelectorAll("[data-map-act]").filter(element => element.localName !== "button")).toEqual([]);

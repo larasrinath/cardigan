@@ -12,6 +12,14 @@ The Processes table says what each process runs.
 - **Two columns fewer.** **Used in Processes**, since Anaplan runs no process inside another, and **Action**, which a process leaves empty: an **Action** that a process does have stays. Imports, Exports and Other Actions keep both. A column choice kept for the tab of a column that is gone is dropped. (#62)
 - **What stays the same.** The numbered **Actions** section of a process's details, what is read from Anaplan, and the other tables. (#62)
 
+## 0.18.10 (10 October 2026)
+
+A table's name and its toolbar share one row, and the toolbar is quieter.
+
+- **One row.** Every table, an app's and a model's, has its name and then its toolbar on one line: the search box, **Reset** when something is in force, and at the right end the count of rows and the pager. The line under a table's name, where it has one, now stands under that row. In a window too narrow for one row, the name takes a line of its own first; the count and the pager go under the search box only after that, and always together: the count, the page buttons and the rows per page are never parted, as they could be before. Under 560 pixels the pager may go under the count, so the page never scrolls sideways. A table with the switch of ways or a page's chip keeps them at the toolbar's head. (#61)
+- **The column chooser is in the search box.** The **Columns** button is gone: a button with three lines at the search box's right end, set off by a thin line, opens the same chooser. Its tooltip and its name for screen readers say **Show or hide columns**. (#61)
+- **No key drawn in the search boxes.** The search boxes of the tables and of the model map no longer show a `/` key. The key still reaches them, and their tooltips and `aria-keyshortcuts` say so. (#61)
+
 ## 0.18.9 (10 October 2026)
 
 Three small mends: a module's code on the model map, what Forget this result forgets, and two tests that a busy machine could fail.
