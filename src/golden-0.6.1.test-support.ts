@@ -367,7 +367,7 @@ export function withColumnAdded(csv: string, column: ColumnAdded): string {
 export const MODEL_ROW_REWORDED = {
   file: "Model Details.csv",
   was: `How to read,Line Items,"Each module's row sits above its line items. Ratio Numerator and Ratio Denominator, after Anaplan's own columns, name the line items a Ratio summary divides: the Summary JSON gives only their IDs."\r\n`,
-  now: `How to read,Line Items,"The table lists every row of the grid: each module's own row, in bold, then its line items. Each row names its module under Module Name, after its own name, a module's own row its own name. Applies To holds the dimensions a line item has, its module's where it has none of its own, and Applies To from says which. Format type, after Format, is the data type of a line item's format, and is blank on a module's own row: without (blank) its filter lists only line items, and without No Data it leaves out the line items that are headings. Three columns follow Anaplan's own. Ratio Numerator and Ratio Denominator name the line items a Ratio summary divides: the Summary's definition gives only their IDs. Format List names the list of a line item formatted as a list, as the General Lists table names it: the Format's definition gives only the list's ID. It is empty for any other format, for a list that is not in General Lists, such as a list subset or a line item subset, and when General Lists was not exported."\r\n`,
+  now: `How to read,Line Items,"Name and Module Name come first, then Format, Format type, Formula, Applies To, Time Scale, Versions, Summary, Referenced By, Cell Count, Calculation Effort, Page Filters and Notes. The other known columns start hidden. The table lists every row of the grid: each module's own row, in bold, then its line items. Each row names its module under Module Name, after its own name, a module's own row its own name. Applies To holds the dimensions a line item has, its module's where it has none of its own, and Applies To from says which. Format type, after Format, is the data type of a line item's format, and is blank on a module's own row: without (blank) its filter lists only line items, and without No Data it leaves out the line items that are headings. Three added columns start hidden. Ratio Numerator and Ratio Denominator name the line items a Ratio summary divides: the Summary's definition gives only their IDs. Format List names the list of a line item formatted as a list, as the General Lists table names it: the Format's definition gives only the list's ID. It is empty for any other format, for a list that is not in General Lists, such as a list subset or a line item subset, and when General Lists was not exported."\r\n`,
 } as const;
 
 /** The row of the model's Model Details.csv on the Actions list's three files, which is deliberately not what 0.6.1
@@ -377,7 +377,7 @@ export const MODEL_ROW_REWORDED = {
 export const MODEL_ACTIONS_ROW_REWORDED = {
   file: "Model Details.csv",
   was: `How to read,"Processes, Exports and Other Actions","The Actions list split at its headings, in its own columns: definition, last run (start time and duration), notes, the processes that use each action and the dashboards it appears on."\r\n`,
-  now: `How to read,"Processes, Exports and Other Actions","The Actions list split at its headings, in its own columns: definition, last run (start time and duration), notes, the processes that use each action and the dashboards it appears on. One column follows Anaplan's own in Other Actions. Action List names the list an action deletes from or orders, as the General Lists table names it: the Action's definition gives only the list's ID. It is empty for any other action, for a list that is not in General Lists, and when General Lists was not exported. A process's row, in its details, lists the actions it runs, in the order it runs them, as the process's own definition holds them: each with its kind, and each opening its own row."\r\n`,
+  now: `How to read,"Processes, Exports and Other Actions","The Actions list split at its headings. Processes starts with Name and Actions; Exports and Other Actions with Name, Action and Used in Processes, with Action List after Action in Other Actions. Start Date and Time, Most recent duration (ms) and Notes follow. Used in Dashboards starts hidden. Action List names the list an action deletes from or orders, as the General Lists table names it: the Action's definition gives only the list's ID. It is empty for any other action, for a list that is not in General Lists, and when General Lists was not exported. A process's row, in its details, lists the actions it runs, in the order it runs them, as the process's own definition holds them: each with its kind, and each opening its own row."\r\n`,
 } as const;
 
 /** Two more rows of the model's Model Details.csv that are deliberately not what 0.6.1 wrote since the results page
@@ -392,11 +392,11 @@ export const MODEL_ACTIONS_ROW_REWORDED = {
 export const MODEL_ROWS_FOR_THE_PAGE = {
   layout: {
     was: `How to read,Layout,"Each file is laid out as Anaplan's own export of the same Model settings grid: an unlabelled first column, then the grid's columns, with each cell's underlying value."\r\n`,
-    now: `How to read,Layout,"Each table is laid out as Anaplan's own export of the same Model settings grid: each row's name first, then the grid's columns, with each cell's underlying value. Where a Format, a Summary or an Action holds a definition that can be said in words, the table says the words, and a row's details add the definition as it was read."\r\n`,
+    now: `How to read,Layout,"Columns follow a reading order with Anaplan's names. Hidden columns remain in the column chooser and the row's details; Defaults restores the starting layout, and kept column choices still apply. Columns absent from a model are skipped; new columns follow the named ones and start shown. Rows stay in Anaplan's order, including headings, with no sort selected at first. Where a Format, a Summary or an Action holds a definition that can be said in words, the table says the words, and a row's details add the definition as it was read."\r\n`,
   },
   calendar: {
     was: `How to read,Model Calendar,"Follows the assessment template. Months and days are their names, and Current Fiscal Year is shown with its dates, as the Model Calendar tab shows it. Settings that do not apply to this calendar type are blank; Model size (GB) and Captured by are left for you to fill in."\r\n`,
-    now: `How to read,Model Calendar,"Lists the calendar's settings that hold a value: those that do not apply to this calendar type, or that the model does not show, are left out. Months and days are their names, and Current Fiscal Year is shown with its dates, as the Model Calendar tab shows it."\r\n`,
+    now: `How to read,Model Calendar,"Setting and Value are shown; Section and Allowed values start hidden. The rows about the model are left out; the Overview names the workspace and model under About this export. Lists the calendar's settings that hold a value: those that do not apply to this calendar type, or that the model does not show, are left out. Months and days are their names, and Current Fiscal Year is shown with its dates, as the Model Calendar tab shows it."\r\n`,
   },
 } as const;
 
@@ -407,14 +407,14 @@ export const MODEL_ROWS_FOR_THE_PAGE = {
  * mapping (results/import-mapping-view.ts), it says that last, in words that name no file, as no word of the page does. */
 export const IMPORTS_ROW_REWORDED = {
   was: `How to read,Imports,"The Imports tab (source and target), then each import's columns from the Actions list (last run, duration, notes, Used in Processes, Used in Dashboards), matched on the import's ID. The Actions list's ""Import into …"" text is left out: Target Object and Target Type say the same."\r\n`,
-  now: `How to read,Imports,"The Imports tab (source and target), then each import's columns from the Actions list (last run, duration, notes, Used in Processes, Used in Dashboards), matched on the import's ID. The Actions list's ""Import into …"" text is left out: Target Object and Target Type say the same. Source Object is shown as three columns, Source Model, Source Module and Saved View, for an import from a module or a saved view: Source Model names this model where the import reads from this model itself. A row's details add Source Object as it was read. Any other Source Object stands as it is under Source Model. For an import of uploaded data, a row's details end with its Mapping, as the import's own definition holds it: what feeds each target, a column, a constant, a prompt or nothing, and which columns before the last one mapped are not used."\r\n`,
+  now: `How to read,Imports,"Name, Source Type and Source Label come first, then Source Model, Source Module, Saved View, Target Type, Target Object, Used in Processes, Start Date and Time, Most recent duration (ms), Notes and Production Data. Used in Dashboards starts hidden. The source and target come from the Imports tab, joined to the Actions list by the import's ID. The Actions list's ""Import into …"" text is left out: Target Object and Target Type say the same. Source Object is shown as three columns, Source Model, Source Module and Saved View, for an import from a module or a saved view: Source Model names this model where the import reads from this model itself. A row's details add Source Object as it was read. Any other Source Object stands as it is under Source Model. For an import of uploaded data, a row's details end with its Mapping, as the import's own definition holds it: what feeds each target, a column, a constant, a prompt or nothing, and which columns before the last one mapped are not used."\r\n`,
 } as const;
 
 /** 0.6.1's text of that file with the five rows as they are written now, the one on Line Items, the one on the Actions
  * list's files, the one on Imports and the two above, in the file's order: every other line as it is. `csv` is the
  * file's text, with its byte order mark or without. */
 export const withRowsSince = (csv: string): string =>
-  withRowsReworded(csv, [MODEL_ROWS_FOR_THE_PAGE.layout, MODEL_ROW_REWORDED, MODEL_ACTIONS_ROW_REWORDED, IMPORTS_ROW_REWORDED, MODEL_ROWS_FOR_THE_PAGE.calendar]);
+  withRowsReworded(csv, [MODEL_ROWS_FOR_THE_PAGE.layout, MODEL_ROW_REWORDED, MODEL_ACTIONS_ROW_REWORDED, IMPORTS_ROW_REWORDED, DATA_SOURCES_ROW_REWORDED, MODEL_ROWS_FOR_THE_PAGE.calendar]);
 
 /** The one file the export has gained since 0.6.1: Dynamic Cell Access.csv, which lists a model's access drivers with
  * what each controls (model/access.ts). The export makes it from the Read Access Driver and Write Access Driver columns
@@ -451,7 +451,18 @@ export const MODEL_FILE_ADDED = {
  * all that differs of it for either, since every model's Model Details.csv has it, whether that grid was read or not. */
 export const MODEL_ROW_ADDED = {
   after: MODEL_ROWS_FOR_THE_PAGE.calendar.now,
-  line: `How to read,Source Models,"Mapped To is shown as two columns, Mapped Workspace and Mapped Model: the workspace and the model each source model is mapped to, by name, or by ID where Mapped To gives no name. A row's details add Mapped To as it was read. A Mapped To that cannot be read stands as it is under Mapped Workspace."\r\n`,
+  line: `How to read,Source Models,"Name, Mapped Workspace, Mapped Model, Sources and Imports are shown in that order. Mapped To is shown as two columns, Mapped Workspace and Mapped Model: the workspace and the model each source model is mapped to, by name, or by ID where Mapped To gives no name. A row's details add Mapped To as it was read. A Mapped To that cannot be read stands as it is under Mapped Workspace."\r\n`,
+} as const;
+
+/** The three reading-layout explanations added after Layout, and the data-source wording. */
+export const MODEL_LAYOUT_ROWS = [
+  { after: MODEL_ROWS_FOR_THE_PAGE.layout.now, line: `How to read,Time Ranges and Versions,"Time Ranges starts with Name, Start Period and End Period. Versions starts with Name, Is Actual, Switchover, Edit From and Edit To. Their other columns follow, all shown."\r\n` },
+  { after: `How to read,Time Ranges and Versions,"Time Ranges starts with Name, Start Period and End Period. Versions starts with Name, Is Actual, Switchover, Edit From and Edit To. Their other columns follow, all shown."\r\n`, line: `How to read,General Lists,"Name, Parent Hierarchy, Top Level, Item Count, Numbered, Production Data, Properties, Subsets and Notes are shown. Display Name Property and the three columns of references start hidden. Top Level Item and Numbered List keep those names where the model uses them."\r\n` },
+  { after: `How to read,General Lists,"Name, Parent Hierarchy, Top Level, Item Count, Numbered, Production Data, Properties, Subsets and Notes are shown. Display Name Property and the three columns of references start hidden. Top Level Item and Numbered List keep those names where the model uses them."\r\n`, line: `How to read,Modules,"Name, Functional Area, Applies To, Time Scale, Time Range, Versions, Cell Count and Notes are shown. Line Items and Referenced By start hidden. Modules and Line Items keep Populated Cell Count where the model uses that name."\r\n` },
+ ] as const;
+export const DATA_SOURCES_ROW_REWORDED = {
+  was: `How to read,Import Data Sources,"Each data source, with the imports that use it."\r\n`,
+  now: `How to read,Import Data Sources,"Name, Source Type (Type where the grid calls it that), Source Model, Source Object Name and Imports (Used in Imports in some models), all shown."\r\n`,
 } as const;
 
 /** A Model Details.csv with rows added: each line of `rows` right after the line it stands after, which the text must
@@ -466,7 +477,7 @@ export function withRowsAdded(csv: string, rows: readonly { after: string; line:
 
 /** 0.6.1's text of Model Details.csv as the file is written now: the four rows of "How to read" in their present words,
  * the two rows about Dynamic Cell Access.csv added, and the row on Source Models. */
-export const withDetailsSince = (csv: string): string => withRowsAdded(withRowsSince(csv), [MODEL_FILE_ADDED.notWritten, MODEL_FILE_ADDED.howToRead, MODEL_ROW_ADDED]);
+export const withDetailsSince = (csv: string): string => withRowsAdded(withRowsSince(csv), [MODEL_FILE_ADDED.notWritten, MODEL_FILE_ADDED.howToRead, MODEL_ROW_ADDED, ...MODEL_LAYOUT_ROWS]);
 
 /** The two columns named above, in the order of their files in the zip. */
 export const MODEL_COLUMNS_ADDED: readonly ColumnAdded[] = [MODEL_COLUMN_ADDED, MODEL_ACTIONS_COLUMN_ADDED];

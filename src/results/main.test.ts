@@ -113,8 +113,7 @@ const WITH_CALENDAR: AnalysisResult = {
       [CALENDAR_PROPERTIES["Include Quarter Totals"], "true"]]) }) }],
 };
 /** The line under the Model Calendar table of that model. */
-const CALENDAR_NOTE = "5 rows about the model are not listed here: the Overview names the workspace and the model, under About this export. "
-  + "21 settings have no value and are not listed: they do not apply to this calendar type, or the model does not show them.";
+const CALENDAR_NOTE = "21 settings have no value and are not listed: they do not apply to this calendar type, or the model does not show them.";
 
 /** A model whose Line Items file is laid out as the export writes it, with some of the grid's columns: each module's own
  * row, then its line items, which name their module under Module Name and show a dash under Applies To where they take
@@ -844,7 +843,7 @@ describe("The results page's script, on the page", () => {
     // The Modules table: two rows, two areas.
     page.key("Escape");
     goTo(2);
-    expect(filterable()).toEqual(["Name", "Functional Area"]);
+    expect(filterable()).toEqual(["Functional Area"]);
   });
 
   it("filters a column of lists by each item, and a filter of many values by what its box finds: its buttons tick or untick all of that", async () => {
@@ -856,7 +855,7 @@ describe("The results page's script, on the page", () => {
     await openWith(MANY);
     goTo(1);
     // Every cell of Applies To is its own, but its items repeat: the column offers a filter. The modules' names do not.
-    expect(filterable()).toEqual(["Applies To", "Functional Area"]);
+    expect(filterable()).toEqual(["Functional Area", "Applies To"]);
     page.find('[data-colfilter="1"]').press();
     // Each item once, with the rows that list it, Products first; with more than fifteen, a box finds them, and has the focus.
     const box = page.find("#popover [data-ffind]");
@@ -1376,7 +1375,7 @@ describe("The results page's script, on the page", () => {
     expect([page.find("#view .view-note") === note, filterable().includes("Section")]).toEqual([true, false]);
     // A row's drawer says its place among the rows the table lists.
     page.all('#tableWrap tbody [data-act="row"]')[0].press();
-    expect([page.id("drawerSub").textContent, page.texts("#drawerBody dd").slice(0, 3)]).toEqual(["Row 1 of Model Calendar", ["Model Calendar", "Calendar Type", "Calendar Months/Quarters/Years"]]);
+    expect([page.id("drawerSub").textContent, page.texts("#drawerBody dd").slice(0, 3)]).toEqual(["Row 1 of Model Calendar", ["Calendar Type", "Calendar Months/Quarters/Years", "Model Calendar"]]);
     page.key("Escape");
 
     // The page's own table is whole, the rows about the model first: a model's map is built from the result's tables.
@@ -1401,7 +1400,7 @@ describe("The results page's script, on the page", () => {
     // The line under the name says where the five rows are. In the rows' place the table says that none is the calendar's
     // own, which does not contradict it; "Nothing was found" would.
     expect([page.texts("#view .view-note"), page.texts("#tableWrap .e-title"), page.texts("#tableWrap .e-sub"), page.id("rowCount").textContent])
-      .toEqual([["5 rows about the model are not listed here: the Overview names the workspace and the model, under About this export."], ["Model Calendar has no rows of its own"], ["Every row is about the model."], "No rows"]);
+      .toEqual([[], ["Model Calendar has no rows of its own"], ["Every row is about the model."], "No rows"]);
     expect([page.id("view").textContent.includes("Nothing was found"), page.all("#tableWrap tbody tr").length, page.id("pager").children]).toEqual([false, 0, []]);
     // The page's own table has the five rows still: a model's map is built from the result's tables.
     page.find('#navList [data-nav="map"]').press();
@@ -1613,6 +1612,31 @@ describe("What a click, a key and typing do on the results page", () => {
     expect(shows()).toEqual(["Overview", "Overview"]);
   });
 
+  it("restores the model layout with Defaults and keeps a column added back across refresh", async () => {
+    await openWith(BLUEPRINT);
+    goTo(1);
+    const initial = headings();
+    expect(initial).not.toContain("Applies To from");
+    expect(page.id("resetBtn").hidden).toBe(true);
+    page.id("colBtn").press();
+    const options = page.all("#popover .pop-opt");
+    expect(options.map(option => option.children[1].textContent)).toContain("Ratio Numerator");
+    expect(page.all("#popover .po-cnt")).toHaveLength(0);
+    page.find('#popover input[data-col="7"]').tick();
+    page.key("Escape");
+    expect(headings()).toContain("Applies To from");
+    await letKeep();
+    vi.advanceTimersByTime(1000);
+    await open("?tab=42#1");
+    await eventually(() => page.document.title === "Cardigan - Model one", "the result and column choices to come back");
+    expect(headings()).toContain("Applies To from");
+    page.id("colBtn").press();
+    page.find('#popover [data-popact="defaults"]').press();
+    page.key("Escape");
+    expect(headings()).toEqual(initial);
+    expect(page.id("resetBtn").hidden).toBe(true);
+  });
+
   it("shows a model's Line Items table with every row, each with its module and the dimensions it has, a module's own row as a heading; the counts are the file's", async () => {
     await openWith(BLUEPRINT);
     // The overview's tile counts every row of the file, as Anaplan's grid does: the modules' own rows are in the table.
@@ -1621,9 +1645,15 @@ describe("What a click, a key and typing do on the results page", () => {
     goTo(1);
     // The module stands directly after the name, the format's data type after Format, and after Applies To where it came
     // from; the other columns are in the file's order.
-    expect(headings()).toEqual(["Name", "Module Name", "Format", "Format type", "Formula", "Summary", "Applies To", "Applies To from", "Ratio Numerator", "Ratio Denominator"]);
+    expect(headings()).toEqual(["Name", "Module Name", "Format", "Format type", "Formula", "Applies To", "Summary"]);
     expect([column("Name"), column("Module Name")]).toEqual([["REV01 Revenue", "Units", "Price", "Revenue", "Margin %", "--- Archive ---", "COST01 Costs", "Cost"],
       ["REV01 Revenue", "REV01 Revenue", "REV01 Revenue", "REV01 Revenue", "REV01 Revenue", "--- Archive ---", "COST01 Costs", "COST01 Costs"]]);
+    expect(page.id("resetBtn").hidden).toBe(true);
+    expect(page.all('#tableWrap th[aria-sort="ascending"], #tableWrap th[aria-sort="descending"]')).toHaveLength(0);
+    // A hidden column can be added back, including its filter.
+    page.id("colBtn").press();
+    page.find('#popover input[data-col="7"]').tick();
+    page.key("Escape");
     // A dash in the file is the module's Applies To here; a line item's own stays its own. A module's own row has its own.
     expect([column("Applies To"), column("Applies To from")]).toEqual([["Products, Time", "Products, Time", "Products", "Products, Time", "Products, Time", "", "Cost Centres", "Cost Centres"],
       ["Module", "Module", "Line item", "Module", "Module", "Module", "Module", "Module"]]);
@@ -1631,7 +1661,7 @@ describe("What a click, a key and typing do on the results page", () => {
     expect([column("Format type"), page.all("#tableWrap tbody tr").map(row => row.classList.contains("heading"))])
       .toEqual([["", "Number", "Number", "Number", "Number", "", "", "Number"], [true, false, false, false, false, true, true, false]]);
     // The line under the table's name says what the rows are, and how to list the line items alone.
-    expect([page.texts("#view .view-note"), page.id("rowCount").textContent, page.id("live").textContent]).toEqual([["Every row of Anaplan's Line Items grid: 5 line items, and 3 modules' own rows, each in bold above its line items, with its own name under Module Name. To list only line items, untick (blank) in the filter of Format type, and No Data as well to leave out the line items that are headings."], "1–8 of 8 rows", "Line Items: 8 rows"]);
+    expect([page.texts("#view .view-note"), page.id("rowCount").textContent, page.id("live").textContent]).toEqual([[], "1–8 of 8 rows", "Line Items: 8 rows"]);
 
     // The search, the filters and the sort are the table's: a module's name finds its own row and its line items.
     page.id("tblSearch").type("cost01");
@@ -1877,8 +1907,7 @@ describe("What a click, a key and typing do on the results page", () => {
       ["Can read", "Can read", "Can read", "=Can write", "'Old access'.Flag"], ["Units", "Price", "Cost", "Units", "Cost"]]);
     // Under the table's name, one line: what the table is, and how many of its drivers could not be matched.
     expect([page.texts("#view .view-note"), page.id("rowCount").textContent, page.id("live").textContent]).toEqual([
-      ["The Read Access Driver and Write Access Driver columns of Line Items, listed from the driver's side. One row for each use of a driver: the driver, Read or Write, and the line item it controls. "
-        + "1 row has a driver that could not be matched to a line item: it comes last, with the driver as Line Items has it and no Driver Module."],
+      ["1 row has a driver that could not be matched to a line item: it comes last, with the driver as Line Items has it and no Driver Module."],
       "1–5 of 5 rows", "Dynamic Cell Access (DCA): 5 rows"]);
     // A row opens from its driver's name, the second cell, in every row. The first cell, the driver's module, is the same
     // name down the rows, and is plain text: as the row's button it would read as a way to that module.
@@ -1937,7 +1966,7 @@ describe("What a click, a key and typing do on the results page", () => {
 
     // Another table of the model opens its rows from its first column, as ever: the choice is this file's alone.
     goTo(1);
-    expect(page.all("#tableWrap tbody tr").map(row => row.children.map(cell => cell.querySelectorAll('[data-act="row"]').length))[0]).toEqual([1, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    expect(page.all("#tableWrap tbody tr").map(row => row.children.map(cell => cell.querySelectorAll('[data-act="row"]').length))[0]).toEqual([1, 0, 0, 0, 0, 0, 0]);
 
     // A model that drives no access has the file without rows. The line still says what the table would list, and the
     // table says in the rows' place what that means, in the place of the page's sentence for a table without rows.
@@ -1945,7 +1974,7 @@ describe("What a click, a key and typing do on the results page", () => {
     sendResult(ports[0], { ...WITH_ACCESS, tables: WITH_ACCESS.tables.map(table => (table === file ? { ...file, rows: [] } : table)) });
     goTo(2);
     expect([page.texts("#view .view-note"), page.texts("#tableWrap .e-title"), page.texts("#tableWrap .e-sub"), page.id("rowCount").textContent]).toEqual([
-      ["The Read Access Driver and Write Access Driver columns of Line Items, listed from the driver's side. One row for each use of a driver: the driver, Read or Write, and the line item it controls."],
+      [],
       ["DCA has no rows"], ["No line item in this model has a read or write access driver."], "No rows"]);
     // Any other table without rows says what it said: that nothing was found for it.
     page.id("runAgain").press();
@@ -1992,12 +2021,12 @@ describe("What a click, a key and typing do on the results page", () => {
     // name, and the table says them as the file has them, on one line, in the very row that was opened.
     page.all('#tableWrap tbody [data-act="row"]')[0].press();
     expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual(["Margin %", "Row 5 of Line Items"]);
-    expect(page.texts("#drawerBody dt")).toEqual(["Name", "Module Name", "Format", "Format as read", "Format type", "Formula", "Summary", "Summary as read", "Applies To (2)",
+    expect(page.texts("#drawerBody dt")).toEqual(["Name", "Module Name", "Format", "Format as read", "Format type", "Formula", "Applies To (2)", "Summary", "Summary as read",
       "Applies To from", "Ratio Numerator", "Ratio Denominator"]);
     /** A value of the drawer: its items where it lists several, and otherwise its text. */
     const value = (dd: FakeElement) => (dd.querySelectorAll("li").length ? dd.querySelectorAll(".cell-list li .cell-t").map(item => item.textContent) : dd.textContent);
-    expect(page.all("#drawerBody dd").map(value)).toEqual(["Margin %", "REV01 Revenue", "Number, 2 decimal places, %", PERCENT, "Number", "Margin / Revenue", "Ratio = Margin / Revenue",
-      RATIO, ["Products", "Time"], "Module", "Margin", "Revenue"]);
+    expect(page.all("#drawerBody dd").map(value)).toEqual(["Margin %", "REV01 Revenue", "Number, 2 decimal places, %", PERCENT, "Number", "Margin / Revenue", ["Products", "Time"], "Ratio = Margin / Revenue",
+      RATIO, "Module", "Margin", "Revenue"]);
     expect([column("Name")[0], column("Applies To")[0]]).toEqual(["Margin %", "Products, Time"]);
     page.key("Escape");
     // The search finds the dimensions as the table shows them, the comma between them as well: the module's own row and
@@ -2007,7 +2036,7 @@ describe("What a click, a key and typing do on the results page", () => {
     page.id("tblSearch").type("");
     // Another row has its own: the drawer is the row's, after a sort as well.
     page.all('#tableWrap tbody [data-act="row"]')[4].press();
-    expect([page.id("drawerTitle").textContent, page.texts("#drawerBody dd").slice(2, 5), page.texts("#drawerBody dd").slice(6, 8)])
+    expect([page.id("drawerTitle").textContent, page.texts("#drawerBody dd").slice(2, 5), page.texts("#drawerBody dd").slice(7, 9)])
       .toEqual(["Cost", ["Number", NUMBER, "Number"], ["Sum, Time: Closing Balance", CLOSING]]);
     page.key("Escape");
 
@@ -2050,9 +2079,7 @@ describe("What a click, a key and typing do on the results page", () => {
     expect(headings()).toEqual(["Name", "Mapped Workspace", "Mapped Model"]);
     expect([column("Mapped Workspace"), column("Mapped Model")]).toEqual([["Pedalwick Finance [DEV]", "ID 0123456789abcdef0123456789abcdef", "", "Pedalwick Finance / Finance Hub"],
       ["Finance Hub", "ID FEDCBA9876543210FEDCBA9876543210", "", ""]]);
-    expect([page.texts("#view .view-note"), page.id("rowCount").textContent]).toEqual([["Mapped To is shown as two columns, Mapped Workspace and Mapped Model: the workspace and the model "
-      + "each source model is mapped to, by name, or by ID where Mapped To gives no name. A row's details add Mapped To as it was read. "
-      + "1 row has a Mapped To that could not be read: its text stands as it is under Mapped Workspace."], "1–4 of 4 rows"]);
+    expect([page.texts("#view .view-note"), page.id("rowCount").textContent]).toEqual([["1 row has a Mapped To that could not be read: its text stands as it is under Mapped Workspace."], "1–4 of 4 rows"]);
     // The search reads the names, as it reads any words the page says, and not the text that was read in their place.
     page.id("tblSearch").type("finance hub");
     expect(column("Name")).toEqual(["Finance Hub (old)", "Typed"]);
@@ -2097,26 +2124,24 @@ describe("What a click, a key and typing do on the results page", () => {
     goTo(3);
     // Three columns in the place of Source Object. An import from this model's own module names this model; a list is no
     // module, and its Source Object stands as it is, which the line under the table's name says.
-    expect(headings()).toEqual(["Name", "Source Label", "Source Model", "Source Module", "Saved View", "Source Type", "Target Object", "Target Type", "Used in Processes"]);
+    expect(headings()).toEqual(["Name", "Source Type", "Source Label", "Source Model", "Source Module", "Saved View", "Target Type", "Target Object", "Used in Processes"]);
     expect([column("Source Model"), column("Source Module"), column("Saved View")]).toEqual([["M0 Data Hub [DEV]", "Model one", "Hub / Products"],
       ["HRY01 ORG Hierarchy Builder", "SYS ORG1 Campus #", ""], ["DATA & LIST: ORG3 Area", "DATA: SYS ORG1 Campus # (Reset)", ""]]);
-    expect(page.texts("#view .view-note")).toEqual(["Source Object is shown as three columns, Source Model, Source Module and Saved View, for an import from a module or a saved view. "
-      + "Source Model names this model where the import reads from this model itself. A row's details add Source Object as it was read. "
-      + "1 row has a Source Object that is not a module or a saved view: its text stands as it is under Source Model."]);
+    expect(page.texts("#view .view-note")).toEqual(["1 row has a Source Object that is not a module or a saved view: its text stands as it is under Source Model."]);
     // A column of names offers a filter by them, as any column of few texts does.
-    page.find(`[data-colfilter="${headings().indexOf("Source Model")}"]`).press();
+    page.find('[data-colfilter="2"]').press();
     expect(choices()).toEqual([["Hub / Products", "1", true], ["M0 Data Hub [DEV]", "1", true], ["Model one", "1", true]]);
     page.key("Escape");
 
     // The row's drawer: the three columns, then Source Object as it was read, once, under the file's own name for it.
     page.all('#tableWrap tbody [data-act="row"]')[0].press();
-    expect([page.texts("#drawerBody dt").slice(2, 6), page.all("#drawerBody dd").map(value => value.textContent).slice(2, 6)])
+    expect([page.texts("#drawerBody dt").slice(3, 7), page.all("#drawerBody dd").map(value => value.textContent).slice(3, 7)])
       .toEqual([["Source Model", "Source Module", "Saved View", "Source Object as read"], ["M0 Data Hub [DEV]", "HRY01 ORG Hierarchy Builder", "DATA & LIST: ORG3 Area", HUB]]);
     page.key("Escape");
     // The list's import has nothing that was read in words, and so nothing as read.
     page.all('#tableWrap tbody [data-act="row"]')[2].press();
-    expect([page.texts("#drawerBody dt").slice(2, 6), page.all("#drawerBody dd").map(value => value.textContent).slice(2, 6)])
-      .toEqual([["Source Model", "Source Module", "Saved View", "Source Type"], ["Hub / Products", "", "", "LIST"]]);
+    expect([page.texts("#drawerBody dt").slice(3, 7), page.all("#drawerBody dd").map(value => value.textContent).slice(3, 7)])
+      .toEqual([["Source Model", "Source Module", "Saved View", "Target Type"], ["Hub / Products", "", "", "LIST"]]);
     page.key("Escape");
 
     // The model map is handed the result's own tables, in which Source Object is as the export wrote it.
@@ -5042,8 +5067,9 @@ describe("The buttons at the top right of a row's details that open it in Anapla
     // The result is kept for a refresh before the test goes on, so that no keeping is left to end after the test.
     await letKeep();
   };
-  /** Opens a row's details, by the text of its first cell. */
-  const openRow = (name: string) => page.all('#tableWrap tbody [data-act="row"]')[firstCells().indexOf(name)].press();
+  /** Opens a row's details by an exact cell value, independent of its current order. */
+  const openRow = (name: string) => page.all("#tableWrap tbody tr").find(row => row.children.some(cell => cell.textContent.trim() === name))!
+    .querySelector('[data-act="row"]')!.press();
   /** The buttons at the top right of the details: each one's words and its title. */
   const opens = () => page.all("#drawerOpens button").map(button => [button.textContent.trim(), button.title]);
   /** Presses the button of the details that says these words, and lets what it starts come to its end: a module is asked
@@ -5217,7 +5243,7 @@ describe("The buttons at the top right of a row's details that open it in Anapla
     const pages = [["Revenue board", `${app}/boards/${BOARD}`], ["Revenue sheet", `${app}/worksheets/${SHEET}`], ["Cost report", `${app}/reports/${REPORT}`]];
     const addresses: string[] = [];
     for (const [row, [name, address]] of pages.entries()) {
-      page.all('#tableWrap tbody [data-act="row"]')[row].press();
+      openRow(name);
       expect(opens().map(([label]) => label), name).toEqual(["Model", "App", "Page"]);
       expect(opens().slice(1).map(([, title]) => title), name).toEqual([`Open the app Planning ${TAG} in Anaplan`, `Open the page ${name} in Anaplan`]);
       await press("App");
@@ -5229,11 +5255,11 @@ describe("The buttons at the top right of a row's details that open it in Anapla
     expect(tabCreates).toEqual([[{ url: app, active: true, index: OWN_TAB.index + 1, openerTabId: OWN_TAB.id }]]);
     expect(tabUpdates).toEqual(addresses.slice(1).map(url => [101, { url, active: true }]));
     // A page whose type has no address of its own here: its app is opened, and it is not.
-    page.all('#tableWrap tbody [data-act="row"]')[3].press();
+    openRow("Odd page");
     expect(opens().map(([label]) => label)).toEqual(["Model", "App"]);
     page.key("Escape");
     // A module on no page has no app and no page to open, and the heading no ID: nothing, and nothing to say.
-    page.all('#tableWrap tbody [data-act="row"]')[4].press();
+    openRow("--- Archive ---");
     expect([opens(), why()]).toEqual([[], undefined]);
     // An app's name is written as text, in the title too.
     expect(strayImg()).toBe(false);
@@ -5244,7 +5270,7 @@ describe("The buttons at the top right of a row's details that open it in Anapla
   it("shows a module on no page with a greyed dash for its app and its page, which their filters list, and the search finds it by its name", async () => {
     await openModel(WITH_PAGES);
     choose(String(WITH_PAGES.tables.findIndex(table => table.file === MODULE_USAGE_FILE)));
-    const row = page.all("#tableWrap tbody tr")[4];
+    const row = page.all("#tableWrap tbody tr").find(row => row.children[0].textContent.trim() === "--- Archive ---")!;
     expect([row.children[0].textContent.trim(), row.children[1].querySelector(".dash")?.textContent, row.children[2].querySelector(".dash")?.textContent, row.textContent.includes("Not on any page")])
       .toEqual(["--- Archive ---", "-", "-", false]);
     // App always has a filter, and Page has one for its few pages, as Module has for its few modules: App's and Page's
@@ -5264,17 +5290,32 @@ describe("The buttons at the top right of a row's details that open it in Anapla
     expect(firstCells()).toEqual(["--- Archive ---"]);
   });
 
+  it("starts Page Filters in reading order with no sort mark or Reset", async () => {
+    await openModel(WITH_PAGES);
+    choose(String(WITH_PAGES.tables.findIndex(table => table.file === PAGE_FILTERS_FILE)));
+    const rows = () => page.all("#tableWrap tbody tr").map(row => row.children[1].textContent.trim());
+    expect(rows()).toEqual(["Price", "Units"]);
+    expect(page.id("resetBtn").hidden).toBe(true);
+    expect(page.all('#tableWrap th[aria-sort="ascending"], #tableWrap th[aria-sort="descending"]')).toHaveLength(0);
+    page.find('[data-sort="1"]').press();
+    page.find('[data-sort="1"]').press();
+    expect(rows()).toEqual(["Units", "Price"]);
+    page.id("resetBtn").press();
+    expect(rows()).toEqual(["Price", "Units"]);
+    expect(page.id("resetBtn").hidden).toBe(true);
+  });
+
   it("opens a filter's two modules, its app and its page from Page Filters, one module where the two are one, and a button's app and page from Page Actions", async () => {
     await openModel(WITH_PAGES);
     choose(String(WITH_PAGES.tables.findIndex(table => table.file === PAGE_FILTERS_FILE)));
-    openRow("REV01 Revenue");
+    openRow("Units");
     expect(opens()).toEqual([["Condition module", "Open REV01 Revenue in Model Building"], ["Filtered module", "Open COST01 Costs in Model Building"],
       ["App", `Open the app Planning ${TAG} in Anaplan`], ["Page", "Open the page Revenue board in Anaplan"]]);
     await press("Condition module");
     await press("Filtered module");
     expect(tabUpdates.map(([, properties]) => (properties as { url: string }).url)).toEqual([link("102000000001"), link("102000000002")]);
     page.key("Escape");
-    page.all('#tableWrap tbody [data-act="row"]')[1].press();
+    openRow("Price");
     expect(opens().map(([label]) => label)).toEqual(["Model", "App", "Page"]);
     page.key("Escape");
     choose(String(WITH_PAGES.tables.findIndex(table => table.file === PAGE_ACTIONS_FILE)));
@@ -5327,7 +5368,7 @@ describe("The buttons at the top right of a row's details that open it in Anapla
     expect(firstCells()).toEqual([MISSING_LINE_ITEMS_MODULE]);
     // A filter of the model's own modules opens them as before, with no such line.
     page.id("tblSearch").type("");
-    openRow("REV01 Revenue");
+    openRow("Units");
     expect([opens().map(([label]) => label), why()]).toEqual([["Condition module", "Filtered module", "App", "Page"], undefined]);
     page.key("Escape");
 
@@ -5963,7 +6004,7 @@ describe("The actions of a process, in its row's details", () => {
     goTo(3);
     const headings = () => page.all("#tableWrap thead .th-sort").map(button => button.textContent.trim());
     const column = (heading: string) => page.all("#tableWrap tbody tr").map(row => row.children[headings().indexOf(heading)].textContent.trim());
-    expect(headings()).toEqual(["Name", "Actions", "Notes", "Used in Dashboards"]);
+    expect(headings()).toEqual(["Name", "Actions", "Notes"]);
     expect(column("Actions")).toEqual(["Prices from the hub, 1.1 Load regions, Delete old items", "Send plan, 1.1 Load regions, ID 112000000099, Optimise", ""]);
     // The column chooser has the Actions and no Used in Processes either.
     page.id("colBtn").press();
@@ -6080,7 +6121,7 @@ describe("A row's details list a cell of several items one to a line, each that 
     await openWith(LISTED);
     goTo(2);
     openModule("SYS100 Time");
-    expect(page.texts("#drawerBody dt")).toEqual(["Name", "Applies To (2)", "Referenced By (3)", "Line Items (20)"]);
+    expect(page.texts("#drawerBody dt")).toEqual(["Name", "Applies To (2)", "Line Items (20)", "Referenced By (3)"]);
     const shown = values();
     // A dimension that is a list of the model opens its row; Time is no row of General Lists.
     expect([items(shown.get("Applies To (2)")), links(shown.get("Applies To (2)"))]).toEqual([["Products", "Time"], ["Products"]]);
@@ -6350,7 +6391,7 @@ describe("Times in the viewer's own zone, or in UTC, as the Timezone pill in the
     expect(page.id("hdMeta").textContent).not.toContain("Exported");
     expect(about()).toEqual([[["Model", "Model one"]], false]);
     goTo(1);
-    expect([headings(), column("Start Date and Time (Asia/Tokyo)")]).toEqual([["Name", "Start Date and Time (Asia/Tokyo)", "Source Type"],
+    expect([headings(), column("Start Date and Time (Asia/Tokyo)")]).toEqual([["Name", "Source Type", "Start Date and Time (Asia/Tokyo)"],
       ["2026-03-13 08:19:56", "2026-03-13 09:00:01", "2026-03-14 05:00:00", ""]]);
     // The search finds a time as it is shown, and not as it was read.
     page.id("tblSearch").type("08:19");
@@ -6360,8 +6401,8 @@ describe("Times in the viewer's own zone, or in UTC, as the Timezone pill in the
     page.id("tblSearch").type("");
     // A row's details say the time in both zones, the one shown first, and nothing more of it.
     page.all('#tableWrap tbody [data-act="row"]')[0].press();
-    expect([page.texts("#drawerBody dt"), page.texts("#drawerBody dd")]).toEqual([["Name", "Start Date and Time (Asia/Tokyo)", "Source Type"],
-      ["Load", "2026-03-13 08:19:56 local · 2026-03-12 23:19:56 UTC", "MODEL"]]);
+    expect([page.texts("#drawerBody dt"), page.texts("#drawerBody dd")]).toEqual([["Name", "Source Type", "Start Date and Time (Asia/Tokyo)"],
+      ["Load", "MODEL", "2026-03-13 08:19:56 local · 2026-03-12 23:19:56 UTC"]]);
     page.key("Escape");
     vi.advanceTimersByTime(300);
     // Ordered by the time, from the earliest moment, and the action that never ran first.
@@ -6376,11 +6417,11 @@ describe("Times in the viewer's own zone, or in UTC, as the Timezone pill in the
     switchZone();
     // The table shown is said anew, as the file has it, in the order it had; the pill follows.
     expect([zone(), headings(), column("Start Date and Time (UTC)"), sortOf(1), stored.get(TIMES_KEY), page.id("live").textContent])
-      .toEqual([["utc"], ["Name", "Start Date and Time (UTC)", "Source Type"], ["", "2026-03-12 23:19:56", "2026-03-13 00:00:01", "2026-03-13 20:00:00"], "ascending",
+      .toEqual([["utc"], ["Name", "Source Type", "Start Date and Time (UTC)"], ["", "2026-03-12 23:19:56", "2026-03-13 00:00:01", "2026-03-13 20:00:00"], "ascending",
         "utc", "Times in UTC."]);
     expect([page.id("timeZone").getAttribute("aria-label"), page.id("timeZone").title]).toEqual(["Timezone: UTC. Switch to Local", "Times in UTC, as Anaplan writes them. Press to say them in your time zone."]);
     page.all('#tableWrap tbody [data-act="row"]')[1].press();
-    expect(page.texts("#drawerBody dd")[1]).toBe("2026-03-12 23:19:56 UTC · 2026-03-13 08:19:56 local");
+    expect(page.texts("#drawerBody dd")[2]).toBe("2026-03-12 23:19:56 UTC · 2026-03-13 08:19:56 local");
     page.key("Escape");
     vi.advanceTimersByTime(300);
     // The overview has no time to say in UTC either.
@@ -6392,7 +6433,7 @@ describe("Times in the viewer's own zone, or in UTC, as the Timezone pill in the
     port.send({ type: "subject", subject: { kind: "app", id: TIMED.id } });
     sendResult(port, TIMED);
     goTo(1);
-    expect([zone(), headings()[1]]).toEqual([["utc"], "Start Date and Time (UTC)"]);
+    expect([zone(), headings()[2]]).toEqual([["utc"], "Start Date and Time (UTC)"]);
     // And Local takes them back to the viewer's clock.
     switchZone();
     expect([zone(), column("Start Date and Time (Asia/Tokyo)").includes("2026-03-13 08:19:56"), stored.get(TIMES_KEY), page.id("live").textContent])
@@ -6421,7 +6462,7 @@ describe("Times in the viewer's own zone, or in UTC, as the Timezone pill in the
     // After a refresh, in UTC as chosen, the range keeps the same rows.
     await open("?tab=42#1");
     await eventually(() => page.document.title === "Cardigan - Model one", "the result to come back");
-    expect([headings()[1], firstCells()]).toEqual(["Start Date and Time (UTC)", ["Load", "Sort", "Copy"]]);
+    expect([headings()[2], firstCells()]).toEqual(["Start Date and Time (UTC)", ["Load", "Sort", "Copy"]]);
     // Days set in UTC are UTC days: the 13th there is Sort's and Late's.
     rangeTo("2026-03-13", "2026-03-13");
     expect(firstCells()).toEqual(["Sort", "Late", "Copy"]);
@@ -6434,8 +6475,8 @@ describe("Times in the viewer's own zone, or in UTC, as the Timezone pill in the
     storeRefuses = new Error("The storage is not available.");
     await openWith(TIMED);
     goTo(1);
-    expect([zone(), headings()[1]]).toEqual([["local"], "Start Date and Time (Asia/Tokyo)"]);
+    expect([zone(), headings()[2]]).toEqual([["local"], "Start Date and Time (Asia/Tokyo)"]);
     switchZone();
-    expect([zone(), headings()[1], stored.size]).toEqual([["utc"], "Start Date and Time (UTC)", 0]);
+    expect([zone(), headings()[2], stored.size]).toEqual([["utc"], "Start Date and Time (UTC)", 0]);
   });
 });

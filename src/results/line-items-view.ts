@@ -79,6 +79,8 @@ export interface LineItemsView {
   /** One line for the page to show with the table: what its rows are, how the filter on Format type lists the line items
    * alone, and how many line items name no module. None when the table is shown as it is. */
   note?: string;
+  /** A warning for the results page; the explanation of the layout is in How to read. */
+  warning?: string;
 }
 
 interface ModuleRow { name: string; appliesTo: Cell }
@@ -168,6 +170,7 @@ function viewOf(table: ResultTable, moduleNames: ReadonlySet<string> | undefined
   return {
     table: { ...table, headers: order.flatMap(index => [headers[index], ...added(index)]), rows },
     moduleRows: headings.size, headings, note: noteOf(rows.length - headings.size, headings.size, unnamed, typed),
+    ...(unnamed ? { warning: count(unnamed, "line item has no Module Name: its module is not known.", "line items have no Module Name: their module is not known.") } : {}),
   };
 }
 

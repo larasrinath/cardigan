@@ -878,7 +878,7 @@ export function colChooserHtml(columns: readonly Column[], hidden: ReadonlySet<n
     <div class="pop-bd">
       ${columns.map(column => `
         <label class="pop-opt"><input type="checkbox" data-col="${column.index}" ${hidden.has(column.index) ? "" : "checked"}>
-        <span>${esc(column.label)}</span>${column.hidden && !column.num ? '<span class="po-cnt">ID</span>' : ""}</label>`).join("")}
+        <span>${esc(column.label)}</span>${column.hidden && (column.kind === "id" || / IDs?$/.test(column.label)) ? '<span class="po-cnt">ID</span>' : ""}</label>`).join("")}
     </div>`;
 }
 

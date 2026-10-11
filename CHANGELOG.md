@@ -11,6 +11,15 @@ Cardigan checks the model's engine first, and reads what it can from Polaris.
 - **A model still opening.** Cardigan waits for about two minutes, saying Waiting for the model to open, and reads as soon as the Classic frame answers. A missing reader gets one attempt to put it into the open tab; where that cannot work, Refresh the Anaplan tab and run is offered.
 - **A smaller failure card.** A short title, the reason, a main button to recover and a small Copy diagnostic log button. The log's last line tells a model still opening from a missing or old reader and a tab with no model open.
 
+## 0.22.0 (10 October 2026)
+
+A model's tables follow a reading order, with fewer columns shown at first.
+
+- **The columns in reading order.** Each model table starts with what its rows are, then what they use or do. Anaplan's names stay as they are, including the names that differ between models. A column the model lacks is skipped; a new column follows the named ones and starts shown. (#71)
+- **Hidden columns can be added back.** Line Items starts with its name and module, format, formula, dimensions, summary, references, counts and notes. Its other known columns start hidden, as do a list's references, a module's line items and references, and an action's dashboards. Every hidden column stays in the chooser and the row's details. **Defaults** restores the layout, and column choices kept for the tab still apply by name. (#71)
+- **Rows keep their place.** Anaplan's order and headings stay. Module Usage follows Modules, then app and page. Page Filters follows the condition line item's module and name, then app, page and card; Page Actions follows the model action's name, then app and page. These orders start with no sort mark and no **Reset**. (#71)
+- **Less repeated text.** Model Calendar, Line Items, DCA, Imports and Source Models leave their explanations to **How to read**. Missing notes and warning counts remain under the tables. (#71)
+
 ## 0.21.0 (10 October 2026)
 
 Page filters run from a filter's line item to the line items it filters, and Page Filters says which those are.

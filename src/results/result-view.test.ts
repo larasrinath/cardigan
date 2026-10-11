@@ -341,9 +341,8 @@ describe("What the results page reads out of a result", () => {
     [CALENDAR_PROPERTIES["Week Format"], "Numbered"]]);
   const calendar = (workspace = "Main", model = "Model one"): ResultTable => ({ file: "Model Calendar.csv", label: "Model Calendar", headers: [...CALENDAR_HEADERS], guard: false,
     rows: calendarRows({ workspace, model, capturedOn: "2026-10-03", values: CALENDAR_VALUES }) });
-  /** The line under the table of that calendar: where its rows about the model are, and how many settings have no value. */
-  const CALENDAR_NOTE = "5 rows about the model are not listed here: the Overview names the workspace and the model, under About this export. "
-    + "21 settings have no value and are not listed: they do not apply to this calendar type, or the model does not show them.";
+  /** The warning under the calendar counts settings with no value. */
+  const CALENDAR_NOTE = "21 settings have no value and are not listed: they do not apply to this calendar type, or the model does not show them.";
 
   it("lists every row of every file, but for the rows about the model in a model's Model Calendar file", () => {
     expect([MODEL_CALENDAR_FILE, ABOUT_MODEL]).toEqual(["Model Calendar.csv", "Model"]);
@@ -373,7 +372,7 @@ describe("What the results page reads out of a result", () => {
     expect([fileView(model, renamed), fileView(result("app", [appDetails, file]), file), fileView(model, regrouped)]).toEqual([{ table: renamed }, { table: file }, { table: regrouped }]);
     // A row is left out for being about the model, not for its place: wherever such a row stands, and only such a row.
     const mixed: ResultTable = { ...file, headers: ["Setting", "Section", "Value"], rows: [["Calendar Type", "Model Calendar", "x"], ["Model", "Model", "y"], ["Other", "Something else", "z"], ["Model", "model", "w"]] };
-    expect(fileView(model, mixed)).toEqual({ table: { ...mixed, rows: [mixed.rows[0], mixed.rows[2], mixed.rows[3]] }, note: "1 row about the model is not listed here: the Overview names the model, under About this export." });
+    expect(fileView(model, mixed)).toEqual({ table: { ...mixed, rows: [mixed.rows[0], mixed.rows[2], mixed.rows[3]] } });
     // A calendar file with no row about the model lists its settings that hold a value, under a line that counts the rest.
     const none: ResultTable = { ...file, rows: file.rows.slice(5) };
     expect([fileView(model, none).table.rows.length, fileView(model, none).note]).toEqual([5, CALENDAR_NOTE.slice(CALENDAR_NOTE.indexOf("21 settings"))]);
@@ -384,7 +383,7 @@ describe("What the results page reads out of a result", () => {
     // and the line under its name counts the rows as ever. A table that has rows to list says nothing in their place.
     const only: ResultTable = { ...file, rows: file.rows.slice(0, 5) };
     expect(fileView(model, only)).toEqual({ table: { ...only, headers: CALENDAR_HEADERS.slice(0, 4), rows: [] },
-      note: "5 rows about the model are not listed here: the Overview names the workspace and the model, under About this export.", none: "Every row is about the model." });
+      none: "Every row is about the model." });
     // One whose settings all have no value says that in the rows' place.
     const blank: ResultTable = { ...calendar(), rows: calendarRows({ workspace: "Main", model: "Model one", capturedOn: "2026-10-03", values: new Map() }) };
     expect([fileView(model, blank).table.rows.length, fileView(model, blank).none]).toEqual([0, "No setting of the calendar holds a value."]);
@@ -402,15 +401,15 @@ describe("What the results page reads out of a result", () => {
       rows: [...rows.map(([setting, value]) => ["Model", setting, value]), ["Model Calendar", "Calendar Type", "Weeks: General"]] });
     expect([facts(["Workspace", "Main"], ["Captured on", "2026-10-03"]), facts(["Model", "One"], ["Workspace", " "], ["Other", "x"]), facts(["Fact 1", "a"], ["Fact 2", "b"]),
       facts(["Workspace", ""], ["Model", " "])].map(table => [fileView(model, table).note, modelFacts(result("model", [table])).length])).toEqual([
-      ["2 rows about the model are not listed here: the Overview names the workspace, under About this export.", 2],
-      ["3 rows about the model are not listed here: the Overview names the model, under About this export.", 2],
-      ["2 rows about the model are not shown.", 2],
-      ["2 rows about the model are not shown.", 0]]);
+      [undefined, 2],
+      [undefined, 2],
+      [undefined, 2],
+      [undefined, 0]]);
     // Of a file without one of the columns the overview reads them by it has nothing, and the line says the same.
     const bare: ResultTable = { ...file, headers: ["Section", "Setting"], rows: [["Model", "Workspace"], ["Model", "Model"], ["Model Calendar", "Calendar Type"]] };
     const one: ResultTable = { ...file, headers: ["Section", "Value"], rows: [["Model", "Main"], ["Model Calendar", "Weeks: General"]] };
     expect([fileView(model, bare).note, fileView(model, one).note, modelFacts(result("model", [bare])), modelFacts(result("model", [one]))])
-      .toEqual(["2 rows about the model are not shown.", "1 row about the model is not shown.", [], []]);
+      .toEqual([undefined, undefined, [], []]);
     expect(overviewOf(result("model", [only])).tiles).toEqual([{ label: "Model Calendar", count: 0 }]);
   });
 
@@ -432,26 +431,25 @@ describe("What the results page reads out of a result", () => {
     expect(shown.table).toEqual(lineItemsView(blueprint).table);
     // The modules' own rows are the page's headings: the very rows of the table it shows.
     expect(shown.table.rows.filter(row => shown.headings?.has(row)).map(row => row[0])).toEqual(["Revenue", "--- Archive ---", "Costs"]);
-    // The line is the view's own. The table has no Format, so it says nothing of a filter on the format's data type.
-    expect(shown.note).toBe("Every row of Anaplan's Line Items grid: 4 line items, and 3 modules' own rows, each in bold above its line items, with its own name under Module Name.");
-    expect(shown.note).toBe(lineItemsView(blueprint).note);
+    // The layout is explained in How to read; a complete table needs no note below it.
+    expect(shown.note).toBeUndefined();
     expect(shown.none).toBeUndefined();
     // A grid of modules without line items lists them, and says that no line item is among them.
     const bare: ResultTable = { ...blueprint, rows: [["Revenue", "", "Products, Time", ""], ["Costs", "", "Regions", ""]] };
     const bareShown = fileView(result("model", [bare, modules]), bare);
     expect([bareShown.table, bareShown.note, bareShown.none]).toEqual([{ ...bare, headers: ["", "Module Name", "Formula", "Applies To", "Applies To from"],
       rows: [["Revenue", "Revenue", "", "Products, Time", "Module"], ["Costs", "Costs", "", "Regions", "Module"]] },
-    "Every row of Anaplan's Line Items grid: no line items, and 2 modules' own rows, each in bold, with its own name under Module Name.", undefined]);
+    undefined, undefined]);
     // Without the Modules file there is no module's name to check a row against: the line says that as well.
     expect(fileView(result("model", [modelDetails, blueprint]), blueprint).note)
-      .toBe(`${lineItemsView(blueprint).note} The Modules table was not exported, so a row with only a name is taken for a module's row.`);
+      .toBe(`The Modules table was not exported, so a row with only a name is taken for a module's row.`);
     const full: ResultTable = { ...blueprint, rows: blueprint.rows.filter(row => row[0] !== "--- Archive ---") };
     expect(fileView(result("model", [full, modules]), full).note)
-      .toBe("Every row of Anaplan's Line Items grid: 4 line items, and 2 modules' own rows, each in bold above its line items, with its own name under Module Name.");
+      .toBe(undefined);
     // A module without line items is in the table, so the line does not send anyone to the Modules table for it.
     const two: ResultTable = { ...blueprint, rows: [...blueprint.rows, ["--- End ---", "", "", ""]] };
     expect(fileView(result("model", [two, { ...modules, label: "All modules", rows: [...modules.rows, ["--- End ---", ""]] }]), two).note)
-      .toBe("Every row of Anaplan's Line Items grid: 4 line items, and 4 modules' own rows, each in bold above its line items, with its own name under Module Name.");
+      .toBe(undefined);
     // The file itself is as it was: a model's map is made of it.
     expect([blueprint.rows.length, blueprint.headers, blueprint.rows[1]]).toEqual([7, ["", "Formula", "Applies To", "Module Name"], ["Units", "", "-", "Revenue"]]);
     // The rule is that file's alone, in a model's result. An app's file of that name, a file of another name, and a Line
@@ -471,32 +469,27 @@ describe("What the results page reads out of a result", () => {
       ["ACC01 Access", "Can read", "Read", "REV01 Revenue", "Units"], ["ACC01 Access", "Can read", "Read", "REV01 Revenue", "Price"], ["ACC01 Access", "Can read", "Write", "REV01 Revenue", "Units"]] };
     expect(ACCESS_FILE).toBe("Dynamic Cell Access.csv");
     const model = result("model", [modelDetails, file]);
-    // What the table lists: a use of a driver is a row, so the line item that one driver controls for reading and for
-    // writing is in two.
-    const WHAT = "The Read Access Driver and Write Access Driver columns of Line Items, listed from the driver's side. One row for each use of a driver: the driver, Read or Write, and the line item it controls.";
     const NO_DRIVERS = "No line item in this model has a read or write access driver.";
-    // The table is the file itself, every row and every column; none of its cells is one the page says in words. The line
-    // says what the table lists: no grid of Anaplan's has these columns. A row opens from the driver's name, its second column.
+    // The table keeps every row and column, with no routine note. A row opens from the driver's name, its second column.
     const shown = fileView(model, file);
-    expect([shown.table === file, shown.note, shown.opensFrom, shown.none, shown.exported]).toEqual([true, WHAT, 1, undefined, undefined]);
+    expect([shown.table === file, shown.note, shown.opensFrom, shown.none, shown.exported]).toEqual([true, undefined, 1, undefined, undefined]);
     // A row whose driver the export matched to no line item has no Driver Module, and the driver as Line Items has it.
     // The line counts those rows, one and several, and says where they are and how to tell them.
     const unmatched: Cell[][] = [["", "Gone.Flag", "Read", "COST01 Costs", "Rates"], ["", "'Old access'.Can write", "Write", "COST01 Costs", ""]];
     const withOne: ResultTable = { ...file, rows: [...file.rows, unmatched[0]] };
     const withTwo: ResultTable = { ...file, rows: [...file.rows, ...unmatched] };
     expect([fileView(model, withOne).note, fileView(model, withTwo).note]).toEqual([
-      `${WHAT} 1 row has a driver that could not be matched to a line item: it comes last, with the driver as Line Items has it and no Driver Module.`,
-      `${WHAT} 2 rows have a driver that could not be matched to a line item: they come last, with the driver as Line Items has it and no Driver Module.`]);
+      `1 row has a driver that could not be matched to a line item: it comes last, with the driver as Line Items has it and no Driver Module.`,
+      `2 rows have a driver that could not be matched to a line item: they come last, with the driver as Line Items has it and no Driver Module.`]);
     expect(fileView(model, withTwo).table).toBe(withTwo);
     // The count is read from the file's own rows, by that column wherever it stands and whatever the Details file says:
     // a row that names no module under Controlled Module is not counted for that. The row opens from the driver's name
     // wherever that column stands.
     const moved: ResultTable = { ...withTwo, headers: [...HEADERS.slice(1), HEADERS[0]], rows: [...withTwo.rows.map(row => [...row.slice(1), row[0]]), ["Can read", "Read", "", "Lost", "ACC01 Access"]] };
     expect([fileView(model, moved).note, fileView(model, moved).opensFrom]).toEqual([fileView(model, withTwo).note, 0]);
-    // A model that drives no access has the file without rows. The line says what the table would list, and the table
-    // says in the rows' place what an empty file of this kind means: not that nothing was found.
+    // A model that drives no access has the file without rows; its empty state explains why.
     const empty: ResultTable = { ...file, rows: [] };
-    expect(fileView(model, empty)).toEqual({ table: empty, note: WHAT, empty: NO_DRIVERS, opensFrom: 1 });
+    expect(fileView(model, empty)).toEqual({ table: empty, note: undefined, empty: NO_DRIVERS, opensFrom: 1 });
     expect([shown.empty, fileView(model, modelDetails).empty, fileView(model, { ...file, file: "Versions.csv" }).empty]).toEqual([NO_DRIVERS, undefined, undefined]);
     // The tile and the navigation count every row of the file, the unmatched ones among them: the table leaves none out.
     expect(overviewOf(result("model", [modelDetails, withTwo])).tiles).toEqual([{ label: "DCA", count: 5, full: "Dynamic Cell Access (DCA)" }]);
@@ -507,7 +500,7 @@ describe("What the results page reads out of a result", () => {
     const other: ResultTable = { ...file, headers: ["Driver", ...HEADERS.slice(1)] };
     expect([fileView(result("app", [appDetails, file]), file), fileView(model, renamed), fileView(model, other)]).toEqual([{ table: file }, { table: renamed }, { table: other }]);
     const unnamed: ResultTable = { ...file, headers: [HEADERS[0], "Driver", ...HEADERS.slice(2)] };
-    expect(fileView(model, unnamed)).toEqual({ table: unnamed, note: WHAT, empty: NO_DRIVERS });
+    expect(fileView(model, unnamed)).toEqual({ table: unnamed, note: undefined, empty: NO_DRIVERS });
   });
 
   // A model's Imports file as the export writes it: the Imports tab's own columns, then the import's columns from the
@@ -517,9 +510,6 @@ describe("What the results page reads out of a result", () => {
   const imports = (rows: Cell[][], headers = IMPORT_HEADERS): ResultTable => ({ file: "Imports.csv", label: "Imports", guard: false, headers, rows });
   const HUB_VIEW = "M0 Data Hub [DEV] / 'HRY01 ORG Hierarchy Builder'.'DATA & LIST: ORG3 Area'";
   const OWN_VIEW = "'SYS ORG1 Campus #'.'DATA: SYS ORG1 Campus # (Reset)'";
-  /** The line under the Imports table's name, before what it says of the rows whose Source Object is not read. */
-  const IMPORTS_NOTE = "Source Object is shown as three columns, Source Model, Source Module and Saved View, for an import from a module or a saved view. "
-    + "Source Model names this model where the import reads from this model itself. A row's details add Source Object as it was read.";
 
   it("shows a model's Imports with Source Object as three columns, the source's model, module and saved view, and keeps the text that was read for a row's details", () => {
     const file = imports([
@@ -546,10 +536,10 @@ describe("What the results page reads out of a result", () => {
     // names its column, so that a row's details show it as Source Object.
     expect([...shown.exported ?? []].map(([row, texts]) => [shown.table.rows.findIndex(candidate => candidate === row), [...texts]]))
       .toEqual([[0, [[4, HUB_VIEW]]], [1, [[4, OWN_VIEW]]], [2, [[4, "Hub / 'LIST - Regions'"]]]]);
-    expect([[...shown.readUnder ?? []], shown.note]).toEqual([[[4, "Source Object"]], IMPORTS_NOTE]);
-    // Where the export knew the model by its ID alone, Source Model says This model, and the line says so.
+    expect([[...shown.readUnder ?? []], shown.note]).toEqual([[[4, "Source Object"]], undefined]);
+    // Where the export knew the model by its ID alone, Source Model says This model.
     const byId = fileView({ ...model, name: model.id }, file);
-    expect([byId.table.rows[1].slice(2, 5), byId.note?.includes(`Source Model says ${THIS_MODEL} where`)]).toEqual([[THIS_MODEL, "SYS ORG1 Campus #", "DATA: SYS ORG1 Campus # (Reset)"], true]);
+    expect([byId.table.rows[1].slice(2, 5), byId.note]).toEqual([[THIS_MODEL, "SYS ORG1 Campus #", "DATA: SYS ORG1 Campus # (Reset)"], undefined]);
     // The file itself is as it was: a model's map is made of the result's own tables. The rule keeps every row, so the tile
     // counts the file's own number.
     expect(file).toEqual(kept);
@@ -580,9 +570,9 @@ describe("What the results page reads out of a result", () => {
       ...file.rows.slice(2).map(row => [row[2], "", ""])]);
     expect([...shown.exported ?? []].map(([row]) => row[0])).toEqual(["Slashed", "Quoted"]);
     // The line counts the rows not read whose cell says something, and says where their text is: not the dash, and not an empty cell.
-    expect(shown.note).toBe(`${IMPORTS_NOTE} 5 rows have a Source Object that is not a module or a saved view: their text stands as it is under Source Model.`);
+    expect(shown.note).toBe(`5 rows have a Source Object that is not a module or a saved view: their text stands as it is under Source Model.`);
     const one = imports([file.rows[0], file.rows[2], file.rows[4]]);
-    expect(fileView(result("model", [one]), one).note).toBe(`${IMPORTS_NOTE} 1 row has a Source Object that is not a module or a saved view: its text stands as it is under Source Model.`);
+    expect(fileView(result("model", [one]), one).note).toBe(`1 row has a Source Object that is not a module or a saved view: its text stands as it is under Source Model.`);
     // A file without a row that is read, one without the Source Type column, and one without rows are shown as they stand,
     // with Source Object as the tab writes it: no column is named for what none of its cells holds.
     const files = imports(file.rows.slice(2, 4));
@@ -601,9 +591,6 @@ describe("What the results page reads out of a result", () => {
   const FINANCE = mapping({ workspaceId: WORKSPACE_ID, workspaceName: "Pedalwick Finance [DEV]", modelId: MODEL_ID, modelName: "Finance Hub" });
   const SALES = mapping({ workspaceId: "0123456789abcdef0123456789abcdef", workspaceName: "Sales", modelId: "FEDCBA9876543210FEDCBA9876543210", modelName: "Pipeline" });
   const sourceModels = (rows: Cell[][], headers = ["", "Mapped To", "Notes"]): ResultTable => ({ file: "Source Models.csv", label: "Source Models", guard: false, headers, rows });
-  /** The line under the table's name, before what it says of the rows whose Mapped To could not be read. */
-  const SOURCES_NOTE = "Mapped To is shown as two columns, Mapped Workspace and Mapped Model: the workspace and the model each source model is mapped to, by name, "
-    + "or by ID where Mapped To gives no name. A row's details add Mapped To as it was read.";
 
   it("shows a model's Source Models file with Mapped To as two columns, the workspace and the model by name, and keeps the text that was read for a row's details", () => {
     const file = sourceModels([["Finance Hub (old)", FINANCE, "From the hub"], ["Pipeline", SALES, ""]]);
@@ -613,7 +600,7 @@ describe("What the results page reads out of a result", () => {
     const shown = fileView(model, file);
     // The two columns stand in Mapped To's place, every other column stays where it was, and every row in its order.
     expect([shown.table.headers, shown.table.rows, shown.note]).toEqual([["", "Mapped Workspace", "Mapped Model", "Notes"],
-      [["Finance Hub (old)", "Pedalwick Finance [DEV]", "Finance Hub", "From the hub"], ["Pipeline", "Sales", "Pipeline", ""]], SOURCES_NOTE]);
+      [["Finance Hub (old)", "Pedalwick Finance [DEV]", "Finance Hub", "From the hub"], ["Pipeline", "Sales", "Pipeline", ""]], undefined]);
     // The text that was read is kept for each row once, by the second of the two columns, and is named as the file names
     // its column: a row's details show it as Mapped To.
     expect([...shown.exported ?? []].map(([row, texts]) => [shown.table.rows.findIndex(candidate => candidate === row), [...texts]])).toEqual([[0, [[2, FINANCE]]], [1, [[2, SALES]]]]);
@@ -653,7 +640,7 @@ describe("What the results page reads out of a result", () => {
     expect(shown.table.rows.map(row => [row[1], row[2]])).toEqual(cases.map(([, workspace, model]) => [workspace, model]));
     // Each cell was read: its text is kept for the row's details, where its IDs and all else it holds can be read.
     expect([...shown.exported ?? []].map(([, texts]) => texts.get(2))).toEqual(cases.map(([fields]) => mapping(fields)));
-    expect(shown.note).toBe(SOURCES_NOTE);
+    expect(shown.note).toBe(undefined);
   });
 
   it("leaves a Mapped To that names neither a workspace nor a model as it is, and an empty one empty, and shows a file without a mapping as it stands", () => {
@@ -671,9 +658,9 @@ describe("What the results page reads out of a result", () => {
     expect([...shown.exported ?? []].map(([row]) => row[0])).toEqual(["Finance Hub (old)"]);
     // The line counts the rows whose cell holds something that could not be read, and says where their text is, so that
     // it is not taken for a workspace's name. An empty cell, one of spaces only, or a dash says nothing, and is not counted.
-    expect(shown.note).toBe(`${SOURCES_NOTE} 4 rows have a Mapped To that could not be read: their text stands as it is under Mapped Workspace.`);
+    expect(shown.note).toBe(`4 rows have a Mapped To that could not be read: their text stands as it is under Mapped Workspace.`);
     const one = sourceModels([file.rows[0], file.rows[1], file.rows[5]]);
-    expect(fileView(result("model", [one]), one).note).toBe(`${SOURCES_NOTE} 1 row has a Mapped To that could not be read: its text stands as it is under Mapped Workspace.`);
+    expect(fileView(result("model", [one]), one).note).toBe(`1 row has a Mapped To that could not be read: its text stands as it is under Mapped Workspace.`);
     // A file none of whose cells is a mapping is not as the rule expects it: it is shown as it stands, under the grid's own
     // label, and no column is called a workspace that holds none. So is a file without rows; its tile counts none.
     const none = sourceModels(file.rows.slice(1));
@@ -711,16 +698,14 @@ describe("What the results page reads out of a result", () => {
     expect(shown(among, [modules])).toEqual({
       rows: [["Revenue", "Revenue", "", "Products, Time", "Module"], ["Units", "Revenue", "", "Products, Time", "Module"], ["Price", "", "", "", ""],
         ["Sales", "Revenue", "Units * Price", "Products, Time", "Module"]],
-      note: "Every row of Anaplan's Line Items grid: 3 line items, and 1 module's own row, in bold above its line items, with its own name under Module Name. "
-        + "1 line item has no Module Name: its module is not known.",
+      note: "1 line item has no Module Name: its module is not known.",
       tile: { label: "Line Items", count: 4 } });
     // And here it is the last row under its module: it is a line item, not a module with nothing under its row.
     const last = grid([["Revenue", "", "Products, Time", ""], ["Units", "", "-", "Revenue"], ["Price", "", "", ""], ["Costs", "", "Regions", ""], ["Rent", "", "-", "Costs"]]);
     expect(shown(last, [modules])).toEqual({
       rows: [["Revenue", "Revenue", "", "Products, Time", "Module"], ["Units", "Revenue", "", "Products, Time", "Module"], ["Price", "", "", "", ""],
         ["Costs", "Costs", "", "Regions", "Module"], ["Rent", "Costs", "", "Regions", "Module"]],
-      note: "Every row of Anaplan's Line Items grid: 3 line items, and 2 modules' own rows, each in bold above its line items, with its own name under Module Name. "
-        + "1 line item has no Module Name: its module is not known.",
+      note: "1 line item has no Module Name: its module is not known.",
       tile: { label: "Line Items", count: 5 } });
     // The names are the Modules file's first column, as the file has it: a module the file lists is a module's own row
     // also with nothing under it.
@@ -728,7 +713,7 @@ describe("What the results page reads out of a result", () => {
     expect(shown(last, [listed])).toEqual({
       rows: [["Revenue", "Revenue", "", "Products, Time", "Module"], ["Units", "Revenue", "", "Products, Time", "Module"], ["Price", "Price", "", "", "Module"],
         ["Costs", "Costs", "", "Regions", "Module"], ["Rent", "Costs", "", "Regions", "Module"]],
-      note: "Every row of Anaplan's Line Items grid: 2 line items, and 3 modules' own rows, each in bold above its line items, with its own name under Module Name.",
+      note: undefined,
       tile: { label: "Line Items", count: 5 } });
     // A name is the Modules file's only as the file writes it: listed with a space before or after it, Price is not the
     // row's name, and the row is a line item, as it is when the file does not list it at all.
@@ -738,11 +723,10 @@ describe("What the results page reads out of a result", () => {
     // A result without the Modules file, or with one that lists nothing, has no names to give: such a row is taken for a
     // module's own, as the view does by itself. The line says that the names could not be checked, and why: Price, of
     // which only the name was read, is among the rows it counts as modules' own.
-    const without = "Every row of Anaplan's Line Items grid: 2 line items, and 3 modules' own rows, each in bold above its line items, with its own name under Module Name.";
     expect([shown(last, []).note, shown(last, [{ ...modules, rows: [] }]).note]).toEqual([
-      `${without} The Modules table was not exported, so a row with only a name is taken for a module's row.`,
-      `${without} The Modules table lists no modules, so a row with only a name is taken for a module's row.`]);
-    expect([shown(last, []).rows, lineItemsView(last).note]).toEqual([shown(last, [listed]).rows, without]);
+      `The Modules table was not exported, so a row with only a name is taken for a module's row.`,
+      `The Modules table lists no modules, so a row with only a name is taken for a module's row.`]);
+    expect([shown(last, []).rows, lineItemsView(last).warning]).toEqual([shown(last, [listed]).rows, undefined]);
     expect(shown(among, []).rows).toEqual([["Revenue", "Revenue", "", "Products, Time", "Module"], ["Units", "Revenue", "", "Products, Time", "Module"], ["Price", "Price", "", "", "Module"],
       ["Sales", "Revenue", "Units * Price", "-", "Module (not found)"]]);
   });
@@ -752,25 +736,22 @@ describe("What the results page reads out of a result", () => {
     const grid = (rows: Cell[][]): ResultTable => ({ file: "Line Items.csv", label: "Line Items", guard: false, headers, rows });
     const modules = (rows: Cell[][], label = "Modules"): ResultTable => ({ file: MODULES_FILE, label, headers: ["", "Applies To"], rows, guard: false });
     const note = (file: ResultTable, ...others: ResultTable[]) => fileView(result("model", [modelDetails, file, ...others]), file).note;
-    const counted = "Every row of Anaplan's Line Items grid: 2 line items, and 1 module's own row, in bold above its line items, with its own name under Module Name.";
     const whole = grid([["Revenue", "", "Products, Time", ""], ["Units", "", "-", "Revenue"], ["Price", "Units * 2", "Products", "Revenue"]]);
     // The Modules file failed to export: the result has none. The line says so, and what that means for a row with only a name.
-    expect(note(whole)).toBe(`${counted} The Modules table was not exported, so a row with only a name is taken for a module's row.`);
+    expect(note(whole)).toBe(`The Modules table was not exported, so a row with only a name is taken for a module's row.`);
     // The file is there and lists nothing: the table is named as the page names it, and said to list no modules.
-    expect(note(whole, modules([]))).toBe(`${counted} The Modules table lists no modules, so a row with only a name is taken for a module's row.`);
-    expect(note(whole, modules([], "All modules"))).toBe(`${counted} The All modules table lists no modules, so a row with only a name is taken for a module's row.`);
+    expect(note(whole, modules([]))).toBe(`The Modules table lists no modules, so a row with only a name is taken for a module's row.`);
+    expect(note(whole, modules([], "All modules"))).toBe(`The All modules table lists no modules, so a row with only a name is taken for a module's row.`);
     // With a Modules table that has rows the names were checked, and nothing is added: also when it does not list this module.
-    expect([note(whole, modules([["Revenue", "Products, Time"]])), note(whole, modules([["Costs", "Regions"]]))]).toEqual([counted, counted]);
+    expect([note(whole, modules([["Revenue", "Products, Time"]])), note(whole, modules([["Costs", "Regions"]]))]).toEqual([undefined, undefined]);
     // The sentence is the line's last: after the line items whose module is not known.
     const mixed = grid([["Revenue", "", "Products, Time", ""], ["Units", "", "-", "Revenue"], ["Lost", "Units * 2", "-", ""], ["--- Archive ---", "", "", ""]]);
-    expect(note(mixed)).toBe("Every row of Anaplan's Line Items grid: 2 line items, and 2 modules' own rows, each in bold above its line items, with its own name under Module Name. "
-      + "1 line item has no Module Name: its module is not known. The Modules table was not exported, so a row with only a name is taken for a module's row.");
+    expect(note(mixed)).toBe("1 line item has no Module Name: its module is not known. The Modules table was not exported, so a row with only a name is taken for a module's row.");
     // A table of modules' own rows alone says it too, under the line that counts them.
     const bare = grid([["Revenue", "", "Products, Time", ""], ["Costs", "", "Regions", ""]]);
     const bareShown = fileView(result("model", [bare]), bare);
     expect([bareShown.table.rows.length, bareShown.none, bareShown.note]).toEqual([2, undefined,
-      "Every row of Anaplan's Line Items grid: no line items, and 2 modules' own rows, each in bold, with its own name under Module Name. "
-        + "The Modules table was not exported, so a row with only a name is taken for a module's row."]);
+      "The Modules table was not exported, so a row with only a name is taken for a module's row."]);
     // A file the view does not apply to has no line at all, whatever the result holds: it is shown as it stands.
     const flat = grid([["Units", "", "-", "Revenue"], ["Price", "Units * 2", "Products", "Revenue"]]);
     expect([fileView(result("model", [flat]), flat), fileView(result("app", [appDetails, whole]), whole)]).toEqual([{ table: flat }, { table: whole }]);
@@ -843,9 +824,7 @@ describe("What the results page reads out of a result", () => {
       ["Revenue", "Revenue", "", "", "", "Products, Time", "Module", "", ""],
       ["Units", "Revenue", "Number", "Number", "Sum", "Products, Time", "Module", "", ""],
       ["Margin %", "Revenue", "Number", "Number", "Ratio = Margin / Units", "Products, Time", "Module", "Margin", "Units"]],
-    "Every row of Anaplan's Line Items grid: 2 line items, and 1 module's own row, in bold above its line items, with its own name under Module Name. "
-      + "To list only line items, untick (blank) in the filter of Format type, and No Data as well to leave out the line items that are headings. "
-      + "The Modules table was not exported, so a row with only a name is taken for a module's row."]);
+    "The Modules table was not exported, so a row with only a name is taken for a module's row."]);
     // What is kept is by the shown table's rows and columns: Format stands third there, and second in the file; Summary
     // stands after the format's data type, which is no definition and is not said again.
     expect([...shown.exported ?? []].map(([row, texts]) => [shown.table.rows.findIndex(candidate => candidate === row), [...texts]]))
@@ -890,9 +869,9 @@ describe("What the results page reads out of a result", () => {
       ["", "Products", "Regions <b>& more</b>", "", "", "  ", "Products", "Product catalogue"]]);
     // The text that was read is kept for the Format and the Summary, as before. The Format List cell is the file's own, and has none.
     expect([...shown.exported?.get(shown.table.rows[1]) ?? []]).toEqual([[2, list(101000000007)], [4, NO_SUMMARY]]);
-    // The column starts shown, as the two of a ratio do, and is a column like any other: plain text, with a filter by list.
+    // These three columns start hidden and remain available, as plain text with a filter by list.
     expect(columnsOf(shown.table).slice(-3).map(column => [column.label, column.kind, column.hidden, column.filter])).toEqual([
-      ["Ratio Numerator", "text", false, false], ["Ratio Denominator", "text", false, false], ["Format List", "text", false, true]]);
+      ["Ratio Numerator", "text", true, true], ["Ratio Denominator", "text", true, true], ["Format List", "text", true, true]]);
     // The file itself is as it was: a model's map is made of it.
     expect(lineItems).toEqual(kept);
 
@@ -940,7 +919,7 @@ describe("What the results page reads out of a result", () => {
     // The text that was read is kept for each Action, as for any cell said in words.
     expect([...shown.exported?.get(shown.table.rows[0]) ?? []]).toEqual([[1, actions.rows[0][1]]]);
     // The column is a column like any other: plain text, shown, with a filter by list.
-    expect(columnsOf(shown.table).slice(-1).map(column => [column.label, column.kind, column.hidden, column.filter])).toEqual([["Action List", "text", false, true]]);
+    expect(columnsOf(shown.table).filter(column => column.label === "Action List").map(column => [column.label, column.kind, column.hidden, column.filter])).toEqual([["Action List", "text", false, true]]);
     // The file itself is as it was: a model's map is made of it.
     expect(actions).toEqual(kept);
 
@@ -1026,7 +1005,7 @@ describe("What the results page reads out of a result", () => {
     const filters = table(PAGE_FILTERS_FILE, PAGE_FILTERS_HEADERS, [gone, filter(1, "card-2", {})]);
     const model = result("model", [modelDetails, filters]);
     const OPEN = "deleted since the page was built, or hidden from you.";
-    expect(fileView(model, filters)).toEqual({ table: filters, note: `1 filter points at a module and a line item this model doesn't have: ${OPEN} Open its page to fix the card.` });
+    expect(fileView(model, filters)).toEqual({ table: { ...filters, rows: [filters.rows[1], filters.rows[0]] }, note: `1 filter points at a module and a line item this model doesn't have: ${OPEN} Open its page to fix the card.` });
     // Each thing is counted once by its ID, however many rows name it; the rows by card and by page.
     const more = table(PAGE_FILTERS_FILE, PAGE_FILTERS_HEADERS, [gone, filter(1, "card-1", { "Filtered module": GONE_MODULE }),
       filter(1, "card-3", { "Filtered module": "Demand; Missing module (ID 102000000557)" })]);
@@ -1051,7 +1030,7 @@ describe("What the results page reads out of a result", () => {
     const earlier = table(MODULE_USAGE_FILE, MODULE_USAGE_HEADERS, [{ Module: "102000000556 (not in the model)", ...page(1) }]);
     expect([fileView(model, fine), fileView(model, earlier), fileView(result("app", [appDetails, filters]), filters)]).toEqual([{ table: fine }, { table: earlier }, { table: filters }]);
     // The table is the file as it stands: its tile counts its rows, and the IDs are in the cells a search reads.
-    expect(fileView(model, filters).table).toBe(filters);
+    expect(fileView(model, filters).table.rows).toEqual([filters.rows[1], filters.rows[0]]);
     expect(overviewOf(result("model", [modelDetails, filters])).tiles.find(tile => tile.label === "Page Filters")?.count).toBe(2);
   });
 

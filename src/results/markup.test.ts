@@ -574,7 +574,7 @@ describe("The results page's escaping", () => {
       expect(view.table.rows, entry).toEqual([[entry, entry, entry, entry, "SAVED VIEW"]]);
       const drawer = parseMarkup(rowDrawerHtml(columnsOf(view.table), view.table.rows[0], NO_LINKS, view.exported?.get(view.table.rows[0]), undefined, view.readUnder));
       expect([drawer.querySelectorAll("dt").map(name => name.textContent), drawer.querySelectorAll("dd").map(value => value.textContent)], entry)
-        .toEqual([["Name", "Source Model", "Source Module", "Saved View", "Source Object as read", "Source Type"], [entry, entry, entry, entry, object(entry, entry, entry), "SAVED VIEW"]]);
+        .toEqual([["Name", "Source Type", "Source Model", "Source Module", "Saved View", "Source Object as read"], [entry, "SAVED VIEW", entry, entry, entry, object(entry, entry, entry)]]);
     }
   });
 

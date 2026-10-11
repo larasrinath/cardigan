@@ -68,18 +68,18 @@ const HOW_TO_READ: readonly [detail: string, value: string][] = [
     + "table's order, then by app and page. A page uses a module when a card on it that works on this model shows the module, a saved view of it or "
     + "one of its line items, or filters or formats by one of its line items. A module that no page read uses has one row, with a dash for its app and its page. "
     + "After them come the modules a page uses that the Modules table does not list: one that reads Missing module, with its ID, is one a card "
-    + "still points at that the model no longer has, or that you cannot see. Only published pages are read, and only those you can open."],
+    + "still points at that the model no longer has, or that you cannot see. Module, App and Page are shown; page type and IDs start hidden in the column chooser. Only published pages are read, and only those you can open."],
   ["Page Filters", "The card filters on the pages built on this model, with the columns of an app's Filters table: those of the cards that work on "
-    + "this model, by app, page and card. Each row says first what filters, the condition line item's module and the line item, then what it "
+    + "this model, sorted by the condition line item's module, then Condition line item, app, page and card. Each row says first what filters, the condition line item's module and the line item, then what it "
     + "filters, the module, the dimension and the line items the grid shows, then the condition, and then where the filter is: its app, page, card "
     + "and section. Filtered line items reads All line items, or Only or All except with the line items' names, a name that holds a comma in "
-    + "single quotes; for sections of different modules that share a filter, each module's in turn. "
+    + "single quotes; for sections of different modules that share a filter, each module's in turn. Card and section numbers, page type and IDs start hidden in the column chooser. "
     + `The ${FILTER_USES} column of Line Items counts the rows that have each line item as `
     + "their condition. It is empty, not 0, where a page could not be read, or a filter's condition line item could not be named: the line item "
     + "may be the condition of that filter. A condition line item the model doesn't have is none of them."],
   ["Page Actions", "The action buttons on the pages built on this model, with the columns of an app's Action Buttons table: those of the cards that "
-    + "work on this model, by app, page and card. Each row says first the model's action a button runs, by name and type, then where the button "
-    + "is, by app, page, card and label, and then how it behaves."],
+    + "work on this model, sorted by Model action name, then app and page. Each row says first the model's action a button runs, by name and type, then where the button "
+    + "is, by app, page and label, and then how it behaves. Card number, Name source, page type and IDs start hidden in the column chooser."],
   ["Missing", "A module, a line item, or an import, export or process that a card on a page built on this model points at, and the model doesn't "
     + "have: deleted since the page was built, or hidden from you. Module Usage, Page Filters and Page Actions name it Missing, with its ID, such as "
     + "Missing module (ID 102000000556), so a search for the ID finds it. Where a filter's condition line item is missing, nothing says which module "
