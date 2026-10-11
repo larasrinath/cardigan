@@ -9,7 +9,7 @@ import { inspect, statusWords, traceWords, viewSentence, type Inspection, type T
 import { boundsOf, fullFrom, layoutGraph, sizeNodes } from "./map-layout.js";
 import { automaticGrouping, groupingsOf, type Grouping } from "./map-groups.js";
 import {
-  brokenHtml, emptyHtml, FILTERS_NONE, FILTERS_SAY, FULL_SAYS, fullIconHtml, groupingOptionsHtml, groupOptionsHtml, inspectorHtml, legendHtml, listHtml, notesHtml, pathRootHtml,
+  brokenHtml, emptyHtml, filtersNote as filtersSay, FULL_SAYS, fullIconHtml, groupingOptionsHtml, groupOptionsHtml, inspectorHtml, legendHtml, listHtml, notesHtml, pathRootHtml,
   pickerOptionsHtml, resultsHtml, shellHtml, SHOW_GROUPS, SHOW_MODULES, showOptionsHtml, tooltipHtml, tracebarHtml, type Tip,
 } from "./map-markup.js";
 import { indexModel, isAccess, isFilter, withGrouping, type MapModel } from "./map-model.js";
@@ -700,7 +700,8 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   function renderLegend(): void {
     if (!onScreen) return;
     // A model that has no sections to show has none in its legend either: its modules are one entry, as what they are.
-    legend.innerHTML = legendHtml(onScreen.kind === "drill" || single ? "On this map" : "Sections", onScreen.layers, hiddenLayers, onScreen.edges.some(edge => edge.filter));
+    legend.innerHTML = legendHtml(onScreen.kind === "drill" || single ? "On this map" : "Sections", onScreen.layers, hiddenLayers, onScreen.edges.some(edge => edge.filter),
+      onScreen.nodes.some(node => node.filterMark) ? onScreen.kind : undefined);
     legendButton.hidden = onScreen.layers.length === 0;
   }
 
@@ -749,12 +750,12 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     externalToggle.checked = expanded;
     buildZone.hidden = groupingField.hidden && externalCheck.hidden;
     accessToggle.checked = access;
-    // The links of the pages' filters can be drawn only where the model has some: otherwise the switch is off, and the
-    // note under it says why in its explanation's place.
-    const drawable = filtersDrawable();
+    // The pages' filters can be shown only where the model has some to show, as links between modules or as marks on
+    // modules their own line items filter: otherwise the switch is off, and the note under it says why in its
+    // explanation's place.
     filtersToggle.checked = filters;
-    filtersToggle.disabled = !drawable;
-    filtersNote.textContent = drawable ? FILTERS_SAY : model.graph.pageFilterTable ? FILTERS_NONE.links : FILTERS_NONE.table;
+    filtersToggle.disabled = !filtersDrawable();
+    filtersNote.textContent = filtersSay(model.graph, model.filterEdges.length > 0, model.ownFiltered > 0);
     // Which links are drawn is said on the button too, where more than formulas are.
     linksButton.classList.toggle("map-on", access || filters);
   }
@@ -1012,9 +1013,10 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     tellView();
   }
 
-  /** Whether the model has links of the pages' filters to draw. */
+  /** Whether the model has its pages' filters to show: links of them between modules, or modules that their own line
+   * items filter, which are marked. */
   function filtersDrawable(): boolean {
-    return (model?.filterEdges.length ?? 0) > 0;
+    return (model?.filterEdges.length ?? 0) > 0 || (model?.ownFiltered ?? 0) > 0;
   }
 
   /** Where the map is, as the page keeps it: the view, and in it the group, all modules or the module shown, by name, and
@@ -1417,7 +1419,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
       filters = filtersToggle.checked && filtersDrawable();
       onlyTrace = false;
       build();
-      if (onScreen) announce(`${filters ? "Page filter links are drawn." : "Page filter links are not drawn."} ${viewSentence(onScreen, options.modelName)}`);
+      if (onScreen) announce(`${filters ? "Page filters are drawn." : "Page filters are not drawn."} ${viewSentence(onScreen, options.modelName)}`);
     }
   }));
 
