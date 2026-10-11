@@ -99,7 +99,8 @@
 .map-grouping-field{display:inline-flex;align-items:center;gap:3px;max-width:100%;min-width:0}
 .map-grouping-picker{flex:0 1 auto;min-width:0}
 .map-grouping-info{position:relative;display:inline-flex;flex:none}
-.map-grouping-reason{position:absolute;left:0;top:calc(100% + 8px);z-index:6;width:360px;max-width:calc(100cqw - 24px);max-height:50cqh;overflow:auto;padding:12px;font-size:12px;white-space:normal;overflow-wrap:anywhere;box-shadow:var(--shadow)}
+.map-grouping-reason{position:absolute;left:0;top:calc(100% + 8px);z-index:6;width:360px;max-width:calc(100cqw - 24px);max-height:50cqh;overflow:auto;padding:12px;font-size:12px;white-space:pre-line;overflow-wrap:anywhere;box-shadow:var(--shadow)}
+.map-suggested{margin-left:8px;font-size:11.5px;font-weight:400;color:var(--text-2)}
 .map-step{display:flex;flex:1;align-items:center;min-width:0;border-radius:16px}
 .map-step-name{flex:1;min-width:0;padding:4px 10px;font-size:12px;text-align:left;overflow-wrap:anywhere;white-space:normal}
 .map-step:disabled{color:var(--text-3);cursor:default}
@@ -109,12 +110,12 @@
 .map-picker-pop{position:absolute;left:0;top:calc(100% + 8px);z-index:6;width:360px;max-width:calc(100cqw - 24px);padding:5px;border-color:var(--border-strong);box-shadow:var(--shadow);white-space:normal}
 .map-picker-list,.map-group-list,.map-grouping-list{max-height:min(50cqh,380px);overflow:auto;overscroll-behavior:contain;scroll-padding-top:32px}
 .map-picker-input{display:block;width:100%;height:32px;margin-bottom:5px;padding:0 10px;border:1px solid var(--border-strong);border-radius:var(--r-sm);background:var(--panel);font-size:12px}
-.map-picker-input:focus{border-color:var(--ring)}
+.map-picker-input:focus-visible{border-color:var(--ring)}
 .map-picker-heading{position:sticky;top:0;z-index:1;padding:7px 10px;font-size:11px;font-weight:650;color:var(--text-2);background:var(--panel);border-bottom:1px solid var(--border)}
-.map-picker-opt{display:block;width:100%;padding:7px 10px;border-radius:var(--r-sm);font-size:12.5px;color:var(--text);text-align:left;overflow-wrap:anywhere;cursor:pointer}
-.map-picker-opt:hover,.map-picker-opt.map-active{background:var(--panel-2)}
-.map-picker-opt.map-active{outline:1px solid var(--border-strong);outline-offset:-1px}
-.map-picker-opt.map-current{box-shadow:inset 2px 0 0 var(--accent);color:var(--accent-ink)}
+.map-picker-opt{display:block;width:100%;padding:7px 10px;border-radius:var(--r-pill);font-size:12.5px;color:var(--text);text-align:left;overflow-wrap:anywhere;cursor:pointer}
+/* Selected options use the shared aria-selected rule in results.css. */
+.map-picker-opt:where(:hover,.map-active,:focus-visible):not([aria-selected="true"]){background:var(--panel-2)}
+.map-picker-opt:focus-visible{outline-offset:-2px}
 .map-picker-opt small{display:block;margin-top:1px;font-size:11.5px;color:var(--text-2)}
 .map-picker-note{margin:0;padding:8px 10px;font-size:12px;color:var(--text-2)}
 

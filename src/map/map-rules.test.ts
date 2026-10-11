@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { InspectLink } from "./map-inspect.js";
-import { brokenHtml, emptyHtml, fullIconHtml, inspectorHtml, legendHtml, LIST_CAP, notesHtml, pathRootHtml, pickerOptionsHtml, resultsHtml, shellHtml, tooltipHtml, traceHtml } from "./map-markup.js";
+import { brokenHtml, emptyHtml, fullIconHtml, groupingOptionsHtml, inspectorHtml, legendHtml, LIST_CAP, notesHtml, pathRootHtml, pickerOptionsHtml, resultsHtml, shellHtml, tooltipHtml, traceHtml } from "./map-markup.js";
 
 /** What the map may not do, checked in its own files: the stylesheet and the sources that are bundled. These are the
  * rules the map was built to; a change that breaks one fails here rather than on the page. */
@@ -211,6 +211,7 @@ describe("The map's stylesheet", () => {
       notesHtml({ name: "Model", workspace: "Workspace", modules: 2, lineItems: 3 }, ["A sentence."], 1),
       pathRootHtml("Model", "Workspace", true), pathRootHtml("Model", "Workspace", false), fullIconHtml(true),
       pickerOptionsHtml("map-picker-1", [{ name: "Module", group: "Group" }, { name: "Other" }], 0),
+      groupingOptionsHtml([{ kind: "role", label: "Role in the data flow" }], "role"),
       legendHtml("Groups", layers.map(key => ({ key, label: key, count: 1 })), new Set(["external"]), "modules", "modules", undefined, "modules"), traceHtml(words, false), traceHtml(words, true),
       tooltipHtml({ layer: "s0", kind: "kind", name: "Node", lines: ["a line"], formula: "A + B" }),
       resultsHtml({ hits: [{ kind: "module", name: "Module", context: "Group" }], total: 2 }), resultsHtml({ hits: [], total: 0 }),
@@ -224,7 +225,7 @@ describe("The map's stylesheet", () => {
     // The classes the view sets: its element's own, and those that say a state.
     const view = code("map-view.ts");
     const states = new Set([...view.matchAll(/classList\.(?:add|remove|toggle)\("(map-[a-z0-9-]+)"/g)].map(match => match[1]));
-    expect([...states].sort()).toEqual(["map-active", "map-arriving", "map-current", "map-dragging", "map-full-window", "map-has-inspector", "map-off", "map-on", "map-over-node", "map-show"]);
+    expect([...states].sort()).toEqual(["map-active", "map-arriving", "map-dragging", "map-full-window", "map-has-inspector", "map-off", "map-on", "map-over-node", "map-show"]);
     for (const name of states) written.add(name);
     for (const [, name] of view.matchAll(/setAttribute\("class", "(map-[a-z0-9-]+)"\)/g)) written.add(name);
     const styled = new Set([...STYLES.matchAll(/\.(map-[a-z][a-z0-9-]*)/g)].map(match => match[1]));

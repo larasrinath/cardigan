@@ -373,11 +373,15 @@ export function brokenHtml(reason: string): string {
   return `<div class="map-broken" role="alert" tabindex="-1"><h2 class="map-empty-title">The map could not be drawn</h2><p class="map-empty-text">Drawing it failed${why}, and the map has stopped. The tables of this result are not affected.</p></div>`;
 }
 
-/** Automatic stays a separate choice even when the viewer picks the same grouping by name. */
+/** Each grouping appears once. The suggested one returns to automatic mode when chosen. */
 export function groupingOptionsHtml(groupings: readonly { kind: string; label: string }[], automatic: string | undefined): string {
-  const label = groupings.find(grouping => grouping.kind === automatic)?.label;
-  return [{ kind: "automatic", label: `Automatic${label ? ` · ${label}` : ""}` }, ...groupings]
-    .map(grouping => `<button type="button" class="map-picker-opt" role="option" aria-selected="false" tabindex="-1" data-map-act="grouping" data-map-grouping="${esc(grouping.kind)}">${esc(grouping.label)}</button>`).join("");
+  return groupings.map(grouping => `<button type="button" class="map-picker-opt" role="option" aria-selected="false" tabindex="-1" data-map-act="grouping" data-map-grouping="${esc(grouping.kind)}">${esc(grouping.label)}${grouping.kind === automatic ? ' <span class="map-suggested">Suggested</span>' : ""}</button>`).join("");
+}
+
+/** The first line names the choice in bold; the same plain text is also the info button's tooltip. */
+export function groupingReasonHtml(reason: string): string {
+  const [heading, ...lines] = reason.split("\n");
+  return `<strong>${esc(heading)}</strong>${lines.length ? `\n${esc(lines.join("\n"))}` : ""}`;
 }
 
 /** The values of the Show list that are no group's place. */
@@ -395,12 +399,12 @@ export function groupOptionsHtml(groups: readonly string[], counts: readonly num
  * current module have separate marks: moving through the list does not change which module the map shows. */
 export function pickerOptionsHtml(listId: string, modules: readonly { name: string; group?: string; current?: boolean }[], active: number, all?: { current: boolean }): string {
   let previous: string | undefined;
-  const first = all ? `<div class="map-picker-opt${active === -1 ? " map-active" : ""}${all.current ? " map-current" : ""}" role="option" id="${esc(listId)}-all" aria-selected="${all.current}" data-map-pick="-1">All modules</div>` : "";
+  const first = all ? `<div class="map-picker-opt${active === -1 ? " map-active" : ""}" role="option" id="${esc(listId)}-all" aria-selected="${all.current}" data-map-pick="-1">All modules</div>` : "";
   return first + modules.map((module, index) => {
     const heading = index === 0 || module.group !== previous;
     const end = index === modules.length - 1 || module.group !== modules[index + 1].group;
     previous = module.group;
-    return `${heading ? `<div role="group" aria-label="${esc(module.group ?? "Modules")}"><div class="map-picker-heading" aria-hidden="true">${esc(module.group ?? "Modules")}</div>` : ""}<div class="map-picker-opt${index === active ? " map-active" : ""}${module.current ? " map-current" : ""}" role="option" id="${esc(listId)}-${index}" aria-selected="${module.current ? "true" : "false"}" data-map-pick="${index}"><span class="map-picker-name">${esc(module.name)}</span>${module.current ? '<small>Current module</small>' : ""}</div>${end ? "</div>" : ""}`;
+    return `${heading ? `<div role="group" aria-label="${esc(module.group ?? "Modules")}"><div class="map-picker-heading" aria-hidden="true">${esc(module.group ?? "Modules")}</div>` : ""}<div class="map-picker-opt${index === active ? " map-active" : ""}" role="option" id="${esc(listId)}-${index}" aria-selected="${module.current ? "true" : "false"}" data-map-pick="${index}"><span class="map-picker-name">${esc(module.name)}</span>${module.current ? '<small>Current module</small>' : ""}</div>${end ? "</div>" : ""}`;
   }).join("");
 }
 

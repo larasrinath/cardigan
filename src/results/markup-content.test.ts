@@ -906,7 +906,7 @@ describe("What the results page's markup shows", () => {
     const button = compact.querySelector(".nav-group-btn");
     expect([button?.getAttribute("aria-controls"), button?.getAttribute("aria-expanded"), button?.hasAttribute("aria-current"), text(button), button?.children[0].outerHTML,
       compact.querySelectorAll("b").length, compact.querySelector("#navMenu")?.hidden])
-      .toEqual(["navMenu", "false", false, "Line Items <b>x</b>", parseMarkup(NAV_ICONS.menu).innerHTML, 0, true]);
+      .toEqual(["navMenu", "false", true, "Line Items <b>x</b>", parseMarkup(NAV_ICONS.menu).innerHTML, 0, true]);
     // A group's section is a group to a screen reader, named by the group: its heading, seen, is not read twice.
     expect(compact.querySelector("#navMenu")?.children.map(child => (child.classList.contains("nav-section")
       ? [child.getAttribute("role"), child.getAttribute("aria-label"), child.children.map(each => [text(each), each.getAttribute("aria-hidden"), each.getAttribute("aria-current")])] : text(child))))

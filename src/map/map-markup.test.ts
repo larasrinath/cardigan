@@ -5,7 +5,7 @@ import type { PageFilterCheck } from "./graph-types.js";
 import type { InspectLink, Inspection, TraceWords } from "./map-inspect.js";
 import {
   ACCESS_LINK_SAYS, ACCESS_SAYS, BESIDE_SAYS, brokenHtml, emptyHtml, esc, FILTER_LINK_SAYS, FILTER_MARK_SAYS, FILTERS_BOTH_SAY, FILTERS_NONE, FILTERS_OWN_SAY, FILTERS_SAY, FILTERS_UNSAID, filtersNote, FORMULAS_SAY, FULL_SAYS, fullIconHtml, groupingOptionsHtml, groupOptionsHtml, inspectorHtml,
-  legendHtml, LINK_SAYS, LIST_CAP, listHtml, NO_LINKS_SAYS, notesHtml, type LegendLinks,
+  groupingReasonHtml, legendHtml, LINK_SAYS, LIST_CAP, listHtml, NO_LINKS_SAYS, notesHtml, type LegendLinks,
   pathRootHtml, pickerOptionsHtml, resultsHtml, shellHtml, SHOW_GROUPS, SHOW_MODULES, TIP_FORMULA, tooltipHtml, traceHtml, type ShellIds,
 } from "./map-markup.js";
 import { HOSTILE } from "./map-fakes.test-support.js";
@@ -109,6 +109,7 @@ describe("The map's escaping", () => {
     expectInert(text => groupOptionsHtml([text(0), text(1), text(2)], [1, 2, 3]), 3);
     expectInert(text => groupOptionsHtml([text(0), text(1)], [4, 1]), 2);
     expectInert(text => groupingOptionsHtml([{ kind: "headings", label: text(0) }, { kind: "role", label: text(1) }], "role"), 2);
+    expectInert(text => groupingReasonHtml(`${text(0)}\n${text(1)}`), 2);
     expectInert(text => pickerOptionsHtml("map-picker-1", [{ name: text(0), group: text(1) }, { name: text(2) }], 0), 3);
     expectInert(text => emptyHtml(text(0), text(1), [text(2), text(3)]), 4);
     expectInert(text => brokenHtml(text(0)), 1);
@@ -547,7 +548,11 @@ describe("The map's panels", () => {
     expect(options(groupOptionsHtml(["01: Inputs", "02: Calculations"], [2, 0]))).toEqual([["groups", "All groups"], ["0", "01: Inputs · 2 modules"], ["1", "02: Calculations · 0 modules"]]);
     // Group by names each grouping as the switch's label has it, and the one the map picks says so.
     expect(options(groupingOptionsHtml([{ kind: "headings", label: "Headings" }, { kind: "role", label: "Role in the data flow" }], "role")))
-      .toEqual([["automatic", "Automatic · Role in the data flow"], ["headings", "Headings"], ["role", "Role in the data flow"]]);
+      .toEqual([["headings", "Headings"], ["role", "Role in the data flow Suggested"]]);
+    const choices = parseMarkup(`<div>${groupingOptionsHtml([{ kind: "headings", label: "Headings" }, { kind: "role", label: "Role in the data flow" }], "headings")}</div>`);
+    expect(choices.querySelectorAll("[role=option]").map(option => [option.dataset.mapGrouping, option.textContent, option.querySelector(".map-suggested")?.textContent]))
+      .toEqual([["headings", "Headings Suggested", "Suggested"], ["role", "Role in the data flow", undefined]]);
+    expect(choices.querySelectorAll("select")).toEqual([]);
   });
 
   it("lists the picker's modules by their place, with the one the arrows are on chosen, and each one's group where the list holds several", () => {
