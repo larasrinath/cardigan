@@ -76,9 +76,9 @@ const HOW_TO_READ: readonly [detail: string, value: string][] = [
     + "is, by app, page, card and label, and then how it behaves."],
   ["Missing", "A module, a line item, or an import, export or process that a card on a page built on this model points at, and the model doesn't "
     + "have: deleted since the page was built, or hidden from you. Module Usage, Page Filters and Page Actions name it Missing, with its ID, such as "
-    + `Missing module (ID 102000000556), so a search for the ID finds it. Where a filter's condition line item is missing, its module reads ${MISSING_LINE_ITEMS_MODULE}: `
-    + "nothing says which module it was in. Open the page with the row's App or Page button to fix the card. A dimension or a list that no read "
-    + "names shows as its ID."],
+    + "Missing module (ID 102000000556), so a search for the ID finds it. Where a filter's condition line item is missing, nothing says which module "
+    + `it was in, and its module reads ${MISSING_LINE_ITEMS_MODULE}. Open the page with the row's App or Page button to fix the card. A dimension or a `
+    + "list that no read names shows as its ID."],
 ];
 
 /** What the work reads through: a test passes its own. `loadCatalogWhen` reads a model's names before the pages and the
