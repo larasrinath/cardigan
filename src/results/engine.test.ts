@@ -233,7 +233,7 @@ describe("The results page against the engine in the Anaplan tab", () => {
       .map(row => `${tableLabel({ file: String(row[1]), label: String(row[1]).replace(/\.csv$/, "") })}: ${row[2]}`);
     const onTiles = overview.tiles.map(tile => `${tile.label}: ${tile.count} rows`);
     expect([counts.length, counts.filter(line => !onTiles.includes(line)), overview.tiles.find(tile => tile.label === "Model Calendar")])
-      .toEqual([10, ["Model Calendar: 31 rows"], expect.objectContaining({ label: "Model Calendar", count: 10, value: "Weekly", detail: "FY24",
+      .toEqual([10, ["Model Calendar: 31 rows"], expect.objectContaining({ label: "Model Calendar", count: 10, value: "FY24", detail: "Weekly",
         title: "Model Calendar: Weeks: 4-4-5, 4-5-4 or 5-4-4, current fiscal year FY24 (31 Dec 2023 - 28 Dec 2024)" })]);
     const leftOut = /^(\d+) settings have no value and are not listed/.exec(calendar ? fileView(result, calendar).note ?? "" : "");
     expect(10 + 5 + Number(leftOut?.[1])).toBe(31);

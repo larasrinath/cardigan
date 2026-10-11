@@ -1,340 +1,207 @@
 # Cardigan
 
-Cardigan is a read-only Chrome extension that shows you inside any Anaplan model or app: modules, line items, imports and their mappings, processes and page filters as searchable tables, plus an interactive model map. Nothing leaves your browser.
+Cardigan is a read-only Chrome extension that reads an Anaplan model or app you have open and lays it out as searchable tables and an Overview, with a Model map for models. It changes nothing in your model or app.
 
-Open a model or app in Anaplan and click the Cardigan icon. The result opens in its own tab, where you can search, sort and filter the tables and follow the model's dependencies. Classic and [Polaris models](#polaris-models) get their full Model settings when Model Building's Classic client answers; without it, Cardigan falls back to a partial read.
+Cardigan only reads, with your own signed-in session; nothing leaves your browser except those reads to Anaplan. See [NOTICE.md](NOTICE.md).
 
-Cardigan makes no file and offers no download: the results page is the only place to see a result. The last result is kept for its tab in the browser's session storage, so that a refresh brings it back, as you left it.
+## Contents
 
-Cardigan only reads, with your own signed-in session, and nothing it reads leaves your browser. It is an independent project, not affiliated with Anaplan: see [NOTICE.md](NOTICE.md).
-
-![Demand Planning model Overview with table counts, a Weekly calendar tile for FY26, and the workspace, model and app under About this export](docs/images/model-overview.png)
-
-The pictures show model analysis of an invented bicycle planning model. Names, identifiers and data are invented. Each picture is 1440 x 900; most use the light theme, with the line-item map in the dark theme.
+▪ **[What you get](#what-you-get)**\
+&emsp;– [For a model](#for-a-model)\
+&emsp;– [Model map](#model-map)\
+&emsp;– [For an app](#for-an-app)\
+▪ **[Install](#install)**\
+▪ **[Use](#use)**\
+&emsp;– [Run](#run)\
+&emsp;– [Refresh the Anaplan tab and run](#refresh-the-anaplan-tab-and-run)\
+&emsp;– [Working with tables](#working-with-tables)\
+&emsp;– [If it does not start](#if-it-does-not-start)\
+▪ **[Privacy and permissions](#privacy-and-permissions)**\
+▪ **[Limits](#limits)**\
+▪ **[For developers](#for-developers)**\
+&emsp;– [Release](#release)\
+▪ **[Thanks](#thanks)**\
+▪ **[Licence](#licence)**
 
 ## What you get
 
-A lone dash, after trimming spaces, shows as an empty cell in every model and app table and in row details. Filters group it with empty cells under **(blank)**; search does not find it, and sort and number or date ranges treat it as blank. Kept filters that selected or excluded a dash still apply to the blank value. In **Line Items**, a dash under **Applies To**, **Read Access Driver** or **Write Access Driver** means the module's setting. Applies To shows the resolved dimensions with **Applies To from** saying **Module**; if the module is not found, the dash stays. Access-driver dashes stay too. The stored result, map and other analyses keep their original cells.
-
 ### For a model
 
-Open the model in Model Building; the classic model page opened on its own works too. Both engines use the same Classic client to read the full Model settings. The export loads the client once, with no separate engine read or call to its workspace cache getter. Cardigan gets the engine from the export's Line Items columns: **Populated Cell Count** or **Calculation Complexity** means Polaris; otherwise Classic. The workspace name comes from the page when available. Cardigan waits up to about two minutes for that client to check in; a failed read is reported without trying another reader.
+Open the model in **Model Building**. The **Overview** shows table counts, the model calendar, details of what was read and any gaps. Click a tile to open its table. **How to read these tables**, on the Overview, explains each table's columns and rules.
 
-#### Classic settings
+![Model Overview with table counts, the calendar and model details](docs/images/model-overview.png)
 
-**Classic:** Cardigan reads the Model settings into thirteen tables, in Anaplan's order, and makes a fourteenth, DCA (Dynamic Cell Access), from Line Items: Model Calendar, Time Ranges, Versions, General Lists, Line Item Subsets, Modules, Line Items, DCA, Processes, Imports, Data Sources, Exports, Other Actions and Source Models. The page calls two of them by shorter names than Anaplan's: **Data Sources** is Anaplan's Import Data Sources, and **DCA** is Dynamic Cell Access, which its tab and its tile say in full when hovered and to a screen reader.
+The menu bar groups the model's tables:
 
-It also reads the pages built on the model, in every app you can open, and makes three more tables: **Module Usage**, **Page Filters** and **Page Actions**. They come last, before the map. The pages are read while the Model settings are, since neither needs the other, and so are the names of the model's modules and lists; the rest of the names wait for the settings. The pages' cards are named with the line items Cardigan reads from Line Items, so a large model's pages are named without reading its modules again. The diagnostic log ends with a line that says how long the settings, the pages and the names took, and the run in all.
+<table>
+  <thead>
+    <tr><th>Menu</th><th>Table</th><th>What it shows</th></tr>
+  </thead>
+  <tbody>
+    <tr><td rowspan="5"><b>Dimensions</b></td><td>Model Calendar</td><td>The model's calendar settings.</td></tr>
+    <tr><td>Time Ranges</td><td>The model's time ranges.</td></tr>
+    <tr><td>Versions</td><td>Versions and their settings.</td></tr>
+    <tr><td>General Lists</td><td>Lists, hierarchies, properties and subsets.</td></tr>
+    <tr><td>Line Item Subsets</td><td>Subsets, their modules and member counts.</td></tr>
+    <tr><td rowspan="3"><b>Modules</b></td><td>Modules</td><td>Modules, dimensions, functional areas and settings.</td></tr>
+    <tr><td>Line Items</td><td>Line items, formulas, formats and dimensions.</td></tr>
+    <tr><td>DCA (Dynamic Cell Access)</td><td>Read and write access drivers and what they control.</td></tr>
+    <tr><td rowspan="5"><b>Actions</b></td><td>Processes</td><td>Processes and their actions.</td></tr>
+    <tr><td>Imports</td><td>Sources, targets and import settings.</td></tr>
+    <tr><td>Data Sources</td><td>Import sources and the imports that use them.</td></tr>
+    <tr><td>Exports</td><td>Export actions and their settings.</td></tr>
+    <tr><td>Other Actions</td><td>Other model actions, such as deleting or ordering list items.</td></tr>
+    <tr><td><b>Source Models</b></td><td>Source Models</td><td>Source model mappings and their sources and imports.</td></tr>
+    <tr><td rowspan="3"><b>App Usage</b></td><td>Module Usage</td><td>Where published pages use the model's modules.</td></tr>
+    <tr><td>Page Filters</td><td>Card filters on pages built on the model.</td></tr>
+    <tr><td>Page Actions</td><td>Action buttons on pages built on the model.</td></tr>
+  </tbody>
+</table>
 
-One module's live listing checks those exported names. Cardigan keeps the export if at least 98% of the line item IDs present in either source have exactly the same name in both, after decoding one layer of HTML entities in listing names. Export names are already plain text; a literal `&amp;` stays literal. A rename, addition or deletion counts as one difference; 290 alike out of 291 keeps the export. Below 98%, the modules the pages use are read from the listing. Any module read live uses that listing in full. The diagnostic log says which path was taken, lists up to five differences with quoted names, and counts the rest. Page filter line items use the export first. If it covers every module in the module views listing, absent IDs need no search. Otherwise only uncovered modules are searched, at most four at a time. A single unnamed filter ID can still be called **Missing** only when every module's line items were read; ambiguous context and incomplete reads keep their existing unnamed wording. Dimension IDs absent from the lists, module views and module dimensions need no lookup of their modules; the remaining lookups run up to four at once.
+**Line Items** lists each line item beside its module. Module settings have their own table, **Modules**. Use **Format type** to filter by data type; untick **No Data** to leave out line items used as headings. Open a row to read its formula, dimensions and references in full.
 
-- A model's columns follow a reading order with Anaplan's names: what each row is, what it uses or does, then its run and notes where it has them. Hidden columns remain in the column chooser and the row's details. **Defaults** restores this layout; kept choices still apply. A missing column is skipped, and a new column follows the named ones and starts shown. Rows keep Anaplan's order and headings unless a table below says otherwise, with no sort mark or **Reset** at first.
-- **Line Items** lists only line items, each beside its module under **Module Name**. Modules' own rows and the headings that divide modules are left out; a module's own settings open in **Modules**. Line items whose module is not known stay. The row count and Overview tile count line items only; the result, map and other analyses keep the full grid. **Format type**, after **Format**, gives each line item's data type: Number, Boolean, Date, Time Period, List, Text or No Data. It always has a filter: untick **No Data** to leave out line items that are headings. Module rows no longer add **(blank)** to the filter; older saved filters still load. A saved open module row from Line Items stays closed after refresh. The table starts with **Name**, **Module Name**, **Format**, **Format type**, **Formula**, **Applies To**, **Time Scale**, **Versions**, **Summary**, **Referenced By**, **Cell Count**, **Calculation Effort**, **Page Filters** and **Notes**. The other known columns start hidden, including **Applies To from**, access drivers, **Ratio Numerator**, **Ratio Denominator** and **Format List**.
-- **General Lists** starts with its name, hierarchy, top level and item count, then Numbered, Production Data, Properties, Subsets and Notes. Display Name Property and its three columns of references start hidden. **Modules** starts with its name, functional area, dimensions, time, versions, cell count and notes; Line Items and Referenced By start hidden. The chooser can add all of them back. **Time Ranges** starts with Name, Start Period and End Period; **Versions** with Name, Is Actual, Switchover, Edit From and Edit To. Their remaining columns stay shown. **Data Sources** shows the name, source type, model, object name and imports; **Source Models** shows the name, mapped workspace and model, Sources and Imports. Anaplan's header variants, such as **Top Level Item**, **Numbered List**, **Populated Cell Count**, **Type** and **Used in Imports**, keep their names.
-- **Line Item Subsets** is in the **Dimensions** menu under the Lists heading, beside **General Lists**, with an Overview tile counting its subsets. Name, Modules, Line Items and Notes come first. Modules shows names in model order; raw IDs stay in the hidden **Module IDs** column. An unknown ID stays visible and is named in the diagnostic log. **Line Items** shows a count, such as **12 line items**, with a number range filter; hidden **Line Item Names** keeps every member searchable. Membership is read one subset at a time, as Model Building's editor reads it, with that subset as the static context. A subset with no Modules has 0 members and needs no membership read. Only true values select members, whatever their case or surrounding spaces. Empty and false cells mean not selected. Disabled and other unexpected values mean not selected too, and Diagnostics counts them and samples the first three distinct values. Module headings group the rows and never count as members. A missing subset column or failed read leaves only that subset unknown: its count is blank, **Membership read** is false, and its details say **This subset's line items were not read.** The log gives the reason; other subsets still show. If the native identifier helper is missing, membership is not read. Diagnostics also flags identical non-empty member lists across subsets with different Modules, without changing the data. Details show **Line items · N**, grouped under module names in model order, with each module's members in its line item order. Module headings and member names open their matching rows; **Applies To** in Modules and Line Items opens a matching subset. Unmatched names stay plain. **Model** opens the Line Item Subsets settings page. IDs and membership status start hidden, and columns remain in the chooser. With no subsets, Line Item Subsets stays under Lists and opens an empty table; its Overview tile is hidden.
-- **A row's details keep the same order:** its name and table, the buttons for opening it elsewhere, then Mapping for an import, Actions for a process, or Sources and Imports for a source model. **All columns** follows in the table's order, with hidden columns after; a column with its own section is not repeated. Raw values such as **Format as read** sit last under **As read**, folded until opened.
-- **Details float over the table.** The panel slides over its right edge with no dimming, while the table keeps its full width, position and scroll. The open row stays highlighted; click another row to read it there. Switching to another table, the Overview or the Model map through navigation closes the panel and clears the row; returning or refreshing keeps it closed. Following a row link inside the panel shows **Back**, which returns to the previous row; selecting a table row starts again. The details' **Model map** button keeps the row, and the map's **Table** button opens its row's details. Refresh and **Run again** on the same tab reopen the open row where it still exists. The header keeps its Timezone, Run again and theme buttons together above the panel. Drag the left edge or use its arrow keys to resize; the viewer's width is kept. Below 900 pixels the panel covers the full width. **Esc**, the close button or a click on empty page or table space hides it and returns focus to the opening row without scrolling. It stays closed on refresh. Controls and clicks or drags inside the panel keep it open; a click that dismisses a popover or menu closes only that popover or menu.
-- **A row's details list a cell of several items one to a line**, with how many beside the column's name, such as **Referenced By (10)**: what a module or a line item applies to and what refers to it, a module's line items, a list's subsets, properties and what uses it, an action's processes and a data source's imports. A module's line items are its rows of Line Items, so a name that holds a comma stays one item. A list of more than fifteen shows its first twelve, and **Show all** shows the rest in place; the browser's find in page finds them too. An item that is a row of the model, a module, a line item, a list, a process or an import, opens that row's details, where exactly one row has its name, including a cell with just one item. Module Name, Target Object, DCA's modules and line items, a page filter's condition line item and modules, a page action's model action and a data source's Source Model link to their rows too. An unmatched, ambiguous or Missing name stays plain text. A cell that names things without quotes, where Cardigan has no names to check them by, is shown whole: **Used in Dashboards**, **Data Tags** and **Users List**.
-- **Open a row where it leads, from the buttons under its name in its details.** They stand side by side in one row, each with its icon, and wrap onto a second row only in a narrow window; the close button stays alone at the top right:
-  - **Model map** shows a line item, a module or a list on the map, from **Line Items**, **Modules**, **Module Usage**, **General Lists**, **DCA** or **Page Filters**, where that box exists. DCA opens its driver, or the controlled line item where the driver has no box; Page Filters opens the condition line item.
-  - **Model** opens the row's module or list in Model Building: a line item opens its module, since Model Building opens modules, not single line items, and a row of **General Lists** opens its list. In **Page Filters**, **Condition module** and **Filtered module** open the filter's two modules, or one **Model** button where they are the same, and **Filtered list** opens the list the filtered dimension is, or the list of a subset. Where the Anaplan tab shows the model in Model Building, the module or the list opens there beside the tabs already open, as Model Building's own Modules list and General Lists open one, and the page does not load again. Anywhere else, the object's own link is loaded, which opens the model with that module or list alone. As in Model Building itself, a list opens only for a workspace administrator; to anyone else Anaplan says that it cannot find it.
-  - **App** and **Page** open the app and the page in Anaplan, from **Module Usage**, **Page Filters** and **Page Actions**.
+![Line Items with a Format type filter and a row's details open](docs/images/model-line-items.png)
 
-  What **Model** opens, from each of a model's tables:
+**Imports** shows where data comes from and where it goes. For file imports, the row's **Mapping** shows the saved sources and targets, including constants and prompts, and notes targets that are not mapped. It reads the saved definition, not the uploaded file.
 
-  | Table | Model opens |
-  | --- | --- |
-  | Modules, Line Items, Module Usage | the module |
-  | DCA | the driver's module and the controlled module (**Driver module**, **Controlled module**), or one **Model** where they are one |
-  | General Lists | the list |
-  | Page Filters | the condition line item's module and the filtered module, and the filtered dimension's list (**Filtered list**) |
-  | Model Calendar, Time Ranges | the Time page |
-  | Versions | the Versions page |
-  | Processes, Imports, Exports, Other Actions, Data Sources, Page Actions | the Actions page |
-  | Source Models | the Source Models page |
-  | Line Item Subsets | the Line Item Subsets page |
+![A file import's saved mapping in its details](docs/images/model-imports.png)
 
-  A page of the model's settings opens the same way: where the Anaplan tab shows the model in Model Building, inside the page, as Model Building's own sidebar opens it, so the modules and lists open there stay open; anywhere else, by its Model Building address, which loads Model Building afresh. Either way it opens as a whole, since neither way says which row to select.
+**Processes** shows each process's actions in run order. Open a row to see the steps and follow an action to its own details.
 
-  A button's title names what it opens, and only the buttons whose place is known are there: what a row names **Missing** has no **Model** button, and a line under the details' header says the model doesn't have it. Modules and lists open in the Anaplan tab Cardigan read, which comes to the front with its window. Apps and pages open in a tab of their own: the first **App** or **Page** opens a new tab next to this page, and every later one uses that tab. No tab opens for each click, and the details stay open here. If the Anaplan tab has been closed, the first module or list opens one tab in its place, and every later one uses that; a closed tab of apps and pages is replaced the same way. A refresh of this page keeps both. Where the result keeps every row from a way to open it, as one an earlier version read, a line under the details' header says why. The Anaplan tab never goes to an app, so **Run again** reads the model again. A model tab that still holds the reader of an earlier Cardigan first gets this one's, where Chrome lets Cardigan reach the model's frame, and the module, the list or the page then opens beside the tabs already open; elsewhere it loads the object's link, which brings the new reader with the page.
-- **DCA** (Dynamic Cell Access) lists each access driver with the line items it controls, one row per use, marked **Read** or **Write**. It is made from the **Read Access Driver** and **Write Access Driver** columns of Line Items, which name a driver on the line item or module it controls. A line item with an inherited driver is listed with its module's driver. A driver set on a module's own row is the module's own: **Controlled Line Item** is empty and **Controlled Module** opens its row in **Modules**.
-- The page says a format, a summary or an action's definition in words, such as "Number, 2 decimal places", "List: Products" or "Delete from Products using Selection". Click the row and open **As read** to see the definition under **Format as read**, **Summary as read** or **Action as read**.
-- **Processes**, **Exports** and **Other Actions** are the Actions list, split at its headings. **Processes** lists right after each process's name the actions it runs, in the order it runs them, with a filter by each action; it leaves out **Used in Processes**, as Anaplan runs no process inside another, and **Action**, where every process leaves it empty. After **Action** in **Other Actions** comes **Action List**, the list an action deletes from or orders, as General Lists names it. **Used in Processes** follows the action, then **Start Date and Time**, **Most recent duration (ms)** and **Notes**. **Used in Dashboards** starts hidden in all four action tables. **Imports** starts with **Name**, **Source Type**, **Source Label**, the source model, module and saved view, then the target type and object, processes, run, notes and **Production Data**.
-- In **Imports**, an import from a module or a saved view shows its **Source Object** as three columns, **Source Model**, **Source Module** and **Saved View**. For an import from the model itself, Source Model names the model. Click the row and open **As read** to see **Source Object as read**. Any other source, such as a file, stays as it is, under Source Model.
-- **An import from a file shows its mapping.** Click a row of **Imports** whose **Source Type** is FILE: before **All columns**, **Mapping** lists each source of the import first, with the target it feeds. The file's columns come first: each by the file's header for it where the import keeps one, as Anaplan most often saves a column, or else by its number ("Column 3"), in the file's order where the import gives the columns' places, and a column that feeds two targets has a row for each, together. After the columns come the constants with their values, the prompts and the header row. For an import into a module the targets are its dimensions (each list, **Time**, **Versions** and **Line Items**) and its line items; for an import into a list, the list's items, **Parent**, **Code** and its properties. A target that nothing feeds has no row, so the table has no empty source: a line under it names each such target after **Not mapped**, with why where there is more to say (ignored, or a list that numbers its items itself). Above the table of an import into a list, a line says how the list's items are told apart, in Anaplan's own words for the import's choice: **Items uniquely identified by** Name or code, Name only, Code only (for a numbered list, Name (#ID) or Code), or a combination of properties, each named. That is why **Parent** or **Code** may rightly be not mapped, and a numbered list told apart by code or by properties numbers its items itself, which the line of targets not mapped says. Of an import into a module, a line under a source says how it is read, where the import keeps it: how many of a dimension's items are mapped by hand and how many ignored, the format **Time**'s periods are read by (or that they are matched by their names), and a date line item's format. A dimension whose items nothing is mapped for by hand is matched on its items' names or codes when the import runs, and a line under the table says so. Where the line items come from the header row, each header mapped to a line item by hand is a row of its own, with its line item, and each header ignored a row that says **Ignored**, after the other columns. Where none is, the header row is matched on the line items' names or codes when the import runs: Anaplan stores no such match, as **How to read** explains. The mapping lists under the header row the line items of the module that a header can match (the first five, and **Show all** for the rest), which are the headers the file can use, not the file's own. With the header row the import has no single column of values, and the page names none as not mapped. Another line names the file's columns before the last one mapped that no target uses. Notes under **Mapping** describe only this import; **How to read** explains which headers Anaplan stores and why columns after the last mapped one are not known. The mapping comes from the import's own saved definition, so it shows even when the file is no longer available. An import into users, versions or line items says what it loads instead. The diagnostic log on the Overview follows each step: how many imports there are by **Source Type**, the read of their definitions, each definition's make (its keys), how it writes its first column (each of the three ways a definition can, by its type and at most 20 characters of its value), the keys of the parts that could say more of its columns, a line on how its items are matched (each dimension's items mapped by hand and ignored, with the type and length of the first two source values but never their text, the codes behind them, which items it clears first, and whether **Time** has a period format), and how many mappings were found and read.
-- **A process lists the actions it runs.** Click a row of **Processes**: before **All columns**, **Actions** lists each action the process runs, numbered in the order it runs them, with its kind (Import, Export or Other action). Click an action's name to open its own row. The order comes from the process's own saved definition, as Anaplan's Actions tab reads it. For a result an earlier version kept, or where the definitions could not be read, **Actions** lists the actions whose **Used in Processes** names the process instead, by kind, and says that the order is not known. The diagnostic log says how many processes there are, and how many were read with how many actions of each kind.
-- **Source Models** shows **Mapped To** as two columns, **Mapped Workspace** and **Mapped Model**: the workspace and the model each source model is mapped to, by name, or by ID where Anaplan gives no name. Click the row and open **As read** to see **Mapped To as read**. Above it, the row's details list what that source model gives: **Sources**, each of its objects that the model's imports read, with its kind (saved view, module or list), from the rows of **Data Sources** that name it; and **Imports**, each import that reads them, with what it reads. A name opens its own row where exactly one row has it. A source model is found by its name as each table writes it, or by the model's own name where one table puts its workspace in front and no other source model has that name. Where Data Sources names none of its objects, the imports come from the Imports table's **Source Object**. Where what is found is not what the row counts, a line says so; a source model that neither table names gets no list, and the diagnostic log says so.
-- **Module Usage** lists each module with the apps and pages that use it, one row per module and page, in the order of Modules, then app and page. A page uses a module when a card on it shows the module, a saved view of it or one of its line items, or filters or formats by one of its line items. A module that no page uses has one row, with blank cells for its app and its page: a filter of either lists them under **(blank)**, and the search finds the module by its name. **App** always has a filter.
-- **Page Filters** has the columns of an app's **Filters** table for those pages, with the app, in an order of its own: first what filters, the condition line item's module and the line item, then what it filters, the module, the dimension and the line items the grid shows (**Filtered line items**: all of them, only some or all but some, by name), then the condition (operator, value, which items show, its group and context, and what it filters on), and then where it is: app, page, card and section. **Page Actions** has those of **Action Buttons**: first the model's action a button runs, by name and type, then where the button is, by app, page, card and label, then how it behaves. Both list every filter and every button of a card that works on this model. Page Filters rows are sorted by the condition line item's module, then the line item, app, page and card. Page Actions rows are sorted by Model action name, then app and page.
-- The three tables end with columns that start hidden: each page's type and the IDs of its app and of itself, beside the IDs the app's tables hide. Card and section numbers also start hidden, as does **Name source** in Page Actions. The column chooser shows them.
-- **Missing** marks what a card on a page points at that the model doesn't have: deleted since the page was built, or hidden from you. The cell says what it was and keeps its ID, such as **Missing module (ID 102000000556)**, **Missing line item (ID 1916000000014)** or **Missing process (ID 118000000003)**, so searching for the ID finds the row; the hidden ID columns hold the ID too, and a missing filter line item's is now in **Line item ID**, where a dash stood. Where a filter's condition line item is missing, its module reads **Missing line item: module not known**, since nothing says which module it was in; the module may still be in the model. A line under the table's name counts the filters, buttons or pages that point at such things, with what they point at, such as "1 filter points at a module and a line item this model doesn't have", and the Overview's notes say how many cards do. In the row's details there is no **Model** button for what is missing, and a line under the header says why; **App** and **Page** open the page, to fix the card. Only what the model's names prove is marked: a module the model's list of modules doesn't hold, a line item that its module's line items don't list, a filter rule's line item where the rule has one item that nothing names and every module's line items were read, and an import, export or process that the model's actions don't list. A dimension or a list that nothing names keeps its ID, as does a filter rule with two items that nothing names, either of which may be its line item.
-- **Line Items** has one more column, **Page Filters**: how many page filters have the line item as their condition. It is empty rather than 0 when a page could not be read, or a filter's condition line item could not be named. A filter whose condition line item the model doesn't have counts for none of them, and leaves no count empty.
-- On the Overview, **About this export** says the **Workspace** and its **Workspace ID**, the **Model** and its **Model ID**, and **Apps**: the apps whose pages use the model, one per line, or that no app's pages use it. It says nothing more: the Anaplan host the model was read on and the version that read it are the first line of the diagnostic log.
-- Under **About this export**, the model's name opens the model in Model Building, in the Anaplan tab Cardigan read. Where that tab shows the model in Model Building already, it only comes to the front, with what is open there; anywhere else it loads the model's address, the one Model Building's own model menu links to. Each app under **Apps** opens that app in the tab of apps and pages, the same tab the **App** buttons use. An app is a link only where Cardigan knows its ID, from the rows of **Module Usage**, **Page Filters** and **Page Actions**, and where that name goes with one app alone; any other name is plain. The names are links only where the result says where the model is, as one read in Model Building does. Like the buttons in a row's details, a link's title says what it opens.
-- **Model Calendar** lists the calendar's settings that hold a value: a setting that does not apply to the model's calendar type, or that the model does not show, is left out, and so are the template's **Applies to** and **Notes** columns, which only guide filling it in by hand. Its **Section** column, which says the same of every setting listed, and its **Allowed values** column start hidden; the column chooser shows them, and a row's details list them. The template's rows about the model itself are not listed either: the Overview names the workspace and the model, under **About this export**.
+![A process with its actions listed in run order](docs/images/model-processes.png)
 
-#### Line Items
+**Line Item Subsets** shows member counts. Open a subset to see its members grouped by module and follow them to their rows. The details say when membership could not be read.
 
-The reading order starts with Name, Module Name, Format and Format type. The table leaves out module rows, and Consensus Margin's details show its formula, dimensions, references and access driver beside the usable table.
-
-![Line Items with the Format type filter active and Consensus Margin's details open beside the table, showing its formula, dimensions and read access driver](docs/images/model-line-items.png)
-
-#### Imports
-
-A file import's details put **Mapping** first. Source columns lead each row, followed by their targets; saved item mappings, ignored columns and the header row are explained beside them.
-
-![Load promotions import with Mapping first in the details: SKU maps to Products, Customer to Customers, Week to Time, and Promo and Uplift to line items](docs/images/model-imports.png)
-
-#### Processes
-
-The **Actions** column follows the process name. Its filter picks processes by the actions they run, and the details list those actions once, in run order, before **All columns**.
-
-![Processes table with its Actions column and Weekly forecast refresh open, listing its three actions in run order](docs/images/model-processes.png)
-
-### Polaris models
-
-Polaris models are read in full through Model Building's Classic client, including Line Item Subsets and their readable membership, the other settings, import mappings and process steps described above. The engine comes from the export's Line Items columns: **Populated Cell Count** or **Calculation Complexity** means Polaris; otherwise Classic. Diagnostics says `Engine: Polaris (from the Line Items columns)`. The Overview's notes include **Polaris model, read in full through Model Building.** Its About rows stay the same.
-
-Only when no Classic frame answers within the wait does Cardigan use the partial Polaris reader. Without a client the engine stays unknown. Only this partial reader asks the platform gateway for model and workspace names; it does not inspect engine fields. The Overview says **The model's Classic client didn't answer, so Cardigan read what it could without it.** It names what was read and what is missing; only tables with rows get tiles, and every table in the result stays in the menu bar. Tables the reader could not read are left out of the result. **About this export** keeps Workspace, Workspace ID, Model, Model ID and Apps. The following limits apply to this partial read:
-
-| Table | What is read |
-| --- | --- |
-| **Modules** | Names, Applies To, Time Scale, Time Range, Versions and Notes. Dimensions comes separately from the model data socket. Settings are joined only where one exact module name matches. Functional Area stays blank. |
-| **Line Items** | One row per returned line item: name, module, format, formula, dimensions, summary, time, versions and notes. Strings stay as read. Format type is filled only for an exact supported type label. |
-| **General Lists** | Names, parent hierarchy and Display Name Property where its ID has a name. Properties and Subset Count stay blank. |
-| **Imports, Exports, Processes** | Names and IDs from the action listings. Imports also keep Import Type and Import Data Source ID; these do not establish the target or the source definition. |
-| **Versions** | Names only. |
-| **Module Usage, Page Filters, Page Actions** | The published pages built on the model that you can open. |
-
-The **Model map** is available when line items with formulas were read. It matches quoted, bare and module-qualified names to the returned line items and lists. Unknown or ambiguous references remain unresolved. Formulas are not evaluated, and numbers are never replaced with names.
-
-**Not read yet:** Model Calendar, Time Ranges, Line Item Subsets, Dynamic Cell Access, Other Actions, Source Models, list properties and per-list subset membership, functional area assignments, import mappings, process steps, export definitions or calculation metrics. Import and process details say that their mappings or steps are not read. Access driver arrows and key marks are unavailable.
-
-A source that fails or times out is skipped independently, including HTTP 503 from an optional Polaris source. Line items use one GET per module, at most four at once, with a 60-second timeout per request. Closing the last results page stops queued reads. Listing completeness is unknown: possible paging is noted on the Overview and in Diagnostics, and unverified continuation links are not followed.
-
-**Copy diagnostic log** includes one engine decision after the full export: `Engine: Polaris (from the Line Items columns)` or `Engine: Classic (from the Line Items columns)`. Without a Classic client it says `Engine: unknown (no Classic client)`. `Classic reader: answered; starting model settings` confirms the full reader. A partial read instead logs `Classic reader: no frame answered within the wait; reading a partial result without it`, then source counts, line-item request counts and timings, unavailable sources, possible paging and whether formulas allow a map: `Polaris source read:`, `Polaris source unavailable:`, `Polaris line items:`, `Polaris possibly incomplete:` and `Polaris partial result:`.
+**Classic and Polaris:** Cardigan reads both engines the same way through Model Building, so the tables are the same. When Model Building's client does not answer, Cardigan reads what it can and the Overview explains what is missing.
 
 ### Model map
 
-**Model map**, the last entry in a model's navigation, draws groups, modules, line items and the lists referenced by formulas. It is made from the result's tables and reads nothing more from Anaplan.
+The map shows how a model's groups, modules and line items connect. It is built from the result already in your browser.
 
-#### Groups and links
+- **Group by** offers ways to organise modules: functional area, headings, name prefix, DISCO (Data, Input, System, Calculation, Output), app or main dimension. Its (i) explains how the grouping works and which fits the model best.
+- Choose a **Group** or **Module** to explore it, or search for a group, module or line item.
+- **Links** lets you show formula, access-driver and page-filter connections.
+- Click a box for details and its connections. **Only these** narrows the view; **Table** and **Model** open the matching row or place in Anaplan where available.
+- Zoom out, Zoom in, Fit, Minimap, Legend and About share the controls row at the bottom left. **About** explains the map and its limits.
 
-One path stays in the bar: **Model / Group by / Group / Module**. Click the model name to go to the top. Click the name or chevron on a pill to open its list. The Group pill shows the current group's full name, or **Group** at the groups overview and when showing all modules. Its list offers **All groups**, then each group with its module count; choosing the current group shows its modules. In a group or one of its modules, the Module list starts with **All modules in {group}**, which shows that group's map, then only its modules in map order, without a group heading. The search box is focused and searches only that group. At the groups overview and in All modules, the list starts with **All modules**, then every module under its group heading. Choosing a module shows its line items. `Enter`, `Space` or `Alt+Down` opens a focused pill's list; the arrow keys move through it. From a module, `Esc` goes to its own group, then to the model; an open list or grouping explanation closes first. Names stay in full, wrapping on a narrow map, and opening a list moves neither the controls nor the drawing.
+![Model map grouped by functional area with Links open](docs/images/map-groups.png)
 
-**Group by** is available at every level:
+![A module's line items on the dark map, with page-filter links and access-driver marks](docs/images/map-line-items.png)
 
-| Choice | Groups modules by |
-| --- | --- |
-| Functional area | The module's Functional Area, with unassigned modules last |
-| Headings | Each module is under a module whose name starts with `--`, `==`, `**`, `<<` or `>>` |
-| Name prefix | Shared codes at the start of module names |
-| DISCO | Data, Input, System, Calculation or Output, inferred from imports, dimensions and formula links |
-| App | The app whose pages use the module, Several apps, or Not on any page |
-| Main dimension | The first list the module applies to, Time only, or No dimensions |
+![A selected module's map details and navigation buttons](docs/images/map-details.png)
 
-Heading marks may follow spaces. Group names drop spaces and heading marks at both ends: `== INPUTS ==` becomes **INPUTS**, `<< Inputs >>` becomes **Inputs**, and `>> Outputs` becomes **Outputs**. Marks inside a name stay. A row made only of spaces, dots or heading marks also counts as a heading, including an empty name; a name made only of spaces and marks gives **Ungrouped**. A single mark before a name, such as `*Archive`, `=Total`, `<Draft>` or `- Revenue`, stays an object. The same rule applies to the map's Modules and Line Items, General Lists, Processes and action files, the model's pages list, and the rows and counts left out of the map.
-
-The Group by pill shows the grouping's name and holds a drawn **(i)** at its right end, separated by a thin divider. Each grouping appears once in its list; **Best fit** marks the one Cardigan would choose for this model. Picking it returns to automatic mode, which chooses again for each model. Picking another grouping keeps your manual choice in this browser. The **(i)** explains **How it groups** and **Best fit for this model: {label}**, each under a bold heading, with whole percentages and examples from the model's own prefixes. Name prefix uses this model's threshold: at least three modules and at least 2% of its modules must share a code. Hover and click give the same explanation, whether the grouping was picked or kept. The name and chevron open the list; the **(i)** opens only the explanation. The keyboard reaches both buttons, each with its own focus ring. A grouping with only one group shows its modules. Changing Group by inside a module keeps its drawing and selection; the group name and picker headings change with it. Previously kept views and choices, including Automatic and All modules, still load.
-
-The navigation menus and the map's Group by, Group and Module lists share the navigation tabs' rounded highlight: an accent background and text, with the current item's name in bold. It stays highlighted on hover. Other hovered items and keyboard options have a plain background; only keyboard focus adds a ring. Both themes use the same treatment.
-
-**Links** opens three switches: **Formulas**, on at first, **Access drivers**, and **Page filters**. Inside a module it also offers **Other modules' line items**: show them individually or keep one box per outside module. Formula, access and filter links share that module box. With individual line items shown, a module and a line item have separate boxes labelled with their kinds.
-
-![Model map grouped by Functional area with the Links panel open, showing Formulas, Access drivers and Page filters enabled](docs/images/map-groups.png)
-
-An arrow from A to B means B reads A, is controlled by A, or is filtered by A, according to its kind. The legend explains the kinds drawn. A trace follows only enabled links. Formula links alone place the boxes: switching any kind of link keeps every box and the camera in place, including boxes dragged by hand. A box needed only by a disabled link stays dimmed. The Links button, legend controls and line at the foot keep their places.
-
-#### Line items, funnels and keys
-
-With **Page filters** enabled, plum dashed arrows run from a filter line item to the line items its grid shows. A filter on another module points to that module's box; inside the filtered module, the outside module points to each filtered line item. A filter that also shows itself has a funnel instead of an arrow to itself. A funnel also marks a filter whose grid does not establish the line items shown. At module level, funnels count the module's own filter line items; at group level, they count modules filtered by their own line items.
-
-With **Access drivers** enabled, teal keys mark Read or Write Access Drivers. A module's key counts its driver line items; a group's counts modules with drivers. A driver used for both read and write counts once. Keys and funnels sit beside one another and become separate dots at small zooms. Hovering a driver counts what it controls for read and write. **Controls** in its details links to the targets; **Access driven by** links back from a controlled line item. These lists remain with the arrows off.
-
-![Dark Model map of REP03 Exceptions with plum page filter arrows between line items, a funnel on Exception, and teal keys on its access drivers](docs/images/map-line-items.png)
-
-A switch with nothing to draw is disabled and says why. A partial read without the Classic client has no access driver columns. An older result without **Filtered line items** draws page filters to modules and asks you to run again for the finer view. Page filters and access drivers do not change formula counts or roles. The details list page filters, what they filter and where they are used even with their arrows off.
-
-#### Map details
-
-Click a box to select it. Everything feeding it is marked in blue, everything it feeds in red, directly or through others. Its details start with its full name and kind, then the available buttons:
-
-- **Show its N modules** or **Show its N line items** goes into the group or module. Double-clicking does the same.
-- **Table** brings its row into view in Modules, Line Items or General Lists, with the row's details open. Sort and columns stay; a search or filter is cleared only if it hides the row.
-- **Model** opens the module or list in Model Building; a line item opens its module.
-
-The trace summary follows the buttons. **Only these** hides boxes outside the trace. Formula, format, summary, imports and links follow where available; raw definitions sit last under **As read**, folded at first. Closing the details clears the selection without moving the boxes or camera.
-
-![CON01 Consensus Forecast selected on the map, with Show its 4 line items, Table and Model buttons above the trace summary and Only these](docs/images/map-details.png)
-
-A row's **Model map** button keeps the table's details for the return. **Table** opens that row again, and **Model map** returns to the selected box. DCA opens the driver, or the controlled line item if the driver has no box; Page Filters opens the condition line item. Only buttons with somewhere to go are shown.
-
-#### Module picker
-
-The module pill opens **every module under its group heading**, with no count limit, and focuses **Find a module…**. The current module is marked and its group scrolled into view. Typing searches across all groups; it keeps headings that have matches. The group step never narrows this picker.
-
-![The module picker open over the model map, listing modules under Functional area headings with a Find a module search box](docs/images/map-module-picker.png)
-
-The map search finds groups, modules and line items across the model. A click off the boxes, on empty canvas or on a link, closes the details and clears the selection without moving the picture. A pan keeps the selection, and a click that dismisses a map menu closes only that menu. Drag to move, scroll to zoom, or press `F` to fit the whole map. In **Legend**, click a group to show or hide its boxes. **Full screen** gives the map the screen, or the browser window when full screen is unavailable; its button or `Esc` leaves it. **About** lists keyboard shortcuts and anything the map could not place.
-
-One row floats at the bottom left, in keyboard order: **Zoom out**, **Zoom in**, **Fit to screen**, **Minimap**, **Legend**, **About this map**, then the counts pill. The round buttons stay 28 pixels across with 6-pixel gaps, including before the pill. They and Full screen use 16-pixel icons with the menu bar's thinner strokes and muted colour; hover or keyboard focus brings text colour, and an open or pressed button keeps accent ink. About uses a plain question mark. Fit draws four short outward arrows inside a rounded frame; Minimap draws a frame with a small filled inset at its bottom-right. The counts hug their words without reserving extra room, so their width can change while every button stays in place; on narrow maps the pill ends with an ellipsis and keeps the full words on hover. Legend and About open upward from the left. The minimap starts hidden, opens in the bottom-right corner and keeps its choice for the tab. On maps up to 500 pixels wide, it sits above the row, with Legend or About above it, so the panels stay apart. Opening panels leaves the boxes and camera in place. Fit keeps boxes clear of the whole row and open panels; boxes covered by them count as out of view and can still be reached through search or the keyboard.
-
-A refresh or **Run again** keeps the map's level, group or module, links and selected box where its name and module or parent still match exactly one box. Edited formulas and counts do not lose it. Zoom, position, search and full screen may reset. **Forget this result** starts it afresh.
+The pictures use an invented bicycle planning model. All names, identifiers and data are invented.
 
 ### For an app
 
-Cardigan reads every published page of the app. The **Overview** shows tiles only for tables with rows; every table stays in the menu bar. **About this export** names the **App**, its **App ID** and the **Models** its pages are built on. The tables:
-
-| Table | One row per |
-| --- | --- |
-| **Pages** | Page: category, type, publish state, model and card counts |
-| **Cards** | Card: type, modules, saved view, line items shown, rows, columns, context selectors, filters, formatting, buttons and text |
-| **Grid Sections** | Section of a grid or chart; a combined grid has several |
-| **Filters** | Filter condition on a grid's rows or columns |
-| **Conditional Formatting** | Formatting rule or KPI indicator |
-| **Action Buttons** | Button, with its action type and the model action it runs |
-| **Model Objects** | Use of a module, line item, dimension, saved view, action or linked page by a card |
-
-**Model Objects** opens **By object**: one row per object, with how many pages and cards use it and as what. A row opens the object with each of its uses. **Every use** lists the uses one by one.
+- **Pages:** page types, publish state, models and card counts.
+- **Cards:** the modules, views, line items and settings used by each card.
+- **Grid Sections:** the sections of grids and charts.
+- **Filters:** filter conditions on card grids.
+- **Conditional Formatting:** formatting rules and indicators.
+- **Action Buttons:** buttons and the actions they refer to.
+- **Model Objects:** where cards use modules, line items, dimensions, views, actions and linked pages.
 
 ## Install
 
-Cardigan needs Chrome 111 or later, on Windows or on a Mac. Nothing else has to be installed.
+You need Chrome 111 or later.
 
-1. **Download the extension.** On the [latest release](https://github.com/larasrinath/cardigan/releases/latest), under **Assets**, take `cardigan-<version>.zip`: the entry that shows a file size. Do not take **Source code (zip)** or **Source code (tar.gz)**. GitHub adds those two to every release, the zip one even arrives under the same file name, and they hold the source code, which Chrome cannot load.
-2. **Unzip it into a folder you keep.** Chrome loads the extension from that folder every time it starts. On Windows, right-click the zip and choose **Extract All...**; on a Mac, double-click it.
-3. **Look into the folder.** It must hold `manifest.json` and a `dist` folder with five `.js` files. If it holds `src` and `package.json` instead, it is the source code: go back to step 1.
-4. **Load it in Chrome.** Open `chrome://extensions`, turn on **Developer mode** at the top right, choose **Load unpacked** and select that folder.
-5. **Click the Cardigan icon on an Anaplan tab.** An app that was open before needs no refresh: the click puts Cardigan's script there. Neither does a model in Model Building that was open before: where the click cannot reach the model's frame, the results page offers **Refresh the Anaplan tab and run**. The puzzle icon in Chrome's toolbar lets you pin Cardigan there.
+1. Download `cardigan-<version>.zip` from **Assets** on the [latest release](https://github.com/larasrinath/cardigan/releases/latest). Choose the extension zip, not GitHub's **Source code** archives.
+2. Unzip it into a folder you will keep. It should contain `manifest.json` and a `dist` folder with five JavaScript files.
+3. Open `chrome://extensions`, turn on **Developer mode**, choose **Load unpacked** and select that folder.
+4. Pin Cardigan using Chrome's puzzle icon, then click it on an Anaplan tab.
 
-If Chrome says **Could not load javascript 'dist/content.js' for script** and **Could not load manifest**, the folder you selected has no `dist` folder: it is the source code, or a folder above or below the right one. Start again from step 1.
-
-To check the download, compare it with the SHA-256 published with the release: `shasum -a 256 cardigan-<version>.zip` on a Mac, `certutil -hashfile cardigan-<version>.zip SHA256` on Windows.
-
-To update, unzip the new release over the same folder and click the reload icon on Cardigan's card in `chrome://extensions`. An app's tab needs no refresh: click the Cardigan icon on it. A model's tab needs nothing either, in most cases. The part of Cardigan that reads a model runs inside the model's page, which keeps the earlier one until it is refreshed:
-
-- An update that leaves that part as it was keeps it as it was: its mark comes from its code, not from the version, so the tab reads on.
-- One that changes it: the results page puts the new reader into the model's page itself, as Chrome does when the page loads, and reads the model. Chrome lets it do so where the model is served from the tab's own Anaplan host.
-- Where the model is served from another Anaplan host, Chrome lets Cardigan put nothing there. The results page says so and offers **Refresh the Anaplan tab and run**: the tab reloads, which closes the modules and lists open in Model Building, and Cardigan reads the model as soon as it shows. Nothing refreshes the tab unless you choose that.
-
-To see which version you have, right-click Cardigan's icon in Chrome's toolbar: its menu says the version, greyed out, under **About Cardigan**, and the icon's title says it when the pointer rests on it. **About Cardigan** opens a page with the version, what Cardigan is, and links to what's new, privacy, help and the source. The first line of the diagnostic log says it too, and [CHANGELOG.md](CHANGELOG.md) says what each version brought.
+To update, unzip the new release over the same folder and reload Cardigan in `chrome://extensions`. Click its icon on your Anaplan tab; follow the refresh prompt if one appears. Right-click the icon for **About Cardigan** and the installed version. See [CHANGELOG.md](CHANGELOG.md) for changes.
 
 ## Use
 
-1. Sign in to Anaplan. Open an app, or open a model in Model Building and wait until it has loaded.
-2. Click the Cardigan icon in Chrome's toolbar. If that Anaplan tab already has an open results page, Cardigan brings its tab and window forward and runs again there, keeping the table or map and the open row where it still exists. If it is already reading, it carries on. With no answering results page after about 300 milliseconds, a new one opens in the next tab and starts reading.
-3. Keep the Anaplan tab open until it finishes. The centred run card shows shimmering Anaplan phrases beside a small pulsing pixel grid and an elapsed timer. Each step has its own words and pace: every half second for Time, Lists and Finishing, and every one and a half seconds for Opening, Modules, Actions and Pages. Phrases are picked at random, never repeating the previous phrase unless the pool has only one; a new pool shows a word at once and starts its own pace. Finishing adds only the named engine's phrases after the diagnostic log identifies it; map phrases appear only for model runs. The real step stays in the word's tooltip and is announced to screen readers; the grid and timer keep their places as the words change. Reduced motion keeps one phrase per step and the pixels still while the timer ticks; screen readers announce only the real step. Diagnostics starts folded and stays folded if the run stops. **Show diagnostics** and **Hide diagnostics** open and close the log under the card; **Copy diagnostic log** works in either state.
+### Run
 
-Closing the results page stops the reading.
+1. Sign in to Anaplan and open an app, or a model in Model Building. Wait for it to load.
+2. Click the Cardigan icon. It opens a results tab, or uses the results tab already open for that Anaplan tab.
+3. Keep the Anaplan tab open while Cardigan reads. The analysing page shows a run card with changing phrases and an elapsed timer; the current step is available in its tooltip and to screen readers.
 
-### The results page
+**Run again** reads the tab again, keeping the current result visible until the new one is ready. Clicking the icon again also runs again; a read already in progress carries on. Closing the results tab stops the read. **Diagnostics** lets you inspect or copy the log.
 
-- The page stands in a column in the middle of the window, at most 1,400 pixels wide, with room at both sides that grows with the screen. A table wider than the column scrolls sideways in its own box. The model map takes the whole width of the window.
-- The header says the name of the app or model the result is of, and holds **Timezone**, **Run again** and the theme's button. A name too long for the header ends in an ellipsis, and its title holds it whole. What was read is under **About this export** on the Overview, and the Anaplan host it was read on is the first line of the diagnostic log.
-- The navigation is a bar under the header, with an icon for each entry: the overview, each table and a model's map. A model's bar has seven tabs: **Overview**, **Dimensions**, **Modules**, **Actions**, **Source Models**, **App Usage** and **Model map**. **Dimensions** holds Model Calendar and Time Ranges under Time, Versions under Versions, and General Lists and Line Item Subsets under Lists, with every table at the same indent; **App Usage** holds Module Usage, Page Filters and Page Actions. Sub-group headings show when a menu holds tables from two or more sub-groups, with a heading for each one present, even if it has only one table. With tables from only one sub-group, no sub-group headings show. A group with only one table in the result is that table's entry, and the arrow keys move through a menu's tables, skipping headings. A menu's button names the table shown when it is one of the menu's, and is marked; the menu marks that table too. Every entry and menu keeps its own place, so choosing a table or another view moves nothing else in the bar. Where the tabs fit on one line, they spread evenly across the bar, from one side of the page's column to the other, with equal gaps between them; the tab of the view shown, in bold, and a menu's button naming the table shown, which can be longer than the menu's name, grow into the gaps beside them. Where the bar is too narrow for that, a menu keeps the extra room its longest table's name needs beside its own name, and where the tabs don't fit at all, they wrap onto a second line, packed at its left. A model's bar fits on one line in a window 1,000 pixels wide or wider; in a narrower window, one menu holds every entry, with the same groups and headings. For model and app results, on Classic and Polaris, every table in the result stays in the menu bar, including empty tables. The Overview shows a tile only when its table lists at least one row, after the table's rules; with no tiles, there is no tile grid or gap. The tiles are all the same size, taller than their lines need. Each shows its table's icon, as the navigation has it, and the table's name at its top left, and at its bottom right, in large figures, the number of rows the table lists, nothing more; a name too long for its tile ends in an ellipsis, and the tile's title holds it whole. A count of five figures or more is drawn smaller in a narrow tile, so that it is never cut. A model's **Model Calendar** tile says what the calendar is instead of a count: **Monthly** or **Weekly** in the number's place, at the right, and under it, small, how a weeks calendar is grouped (4-4-5, 4-5-4 or 5-4-4, 13 periods, or its number of weeks) and the current fiscal year, such as **FY24**; its title holds the calendar type as Anaplan writes it and the year's dates. A calendar whose type and year were not read is counted like any other table. A click on a tile opens its table. Where a table leaves rows of its file out, as Model Calendar does, the line under the table's name says how many and why. Under the tiles, **Tables** lists only what they cannot say, such as a table that was not exported, with the reason; with nothing to list, it is not shown. Where some of a model's imports could not be matched between Anaplan's Imports tab and its Actions list, a note says how many, and that some of their columns are empty; where every one was, the tile's count says it all.
-- A table's name and its toolbar share one row: the search box, with the column chooser at its right end, then **Reset** once a search, a filter, a sort or a page's cards are in force, and at the row's right end the count of rows and the pager, which always stay together. In a window too narrow for one row, the name takes a line of its own first; the count and the pager go under the search box only after that. The search box looks in every column, shown or hidden. Press `/` to reach it: the box's tooltip says so, and no key is drawn in it, nor in the model map's search box.
-- Click a column's name to sort: a small chevron beside the name points up while the column runs from its least, and down while it runs from its most. Almost every column also has a filter, the funnel beside its name:
-  - Any column with 2 to 30 different values has one.
-  - A model's tables offer filters on every column except **Name**, **Formula**, **Notes** and IDs, with ranges for numbers and dates.
-  - In an app's tables, a column with more has one too, unless it holds what nobody picks from a list. That means a row's own name in a model's tables, free text (**Formula**, **Notes**, a card's **Text content**) and IDs. It also leaves out a column whose every value is in one row only, such as **Code**. The search finds a value in those.
-  - Every value-list filter, in models and apps, has a **Find a value** box. Its header holds only **Filter: {column}**. The checkbox at its right end ticks or unticks everything it finds, listed or not: checked for all, empty for none, and mixed for some. Its tooltip says **Tick all** or **Untick all**, or **Tick matches** or **Untick matches** while something is typed. With nothing typed, ticking every value, with the checkbox or one by one, clears the column's filter, its mark and its saved choice; **Reset** disappears when nothing else is in force. Each value keeps its count of rows in the whole table, without a heading row. The count of values found is announced to screen readers; a visible note appears only when more than 300 match: **The first 300 are listed: type to narrow the list.**
-  - A column of numbers or of dates is filtered by a range instead of a list to tick: **From** and **To**. That is any column whose every value is a number, or every value a date: counts such as **Cell Count** and **Item Count**, the **Sources** and **Imports** of **Source Models**, an action's duration and start, when a page was last published, a card's number. Either box may stay empty, for no end on that side, and both ends are kept: from 3 to 3 keeps card 3. A box for numbers shows the column's lowest or highest value until you type, and takes 1200, 1,200, -3.5 or 40%. A box for dates is the browser's own, and keeps whole days: until 12 March keeps an action that started late on 12 March. For a column of times the filter says which zone they are in, and its days are days of the zone they were set in (see **Timezone**, below). Under the boxes, **Keep blank cells** keeps or leaves out the rows with nothing in that column. **Enter** or **Apply** sets the range, and a box Cardigan cannot read says what is wrong instead. The funnel says what the range keeps, such as "≥ 10" or "10–100"; **Clear** and **Reset** take it away. A code made of figures that begin with a zero, such as 0040, is no number, and an ID is never filtered by a range.
-  - The columns keep their widths whatever the sort, the page, the search or the filter.
-- Counts, such as **Cell Count** and **Item Count**, show their thousands with commas, and so do the edges of their range filter. A formatting rule's **Colour stops** say each colour and the value it stands at, such as "#F5A5B1 at -10; #627786 at 100,000", with a square of each colour before its code.
-- The column chooser, the button with three lines at the right end of the search box, picks the columns shown. An app's ID columns, **Card #** and **Section #** start hidden.
-- Click a row to read every value in full. Its details slide over the table's right edge, below the header, with no dimming. The table keeps its full width and scroll position, and the open row stays highlighted. Click another row to read it there; a link inside the panel offers **Back**. **Esc**, the close button or a click on empty page or table space hides it and returns focus to the opening row without scrolling. It stays closed on refresh. Controls and clicks or drags inside the panel keep it open; a click that dismisses a popover or menu closes only that popover or menu. Drag the left edge, or focus it and use the Left and Right arrow keys, to resize between 360 pixels and 70% of the window; **Shift** takes larger steps, **Home** makes it narrowest, and **End** widest. The width is kept for this viewer. Below 900 pixels the panel fills the width. In an app, a page's name shows that page's cards: a chip beside the search box names the page, and its cross shows all the cards again. A card's title opens the card with its grid sections, filters, formatting and buttons.
-- Where a value lists several items, such as a line item's **Applies To** and **Referenced By** or a card's **Context selectors**, the panel that opens lists them one per line. The table keeps them on one line, and the search and the sort read them as the table shows them. The filter lists each item on its own, with the rows that list it, and shows a row when any of its items is ticked: untick every region but one under a module's **Applies To**, and the modules that apply to that region stay. A name in quotes stays whole, commas and all.
-- Click an ID to copy it.
-- The sun or moon button switches the theme.
-- **Timezone**, in the header, is one pill with a globe: it says the zone the page's times are in, **Local**, your own time zone, or **UTC**, as Anaplan writes them, and a click switches to the other. It is Local unless you chose UTC, which every results page then keeps. That is when each action of a model's Processes, Imports, Exports and Other Actions last started, under a header that names your time zone in the place of "(UTC)", such as "Start Date and Time (Europe/London)". A row's details say its time in both, the one shown first: "2026-03-13 08:19:56 local · 2026-03-12 23:19:56 UTC". The search finds a time as it is shown, and the sort goes by the moment. A range of days keeps the days of the zone it was set in, and so the same rows when you switch: its funnel then says whose days they are. A date without a time, such as when a page was last published, is the same in either.
+### Refresh the Anaplan tab and run
 
-**How to read these tables**, on the Overview, has the notes for reading them. One to know: "(not in the model)" after an ID marks a module or line item that a card points at and the model no longer has, or that you cannot see. A model's tables of the pages built on it say **Missing** instead, with the ID, such as **Missing module (ID 102000000556)**.
+This button appears when Cardigan cannot load or update its reader in the open Anaplan tab. Choosing it refreshes that tab to load the reader and starts the read; this closes the modules and lists open in Model Building.
 
-### Run again, refresh and Forget this result
+### Working with tables
 
-- **Run again** reads the Anaplan tab again, keeping the table or map you are on. The result stays until the new one is complete. The button keeps its width and says **Reading** beside a small pixel grid; its title and the screen reader's live region say the progress. No progress banner moves the content. A failure still shows the existing card.
-- A row's details reopen after **Run again** on the same app or model, found by its table, name and module, or its list or parent where it has no module. An edited formula, format, count or note does not lose it. A row that is gone, renamed or no longer unique stays closed. The header's **Run again** stays usable while the details are open. A new results tab opens on the Overview.
-- The last finished result is kept for its tab, so a refresh brings it back without reading Anaplan, on the table or the map that was shown. A line above it says when it was analysed.
-- Each table keeps its own search when you switch away and come back. A refresh keeps how you left the result too, until the tab is closed: every table's search, filters and ranges, the columns you showed or hid, its sort and its page; the rows a page lists; how **Where Used** is listed; where the model map was, its group or module, its links and selected box; and a row's details that were open. **Run again** on the same app or model keeps what still fits its tables, each column by its name; another app or model starts clean. **Reset** clears a table's. Settings kept by earlier versions still load.
-- **Forget this result**, on the Overview, removes the kept copy at once, and how you left it. The result stays on the page until you refresh or close it.
-- **Diagnostics** starts closed on the Overview too. Open it to read or copy the finished result's log.
-- Clicking the icon starts a read, or runs again in its existing results tab. A results page that is reloaded, duplicated or reopened waits for **Run** or **Run again**.
+- **Search** finds text in shown and hidden columns; click a column name to sort.
+- **Filters** open from a column's funnel. Find values, then use the checkbox beside the find box to tick or untick all matches; ticking every value clears that column's filter. Numbers and dates use **From** and **To** ranges.
+- **Columns** can be shown or hidden with the chooser beside search; **Defaults** restores the starting layout.
+- **Details** open when you click a row. Follow linked names to other rows and use **Back** to return; drag the panel's left edge to resize it.
+- **Open in Anaplan** with the buttons under a row's name: **Model**, **App** or **Page**, where available. A line item's Model button opens its module.
+- **Keys:** `/` focuses search, **Esc** closes a menu or panel, and the Up and Down arrow keys move through a menu's tables.
+- **Reset** clears the current table's search, filters and sort. The header also has theme and **Timezone** controls.
+- **Refresh** restores the last kept result without reading Anaplan. Searches, filters, columns, sort, page, map view and open details are kept for the tab; **Run again** on the same model or app keeps what still fits.
+- **Forget this result**, on the Overview, removes the kept result and view choices. The result stays on screen until you refresh or close the tab.
 
 ### If it does not start
 
-- **Waiting for the model to open…**: the tab is loading, or Model Building is there and the Classic frame has not answered yet. Cardigan waits for up to about two minutes and starts when it answers. When Model Building is open but no Classic frame answers, Cardigan falls back to a partial read and says so on the Overview. If the Anaplan tab itself is still loading, the card says **Model still opening**; wait until it shows in Anaplan, then choose **Run again**.
-- **Refresh the Anaplan tab**: Cardigan's reader is missing or belongs to an earlier version. Cardigan first tries putting its reader into the open tab. Where Chrome refuses, or the reader cannot reach the model, choose **Refresh the Anaplan tab and run**. This closes the modules and lists open in Model Building; nothing refreshes the tab unless you choose it.
-- **Not an Anaplan tab** or **Tab closed**: the page says what the tab shows, or that it was closed. Open the app or model in Anaplan, then click the icon on that tab.
-- **No model open**: the tab shows an Anaplan page that is neither an app nor a model. Open a model in Model Building, then choose **Run again**.
-- **Anaplan is down for maintenance**: an Anaplan request returned HTTP 503, or an HTML page's title or heading announces maintenance. The card says **Try again when it's back. Nothing was read.** Choose **Run again** when Anaplan is back. Other HTTP errors and ordinary error pages are not called maintenance.
-- Before there is a result, notices and stopped runs use the same centred column, at most 600 pixels wide, with 16 pixels at each side in a narrow window. A drawn icon marks the case, followed by the reason and a main button to try again or refresh, with **Copy diagnostic log** beside it. The theme button stays in the header; **Run again** appears there once a result is shown. Diagnostics stays folded below the card until opened. The log's last line identifies a connection case as `MODEL_OPENING`, `NO_READER`, `OLD_READER`, `NOT_MODEL_PAGE` or `MAINTENANCE`. It also holds request paths, statuses, counts and how long each step took, and the names of a few modules and line items the map could not match, and no cookies, tokens or cell values.
-- If the model map cannot be drawn, the page says so in the map's place. The tables are not affected, and **Copy diagnostic log** beside the message copies the reason.
+- If the model is still opening, wait until it is visible in Anaplan, then choose **Run again**.
+- If the tab was closed or is not showing an app or model, open one and click Cardigan's icon on that tab.
+- If Anaplan is down for maintenance, try again when it is back.
+- If Chrome cannot load `dist/content.js`, check that you extracted the extension zip and selected the folder containing `manifest.json` and `dist`.
+- For other failures, read the message and use **Copy diagnostic log** to investigate.
 
 ## Privacy and permissions
 
-- Cardigan declares three permissions, **activeTab**, **contextMenus** and **scripting**, and none comes with a warning. activeTab and scripting together let a click on its icon put its script back into that one Anaplan tab when Chrome has not, as in a tab that was open before Cardigan was installed, updated or reloaded, and the part that reads a model as well, in the frames of that tab's own Anaplan host. contextMenus adds two items to the menu of Cardigan's own icon, and nowhere else: **About Cardigan**, which opens Cardigan's About page in a new tab, and the version, greyed out. It asks for no access to any site. Its scripts run only on `https://*.app.anaplan.com` and, for Australia, `https://*.app2.anaplan.com`, and add nothing to those pages.
-- It reads nothing until you click its icon or choose **Run** or **Run again**. It is read-only by construction: its REST requests are GET-only, its socket client sends only connection and subscription frames, and every Classic model request is checked to carry no changes. The engine comes from the export's Line Items columns, with no extra client or gateway requests; the partial reader used without a client reads gateway names and the allowed llm-data-service metadata routes. [NOTICE.md](NOTICE.md#requests-to-anaplan) lists every request.
-- A Classic model's settings are read through the model's own page, and so are each import's saved mapping, as Anaplan's own import dialog reads it, and each process's saved list of actions, as Anaplan's Actions tab reads it. Beside them, Cardigan reads the pages built on the model as it reads an app's: GET requests for Model Building's list of those pages, each page, each of their apps and the model's action names, and the model data socket for the other names the pages' cards use. The line items it reads from the model's settings name most of those: the socket is asked for the line items of one module, to compare the two, and of a module they do not cover. It is asked for no saved view's rows, columns and context selectors, which only an app's tables show. The socket goes to the Anaplan host the model's own page is served from, its data centre, where Anaplan would otherwise send it.
-- Nothing is sent anywhere except those reads, and the results page and the About page load nothing from the internet. The About page's links lead to this project's pages on GitHub, and open only when you click them.
-- The buttons in a row's details, and the model's name under **About this export**, take your Anaplan tab to a module, a list or the model in Model Building; if that tab has been closed, the first opens one tab in its place. To open the model, Cardigan first asks its script in that tab what the tab shows, which reads nothing from Anaplan. Apps and pages open in one more tab, which the first **App** or **Page** opens next to the results page and every later one reuses. That changes which page a tab shows, and nothing in the model or the app. Where the Anaplan tab shows the model in Model Building, a module or a list is opened inside that page through the classic Model Building client's own way of opening one, the one its Modules list and General Lists use: Cardigan sends Anaplan nothing for it.
-- The kept result is in the browser's session storage for its tab, compressed and not encrypted. So is how you left it, beside it: the values you filtered on and the search you typed can be names from your app or model.
-- The theme you chose, how you chose to group the map's modules, and whether you chose UTC for the page's times are kept in the browser's local storage: a word each, nothing of your app or model.
+Cardigan reads only when you start a run, using your signed-in Anaplan session. It does not edit models or apps, run model actions or read module cell values. The results and About pages load only packaged files. There is no Cardigan server, analytics or telemetry, and no result download.
 
-[NOTICE.md](NOTICE.md) says the rest, including what closing a tab does and does not erase.
+| Permission | Why it is used |
+| --- | --- |
+| `activeTab` and `scripting` | Put Cardigan's reader into the Anaplan tab you clicked, including after an install or update. |
+| `contextMenus` | Add About Cardigan and the version to its toolbar icon's menu. |
+
+Its content scripts run on `https://*.app.anaplan.com/*` and `https://*.app2.anaplan.com/*`, adding no controls to Anaplan's pages. Buttons that open things in Anaplan change the page shown, without changing the model or app.
+
+The last result and your view choices are kept in that tab's session storage. The result is compressed, not encrypted; searches and filters can contain model names and values. **Forget this result** removes the kept copy. Closing a tab does not guarantee erasure, because Chrome may keep it for restoration. Theme, map grouping and time-zone preferences are kept separately in local storage, without model or app data.
+
+Use Cardigan only on models and apps you are allowed to read. [NOTICE.md](NOTICE.md) gives the full privacy and storage details and [lists the reads to Anaplan](NOTICE.md#requests-to-anaplan).
 
 ## Limits
 
-- Only the published version of a page is read. A page never published is listed as "Not published".
-- A page that is no board, worksheet or report has no **Page** button in a row's details: its app's opens all the same.
-- Reading an app's names, or those of the pages built on a model, can make Anaplan load the model, as opening one of its pages would.
-- **Module Usage**, **Page Filters** and **Page Actions** need the model open in Model Building at an address that names its customer (`/a/modeling/customers/…`), as Model Building's own links do: the pages built on a model are listed for its customer. Elsewhere, as on the classic model page opened on its own, the Overview lists them under **Tables** as "Not exported", with the reason, and so it does when Anaplan refuses the list of pages.
-- They hold only the published pages you can open. A page that cannot be read is named in a note: a module on it may show a dash for its page, and a line item's **Page Filters** count is empty rather than 0. So is the count where a filter's condition line item could not be named: the filter keeps the line item's ID. Where the model's names prove that the model doesn't have that line item, the filter says **Missing line item** instead, and no count is left empty for it.
-- **Missing** is said only of modules, line items and a model's imports, exports and processes. A dimension or a list that a card points at and that no read names keeps its ID: nothing Cardigan reads says that the model doesn't have it.
-- They count a card for the model it works on: the page's, unless the card names another, which leaves it out. A button names no model of its own, so its card's decides.
-- A saved view's own filters, sorts and hidden items are set in the model and are not listed.
-- A card's shown or hidden items are named up to five per dimension, then counted. A text card's text is cut at 500 characters.
-- A filter rule's line item not named by a complete kept export needs no search. With incomplete coverage, only modules whose line items are not yet known are searched, during at most 45 seconds per model. After that the rule keeps its IDs, and a note says so.
-- The items a filter rule names are looked up for at most 30 seconds per model. The rest keep their IDs.
-- A button whose import, export or process is not in the model keeps its card label; **Name source** says so. In a model's **Page Actions**, **Model action name** says **Missing** with its kind and ID, such as **Missing process (ID 118000000003)**.
-- Where two pages share a name, a count in **Model Objects** can read "2+" (at least 2), and some links are plain text.
-- A Model settings grid of more than 250,000 rows is not read. The Overview lists it under **Tables** as "Not exported", with the reason.
-- An import's **Mapping** knows the file only as the import's definition does: Anaplan keeps the mapping, not the file's header row. So it cannot say whether the file has columns after the last one mapped, and a column that the import names by its heading alone has no number: the columns before it that no number takes may be used, and the page says so. Where no column mapped has a number, the page says that it cannot tell which columns are not used. A header that the import matches on a line item's name or code when it runs is stored nowhere, so the columns matched that way are not listed: the line items under the header row are only those a header can match. An import from a module, a saved view or another model has no **Mapping**, and neither has a result that an earlier version kept: choose **Run again**.
-- In **DCA**, a driver that cannot be matched to a line item is listed last, as Line Items has it and with no **Driver Module**, and the page says how many there are. The table is not made when Line Items was not read.
-- Formula links from a Classic client read come from reference columns such as **Referenced By**, for either engine; the partial Polaris reader matches formula links by name. Access driver columns and Page Filters supply their own kinds of link. The map shows formulas as text and does not evaluate them.
-- The map draws groups, modules, line items and the lists that formulas name. Processes and actions are not drawn; a module's details name the imports that load into it.
-- **About**, at the bottom-left of the map, says what the map leaves out and could not place for this model, such as a line item named twice in one module.
-- A large view is shown whole with names cut short: point at a box to read its name. One too large even for that opens on its start, and **Whole map** shows all of it.
-- The map stays up during **Run again** and is rebuilt in place on the same view, group or module and links when the new result arrives. A refresh keeps these too, along with the selected box and its details, by name where it still exists. Zoom and position, search and full screen may reset. **Forget this result** starts it afresh.
-- A result over 64 MB as JSON, or 9 MB compressed, is not kept for a refresh; the page says so.
-- Anaplan can change the internal services Cardigan reads without notice: see [NOTICE.md](NOTICE.md).
+- Only published page definitions you can access are read. App Usage needs the model open through Model Building; the Overview reports pages or tables that could not be read.
+- Reading page references can cause Anaplan to load the models they use.
+- Saved views' own filters, sorts and hidden items are not listed. Some names may remain as IDs when they cannot be read.
+- File-import mappings describe saved definitions, not every column of the uploaded file. Other import types have no Mapping panel.
+- The map does not evaluate formulas or draw processes and actions. **About** explains what it could not place.
+- Very large tables may not be read, and large results may not fit in session storage; the page says so. Map zoom, position, search and full screen may reset on refresh.
+- Anaplan's internal services can change without notice, so results may become incomplete or stop working.
 
 ## For developers
 
-You need Node 20.19+, 22.12+ or 24+.
+Use Node 20.19 or later in the 20.x series, 22.12 or later in the 22.x series, or 24+.
 
 | Command | What it does |
 | --- | --- |
-| `npm ci` | Installs the pinned TypeScript, Vitest and esbuild |
-| `npm run build` | Type-checks, then writes the five bundles in `dist/` |
-| `npm test` | Runs the unit tests in `src/` (Vitest). `npm run test:scripts` runs those of `scripts/` |
-| `npm run check` | Type-check, both test suites and the build. GitHub Actions runs it on every push and pull request |
-| `npm run package` | Builds, then writes the release zip |
-| `npm run icons` | Makes the four icons in `icons/` again from the logo, `icons/source.png` |
+| `npm ci` | Install pinned dependencies. |
+| `npm run build` | Type-check and build the extension into `dist/`. |
+| `npm test` | Run the source tests. |
+| `npm run test:scripts` | Run the build and packaging tests. |
+| `npm run check` | Run the typecheck, both test suites and build; CI runs this too. |
+| `npm run package` | Build and create the release zip. |
+| `npm run icons` | Rebuild the icons from `icons/source.png`. |
 
-To run from source, choose **Load unpacked** and select the repository root. After a rebuild, reload the extension, then click the icon on the Anaplan tab: that puts the new content script there. What reads a model inside the page (`src/model-content.ts`, `src/model/`, `src/bridge.ts`) is loaded with the page. The build marks that reader with a hash of its code (`scripts/reader-mark.mjs`: its bundle, with the version and the mark as placeholders), which the first line of each bundle names, so a new version that leaves the reader's code as it was keeps its mark. The content script reads a model only with a reader of its own mark: the results page puts the new one into the tab where Chrome lets it (`renewReader` in `src/results/connection.ts`), and otherwise offers the refresh. `dist/` is not in Git: build after every pull.
-
-In the Anaplan tab, `src/content.ts` and `src/analyse.ts` read an app. `src/model-engine.ts` identifies the engine from the export's Line Items columns; `src/model-content.ts` and `src/model/` read both engines in full through the page's own client, while `src/polaris-read.ts` and `src/polaris.ts` read and present partial metadata only without that client. `src/model-pages.ts` then reads the pages built on the model, as an app's pages are read. `src/card-reader/` reads a page's cards. `src/background.ts` opens the results page: `results.html`, `results.css` and `src/results/`. `src/map/` builds a model's map from the model's tables and draws it on the page, styled by `map.css`. `src/protocol.ts` lists the messages between the page and the tab, and `src/results/connection.ts` connects the two, putting the content script back into a tab that has none, and the model's reader into one whose reader is of another build.
+Build, then load the repository root with **Load unpacked**. Rebuild after pulling changes and reload the extension. Readers live in `src/` and `src/model/`, the results page in `src/results/`, and the map in `src/map/`.
 
 ### Release
 
-Every merged change that alters the extension takes the next version, as the top of [CHANGELOG.md](CHANGELOG.md) says: the next minor version for a new feature, the next patch for a fix, a speed-up or a change to packaged text such as the manifest description. Docs and pictures alone need no version change. Set it in `manifest.json`, `package.json` and `package-lock.json` (two fields), and give it a section in CHANGELOG.md whose changes end with their pull request's number. A version reaches the install steps above only once it is published:
+Follow the version rule in [CHANGELOG.md](CHANGELOG.md): features get a minor version, fixes and speed-ups a patch; docs alone keep the version. Keep release versions aligned in `manifest.json`, `package.json` and `package-lock.json`, and record extension changes in the changelog.
 
 1. Run `npm run check`.
-2. Run `npm run package`. It writes `release/cardigan-<version>.zip` and prints its SHA-256.
-3. Publish the zip with its SHA-256.
+2. Run `npm run package` to create `release/cardigan-<version>.zip` and print its SHA-256.
+3. Publish that zip with its SHA-256.
 
-The zip holds the fourteen files Chrome loads: `manifest.json`, five bundles, four icons, `results.html`, `about.html`, `results.css` and `map.css`. The same files always give the same bytes. The packager refuses a version that differs between `manifest.json` and `package.json`, a missing or stale bundle, a page that loads a file outside the zip or not its own stylesheets and bundle, and a manifest that asks for any permission but activeTab, contextMenus and scripting, or has no content security policy that keeps everything inside the package.
+## Thanks
+
+Thanks to [Harish Ramaiah](https://www.linkedin.com/in/harish-ramaiah-1327794/) for valuable ideas and feedback.
 
 ## Licence
 
-[MIT](LICENSE).
+Cardigan is released under the [MIT licence](LICENSE).
+
+Cardigan is an independent project. It is not affiliated with, endorsed by or supported by Anaplan.
