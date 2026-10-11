@@ -1002,7 +1002,7 @@ export function importMappingHtml(mapping: MappingView): string {
     ? `<details class="m-note"><summary>${esc(text)} <span class="m-all">Show all</span></summary><span>${esc(all.join(", "))}</span></details>`
     : `<span class="m-note">${esc(text)}</span>`);
   const table = mapping.rows.length ? `<table class="mini"><thead><tr><th>Source</th><th>Target</th></tr></thead>
-      <tbody>${mapping.rows.map(([source, target, more, all]) => `<tr><td>${esc(source)}${more === undefined ? "" : note(more, all)}</td><td>${esc(target)}</td></tr>`).join("")}</tbody></table>` : "";
+      <tbody>${mapping.rows.map(([source, target, more, all, headers]) => `<tr><td>${esc(source)}${headers?.length ? `<div class="m-note">${itemsHtml([...headers])}</div>` : more === undefined ? "" : note(more, all)}</td><td>${esc(target)}</td></tr>`).join("")}</tbody></table>` : "";
   return `<div class="d-sec" id="drawerMapping"><h3>Mapping</h3>
       ${match}${table}${mapping.lines.map(drawerLine).join("")}</div>`;
 }

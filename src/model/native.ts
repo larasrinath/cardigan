@@ -1,6 +1,6 @@
 import { Failure, REFRESH, SEND_LOG, type Log, type Stop } from "../progress.js";
 import { SCOPE_ID, seconds, sleep } from "../util.js";
-import { labelEntries, windowRows, type Grid } from "./grid.js";
+import { labelEntries, plainText, windowRows, type Grid } from "./grid.js";
 
 /** Reads Model settings grids through the classic model building client, the way its own settings tabs do: a
  * MODEL_DEFINITION view of a row axis against a property-column axis (evidence: anaplan/settings/*.js).
@@ -115,15 +115,32 @@ async function readWindow(native: Native, viewDefinition: Any, startRow: number,
 
 /** A cell whose value picks from a list (a month, a weekday, a calendar type) is stored as that choice's ID; the grid shows
  * the choice's label from the view's selector label pages (Time2.DataProvider._getSelectorLabelPage). */
-function selectorLabel(view: Any, page: Any, index: number): string | undefined {
-  const format = page.getFormat?.(index);
-  const selector = view.selectorLabelPages?.[view.indexSelectorLabelPageMap?.[format?.hierarchyEntityLongId]];
-  const ids: unknown[] | undefined = selector?.entityLongIds?.[0];
-  const labels: unknown[] | undefined = selector?.labels?.[0];
-  if (!Array.isArray(ids) || !Array.isArray(labels)) return undefined;
-  const value = ["ENTITY", "TIME_ENTITY"].includes(format?.dataType) ? page.getCellValue?.(index) : page.getOriginalText?.(index);
-  const at = ids.findIndex(id => String(id) === String(value));
-  return at >= 0 && typeof labels[at] === "string" ? labels[at] as string : undefined;
+function selectorLabel(view: Any, page: Any, index: number, periods?: Map<number, string>): string | undefined {
+  try {
+    const format = typeof page.getFormat === "function" ? page.getFormat(index) : undefined;
+    const selector = view.selectorLabelPages?.[view.indexSelectorLabelPageMap?.[format?.hierarchyEntityLongId]];
+    if (format?.dataType === "TIME_ENTITY") keepSelectorLabels(selector, periods);
+    const ids: unknown[] | undefined = selector?.entityLongIds?.[0];
+    const labels: unknown[] | undefined = selector?.labels?.[0];
+    if (!Array.isArray(ids) || !Array.isArray(labels)) return undefined;
+    const method = ["ENTITY", "TIME_ENTITY"].includes(format?.dataType) ? "getCellValue" : "getOriginalText";
+    const value = typeof page[method] === "function" ? page[method](index) : undefined;
+    const at = ids.findIndex(id => String(id) === String(value));
+    return at >= 0 && typeof labels[at] === "string" ? labels[at] as string : undefined;
+  } catch { return undefined; }
+}
+
+/** Retain choices already returned with a selector read, including periods other than the calendar's selected one.
+ * IDs are globally unique within this model; no period arithmetic or extra request is needed. */
+function keepSelectorLabels(page: Any, names: Map<number, string> | undefined): void {
+  if (!names) return;
+  const ids: unknown = page?.entityLongIds?.[0], labels: unknown = page?.labels?.[0];
+  if (!Array.isArray(ids) || !Array.isArray(labels)) return;
+  ids.forEach((value: unknown, at: number) => {
+    const id = typeof value === "number" || typeof value === "string" && /^\d+$/.test(value) ? Number(value) : NaN;
+    const label: unknown = labels[at];
+    if (Number.isSafeInteger(id) && id > 0 && typeof label === "string" && label.trim()) names.set(id, plainText(label));
+  });
 }
 
 /** Reads a whole grid in row pages. The first page is asked for at once, sized for `FIRST_PAGE_COLUMNS`, and its answer
@@ -133,9 +150,10 @@ function selectorLabel(view: Any, page: Any, index: number): string | undefined 
  * the next page starts where it ended. `selectorLabels` shows list choices by label. `stop` is asked before each page: an
  * export that was asked to stop reads no further one. Asking is also how the model's frame tells the page that waits for
  * it that the export is still going (bridge.ts `serveCore`): nothing else is reported between two pages, so it has to be
- * asked before every one. Once the grid is read, the log says how long each of its pages took. */
+ * asked before every one. Once the grid is read, the log says how long each of its pages took. `selectorNames`, where
+ * supplied, keeps Time period choices from the same responses for import constants. */
 export async function readGrid(native: Native, rows: string, columns: string, name: string, log: Log, cellsPerRead = CELLS_PER_READ,
-  selectorLabels = false, stop?: Stop, staticContextIdentifiers: string[] = []): Promise<Grid> {
+  selectorLabels = false, stop?: Stop, staticContextIdentifiers: string[] = [], selectorNames?: Map<number, string>): Promise<Grid> {
   const viewDefinition = { type: "MODEL_DEFINITION", staticContextIdentifiers, ...native.helper.getAxesForViewDefinition([rows], [columns]) };
   const firstRows = Math.max(1, Math.floor(cellsPerRead / FIRST_PAGE_COLUMNS));
   stop?.throwIfAborted();
@@ -163,7 +181,7 @@ export async function readGrid(native: Native, rows: string, columns: string, na
       const data = new native.DataPage({ page, allCurrenciesLabelPage: currencies });
       if (!selectorLabels) return data;
       return { contains: (r: number, c: number) => data.contains(r, c), getIndex: (r: number, c: number) => data.getIndex(r, c),
-        getOriginalText: (i: number) => selectorLabel(view, data, i) ?? data.getOriginalText(i), getCellText: (i: number) => selectorLabel(view, data, i) ?? data.getCellText(i) };
+        getOriginalText: (i: number) => selectorLabel(view, data, i, selectorNames) ?? data.getOriginalText(i), getCellText: (i: number) => selectorLabel(view, data, i, selectorNames) ?? data.getCellText(i) };
     });
     const labels = labelEntries(view.rowLabelPages?.[0]);
     if (labels.length !== count) log(`${name}: rows ${start}-${start + count - 1} returned ${labels.length} labels`);
