@@ -135,6 +135,30 @@ export class FakePen {
 
 const isColour = (value: unknown): value is string => typeof value === "string" && /^(#[0-9a-f]{3,8}|rgba?\([^)]*\)|color\([^)]*\))$/i.test(value.trim());
 
+/** A model whose filters on the pages built on it are, as in a live model, on the modules of their own line items, which
+ * no link can show: MDM380 - Customer Entity # is filtered by its own Incomplete Records and Missing DisplayName, and
+ * MDM381 - Resources # by its own Incomplete Records, both modules in 01: Master Data; REP01 - Report, in 02: Reporting,
+ * reads Customer Entity's Incomplete Records and is filtered by nothing. With `mixed`, FLT01 - Filters, in 00: Inputs, has
+ * Show?, which filters REP01 - Report: a filter on another module, which a link shows. The result has the Page Filters
+ * table. Tests only. */
+export function ownFilteredModel(mixed = false) {
+  const make = new GraphMaker();
+  const flt = mixed ? make.module("FLT01 - Filters", "00: Inputs") : undefined;
+  const cust = make.module("MDM380 - Customer Entity #", "01: Master Data");
+  const res = make.module("MDM381 - Resources #", "01: Master Data");
+  const rep = make.module("REP01 - Report", "02: Reporting");
+  const use = (card: string, ...modules: number[]): PageFilter => ({ app: "Data Hub", page: "Admin", card, modules });
+  const incomplete = make.item(cust, "Incomplete Records", { format: "BOOLEAN", pageFilters: [use("1", cust)] });
+  const missing = make.item(cust, "Missing DisplayName", { format: "BOOLEAN", pageFilters: [use("2", cust)] });
+  const resIncomplete = make.item(res, "Incomplete Records", { format: "BOOLEAN", pageFilters: [use("3", res)] });
+  const total = make.item(rep, "Total", { formula: "'MDM380 - Customer Entity #'.Incomplete Records" });
+  make.link(incomplete, total);
+  const show = flt === undefined ? undefined : make.item(flt, "Show?", { format: "BOOLEAN", pageFilters: [use("4", rep)] });
+  if (show !== undefined) make.link(show, rep, "page_filter");
+  const graph: ModelGraph = { ...make.graph(), pageFilterTable: true };
+  return { graph, cust, res, rep, flt, incomplete, missing, resIncomplete, total, show };
+}
+
 /** A model whose filter line item, Show?, is the condition of filters on the pages built on it: on two cards of REV01 -
  * Revenue, the second of them also filtering MAR01 - Margin, each by Products. Revenue's formula also reads Show?; nothing
  * reads Margin. Each module is in a section of its own. Without `filters` it is the same model with no page filters at

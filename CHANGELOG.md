@@ -2,7 +2,7 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version stands next to Cardigan's name at the top of the results page and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
-## 0.18.5 (10 October 2026)
+## 0.18.6 (10 October 2026)
 
 A source model's details list what it gives the model.
 
@@ -10,6 +10,16 @@ A source model's details list what it gives the model.
 - **Imports.** Under them, each import that reads from the source model, with the objects it reads; each opens its own row of **Imports** where exactly one row has its name. Where Import Data Sources names none of the source model's objects, the imports are found by the Imports table's **Source Object**. (#58)
 - **Found by name, nothing guessed.** A source model is found by its name as each table writes it, out of its quotes and with its spaces evened out, or by the model's own name, the part after its workspace, where one table writes the workspace in front and the other does not, and no other source model has that name. A count that is not what the row's **Sources** or **Imports** says is said under its list. A source model neither table names gets no list, and the diagnostic log says so once. (#58)
 - **What stays the same.** What is read, the Source Models table and its columns, and **All columns**. (#58)
+
+## 0.18.5 (10 October 2026)
+
+The model map shows the filters a module's own line items put on it, and its **Page filters** box says truly what it draws.
+
+- **Marks for a module's own filters.** Most filters on a model's pages have their condition in the module they filter, such as a module's Incomplete Records filtering that module's rows. No arrow joins a module to itself, so the map drew nothing for them, and a model whose filters were all of that kind had **Page filters** greyed out, with a note that said, wrongly, that none of its filters had a line item of the model as its condition. Ticked, the box now marks each such module: a plum mark on the box's top edge, with a funnel and how many of its own line items filter it. A group's mark says how many of its modules are filtered so, and in the Line items view each line item that filters its own module has the mark, without a number. Zoomed out, where a box is too small for it, the mark is a plum dot at the box's top right. The legend says what it means on the picture shown. A filter on another module keeps its dashed arrow. (#57)
+- **A note that tells the truth.** The note under the box says what ticking it draws: arrows, marks or both. Where there is nothing to draw, the box is off and the note says why: the result has no **Page Filters** table; the pages have no filters; none of the filters has a line item of the map as its condition, with how many filters there are; or none of them filters a module of the map. (#57)
+- **Names found whatever their spaces.** A filter's line item is found by its module's name and its own. Where Line Items wrote either with a space at its end that **Page Filters** did not have, or the two wrote a run of spaces differently, the line item was not found, and its filter was left off the map and its details; it is found now, where one module or line item alone fits. A filtered module, and a row of **Modules** or **Module Usage**, is found despite a run of spaces written differently too; spaces at the ends were already allowed for there. The map's line items have no ID in the result, so their names are what a filter is matched by. (#57)
+- **One line in the log.** When the map is first built, the diagnostic log says how the Page Filters table met the map, such as "Page filters: 32 rows; 32 with the condition line item on the map (30 on its own module, 2 on another module); 0 with a line item the map does not have.", and names the first five line items it could not find, each once. (#57)
+- **What stays the same.** A module's details list its own line items under **Filtered on pages by**, as they did. A mark is followed by no trace, a filter's arrow only while it is drawn, and neither changes a module's role in the data flow. The tick is kept for the tab, as it was. (#57)
 
 ## 0.18.4 (10 October 2026)
 

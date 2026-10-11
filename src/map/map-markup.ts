@@ -1,4 +1,5 @@
-import type { ViewLayer } from "./map-graphs.js";
+import type { ModelGraph } from "./graph-types.js";
+import type { ViewGraph, ViewLayer } from "./map-graphs.js";
 import type { InspectLink, InspectList, Inspection, TraceWords } from "./map-inspect.js";
 import { layerClass } from "./map-palette.js";
 import type { SearchOutcome } from "./map-search.js";
@@ -27,16 +28,52 @@ export const LIST_CAP = 100;
 
 /** What access drivers are, said where they are switched, in a modeller's words. */
 export const ACCESS_SAYS = "Read and Write Access Drivers are line items that decide which cells of a module or line item someone can see or edit (Anaplan's dynamic cell access). Tick to draw an arrow from each driver to what it controls.";
-/** What page filters are, said where their links are switched, in the same words. */
+/** What page filters are, said where their links are switched, in the same words: for a model whose filters are all
+ * on modules other than their line items' own, which links show. */
 export const FILTERS_SAY = "Boolean line items used as filters on the pages built on the model. Tick to draw an arrow from each filter line item to the module it filters.";
-/** Why the links of page filters cannot be drawn, said in the switch's place, which is then off and not to be ticked:
- * the result has no Page Filters table, or none of its filters has a line item of the model as its condition. */
+/** The same, for a model whose filters are all on their line items' own modules: no link can show those, so the switch
+ * marks the modules instead. */
+export const FILTERS_OWN_SAY = "Every filter on the pages built on this model has its condition in the module it filters, so no arrow can show it. Tick to mark each such module with how many of its own line items filter it.";
+/** The same, for a model with filters of both kinds. */
+export const FILTERS_BOTH_SAY = "Boolean line items used as filters on the pages built on the model. Tick to draw an arrow from each filter line item to another module it filters, and to mark each module with how many of its own line items filter it.";
+/** Why the pages' filters cannot be shown, said in the switch's place, which is then off and not to be ticked: the result
+ * has no Page Filters table; the table has no row; none of its rows has a line item of the map as its condition; or
+ * those that have one name no module of the map as what they filter. `links` is said for a graph that does not say how
+ * the table met the map (`ModelGraph.pageFilterCheck`). */
 export const FILTERS_NONE = {
   table: "This result has no Page Filters table, so the map has no page filter links. Run the model again to read the pages built on it.",
   links: "None of the filters on the pages built on this model has one of its line items as its condition, so the map has no page filter links.",
+  empty: "The pages built on this model have no filters, so the map has none to show.",
+  unfound: (rows: number): string => (rows === 1
+    ? "The Page Filters table has 1 filter, but its condition line item is no line item of the map, so the map has nothing to show for it. The run's diagnostic log names it."
+    : `The Page Filters table has ${formatCount(rows)} filters, but none of their condition line items is a line item of the map, so the map has nothing to show for them. The run's diagnostic log names them.`),
+  nowhere: "The filters on the pages built on this model name no module of the map as what they filter, so the map has nothing to show for them.",
 } as const;
+
+/** What the switch of the pages' filters says under it: what ticking it shows, by what the model has to show (its links
+ * between modules, `links`, and its modules filtered by their own line items, `marks`), or, where it has nothing, why. */
+export function filtersNote(graph: Pick<ModelGraph, "pageFilterTable" | "pageFilterCheck">, links: boolean, marks: boolean): string {
+  if (links && marks) return FILTERS_BOTH_SAY;
+  if (links) return FILTERS_SAY;
+  if (marks) return FILTERS_OWN_SAY;
+  if (!graph.pageFilterTable) return FILTERS_NONE.table;
+  const check = graph.pageFilterCheck;
+  if (!check) return FILTERS_NONE.links;
+  if (check.rows === 0) return FILTERS_NONE.empty;
+  if (check.found === 0) return FILTERS_NONE.unfound(check.rows);
+  return FILTERS_NONE.nowhere;
+}
 /** What a page filter's link looks like and means, said in the legend while those links are drawn. */
 export const FILTER_LINK_SAYS = "Dashed: a page filter, from its line item to the module it filters.";
+/** What a filter mark on a box means (map-canvas.ts `drawFilterMark`), by the kind of picture, said in the legend while
+ * one is drawn. */
+export const FILTER_MARK_SAYS: Readonly<Record<ViewGraph["kind"], string>> = {
+  sections: "Filter mark: how many of the group's modules their own line items filter on pages.",
+  modules: "Filter mark: how many of the module's own line items filter it on pages.",
+  drill: "Filter mark: the line item filters its own module on pages.",
+};
+/** A filter mark's funnel, as the canvas draws it (map-canvas.ts `funnel`). */
+const FUNNEL = '<svg class="map-mark-funnel" width="9" height="9" viewBox="0 0 10 10" aria-hidden="true"><path d="M0 .8h10L6.2 5.2v3.4L3.8 10V5.2Z"/></svg>';
 /** What the links of formulas are, said beside the switch of the others: they are always drawn. */
 export const FORMULAS_SAY = "Always drawn. An arrow from A to B: B reads A.";
 /** What a line on the map means. */
@@ -204,13 +241,15 @@ export function pathRootHtml(model: string, workspace: string | undefined, whole
 
 /** The legend: each layer of the graph on screen with its colour and its number, as a button that hides the layer and
  * shows it again, and under them what a line means: while the links of page filters are drawn (`filters`), what theirs
- * means too, beside a piece of the line they are drawn in. A hidden layer says so in more than its colour: its name is
+ * means too, beside a piece of the line they are drawn in; and while a box of the picture has a filter mark, what the
+ * mark means on that kind of picture (`marks`), beside one. A hidden layer says so in more than its colour: its name is
  * struck through, and the button is not pressed. */
-export function legendHtml(title: string, layers: readonly ViewLayer[], hidden: ReadonlySet<string>, filters = false): string {
+export function legendHtml(title: string, layers: readonly ViewLayer[], hidden: ReadonlySet<string>, filters = false, marks?: ViewGraph["kind"]): string {
   return `<div class="map-legend-title">${esc(title)}</div>${layers.map(layer => {
     const off = hidden.has(layer.key);
     return `<button type="button" class="map-legend-item${off ? " map-off" : ""}" data-map-act="layer" data-map-layer="${esc(layer.key)}" aria-pressed="${off ? "false" : "true"}">${dot(layer.key)}<span class="map-legend-name">${esc(layer.label)}</span><span class="map-legend-count">${esc(formatCount(layer.count))}</span></button>`;
-  }).join("")}<p class="map-legend-note">${esc(LINK_SAYS)}</p>${filters ? `<p class="map-legend-note map-legend-filter"><span class="map-line-filter" aria-hidden="true"></span>${esc(FILTER_LINK_SAYS)}</p>` : ""}`;
+  }).join("")}<p class="map-legend-note">${esc(LINK_SAYS)}</p>${filters ? `<p class="map-legend-note map-legend-filter"><span class="map-line-filter" aria-hidden="true"></span>${esc(FILTER_LINK_SAYS)}</p>` : ""}${
+    marks ? `<p class="map-legend-note map-legend-mark"><span class="map-mark-filter" aria-hidden="true">${FUNNEL}</span>${esc(FILTER_MARK_SAYS[marks])}</p>` : ""}`;
 }
 
 /** What the first button of the trace's bar does, in full: its face is short, for the bar to keep to one row. */
