@@ -116,7 +116,7 @@ A source that fails or times out is skipped independently, including HTTP 503 fr
 
 #### Groups and links
 
-One path stays in the bar: **Model / Group / Module**. Click the model name to go to the top. Click anywhere on the group or module pill to open its list. The group list offers **All groups**, **All modules**, then each group with its module count; choosing the current group shows its modules. Choosing a module shows its line items. `Enter`, `Space` or `Alt+Down` opens a focused pill's list; the arrow keys move through it. From a module, `Esc` goes to its own group, then to the model; an open list closes first. Names stay in full, wrapping on a narrow map.
+One path stays in the bar: **Model / Group by / Group / Module**. Click the model name to go to the top. Click anywhere on a pill to open its list. The Group pill shows the current group's full name, or **Group** at the groups overview and when showing all modules. Its list offers **All groups**, then each group with its module count; choosing the current group shows its modules. The Module list starts with **All modules**, then every module under its group heading, with the search box focused. Choosing a module shows its line items. `Enter`, `Space` or `Alt+Down` opens a focused pill's list; the arrow keys move through it. From a module, `Esc` goes to its own group, then to the model; an open list or grouping explanation closes first. Names stay in full, wrapping on a narrow map, and opening a list moves neither the controls nor the drawing.
 
 **Group by** is available at every level:
 
@@ -129,7 +129,7 @@ One path stays in the bar: **Model / Group / Module**. Click the model name to g
 | App | The app whose pages use the module, Several apps, or Not on any page |
 | Main dimension | The first list the module applies to, Time only, or No dimensions |
 
-The automatic choice prefers functional areas or headings that cover most modules, then useful name prefixes, then roles. A grouping with only one group shows its modules. Your choice is kept in this browser. Changing Group by inside a module keeps its drawing and selection; the group name and picker headings change with it.
+The Group by pill shows only the grouping's name. The drawn **(i)** beside it explains the choice on hover or click, and works from the keyboard. Automatic mode reports this model's figures and the rule: functional areas first, then headings, with at least 60% of modules in two or more groups; otherwise name prefixes with 3 to 15 groups, at most half the modules in one and at most a fifth in Other; otherwise roles. A choice you made says so. **Automatic**, first in the Group by list, lets Cardigan pick again. A grouping with only one group shows its modules. Your choice is kept in this browser, including when you pick the same grouping as Automatic. Changing Group by inside a module keeps its drawing and selection; the group name and picker headings change with it. Previously kept views, including All modules, still load.
 
 **Links** opens three switches: **Formulas**, on at first, **Access drivers**, and **Page filters**. Inside a module it also offers **Other modules' line items**: show them individually or keep one box per outside module. Formula, access and filter links share that module box. With individual line items shown, a module and a line item have separate boxes labelled with their kinds.
 

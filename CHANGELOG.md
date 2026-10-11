@@ -9,6 +9,11 @@ Every merged change that alters the extension has a version of its own: a new fe
 - **Names compared as text.** HTML entities in line item listings are decoded once before comparison and naming. A literal `&amp;` stays literal, and an encoded ampersand no longer counts as a changed name.
 - **The engine after the client loads.** Check-in no longer reads the engine. For a run, the frame first loads its client through the asynchronous loader, then reads the workspace's engine. Polaris gets its full-read Overview note; both engines keep the full reader and the Polaris-columns cross-check.
 
+## 0.29.9 (11 October 2026)
+
+- **The path in order.** The Model map's path now reads model, Group by, Group, Module. Group names the current group, or says Group when none is chosen. All groups stays first in its list; All modules moves to the start of the Module list, before the modules under their group headings. Each whole pill opens its list, with names in full and the drawing kept in place. (#89)
+- **Why this grouping.** Group by shows the grouping's name. A drawn info button beside it explains the automatic choice with the model's figures and the rules, or says that you picked it. Hover for the explanation or click to keep it open; the keyboard reaches it too. Automatic stays first in the list to let Cardigan pick again. The selected box and previously kept views, including All modules, still load. (#89)
+
 ## 0.29.8 (11 October 2026)
 
 - **Switching tabs closes the details.** Choosing another table, the Overview or the Model map in navigation clears the open row without moving the new table. Coming back or refreshing keeps the panel closed; links within details, the **Table** and **Model map** buttons, and **Run again** still keep or open their row. (#88)

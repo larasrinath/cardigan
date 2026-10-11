@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ModelGraph } from "./graph-types.js";
-import { automaticGrouping, BUILT, GOOD, groupingsOf, isBuilt, isGood, leadingCode, roleOf, type Flow, type Grouping, type GroupingKind } from "./map-groups.js";
+import { automaticGrouping, automaticGroupingReason, BUILT, GOOD, groupingsOf, isBuilt, isGood, leadingCode, roleOf, type Flow, type Grouping, type GroupingKind } from "./map-groups.js";
 import { indexModel, withGrouping } from "./map-model.js";
 import { filteredModel, GraphMaker, ownFilteredModel } from "./map-fakes.test-support.js";
 
@@ -11,6 +11,52 @@ function groupingsBy(graph: ModelGraph): Map<GroupingKind, Grouping> {
 /** Each module's group, by the module's name, in the model's order. */
 const groupsOf = (graph: ModelGraph, grouping: Grouping | undefined): [string, string | undefined][] =>
   graph.nodes.filter(node => node.kind === "module").map(module => [module.name, grouping?.groupOf.get(module.id)]);
+
+describe("Why the automatic grouping was chosen", () => {
+  it("keeps fractional coverage visible near the builder threshold", () => {
+    const make = new GraphMaker();
+    for (let i = 0; i < 99; i++) make.module(`Module${i}name`, i < 59 ? `Heading ${i % 2}` : undefined);
+    const groupings = groupingsOf(indexModel(make.graph()));
+    expect(automaticGrouping(groupings)?.kind).toBe("role");
+    expect(automaticGroupingReason(groupings)).toContain("Heading rows cover 59.6% of modules in 2 groups");
+    expect(automaticGroupingReason(groupings)).toContain("No shared name prefixes qualify.");
+  });
+
+  it("reports the actual builder coverage and the rule, including the two-group minimum", () => {
+    const make = new GraphMaker();
+    for (let i = 0; i < 100; i++) make.module(`Module ${i}`, i < 92 ? `Heading ${i % 2}` : undefined,
+      i < 20 ? { functionalArea: `Area ${i % 2}` } : {});
+    let groupings = groupingsOf(indexModel(make.graph()));
+    expect(automaticGrouping(groupings)?.kind).toBe("headings");
+    const reason = automaticGroupingReason(groupings);
+    expect(reason).toContain("Chosen automatically: Headings.");
+    expect(reason).toContain("Functional areas cover 20% of modules in 2 groups; Heading rows cover 92% of modules in 2 groups.");
+    expect(reason).toContain(`at least ${BUILT.share * 100}% in ${BUILT.least} or more groups`);
+    for (const node of make.nodes) node.functionalArea = "One area";
+    groupings = groupingsOf(indexModel(make.graph()));
+    expect(automaticGrouping(groupings)?.kind).toBe("headings");
+    expect(automaticGroupingReason(groupings)).toContain("Functional areas cover 100% of modules in 1 group");
+  });
+
+  it("explains functional-area priority, a qualifying prefix, and the role fallback with real figures", () => {
+    const make = new GraphMaker();
+    for (let i = 0; i < 10; i++) make.module(i === 9 ? "Odd name" : `${["INP", "CAL", "REP"][i % 3]}${i} Module`);
+    let groupings = groupingsOf(indexModel(make.graph()));
+    expect(automaticGrouping(groupings)?.kind).toBe("prefix");
+    expect(automaticGroupingReason(groupings)).toContain("Name prefixes make 4 groups; the largest holds 30% of modules and Other holds 10%.");
+    expect(automaticGroupingReason(groupings)).toContain(`need ${GOOD.least} to ${GOOD.most} groups, at most ${GOOD.largest * 100}% in one and at most ${GOOD.rest * 100}% in Other`);
+    make.module("Another odd name"); make.module("Unshared name");
+    groupings = groupingsOf(indexModel(make.graph()));
+    expect(automaticGrouping(groupings)?.kind).toBe("role");
+    expect(automaticGroupingReason(groupings)).toContain("Other holds 25%.");
+    expect(automaticGroupingReason(groupings)).toContain("Neither builder grouping nor name prefixes qualify");
+    for (const [i, node] of make.nodes.entries()) { node.functionalArea = `Area ${i % 2}`; node.group = `Heading ${i % 3}`; }
+    groupings = groupingsOf(indexModel(make.graph()));
+    expect(automaticGroupingReason(groupings)).toContain("Chosen automatically: Functional area.");
+    expect(automaticGroupingReason(groupings)).toContain("Functional areas cover 100% of modules in 2 groups; Heading rows cover 100% of modules in 3 groups.");
+    expect(automaticGroupingReason([])).toBe("There are no modules to group.");
+  });
+});
 
 /** Modules whose part in the data flow the model's links say, named so that no name says it: a module named as an
  * input is the model's output, and the one named for revenue only takes data in. */

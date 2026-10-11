@@ -324,6 +324,7 @@ function where(): string[] {
   return steps;
 }
 function chooseGroup(value: string): void {
+  if (value === "modules") { part('[data-map-act="modules"]').press(); part('[data-map-pick="-1"]').press(); return; }
   part('[data-map-act="groups"]').press();
   part(`[data-map-group="${value}"]`).press();
 }
@@ -402,7 +403,7 @@ describe("A model's result on the results page, with the map's real graph and th
     // The model has three headings among its modules: the map opens on those three sections. Inputs feed
     // Calculations, and Calculations feed Reporting: two links, however many formulas make each.
     expect(shownStatus()).toBe("3 groups · 2 links");
-    expect(parts("[data-map-group]").map(option => option.textContent)).toEqual(["All groups", "All modules", "01 Inputs · 2 modules", "02 Calculations · 1 module", "03 Reporting · 1 module"]);
+    expect(parts("[data-map-group]").map(option => option.textContent)).toEqual(["All groups", "01 Inputs · 2 modules", "02 Calculations · 1 module", "03 Reporting · 1 module"]);
     // Each section is a box on the picture, named, with what it holds: its modules, and their line items.
     expect(written()).toEqual(expect.arrayContaining(["01 Inputs", "02 Calculations", "03 Reporting"]));
     expect([writes("2 modules", "3 line items"), writes("1 module", "4 line items"), writes("1 module", "3 line items")]).toEqual([true, true, true]);
@@ -411,12 +412,12 @@ describe("A model's result on the results page, with the map's real graph and th
     // and Revenue feeds Summary: three links.
     chooseGroup("modules");
     around.shows();
-    expect([shownStatus(), where()]).toEqual(["4 modules · 3 links", ["Model one", "All modules"]]);
+    expect([shownStatus(), where()]).toEqual(["4 modules · 3 links", ["Model one", "Group"]]);
     // Each module is drawn as soon as the browser shows the frame requested by the group choice.
     const modulesDrawn = written();
     expect(modulesDrawn).toEqual(expect.arrayContaining(["Volumes", "Prices", "Revenue", "Summary"]));
     expect(pickable()).toEqual([VOLUMES, PRICES, REVENUE, SUMMARY]);
-    expect(where()).toEqual(["Model one", "All modules"]);
+    expect(where()).toEqual(["Model one", "Group"]);
     // Closing the list keeps that picture, with each module's code and section on its small line.
     expect(part(".map-module-picker .map-picker-pop").hidden).toBe(true);
     expect(written()).toEqual(modulesDrawn);
@@ -570,7 +571,7 @@ describe("A model's result on the results page, with the map's real graph and th
     expect([root.isConnected, part(".map-inspector").hidden, part(".map-search").value]).toEqual([false, false, ""]);
     chooseGroup("modules");
     around.shows();
-    expect([where(), shownStatus()]).toEqual([["Model two", "All modules"], "5 modules · 4 links"]);
+    expect([where(), shownStatus()]).toEqual([["Model two", "Group"], "5 modules · 4 links"]);
     expect(pickable()).toEqual([VOLUMES, PRICES, REVENUE, SUMMARY, BOARD]);
     expect(text(".map-notes .map-about-line")).toMatch(/^Model two\b.*\bPlanning\b.*\b5 modules\b.*\b11 line items$/);
   });
