@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { exportModel } from "./export.js";
 import type { Grid } from "./grid.js";
-import { MEMBERSHIP_NOT_READ, readLineItemSubsets, subsetLineItems } from "./line-item-subsets.js";
+import { MEMBERSHIP_NOT_READ, readLineItemSubsets, subsetLineItems, subsetModules } from "./line-item-subsets.js";
 import type { Native } from "./native.js";
 
 const definitions: Grid = {
@@ -115,10 +115,66 @@ describe("Line Item Subsets through Model Building", () => {
     const changed = structuredClone(membership);
     changed.rows[1].labels = ["Owner's share", "Plan.v2"];
     expect(subsetLineItems(definitions, changed)[0]).toBe("'Plan.v2'.'Owner''s share'");
-    expect(() => subsetLineItems(definitions, { ...membership, columns: [] })).toThrow("identify every subset");
+    expect(subsetLineItems(definitions, { ...membership, columns: [] })).toEqual([undefined, undefined]);
     changed.rows[1].cells[1] = "unknown";
-    expect(() => subsetLineItems(definitions, changed)).toThrow("unrecognised");
+    expect(subsetLineItems(definitions, changed)[0]).toBe("");
     changed.rows[1].ids = [1901000000001];
-    expect(() => subsetLineItems(definitions, changed)).toThrow("identify a line item's module");
+    changed.rows[1].cells[1] = "true";
+    changed.rows[1].labels = ["Units"];
+    expect(subsetLineItems(definitions, changed)[0]).toBe("'Demand'.'Units'");
+  });
+
+  it("resolves IDs in model order, preserving raw IDs and logging unknown ones", async () => {
+    const pairs: [string, string][] = [["Demand", "102000000001"], ["Plan, next", "102000000002"]];
+    expect(subsetModules("102000000001", pairs)).toEqual({ names: ["Demand"], ids: "102000000001", unknown: [] });
+    const properties = structuredClone(definitions);
+    properties.rows[0].cells[0] = "102000000002,102000000001";
+    properties.rows[1].cells[0] = "102000000099";
+    const { native } = client({ properties, subsets: membership });
+    const log: string[] = [];
+    const { table } = await readLineItemSubsets(native, line => log.push(line), undefined, pairs);
+    expect(table.headers).toEqual(["", "Modules", "Notes", "Module IDs", "Line Items"]);
+    expect(table.rows[0]).toEqual(["Planning measures", "Demand, Plan, next", "For planning", "102000000002,102000000001", "'Demand'.'Units'"]);
+    expect(table.rows[1][1]).toBe("102000000099");
+    expect(log).toContain("Line Item Subsets: module ID 102000000099 has no name; kept as ID");
+  });
+
+  it("selects true values whatever their case or spaces, takes empty cells as not selected, and logs the first three distinct unexpected values with their counts", () => {
+    const values = ["true", "false", "n/a", "", undefined, "n/a", null, "greyed", "disabled", "TRUE", " true ", 1, true, false];
+    const grid = { columns: [membership.columns[1]], rows: values.map((value, index) => ({
+      ids: [1901000000001 + index, 102000000001], labels: [`Measure ${index}`, "Demand"], cells: [value],
+    })) } as Grid;
+    const log: string[] = [];
+    expect(subsetLineItems({ ...definitions, rows: [definitions.rows[0]] }, grid, line => log.push(line)))
+      .toEqual(["'Demand'.'Measure 0', 'Demand'.'Measure 9', 'Demand'.'Measure 10', 'Demand'.'Measure 12'"]);
+    expect(log).toEqual(['Line Item Subsets membership: 5 cells with an unrecognised value ("n/a" ×2, "greyed" ×1, "disabled" ×1), taken as not in the subset']);
+  });
+
+  it("uses module headings with or without IDs and skips odd rows without losing later members", () => {
+    const grid: Grid = { columns: [membership.columns[1]], rows: [
+      { ids: [1901000000009], labels: ["No module"], cells: ["true"] },
+      { ids: [102000000001, -1], labels: ["Demand", ""], cells: ["true"] },
+      { ids: [1901000000001], labels: ["Units"], cells: ["true"] },
+      { ids: [], labels: ["Plan, next"], cells: ["true"] },
+      { ids: [1901000000002], labels: ["Margin"], cells: ["true"] },
+      { ids: [1901000000003], labels: [], cells: ["true"] },
+      { ids: [1901000000004, 102000000001], labels: ["Cost", "Demand"], cells: ["true"] },
+    ] };
+    const log: string[] = [];
+    expect(subsetLineItems({ ...definitions, rows: [definitions.rows[0]] }, grid, line => log.push(line)))
+      .toEqual(["'Demand'.'Units', 'Plan, next'.'Margin', 'Demand'.'Cost'"]);
+    expect(log).toEqual(["Line Item Subsets membership: 2 rows without a line item name or module skipped"]);
+  });
+
+  it("marks only a subset whose column is missing and keeps the successful read", async () => {
+    const grid: Grid = { columns: [membership.columns[1]], rows: membership.rows.map(row => ({ ...row, cells: [row.cells[1]] })) };
+    const { native } = client({ properties: definitions, subsets: grid });
+    const log: string[] = [];
+    const read = await readLineItemSubsets(native, line => log.push(line));
+    expect(read.note).toBeUndefined();
+    expect(read.table.headers).toEqual(["", "Modules", "Notes", "Line Items", "Membership read"]);
+    expect(read.table.rows.map(row => row.slice(-2))).toEqual([["'Demand'.'Units'", "true"], ["", "false"]]);
+    expect(log).toContain("Line Item Subsets membership: subset 114000000002 not read (column missing)");
+    expect(log.at(-1)).toBe("Line Item Subsets membership: 1 subset read; 1 subset not read");
   });
 });

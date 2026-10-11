@@ -5113,11 +5113,15 @@ describe("Row links and Back in the details panel", () => {
     await openWith(model);
     goTo(1);
     row().press();
-    expect(page.texts('#drawerBody [data-act="item"]')).toEqual(["Inventory", "'Inventory'.'Input'"]);
+    expect(page.texts('#drawerBody [data-act="item"]')).toEqual(["Inventory", "Input", "Inventory"]);
+    expect(page.id("drawerSubsetItems").textContent).toContain("Line items · 1");
     expect(page.has('#tableWrap [data-act="item"]')).toBe(false);
     expect(page.texts("#drawerOpens button")).toContain("Model");
     expect(page.id("drawer").innerHTML.indexOf('id="drawerOpens"')).toBeLessThan(page.id("drawer").innerHTML.indexOf('id="drawerBody"'));
-    item("'Inventory'.'Input'").press();
+    item("Inventory").press();
+    expect(page.id("drawerTitle").textContent).toBe("Inventory");
+    page.id("drawerBack").press();
+    item("Input").press();
     expect(page.id("drawerTitle").textContent).toBe("Input");
     item("Planning measures").press();
     expect(page.id("drawerTitle").textContent).toBe("Planning measures");

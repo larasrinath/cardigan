@@ -2,6 +2,12 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version is in the menu of Cardigan's icon in Chrome's toolbar and on its About page, and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## Unreleased
+
+- **Subset modules by name.** Line Item Subsets resolves module IDs from the names already read, in model order. Raw IDs stay hidden; an unknown ID stays visible and the diagnostic log names it.
+- **Membership survives an odd cell.** Only true values select line items, whatever their case. Empty, disabled and unexpected values mean not selected; the log counts the unexpected ones and shows the first three distinct values. Module headings group their line items. A missing column leaves only its subset unknown, and a failed grid read keeps the warning with its reason in the log.
+- **Members under their modules.** Details show **Line items · N**, grouped under linked module headings in model order, with members in each module's order and links to their Line Items rows. The table shows a count with a number range filter; hidden names keep every member searchable.
+
 ## 0.31.1 (11 October 2026)
 
 - **Round map controls.** Zoom, Fit to screen and Minimap are separate round buttons, matching Full screen, with no pipes in either bottom cluster. Fit has its own drawn icon; Minimap shows a small inset in the frame's bottom-right corner and stays highlighted while open. (#97)
