@@ -6,9 +6,9 @@ Every merged change that alters the extension has a version of its own: a new fe
 
 The Overview says no more than it needs to of how a model's imports were matched.
 
-- **Nothing where every import was matched.** The export checks that each import in Anaplan's Imports tab is the same import as a row of its Actions list, which gives the import its last run, its notes and the processes that use it. Where every one was, the Overview showed "Imports: 372 rows (372 matched in the Actions list)" under **Tables**, which says no more than the tile's count. It is no longer shown, and with nothing else to list, neither is **Tables**.
-- **A note where some were not.** Where some could not be matched, a note says how many and what that means: "Imports: 2 of the 372 rows could not be matched between the Imports tab and the Actions list, so some of their columns are empty." It stands with the Overview's other notes, and the row is not said under **Tables** as well.
-- **What stays the same.** What is read, the Imports table, and the diagnostic log. A table that was not exported, and a count with another remark, such as imports read from the Imports tab alone when the Actions list could not be read, are still listed under **Tables**.
+- **Nothing where every import was matched.** The export checks that each import in Anaplan's Imports tab is the same import as a row of its Actions list, which gives the import its last run, its notes and the processes that use it. Where every one was, the Overview showed "Imports: 372 rows (372 matched in the Actions list)" under **Tables**, which says no more than the tile's count. It is no longer shown, and with nothing else to list, neither is **Tables**. (#56)
+- **A note where some were not.** Where some could not be matched, a note says how many and what that means: "Imports: 2 of the 372 rows could not be matched between the Imports tab and the Actions list, so some of their columns are empty." It stands with the Overview's other notes, and the row is not said under **Tables** as well. (#56)
+- **What stays the same.** What is read, the Imports table, and the diagnostic log. A table that was not exported, and a count with another remark, such as imports read from the Imports tab alone when the Actions list could not be read, are still listed under **Tables**. (#56)
 
 ## 0.18.3 (10 October 2026)
 
