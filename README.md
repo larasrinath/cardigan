@@ -14,6 +14,7 @@ Cardigan only reads, with your own signed-in session; nothing leaves your browse
 | **[Privacy and permissions](#privacy-and-permissions)** | |
 | **[Limits](#limits)** | |
 | **[For developers](#for-developers)** | [Release](#release) |
+| **[Thanks](#thanks)** | |
 | **[Licence](#licence)** | |
 
 ## What you get
@@ -183,6 +184,10 @@ Follow the version rule in [CHANGELOG.md](CHANGELOG.md): features get a minor ve
 1. Run `npm run check`.
 2. Run `npm run package` to create `release/cardigan-<version>.zip` and print its SHA-256.
 3. Publish that zip with its SHA-256.
+
+## Thanks
+
+Thanks to [Harish Ramaiah](https://www.linkedin.com/in/harish-ramaiah-1327794/) for valuable feedback that shaped Cardigan.
 
 ## Licence
 
