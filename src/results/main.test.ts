@@ -510,7 +510,68 @@ const pagerButtons = () => page.all("#pager .pg-btn").map(button => {
 });
 
 describe("The results page's script, on the page", () => {
-  it("folds Diagnostics for reading, opens it on failure, and copies the log in either state", async () => {
+  it.each([
+    ["not-anaplan", "info", "Run again"],
+    ["failed", "warning", "Run again"],
+    ["maintenance", "clock", "Run again"],
+    ["model-opening", "clock", "Run again"],
+    ["missing-reader", "refresh", "Refresh the Anaplan tab and run"],
+    ["old-reader", "refresh", "Refresh the Anaplan tab and run"],
+  ])("shows the %s card with its %s drawing and one main action before Copy diagnostic log", async (phase, icon, action) => {
+    await open(clicked(42));
+    if (phase === "not-anaplan") {
+      vi.spyOn(chrome.scripting, "executeScript").mockResolvedValue([{ frameId: 0, result: "https://example.org" }]);
+      ports[0].drop();
+    } else if (phase === "maintenance") {
+      ports[0].send({ type: "subject", subject: { kind: "none", maintenance: true } });
+    } else {
+      ports[0].send({ type: "subject", subject: { kind: "model", id: MODEL.id } });
+      ports[0].send({ type: "log", text: "Reading invented model settings" });
+      ports[0].send({ type: "error", message: "The connection stopped.",
+        ...(phase === "missing-reader" ? { code: "NO_READER" as const }
+          : phase === "old-reader" ? { code: "OLD_READER" as const, renewable: false }
+          : phase === "model-opening" ? { code: "MODEL_OPENING" as const } : {}) });
+    }
+    await eventually(() => page.find("#runIcon svg").getAttribute("data-run-icon") === icon, "the run card's icon");
+    expect(page.find("#runIcon svg").getAttribute("data-run-icon")).toBe(icon);
+    expect(page.find("#runIcon svg").getAttribute("aria-hidden")).toBe("true");
+    expect(page.find(".run-state").children.map(child => child.id)).toEqual(["runCard", "runLog"]);
+    expect(page.all(".run-actions button").filter(button => !button.hidden).map(button => button.textContent.trim()))
+      .toEqual([action, "Copy diagnostic log"]);
+    expect([page.id("runAgain").hidden, page.id("themeToggle").hidden, page.id("runLog").hasAttribute("open")]).toEqual([true, false, false]);
+    page.id("runCopy").press();
+    await settle();
+    expect(copied.at(-1)).toBe(page.id("diagLog").textContent);
+    expect(page.id("runLog").hasAttribute("open")).toBe(false);
+  });
+
+  it("keeps progress in the card until a result arrives, then keeps the header run control through another run and failure", async () => {
+    await open("?tab=42");
+    expect(page.find("#runIcon svg").getAttribute("data-run-icon")).toBe("progress");
+    ports[0].send({ type: "subject", subject: { kind: "app", id: RESULT.id } });
+    expect([page.id("runAgain").hidden, page.id("runRetry").hidden, page.id("runRetry").textContent]).toEqual([true, false, "Run"]);
+    page.id("runRetry").press();
+    const card = page.id("runCard");
+    const progressIcon = page.find("#runIcon svg");
+    ports[0].send({ type: "log", text: "Reading invented app" });
+    page.find("#runLog summary").press();
+    ports[0].send({ type: "status", text: "Reading pages" });
+    expect(page.id("runCard") === card).toBe(true);
+    expect(page.find("#runIcon svg") === progressIcon).toBe(true);
+    expect(page.find("#runIcon svg").getAttribute("data-run-icon")).toBe("progress");
+    expect(page.id("runLog").hasAttribute("open")).toBe(true);
+    expect(page.id("runAgain").hidden).toBe(true);
+    sendResult(ports[0]);
+    expect([page.has(".run-state"), page.id("runAgain").hidden, page.has("#runBanner")]).toEqual([false, false, false]);
+    const overview = page.id("view").innerHTML;
+    page.id("runAgain").press();
+    ports[0].send({ type: "status", text: "Reading pages again" });
+    expect([page.id("view").innerHTML, page.has("#runBanner"), page.id("runAgain").hidden]).toEqual([overview, false, false]);
+    ports[0].send({ type: "error", message: "The connection stopped." });
+    expect([page.id("view").innerHTML, page.id("runAgain").hidden, page.id("ovLog").hasAttribute("open")]).toEqual([overview, false, false]);
+  });
+
+  it("keeps Diagnostics folded on failure, toggles it, and copies the log while folded", async () => {
     await open(clicked(42));
     ports[0].send({ type: "subject", subject: { kind: "model", id: MODEL.id } });
     ports[0].send({ type: "log", text: "Reading invented model settings" });
@@ -519,7 +580,17 @@ describe("The results page's script, on the page", () => {
     await settle();
     expect(copied.at(-1)).toContain("Reading invented model settings");
     ports[0].send({ type: "error", message: "The connection stopped." });
+    expect(page.id("runLog").hasAttribute("open")).toBe(false);
+    page.id("runCopy").press();
+    await settle();
+    expect(copied.at(-1)).toContain("Reading invented model settings");
+    expect(page.id("runLog").hasAttribute("open")).toBe(false);
+    page.find("#runLog summary").press();
     expect(page.id("runLog").hasAttribute("open")).toBe(true);
+    expect(page.id("diagLog").textContent).toContain("Reading invented model settings");
+    page.find("#runLog summary").press();
+    expect(page.id("runLog").hasAttribute("open")).toBe(false);
+    page.find("#runLog summary").press();
     page.id("runRetry").press();
     expect(page.id("runLog").hasAttribute("open")).toBe(false);
     sendResult(ports[0], MODEL);
@@ -529,13 +600,13 @@ describe("The results page's script, on the page", () => {
     expect(page.id("ovLog").hasAttribute("open")).toBe(false);
   });
 
-  it("shows the maintenance card with Run again and an open diagnostic log", async () => {
+  it("shows the maintenance card with Run again and a folded diagnostic log", async () => {
     await open(clicked(42));
     ports[0].send({ type: "subject", subject: { kind: "none", maintenance: true } });
     expect(page.id("runTitle").textContent).toBe("Anaplan is down for maintenance");
     expect(page.id("runStatus").textContent).toBe("Try again when it's back. Nothing was read.");
     expect(page.id("runRetry").hidden).toBe(false);
-    expect(page.id("runLog").hasAttribute("open")).toBe(true);
+    expect(page.id("runLog").hasAttribute("open")).toBe(false);
     page.id("runCopy").press();
     await settle();
     expect(copied.at(-1)).toContain("case=MAINTENANCE");
@@ -595,7 +666,7 @@ describe("The results page's script, on the page", () => {
     expect(page.id("runRefresh").hidden).toBe(false);
     expect(page.id("runRetry").hidden).toBe(true);
     expect(page.id("runCopy").hidden).toBe(false);
-    expect(page.id("runLog").hasAttribute("open")).toBe(true);
+    expect(page.id("runLog").hasAttribute("open")).toBe(false);
     page.id("runCopy").press();
     await settle();
     expect(copied[0]).toContain("case=NO_READER");
@@ -667,7 +738,7 @@ describe("The results page's script, on the page", () => {
       // A time that is in the address goes, fresh or not.
       expect(location.search, address).toBe("?tab=42");
 
-      page.id("runAgain").press();
+      page.id("runRetry").press();
       expect(ports[index].posted, address).toEqual([{ type: "run" }]);
       expect([page.id("runTitle").textContent, page.id("runStatus").textContent], address).toEqual(["Analysing", "Starting the analysis…"]);
       expect(runControl(), address).toEqual(["Reading", "Starting the analysis…", 1]);
@@ -679,7 +750,7 @@ describe("The results page's script, on the page", () => {
     await open("?tab=42");
     ports[0].send({ type: "subject", subject: { kind: "model", id: "0123456789ABCDEF0123456789ABCDEF" } });
     expect(page.id("runStatus").textContent).toBe("That Anaplan tab shows a model.");
-    page.id("runAgain").press();
+    page.id("runRetry").press();
     expect(ports[0].posted).toEqual([{ type: "run" }]);
   });
 
@@ -1490,8 +1561,7 @@ describe("The results page's script, on the page", () => {
     expect(connects).toEqual([]);
     expect([page.id("runTitle").textContent, page.id("runStatus").textContent]).toEqual(["No Anaplan tab", "This page was opened without an Anaplan tab to read."]);
     expect([page.id("runAgain").disabled, runControl().slice(0, 2)]).toEqual([true, ["Run", "Analyse the Anaplan tab"]]);
-    page.id("runAgain").press();
-    expect(connects).toEqual([]);
+    expect(page.id("runAgain").hidden).toBe(true);
     // The same when the icon's click is in the address but no tab that can be read: no analysis was asked for, so the
     // control, which is off, does not say "again".
     for (const search of [`?opened=${NOW.getTime() - 1500}`, `?tab=x&opened=${NOW.getTime() - 1500}`]) {
@@ -1500,7 +1570,7 @@ describe("The results page's script, on the page", () => {
     }
   });
 
-  it("says it cannot reach the tab when Chrome closes the port at once, with Chrome's reason in the log, and reconnects on Run again", async () => {
+  it("says it cannot reach the tab when Chrome closes the port at once, with Chrome's reason in the log, and reconnects after a refresh", async () => {
     await open(clicked(7));
     lastError = { message: "Could not establish connection. Receiving end does not exist." };
     ports[0].drop();
@@ -1511,7 +1581,8 @@ describe("The results page's script, on the page", () => {
     expect(page.id("diagLog").textContent).toBe("14:02:05 The tab did not answer: Could not establish connection. Receiving end does not exist.\n14:02:10 No answer after 10 more tries.\n14:02:10 case=NO_READER; the tab's content script could not be reached");
     expect(page.id("runAgain").disabled).toBe(false);
     expect(connects).toHaveLength(11);
-    page.id("runAgain").press();
+    page.id("runRefresh").press();
+    await vi.advanceTimersByTimeAsync(500);
     expect(connects).toHaveLength(12);
     expect(new Set(connects.map(args => JSON.stringify(args)))).toEqual(new Set([JSON.stringify([7, { name: PORT_NAME }])]));
   });
@@ -1543,14 +1614,14 @@ describe("The results page's script, on the page", () => {
     expect(copied).toEqual([`14:02:05 Cardigan dev: app ${RESULT.id} on us1a.app.anaplan.com\n14:02:06 stopped: GET /a/springboard-definition-service/apps 503`]);
 
     // A result the page cannot read is the page's own failure: its log says what did not fit, so there is a log to copy.
-    page.id("runAgain").press();
+    page.id("runRetry").press();
     ports[0].send({ type: "done" });
     expect([page.id("runStatus").textContent, page.id("runHint").hidden, page.id("runLog").hidden, page.id("diagLog").textContent]).toEqual([
       "Cardigan received a result it could not read. Refresh the Anaplan tab, then click the Cardigan icon again.", true, false,
       "14:02:05 stopped: the tab said its result was complete before it sent one"]);
     // An error the tab sends without having started a run comes without a log: the page writes the one line, so the
     // button is beside this message too.
-    page.id("runAgain").press();
+    page.id("runRetry").press();
     const busy = "Cardigan is still analysing what this Anaplan tab showed before. Wait for that to finish, or close its results page, then choose Run again.";
     ports[0].send({ type: "error", message: busy });
     expect([page.id("runStatus").textContent, page.id("runLog").hidden, page.id("diagLog").textContent, page.has('#view [data-act="copy-run-log"]')]).toEqual([busy, false, `14:02:05 stopped: ${busy}`, true]);
@@ -1561,7 +1632,7 @@ describe("The results page's script, on the page", () => {
     ports[0].send({ type: "subject", subject: { kind: "none" } });
     expect(page.id("runStatus").textContent).toBe("This tab isn't showing a model. Open one in Model Building, then choose Run again.");
     expect(page.id("runAgain").disabled).toBe(false);
-    page.id("runAgain").press();
+    page.id("runRetry").press();
     expect(connects).toHaveLength(2);
     ports[1].send({ type: "subject", subject: { kind: "model", id: "0123456789ABCDEF0123456789ABCDEF" } });
     ports[1].send({ type: "error", message: "You're signed out of <b>Anaplan</b>. Sign in and try again.", code: "SIGNED_OUT" });
@@ -1596,14 +1667,10 @@ describe("A model tab that still holds the reader of an earlier Cardigan", () =>
       false, "Refresh the Anaplan tab and run"]);
     expect(page.id("diagLog").textContent.split("\n").at(-1)).toBe(
       "14:02:05 case=OLD_READER; refresh the Anaplan tab and run");
-    // Nothing refreshes the tab by itself, however long the page waits, and Run again tries the reader once more.
+    // Nothing refreshes the tab by itself, however long the page waits. The card offers the one refresh action.
     await vi.advanceTimersByTimeAsync(60_000);
     expect(tabReloads).toEqual([]);
-    page.id("runAgain").press();
-    stale(ports[0], false);
-    await settle();
-    expect([injected.length, page.id("runStatus").textContent]).toEqual([1,
-      "Refresh the tab to load Cardigan's updated reader; this closes the modules and lists you have open."]);
+    expect([page.id("runAgain").hidden, page.id("runRetry").hidden]).toEqual([true, true]);
 
     // The click: the tab is refreshed, and once it has loaded the page connects again and reads the model, waiting for its
     // frame as long as a model takes to open again.
@@ -3484,7 +3551,7 @@ describe("A result kept while the results page is refreshed", () => {
       expect([page.id("runTitle").textContent, runControl()[0], ports[ports.length - 1].posted], what).toEqual(["Ready to analyse", "Run", []]);
     }
     // Run works from there, and its result is kept in the usual way.
-    page.id("runAgain").press();
+    page.id("runRetry").press();
     sendResult(ports[ports.length - 1], APP);
     expect(page.document.title).toBe("Cardigan - Demo app");
     await letKeep();
@@ -3761,7 +3828,7 @@ describe("A result kept while the results page is refreshed", () => {
     expect([page.id("runTitle").textContent, runControl()[0], ports[1].posted, disabled("runAgain")]).toEqual(["Ready to analyse", "Run", [], [false]]);
 
     // The same for a result that a refresh had brought back: forgotten there, the next refresh finds nothing.
-    page.id("runAgain").press();
+    page.id("runRetry").press();
     sendResult(ports[1], APP);
     await letKeep();
     await open(refreshed);
@@ -4129,12 +4196,12 @@ describe("The navigation bar of the results page", () => {
   it("gathers a model's tables in groups on one line, in the order of Model settings, each group with the tables the result has; a group of one table, and a file no group names, stand on their own", async () => {
     await openWith(withFiles(...EXPORTED));
     // Every file the export writes: Time, Versions, the one list file, Modules, Actions, Source Models, and the map.
-    expect(line()).toEqual(["Overview (shown)", "Time: Model Calendar, Time Ranges", "Versions", "General Lists", "Modules: Modules, Line Items, DCA",
+    expect(line()).toEqual(["Overview (shown)", "Time: Model Calendar, Time Ranges", "Versions", "Lists: General Lists", "Modules: Modules, Line Items, DCA",
       "Actions: Processes, Imports, Data Sources, Exports, Other Actions", "Source Models", "Model map"]);
     // Each group's button has the group's own icon, its name and a chevron, and holds no view's name of its own.
     const buttons = page.all("#navList .nav-group-btn");
     expect(buttons.map(button => [button.querySelector("svg")?.outerHTML, button.querySelectorAll(".nav-chevron").length, button.hasAttribute("data-nav")]))
-      .toEqual(drawnIcons(NAV_ICONS.time, NAV_ICONS.modules, NAV_ICONS.actions).map(icon => [icon, 1, false]));
+      .toEqual(drawnIcons(NAV_ICONS.time, NAV_ICONS.lists, NAV_ICONS.modules, NAV_ICONS.actions).map(icon => [icon, 1, false]));
     // Line Item Subsets makes the lists two, and a group of their own. A group the result has no table of is not there,
     // a group of one table is that table's entry, and a file no group names stands after the groups, before the map.
     page.id("runAgain").press();
@@ -4211,11 +4278,11 @@ describe("The navigation bar of the results page", () => {
     expect([button().textContent.trim(), button().querySelector("svg")?.outerHTML, button().getAttribute("aria-expanded"), page.id("navMenu").hidden])
       .toEqual(["DCA", drawnIcons(NAV_ICONS.menu)[0], "false", true]);
     button().press();
-    expect([openMenus(), listed()]).toEqual([["navMenu"], ["Overview", "Time: Model Calendar, Time Ranges", "Versions", "General Lists", "Modules: Modules, Line Items, DCA (shown)",
+    expect([openMenus(), listed()]).toEqual([["navMenu"], ["Overview", "Time: Model Calendar, Time Ranges", "Versions", "Lists: General Lists", "Modules: Modules, Line Items, DCA (shown)",
       "Actions: Processes, Imports, Data Sources, Exports, Other Actions", "Source Models", "Model map"]]);
     // A group's name heads its entries, a heading that a screen reader is told as the name of the group.
     expect(page.all("#navMenu .nav-section").map(section => [section.getAttribute("role"), section.querySelector(".nav-heading")?.textContent, section.querySelector(".nav-heading")?.getAttribute("aria-hidden")]))
-      .toEqual([["group", "Time", "true"], ["group", "Modules", "true"], ["group", "Actions", "true"]]);
+      .toEqual([["group", "Time", "true"], ["group", "Lists", "true"], ["group", "Modules", "true"], ["group", "Actions", "true"]]);
     // Choosing from it shows that view; the menu is drawn again, closed, and its button names the new view.
     page.find('#navMenu [data-nav="11"]').press();
     expect([page.texts("#view h1"), button().textContent.trim(), page.id("navMenu").hidden]).toEqual([["Versions"], "Versions", true]);
@@ -4304,7 +4371,7 @@ describe("A model's map on the results page", () => {
     page.find('#banners [data-nav="map"]').press();
     ports[0].send({ type: "subject", subject: { kind: "model", id: MODEL.id } });
     expect([page.id("runTitle").textContent, mapAsked]).toEqual(["Ready to analyse", []]);
-    page.id("runAgain").press();
+    page.id("runRetry").press();
     sendResult(ports[0], MODEL);
     expect([shows(), mapAsked]).toEqual([["Overview", "Overview"], []]);
     const entries = () => page.all("#navList .nav-item");
@@ -5002,6 +5069,28 @@ describe("Navigation closes the details panel", () => {
 
 describe("Row links and Back in the details panel", () => {
   const table = (label: string, headers: string[], rows: Cell[][]): ResultTable => ({ file: `${label}.csv`, label, headers, rows, guard: false });
+  it("opens subset members and returns with Back, with a Model button before All columns and no links in table cells", async () => {
+    const subsets = table("Line Item Subsets", ["", "Notes", "Modules", "Line Items"], [["Planning measures", "For planning", "Inventory", "'Inventory'.'Input'"]]);
+    const model = { ...MODEL, site: { origin: "https://us1a.app.anaplan.com", customer: "a".repeat(32) },
+      tables: [{ ...MODEL.tables[0], rows: [...MODEL.tables[0].rows, ["Model", "Workspace ID", "b".repeat(32)], ["Model", "Model ID", MODEL.id]] }, subsets,
+      table("Modules", ["", "Applies To"], [["Inventory", "Planning measures"]]),
+      table("Line Items", ["", "Module Name", "Applies To"], [["Input", "Inventory", "Planning measures"]])] };
+    await openWith(model);
+    goTo(1);
+    row().press();
+    expect(page.texts('#drawerBody [data-act="item"]')).toEqual(["Inventory", "'Inventory'.'Input'"]);
+    expect(page.has('#tableWrap [data-act="item"]')).toBe(false);
+    expect(page.texts("#drawerOpens button")).toContain("Model");
+    expect(page.id("drawer").innerHTML.indexOf('id="drawerOpens"')).toBeLessThan(page.id("drawer").innerHTML.indexOf('id="drawerBody"'));
+    item("'Inventory'.'Input'").press();
+    expect(page.id("drawerTitle").textContent).toBe("Input");
+    item("Planning measures").press();
+    expect(page.id("drawerTitle").textContent).toBe("Planning measures");
+    page.id("drawerBack").press();
+    expect(page.id("drawerTitle").textContent).toBe("Input");
+    page.id("drawerBack").press();
+    expect(page.id("drawerTitle").textContent).toBe("Planning measures");
+  });
   const linked: AnalysisResult = { ...MODEL, tables: [MODEL.tables[0],
     table("Modules", ["Name", "Line Items"], [["Inventory", "Input, Total"]]),
     table("Line Items", ["Name", "Module Name", "Format", "Referenced By"], [["Input", "Inventory", "NUMBER", "Total"], ["Total", "Inventory", "NUMBER", ""]]),

@@ -841,7 +841,7 @@ describe("What the results page's markup shows", () => {
       entry("1", "Line Items"), entry("5", "Processes"), entry("12", "Source Models"), entry("14", "Dashboards"), { id: "map", label: MAP_LABEL }];
     /** The items by their words: a group by its name and its entries' words. */
     const words = (items: NavItem[]) => items.map(item => ("entries" in item ? `${item.group.label}: ${item.entries.map(each => each.label).join(", ")}` : item.label));
-    expect(words(navItems(entries, true))).toEqual(["Overview", "Time: Model Calendar, Time Ranges", "Versions", "General Lists", "Modules: Modules, Line Items", "Processes", "Source Models",
+    expect(words(navItems(entries, true))).toEqual(["Overview", "Time: Model Calendar, Time Ranges", "Versions", "Lists: General Lists", "Modules: Modules, Line Items", "Processes", "Source Models",
       "Dashboards", "Model map"]);
     // A table's words play no part: one labelled as a group's table but of another file is no table of the group.
     expect(words(navItems([entry("1", "Time Ranges"), { id: "2", label: "Model Calendar", file: "Calendar of mine.csv" }, entry("3", "Model Calendar")], true)))

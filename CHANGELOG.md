@@ -6,6 +6,24 @@ Every merged change that alters the extension has a version of its own: a new fe
 
 - **One highlight, one grouping.** The map's lists and navigation menus use the same rounded highlight as the tabs, with plain hover and a ring for keyboard focus in both themes. Group by lists each choice once, tags the suggestion, and returns to automatic when it is picked; its info explains the choice in plain words with whole percentages and real prefixes.
 
+## 0.30.1 (11 October 2026)
+
+- **Run cards in the middle.** Notices, failures and progress share a centred column, at most 600 pixels wide, with a drawn mark for the case and 16 pixels at each side in a narrow window. The card holds the main action first, with **Copy diagnostic log** beside it. The theme button stays in the header; **Run again** returns there when a result is shown. (#93)
+- **Diagnostics stays folded.** A stopped run no longer opens the log. **Show diagnostics** and **Hide diagnostics** open and close it under the card; **Copy diagnostic log** works while it is folded. Reading again keeps the earlier result in place, with no progress banner moving it. (#93)
+
+## 0.30.0 (11 October 2026)
+
+- **Line Item Subsets, for both engines.** Classic and Polaris read the Model settings grid through Model Building's client, keeping Anaplan's column names. A second read-only grid supplies the checked line items. If membership cannot be read, it is left out and the table and Overview say so. (#92)
+- **Under Lists.** General Lists and Line Item Subsets share the Lists menu, which shows the picked table's full name without moving the other tabs. Each subset has its details and a **Model** button for its settings page. Columns follow a reading order, IDs start hidden, and every column stays in the chooser. A model with no subsets gets no subset tab or tile; Lists holds General Lists alone. (#92)
+- **Names open their rows.** A subset's modules and line items link to their details, and Applies To in Modules and Line Items links to a matching subset. Back returns to the previous row. The Model map stays as it was. (#92)
+
+## 0.29.11 (11 October 2026)
+
+- **Trust the full line item export.** Once the kept export covers every module in the module listing, filter IDs it lacks need no module search. An incomplete export searches only the uncovered modules, at most four at a time. Missing line items and unnamed filter context keep their existing words. The diagnostic log says how much the export covered and keeps the Time and Run lines. (#91)
+- **Fewer dimension questions.** A dimension ID absent from the lists, module views and module dimensions needs no lookup of its modules. The remaining questions run up to four at once. Dimensions that have no name keep their IDs. (#91)
+- **Names compared as text.** HTML entities in line item listings are decoded once before comparison and naming. A literal `&amp;` stays literal, and an encoded ampersand no longer counts as a changed name. (#91)
+- **The engine after the client loads.** Check-in no longer reads the engine. For a run, the frame first loads its client through the asynchronous loader, then reads the workspace's engine. Polaris gets its full-read Overview note; both engines keep the full reader and the Polaris-columns cross-check. (#91)
+
 ## 0.29.10 (11 October 2026)
 
 - **Two corners, more map.** The Model map's bottom bar is gone. Counts, Legend and About share a rounded cluster at the left; zoom, Fit and the drawn Minimap button form one segmented control at the right. The buttons match the top pills, with drawn icons and room to press them. Legend and About open upward; the minimap floats above the right cluster and keeps its choice for the tab. Both themes and full screen use the same controls, and narrow maps keep the clusters apart. (#90)

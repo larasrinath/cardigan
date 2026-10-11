@@ -144,6 +144,7 @@ export const MODEL_LAYOUTS: ReadonlyMap<string, ModelLayout> = new Map([
   ["Model Calendar.csv", { shown: ["Setting", "Value"], hidden: ["Section", "Allowed values"] }],
   ["Time Ranges.csv", { shown: ["Name", "Start Period", "End Period"], hidden: [] }],
   ["Versions.csv", { shown: ["Name", "Is Actual", "Switchover", "Edit From", "Edit To"], hidden: [] }],
+  ["Line Item Subsets.csv", { shown: ["Name", "Modules", "Line Items", "Notes"], hidden: [] }],
   ["General Lists.csv", { shown: ["Name", "Parent Hierarchy", "Top Level", "Item Count", "Numbered", "Production Data", "Properties", "Subsets", "Notes"],
     hidden: ["Display Name Property", "Referenced in Applies To", "Referenced as Format", "Referenced in Formula"] }],
   ["Modules.csv", { shown: ["Name", "Functional Area", "Applies To", "Time Scale", "Time Range", "Versions", "Cell Count", "Notes"],
@@ -298,7 +299,8 @@ export function columnsOf(table: ResultTable, lists?: ReadonlyMap<number, ItemsO
     const range = rangeOf(table.rows, index, header, choice, none, lists?.has(index) === true);
     const filter = layout ? !["Name", "Formula", "Notes"].includes(label) && !/(?:^| )IDs?$/.test(label)
       : range !== undefined || choice.filter === true || offersFilter(table.rows, index, lists?.get(index), wideFilter(header, index, choice, zone));
-    const hidden = layout ? layout.hidden.includes(layoutName(label, zone)) : choice.hidden === true;
+    const hidden = (table.file === "Line Item Subsets.csv" && /(?:^| )IDs?$/.test(label))
+      || (layout ? layout.hidden.includes(layoutName(label, zone)) : choice.hidden === true);
     return { index, label, kind: choice.kind ?? "text", num: choice.num === true, filter, ...(range ? { range } : {}), hidden, none };
   });
   if (!order) return columns;

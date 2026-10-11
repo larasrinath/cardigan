@@ -105,7 +105,7 @@ describe("The content scripts on an Anaplan page", () => {
     expect(posted).toEqual([]);
   });
 
-  it.each(["HYPERBLOCK", "CALCULATION_ENGINE", undefined])("decides from the check-in before any reads, even when the frame arrives late: %s", async dataEngineType => {
+  it.each(["HYPERBLOCK", "CALCULATION_ENGINE", undefined])("waits for the loaded client's engine after check-in, even when the frame arrives late: %s", async dataEngineType => {
     at(`/a/modeling/customers/${WS}/workspaces/${WS}/models/${MODEL}`);
     const service = goldenApp();
     service.answer = path => path.endsWith("/pages") ? new Response("[]") : undefined;
@@ -120,14 +120,19 @@ describe("The content scripts on an Anaplan page", () => {
     expect(port.types()).not.toContain("error");
     expect(service.reads).toEqual([]);
     expect(service.sockets).toEqual([]);
-    hear({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD, dataEngineType }, CORE, frame);
+    hear({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD, engineAfterLoad: true }, CORE, frame);
     await vi.advanceTimersByTimeAsync(1000);
-    expect(frame.asked.map(message => message.type)).toEqual(["ack", "run"]);
+    expect(frame.asked.map(message => message.type)).toEqual(["ack", "engine"]);
+    expect(port.received.filter(message => message.type === "log" && message.text.includes("Engine:"))).toEqual([]);
+    expect(service.reads).toEqual([]);
+    hear({ ...RUN, type: "engine", nonce: frame.asked[1].nonce, dataEngineType }, CORE, frame);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(frame.asked.map(message => message.type)).toEqual(["ack", "engine", "run"]);
     const decision = dataEngineType === "CALCULATION_ENGINE" ? "Engine: Polaris (dataEngineType CALCULATION_ENGINE)"
       : dataEngineType === "HYPERBLOCK" ? "Engine: Classic (dataEngineType HYPERBLOCK)" : "Engine: unknown (dataEngineType missing or unrecognized)";
     expect(port.received.filter(message => message.type === "log" && message.text.includes("Engine:")))
       .toEqual([{ type: "log", text: expect.stringContaining(decision) }]);
-    hear({ ...RUN, type: "done", nonce: frame.asked[1].nonce, result: exportedModel() }, CORE, frame);
+    hear({ ...RUN, type: "done", nonce: frame.asked[2].nonce, result: exportedModel() }, CORE, frame);
     await vi.advanceTimersByTimeAsync(1000);
     expect(port.received.at(-1)?.type).toBe("done");
     const result = assemble(port.received)!;
@@ -682,11 +687,11 @@ describe("The content scripts on an Anaplan page", () => {
     at("/core-webapp/anaplan/framework.jsp", "eu2a.app.anaplan.com");
     await import("./model-content.js");
     vi.advanceTimersByTime(1000);
-    expect(top.posted).toContainEqual({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD });
+    expect(top.posted).toContainEqual({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD, engineAfterLoad: true });
     expect(connect).toBeUndefined();
   });
 
-  it.each(["HYPERBLOCK", "CALCULATION_ENGINE", undefined, "throw"])("checks in with the page's engine before any export: %s", async raw => {
+  it.each(["HYPERBLOCK", "CALCULATION_ENGINE", undefined, "throw"])("checks in without reading the engine or loading the client: %s", async raw => {
     at("/core-webapp/anaplan/framework.jsp", "eu2a.app.anaplan.com");
     const top = { postMessage: vi.fn() };
     const getWorkspaceInfo = vi.fn(() => { if (raw === "throw") throw new Error("Not ready"); return { dataEngineType: raw }; });
@@ -694,10 +699,9 @@ describe("The content scripts on an Anaplan page", () => {
     Object.assign(page, { top, require, modelId: MODEL, workspaceId: WS });
     await import("./model-content.js");
     vi.advanceTimersByTime(1000);
-    expect(top.postMessage).toHaveBeenCalledWith({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD,
-      ...(raw === "HYPERBLOCK" || raw === "CALCULATION_ENGINE" ? { dataEngineType: raw } : {}) }, "*");
-    expect(require).toHaveBeenCalledExactlyOnceWith("anaplan/data/ModelContentCache");
-    expect(getWorkspaceInfo).toHaveBeenCalledOnce();
+    expect(top.postMessage).toHaveBeenCalledWith({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD, engineAfterLoad: true }, "*");
+    expect(require).not.toHaveBeenCalled();
+    expect(getWorkspaceInfo).not.toHaveBeenCalled();
     expect(fetch).not.toHaveBeenCalled();
     expect(WebSocket).not.toHaveBeenCalled();
   });
@@ -711,7 +715,7 @@ describe("The content scripts on an Anaplan page", () => {
       loader: "undefined", model: "undefined", workspace: "undefined" } }]);
     Object.assign(page, { require: () => undefined, modelId: MODEL, workspaceId: WS });
     vi.advanceTimersByTime(1000);
-    expect(posted).toContainEqual({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD });
+    expect(posted).toContainEqual({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD, engineAfterLoad: true });
     // A diagnostic greeting listener and the reader that serves this window.
     expect(listeners).toHaveLength(2);
   });

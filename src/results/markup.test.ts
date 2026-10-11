@@ -9,7 +9,7 @@ import {
   cardDrawerHtml, cardDrawerSubHtml, cellHtml, colChooserHtml, colFilterHtml, coloursHtml, esc, FILE_ICONS, FORGOTTEN_LINE, headerMetaHtml, idPill, keptCopyHtml, MAP_LABEL, mapHtml,
   MOON_ICON, NAV_GROUPS, NAV_ICONS, navHtml, navItems, navMenuHtml, noteBannerHtml, NOT_REMOVED_LINE, objectDrawerHtml, objectDrawerSubHtml, OPEN_ICONS, opensHtml, overviewHtml, pagerHtml,
   rangeFilterHtml, rowCellHtml, rowDrawerHtml,
-  rowDrawerSubHtml, runBannerHtml, runHtml, SUN_ICON, tableHtml, tableParts,
+  rowDrawerSubHtml, runBannerHtml, runHtml, runIconHtml, SUN_ICON, tableHtml, tableParts,
   type AboutLink, type KeptCopy, type Links, type TableView,
 } from "./markup.js";
 import { parseMarkup } from "./dom.test-support.js";
@@ -629,8 +629,8 @@ describe("The results page's escaping", () => {
   it("holds no text of a run in the run's view or in its banner: the page sets each part as plain text", () => {
     const ids = (html: string) => readMarkup(html).tags.flatMap(tag => (tag.attributes.has("id") ? [tag.attributes.get("id")] : []));
     const words = (html: string) => readMarkup(html).texts.map(text => text.trim()).filter(text => text !== "");
-    expect(ids(runHtml())).toEqual(["runCard", "runTitle", "runStatus", "runHint", "runRefresh", "runRetry", "runCopy", "runLog", "diagLog"]);
-    expect(words(runHtml())).toEqual(["Refresh the Anaplan tab and run", "Run again", "Copy diagnostic log", "Diagnostics"]);
+    expect(ids(runHtml())).toEqual(["runCard", "runIcon", "runTitle", "runStatus", "runHint", "runRefresh", "runRetry", "runCopy", "runLog", "diagLog"]);
+    expect(words(runHtml())).toEqual(["Refresh the Anaplan tab and run", "Run again", "Copy diagnostic log", "Show diagnostics", "Hide diagnostics"]);
     expect(ids(runBannerHtml())).toEqual(["runBanner", "bannerTitle", "bannerText", "bannerHint", "bannerRefresh", "bannerCopy"]);
     expect(words(runBannerHtml())).toEqual(["The results below are from the earlier run.", "Refresh the Anaplan tab and run", "Copy diagnostic log"]);
     // The note above a result is the same: a place for one line, and the button, which waits hidden for a reason to copy.
@@ -950,6 +950,21 @@ describe("A result whose every text is hostile, through every view of the page",
       expect(levels.filter((level, index) => index > 0 && level > levels[index - 1] + 1), headings(html).join(" | ")).toEqual([]);
       if (levels.includes(1)) expect(levels[0]).toBe(1);
     }
+  });
+
+  it("draws a distinct mark for every run state, with the adjacent title providing its accessible name", () => {
+    const cases = [
+      ["no-tab", "info"], ["not-anaplan", "info"], ["no-subject", "info"], ["ready", "info"],
+      ["connecting", "progress"], ["running", "progress"], ["maintenance", "clock"], ["model-opening", "clock"],
+      ["missing-reader", "refresh"], ["old-reader", "refresh"],
+      ["failed", "warning"], ["unreachable", "warning"], ["tab-closed", "warning"], ["interrupted", "warning"],
+    ] as const;
+    for (const [phase, kind] of cases) {
+      const svg = parseMarkup(runIconHtml(phase)).querySelector("svg");
+      expect([svg?.getAttribute("data-run-icon"), svg?.getAttribute("aria-hidden"), svg?.textContent]).toEqual([kind, "true", ""]);
+      expect(svg?.children.length).toBeGreaterThan(0);
+    }
+    expect(new Set(cases.map(([phase]) => runIconHtml(phase))).size).toBe(5);
   });
 
   it("gives the diagnostic log, which the keyboard can scroll, a role and a name", () => {

@@ -86,7 +86,7 @@ input,select{font:inherit;color:inherit}
 .meta{min-width:0;flex:1 1 120px}
 .meta:empty{flex-basis:0}
 .meta-app{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.hd-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;flex:0 1 auto}
+.hd-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;flex:0 1 auto;min-height:33px}
 /* The Timezone pill (times.ts): the zone the page says its times in, and a press for the other. Its zone's word sits in
    one cell of a grid with the other zone's, kept but unseen, so the pill is as wide for UTC as for Local and a press
    moves nothing beside it. */
@@ -402,12 +402,19 @@ td.num{font-variant-numeric:tabular-nums}
 .empty .e-title{font-size:14px;font-weight:600;color:var(--text);margin-bottom:6px}
 .empty .e-sub{font-size:12.5px;margin-bottom:14px}
 .empty svg{color:var(--text-3);margin-bottom:10px}
-.run-card{max-width:720px;padding:24px;margin:20px 0 16px}
+.shell:has(.run-state){padding:0 16px 32px}
+body:has(.run-state) > .banners:empty{display:none}
+.run-state{width:100%;max-width:600px;margin:12vh auto 0}
+.panel.run-card{padding:24px;margin:0 0 12px;overflow-wrap:anywhere}
+.run-mark{display:flex;align-items:center;justify-content:center;width:44px;height:44px;margin-bottom:16px;border-radius:var(--r-md);background:var(--panel-2);color:var(--text-2)}
+.run-mark:has([data-run-icon="warning"]){background:var(--warn-soft);color:var(--warn)}
+.run-mark:has([data-run-icon="info"]){background:var(--accent-soft);color:var(--accent)}
+[data-run-icon="progress"]{animation:reading-spin 1.2s linear infinite}
 .run-card .view-title{margin:0 0 10px}
-.run-card p{margin:0 0 16px;line-height:1.6;max-width:65ch}
+.run-card p{margin:0 0 12px;line-height:1.6}
 .run-card .run-hint{color:var(--text-2);font-size:12.5px}
-.run-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;min-height:34px}
-.run-log{max-width:720px}
+.run-actions{display:flex;align-items:center;gap:8px;min-height:34px;margin-top:20px}
+.run-actions .btn{min-width:0;justify-content:center}
 
 /* ---------- model map ---------- */
 /* The place of a model's map (src/map, map.css): an element beside the view, empty and hidden until the map is shown in
@@ -512,6 +519,11 @@ main:has(> #mapHost:not([hidden])){align-self:stretch;display:flex;flex-directio
 .diag-body > :first-child{margin-top:0}
 .diag-body > :last-child{margin-bottom:0}
 .diag-body > * + pre{margin-top:10px}
+/* The run's log is a quiet disclosure in the card's column; its words follow the native details state. */
+.run-log{background:transparent;border-color:transparent}
+.run-log summary{padding:8px 16px;font-size:12px;font-weight:400;color:var(--text-2)}
+.run-log[open]{border-color:var(--border)}
+.run-log:not([open]) .when-open,.run-log[open] .when-closed{display:none}
 
 /* ---------- drawer ---------- */
 :root{--details-width:620px;--details-top:100px}
@@ -681,6 +693,7 @@ body:has(#mapHost:not([hidden])) .drawer{display:none}
    under the count, still at the right, so the page never scrolls sideways. */
 @media (max-width:560px){
   .tb-end{flex-wrap:wrap;justify-content:flex-end}
+  .panel.run-card{padding:20px}
 }
 /* Under 530px the drawer cannot hold a card's table of seven columns however its words break. A cell keeps its words
    whole there, up to the 160px it asks for at most (a longer word breaks), and the table scrolls inside its section. */

@@ -714,8 +714,26 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
       expect(everyReadEnded()).toBe(true);
     });
 
+    it("skips dimension IDs absent from the model metadata and keeps them unnamed", async () => {
+      named();
+      const { log, result } = run(selectorPage());
+      const { catalog, notes } = await result;
+      expect(notes).toEqual([]);
+      expect(catalog.dimensions.has(SYNCED)).toBe(false);
+      expect(destinations()).not.toContain(at("/applicableModules"));
+      expect(log).toContain("dimension names: 1 IDs absent from lists, module views and module dimensions; no module lookups");
+      expect(log).toContain("dimension names: 0 of 1 named");
+    });
+
+    it("recognizes an unnamed dimension ID in module dimensions as evidence for a lookup", async () => {
+      named({ [at("/dimensions")]: id => update(id, { modules: { [MODULE]: { dimensions: [{ id: SYNCED }] } } }) });
+      await run(selectorPage()).result;
+      expect(destinations().filter(path => path === at("/applicableModules"))).toHaveLength(1);
+    });
+
     it("asks which modules have it when the lists do not name it, and reads their dimensions, which label it", async () => {
       named({
+        [at("/lists")]: id => update(id, { data: [{ id: LIST, name: "Product" }, { id: SYNCED }] }),
         [at("/applicableModules")]: id => update(id, { data: [{ id: Number(MODULE_3), label: "Org settings" }] }),
         [at("/dimensions")]: (id, asked) => update(id, { modules: (asked.moduleIds as string[]).includes(MODULE_3)
           ? { [MODULE_3]: { dimensions: [{ id: SYNCED, label: "Organization" }] } } : { [MODULE]: { dimensions: [{ id: LIST, label: "Product" }] } } }),
@@ -744,7 +762,8 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     });
 
     it("logs a read of this step that is refused and goes on to the next; a dimension still unnamed keeps its ID", async () => {
-      named({ [at("/lists?subsets=true")]: id => rejected(id, "LISTS_UNAVAILABLE"), [at("/applicableModules")]: id => rejected(id, "MODULES_UNAVAILABLE") });
+      named({ [MODULE_VIEWS]: id => update(id, { data: [], dimensions: { [SYNCED]: {} } }),
+        [at("/lists?subsets=true")]: id => rejected(id, "LISTS_UNAVAILABLE"), [at("/applicableModules")]: id => rejected(id, "MODULES_UNAVAILABLE") });
       const { log, result } = run(selectorPage());
       const { catalog, notes } = await result;
 
@@ -753,7 +772,7 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
       expect(log.filter(line => /^(lists with|modules with|dimension names|dimension \d)/.test(line))).toEqual(["lists with subsets: LISTS_UNAVAILABLE",
         `modules with dimension ${SYNCED}: MODULES_UNAVAILABLE`, "dimension names: 0 of 1 named",
         `dimension ${SYNCED} has no name: a context selector of 1 cards (1 synced to the page), on the rows or columns of 0, in the branch sync of 0, `
-        + "a selector of 1 pages; its ID is in the answers of lists: no, lists with subsets: no answer, module views: no, module dimensions: no; modules that have it: not asked"]);
+        + "a selector of 1 pages; its ID is in the answers of lists: no, lists with subsets: no answer, module views: yes, module dimensions: no; modules that have it: not asked"]);
     });
 
     it("names it from the branch of a hierarchy that a saved view's metadata filters by, and then asks nothing more for it", async () => {
@@ -768,38 +787,52 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
       expect(destinations()).not.toContain(at("/applicableModules"));
     });
 
-    it("gives a read ten seconds and all of them thirty, and asks nothing more after two reads that went unanswered", async () => {
-      const others = ["101000000914", "101000000915", "101000000916"];
+    it("looks up four dimensions at once, keeping the ten-second read and thirty-second total limits", async () => {
+      const others = Array.from({ length: 9 }, (_, n) => String(101000000914 + n));
       const more = others.map(id => ({ kind: "dimension", id }));
       const timedOut = (id: string) => `modules with dimension ${id}: Timed out waiting for ${at("/applicableModules")}.`;
       const steps = (log: string[]) => log.filter(line => /^(modules with|dimension names)/.test(line));
       vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
 
-      // The model never says which modules have a dimension: after two questions that went unanswered no third is asked.
-      named({ [at("/applicableModules")]: () => "" });
+      const evidence = { [MODULE_VIEWS]: (id: string) => update(id, { data: [], dimensions: Object.fromEntries([SYNCED, ...others].map(id => [id, {}])) }) };
+      // Four questions start together; once they time out, no queued question starts.
+      named({ ...evidence, [at("/applicableModules")]: () => "" });
       const silent = run(selectorPage({}, more));
       let outcome: unknown = "reading";
       silent.result.then(done => { outcome = done.notes; }, error => { outcome = error; });
-      await vi.advanceTimersByTimeAsync(19_999);
-      expect([outcome, after(at("/lists?subsets=true")).length]).toEqual(["reading", 2]);
+      await vi.advanceTimersByTimeAsync(9_999);
+      expect([outcome, after(at("/lists?subsets=true")).length]).toEqual(["reading", 4]);
       await vi.advanceTimersByTimeAsync(101);
-      expect([outcome, after(at("/lists?subsets=true")).length]).toEqual([[], 2]);
-      expect(steps(silent.log)).toEqual([timedOut(SYNCED), timedOut(others[0]), "dimension names: 0 of 4 named",
+      // The first timeout releases a place before the second arrives. Its replacement is the last question started.
+      expect([outcome, after(at("/lists?subsets=true")).length]).toEqual(["reading", 5]);
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect([outcome, after(at("/lists?subsets=true")).length]).toEqual([[], 5]);
+      expect(steps(silent.log)).toEqual([...[SYNCED, ...others.slice(0, 4)].map(timedOut), "dimension names: 0 of 10 named",
         "dimension names: two reads went unanswered, no more were made"]);
       // Each dimension still has its line, which says it was not asked about to the end.
-      expect(silent.log.filter(line => /^dimension \d/.test(line)).map(line => line.split("; ").at(-1))).toEqual(Array(4).fill("modules that have it: not asked"));
+      expect(silent.log.filter(line => /^dimension \d/.test(line)).map(line => line.split("; ").at(-1))).toEqual(Array(10).fill("modules that have it: not asked"));
 
-      // The model answers each question after nine seconds: the fourth is given up when the thirty seconds are over, and
-      // a read given up so is not one that went unanswered.
+      // Ten nine-second questions finish in three waves, rather than ninety seconds.
       ScriptedSocket.sockets = [];
-      named();
+      named(evidence);
       slowly(destination => destination === at("/applicableModules"), 9_000);
       const slow = run(selectorPage({}, more));
       await vi.advanceTimersByTimeAsync(30_100);
       expect((await slow.result).notes).toEqual([]);
-      expect(after(at("/lists?subsets=true")).length).toBe(4);
-      expect(steps(slow.log)).toEqual([...[SYNCED, ...others.slice(0, 2)].map(id => `modules with dimension ${id}: none`), timedOut(others[2]),
-        "dimension names: 0 of 4 named", "dimension names: the 30 seconds allowed for them ran out"]);
+      expect(after(at("/lists?subsets=true")).length).toBe(10);
+      expect(steps(slow.log)).toEqual([...[SYNCED, ...others].map(id => `modules with dimension ${id}: none`), "dimension names: 0 of 10 named"]);
+      expect(slow.log.find(line => line.startsWith("Time:"))).toContain("dimension names 27.00 s");
+
+      // Time spent on the subset listing counts too: the last wave ends at the shared deadline.
+      ScriptedSocket.sockets = [];
+      named(evidence);
+      slowly(destination => destination === at("/lists?subsets=true"), 8_000);
+      slowly(destination => destination === at("/applicableModules"), 9_000);
+      const bounded = run(selectorPage({}, more));
+      await vi.advanceTimersByTimeAsync(31_000);
+      expect((await bounded.result).notes).toEqual([]);
+      expect(bounded.log).toContain("dimension names: the 30 seconds allowed for them ran out");
+      expect(bounded.log.find(line => line.startsWith("Time:"))).toContain("dimension names 30.00 s");
       vi.useRealTimers();
     });
 
@@ -820,7 +853,7 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     it("ends the socket work at once when the connection fails while it is looked for", async () => {
       for (const [failing, logged] of [[at("/lists?subsets=true"), []], [at("/applicableModules"), ["lists with subsets: 0 entries"]]] as const) {
         ScriptedSocket.sockets = [];
-        named({ [failing]: () => SERVICE_DOWN });
+        named({ [MODULE_VIEWS]: id => update(id, { data: [], dimensions: { [SYNCED]: {} } }), [failing]: () => SERVICE_DOWN });
         const { log, result } = run(selectorPage());
         const { notes } = await result;
         expect(notes, failing).toEqual([UNAVAILABLE]);
@@ -1172,62 +1205,152 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
       expect(added.log).toContain(`${prefix}${items[2].id}, only in the listing: "Changed 1"`);
     });
 
-    it("searches an ID absent from the export, even in a module the export covered, and uses that module's whole live listing", async () => {
+    it("trusts a complete kept export, including empty modules, for absent filter IDs", async () => {
       const wanted = ITEM(1903, 2);
       const seed = exported();
-      // Three export modules have distinct entity types. Their names must not rule out the absent ID.
-      seed.lineItems.push({ id: ITEM(1904, 1), name: "Flag", moduleId: candidate(1) });
       serveModel({ [MODULE_VIEWS]: moduleList([MODULE_3, candidate(1)]),
         [at(`/modules/${MODULE}/lineItems`)]: id => update(id, { data: [{ lineItemId: UNITS, lineItemLabel: "Units" }] }),
         [at(`/modules/${MODULE_3}/lineItems`)]: id => update(id, { data: [{ lineItemId: wanted, lineItemLabel: "New filter" }] }),
       });
       const { result, log } = named(ruled(rule([wanted], ["true"])), seed);
       const { catalog } = await result;
-      expect(catalog.lineItems.get(wanted)).toEqual({ name: "New filter", moduleId: MODULE_3 });
-      expect(catalog.lineItems.has(FILTER_ITEM)).toBe(false);
-      expect(catalog.lineItemFormats.has(FILTER_ITEM)).toBe(false);
-      expect(searched()).toContain(MODULE_3);
-      expect(log.find(line => line.startsWith("filter line items: 1 looked for"))).toContain("1 found");
+      expect(catalog.lineItems.has(wanted)).toBe(false);
+      expect(catalog.lineItems.has(FILTER_ITEM)).toBe(true);
+      expect(catalog.lineItemFormats.has(FILTER_ITEM)).toBe(true);
+      expect(catalog.lineItemModules.has(candidate(1))).toBe(true);
+      expect(searched()).toEqual([]);
+      expect(destinations()).not.toContain(at("/applicableModules"));
+      expect(log).toContain("filter line items: 1 not in the export, which covers all 3 modules; none searched");
       expect(destinations().filter(destination => destination === at(`/modules/${MODULE}/lineItems`))).toHaveLength(1);
     });
 
-    it("also searches a rule whose exported line item a later live listing removes", async () => {
+    it("searches only uncovered modules for an incomplete kept export", async () => {
       const wanted = ITEM(1903, 2);
       const first = ruled(rule([wanted], ["true"]));
       const second = structuredClone(gridCard);
       second.id = "card-2";
       second.grid.regions[0].rows.dimensions = [{ dimension: { kind: "dimension", id: LIST_2 }, hides: [] }];
       first[0].cards.push(second as unknown as UxPageCardDetails["cards"][number]);
-      serveModel({ [MODULE_VIEWS]: moduleList([MODULE_3]),
+      serveModel({ [MODULE_VIEWS]: moduleList([MODULE_3, candidate(1), candidate(2)]),
         [at(`/modules/${MODULE}/lineItems`)]: id => update(id, { data: [{ lineItemId: UNITS, lineItemLabel: "Units" }] }),
         [at(`/modules/${MODULE_3}/lineItems`)]: id => update(id, { data: [{ lineItemId: wanted, lineItemLabel: "New filter" }] }),
         [at("/applicableModules")]: (id, asked) => update(id, { data: asked.dimensions[0] === Number(LIST_2) ? [{ id: candidate(2), label: "Other filters" }] : [] }),
         [at(`/modules/${candidate(2)}/lineItems`)]: id => update(id, { data: [{ lineItemId: FILTER_ITEM, lineItemLabel: "Moved filter" }] }),
       });
-      const { result, log } = named(first, exported());
+      const seed = exported();
+      seed.modules = [MODULE, candidate(1)];
+      seed.lineItems = seed.lineItems.filter(item => item.moduleId !== MODULE_3);
+      const { result, log } = named(first, seed);
       const { catalog } = await result;
       expect(catalog.lineItems.get(FILTER_ITEM)).toEqual({ name: "Moved filter", moduleId: candidate(2) });
       expect(searched()).toEqual([MODULE_3, candidate(2)]);
-      expect(log.find(line => line.startsWith("filter line items: 2 looked for"))).toContain("2 found (1 in candidate modules), 0 not found");
+      expect(destinations()).not.toContain(at("/applicableModules"));
+      expect(log.find(line => line.startsWith("filter line items: 2 looked for"))).toContain("2 found (0 in candidate modules), 0 not found");
+      expect(log).toContain("filter line items: 2 not in the export; only the 2 modules it does not cover may be searched");
     });
 
-    it.each([false, true])("requires complete live reads before saying Missing for an absent filter ID (refused: %s)", async refused => {
+    it.each(["complete", "incomplete", "refused"])("keeps today's Missing and unnamed wording with %s coverage", async coverage => {
       const wanted = ITEM(1999, 1);
-      const page = ruled(rule([wanted], ["true"]));
+      const context = ITEM(2999, 1);
+      const ambiguous = ITEM(2998, 1);
+      const page = ruled(rule([wanted], ["true"]), rule([ambiguous, context], ["true"]));
       serveModel({ [MODULE_VIEWS]: moduleList([MODULE_3, candidate(1)]),
         [at(`/modules/${MODULE}/lineItems`)]: id => update(id, { data: [{ lineItemId: UNITS, lineItemLabel: "Units" }] }),
-        [at(`/modules/${MODULE_3}/lineItems`)]: id => refused ? rejected(id, "LINE_ITEMS_UNAVAILABLE") : update(id, { data: [] }),
+        [at(`/modules/${MODULE_3}/lineItems`)]: id => coverage === "refused" ? rejected(id, "LINE_ITEMS_UNAVAILABLE") : update(id, { data: [] }),
       });
-      const { result, log } = named(page, exported());
+      const seed = exported();
+      if (coverage !== "complete") {
+        seed.modules = seed.modules.filter(id => id !== MODULE_3);
+        seed.lineItems = seed.lineItems.filter(item => item.moduleId !== MODULE_3);
+      }
+      const { result, log } = named(page, seed);
       const { catalog } = await result;
-      expect(searched()).toEqual([MODULE_3, candidate(1)]);
-      expect(catalog.lineItemModules.has(MODULE_3)).toBe(!refused);
-      expect(log.find(line => line.startsWith("filter line items: 1 looked for"))).toContain("0 found, 1 not found");
+      expect(searched()).toEqual(coverage === "complete" ? [] : [MODULE_3]);
+      expect(catalog.lineItemModules.has(MODULE_3)).toBe(coverage !== "refused");
+      if (coverage !== "complete") expect(log.find(line => line.startsWith("filter line items: 3 looked for"))).toContain("0 found, 3 not found");
       const details = namePlainly(page[0], catalog);
       const built = sayMissing(report.buildReport([{ appName: "Invented app", categoryName: "-", pageName: "Invented page", pageType: "BOARD",
         pageGuid: "page-guid", appGuid: "app-guid", state: "Published", modelName: scope.modelName, workspaceName: "Invented workspace", modelId: MODEL, details }]));
       const names = built.Filters.rows.map(row => row[report.HEADERS.Filters.indexOf("Condition line item")]);
-      expect(names).toEqual([refused ? wanted : `Missing line item (ID ${wanted})`]);
+      expect(names[0]).toBe(coverage === "refused" ? wanted : `Missing line item (ID ${wanted})`);
+      expect(names[1]).toContain(ambiguous);
+      expect(names[1]).not.toContain("Missing");
+    });
+
+    it("never exceeds four uncovered module reads, even when answers take longer than ten seconds", async () => {
+      vi.useFakeTimers();
+      const missing = Array.from({ length: 9 }, (_, n) => other(n + 1));
+      serveModel({ [MODULE_VIEWS]: moduleList([MODULE_3, candidate(1), ...missing]),
+        [at(`/modules/${MODULE}/lineItems`)]: id => update(id, { data: [{ lineItemId: UNITS, lineItemLabel: "Units" }] }),
+      });
+      slowLineItems(11_000);
+      const { result } = named(ruled(rule([ITEM(9999, 1)], ["true"])), exported());
+      await vi.advanceTimersByTimeAsync(10_100);
+      expect(searched()).toEqual(missing.slice(0, 4));
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(searched()).toEqual(missing.slice(0, 8));
+      await vi.advanceTimersByTimeAsync(23_000);
+      expect((await result).notes).toEqual([]);
+      expect(searched()).toEqual(missing);
+    });
+
+    it("decodes listing entities once before comparing, keeping literal entity text in export names", async () => {
+      const names = ['Planning & Revenue < "forecast" > \'actual\'', "Literal &amp;", "Numeric A 😀", "Literal &#39;"];
+      const encoded = ["Planning &amp; Revenue &lt; &quot;forecast&quot; &gt; &#39;actual&#39;", "Literal &amp;amp;", "Numeric &#65; &#x1F600;", "Literal &amp;#39;"];
+      const items = names.map((name, n) => ({ id: ITEM(1901, n + 1), name, moduleId: MODULE }));
+      serveModel({ [at(`/modules/${MODULE}/lineItems`)]: id => update(id, { data: items.map((item, n) => ({ lineItemId: item.id, lineItemLabel: encoded[n] })) }) });
+      const { log, result } = named(pages, { modules: [MODULE], lineItems: items });
+      expect([...(await result).catalog.lineItems.values()].map(item => item.name)).toEqual(names);
+      expect(log.some(line => line.startsWith("line item difference:"))).toBe(false);
+      expect(lineItemsLine(log)[0]).toContain("export kept; the sample module");
+      expect(lineItemsLine(log)[0]).toContain("differs on 0 of 4 line items");
+    });
+
+    it("times absent filter and dimension IDs on an invented 440-module model", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
+      const modules = [MODULE, ...Array.from({ length: 439 }, (_, n) => other(n + 1))];
+      const items = modules.flatMap((moduleId, index) => Array.from({ length: index === 0 ? 291 : index <= 293 ? 13 : 12 }, (_, n) => ({
+        id: ITEM(4000 + index, n + 1), name: `Measure ${n + 1}`, moduleId,
+      })));
+      expect(items).toHaveLength(5852);
+      const absent = Array.from({ length: 17 }, (_, n) => ITEM(8000 + n, 1));
+      const dimensions = Array.from({ length: 12 }, (_, n) => String(101000005000 + n));
+      const page = ruled(...absent.map(id => rule([id], ["true"])));
+      page[0].references.push(...modules.slice(1, 153).map(id => ({ kind: "module" as const, id })),
+        ...dimensions.map(id => ({ kind: "dimension" as const, id })));
+      const allPages = [...page, ...Array.from({ length: 58 }, () => ({ cards: [], references: [] } as unknown as UxPageCardDetails))];
+      serveModel({ [MODULE_VIEWS]: moduleList(modules.slice(1)),
+        [at("/applicableModules")]: (id, asked) => update(id, { data: asked.dimensions[0] === Number(LIST)
+          ? modules.slice(1, 63).map(id => ({ id, label: `Module ${id}` })) : [] }),
+        ...Object.fromEntries(modules.map(module => [at(`/modules/${module}/lineItems`), (id: string) => update(id, {
+          data: items.filter(item => item.moduleId === module).map(item => ({ lineItemId: item.id, lineItemLabel: item.name })),
+        })])),
+      });
+      slowly(() => true, 400);
+      const { result, log } = named(allPages, { modules, lineItems: items });
+      await vi.advanceTimersByTimeAsync(90_000);
+      expect((await result).notes).toEqual([]);
+      const timing = log.find(line => line.startsWith("Time:"))!;
+      console.log(`Invented 440-module timing: ${timing}`);
+      // Export and pages overlap the initial names read. Their invented delays are constant before and after.
+      ScriptedSocket.sockets = [];
+      const began = Date.now();
+      const overlappedLog: string[] = [];
+      const inputs = new Promise<CatalogInputs>(resolve => setTimeout(() => resolve({ pages: allPages, pageNames: new Map(),
+        exported: { modules, lineItems: items } }), 7160));
+      const overlapped = loadCatalogWhen(scope, inputs, { status: () => undefined, log: line => { overlappedLog.push(line); } })
+        .then(result => ({ result, elapsed: Date.now() - began }));
+      await vi.advanceTimersByTimeAsync(90_000);
+      const whole = await overlapped;
+      console.log(`Invented overlapped run: export 5.80 s, pages 7.16 s; total ${(whole.elapsed / 1000).toFixed(2)} s`);
+      expect(whole.elapsed).toBeLessThan(12_000);
+      expect(whole.result.notes).toEqual([]);
+      expect(overlappedLog.some(line => line.startsWith("Time:") && line.includes("waiting for the pages and the export"))).toBe(true);
+      expect(timing).toContain("names of Synthetic model in all 1.60 s");
+      expect(log).toContain("filter line items: 17 not in the export, which covers all 440 modules; none searched");
+      expect(log).toContain("dimension names: 12 IDs absent from lists, module views and module dimensions; no module lookups");
+      expect(searched()).toEqual([]);
+      expect(destinations()).not.toContain(at("/applicableModules"));
     });
 
     it("times names for an invented 440-module model with one differing sample item", async () => {

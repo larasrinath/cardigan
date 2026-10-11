@@ -321,7 +321,7 @@ describe("The results page itself against the engine in the Anaplan tab", () => 
     // Nothing went to the tab but the connection, and the engine read nothing from Anaplan.
     expect([tab.ports[0].tab.heard, runs, service.reads, service.sockets]).toEqual([[], [], [], []]);
 
-    page.id("runAgain").press();
+    page.id("runRetry").press();
     await until(shown("Planning: app"), "the result on the page");
     expect([tab.ports[0].tab.heard, runs.length, page.id("runAgain").textContent.trim()]).toEqual([[{ type: "run" }], 1, "Run again"]);
     expect(shownTables()).toEqual(tablesOf(runs[0].result!));
