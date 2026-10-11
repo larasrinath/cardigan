@@ -144,6 +144,15 @@ describe("The map's colours in the stylesheet", () => {
     }
   });
 
+  it("gives round button icons at least 3:1 contrast at rest, on hover and focus, and while selected in both themes", () => {
+    for (const theme of themes) {
+      const token = themeTokens(theme);
+      for (const [ink, surface] of [["--text-3", "--panel"], ["--text", "--panel"], ["--text", "--panel-2"], ["--accent-ink", "--accent-soft"]]) {
+        expect(on(token(ink), token(surface)), `${theme}: ${ink} on ${surface}`).toBeGreaterThanOrEqual(3);
+      }
+    }
+  });
+
   it("gives the panels' text the same contrast on the panels, in both themes", () => {
     for (const theme of themes) {
       const token = themeTokens(theme);

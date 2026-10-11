@@ -296,6 +296,17 @@ describe("The map's own markup", () => {
     for (const whole of [false, true]) expect(parseMarkup(fullIconHtml(whole)).querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
   });
 
+  it("draws every round button at 16 pixels with the menu bar's stroke, including both full screen faces", () => {
+    const shell = parseMarkup(shellHtml(IDS, "Demand Plan"));
+    const buttons = shell.querySelectorAll(".map-btn.map-icon");
+    expect(buttons.map(button => button.dataset.mapAct)).toEqual(["fullscreen", "legend", "about", "zoom-out", "zoom-in", "fit", "minimap"]);
+    const icons = [...buttons.map(button => button.querySelector("svg")!), parseMarkup(fullIconHtml(true)).querySelector("svg")!];
+    for (const icon of icons) {
+      expect(["width", "height", "viewBox", "fill", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin", "aria-hidden"].map(attribute => icon.getAttribute(attribute)))
+        .toEqual(["16", "16", "0 0 16 16", "none", "currentColor", "1.5", "round", "round", "true"]);
+    }
+  });
+
   it("keeps both grouping controls inside one pill, in keyboard order, with separate panel names", () => {
     const shell = parseMarkup(shellHtml(IDS, "Demand Plan"));
     const field = shell.querySelector(".map-grouping-field")!;
@@ -393,7 +404,7 @@ describe("The map's own markup", () => {
     const [frame, inset] = rectangles;
     expect(button.querySelector("path")).toBeNull();
     expect([inset.getAttribute("fill"), inset.getAttribute("stroke")]).toEqual(["currentColor", "none"]);
-    expect(Number(inset.getAttribute("fill-opacity"))).toBeGreaterThanOrEqual(.5);
+    expect(inset.getAttribute("fill-opacity")).toBeNull();
     for (const rectangle of rectangles) expect(Number(rectangle.getAttribute("rx"))).toBeGreaterThan(0);
     // The filled panel sits inside the frame's bottom-right quarter with a visible gap to both edges.
     for (const [position, size] of [["x", "width"], ["y", "height"]]) {
@@ -414,7 +425,7 @@ describe("The map's own markup", () => {
       .toEqual([["map-btn map-icon", "Legend", "Legend"], ["map-btn map-icon", "About this map", "About this map"]]);
     const aboutIcon = buttons[1].querySelector("svg")!;
     expect(aboutIcon.querySelectorAll("path")).toHaveLength(2);
-    expect(aboutIcon.getAttribute("stroke-width")).toBe("1.7");
+    expect(aboutIcon.getAttribute("stroke-width")).toBe("1.5");
     expect(aboutIcon.outerHTML).not.toBe(shell.querySelector('[data-map-act="grouping-info"] svg')?.outerHTML);
     expect([shell.querySelector(".map-legend")?.id, shell.querySelector(".map-legend")?.hidden]).toEqual(["map-legend-1", true]);
     const about = shell.querySelector(".map-about")!;
