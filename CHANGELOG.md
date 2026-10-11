@@ -2,6 +2,10 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version is in the menu of Cardigan's icon in Chrome's toolbar and on its About page, and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## 0.32.0 (11 October 2026)
+
+- **Anaplan words while reading.** The run card rotates phrases suited to each step, with the real progress underneath and the grid and timer held in place; reduced motion keeps one phrase per step, and screen readers hear only the progress. (#105)
+
 ## 0.31.8 (11 October 2026)
 
 - **Modules in the chosen group.** The Module list shows and searches only that group's modules, with **All modules in {group}** first to show its map; at the overview and in All modules, the list still holds every module under its group heading. (#104)
