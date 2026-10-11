@@ -648,8 +648,71 @@ describe("The results page's script, on the page", () => {
     page.id("runRetry").press();
     expect(ports).toHaveLength(2);
   });
-  it("shows a Polaris overview with only populated tables, the usual About rows, and no map even from a kept address", async () => {
-    const { polarisResult, POLARIS_NOTE } = await import("../polaris.js");
+  it.each(["app", "model"] as const)("opens each %s tile across empty tables and restores an empty table for every read", async kind => {
+    for (const read of ["Classic", "full Polaris", "partial Polaris"] as const) {
+      const names = kind === "model" ? ["Exports", "Line Item Subsets", "Versions", "Source Models", "General Lists"]
+        : ["Pages", "Filters", "Cards", "Conditional Formatting", "Action Buttons"];
+      const mixed: AnalysisResult = { kind, id: `invented-${kind}`, name: "Practice plan", zipName: "Practice.zip",
+        ...(read === "partial Polaris" ? { engine: "polaris" as const } : {}),
+        summary: read === "full Polaris" ? ["Polaris model, read in full through Model Building."] : [],
+        tables: names.map((label, index) => ({ file: `${label}.csv`, label, headers: ["Name", "Notes"], guard: true,
+          rows: index % 2 === 0 ? [[`Practice ${label}`, "Invented row"]] : [] })),
+      };
+      // Each read starts with its own page and session; a refresh below reuses that session.
+      session.held.clear();
+      await open(clicked(42));
+      const port = ports.at(-1)!;
+      port.send({ type: "subject", subject: { kind, id: mixed.id } });
+      sendResult(port, mixed);
+      const indexes = kind === "model" ? [2, 4, 0] : [0, 2, 4];
+      expect(page.all("#view .stat").map(tile => tile.dataset.nav), read).toEqual(indexes.map(String));
+      expect(page.all("#navList [data-nav]").filter(entry => /^\d+$/.test(entry.dataset.nav ?? "")).map(entry => Number(entry.dataset.nav)), read)
+        .toEqual(kind === "model" ? [2, 4, 1, 0, 3] : [0, 1, 2, 3, 4]);
+      if (kind === "model") {
+        const subset = page.find('#navList [data-nav="1"]');
+        const menu = subset.closest(".nav-menu")!;
+        expect(page.find(`#navList [aria-controls="${menu.id}"]`).textContent.trim()).toBe("Lists");
+      }
+      for (const index of indexes) {
+        const tile = page.find(`#view .stat[data-nav="${index}"]`);
+        expect(tile.querySelector(".s-lab svg")?.outerHTML).toBe(parseMarkup(FILE_ICONS.get(mixed.tables[index].file)!).querySelector("svg")?.outerHTML);
+        tile.press();
+        expect(page.texts("#view h1"), read).toEqual([names[index]]);
+        expect(page.texts("#tableWrap tbody tr").join(" ")).toContain(`Practice ${names[index]}`);
+        choose("overview");
+      }
+      for (const index of [1, 3]) {
+        goTo(index);
+        expect(page.texts("#view h1")).toEqual([names[index]]);
+        expect(page.texts("#tableWrap thead .th-sort")).toEqual(["Name", "Notes"]);
+        expect(page.texts("#tableWrap .e-title")).toEqual([`${names[index]} has no rows`]);
+      }
+      page.id("tblSearch").type("Kept search");
+      await letKeep();
+      vi.advanceTimersByTime(300);
+      await open("?tab=42#3");
+      await eventually(() => page.document.title === "Cardigan - Practice plan", "the kept empty table");
+      expect([page.texts("#view h1"), page.id("tblSearch").value, page.id("rowCount").textContent], read)
+        .toEqual([[names[3]], "Kept search", "No rows"]);
+      expect(page.texts("#tableWrap thead .th-sort")).toEqual(["Name", "Notes"]);
+    }
+  });
+
+  it.each(["app", "model"] as const)("omits the whole tile grid when every %s table is empty", async kind => {
+    const empty: AnalysisResult = { ...RESULT, kind, tables: [
+      { file: "Versions.csv", label: "Versions", headers: ["Name"], rows: [], guard: true },
+      { file: "Source Models.csv", label: "Source Models", headers: ["Name"], rows: [], guard: true },
+    ] };
+    await openWith(empty);
+    expect(page.has("#view .ov-grid")).toBe(false);
+    expect(page.texts("#view h1")).toEqual(["Overview"]);
+    goTo(1);
+    expect([page.texts("#view h1"), page.texts("#tableWrap thead .th-sort"), page.texts("#tableWrap .e-title")])
+      .toEqual([["Source Models"], ["Name"], ["Source Models has no rows"]]);
+  });
+
+  it("shows only populated Polaris tiles, keeps empty tables in navigation and blocks a map even from a kept address", async () => {
+    const { describePolarisRead, hasModelMap, polarisResult, POLARIS_NOTE } = await import("../polaris.js");
     const { emptyCatalog, addModuleViews, addLists } = await import("../catalog.js");
     const catalog = emptyCatalog();
     addModuleViews(catalog, { data: [{ id: "102000000001", name: "Practice demand" }] });
@@ -657,14 +720,25 @@ describe("The results page's script, on the page", () => {
     const partial = polarisResult({ customerId: "A".repeat(32), workspaceId: "B".repeat(32), modelId: "C".repeat(32) },
       { engine: "polaris", modelName: "Practice plan", workspaceName: "Practice workspace" }, catalog);
     partial.tables[0].rows.push(["Model", "Apps", "Practice app"]);
-    partial.tables.push({ file: "Page Filters.csv", label: "Page Filters", headers: [], rows: [], guard: true });
+    partial.tables.push({ file: "Page Filters.csv", label: "Page Filters", headers: ["Page", "Filter on"], rows: [], guard: true });
+    describePolarisRead(partial);
+    expect(partial.summary[0]).toBe("Polaris read: Modules, General Lists.");
+    expect(hasModelMap(partial)).toBe(false);
     await open(clicked(42));
     ports[0].send({ type: "subject", subject: { kind: "model", id: partial.id } });
     sendResult(ports[0], partial);
     expect(page.id("view").textContent).toContain(POLARIS_NOTE);
     expect(page.all('#navList [data-nav="map"]')).toHaveLength(0);
-    expect(page.all("#navList [data-nav]").map(each => each.textContent.trim())).toEqual(["Overview", "General Lists", "Modules"]);
+    expect(page.all("#navList [data-nav]").map(each => each.textContent.trim())).toEqual(["Overview", "General Lists", "Modules", "Page Filters"]);
     expect(page.all("#ovAbout dt").map(each => each.textContent)).toEqual(["Workspace", "Workspace ID", "Model", "Model ID", "Apps"]);
+    expect(page.texts("#view .stat .s-lab")).toEqual(["General Lists", "Modules"]);
+    const unavailableMap = page.document.createElement("button");
+    unavailableMap.dataset.nav = "map";
+    page.document.body.append(unavailableMap);
+    unavailableMap.press();
+    expect(mapAsked).toEqual([]);
+    expect(page.texts("#view h1")).toEqual(["Overview"]);
+    unavailableMap.remove();
     await letKeep();
     await open("?tab=42#map");
     await eventually(() => page.document.title === "Cardigan - Practice plan", "the kept Polaris result");
@@ -1560,9 +1634,8 @@ describe("The results page's script, on the page", () => {
     const file = WITH_CALENDAR.tables[3];
     const only: AnalysisResult = { ...WITH_CALENDAR, tables: [...WITH_CALENDAR.tables.slice(0, 3), { ...file, rows: file.rows.slice(0, 5) }] };
     await openWith(only);
-    // The tile counts the rows the table lists, none, and says nothing of the five the file has. The table keeps its entry
-    // in the navigation.
-    expect(page.all("#view .stat")[0].children.map(child => child.textContent)).toEqual(["Model Calendar", "0", "rows"]);
+    // No calendar rows means no tile; the table keeps its navigation entry.
+    expect(page.texts("#view .stat .s-lab")).not.toContain("Model Calendar");
     expect(entryLabel(page.find('#navList [data-nav="3"]'))).toBe("Model Calendar");
     goTo(3);
     // The line under the name says where the five rows are. In the rows' place the table says that none is the calendar's
@@ -5023,6 +5096,129 @@ describe("A model's map on the results page", () => {
   });
 });
 
+describe("Empty space closes the details panel", () => {
+  const isOpen = () => page.id("drawer").classList.contains("show");
+  const click = (target: FakeElement) => {
+    target.dispatch("pointerdown", { button: 0, pointerId: 1, clientX: 100 });
+    target.dispatch("pointerup", { button: 0, pointerId: 1, clientX: 100 });
+    target.press();
+  };
+  const openRow = async (result = MODEL) => {
+    await openWith(result);
+    goTo(1);
+    const opener = page.find('#tableWrap tbody [data-act="row"]');
+    click(opener);
+    return opener;
+  };
+
+  it.each(["body", ".shell", "#main", "#view", ".view-head", ".toolbar", "#tableWrap"])("closes on %s without redrawing or scrolling the table, and returns focus", async selector => {
+    const opener = await openRow();
+    const wrap = page.id("tableWrap");
+    const table = wrap.querySelector("table");
+    const rows = wrap.querySelectorAll("tbody tr");
+    wrap.scrollLeft = 120; wrap.scrollTop = 80;
+    const target = page.find(selector);
+    target.dispatch("pointerdown", { button: 0 });
+    expect(isOpen()).toBe(true);
+    target.dispatch("pointerup", { button: 0 });
+    target.press();
+    expect([isOpen(), page.all(".details-selected").length, page.document.activeElement]).toEqual([false, 0, opener]);
+    vi.advanceTimersByTime(300);
+    expect([page.id("drawer").hidden, page.id("tableWrap") === wrap, wrap.scrollLeft, wrap.scrollTop, opener.focusedIntoSight])
+      .toEqual([true, true, 120, 80, 0]);
+    expect(wrap.querySelector("table")).toBe(table);
+    expect(wrap.querySelectorAll("tbody tr").every((row, index) => row === rows[index])).toBe(true);
+    expect(JSON.parse(session.held.get(VIEW_KEY) ?? "{}").drawer).toBeUndefined();
+  });
+
+  it("keeps an app's details closed after a background click, refresh and Run again", async () => {
+    await openRow(APP);
+    await letKeep();
+    vi.advanceTimersByTime(300);
+    expect(JSON.parse(session.held.get(VIEW_KEY)!).drawer).toBeDefined();
+    click(page.find("body"));
+    const onHide = vi.mocked(window.addEventListener).mock.calls.filter(([event]) => event === "pagehide").at(-1)![1] as () => void;
+    onHide();
+    expect(JSON.parse(session.held.get(VIEW_KEY) ?? "{}").drawer).toBeUndefined();
+    await open(`?tab=42${location.hash}`);
+    await eventually(() => page.texts("#view h1")[0] === "Pages", "Pages after refresh");
+    expect(page.id("drawer").hidden).toBe(true);
+    page.id("runAgain").press();
+    sendResult(ports[0], APP);
+    vi.advanceTimersByTime(300);
+    expect([isOpen(), page.all(".details-selected").length]).toEqual([false, 0]);
+  });
+
+  it("switches to another row and keeps clicks, row links, Back and the resize edge inside the details", async () => {
+    await openRow(BLUEPRINT);
+    click(page.all("#tableWrap tbody tr")[1].children[1]);
+    const title = page.id("drawerTitle").textContent;
+    expect([isOpen(), title]).toEqual([true, "Units"]);
+    for (const id of ["drawer", "drawerTitle", "drawerBody", "drawerResize"]) {
+      click(page.id(id));
+      expect(isOpen(), id).toBe(true);
+    }
+    const link = page.all('#drawerBody [data-act="item"]').find(item => item.textContent === "REV01 Revenue")!;
+    click(link);
+    expect([isOpen(), page.id("drawerTitle").textContent]).toEqual([true, "REV01 Revenue"]);
+    click(page.id("drawerBack"));
+    expect([isOpen(), page.id("drawerTitle").textContent]).toEqual([true, title]);
+    click(page.id("drawerClose"));
+    expect(isOpen()).toBe(false);
+  });
+
+  it.each(["#tblSearch", "#searchWrap", "[data-colfilter]", "#colBtn", '#pager [aria-label="Next page"]', "#pager select", "#themeToggle", "#timeZone", "#topnav"])("keeps details when clicking %s", async selector => {
+    await openRow();
+    click(page.find(selector));
+    expect([isOpen(), page.id("drawerTitle").textContent]).toEqual([true, "Line item 1"]);
+  });
+
+  it.each(["drawerBody", "drawerResize"])("keeps a selection or resize begun in %s when released outside", async id => {
+    await openRow();
+    page.id(id).dispatch("pointerdown", { button: 0, pointerId: 1, clientX: 700 });
+    page.find("body").dispatch("pointermove", { pointerId: 1, clientX: 400 });
+    page.find("body").dispatch("pointerup", { pointerId: 1, clientX: 400 });
+    page.find("body").press();
+    expect(isOpen()).toBe(true);
+  });
+
+  it("requires a fresh press and click on the same empty target", async () => {
+    await openRow();
+    const background = page.find("body");
+    background.press();
+    expect(isOpen()).toBe(true);
+    page.id("tableWrap").dispatch("pointerdown", { button: 0 });
+    background.press();
+    expect(isOpen()).toBe(true);
+    for (const cancel of ["pointercancel", "dragstart"]) {
+      background.dispatch("pointerdown", { button: 0 });
+      background.dispatch(cancel);
+      background.press();
+      expect(isOpen()).toBe(true);
+    }
+    background.dispatch("pointerdown", { button: 2 });
+    background.press();
+    expect(isOpen()).toBe(true);
+    click(background);
+    expect(isOpen()).toBe(false);
+  });
+
+  it.each(["#colBtn", "[data-colfilter]", "#navList [aria-controls]", "#navCompact [aria-controls]"])("uses the first background click only to dismiss %s", async selector => {
+    await openRow();
+    const control = page.find(selector);
+    click(control);
+    expect(control.getAttribute("aria-expanded")).toBe("true");
+    if (!page.id("popover").hidden) {
+      click(page.id("popover"));
+      expect([isOpen(), page.id("popover").hidden]).toEqual([true, false]);
+    }
+    click(page.id("tableWrap"));
+    expect([isOpen(), control.getAttribute("aria-expanded"), page.id("popover").hidden]).toEqual([true, "false", true]);
+    click(page.id("tableWrap"));
+    expect(isOpen()).toBe(false);
+  });
+});
+
 describe("Navigation closes the details panel", () => {
   const model: AnalysisResult = { ...BLUEPRINT, tables: [...BLUEPRINT.tables,
     { file: "General Lists.csv", label: "General Lists", headers: ["Name"], rows: [["Products"]], guard: false },
@@ -5113,11 +5309,15 @@ describe("Row links and Back in the details panel", () => {
     await openWith(model);
     goTo(1);
     row().press();
-    expect(page.texts('#drawerBody [data-act="item"]')).toEqual(["Inventory", "'Inventory'.'Input'"]);
+    expect(page.texts('#drawerBody [data-act="item"]')).toEqual(["Inventory", "Input", "Inventory"]);
+    expect(page.id("drawerSubsetItems").textContent).toContain("Line items · 1");
     expect(page.has('#tableWrap [data-act="item"]')).toBe(false);
     expect(page.texts("#drawerOpens button")).toContain("Model");
     expect(page.id("drawer").innerHTML.indexOf('id="drawerOpens"')).toBeLessThan(page.id("drawer").innerHTML.indexOf('id="drawerBody"'));
-    item("'Inventory'.'Input'").press();
+    item("Inventory").press();
+    expect(page.id("drawerTitle").textContent).toBe("Inventory");
+    page.id("drawerBack").press();
+    item("Input").press();
     expect(page.id("drawerTitle").textContent).toBe("Input");
     item("Planning measures").press();
     expect(page.id("drawerTitle").textContent).toBe("Planning measures");

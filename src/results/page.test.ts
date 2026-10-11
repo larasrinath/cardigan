@@ -289,7 +289,7 @@ describe("The results page's files", () => {
     // the value's, line for line: the row lays out its value's parts side by side, and the lines are one part. A value
     // that is one link is the link alone. The rules for the links name what the markup writes.
     const linked = parseMarkup(overviewHtml({ tiles: [], notes: [], about: [["Model", "Model one"], ["Apps", "App one\nApp two\nApp three"]], files: [], howToRead: [], log: [] },
-      "none", [], [], [{ row: 0, line: 0, kind: "model" }, { row: 1, line: 1, kind: "app" }]));
+      "none", [{ row: 0, line: 0, kind: "model" }, { row: 1, line: 1, kind: "app" }]));
     expect(linked.querySelectorAll("#ovAbout .dl dd").map(value => [value.children.map(child => child.getAttribute("class")), value.textContent.split("\n")]))
       .toEqual([[["link ov-open"], ["Model one"]], [["ov-lines"], ["App one", "App two", "App three"]]]);
     expect(["#ovAbout .ov-lines", "#ovAbout .ov-open", "#ovAbout .ov-open svg"].map(selector => linked.querySelectorAll(selector).length)).toEqual([1, 2, 2]);

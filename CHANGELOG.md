@@ -7,6 +7,20 @@ Every merged change that alters the extension has a version of its own: a new fe
 - **How the map groups.** The (i) sits inside Group by and explains how the shown grouping files modules and which grouping best fits the model, with its own figures and prefixes. Both parts have bold headings; the list marks **Best fit**, and the words stay the same after a manual pick.
 - **Map corners.** Round Legend and About buttons sit at the bottom left, with a question mark for About and a highlight while open. Counts sit beside zoom at the right, keeping their width while panning and ending with an ellipsis on narrow maps; Fit keeps boxes clear of both corners.
 
+## 0.31.5 (11 October 2026)
+
+- **Tiles for tables with rows.** Model and app Overviews show tiles only for tables that list rows, on both engines. Every table stays in the menu bar, including empty Line Item Subsets under Lists; each tile opens its own table. (#101)
+
+## 0.31.4 (11 October 2026)
+
+- **Subset modules by name.** Line Item Subsets resolves module IDs from the names already read, in model order. Raw IDs stay hidden; an unknown ID stays visible and the diagnostic log names it. (#100)
+- **Membership survives an odd cell.** Only true values select line items, whatever their case. Empty, disabled and unexpected values mean not selected; the log counts the unexpected ones and shows the first three distinct values. Module headings group their line items. A missing column leaves only its subset unknown, and a failed grid read keeps the warning with its reason in the log. (#100)
+- **Members under their modules.** Details show **Line items · N**, grouped under linked module headings in model order, with members in each module's order and links to their Line Items rows. The table shows a count with a number range filter; hidden names keep every member searchable. (#100)
+
+## 0.31.3 (11 October 2026)
+
+- **Click empty space to close details.** The page background and empty table space close the panel, return focus and keep it closed on refresh, without moving the table. Controls, panel drags and clicks that dismiss a menu keep the details open. On the Model map, a click off the boxes, links included, clears the selection without moving the picture; a pan keeps it, and a click that dismisses a map menu closes only the menu. (#99)
+
 ## 0.31.2 (11 October 2026)
 
 - **Fit to screen icon.** Four short arrows point out towards the corners inside a rounded frame, keeping Fit distinct from Full screen. (#98)

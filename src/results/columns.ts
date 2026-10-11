@@ -2,7 +2,7 @@ import { FILTER_USES, MODEL_PAGE_FILES, MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PA
 import type { TabName } from "../report.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
 import { FORMAT_TYPE, LINE_ITEMS_FILE } from "./line-items-view.js";
-import { cellText, dayOf, filterItems, numberOf, saysNothing, type ItemsOf, type RangeKind, type Row } from "./table-engine.js";
+import { cellText, dayOf, filterItems, groupedCount, numberOf, saysNothing, type ItemsOf, type RangeKind, type Row } from "./table-engine.js";
 import { fileLabel } from "./times.js";
 
 /** The names of an app export's files, by the report table each holds. The analysis writes its files under these names
@@ -42,6 +42,8 @@ export interface Column {
    * starts with such a column, the one that names each row. The file keeps the empty header. */
   label: string;
   kind: ColumnKind;
+  /** An optional noun after a numeric count in the table. */
+  unit?: string;
   /** Right-aligned, as the design shows numbers. */
   num: boolean;
   /** Offers a filter on its values: by the design's choice, or by what it holds (`offersFilter`, `rangeOf`). */
@@ -57,6 +59,10 @@ export interface Column {
 }
 
 interface Choice { kind?: ColumnKind; num?: true; filter?: true; hidden?: true }
+
+/** A count's visible text, shared with the width estimate so its noun is given room too. */
+export const countText = (column: Column, text: string): string => groupedCount(text)
+  + (column.unit && text !== "" ? ` ${column.unit}${Number(text) === 1 ? "" : "s"}` : "");
 
 /** The numbers that start hidden, by their header, wherever one of the app's tables has them. */
 export const NUMBERS_HIDDEN: readonly string[] = ["Card #", "Section #"];
@@ -144,7 +150,7 @@ export const MODEL_LAYOUTS: ReadonlyMap<string, ModelLayout> = new Map([
   ["Model Calendar.csv", { shown: ["Setting", "Value"], hidden: ["Section", "Allowed values"] }],
   ["Time Ranges.csv", { shown: ["Name", "Start Period", "End Period"], hidden: [] }],
   ["Versions.csv", { shown: ["Name", "Is Actual", "Switchover", "Edit From", "Edit To"], hidden: [] }],
-  ["Line Item Subsets.csv", { shown: ["Name", "Modules", "Line Items", "Notes"], hidden: [] }],
+  ["Line Item Subsets.csv", { shown: ["Name", "Modules", "Line Items", "Notes"], hidden: ["Line Item Names", "Module IDs", "Membership read"] }],
   ["General Lists.csv", { shown: ["Name", "Parent Hierarchy", "Top Level", "Item Count", "Numbered", "Production Data", "Properties", "Subsets", "Notes"],
     hidden: ["Display Name Property", "Referenced in Applies To", "Referenced as Format", "Referenced in Formula"] }],
   ["Modules.csv", { shown: ["Name", "Functional Area", "Applies To", "Time Scale", "Time Range", "Versions", "Cell Count", "Notes"],
@@ -296,12 +302,14 @@ export function columnsOf(table: ResultTable, lists?: ReadonlyMap<number, ItemsO
     const header = cellText(value);
     const choice = choices?.get(header) ?? {};
     const label = header !== "" ? header : index === 0 ? "Name" : `Column ${index + 1}`;
-    const range = rangeOf(table.rows, index, header, choice, none, lists?.has(index) === true);
+    const subsetCount = table.file === "Line Item Subsets.csv" && header === "Line Items";
+    const range = subsetCount ? "number" : rangeOf(table.rows, index, header, choice, none, lists?.has(index) === true);
     const filter = layout ? !["Name", "Formula", "Notes"].includes(label) && !/(?:^| )IDs?$/.test(label)
       : range !== undefined || choice.filter === true || offersFilter(table.rows, index, lists?.get(index), wideFilter(header, index, choice, zone));
     const hidden = (table.file === "Line Item Subsets.csv" && /(?:^| )IDs?$/.test(label))
       || (layout ? layout.hidden.includes(layoutName(label, zone)) : choice.hidden === true);
-    return { index, label, kind: choice.kind ?? "text", num: choice.num === true, filter, ...(range ? { range } : {}), hidden, none };
+    return { index, label, kind: subsetCount ? "count" : choice.kind ?? "text", num: subsetCount || choice.num === true, filter,
+      ...(subsetCount ? { unit: "line item" } : {}), ...(range ? { range } : {}), hidden, none };
   });
   if (!order) return columns;
   const rank = (column: Column): number => {
