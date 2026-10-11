@@ -536,6 +536,8 @@ describe("The results page's script, on the page", () => {
     await eventually(() => page.has("#runIcon svg") && page.find("#runIcon svg").getAttribute("data-run-icon") === icon, "the run card's icon");
     expect(page.find("#runIcon svg").getAttribute("data-run-icon")).toBe(icon);
     expect(page.find("#runIcon svg").getAttribute("aria-hidden")).toBe("true");
+    expect(page.id("runStatus").classList.contains("sr-only")).toBe(false);
+    expect(page.id("runStatus").hidden).toBe(false);
     expect(page.find(".run-state").children.map(child => child.id)).toEqual(["runCard", "runLog"]);
     expect(page.all(".run-actions button").filter(button => !button.hidden).map(button => button.textContent.trim()))
       .toEqual([action, "Copy diagnostic log"]);
@@ -544,6 +546,27 @@ describe("The results page's script, on the page", () => {
     await settle();
     expect(copied.at(-1)).toBe(page.id("diagLog").textContent);
     expect(page.id("runLog").hasAttribute("open")).toBe(false);
+  });
+
+  it.each([false, true])("keeps the real step in the live region and tooltip with reduced motion %s", async reduced => {
+    const matchMedia = window.matchMedia;
+    vi.spyOn(window, "matchMedia").mockImplementation(query => query.includes("reduced-motion")
+      ? { matches: reduced, addEventListener: vi.fn() } as unknown as MediaQueryList : matchMedia(query));
+    await open(clicked(42));
+    const status = page.id("runStatus");
+    const wordRow = page.find(".run-word-row");
+    expect(status.classList.contains("sr-only")).toBe(true);
+    expect(wordRow.title).toBe(status.textContent);
+    ports[0].send({ type: "subject", subject: { kind: "model", id: MODEL.id } });
+    for (const step of ["Reading Line Items…", "Reading page 2 of 40: Demand board…", "Reading page 3 of 40: Supply board…"]) {
+      ports[0].send({ type: "status", text: step });
+      expect(page.id("runStatus")).toBe(status);
+      expect([status.textContent, wordRow.title]).toEqual([step, step]);
+      expect(status.classList.contains("sr-only")).toBe(true);
+      expect([status.getAttribute("role"), status.getAttribute("aria-live"), status.getAttribute("aria-hidden"), status.hidden])
+        .toEqual(["status", "polite", null, false]);
+      expect(page.find(".run-word").getAttribute("aria-hidden")).toBe("true");
+    }
   });
 
   it("rotates only the silent phrase, switches pools immediately, and preserves the real live status", async () => {
@@ -635,6 +658,8 @@ describe("The results page's script, on the page", () => {
     const word = page.find(".run-word");
     expect(word.textContent).toBe("");
     expect(page.id("runCard").classList.contains("reading")).toBe(false);
+    expect(page.id("runStatus").classList.contains("sr-only")).toBe(false);
+    expect(page.id("runStatus").hidden).toBe(false);
     vi.advanceTimersByTime(500);
     expect(timer.textContent).toBe("");
     page.id("runRetry").press();
@@ -661,12 +686,19 @@ describe("The results page's script, on the page", () => {
     expect(timer.textContent).toBe("1.2s");
     expect(word.textContent).toBe("");
     if (ending === "done") expect(page.has(".run-word")).toBe(false);
-    else expect(page.id("runCard").classList.contains("reading")).toBe(false);
+    else {
+      expect(page.id("runCard").classList.contains("reading")).toBe(false);
+      expect(page.id("runStatus").classList.contains("sr-only")).toBe(false);
+      expect(page.id("runStatus").hidden).toBe(false);
+      expect(page.id("runStatus").textContent).not.toBe("");
+      expect(page.id("runStatus").getAttribute("aria-hidden")).toBe(null);
+    }
     expect(page.id("runAgain").classList.contains("reading")).toBe(false);
     expect(page.id("live").getAttribute("role")).toBe("status");
     if (ending !== "failed") return;
     page.id("runRetry").press();
     expect(timer.textContent).toBe("0.0s");
+    expect(page.id("runStatus").classList.contains("sr-only")).toBe(true);
     vi.advanceTimersByTime(100);
     expect(timer.textContent).toBe("0.1s");
   });
