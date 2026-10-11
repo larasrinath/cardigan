@@ -8,6 +8,14 @@ Every merged change that alters the extension has a version of its own: a new fe
 - **Membership survives an odd cell.** Only true values select line items, whatever their case. Empty, disabled and unexpected values mean not selected; the log counts the unexpected ones and shows the first three distinct values. Module headings group their line items. A missing column leaves only its subset unknown, and a failed grid read keeps the warning with its reason in the log.
 - **Members under their modules.** Details show **Line items · N**, grouped under linked module headings in model order, with members in each module's order and links to their Line Items rows. The table shows a count with a number range filter; hidden names keep every member searchable.
 
+## 0.31.3 (11 October 2026)
+
+- **Click empty space to close details.** The page background and empty table space close the panel, return focus and keep it closed on refresh, without moving the table. Controls, panel drags and clicks that dismiss a menu keep the details open. On the Model map, a click off the boxes, links included, clears the selection without moving the picture; a pan keeps it, and a click that dismisses a map menu closes only the menu. (#99)
+
+## 0.31.2 (11 October 2026)
+
+- **Fit to screen icon.** Four short arrows point out towards the corners inside a rounded frame, keeping Fit distinct from Full screen. (#98)
+
 ## 0.31.1 (11 October 2026)
 
 - **Round map controls.** Zoom, Fit to screen and Minimap are separate round buttons, matching Full screen, with no pipes in either bottom cluster. Fit has its own drawn icon; Minimap shows a small inset in the frame's bottom-right corner and stays highlighted while open. (#97)

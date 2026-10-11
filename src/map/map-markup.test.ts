@@ -295,6 +295,26 @@ describe("The map's own markup", () => {
     for (const whole of [false, true]) expect(parseMarkup(fullIconHtml(whole)).querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
   });
 
+  it("draws Fit to screen as four outward arrows inside a rounded frame, distinct from full screen", () => {
+    const shell = parseMarkup(shellHtml(IDS, "Demand Plan"));
+    const button = shell.querySelector('[data-map-act="fit"]')!;
+    expect([button.getAttribute("aria-label"), button.getAttribute("title")]).toEqual(["Fit to screen", "Fit to screen"]);
+    const icon = button.querySelector("svg")!;
+    expect([icon.getAttribute("viewBox"), icon.getAttribute("fill"), icon.getAttribute("aria-hidden")]).toEqual(["0 0 16 16", "none", "true"]);
+    const frame = icon.querySelector("rect")!;
+    expect(["x", "y", "width", "height", "rx"].map(attribute => frame.getAttribute(attribute))).toEqual(["1.5", "1.5", "13", "13", "2"]);
+    // Each open path draws a short diagonal shaft and a chevron at its outer tip, with space left at the centre.
+    expect(icon.querySelectorAll("path").map(path => path.getAttribute("d"))).toEqual([
+      "M6.5 6.5 4 4M4 6.5V4h2.5",
+      "M9.5 6.5 12 4M9.5 4H12v2.5",
+      "M6.5 9.5 4 12M4 9.5V12h2.5",
+      "M9.5 9.5 12 12M9.5 12H12V9.5",
+    ]);
+    expect(icon.querySelectorAll("[fill]")).toHaveLength(0);
+    expect(icon.outerHTML).not.toBe(shell.querySelector('[data-map-act="fullscreen"] svg')!.outerHTML);
+    for (const whole of [false, true]) expect(icon.outerHTML).not.toBe(parseMarkup(fullIconHtml(whole)).querySelector("svg")!.outerHTML);
+  });
+
   it("names the panels, and has a place that speaks politely", () => {
     const shell = parseMarkup(shellHtml(IDS, "Demand Plan"));
     expect(shell.querySelector(".map-inspector")?.getAttribute("aria-label")).toBe("Details of the box selected");

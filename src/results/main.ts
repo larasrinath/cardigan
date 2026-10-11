@@ -2117,13 +2117,29 @@ function closeNavMenus(keep: Element | null = null, back = false): boolean {
 }
 
 /* ================= global events ================= */
+/** Only the empty surfaces of the page and table: a control's padding, a row, the details and the map have their own clicks. */
+function detailsBackground(target: Element): boolean {
+  return target.matches("html, body, .shell, #main, #view, #banners, .view-head, .toolbar, #tableWrap, #tableWrap table, #tableWrap tbody");
+}
+let detailsPress: Element | undefined;
+// Remember the press before focus or a menu's own listener can dismiss it. A selection or resize begun in the details
+// cannot become a background click when released outside, even when the browser sends the click to a common ancestor.
+document.addEventListener("pointerdown", event => {
+  const target = event.target;
+  detailsPress = event.button === 0 && drawerLooks && target instanceof Element && detailsBackground(target)
+    && el("popover").hidden && !document.querySelector('#topnav [aria-expanded="true"]') ? target : undefined;
+}, true);
+document.addEventListener("pointercancel", () => { detailsPress = undefined; }, true);
+document.addEventListener("dragstart", () => { detailsPress = undefined; }, true);
 document.addEventListener("click", event => {
+  const background = detailsPress;
+  detailsPress = undefined;
   if (!(event.target instanceof Element)) return;
   const target = event.target;
   // A menu of the navigation closes on a click anywhere but inside it or on its button: on the map too, which closing it
   // reads nothing of. A click on another menu's button opens that one instead, and closes a table's popover as any click
   // outside the popover does; choosing an entry draws the navigation again, with its menus closed.
-  closeNavMenus(target.closest("#topnav .nav-group"));
+  const closedMenu = closeNavMenus(target.closest("#topnav .nav-group"));
   const menuButton = target.closest("#topnav [aria-controls]");
   if (menuButton) {
     closePopover();
@@ -2135,8 +2151,13 @@ document.addEventListener("click", event => {
   // to the page, with the map taken away.
   if (!target.isConnected || el("mapHost").contains(target)) return;
   const popover = el("popover");
+  const hadPopover = !popover.hidden;
   const anchorish = target.closest("[data-colfilter], #colBtn");
   if (!popover.hidden && !popover.contains(target) && !anchorish) closePopover();
+  if (background === target && drawerLooks && !closedMenu && !hadPopover && detailsBackground(target)) {
+    closeDrawer();
+    return;
+  }
 
   const copy = target.closest<HTMLElement>("[data-copy]");
   if (copy) {
