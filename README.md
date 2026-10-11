@@ -165,6 +165,8 @@ The module pill opens **every module under its group heading**, with no count li
 
 The map search finds groups, modules and line items across the model. Drag to move, scroll to zoom, or press `F` to fit the whole map. In **Legend**, click a group to show or hide its boxes. **Full screen** gives the map the screen, or the browser window when full screen is unavailable; its button or `Esc` leaves it. **About this map** lists keyboard shortcuts and anything the map could not place.
 
+One slim bar at the bottom holds the counts, **Legend**, **About this map**, zoom, **Fit** and a drawn **Minimap** button. It keeps the same height at every level and in full screen. Long counts end with an ellipsis; hover to read them in full. The minimap starts hidden and opens above the bar's right end. Opening any of these panels leaves the boxes and camera in place.
+
 A refresh or **Run again** keeps the map's level, group or module, links and selected box where its name and module or parent still match exactly one box. Edited formulas and counts do not lose it. Zoom, position, search and full screen may reset. **Forget this result** starts it afresh.
 
 ### For an app

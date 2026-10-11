@@ -208,6 +208,7 @@ function tickFormulas(): void {
 }
 /** The line that says what the map shows. */
 const status = (): string => text(".map-stats");
+const wholeInView = (): boolean => !/boxes in view\.$/.test(status());
 /** The links of the last picture: the lines drawn that end a curve. */
 function linksDrawn(): PenCall[] {
   const calls = lastPicture();
@@ -1088,7 +1089,7 @@ describe("The map's views", () => {
     // does not, and the name says it on hover.
     expect([part(".map-title-name").localName, text(".map-title-name"), act("crumb").getAttribute("aria-current"), act("crumb").getAttribute("title")]).toEqual(["h2", "Demand Plan", "location", "Demand Plan (workspace: Sandbox)"]);
     expect([parts(".map-path-root button").length, root().querySelector(".map-crumb-ws"), here(), part(".map-crumbs").textContent.includes("Sandbox")]).toEqual([1, null, "Demand Plan", false]);
-    expect([status(), part(".map-status").hidden, act("whole").hidden]).toEqual(["3 groups · 2 links", false, true]);
+    expect([status(), part(".map-status").hidden, wholeInView()]).toEqual(["3 groups · 2 links", false, true]);
     expect(text(".map-legend-title")).toBe("Groups");
     // Each section's entry counts the section's modules.
     expect(parts(".map-legend-item").map(item => [item.querySelector(".map-legend-name")?.textContent, item.querySelector(".map-legend-count")?.textContent])).toEqual([["01: Inputs", "2"], ["02: Calculations", "2"], ["Reporting", "1"]]);
@@ -1454,9 +1455,9 @@ describe("The map's views", () => {
     expect([part(".map-empty").hidden, text(".map-empty-title"), text(".map-empty-text")]).toEqual([false, "Nothing to show here", "This module has no line items."]);
     expect(root().querySelector(".map-empty ul")).toBeNull();
     // Nothing to zoom, and no small picture of nothing.
-    expect([status(), part(".map-corner").hidden]).toEqual(["0 line items · 0 links", true]);
+    expect([status(), act("fit").disabled]).toEqual(["0 line items · 0 links", true]);
     groupChoice(groupValue());
-    expect([part(".map-empty").hidden, part(".map-empty").innerHTML, part(".map-corner").hidden]).toEqual([true, "", false]);
+    expect([part(".map-empty").hidden, part(".map-empty").innerHTML, act("fit").disabled]).toEqual([true, "", false]);
   });
 
   it("says in its own words that an export holds no modules to draw, and lists under it everything the map leaves out", () => {
@@ -1470,7 +1471,7 @@ describe("The map's views", () => {
     expect(text(".map-empty .map-about-title")).toBe("What this map leaves out · 3");
     expect(parts(".map-empty li").map(line => line.textContent)).toEqual(sentences);
     expect(act("modules").disabled).toBe(true);
-    expect([part(".map-legend").hidden, act("legend").hidden, part(".map-group-picker").hidden, part(".map-group-picker").hidden]).toEqual([true, true, false, false]);
+    expect([part(".map-legend").hidden, act("legend").disabled, part(".map-group-picker").hidden, part(".map-group-picker").hidden]).toEqual([true, true, false, false]);
     expect(status()).toBe("0 modules · 0 links");
     // Nothing on it can be selected, and the keys say so.
     groupChoice(groupValue());
@@ -1755,7 +1756,7 @@ describe("Selecting a node on the map", () => {
     // Fitted whole, every one of the 420 boxes holds its name, though only just: the letters are as small as they get.
     const before = boxes();
     const size = [...before.values()][0].w;
-    expect([before.size, blankBoxes(), status(), act("whole").hidden]).toEqual([420, 0, "420 modules · 0 links", true]);
+    expect([before.size, blankBoxes(), status(), wholeInView()]).toEqual([420, 0, "420 modules · 0 links", true]);
     expect(size / 232).toBeGreaterThan(13 / 48.5);
     expect(size / 232 * (820 / 1136)).toBeLessThan(13 / 48.5);
     // A box at the right, where the details will open. The whole picture beside the details would be too small to read.
@@ -1776,7 +1777,7 @@ describe("Selecting a node on the map", () => {
     // The details closed: nothing moves, and the line still offers the whole picture in one press.
     act("close").press();
     env.settle();
-    expect([boxes().get(far[0]), act("whole").hidden, blankBoxes()]).toEqual([selected, true, 0]);
+    expect([boxes().get(far[0]), wholeInView(), blankBoxes()]).toEqual([selected, true, 0]);
     expect(status()).toBe("420 modules · 0 links");
   });
 
@@ -1800,8 +1801,8 @@ describe("Selecting a node on the map", () => {
     toggleGroups();
     env.settle();
     // Too many boxes to read when fitted: the picture opens on its start, and the user asks for the whole of it.
-    expect(act("whole").hidden).toBe(false);
-    act("whole").press();
+    expect(wholeInView()).toBe(false);
+    act("fit").press();
     env.settle();
     const whole = boxes();
     const size = [...whole.values()][0].w;
@@ -1816,7 +1817,7 @@ describe("Selecting a node on the map", () => {
     // Cleared: it stays where the press took it, and the line offers the whole picture again in one press.
     act("close").press();
     env.settle();
-    expect([boxes().get(far[0]), act("whole").hidden]).toEqual([selected, true]);
+    expect([boxes().get(far[0]), wholeInView()]).toEqual([selected, true]);
     expect(status()).toBe("900 modules · 0 links");
   });
 
@@ -1926,15 +1927,15 @@ describe("Selecting a node on the map", () => {
     const far = [...boxes()].sort((a, b) => b[1].x - a[1].x || a[1].y - b[1].y)[0];
     click(far[1].x + far[1].w / 2, far[1].y + far[1].h / 2);
     // The camera has not moved yet, and the dashes of the trace move for as long as the node is selected.
-    const atOnce = [status(), part(".map-status").hidden, act("whole").hidden];
+    const atOnce = [status(), part(".map-status").hidden, wholeInView()];
     expect(env.waiting).toBe(1);
     let frames = 0;
     while (env.waiting && frames++ < 400) env.frame();
-    expect([status(), part(".map-status").hidden, act("whole").hidden]).toEqual(atOnce);
+    expect([status(), part(".map-status").hidden, wholeInView()]).toEqual(atOnce);
     expect(atOnce[0]).toBe("420 modules · 0 links");
     // The selection cleared: nothing moves, and the line says at once how much is in view.
     act("close").press();
-    expect([status(), act("whole").hidden]).toEqual(["420 modules · 0 links", true]);
+    expect([status(), wholeInView()]).toEqual(["420 modules · 0 links", true]);
   });
 
   it("comes to a box found by the search and draws it in full, where the picture is too far away to tell it", () => {
@@ -1964,10 +1965,10 @@ describe("Selecting a node on the map", () => {
     // The details closed: the picture stays where the search took it, and one press shows it whole again.
     act("close").press();
     env.settle();
-    expect([/^420 modules · 60 links\. \d+ of 420 boxes in view\.$/.test(status()), act("whole").hidden]).toEqual([true, false]);
-    act("whole").press();
+    expect([/^420 modules · 60 links\. \d+ of 420 boxes in view\.$/.test(status()), wholeInView()]).toEqual([true, false]);
+    act("fit").press();
     env.settle();
-    expect([status(), act("whole").hidden, boxes().size]).toEqual(["420 modules · 60 links", true, 420]);
+    expect([status(), wholeInView(), boxes().size]).toEqual(["420 modules · 60 links", true, 420]);
   });
   it("hides a layer and shows it again from the legend, and says which is hidden in more than its colour", () => {
     open();
@@ -2089,6 +2090,8 @@ describe("Selecting a node on the map", () => {
 
   it("moves to where the small picture is pressed", () => {
     open();
+    act("minimap").press();
+    env.settle();
     const before = at("01: Inputs");
     pointer("pointerdown", 20, 64, part(".map-minimap"));
     env.settle();
@@ -2409,11 +2412,11 @@ describe("The room the map's picture has", () => {
   /** A map of 1200 by 800 laid out as its stylesheet lays it out: the bar across the top, the graph's room under it, the
    * details in a column at the right, the legend over the foot's line at the left, the small picture at the right. */
   function openLaidOut(graph?: ModelGraph, legend: Place = LEGEND): void {
-    mount(graph);
+    mount(graph, { modelName: "Demand Plan", view: { view: "modules", minimap: true } });
     layOut({
       ".map-canvas": [0, 0, 1200, 800],
       ".map-free": () => (root().classList.contains("map-has-inspector") ? [10, 56, 864, 790] : [10, 56, 1190, 790]),
-      ".map-legend": legend, ".map-dock": DOCK, ".map-corner": CORNER,
+      ".map-legend": legend, ".map-dock": DOCK, ".map-minimap-wrap": CORNER,
     });
     map.show();
     env.resize(1200, 800);
@@ -2448,11 +2451,12 @@ describe("The room the map's picture has", () => {
     const closed = widths();
     expect(closed).toHaveLength(12);
     expect(Math.min(...closed)).toBeGreaterThanOrEqual(232 * 0.76);
-    // The user opens it: it stays open, here and in the next view, and the picture is fitted into the room that is left.
+    // The user opens it: it stays open without moving the picture, here and in the next view.
+    const before = boxes();
     act("legend").press();
     expect(part(".map-legend").hidden).toBe(false);
-    expect(Math.max(...widths())).toBeLessThan(Math.min(...closed));
-    for (const box of boxes().values()) expect(overlaps(box, [10, 80, 900, 750])).toBe(false);
+    env.settle();
+    expect(boxes()).toEqual(before);
     toggleGroups();
     expect([part(".map-legend").hidden, act("legend").getAttribute("aria-expanded")]).toEqual([false, "true"]);
     map.destroy();
@@ -2491,7 +2495,7 @@ describe("The room the map's picture has", () => {
   it("opens with the legend closed where the picture cannot be shown whole, and keeps every name when the notes are opened beside a selection", () => {
     // Too many sections to read when fitted into this room: the picture opens on its start, and the legend stays shut.
     openLaidOut(sectionsOf(400));
-    expect([part(".map-legend").hidden, act("whole").hidden]).toEqual([true, false]);
+    expect([part(".map-legend").hidden, wholeInView()]).toEqual([true, false]);
     expect(status()).toMatch(/^400 groups · 0 links\. \d+ of 400 boxes in view\.$/);
     map.destroy();
 
@@ -2500,47 +2504,26 @@ describe("The room the map's picture has", () => {
     env = new FakeSurroundings();
     openLaidOut(sectionsOf(354), [10, 700, 70, 750]);
     const fitted = [...boxes().values()][0].w / 232;
-    expect([part(".map-legend").hidden, status(), act("whole").hidden, boxes().size, blankBoxes()]).toEqual([true, "354 groups · 0 links", true, 354, 0]);
+    expect([part(".map-legend").hidden, status(), wholeInView(), boxes().size, blankBoxes()]).toEqual([true, "354 groups · 0 links", true, 354, 0]);
     expect([fitted >= 13 / 48.5, fitted < 13 / 48.5 / 0.94]).toEqual([true, true]);
     map.destroy();
 
-    // Twenty-four sections, one selected, and the notes about the map opened: a panel from the top of the graph's room
-    // to its foot, which leaves a strip beside the details.
-    let high: Place = [10, 380, 236, 750];
-    let notes: Place = [246, 66, 606, 750];
+    // Notes and legend cover a selected box without moving it or shrinking any name.
     env = new FakeSurroundings();
-    openLaidOut(sectionsOf(24), high);
-    layOut({ ".map-about": () => notes, ".map-legend": () => high });
-    const size = (): number => [...boxes().values()][0].w;
-    const least = 232 * 13 / 48.5 - 1e-6;
+    openLaidOut(sectionsOf(24));
+    layOut({ ".map-about": [246, 66, 860, 750] });
     click(...at("12: Section 12"));
     env.settle();
-    act("about").press();
-    env.settle();
-    // The whole picture is fitted into the strip: small, and no smaller than its names can be read at. Every box holds
-    // its name, and none lies under the notes or the details.
-    expect([part(".map-about").hidden, boxes().size, blankBoxes(), size() >= least]).toEqual([false, 24, 0, true]);
-    for (const box of boxes().values()) expect([overlaps(box, notes), box.x + box.w <= 864]).toEqual([false, true]);
-    // The notes wider and the legend higher, opened by the user: the two leave the whole picture no readable room. The
-    // picture is not shrunk to fit: it keeps its size, the box selected is brought into what room there is, and the
-    // line at the foot says how much of the graph is in view.
-    notes = [246, 66, 860, 750];
-    high = [10, 200, 236, 750];
-    act("legend").press();
-    act("legend").press();
-    env.settle();
-    expect([part(".map-legend").hidden, part(".map-about").hidden, blankBoxes(), size() >= least]).toEqual([false, false, 0, true]);
-    const selected = boxes().get("12: Section 12")!;
-    expect([overlaps(selected, notes), overlaps(selected, high), selected.x >= 10, selected.x + selected.w <= 864, selected.y >= 56]).toEqual([false, false, true, true, true]);
-    expect([part(".map-status").hidden, act("whole").hidden]).toEqual([false, false]);
-    expect(status()).toMatch(/\d+ of 24 boxes in view\.$/);
-    // Both closed and the selection cleared: the picture is whole again, in letters as large as it opened with.
-    act("about").press();
-    act("legend").press();
-    act("close").press();
-    env.settle();
-    expect([boxes().size, status(), act("whole").hidden, size() > 150]).toEqual([24, "24 groups · 0 links", true, true]);
+    const before = boxes();
+    for (const action of ["about", "legend", "legend", "about"]) {
+      act(action).press();
+      env.settle();
+      expect(boxes()).toEqual(before);
+      expect(blankBoxes()).toBe(0);
+      expect(part(".map-stats").title).toBe(status());
+    }
   });
+
   it("keeps the status line beside a box gone to, with the trace outside the foot", () => {
     mount(sectionsOf(170));
     layOut({
@@ -2549,7 +2532,7 @@ describe("The room the map's picture has", () => {
       ".map-legend": [10, 700, 60, 750],
       // Selection adds nothing to the foot.
       ".map-dock": [10, 760, 864, 790],
-      ".map-corner": CORNER,
+      ".map-minimap-wrap": CORNER,
     });
     map.show();
     env.resize(1200, 800);
@@ -2566,17 +2549,16 @@ describe("The room the map's picture has", () => {
     for (const box of after) expect([box.x + box.w <= 864, box.y + box.h <= 760]).toEqual([true, true]);
   });
 
-  /** A map whose foot is narrow, as in a small window: the line of what is in view, with its button, takes the foot to
-   * more rows, and it stands high. Beside a whole picture the foot has one row. */
-  const HIGH_FOOT: Place = [10, 300, 864, 790];
+  /** Even a long status uses the same slim bar. */
+  const SLIM_FOOT: Place = [10, 758, 1190, 790];
   function openWithNarrowFoot(graph: ModelGraph): void {
-    mount(graph);
+    mount(graph, { modelName: "Demand Plan", view: { view: "modules", minimap: true } });
     layOut({
       ".map-canvas": [0, 0, 1200, 800],
       ".map-free": () => (root().classList.contains("map-has-inspector") ? [10, 56, 864, 790] : [10, 56, 1190, 790]),
       ".map-legend": [10, 700, 70, 750],
-      ".map-dock": () => (!part(".map-status").hidden && !act("whole").hidden && / in view\.$/.test(status()) ? HIGH_FOOT : [10, 760, 864, 790]),
-      ".map-corner": CORNER,
+      ".map-dock": SLIM_FOOT,
+      ".map-minimap-wrap": CORNER,
     });
     map.show();
     env.resize(1200, 800);
@@ -2587,35 +2569,34 @@ describe("The room the map's picture has", () => {
     // The picture is whole only just: beside the details it cannot be, at a size its names can be read at.
     openWithNarrowFoot(sectionsOf(354));
     const opened = boxes();
-    expect([status(), act("whole").hidden, opened.size]).toEqual(["354 groups · 0 links", true, 354]);
-    // A box in the lower half, left of where the details will open: it is in view as it stands, but for the foot, which
-    // is high once the line of what is in view stands in it with its button.
+    expect([status(), wholeInView(), opened.size]).toEqual(["354 groups · 0 links", true, 354]);
+    // A box in the lower half, left of where the details will open: selection keeps it in place.
     const low = [...opened].filter(([, box]) => box.y > 450 && box.y < 700 && box.x > 100 && box.x + box.w < 800)[0];
     click(low[1].x + low[1].w / 2, low[1].y + low[1].h / 2);
     env.settle();
     const selected = boxes().get(low[0])!;
-    expect([part(".map-status").hidden, act("whole").hidden, /\d+ of 354 boxes in view\.$/.test(status()), selected.w]).toEqual([false, false, true, low[1].w]);
+    expect([part(".map-status").hidden, wholeInView(), /\d+ of 354 boxes in view\.$/.test(status()), selected.w]).toEqual([false, false, true, low[1].w]);
     expect(boxes()).toEqual(opened);
     // The selection cleared: nothing moves, and the line still says how much is in view.
     const there = boxes();
     act("close").press();
     env.settle();
-    expect([status(), act("whole").hidden]).toEqual(["354 groups · 0 links", true]);
+    expect([status(), wholeInView()]).toEqual(["354 groups · 0 links", true]);
     expect(boxes()).toEqual(there);
   });
 
   it("fits the whole picture, when asked for it, for the foot a whole picture has", () => {
     openWithNarrowFoot(sectionsOf(354));
     const opened = boxes();
-    // Nearer, part of the graph is out of view: the line says so, and the foot stands high.
+    // Nearer, part of the graph is out of view: the line says so, in the same bar.
     act("zoom-in").press();
     act("zoom-in").press();
     env.settle();
-    expect([/^354 groups · 0 links\. \d+ of 354 boxes in view\.$/.test(status()), act("whole").hidden]).toEqual([true, false]);
-    // Whole again: into the room there is once the line has no more to say, not into the little that the high foot left.
-    act("whole").press();
+    expect([/^354 groups · 0 links\. \d+ of 354 boxes in view\.$/.test(status()), wholeInView()]).toEqual([true, false]);
+    // Fit restores the whole graph within the same bar bounds.
+    act("fit").press();
     env.settle();
-    expect([status(), act("whole").hidden]).toEqual(["354 groups · 0 links", true]);
+    expect([status(), wholeInView()]).toEqual(["354 groups · 0 links", true]);
     expect(boxes()).toEqual(opened);
   });
 
@@ -2624,17 +2605,17 @@ describe("The room the map's picture has", () => {
     act("zoom-in").press();
     act("zoom-in").press();
     env.settle();
-    expect(act("whole").hidden).toBe(false);
-    // All modules: as many boxes, as large. The foot was high when the view was asked for.
+    expect(wholeInView()).toBe(false);
+    // All modules: as many boxes, as large, with the same bar.
     toggleGroups();
     env.settle();
-    expect([status(), act("whole").hidden, boxes().size, blankBoxes()]).toEqual(["354 modules · 0 links", true, 354, 0]);
+    expect([status(), wholeInView(), boxes().size, blankBoxes()]).toEqual(["354 modules · 0 links", true, 354, 0]);
   });
 
   it("keeps a selected box in place under a panel when links change", () => {
     // Too many sections to show whole: the picture opens on its start, and the line says how much of it is in view.
     openWithNarrowFoot(sectionsOf(400));
-    expect(act("whole").hidden).toBe(false);
+    expect(wholeInView()).toBe(false);
     const low = [...boxes()].filter(([, box]) => box.y > 450 && box.y < 700 && box.x > 100 && box.x + box.w < 800)[0];
     click(low[1].x + low[1].w / 2, low[1].y + low[1].h / 2);
     env.settle();
@@ -2643,7 +2624,7 @@ describe("The room the map's picture has", () => {
     tickAccess();
     env.settle();
     const again = boxes().get(low[0])!;
-    expect([text(".map-insp-name"), overlaps(again, HIGH_FOOT), again.y + again.h <= 300, again.w]).toEqual([low[0], true, false, low[1].w]);
+    expect([text(".map-insp-name"), overlaps(again, SLIM_FOOT), again.y + again.h <= 758, again.w]).toEqual([low[0], false, true, low[1].w]);
     expect(status()).toMatch(/\d+ of 400 boxes in view\.$/);
   });
 
@@ -2656,33 +2637,25 @@ describe("The room the map's picture has", () => {
     key("Enter");
     env.settle();
     const found = boxes().get("90: Section 90")!;
-    expect([text(".map-insp-name"), found.w, part(".map-status").hidden, act("whole").hidden]).toEqual(["90: Section 90", 232, false, false]);
+    expect([text(".map-insp-name"), found.w, part(".map-status").hidden, wholeInView()]).toEqual(["90: Section 90", 232, false, false]);
     expect(status()).toMatch(/\d+ of 170 boxes in view\.$/);
-    expect([overlaps(found, HIGH_FOOT), found.y + found.h <= 300, found.x + found.w <= 864]).toEqual([false, true, true]);
+    expect([overlaps(found, SLIM_FOOT), found.y + found.h <= 758, found.x + found.w <= 864]).toEqual([false, true, true]);
   });
 
-  it("counts what is in view with the legend where the line's own button leaves it", () => {
-    // A narrow foot again: with the line's button it takes another row, and the legend, which stands on it, stands higher.
-    const lower: Place = [10, 620, 400, 750];
-    const higher: Place = [10, 420, 400, 750];
-    mount(sectionsOf(60));
-    layOut({ ".map-canvas": [0, 0, 1200, 800], ".map-free": [10, 56, 1190, 790], ".map-legend": () => (act("whole").hidden ? lower : higher), ".map-dock": DOCK, ".map-corner": CORNER });
-    map.show();
-    env.resize(1200, 800);
-    env.settle();
-    // Sixty sections are shown whole with the legend open, as the map opens.
-    expect([part(".map-legend").hidden, status(), act("whole").hidden]).toEqual([false, "60 groups · 0 links", true]);
-    act("zoom-in").press();
+  it("counts boxes covered by the minimap without changing the bar or camera", () => {
+    openLaidOut(sectionsOf(60));
     act("zoom-in").press();
     env.settle();
-    // In view by the picture itself: the boxes whose middle is in the graph's room, under neither the legend nor the
-    // small picture. With the legend where it stood before the line had its button, more of them would be.
-    const inView = (legend: Place): number => [...boxes().values()].filter(box => {
-      const [x, y] = [box.x + box.w / 2, box.y + box.h / 2];
-      return x >= 10 && x <= 1190 && y >= 56 && y <= 790 && ![legend, CORNER].some(([left, top, right, bottom]) => x >= left && x <= right && y >= top && y <= bottom);
-    }).length;
-    expect(inView(higher)).toBeLessThan(inView(lower));
-    expect([act("whole").hidden, status()]).toEqual([false, `60 groups · 0 links. ${inView(higher)} of 60 boxes in view.`]);
+    const before = boxes();
+    const withMinimap = status();
+    act("minimap").press();
+    env.settle();
+    expect(boxes()).toEqual(before);
+    expect(part(".map-dock").getBoundingClientRect().height).toBe(30);
+    act("minimap").press();
+    env.settle();
+    expect(boxes()).toEqual(before);
+    expect(status()).toBe(withMinimap);
   });
 
   it("lets the panel that opens close the other where the two would leave the picture no room at all", () => {
@@ -2698,7 +2671,7 @@ describe("The room the map's picture has", () => {
   it("keeps the focus in the map when the legend closes under it as the map's place shrinks", () => {
     let legendBox: Place = LEGEND;
     mount(sectionsOf(24));
-    layOut({ ".map-canvas": [0, 0, 1200, 800], ".map-free": [10, 56, 1190, 790], ".map-legend": () => legendBox, ".map-dock": DOCK, ".map-corner": CORNER });
+    layOut({ ".map-canvas": [0, 0, 1200, 800], ".map-free": [10, 56, 1190, 790], ".map-legend": () => legendBox, ".map-dock": DOCK, ".map-minimap-wrap": CORNER });
     map.show();
     env.resize(1200, 800);
     env.settle();
@@ -2779,16 +2752,16 @@ describe("The room the map's picture has", () => {
     const first = boxes().get("Line Item 0")!;
     expect([first.x, first.y]).toEqual([32, 82]);
     // One press shows the whole picture, and the line says no more than what it holds.
-    expect([act("whole").hidden, act("whole").textContent]).toEqual([false, "Whole map"]);
-    act("whole").press();
+    expect([wholeInView(), act("fit").textContent]).toEqual([false, "Fit"]);
+    act("fit").press();
     env.settle();
-    expect([status(), act("whole").hidden]).toEqual(["600 line items · 0 links", true]);
+    expect([status(), wholeInView()]).toEqual(["600 line items · 0 links", true]);
     // And the line follows the camera: zoomed in again, part of the graph is out of view.
     act("zoom-in").press();
     act("zoom-in").press();
     env.settle();
     expect(status()).toMatch(/^600 line items · 0 links\. \d+ of 600 boxes in view\.$/);
-    expect(act("whole").hidden).toBe(false);
+    expect(wholeInView()).toBe(false);
   });
 
   it("shows a graph whole that can be read when fitted, however many boxes it has", () => {
@@ -2797,7 +2770,7 @@ describe("The room the map's picture has", () => {
     open(make.graph());
     toggleGroups();
     env.settle();
-    expect([status(), act("whole").hidden]).toEqual(["120 modules · 0 links", true]);
+    expect([status(), wholeInView()]).toEqual(["120 modules · 0 links", true]);
     // Every one of the 120 boxes has at least a line of its name, in letters of ten pixels or nearly.
     const written = lastPicture().filter(call => call.name === "fillText");
     expect(written.length).toBeGreaterThanOrEqual(120);
@@ -3398,6 +3371,60 @@ describe("Where the viewer left the map, which the page keeps for a refresh", ()
     env.resize(1200, 800);
     env.settle();
   };
+
+  it("starts with the minimap hidden, toggles it without moving, and carries its choice through map views", () => {
+    openAt();
+    expect([part(".map-minimap-wrap").hidden, act("minimap").getAttribute("aria-pressed"), env.mini.calls.length])
+      .toEqual([true, "false", 0]);
+    const before = boxes();
+    act("minimap").press();
+    env.settle();
+    expect([part(".map-minimap-wrap").hidden, act("minimap").getAttribute("aria-pressed"), heard.at(-1)])
+      .toEqual([false, "true", { view: "modules", minimap: true }]);
+    expect(env.mini.calls.length).toBeGreaterThan(0);
+    expect(boxes()).toEqual(before);
+    for (const move of [() => groupChoice("1"), () => pickModule("CAL01 - Revenue")]) {
+      move();
+      env.settle();
+      expect(part(".map-minimap-wrap").hidden).toBe(false);
+      expect(heard.at(-1)?.minimap).toBe(true);
+    }
+    const kept = heard.at(-1);
+    map.destroy();
+    openAt(kept);
+    expect([here(), part(".map-minimap-wrap").hidden]).toEqual(["CAL01 - Revenue", false]);
+    act("minimap").press();
+    env.settle();
+    const calls = env.mini.calls.length;
+    act("zoom-in").press();
+    env.settle();
+    expect(env.mini.calls).toHaveLength(calls);
+    expect([act("minimap").getAttribute("aria-pressed"), heard.at(-1)?.minimap]).toEqual(["false", undefined]);
+    map.destroy();
+    openAt();
+    expect(part(".map-minimap-wrap").hidden).toBe(true);
+  });
+
+  it.each(["groups", "modules", "line items"])("keeps the camera and dragged boxes while bottom panels open at %s level", level => {
+    openAt();
+    if (level === "modules") groupChoice("1");
+    if (level === "line items") pickModule("CAL01 - Revenue");
+    env.settle();
+    const first = [...boxes().values()][0];
+    const [x, y] = [first.x + first.w / 2, first.y + first.h / 2];
+    pointer("pointerdown", x, y);
+    pointer("pointermove", x + 30, y + 20);
+    pointer("pointerup", x + 30, y + 20);
+    act("zoom-in").press();
+    env.settle();
+    const before = boxes();
+    for (const action of ["legend", "about", "minimap", "minimap", "about", "legend"]) {
+      act(action).press();
+      env.settle();
+      expect(boxes(), action).toEqual(before);
+      expect(part(".map-stats").title).toBe(status());
+    }
+  });
 
   it("tells the page where it is each time it shows another view or draws other links, each group and module by its name", () => {
     openAt();

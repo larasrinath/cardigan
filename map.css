@@ -85,7 +85,7 @@
 .map-zone-build{flex:none;gap:10px}
 .map-zone-tools{flex:none;margin-left:auto}
 .map-free{grid-area:free;position:relative;min-width:0;min-height:0}
-.map-selection{grid-area:2 / 2;z-index:1;display:flex;flex-direction:column;gap:8px;min-height:0;margin-bottom:90px;overflow:auto;overscroll-behavior:contain;pointer-events:auto}
+.map-selection{grid-area:2 / 2;z-index:1;display:flex;flex-direction:column;gap:8px;min-height:0;margin-bottom:40px;overflow:auto;overscroll-behavior:contain;pointer-events:auto}
 .map-root:not(.map-has-inspector) .map-selection{display:none}
 
 /* ---------- the bar: where the map is, how it is built, its tools ---------- */
@@ -187,21 +187,22 @@
 .map-sign{flex:none}
 
 /* ---------- what stands over the canvas itself ---------- */
-/* The status has a fixed row over Legend and About. The trace stands with the details, so selecting a box never
-   changes this foot. The legend and notes grow upwards over the drawing. */
-.map-foot{position:absolute;inset:0 auto 0 0;width:min(650px,calc(100cqw - 44px));display:flex;flex-direction:column;justify-content:flex-end;gap:8px;pointer-events:none}
-.map-over{display:flex;flex:0 1 auto;align-items:flex-end;gap:10px;min-height:0}
-.map-dock{display:grid;flex:none;grid-template-columns:max-content max-content 1fr;grid-template-rows:48px 28px;align-items:center;gap:6px}
+/* Counts and controls share one fixed-height row. The status keeps its width as its words change, then shrinks on
+   narrow maps. The panels float above it; the trace stays with the details. */
+.map-foot{position:absolute;inset:0;z-index:2;pointer-events:none}
+.map-over{position:absolute;inset:0 auto 40px 0;display:flex;align-items:flex-end;gap:10px;width:min(650px,100%);min-height:0}
+.map-dock{position:absolute;inset:auto 0 0;display:flex;align-items:center;gap:6px;height:32px;padding:0 4px 0 10px;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--panel)}
 .map-dock > *{pointer-events:auto}
-.map-status{grid-column:1 / -1;display:flex;align-items:center;gap:8px;min-width:0;height:48px;padding:3px 6px 3px 12px;border-radius:15px;font-size:12px;color:var(--text-2);font-variant-numeric:tabular-nums}
-.map-stats{flex:1;min-width:0;max-height:100%;overflow:auto;padding-right:6px;overflow-wrap:anywhere}
-.map-status [data-map-act="whole"]{flex:none}
-.map-status [data-map-act="whole"][hidden]{display:inline-flex !important;visibility:hidden}
-/* The zoom and small picture keep the same place whether the details cover the right column or not. */
-.map-corner{position:absolute;right:390px;bottom:0;display:flex;flex-direction:column;align-items:flex-end;gap:6px;pointer-events:none}
-.map-corner > *{pointer-events:auto}
-.map-zoom{display:flex;gap:4px}
-.map-minimap-wrap{padding:6px;line-height:0}
+.map-status{flex:0 1 360px;min-width:0;font-size:12px;color:var(--text-2);font-variant-numeric:tabular-nums}
+.map-stats{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.map-dock .map-btn{flex:none;height:26px;padding:0 8px;border-color:transparent;border-radius:var(--r-xs);background:transparent}
+.map-dock .map-icon{width:26px;padding:0}
+.map-dock .map-btn:hover{background:var(--panel-2)}
+.map-dock .map-btn[aria-expanded="true"],.map-dock .map-btn[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent-ink);border-color:color-mix(in srgb,var(--accent) 35%,transparent)}
+/* The controls keep their places while any panel opens above the bar. */
+.map-corner{display:flex;flex:none;align-items:center;gap:4px;margin-left:auto}
+.map-zoom{display:flex;gap:2px}
+.map-minimap-wrap{position:absolute;right:0;bottom:40px;padding:6px;line-height:0}
 .map-minimap{display:block;width:196px;height:128px;border-radius:var(--r-xs);background:var(--map-canvas-bg);cursor:crosshair}
 
 .map-legend,.map-about{max-height:100%;overflow-y:auto;overscroll-behavior:contain}
@@ -309,28 +310,21 @@
 .map-root .map-broken:focus-visible{outline-offset:-4px;border-radius:var(--r-md)}
 
 /* ---------- a smaller map ---------- */
-@container map (max-width:1300px){
-  .map-corner{bottom:90px}
-}
 /* Up to 940px wide the details' column is narrower. */
 @container map (max-width:940px){
   .map-chrome{grid-template-columns:minmax(0,1fr) minmax(0,280px)}
-  .map-corner{right:290px}
 }
 /* Up to 760px wide the details lie over the drawing, above the fixed foot, taking at most two fifths of the height.
-   Each part of the bar has its own line. The small picture is hidden at this width. */
+   Each part of the top bar has its own line. The bottom bar keeps one line. */
 @container map (max-width:760px){
   .map-chrome{padding:8px;grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(96px,1fr) auto;grid-template-areas:"bar" "free" "details"}
-  .map-selection{grid-area:auto;position:absolute;right:8px;bottom:140px;width:min(380px,calc(100% - 16px));max-height:40cqh;margin-bottom:0}
+  .map-selection{grid-area:auto;position:absolute;right:8px;bottom:48px;width:min(380px,calc(100% - 16px));max-height:40cqh;margin-bottom:0}
   .map-zone-path,.map-zone-tools{flex:1 1 100%;margin-left:0}
   .map-zone-tools .map-searchwrap{flex:1 1 auto}
   .map-picker-input{width:180px}
-  .map-corner{right:0}
-  .map-minimap-wrap{display:none}
-}
-/* A low map keeps its height for the graph and the details: the small picture goes, the zoom stays. */
-@container map (max-height:520px){
-  .map-minimap-wrap{display:none}
+  .map-dock{gap:2px;padding-left:6px}
+  .map-dock .map-btn{padding:0 5px}
+  .map-dock .map-icon{padding:0}
 }
 @media (prefers-reduced-motion:reduce){
   .map-root *,.map-root *::before,.map-root *::after{transition:none !important;animation:none !important}
