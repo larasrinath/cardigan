@@ -324,7 +324,7 @@ function where(): string[] {
   return steps;
 }
 function chooseGroup(value: string): void {
-  if (value === "modules") { part('[data-map-act="modules"]').press(); part('[data-map-pick="-1"]').press(); return; }
+  if (value === "modules") { chooseGroup("groups"); part('[data-map-act="modules"]').press(); part('[data-map-pick="-1"]').press(); return; }
   part('[data-map-act="groups"]').press();
   part(`[data-map-group="${value}"]`).press();
 }

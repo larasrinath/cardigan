@@ -111,6 +111,7 @@ describe("The map's escaping", () => {
     expectInert(text => groupingOptionsHtml([{ kind: "headings", label: text(0) }, { kind: "role", label: text(1) }], "role"), 2);
     expectInert(text => groupingReasonHtml(`${text(0)}\n${text(1)}`), 2);
     expectInert(text => pickerOptionsHtml("map-picker-1", [{ name: text(0), group: text(1) }, { name: text(2) }], 0), 3);
+    expectInert(text => pickerOptionsHtml("map-picker-1", [{ name: text(0) }], -1, { current: true }, text(1)), 2);
     expectInert(text => emptyHtml(text(0), text(1), [text(2), text(3)]), 4);
     expectInert(text => brokenHtml(text(0)), 1);
   });
@@ -615,6 +616,18 @@ describe("The map's panels", () => {
       option.querySelector(".map-picker-name")?.textContent, option.querySelector("small")?.textContent ?? null]))
       .toEqual([["div", "option", "map-picker-3-0", "true", "0", false, "INP01 - Volumes", "Current module"], ["div", "option", "map-picker-3-1", "false", "1", true, "CAL01 - Revenue", null]]);
     expect(pickerOptionsHtml("map-picker-3", [], -1)).toBe("");
+  });
+
+  it("names the group's first entry and omits group headings even while searching", () => {
+    const modules = [{ name: "INP01 - Volumes", group: "01: Inputs" }, { name: "INP02 - Prices", group: "01: Inputs" }];
+    const list = parseMarkup(`<div>${pickerOptionsHtml("map-picker-3", modules, -1, { current: true }, "01: Inputs")}</div>`);
+    expect(list.querySelectorAll('[role="option"]').map(option => [option.textContent, option.dataset.mapPick, option.getAttribute("aria-selected")]))
+      .toEqual([["All modules in 01: Inputs", "-1", "true"], ["INP01 - Volumes", "0", "false"], ["INP02 - Prices", "1", "false"]]);
+    expect(list.querySelector(".map-active")?.id).toBe("map-picker-3-all");
+    expect(list.querySelectorAll('[role="group"], .map-picker-heading')).toEqual([]);
+    const filtered = parseMarkup(`<div>${pickerOptionsHtml("map-picker-3", modules.slice(1), 0, undefined, "01: Inputs")}</div>`);
+    expect(filtered.querySelectorAll('[data-map-pick="-1"], [role="group"], .map-picker-heading')).toEqual([]);
+    expect(filtered.textContent).toBe("INP02 - Prices");
   });
 });
 
