@@ -14,6 +14,14 @@ A cleaner header, one Timezone pill, and the version and an About page in the me
 - **Links under About this export.** On the Overview, the model's name opens the model in Model Building in the model's tab, and each app under **Apps** opens that app in the tab of apps and pages, as the details' **Model** and **App** buttons do, with their icons after the names. Where the model's tab shows the model in Model Building already, it is only brought to the front, with what is open there: Cardigan asks its script in the tab what the tab shows now. Anywhere else the model's address is loaded, the one Model Building's own model menu links to. An app is a link only where the rows of Module Usage, Page Filters and Page Actions give it one ID; an app of no row, or a name two apps share, stays plain, and so does every name where the result does not say where the model is. (#64)
 - **What stays the same.** What is read, the tables, the map and what the times say. (#64)
 
+## 0.18.9 (10 October 2026)
+
+Three small mends: a module's code on the model map, what Forget this result forgets, and two tests that a busy machine could fail.
+
+- **A module's code, told from its name whatever stands between.** The map sets a module's code apart from the rest of its name. It took off a dash between spaces (" - ") or a space alone, so a name such as "CLM101 : - Stat Combos: Without Order History" showed ": - Stat Combos: Without Order History". Now any mix of spaces, colons and dashes between the code and the rest is taken off: "CLM101 : - Stat Combos", "FIN03: Cash", "X_1 — Y". A colon with no dash takes only a word of capitals and digits for a code, so "Note: Revenue Plan" stays whole, and a mark written against the rest stays with it ("SYS01 -Time"). (#63)
+- **Forget this result forgets where the map was.** Forgetting removed what the tab kept, but the page went on holding where the map had been left: the map built afresh after it took that place back and wrote it to the tab again. It now opens where it opens by itself, and nothing comes back. (#63)
+- **Tests that hold on a busy machine.** The page tests now tell a page it goes, as a browser does when a refresh replaces it, so what a page was about to write lands in its own test and never in the next one's storage. The check that a table of 200,000 rows has its column widths worked out quickly counts the cells read and takes the process's own time, not the clock. (#63)
+
 ## 0.18.8 (10 October 2026)
 
 Two of a model's tables have shorter names on the page.

@@ -6094,6 +6094,27 @@ describe("How a result was looked at, kept through a refresh of the page until t
     expect(looksKept()).toBeUndefined();
   });
 
+  it("forgets where the map was with the result: the map built afresh opens where it opens by itself, and nothing comes back", async () => {
+    await openWith(MODEL);
+    await letKeep();
+    choose("map");
+    const options = () => mapMounts[mapMounts.length - 1].options as ModelMapOptions;
+    options().onView?.({ view: "drill", module: "Revenue", access: true });
+    letLooksKeep();
+    expect(looksKept()).toMatchObject({ map: { view: "drill", module: "Revenue", access: true } });
+    choose("overview");
+    page.find('#ovKept [data-act="forget"]').press();
+    letLooksKeep();
+    expect(looksKept()).toBeUndefined();
+    // Forgetting drops the map; its entry builds a new one, which is given no place to take back. Where it opens by
+    // itself it says so, and nothing is written.
+    choose("map");
+    expect([mapMounts.length, "view" in options()]).toEqual([2, false]);
+    options().onView?.({ view: "modules" });
+    letLooksKeep();
+    expect(looksKept()).toBeUndefined();
+  });
+
   /** Lets the page try to keep the result it has just drawn, which the tab's storage does not let it: the page says so. */
   const keepingFails = async () => {
     vi.advanceTimersByTime(0);

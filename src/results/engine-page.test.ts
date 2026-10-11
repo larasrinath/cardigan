@@ -16,6 +16,7 @@ import { FakeTab } from "./port-pair.test-support.js";
 import { overviewOf } from "./result-view.js";
 import { fixTimeZone } from "./time-zone.test-support.js";
 import { bothTimes } from "./times.js";
+import { VIEW_KEY } from "./view-keep.js";
 
 // The results page itself against the engine: the page's script on results.html at one end of the port, the content
 // script's real side around the real analysis of an app at the other, and Anaplan's answers scripted. From the address
@@ -62,8 +63,19 @@ describe("The results page itself against the engine in the Anaplan tab", () => 
   let connects: unknown[][];
   /** What the tab's session storage holds, which a refresh of the page leaves as it is. Each test has its own. */
   let session: Map<string, string>;
+  /** What the pages loaded so far listen for as they go: a browser tells a page "pagehide" when a refresh replaces it,
+   * and the page writes then what it would have written a moment later. A page that is never told so would write it
+   * when its moment came: after the next page had loaded, or into the next test's storage. */
+  let pageHides: (() => void)[] = [];
+  /** The page goes, as a refresh or the end of a test takes it away: what it listens for as it goes is called once. */
+  const hidePage = (): void => {
+    const listeners = pageHides;
+    pageHides = [];
+    for (const listener of listeners) listener();
+  };
 
   beforeEach(() => {
+    pageHides = [];
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(NOW);
     watch = watchForFiles();
@@ -76,7 +88,8 @@ describe("The results page itself against the engine in the Anaplan tab", () => 
     vi.stubGlobal("history", { state: null, replaceState: (_state: unknown, _unused: string, address: string) => {
       (globalThis.location as { search: string }).search = address.includes("?") ? address.slice(address.indexOf("?")) : "";
     } });
-    vi.stubGlobal("window", { matchMedia: () => ({ matches: false, addEventListener: () => undefined }), scrollTo: () => undefined, innerWidth: 1280, innerHeight: 800 });
+    vi.stubGlobal("window", { matchMedia: () => ({ matches: false, addEventListener: () => undefined }), scrollTo: () => undefined, innerWidth: 1280, innerHeight: 800,
+      addEventListener: (type: string, listener: () => void) => { if (type === "pagehide") pageHides.push(listener); } });
     vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => undefined });
     const held = session = new Map<string, string>();
     vi.stubGlobal("sessionStorage", { get length() { return held.size; }, key: (index: number) => [...held.keys()][index] ?? null, getItem: (key: string) => held.get(key) ?? null,
@@ -100,6 +113,8 @@ describe("The results page itself against the engine in the Anaplan tab", () => 
     service.releaseAll();
     await until(() => runs.every(run => run.ended), "every run to end");
     await tab.quiet();
+    // The last page goes as the test ends: what it was about to write it writes now, into this test's storage.
+    hidePage();
     // With the engine's own result on it, the page made no file, started no download and went nowhere to save one.
     const made = watch.stop(page);
     // And nothing it had for its user, from first to last, names a file, a CSV or a zip, or a download, but for that
@@ -112,6 +127,8 @@ describe("The results page itself against the engine in the Anaplan tab", () => 
 
   /** Loads the page at an address, in a tab of its own beside the Anaplan tab. */
   const open = async (search: string): Promise<void> => {
+    // The page before goes first, as a refresh takes it: the browser tells it so before the next one loads.
+    hidePage();
     vi.resetModules();
     page = new FakePage(SHELL);
     vi.stubGlobal("document", Object.assign(page.document, service.document));
@@ -357,5 +374,22 @@ describe("The results page itself against the engine in the Anaplan tab", () => 
     await until(shown("Planning: app, renamed"), "the second result to come back");
     expect(shownTables()).toEqual(tablesOf(runs[1].result!));
     expect(runs).toHaveLength(2);
+  });
+
+  it("writes a choice made just before a refresh as the page goes, and the page after it takes the choice back", async () => {
+    await open(clicked);
+    await until(shown("Planning: app"), "the result on the page");
+    await until(() => session.get(`${KEPT_PREFIX}head`), "the result to be kept");
+    const index = runs[0].result!.tables.findIndex(table => table.file === "Where Used.csv");
+    page.find(`#navList [data-nav="${index}"]`).press();
+    // Every use is chosen, and the page is refreshed at once: its moment to write has not come, and nothing is written yet.
+    page.find('#tableWays [data-way="use"]').press();
+    expect(session.has(VIEW_KEY)).toBe(false);
+    // As it goes it writes what was chosen, into this tab's storage and nowhere later; the page after it takes it back.
+    await open("?tab=42");
+    await until(shown("Planning: app"), "the result to come back");
+    expect(JSON.parse(session.get(VIEW_KEY) ?? "{}")).toMatchObject({ subject: `app:${GOLDEN_APP}`, everyUse: true });
+    page.find(`#navList [data-nav="${index}"]`).press();
+    expect(page.find('#tableWays [data-way="use"]').getAttribute("aria-pressed")).toBe("true");
   });
 });
