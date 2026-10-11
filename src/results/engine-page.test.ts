@@ -104,7 +104,7 @@ describe("The results page itself against the engine in the Anaplan tab", () => 
     // The extension's messaging as the page has it: chrome.tabs.connect opens a port to the tab.
     vi.stubGlobal("chrome", {
       tabs: { connect: (tabId: number, info: { name: string }) => { connects.push([tabId, info]); return tab.connect(info.name); } },
-      runtime: { get lastError() { return tab.lastError; } },
+      runtime: { id: "cardigan-test", onMessage: { addListener: () => undefined }, get lastError() { return tab.lastError; } },
     });
   });
   afterEach(async () => {

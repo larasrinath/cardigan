@@ -1,8 +1,8 @@
-import { ABOUT_PAGE, OPENED_PARAM, RESULTS_PAGE, TAB_PARAM } from "./protocol.js";
+import { ABOUT_PAGE, FIND_RESULTS, OPENED_PARAM, RESULTS_PAGE, REUSE_RESULTS, TAB_PARAM, type ResultsAnswer } from "./protocol.js";
 
-/** The service worker behind the toolbar icon. A click opens the results page in a new tab right after the clicked one, in
- * the same window, with that tab's ID and the time of the click in the address; the page then asks the tab's content script
- * for the analysis (protocol.ts). The icon's own menu, the one Chrome shows on a right-click, gets two items of Cardigan's:
+/** The service worker behind the toolbar icon. A click asks the open results pages which belongs to the clicked tab,
+ * brings the answering tab and window forward, and runs again there unless it is already reading. With no answer in
+ * 300 ms it opens a new page beside the clicked tab (protocol.ts). The icon's own menu gets two items of Cardigan's:
  * About Cardigan, which opens the About page in a new tab, and the version, greyed out, to read. The worker keeps no state,
  * so Chrome can stop it between clicks. Opening a tab takes no permission, and it never reads the clicked tab's address or
  * content; the menu's items take "contextMenus", which comes with no warning. */
@@ -16,8 +16,9 @@ export const VERSION_ITEM = "cardigan-version";
 
 /** The Chrome APIs a click uses. A test passes a fake. */
 export interface ClickApi {
-  runtime: Pick<typeof chrome.runtime, "getURL">;
-  tabs: Pick<typeof chrome.tabs, "create">;
+  runtime: Pick<typeof chrome.runtime, "getURL" | "sendMessage">;
+  tabs: Pick<typeof chrome.tabs, "create" | "update">;
+  windows: Pick<typeof chrome.windows, "update">;
 }
 
 /** The Chrome APIs the icon's title and menu use. A test passes a fake. */
@@ -27,13 +28,34 @@ export interface MenuApi {
   contextMenus: Pick<typeof chrome.contextMenus, "create" | "removeAll">;
 }
 
-/** Opens the results page for `tab`: right after it in its window, and with it as the opener. The address names the tab and
+/** Reuses the results page for `tab`, or opens one right after it in its window, with it as the opener. The address names the tab and
  * says when the icon was clicked, by which the page knows that the icon has just opened it (protocol.ts `OPENED_PARAM`).
  * A tab without an ID gets none. */
 export async function openResults(api: ClickApi, tab: chrome.tabs.Tab): Promise<void> {
   if (tab.id === undefined || tab.id === TAB_ID_NONE) return;
+  const answer = await askResults(api, { type: FIND_RESULTS, tabId: tab.id });
+  if (answer?.tabId === tab.id && Number.isInteger(answer.resultsTabId) && answer.resultsTabId >= 0 && typeof answer.running === "boolean") {
+    try {
+      const shown = await api.tabs.update(answer.resultsTabId, { active: true });
+      if (shown?.windowId !== undefined) await api.windows.update(shown.windowId, { focused: true });
+      if (answer.running) return;
+      const reused = await api.runtime.sendMessage({ type: REUSE_RESULTS, tabId: tab.id, resultsTabId: answer.resultsTabId }) as ResultsAnswer | undefined;
+      if (reused?.tabId === tab.id && reused.resultsTabId === answer.resultsTabId) return;
+    } catch { /* The answering page closed before it could be brought forward. */ }
+  }
   await api.tabs.create({ url: `${api.runtime.getURL(RESULTS_PAGE)}?${TAB_PARAM}=${tab.id}&${OPENED_PARAM}=${Date.now()}`, index: tab.index + 1, openerTabId: tab.id,
     ...(tab.windowId === undefined ? {} : { windowId: tab.windowId }) });
+}
+
+/** No receiver, a closed page or a suspended page must not hold up a toolbar click. */
+async function askResults(api: ClickApi, message: unknown): Promise<ResultsAnswer | undefined> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      api.runtime.sendMessage(message).then(answer => answer as ResultsAnswer | undefined, () => undefined),
+      new Promise<undefined>(resolve => { timer = setTimeout(() => resolve(undefined), 300); }),
+    ]);
+  } finally { clearTimeout(timer); }
 }
 
 /** Gives the toolbar icon the version Chrome holds Cardigan at, from the manifest, Cardigan's one record of it: as its

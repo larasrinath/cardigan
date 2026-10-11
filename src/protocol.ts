@@ -1,11 +1,12 @@
 import type { AnalysisResult, Cell } from "./result-types.js";
 
 /** How the results page (an extension page in its own tab) and the content script in the Anaplan tab talk.
- * - The toolbar icon's click opens the results page next to the Anaplan tab, with that tab's ID in the address.
+ * - The toolbar icon reuses an answering results page for this Anaplan tab (FIND_RESULTS, REUSE_RESULTS), or opens one
+ *   next to it with that tab's ID in the address. A running page only comes forward.
  * - The page opens one long-lived port to that tab's content script: chrome.tabs.connect(tabId, { name: PORT_NAME }).
  * - The content script answers only its own extension (port.sender.id === chrome.runtime.id) and only this port name.
  * - Nothing is read from Anaplan until the page sends "run".
- * - The page sends "run" by itself only when the icon has just opened it (OPENED_PARAM, FRESH_MS). A results page that is
+ * - The page sends "run" when the icon has just opened it (OPENED_PARAM, FRESH_MS), reused it, or the user chose Run again. A results page that is
  *   reloaded, restored from history or reopened later asks nothing until the user clicks Run again: by then its tab ID
  *   may belong to another tab.
  * - A tab whose content script does not answer may have been open since before the extension was installed, updated or
@@ -16,6 +17,11 @@ import type { AnalysisResult, Cell } from "./result-types.js";
  * Every message is plain JSON. */
 
 export const PORT_NAME = "cardigan-results";
+/** Worker to results pages over runtime messaging. Only a page bound to `tabId` answers the probe. The second message
+ * names the answering results tab, so duplicate pages do not all run. A probe itself never starts a run. */
+export const FIND_RESULTS = "cardigan-find-results";
+export const REUSE_RESULTS = "cardigan-reuse-results";
+export interface ResultsAnswer { tabId: number; resultsTabId: number; running: boolean }
 /** The results page: chrome.runtime.getURL(RESULTS_PAGE) + "?" + TAB_PARAM + "=" + the Anaplan tab's ID. */
 export const RESULTS_PAGE = "results.html";
 /** The About page, which the toolbar icon's menu opens (background.ts). */
@@ -35,7 +41,7 @@ export const FRESH_MS = 60_000;
 
 /** What the Anaplan tab shows: an app, a model, or neither. For a model in Model Building, also the tab's site
  * (`origin`) and the customer its address names (`customer`): what the results page opens its modules and lists with. */
-export type Subject = { kind: "app" | "model"; id: string; origin?: string; customer?: string } | { kind: "none" };
+export type Subject = { kind: "app" | "model"; id: string; origin?: string; customer?: string } | { kind: "none"; maintenance?: boolean };
 
 /** Page to tab. */
 export type PageMessage =
@@ -67,7 +73,7 @@ export type TabMessage =
    * `OLD_READER`): `renewable` then says whether that frame is on the page's own origin, where the results page may put
    * this build's reader itself (results/connection.ts `renewReader`). An "error" can also arrive after "result" and "rows",
    * in place of "done", when a piece of the result could not be sent: the result is then incomplete and must not be shown. */
-  | { type: "error"; message: string; code?: "SIGNED_OUT" | "OLD_READER" | "NO_READER" | "MODEL_OPENING" | "NOT_MODEL_PAGE"; renewable?: boolean }
+  | { type: "error"; message: string; code?: "SIGNED_OUT" | "OLD_READER" | "NO_READER" | "MODEL_OPENING" | "NOT_MODEL_PAGE" | "MAINTENANCE"; renewable?: boolean }
   /** The answer to an "open": whether the page took the module or the list, and in a few words how, or why not, for the
    * log. It belongs to no run. `oldReader`: it did not, because the model's frame holds a reader of another build; the
    * results page may put this build's there and ask again. */

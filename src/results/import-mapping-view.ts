@@ -46,9 +46,6 @@ export interface MappingView {
 export const HEADER_ROW_MATCHED = "Header row: each column whose header is a line item's name or code";
 /** The same where headers are mapped by hand: each is a row of its own, above this one. */
 export const HEADER_ROW_BY_HAND = "Header row: each line item from the header mapped to it";
-/** What the page says of the header row where nothing is mapped by hand: what the import matches when it runs is stored
- * nowhere. */
-export const HEADER_ROW_UNSTORED = "Headers that match a line item's name or code are matched when the import runs; Anaplan stores no such match, so those columns are not listed.";
 /** How many names a line under a source shows before it says how many more there are. */
 const FIRST_NAMES = 5;
 
@@ -207,15 +204,10 @@ function sourceRows(targets: readonly MappedTarget[], headers: readonly ImportHe
 }
 
 /** The lines under a mapping on what it does not store: that the items of the dimensions nothing is mapped for by hand
- * are matched on their names or codes when the import runs; and of the header row, that a header matched so is stored
- * nowhere, or that the definition keeps only the headers mapped by hand. */
-function matchingLines(targets: readonly MappedTarget[], headers: readonly ImportHeader[]): string[] {
+ * are matched on their names or codes when the import runs; the general explanation of saved headers is in How to read. */
+function matchingLines(targets: readonly MappedTarget[]): string[] {
   const matched = targets.filter(target => target.source === "column" && target.items && !target.items.byHand && !target.items.ignored).map(target => target.target);
   const lines = matched.length ? [`Items of ${listWords(matched)} are matched on their names or codes when the import runs.`] : [];
-  if (targets.some(target => target.source === "headerRow")) {
-    lines.push(headers.length ? "Anaplan stores the headers mapped by hand; any other header of the header row is not known."
-      : HEADER_ROW_UNSTORED);
-  }
   return lines;
 }
 
@@ -230,7 +222,7 @@ export function unfedLine(targets: readonly MappedTarget[]): string | undefined 
 }
 
 /** What the mapping says of the columns it does not use: those before the last column it maps that no target takes, and
- * that what lies after that column is not known. A target that gives no place for its column could take any column, so
+ * that a column without a number may use one of those places. A target that gives no place for its column could take any column, so
  * where there is one the columns no number takes may be used after all; and where none gives a place, nothing can be said
  * of the columns. */
 export function columnLines(targets: readonly MappedTarget[]): string[] {
@@ -256,7 +248,6 @@ export function columnLines(targets: readonly MappedTarget[]): string[] {
       ? `${one ? "1 target names its column" : `${loose.length} targets name their columns`} by heading alone, and may use ${them}.`
       : `${one ? "1 target gives no place for its column" : `${loose.length} targets give no place for their columns`}, and may use ${them}.`);
   }
-  lines.push(`Whether there are columns after column ${last} is not known: Anaplan keeps the import's mapping, not the header row it was made from.`);
   return lines;
 }
 
@@ -275,7 +266,7 @@ export function mappingView(mapping: ImportMapping | undefined, lineItems?: read
   const unfed = unfedLine(mapping.targets);
   const headers = mapping.headers ?? [];
   return { ...match, rows: sourceRows(mapping.targets, headers, lineItems),
-    lines: [...(unfed === undefined ? [] : [unfed]), ...matchingLines(mapping.targets, headers), ...columnLines(mapping.targets)] };
+    lines: [...(unfed === undefined ? [] : [unfed]), ...matchingLines(mapping.targets), ...columnLines(mapping.targets)] };
 }
 
 /** The line items of the module an import loads into that a header of its header row can match, by the import's Target

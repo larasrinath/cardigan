@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ABOUT_PAGE, FRESH_MS, OPENED_PARAM, RESULTS_PAGE, TAB_PARAM } from "./protocol.js";
+import { ABOUT_PAGE, FIND_RESULTS, FRESH_MS, OPENED_PARAM, RESULTS_PAGE, REUSE_RESULTS, TAB_PARAM } from "./protocol.js";
 
 const EXTENSION = "chrome-extension://abcdefghijklmnopabcdefghijklmnop";
 /** When the icon is clicked, as Date.now() gives it. */
@@ -15,6 +15,11 @@ type MenuItem = { id: string; title: string; contexts: "action"[]; enabled?: boo
 /** Just enough of `chrome` for the worker: it keeps the listeners registered with it, the tabs it is asked for, the icon's
  * title and the items of the icon's menu, in the order Chrome is asked for them. */
 class FakeChrome {
+  readonly messages: unknown[] = [];
+  readonly activated: unknown[] = [];
+  readonly focused: unknown[] = [];
+  answer: (message: unknown) => Promise<unknown> = async () => undefined;
+  readonly windows = { update: async (id: number, info: unknown) => { this.focused.push([id, info]); } };
   readonly listeners: ((tab: chrome.tabs.Tab) => void)[] = [];
   readonly installed: (() => void)[] = [];
   readonly started: (() => void)[] = [];
@@ -48,6 +53,7 @@ class FakeChrome {
     onClicked: { addListener: (listener: (info: chrome.contextMenus.OnClickData) => void) => { this.chosen.push(listener); } },
   };
   readonly runtime = {
+    sendMessage: (message: unknown) => { this.messages.push(message); return this.answer(message); },
     getURL: (path: string) => `${this.origin}/${path}`,
     getManifest: () => ({ name: "Cardigan", version: manifest.version }),
     lastError: undefined as { message?: string } | undefined,
@@ -56,7 +62,7 @@ class FakeChrome {
   };
   /** Why Chrome opens no tab, when it does not: the clicked tab's window has just closed, say. */
   refusal: Error | undefined;
-  readonly tabs = { create: async (properties: unknown): Promise<chrome.tabs.Tab> => {
+  readonly tabs = { update: async (id: number, info: unknown) => { this.activated.push([id, info]); return { id, index: 0, windowId: 81 }; }, create: async (properties: unknown): Promise<chrome.tabs.Tab> => {
     if (this.refusal) throw this.refusal;
     this.created.push(properties);
     return { id: 99, index: 0 };
@@ -119,6 +125,46 @@ describe("Toolbar icon's service worker", () => {
     expect(browser.created).toEqual([]);
   });
 
+  it.each([false, true])("brings the answering results tab and its window forward; running=%s", async running => {
+    const { openResults } = await import("./background.js");
+    browser.answer = async () => ({ tabId: 7, resultsTabId: 90, running });
+    await openResults(browser, { id: 7, index: 1, windowId: 2 });
+    expect(browser.messages).toEqual([{ type: FIND_RESULTS, tabId: 7 }, ...(running ? [] : [{ type: REUSE_RESULTS, tabId: 7, resultsTabId: 90 }])]);
+    expect(browser.activated).toEqual([[90, { active: true }]]);
+    expect(browser.focused).toEqual([[81, { focused: true }]]);
+    expect(browser.created).toEqual([]);
+  });
+
+  it("opens a new page after 300 ms and a late probe answer cannot start a run", async () => {
+    vi.useFakeTimers();
+    const { openResults } = await import("./background.js");
+    let answer!: (value: unknown) => void;
+    browser.answer = () => new Promise(resolve => { answer = resolve; });
+    const clicked = openResults(browser, { id: 7, index: 1 });
+    await vi.advanceTimersByTimeAsync(299);
+    expect(browser.created).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1);
+    await clicked;
+    expect(browser.created).toHaveLength(1);
+    answer({ tabId: 7, resultsTabId: 90, running: false });
+    await Promise.resolve();
+    expect(browser.messages).toEqual([{ type: FIND_RESULTS, tabId: 7 }]);
+    expect(browser.activated).toEqual([]);
+  });
+
+  it("rejects an answer for another Anaplan tab and handles a missing or closed receiver", async () => {
+    const { openResults } = await import("./background.js");
+    browser.answer = async () => ({ tabId: 8, resultsTabId: 90, running: false });
+    await openResults(browser, { id: 7, index: 1 });
+    browser.answer = async () => { throw new Error("No receiver"); };
+    await openResults(browser, { id: 7, index: 1 });
+    browser.answer = async () => ({ tabId: 7, resultsTabId: 90, running: false });
+    browser.tabs.update = async () => { throw new Error("Tab closed"); };
+    await openResults(browser, { id: 7, index: 1 });
+    expect(browser.created).toHaveLength(3);
+    expect(browser.activated).toEqual([]);
+  });
+
   it("listens for the icon's click as it starts, and opens the page for every click", async () => {
     await import("./background.js");
     expect(browser.listeners).toHaveLength(1);
@@ -126,6 +172,7 @@ describe("Toolbar icon's service worker", () => {
     click({ id: 7, index: 0, windowId: 2 });
     click({ index: 1, windowId: 2 });
     click({ id: 9, index: 5, windowId: 3 });
+    await new Promise(resolve => setTimeout(resolve, 0));
     expect(browser.created).toEqual([
       { url: `${EXTENSION}/results.html?tab=7&opened=${CLICKED}`, index: 1, openerTabId: 7, windowId: 2 },
       { url: `${EXTENSION}/results.html?tab=9&opened=${CLICKED}`, index: 6, openerTabId: 9, windowId: 3 },
@@ -150,6 +197,7 @@ describe("Toolbar icon's service worker", () => {
     // The next click is served as any other.
     browser.refusal = undefined;
     browser.listeners[0]({ id: 7, index: 0, windowId: 2 });
+    await new Promise(resolve => setTimeout(resolve, 0));
     expect(browser.created).toHaveLength(1);
   });
 

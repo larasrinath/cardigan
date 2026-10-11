@@ -1,9 +1,10 @@
 import { ANAPLAN_HOST } from "./util.js";
+import { maintenanceHtml } from "./maintenance.js";
 
 /** GET-only JSON reads on the page's own origin, sent the way the Anaplan web client sends them (same headers and
  * XSRF cookie echo). Only the services and platform detail routes the analyser reads are allowed. */
 
-export type RestErrorCode = "INVALID_PATH" | "SIGNED_OUT" | "HTTP_ERROR" | "TIMEOUT" | "NETWORK_ERROR" | "INVALID_RESPONSE" | "TOO_LARGE";
+export type RestErrorCode = "INVALID_PATH" | "SIGNED_OUT" | "HTTP_ERROR" | "TIMEOUT" | "NETWORK_ERROR" | "INVALID_RESPONSE" | "TOO_LARGE" | "MAINTENANCE";
 
 export class RestError extends Error {
   constructor(readonly code: RestErrorCode, readonly status?: number) {
@@ -42,9 +43,11 @@ export async function getJson(path: string, options: { apiVersion?: "1" | "2"; t
       method: "GET", headers, credentials: "include", mode: host ? "cors" : "same-origin", redirect: "error", cache: "no-store", signal: controller.signal,
     });
     if (response.status === 401 || response.status === 498) throw new RestError("SIGNED_OUT", response.status);
-    if (!response.ok) throw new RestError("HTTP_ERROR", response.status);
+    if (response.status === 503) throw new RestError("MAINTENANCE", response.status);
     const body = await response.text();
     if (body.length > (options.maxBytes ?? 25_000_000)) throw new RestError("TOO_LARGE");
+    if (maintenanceHtml(body)) throw new RestError("MAINTENANCE", response.status);
+    if (!response.ok) throw new RestError("HTTP_ERROR", response.status);
     try {
       return JSON.parse(body);
     } catch {

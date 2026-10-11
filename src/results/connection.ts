@@ -62,7 +62,7 @@ export type RunState =
    * the page around it, where Chrome lets the page put nothing; otherwise the page tried, and no reader of this build
    * answered. */
   | { phase: "old-reader" | "missing-reader"; otherHost: boolean }
-  | { phase: "model-opening" }
+  | { phase: "model-opening" | "maintenance" }
   /** The port closed during a run: the tab was closed or went to another page. */
   | { phase: "interrupted" }
   /** `received` is when the result was complete: the time the page says a result was analysed at, once a refresh has
@@ -476,6 +476,10 @@ export class ResultsClient {
         if (!this.run()) this.closed(undefined);
       } else {
         this.subject = { kind: "none" };
+        if (subject?.kind === "none" && subject.maintenance === true) {
+          this.append(stampLine("case=MAINTENANCE; Anaplan's page announces maintenance"));
+          return this.set({ phase: "maintenance" });
+        }
         this.append(stampLine("case=NOT_MODEL_PAGE; the tab shows neither an app nor a model"));
         this.set({ phase: "no-subject" });
       }
@@ -511,6 +515,10 @@ export class ResultsClient {
       // Also in place of "done", when a piece of the result could not be sent: what has arrived of it is not shown.
       case "error": {
         this.pending = undefined;
+        if (message.code === "MAINTENANCE") {
+          this.append(stampLine("case=MAINTENANCE; Anaplan is down for maintenance"));
+          return this.set({ phase: "maintenance" });
+        }
         if (message.code === "OLD_READER") return void this.oldReader(message.renewable === true);
         if (message.code === "NO_READER") return void this.oldReader(true, true);
         if (message.code === "MODEL_OPENING") return this.renewed ? void this.oldReader(true, true) : this.set({ phase: "model-opening" });
@@ -629,11 +637,13 @@ export function describeState(state: RunState, asked: boolean): StateText {
       return { title: "No model open", message: "This tab isn't showing a model. Open one in Model Building, then choose Run again.", hint: "" };
     case "model-opening":
       return { title: "Model still opening", message: "The model is still opening; wait until it shows in Anaplan, then choose Run again.", hint: "" };
+    case "maintenance":
+      return { title: "Anaplan is down for maintenance", message: "Try again when it's back. Nothing was read.", hint: "" };
     case "missing-reader":
       return { title: "Refresh the Anaplan tab", message: "Refresh the tab to load Cardigan's model reader; this closes the modules and lists you have open.", hint: "" };
     case "ready":
       return { title: "Ready to analyse", message: `That Anaplan tab shows ${state.kind === "app" ? "an app" : "a model"}.`,
-        hint: `Choose ${run} to analyse it. This page starts by itself only when the Cardigan icon has just opened it.` };
+        hint: `Choose ${run} to analyse it, or click the Cardigan icon on the Anaplan tab.` };
     case "running":
       return { title: "Analysing", message: state.status, hint: "Keep the Anaplan tab open until this finishes." };
     // The message is a whole sentence that says what to do next, so the page adds no advice of its own under it.

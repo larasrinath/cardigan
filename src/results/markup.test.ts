@@ -301,8 +301,8 @@ describe("The results page's escaping", () => {
     const full = (text: Texts): Overview => ({
       tiles: [{ label: text(0), count: 3 }], notes: [text(5), text(6)], about: [[text(0), text(1)], [text(2), text(3)]], files: [[text(4), text(5)]], howToRead: [[text(6), text(0)]], log: [text(1), text(2)],
     });
-    const words: Record<KeptCopy, string[]> = { none: [], keeping: ["A copy of this result is kept for a refresh of this page.", "Forget this result"],
-      kept: ["A copy of this result is kept for a refresh of this page.", "Forget this result"], "not-removed": [NOT_REMOVED_LINE, "Forget this result"], forgotten: [FORGOTTEN_LINE] };
+    const words: Record<KeptCopy, string[]> = { none: [], keeping: ["Forget this result"],
+      kept: ["Forget this result"], "not-removed": [NOT_REMOVED_LINE, "Forget this result"], forgotten: [FORGOTTEN_LINE] };
     for (const copy of ["none", "keeping", "kept", "not-removed", "forgotten"] as const) {
       // What stands in the place is made of the state alone, so no result can have a say in it: the same markup, to the
       // character, under an overview whose every text is hostile and under one that holds nothing but harmless words.
@@ -311,8 +311,8 @@ describe("The results page's escaping", () => {
       // Its texts are the page's sentences and the button's words, shown as they are; what its attributes hold is fixed as well.
       expect(readMarkup(keptCopyHtml(copy)).texts.map(decode), copy).toEqual(words[copy]);
       expect(readMarkup(keptCopyHtml(copy)).tags.flatMap(tag => [...tag.attributes].map(([name, value]) => `${name}=${value}`)), copy).toEqual({ none: [],
-        keeping: ["class=to-come", "aria-hidden=true", "class=btn sm to-come", "aria-hidden=true"],
-        kept: ["id=keptLine", "type=button", "class=btn sm", "data-act=forget", "aria-describedby=keptLine"],
+        keeping: ["class=btn sm to-come", "aria-hidden=true"],
+        kept: ["id=keptLine", "type=button", "class=btn sm", "data-act=forget"],
         "not-removed": ["id=keptLine", "type=button", "class=btn sm", "data-act=forget"], forgotten: ["id=keptLine", "tabindex=-1"] }[copy]);
       // The overview around it is as inert as it is without it.
       expectInert(text => overviewHtml(full(text), copy), 7);

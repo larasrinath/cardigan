@@ -281,6 +281,7 @@ export async function addModelPages(given: AnalysisResult, customerId: string | 
   try {
     return addLog(await withModelPages(copied(given), customerId, step, signal, reads, lineItemIds), logged);
   } catch (error) {
+    if (error instanceof RestError && error.code === "MAINTENANCE") throw error;
     if (signal?.aborted) throw signal.reason;
     step.log(`pages built on the model: ${message(error)}`);
     // From the export as it was handed over: the failed work may have added to its copy already.
@@ -322,12 +323,17 @@ export async function readPolarisModel(ids: EngineScope, engine: EngineDetails, 
   } };
   const time = stepTimes();
   const pagesWork = ids.customerId ? readPagesOf(ids.customerId, ids.modelId, step, signal, reads, time)
-    .catch(error => { if (signal?.aborted) throw signal.reason; return { left: unreadWhy(error) }; }) : Promise.resolve({ left: NO_CUSTOMER });
+    .catch(error => {
+      if (error instanceof RestError && error.code === "MAINTENANCE") throw error;
+      if (signal?.aborted) throw signal.reason;
+      return { left: unreadWhy(error) };
+    }) : Promise.resolve({ left: NO_CUSTOMER });
   const scope: ModelScope = { customerId: ids.customerId ?? "", workspaceId: ids.workspaceId ?? "", modelId: ids.modelId, modelName: engine.modelName ?? "this Polaris model" };
   const inputs = pagesWork.then(read => ({ pages: "left" in read ? [] : read.pages.map(page => page.details), pageNames: "left" in read ? new Map<string, string>() : pageNamesOf(read) }));
   const loadWhen: typeof loadCatalogWhen = reads.loadCatalogWhen
     ?? ((on, given, progressOf, signalOf, options) => given.then(({ pages, pageNames }) => reads.loadCatalog(on, pages, pageNames, progressOf, signalOf, undefined, options)));
   const namesWork = loadWhen(scope, inputs, step, signal, MODEL_NAMES).catch(error => {
+    if (error instanceof RestError && error.code === "MAINTENANCE") throw error;
     if (signal?.aborted) throw signal.reason;
     const note = `Model names could not be read (${message(error)}); IDs are shown where no name was available.`;
     step.log(note);
@@ -435,6 +441,7 @@ export function startModelPages(ids: ModelPagesIds, progress: Progress, signal?:
         step.log(`Run: export ${seconds(exportMs)}, pages ${seconds(pagesMs)}, names ${seconds(namesMs)}, overlapped; in all ${seconds(Date.now() - began)}`);
         return addLog(built, logged);
       } catch (error) {
+        if (error instanceof RestError && error.code === "MAINTENANCE") throw error;
         if (signal?.aborted) throw signal.reason;
         step.log(`pages built on the model: ${message(error)}`);
         // From the export as it was handed over: the failed work may have added to its copy already.
@@ -536,6 +543,7 @@ async function readPagesOf(customerId: string, modelId: string, progress: Progre
       if (name) appNames.set(guid, name);
       else appsUnread++;
     } catch (error) {
+      if (error instanceof RestError && error.code === "MAINTENANCE") throw error;
       if (error instanceof RestError && error.code === "SIGNED_OUT") throw error;
       appsUnread++;
       progress.log(`app ${guid}: ${message(error)}`);

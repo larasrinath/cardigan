@@ -32,9 +32,9 @@ function withoutPages(why: string, logged: string[] = []): AnalysisResult {
 
 type Listener = (event: { data: unknown; origin: string; source: unknown }) => void;
 
-/** A page whose DOM must not be touched: reading anything of the document but its cookies fails the test. */
+/** A page whose document allows only cookies and maintenance title/heading checks; every write fails the test. */
 const untouchable = () => new Proxy({}, {
-  get: (_target, key) => { if (key === "cookie") return "other=1"; throw new Error(`the page's document was used: ${String(key)}`); },
+  get: (_target, key) => { if (key === "cookie") return "other=1"; if (key === "title") return "Anaplan"; if (key === "querySelectorAll") return () => []; throw new Error(`the page's document was used: ${String(key)}`); },
   set: (_target, key) => { throw new Error(`the page's document was changed: ${String(key)}`); },
 });
 
@@ -80,6 +80,29 @@ describe("The content scripts on an Anaplan page", () => {
   };
   const open = () => { const port = new FakePort(); connect!(port as unknown as chrome.runtime.Port); return port; };
   const hear = (data: unknown, origin: string, source: unknown) => { for (const listener of [...listeners]) listener({ data, origin, source }); };
+
+  it.each(["title", "heading"])("recognises the maintenance page by its %s before looking for a model", async where => {
+    at("/maintenance");
+    vi.stubGlobal("document", { title: where === "title" ? "Anaplan Maintenance" : "Anaplan", querySelectorAll: () => where === "heading" ? [{ textContent: "Down for maintenance" }] : [] });
+    await import("./content.js");
+    const port = open();
+    expect(port.received[0]).toEqual({ type: "subject", subject: { kind: "none", maintenance: true } });
+    port.say({ type: "run" });
+    expect(port.received.at(-1)).toMatchObject({ type: "error", code: "MAINTENANCE", message: "Try again when it's back. Nothing was read." });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it.each(["app", "model"])("passes an Anaplan HTTP 503 through the %s reader as maintenance", async kind => {
+    at(kind === "app" ? `/a/apps/app/${APP}` : `/a/modeling/customers/${WS}/workspaces/${WS}/models/${MODEL}`);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("unavailable", { status: 503 })));
+    await import("./content.js");
+    const port = open();
+    port.say({ type: "run" });
+    await vi.advanceTimersByTimeAsync(50);
+    expect(port.received.at(-1)).toMatchObject({ type: "error", code: "MAINTENANCE" });
+    expect(port.received.some(message => message.type === "log" && message.text.includes("case=MAINTENANCE"))).toBe(true);
+    expect(posted).toEqual([]);
+  });
 
   it("detects Polaris first and delivers a socket inventory without asking or waiting for a Classic frame", async () => {
     at(`/a/modeling/customers/${WS}/workspaces/${WS}/models/${MODEL}`);
