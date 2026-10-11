@@ -1806,11 +1806,22 @@ describe("What a click, a key and typing do on the results page", () => {
     const file = WITH_ACCESS.tables[2];
     // The navigation has it after Line Items, where Anaplan's own order has no such entry, and the overview has its tile
     // there too, which counts the file's rows: the table lists every one.
-    expect(page.all("#navList .nav-item").map(entryLabel)).toEqual(["Overview", "Modules", "Line Items", "Dynamic Cell Access", "Model map"]);
-    expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Modules", "3", "rows"], ["Line Items", "8", "rows"], ["Dynamic Cell Access", "5", "rows"]]);
+    // The page calls the table DCA, and says in full what that stands for, as the entry's and the tile's title and to a
+    // screen reader. The file keeps its name, by which the page knows it.
+    expect(page.all("#navList .nav-item").map(entryLabel)).toEqual(["Overview", "Modules", "Line Items", "DCA", "Model map"]);
+    const entry = page.find('#navList [data-nav="2"]');
+    expect([entry.getAttribute("title"), entry.getAttribute("aria-label"), file.file]).toEqual(["Dynamic Cell Access (DCA)", "Dynamic Cell Access (DCA)", "Dynamic Cell Access.csv"]);
+    const tiles = page.all("#view .stat");
+    expect(tiles.slice(0, 2).map(tile => tile.children.map(child => child.textContent))).toEqual([["Modules", "3", "rows"], ["Line Items", "8", "rows"]]);
+    const label = tiles[2].querySelector(".s-lab");
+    expect([label?.getAttribute("title"), label?.querySelector(".sr-only")?.textContent, label?.textContent.replace(label.querySelector(".sr-only")?.textContent ?? "", ""),
+      tiles[2].querySelector(".s-num")?.textContent]).toEqual(["Dynamic Cell Access (DCA)", "Dynamic Cell Access (DCA)", "DCA", "5"]);
 
     goTo(2);
-    expect(shows()).toEqual(["Dynamic Cell Access", "Dynamic Cell Access"]);
+    expect(shows()).toEqual(["DCA", "DCA"]);
+    // The group's button, which names the table shown, says it in full too.
+    const group = page.find('#navList [aria-controls="navGroupModules"]');
+    expect([group.getAttribute("title"), group.getAttribute("aria-label")]).toEqual(["Dynamic Cell Access (DCA)", "Dynamic Cell Access (DCA)"]);
     // The file's own columns, under their own names, and its rows in its own order: the driver first, the one that could
     // not be matched last.
     expect(headings()).toEqual(["Driver Module", "Driver Line Item", "Access", "Controlled Module", "Controlled Line Item"]);
@@ -1820,7 +1831,7 @@ describe("What a click, a key and typing do on the results page", () => {
     expect([page.texts("#view .view-note"), page.id("rowCount").textContent, page.id("live").textContent]).toEqual([
       ["The Read Access Driver and Write Access Driver columns of Line Items, listed from the driver's side. One row for each use of a driver: the driver, Read or Write, and the line item it controls. "
         + "1 row has a driver that could not be matched to a line item: it comes last, with the driver as Line Items has it and no Driver Module."],
-      "1–5 of 5 rows", "Dynamic Cell Access: 5 rows"]);
+      "1–5 of 5 rows", "Dynamic Cell Access (DCA): 5 rows"]);
     // A row opens from its driver's name, the second cell, in every row. The first cell, the driver's module, is the same
     // name down the rows, and is plain text: as the row's button it would read as a way to that module.
     const opens = () => page.all("#tableWrap tbody tr").map(row => row.children.map(cell => cell.querySelector('[data-act="row"]')?.textContent.trim()));
@@ -1849,12 +1860,12 @@ describe("What a click, a key and typing do on the results page", () => {
     // as it is written. The focus goes back to the button it was opened from.
     const rowButtons = () => page.all('#tableWrap tbody [data-act="row"]');
     rowButtons()[0].press();
-    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent, page.texts("#drawerBody dd")]).toEqual(["Can read", "Row 1 of Dynamic Cell Access", ["ACC01 Access", "Can read", "Read", "REV01 Revenue", "Units"]]);
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent, page.texts("#drawerBody dd")]).toEqual(["Can read", "Row 1 of DCA", ["ACC01 Access", "Can read", "Read", "REV01 Revenue", "Units"]]);
     page.key("Escape");
     expect(page.document.activeElement).toBe(rowButtons()[0]);
     rowButtons()[4].press();
     expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent, page.texts("#drawerBody dt"), page.texts("#drawerBody dd").slice(1)])
-      .toEqual(["'Old access'.Flag", "Row 5 of Dynamic Cell Access", ["Driver Module", "Driver Line Item", "Access", "Controlled Module", "Controlled Line Item"], ["'Old access'.Flag", "Write", "COST01 Costs", "Cost"]]);
+      .toEqual(["'Old access'.Flag", "Row 5 of DCA", ["Driver Module", "Driver Line Item", "Access", "Controlled Module", "Controlled Line Item"], ["'Old access'.Flag", "Write", "COST01 Costs", "Cost"]]);
     page.key("Escape");
     // With the driver's name hidden, the first column shown opens the row, as in any table: the module, and for the row
     // that has none, a button of its own before the empty cell. The row is still called by its driver.
@@ -1887,7 +1898,7 @@ describe("What a click, a key and typing do on the results page", () => {
     goTo(2);
     expect([page.texts("#view .view-note"), page.texts("#tableWrap .e-title"), page.texts("#tableWrap .e-sub"), page.id("rowCount").textContent]).toEqual([
       ["The Read Access Driver and Write Access Driver columns of Line Items, listed from the driver's side. One row for each use of a driver: the driver, Read or Write, and the line item it controls."],
-      ["Dynamic Cell Access has no rows"], ["No line item in this model has a read or write access driver."], "No rows"]);
+      ["DCA has no rows"], ["No line item in this model has a read or write access driver."], "No rows"]);
     // Any other table without rows says what it said: that nothing was found for it.
     page.id("runAgain").press();
     sendResult(ports[0], { ...WITH_ACCESS, tables: WITH_ACCESS.tables.map(table => (table.file === "Modules.csv" ? { ...table, rows: [] } : table)) });
@@ -2071,7 +2082,7 @@ describe("What a click, a key and typing do on the results page", () => {
       ({ file: `${file}.csv`, label: file, headers: ["", "Value"], rows: Array.from({ length: index + 1 }, (_, row): Cell[] => [`${file} ${row + 1}`, "x"]), guard: false }))] });
     /** The navigation's entries, by their words, and the overview's tiles. */
     const entries = () => page.all("#navList .nav-item").map(entryLabel);
-    const tiles = () => page.texts("#view .s-lab");
+    const tiles = () => page.all("#view .s-lab").map(label => label.textContent.replace(label.querySelector(".sr-only")?.textContent ?? "", "").trim());
     /** The icons of files by their names (markup.ts `FILE_ICONS`), as the page draws them. */
     const iconsOf = (...names: string[]) => drawnIcons(...names.map(name => FILE_ICONS.get(`${name}.csv`)));
     // The order the export writes its files in (model/export.ts), and the order the page lists them in. Dynamic Cell
@@ -2080,8 +2091,10 @@ describe("What a click, a key and typing do on the results page", () => {
       "Model Calendar"];
     const ordered = ["Model Calendar", "Time Ranges", "Versions", "General Lists", "Modules", "Line Items", "Dynamic Cell Access", "Processes", "Imports", "Import Data Sources", "Exports", "Other Actions",
       "Source Models"];
+    // Two of them by the page's own names: Data Sources and DCA.
+    const named = ordered.map(name => ({ "Import Data Sources": "Data Sources", "Dynamic Cell Access": "DCA" } as Record<string, string>)[name] ?? name);
     await openWith(model(...written));
-    expect([entries(), tiles()]).toEqual([["Overview", ...ordered, "Model map"], ordered]);
+    expect([entries(), tiles()]).toEqual([["Overview", ...named, "Model map"], named]);
     // Each entry has its own file's icon, wherever the file stands in the result, and the overview and the map theirs.
     expect(entryIcons()).toEqual([...drawnIcons(NAV_ICONS.overview), ...iconsOf(...ordered), ...drawnIcons(NAV_ICONS.map)]);
     // Each entry still opens its own file: its name in the navigation is the file's place in the result, which here is
@@ -3966,8 +3979,8 @@ describe("The navigation bar of the results page", () => {
   it("gathers a model's tables in groups on one line, in the order of Model settings, each group with the tables the result has; a group of one table, and a file no group names, stand on their own", async () => {
     await openWith(withFiles(...EXPORTED));
     // Every file the export writes: Time, Versions, the one list file, Modules, Actions, Source Models, and the map.
-    expect(line()).toEqual(["Overview (shown)", "Time: Model Calendar, Time Ranges", "Versions", "General Lists", "Modules: Modules, Line Items, Dynamic Cell Access",
-      "Actions: Processes, Imports, Import Data Sources, Exports, Other Actions", "Source Models", "Model map"]);
+    expect(line()).toEqual(["Overview (shown)", "Time: Model Calendar, Time Ranges", "Versions", "General Lists", "Modules: Modules, Line Items, DCA",
+      "Actions: Processes, Imports, Data Sources, Exports, Other Actions", "Source Models", "Model map"]);
     // Each group's button has the group's own icon, its name and a chevron, and holds no view's name of its own.
     const buttons = page.all("#navList .nav-group-btn");
     expect(buttons.map(button => [button.querySelector("svg")?.outerHTML, button.querySelectorAll(".nav-chevron").length, button.hasAttribute("data-nav")]))
@@ -4046,10 +4059,10 @@ describe("The navigation bar of the results page", () => {
       ? `${item.getAttribute("aria-label")}: ${item.querySelectorAll(".nav-item").map(mark).join(", ")}` : mark(item)));
     // The button names the view shown, with the menu's icon, and opens the menu, which is closed at first.
     expect([button().textContent.trim(), button().querySelector("svg")?.outerHTML, button().getAttribute("aria-expanded"), page.id("navMenu").hidden])
-      .toEqual(["Dynamic Cell Access", drawnIcons(NAV_ICONS.menu)[0], "false", true]);
+      .toEqual(["DCA", drawnIcons(NAV_ICONS.menu)[0], "false", true]);
     button().press();
-    expect([openMenus(), listed()]).toEqual([["navMenu"], ["Overview", "Time: Model Calendar, Time Ranges", "Versions", "General Lists", "Modules: Modules, Line Items, Dynamic Cell Access (shown)",
-      "Actions: Processes, Imports, Import Data Sources, Exports, Other Actions", "Source Models", "Model map"]]);
+    expect([openMenus(), listed()]).toEqual([["navMenu"], ["Overview", "Time: Model Calendar, Time Ranges", "Versions", "General Lists", "Modules: Modules, Line Items, DCA (shown)",
+      "Actions: Processes, Imports, Data Sources, Exports, Other Actions", "Source Models", "Model map"]]);
     // A group's name heads its entries, a heading that a screen reader is told as the name of the group.
     expect(page.all("#navMenu .nav-section").map(section => [section.getAttribute("role"), section.querySelector(".nav-heading")?.textContent, section.querySelector(".nav-heading")?.getAttribute("aria-hidden")]))
       .toEqual([["group", "Time", "true"], ["group", "Modules", "true"], ["group", "Actions", "true"]]);
@@ -5774,7 +5787,7 @@ describe("What a source model gives, in its row's details", () => {
     expect([page.texts("#drawerSourceImports th"), rows("drawerSourceImports")]).toEqual([["Import", "Reads"], [["IMP01 Products", "SYS02 Products"], ["IMP02 Demand", "DAT01 Demand"]]]);
     // An object opens its row of Import Data Sources; an import its row of Imports.
     page.all('#drawerSources [data-act="item"]')[1].press();
-    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual(["DAT01 Demand", "Row 2 of Import Data Sources"]);
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual(["DAT01 Demand", "Row 2 of Data Sources"]);
     page.key("Escape");
     openSource(DEMAND);
     page.all('#drawerSourceImports [data-act="item"]')[0].press();
@@ -5799,7 +5812,7 @@ describe("What a source model gives, in its row's details", () => {
     page.key("Escape");
     openSource(LOST);
     page.key("Escape");
-    expect(await lostLines()).toEqual([`Source model ${LOST}: no row of Import Data Sources or Imports names it, so its details list none of its sources.`]);
+    expect(await lostLines()).toEqual([`Source model ${LOST}: no row of Data Sources or Imports names it, so its details list none of its sources.`]);
   });
 });
 

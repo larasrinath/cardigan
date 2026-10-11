@@ -6,7 +6,8 @@ import type { AnalysisResult, Cell, ResultTable } from "../result-types.js";
 import { APP_FILES, cardsOf, columnsOf } from "./columns.js";
 import { lineItemsView } from "./line-items-view.js";
 import { ABOUT_MODEL, ACCESS_FILE, analysedOf, CALENDAR_GUIDANCE, CARD_PARTS, cardParts, cardSections, detailSections, detailsOf, detailValue, diagnosticLog, FILE_RULES, fileView, IMPORTS_FILE,
-  listedTables, matchedRemark, MODEL_CALENDAR_FILE, MODEL_FILE_ORDER, modelFacts, MODULES_FILE, overviewOf, resultNotes, SOURCE_MODELS_FILE, THIS_MODEL } from "./result-view.js";
+  listedTables, matchedRemark, MODEL_CALENDAR_FILE, MODEL_FILE_ORDER, modelFacts, MODULES_FILE, overviewOf, resultNotes, SOURCE_MODELS_FILE, tableFullLabel, tableLabel,
+  THIS_MODEL } from "./result-view.js";
 import { NONE } from "./table-engine.js";
 
 /** The app export's files, as the page names them, and the report table each holds. */
@@ -313,9 +314,12 @@ describe("What the results page reads out of a result", () => {
     // An app's files are listed as the result has them, even ones with a model's names.
     expect(listed("app", "Pages.csv", "Cards.csv", "Line Items.csv", "Model Calendar.csv", "Where Used.csv"))
       .toEqual(["1 Pages.csv", "2 Cards.csv", "3 Line Items.csv", "4 Model Calendar.csv", "5 Where Used.csv"]);
-    // The overview's tiles follow the same order.
-    expect(overviewOf(result("model", [modelDetails, ...written.map(file)])).tiles.map(tile => tile.label)).toEqual(["Model Calendar", "Time Ranges", "Versions", "General Lists", "Modules",
-      "Line Items", "Dynamic Cell Access", "Processes", "Imports", "Import Data Sources", "Exports", "Other Actions", "Source Models", "Module Usage", "Page Filters", "Page Actions"]);
+    // The overview's tiles follow the same order. Two of them have the page's own names for their tables, by their files:
+    // Data Sources for Import Data Sources, and DCA for Dynamic Cell Access, which says what it stands for in full.
+    const tiles = overviewOf(result("model", [modelDetails, ...written.map(file)])).tiles;
+    expect(tiles.map(tile => tile.label)).toEqual(["Model Calendar", "Time Ranges", "Versions", "General Lists", "Modules",
+      "Line Items", "DCA", "Processes", "Imports", "Data Sources", "Exports", "Other Actions", "Source Models", "Module Usage", "Page Filters", "Page Actions"]);
+    expect(tiles.filter(tile => tile.full !== undefined)).toEqual([{ label: "DCA", count: 0, full: "Dynamic Cell Access (DCA)" }]);
   });
 
   // A model's Model Calendar file as the export writes it: the assessment template's rows, the first five about the model.
@@ -481,7 +485,7 @@ describe("What the results page reads out of a result", () => {
     expect(fileView(model, empty)).toEqual({ table: empty, note: WHAT, empty: NO_DRIVERS, opensFrom: 1 });
     expect([shown.empty, fileView(model, modelDetails).empty, fileView(model, { ...file, file: "Versions.csv" }).empty]).toEqual([NO_DRIVERS, undefined, undefined]);
     // The tile and the navigation count every row of the file, the unmatched ones among them: the table leaves none out.
-    expect(overviewOf(result("model", [modelDetails, withTwo])).tiles).toEqual([{ label: "Dynamic Cell Access", count: 5 }]);
+    expect(overviewOf(result("model", [modelDetails, withTwo])).tiles).toEqual([{ label: "DCA", count: 5, full: "Dynamic Cell Access (DCA)" }]);
     // The rule is that file's alone, in a model's result. An app's file of that name, a file of another name, and a file
     // of the name without the column are shown as they stand, without a line: the very table. A file of the name that
     // has the driver's module and not its name has the line, and opens its rows as any table does.
@@ -1218,5 +1222,35 @@ describe("What the results page reads out of a result", () => {
     if (!found) throw new Error("The result has a Cards file.");
     expect(cardParts(app, found, cards.rows[1])).toEqual({ sections: [],
       note: '2 cards on pages named "Overview" have this ID. The tables have only the name of a card\'s page, so their grid sections cannot be told apart and are not listed here.' });
+  });
+});
+
+describe("The names the page gives two of a model's tables", () => {
+  const plain = (file: string, label: string, rows: Cell[][] = [["one", "x"]]): ResultTable => ({ file, label, headers: ["", "Value"], rows, guard: false });
+
+  it("calls Import Data Sources Data Sources and Dynamic Cell Access DCA, by their files, whatever label a result carries, and any other table by its own label", () => {
+    // A kept result's tables carry the export's labels, as a new result's do: the page names them by their files all the same.
+    expect([tableLabel(plain("Import Data Sources.csv", "Import Data Sources")), tableLabel(plain(ACCESS_FILE, "Dynamic Cell Access")), tableLabel(plain(IMPORTS_FILE, "Imports"))])
+      .toEqual(["Data Sources", "DCA", "Imports"]);
+    // Only the short name that stands for a longer one says it in full.
+    expect([tableFullLabel(plain(ACCESS_FILE, "Dynamic Cell Access")), tableFullLabel(plain("Import Data Sources.csv", "Import Data Sources")), tableFullLabel(plain(IMPORTS_FILE, "Imports"))])
+      .toEqual(["Dynamic Cell Access (DCA)", undefined, undefined]);
+  });
+
+  it("says the overview's rows about files, how to read the tables and the notes under the page's names, and keeps the files' own names", () => {
+    const details = detailsTable("Model Details.csv", [["Model", "Model", "Model one"],
+      ["Files", "Import Data Sources.csv", "2 rows (1 of them a file)"], ["Files", ACCESS_FILE, "Not exported: Line Items has no driver columns."],
+      ["Notes", "Import Data Sources", "One source could not be read."],
+      ["How to read", "Import Data Sources", "Each data source."], ["How to read", "Dynamic Cell Access", "The drivers."], ["How to read", "Imports", "The imports."]]);
+    const sources = plain("Import Data Sources.csv", "Import Data Sources", [["prices.csv", "x"], ["hub", "y"]]);
+    const model = result("model", [details, sources], ["Import Data Sources: 2 rows (1 of them a file)"]);
+    const overview = overviewOf(model);
+    // A file the result has no table of, Dynamic Cell Access here, is named as the page names it too.
+    expect(overview.files).toEqual([["Data Sources", "2 rows (1 of them a file)"], ["DCA", "Not exported: Line Items has no driver columns."]]);
+    expect(overview.howToRead).toEqual([["Data Sources", "Each data source."], ["DCA", "The drivers."], ["Imports", "The imports."]]);
+    expect(overview.notes).toEqual(["Data Sources: One source could not be read."]);
+    expect(overview.tiles).toEqual([{ label: "Data Sources", count: 2 }]);
+    // The result keeps the export's file and label: the page knows the table by its file everywhere else.
+    expect([sources.file, sources.label, listedTables(model).map(({ table }) => table.file)]).toEqual(["Import Data Sources.csv", "Import Data Sources", ["Import Data Sources.csv"]]);
   });
 });
