@@ -144,38 +144,40 @@ describe("The map's stylesheet", () => {
     expect(STYLES.indexOf(engaged)).toBeGreaterThan(STYLES.indexOf(rest));
   });
 
-  it("floats matching corner clusters over a full-height canvas, with shrinking counts and panels above", () => {
+  it("anchors one row at the left and the minimap at the right, shrinking the counts before any button", () => {
     const rules = (selector: string): string => [...STYLES.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
       .filter(([, selectors]) => selectors.trim() === selector).map(([, , body]) => body).join(";");
-    expect(STYLES).not.toContain(".map-dock");
+    expect(STYLES).not.toMatch(/\.map-dock|\.map-clusters|\.map-summary|\.map-stats-size/);
     for (const property of ["position:absolute", "inset:0", "height:100%", "width:100%"]) expect(rules(".map-canvas")).toContain(property);
-    for (const property of ["position:absolute", "justify-content:space-between", "gap:10px", "pointer-events:none"]) expect(rules(".map-clusters")).toContain(property);
-    expect(rules(".map-clusters")).not.toMatch(/background:|border:|padding:|wrap/);
-    expect(rules(".map-summary")).not.toMatch(/background:|border:|padding:/);
-    // The counts keep a fixed, invisible room sized for their longest words; the visible chip hugs the words at its right.
+    for (const property of ["position:absolute", "left:0", "bottom:0", "max-width:100%", "gap:6px", "pointer-events:none"]) expect(rules(".map-navigation")).toContain(property);
+    expect(rules(".map-navigation")).not.toMatch(/background:|border:|padding:|wrap|order:/);
+    // The final pill hugs its words and gives up width; the six buttons keep their size and keyboard order.
     expect(rules(".map-status")).toContain("height:28px");
     expect(rules(".map-status")).not.toMatch(/background:|border:/);
-    expect(rules(".map-stats,.map-stats-size")).toContain("border-radius:999px");
-    for (const property of ["justify-self:end", "background:var(--panel)", "border-color:var(--border-strong)", "pointer-events:auto"]) expect(rules(".map-stats")).toContain(property);
+    for (const property of ["border-radius:999px", "background:var(--panel)", "border:1px solid var(--border-strong)", "pointer-events:auto"]) expect(rules(".map-stats")).toContain(property);
     expect(rules(".map-btn")).toContain("height:28px");
-    expect(rules(".map-clusters .map-btn")).toContain("flex:none");
-    expect(rules(".map-navigation")).toContain("gap:6px");
-    expect(rules(".map-navigation")).not.toMatch(/background:|border:|padding:/);
-    expect(rules(".map-clusters .map-btn")).toContain("pointer-events:auto");
-    expect(rules(".map-clusters .map-btn")).not.toMatch(/border|radius|background|padding|width|height/);
+    expect(rules(".map-navigation .map-btn")).toContain("flex:none");
+    expect(rules(".map-navigation .map-btn")).toContain("pointer-events:auto");
+    expect(rules(".map-navigation .map-btn")).not.toMatch(/border|radius|background|padding|width|height|order:/);
     expect(STYLES).not.toMatch(/map-cluster-divider|\.map-navigation \.map-btn(?: \+|:)/);
     const selected = rules('.map-btn[aria-expanded="true"],.map-btn[aria-pressed="true"]');
     for (const property of ["background:var(--accent-soft)", "color:var(--accent-ink)"]) expect(selected).toContain(property);
-    expect(rules(".map-summary")).toContain("flex:none");
-    expect(rules(".map-summary")).toContain("gap:6px");
+    expect(rules(".map-status")).toContain("flex:0 1 auto");
     expect(rules(".map-status")).toContain("min-width:0");
     expect(rules(".map-stats")).toContain("text-overflow:ellipsis");
-    for (const property of ["overflow:hidden", "white-space:nowrap", "grid-area:1 / 1", "padding:0 11px"]) expect(rules(".map-stats,.map-stats-size")).toContain(property);
-    expect(rules(".map-stats-size")).toContain("visibility:hidden");
+    for (const property of ["overflow:hidden", "white-space:nowrap", "padding:0 11px"]) expect(rules(".map-stats")).toContain(property);
     for (const selector of [".map-over", ".map-minimap-wrap"]) expect(rules(selector)).toContain("position:absolute");
-    expect(rules(".map-minimap-wrap")).toContain("bottom:44px");
+    for (const property of ["right:0", "bottom:0"]) expect(rules(".map-minimap-wrap")).toContain(property);
+    expect(rules(".map-over")).toContain("inset:0 auto 44px 0");
+    expect(rules('.map-foot:has(.map-minimap-wrap:not([hidden])) .map-over')).toContain("width:min(650px,calc(100% - 220px))");
+    expect(rules('.map-foot:has(.map-minimap-wrap:not([hidden])) .map-navigation')).toContain("max-width:calc(100% - 220px)");
+    // At 360px, the buttons and six gaps take 204px; the pill gets the remaining room. Panels stack clear.
     expect(STYLES).toContain("@container map (max-width:500px)");
-    expect(rules(".map-stats,.map-stats-size")).toContain("padding-inline:7px");
+    const narrow = STYLES.slice(STYLES.indexOf("@container map (max-width:500px)"));
+    expect(narrow).toContain(".map-stats{padding-inline:7px}");
+    expect(narrow).toContain(".map-minimap-wrap{bottom:44px}");
+    expect(narrow).toContain(".map-navigation{max-width:100%}");
+    expect(narrow).toContain(".map-over{width:100%;bottom:196px}");
   });
 
   it("names every class with the map's prefix, and styles nothing by an id or outside the map", () => {
