@@ -103,6 +103,13 @@ input,select{font:inherit;color:inherit}
 .btn[disabled]{opacity:.45;cursor:not-allowed}
 .btn.sm{padding:4px 11px;font-size:12px}
 .btn svg{flex:none}
+/* The run control holds its size through every status; only its words and drawn icon change. */
+.run-control{width:116px;justify-content:center;white-space:nowrap;flex:none}
+.run-spinner{display:none;transform-origin:8px 8px}
+.reading .run-icon{display:none}
+.reading .run-spinner{display:block;animation:reading-spin .9s linear infinite}
+@keyframes reading-spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.reading .run-spinner{animation:none}}
 .icon-btn{
   display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;
   border-radius:999px;border:1px solid var(--border-strong);background:var(--panel);color:var(--text-2);

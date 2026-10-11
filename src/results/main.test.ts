@@ -12,7 +12,7 @@ import { OPEN_WAIT_MS, SHOWN_WAIT_MS } from "./connection.js";
 import { FakeElement, FakeInput, FakePage, FakeSelect, parseMarkup } from "./dom.test-support.js";
 import { analysedLine, NOT_KEPT_NOTE, TOO_LARGE_NOTE } from "./keep-notes.js";
 import { KEPT_PREFIX, ResultKeeper, type KeptStorage } from "./keep-result.js";
-import { VIEW_KEY } from "./view-keep.js";
+import { rowKey, VIEW_KEY } from "./view-keep.js";
 import { FILE_ICONS, FORGOTTEN_LINE, keptCopyHtml, MAP_FAILED, NAV_ICONS, NOT_REMOVED_LINE } from "./markup.js";
 import { fileWords, watchForFiles, type FileWatch } from "./no-file.test-support.js";
 import { PROCESS_LINES } from "./process-actions-view.js";
@@ -606,7 +606,7 @@ describe("The results page's script, on the page", () => {
       page.id("runAgain").press();
       expect(ports[index].posted, address).toEqual([{ type: "run" }]);
       expect([page.id("runTitle").textContent, page.id("runStatus").textContent], address).toEqual(["Analysing", "Starting the analysis…"]);
-      expect(runControl(), address).toEqual(["Run again", "Analyse the Anaplan tab again", 1]);
+      expect(runControl(), address).toEqual(["Reading", "Starting the analysis…", 1]);
     }
     expect(replaced).toEqual(Array(4).fill("/results.html?tab=42"));
   });
@@ -644,14 +644,14 @@ describe("The results page's script, on the page", () => {
     goTo(2);
     page.id("runAgain").press();
     page.all('#tableWrap tbody [data-act="row"]')[1].press();
-    // The run is on the same port, and its progress stands above the result, as text.
+    // The run is on the same port; its progress is in the button title and live region.
     expect(connects).toHaveLength(1);
     expect(ports[0].posted).toEqual([{ type: "run" }, { type: "run" }]);
-    expect(banner()).toEqual(["note", "Analysing", "Starting the analysis…", "Keep the Anaplan tab open until this finishes."]);
-    expect(page.id("banners").textContent).toContain("The results below are from the earlier run.");
+    expect(banner()).toEqual([]);
+    expect(page.id("banners").children).toEqual([]);
     ports[0].send({ type: "status", text: `Reading page 1 of 1: ${TAG}` });
     ports[0].send({ type: "log", text: "14:02:09 Reading page 1 of 1" });
-    expect([banner()[2], strayImg()]).toEqual([`Reading page 1 of 1: ${TAG}`, false]);
+    expect([page.id("runAgain").title, strayImg()]).toEqual([`Reading page 1 of 1: ${TAG}`, false]);
 
     // The earlier result is all still there: its name, its navigation, the table and the row the user was reading.
     const earlier = () => [page.document.title, page.texts("#hdMeta .meta-app"), page.all("#navList [data-nav]").length, page.texts("#view h1"), firstCells().length,
@@ -667,13 +667,12 @@ describe("The results page's script, on the page", () => {
       tables: [RESULT.tables[0], RESULT.tables[1], { ...RESULT.tables[2], rows: [["Overview", 1, "Only card", "Grid", "card-z"]] }] };
     ports[0].send({ type: "result", result: { ...next, tables: next.tables.map(table => ({ ...table, rows: [] })) } });
     next.tables.forEach((table, index) => ports[0].send({ type: "rows", table: index, rows: table.rows }));
-    expect([earlier().slice(0, 5), banner().slice(0, 3)]).toEqual([["Cardigan - Demo <img src=x onerror=alert(1)> app", ["Demo <img src=x onerror=alert(1)> app"], 3, ["Cards"], 2],
-      ["note", "Analysing", "Receiving the result…"]]);
+    expect([earlier().slice(0, 5), page.id("runAgain").title]).toEqual([["Cardigan - Demo <img src=x onerror=alert(1)> app", ["Demo <img src=x onerror=alert(1)> app"], 3, ["Cards"], 2],
+      "Receiving the result…"]);
     ports[0].send({ type: "done" });
-    // Now the page is the new result's: its overview, whose tiles count its rows, without the banner, and without the
-    // drawer that showed a row of the old one.
+    // The new result keeps the Cards table. The row was removed, so its details close.
     expect([page.document.title, page.texts("#view h1"), page.texts("#view .s-num"), page.id("banners").children, page.id("drawer").classList.contains("show")])
-      .toEqual(["Cardigan - Demo app, second run", ["Overview"], ["1", "1"], [], false]);
+      .toEqual(["Cardigan - Demo app, second run", ["Cards"], [], [], false]);
     // The focus was in that drawer: it is on the new view now, not on nothing.
     expect(page.document.activeElement).toBe(page.id("view"));
     expect(disabled("runAgain")).toEqual([false]);
@@ -689,7 +688,7 @@ describe("The results page's script, on the page", () => {
     page.find('[data-colfilter="3"]').press();
     expect(page.id("popover").hidden).toBe(false);
     sendResult(ports[0]);
-    expect([page.id("popover").hidden, page.id("popover").children, page.texts("#view h1")]).toEqual([true, [], ["Overview"]]);
+    expect([page.id("popover").hidden, page.id("popover").children, page.texts("#view h1")]).toEqual([true, [], ["Cards"]]);
     expect(page.document.activeElement).toBe(page.id("view"));
     // Focus outside what was replaced stays where it is: on a button of the header.
     page.id("runAgain").press();
@@ -706,11 +705,11 @@ describe("The results page's script, on the page", () => {
     lastError = { message: "Could not establish connection. Receiving end does not exist." };
     page.id("runAgain").press();
     expect(connects).toHaveLength(2);
-    expect([banner(), page.id("bannerCopy").hidden]).toEqual([["note", "Connecting", "Connecting to the Anaplan tab…"], true]);
+    expect([banner(), page.has("#bannerCopy")]).toEqual([[], false]);
     ports[1].drop();
     lastError = undefined;
     // It asks again for a while, as for a tab that is still loading, and then says so.
-    expect(banner().slice(0, 2)).toEqual(["note", "Connecting"]);
+    expect(banner()).toEqual([]);
     await neverAnswers();
     expect(banner()).toEqual(["warn", "Refresh the Anaplan tab", "Refresh the tab to load Cardigan's model reader; this closes the modules and lists you have open."]);
     // The result is where it was; Run again can be tried again.
@@ -887,7 +886,7 @@ describe("The results page's script, on the page", () => {
     expect([page.id("popover").hidden, page.find('[data-colfilter="1"]').classList.contains("active")]).toEqual([true, false]);
   });
 
-  it("shows a table from its first page again after a sort, a search or a filter, and after leaving a search behind", async () => {
+  it("starts at the first page after a sort, search or filter changes, and keeps the page when returning to the table", async () => {
     await openWith(MODEL);
     goTo(1);
     /** The page shown, by its number from 1, as the count says it: by the first row it shows, of the fifty a page holds. */
@@ -922,10 +921,11 @@ describe("The results page's script, on the page", () => {
     page.key("Escape");
     expect(current()).toBe("2");
 
-    // The search ends when the user leaves the table: coming back, the table is whole again, and on its first page.
+    // The search and the page stay with the table when the user leaves and comes back.
     goTo(2);
     goTo(1);
-    expect([page.id("tblSearch").value, current(), page.id("rowCount").textContent]).toEqual(["", "1", "1–50 of 120 rows"]);
+    expect([page.id("tblSearch").value, current(), page.id("rowCount").textContent]).toEqual(["revenue", "2", "51–60 of 60 rows (filtered from 120)"]);
+    page.id("tblSearch").type("");
     // Without a search, a table keeps the page the user left it on.
     toPage(3);
     goTo(2);
@@ -1247,13 +1247,13 @@ describe("The results page's script, on the page", () => {
     // A card's drawer is the same drawer.
     page.find('#tableWrap tbody [data-act="card"]').press();
     expect(behind()).toEqual(OUT_OF_REACH);
-    // A new result that takes the page while the drawer is open closes it, and the page takes part again.
+    // A new result reopens this same card, keeping the drawer modal.
     page.id("drawerClose").press();
     page.id("runAgain").press();
     page.find('#tableWrap tbody [data-act="card"]').press();
     expect(behind()).toEqual(OUT_OF_REACH);
     sendResult(ports[0]);
-    expect([behind(), page.id("drawer").classList.contains("show"), page.texts("#view h1")]).toEqual([IN_REACH, false, ["Overview"]]);
+    expect([behind(), page.id("drawer").classList.contains("show"), page.texts("#view h1")]).toEqual([OUT_OF_REACH, true, ["Cards"]]);
   });
 
   it("goes down the page's headings one level at a time, in every view and in the drawer", async () => {
@@ -1566,7 +1566,7 @@ describe("A model tab that still holds the reader of an earlier Cardigan", () =>
       "Refresh the tab to load Cardigan's updated reader; this closes the modules and lists you have open."], false]);
     expect(injected).toEqual([]);
     page.id("runAgain").press();
-    expect(page.id("bannerRefresh").hidden).toBe(true);
+    expect(page.has("#bannerRefresh")).toBe(false);
     expect(tabReloads).toEqual([]);
   });
 });
@@ -2186,6 +2186,7 @@ describe("What a click, a key and typing do on the results page", () => {
     // A result without some of the files lists the ones it has, in the same order.
     page.id("runAgain").press();
     sendResult(ports[0], model("Imports", "Line Items", "Versions"));
+    choose("overview");
     expect([entries(), tiles()]).toEqual([["Overview", "Versions", "Line Items", "Imports", "Model map"], ["Versions", "Line Items", "Imports"]]);
     // A file the order does not name comes after the ones it names, in the result's order: none goes missing. Line Item
     // Subsets, which the export does not write yet, has its place between General Lists and Modules.
@@ -2433,7 +2434,7 @@ describe("What a click, a key and typing do on the results page", () => {
     page.id("tblSearch").type("sales");
     expect(column("Card title")).toEqual(["Sales"]);
     goTo(2);
-    expect([page.has("#pageFilter"), column("Card title").length, page.id("tblSearch").value]).toEqual([false, 4, ""]);
+    expect([page.has("#pageFilter"), column("Card title").length, page.id("tblSearch").value]).toEqual([false, 2, "sales"]);
   });
 
   it("sorts by a column on its button: ascending, descending, then the file's order again; another column starts ascending", async () => {
@@ -2941,13 +2942,13 @@ describe("An app's Where Used table, by object and by use", () => {
     // The choice lasts: through another table and back, and through a new result.
     goTo(1);
     goTo(3);
-    expect([ways(), page.id("rowCount").textContent]).toEqual([["By object", "Every use (shown) filled"], "1–8 of 8 rows"]);
+    expect([ways(), page.id("rowCount").textContent]).toEqual([["By object", "Every use (shown) filled"], "1–3 of 3 rows (filtered from 8)"]);
     page.id("runAgain").press();
     sendResult(ports[0], WHERE);
     goTo(3);
-    expect([ways(), page.id("rowCount").textContent]).toEqual([["By object", "Every use (shown) filled"], "1–8 of 8 rows"]);
+    expect([ways(), page.id("rowCount").textContent]).toEqual([["By object", "Every use (shown) filled"], "1–3 of 3 rows (filtered from 8)"]);
     way("object").press();
-    expect([ways(), page.id("rowCount").textContent]).toEqual([["By object (shown) filled", "Every use"], "1–4 of 4 rows"]);
+    expect([ways(), page.id("rowCount").textContent]).toEqual([["By object (shown) filled", "Every use"], "1–1 of 1 row (filtered from 4)"]);
   });
 
   it("opens an object from its row: what it is, what it is used as, and its uses by page; a use's page shows that page's cards and its card opens the card", async () => {
@@ -3271,10 +3272,10 @@ describe("A result kept while the results page is refreshed", () => {
     vi.setSystemTime(again);
     page.id("runAgain").press();
     expect([ports[1].posted, connects.length]).toEqual([[{ type: "run" }], 2]);
-    // The run's progress stands above the result that was brought back, in the place of the line about it; the result is all still there.
+    // Progress stays in the run control. The line about the kept result stays where it is during the run.
     ports[1].send({ type: "status", text: "Reading the app…" });
     expect([banner(), page.has("#noteBanner"), page.id("banners").textContent.includes("The results below are from the earlier run."), firstCells().length, page.document.title])
-      .toEqual([["note", "Analysing", "Reading the app…", "Keep the Anaplan tab open until this finishes."], false, true, 4, "Cardigan - Demo app"]);
+      .toEqual([[], true, false, 4, "Cardigan - Demo app"]);
     // And it is still what a refresh would bring back.
     expect(kept()).toBe(true);
     // The new result takes its place on the page once it is whole, and in what is kept once it is drawn.
@@ -3303,7 +3304,7 @@ describe("A result kept while the results page is refreshed", () => {
     expect([page.document.title, page.has("#noteBanner"), page.has("#runBanner"), page.id("live").textContent]).toEqual(["Cardigan - Demo app, read again", false, false, "Analysis finished: Demo app, read again"]);
   });
 
-  it("puts the run's progress above a result that comes back while a run it was asked for is going", async () => {
+  it("keeps progress out of the flow when a result comes back during a run", async () => {
     await openWith(APP);
     await letKeep();
     await open(refreshed);
@@ -3312,7 +3313,7 @@ describe("A result kept while the results page is refreshed", () => {
     ports[1].send({ type: "status", text: "Reading the app…" });
     await back("Demo app");
     expect([banner(), page.has("#noteBanner"), page.texts("#view h1"), page.id("runAgain").disabled])
-      .toEqual([["note", "Analysing", "Reading the app…", "Keep the Anaplan tab open until this finishes."], false, ["Overview"], true]);
+      .toEqual([[], true, ["Overview"], true]);
   });
 
   it("keeps a result after a moment in a window that is not shown, where the frame that draws it does not come", async () => {
@@ -3368,7 +3369,7 @@ describe("A result kept while the results page is refreshed", () => {
     vi.stubGlobal("sessionStorage", session.storage);
     session.refuses = "SecurityError";
     page.id("runAgain").press();
-    expect([page.has("#noteBanner"), banner().slice(0, 2)]).toEqual([false, ["note", "Analysing"]]);
+    expect([page.has("#noteBanner"), banner().slice(0, 2)]).toEqual([true, []]);
     sendResult(ports[0], APP);
     expect(page.id("banners").children).toEqual([]);
     vi.advanceTimersByTime(0);
@@ -3379,16 +3380,16 @@ describe("A result kept while the results page is refreshed", () => {
     expect(copied[1]).toMatch(/^\d\d:\d\d:\d\d This result is not kept across a refresh: the tab's session storage refused it \(The storage refused to hold cardigan-kept:0\.\)\.$/);
   });
 
-  it("says nothing about keeping once the page has gone on to another run: that run's banner stands where the note would", async () => {
+  it("says nothing about keeping once the page has gone on to another run", async () => {
     session.refuses = "QuotaExceededError";
     await openWith(APP);
     // Run again is chosen before the page has tried to keep the first result.
     page.id("runAgain").press();
     vi.advanceTimersByTime(0);
     await pass(50);
-    expect([page.has("#noteBanner"), banner().slice(0, 2), page.texts("#view h1")]).toEqual([false, ["note", "Analysing"], ["Overview"]]);
-    // The new run's log has no line about the earlier result either: it is empty, so its banner offers nothing to copy yet.
-    expect(page.id("bannerCopy").hidden).toBe(true);
+    expect([page.has("#noteBanner"), banner().slice(0, 2), page.texts("#view h1")]).toEqual([false, [], ["Overview"]]);
+    // The new run has no banner or copy button while it reads.
+    expect(page.has("#bannerCopy")).toBe(false);
   });
 
   it("forgets a kept value that is not a result's shape, and waits for Run: the page is not left blank, and a refresh does not find it again", async () => {
@@ -3774,7 +3775,7 @@ describe("A result kept while the results page is refreshed", () => {
     expect([keptPlace(), kept()]).toEqual([FORGOTTEN, false]);
     // Run again, with the forgotten result still on the page: the line stays under the run's banner, and nothing is kept.
     page.id("runAgain").press();
-    expect([banner().slice(0, 2), keptPlace(), session.held.size]).toEqual([["note", "Analysing"], FORGOTTEN, 0]);
+    expect([banner().slice(0, 2), keptPlace(), session.held.size]).toEqual([[], FORGOTTEN, 0]);
     const next: AnalysisResult = { ...APP, name: "Demo app, read again", zipName: "Again.zip" };
     sendResult(ports[0], next);
     // The new result is on the page and is not kept yet: the place holds neither the line nor the control, only their room.
@@ -3786,7 +3787,7 @@ describe("A result kept while the results page is refreshed", () => {
     // Forgotten while a run is going: the copy of the result on the page goes, and the run's result is kept all the same.
     page.id("runAgain").press();
     page.find('#ovKept [data-act="forget"]').press();
-    expect([banner().slice(0, 2), keptPlace(), session.held.size, page.document.title]).toEqual([["note", "Analysing"], FORGOTTEN, 0, "Cardigan - Demo app, read again"]);
+    expect([banner().slice(0, 2), keptPlace(), session.held.size, page.document.title]).toEqual([[], FORGOTTEN, 0, "Cardigan - Demo app, read again"]);
     const third: AnalysisResult = { ...APP, name: "Demo app, a third time" };
     sendResult(ports[0], third);
     expect(keptPlace()).toEqual(TO_COME);
@@ -3878,7 +3879,7 @@ describe("A result kept while the results page is refreshed", () => {
     return held;
   };
 
-  it("offers Forget this result under the banner of a run that is going, when the keeping of the result on the page ends meanwhile", async () => {
+  it("offers Forget this result during a run when keeping the earlier result finishes", async () => {
     const compression = holdCompression();
     await openWith(APP);
     // The page begins to keep the result. Its compression does not end yet: nothing is written, and nothing is offered.
@@ -3890,13 +3891,13 @@ describe("A result kept while the results page is refreshed", () => {
     ports[0].send({ type: "status", text: "Reading the app…" });
     await pass(30);
     expect([banner(), page.document.title, keptPlace(), session.writes])
-      .toEqual([["note", "Analysing", "Reading the app…", "Keep the Anaplan tab open until this finishes."], "Cardigan - Demo app", TO_COME, 0]);
+      .toEqual([[], "Cardigan - Demo app", TO_COME, 0]);
     // Now the compression ends, and the result is kept. It is still the result on the page, so the overview offers to
     // forget its copy, under the banner of the run that is going: a run on its way takes nothing from the result under it.
     compression.release();
     const control = await offered();
     expect([keptPlace(), kept(), banner().slice(0, 2), page.id("runAgain").disabled, control.localName, control.focusable, page.document.title])
-      .toEqual([KEPT, true, ["note", "Analysing"], true, "button", true, "Cardigan - Demo app"]);
+      .toEqual([KEPT, true, [], true, "button", true, "Cardigan - Demo app"]);
     // That run is cut off: the first result stays on the page, and the control for its copy with it.
     ports[0].drop();
     expect([banner().slice(0, 2), keptPlace(), kept(), page.document.title]).toEqual([["warn", "The analysis stopped"], KEPT, true, "Cardigan - Demo app"]);
@@ -3969,12 +3970,12 @@ describe("A result kept while the results page is refreshed", () => {
     page.id("runAgain").press();
     sendResult(ports[0], APP);
     page.id("runAgain").press();
-    expect([keptPlace(), banner().slice(0, 2)]).toEqual([TO_COME, ["note", "Analysing"]]);
+    expect([keptPlace(), banner().slice(0, 2)]).toEqual([TO_COME, []]);
     const writes = session.writes;
     vi.advanceTimersByTime(0);
     await eventually(() => session.writes > writes, "the keeping to come to nothing");
     await pass(30);
-    expect([keptPlace(), page.has("#noteBanner"), banner().slice(0, 2)]).toEqual([[], false, ["note", "Analysing"]]);
+    expect([keptPlace(), page.has("#noteBanner"), banner().slice(0, 2)]).toEqual([[], false, []]);
 
     // A result that a refresh brings back is kept already: it has the line and the control at once, and no room is held.
     session.refuses = "";
@@ -4059,7 +4060,7 @@ describe("The navigation bar of the results page", () => {
     // A view shown from elsewhere moves the mark as well: a new result, which shows its overview.
     page.id("runAgain").press();
     sendResult(ports[0], MODEL);
-    expect(line()).toEqual(["Overview (shown)", "Modules: Modules, Line Items", "Model map"]);
+    expect(line()).toEqual(["Overview", "Modules (holds the view shown): Modules (shown), Line Items", "Model map"]);
   });
 
   it("gathers a model's tables in groups on one line, in the order of Model settings, each group with the tables the result has; a group of one table, and a file no group names, stand on their own", async () => {
@@ -4197,7 +4198,7 @@ describe("The navigation bar of the results page", () => {
     expect(sight()).toEqual(NONE_ASKED);
     page.id("runAgain").press();
     sendResult(ports[0], MODEL);
-    expect([sight(), marked()]).toEqual([NONE_ASKED, ["Overview (shown)", "Modules", "Line Items", "Model map"]]);
+    expect([sight(), marked()]).toEqual([NONE_ASKED, ["Overview", "Modules (shown)", "Line Items", "Model map"]]);
   });
 
   it("draws before each entry's words the icon of its view: the overview's, its file's for a table, chosen by the file's name and never by the entry's words", async () => {
@@ -4335,9 +4336,9 @@ describe("A model's map on the results page", () => {
     mapTakesFocus = false;
 
     // Another view: the map is told that it is hidden, and its place gives the room back. The table is as any table
-    // that was left: whole again.
+    // that was left: with its search still in force.
     goTo(1);
-    expect([mapAsked.slice(5), host().hidden, shows(), page.id("rowCount").textContent]).toEqual([["hide 1"], true, ["Line Items", "Line Items"], "1–50 of 120 rows"]);
+    expect([mapAsked.slice(5), host().hidden, shows(), page.id("rowCount").textContent]).toEqual([["hide 1"], true, ["Line Items", "Line Items"], "1–11 of 11 rows (filtered from 120)"]);
     // What the map made stays in its place, out of reach while it is hidden, and the view that is shown has the focus.
     expect([host().children.length, mapMounts[0].button.isConnected, mapMounts[0].button.focusable, page.document.activeElement === page.id("view")]).toEqual([1, true, false, true]);
     // Going on from view to view asks nothing of a map that is hidden.
@@ -4423,46 +4424,37 @@ describe("A model's map on the results page", () => {
     expect([mapAsked.length, page.document.documentElement.dataset.theme]).toEqual([7, "dark"]);
     // Once the map is gone, the switch changes the page's theme and tells nothing.
     page.id("runAgain").press();
+    sendResult(ports[0], MODEL);
     expect(mapAsked.slice(7)).toEqual(["destroy 1"]);
     page.id("themeToggle").press();
     expect([mapAsked.length, page.document.documentElement.dataset.theme]).toEqual([8, "light"]);
   });
 
-  it("removes the map when a run starts and when a new result takes the page; its entry then builds it afresh", async () => {
+  it.each([
+    { view: "modules" as const, group: "Sales", access: true },
+    { view: "modules" as const, all: true, noFormulas: true },
+    { view: "drill" as const, module: "Revenue", others: true, filters: true },
+  ])("keeps the map during a run and rebuilds it at the same level and place: %j", async view => {
     await openWith(MODEL);
     toMap();
-    // Run again while the map is shown: the map goes at once, its place is hidden and empty, and the overview stands in
-    // its place under the run's banner.
+    (mapMounts[0].options as ModelMapOptions).onView?.(view);
     page.id("runAgain").press();
-    expect([mapAsked.slice(3), host().hidden, host().childNodes.length, shows(), banner().slice(0, 2)]).toEqual([["destroy 1"], true, 0, ["Overview", "Overview"], ["note", "Analysing"]]);
-    // The earlier result stays on the page while the run goes, and its map's entry with it: chosen now, it builds the
-    // map afresh from that result.
-    ports[0].send({ type: "status", text: "Reading the model…" });
-    toMap();
-    expect([mapAsked.slice(4), mapBuilds[1].tables, mapMounts[1].found, host().hidden, shows()[0]]).toEqual([["build", "mount 2", "show 2"], MODEL.tables, [false, 0, "Model map"], false, "Model map"]);
-    // A run that goes on takes nothing away: only its start did.
-    ports[0].send({ type: "status", text: "Reading line items…" });
-    ports[0].send({ type: "log", text: "14:02:09 Line Items: 120 rows" });
-    expect([mapAsked.length, host().hidden, banner()[2]]).toEqual([7, false, "Reading line items…"]);
-
-    // The new result takes the page: the earlier one's map goes with it, and the focus, which was inside the map, is on
-    // the new result's view and not on nothing.
-    mapMounts[1].button.focus();
-    expect(page.document.activeElement).toBe(mapMounts[1].button);
-    const next: AnalysisResult = { ...inWorkspace("Planning"), name: "Model two", zipName: "Model two - Model Export - 2026-10-03.zip" };
+    ports[0].send({ type: "status", text: "Reading line items" });
+    expect([mapAsked, host().hidden, host().contains(mapMounts[0].button), shows(), banner(), page.id("runAgain").title])
+      .toEqual([["build", "mount 1", "show 1"], false, true, ["Model map", "Model map"], [], "Reading line items"]);
+    const next = { ...MODEL, name: "Model one, read again" };
     sendResult(ports[0], next);
-    expect([mapAsked.slice(7), host().hidden, host().childNodes.length, shows(), page.document.title, page.document.activeElement === page.id("view")])
-      .toEqual([["destroy 2"], true, 0, ["Overview", "Overview"], "Cardigan - Model two", true]);
-    // The new result's map is its own: built from its tables when its entry is chosen.
-    toMap();
-    expect([mapAsked.slice(8), mapBuilds[2].tables, mapMounts[2].options]).toEqual([["build", "mount 3", "show 3"], next.tables, { modelName: "Model two", workspaceName: "Planning", onFailure: expect.any(Function), onGrouping: expect.any(Function), onView: expect.any(Function) }]);
-    // A run that starts while another view is shown ends the map too, and leaves that view where it is.
+    expect([mapAsked.slice(3), host().hidden, shows()[0], mapBuilds[1].tables, (mapMounts[1].options as ModelMapOptions).view])
+      .toEqual([["destroy 1", "build", "mount 2", "show 2"], false, "Model map", next.tables, view]);
+    // A run begun while a table is shown also leaves the hidden map mounted until completion.
     goTo(1);
     page.id("runAgain").press();
-    expect([mapAsked.slice(11), host().childNodes.length, shows()[0], firstCells().length]).toEqual([["hide 3", "destroy 3"], 0, "Line Items", 50]);
+    expect(mapAsked.slice(7)).toEqual(["hide 2"]);
+    sendResult(ports[0], MODEL);
+    expect([mapAsked.slice(7), host().hidden, shows()[0]]).toEqual([["hide 2", "destroy 2"], true, "Line Items"]);
   });
 
-  it("keeps the map when Run again cannot reach the tab: only a run that starts ends it", async () => {
+  it("keeps the map through a failed connection and the following run", async () => {
     await openWith(MODEL);
     toMap();
     // The Anaplan tab was closed after the analysis: Run again finds nothing to run on.
@@ -4478,10 +4470,10 @@ describe("A model's map on the results page", () => {
     page.id("runAgain").press();
     mapMounts[0].button.focus();
     expect([mapAsked.length, page.document.activeElement === mapMounts[0].button]).toEqual([3, true]);
-    // Now the run starts: the map goes, and the focus is on the overview that takes its place.
+    // Now the run starts: the map and its focus stay in place.
     ports.at(-1)!.send({ type: "subject", subject: { kind: "model", id: MODEL.id } });
     expect([ports.at(-1)!.posted, mapAsked.slice(3), host().hidden, host().childNodes.length, shows(), banner().slice(0, 2), page.document.activeElement === page.id("view")])
-      .toEqual([[{ type: "run" }], ["destroy 1"], true, 0, ["Overview", "Overview"], ["note", "Analysing"], true]);
+      .toEqual([[{ type: "run" }], [], false, 1, ["Model map", "Model map"], [], false]);
   });
 
   it("removes the map when the result is forgotten, and not when its kept copy could not be removed", async () => {
@@ -4523,11 +4515,11 @@ describe("A model's map on the results page", () => {
     toOverview();
     toMap();
     expect([mapAsked.slice(3), shows()[0], page.id("noteText").textContent, ports[1].posted]).toEqual([["hide 1", "show 1"], "Model map", analysedLine(NOW, NOW), []]);
-    // Run again reads Anaplan anew: the map of the result that was brought back ends with that run's start.
+    // Run again reads Anaplan anew while the restored map stays mounted.
     ports[1].send({ type: "subject", subject: { kind: "model", id: MODEL.id } });
     expect(mapAsked).toHaveLength(5);
     page.id("runAgain").press();
-    expect([ports[1].posted, mapAsked.slice(5), shows()[0]]).toEqual([[{ type: "run" }], ["destroy 1"], "Overview"]);
+    expect([ports[1].posted, mapAsked.slice(5), shows()[0]]).toEqual([[{ type: "run" }], [], "Model map"]);
   });
 
   it("says in one sentence that the map could not be drawn when its graph cannot be built, puts the reason in the run's log, and works on", async () => {
@@ -4569,8 +4561,7 @@ describe("A model's map on the results page", () => {
     delete mapThrows.build;
     page.id("runAgain").press();
     sendResult(ports[0], MODEL);
-    toMap();
-    expect([mapAsked, notDrawn(), host().hidden, page.id("live").textContent]).toEqual([["build", "build", "mount 1", "show 1"], [], false, "Model map"]);
+    expect([mapAsked, notDrawn(), host().hidden, page.id("live").textContent]).toEqual([["build", "build", "mount 1", "show 1"], [], false, "Analysis finished: Model one"]);
   });
 
   it("says the same when the map cannot be mounted or cannot be shown, and takes away what it had put into its place", async () => {
@@ -4588,7 +4579,6 @@ describe("A model's map on the results page", () => {
     mapThrows.show = new RangeError("The host has no size.");
     page.id("runAgain").press();
     sendResult(ports[0], MODEL);
-    toMap();
     expect([notDrawn(), host().hidden, host().childNodes.length, mapAsked.slice(2)]).toEqual([[MAP_FAILED], true, 0, ["build", "mount 1", "show 1", "destroy 1"]]);
     page.find('#view [data-act="copy-run-log"]').press();
     await settle();
@@ -4620,17 +4610,16 @@ describe("A model's map on the results page", () => {
     expect(copied[0].split("\n").map(line => line.replace(/^\d\d:\d\d:\d\d /, ""))).toEqual(["Model map: themeChanged failed (Error: No colours.).", "Model map: hide failed (Error: Still drawing.).",
       "Model map: show failed (Error: Nothing to draw on.).", "Model map: destroy failed (Error: Nothing to remove.)."]);
 
-    // A map that cannot be removed stops neither a run nor the result it brings: each takes the page as ever.
+    // A map that cannot be removed stops neither the next result nor its rebuilt map.
     delete mapThrows.show;
     page.id("runAgain").press();
     sendResult(ports[0], MODEL);
-    toMap();
     page.id("runAgain").press();
-    expect([mapAsked.slice(7), shows()[0], banner().slice(0, 2), host().hidden, host().childNodes.length]).toEqual([["build", "mount 2", "show 2", "destroy 2"], "Overview", ["note", "Analysing"], true, 0]);
-    toMap();
+    expect([mapAsked.slice(7), shows()[0], banner(), host().hidden, host().childNodes.length])
+      .toEqual([["build", "mount 2", "show 2"], "Model map", [], false, 1]);
     sendResult(ports[0], { ...MODEL, name: "Model two" });
-    expect([mapAsked.slice(11), page.document.title, shows()[0], host().hidden, host().childNodes.length, page.id("banners").children])
-      .toEqual([["build", "mount 3", "show 3", "destroy 3"], "Cardigan - Model two", "Overview", true, 0, []]);
+    expect([mapAsked.slice(10), page.document.title, shows()[0], host().hidden, host().childNodes.length, page.id("banners").children])
+      .toEqual([["destroy 2", "build", "mount 3", "show 3"], "Cardigan - Model two", "Model map", false, 1, []]);
   });
 
   it("takes a map that stops by itself for one that could not be drawn: its reason is in the run's log, the view says so beside the button that copies the log, and it is not tried again", async () => {
@@ -4685,8 +4674,7 @@ describe("A model's map on the results page", () => {
       ["  ", "Model map: stopped after it was drawn."]]) {
       page.id("runAgain").press();
       sendResult(ports[0], MODEL);
-      toMap();
-      expect([mapAsked.slice(-3).map(asked => asked.replace(/ \d+$/, "")), notDrawn(), host().hidden, page.id("live").textContent], reason).toEqual([["build", "mount", "show"], [], false, "Model map"]);
+      expect([mapAsked.slice(-3).map(asked => asked.replace(/ \d+$/, "")), notDrawn(), host().hidden, page.id("live").textContent], reason).toEqual([["build", "mount", "show"], [], false, "Analysis finished: Model one"]);
       mapMounts[mapMounts.length - 1].stops(reason);
       page.find('#view [data-act="copy-run-log"]').press();
       await settle();
@@ -4718,7 +4706,6 @@ describe("A model's map on the results page", () => {
     // With the map on screen, the focus on something else of the page stays there: here on the theme's button.
     page.id("runAgain").press();
     sendResult(ports[0], MODEL);
-    toMap();
     page.id("themeToggle").focus();
     mapMounts[1].stops("Lost again.");
     expect([notDrawn(), host().hidden, page.document.activeElement.id]).toEqual([[MAP_FAILED], true, "themeToggle"]);
@@ -4727,7 +4714,6 @@ describe("A model's map on the results page", () => {
     mapTakesFocus = true;
     page.id("runAgain").press();
     sendResult(ports[0], MODEL);
-    toMap();
     mapMounts[2].button.remove();
     expect(page.document.activeElement).toBe(page.document.body);
     mapMounts[2].stops("And again.");
@@ -4749,7 +4735,6 @@ describe("A model's map on the results page", () => {
     mapTells = {};
     page.id("runAgain").press();
     sendResult(ports[0], MODEL);
-    toMap();
     mapTells = { hide: "Still drawing." };
     goTo(1);
     expect([mapAsked.slice(5), shows()[0], firstCells().length, host().hidden, page.has("#view .banner"), page.document.activeElement === page.id("view")])
@@ -4761,7 +4746,6 @@ describe("A model's map on the results page", () => {
     mapTells = {};
     page.id("runAgain").press();
     sendResult(ports[0], MODEL);
-    toMap();
     goTo(1);
     mapTells = { show: "Nothing to draw on." };
     toMap();
@@ -4775,7 +4759,6 @@ describe("A model's map on the results page", () => {
     mapTakesFocus = true;
     page.id("runAgain").press();
     sendResult(ports[0], MODEL);
-    toMap();
     const button = mapMounts[3].button;
     button.setAttribute("data-nav", "1");
     button.setAttribute("data-copy", "a text the page would copy");
@@ -4789,7 +4772,6 @@ describe("A model's map on the results page", () => {
     mapTells = {};
     page.id("runAgain").press();
     sendResult(ports[0], MODEL);
-    toMap();
     mapTells = { keydown: "The key failed." };
     expect([page.document.activeElement === mapMounts[4].button, page.key("/").defaultPrevented]).toEqual([true, false]);
     expect([mapAsked.slice(20), shows()[0], notDrawn(), host().hidden, page.document.activeElement === page.id("view")]).toEqual([["build", "mount 5", "show 5", "destroy 5"], "Model map", [MAP_FAILED], true, true]);
@@ -4819,17 +4801,15 @@ describe("A model's map on the results page", () => {
     delete mapThrows.mount;
     page.id("runAgain").press();
     sendResult(ports[0], MODEL);
-    toMap();
-    expect([mapAsked.slice(2), mapMounts.length, notDrawn(), host().hidden, host().children.length, page.id("live").textContent]).toEqual([["build", "mount 1", "show 1"], 1, [], false, 1, "Model map"]);
+    expect([mapAsked.slice(2), mapMounts.length, notDrawn(), host().hidden, host().children.length, page.id("live").textContent]).toEqual([["build", "mount 1", "show 1"], 1, [], false, 1, "Analysis finished: Model one"]);
 
     // A map that is told to go is no longer the page's: what it tells while it goes is not heard, and it is told to go
     // once. Here a run starts: the result it brings has its own map, tried anew.
     mapTells = { destroy: "Too late." };
     page.id("runAgain").press();
-    expect([mapAsked.slice(5), host().hidden, host().childNodes.length, shows()[0]]).toEqual([["destroy 1"], true, 0, "Overview"]);
-    mapTells = {};
+    expect([mapAsked.slice(5), host().hidden, host().childNodes.length, shows()[0]]).toEqual([[], false, 1, "Model map"]);
     sendResult(ports[0], MODEL);
-    toMap();
+    mapTells = {};
     expect([mapAsked.slice(6), notDrawn(), host().hidden]).toEqual([["build", "mount 2", "show 2"], [], false]);
     // Nor is the map of the earlier result heard, when it tells of itself after its result has gone: the map on the
     // page stays as it is.
@@ -6168,6 +6148,101 @@ describe("How a result was looked at, kept through a refresh of the page until t
     const text = session.held.get(VIEW_KEY);
     return text === undefined ? undefined : JSON.parse(text);
   };
+
+  it("keeps the table and details through an edit and table reordering, with progress only in the run controls and live region", async () => {
+    await openWith(MODEL);
+    goTo(1);
+    page.id("tblSearch").type("Line item 2");
+    page.find('#tableWrap tbody [data-act="row"]').press();
+    const table = page.id("tableWrap");
+    const drawer = page.id("drawerBody").innerHTML;
+    expect(page.id("drawerRun").focusable).toBe(true);
+    page.id("drawerRun").press();
+    ports[0].send({ type: "status", text: `Reading ${TAG}` });
+    expect([page.id("tableWrap") === table, page.id("drawerBody").innerHTML, page.has("#runBanner"), page.id("live").textContent, strayImg()])
+      .toEqual([true, drawer, false, `Reading ${TAG}`, false]);
+    for (const id of ["runAgain", "drawerRun"]) {
+      expect([page.id(id).textContent.trim(), page.id(id).title, page.id(id).disabled, page.id(id).classList.contains("reading"), page.id(id).getAttribute("aria-busy")])
+        .toEqual(["Reading", `Reading ${TAG}`, true, true, "true"]);
+      expect(page.id(id).querySelector("svg .run-spinner")).not.toBeNull();
+    }
+    // The row's formula and format changed. A namesake in another module is not this row.
+    const rows = [["Line item 2", "Number", "Other formula", "Cost"], ...LINES.map(row => row[0] === "Line item 2" ? [row[0], "Boolean", "Changed formula", row[3]] : row)];
+    sendResult(ports[0], { ...MODEL, tables: [MODEL.tables[0], MODEL.tables[2], { ...MODEL.tables[1], rows }] });
+    expect([page.texts("#view h1"), location.hash, page.id("tblSearch").value, page.id("drawer").classList.contains("show"), page.id("drawerTitle").textContent])
+      .toEqual([["Line Items"], "#2", "Line item 2", true, "Line item 2"]);
+    expect(page.texts("#drawerBody dd")).toEqual(["Line item 2", "Boolean", "Changed formula", "Revenue"]);
+    expect([page.id("drawerRun").textContent.trim(), page.id("drawerRun").disabled, page.id("runAgain").classList.contains("reading")]).toEqual(["Run again", false, false]);
+    expect(page.document.activeElement).toBe(page.id("drawerClose"));
+    page.id("drawerClose").press();
+    goTo(1);
+    expect([page.texts("#view h1"), page.id("tblSearch").value]).toEqual([["Modules"], ""]);
+  });
+
+  it.each(["removed", "renamed", "other module", "ambiguous"])("closes only the details when the row is %s", async change => {
+    await openWith(MODEL);
+    goTo(1);
+    page.id("tblSearch").type("Line item 2");
+    page.find('#tableWrap tbody [data-act="row"]').press();
+    page.id("drawerRun").press();
+    const original = LINES[1];
+    const replacement = change === "removed" ? [] : change === "renamed" ? [["Renamed", ...original.slice(1)]]
+      : change === "other module" ? [[...original.slice(0, 3), "Cost"]] : [original, [...original.slice(0, 2), "Changed formula", original[3]]];
+    sendResult(ports[0], { ...MODEL, tables: MODEL.tables.map(table => table.file === "Line Items.csv" ? { ...table, rows: [...LINES.filter(row => row !== original), ...replacement] } : table) });
+    vi.advanceTimersByTime(250);
+    expect([page.id("drawer").hidden, page.texts("#view h1"), location.hash, page.id("tblSearch").value]).toEqual([true, ["Line Items"], "#1", "Line item 2"]);
+  });
+
+  it("keeps every table's search across navigation, Run again, refresh and Reset", async () => {
+    await openWith(MODEL);
+    goTo(1);
+    page.id("tblSearch").type("Line item 2");
+    goTo(2);
+    page.id("tblSearch").type("Cost");
+    choose("map");
+    goTo(1);
+    expect(page.id("tblSearch").value).toBe("Line item 2");
+    page.id("runAgain").press();
+    sendResult(ports[0], MODEL);
+    expect(page.id("tblSearch").value).toBe("Line item 2");
+    await letKeep();
+    letLooksKeep();
+    await open(`${refreshed}#1`);
+    await back("Model one");
+    expect(page.id("tblSearch").value).toBe("Line item 2");
+    page.id("resetBtn").press();
+    goTo(2);
+    expect([page.id("tblSearch").value, firstCells()]).toEqual(["Cost", ["Cost"]]);
+    goTo(1);
+    expect(page.id("tblSearch").value).toBe("");
+  });
+
+  it("loads an old search and whole-row drawer key, then keeps them in the new format", async () => {
+    await openWith(MODEL);
+    await letKeep();
+    session.held.set(VIEW_KEY, JSON.stringify({ subject: `model:${MODEL.id}`, tables: {}, search: { view: "1", text: "Line item 2" },
+      drawer: { kind: "row", file: "Line Items.csv", key: rowKey(LINES[1]) } }));
+    await open(`${refreshed}#1`);
+    await back("Model one");
+    expect([page.id("tblSearch").value, page.id("drawerTitle").textContent, page.id("drawer").hidden]).toEqual(["Line item 2", "Line item 2", false]);
+    letLooksKeep();
+    expect(looksKept()).toMatchObject({ tables: { "Line Items.csv": { search: "Line item 2" } }, drawer: { key: expect.stringMatching(/^row:/) } });
+    page.id("drawerClose").press();
+    goTo(2);
+    goTo(1);
+    expect(page.id("tblSearch").value).toBe("Line item 2");
+  });
+
+  it("opens an icon's first result on the Overview even when the tab holds an earlier view", async () => {
+    await openWith(MODEL);
+    goTo(1);
+    page.find('#tableWrap tbody [data-act="row"]').press();
+    letLooksKeep();
+    await open(clicked(42));
+    ports[1].send({ type: "subject", subject: { kind: "model", id: MODEL.id } });
+    sendResult(ports[1], MODEL);
+    expect([page.texts("#view h1"), page.id("drawer").classList.contains("show"), location.hash]).toEqual([["Overview"], false, ""]);
+  });
   /** The model with Source Models too, whose Sources are figures: its filter is a range. */
   const SOURCED: AnalysisResult = { ...MODEL, summary: [...MODEL.summary, "Source Models: 3 rows"], tables: [...MODEL.tables, { file: "Source Models.csv", label: "Source Models",
     headers: ["", "Sources", "Mapped To"], guard: false, rows: [["Model A", "113", "Products"], ["Model B", "10", "Regions"], ["Model C", "9", "Time"]] }] };
@@ -6210,7 +6285,7 @@ describe("How a result was looked at, kept through a refresh of the page until t
     // Only what the page started otherwise is kept, each column by its name.
     expect((looksKept() as { tables: unknown }).tables).toEqual({
       "Line Items.csv": { filters: { Module: { u: ["Cost"] } }, hidden: ["Formula"], sort: { column: "Format", dir: "asc" }, page: 1 },
-      "Source Models.csv": { ranges: { Sources: { from: "10", to: "", blanks: true } } },
+      "Source Models.csv": { search: "model b", ranges: { Sources: { from: "10", to: "", blanks: true } } },
     });
 
     // The page is refreshed, on Source Models, as its address marks: the table comes back as it was left.

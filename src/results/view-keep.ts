@@ -1,11 +1,12 @@
 import type { MapView } from "../map/graph-types.js";
+import type { ResultTable } from "../result-types.js";
 import type { Column } from "./columns.js";
 import { readRange, type RangeState } from "./range-filter.js";
 import { cellText, type Row, type Sort } from "./table-engine.js";
 import { fileLabel } from "./times.js";
 
 /** What a results page keeps of how its result is looked at, so that a refresh of the page shows the result as it was
- * left and not only the result: each table's filters, ranges, columns shown or hidden, order and page; the search and the
+ * left and not only the result: each table's search, filters, ranges, columns shown or hidden, order and page; the
  * jump of the table shown; how many rows a page lists; the way an app's Where Used is shown; where the model map was; and
  * the row whose details were open.
  *
@@ -14,7 +15,7 @@ import { fileLabel } from "./times.js";
  *   storage's, and not this.
  * - Whose: the settings name the result they were made on, by its kind and ID (`subjectOf`). A refreshed page, and a run
  *   again on the same app or model, takes back what still fits its tables. Another app or model starts clean.
- * - By name: a table by its file's name, a column by its label (`columnKeys`), a row by what it holds (`rowKey`). A new run
+ * - By name: a table by its file's name, a column by its label (`columnKeys`), a row by its name and owner (`rowKey`). A new run
  *   whose table has other columns keeps what still applies to the columns it has, and lets the rest go without a word.
  * - Small: the result kept beside it takes most of the room the storage gives, so the settings are kept to a few thousand
  *   characters (`MAX_VIEW_CHARS`). A filter's choice is kept as the shorter of the values ticked and the values left out.
@@ -36,6 +37,7 @@ export type KeptFilter = { t: string[] } | { u: string[] };
 
 /** One table's settings, each column by its key (`columnKeys`). */
 export interface KeptTable {
+  search?: string;
   filters?: Record<string, KeptFilter>;
   /** A range as the user typed its two ends, and whether it keeps the cells that say nothing; for a column of times, the
    * zone its days were set in (range-filter.ts `RangeState`), so that it keeps the same rows in either zone. */
@@ -61,7 +63,8 @@ export interface KeptView {
   pageSize?: number;
   /** Whether an app's Where Used is shown as every use. */
   everyUse?: boolean;
-  /** The search and the jump of the table that was shown, with that table's view: they end with the view, as on the page. */
+  /** The shown table's search and jump in the earlier format. Still read for old tabs, and written for the jump;
+   * each table now keeps its own search in `tables`. */
   search?: { view: string; text: string; context?: string };
   /** Where the model map was, as it last said (graph-types.ts `MapView`). */
   map?: MapView;
@@ -89,10 +92,18 @@ export function columnKeys(columns: readonly Pick<Column, "label">[], zone = "UT
   });
 }
 
-/** A row's key, from what it holds: every cell's text. The same row of the same result has the same key after a refresh,
- * and a row whose cells all stay the same keeps it through a new run. Two rows that hold the same have the same key: the
- * page then reopens neither (`findRow`). A 32-bit hash, FNV-1a, with the number of cells. */
-export function rowKey(row: Row): string {
+/** A row's identity: its table, name and owning module, or list or parent. Values such as a formula, format or count
+ * can change without changing that identity. Repeated uses also name their place. An ambiguous identity reopens no row.
+ * Without a table, reads the old whole-row hash so that settings kept by earlier versions still reopen on refresh. */
+export function rowKey(row: Row, table?: Pick<ResultTable, "file" | "headers">, named = 0): string {
+  if (table) {
+    const at = (names: string[]) => names.map(name => table.headers.indexOf(name)).find(index => index >= 0);
+    const module = at(["Module Name", "Module", "Object's module", "Condition line item's module", "Formatted module", "Driver Module"]);
+    const owner = module ?? at(["List", "List Name", "Parent", "Parent Hierarchy"]);
+    const place = ["App ID", "Page", "Card ID", "Card #", "Section #", "Controlled Module", "Controlled Line Item", "Access", "Section"]
+      .filter(name => table.headers.includes(name)).map(name => [name, cellText(row[table.headers.indexOf(name)])]);
+    return `row:${JSON.stringify([table.file, cellText(row[named]), owner === undefined ? null : [module === undefined ? "parent" : "module", cellText(row[owner])], ...place])}`;
+  }
   let hash = 0x811c9dc5;
   const text = row.map(cellText).join("\u0001");
   for (let at = 0; at < text.length; at++) {
@@ -103,10 +114,10 @@ export function rowKey(row: Row): string {
 }
 
 /** The one row of these with this key, or none where no row has it or more than one does. */
-export function findRow<T extends Row>(rows: readonly T[], key: string): T | undefined {
+export function findRow<T extends Row>(rows: readonly T[], key: string, table?: Pick<ResultTable, "file" | "headers">, named = 0): T | undefined {
   let found: T | undefined;
   for (const row of rows) {
-    if (rowKey(row) !== key) continue;
+    if (rowKey(row, key.startsWith("row:") ? table : undefined, named) !== key) continue;
     if (found) return undefined;
     found = row;
   }
@@ -115,6 +126,7 @@ export function findRow<T extends Row>(rows: readonly T[], key: string): T | und
 
 /** What a table holds that its settings are made of, as the page holds it. */
 export interface TableLooks {
+  search?: string;
   columns: readonly Pick<Column, "index" | "label" | "range" | "hidden">[];
   /** Column -> the values ticked; a column with every value ticked has no entry. */
   filters: ReadonlyMap<number, ReadonlySet<string>>;
@@ -133,6 +145,7 @@ export function keepTable(looks: TableLooks, valuesOf: (column: number) => reado
     return at < 0 ? undefined : keys[at];
   };
   const kept: KeptTable = {};
+  if (looks.search) kept.search = looks.search;
   const filters: Record<string, KeptFilter> = {};
   for (const [index, ticked] of looks.filters) {
     const key = keyOf(index);
@@ -164,6 +177,7 @@ export function keepTable(looks: TableLooks, valuesOf: (column: number) => reado
 
 /** What a table's settings give back: its filters, ranges, hidden columns, order and page, as the page holds them. */
 export interface TakenTable {
+  search: string;
   filters: Map<number, Set<string>>;
   ranges: Map<number, RangeState>;
   hidden: Set<number>;
@@ -207,7 +221,7 @@ export function takeTable(kept: KeptTable, columns: readonly Pick<Column, "index
   }
   const sortColumn = kept.sort && byKey.get(kept.sort.column);
   const sort: Sort | undefined = kept.sort && sortColumn ? { column: sortColumn.index, dir: kept.sort.dir } : undefined;
-  return { filters, ranges, hidden, sort, page: kept.page ?? 0 };
+  return { filters, ranges, hidden, sort, page: kept.page ?? 0, search: kept.search ?? "" };
 }
 
 /* ---------- the storage ---------- */
@@ -226,6 +240,7 @@ const strings = (value: unknown): value is string[] => Array.isArray(value) && v
 function readTable(value: unknown): KeptTable | undefined {
   if (!isRecord(value)) return undefined;
   const table: KeptTable = {};
+  if (typeof value.search === "string") table.search = value.search;
   if (isRecord(value.filters)) {
     const filters: Record<string, KeptFilter> = {};
     for (const [key, filter] of Object.entries(value.filters)) {
