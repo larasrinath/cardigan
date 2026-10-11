@@ -88,7 +88,7 @@ The map shows how a model's groups, modules and line items connect. It is built 
 - Zoom out, Zoom in, Fit, Minimap, Legend and About share the controls row at the bottom left. **About** explains the map and its limits.
 - **Minimap** and **Legend** start open; the legend starts closed on very small maps and is absent when there are no layers. Both keep your open or closed choice for the tab. **Fit** leaves room for the open panels.
 
-![Light Model map grouped by Functional area, with Links open and the bottom-left controls row](docs/images/map-groups.png)
+![Light Model map grouped by Functional area, with the Legend, the minimap and the bottom-left controls row](docs/images/map-groups.png)
 
 ![Dark map of INP01 Sales Overrides line items with page-filter and access-driver links and Legend open](docs/images/map-line-items.png)
 
