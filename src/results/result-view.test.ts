@@ -450,15 +450,15 @@ describe("What the results page reads out of a result", () => {
     expect(shown.table).toEqual(lineItemsView(blueprint, undefined, { lineItemsOnly: true }).table);
     // No module or divider row stands in the page's table.
     expect(shown.table.rows.filter(row => shown.headings?.has(row)).map(row => row[0])).toEqual([]);
-    // The note says what the table lists and where to find module settings.
-    expect(shown.note).toBe("4 line items, each beside its module under Module Name. A module's own settings are in Modules.");
+    // No note is shown when there are no warnings.
+    expect(shown.note).toBeUndefined();
     expect(shown.none).toBeUndefined();
     const bare: ResultTable = { ...blueprint, rows: [blueprint.rows[0], blueprint.rows[4]] };
     const bareModel = result("model", [bare, modules]);
     expect(fileView(bareModel, bare).table.rows).toEqual([]);
-    expect(fileView(bareModel, bare).note).toBe("0 line items, each beside its module under Module Name. A module's own settings are in Modules.");
+    expect(fileView(bareModel, bare).note).toBeUndefined();
     expect(overviewOf(bareModel).tiles.some(tile => tile.label === "Line Items")).toBe(false);
-    expect(fileView(result("model", [blueprint]), blueprint).note).toBe("4 line items, each beside its module under Module Name. A module's own settings are in Modules. The Modules table was not exported, so a row with only a name is taken for a module's row.");
+    expect(fileView(result("model", [blueprint]), blueprint).note).toBe("The Modules table was not exported, so a row with only a name is taken for a module's row.");
     // The file itself is as it was: a model's map is made of it.
     expect([blueprint.rows.length, blueprint.headers, blueprint.rows[1]]).toEqual([7, ["", "Formula", "Applies To", "Module Name"], ["Units", "", "-", "Revenue"]]);
     // The rule is that file's alone, in a model's result. An app's file of that name, a file of another name, and a Line
@@ -649,7 +649,7 @@ describe("What the results page reads out of a result", () => {
     expect(shown.table.rows.map(row => [row[1], row[2]])).toEqual(cases.map(([, workspace, model]) => [workspace, model]));
     // Each cell was read: its text is kept for the row's details, where its IDs and all else it holds can be read.
     expect([...shown.exported ?? []].map(([, texts]) => texts.get(2))).toEqual(cases.map(([fields]) => mapping(fields)));
-    expect(shown.note).toBe(undefined);
+    expect(shown.note).toBeUndefined();
   });
 
   it("leaves a Mapped To that names neither a workspace nor a model as it is, and an empty one empty, and shows a file without a mapping as it stands", () => {
@@ -707,21 +707,21 @@ describe("What the results page reads out of a result", () => {
     expect(shown(among, [modules])).toEqual({
       rows: [["Units", "Revenue", "", "Products, Time", "Module"], ["Price", "", "", "", ""],
         ["Sales", "Revenue", "Units * Price", "Products, Time", "Module"]],
-      note: "3 line items, each beside its module under Module Name. A module's own settings are in Modules. 1 line item has no Module Name: its module is not known.",
+      note: "1 line item has no Module Name: its module is not known.",
       tile: expect.objectContaining({ label: "Line Items", count: 3 }) });
     // And here it is the last row under its module: it is a line item, not a module with nothing under its row.
     const last = grid([["Revenue", "", "Products, Time", ""], ["Units", "", "-", "Revenue"], ["Price", "", "", ""], ["Costs", "", "Regions", ""], ["Rent", "", "-", "Costs"]]);
     expect(shown(last, [modules])).toEqual({
       rows: [["Units", "Revenue", "", "Products, Time", "Module"], ["Price", "", "", "", ""],
         ["Rent", "Costs", "", "Regions", "Module"]],
-      note: "3 line items, each beside its module under Module Name. A module's own settings are in Modules. 1 line item has no Module Name: its module is not known.",
+      note: "1 line item has no Module Name: its module is not known.",
       tile: expect.objectContaining({ label: "Line Items", count: 3 }) });
     // The names are the Modules file's first column, as the file has it: a module the file lists is a module's own row
     // also with nothing under it.
     const listed: ResultTable = { ...modules, rows: [...modules.rows, ["Price", ""]] };
     expect(shown(last, [listed])).toEqual({
       rows: [["Units", "Revenue", "", "Products, Time", "Module"], ["Rent", "Costs", "", "Regions", "Module"]],
-      note: "2 line items, each beside its module under Module Name. A module's own settings are in Modules.",
+      note: undefined,
       tile: expect.objectContaining({ label: "Line Items", count: 2 }) });
     // A name is the Modules file's only as the file writes it: listed with a space before or after it, Price is not the
     // row's name, and the row is a line item, as it is when the file does not list it at all.
@@ -732,8 +732,8 @@ describe("What the results page reads out of a result", () => {
     // module's own, as the view does by itself. The line says that the names could not be checked, and why: Price, of
     // which only the name was read, is among the rows it counts as modules' own.
     expect([shown(last, []).note, shown(last, [{ ...modules, rows: [] }]).note]).toEqual([
-      `2 line items, each beside its module under Module Name. A module's own settings are in Modules. The Modules table was not exported, so a row with only a name is taken for a module's row.`,
-      `2 line items, each beside its module under Module Name. A module's own settings are in Modules. The Modules table lists no modules, so a row with only a name is taken for a module's row.`]);
+      `The Modules table was not exported, so a row with only a name is taken for a module's row.`,
+      `The Modules table lists no modules, so a row with only a name is taken for a module's row.`]);
     expect([shown(last, []).rows, lineItemsView(last).warning]).toEqual([shown(last, [listed]).rows, undefined]);
     expect(shown(among, []).rows).toEqual([["Units", "Revenue", "", "Products, Time", "Module"], ["Sales", "Revenue", "Units * Price", "-", "Module (not found)"]]);
   });
@@ -745,23 +745,23 @@ describe("What the results page reads out of a result", () => {
     const note = (file: ResultTable, ...others: ResultTable[]) => fileView(result("model", [modelDetails, file, ...others]), file).note;
     const whole = grid([["Revenue", "", "Products, Time", ""], ["Units", "", "-", "Revenue"], ["Price", "Units * 2", "Products", "Revenue"]]);
     // The Modules file failed to export: the result has none. The line says so, and what that means for a row with only a name.
-    expect(note(whole)).toBe(`2 line items, each beside its module under Module Name. A module's own settings are in Modules. The Modules table was not exported, so a row with only a name is taken for a module's row.`);
+    expect(note(whole)).toBe(`The Modules table was not exported, so a row with only a name is taken for a module's row.`);
     // The file is there and lists nothing: the table is named as the page names it, and said to list no modules.
-    expect(note(whole, modules([]))).toBe(`2 line items, each beside its module under Module Name. A module's own settings are in Modules. The Modules table lists no modules, so a row with only a name is taken for a module's row.`);
-    expect(note(whole, modules([], "All modules"))).toBe(`2 line items, each beside its module under Module Name. A module's own settings are in Modules. The All modules table lists no modules, so a row with only a name is taken for a module's row.`);
-    // With a Modules table that has rows the names were checked, and nothing is added: also when it does not list this module.
-    expect([note(whole, modules([["Revenue", "Products, Time"]])), note(whole, modules([["Costs", "Regions"]]))]).toEqual(["2 line items, each beside its module under Module Name. A module's own settings are in Modules.", "2 line items, each beside its module under Module Name. A module's own settings are in Modules."]);
+    expect(note(whole, modules([]))).toBe(`The Modules table lists no modules, so a row with only a name is taken for a module's row.`);
+    expect(note(whole, modules([], "All modules"))).toBe(`The All modules table lists no modules, so a row with only a name is taken for a module's row.`);
+    // With a Modules table that has rows the names were checked, so there is no note: also when it does not list this module.
+    expect([note(whole, modules([["Revenue", "Products, Time"]])), note(whole, modules([["Costs", "Regions"]]))]).toEqual([undefined, undefined]);
     // The sentence is the line's last: after the line items whose module is not known.
     const mixed = grid([["Revenue", "", "Products, Time", ""], ["Units", "", "-", "Revenue"], ["Lost", "Units * 2", "-", ""], ["--- Archive ---", "", "", ""]]);
-    expect(note(mixed)).toBe("2 line items, each beside its module under Module Name. A module's own settings are in Modules. 1 line item has no Module Name: its module is not known. The Modules table was not exported, so a row with only a name is taken for a module's row.");
+    expect(note(mixed)).toBe("1 line item has no Module Name: its module is not known. The Modules table was not exported, so a row with only a name is taken for a module's row.");
     // A grid with only modules' own rows lists zero line items and still explains the missing module names.
     const bare = grid([["Revenue", "", "Products, Time", ""], ["Costs", "", "Regions", ""]]);
     const bareShown = fileView(result("model", [bare]), bare);
     expect([bareShown.table.rows.length, bareShown.none, bareShown.note]).toEqual([0, undefined,
-      "0 line items, each beside its module under Module Name. A module's own settings are in Modules. The Modules table was not exported, so a row with only a name is taken for a module's row."]);
-    // A table already holding only line items still has the page's columns and note.
+      "The Modules table was not exported, so a row with only a name is taken for a module's row."]);
+    // A table already holding only line items has no note when there are no warnings.
     const flat = grid([["Units", "", "-", "Revenue"], ["Price", "Units * 2", "Products", "Revenue"]]);
-    expect(fileView(result("model", [flat, modules([["Revenue", "Products"]])]), flat).note).toBe("2 line items, each beside its module under Module Name. A module's own settings are in Modules.");
+    expect(fileView(result("model", [flat, modules([["Revenue", "Products"]])]), flat).note).toBeUndefined();
     expect(fileView(result("app", [appDetails, whole]), whole)).toEqual({ table: whole });
   });
 
@@ -831,7 +831,7 @@ describe("What the results page reads out of a result", () => {
       "Ratio Denominator"], [
       ["Units", "Revenue", "Number", "Number", "Sum", "Products, Time", "Module", "", ""],
       ["Margin %", "Revenue", "Number", "Number", "Ratio = Margin / Units", "Products, Time", "Module", "Margin", "Units"]],
-    "2 line items, each beside its module under Module Name. A module's own settings are in Modules. The Modules table was not exported, so a row with only a name is taken for a module's row."]);
+    "The Modules table was not exported, so a row with only a name is taken for a module's row."]);
     // What is kept is by the shown table's rows and columns: Format stands third there, and second in the file; Summary
     // stands after the format's data type, which is no definition and is not said again.
     expect([...shown.exported ?? []].map(([row, texts]) => [shown.table.rows.findIndex(candidate => candidate === row), [...texts]]))
