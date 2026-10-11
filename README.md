@@ -172,7 +172,7 @@ Use Cardigan only on models and apps you are allowed to read. [NOTICE.md](NOTICE
 - Only published page definitions you can access are read. App Usage needs the model open through Model Building; the Overview reports pages or tables that could not be read.
 - Reading page references can cause Anaplan to load the models they use.
 - Saved views' own filters, sorts and hidden items are not listed. Some names may remain as IDs when they cannot be read.
-- File-import mappings name targets and constants from this model's client and existing reads, including Time periods from the Model Calendar's choices. Unknown names stay as IDs, with a diagnostic. Stored hand mappings list each header and its line item; more than 15 fold under Show all. Headers matched by name or code when the import runs and columns absent from the saved definition are not stored or listed. Other import types have no Mapping panel.
+- File-import mappings name targets and constants, Time periods included, from the model itself. A line item an import still maps to that the model doesn't have shows as Missing line item; other unknown names stay as IDs. Headers matched by name or code when the import runs, and columns not in the saved definition, aren't listed. Other import types have no Mapping panel.
 - The map does not evaluate formulas or draw processes and actions. **About** explains what it could not place.
 - Very large tables may not be read, and large results may not fit in session storage; the page says so. Map zoom, position, search and full screen may reset on refresh.
 - Anaplan's internal services can change without notice, so results may become incomplete or stop working.
