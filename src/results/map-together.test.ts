@@ -433,9 +433,9 @@ describe("A model's result on the results page, with the map's real graph and th
     // modules they read and feed beside them.
     expect([where(), text(".map-kind"), text(".map-insp-name"), part(".map-inspector").hidden]).toEqual([["Model one", "02 Calculations", REVENUE], "LINE ITEM", "Margin %", false]);
     expect(written()).toEqual(expect.arrayContaining(["Revenue", "Cost", "Margin", "Margin %", "Volumes", "Prices", "Summary"]));
-    // Beside a selection the bar of what is traced stands where the line of what is shown stood. Margin and Revenue feed
+    // Beside a selection the line of what is shown stays where it stands, and the bar of what is traced has its own place. Margin and Revenue feed
     // it, Cost feeds Margin, and the two input modules feed those: five boxes. Nothing reads it.
-    expect([shownStatus(), traced()]).toEqual([undefined, [expect.stringMatching(/^5 boxes\b/), "Margin %", expect.stringMatching(/\b0 boxes$/)]]);
+    expect([shownStatus(), traced()]).toEqual(["4 line items · 3 outside the module · 10 links", [expect.stringMatching(/^5 boxes\b/), "Margin %", expect.stringMatching(/\b0 boxes$/)]]);
     // Its formula as the file has it, and its settings under the names of the table's columns: the module it is in, and
     // its Format and Summary in the very words the page's table has for them.
     const said = settings();
@@ -535,7 +535,8 @@ describe("A model's result on the results page, with the map's real graph and th
     // read again: its map opens where this tab left the model's map, the module's line items, and its Modules view lists
     // every module.
     expect(where()).toEqual(["Model two", "02 Calculations", REVENUE]);
-    expect([root.isConnected, part(".map-inspector").hidden, part(".map-search").value]).toEqual([false, true, ""]);
+    // The box that was selected is selected again in the new result's map, with its details open.
+    expect([root.isConnected, part(".map-inspector").hidden, part(".map-search").value]).toEqual([false, false, ""]);
     part('[data-map-act="group-home"]').press();
     chooseGroup("modules");
     around.shows();

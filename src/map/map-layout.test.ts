@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { moduleGraph, modulesGraph, sectionsGraph, type ViewGraph, type ViewNode } from "./map-graphs.js";
+import { drawLinks, moduleGraph, modulesGraph, sectionsGraph, type ViewGraph, type ViewNode } from "./map-graphs.js";
 import { boundsOf, CARD, components, FIT_ZOOM, FULL_CARD_ZOOM, hasSmallLine, ITEM, layoutGraph, sizeNodes, type Room } from "./map-layout.js";
 import { indexModel } from "./map-model.js";
 import { GraphMaker, HALF_EM, lineFilteredModel } from "./map-fakes.test-support.js";
@@ -33,6 +33,32 @@ const columnsOf = (graph: ViewGraph): number[] => [...new Set(graph.nodes.map(no
 const at = (graph: ViewGraph, name: string): ViewNode => graph.nodes.find(node => node.fullName === name)!;
 const overlap = (a: ViewNode, b: ViewNode): boolean => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 const anyOverlap = (graph: ViewGraph): boolean => graph.nodes.some((node, index) => graph.nodes.slice(index + 1).some(other => overlap(node, other)));
+
+it.each(["groups", "modules", "items"])("uses only formulas to place %s, even when overlays close a circle or add neighbours", level => {
+  const make = new GraphMaker();
+  const home = make.module("Work", "Work");
+  const a = make.item(home, "A");
+  const b = make.item(home, "B");
+  const c = make.item(make.module("Outside", "Outside"), "C");
+  const d = make.item(make.module("Access only", "Access"), "D");
+  const e = make.item(make.module("Filter only", "Filters"), "E");
+  make.link(a, b).link(b, c).link(c, a, "write_access").link(b, a, "page_filter")
+    .link(d, b, "read_access").link(e, b, "page_filter").link(a, b, "write_access");
+  const model = indexModel(make.graph());
+  const view = (access: boolean, filters: boolean) => level === "groups" ? sectionsGraph(model, access, filters)
+    : level === "modules" ? modulesGraph(model, "Work", access, filters) : moduleGraph(model, home, false, access, filters);
+  const complete = view(true, true);
+  let expected: unknown;
+  for (const access of [false, true]) for (const filters of [false, true]) for (const formulas of [false, true]) {
+    const graph = drawLinks(complete, view(access, filters), formulas);
+    sizeNodes(graph, HALF_EM, HALF_EM);
+    layoutGraph(graph, [WIDE]);
+    const places = graph.nodes.map(node => [node.id, node.x, node.y, node.w, node.h]);
+    expected ??= places;
+    expect(places).toEqual(expected);
+    expect(anyOverlap(graph)).toBe(false);
+  }
+});
 
 describe("The circles of a graph", () => {
   it("puts nodes that reach each other in one circle, and every other node in one of its own", () => {
@@ -280,7 +306,7 @@ describe("Where the map's nodes stand", () => {
     expect(order).toEqual([`external${source}`, String(first), String(second), `external${target}`, String(lone)]);
   });
 
-  it("places a module's line items by what their formulas read, and one that only a filter links after the line item that filters it", () => {
+  it("places every line item by formulas alone, including those only a filter links", () => {
     // Incomplete Records reads Missing Name, which reads Name, and filters a grid that shows both: counted, that link
     // would close a circle and fold the three into one column.
     const { graph, cust, heading, name, code, missingName, incomplete, missing } = lineFilteredModel();
@@ -295,15 +321,15 @@ describe("Where the map's nodes stand", () => {
     // The line items that formulas link keep their columns, in the order of what they read.
     for (const id of [name, missingName, incomplete]) expect(x(filtered, id)).toBe(x(plain, id));
     expect([x(filtered, name) < x(filtered, missingName), x(filtered, missingName) < x(filtered, incomplete)]).toEqual([true, true]);
-    // Code and Missing DisplayName, which no formula links, stand at the end with the heading where the filters are not
-    // drawn, and after Incomplete Records, which filters them, where they are: no longer beyond what nothing links.
+    // Items with no formulas stay in the same column as the heading, even when a page filter links them.
     expect([x(plain, code), x(plain, missing)]).toEqual([x(plain, heading), x(plain, heading)]);
-    expect([x(filtered, code) > x(filtered, incomplete), x(filtered, missing) > x(filtered, incomplete), x(filtered, code) < x(filtered, heading)]).toEqual([true, true, true]);
-    // Among modules, where a filter is one link between two boxes, it still counts, as it did.
+    for (const id of [name, code, missingName, incomplete, missing, heading]) expect(filtered.get(String(id))).toEqual(plain.get(String(id)));
+    // Filters do not order modules either.
     const modules = modulesGraph(model, undefined, false, true);
     layoutGraph(modules, [WIDE]);
-    const from = (named: string): number => modules.nodes.find(node => node.fullName === named)!.x;
-    expect(from("FLT01 - Filters")).toBeLessThan(from("REP01 - Report"));
+    const without = modulesGraph(model, undefined, false, false);
+    layoutGraph(without, [WIDE]);
+    expect(modules.nodes.map(node => [node.x, node.y])).toEqual(without.nodes.map(node => [node.x, node.y]));
   });
 
   it("keeps boxes of different heights the same distance apart in a column", () => {
