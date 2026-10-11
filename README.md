@@ -33,25 +33,30 @@ Open the model in **Model Building**. The **Overview** shows table counts, the m
 
 The menu bar groups the model's tables:
 
-| Menu | Table | What it shows |
-| --- | --- | --- |
-| Dimensions | Model Calendar | The model's calendar settings. |
-| Dimensions | Time Ranges | The model's time ranges. |
-| Dimensions | Versions | Versions and their settings. |
-| Dimensions | General Lists | Lists, hierarchies, properties and subsets. |
-| Dimensions | Line Item Subsets | Subsets, their modules and member counts. |
-| Modules | Modules | Modules, dimensions, functional areas and settings. |
-| Modules | Line Items | Line items, formulas, formats and dimensions. |
-| Modules | DCA (Dynamic Cell Access) | Read and write access drivers and what they control. |
-| Actions | Processes | Processes and their actions. |
-| Actions | Imports | Sources, targets and import settings. |
-| Actions | Data Sources | Import sources and the imports that use them. |
-| Actions | Exports | Export actions and their settings. |
-| Actions | Other Actions | Other model actions, such as deleting or ordering list items. |
-| Source Models | Source Models | Source model mappings and their sources and imports. |
-| App Usage | Module Usage | Where published pages use the model's modules. |
-| App Usage | Page Filters | Card filters on pages built on the model. |
-| App Usage | Page Actions | Action buttons on pages built on the model. |
+<table>
+  <thead>
+    <tr><th>Menu</th><th>Table</th><th>What it shows</th></tr>
+  </thead>
+  <tbody>
+    <tr><td rowspan="5"><b>Dimensions</b></td><td>Model Calendar</td><td>The model's calendar settings.</td></tr>
+    <tr><td>Time Ranges</td><td>The model's time ranges.</td></tr>
+    <tr><td>Versions</td><td>Versions and their settings.</td></tr>
+    <tr><td>General Lists</td><td>Lists, hierarchies, properties and subsets.</td></tr>
+    <tr><td>Line Item Subsets</td><td>Subsets, their modules and member counts.</td></tr>
+    <tr><td rowspan="3"><b>Modules</b></td><td>Modules</td><td>Modules, dimensions, functional areas and settings.</td></tr>
+    <tr><td>Line Items</td><td>Line items, formulas, formats and dimensions.</td></tr>
+    <tr><td>DCA (Dynamic Cell Access)</td><td>Read and write access drivers and what they control.</td></tr>
+    <tr><td rowspan="5"><b>Actions</b></td><td>Processes</td><td>Processes and their actions.</td></tr>
+    <tr><td>Imports</td><td>Sources, targets and import settings.</td></tr>
+    <tr><td>Data Sources</td><td>Import sources and the imports that use them.</td></tr>
+    <tr><td>Exports</td><td>Export actions and their settings.</td></tr>
+    <tr><td>Other Actions</td><td>Other model actions, such as deleting or ordering list items.</td></tr>
+    <tr><td><b>Source Models</b></td><td>Source Models</td><td>Source model mappings and their sources and imports.</td></tr>
+    <tr><td rowspan="3"><b>App Usage</b></td><td>Module Usage</td><td>Where published pages use the model's modules.</td></tr>
+    <tr><td>Page Filters</td><td>Card filters on pages built on the model.</td></tr>
+    <tr><td>Page Actions</td><td>Action buttons on pages built on the model.</td></tr>
+  </tbody>
+</table>
 
 **Line Items** lists each line item beside its module. Module settings have their own table, **Modules**. Use **Format type** to filter by data type; untick **No Data** to leave out line items used as headings. Open a row to read its formula, dimensions and references in full.
 
