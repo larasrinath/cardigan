@@ -668,12 +668,21 @@ export function tableParts(view: TableView): TableParts {
   };
 }
 
-/** A table view whole: its name, its toolbar, and the table's box under it, with the parts above in their places. The
- * toolbar holds the search box and the Columns and Reset buttons, and at its right end the count and then the pager, which
- * is its last child: nothing stands under the table. A table that can be shown in more than one way has the switch
- * between them at the toolbar's head: a button for each way, which says whether it is the one shown (aria-pressed), and
- * the one shown is also the filled one. Where a jump keeps the table to one page's cards, that page stands next, before
- * the search box, as a chip with the button that clears it: the same filter as the search and Reset, beside them. */
+/** The column chooser's button, at the right end of the search box: the lines the Columns button had, named in words. */
+const COLUMNS_ICON = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"/></svg>';
+
+/** What the search box says of itself where its placeholder is gone: what it looks in, and the key that reaches it. */
+export const SEARCH_TITLE = "Search all columns. Press / to jump here.";
+
+/** A table view whole: its head, the line under its name where it has one, and the table's box, with the parts above in
+ * their places. The head is one row, the table's name and then its toolbar: the toolbar holds the search box, with the
+ * column chooser's button inside it at its right end, then Reset, and at the toolbar's right end the count and the pager,
+ * one group that is the toolbar's last child: nothing stands under the table. Where the row has no room, the name takes a
+ * line of its own first, and the group goes under the search box only after that (results.css). A table that can be shown
+ * in more than one way has the switch between them at the toolbar's head: a button for each way, which says whether it is
+ * the one shown (aria-pressed), and the one shown is also the filled one. Where a jump keeps the table to one page's
+ * cards, that page stands next, before the search box, as a chip with the button that clears it: the same filter as the
+ * search and Reset, beside them. The search box has no key drawn in it: its title and `aria-keyshortcuts` say that / reaches it. */
 export function tableHtml(view: TableView): string {
   const label = esc(view.label);
   const parts = tableParts(view);
@@ -689,22 +698,24 @@ export function tableHtml(view: TableView): string {
   const note = view.note === undefined ? "" : `
     <p class="view-note">${esc(view.note)}</p>`;
   return `
-    <h1 class="view-title">${label}</h1>${note}
-    <div class="toolbar">${ways}${context}
-      <div class="search-wrap ${view.search ? "has-value" : ""}" id="searchWrap">
-        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">${SEARCH_PATH}</svg>
-        <input id="tblSearch" type="search" value="${esc(view.search)}" placeholder="Search all columns…" aria-label="Search ${label}">
-        <button type="button" class="search-clear" data-act="clear-search" aria-label="Clear search">
-          ${CLOSE_ICON}</button>
-        <kbd title="Press / to focus search">/</kbd>
+    <div class="view-head">
+      <h1 class="view-title">${label}</h1>
+      <div class="toolbar">${ways}${context}
+        <div class="search-wrap ${view.search ? "has-value" : ""}" id="searchWrap">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">${SEARCH_PATH}</svg>
+          <input id="tblSearch" type="search" value="${esc(view.search)}" placeholder="Search all columns…" aria-label="Search ${label}" title="${SEARCH_TITLE}" aria-keyshortcuts="/">
+          <button type="button" class="search-clear" data-act="clear-search" aria-label="Clear search">
+            ${CLOSE_ICON}</button>
+          <button type="button" class="search-cols" id="colBtn" aria-haspopup="dialog" aria-expanded="false" aria-label="Show or hide columns" title="Show or hide columns">
+            ${COLUMNS_ICON}</button>
+        </div>
+        <button type="button" class="btn sm" data-act="reset" id="resetBtn" ${parts.modified ? "" : "hidden"}>Reset</button>
+        <div class="tb-end" id="rowsNav">
+          <span class="rowcount" id="rowCount">${esc(parts.count)}</span>
+          <div class="pager" id="pager">${parts.pager}</div>
+        </div>
       </div>
-      <button type="button" class="btn sm" id="colBtn" aria-haspopup="dialog" aria-expanded="false">
-        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"/></svg>
-        Columns</button>
-      <button type="button" class="btn sm" data-act="reset" id="resetBtn" ${parts.modified ? "" : "hidden"}>Reset</button>
-      <span class="rowcount" id="rowCount">${esc(parts.count)}</span>
-      <div class="pager" id="pager">${parts.pager}</div>
-    </div>
+    </div>${note}
     <div class="table-wrap" id="tableWrap" tabindex="0" role="region" aria-label="${label} table">
       ${parts.grid}
     </div>`;

@@ -2298,7 +2298,7 @@ describe("What a click, a key and typing do on the results page", () => {
     expect(jumped()).toEqual(copies);
     // The page stands as a chip at the head of the table's toolbar, before the search box, with the button that clears it.
     expect([page.find(".toolbar").children.map(child => child.id), page.find('#pageFilter [data-act="clear-context"]').getAttribute("aria-label")])
-      .toEqual([["pageFilter", "searchWrap", "colBtn", "resetBtn", "rowCount", "pager"], "Clear page filter"]);
+      .toEqual([["pageFilter", "searchWrap", "resetBtn", "rowsNav"], "Clear page filter"]);
     // Pages: its second.
     goTo(1);
     page.all('#tableWrap tbody [data-act="page"]')[0].press();
@@ -2451,8 +2451,9 @@ describe("What a click, a key and typing do on the results page", () => {
     await openWith(MODEL);
     goTo(1);
     /** What the view holds, in order, and what the toolbar holds: each element by its ID, or its kind. */
-    const places = () => [page.id("view").children.map(child => child.id || child.localName), page.find(".toolbar").children.map(child => child.id)];
-    const expected = [["h1", "div", "tableWrap"], ["searchWrap", "colBtn", "resetBtn", "rowCount", "pager"]];
+    const places = () => [page.id("view").children.map(child => child.id || child.localName), page.find(".view-head").children.map(child => child.localName),
+      page.find(".toolbar").children.map(child => child.id), page.id("rowsNav").children.map(child => child.id)];
+    const expected = [["div", "tableWrap"], ["h1", "div"], ["searchWrap", "resetBtn", "rowsNav"], ["rowCount", "pager"]];
     expect(places()).toEqual(expected);
     expect([page.id("rowCount").textContent, pagerButtons().join(" "), page.id("pager").contains(page.id("pageSize")), page.id("pageSize").value]).toEqual(["1–50 of 120 rows", "(Previous) Next", true, "50"]);
     // A page turn, another number of rows per page and a search draw the pager again, where it stands.
@@ -2714,7 +2715,7 @@ describe("An app's Where Used table, by object and by use", () => {
     goTo(3);
     // The switch stands at the head of the toolbar, with By object shown: said to assistive technology, and filled.
     expect([page.find(".toolbar").children.map(child => child.id), page.id("tableWays").getAttribute("role"), page.id("tableWays").getAttribute("aria-label"), ways()])
-      .toEqual([["tableWays", "searchWrap", "colBtn", "resetBtn", "rowCount", "pager"], "group", "How Where Used is listed", ["By object (shown) filled", "Every use"]]);
+      .toEqual([["tableWays", "searchWrap", "resetBtn", "rowsNav"], "group", "How Where Used is listed", ["By object (shown) filled", "Every use"]]);
     expect(page.all("#tableWays button").every(button => button.localName === "button" && button.focusable)).toBe(true);
     // One row an object, in the order of an index: by type, then by name. The ID is there to choose, as in the file's own table.
     expect(headings()).toEqual(["Object type", "Object name", "Object's module", "Pages", "Cards", "Used as"]);
@@ -2959,7 +2960,7 @@ describe("An app's Where Used table, by object and by use", () => {
     await openWith(APP);
     goTo(4);
     expect([page.has("#tableWays"), page.find(".toolbar").children.map(child => child.id), page.all("#view .view-note").length, page.id("rowCount").textContent,
-      page.all('#tableWrap tbody [data-act="page"]').length]).toEqual([false, ["searchWrap", "colBtn", "resetBtn", "rowCount", "pager"], 0, "1–2 of 2 rows", 2]);
+      page.all('#tableWrap tbody [data-act="page"]').length]).toEqual([false, ["searchWrap", "resetBtn", "rowsNav"], 0, "1–2 of 2 rows", 2]);
     page.all('#tableWrap tbody [data-act="row"]')[0].press();
     expect(page.texts("#drawerBody h3")).toEqual(["All columns"]);
     page.key("Escape");

@@ -160,7 +160,6 @@
 .map-search{flex:1;width:0;min-width:0;padding:0;border:0;background:none;color:var(--text);font-size:12.5px}
 .map-root .map-search:focus-visible{outline:none}
 .map-search-count{font-family:var(--mono);font-size:11px;color:var(--text-2)}
-.map-searchbox kbd{font-family:var(--mono);font-size:10.5px;color:var(--text-3);border:1px solid var(--border);border-bottom-width:2px;border-radius:4px;padding:0 5px;background:var(--panel-2)}
 /* The results hang under the search box, over whatever is there, and are never wider or higher than the map. */
 .map-results{
   position:absolute;right:0;top:calc(100% + 8px);width:370px;max-width:calc(100cqw - 24px);max-height:min(62cqh,460px);
