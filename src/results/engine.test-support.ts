@@ -387,7 +387,7 @@ export function modelPage(grids: Record<string, FakeGrid> = GOLDEN_GRIDS) {
       dataPages: [{ startRow, rows: slice.map(entry => entry.cells) }] }] } }));
     return true;
   } };
-  const cache = { getModelName: () => "Demand: plan", getWorkspaceInfo: () => ({ name: "Workspace one" }), getAllCurrenciesLabelPage: () => undefined,
+  const cache = { getModelName: () => "Demand: plan", getAllCurrenciesLabelPage: () => undefined,
     getActionInfo: (id: number) => (Math.floor(id / 1e9) === 31 ? null : { id }), getTimescaleInfo: () => ({ calendarTypeEntityIndex: 3 }),
     getApplicationPropertyEnabledOrNotSet: () => true };
   const helper = { getAxesForViewDefinition: (rowAxes: string[], columnAxes: string[]) => ({ rowAxis: rowAxes[0], columnAxis: columnAxes[0] }) };
@@ -397,7 +397,7 @@ export function modelPage(grids: Record<string, FakeGrid> = GOLDEN_GRIDS) {
     getActionSystemAxisIdentifier: () => "ACTION PROPERTIES" };
   class RequestGenerator { getRequest(params: unknown) { return { requestType: "VIEW_REQUEST_SET", submissions: [], systemActions: [], params }; } }
   class DataPage extends FakeDataPage { constructor({ page: data }: { page: { startRow: number; rows: string[][] } }) { super(data); } }
-  page.window = { workspaceId: WS, modelId: MODEL,
+  page.window = { workspaceId: WS, workspaceName: "Workspace one", modelId: MODEL,
     require: (_modules: string[], loaded: (...modules: unknown[]) => void) =>
       loaded(cache, aggregator, helper, { getEntityTypeIndex: (id: number) => Math.floor(id / 1e9) }, constants, RequestGenerator, DataPage, axisHelper) };
   return page;

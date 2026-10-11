@@ -18,7 +18,7 @@ Cardigan (a Chrome extension, called Anaplan Analyzer up to version 0.6.0) is an
 
 ## Requests to Anaplan
 
-Cardigan reads the engine from the loaded model page's `engineCache.getWorkspaceInfo().dataEngineType` and sends it with the frame's check-in, before reading settings or pages. Only that getter is called on the cache; the engine check makes no request. Both Classic and Polaris models are read in full through Model Building's Classic client. Only when no Classic frame answers within the wait does Cardigan use the partial reader without it, with the engine unknown. The Overview explains that read and its limits. A failed client read does not start another reader.
+Cardigan reads the engine from the export's Line Items columns, with no separate client cache read or request. Populated Cell Count or Calculation Complexity means Polaris; otherwise Classic. Both Classic and Polaris models are read in full through Model Building's Classic client. Only when no Classic frame answers within the wait does Cardigan use the partial reader without it, with the engine unknown. The Overview explains that read and its limits. A failed client read does not start another reader.
 
 All of these are read-only, using your signed-in session. Braced words stand for the IDs in the app, model or page being read. No request goes to a Cardigan server, and Cardigan asks no AI model anything: from the Anaplan service named `llm-data-service` it only reads a Polaris model's metadata with the GETs listed below. The returned data stays in your browser.
 

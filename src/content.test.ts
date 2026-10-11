@@ -41,7 +41,7 @@ const untouchable = () => new Proxy({}, {
 
 /** Compare the existing Classic export and progress separately from the new engine diagnostics. */
 const classicMessages = (port: FakePort) => port.received.filter(message => !("text" in message && typeof message.text === "string"
-  && /Engine:|Engine cross-check:|Classic reader:/.test(message.text)));
+  && /Engine:|Classic reader:/.test(message.text)));
 const classicResult = (port: FakePort) => {
   const result = assemble(port.received);
   if (result) for (const table of result.tables) if (table.details) table.rows = table.rows.filter(row => !(row[0] === "Diagnostics" && String(row[2]).startsWith("Engine:")));
@@ -105,7 +105,12 @@ describe("The content scripts on an Anaplan page", () => {
     expect(posted).toEqual([]);
   });
 
-  it.each(["HYPERBLOCK", "CALCULATION_ENGINE", undefined])("waits for the loaded client's engine after check-in, even when the frame arrives late: %s", async dataEngineType => {
+  it.each([
+    { columns: ["Cell Count"], polaris: false },
+    { columns: ["Populated Cell Count"], polaris: true },
+    { columns: ["Calculation Complexity"], polaris: true },
+    { columns: ["Populated Cell Count", "Calculation Complexity"], polaris: true },
+  ])("uses the full export's columns $columns even when the frame arrives late", async ({ columns, polaris }) => {
     at(`/a/modeling/customers/${WS}/workspaces/${WS}/models/${MODEL}`);
     const service = goldenApp();
     service.answer = path => path.endsWith("/pages") ? new Response("[]") : undefined;
@@ -122,17 +127,12 @@ describe("The content scripts on an Anaplan page", () => {
     expect(service.sockets).toEqual([]);
     hear({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD, engineAfterLoad: true }, CORE, frame);
     await vi.advanceTimersByTimeAsync(1000);
-    expect(frame.asked.map(message => message.type)).toEqual(["ack", "engine"]);
+    expect(frame.asked.map(message => message.type)).toEqual(["ack", "run"]);
     expect(port.received.filter(message => message.type === "log" && message.text.includes("Engine:"))).toEqual([]);
-    expect(service.reads).toEqual([]);
-    hear({ ...RUN, type: "engine", nonce: frame.asked[1].nonce, dataEngineType }, CORE, frame);
-    await vi.advanceTimersByTimeAsync(0);
-    expect(frame.asked.map(message => message.type)).toEqual(["ack", "engine", "run"]);
-    const decision = dataEngineType === "CALCULATION_ENGINE" ? "Engine: Polaris (dataEngineType CALCULATION_ENGINE)"
-      : dataEngineType === "HYPERBLOCK" ? "Engine: Classic (dataEngineType HYPERBLOCK)" : "Engine: unknown (dataEngineType missing or unrecognized)";
-    expect(port.received.filter(message => message.type === "log" && message.text.includes("Engine:")))
-      .toEqual([{ type: "log", text: expect.stringContaining(decision) }]);
-    hear({ ...RUN, type: "done", nonce: frame.asked[2].nonce, result: exportedModel() }, CORE, frame);
+    const decision = `Engine: ${polaris ? "Polaris" : "Classic"} (from the Line Items columns)`;
+    const sent = exportedModel();
+    sent.tables.push({ file: "Line Items.csv", label: "Line Items", headers: ["Name", ...columns], rows: [], guard: false });
+    hear({ ...RUN, type: "done", nonce: frame.asked[1].nonce, result: sent }, CORE, frame);
     await vi.advanceTimersByTimeAsync(1000);
     expect(port.received.at(-1)?.type).toBe("done");
     const result = assemble(port.received)!;
@@ -143,7 +143,7 @@ describe("The content scripts on an Anaplan page", () => {
     expect(port.received.filter(message => message.type === "log" && message.text.includes("Engine:"))).toHaveLength(1);
     expect(result.tables[0].rows.filter(row => row[0] === "Diagnostics" && String(row[2]).startsWith("Engine:"))).toEqual([["Diagnostics", "02:01:00", decision]]);
     const note = "Polaris model, read in full through Model Building.";
-    expect(overviewOf(result).notes.filter(line => line === note)).toEqual(dataEngineType === "CALCULATION_ENGINE" ? [note] : []);
+    expect(overviewOf(result).notes.filter(line => line === note)).toEqual(polaris ? [note] : []);
     expect(overviewOf(result).about).toEqual([...overviewOf(exportedModel()).about, ["Apps", "No app's pages use this model"]]);
     expect(service.reads.some(path => path.includes("springboard-platform-gateway-service"))).toBe(false);
     expect(port.received).toContainEqual({ type: "log", text: expect.stringContaining("Classic reader: answered; starting model settings") });
@@ -175,7 +175,7 @@ describe("The content scripts on an Anaplan page", () => {
     expect(result.summary[0]).toBe(note);
     expect(overviewOf(result).notes.filter(line => line === note)).toEqual([note]);
     expect(result.tables[0].rows).toContainEqual(["Notes", "Classic client", note]);
-    expect(result.tables[0].rows).toContainEqual(["Diagnostics", "02:01:09", "Engine: unknown (dataEngineType missing or unrecognized)"]);
+    expect(result.tables[0].rows).toContainEqual(["Diagnostics", "02:01:09", "Engine: unknown (no Classic client)"]);
     expect(result.tables[0].rows).toContainEqual(["Diagnostics", "02:01:09", "Classic reader: no frame answered within the wait; reading a partial result without it"]);
     expect(service.reads.filter(path => path.includes("springboard-platform-gateway-service"))).toEqual([
       `/a/springboard-platform-gateway-service/customers/${WS}/workspaces/${WS}/models/${MODEL}`,
@@ -187,7 +187,7 @@ describe("The content scripts on an Anaplan page", () => {
     expect(posted).toEqual([]);
   });
 
-  it("reports one column disagreement while keeping the up-front decision and full reader", async () => {
+  it("ignores engine claims from check-ins and uses only the exported Line Items columns", async () => {
     at(`/a/modeling/workspaces/${WS}/models/${MODEL}`);
     await import("./content.js");
     const frame = { asked: [] as { type: string; nonce?: string }[], postMessage(message: { type: string; nonce?: string }) { this.asked.push(message); } };
@@ -195,20 +195,17 @@ describe("The content scripts on an Anaplan page", () => {
     const port = open();
     port.say({ type: "run" });
     await vi.advanceTimersByTimeAsync(0);
-    // A later check-in cannot replace the decision of the running read.
+    // Neither check-in supplies the engine decision.
     hear({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD, dataEngineType: "CALCULATION_ENGINE" }, CORE, frame);
     const sent = exportedModel();
     sent.tables.push({ file: "Line Items.csv", label: "Line Items", headers: ["", "Populated Cell Count", "Calculation Complexity"], rows: [["Units", "1", "1"]], guard: false });
     hear({ ...RUN, type: "done", nonce: frame.asked[1].nonce, result: sent }, CORE, frame);
     await vi.advanceTimersByTimeAsync(0);
     const result = assemble(port.received)!;
-    const crossCheck = "Engine cross-check: Polaris-only Line Items columns disagree with dataEngineType HYPERBLOCK (Classic).";
-    expect(port.received.filter(message => message.type === "log" && message.text.includes("Engine cross-check:")))
-      .toEqual([{ type: "log", text: expect.stringContaining(crossCheck) }]);
+    expect(port.received.filter(message => message.type === "log" && message.text.includes("Engine cross-check:"))).toEqual([]);
     expect(result.tables[0].rows.filter(row => row[0] === "Diagnostics" && String(row[2]).startsWith("Engine:")))
-      .toEqual([["Diagnostics", "01:59:09", "Engine: Classic (dataEngineType HYPERBLOCK)"]]);
-    expect(result.tables[0].rows).toContainEqual(["Diagnostics", "01:59:09", crossCheck]);
-    expect(overviewOf(result).notes).not.toContain("Polaris model, read in full through Model Building.");
+      .toEqual([["Diagnostics", "01:59:09", "Engine: Polaris (from the Line Items columns)"]]);
+    expect(overviewOf(result).notes).toContain("Polaris model, read in full through Model Building.");
     expect(result.engine).toBeUndefined();
     expect(fetch).not.toHaveBeenCalled();
     expect(WebSocket).not.toHaveBeenCalled();
@@ -687,7 +684,7 @@ describe("The content scripts on an Anaplan page", () => {
     at("/core-webapp/anaplan/framework.jsp", "eu2a.app.anaplan.com");
     await import("./model-content.js");
     vi.advanceTimersByTime(1000);
-    expect(top.posted).toContainEqual({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD, engineAfterLoad: true });
+    expect(top.posted).toContainEqual({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD });
     expect(connect).toBeUndefined();
   });
 
@@ -699,7 +696,7 @@ describe("The content scripts on an Anaplan page", () => {
     Object.assign(page, { top, require, modelId: MODEL, workspaceId: WS });
     await import("./model-content.js");
     vi.advanceTimersByTime(1000);
-    expect(top.postMessage).toHaveBeenCalledWith({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD, engineAfterLoad: true }, "*");
+    expect(top.postMessage).toHaveBeenCalledWith({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD }, "*");
     expect(require).not.toHaveBeenCalled();
     expect(getWorkspaceInfo).not.toHaveBeenCalled();
     expect(fetch).not.toHaveBeenCalled();
@@ -715,9 +712,56 @@ describe("The content scripts on an Anaplan page", () => {
       loader: "undefined", model: "undefined", workspace: "undefined" } }]);
     Object.assign(page, { require: () => undefined, modelId: MODEL, workspaceId: WS });
     vi.advanceTimersByTime(1000);
-    expect(posted).toContainEqual({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD, engineAfterLoad: true });
+    expect(posted).toContainEqual({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD });
     // A diagnostic greeting listener and the reader that serves this window.
     expect(listeners).toHaveLength(2);
+  });
+
+  it.each(["throws", "poisons"])("completes a run without a workspace cache getter that %s the client state", async failure => {
+    at("/core-webapp/anaplan/framework.jsp", "eu2a.app.anaplan.com");
+    let broken = false;
+    const crash = () => new TypeError("Cannot read properties of undefined (reading 'modelSummaries')");
+    const getWorkspaceInfo = vi.fn(() => {
+      broken = true;
+      if (failure === "throws") throw crash();
+      return {};
+    });
+    const cache = { getWorkspaceInfo, getModelName: () => { if (broken) throw crash(); return "Practice plan"; } };
+    const answer = { rowCount: 1, columnCount: 1, rowLabelPages: [{ start: 0, count: 1, entityLongIds: [[107000000001]], labels: [["Actual"]] }],
+      columnLabelPages: [{ start: 0, count: 1, entityLongIds: [[4000000301]], labels: [["Is Actual"]] }], dataPages: [{}] };
+    const post = vi.fn((_request: unknown, _flag: boolean, ok: (response: unknown) => boolean) => {
+      if (broken) throw crash();
+      queueMicrotask(() => ok({ result: { viewRequestResults: [answer] } }));
+    });
+    const helper = { getAxesForViewDefinition: () => ({}) };
+    const constants = { SYSTEM_AXIS_IDENTIFIER_VERSION_ALL_IDENTIFIER: "VERSIONS", SYSTEM_AXIS_IDENTIFIER_VERSION_PROPERTY_IDENTIFIER: "VERSION PROPERTIES" };
+    class RequestGenerator { getRequest() { return { requestType: "VIEW_REQUEST_SET", submissions: [], systemActions: [] }; } }
+    class DataPage { contains() { return true; } getIndex() { return 0; } getCellText() { return "true"; } getOriginalText() { return "true"; } }
+    const require = vi.fn((_modules: string[], loaded: (...modules: unknown[]) => void) => {
+      queueMicrotask(() => loaded(cache, { post }, helper, {}, constants, RequestGenerator, DataPage, {}));
+    });
+    Object.assign(page, { require, modelId: MODEL, workspaceId: WS, workspaceName: "Practice workspace",
+      postMessage: (message: unknown) => { posted.push(message); queueMicrotask(() => hear(message, CORE, page)); } });
+    await import("./content.js");
+    await import("./model-content.js");
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(require).not.toHaveBeenCalled();
+    const port = open();
+    port.say({ type: "run" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(port.received.at(-1)?.type).toBe("done");
+    const result = assemble(port.received)!;
+    expect(result.tables.find(table => table.file === "Versions.csv")?.rows).toEqual([["Actual", "true"]]);
+    expect(overviewOf(result).about).toContainEqual(["Workspace", "Practice workspace"]);
+    expect(getWorkspaceInfo).not.toHaveBeenCalled();
+    expect(broken).toBe(false);
+    expect(require).toHaveBeenCalledOnce();
+    expect(post).toHaveBeenCalledOnce();
+    expect(port.received.filter(message => message.type === "log" && message.text.includes("Loading the model page's client…"))).toHaveLength(1);
+    expect(port.received.filter(message => message.type === "log" && message.text.includes("Engine:")))
+      .toEqual([{ type: "log", text: expect.stringContaining("Engine: Classic (from the Line Items columns)") }]);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(WebSocket).not.toHaveBeenCalled();
   });
 
   it("begins the export's own log with the build, the model and the host on a classic model page opened on its own, and not inside Model Building", async () => {
