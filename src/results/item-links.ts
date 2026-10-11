@@ -5,10 +5,11 @@ import { LINE_ITEMS_FILE } from "./line-items-view.js";
 import { cellText, type Row } from "./table-engine.js";
 
 /** Which row of the result an item of a row's details names, where the item is itself a row the page can open: a module,
- * a line item, a list, a process or an import. The details list such a cell one item to a line (cell-lists.ts), and an
- * item that is a row opens that row's details, as a click on it in its own table does. Nothing is guessed: an item is a
- * row only where its column names rows of one table, and only where exactly one row of that table has its name. An item
- * that no row has, or that several have, is said as text. Only a model's tables name their rows so; an app's never. */
+ * a line item, a list, a process, or an action a process runs. The details list such a cell one item to a line
+ * (cell-lists.ts), and an item that is a row opens that row's details, as a click on it in its own table does. Nothing is
+ * guessed: an item is a row only where its column names rows of one table, or of the actions' tables together, and only
+ * where exactly one of those rows has its name. An item that no row has, or that several have, is said as text. Only a
+ * model's tables name their rows so; an app's never. */
 
 /** A table of the page, as the details look a name up in it: the column that names its rows, and for Line Items the
  * column that names each line item's module. */
@@ -28,26 +29,41 @@ const MODULES_FILE = "Modules.csv";
 const LISTS_FILE = "General Lists.csv";
 const PROCESSES_FILE = "Processes.csv";
 const IMPORTS_FILE = "Imports.csv";
+/** The tables of the actions a process runs: every action of the Actions list but the processes. */
+const ACTION_FILES = [IMPORTS_FILE, "Exports.csv", "Other Actions.csv"] as const;
+
+/** The rows of `file` whose name is `name`, and whose module is `module` where one is given. */
+function rowsNamed(tables: ReadonlyMap<string, NamedRows>, file: string, name: string, module?: string): ItemRow[] {
+  const named = tables.get(file);
+  if (!named || name.trim() === "") return [];
+  if (module !== undefined && named.module === undefined) return [];
+  return named.table.rows.filter(row => cellText(row[named.name]).trim() === name.trim()
+    && (module === undefined || cellText(row[named.module!]).trim() === module.trim())).map(row => ({ file, row }));
+}
 
 /** The one row of `file` whose name is `name`, and whose module is `module` where one is given; none where no row, or
  * more than one, has it. */
 function oneRow(tables: ReadonlyMap<string, NamedRows>, file: string, name: string, module?: string): ItemRow | undefined {
-  const named = tables.get(file);
-  if (!named || name.trim() === "") return undefined;
-  if (module !== undefined && named.module === undefined) return undefined;
-  const found = named.table.rows.filter(row => cellText(row[named.name]).trim() === name.trim()
-    && (module === undefined || cellText(row[named.module!]).trim() === module.trim()));
-  return found.length === 1 ? { file, row: found[0] } : undefined;
+  const found = rowsNamed(tables, file, name, module);
+  return found.length === 1 ? found[0] : undefined;
 }
 
 /** What an item names, by what its column names:
  * - a module, a list, a process or an import, by its name out of its quotes;
+ * - an action a process runs, by its name, among the imports, the exports and the other actions together;
  * - a line item, by its module's name and its own, behind a dot (`'REV01 Revenue'.Price`), or by its own alone where the
  *   column is a module's own line items, or where a line item names another of its module.
  * A name that is both a module's and a line item's of the same module names neither: which is meant is not known. */
 type Resolver = (item: string, row: Row, table: ResultTable, tables: ReadonlyMap<string, NamedRows>) => ItemRow | undefined;
 
 const rowNamed = (file: string): Resolver => (item, _row, _table, tables) => oneRow(tables, file, unquote(item));
+
+/** An action a process runs, by its name as the Actions list gives it, without quotes: the one row of Imports, Exports and
+ * Other Actions together that has it. An import and an export of one name name neither: which is meant is not known. */
+const actionNamed: Resolver = (item, _row, _table, tables) => {
+  const found = ACTION_FILES.flatMap(file => rowsNamed(tables, file, item));
+  return found.length === 1 ? found[0] : undefined;
+};
 
 /** A module or a line item, as a cell that names objects writes them: a line item behind its module's name and a dot. A
  * name alone is a module, or, in a line item's own row, a line item of that line item's module. */
@@ -70,7 +86,7 @@ const RESOLVERS: ReadonlyMap<string, ReadonlyMap<string, Resolver>> = new Map(Ob
   [MODULES_FILE]: { "Applies To": rowNamed(LISTS_FILE), "Referenced By": objectNamed, "Line Items": ownLineItem },
   [LINE_ITEMS_FILE]: { "Applies To": rowNamed(LISTS_FILE), "Referenced By": objectNamed },
   [LISTS_FILE]: { "Referenced in Applies To": objectNamed, "Referenced as Format": objectNamed, "Referenced in Formula": objectNamed },
-  [PROCESSES_FILE]: { "Used in Processes": rowNamed(PROCESSES_FILE) },
+  [PROCESSES_FILE]: { Actions: actionNamed },
   [IMPORTS_FILE]: { "Used in Processes": rowNamed(PROCESSES_FILE) },
   "Exports.csv": { "Used in Processes": rowNamed(PROCESSES_FILE) },
   "Other Actions.csv": { "Used in Processes": rowNamed(PROCESSES_FILE) },

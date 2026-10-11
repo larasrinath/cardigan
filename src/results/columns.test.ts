@@ -287,7 +287,7 @@ describe("The results page's columns", () => {
   });
 
   it("always offers a filter on the data type of a line item's format, which the page adds to a model's Line Items, however many texts it holds", () => {
-    expect([...MODEL_FILTERED]).toEqual([["Line Items.csv", ["Format type"]]]);
+    expect([...MODEL_FILTERED]).toEqual([["Line Items.csv", ["Format type"]], ["Processes.csv", ["Actions"]]]);
     /** A Line Items table as the page shows it, with as many different texts under Format type as `different`. */
     const typed = (different: number): ResultTable => ({ ...table("Line Items.csv", ["", "Module Name", "Format", "Format type"]),
       rows: Array.from({ length: 40 }, (_, index) => [`Item ${index}`, "Plan", `Format ${index}`, `Type ${index % different}`]) });
@@ -301,6 +301,16 @@ describe("The results page's columns", () => {
     // Only there: another file's column of that name, or one under another name, offers a filter only as any column does.
     expect(columnsOf({ ...typed(40), file: "Modules.csv" }).find(column => column.label === "Format type")?.filter).toBe(false);
     expect(columnsOf({ ...typed(40), headers: ["", "Module Name", "Format", "format type"] }).find(column => column.label === "format type")?.filter).toBe(false);
+  });
+
+  it("always offers a filter on the actions a process runs, which the page adds to a model's Processes, however few processes share one", () => {
+    // Forty processes, each running two actions of its own: no action is run twice, which leaves an ordinary column of many
+    // texts without a filter.
+    const processes: ResultTable = { ...table("Processes.csv", ["", "Actions", "Notes"]),
+      rows: Array.from({ length: 40 }, (_, index) => [`Process ${index}`, `Load ${index}, Send ${index}`, `Note ${index}`]) };
+    expect(columnsOf(processes).map(column => [column.label, column.filter])).toEqual([["Name", false], ["Actions", true], ["Notes", false]]);
+    // Only there: another file's column of that name offers a filter only as any column does.
+    expect(columnsOf({ ...processes, file: "Imports.csv" }).find(column => column.label === "Actions")?.filter).toBe(false);
   });
 
   it("keeps the design's filters in an app's files whatever their columns hold, and adds one where a column holds few texts", () => {

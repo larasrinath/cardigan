@@ -1,6 +1,7 @@
 import { knownNames, knownSequence, type KnownNames } from "../map/graph-names.js";
 import { PAGE_FILTERS_FILE } from "../page-files.js";
 import type { TabName } from "../report.js";
+import { readProcessActions } from "../result-plain.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
 import { APP_FILES, columnIndex } from "./columns.js";
 import { LINE_ITEMS_FILE } from "./line-items-view.js";
@@ -183,6 +184,27 @@ const namesIn = (file: string): ListRule => (_table, result) => {
 };
 const usedInProcesses = namesIn(PROCESSES_FILE);
 
+/** A process's actions, as the page lists them after its name in the Processes table (result-view.ts `processesRule`):
+ * the actions' names without quotes, with a comma and a space between them, where a name may hold a comma and a space
+ * itself. They are cut only into names the result has for actions: the names of the rows of Imports, Exports and Other
+ * Actions, and the names the processes' own definitions give the actions they run, which hold those of actions the
+ * Actions list does not have ("ID 112000000099"). Without any of them, nothing is known to cut by. */
+const processActions: ListRule = (_table, result) => {
+  const names = new Set<string>();
+  for (const file of [IMPORTS_FILE, EXPORTS_FILE, OTHER_ACTIONS_FILE]) {
+    for (const row of result.tables.find(table => table.file === file)?.rows ?? []) {
+      const name = cellText(row[0]);
+      if (name !== "") names.add(name);
+    }
+  }
+  for (const process of readProcessActions(result.processActions) ?? []) {
+    for (const step of process.actions) if (step.name !== "") names.add(step.name);
+  }
+  if (!names.size) return undefined;
+  const known = knownNames(names);
+  return text => cutKnown(text, known);
+};
+
 /** A module's line items, as the Modules grid lists them: their names without quotes, with a comma and a space between
  * them, where a name may hold a comma and a space itself ("Rate, net"). They are cut only into the names of the module's
  * own line items in the Line Items table, the rows that name the module under Module Name: as those names one after
@@ -225,7 +247,8 @@ const MODEL_LISTS: Record<string, Record<string, ListRule>> = {
   [LISTS_FILE]: { Subsets: names, Properties: properties, "Referenced in Applies To": names, "Referenced as Format": names, "Referenced in Formula": names },
   [MODULES_FILE]: { "Applies To": names, "Referenced By": names, "Line Items": moduleLineItems },
   [LINE_ITEMS_FILE]: { "Applies To": names, "Referenced By": names },
-  [PROCESSES_FILE]: { "Used in Processes": usedInProcesses },
+  // A process's Used in Processes is no column of the page's table, which adds the actions it runs instead.
+  [PROCESSES_FILE]: { Actions: processActions },
   [IMPORTS_FILE]: { "Used in Processes": usedInProcesses },
   // Anaplan's grid heads the column Imports; the tests' exports, as earlier ones, write it Used in Imports.
   [DATA_SOURCES_FILE]: { "Used in Imports": namesIn(IMPORTS_FILE), Imports: namesIn(IMPORTS_FILE) },

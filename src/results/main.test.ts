@@ -5717,6 +5717,38 @@ describe("The actions of a process, in its row's details", () => {
       [PROCESS_LINES.unordered, NOT_READ]]);
   });
 
+  it("shows each process's actions right after its name, without a Used in Processes, and filters the table by each action", async () => {
+    await openWith(WITH_PROCESSES);
+    goTo(3);
+    const headings = () => page.all("#tableWrap thead .th-sort").map(button => button.textContent.trim());
+    const column = (heading: string) => page.all("#tableWrap tbody tr").map(row => row.children[headings().indexOf(heading)].textContent.trim());
+    expect(headings()).toEqual(["Name", "Actions", "Notes", "Used in Dashboards"]);
+    expect(column("Actions")).toEqual(["Prices from the hub, 1.1 Load regions, Delete old items", "Send plan, 1.1 Load regions, ID 112000000099, Optimise", ""]);
+    // The column chooser has the Actions and no Used in Processes either.
+    page.id("colBtn").press();
+    expect(page.all("#popover .pop-opt").map(option => option.children[1].textContent)).toEqual(["Name", "Actions", "Notes", "Used in Dashboards"]);
+    page.key("Escape");
+    // The Actions column's filter lists each action once, with how many processes run it; a row shows while any of its
+    // actions is ticked.
+    page.find('[data-colfilter="1"]').press();
+    expect(choices()).toEqual([["(blank)", "1", true], ["1.1 Load regions", "2", true], ["Delete old items", "1", true], ["ID 112000000099", "1", true],
+      ["Optimise", "1", true], ["Prices from the hub", "1", true], ["Send plan", "1", true]]);
+    for (const option of page.all("#popover .pop-opt")) if (option.children[1].textContent !== "Send plan") option.children[0].tick();
+    expect(firstCells()).toEqual(["Weekly load"]);
+  });
+
+  it("lists a process's actions in its All columns one to a line, each opening its own row", async () => {
+    await openWith(WITH_PROCESSES);
+    goTo(3);
+    openProcess("Nightly load");
+    const values = new Map(page.all("#drawerBody .d-dl dt").map((name, at) => [name.textContent, page.all("#drawerBody .d-dl dd")[at]]));
+    const actions = values.get("Actions (3)");
+    expect([actions?.querySelectorAll(".cell-list li").map(item => item.textContent), actions?.querySelectorAll('[data-act="item"]').map(link => link.textContent), values.has("Used in Processes")])
+      .toEqual([["Prices from the hub", "1.1 Load regions", "Delete old items"], ["Prices from the hub", "1.1 Load regions", "Delete old items"], false]);
+    actions!.querySelectorAll('[data-act="item"]')[2].press();
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual(["Delete old items", "Row 1 of Other Actions"]);
+  });
+
   it("writes every name and kind of a process's actions as text", async () => {
     await openWith({ ...WITH_PROCESSES, processActions: [{ ...PROCESS_ACTIONS[0], actions: [{ id: "", name: `Load ${TAG}`, type: TAG }] }] });
     goTo(3);

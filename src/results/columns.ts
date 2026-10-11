@@ -136,9 +136,11 @@ export const MODEL_COUNTS: ReadonlyMap<string, readonly string[]> = new Map([
  * column is still in the column chooser, in the search and in the row's details. */
 export const MODEL_HIDDEN: ReadonlyMap<string, readonly string[]> = new Map([["Model Calendar.csv", ["Section", "Allowed values"]]]);
 /** The columns of a model's tables that always offer a filter, however many different texts they hold: the data type of a
- * line item's format, which the page adds to Line Items after Format (line-items-view.ts). Its filter lists the line items
- * alone without the blanks, which are the modules' own rows, and leaves out the headings without No Data. */
-export const MODEL_FILTERED: ReadonlyMap<string, readonly string[]> = new Map([[LINE_ITEMS_FILE, [FORMAT_TYPE]]]);
+ * line item's format, which the page adds to Line Items after Format (line-items-view.ts), and the actions a process runs,
+ * which the page adds to Processes after its name (result-view.ts `processesRule`, which names the file and the column).
+ * The first lists the line items alone without the blanks, which are the modules' own rows, and leaves out the headings
+ * without No Data; the second lists each action once, however few processes share one. */
+export const MODEL_FILTERED: ReadonlyMap<string, readonly string[]> = new Map([[LINE_ITEMS_FILE, [FORMAT_TYPE]], ["Processes.csv", ["Actions"]]]);
 /** The tables of the pages built on a model (page-files.ts), which the run writes from an app's tables: Page Filters and
  * Page Actions hold an app's Filters and Action Buttons with their app, and are shown as those are, with their IDs and
  * numbers hidden. Each of the three offers a filter on the app, and ends with where each page is, hidden: its type, as a
