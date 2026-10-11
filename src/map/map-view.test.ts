@@ -1608,6 +1608,20 @@ describe("Selecting a node on the map", () => {
     expect([part(".map-inspector").hidden, page.document.activeElement === canvas()]).toEqual([true, true]);
   });
 
+  it("starts the details body and a long header at the top when another box is shown", () => {
+    const { graph, revenue, gross, products } = sample();
+    open(graph);
+    clickNode("02: Calculations");
+    for (const id of [revenue, gross, products]) {
+      part(".map-insp-body").scrollTop = 240;
+      part(".map-insp-header").scrollTop = 60;
+      expect(map.reveal(id)).toBe(true);
+      expect([part(".map-insp-body").scrollTop, part(".map-insp-header").scrollTop, part(".map-inspector").scrollTop]).toEqual([0, 0, 0]);
+      expect(part(".map-insp-name").textContent).toBe(graph.nodes[id].name);
+      expect(part(".map-insp-header").contains(part(".map-insp-name"))).toBe(true);
+    }
+  });
+
   it("opens the details of a node that is pressed, and says what feeds it and what it feeds", () => {
     open();
     clickNode("02: Calculations");

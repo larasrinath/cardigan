@@ -701,7 +701,8 @@ describe("The details' markup", () => {
     expect(panel.querySelectorAll("h4").map(title => title.textContent)).toEqual(["Formula", "Notes"]);
     expect(panel.querySelectorAll(".map-insp-note").map(note => note.textContent)).toEqual(["Before discounts."]);
     // The notes end the details: nothing names a file or a row after them.
-    expect([panel.children[panel.children.length - 1].textContent, html.includes(".csv"), /\brow \d/.test(panel.textContent)]).toEqual(["Before discounts.", false, false]);
+    const body = panel.querySelector(".map-insp-body")!;
+    expect([body.children[body.children.length - 1].textContent, html.includes(".csv"), /\brow \d/.test(panel.textContent)]).toEqual(["Before discounts.", false, false]);
     // The order a modeller reads in: the name, what the trace found, the way in, the formula, and only then the rest.
     const order = ["map-insp-name", "map-insp-opens", "map-insp-trace", "map-formula", "map-dl", "map-details", "map-insp-note"].map(name => html.indexOf(`class="${name}"`));
     expect(order.every(at => at >= 0)).toBe(true);
@@ -729,6 +730,17 @@ describe("The details' markup", () => {
       { label: "Model" as const, title: "Open in Model Building", open: () => undefined }];
     const html = inspectorHtml({ ...inspection, asRead: [["Format", '<format> "raw"']] }, TRACED, opens);
     const panel = parseMarkup(html);
+    const header = panel.querySelector(".map-insp-header")!;
+    const body = panel.querySelector(".map-insp-body")!;
+    expect(panel.children).toEqual([header, body]);
+    for (const selector of [".map-insp-name", ".map-kind", ".map-insp-opens", '[data-map-act="close"]']) {
+      expect(header.contains(panel.querySelector(selector)), selector).toBe(true);
+      expect(body.querySelector(selector), selector).toBeNull();
+    }
+    for (const selector of [".map-insp-trace", ".map-formula", ".map-dl", ".map-details", ".map-lines", ".map-insp-note", ".map-as-read"]) {
+      expect(body.contains(panel.querySelector(selector)), selector).toBe(true);
+      expect(header.querySelector(selector), selector).toBeNull();
+    }
     expect(panel.querySelectorAll(".map-insp-opens button").map(button => button.textContent)).toEqual(["Show its module with it selected", "Table", "Model"]);
     expect(panel.querySelector('[data-map-open="0"]')?.title).toBe('A <row> "name"');
     expect(panel.querySelectorAll('[data-map-act="focus"]')).toHaveLength(1);

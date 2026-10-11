@@ -129,6 +129,26 @@ describe("The map's sources", () => {
 });
 
 describe("The map's stylesheet", () => {
+  it("keeps the details header above its scrolling body, caps long headers and reserves scrollbar space", () => {
+    const rules = (selector: string): string => [...STYLES.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .filter(([, selectors]) => selectors.trim() === selector).map(([, , body]) => body).join(";");
+    for (const declaration of ["display:flex", "flex-direction:column", "flex:1", "min-height:0", "overflow:hidden"]) {
+      expect(rules(".map-inspector")).toContain(declaration);
+    }
+    for (const selector of [".map-insp-header", ".map-insp-body"]) {
+      for (const declaration of ["overflow:auto", "scrollbar-gutter:stable", "overscroll-behavior:contain"]) expect(rules(selector)).toContain(declaration);
+    }
+    expect(rules(".map-insp-header")).toContain("flex:none");
+    expect(rules(".map-insp-header")).toContain("max-height:40%");
+    expect(rules(".map-insp-header")).toContain("border-bottom:1px solid var(--border)");
+    expect(rules(".map-insp-body")).toContain("min-height:0");
+    expect(rules(".map-insp-body")).toContain("flex:1");
+    expect(rules(".map-insp-name")).toContain("overflow-wrap:anywhere");
+    expect(rules(".map-insp-opens")).toContain("flex-wrap:wrap");
+    // On narrow maps the column floats with only a maximum height; its panel must give the percentage cap a height.
+    expect(STYLES).toMatch(/@container map \(max-width:760px\)\{[^@]*\.map-inspector\{height:40cqh;flex:none\}/);
+  });
+
   it("mutes round icons at rest, shows text ink on hover and keyboard focus, and keeps selection ink last", () => {
     const rules = (selector: string): string => [...STYLES.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
       .filter(([, selectors]) => selectors.trim() === selector).map(([, , body]) => body).join(";");
