@@ -6,6 +6,10 @@ Every merged change that alters the extension has a version of its own: a new fe
 
 - **One highlight, one grouping.** The map's lists and navigation menus use the same rounded highlight as the tabs, with plain hover and a ring for keyboard focus in both themes. Group by lists each choice once, tags the suggestion, and returns to automatic when it is picked; its info explains the choice in plain words with whole percentages and real prefixes.
 
+## 0.30.2 (11 October 2026)
+
+- **Runs without the workspace cache getter.** Fix a run stopping with "Cannot read properties of undefined (reading 'modelSummaries')". The engine now comes from the Line Items columns; the export loads the client once. (#94)
+
 ## 0.30.1 (11 October 2026)
 
 - **Run cards in the middle.** Notices, failures and progress share a centred column, at most 600 pixels wide, with a drawn mark for the case and 16 pixels at each side in a narrow window. The card holds the main action first, with **Copy diagnostic log** beside it. The theme button stays in the header; **Run again** returns there when a result is shown. (#93)
