@@ -2,6 +2,15 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version stands next to Cardigan's name at the top of the results page and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## 0.18.3 (10 October 2026)
+
+A row's buttons stand in one row under its name.
+
+- **One row under the name.** The buttons that open a row elsewhere, **Model map**, **Model**, **App**, **Page** and the others a table has, stood one under another at the top right of the row's details. They now stand side by side on a line of their own under the row's name and the line under it, across the details' width, in the same order, each with its icon and its words. (#PR)
+- **The close button stays alone at the top right.** It comes before the buttons for the keyboard as it does on screen. (#PR)
+- **They fit.** The buttons are drawn a little smaller than the page's other buttons, so the most a row has, a page filter's five (**Condition module**, **Filtered module**, **Filtered list**, **App** and **Page**), fit on one row in the details' usual width. Only a narrower window wraps them onto a second row. (#PR)
+- **What stays the same.** What each button opens, its title and its icon; the line that says why a button is missing, still under the header; and everything below it. (#PR)
+
 ## 0.18.2 (10 October 2026)
 
 The navigation bar names every table in full again, and its tabs spread out evenly.
