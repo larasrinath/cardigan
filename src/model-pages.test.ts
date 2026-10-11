@@ -169,10 +169,10 @@ describe("The pages built on a model", () => {
     expect(detailsOf(result).filter(row => row[0] === "Diagnostics").every(row => /^\d{2}:\d{2}:\d{2}$/.test(String(row[1])))).toBe(true);
 
     // Each module in the Modules table's order, by app and page; Factors is named by the export, as the service did not name
-    // it. A module no page uses has its one row.
+    // it. A module no page uses has its one row, with the dash that says nothing for its app and its page, as for the rest.
     // Each row says where its page is too: the page's type, its app's ID and its own.
     expect(rowsOf(result, MODULE_USAGE_FILE)).toEqual([["Demand", "Planning app", "Demand board", "Board", APP_A, PAGE_A], ["Factors", "Another app", "Supply board", "Board", APP_B, PAGE_B],
-      ["Factors", "Planning app", "Demand board", "Board", APP_A, PAGE_A], ["Unused", "-", "Not on any page", "-", "-", "-"]]);
+      ["Factors", "Planning app", "Demand board", "Board", APP_A, PAGE_A], ["Unused", "-", "-", "-", "-", "-"]]);
     // The cards that name another model are left out, and the others keep the numbers the app's own tables give them. A
     // filter says what filters, what it filters, its condition and where it is; a button, the model's action it runs,
     // where it is and how it behaves.
@@ -232,7 +232,7 @@ describe("The pages built on a model", () => {
     const result = await run(exported(), CUSTOMER, fake([{ guid: PAGE_C, name: "Mixed board" }], { [PAGE_C]: mixed }));
     expect(cellsOf(result, PAGE_FILTERS_FILE, "Page", "Card #", "Filtered module")).toEqual([["Mixed board", 2, "Demand"]]);
     expect(rowsOf(result, MODULE_USAGE_FILE)).toEqual([["Demand", "Another app", "Mixed board", "Board", APP_B, PAGE_C], ["Factors", "Another app", "Mixed board", "Board", APP_B, PAGE_C],
-      ["Unused", "-", "Not on any page", "-", "-", "-"]]);
+      ["Unused", "-", "-", "-", "-", "-"]]);
   });
 
   it("names the cards with the line items the export read: each row's IDs make a line item of its module, with the table's name and Format", async () => {
@@ -348,7 +348,7 @@ describe("The pages built on a model", () => {
     // A page that has no published version is not asked for when the list says so; one listed twice is read once.
     expect(use.asked.filter(path => path.startsWith("page "))).toEqual([`page ${PAGE_A}`, `page ${PAGE_B}`, `page ${guid(4000)}`]);
     const notes = ["2 of the 4 pages built on this model have no published version, so they are not in these tables.",
-      "2 pages could not be read, so a module on one of them may show as not on any page: Odd entry (no page ID); Supply board (no access)."];
+      "2 pages could not be read, so a module on one of them may show a dash for its page: Odd entry (no page ID); Supply board (no access)."];
     expect(result.summary.slice(-2)).toEqual(notes.map(note => `Pages built on the model: ${note}`));
     expect(detailsOf(result).filter(row => row[0] === "Notes")).toEqual([["Notes", "Source Models", "none"], ...notes.map(note => ["Notes", "Pages built on the model", note])]);
     // Volume is the condition of no filter on the pages read: on the one that was not, it may be.
@@ -368,7 +368,7 @@ describe("The pages built on a model", () => {
   it("says plainly that no app's pages use the model, and names no apps where no page tells them", async () => {
     const none = await run(exported(), CUSTOMER, fake([], {}));
     expect(detailsOf(none)[3]).toEqual(["Model", "Apps", NO_APPS]);
-    expect(rowsOf(none, MODULE_USAGE_FILE)).toEqual(["Demand", "Factors", "Unused"].map(module => [module, "-", "Not on any page", "-", "-", "-"]));
+    expect(rowsOf(none, MODULE_USAGE_FILE)).toEqual(["Demand", "Factors", "Unused"].map(module => [module, "-", "-", "-", "-", "-"]));
     expect([rowsOf(none, PAGE_FILTERS_FILE), rowsOf(none, PAGE_ACTIONS_FILE)]).toEqual([[], []]);
     expect(filterUses(none).map(([, count]) => count)).toEqual(["", 0, "", 0, "", 0]);
 
