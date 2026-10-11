@@ -11,6 +11,14 @@ Polaris reads the settings the live probe found, with its limits kept visible.
 - **A Polaris map.** Once formulas were read, the map matches their names to returned line items and lists. Unknown and ambiguous references stay unresolved; numeric literals stay numbers. The tables keep their original strings. Classic's map and settings reads stay as before.
 - **Partial, said.** The Overview names what was read and what is still missing, with only populated tables in its tiles and tabs. A source that fails is logged and skipped on its own. Possible paging is logged and noted without guessing missing rows; completeness remains unknown. The log counts line-item requests and records their time. Closing the results page stops queued requests.
 
+## 0.27.0 (11 October 2026)
+
+The Model map's details lead into the box, back to its table, and into Model Building.
+
+- **One row of buttons.** The box's name comes first, with its kind under it. A module offers **Show its N line items**, a group **Show its N modules**. **Table** opens the matching row in Line Items, Modules or General Lists with its details open. **Model** opens the module or list in Model Building, using the same opening as the tables and the IDs the run already read; a line item opens its module. A button with nowhere to go is left out. (#78)
+- **The trace in one place.** Its counts and **Only these** sit under the buttons in the details. The separate trace card is gone. Closing the details clears the selection. Opening and closing them leaves every box and the camera in place. Raw format and summary values sit last under **As read**, folded at first. (#78)
+- **Back to the same box.** A row's **Model map** button keeps the table's details for the return. **Table** brings the row into view, with its details open; **Model map** selects that box again. The table keeps its sort and column choices, and its search and filters where they include the row. (#78)
+
 ## 0.26.0 (11 October 2026)
 
 Coming back to Cardigan keeps the place you were reading.

@@ -1,4 +1,4 @@
-import type { ModelGraph } from "./graph-types.js";
+import type { MapOpen, ModelGraph } from "./graph-types.js";
 import type { ViewGraph, ViewLayer } from "./map-graphs.js";
 import type { InspectLink, InspectList, Inspection, TraceWords } from "./map-inspect.js";
 import { layerClass } from "./map-palette.js";
@@ -17,6 +17,9 @@ const ESCAPES: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;"
 export const esc = (value: unknown): string => String(value ?? "").replace(/[&<>"']/g, char => ESCAPES[char]);
 
 const CLOSE_ICON = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 3l10 10M13 3 3 13"/></svg>';
+const openIcon = (label: MapOpen["label"]): string => `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" aria-hidden="true">${label === "Model"
+  ? '<path d="M8 1.6 14 4.9v6.2L8 14.4 2 11.1V4.9Z"/><path d="M2 4.9 8 8.2l6-3.3M8 8.2v6.2"/>'
+  : '<rect x="2" y="2" width="12" height="12" rx="1"/><path d="M2 6h12M2 10h12M6 2v12"/>'}</svg>`;
 const SEARCH_ICON = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="7" cy="7" r="4.6"/><path d="M10.6 10.6 14 14"/></svg>';
 const dot = (layer: string): string => `<span class="map-dot ${layerClass(layer)}" aria-hidden="true"></span>`;
 /** The sign a box of a trace carries, beside the words that say which side it is on: the same mark the canvas draws on
@@ -183,7 +186,6 @@ export function shellHtml(ids: ShellIds, modelName: string): string {
     </div>
   </div>
   <div class="map-selection">
-    <div class="map-panel map-tracebar" hidden></div>
     <aside class="map-panel map-inspector" aria-label="Details of the box selected" hidden></aside>
   </div>
   <div class="map-free">
@@ -279,15 +281,11 @@ export function legendHtml(title: string, layers: readonly ViewLayer[], hidden: 
 const ONLY_SAYS = "Show only these boxes";
 const ALL_SAYS = "Show all boxes";
 
-/** The bar that says what is traced, as the picture runs, from left to right: how many boxes feed the node, the node,
- * and how many it feeds. Each side has its colour and the sign its boxes carry on the canvas. Its first button keeps
- * the picture to those boxes, and shows all of them again: `focused` says which the picture does now. */
-export function tracebarHtml(name: string, words: TraceWords, focused: boolean): string {
-  return `<span class="map-trace-count map-trace-up">${SIGN}${esc(words.feeds)}</span>
-    <span class="map-trace-name" title="${esc(name)}">${esc(name)}</span>
-    <span class="map-trace-count map-trace-down">${SIGN}${esc(words.fed)}</span>
-    <span class="map-trace-acts"><button type="button" class="map-btn map-small" data-map-act="focus" aria-label="${focused ? ALL_SAYS : ONLY_SAYS}" title="${focused ? ALL_SAYS : ONLY_SAYS}">${focused ? "All boxes" : "Only these"}</button>
-    <button type="button" class="map-btn map-small" data-map-act="clear" aria-label="Clear the selection" title="Clear the selection">Clear</button></span>`;
+/** The trace lives once, below the details' opening buttons. */
+export function traceHtml(words: TraceWords, focused: boolean): string {
+  return `<p class="map-trace-counts"><span class="map-trace-count map-trace-up">${SIGN}${esc(words.feeds)}</span>, <span class="map-trace-count map-trace-down">${SIGN}${esc(words.fed)}</span>.</p>
+    <p class="map-trace-note">On the map, directly or through others.</p>
+    <button type="button" class="map-btn map-small" data-map-act="focus" aria-label="${focused ? ALL_SAYS : ONLY_SAYS}" title="${focused ? ALL_SAYS : ONLY_SAYS}" aria-pressed="${focused}">${focused ? "All boxes" : "Only these"}</button>`;
 }
 
 export interface Tip { layer: string; kind: string; name: string; lines: readonly string[]; formula?: string }
@@ -322,22 +320,22 @@ export function listHtml(list: InspectList, all: boolean): string {
   return `<summary>${PATH_CHEVRON}${esc(list.title)}</summary>${shown.map(linkHtml).join("")}${more}`;
 }
 
-/** The details of the node selected, in the order a modeller asks: what it is and its name, what the trace found, the
- * button that goes into it, its formula, its settings under the names of the Line Items table's columns, what feeds it
- * and what it feeds directly, and its notes. */
-export function inspectorHtml(inspection: Inspection, trace?: TraceWords): string {
+/** The name and kind, opening buttons, trace, readable details, then folded raw values. */
+export function inspectorHtml(inspection: Inspection, trace?: TraceWords, opens: readonly MapOpen[] = [], focused = false): string {
   const rows = inspection.rows.length ? `<dl class="map-dl">${inspection.rows.map(([label, value]) => `<dt>${esc(label)}</dt><dd>${esc(value)}</dd>`).join("")}</dl>` : "";
   const action = inspection.action;
-  const button = !action ? "" : `<button type="button" class="map-primary" data-map-act="open"${action.section === undefined ? "" : ` data-map-section="${esc(action.section)}"`}${
+  const button = !action ? "" : `<button type="button" class="map-btn map-small map-primary" data-map-act="open"${action.section === undefined ? "" : ` data-map-section="${esc(action.section)}"`}${
     action.module === undefined ? "" : ` data-map-module="${esc(action.module)}"`}${action.select === undefined ? "" : ` data-map-select="${esc(action.select)}"`}>${esc(action.label)}</button>`;
   const formula = inspection.formula !== undefined ? `<h4 class="map-insp-sec">Formula</h4><pre class="map-formula">${esc(inspection.formula)}</pre>`
     : inspection.remark !== undefined ? `<p class="map-insp-note">${esc(inspection.remark)}</p>` : "";
-  const traced = !trace ? "" : `<p class="map-insp-trace">On the map, directly or through others: <span class="map-trace-up">${SIGN}${esc(trace.feeds)}</span>, <span class="map-trace-down">${SIGN}${esc(trace.fed)}</span>.</p>`;
+  const buttons = button + opens.map((open, index) => `<button type="button" class="map-btn map-small" data-map-act="page-open" data-map-open="${index}" title="${esc(open.title)}">${openIcon(open.label)}${esc(open.label)}</button>`).join("");
+  const traced = !trace ? "" : `<div class="map-insp-trace">${traceHtml(trace, focused)}</div>`;
   const lists = inspection.lists.map(list => `<details class="map-details" data-map-list="${esc(list.key)}"${list.open ? " open" : ""}>${listHtml(list, false)}</details>`).join("");
   const texts = inspection.texts.map(text => `<details class="map-details"><summary>${PATH_CHEVRON}${esc(text.title)}</summary><ul class="map-lines">${text.lines.map(line => `<li>${esc(line)}</li>`).join("")}</ul></details>`).join("");
   const notes = inspection.notes === undefined ? "" : `<h4 class="map-insp-sec">Notes</h4><p class="map-insp-note">${esc(inspection.notes)}</p>`;
-  return `<div class="map-insp-head"><span class="map-kind">${dot(inspection.layer)}${esc(inspection.kind)}</span><button type="button" class="map-icon-btn" data-map-act="close" aria-label="Close details" title="Close details">${CLOSE_ICON}</button></div>
-    <h3 class="map-insp-name" tabindex="-1">${esc(inspection.name)}</h3>${traced}${button}${formula}${rows}${lists}${texts}${notes}`;
+  const raw = !inspection.asRead?.length ? "" : `<details class="map-details map-as-read"><summary>${PATH_CHEVRON}As read</summary>${inspection.asRead.map(([label, value]) => `<h4 class="map-insp-sec">${esc(label)}</h4><pre class="map-formula">${esc(value)}</pre>`).join("")}</details>`;
+  return `<div class="map-insp-head"><div><h3 class="map-insp-name" tabindex="-1">${esc(inspection.name)}</h3><span class="map-kind">${dot(inspection.layer)}${esc(inspection.kind)}</span></div><button type="button" class="map-icon-btn" data-map-act="close" aria-label="Close details" title="Close details">${CLOSE_ICON}</button></div>
+    ${buttons ? `<div class="map-insp-opens">${buttons}</div>` : ""}${traced}${formula}${rows}${lists}${texts}${notes}${raw}`;
 }
 
 /** What a map that stopped after a failure says in its own place: that it could not be drawn, the failure's own words
