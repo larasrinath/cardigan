@@ -623,7 +623,7 @@ describe("The results page's escaping", () => {
     const html = pagerHtml(3, 12, 600, 50);
     expect(readMarkup(html).tags.filter(tag => tag.attributes.has("data-page")).map(tag => tag.attributes.get("data-page"))).toEqual(["2", "4"]);
     expect(pagerHtml(0, 1, 0, 50)).toBe("");
-    const filter = readMarkup(colFilterHtml(column(4, "Card type"), [[SCRIPT, 1], [IMG, 2]], undefined)).tags.filter(tag => tag.name === "input");
+    const filter = readMarkup(colFilterHtml(column(4, "Card type"), [[SCRIPT, 1], [IMG, 2]], undefined)).tags.filter(tag => tag.attributes.has("data-fval"));
     expect(filter.map(tag => tag.attributes.get("data-fval"))).toEqual(["0", "1"]);
   });
 
@@ -815,7 +815,7 @@ describe("A result whose every text is hostile, through every view of the page",
     const html = everyView().join("\n");
     const elements = new Set(["button", "circle", "col", "colgroup", "dd", "details", "div", "dl", "dt", "em", "h1", "h2", "h3", "input", "kbd", "label", "li", "option", "p", "path", "pre", "rect",
       "section", "select", "span", "strong", "summary", "svg", "table", "tbody", "td", "th", "thead", "tr", "ul"]);
-    const attributes = /^(aria-[a-z]+|data-(act|nav|copy|sort|colfilter|col|fval|page|popact|way|use|room|labels|ov-open)|class|type|title|style|id|hidden|open|disabled|checked|selected|value|placeholder|tabindex|role|scope|width|height|viewBox|fill|stroke|stroke-width|stroke-linecap|stroke-linejoin|d|cx|cy|r|x|y|rx)$/;
+    const attributes = /^(aria-[a-z]+|data-(act|nav|copy|sort|colfilter|col|fval|ffind|first|flimit|fstatus|ftoggle|page|popact|way|use|room|labels|ov-open)|class|type|title|style|id|hidden|open|disabled|checked|selected|value|placeholder|autocomplete|spellcheck|tabindex|role|scope|width|height|viewBox|fill|stroke|stroke-width|stroke-linecap|stroke-linejoin|d|cx|cy|r|x|y|rx)$/;
     expect(tagNames(html).filter(name => !elements.has(name))).toEqual([]);
     expect(attributeNames(html).filter(name => !attributes.test(name))).toEqual([]);
     // The table, the drawer and the popovers are all there: this is the whole page, not a corner of it.

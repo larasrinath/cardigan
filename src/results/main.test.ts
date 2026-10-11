@@ -1174,15 +1174,15 @@ describe("The results page's script, on the page", () => {
     expect(filterable()).toEqual(["Format", "Module"]);
     page.find('[data-colfilter="3"]').press();
     expect(choices()).toEqual([["Cost", "60", true], ["Revenue", "60", true]]);
-    // The popover says what its numbers count: to the eye above the list, and to a screen reader with each number.
-    expect([page.texts("#popover .pop-hd"), page.texts("#popover .po-cnt")]).toEqual([["Filter: ModuleShow all", "ValueRows in the whole table"], ["60 rows in the whole table", "60 rows in the whole table"]]);
-    page.all("#popover input")[0].tick();
+    // The popover says what its numbers count to a screen reader with each number, without a heading row.
+    expect([page.texts("#popover .pop-hd"), page.texts("#popover .po-cnt")]).toEqual([["Filter: ModuleShow all"], ["60 rows in the whole table", "60 rows in the whole table"]]);
+    page.all("#popover [data-fval]")[0].tick();
     expect([page.id("rowCount").textContent, firstCells()[0], page.find('[data-colfilter="3"]').classList.contains("active")]).toEqual(["1–50 of 60 rows (filtered from 120)", "Line item 1", true]);
     // A second column's filter narrows what the first left.
     page.find('[data-colfilter="1"]').press();
     expect(choices()).toEqual([["Boolean", "40", true], ["Number", "40", true], ["Text", "40", true]]);
-    page.all("#popover input")[0].tick();
-    page.all("#popover input")[2].tick();
+    page.all("#popover [data-fval]")[0].tick();
+    page.all("#popover [data-fval]")[2].tick();
     expect([page.id("rowCount").textContent, firstCells().slice(0, 3)]).toEqual(["1–20 of 20 rows (filtered from 120)", ["Line item 1", "Line item 4", "Line item 7"]]);
     // The Modules table: two rows, two areas.
     page.key("Escape");
@@ -1190,7 +1190,77 @@ describe("The results page's script, on the page", () => {
     expect(filterable()).toEqual(["Functional Area"]);
   });
 
-  it("filters a column of lists by each item, and a filter of many values by what its box finds: its buttons tick or untick all of that", async () => {
+  it.each(["model", "app"] as const)("keeps the same find pill and checkbox states for a short %s filter", async kind => {
+    await openWith(kind === "model" ? MODEL : APP);
+    goTo(kind === "model" ? 1 : 2);
+    const col = kind === "model" ? 1 : 3;
+    const openFilter = () => page.find(`[data-colfilter="${col}"]`).press();
+    openFilter();
+    const box = page.find("#popover [data-ffind]");
+    const toggle = page.find("#popover [data-ftoggle]");
+    const state = () => [toggle.checked, (toggle as FakeInput & { indeterminate: boolean }).indeterminate, toggle.getAttribute("aria-checked"), toggle.getAttribute("aria-label"), toggle.title];
+    const place = [page.id("popover").style.left, page.id("popover").style.top];
+    const all = choices();
+    expect(page.document.activeElement).toBe(box);
+    expect(state()).toEqual([true, false, "true", "Untick all", "Untick all"]);
+    const first = page.all("#popover [data-fval]")[0];
+    first.tick();
+    expect(state()).toEqual([false, true, "mixed", "Tick all", "Tick all"]);
+    expect(page.document.activeElement).toBe(first);
+    toggle.tick();
+    expect(state()).toEqual([true, false, "true", "Untick all", "Untick all"]);
+    expect(choices()).toEqual(all);
+    toggle.tick();
+    expect(state()).toEqual([false, false, "false", "Tick all", "Tick all"]);
+    expect(firstCells()).toEqual([]);
+    expect(page.document.activeElement).toBe(toggle);
+    page.all("#popover [data-fval]")[0].tick();
+    expect(state()).toEqual([false, true, "mixed", "Tick all", "Tick all"]);
+    box.type(String(all[0][0]));
+    expect(state()).toEqual([true, false, "true", "Untick matches", "Untick matches"]);
+    box.type("no matching value");
+    expect([toggle.disabled, state(), page.find("#popover [data-fstatus]").textContent])
+      .toEqual([true, [false, false, "false", "Tick matches", "Tick matches"], `0 of ${all.length} values match.`]);
+    box.type(" ");
+    expect([toggle.disabled, state()]).toEqual([false, [false, true, "mixed", "Tick all", "Tick all"]]);
+    expect([page.id("popover").style.left, page.id("popover").style.top]).toEqual(place);
+    expect(page.find("#popover [data-ffind]")).toBe(box);
+    expect(page.find("#popover [data-ftoggle]")).toBe(toggle);
+    page.key("Escape");
+    expect([page.id("popover").hidden, page.document.activeElement === page.find(`[data-colfilter="${col}"]`)]).toEqual([true, true]);
+    openFilter();
+    expect((page.find("#popover [data-ftoggle]") as FakeInput & { indeterminate: boolean }).indeterminate).toBe(true);
+    expect(page.find("#popover [data-ftoggle]").getAttribute("aria-checked")).toBe("mixed");
+  });
+
+  it("ticks matches beyond the first 300 and shows the cut-short note only while more than 300 match", async () => {
+    const rows = Array.from({ length: 602 }, (_, at) => [`Module ${at + 1}`, `${at < 301 ? "North" : "South"} ${at % 301}`]);
+    await openWith({ ...MODEL, tables: [MODEL.tables[0], { file: "Modules.csv", label: "Modules", guard: false, headers: ["", "Functional Area"], rows }] });
+    goTo(1);
+    page.find('[data-colfilter="1"]').press();
+    const box = page.find("#popover [data-ffind]");
+    const toggle = page.find("#popover [data-ftoggle]");
+    const limit = page.find("#popover [data-flimit]");
+    const status = page.find("#popover [data-fstatus]");
+    expect([choices().length, limit.hidden, limit.textContent, status.classList.contains("sr-only")])
+      .toEqual([300, false, "The first 300 are listed: type to narrow the list.", true]);
+    box.type("north");
+    expect([choices().length, limit.hidden, status.textContent]).toEqual([300, false, "301 of 602 values match. The first 300 are listed: type to narrow the list."]);
+    toggle.tick();
+    expect(page.id("rowCount").textContent).toContain("301 rows (filtered from 602)");
+    box.type("North 99");
+    expect([choices(), limit.hidden, status.textContent]).toEqual([[["North 99", "1", false]], true, "1 of 602 values match."]);
+    box.type("south");
+    expect([toggle.checked, limit.hidden]).toEqual([true, false]);
+    box.type("north");
+    expect(toggle.checked).toBe(false);
+    toggle.tick();
+    expect(page.find('[data-colfilter="1"]').classList.contains("active")).toBe(false);
+    box.type("North 99");
+    expect(choices()).toEqual([["North 99", "1", true]]);
+  });
+
+  it("filters a column of lists by each item, with a checkbox in its find pill that ticks or unticks every match", async () => {
     // Sixty modules, each applying to Products and to one of twenty regions, as a model's grid writes names, each region in
     // three modules; and each in one of three functional areas.
     const region = (at: number) => `Region ${String((at % 20) + 1).padStart(2, "0")}`;
@@ -1201,31 +1271,40 @@ describe("The results page's script, on the page", () => {
     // Every cell of Applies To is its own, but its items repeat: the column offers a filter. The modules' names do not.
     expect(filterable()).toEqual(["Functional Area", "Applies To"]);
     page.find('[data-colfilter="1"]').press();
-    // Each item once, with the rows that list it, Products first; with more than fifteen, a box finds them, and has the focus.
+    // Each item once, with the rows that list it, Products first; the find box has the focus.
     const box = page.find("#popover [data-ffind]");
+    const toggle = page.find("#popover [data-ftoggle]");
+    const state = () => [toggle.checked, (toggle as FakeInput & { indeterminate: boolean }).indeterminate, toggle.getAttribute("aria-checked"), toggle.getAttribute("aria-label"), toggle.title];
+    expect(state()).toEqual([true, false, "true", "Untick all", "Untick all"]);
     expect([choices().length, choices()[0], choices()[1], page.document.activeElement === box, page.find("#popover [data-fstatus]").textContent, page.find("#popover .pop-note").textContent])
       .toEqual([21, ["Products", "60", true], ["Region 01", "3", true], true, "21 values.", "Each item is listed on its own: a row shows when any of its items is ticked."]);
-    // The box narrows the list, whatever the case, and the buttons say they work on what it finds.
+    // The box narrows the list, whatever the case, and the checkbox says it works on what it finds.
     box.type("region 0");
     expect([choices().map(([value]) => value), page.find("#popover [data-fstatus]").textContent, page.texts("#popover [data-popact]")])
-      .toEqual([Array.from({ length: 9 }, (_, at) => `Region 0${at + 1}`), "9 of 21 values match.", ["Show all", "Tick matches", "Untick matches"]]);
+      .toEqual([Array.from({ length: 9 }, (_, at) => `Region 0${at + 1}`), "9 of 21 values match.", ["Show all"]]);
+    expect(state()).toEqual([true, false, "true", "Untick matches", "Untick matches"]);
+    expect(page.find("#popover [data-fstatus]").classList.contains("sr-only")).toBe(true);
     // Unticking what it finds keeps every row while Products, which each of them lists, is ticked.
-    page.find('#popover [data-popact="untick"]').press();
+    toggle.tick();
+    expect(state()).toEqual([false, false, "false", "Tick matches", "Tick matches"]);
     expect([choices().every(([, , ticked]) => !ticked), page.id("rowCount").textContent, page.find('[data-colfilter="1"]').classList.contains("active")])
       .toEqual([true, "1–50 of 60 rows", true]);
     // Without Products, a row shows only by its region: the nine regions found are gone, and their twenty-seven modules.
     box.type("PRODUCTS");
-    page.find('#popover [data-popact="untick"]').press();
+    toggle.tick();
     expect([choices(), page.id("rowCount").textContent]).toEqual([[["Products", "60", false]], "1–33 of 33 rows (filtered from 60)"]);
-    // Ticking what it finds brings its rows back; with nothing typed, the buttons work on every value.
+    // Ticking what it finds brings its rows back; with nothing typed, the mixed checkbox works on every value.
     box.type("");
-    expect([page.texts("#popover [data-popact]"), page.find("#popover [data-fstatus]").textContent]).toEqual([["Show all", "Tick all", "Untick all"], "21 values."]);
-    page.find('#popover [data-popact="tick"]').press();
+    expect([page.texts("#popover [data-popact]"), page.find("#popover [data-fstatus]").textContent]).toEqual([["Show all"], "21 values."]);
+    expect(state()).toEqual([false, true, "mixed", "Tick all", "Tick all"]);
+    toggle.tick();
+    expect(state()).toEqual([true, false, "true", "Untick all", "Untick all"]);
     expect([choices().every(([, , ticked]) => ticked), page.id("rowCount").textContent, page.find('[data-colfilter="1"]').classList.contains("active")])
       .toEqual([true, "1–50 of 60 rows", false]);
     // A box ticked in the narrowed list is the value it shows, whatever its place in the list.
     box.type("region 20");
     page.all("#popover .pop-opt input")[0].tick();
+    expect(state()).toEqual([false, false, "false", "Tick matches", "Tick matches"]);
     expect([choices(), page.id("rowCount").textContent]).toEqual([[["Region 20", "3", false]], "1–50 of 60 rows"]);
     page.find('#popover [data-popact="all"]').press();
     expect([page.id("popover").hidden, page.find('[data-colfilter="1"]').classList.contains("active")]).toEqual([true, false]);
@@ -1250,7 +1329,7 @@ describe("The results page's script, on the page", () => {
     // A filter and a search do the same: a box ticked, and Show all.
     toPage(2);
     page.find('[data-colfilter="1"]').press();
-    page.all("#popover input")[0].tick();
+    page.all("#popover [data-fval]")[0].tick();
     expect([current(), page.id("rowCount").textContent]).toEqual(["1", "1–50 of 80 rows (filtered from 120)"]);
     toPage(2);
     page.find('[data-colfilter="1"]').press();
@@ -1387,7 +1466,7 @@ describe("The results page's script, on the page", () => {
       ["search", () => page.id("tblSearch").type("revenue")],
       ["search that finds nothing", () => page.id("tblSearch").type("no such line")],
       ["search cleared", () => page.id("tblSearch").type("")],
-      ["filter", () => { page.find('[data-colfilter="1"]').press(); page.all("#popover input")[0].tick(); }],
+      ["filter", () => { page.find('[data-colfilter="1"]').press(); page.all("#popover [data-fval]")[0].tick(); }],
       ["filter closed", () => page.key("Escape")],
       ["filter shown all", () => { page.find('[data-colfilter="1"]').press(); page.find('#popover [data-popact="all"]').press(); }],
     ];
@@ -1431,7 +1510,7 @@ describe("The results page's script, on the page", () => {
     }
     // The same for a column's filter button, which takes the focus back when its popover closes.
     page.find('[data-colfilter="1"]').press();
-    page.all("#popover input")[0].tick();
+    page.all("#popover [data-fval]")[0].tick();
     page.key("Escape");
     const filter = page.find('[data-colfilter="1"]');
     expect([page.document.activeElement === filter, filter.focusedIntoSight, page.id("tableWrap") === wrap, wrap.scrollLeft]).toEqual([true, 0, true, 240]);
@@ -1624,7 +1703,7 @@ describe("The results page's script, on the page", () => {
     expect([open(), page.id("popover").getAttribute("aria-label")]).toEqual([["3"], "Filter: Card type"]);
     // A ticked box writes the table's head again, with the popover still open over it: the new button says so too, and
     // says, not by its colour alone, that its filter is in force.
-    page.all("#popover input")[0].tick();
+    page.all("#popover [data-fval]")[0].tick();
     const button = page.find('[data-colfilter="3"]');
     expect([open(), button.getAttribute("aria-label"), button.title, button.querySelector("svg")?.getAttribute("fill")]).toEqual([["3"], "Filter by Card type (filter on)", "Filter by Card type (filter on)", "currentColor"]);
     expect([page.find('[data-colfilter="0"]').getAttribute("aria-label"), page.find('[data-colfilter="0"] svg').getAttribute("fill")]).toEqual(["Filter by Page", "none"]);
@@ -1656,7 +1735,7 @@ describe("The results page's script, on the page", () => {
     // the focus in it, and Escape then finds the button as it stands now.
     page.find('[data-colfilter="3"]').press();
     const before = page.find('[data-colfilter="3"]');
-    page.all("#popover input")[0].tick();
+    page.all("#popover [data-fval]")[0].tick();
     expect([firstCells(), page.id("popover").hidden, page.id("popover").contains(active()), before.isConnected]).toEqual([["Overview"], false, true, false]);
     page.key("Escape");
     expect(active()).toBe(page.find('[data-colfilter="3"]'));
@@ -2010,14 +2089,14 @@ describe("What a click, a key and typing do on the results page", () => {
     expect(filterable()).toEqual(expect.arrayContaining(["Module Name", "Format type", "Applies To from"]));
     page.find('[data-colfilter="7"]').press();
     expect(choices()).toEqual([["Line item", "1", true], ["Module", "7", true]]);
-    page.all("#popover input")[1].tick();
+    page.all("#popover [data-fval]")[1].tick();
     expect(column("Name")).toEqual(["Price"]);
     page.key("Escape");
     page.id("resetBtn").press();
     // The filter on the format's data type lists the modules' own rows as blanks: without them, the line items alone.
     page.find('[data-colfilter="3"]').press();
     expect(choices()).toEqual([["(blank)", "3", true], ["Number", "5", true]]);
-    page.all("#popover input")[0].tick();
+    page.all("#popover [data-fval]")[0].tick();
     expect([column("Name"), page.id("rowCount").textContent]).toEqual([["Units", "Price", "Revenue", "Margin %", "Cost"], "1–5 of 5 rows (filtered from 8)"]);
     expect(page.all("#tableWrap tbody tr").some(row => row.classList.contains("heading"))).toBe(false);
     page.key("Escape");
@@ -2263,7 +2342,7 @@ describe("What a click, a key and typing do on the results page", () => {
     expect(filterable()).toEqual(["Driver Module", "Driver Line Item", "Access", "Controlled Module", "Controlled Line Item"]);
     page.find('[data-colfilter="2"]').press();
     expect(choices()).toEqual([["Read", "3", true], ["Write", "2", true]]);
-    page.all("#popover input")[0].tick();
+    page.all("#popover [data-fval]")[0].tick();
     expect([column("Access"), column("Driver Line Item")]).toEqual([["Write", "Write"], ["=Can write", "'Old access'.Flag"]]);
     page.key("Escape");
     page.id("resetBtn").press();
@@ -2345,7 +2424,7 @@ describe("What a click, a key and typing do on the results page", () => {
     // The Summary column's filter lists the words, each with its rows, and the modules' own rows, which have none, as blanks.
     page.find('[data-colfilter="5"]').press();
     expect(choices()).toEqual([["(blank)", "3", true], ["None", "1", true], ["Ratio = Margin / Revenue", "1", true], ["Sum", "2", true], ["Sum, Time: Closing Balance", "1", true]]);
-    page.all("#popover input")[3].tick();
+    page.all("#popover [data-fval]")[3].tick();
     expect([column("Name"), page.id("rowCount").textContent]).toEqual([["REV01 Revenue", "Price", "Margin %", "--- Archive ---", "COST01 Costs", "Cost"], "1–6 of 6 rows (filtered from 8)"]);
     page.key("Escape");
     page.id("resetBtn").press();
@@ -2606,7 +2685,7 @@ describe("What a click, a key and typing do on the results page", () => {
     expect(choices().map(([value, count]) => [value, count]).sort()).toEqual([["Channel (hidden)", "1"], ["Section 1: Territory (visible, synced to page); Channel (hidden)", "1"],
       ["Section 2: Store (hidden)", "1"], ["Territory (visible, synced to page)", "1"]]);
     // A row shows when any of its items is ticked: without the first card's two items, the combined grid stays.
-    page.all("#popover input").filter((_, at) => ["Channel (hidden)", "Territory (visible, synced to page)"].includes(choices()[at][0])).forEach(box => box.tick());
+    page.all("#popover [data-fval]").filter((_, at) => ["Channel (hidden)", "Territory (visible, synced to page)"].includes(choices()[at][0])).forEach(box => box.tick());
     expect([column("Card title"), page.id("rowCount").textContent]).toEqual([["Plan"], "1–1 of 1 row (filtered from 2)"]);
   });
 
@@ -2801,24 +2880,24 @@ describe("What a click, a key and typing do on the results page", () => {
     const state = () => [column("Card title"), page.find('[data-colfilter="3"]').classList.contains("active"), page.id("resetBtn").hidden, page.id("rowCount").textContent];
     page.find('[data-colfilter="3"]').press();
     expect(choices()).toEqual([["Grid", "2", true], ["KPI", "2", true]]);
-    page.all("#popover input")[1].tick();
+    page.all("#popover [data-fval]")[1].tick();
     expect(state()).toEqual([["Sales", "Sales, copied"], true, false, "1–2 of 2 rows (filtered from 4)"]);
     // Nothing ticked shows nothing, and says that the filter is why.
-    page.all("#popover input")[0].tick();
+    page.all("#popover [data-fval]")[0].tick();
     expect([state()[0], page.texts("#tableWrap .e-sub"), page.id("rowCount").textContent]).toEqual([[], ["Nothing in Cards matches the current column filters."], "No rows (filtered from 4)"]);
-    page.all("#popover input")[1].tick();
+    page.all("#popover [data-fval]")[1].tick();
     expect(state()).toEqual([["Margin", "Margin, copied"], true, false, "1–2 of 2 rows (filtered from 4)"]);
     // Every box ticked again is no filter: nothing is in force, and Reset is not offered.
-    page.all("#popover input")[0].tick();
+    page.all("#popover [data-fval]")[0].tick();
     expect(state()).toEqual([["Sales", "Margin", "Sales, copied", "Margin, copied"], false, true, "1–4 of 4 rows"]);
     // The popover opened again shows what is ticked; a filter on a second column narrows what the first leaves.
-    page.all("#popover input")[0].tick();
+    page.all("#popover [data-fval]")[0].tick();
     page.key("Escape");
     page.find('[data-colfilter="3"]').press();
     expect(choices()).toEqual([["Grid", "2", false], ["KPI", "2", true]]);
     page.find('[data-colfilter="0"]').press();
     expect(choices()).toEqual([["Overview", "2", true], ["Overview (copy)", "2", true]]);
-    page.all("#popover input")[0].tick();
+    page.all("#popover [data-fval]")[0].tick();
     expect(column("Card title")).toEqual(["Margin, copied"]);
   });
 
@@ -2829,7 +2908,7 @@ describe("What a click, a key and typing do on the results page", () => {
     page.id("tblSearch").type("copied");
     page.find('[data-sort="2"]').press();
     page.find('[data-colfilter="3"]').press();
-    page.all("#popover input")[0].tick();
+    page.all("#popover [data-fval]")[0].tick();
     page.key("Escape");
     const inForce = () => [column("Card title"), page.has("#pageFilter"), page.id("tblSearch").value, page.all(".th-filter.active").length,
       page.all("#tableWrap thead th").filter(heading => heading.getAttribute("aria-sort") !== "none").length, page.id("resetBtn").hidden];
@@ -3237,7 +3316,7 @@ describe("An app's Where Used table, by object and by use", () => {
     page.id("tblSearch").type("");
     page.find('[data-colfilter="0"]').press();
     expect(choices()).toEqual([["Dimension", "1", true], ["Line item", "1", true], ["Module", "2", true]]);
-    page.all("#popover input")[2].tick();
+    page.all("#popover [data-fval]")[2].tick();
     expect(column("Object name")).toEqual(["Revenue", "Time"]);
     page.key("Escape");
     page.id("resetBtn").press();
@@ -6988,6 +7067,29 @@ describe("How a result was looked at, kept through a refresh of the page until t
     expect(page.id("tblSearch").value).toBe("");
   });
 
+  it("keeps a find pill's bulk selection through refresh and restores its mixed checkbox", async () => {
+    await openWith(APP);
+    await letKeep();
+    goTo(2);
+    page.find('[data-colfilter="3"]').press();
+    page.find("#popover [data-ffind]").type("Grid");
+    page.find("#popover [data-ftoggle]").tick();
+    page.key("Escape");
+    letLooksKeep();
+    await open(`${refreshed}#2`);
+    await back("Demo app");
+    expect(page.texts("#tableWrap tbody .tag")).toEqual(["KPI", "KPI"]);
+    page.find('[data-colfilter="3"]').press();
+    const toggle = page.find("#popover [data-ftoggle]") as FakeInput & { indeterminate: boolean };
+    expect([toggle.checked, toggle.indeterminate, toggle.getAttribute("aria-checked"), toggle.title]).toEqual([false, true, "mixed", "Tick all"]);
+    toggle.tick();
+    page.key("Escape");
+    letLooksKeep();
+    await open(`${refreshed}#2`);
+    await back("Demo app");
+    expect(page.texts("#tableWrap tbody .tag")).toEqual(["Grid", "KPI", "Grid", "KPI"]);
+  });
+
   it("loads an old search and whole-row drawer key, then keeps them in the new format", async () => {
     await openWith(MODEL);
     await letKeep();
@@ -7023,7 +7125,7 @@ describe("How a result was looked at, kept through a refresh of the page until t
   /** Leaves Cost out of Module's filter, sorts by Format and hides Formula: on Line Items, which is shown. */
   const lookAtLineItems = () => {
     page.find('[data-colfilter="3"]').press();
-    page.all("#popover input")[0].tick();
+    page.all("#popover [data-fval]")[0].tick();
     page.key("Escape");
     page.find('[data-sort="1"]').press();
     page.id("colBtn").press();
@@ -7095,7 +7197,7 @@ describe("How a result was looked at, kept through a refresh of the page until t
     await letKeep();
     goTo(1);
     page.find('[data-colfilter="1"]').press();
-    page.all("#popover input")[0].tick();
+    page.all("#popover [data-fval]")[0].tick();
     page.key("Escape");
     letLooksKeep();
     expect(looksKept()).toMatchObject({ tables: { "Line Items.csv": { filters: { Format: { u: ["Boolean"] } } } } });

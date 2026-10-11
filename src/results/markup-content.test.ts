@@ -3,7 +3,7 @@ import type { Cell, ResultTable } from "../result-types.js";
 import { columnWidths, headerWidth, ROW_BUTTON, WIDEST } from "./column-widths.js";
 import { columnsOf, type Column } from "./columns.js";
 import { parseMarkup, type FakeElement } from "./dom.test-support.js";
-import { cardDrawerHtml, cardDrawerSubHtml, cellHtml, colChooserHtml, colFilterHtml, FILE_ICONS, FILTER_FIND_FROM, FILTER_LISTED_MAX, filterMatches, filterOptionsHtml, filterStatusText,
+import { cardDrawerHtml, cardDrawerSubHtml, cellHtml, colChooserHtml, colFilterHtml, FILE_ICONS, FILTER_LISTED_MAX, filterMatches, filterOptionsHtml, filterStatusText,
   filterTickWords, FORGOTTEN_LINE, keptCopyHtml, MAP_FAILED, MAP_LABEL, mapHtml, NAV_ICONS, navHtml, navItems, navMenuHtml, NOT_REMOVED_LINE, objectDrawerHtml, objectDrawerSubHtml, overviewHtml, pagerHtml, rangeFilterHtml, rowCellHtml, rowDrawerHtml, sourceModelHtml, tableHtml, USES_AT_FIRST, type KeptCopy, type Links, type NavItem,
   SEARCH_TITLE, type TableView } from "./markup.js";
 import type { Overview } from "./result-view.js";
@@ -385,7 +385,7 @@ describe("What the results page's markup shows", () => {
     expect(choices(new Set(["", "KPI"])).map(choice => choice[2])).toEqual([true, false, true]);
     expect(choices(new Set()).map(choice => choice[2])).toEqual([false, false, false]);
     const popover = parseMarkup(colFilterHtml(column(3, "Card type"), values, undefined));
-    expect(popover.querySelectorAll(".pop-hd").map(text)).toEqual(["Filter: Card typeShow all", "ValueRows in the whole table"]);
+    expect(popover.querySelectorAll(".pop-hd").map(text)).toEqual(["Filter: Card typeShow all"]);
     expect(popover.querySelectorAll("[data-popact]").map(button => [button.dataset.popact, text(button)])).toEqual([["all", "Show all"]]);
     expect(popover.querySelectorAll(".po-cnt .sr-only").map(text)).toEqual(["rows in the whole table", "rows in the whole table", "row in the whole table"]);
     // A column that holds nothing at all says so, and has nothing to count.
@@ -397,19 +397,29 @@ describe("What the results page's markup shows", () => {
       .toEqual([["(blank)", "0"], ["12", "1"], ["2,252,068", "2"], ["n/a", "3"]]);
   });
 
-  it("gives a filter of many values a box that finds them, two buttons that tick or untick what it finds, and a line that says how many", () => {
-    expect([FILTER_FIND_FROM, FILTER_LISTED_MAX]).toEqual([15, 300]);
+  it("gives every value-list filter a find pill with a checkbox and announces the count without a visible count line", () => {
+    expect(FILTER_LISTED_MAX).toBe(300);
     /** A column's values: `count` texts, each in two rows, and a blank. */
     const values = (count: number) => [["", 3] as const, ...Array.from({ length: count }, (_, at) => [`Store ${String(at + 1).padStart(3, "0")}`, 2] as const)];
-    // Up to fifteen values, the filter is the plain list it always was: no box, no buttons, no line.
-    const few = parseMarkup(colFilterHtml(column(2, "Store"), values(14), undefined));
-    expect([few.querySelectorAll("input[type=search]").length, few.querySelectorAll("[data-popact]").map(button => button.dataset.popact), few.querySelectorAll("[role=status]").length])
-      .toEqual([0, ["all"], 0]);
-    // More: a box to find a value, named for a screen reader and marked to have the focus first, the two buttons, and the line.
+    for (const count of [0, 2, 14, 15, 40, 299, 300, 450]) {
+      const popover = parseMarkup(colFilterHtml(column(2, "Store"), values(count), undefined));
+      const box = popover.querySelector(".pop-find [data-ffind]");
+      const toggle = popover.querySelector(".pop-find [data-ftoggle]");
+      expect([box?.getAttribute("aria-label"), box?.dataset.first !== undefined]).toEqual(["Find a value of Store", true]);
+      expect([toggle?.getAttribute("type"), toggle?.checked, toggle?.getAttribute("aria-checked"), toggle?.getAttribute("aria-label"), toggle?.title])
+        .toEqual(["checkbox", true, "true", "Untick all", "Untick all"]);
+      expect(popover.querySelectorAll("[data-popact]").map(button => [button.dataset.popact, text(button)])).toEqual([["all", "Show all"]]);
+      expect(popover.querySelectorAll(".pop-hd").map(text)).toEqual(["Filter: StoreShow all"]);
+      const status = popover.querySelector("[data-fstatus]");
+      expect([status?.classList.contains("sr-only"), status?.getAttribute("role"), text(status)])
+        .toEqual([true, "status", `${count + 1} values.${count >= 300 ? " The first 300 are listed: type to narrow the list." : ""}`]);
+      expect(popover.querySelectorAll(".pop-note").filter(note => !note.hidden).map(text))
+        .toEqual(count >= 300 ? ["The first 300 are listed: type to narrow the list."] : []);
+    }
+    // A kept partial selection gives the checkbox its mixed spoken state; the page sets native indeterminate on opening.
     const many = parseMarkup(colFilterHtml(column(2, "Store"), values(40), new Set(["Store 001"])));
-    const box = many.querySelector("input[type=search]");
-    expect([box?.getAttribute("aria-label"), box?.dataset.first !== undefined, box?.dataset.ffind !== undefined]).toEqual(["Find a value of Store", true, true]);
-    expect(many.querySelectorAll("[data-popact]").map(button => [button.dataset.popact, text(button)])).toEqual([["all", "Show all"], ["tick", "Tick all"], ["untick", "Untick all"]]);
+    expect([many.querySelector("[data-ftoggle]")?.checked, many.querySelector("[data-ftoggle]")?.getAttribute("aria-checked"), many.querySelector("[data-ftoggle]")?.title])
+      .toEqual([false, "mixed", "Tick all"]);
     expect([text(many.querySelector("[role=status]")), many.querySelectorAll(".pop-opt").length]).toEqual(["41 values.", 41]);
     // The box finds a value by its text as the list shows it, whatever the case: the blank by its word in brackets, and a
     // count with its thousands apart. Nothing typed finds every value.
@@ -423,7 +433,7 @@ describe("What the results page's markup shows", () => {
       .toEqual([["Store 002", "2", true], ["Store 005", "5", false]]);
     expect([text(parseMarkup(filterOptionsHtml(column(2, "Store"), stores, [], undefined)).querySelector(".pop-empty")), filterStatusText(stores, [2, 5], "00"), filterStatusText(stores, [], "zz")])
       .toEqual(["No value matches", "2 of 41 values match.", "0 of 41 values match."]);
-    // The buttons say what they tick: all while nothing is typed, the matches once something is.
+    // The checkbox says what it ticks: all while nothing is typed, the matches once something is.
     expect([filterTickWords(""), filterTickWords("st")]).toEqual([["Tick all", "Untick all"], ["Tick matches", "Untick matches"]]);
     // At most three hundred are listed at once, and the line says to type to narrow the list.
     const most = values(450);
@@ -431,7 +441,7 @@ describe("What the results page's markup shows", () => {
     expect([listed.querySelectorAll(".pop-opt").length, text(listed.querySelector("[role=status]"))]).toEqual([300, "451 values. The first 300 are listed: type to narrow the list."]);
     // A column whose cells list items says how its rows are kept.
     expect([text(parseMarkup(colFilterHtml(column(2, "Applies To"), values(3), undefined, true)).querySelector(".pop-note")),
-      parseMarkup(colFilterHtml(column(2, "Applies To"), values(3), undefined)).querySelectorAll(".pop-note").length])
+      parseMarkup(colFilterHtml(column(2, "Applies To"), values(3), undefined)).querySelectorAll(".pop-note").filter(note => !note.hidden).length])
       .toEqual(["Each item is listed on its own: a row shows when any of its items is ticked.", 0]);
   });
 
@@ -439,6 +449,7 @@ describe("What the results page's markup shows", () => {
     const read = rangeColumn([["a", "113"], ["b", "9"], ["c", ""], ["d", "2252068"]], 1, "number", true);
     const sources = column(1, "Sources", "text", { filter: true, range: "number" });
     const popover = parseMarkup(rangeFilterHtml(sources, read, undefined));
+    expect(popover.querySelectorAll(".pop-find, [data-ftoggle], [data-fstatus], [data-flimit]")).toEqual([]);
     const [from, to] = [popover.querySelector("[data-rfrom]"), popover.querySelector("[data-rto]")];
     // Two boxes for figures, each named on its left, From to have the focus first, both empty and showing an edge of the column.
     expect([from?.getAttribute("type"), from?.getAttribute("inputmode"), from?.getAttribute("placeholder"), to?.getAttribute("placeholder"), from?.value, to?.value,
@@ -464,6 +475,7 @@ describe("What the results page's markup shows", () => {
     const started = column(1, "Start Date and Time (UTC)", "text", { filter: true, range: "date", none: false });
     const read = rangeColumn([["a", "2026-03-12 23:19:56"], ["b", "2026-10-09 08:00:00"]], 1, "date", false);
     const popover = parseMarkup(rangeFilterHtml(started, read, { fromText: "2026-03-01", toText: "", from: dayOf("2026-03-01"), blanks: true }));
+    expect(popover.querySelectorAll(".pop-find, [data-ftoggle], [data-fstatus], [data-flimit]")).toEqual([]);
     const from = popover.querySelector("[data-rfrom]");
     expect([from?.getAttribute("type"), from?.getAttribute("min"), from?.getAttribute("max"), from?.value, popover.querySelector("[data-rto]")?.value, popover.querySelectorAll("[data-rblanks]").length])
       .toEqual(["date", "2026-03-12", "2026-10-09", "2026-03-01", "", 0]);
