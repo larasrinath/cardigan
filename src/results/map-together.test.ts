@@ -436,7 +436,7 @@ describe("A model's result on the results page, with the map's real graph and th
     choose("Line Items");
     page.find('[data-colfilter="3"]').press();
     expect(page.all("#popover .pop-opt").map(option => option.textContent.replace(/\s+/g, " ").trim())[0]).toMatch(/^\(blank\) 7\b/);
-    page.all("#popover input")[0].tick();
+    page.all("#popover [data-fval]")[0].tick();
     expect(page.id("rowCount").textContent).toBe("1–10 of 10 rows (filtered from 17)");
   });
 
