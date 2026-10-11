@@ -6,6 +6,14 @@ Every merged change that alters the extension has a version of its own: a new fe
 
 - **Details headers stay in place.** The map's name, kind and opening buttons stay above the scrolling details, as in the tables; selecting another box starts at the top.
 
+## 0.34.11 (11 October 2026)
+
+- **Map panels open.** The minimap and legend start open, except the legend on very small maps; both keep your choice for the tab, and the first fit leaves room for them. (#127)
+
+## 0.34.10 (11 October 2026)
+
+- **Less text under Line Items.** The note under the title shows only warnings; the row count stays in the toolbar. (#126)
+
 ## 0.34.9 (11 October 2026)
 
 - **Clearer map connections.** A selected box's details say what feeds it and what it feeds, including when nothing does; **Hide the other boxes** and **Show all boxes** name what the button does. (#125)

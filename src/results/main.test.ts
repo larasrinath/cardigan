@@ -2124,7 +2124,7 @@ describe("What a click, a key and typing do on the results page", () => {
     expect(column("Format type")).toEqual(Array(5).fill("Number"));
     expect(page.all("#tableWrap tbody tr.heading")).toHaveLength(0);
     expect([page.texts("#view .view-note"), page.id("rowCount").textContent, page.id("live").textContent]).toEqual([
-      ["5 line items, each beside its module under Module Name. A module's own settings are in Modules."], "1–5 of 5 rows", "Line Items: 5 rows"]);
+      [], "1–5 of 5 rows", "Line Items: 5 rows"]);
     page.id("tblSearch").type("cost01");
     expect([column("Name"), page.id("rowCount").textContent]).toEqual([["Cost"], "1–1 of 1 row (filtered from 5)"]);
     page.id("tblSearch").type("archive");
