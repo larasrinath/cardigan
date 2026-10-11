@@ -6,6 +6,10 @@ Every merged change that alters the extension has a version of its own: a new fe
 
 - **Click empty space to close details.** The page background and empty table space close the panel, return focus and keep it closed on refresh, without moving the table. Controls, panel drags and clicks that dismiss a menu keep the details open. On the Model map, a click off the boxes, links included, clears the selection without moving the picture; a pan keeps it, and a click that dismisses a map menu closes only the menu.
 
+## 0.31.2 (11 October 2026)
+
+- **Fit to screen icon.** Four short arrows point out towards the corners inside a rounded frame, keeping Fit distinct from Full screen. (#98)
+
 ## 0.31.1 (11 October 2026)
 
 - **Round map controls.** Zoom, Fit to screen and Minimap are separate round buttons, matching Full screen, with no pipes in either bottom cluster. Fit has its own drawn icon; Minimap shows a small inset in the frame's bottom-right corner and stays highlighted while open. (#97)
