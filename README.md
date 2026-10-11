@@ -191,4 +191,6 @@ Thanks to [Harish Ramaiah](https://www.linkedin.com/in/harish-ramaiah-1327794/) 
 
 ## Licence
 
-[MIT](LICENSE). Cardigan is an independent project, not affiliated with, endorsed by or supported by Anaplan.
+Cardigan is released under the [MIT licence](LICENSE).
+
+Cardigan is an independent project. It is not affiliated with, endorsed by or supported by Anaplan.
