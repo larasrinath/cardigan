@@ -20,7 +20,7 @@ import { processOfRow, type StepView } from "./process-actions-view.js";
 import { DATA_SOURCES_FILE, sourceModelOfRow, type SourceModelView } from "./source-model-view.js";
 import { analysedLine, notKeptNote } from "./keep-notes.js";
 import { ResultKeeper } from "./keep-result.js";
-import { ElapsedTimer, pixelGridHtml } from "./pixel-loader.js";
+import { ElapsedTimer, pixelGridHtml, SpinnerWords } from "./pixel-loader.js";
 import {
   cardDrawerHtml, cardDrawerSubHtml, colChooserHtml, colFilterHtml, filterMatches, filterOptionsHtml, filterStatusText, filterTickWords, headerMetaHtml, keptCopyHtml, MAP_FAILED,
   MAP_LABEL, mapHtml, MOON_ICON, navHtml, navItems, navMenuHtml,
@@ -829,6 +829,14 @@ const runTimer = new ElapsedTimer(text => {
   const timer = find(".run-elapsed");
   if (timer) timer.textContent = text;
 });
+const runWords = new SpinnerWords(text => {
+  const word = find(".run-word");
+  if (word) word.textContent = text;
+});
+const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+reducedMotion?.addEventListener?.("change", () => {
+  if (client.state.phase !== "done") showRun(client.state);
+});
 
 /** Connecting, running, or why there is no new result. With a result on the page, progress is in the run control and live
  * region; only a failure adds a banner. A run that cannot start or finish takes nothing away. Every status is plain text. */
@@ -887,6 +895,8 @@ function showRun(runState: RunState): void {
   }
   find("#runCard")?.classList.toggle("stopped", STOPPED.has(runState.phase));
   showLog(client.log);
+  runWords.update(!result && (runState.phase === "running" || runState.phase === "connecting") ? text.message : undefined,
+    client.shows?.kind === "app" ? "app" : "model", reducedMotion?.matches);
   updateActions();
   // The card's status has its own live region; an earlier result uses the shell's region.
   announce(result ? text.message : "");
@@ -895,6 +905,7 @@ function showRun(runState: RunState): void {
 /** The run's diagnostic log. Before the first result its latest lines are under the message, kept in view. Beside an
  * earlier result there is only the banner's button to copy it, which is there once the log has a line. */
 function showLog(lines: readonly string[]): void {
+  runWords.log(lines);
   for (const copy of document.querySelectorAll("#bannerCopy, #runCopy")) (copy as HTMLElement).hidden = lines.length === 0;
   const block = find("#runLog");
   const log = find("#diagLog");
@@ -2486,7 +2497,7 @@ showTimes();
 // the page goes, should it go before the settings were written.
 looks = readKept(tabStorage());
 looksText = looks && JSON.stringify(looks);
-window.addEventListener?.("pagehide", () => { writeLooks(); runTimer.stop(); });
+window.addEventListener?.("pagehide", () => { writeLooks(); runTimer.stop(); runWords.stop(); });
 el("live").setAttribute("role", "status");
 const tabId = tabIdFrom(location.search);
 const byIcon = openedByIcon();
@@ -2512,6 +2523,7 @@ const client = new ResultsClient({
       return;
     }
     runTimer.stop();
+    runWords.stop();
     logPhase = "done";
     // Only a run's result is kept, and only once it is drawn: a result that was brought back is kept already.
     showResult(next.result, next.received);

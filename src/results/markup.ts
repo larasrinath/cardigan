@@ -10,6 +10,7 @@ import { LINE_ITEMS_FILE } from "./line-items-view.js";
 import { LINE_ITEM_NAMES, SUBSET_NOT_READ, type SubsetView } from "./line-item-subsets-view.js";
 import type { RangeState } from "./range-filter.js";
 import { pixelGridHtml } from "./pixel-loader.js";
+import { ALL_WORDS } from "./spinner-words.js";
 import { ACCESS_FILE, MODEL_CALENDAR_FILE, MODULES_FILE, type Analysed, type CardSection, type Overview, type OverviewTile, type SectionCell } from "./result-view.js";
 import { cellText, dayText, groupedCount, NONE, type RangeColumn, type Row, type Sort } from "./table-engine.js";
 import { bothTimes, timesOf, type TimeMode } from "./times.js";
@@ -494,7 +495,7 @@ export function runIconHtml(phase: RunState["phase"]): string {
 }
 
 /** The view while the page connects and the analysis runs, and when it could not: a heading, the status or the message,
- * what to do, and the diagnostic log. It holds no text of its own: the page sets each part as plain text. */
+ * what to do, and the diagnostic log. Invisible phrases reserve width; the page sets each shown part as plain text. */
 export function runHtml(): string {
   return `
   <div class="run-state">
@@ -502,9 +503,15 @@ export function runHtml(): string {
       <div class="run-mark" id="runIcon" aria-hidden="true"></div>
       <h1 class="view-title" id="runTitle"></h1>
       <div class="run-message">
-        ${pixelGridHtml()}
+        <div class="run-word-row">
+          ${pixelGridHtml()}
+          <span class="run-words" aria-hidden="true">
+            ${ALL_WORDS.map(word => `<span class="run-word-size">${esc(word)}</span>`).join("")}
+            <span class="run-word" aria-hidden="true"></span>
+          </span>
+          <span class="run-elapsed" aria-hidden="true"></span>
+        </div>
         <span id="runStatus" role="status" aria-live="polite"></span>
-        <span class="run-elapsed" aria-hidden="true"></span>
       </div>
       <p class="run-hint" id="runHint"></p>
       <div class="run-actions">

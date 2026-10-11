@@ -6,6 +6,7 @@ import { cardDrawerHtml, keptCopyHtml, NAV_GROUPS, navHtml, navItems, navMenuHtm
 import { readMarkup } from "./markup.test-support.js";
 import { MARKED_WEIGHT, PLAIN_WEIGHT } from "./nav-spread.js";
 import { PAGE_IDS } from "./page-ids.js";
+import { ALL_WORDS } from "./spinner-words.js";
 
 // The page itself and its stylesheet, as they are packaged: an extension page runs no inline script and no inline handler.
 const html = readFileSync(new URL(`../../${RESULTS_PAGE}`, import.meta.url), "utf8");
@@ -522,12 +523,19 @@ describe("The results page's files", () => {
     expect(declared(".pixel-cell")[0]).toContain("border-radius:1px;background:currentColor;opacity:.15");
     expect(declared(".reading .pixel-cell")[0]).toBe("animation:pixel-on 650ms ease-in-out infinite");
     expect(css).toContain("@keyframes pixel-on{0%,100%{opacity:.15}50%{opacity:1}}");
-    expect(declared(".reading #runStatus")[0]).toContain("linear-gradient(90deg,var(--text-3) 35%,var(--ink) 50%,var(--text-3) 65%)");
-    expect(declared(".reading #runStatus")[0]).toContain("animation:shimmer-text 1.4s linear infinite");
-    expect(declared(".reading .run-message")[0]).toBe("display:flex;align-items:center;gap:10px");
+    expect(declared(".reading .run-word")[0]).toContain("linear-gradient(90deg,var(--text-3) 35%,var(--ink) 50%,var(--text-3) 65%)");
+    expect(declared(".reading .run-word")[0]).toContain("animation:shimmer-text 1.4s linear infinite");
+    expect(declared(".reading #runStatus")[0]).toBe("display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--text-3)");
+    expect(declared(".run-word-row")).toEqual(["display:none"]);
+    expect(declared(".reading .run-word-row")[0]).toBe("display:flex;align-items:center;gap:10px;width:max-content;max-width:100%;margin-bottom:4px");
+    // Every phrase shares the same grid cell; the widest rendered phrase reserves room regardless of the current pool.
+    expect(parseMarkup(runHtml()).querySelectorAll(".run-word-size").map(word => word.textContent)).toEqual(ALL_WORDS);
+    expect(declared(".run-words")[0]).toBe("display:inline-grid;min-width:0;font-size:13px;font-weight:500");
+    expect(declared(".run-words > span")[0]).toContain("grid-area:1/1");
+    expect(declared(".run-word-size")).toEqual(["visibility:hidden"]);
     expect(declared(".reading .run-elapsed")[0]).toContain("width:9ch;font-family:var(--mono);font-size:12px;font-variant-numeric:tabular-nums;color:var(--text-3)");
-    expect(mediaRules("(prefers-reduced-motion:reduce)")).toContainEqual([".reading .pixel-cell,.reading #runStatus", "animation:none"]);
-    expect(mediaRules("(prefers-reduced-motion:reduce)")).toContainEqual([".reading #runStatus", "background:none;color:var(--text-3)"]);
+    expect(mediaRules("(prefers-reduced-motion:reduce)")).toContainEqual([".reading .pixel-cell,.reading .run-word", "animation:none"]);
+    expect(mediaRules("(prefers-reduced-motion:reduce)")).toContainEqual([".reading .run-word", "background:none;color:var(--text-3)"]);
     expect(shell.id("live").getAttribute("aria-live")).toBe("polite");
   });
 

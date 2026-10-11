@@ -1,3 +1,5 @@
+import { poolForStatus, wordsForPool, type WordEngine, type WordPool } from "./spinner-words.js";
+
 /** The Drive wave: the middle row leads, with the outer rows one step behind. */
 export const pixelDelay = (index: number): number => (index % 3 + Math.abs(Math.floor(index / 3) - 1)) * 90;
 
@@ -37,5 +39,65 @@ export class ElapsedTimer {
 
   private tick(): void {
     this.show(formatElapsed(performance.now() - this.started));
+  }
+}
+
+/** One silent phrase beside the pixels. Status updates leave the rotation's clock alone within a pool. */
+export class SpinnerWords {
+  private interval: ReturnType<typeof setInterval> | undefined;
+  private status: string | undefined;
+  private pool: WordPool | undefined;
+  private kind: "app" | "model" = "model";
+  private engine: WordEngine | undefined;
+  private recent: string[] = [];
+
+  constructor(private readonly show: (text: string) => void) {}
+
+  /** Keep a known engine even after its line drops out of the capped log; an empty log begins a new run. */
+  log(lines: readonly string[]): void {
+    if (!lines.length) { this.engine = undefined; return; }
+    for (const line of lines) {
+      const engine = /^(?:\d{2}:\d{2}:\d{2} )?Engine: (Classic|Polaris)\b/.exec(line)?.[1];
+      if (engine === "Classic" || engine === "Polaris") this.engine = engine;
+    }
+  }
+
+  update(status: string | undefined, kind: "app" | "model" = "model", reducedMotion = false): void {
+    if (status === undefined) return this.stop();
+    const pool = poolForStatus(status);
+    const changed = pool !== this.pool || kind !== this.kind || (reducedMotion && status !== this.status);
+    this.status = status;
+    this.pool = pool;
+    this.kind = kind;
+    if (changed) {
+      clearInterval(this.interval);
+      this.interval = undefined;
+      this.pick();
+    }
+    if (reducedMotion) {
+      clearInterval(this.interval);
+      this.interval = undefined;
+    } else if (this.interval === undefined) {
+      this.interval = setInterval(() => this.pick(), 3000);
+    }
+  }
+
+  stop(): void {
+    clearInterval(this.interval);
+    this.interval = undefined;
+    this.status = undefined;
+    this.pool = undefined;
+    this.recent = [];
+    this.show("");
+  }
+
+  private pick(): void {
+    if (!this.pool) return;
+    const words = wordsForPool(this.pool, this.kind, this.engine).filter(word => !this.recent.includes(word));
+    // Finishing can have only one or two words. Hold the last one rather than repeat either of the last two.
+    if (!words.length) return;
+    const word = words[Math.floor(Math.random() * words.length)];
+    this.recent = [...this.recent.slice(-1), word];
+    this.show(word);
   }
 }

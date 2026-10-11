@@ -219,7 +219,7 @@ To see which version you have, right-click Cardigan's icon in Chrome's toolbar: 
 
 1. Sign in to Anaplan. Open an app, or open a model in Model Building and wait until it has loaded.
 2. Click the Cardigan icon in Chrome's toolbar. If that Anaplan tab already has an open results page, Cardigan brings its tab and window forward and runs again there, keeping the table or map and the open row where it still exists. If it is already reading, it carries on. With no answering results page after about 300 milliseconds, a new one opens in the next tab and starts reading.
-3. Keep the Anaplan tab open until it finishes. The page shows each step in a centred card, beside a small pixel grid and an elapsed timer, then the result. The grid pulses to the right and the step's words shimmer. Reduced motion keeps both still while the timer ticks; screen readers announce only the step. Diagnostics starts folded and stays folded if the run stops. **Show diagnostics** and **Hide diagnostics** open and close the log under the card; **Copy diagnostic log** works in either state.
+3. Keep the Anaplan tab open until it finishes. The centred run card shows shimmering Anaplan phrases that rotate every three seconds beside a small pulsing pixel grid and an elapsed timer, with the real step underneath; the grid and timer keep their places as the words change. Reduced motion keeps one phrase per step and the pixels still while the timer ticks; screen readers announce only the real step. Diagnostics starts folded and stays folded if the run stops. **Show diagnostics** and **Hide diagnostics** open and close the log under the card; **Copy diagnostic log** works in either state.
 
 Closing the results page stops the reading.
 
