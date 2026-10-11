@@ -474,7 +474,7 @@ export function overviewHtml(overview: Overview, copy: KeptCopy = "none", views:
 function numberSize(tile: OverviewTile): string {
   if (tile.value !== undefined) return " s-word";
   const figures = String(tile.count).length;
-  return figures <= 4 ? "" : figures === 5 ? " s-n5" : figures === 6 ? " s-n6" : " s-n7";
+  return figures <= 4 ? "" : figures >= 8 ? " s-n8" : ` s-n${figures}`;
 }
 
 /* ---------- the run, before there is a result ---------- */

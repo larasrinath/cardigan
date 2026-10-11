@@ -563,7 +563,7 @@ describe("What the results page's markup shows", () => {
     const counts = [7, 5279, 15389, 153890, 1538900, 15389000];
     const view = parseMarkup(overviewHtml(overviewWith({ tiles: [...counts.map(count => ({ label: "Line Items", count })), { label: "Model Calendar", count: 21, value: "Monthly" }] })));
     expect(view.querySelectorAll(".s-num").map(number => [number.getAttribute("class"), number.textContent])).toEqual([["s-num", "7"], ["s-num", "5279"], ["s-num s-n5", "15389"],
-      ["s-num s-n6", "153890"], ["s-num s-n7", "1538900"], ["s-num s-n7", "15389000"], ["s-num s-word", "Monthly"]]);
+      ["s-num s-n6", "153890"], ["s-num s-n7", "1538900"], ["s-num s-n8", "15389000"], ["s-num s-word", "Monthly"]]);
   });
 
   it("says on a Model Calendar's tile what its calendar is in the number's place, its current year under that, and the whole in its title", () => {
