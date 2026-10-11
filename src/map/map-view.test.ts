@@ -277,6 +277,89 @@ function click(x: number, y: number): void {
 }
 const clickNode = (name: string): void => click(...at(name));
 
+describe("Empty canvas closes the details", () => {
+  it("clears details and kept selection without moving the picture, while a pan keeps the selection", () => {
+    let saved: MapView | undefined;
+    const drawingSpy = vi.spyOn(drawing, "drawScene");
+    mount(sample().graph, { modelName: "Demand Plan", onView: view => { saved = view; } });
+    map.show(); env.resize(1200, 800); env.settle();
+    clickNode("01: Inputs");
+    const before = boxes();
+    const camera = { ...drawingSpy.mock.calls.at(-1)![1].camera };
+    expect(saved?.selected).toBeDefined();
+    click(2, 2);
+    expect([part(".map-inspector").hidden, saved?.selected, boxes()]).toEqual([true, undefined, before]);
+    expect(drawingSpy.mock.calls.at(-1)![1].camera).toEqual(camera);
+    clickNode("01: Inputs");
+    const selected = saved?.selected;
+    pointer("pointerdown", 2, 2);
+    pointer("pointermove", 42, 32);
+    pointer("pointerup", 42, 32);
+    canvas().press();
+    expect([part(".map-inspector").hidden, saved?.selected]).toEqual([false, selected]);
+    expect(boxes()).not.toEqual(before);
+    const panned = boxes();
+    click(2, 2);
+    expect([part(".map-inspector").hidden, saved?.selected, boxes()]).toEqual([true, undefined, panned]);
+    drawingSpy.mockRestore();
+  });
+
+  it.each(["groups", "modules", "groupings", "grouping-info", "links"])("only dismisses the open %s menu on the first canvas click", action => {
+    open();
+    clickNode("01: Inputs");
+    const before = boxes();
+    act(action).press();
+    click(2, 2);
+    expect([act(action).getAttribute("aria-expanded"), part(".map-inspector").hidden, text(".map-insp-name"), boxes()])
+      .toEqual(["false", false, "01: Inputs", before]);
+    click(2, 2);
+    expect([part(".map-inspector").hidden, boxes()]).toEqual([true, before]);
+  });
+
+  it("only dismisses search results on the first canvas click", () => {
+    open();
+    clickNode("01: Inputs");
+    part(".map-search").type("Revenue");
+    click(2, 2);
+    expect([part(".map-results").hidden, part(".map-inspector").hidden]).toEqual([true, false]);
+    click(2, 2);
+    expect(part(".map-inspector").hidden).toBe(true);
+  });
+
+  it.each(["groups", "modules", "line items"])("closes the details when a drawn link is clicked among %s, without moving the picture", level => {
+    const made = sample();
+    // Also cover the loop over a line item that reads itself.
+    if (level === "line items") made.graph.edges.push([made.gross, made.gross, "formula"]);
+    open(made.graph);
+    if (level === "modules") groupChoice("modules");
+    if (level === "line items") pickModule("CAL01 - Revenue");
+    const name = level === "groups" ? "01: Inputs" : level === "modules" ? "CAL01 - Revenue" : "Gross";
+    clickNode(name);
+    const before = boxes();
+    // Points on the actual drawing, curved links and arrowheads included, off every box: a link does nothing when
+    // clicked, so a click on one is a click off the boxes.
+    const points: [number, number][] = [];
+    let start: number[] = [];
+    for (const call of lastPicture()) {
+      const values = call.args as number[];
+      if (call.name === "moveTo" || call.name === "lineTo") start = values;
+      else if (call.name === "bezierCurveTo") {
+        points.push([(start[0] + 3 * values[0] + 3 * values[2] + values[4]) / 8, (start[1] + 3 * values[1] + 3 * values[3] + values[5]) / 8]);
+        points.push([values[4], values[5]]);
+        start = values.slice(4);
+      }
+    }
+    const outside = points.filter(([x, y]) => ![...before.values()].some(box => x >= box.x && x <= box.x + box.w && y >= box.y && y <= box.y + box.h));
+    expect(outside.length).toBeGreaterThan(0);
+    for (const point of outside) {
+      if (part(".map-inspector").hidden) clickNode(name);
+      expect(part(".map-inspector").hidden).toBe(false);
+      click(...point);
+      expect([part(".map-inspector").hidden, boxes()]).toEqual([true, before]);
+    }
+  });
+});
+
 describe("Nothing jumps when links change", () => {
   it.each(["groups", "modules", "drill"])("keeps one outside object in %s through every link combination and a drag", level => {
     const data = twinBoxesModel();
