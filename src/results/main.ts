@@ -1047,12 +1047,6 @@ function openColFilter(entry: Shown, column: Column, owner: string, anchor: Elem
     choose(matches, toggle.checked);
     relist();
   });
-  popover.querySelector('[data-popact="all"]')?.addEventListener("click", () => {
-    entry.filters.delete(column.index);
-    entry.page = 0;
-    updateTable(entry);
-    closePopover(true);
-  });
 }
 /** Opens the filter of a column of numbers or of dates: a range, from one value to another (markup.ts `rangeFilterHtml`).
  * Its boxes are read when Enter is pressed in one of them or Apply is chosen, and the box for blank cells as it is ticked:

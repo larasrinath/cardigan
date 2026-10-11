@@ -385,12 +385,12 @@ describe("What the results page's markup shows", () => {
     expect(choices(new Set(["", "KPI"])).map(choice => choice[2])).toEqual([true, false, true]);
     expect(choices(new Set()).map(choice => choice[2])).toEqual([false, false, false]);
     const popover = parseMarkup(colFilterHtml(column(3, "Card type"), values, undefined));
-    expect(popover.querySelectorAll(".pop-hd").map(text)).toEqual(["Filter: Card typeShow all"]);
-    expect(popover.querySelectorAll("[data-popact]").map(button => [button.dataset.popact, text(button)])).toEqual([["all", "Show all"]]);
+    expect(popover.querySelectorAll(".pop-hd").map(text)).toEqual(["Filter: Card type"]);
+    expect(popover.querySelectorAll("[data-popact]").map(button => [button.dataset.popact, text(button)])).toEqual([]);
     expect(popover.querySelectorAll(".po-cnt .sr-only").map(text)).toEqual(["rows in the whole table", "rows in the whole table", "row in the whole table"]);
     // A column that holds nothing at all says so, and has nothing to count.
     const none = parseMarkup(colFilterHtml(column(3, "Card type"), [], undefined));
-    expect([none.querySelectorAll(".pop-opt").length, text(none.querySelector(".pop-empty")), none.querySelectorAll(".pop-hd").map(text)]).toEqual([0, "No values", ["Filter: Card typeShow all"]]);
+    expect([none.querySelectorAll(".pop-opt").length, text(none.querySelector(".pop-empty")), none.querySelectorAll(".pop-hd").map(text)]).toEqual([0, "No values", ["Filter: Card type"]]);
     // A count's column lists each count as its cells show it, with its thousands apart; a box still carries its place.
     const counts = [["", 1], ["12", 2], ["2252068", 1], ["n/a", 1]] as const;
     expect(parseMarkup(colFilterHtml(column(2, "Cell Count", "count"), counts, undefined)).querySelectorAll(".pop-opt").map(option => [text(option.children[1]), option.querySelector("input")?.dataset.fval]))
@@ -408,8 +408,8 @@ describe("What the results page's markup shows", () => {
       expect([box?.getAttribute("aria-label"), box?.dataset.first !== undefined]).toEqual(["Find a value of Store", true]);
       expect([toggle?.getAttribute("type"), toggle?.checked, toggle?.getAttribute("aria-checked"), toggle?.getAttribute("aria-label"), toggle?.title])
         .toEqual(["checkbox", true, "true", "Untick all", "Untick all"]);
-      expect(popover.querySelectorAll("[data-popact]").map(button => [button.dataset.popact, text(button)])).toEqual([["all", "Show all"]]);
-      expect(popover.querySelectorAll(".pop-hd").map(text)).toEqual(["Filter: StoreShow all"]);
+      expect(popover.querySelectorAll("[data-popact]").map(button => [button.dataset.popact, text(button)])).toEqual([]);
+      expect(popover.querySelectorAll(".pop-hd").map(text)).toEqual(["Filter: Store"]);
       const status = popover.querySelector("[data-fstatus]");
       expect([status?.classList.contains("sr-only"), status?.getAttribute("role"), text(status)])
         .toEqual([true, "status", `${count + 1} values.${count >= 300 ? " The first 300 are listed: type to narrow the list." : ""}`]);

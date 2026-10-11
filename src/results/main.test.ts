@@ -1176,7 +1176,7 @@ describe("The results page's script, on the page", () => {
     page.find('[data-colfilter="3"]').press();
     expect(choices()).toEqual([["Cost", "60", true], ["Revenue", "60", true]]);
     // The popover says what its numbers count to a screen reader with each number, without a heading row.
-    expect([page.texts("#popover .pop-hd"), page.texts("#popover .po-cnt")]).toEqual([["Filter: ModuleShow all"], ["60 rows in the whole table", "60 rows in the whole table"]]);
+    expect([page.texts("#popover .pop-hd"), page.texts("#popover .po-cnt")]).toEqual([["Filter: Module"], ["60 rows in the whole table", "60 rows in the whole table"]]);
     page.all("#popover [data-fval]")[0].tick();
     expect([page.id("rowCount").textContent, firstCells()[0], page.find('[data-colfilter="3"]').classList.contains("active")]).toEqual(["1–50 of 60 rows (filtered from 120)", "Line item 1", true]);
     // A second column's filter narrows what the first left.
@@ -1282,7 +1282,7 @@ describe("The results page's script, on the page", () => {
     // The box narrows the list, whatever the case, and the checkbox says it works on what it finds.
     box.type("region 0");
     expect([choices().map(([value]) => value), page.find("#popover [data-fstatus]").textContent, page.texts("#popover [data-popact]")])
-      .toEqual([Array.from({ length: 9 }, (_, at) => `Region 0${at + 1}`), "9 of 21 values match.", ["Show all"]]);
+      .toEqual([Array.from({ length: 9 }, (_, at) => `Region 0${at + 1}`), "9 of 21 values match.", []]);
     expect(state()).toEqual([true, false, "true", "Untick matches", "Untick matches"]);
     expect(page.find("#popover [data-fstatus]").classList.contains("sr-only")).toBe(true);
     // Unticking what it finds keeps every row while Products, which each of them lists, is ticked.
@@ -1296,7 +1296,7 @@ describe("The results page's script, on the page", () => {
     expect([choices(), page.id("rowCount").textContent]).toEqual([[["Products", "60", false]], "1–33 of 33 rows (filtered from 60)"]);
     // Ticking what it finds brings its rows back; with nothing typed, the mixed checkbox works on every value.
     box.type("");
-    expect([page.texts("#popover [data-popact]"), page.find("#popover [data-fstatus]").textContent]).toEqual([["Show all"], "21 values."]);
+    expect([page.texts("#popover [data-popact]"), page.find("#popover [data-fstatus]").textContent]).toEqual([[], "21 values."]);
     expect(state()).toEqual([false, true, "mixed", "Tick all", "Tick all"]);
     toggle.tick();
     expect(state()).toEqual([true, false, "true", "Untick all", "Untick all"]);
@@ -1307,8 +1307,8 @@ describe("The results page's script, on the page", () => {
     page.all("#popover .pop-opt input")[0].tick();
     expect(state()).toEqual([false, false, "false", "Tick matches", "Tick matches"]);
     expect([choices(), page.id("rowCount").textContent]).toEqual([[["Region 20", "3", false]], "1–50 of 60 rows"]);
-    page.find('#popover [data-popact="all"]').press();
-    expect([page.id("popover").hidden, page.find('[data-colfilter="1"]').classList.contains("active")]).toEqual([true, false]);
+    page.find("#popover [data-ftoggle]").tick();
+    expect([page.id("popover").hidden, page.find('[data-colfilter="1"]').classList.contains("active")]).toEqual([false, false]);
   });
 
   it("starts at the first page after a sort, search or filter changes, and keeps the page when returning to the table", async () => {
@@ -1327,14 +1327,14 @@ describe("The results page's script, on the page", () => {
       page.find('[data-sort="0"]').press();
       expect([current(), firstCells()[0]]).toEqual(["1", expected]);
     }
-    // A filter and a search do the same: a box ticked, and Show all.
+    // A filter and a search do the same: one value unticked, then all ticked again.
     toPage(2);
     page.find('[data-colfilter="1"]').press();
     page.all("#popover [data-fval]")[0].tick();
     expect([current(), page.id("rowCount").textContent]).toEqual(["1", "1–50 of 80 rows (filtered from 120)"]);
     toPage(2);
     page.find('[data-colfilter="1"]').press();
-    page.find('#popover [data-popact="all"]').press();
+    page.find("#popover [data-ftoggle]").tick();
     expect([current(), page.id("rowCount").textContent]).toEqual(["1", "1–50 of 120 rows"]);
     toPage(3);
     page.id("tblSearch").type("revenue");
@@ -1469,7 +1469,7 @@ describe("The results page's script, on the page", () => {
       ["search cleared", () => page.id("tblSearch").type("")],
       ["filter", () => { page.find('[data-colfilter="1"]').press(); page.all("#popover [data-fval]")[0].tick(); }],
       ["filter closed", () => page.key("Escape")],
-      ["filter shown all", () => { page.find('[data-colfilter="1"]').press(); page.find('#popover [data-popact="all"]').press(); }],
+      ["every filter value ticked", () => { page.find('[data-colfilter="1"]').press(); page.find("#popover [data-ftoggle]").tick(); }],
     ];
     const seen = new Set<string>();
     for (const [step, act] of steps) {
@@ -1745,10 +1745,10 @@ describe("The results page's script, on the page", () => {
     page.find('[data-colfilter="3"]').press();
     expect(page.id("popover").hidden).toBe(true);
 
-    // The popover's own buttons close it: Show all and Defaults.
+    // Ticking all keeps the filter open and focused; Defaults closes the column chooser.
     page.find('[data-colfilter="3"]').press();
-    page.find('#popover [data-popact="all"]').press();
-    expect([page.id("popover").hidden, active() === page.find('[data-colfilter="3"]'), firstCells().length]).toEqual([true, true, 2]);
+    page.find("#popover [data-ftoggle]").tick();
+    expect([page.id("popover").hidden, active() === page.find("#popover [data-ftoggle]"), firstCells().length]).toEqual([false, true, 2]);
     page.id("colBtn").press();
     page.find('#popover [data-popact="defaults"]').press();
     expect([page.id("popover").hidden, active() === page.id("colBtn")]).toEqual([true, true]);
@@ -6123,7 +6123,7 @@ describe("The buttons at the top right of a row's details that open it in Anapla
     // The dash alone ticked: the module on no page alone is shown.
     for (const option of page.all("#popover .pop-opt")) if (option.children[1].textContent !== "-") option.children[0].tick();
     expect(firstCells()).toEqual(["--- Archive ---"]);
-    page.find('#popover [data-popact="all"]').press();
+    page.find("#popover [data-ftoggle]").tick();
     page.key("Escape");
     page.id("tblSearch").type("Archive");
     expect(firstCells()).toEqual(["--- Archive ---"]);
@@ -7116,6 +7116,46 @@ describe("How a result was looked at, kept through a refresh of the page until t
     expect(firstCells()).toEqual(onlyBlank ? [] : ["Units", "Price", "Revenue", "Margin %", "Cost"]);
     page.find('[data-colfilter="3"]').press();
     expect(page.all("#popover .pop-opt").some(option => option.textContent.includes("(blank)"))).toBe(false);
+  });
+
+  it.each(["checkbox", "one by one"])("clears a column's filter, mark and kept choice when all values are ticked by %s", async method => {
+    const tickAll = () => {
+      if (method === "checkbox") page.find("#popover [data-ftoggle]").tick();
+      else for (const option of page.all("#popover [data-fval]")) if (!option.checked) option.tick();
+    };
+    await openWith(MODEL);
+    await letKeep();
+    goTo(1);
+    // A second filter stays in force while Format is cleared.
+    page.find('[data-colfilter="3"]').press();
+    page.all("#popover [data-fval]")[0].tick();
+    page.key("Escape");
+    page.find('[data-colfilter="1"]').press();
+    expect(page.texts("#popover .pop-hd")).toEqual(["Filter: Format"]);
+    expect(page.has('#popover [data-popact="all"]')).toBe(false);
+    page.find("#popover [data-ftoggle]").tick();
+    expect([page.all(".th-filter.active").length, page.id("resetBtn").hidden]).toEqual([2, false]);
+    letLooksKeep();
+    expect(looksKept()).toMatchObject({ tables: { "Line Items.csv": { filters: { Format: { t: [] } } } } });
+    tickAll();
+    const mark = page.find('[data-colfilter="1"]');
+    expect([mark.classList.contains("active"), mark.getAttribute("aria-label"), mark.querySelector("svg")?.getAttribute("fill")])
+      .toEqual([false, "Filter by Format", "none"]);
+    expect([page.all(".th-filter.active").length, page.id("resetBtn").hidden, choices().every(([, , ticked]) => ticked)])
+      .toEqual([1, false, true]);
+    letLooksKeep();
+    expect((looksKept() as { tables: unknown }).tables).toEqual({ "Line Items.csv": { filters: { Module: { u: ["Cost"] } } } });
+    page.key("Escape");
+    page.find('[data-colfilter="3"]').press();
+    tickAll();
+    expect([page.all(".th-filter.active").length, page.id("resetBtn").hidden]).toEqual([0, true]);
+    page.key("Escape");
+    letLooksKeep();
+    expect(looksKept()).toBeUndefined();
+    await open(`${refreshed}#1`);
+    await back("Model one");
+    expect([page.all(".th-filter.active").length, page.id("resetBtn").hidden, page.id("rowCount").textContent])
+      .toEqual([0, true, "1–50 of 120 rows"]);
   });
 
   it("keeps a find pill's bulk selection through refresh and restores its mixed checkbox", async () => {
