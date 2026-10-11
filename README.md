@@ -29,7 +29,7 @@ Cardigan only reads, with your own signed-in session; nothing leaves your browse
 
 Open the model in **Model Building**. The **Overview** shows table counts, the model calendar, details of what was read and any gaps. Click a tile to open its table. **How to read these tables**, on the Overview, explains each table's columns and rules.
 
-![Model Overview with table counts, the calendar and model details](docs/images/model-overview.png)
+![Light Overview with Dimensions and App Usage menus, table counts, FY26 and About this export](docs/images/model-overview.png)
 
 The menu bar groups the model's tables:
 
@@ -60,17 +60,19 @@ The menu bar groups the model's tables:
 
 **Line Items** lists each line item beside its module. Module settings have their own table, **Modules**. Use **Format type** to filter by data type; untick **No Data** to leave out line items used as headings. Open a row to read its formula, dimensions and references in full.
 
-![Line Items with a Format type filter and a row's details open](docs/images/model-line-items.png)
+![Line Items with Format type open, No Data unticked and the tick-all checkbox inside Find](docs/images/model-line-items.png)
 
 **Imports** shows where data comes from and where it goes. For file imports, the row's **Mapping** shows the saved sources and targets, including constants and prompts, and notes targets that are not mapped. It reads the saved definition, not the uploaded file. If the open page cannot name a property an import maps into, Cardigan reads that list's properties once. Properties it still cannot name keep their IDs, with a note in the diagnostic log.
 
-![A file import's saved mapping in its details](docs/images/model-imports.png)
+![Load promotions file import with its saved Mapping open](docs/images/model-imports.png)
 
 **Processes** shows each process's actions in run order. Open a row to see the steps and follow an action to its own details.
 
-![A process with its actions listed in run order](docs/images/model-processes.png)
+![Weekly forecast refresh process with its three actions in run order](docs/images/model-processes.png)
 
 **Line Item Subsets** shows member counts. Open a subset to see its members grouped by module and follow them to their rows. The details say when membership could not be read.
+
+![Consensus measures subset with five members grouped under their modules](docs/images/model-line-item-subsets.png)
 
 **Classic and Polaris:** Cardigan reads both engines the same way through Model Building, so the tables are the same. When Model Building's client does not answer, Cardigan reads what it can and the Overview explains what is missing.
 
@@ -87,11 +89,11 @@ The map shows how a model's groups, modules and line items connect. It is built 
 - **Minimap** and **Legend** start open; the legend starts closed on very small maps and is absent when there are no layers. Both keep your open or closed choice for the tab. **Fit** leaves room for the open panels.
 - The minimap moves beside open details. If there is too little room, it hides until the details close, keeping your choice.
 
-![Model map grouped by functional area with Links open](docs/images/map-groups.png)
+![Light Model map grouped by Functional area, with the Legend, the minimap and the bottom-left controls row](docs/images/map-groups.png)
 
-![A module's line items on the dark map, with page-filter links and access-driver marks](docs/images/map-line-items.png)
+![Dark map of INP01 Sales Overrides line items with page-filter and access-driver links and Legend open](docs/images/map-line-items.png)
 
-![A selected module's map details and navigation buttons](docs/images/map-details.png)
+![CON01 Consensus Forecast map details showing Fed by, Feeds and Hide the other boxes](docs/images/map-details.png)
 
 The pictures use an invented bicycle planning model. All names, identifiers and data are invented.
 
