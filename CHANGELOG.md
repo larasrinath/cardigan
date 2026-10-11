@@ -2,6 +2,14 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version is in the menu of Cardigan's icon in Chrome's toolbar and on its About page, and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## 0.29.0 (11 October 2026)
+
+Access drivers can be found at a glance on the Model map.
+
+- **A key beside the funnel.** With **Access drivers** ticked under **Links**, a teal key marks each Read or Write Access Driver. A module's key counts its driver line items; a group's counts its modules that hold drivers. A line item that drives both counts once. A box can carry both a key and a page filter's funnel, clear of its name. At small zooms they become separate dots on the top edge. The legend explains the key at each level. (#80)
+- **What it controls.** A driver's hover card counts the line items and modules it controls, separately for read and write. Its details say Read, Write or both, and **Controls** links to each target with its access role. A controlled line item's **Access driven by** links back to its drivers. These lists stay readable with the arrows off. (#80)
+- **The same places.** Ticking Access drivers adds marks and arrows without moving any box or the camera, including boxes dragged by hand. With no access drivers to show, the switch is off and its note says why; a result without driver columns, as on Polaris, says they were not read. (#80)
+
 ## 0.28.0 (11 October 2026)
 
 Polaris reads the settings the live probe found, with its limits kept visible.

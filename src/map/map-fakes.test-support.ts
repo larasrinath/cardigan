@@ -115,7 +115,7 @@ export class FakePen {
   arc(...args: unknown[]): void { this.note("arc", args); }
   arcTo(...args: number[]): void { this.note("arcTo", args); }
   roundRect(...args: number[]): void { this.note("roundRect", args); }
-  fill(): void { this.note("fill", []); }
+  fill(...args: unknown[]): void { this.note("fill", args); }
   stroke(): void { this.note("stroke", []); }
   fillText(...args: unknown[]): void { this.note("fillText", args); }
   setLineDash(dash: number[]): void {
@@ -134,6 +134,27 @@ export class FakePen {
 }
 
 const isColour = (value: unknown): value is string => typeof value === "string" && /^(#[0-9a-f]{3,8}|rgba?\([^)]*\)|color\([^)]*\))$/i.test(value.trim());
+
+/** Invented access drivers: read, write, both, and a second module in the same group. The shared driver also filters
+ * its own grid, and controls both a line item and a module. */
+export function accessMarkedModel() {
+  const make = new GraphMaker();
+  const home = make.module("ACC01 Access", "Access");
+  const checks = make.module("ACC02 Checks", "Access");
+  const plan = make.module("PLN01 Plan", "Planning");
+  const read = make.item(home, "Can read", { format: "BOOLEAN" });
+  const write = make.item(home, "Can write", { format: "BOOLEAN" });
+  const both = make.item(home, "Open and visible", { format: "BOOLEAN" });
+  const local = make.item(home, "Local value");
+  const second = make.item(checks, "Approved", { format: "BOOLEAN" });
+  const units = make.item(plan, "Units");
+  const price = make.item(plan, "Price");
+  make.nodes[both].pageFilters = [{ app: "Invented planning", page: "Access review", card: "1", modules: [home], lineItems: [both, local] }];
+  make.link(read, units, "read_access").link(read, price, "read_access").link(write, price, "write_access")
+    .link(both, local, "read_access").link(both, local, "write_access").link(both, plan, "read_access")
+    .link(second, units, "write_access").link(both, local, "page_filter").link(both, local);
+  return { graph: { ...make.graph(), pageFilterTable: true, accessDriversRead: true }, home, checks, plan, read, write, both, local, second, units, price };
+}
 
 /** A model whose filters on the pages built on it are, as in a live model, on the modules of their own line items, which
  * no link can show: MDM380 - Customer Entity # is filtered by its own Incomplete Records and Missing DisplayName, and

@@ -5,11 +5,11 @@ import {
 } from "./map-camera.js";
 import { createFonts, drawMinimap, drawScene, legibleFrom, type Fonts, type Pen } from "./map-canvas.js";
 import { drawLinks, edgeDrawn, moduleGraph, modulesGraph, sectionsGraph, type Box, type LinksDrawn, type ViewGraph, type ViewNode } from "./map-graphs.js";
-import { filterTipLines, inspect, statusWords, traceWords, viewSentence, type Inspection, type TraceWords } from "./map-inspect.js";
+import { accessTipLines, filterTipLines, inspect, statusWords, traceWords, viewSentence, type Inspection, type TraceWords } from "./map-inspect.js";
 import { boundsOf, fullFrom, layoutGraph, sizeNodes } from "./map-layout.js";
 import { automaticGrouping, groupingsOf, type Grouping } from "./map-groups.js";
 import {
-  brokenHtml, emptyHtml, filtersNote as filtersSay, FULL_SAYS, fullIconHtml, groupingOptionsHtml, groupOptionsHtml, inspectorHtml, legendHtml, listHtml, notesHtml, pathRootHtml,
+  accessNote as accessSay, brokenHtml, emptyHtml, filtersNote as filtersSay, FULL_SAYS, fullIconHtml, groupingOptionsHtml, groupOptionsHtml, inspectorHtml, legendHtml, listHtml, notesHtml, pathRootHtml,
   pickerOptionsHtml, resultsHtml, shellHtml, SHOW_GROUPS, SHOW_MODULES, tooltipHtml, traceHtml, type Tip,
 } from "./map-markup.js";
 import { indexModel, isAccess, isFilter, withGrouping, type MapModel } from "./map-model.js";
@@ -161,6 +161,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   const linksPop = part(".map-links-pop");
   const formulasToggle = part<HTMLInputElement>(".map-formulas");
   const accessToggle = part<HTMLInputElement>(".map-access");
+  const accessNote = part(".map-access-note");
   const filtersToggle = part<HTMLInputElement>(".map-filters");
   const filtersNote = part(".map-filters-note");
   const fullButton = part<HTMLButtonElement>('[data-map-act="fullscreen"]');
@@ -677,7 +678,8 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     // Of links it says only the kinds drawn: a link that is neither a filter's nor formulas' alone has an access driver.
     legend.innerHTML = legendHtml(onScreen.kind === "drill" || single ? "On this map" : "Groups", onScreen.layers, hiddenLayers,
       onScreen.edges.some(edge => edge.filter) ? onScreen.kind : undefined, onScreen.nodes.some(node => node.filterMark) ? onScreen.kind : undefined,
-      { formulas, access: onScreen.edges.some(edge => !edge.filter && !edge.formulaOnly), none: linksDrawn() === "none" });
+      { formulas, access: onScreen.edges.some(edge => !edge.filter && !edge.formulaOnly), none: linksDrawn() === "none" },
+      onScreen.nodes.some(node => node.accessMark) ? onScreen.kind : undefined);
     legendButton.hidden = onScreen.layers.length === 0;
   }
 
@@ -715,6 +717,8 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     externalToggle.checked = expanded;
     formulasToggle.checked = formulas;
     accessToggle.checked = access;
+    accessToggle.disabled = model.accessEdges.length === 0;
+    accessNote.textContent = accessSay(model.graph, model.accessEdges.length > 0);
     // The pages' filters can be shown only where the model has some to show, as links or as marks on modules their own
     // line items filter: otherwise the switch is off, and the note under it says why in its explanation's place. What it
     // shows is said by whether some of the links join two modules, and some modules are marked.
@@ -784,9 +788,11 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
       const module = raw && raw.kind !== "module" ? model.node(model.moduleOf(raw)) : undefined;
       // While the pages' filters are drawn, a line item says where it filters, and what filters it.
       const filtered = filters && raw?.kind === "lineItem" ? filterTipLines(model, raw) : [];
+      const driven = !access ? [] : raw?.kind === "lineItem" ? accessTipLines(model, raw) : node.accessMark
+        ? [node.kind === "section" ? `${plural(node.accessMark, "module")} with access drivers` : `${plural(node.accessMark, "access driver")}`] : [];
       const tip: Tip = {
         layer: node.layer, kind: node.code || (raw ? raw.kind === "lineItem" ? "line item" : raw.kind : node.kind === "section" ? "group" : node.kind), name: node.fullName,
-        lines: [node.meta, module?.name ?? "", ...filtered], ...(raw?.formula ? { formula: raw.formula } : {}),
+        lines: [node.meta, module?.name ?? "", ...driven, ...filtered], ...(raw?.formula ? { formula: raw.formula } : {}),
       };
       tooltip.innerHTML = tooltipHtml(tip);
       tooltip.classList.add("map-show");
@@ -1054,7 +1060,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   function takeView(left: MapView | undefined): void {
     if (!model || !left || typeof left !== "object") return;
     formulas = left.noFormulas !== true;
-    access = left.access === true;
+    access = left.access === true && model.accessEdges.length > 0;
     filters = left.filters === true && filtersDrawable();
     if (left.view === "drill" && typeof left.module === "string") {
       const module = model.modules.find(each => each.name === left.module);
@@ -1433,7 +1439,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
       if (onScreen) announce(`${formulas ? "Formula links are drawn." : "Formula links are not drawn."} ${viewSentence(onScreen, options.modelName, linksDrawn())}`);
     } else if (target === accessToggle) {
       // The same view with other links: what is selected stays selected where it is still on screen.
-      access = accessToggle.checked;
+      access = accessToggle.checked && (model?.accessEdges.length ?? 0) > 0;
       onlyTrace = false;
       build(true);
       if (onScreen) announce(`${access ? "Access driver links are drawn." : "Access driver links are not drawn."} ${viewSentence(onScreen, options.modelName, linksDrawn())}`);

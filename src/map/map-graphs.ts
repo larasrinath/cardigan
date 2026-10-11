@@ -54,6 +54,9 @@ export interface ViewNode {
    * on the module's grid is a link from its line item to each line item the grid shows, but to itself. The canvas draws
    * it as a mark on the box. None where there is nothing to mark, or the pages' filters are not drawn. */
   readonly filterMark?: number;
+  /** While access drivers are drawn: one for a driver line item, its module's distinct drivers, or the group's
+   * modules that hold drivers. Read and write together still count as one driver. */
+  readonly accessMark?: number;
   /** Kept in place while none of the drawn links brings this external box into the view. */
   readonly dimmed?: boolean;
   x: number;
@@ -131,6 +134,7 @@ interface Draft {
   external: boolean;
   side?: "in" | "out" | "both";
   filterMark?: number;
+  accessMark?: number;
 }
 interface Link { s: string; t: string; w: number; refs?: GraphEdge[]; filter?: boolean; formula?: number }
 
@@ -231,12 +235,14 @@ function moduleLinks(model: MapModel, access: boolean, filters: boolean): Link[]
 /** A module's box. Its small line says how many line items it has, or its section where the graph holds modules of
  * more than one (`inSection`): there the section is said in words, and not by the box's colour alone. Where the pages'
  * filters are drawn (`filters`), it is marked with how many of its own line items filter it. */
-function moduleDraft(model: MapModel, raw: GraphNode, external: boolean, inSection = false, filters = false): Draft {
+function moduleDraft(model: MapModel, raw: GraphNode, external: boolean, inSection = false, filters = false, access = false): Draft {
   const own = filters ? model.ownFiltersOf(raw.id) : 0;
+  const drivers = access ? model.accessDriversOf(raw.id) : 0;
   return {
     id: String(raw.id), kind: "module", layer: external ? LAYER.external : sectionLayer(model.sectionIndex(model.sectionOf(raw))),
     ...splitName(raw.name), fullName: raw.name, meta: inSection ? model.sectionOf(raw) : plural(model.itemsOf(raw.id).length, "line item"), raw, external,
     ...(own ? { filterMark: own } : {}),
+    ...(drivers ? { accessMark: drivers } : {}),
   };
 }
 
@@ -247,10 +253,12 @@ export function sectionsGraph(model: MapModel, access: boolean, filters = false)
     const lineItems = members.reduce((count, module) => count + model.itemsOf(module.id).length, 0);
     // Where the pages' filters are drawn: how many of its modules their own line items filter.
     const marked = filters ? members.filter(module => model.ownFiltersOf(module.id) > 0).length : 0;
+    const drivers = access ? members.filter(module => model.accessDriversOf(module.id) > 0).length : 0;
     return {
       id: `section${index}`, kind: "section", layer: sectionLayer(index), section: index, code: "",
       label: section, fullName: section, meta: `${plural(members.length, "module")} · ${plural(lineItems, "line item")}`,
       members: members.map(module => module.id), external: false, ...(marked ? { filterMark: marked } : {}),
+      ...(drivers ? { accessMark: drivers } : {}),
     };
   });
   const links = aggregate(model, activeEdges(model, access, filters), node => {
@@ -271,7 +279,7 @@ export function modulesGraph(model: MapModel, section: string | undefined, acces
     shown.add(Number(link.t));
   }
   // Among all modules every box says its section; among one section's, the boxes from other sections say theirs.
-  const drafts = model.modules.filter(module => shown.has(module.id)).map(module => moduleDraft(model, module, !own.has(module.id), section === undefined ? model.sections.length > 1 : !own.has(module.id), filters));
+  const drafts = model.modules.filter(module => shown.has(module.id)).map(module => moduleDraft(model, module, !own.has(module.id), section === undefined ? model.sections.length > 1 : !own.has(module.id), filters, access));
   return finish(model, "modules", section ?? "All modules", drafts, links, own.size);
 }
 
@@ -288,6 +296,7 @@ export function moduleGraph(model: MapModel, moduleId: number, expanded: boolean
       code: "", label: item.name, fullName: item.name, meta: "", raw: item, external: false,
       // Where the pages' filters are drawn, a line item that filters itself is marked: no link can show it.
       ...(filters && model.filtersItself(item.id) ? { filterMark: 1 } : {}),
+      ...(access && model.isAccessDriver(item.id) ? { accessMark: 1 } : {}),
     });
   }
 
@@ -301,7 +310,7 @@ export function moduleGraph(model: MapModel, moduleId: number, expanded: boolean
     if (home && !expanded) {
       const key = `external${home.id}`;
       let group = drafts.get(key);
-      if (!group) drafts.set(key, group = { ...moduleDraft(model, home, true), id: key, kind: "externalModule", members: [] });
+      if (!group) drafts.set(key, group = { ...moduleDraft(model, home, true, false, false, access), id: key, kind: "externalModule", members: [] });
       if (!grouped.has(id)) {
         grouped.add(id);
         group.members!.push(id);
@@ -310,9 +319,10 @@ export function moduleGraph(model: MapModel, moduleId: number, expanded: boolean
     }
     const key = String(id);
     if (!drafts.has(key)) {
-      if (raw.kind === "module") drafts.set(key, moduleDraft(model, raw, true));
+      if (raw.kind === "module") drafts.set(key, moduleDraft(model, raw, true, false, false, access));
       // A line item of another module says which: the module's code, or its whole name where it has no code.
-      else if (raw.kind === "lineItem") drafts.set(key, { id: key, kind: "externalItem", layer: LAYER.external, code: home ? splitName(home.name).code || home.name : "", label: raw.name, fullName: raw.name, meta: "", raw, external: true });
+      else if (raw.kind === "lineItem") drafts.set(key, { id: key, kind: "externalItem", layer: LAYER.external, code: home ? splitName(home.name).code || home.name : "", label: raw.name, fullName: raw.name, meta: "", raw, external: true,
+        ...(access && model.isAccessDriver(raw.id) ? { accessMark: 1 } : {}) });
       else {
         const property = raw.kind === "property";
         const list = property ? model.node(raw.parent) : undefined;
@@ -357,7 +367,7 @@ export function moduleGraph(model: MapModel, moduleId: number, expanded: boolean
 }
 
 /** Draw other links over the complete view's boxes. The complete view supplies their order, sizes and places;
- * the drawn view supplies links and filter marks. Boxes brought in only by unticked kinds stay, dimmed. */
+ * the drawn view supplies links and marks. Boxes brought in only by unticked kinds stay, dimmed. */
 export function drawLinks(places: ViewGraph, drawn: ViewGraph, formulas: boolean): ViewGraph {
   const linked = new Set<string>();
   for (const edge of drawn.edges) if (edgeDrawn(edge, formulas)) {
@@ -366,7 +376,7 @@ export function drawLinks(places: ViewGraph, drawn: ViewGraph, formulas: boolean
   }
   const nodes = places.nodes.map(node => {
     const active = drawn.byId.get(node.id);
-    return { ...node, filterMark: active?.filterMark, dimmed: node.external && !linked.has(node.id) };
+    return { ...node, filterMark: active?.filterMark, accessMark: active?.accessMark, dimmed: node.external && !linked.has(node.id) };
   });
   const byId = new Map(nodes.map(node => [node.id, node]));
   const edges = drawn.edges.map(edge => ({ ...edge, s: byId.get(drawn.nodes[edge.s].id)!.index, t: byId.get(drawn.nodes[edge.t].id)!.index }));

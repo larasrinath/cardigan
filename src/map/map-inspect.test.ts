@@ -142,25 +142,25 @@ describe("What the details say of a line item", () => {
     const { model, revenue, units, active, net } = sample();
     const graph = moduleGraph(model, revenue, false, false);
     const inspection = inspect(model, graph, byName(graph, "Gross"), false);
-    expect(inspection.lists.map(list => [list.key, list.title, list.open])).toEqual([["depends", "Feeds it directly · 2", true], ["used", "It feeds directly · 1", true]]);
+    expect(inspection.lists.map(list => [list.key, list.title, list.open])).toEqual([["accessDrivenBy", "Access driven by · 1", true], ["depends", "Feeds it directly · 2", true], ["used", "It feeds directly · 1", true]]);
     // In the order of the graph's links, which is by the place of what is read.
-    expect(inspection.lists[0].links).toEqual([{ raw: active, name: "Active Products", layer: LAYER.list }, { raw: units, name: "Units", layer: LAYER.lineItem, sub: "INP01 - Volumes" }]);
-    expect(inspection.lists[1].links).toEqual([{ raw: net, name: "Net", layer: LAYER.lineItem, sub: "CAL01 - Revenue" }]);
+    expect(inspection.lists[1].links).toEqual([{ raw: active, name: "Active Products", layer: LAYER.list }, { raw: units, name: "Units", layer: LAYER.lineItem, sub: "INP01 - Volumes" }]);
+    expect(inspection.lists[2].links).toEqual([{ raw: net, name: "Net", layer: LAYER.lineItem, sub: "CAL01 - Revenue" }]);
   });
 
-  it("adds its read and write access drivers when those links are shown, and says which a link is, from either end", () => {
+  it("lists access separately from formulas, with read and write once per object, whether arrows are drawn or not", () => {
     const { model, revenue, volumes, canEdit, gross } = sample();
     const graph = moduleGraph(model, revenue, false, true);
     const depends = inspect(model, graph, byName(graph, "Gross"), true).lists[0];
-    expect(depends.title).toBe("Feeds it directly · 3");
-    expect(depends.links.find(link => link.raw === canEdit)).toEqual({ raw: canEdit, name: "Can Edit", layer: LAYER.lineItem, sub: "INP01 - Volumes", caption: "read access driver, write access driver" });
+    expect(depends.title).toBe("Access driven by · 1");
+    expect(depends.links.find(link => link.raw === canEdit)).toEqual({ raw: canEdit, name: "Can Edit", layer: LAYER.lineItem, sub: "INP01 - Volumes", caption: "Read and write access" });
     const source = moduleGraph(model, volumes, false, true);
     const driven = inspect(model, source, byName(source, "Can Edit"), true).lists;
-    expect(driven.map(list => [list.key, list.title])).toEqual([["used", "It feeds directly · 1"]]);
-    expect(driven[0].links).toEqual([{ raw: gross, name: "Gross", layer: LAYER.lineItem, sub: "CAL01 - Revenue", caption: "read access driven by this, write access driven by this" }]);
-    // Without those links shown, the flag feeds nothing.
+    expect(driven.map(list => [list.key, list.title])).toEqual([["controls", "Controls · 1"]]);
+    expect(driven[0].links).toEqual([{ raw: gross, name: "Gross", layer: LAYER.lineItem, sub: "CAL01 - Revenue", caption: "Read and write access" }]);
+    // Turning arrows off keeps the facts in the details, as it does for page filters.
     const plain = moduleGraph(model, volumes, false, false);
-    expect(inspect(model, plain, byName(plain, "Can Edit"), false).lists).toEqual([]);
+    expect(inspect(model, plain, byName(plain, "Can Edit"), false).lists).toEqual(driven);
   });
 
   it("labels its settings as the Line Items table names its columns, and says its dimensions are the module's where it has none of its own", () => {

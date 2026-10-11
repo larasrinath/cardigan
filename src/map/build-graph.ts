@@ -1083,6 +1083,7 @@ function build(tables: readonly ResultTable[]): { graph: ModelGraph; draft: Draf
     ...(moduleFacts.functionalAreas || moduleFacts.moduleUsage ? { moduleFacts } : {}),
     ...(pageFilterCheck ? { pageFilterTable: true, pageFilterCheck } : {}),
     ...(areaCheck ? { areaCheck } : {}),
+    ...(lineItems.table?.rows.length ? { accessDriversRead: DRIVERS.some(([column]) => lineItems.table!.has(column)) } : {}),
   };
   return { graph, draft, lineItems };
 }

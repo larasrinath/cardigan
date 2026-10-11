@@ -143,6 +143,8 @@ export interface ModelGraph {
   /** How that table's rows met the map's line items, where the result has it (results/main.ts puts it in the run's log,
    * and the map says from it why it has nothing to draw). */
   pageFilterCheck?: PageFilterCheck;
+  /** Whether the result includes Read or Write Access Driver columns. Absent on older graphs. */
+  accessDriversRead?: boolean;
   /** How the Modules file's Functional Area met the map's modules, where the file has that column (results/main.ts puts
    * it in the run's log): how many different areas the map's modules have, how many of them have one, and the names
    * one side has and the other lacks. A heading row of Modules is no module of the map, and is in neither list. */
