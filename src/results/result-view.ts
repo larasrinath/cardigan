@@ -161,11 +161,14 @@ export type FileRule = (file: ResultTable, result: AnalysisResult) => FileView |
 
 /** A model's Model Calendar file (model/export.ts writes it under this name) follows a template: its first rows are about
  * the model itself (its workspace, its name, when it was captured), under the Section "Model", and the rest are the
- * calendar's settings. The rows about the model are not the calendar's, so the page says them with the model, in the
- * overview, and the table lists the others. */
+ * calendar's settings. The rows about the model are not the calendar's, so the table lists the others; the overview
+ * names the workspace and the model (`ABOUT_SHOWN`). */
 export const MODEL_CALENDAR_FILE = "Model Calendar.csv";
 /** The Section of the Model Calendar file's rows about the model. */
 export const ABOUT_MODEL = "Model";
+
+/** The rows about the model that About this export says too (`ABOUT_SHOWN`), and how the calendar's line names them. */
+const ABOUT_NAMED: ReadonlyMap<string, string> = new Map([["Workspace", "the workspace"], ["Model", "the model"]]);
 
 /** The Model Calendar file's columns that guide whoever fills the template in by hand: which calendar types a setting is
  * for, and how to fill it in. The export fills the values in itself, so the page leaves the two out. */
@@ -184,14 +187,13 @@ const calendarView: FileRule = file => {
   const blank = settings.length - rows.length;
   const notes: string[] = [];
   if (left) {
-    // The line says where the rows are, so that the table's count is not taken for all the file has. The overview has
-    // the setting and the value of each such row that holds a value, and of no other (`factsOf`): the export leaves the
-    // value out where it cannot know it. So the line says how many of the rows the overview has, and where none holds a
-    // value, or the file lacks the columns the overview reads them by, only that the rows are not shown.
-    const valued = factsOf(file).length;
-    const where = valued === 0 ? "not shown"
-      : valued === left ? `not listed here: the Overview has ${left === 1 ? "its value" : "their values"}, under About this export`
-      : `not listed here: ${valued} ${valued === 1 ? "holds" : "hold"} a value, which the Overview has under About this export`;
+    // The line says where the rows are, so that the table's count is not taken for all the file has. The overview names
+    // the workspace and the model under About this export (`ABOUT_SHOWN`), from such a row where the Details file does
+    // not: the line says which of those the rows hold a value for (`factsOf`), and where they hold neither, or the file
+    // lacks the columns they are read by, only that the rows are not shown.
+    const named = new Set(factsOf(file).map(([setting]) => setting).filter(setting => ABOUT_NAMED.has(setting)));
+    const what = [...ABOUT_NAMED.keys()].filter(setting => named.has(setting)).map(setting => ABOUT_NAMED.get(setting));
+    const where = what.length ? `not listed here: the Overview names ${what.join(" and ")}, under About this export` : "not shown";
     notes.push(`${left} ${left === 1 ? "row about the model is" : "rows about the model are"} ${where}.`);
   }
   if (blank) {
@@ -715,11 +717,10 @@ export interface Overview {
   /** The result's notes (`resultNotes`), then a note for each table some of whose rows the export could not match in the
    * Actions list (`matchedRemark`). */
   notes: string[];
-  /** About this export: the Details file's rows of every section but its files, its notes, how to read them and the log,
-   * in the file's order, but for an app's models, which follow its ID; then what a model's Model Calendar file says about
-   * the model (`modelFacts`), without what those
-   * rows have said already. A value is as the file has it: one that lists several things, such as an app's categories,
-   * has each on a line of its own, and the overview shows its lines. */
+  /** About this export: the workspace and its ID, the model or the app and its ID, and the model's apps or the app's
+   * models (`ABOUT_SHOWN`), from the Details file, or the Model Calendar's facts where that has none (`modelFacts`). A
+   * value is as the file has it: one that lists several things, such as a model's apps, has each on a line of its own,
+   * and the overview shows its lines. */
   about: [detail: string, value: string][];
   /** The Details file's rows about files, as far as a file's tile does not say the same: a file that was not exported,
    * and a count that comes with a remark. Each is named as the page names the table: by the table's own label where the
@@ -734,12 +735,23 @@ export interface Overview {
   log: string[];
 }
 
-/** Moves the row of one detail to right after the row of another, where the rows have both. */
-function followOn(rows: [detail: string, value: string][], after: string, detail: string): void {
-  const from = rows.findIndex(([name]) => name === detail);
-  if (from < 0 || !rows.some(([name]) => name === after)) return;
-  const [row] = rows.splice(from, 1);
-  rows.splice(rows.findIndex(([name]) => name === after) + 1, 0, row);
+/** What About this export says, and in this order: the workspace, then what was read, each name beside its ID, and last
+ * for a model the apps whose pages use it, for an app the models it is built on. The two kinds of result share the
+ * list, and neither has the other's rows. Nothing else of the Details file is said there: where and when the export was
+ * made and what made it stay in the result's data and the first line of its log, the line above the view says when the
+ * result was analysed, and the calendar's settings are its table's. A row the result does not have leaves no gap. */
+export const ABOUT_SHOWN: readonly string[] = ["Workspace", "Workspace ID", "App", "App ID", "Model", "Model ID", "Models", "Apps"];
+
+/** About this export (`ABOUT_SHOWN`): each detail once, in the list's order, with the Details file's value, or where that
+ * file has none, the Model Calendar's (`modelFacts`). A dash says none: the export writes one for a workspace it did not
+ * find, and for an app that names no model. */
+function aboutOf(read: readonly (readonly [string, string])[], facts: readonly (readonly [string, string])[]): [detail: string, value: string][] {
+  const valueOf = (rows: readonly (readonly [string, string])[], detail: string): string | undefined =>
+    rows.find(([name, value]) => name === detail && value.trim() !== "" && value.trim() !== NONE)?.[1];
+  return ABOUT_SHOWN.flatMap((detail): [string, string][] => {
+    const value = valueOf(read, detail) ?? valueOf(facts, detail);
+    return value === undefined ? [] : [[detail, value]];
+  });
 }
 
 export function overviewOf(result: AnalysisResult): Overview {
@@ -757,12 +769,10 @@ export function overviewOf(result: AnalysisResult): Overview {
 
   const sections = detailSections(detailsOf(result));
   const rowsOf = (name: string) => sections.find(section => section.section === name)?.rows ?? [];
-  const about = sections.filter(section => ![FILES, NOTES, HOW_TO_READ].includes(section.section)).flatMap(section => section.rows);
-  for (const fact of modelFacts(result)) {
-    if (!about.some(([detail, value]) => detail === fact[0] && value === fact[1])) about.push(fact);
-  }
-  // What an app is built on is said with what the app is: its models follow its ID, before its categories and pages.
-  if (result.kind === "app") followOn(about, "App ID", "Models");
+  // The workspace, what was read with its ID, and its apps or models: nothing more, in one order whatever order the
+  // Details file and the calendar give them (`ABOUT_SHOWN`).
+  const read = sections.filter(section => ![FILES, NOTES, HOW_TO_READ].includes(section.section)).flatMap(section => section.rows);
+  const about = aboutOf(read, modelFacts(result));
   // A Files row that says only the file's own number of rows is left out: the file's tile says how many rows its table
   // lists, and a table that leaves rows out says so under its name. The Details file says "1 rows" too: a count is the
   // file's number of rows and the word, whatever the number.

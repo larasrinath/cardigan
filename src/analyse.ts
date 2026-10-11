@@ -1152,10 +1152,11 @@ export async function analyseApp(appGuid: string, progress: Progress, diagnostic
   const categoryNames = [...new Set([...categories.values(), ...inputs.map(input => input.categoryName).filter(name => name !== NONE)])];
   const modelsUsed = [...new Set(inputs.filter(input => input.modelName !== NONE)
     .map(input => (input.workspaceName !== NONE ? `${input.modelName} (${input.workspaceName})` : input.modelName)))];
-  // The overview lists these rows under About this export. A value that lists several things, the categories or the
-  // models, has each on a line of its own, and so has the value that says two: how many published pages were analysed,
-  // and how many pages were left unpublished. The line breaks are the value's own, and the overview shows them as they
-  // are (results.css `#ovAbout`). The page splits no value: splitting at semicolons would also split a name that has one.
+  // The overview says the app, its ID and its models under About this export (results/result-view.ts `ABOUT_SHOWN`), and
+  // the result keeps the rest. A value that lists several things, the categories or the models, has each on a line of its
+  // own, and so has the value that says two: how many published pages were analysed, and how many pages were left
+  // unpublished. The line breaks are the value's own, and the overview shows them as they are (results.css `#ovAbout`).
+  // The page splits no value: splitting at semicolons would also split a name that has one.
   const lines = (items: readonly string[]): string => items.join("\n");
   const details: DetailRow[] = [
     ["App", "App", appName],
