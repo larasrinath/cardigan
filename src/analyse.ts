@@ -14,6 +14,7 @@ import { buildReport, HEADERS, LINE_ITEMS, NONE, PAGE_TYPE, type PageInput, type
 import { plainRows } from "./result-plain.js";
 import type { AnalysisResult, ResultTable } from "./result-types.js";
 import { getJson, RestError } from "./rest.js";
+import type { PolarisReader } from "./polaris-read.js";
 import { StompConnection, StompError, type SubscribeOptions } from "./stomp.js";
 import { ANAPLAN_HOST, AT_A_TIME, eachAtMost, fileSafe, list, message, SCOPE_ID, seconds, stepTimes, text, type Obj } from "./util.js";
 
@@ -209,13 +210,13 @@ export function addDerivedContextSelectors(details: UxPageCardDetails, catalog: 
  * list is asked first of `modelHost`, the host the model data service settled on, when it connected, and only then, if
  * that fails, of the page's own. A run that `signal` has stopped reads no further list: the stop is rethrown. */
 async function readActionNames(scope: ModelScope, refs: readonly UxEntityRef[], modelHost: string | undefined, catalog: ModelCatalog,
-  progress: Progress, signal?: AbortSignal): Promise<{ notes: string[]; failedActionTypes: string[] }> {
+  progress: Progress, signal?: AbortSignal, polaris?: PolarisReader): Promise<{ notes: string[]; failedActionTypes: string[] }> {
   const { workspaceId: ws, modelId: model } = scope;
   const notes: string[] = [];
   const failedActionTypes: string[] = [];
   const actionTypes = new Set(refs.filter(ref => ref.kind === "action").map(ref => ref.actionType));
   for (const [type, key] of [["IMPORT", "imports"], ["EXPORT", "exports"], ["PROCESS", "processes"]] as const) {
-    if (!actionTypes.has(type)) continue;
+    if (!polaris && !actionTypes.has(type)) continue;
     const path = `/a/collaboration-actions-service/workspaces/${ws}/models/${model}/${key}`;
     const hosts = [...new Set([...(modelHost ? [modelHost] : []), location.host])];
     let problem: string | undefined;
@@ -223,11 +224,20 @@ async function readActionNames(scope: ModelScope, refs: readonly UxEntityRef[], 
       signal?.throwIfAborted();
       try {
         const before = catalog.actions.size;
-        addActions(catalog, key, await getJson(path, { host }));
+        const json = await (polaris?.get ?? getJson)(path, { host });
+        if (polaris) signal?.throwIfAborted();
+        polaris?.action(key, json);
+        addActions(catalog, key, json);
         progress.log(`${scope.modelName}: ${catalog.actions.size - before} ${key} named (from ${host})`);
         problem = undefined;
         break;
       } catch (error) {
+        if (polaris) {
+          signal?.throwIfAborted();
+          polaris.failed(key, error);
+          problem = message(error);
+          break;
+        }
         if (error instanceof RestError && error.code === "MAINTENANCE") throw error;
         progress.log(`${scope.modelName}: ${key} from ${host} answered ${message(error)}`);
         problem ??= message(error);
@@ -265,7 +275,7 @@ interface SocketReads {
 
 /** The answers that name dimensions, as they came: for a dimension no answer named, the log says which of them hold its ID
  * at all (one that holds it unnamed would be read wrongly). */
-interface NameAnswers { lists?: unknown; moduleViews?: unknown; moduleDimensions: unknown[] }
+interface NameAnswers { lists?: unknown; subsets?: unknown; moduleViews?: unknown; moduleDimensions: unknown[] }
 
 /** A module whose line items cannot be read is remembered, so the search for filter line items does not ask again. A read
  * that ended with the connection says nothing about its module: after a redirect it is read on the host the model lives on.
@@ -800,7 +810,7 @@ async function readDimensionNames(reads: SocketReads, pages: readonly UxPageCard
       return undefined;
     }
   };
-  const subsets = await read("lists with subsets", `core://${ws}:${model}/lists?subsets=true`, {}, json => {
+  const subsets = answers.subsets ?? await read("lists with subsets", `core://${ws}:${model}/lists?subsets=true`, {}, json => {
     addLists(catalog, json);
     return `: ${selectionShape(json)}`;
   });
@@ -844,7 +854,7 @@ export interface CatalogInputs { pages: readonly UxPageCardDetails[]; pageNames:
  * (withSocket). `viewLayouts: false` reads no saved view's rows, columns and context selectors: they are for an app's
  * Cards and Grid Sections tables, which a model's run does not make (model-pages.ts), and a model's views can be many
  * (233 in a live run, 10 Oct 2026). */
-export interface LoadOptions { frameHost?: () => string | undefined; viewLayouts?: boolean }
+export interface LoadOptions { frameHost?: () => string | undefined; viewLayouts?: boolean; polaris?: PolarisReader }
 
 /** Names for one model, for pages that were read already: an app's (`analyseApp`), or the pages built on a model, read
  * after its export (model-pages.ts `addModelPages`). */
@@ -955,19 +965,29 @@ export async function loadCatalogWhen(scope: ModelScope, inputs: Promise<Catalog
           addModuleViews(catalog, views.value);
           answers.moduleViews = views.value;
           progress.log(`module views: ${moduleViewsShape(views.value)}`);
-        } else notes.push(`${scope.modelName}: module and saved view names were not available (${message(views.reason)}).`);
+        } else {
+          options.polaris?.failed("moduleViews", views.reason);
+          notes.push(`${scope.modelName}: module and saved view names were not available (${message(views.reason)}).`);
+        }
         if (lists.status === "fulfilled") {
           addLists(catalog, lists.value);
           answers.lists = lists.value;
           progress.log(`lists: ${selectionShape(lists.value)}`);
-        } else notes.push(`${scope.modelName}: list names were not available (${message(lists.reason)}).`);
+        } else {
+          options.polaris?.failed("lists", lists.reason);
+          notes.push(`${scope.modelName}: list names were not available (${message(lists.reason)}).`);
+        }
+        if (options.polaris) {
+          await settle(options.polaris.inventory(catalog, answers.lists, subscribe, host));
+          answers.subsets = { data: options.polaris.subsets };
+        }
         // What the other steps read for: the pages and the export, which a model's run may still be reading.
         const { pages, exported } = given ?? await time.step("waiting for the pages and the export", () => settle(arrived));
         progress.status(`Reading line items in ${scope.modelName}…`);
         await time.step("line items", async () => {
           if (exported && compared === undefined) compared = await compareExported(reads, moduleIds, exported);
           // Only the modules whose line items are not known yet: from the export, or from a read before a redirect.
-          const unknown = [...moduleIds].filter(id => !catalog.lineItemModules.has(id));
+          const unknown = [...moduleIds].filter(id => !catalog.lineItemModules.has(id) && (!options.polaris || !catalog.unreadableModules.has(id)));
           await settle(eachAtMost(unknown, AT_A_TIME, signal, moduleId => readLineItems(reads, moduleId)));
         });
         if (exported) {
@@ -994,14 +1014,16 @@ export async function loadCatalogWhen(scope: ModelScope, inputs: Promise<Catalog
       }
     }, options.frameHost);
   } catch (error) {
-    if (error instanceof RestError && error.code === "MAINTENANCE") throw error;
+    if (options.polaris) options.polaris.failed("socket", error);
+    else if (error instanceof RestError && error.code === "MAINTENANCE") throw error;
     notes.push(`${scope.modelName}: names from the model data service were not available (${message(error)}); IDs are shown instead.`);
   }
   signal?.throwIfAborted();
   // The inputs, if they have not come yet: their failure ends the work, for its names are no longer wanted.
   await arrived;
 
-  const actions = await time.step("action names", () => readActionNames(scope, refs, modelHost, catalog, progress, signal));
+  if (options.polaris) await options.polaris.inventory(catalog);
+  const actions = await time.step("action names", () => readActionNames(scope, refs, modelHost, catalog, progress, signal, options.polaris));
   notes.push(...actions.notes);
   progress.log(`${time.line()}; names of ${scope.modelName} in all ${seconds(Date.now() - began)}`);
   progress.log(`${scope.modelName}: ${catalog.modules.size} modules, ${catalog.views.size} saved views, ${catalog.dimensions.size} dimensions, `

@@ -8,7 +8,8 @@ import { separator } from "./map/graph-names.js";
 import { FILTER_USES, MISSING_LINE_ITEMS_MODULE, MODULE_USAGE_FILE, MODULE_USAGE_HEADERS, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, PAGE_PLACE_HEADERS } from "./page-files.js";
 import { missingCards, missingNote, namePlainly, sayMissing } from "./page-missing.js";
 import type { EngineDetails, EngineScope } from "./model-engine.js";
-import { polarisResult } from "./polaris.js";
+import { describePolarisRead, hasModelMap, polarisResult } from "./polaris.js";
+import { PolarisReader } from "./polaris-read.js";
 import type { Progress } from "./progress.js";
 import { buildReport, HEADERS, NONE, PAGE_TYPE, type Cell, type PageInput } from "./report.js";
 import { plainRows } from "./result-plain.js";
@@ -311,8 +312,8 @@ const MODEL_NAMES = { viewLayouts: false } as const;
 /** The name a model's name reads go by until its export has come, which names the model. */
 const UNTIL_NAMED = "this model";
 
-/** Polaris uses the same existing socket and published-page reads, with no dependency on a Classic export. Inventory
- * reads still run when there are no pages, or the page directory is refused. A failed name read keeps what it learned. */
+/** Polaris combines the existing socket/action listings with its metadata GETs and published pages, without a Classic
+ * export. Sources fail independently, and inventory reads still run when there are no pages or the directory refuses. */
 export async function readPolarisModel(ids: EngineScope, engine: EngineDetails, progress: Progress, signal?: AbortSignal, reads: PageReads = LIVE): Promise<AnalysisResult> {
   signal?.throwIfAborted();
   const logged: string[] = [];
@@ -322,18 +323,18 @@ export async function readPolarisModel(ids: EngineScope, engine: EngineDetails, 
     progress.log(value);
   } };
   const time = stepTimes();
+  const polaris = new PolarisReader(ids, step, signal, reads.getJson);
   const pagesWork = ids.customerId ? readPagesOf(ids.customerId, ids.modelId, step, signal, reads, time)
     .catch(error => {
-      if (error instanceof RestError && error.code === "MAINTENANCE") throw error;
       if (signal?.aborted) throw signal.reason;
+      polaris.failed("pages", error);
       return { left: unreadWhy(error) };
     }) : Promise.resolve({ left: NO_CUSTOMER });
   const scope: ModelScope = { customerId: ids.customerId ?? "", workspaceId: ids.workspaceId ?? "", modelId: ids.modelId, modelName: engine.modelName ?? "this Polaris model" };
   const inputs = pagesWork.then(read => ({ pages: "left" in read ? [] : read.pages.map(page => page.details), pageNames: "left" in read ? new Map<string, string>() : pageNamesOf(read) }));
   const loadWhen: typeof loadCatalogWhen = reads.loadCatalogWhen
     ?? ((on, given, progressOf, signalOf, options) => given.then(({ pages, pageNames }) => reads.loadCatalog(on, pages, pageNames, progressOf, signalOf, undefined, options)));
-  const namesWork = loadWhen(scope, inputs, step, signal, MODEL_NAMES).catch(error => {
-    if (error instanceof RestError && error.code === "MAINTENANCE") throw error;
+  const namesWork = loadWhen(scope, inputs, step, signal, { ...MODEL_NAMES, polaris }).catch(error => {
     if (signal?.aborted) throw signal.reason;
     const note = `Model names could not be read (${message(error)}); IDs are shown where no name was available.`;
     step.log(note);
@@ -341,15 +342,18 @@ export async function readPolarisModel(ids: EngineScope, engine: EngineDetails, 
   });
   const [read, named] = await Promise.all([pagesWork, namesWork]);
   signal?.throwIfAborted();
-  let result = polarisResult(ids, engine, named.catalog);
+  await polaris.inventory(named.catalog);
+  let result = polarisResult(ids, engine, named.catalog, polaris);
   if ("left" in read) {
     result = leftOut(result, read.left);
     addDetails(result, { apps: "Not available", notes: named.notes.map(note => ["Notes", ABOUT, note]) });
   } else result = tablesOf(result, read, named, step, time, [scope.modelName]);
   if (!modelDetail(result, "Apps")) addDetails(result, { apps: "Not available" });
   result.tables = result.tables.filter(table => table.details || table.rows.length > 0);
+  describePolarisRead(result);
   step.log(`Polaris inventory: dimensions in module views for ${named.catalog.moduleViewDimensions.size} modules; dimensions from page name reads for ${named.catalog.moduleDimensions.size} modules`);
-  step.log(`Polaris partial result: ${named.catalog.modules.size} modules, ${named.catalog.lists.size} general lists; ${result.tables.filter(table => !table.details).map(table => `${table.label} ${table.rows.length}`).join(", ")}; no Classic settings or Model map`);
+  step.log(`Polaris coverage: listing completeness unknown; ${polaris.partial.size} possibly incomplete sources; ${polaris.unavailable.size} unavailable sources`);
+  step.log(`Polaris partial result: ${result.tables.find(table => table.file === "Modules.csv")?.rows.length ?? 0} modules, ${named.catalog.lists.size} general lists; ${result.tables.filter(table => !table.details).map(table => `${table.label} ${table.rows.length}`).join(", ")}; Model map ${hasModelMap(result) ? "available from formulas" : "unavailable (no formulas read)"}`);
   return addLog(result, logged);
 }
 
@@ -631,7 +635,7 @@ function tablesOf(result: AnalysisResult, read: PagesRead, named: Named, progres
     files: FILES.map(([file]): DetailRow => ["Files", file, rows(counted[file].length)]),
     notes: notes.map((note): DetailRow => ["Notes", ABOUT, note]),
     howToRead: HOW_TO_READ.map(([detail, value]): DetailRow => ["How to read", detail,
-      result.engine === "polaris" && detail === "Page Filters" ? value.split(`The ${FILTER_USES} column of Line Items`)[0].trimEnd() : value]),
+      result.engine === "polaris" && !result.tables.some(table => table.file === "Line Items.csv") && detail === "Page Filters" ? value.split(`The ${FILTER_USES} column of Line Items`)[0].trimEnd() : value]),
     ...(entries.length === 0 ? { apps: NO_APPS } : apps.length ? { apps: apps.join("\n") } : {}),
   });
   progress.log(`pages built on the model: ${pages.length} read, ${unpublished} unpublished, ${unread.length} not read; ${apps.length} apps; `

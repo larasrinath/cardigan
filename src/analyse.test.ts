@@ -14,6 +14,9 @@ import { resultZip } from "./result-zip.test-support.js";
 import { decodeFrames, type StompFrame } from "./stomp.js";
 import { serveTab } from "./tab-port.js";
 import { EXTENSION, FakePort } from "./tab-port.test-support.js";
+import { PolarisReader } from "./polaris-read.js";
+import { readPolarisModel } from "./model-pages.js";
+import { POLARIS_ENGINE, polarisItem } from "./polaris.test-support.js";
 import { parseCsv, sameBytes, toCsv, unzipText, zipEntries, zipStore } from "./zip.test-support.js";
 
 // Synthetic IDs only. The flow replays the first live run (28 Sep 2026): the model status stays UNKNOWN, and the first
@@ -150,6 +153,46 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
       { status: 200, headers: { "content-type": "application/json" } })));
   });
   afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); vi.restoreAllMocks(); });
+
+  it("reuses Polaris action listings for page button names and inventories, and skips only a refused action source", async () => {
+    serveModel({ [MODULE_VIEWS]: moduleList([]), [at("/lists")]: id => update(id, { data: [{ id: LIST, name: "Product" }] }) });
+    const get = vi.fn(async (path: string) => {
+      if (path.endsWith("/imports")) return { imports: [{ id: "112000000901", name: "Import demand", importType: "MODULE_DATA", importDataSourceId: "115000000901" }] };
+      if (path.endsWith("/exports")) throw new rest.RestError("MAINTENANCE", 503);
+      if (path.endsWith("/processes")) return { processes: [{ id: "118000000901", name: "Prepare plan" }] };
+      if (path.includes("/line-items/")) return [polarisItem("Value", 1901000000901, "1")];
+      return [];
+    });
+    const progress = { status: vi.fn(), log: vi.fn() };
+    const polaris = new PolarisReader(scope, progress, undefined, get);
+    const loaded = await loadCatalog(scope, pages, new Map(), progress, undefined, undefined, { polaris, viewLayouts: false });
+    expect(loaded.catalog.actions.get("112000000901")).toBe("Import demand");
+    expect(polaris.actions.get("imports")?.[0].importDataSourceId).toBe("115000000901");
+    expect(polaris.actions.get("processes")).toHaveLength(1);
+    expect(loaded.failedActionTypes).toEqual(["EXPORT"]);
+    for (const key of ["imports", "exports", "processes"]) expect(get.mock.calls.filter(([path]) => path.endsWith(`/${key}`))).toHaveLength(1);
+    expect(destinations().filter(path => path.endsWith("/lineItems"))).toEqual([]);
+    expect(destinations().filter(path => path.endsWith("/lists?subsets=true"))).toHaveLength(1);
+    expect(progress.log).toHaveBeenCalledWith("Polaris source unavailable: exports (HTTP 503)");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("keeps Polaris settings when the pages service answers 503", async () => {
+    serveModel({ [MODULE_VIEWS]: moduleList([]) });
+    const get = vi.fn(async (path: string) => {
+      if (path.endsWith("/pages")) throw new rest.RestError("MAINTENANCE", 503);
+      if (path.endsWith("/imports")) return { imports: [] };
+      if (path.endsWith("/exports")) return { exports: [] };
+      if (path.endsWith("/processes")) return { processes: [] };
+      if (path.includes("/line-items/")) return [polarisItem("Value", 1901000000901, "1")];
+      return [];
+    });
+    const progress = { status: vi.fn(), log: vi.fn() };
+    const result = await readPolarisModel(scope, POLARIS_ENGINE, progress, undefined, { getJson: get, readPublished: vi.fn(), loadCatalog, loadCatalogWhen });
+    expect(result.tables.find(t => t.label === "Line Items")?.rows).toHaveLength(1);
+    expect(progress.log).toHaveBeenCalledWith("Polaris source unavailable: pages (HTTP 503)");
+    expect(result.summary.join(" ")).toContain("1 unavailable sources");
+  });
 
   it("follows the redirect and reads names without waiting for a READY status", async () => {
     ScriptedSocket.reply = (socket, frame) => {

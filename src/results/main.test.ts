@@ -6,6 +6,7 @@ import { MISSING_LINE_ITEMS_MODULE, MODULE_USAGE_FILE, MODULE_USAGE_HEADERS, PAG
 import { CALENDAR_HEADERS, CALENDAR_PROPERTIES, calendarRows } from "../model/calendar.js";
 import { FRESH_MS, PORT_NAME, RESULTS_PAGE, type TabMessage } from "../protocol.js";
 import type { AnalysisResult, Cell, ImportMapping, ProcessActions, ResultTable } from "../result-types.js";
+import { polarisFixture } from "../polaris.test-support.js";
 import { columnWidths } from "./column-widths.js";
 import { columnsOf } from "./columns.js";
 import { OPEN_WAIT_MS, SHOWN_WAIT_MS } from "./connection.js";
@@ -563,6 +564,25 @@ describe("The results page's script, on the page", () => {
     expect(page.id("view").textContent).toContain(POLARIS_NOTE);
     expect(page.all('#navList [data-nav="map"]')).toHaveLength(0);
     expect(location.hash).toBe("");
+  });
+
+  it("offers the Polaris formula map, keeps it through refresh, and shows the action detail limits", async () => {
+    const { result } = polarisFixture();
+    await openWith(result);
+    expect(page.all('#navList [data-nav="map"]')).toHaveLength(1);
+    choose("map");
+    expect(mapAsked).toEqual(["build", "mount 1", "show 1"]);
+    await letKeep();
+    await open("?tab=42#map");
+    await eventually(() => page.document.title === "Cardigan - Orchard planning", "the kept Polaris map");
+    expect(page.id("mapHost").hidden).toBe(false);
+    goTo(result.tables.findIndex(t => t.label === "Imports"));
+    page.all('#tableWrap tbody [data-act="row"]')[0].press();
+    expect(page.id("drawer").textContent).toContain("Polaris: the import's mapping isn't read yet");
+    goTo(result.tables.findIndex(t => t.label === "Processes"));
+    page.all('#tableWrap tbody [data-act="row"]')[0].press();
+    expect(page.id("drawer").textContent).toContain("Polaris: its steps aren't read yet");
+    expect(page.find("#drawerSteps h3").textContent).toBe("Actions");
   });
 
   it("shows a compact missing-reader card whose two buttons refresh and copy the log", async () => {

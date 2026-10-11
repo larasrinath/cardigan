@@ -1,4 +1,5 @@
 import { readProcessActions } from "../result-plain.js";
+import { POLARIS_STEPS_NOTE } from "../polaris.js";
 import type { AnalysisResult, ProcessStep, ResultTable } from "../result-types.js";
 import { cellLists } from "./cell-lists.js";
 import { columnIndex } from "./columns.js";
@@ -33,7 +34,7 @@ export interface StepView { name: string; kind: string; file?: string }
 
 /** A process's actions as the details show them: in the order the process runs them where `ordered`, then lines under
  * them, about why the order is not known or why there is none to show. */
-export interface ProcessView { steps: StepView[]; ordered: boolean; lines: string[] }
+export interface ProcessView { steps: StepView[]; ordered: boolean; lines: string[]; countKnown?: false }
 
 /** What the details say under the actions where the result has no process's own, by why. */
 export const PROCESS_LINES = {
@@ -83,6 +84,7 @@ const usedIn = (result: AnalysisResult, name: string): StepView[] => usedInAll(r
  * order, which the table keeps. `table` is the Processes table as the page shows it. */
 export function processOfRow(result: AnalysisResult | undefined, table: ResultTable, row: Row): ProcessView | undefined {
   if (result?.kind !== "model" || table.file !== PROCESSES_FILE) return undefined;
+  if (result.engine === "polaris") return { steps: [], ordered: false, lines: [POLARIS_STEPS_NOTE], countKnown: false };
   // Names are told apart without the spaces around them, on both sides alike.
   const name = cellText(row[0]).trim();
   const at = table.rows.findIndex(candidate => candidate === row);
