@@ -4,7 +4,7 @@ import { columnWidths, headerWidth, ROW_BUTTON, WIDEST } from "./column-widths.j
 import { columnsOf, type Column } from "./columns.js";
 import { parseMarkup, type FakeElement } from "./dom.test-support.js";
 import { cardDrawerHtml, cardDrawerSubHtml, cellHtml, colChooserHtml, colFilterHtml, FILE_ICONS, FILTER_FIND_FROM, FILTER_LISTED_MAX, filterMatches, filterOptionsHtml, filterStatusText,
-  filterTickWords, FORGOTTEN_LINE, keptCopyHtml, MAP_FAILED, MAP_LABEL, mapHtml, NAV_ICONS, navHtml, navItems, navMenuHtml, NOT_REMOVED_LINE, objectDrawerHtml, objectDrawerSubHtml, overviewHtml, pagerHtml, rangeFilterHtml, rowCellHtml, rowDrawerHtml, tableHtml, USES_AT_FIRST, type KeptCopy, type Links, type NavItem,
+  filterTickWords, FORGOTTEN_LINE, keptCopyHtml, MAP_FAILED, MAP_LABEL, mapHtml, NAV_ICONS, navHtml, navItems, navMenuHtml, NOT_REMOVED_LINE, objectDrawerHtml, objectDrawerSubHtml, overviewHtml, pagerHtml, rangeFilterHtml, rowCellHtml, rowDrawerHtml, sourceModelHtml, tableHtml, USES_AT_FIRST, type KeptCopy, type Links, type NavItem,
   type TableView } from "./markup.js";
 import type { Overview } from "./result-view.js";
 import { dayOf, NONE, pageOf, rangeColumn, selectRows } from "./table-engine.js";
@@ -537,6 +537,22 @@ describe("What the results page's markup shows", () => {
     expect(view.querySelectorAll(".stat .s-lab").map(label => label.getAttribute("title"))).toEqual(["Line Items", "Model Calendar", "Odd", "Bare"]);
   });
 
+  it("says on a Model Calendar's tile what its calendar is in the number's place, its current year under that, and the whole in its title", () => {
+    const calendar = { label: "Model Calendar", count: 21, value: "Weekly", detail: "4-4-5 · FY24", title: "Model Calendar: Weeks: 4-4-5, 4-5-4 or 5-4-4, grouped 4-4-5, current fiscal year FY24" };
+    const view = parseMarkup(overviewHtml(overviewWith({ tiles: [calendar, { label: "Modules", count: 2 }] }), "none", [3, 4], ["Model Calendar.csv", "Modules.csv"]));
+    const [tile, other] = view.querySelectorAll(".stat");
+    // The kind in the number's place, and under it the year: no word for a screen reader that it is a count, for it is none.
+    expect(tile.children.map(child => [child.getAttribute("class"), child.textContent])).toEqual([["s-lab", "Model Calendar"], ["s-num", "Weekly"], ["s-detail", "4-4-5 · FY24"]]);
+    // Its title and its name for a screen reader are the tile in full; a tile that counts has neither.
+    expect([tile.getAttribute("title"), tile.getAttribute("aria-label"), tile.dataset.nav, other.getAttribute("title"), other.getAttribute("aria-label")])
+      .toEqual([calendar.title, calendar.title, "3", null, null]);
+    expect(other.children.map(child => child.textContent)).toEqual(["Modules", "2", "rows"]);
+    // A tile that opens nothing keeps its title, and no name that would stand for what it holds.
+    const still = parseMarkup(overviewHtml(overviewWith({ tiles: [{ ...calendar, detail: undefined }] }))).querySelector(".stat");
+    expect([still?.localName, still?.getAttribute("title"), still?.getAttribute("aria-label"), still?.children.map(child => child.textContent)])
+      .toEqual(["div", calendar.title, null, ["Model Calendar", "Weekly"]]);
+  });
+
   it("shows in a row's drawer, after a cell that is said in words, the text that was read in its place, named as that", () => {
     const columns = [column(0, "Name"), column(1, "Format"), column(2, "Formula"), column(3, "Summary", "tag")];
     const row = ["Margin %", "Number, 2 decimal places, %", "Margin / Revenue", "Ratio = Margin / Revenue"];
@@ -988,5 +1004,28 @@ describe("What the results page's markup shows", () => {
       // Without anything about the export, the place stands under the tiles.
       expect(parseMarkup(overviewHtml(overviewWith({ tiles: parts.tiles }), copy)).children.map(child => child.id || child.localName), copy).toEqual(["h1", "div", "ovKept"]);
     }
+  });
+});
+
+describe("What a source model gives, as its row's details write it", () => {
+  const TAG = "<img src=x onerror=alert(1)>";
+  it("writes its objects and its imports as text, each a link only where the page can open its row, with the lines under them", () => {
+    const view = parseMarkup(sourceModelHtml({ sources: [{ name: `Hub ${TAG}`, kind: "Saved view", row: 0 }, { name: "DAT01", kind: TAG, row: 1 }],
+      imports: [{ name: "IMP01", from: [`Hub ${TAG}`, "DAT01"] }], sourceLines: ["Sources counts 3; 2 are found in Data Sources."], importLines: [] }, [4, undefined], [undefined]));
+    expect(view.querySelectorAll("img")).toEqual([]);
+    expect(view.querySelectorAll("h3").map(heading => heading.textContent)).toEqual(["Sources (2)", "Imports (1)"]);
+    expect(view.querySelectorAll("#drawerSources tbody tr").map(row => row.children.map(cell => cell.textContent))).toEqual([[`Hub ${TAG}`, "Saved view"], ["DAT01", TAG]]);
+    expect(view.querySelectorAll('#drawerSources [data-act="item"]').map(link => [link.textContent, link.dataset.item])).toEqual([[`Hub ${TAG}`, "4"]]);
+    expect(view.querySelectorAll("#drawerSources p").map(line => line.textContent)).toEqual(["Sources counts 3; 2 are found in Data Sources."]);
+    expect(view.querySelectorAll("#drawerSourceImports tbody tr").map(row => row.children.map(cell => cell.textContent))).toEqual([["IMP01", `Hub ${TAG}, DAT01`]]);
+    expect(view.querySelectorAll('#drawerSourceImports [data-act="item"]')).toEqual([]);
+  });
+
+  it("writes no section of nothing, and stands before All columns in a row's details", () => {
+    expect(sourceModelHtml({ sources: [], imports: [{ name: "IMP01", from: [] }], sourceLines: [], importLines: [] }, [], [undefined])).not.toContain("drawerSources");
+    const [column] = columnsOf({ file: "Source Models.csv", label: "Source Models", headers: [""], rows: [["Hub"]], guard: false });
+    const drawer = parseMarkup(rowDrawerHtml([column], ["Hub"], {}, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      { view: { sources: [{ name: "SYS02", kind: "Module", row: 0 }], imports: [], sourceLines: [], importLines: [] }, sources: [undefined], imports: [] }));
+    expect(drawer.querySelectorAll("h3").map(heading => heading.textContent)).toEqual(["Sources (1)", "All columns"]);
   });
 });

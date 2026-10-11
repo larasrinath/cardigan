@@ -330,6 +330,62 @@ function drawSigns(pen: Pen, palette: MapPalette, x: number, y: number, width: n
   }
 }
 
+/** A filter mark's height on screen: at the box's zoom, kept between the least that holds its figure and the most that
+ * still sits in the gap above the box. */
+const MARK_LEAST = 12;
+const MARK_MOST = 17;
+const MARK_AT_ONE = 15;
+/** A box lower than a mark, or narrower than three of its heights, takes a dot of the colour in the mark's place. */
+const MARK_DOT = 2.5;
+
+/** The funnel of a filter mark, drawn into a square of side `size` whose top left corner is at a point: wide at the
+ * top, then a narrow stem. Filled in the colour the pen has. */
+function funnel(pen: Pen, x: number, y: number, size: number): void {
+  pen.beginPath();
+  pen.moveTo(x, y + size * 0.08);
+  pen.lineTo(x + size, y + size * 0.08);
+  pen.lineTo(x + size * 0.62, y + size * 0.52);
+  pen.lineTo(x + size * 0.62, y + size * 0.86);
+  pen.lineTo(x + size * 0.38, y + size);
+  pen.lineTo(x + size * 0.38, y + size * 0.52);
+  pen.closePath();
+  pen.fill();
+}
+
+/** A box's filter mark (map-graphs.ts `ViewNode.filterMark`): a pill in the colour of the pages' filters, on the box's
+ * top edge at its right, with a funnel and, on a module's box or a section's, the figure it counts. It is in the page
+ * filters' colour, not a section's, and its funnel and figure are in the canvas's colour, which stands against it in
+ * both themes. A box too small to hold it has a dot of the colour at its top right corner instead. */
+function drawFilterMark(pen: Pen, scene: Scene, fonts: Fonts, node: ViewNode, x: number, y: number, width: number, height: number): void {
+  const { palette } = scene;
+  const k = scene.camera.k;
+  const high = Math.max(MARK_LEAST, Math.min(MARK_MOST, MARK_AT_ONE * k));
+  pen.fillStyle = palette.filter;
+  if (height < high || width < high * 3) {
+    pen.beginPath();
+    pen.arc(x + width - MARK_DOT - 2, y + MARK_DOT + 2, MARK_DOT, 0, Math.PI * 2);
+    pen.fill();
+    return;
+  }
+  const figure = node.kind === "lineItem" ? "" : String(node.filterMark ?? "");
+  const size = high * 0.64;
+  // Measured before the pen is given its font: measuring a word sets the pen's font to the measure's own.
+  const wide = figure === "" ? 0 : fonts.measure("code").word(figure) * size;
+  const pad = high * 0.32;
+  const icon = high * 0.58;
+  const markWidth = pad + icon + (figure === "" ? 0 : high * 0.2 + wide) + pad;
+  const right = x + width - Math.max(8, 12 * k);
+  const left = right - markWidth;
+  const top = y - high / 2;
+  roundedRect(pen, left, top, markWidth, high, high / 2);
+  pen.fill();
+  pen.fillStyle = palette.canvas;
+  funnel(pen, left + pad, top + (high - icon) / 2, icon);
+  if (figure === "") return;
+  pen.font = fonts.css("code", size);
+  pen.fillText(figure, left + pad + icon + high * 0.2, top + high * 0.72);
+}
+
 function drawNodes(pen: Pen, scene: Scene, fonts: Fonts): void {
   const { graph, camera, width, height, shown, trace, matches, palette } = scene;
   const { k, ox, oy } = camera;
@@ -411,6 +467,7 @@ function drawNodes(pen: Pen, scene: Scene, fonts: Fonts): void {
     if (k >= PATCH_BELOW) {
       pen.globalAlpha = alpha;
       drawText(pen, scene, fonts, node, x, y, w, h);
+      if (node.filterMark) drawFilterMark(pen, scene, fonts, node, x, y, w, h);
     }
   }
   pen.globalAlpha = 1;

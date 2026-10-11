@@ -7,7 +7,7 @@ import { indexModel } from "./map-model.js";
 import { FALLBACK } from "./map-palette.js";
 import { lineWidth } from "./map-text.js";
 import { traceNode } from "./map-trace.js";
-import { FakePen, filteredModel, GraphMaker, HOSTILE, type PenCall } from "./map-fakes.test-support.js";
+import { FakePen, filteredModel, GraphMaker, HOSTILE, ownFilteredModel, type PenCall } from "./map-fakes.test-support.js";
 
 const PLAIN: Camera = { ox: 0, oy: 0, k: 1 };
 /** A room wide enough for the ranks of a small graph at full size. */
@@ -608,6 +608,45 @@ describe("The small picture of the whole graph", () => {
     const blank = new FakePen();
     expect(drawMinimap(blank as unknown as Pen, sceneOf(empty), 196, 128)).toBeUndefined();
     expect(blank.calls.map(call => call.name)).toEqual(["clearRect"]);
+  });
+});
+
+describe("A filter mark in the map's picture", () => {
+  /** The pills drawn in the filters' colour, each as its place and size, from the rounded shapes filled in that colour. */
+  const pills = (pen: FakePen): number[][] => pen.named("fill").filter(call => call.fillStyle === FALLBACK.filter)
+    .flatMap(call => shapeBefore(pen, call).filter(each => each.name === "roundRect").map(each => each.args as number[]));
+
+  it("is a pill in the filters' colour on a module's top edge, at its right, with a funnel and the figure in the canvas's colour", () => {
+    const model = indexModel(ownFilteredModel().graph);
+    const graph = ready(modulesGraph(model, undefined, false, true));
+    const { pen } = draw(sceneOf(graph));
+    const customer = named(graph, "MDM380 - Customer Entity #");
+    const resources = named(graph, "MDM381 - Resources #");
+    // One pill for each box marked, none for the box that is not: each straddles its box's top edge, inside its right.
+    const drawn = pills(pen);
+    expect(drawn.length).toBe(2);
+    for (const [box, pill] of [[customer, drawn[0]], [resources, drawn[1]]] as const) {
+      const [x, y, width, height] = pill;
+      expect([y + height / 2, x + width <= box.x + box.w, x > box.x + box.w / 2, height], box.fullName).toEqual([box.y, true, true, 15]);
+    }
+    // In each, a funnel and the figure, in the canvas's colour; the figures are the line items that filter the module.
+    const figures = pen.named("fillText").filter(call => call.fillStyle === FALLBACK.canvas).map(call => call.args[0]);
+    const funnels = pen.named("fill").filter(call => call.fillStyle === FALLBACK.canvas && shapeBefore(pen, call).filter(each => each.name === "lineTo").length === 5);
+    expect([figures, funnels.length]).toEqual([["2", "1"], 2]);
+    // Without the pages' filters drawn, no mark.
+    expect(pills(draw(sceneOf(ready(modulesGraph(model, undefined, false)))).pen)).toEqual([]);
+  });
+
+  it("is a funnel alone on a line item that filters its own module, and a dot of the colour on a box too small for it", () => {
+    const { graph, cust } = ownFilteredModel();
+    const model = indexModel(graph);
+    const items = ready(moduleGraph(model, cust, false, false, true));
+    const { pen } = draw(sceneOf(items));
+    expect([pills(pen).length, pen.named("fillText").filter(call => call.fillStyle === FALLBACK.canvas).length]).toEqual([2, 0]);
+    // Far away a box is lower than a mark: it has a dot of the filters' colour at its top right corner instead.
+    const far = draw(sceneOf(ready(modulesGraph(model, undefined, false, true)), { camera: { ox: 0, oy: 0, k: 0.2 } })).pen;
+    const dots = far.named("fill").filter(call => call.fillStyle === FALLBACK.filter && shapeBefore(far, call).some(each => each.name === "arc"));
+    expect([pills(far).length, dots.length]).toEqual([0, 2]);
   });
 });
 

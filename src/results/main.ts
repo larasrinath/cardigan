@@ -1,4 +1,4 @@
-import { areaCheckLine, buildModelGraph } from "../map/build-graph.js";
+import { areaCheckLine, buildModelGraph, pageFilterCheckLine } from "../map/build-graph.js";
 import type { MapView, ModelGraph, ModelMap, ModelMapOptions } from "../map/graph-types.js";
 import { mountModelMap } from "../map/map-view.js";
 import { MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, PAGE_ROUTES } from "../page-files.js";
@@ -14,6 +14,7 @@ import { mappingOfRow } from "./import-mapping-view.js";
 import { spreadLine } from "./nav-spread.js";
 import { itemRows, type NamedRows } from "./item-links.js";
 import { processOfRow, type StepView } from "./process-actions-view.js";
+import { DATA_SOURCES_FILE, sourceModelOfRow, type SourceModelView } from "./source-model-view.js";
 import { analysedLine, notKeptNote } from "./keep-notes.js";
 import { ResultKeeper } from "./keep-result.js";
 import {
@@ -24,8 +25,8 @@ import {
 } from "./markup.js";
 import type { PageId } from "./page-ids.js";
 import { LINE_ITEMS_FILE, MODULE_NAME } from "./line-items-view.js";
-import { ACCESS_FILE, analysedOf, cardParts, detailsOf, detailValue, diagnosticLog, fileView, listedTables, MODEL_CALENDAR_FILE, MODULES_FILE, overviewOf, tableFullLabel,
-  tableLabel, type Analysed, type FileView, type Overview } from "./result-view.js";
+import { ACCESS_FILE, analysedOf, cardParts, detailsOf, detailValue, diagnosticLog, fileView, IMPORTS_FILE, listedTables, MODEL_CALENDAR_FILE, MODULES_FILE, overviewOf,
+  SOURCE_MODELS_FILE, tableFullLabel, tableLabel, type Analysed, type FileView, type Overview } from "./result-view.js";
 import { bothTimes, browserZone, chosenTime, fileRow, hasTimes, inTimeMode, momentRange, momentsOf, readText, storedTimeMode, storeTimeMode, timesOf, zoneWords, type TimeMode } from "./times.js";
 import { rangeInForce, rangeSummary, readRange, type RangeState } from "./range-filter.js";
 import { cellText, NONE, pageOf, rangeColumn, rememberingSelect, rowName, valueCounts, type RangeColumn, type RangeQuery, type Row, type Sort, type TableQuery } from "./table-engine.js";
@@ -1122,9 +1123,55 @@ function openRowDrawer(entry: Shown, row: Row, opener: Element): void {
   const process = processOfRow(result, entry.table, row);
   drawerSteps = process ? process.steps.map(stepRow) : [];
   const items = rowItems(entry.lists, row);
+  // The rows its items name are counted first: a source model's objects and imports are kept after them.
+  const opens = itemOpens(entry, row, items);
+  const source = sourceModelOfRow(result, entry.table, row);
+  if (!source) noteNoSources(entry.table, row);
   openDrawer(name, rowDrawerSubHtml(position, tableLabel(entry.table)),
     rowDrawerHtml(entry.columns, row, entry.links, entry.exported?.get(row), items, entry.readUnder, mappingOfRow(result, entry.table, row),
-      process && { view: process, opens: drawerSteps.map(Boolean) }, { mode: timeMode, zone: ownZone }, itemOpens(entry, row, items)), opener);
+      process && { view: process, opens: drawerSteps.map(Boolean) }, { mode: timeMode, zone: ownZone }, opens, source && sourceOpens(source)), opener);
+}
+/** What a source model's details link to: each of its objects, its own row of Import Data Sources, by its place there,
+ * which the page's table keeps; each import, the one row of Imports of its name. Each is kept in `drawerItems` after
+ * the row's items, and named in its link by its place there. */
+function sourceOpens(view: SourceModelView): { view: SourceModelView; sources: (number | undefined)[]; imports: (number | undefined)[] } {
+  const keep = (to: { entry: Shown; row: Row } | undefined): number | undefined => {
+    if (!to) return undefined;
+    drawerItems.push(to);
+    return drawerItems.length - 1;
+  };
+  const data = shownOf(DATA_SOURCES_FILE);
+  const file = result?.tables.find(table => table.file === DATA_SOURCES_FILE);
+  const same = data !== undefined && file !== undefined && data.table.rows.length === file.rows.length;
+  return {
+    view,
+    sources: view.sources.map(source => keep(same && data.table.rows[source.row] ? { entry: data, row: data.table.rows[source.row] } : undefined)),
+    imports: view.imports.map(each => keep(rowOfName(IMPORTS_FILE, each.name))),
+  };
+}
+/** The page's table of a file, as it shows it. */
+const shownOf = (file: string): Shown | undefined => [...shown.values()].find(candidate => candidate.table.file === file);
+/** The one row of `file`'s table whose name is `name`, or none where no row, or more than one, has it. */
+function rowOfName(file: string, name: string): { entry: Shown; row: Row } | undefined {
+  const entry = shownOf(file);
+  if (!entry) return undefined;
+  const named = entry.opensFrom ?? rowNameIndex(entry.table) ?? 0;
+  const found = entry.table.rows.filter(candidate => cellText(candidate[named]).trim() === name.trim());
+  return found.length === 1 ? { entry, row: found[0] } : undefined;
+}
+/** The source models whose details found none of their objects or imports, by result: the log says so once for each. */
+const notedSources = new WeakMap<AnalysisResult, Set<string>>();
+/** Notes in the run's log that a row of Source Models names a source model no row of Import Data Sources or Imports
+ * names, so that its details list none of what it gives: once for each source model of a result. */
+function noteNoSources(table: ResultTable, row: Row): void {
+  if (result?.kind !== "model" || table.file !== SOURCE_MODELS_FILE) return;
+  const name = cellText(row[0]).trim();
+  const noted = notedSources.get(result) ?? new Set<string>();
+  notedSources.set(result, noted);
+  if (name === "" || noted.has(name)) return;
+  noted.add(name);
+  const named = (file: string, label: string): string => tableLabel(result?.tables.find(each => each.file === file) ?? { file, label });
+  client.note(`Source model ${name}: no row of ${named(DATA_SOURCES_FILE, "Import Data Sources")} or ${named(IMPORTS_FILE, "Imports")} names it, so its details list none of its sources.`);
 }
 /** Shows the rest of a long list in the details, the items after its first ones, or hides them again: `control` is the
  * button under them (markup.ts `itemsHtml`), which says which it will do. Hidden, they stay where the browser's find in
@@ -1563,11 +1610,14 @@ async function toFront(tab: chrome.tabs.Tab | undefined): Promise<void> {
 /* ================= model map ================= */
 /** The model's graph, built the first time the map or a row's details asks for it. It throws what keeps it from being
  * made. Where the result's Modules has a Functional Area column, the run's log says once how its rows met the map's
- * modules, so that a module the map files under the wrong area can be told from one the export gave none. */
+ * modules, so that a module the map files under the wrong area can be told from one the export gave none; and where the
+ * result has the Page Filters table, how its rows met the map's line items, so that a filter the map cannot show is
+ * named. */
 function graphFor(model: AnalysisResult): ModelGraph {
   if (!modelGraph) {
     modelGraph = buildModelGraph(model.tables);
     if (modelGraph.areaCheck) client.note(areaCheckLine(modelGraph.areaCheck));
+    if (modelGraph.pageFilterCheck) client.note(pageFilterCheckLine(modelGraph.pageFilterCheck));
   }
   return modelGraph;
 }

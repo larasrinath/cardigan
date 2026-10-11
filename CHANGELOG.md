@@ -2,14 +2,42 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version stands next to Cardigan's name at the top of the results page and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
-## 0.18.5 (10 October 2026)
+## 0.18.8 (10 October 2026)
 
 Two of a model's tables have shorter names on the page.
 
-- **Data Sources.** Anaplan's Import Data Sources is called **Data Sources**: in the navigation and the Actions menu, on its tile, as its table's heading, in a row's details, and in the Overview's rows about it. (#60)
+- **Data Sources.** Anaplan's Import Data Sources is called **Data Sources**: in the navigation and the Actions menu, on its tile, as its table's heading, in a row's details, in the Overview's rows about it, and in a source model's details, whose lines say what was found in Data Sources, as does the log's note on a source model found in neither table. (#60)
 - **DCA.** Dynamic Cell Access is called **DCA**, in the same places and in the Modules menu. Its tab, its group's button and its tile say "Dynamic Cell Access (DCA)" when hovered and to a screen reader, and a screen reader hears the full name when the table is shown. (#60)
 - **The navigation is narrower.** The model bar needs about 99px less: about 1,184px instead of 1,283px, so it fits on one line from a window about 1,314px wide instead of 1,413px. (#60)
 - **What stays the same.** What is read, and the tables themselves. The export's own log and status lines keep Anaplan's names. A result kept from an earlier version shows the new names as well, since the page names these two tables by their files.
+
+## 0.18.7 (10 October 2026)
+
+The Overview's Model Calendar tile says what the calendar is, not how many of its settings hold a value.
+
+- **Monthly or Weekly.** In the number's place, a months calendar says **Monthly** and any of Anaplan's three weeks calendars **Weekly**. A calendar type stored as its ID reads the same, and a type of another text is said by what it names. (#59)
+- **The current year under it.** A smaller line says the current fiscal year by its label, such as **FY24**, after how a weeks calendar is grouped: 4-4-5, 4-5-4 or 5-4-4, 13 periods, or its number of weeks. The tile's title, and its name for a screen reader, hold the calendar type as Anaplan writes it and the year's dates. (#59)
+- **Every tile still the same size.** The row of tiles is as high as its highest, and what each tile holds now stands at its top, so the names stay on one line across a row. (#59)
+- **What stays the same.** What is read, and the Model Calendar table, whose line under its name still says how many rows it leaves out. A calendar whose type and year were not read is counted like any other table. (#59)
+
+## 0.18.6 (10 October 2026)
+
+A source model's details list what it gives the model.
+
+- **Sources.** A row of **Source Models** now opens with what that source model gives, above **All columns**: each of its objects that the model's imports read, with its kind (**Saved view**, **Module** or **List**), from the rows of **Import Data Sources** that name it. Each opens its own row of Import Data Sources. (#58)
+- **Imports.** Under them, each import that reads from the source model, with the objects it reads; each opens its own row of **Imports** where exactly one row has its name. Where Import Data Sources names none of the source model's objects, the imports are found by the Imports table's **Source Object**. (#58)
+- **Found by name, nothing guessed.** A source model is found by its name as each table writes it, out of its quotes and with its spaces evened out, or by the model's own name, the part after its workspace, where one table writes the workspace in front and the other does not, and no other source model has that name. A count that is not what the row's **Sources** or **Imports** says is said under its list. A source model neither table names gets no list, and the diagnostic log says so once. (#58)
+- **What stays the same.** What is read, the Source Models table and its columns, and **All columns**. (#58)
+
+## 0.18.5 (10 October 2026)
+
+The model map shows the filters a module's own line items put on it, and its **Page filters** box says truly what it draws.
+
+- **Marks for a module's own filters.** Most filters on a model's pages have their condition in the module they filter, such as a module's Incomplete Records filtering that module's rows. No arrow joins a module to itself, so the map drew nothing for them, and a model whose filters were all of that kind had **Page filters** greyed out, with a note that said, wrongly, that none of its filters had a line item of the model as its condition. Ticked, the box now marks each such module: a plum mark on the box's top edge, with a funnel and how many of its own line items filter it. A group's mark says how many of its modules are filtered so, and in the Line items view each line item that filters its own module has the mark, without a number. Zoomed out, where a box is too small for it, the mark is a plum dot at the box's top right. The legend says what it means on the picture shown. A filter on another module keeps its dashed arrow. (#57)
+- **A note that tells the truth.** The note under the box says what ticking it draws: arrows, marks or both. Where there is nothing to draw, the box is off and the note says why: the result has no **Page Filters** table; the pages have no filters; none of the filters has a line item of the map as its condition, with how many filters there are; or none of them filters a module of the map. (#57)
+- **Names found whatever their spaces.** A filter's line item is found by its module's name and its own. Where Line Items wrote either with a space at its end that **Page Filters** did not have, or the two wrote a run of spaces differently, the line item was not found, and its filter was left off the map and its details; it is found now, where one module or line item alone fits. A filtered module, and a row of **Modules** or **Module Usage**, is found despite a run of spaces written differently too; spaces at the ends were already allowed for there. The map's line items have no ID in the result, so their names are what a filter is matched by. (#57)
+- **One line in the log.** When the map is first built, the diagnostic log says how the Page Filters table met the map, such as "Page filters: 32 rows; 32 with the condition line item on the map (30 on its own module, 2 on another module); 0 with a line item the map does not have.", and names the first five line items it could not find, each once. (#57)
+- **What stays the same.** A module's details list its own line items under **Filtered on pages by**, as they did. A mark is followed by no trace, a filter's arrow only while it is drawn, and neither changes a module's role in the data flow. The tick is kept for the tab, as it was. (#57)
 
 ## 0.18.4 (10 October 2026)
 
