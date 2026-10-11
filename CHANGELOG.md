@@ -2,9 +2,9 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version is in the menu of Cardigan's icon in Chrome's toolbar and on its About page, and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
-## Unreleased
+## 0.34.0 (11 October 2026)
 
-- **More heading marks.** Model headings can start with `--`, `==`, `**`, `<<` or `>>`, including after spaces. Group names drop the marks at both ends; rows made only of marks stay Ungrouped. The map, its Headings grouping and counts, and the model's pages list use the same rule.
+- **More heading marks.** Model headings can start with `--`, `==`, `**`, `<<` or `>>`, including after spaces. Group names drop the marks at both ends; rows made only of marks stay Ungrouped. The map, its Headings grouping and counts, and the model's pages list use the same rule. (#112)
 
 ## 0.33.4 (11 October 2026)
 
