@@ -119,10 +119,8 @@ export const fullIconHtml = (whole: boolean): string => (whole ? LEAVE_FULL_ICON
  *
  * The bar has three parts, each of which stays on one line: where a line is too short for all three, a part takes the
  * next line whole, never half of it.
- * - Where the map is, which is also how to go elsewhere: the view's switch, then the path from the model's name. In the
- *   Modules view the path's list says what is shown: the groups, all modules, or one group. In the Line items view it
- *   names the module's group, which narrows the module picker after it, and the module, picked by typing.
- * - How the map is built: how the modules are grouped, or whether the line items of other modules stand one by one.
+ * - Where the map is: the model, group and module. Each name goes there; each list goes elsewhere.
+ * - How the modules are grouped, at every level.
  * - Its tools: which links are drawn, the search, and full screen.
  *
  * Over the canvas: at its foot on the left the
@@ -131,30 +129,33 @@ export const fullIconHtml = (whole: boolean): string => (whole ? LEAVE_FULL_ICON
  * The canvas is a picture to a screen reader, with a name, and the keys' list is its description. The notes can be
  * longer than the map is high: they scroll, and take the focus so that the keyboard scrolls them too. */
 export function shellHtml(ids: ShellIds, modelName: string): string {
-  return `<canvas class="map-canvas" role="img" tabindex="0" aria-label="Map of ${esc(modelName)}: its sections, modules and line items, and what feeds what. Search and the details panel reach every box." aria-describedby="${esc(ids.hints)}"></canvas>
+  return `<canvas class="map-canvas" role="img" tabindex="0" aria-label="Map of ${esc(modelName)}: its groups, modules and line items, and what feeds what. Search and the details panel reach every box." aria-describedby="${esc(ids.hints)}"></canvas>
 <div class="map-chrome">
   <div class="map-panel map-bar">
     <div class="map-zone map-zone-path">
-      <div class="map-tabs" role="group" aria-label="What the map shows">
-        <button type="button" class="map-tab" data-map-act="view" data-map-view="modules" aria-pressed="true">Modules</button>
-        <button type="button" class="map-tab" data-map-act="view" data-map-view="drill" aria-pressed="false">Line items</button>
-      </div>
       <nav class="map-crumbs" aria-label="Where the map is">
-        <span class="map-path-root"><h2 class="map-title-name map-here" aria-current="location">${esc(modelName)}</h2></span>
-        <span class="map-sep" data-map-sep="show" aria-hidden="true">${PATH_CHEVRON}</span>
-        <span class="map-select-wrap"><select class="map-select map-show-select" aria-label="Show"></select>${SELECT_CHEVRON}</span>
-        <span class="map-sep" data-map-sep="group" aria-hidden="true" hidden>${PATH_CHEVRON}</span>
-        <span class="map-select-wrap"><select class="map-select map-group-select" aria-label="Group" hidden></select>${SELECT_CHEVRON}</span>
-        <span class="map-sep" data-map-sep="module" aria-hidden="true" hidden>${PATH_CHEVRON}</span>
-        <span class="map-picker" hidden>
-          <input class="map-picker-input" type="text" role="combobox" aria-label="Module" aria-autocomplete="list" aria-expanded="false" aria-controls="${esc(ids.picker)}" autocomplete="off" spellcheck="false">${SELECT_CHEVRON}
-          <div class="map-panel map-picker-pop" hidden><div class="map-picker-list" id="${esc(ids.picker)}" role="listbox" aria-label="Modules"></div><p class="map-picker-note" hidden></p></div>
+        <span class="map-path-root"></span>
+        <span class="map-sep" aria-hidden="true">${PATH_CHEVRON}</span>
+        <span class="map-picker map-group-picker">
+          <button type="button" class="map-step-name map-group-name" data-map-act="group-home">Group</button>
+          <button type="button" class="map-step-list" data-map-act="groups" aria-label="Choose a group" aria-expanded="false" aria-controls="${esc(ids.picker)}-groups">${BUTTON_CHEVRON}</button>
+          <div class="map-panel map-picker-pop map-group-pop" hidden>
+            <div class="map-group-list" id="${esc(ids.picker)}-groups" role="group" aria-label="Groups"></div>
+          </div>
+        </span>
+        <span class="map-sep" aria-hidden="true">${PATH_CHEVRON}</span>
+        <span class="map-picker map-module-picker">
+          <button type="button" class="map-step-name map-module-name" data-map-act="module-home" disabled>Module</button>
+          <button type="button" class="map-step-list" data-map-act="modules" aria-label="Choose a module" aria-expanded="false" aria-controls="${esc(ids.picker)}-pop">${BUTTON_CHEVRON}</button>
+          <div class="map-panel map-picker-pop" id="${esc(ids.picker)}-pop" hidden>
+            <input class="map-picker-input" type="text" role="combobox" aria-label="Find a module" placeholder="Find a module…" aria-autocomplete="list" aria-expanded="false" aria-controls="${esc(ids.picker)}" autocomplete="off" spellcheck="false">
+            <div class="map-picker-list" id="${esc(ids.picker)}" role="listbox" aria-label="Modules"></div><p class="map-picker-note" hidden></p>
+          </div>
         </span>
       </nav>
     </div>
     <div class="map-zone map-zone-build">
       <label class="map-field map-grouping-field" hidden><span class="map-field-label">Group by</span><span class="map-select-wrap"><select class="map-select map-grouping-select" aria-label="Group by"></select>${SELECT_CHEVRON}</span></label>
-      <label class="map-check map-external-check" hidden><input type="checkbox" class="map-external">Other modules' line items</label>
     </div>
     <div class="map-zone map-zone-tools">
       <div class="map-links">
@@ -167,12 +168,13 @@ export function shellHtml(ids: ShellIds, modelName: string): string {
           <p class="map-links-note" id="${esc(ids.access)}">${esc(ACCESS_SAYS)}</p>
           <label class="map-check map-links-row map-filters-row"><input type="checkbox" class="map-filters" aria-describedby="${esc(ids.filters)}"><b>Page filters</b></label>
           <p class="map-links-note map-filters-note" id="${esc(ids.filters)}">${esc(FILTERS_SAY)}</p>
+          <label class="map-check map-links-row map-external-check" hidden><input type="checkbox" class="map-external">Other modules' line items</label>
         </div>
       </div>
       <div class="map-searchwrap">
         <div class="map-searchbox">
           ${SEARCH_ICON}
-          <input class="map-search" type="search" placeholder="Search the model…" aria-label="Search all sections, modules and line items" aria-controls="${esc(ids.results)}" autocomplete="off" spellcheck="false" title="Search the model. Press / to jump here." aria-keyshortcuts="/">
+          <input class="map-search" type="search" placeholder="Search the model…" aria-label="Search all groups, modules and line items" aria-controls="${esc(ids.results)}" autocomplete="off" spellcheck="false" title="Search the model. Press / to jump here." aria-keyshortcuts="/">
           <span class="map-search-count" aria-hidden="true"></span>
         </div>
         <div class="map-panel map-results" id="${esc(ids.results)}" role="group" aria-label="Search results" hidden></div>
@@ -192,10 +194,10 @@ export function shellHtml(ids: ShellIds, modelName: string): string {
       <p class="map-about-line">${esc(BESIDE_SAYS)}</p>
       <h3 class="map-about-title">Mouse and keys</h3>
       <p class="map-hints" id="${esc(ids.hints)}">
-        <b>Click</b> a box: what feeds it and what it feeds · <b>Double-click</b>: open it<br>
+        <b>Click</b> a box: what feeds it and what it feeds · <b>Double-click</b>: show what is inside<br>
         <b>Drag</b> the background to move, a box to move the box · <b>Scroll</b> to zoom<br>
         <b>Esc</b> back · <b>F</b> whole map · <b>/</b> search · <b>+</b> <b>−</b> zoom<br>
-        <b>Arrows</b> next box · <b>Enter</b> open it
+        <b>Arrows</b> next box · <b>Enter</b> show what is inside
       </p>
     </div>
     </div>
@@ -245,9 +247,7 @@ export function notesHtml(model: { name: string; workspace?: string; modules: nu
  * hover, where the page gives one. */
 export function pathRootHtml(model: string, workspace: string | undefined, whole: boolean): string {
   const said = workspace !== undefined && workspace.trim() !== "" ? `${model} (workspace: ${workspace})` : model;
-  return whole
-    ? `<h2 class="map-title-name map-here" aria-current="location" title="${esc(said)}">${esc(model)}</h2>`
-    : `<h2 class="map-title-name"><button type="button" class="map-crumb" data-map-act="crumb" data-map-crumb="root" title="${esc(said)}">${esc(model)}</button></h2>`;
+  return `<h2 class="map-title-name"><button type="button" class="map-crumb${whole ? " map-here" : ""}" data-map-act="crumb" data-map-crumb="root"${whole ? ' aria-current="location"' : ""} title="${esc(said)}">${esc(model)}</button></h2>`;
 }
 
 /** Which links the legend speaks of, besides those of page filters: formulas' where they are drawn, access drivers'
@@ -301,7 +301,7 @@ export function tooltipHtml(tip: Tip): string {
 /** The search's results: a button for each hit, known by its place in the list, and a line when there are more than are
  * listed or none at all. */
 export function resultsHtml(outcome: SearchOutcome): string {
-  if (!outcome.hits.length) return '<p class="map-results-note">No matching sections, modules or line items.</p>';
+  if (!outcome.hits.length) return '<p class="map-results-note">No matching groups, modules or line items.</p>';
   const more = outcome.total > outcome.hits.length ? `<p class="map-results-note">First ${esc(formatCount(outcome.hits.length))} of ${esc(formatCount(outcome.total))} matches. Keep typing to narrow.</p>` : "";
   return `${outcome.hits.map((hit, index) => `<button type="button" class="map-result" data-map-act="result" data-map-hit="${index}"><span>${esc(hit.name)}</span><small>${esc(hit.context)}</small></button>`).join("")}${more}`;
 }
@@ -317,7 +317,7 @@ const linkHtml = (link: InspectLink): string => {
 export function listHtml(list: InspectList, all: boolean): string {
   const shown = all ? list.links : list.links.slice(0, LIST_CAP);
   const more = shown.length < list.links.length ? `<button type="button" class="map-more" data-map-act="more" data-map-list="${esc(list.key)}">Show all ${esc(formatCount(list.links.length))}</button>` : "";
-  return `<summary>${esc(list.title)}</summary>${shown.map(linkHtml).join("")}${more}`;
+  return `<summary>${PATH_CHEVRON}${esc(list.title)}</summary>${shown.map(linkHtml).join("")}${more}`;
 }
 
 /** The details of the node selected, in the order a modeller asks: what it is and its name, what the trace found, the
@@ -332,7 +332,7 @@ export function inspectorHtml(inspection: Inspection, trace?: TraceWords): strin
     : inspection.remark !== undefined ? `<p class="map-insp-note">${esc(inspection.remark)}</p>` : "";
   const traced = !trace ? "" : `<p class="map-insp-trace">On the map, directly or through others: <span class="map-trace-up">${SIGN}${esc(trace.feeds)}</span>, <span class="map-trace-down">${SIGN}${esc(trace.fed)}</span>.</p>`;
   const lists = inspection.lists.map(list => `<details class="map-details" data-map-list="${esc(list.key)}"${list.open ? " open" : ""}>${listHtml(list, false)}</details>`).join("");
-  const texts = inspection.texts.map(text => `<details class="map-details"><summary>${esc(text.title)}</summary><ul class="map-lines">${text.lines.map(line => `<li>${esc(line)}</li>`).join("")}</ul></details>`).join("");
+  const texts = inspection.texts.map(text => `<details class="map-details"><summary>${PATH_CHEVRON}${esc(text.title)}</summary><ul class="map-lines">${text.lines.map(line => `<li>${esc(line)}</li>`).join("")}</ul></details>`).join("");
   const notes = inspection.notes === undefined ? "" : `<h4 class="map-insp-sec">Notes</h4><p class="map-insp-note">${esc(inspection.notes)}</p>`;
   return `<div class="map-insp-head"><span class="map-kind">${dot(inspection.layer)}${esc(inspection.kind)}</span><button type="button" class="map-icon-btn" data-map-act="close" aria-label="Close details" title="Close details">${CLOSE_ICON}</button></div>
     <h3 class="map-insp-name" tabindex="-1">${esc(inspection.name)}</h3>${traced}${button}${formula}${rows}${lists}${texts}${notes}`;
@@ -356,27 +356,23 @@ export function groupingOptionsHtml(groupings: readonly { kind: string; label: s
 export const SHOW_GROUPS = "groups";
 export const SHOW_MODULES = "modules";
 
-/** Each group by its place among the model's groups, with how many modules it holds. */
-const groupChoices = (groups: readonly string[], counts: readonly number[]): string => groups.map((group, index) => {
-  const count = counts[index] ?? 0;
-  return `<option value="${index}">${esc(group)} · ${esc(formatCount(count))} ${count === 1 ? "module" : "modules"}</option>`;
-}).join("");
-
-/** The choices of the path's Show list in the Modules view: the groups as a whole, every module, or one group. */
-export function showOptionsHtml(groups: readonly string[], counts: readonly number[]): string {
-  return `<option value="${SHOW_GROUPS}">All groups</option><option value="${SHOW_MODULES}">All modules</option>${groupChoices(groups, counts)}`;
-}
-
-/** The choices of the path's group list in the Line items view, which narrows the module picker: every group, or one. */
+/** Both path lists share a popover. Choosing a group always navigates, including the two whole-model choices. */
 export function groupOptionsHtml(groups: readonly string[], counts: readonly number[]): string {
-  return `<option value="">All groups</option>${groupChoices(groups, counts)}`;
+  return [{ value: SHOW_GROUPS, name: "All groups" }, { value: SHOW_MODULES, name: "All modules" },
+    ...groups.map((name, index) => ({ value: String(index), name: `${name} · ${formatCount(counts[index] ?? 0)} ${(counts[index] ?? 0) === 1 ? "module" : "modules"}` }))]
+    .map(group => `<button type="button" class="map-picker-opt" data-map-act="group" data-map-group="${esc(group.value)}">${esc(group.name)}</button>`).join("");
 }
 
-/** The module picker's list: each module it offers, known by its place in the list, with its group where the list holds
- * more than one group's. The one the arrows are on is chosen. */
-export function pickerOptionsHtml(listId: string, modules: readonly { name: string; group?: string }[], active: number): string {
-  return modules.map((module, index) => `<div class="map-picker-opt${index === active ? " map-active" : ""}" role="option" id="${esc(listId)}-${index}" aria-selected="${index === active ? "true" : "false"}" data-map-pick="${index}"><span class="map-picker-name">${esc(module.name)}</span>${
-    module.group === undefined ? "" : `<small>${esc(module.group)}</small>`}</div>`).join("");
+/** Modules arrive in group order. A group heading is written once, with its options beneath it. Keyboard focus and the
+ * current module have separate marks: moving through the list does not change which module the map shows. */
+export function pickerOptionsHtml(listId: string, modules: readonly { name: string; group?: string; current?: boolean }[], active: number): string {
+  let previous: string | undefined;
+  return modules.map((module, index) => {
+    const heading = index === 0 || module.group !== previous;
+    const end = index === modules.length - 1 || module.group !== modules[index + 1].group;
+    previous = module.group;
+    return `${heading ? `<div role="group" aria-label="${esc(module.group ?? "Modules")}"><div class="map-picker-heading" aria-hidden="true">${esc(module.group ?? "Modules")}</div>` : ""}<div class="map-picker-opt${index === active ? " map-active" : ""}${module.current ? " map-current" : ""}" role="option" id="${esc(listId)}-${index}" aria-selected="${module.current ? "true" : "false"}" data-map-pick="${index}"><span class="map-picker-name">${esc(module.name)}</span>${module.current ? '<small>Current module</small>' : ""}</div>${end ? "</div>" : ""}`;
+  }).join("");
 }
 
 /** What stands in the middle of a map with nothing to draw: what is missing, in the map's own words, and under it what

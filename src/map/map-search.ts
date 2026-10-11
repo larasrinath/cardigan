@@ -36,7 +36,7 @@ export function createSearch(model: MapModel, sections = true): (typed: string, 
   const all = (): NonNullable<typeof entries> => entries ??= [
     ...(sections ? model.sections : []).map((section, index) => {
       const modules = model.modules.filter(module => model.sectionOf(module) === section).length;
-      return { hit: { kind: "section" as const, section: index, name: section, context: `Section · ${plural(modules, "module")}` }, name: section.toLowerCase(), text: section.toLowerCase() };
+      return { hit: { kind: "section" as const, section: index, name: section, context: `Group · ${plural(modules, "module")}` }, name: section.toLowerCase(), text: section.toLowerCase() };
     }),
     // A module says its section, where the map has sections to show, and where the section comes from where the map
     // chose how to group the modules.

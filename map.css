@@ -89,33 +89,31 @@
 .map-inspector{grid-area:details}
 
 /* ---------- the bar: where the map is, how it is built, its tools ---------- */
-.map-tabs{display:flex;flex:none;gap:2px;padding:2px;border-radius:999px;background:var(--panel-2)}
-.map-tab{padding:4px 12px;border-radius:999px;font-size:12.5px;font-weight:550;color:var(--text-2);white-space:nowrap;transition:background .15s,color .15s}
-.map-tab:hover:not(:disabled){color:var(--text)}
-/* The view shown is said by more than its colour: its name is heavier, and the button is pressed. */
-.map-tab.map-active{background:var(--accent-soft);color:var(--accent-ink);font-weight:650}
-.map-tab:disabled{opacity:.45;cursor:not-allowed}
-
-/* Where the map is: the model's name, then its lists. The name gives way first, down to a few letters, so that it can
-   still be pressed; a list is cut at the end of its words, and keeps its chevron. */
-.map-crumbs{display:flex;flex:1 1 auto;align-items:center;gap:6px;min-width:0;padding:0 4px;font-size:12.5px;color:var(--text-2);white-space:nowrap}
-.map-path-root{display:flex;flex:0 1000 auto;min-width:3em;overflow:hidden}
+/* The path keeps the same three widths at every level; names give way to ellipses. */
+.map-crumbs{display:flex;align-items:center;gap:7px;min-width:0;white-space:nowrap}
+.map-path-root{flex:0 1 180px;min-width:64px;overflow:hidden}
 .map-title-name{min-width:0;overflow:hidden;text-overflow:ellipsis;font-size:12.5px;font-weight:650;color:var(--text)}
 .map-crumb{max-width:100%;overflow:hidden;text-overflow:ellipsis;color:var(--accent);font-weight:inherit;border-radius:var(--r-xs);vertical-align:bottom}
 .map-crumb:hover{text-decoration:underline}
 .map-sep{display:inline-flex;align-items:center;flex:none;color:var(--text-3)}
-.map-crumbs .map-select-wrap{flex:0 1 auto;min-width:96px}
-.map-crumbs .map-select{width:100%;max-width:240px}
-/* The module picker: a box to type into, with its list under it. */
-.map-picker{position:relative;display:inline-flex;flex:0 1 auto;align-items:center;min-width:120px}
-.map-picker-input{width:240px;max-width:100%;height:28px;padding:0 28px 0 12px;border:1px solid var(--border-strong);border-radius:999px;background:var(--panel);font-size:12px;text-overflow:ellipsis}
+.map-picker{position:relative;display:inline-flex;align-items:center;min-width:100px;height:28px;border:1px solid var(--border-strong);border-radius:999px;background:var(--panel)}
+.map-group-picker{flex:0 1 190px;width:190px}
+.map-module-picker{flex:0 1 240px;width:240px}
+.map-step-name{flex:1;min-width:0;padding:0 10px;font-size:12px;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;height:100%;border-radius:999px 0 0 999px}
+.map-step-name:disabled{color:var(--text-3);cursor:default}
+.map-step-name[aria-current]{font-weight:650}
+.map-step-list{display:flex;flex:none;align-items:center;justify-content:center;width:28px;height:100%;border-left:1px solid var(--border);border-radius:0 999px 999px 0}
+.map-step-name:hover:not(:disabled),.map-step-list:hover{background:var(--panel-2)}
+.map-step-list .map-btn-chevron{margin:0}
+.map-picker-pop{position:absolute;left:0;top:calc(100% + 8px);z-index:6;width:360px;max-width:calc(100cqw - 24px);padding:5px;border-color:var(--border-strong);box-shadow:var(--shadow);white-space:normal}
+.map-picker-list,.map-group-list{max-height:min(50cqh,380px);overflow:auto;overscroll-behavior:contain;scroll-padding-top:32px}
+.map-picker-input{display:block;width:100%;height:32px;margin-bottom:5px;padding:0 10px;border:1px solid var(--border-strong);border-radius:var(--r-sm);background:var(--panel);font-size:12px}
 .map-picker-input:focus{border-color:var(--ring)}
-.map-root .map-picker-input:focus-visible{outline:none;box-shadow:0 0 0 2px color-mix(in srgb,var(--ring) 30%,transparent)}
-.map-picker .map-select-chevron{position:absolute;right:11px;pointer-events:none;color:var(--text-3)}
-.map-picker-pop{position:absolute;left:0;top:calc(100% + 8px);z-index:6;width:360px;max-width:calc(100cqw - 24px);max-height:min(60cqh,440px);overflow:auto;padding:5px;border-color:var(--border-strong);box-shadow:var(--shadow);white-space:normal}
-.map-picker-opt{display:block;padding:7px 10px;border-radius:var(--r-sm);font-size:12.5px;color:var(--text);overflow-wrap:anywhere;cursor:pointer}
+.map-picker-heading{position:sticky;top:0;z-index:1;padding:7px 10px;font-size:11px;font-weight:650;color:var(--text-2);background:var(--panel);border-bottom:1px solid var(--border)}
+.map-picker-opt{display:block;width:100%;padding:7px 10px;border-radius:var(--r-sm);font-size:12.5px;color:var(--text);text-align:left;overflow-wrap:anywhere;cursor:pointer}
 .map-picker-opt:hover,.map-picker-opt.map-active{background:var(--panel-2)}
-.map-picker-opt.map-active{box-shadow:inset 2px 0 0 var(--accent)}
+.map-picker-opt.map-active{outline:1px solid var(--border-strong);outline-offset:-1px}
+.map-picker-opt.map-current{box-shadow:inset 2px 0 0 var(--accent);color:var(--accent-ink)}
 .map-picker-opt small{display:block;margin-top:1px;font-size:11.5px;color:var(--text-2)}
 .map-picker-note{margin:0;padding:8px 10px;font-size:12px;color:var(--text-2)}
 /* A label before a list says what the list is for, in the bar's quiet words. */
@@ -142,6 +140,7 @@
 /* A switch of links the result cannot draw is off and dim; the note under it says why. */
 .map-check:has(input:disabled){cursor:default;color:var(--text-3)}
 .map-links-note{margin:2px 0 6px 21px;font-size:12px;line-height:1.5;color:var(--text-2)}
+.map-links-pop .map-external-check{display:flex;white-space:normal;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)}
 .map-full-btn svg{flex:none}
 /* A select draws the chevron the results page's menus have, clear of the round end of its pill: a browser's own arrow
    stands close against it. A select the map hides takes its chevron with it. */
@@ -276,7 +275,10 @@
 .map-formula{margin:0 0 10px;padding:9px 11px;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--panel-2);font-family:var(--mono);font-size:11.5px;line-height:1.6;white-space:pre-wrap;word-break:break-word}
 .map-insp-note{margin:0 0 10px;font-size:12px;line-height:1.55;color:var(--text-2);overflow-wrap:anywhere}
 .map-details{padding:8px 0 4px;border-top:1px solid var(--border)}
-.map-details summary{padding:2px 0 4px;border-radius:var(--r-xs);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--text-2);cursor:pointer}
+.map-details summary{list-style:none;display:flex;align-items:center;gap:6px;padding:2px 0 4px;border-radius:var(--r-xs);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--text-2);cursor:pointer}
+.map-details summary::-webkit-details-marker{display:none}
+.map-details summary .map-sep-chevron{flex:none;transition:transform .15s}
+.map-details[open]>summary .map-sep-chevron{transform:rotate(90deg)}
 .map-link{display:flex;align-items:flex-start;gap:8px;width:100%;padding:5px 6px;border-radius:var(--r-sm);text-align:left;font-size:12.5px;line-height:1.4;overflow-wrap:anywhere;transition:background .12s}
 .map-link:hover{background:var(--panel-2)}
 .map-link .map-dot{margin-top:4px}

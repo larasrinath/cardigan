@@ -315,25 +315,23 @@ const parts = (selector: string): FakeElement[] => page.all(`#mapHost ${selector
 const text = (selector: string): string => part(selector).textContent.replace(/\s+/g, " ").trim();
 /** The line that says what the map shows. */
 const status = (): string => text(".map-stats");
-/** The words of the option a list has chosen, without the count of modules a group's option ends with. */
-const chosen = (select: FakeElement): string => (select.querySelectorAll("option").find(option => option.getAttribute("value") === select.value)?.textContent ?? "").replace(/ · [\d,]+ modules?$/, "");
-/** Where the map says it is: the model, and after it what the path's lists have chosen: all modules or a section in the
- * Modules view, and in the Line items view the module's section and the module. */
+/** The names of the places reached along the path, without its unused Module step. */
 function where(): string[] {
-  const steps = [text(".map-crumbs .map-title-name")];
-  const show = part(".map-show-select");
-  if (!show.hidden && show.value !== "groups") steps.push(chosen(show));
-  if (!part(".map-group-select").hidden) steps.push(chosen(part(".map-group-select")));
-  if (!part(".map-picker").hidden) steps.push(part(".map-picker-input").value);
+  const steps = [text(".map-title-name")];
+  if (part(".map-group-name").getAttribute("aria-current") || part(".map-module-name").getAttribute("aria-current")) steps.push(text(".map-group-name"));
+  if (part(".map-module-name").getAttribute("aria-current")) steps.push(text(".map-module-name"));
   return steps;
+}
+function chooseGroup(value: string): void {
+  part('[data-map-act="groups"]').press();
+  part(`[data-map-group="${value}"]`).press();
 }
 /** The modules the Line items view's picker lists with every section's: the modules in the Line Items file's order. The
  * map is left in its Modules view, as it was. */
 function pickable(): string[] {
-  part('[data-map-view="drill"]').press();
-  part(".map-group-select").choose("");
+  part('[data-map-act="modules"]').press();
   const names = parts(".map-picker-opt .map-picker-name").map(name => name.textContent);
-  part('[data-map-view="modules"]').press();
+  part('[data-map-act="group-home"]').press();
   around.shows();
   return names;
 }
@@ -372,19 +370,19 @@ describe("A model's result on the results page, with the map's real graph and th
     expect([host().hidden, host().children.map(child => child.getAttribute("class")), page.texts("#view h1"), page.document.activeElement === part(".map-canvas")])
       .toEqual([false, ["map-root"], ["Model map"], true]);
     // It says which model it is of, with the workspace the Details file names on hover: the page's header names it too.
-    expect([where(), part(".map-title-name").getAttribute("title")]).toEqual([["Model one"], "Model one (workspace: Planning)"]);
+    expect([where(), part(".map-title-name button").getAttribute("title")]).toEqual([["Model one"], "Model one (workspace: Planning)"]);
 
     // The model has three headings among its modules: the map opens on those three sections. Inputs feed
     // Calculations, and Calculations feed Reporting: two links, however many formulas make each.
-    expect(shownStatus()).toBe("3 sections · 2 links");
-    expect(parts(".map-show-select option").map(option => option.textContent)).toEqual(["All groups", "All modules", "01 Inputs · 2 modules", "02 Calculations · 1 module", "03 Reporting · 1 module"]);
+    expect(shownStatus()).toBe("3 groups · 2 links");
+    expect(parts("[data-map-group]").map(option => option.textContent)).toEqual(["All groups", "All modules", "01 Inputs · 2 modules", "02 Calculations · 1 module", "03 Reporting · 1 module"]);
     // Each section is a box on the picture, named, with what it holds: its modules, and their line items.
     expect(written()).toEqual(expect.arrayContaining(["01 Inputs", "02 Calculations", "03 Reporting"]));
     expect([writes("2 modules", "3 line items"), writes("1 module", "4 line items"), writes("1 module", "3 line items")]).toEqual([true, true, true]);
 
     // All its modules: four, as the Line Items file has them under its headings. Volumes and Prices each feed Revenue,
     // and Revenue feeds Summary: three links.
-    part(".map-show-select").choose("modules");
+    chooseGroup("modules");
     around.shows();
     expect([shownStatus(), where()]).toEqual(["4 modules · 3 links", ["Model one", "All modules"]]);
     expect(pickable()).toEqual([VOLUMES, PRICES, REVENUE, SUMMARY]);
@@ -538,8 +536,8 @@ describe("A model's result on the results page, with the map's real graph and th
     // every module.
     expect(where()).toEqual(["Model two", "02 Calculations", REVENUE]);
     expect([root.isConnected, part(".map-inspector").hidden, part(".map-search").value]).toEqual([false, true, ""]);
-    part('[data-map-view="modules"]').press();
-    part(".map-show-select").choose("modules");
+    part('[data-map-act="group-home"]').press();
+    chooseGroup("modules");
     around.shows();
     expect([where(), shownStatus()]).toEqual([["Model two", "All modules"], "5 modules · 4 links"]);
     expect(pickable()).toEqual([VOLUMES, PRICES, REVENUE, SUMMARY, BOARD]);

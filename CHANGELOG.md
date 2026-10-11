@@ -11,6 +11,16 @@ One details panel, in the same order wherever a row opens.
 - **Names open their rows.** A single item links as several do. Module Name, Target Object, DCA's line items, a page filter's condition line item and modules, a page action's model action and a data source's Source Model link where one row matches. Missing and unmatched names stay plain. DCA and Page Filters offer **Model map** where the box exists.
 - **Keyboard and kept place.** The panel is a labelled region. Opening it moves focus inside; **Esc** closes it and returns focus to the opening row. The open row still comes back after refresh or Run again where it exists.
 
+## 0.24.0 (11 October 2026)
+
+The Model map has one path, and calls each group a group.
+
+- **One path at every level.** The model, group and module stay in the bar; the Modules and Line items switch is gone. A name goes there and its chevron opens its list. The group list has All groups, All modules, then every group with its module count. A choice always moves the map. Esc goes from a module to its own group, then to the model. (#74)
+- **Every module in one picker.** Modules stand under their group headings, in the map's order, with the current module marked and its group scrolled into view. Typing searches every group, leaving the headings that have matches. The 200-module limit is gone; moving through the list with the arrows updates only the rows whose focus changes. (#74)
+- **Group by stays.** It is there at every level. Changing it inside a module keeps the module, its selection and its drawing; the group step and the picker's headings follow the new grouping. Other modules' line items is now under Links, where it appears only inside a module. (#74)
+- **The words agree.** Group replaces section in the legend, details, search, foot and empty map. The details say Show its modules or Show its line items, with the count. The hover card leaves the double-click shortcut to About this map, and the details' list headings have drawn chevrons. (#74)
+- **Kept as before.** Search across the model, Model map from the tables, the traces and page filters, the three kinds of link, full screen and the map's other tools. Views kept for the tab by earlier versions still load. (#74)
+
 ## 0.23.1 (11 October 2026)
 
 Run again keeps the place you were reading.

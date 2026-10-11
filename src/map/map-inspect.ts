@@ -230,9 +230,9 @@ function inspectSection(model: MapModel, graph: ViewGraph, node: ViewNode): Insp
   const members = (node.members ?? []).map(id => model.node(id)).filter((member): member is GraphNode => member !== undefined);
   const lineItems = members.reduce((count, member) => count + model.itemsOf(member.id).length, 0);
   return {
-    kind: "SECTION", layer: node.layer, name: node.fullName,
+    kind: "GROUP", layer: node.layer, name: node.fullName,
     rows: [["Modules", formatCount(members.length)], ["Line items", formatCount(lineItems)]],
-    action: { label: `Open its ${plural(members.length, "module")}`, section: node.section },
+    action: { label: `Show its ${plural(members.length, "module")}`, section: node.section },
     lists: [
       ...linkLists(graph.in[node.index].map(index => nodeLink(graph.nodes[index])), graph.out[node.index].map(index => nodeLink(graph.nodes[index]))),
       { key: "modules", title: `Its modules · ${formatCount(members.length)}`, open: true, links: members.map(member => objectLink(model, member)) },
@@ -247,7 +247,7 @@ function inspectModule(model: MapModel, graph: ViewGraph, node: ViewNode, raw: G
   // A model whose modules stand under one heading, or under none, has no sections to tell them apart by. Where the map
   // chose how to group the modules, the section says where it comes from, and a section the map worked out says why.
   if (model.sections.length > 1) {
-    row(rows, "Section", model.grouping ? `${model.sectionOf(raw)} · ${model.grouping.source}` : model.sectionOf(raw));
+    row(rows, "Group", model.grouping ? `${model.sectionOf(raw)} · ${model.grouping.source}` : model.sectionOf(raw));
     row(rows, "Why", model.grouping?.whyOf?.get(raw.id));
   }
   row(rows, "Line items", formatCount(owned.length));
@@ -268,7 +268,7 @@ function inspectModule(model: MapModel, graph: ViewGraph, node: ViewNode, raw: G
   return {
     kind: KIND_NAMES.module, layer: node.layer, name: node.fullName, rows,
     // A module without line items has nothing to open.
-    ...(owned.length ? { action: { label: `Open its ${plural(owned.length, "line item")}`, module: raw.id } } : {}),
+    ...(owned.length ? { action: { label: `Show its ${plural(owned.length, "line item")}`, module: raw.id } } : {}),
     lists,
     texts: actions.length ? [{ key: "actions", title: `Actions · ${formatCount(actions.length)}`, lines: actions.map(({ action }) => (action.actionType ? `${action.name} (${action.actionType})` : action.name)) }] : [],
   };
@@ -299,7 +299,7 @@ function inspectObject(model: MapModel, node: ViewNode, raw: GraphNode, access: 
   return {
     kind: KIND_NAMES[raw.kind] ?? String(raw.kind).toUpperCase(), layer: node.layer, name: node.fullName, rows,
     // A line item of another module can be gone to in its own module. One of the module on screen is already there.
-    ...(module && node.external ? { action: { label: "Open its module with it selected", module: module.id, select: raw.id } } : {}),
+    ...(module && node.external ? { action: { label: "Show its module with it selected", module: module.id, select: raw.id } } : {}),
     ...(formula !== undefined ? { formula } : raw.kind === "lineItem" ? { remark: isHeading(raw) ? "No formula. Its format is No Data: a heading among the line items." : "No formula." } : {}),
     lists: [...linkLists(related(model, raw.id, true, access), related(model, raw.id, false, access)), ...filtersModules(model, raw), ...filtersLineItems(model, raw),
       ...itemFilteredBy(model, raw)], texts: pageFiltersText(model, raw),
@@ -333,8 +333,8 @@ export function traceWords(inspection: Inspection, up: number, down: number): Tr
 
 /** What stands for a count of the graph's boxes, one and many. */
 function boxesOf(graph: ViewGraph, count: number, kind: "own" | "others"): string {
-  if (graph.kind === "sections") return plural(count, "section");
-  if (graph.kind === "modules") return kind === "own" ? plural(count, "module") : `${plural(count, "module")} of other sections`;
+  if (graph.kind === "sections") return plural(count, "group");
+  if (graph.kind === "modules") return kind === "own" ? plural(count, "module") : `${plural(count, "module")} of other groups`;
   return kind === "own" ? plural(count, "line item") : `${formatCount(count)} outside the module`;
 }
 
@@ -365,7 +365,7 @@ export function viewSentence(graph: ViewGraph, modelName: string, drawn: LinksDr
   const others = graph.nodes.length - graph.local;
   const beside = others > 0 ? `, with ${boxesOf(graph, others, "others")}` : "";
   const links = linksOf(graph, drawn);
-  if (graph.kind === "sections") return `Sections of ${modelName}: ${plural(graph.local, "section")}, ${links}.`;
+  if (graph.kind === "sections") return `Groups of ${modelName}: ${plural(graph.local, "group")}, ${links}.`;
   if (graph.kind === "modules") return `${graph.name}: ${plural(graph.local, "module")}${beside}, ${links}.`;
   return `Line items of ${graph.name}: ${plural(graph.local, "line item")}${beside}, ${links}.`;
 }
