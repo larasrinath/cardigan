@@ -313,9 +313,9 @@ describe("What the results page reads out of a result", () => {
     // Only the files the result has, in that order.
     expect(listed("model", "Imports.csv", "Line Items.csv", "Versions.csv")).toEqual(["3 Versions.csv", "2 Line Items.csv", "1 Imports.csv"]);
     // A file that is not in the order comes after those that are, in the result's order, and none is dropped: a renamed
-    // file, a new one, one whose name differs in case. Line Item Subsets has its place already.
+    // file, a new one, one whose name differs in case. An empty Line Item Subsets table is left out.
     expect(listed("model", "Users.csv", "Line Items.csv", "modules.csv", "Line Item Subsets.csv", "Line Items (2).csv", "Model Calendar.csv"))
-      .toEqual(["6 Model Calendar.csv", "4 Line Item Subsets.csv", "2 Line Items.csv", "1 Users.csv", "3 modules.csv", "5 Line Items (2).csv"]);
+      .toEqual(["6 Model Calendar.csv", "2 Line Items.csv", "1 Users.csv", "3 modules.csv", "5 Line Items (2).csv"]);
     // Two files of one name keep the result's order between them.
     expect(listed("model", "Versions.csv", "Line Items.csv", "Versions.csv")).toEqual(["1 Versions.csv", "3 Versions.csv", "2 Line Items.csv"]);
     // The Details file is not listed, wherever it stands; the result itself is left as it is.
@@ -365,7 +365,7 @@ describe("What the results page reads out of a result", () => {
     expect(fileView(model, lineItems).table).toBe(lineItems);
     // The rules are few and each is one file's own, by the kind of result and the file's name.
     expect([[...FILE_RULES.model.keys()], [...FILE_RULES.app.keys()]]).toEqual([["Model Calendar.csv", "Line Items.csv", "Dynamic Cell Access.csv", "Processes.csv", "Imports.csv", "Source Models.csv",
-      "Module Usage.csv", "Page Filters.csv", "Page Actions.csv"], []]);
+      "Line Item Subsets.csv", "Module Usage.csv", "Page Filters.csv", "Page Actions.csv"], []]);
     // The rule is that file's alone: by its name, in a model's result, by its Section column.
     const renamed = { ...file, file: "Model Calendar (2).csv" };
     const regrouped = { ...file, headers: ["Group", ...file.headers.slice(1)] };

@@ -2,6 +2,12 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version is in the menu of Cardigan's icon in Chrome's toolbar and on its About page, and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## Unreleased
+
+- **Line Item Subsets, for both engines.** Classic and Polaris read the Model settings grid through Model Building's client, keeping Anaplan's column names. A second read-only grid supplies the checked line items. If membership cannot be read, it is left out and the table and Overview say so.
+- **Under Lists.** General Lists and Line Item Subsets share the Lists menu, which shows the picked table's full name without moving the other tabs. Each subset has its details and a **Model** button for its settings page. Columns follow a reading order, IDs start hidden, and every column stays in the chooser. A model with no subsets gets no subset tab or tile; Lists holds General Lists alone.
+- **Names open their rows.** A subset's modules and line items link to their details, and Applies To in Modules and Line Items links to a matching subset. Back returns to the previous row. The Model map stays as it was.
+
 ## 0.29.8 (11 October 2026)
 
 - **Switching tabs closes the details.** Choosing another table, the Overview or the Model map in navigation clears the open row without moving the new table. Coming back or refreshing keeps the panel closed; links within details, the **Table** and **Model map** buttons, and **Run again** still keep or open their row. (#88)
