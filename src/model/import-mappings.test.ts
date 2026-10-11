@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { exportModel } from "./export.js";
 import type { Grid } from "./grid.js";
-import { fileImports, IMPORT_DEFINITION, importMappings, importNames, importsLine, MAPPING_NOTES, readDefinition, type ImportNames } from "./import-mappings.js";
+import { fileImports, IMPORT_DEFINITION, importMappings, importNames, importsLine, MAPPING_NOTES, readDefinition, readImportMappings, type ImportNames } from "./import-mappings.js";
 import type { Native } from "./native.js";
 
 // Import definitions as Anaplan's import dialog saves them (anaplan/widgets/Mapping.js, view/ImportDefinitionModuleMapping.js,
@@ -365,9 +366,217 @@ describe("The names a definition's IDs are said by", () => {
     expect(importNames(native({}), { lists: grid([[4000000020, "Top Level"]], [[DIVISION, "Division", ""]]) }).numbered?.(DIVISION)).toBeUndefined();
   });
 
+  it.each([
+    ["the property is missing from an existing propertiesLabelPage", { propertiesLabelPage: { entityLongIds: [MANAGER], labels: ["Manager"] } }],
+    ["the list's info is absent altogether", undefined],
+  ])("leaves a property unnamed when %s", (_cause, info) => {
+    const names = importNames(native({
+      getHierarchyInfo: () => info,
+      getHierarchySubsetsLabelPage: () => ({ entityLongIds: [[109000000001]], labels: [["Active products"]] }),
+    }), { lists });
+    expect(names.property(ACTIVE, DIVISION)).toBeUndefined();
+    const { mapping } = readDefinition(definition("HIERARCHY_DATA", DIVISION, [
+      { targetType: "hierarchyProperty", target: id(ACTIVE), sourceType: "column", sourceColumnId: "#1" },
+    ]), names);
+    expect(mapping.targets).toEqual([{ target: `ID ${ACTIVE}`, source: "column", column: 1 }]);
+  });
+
   it("are none, and no failure, where the model page has no such list or throws for it", () => {
     const fails = () => { throw new Error("The model is not loaded."); };
     const names = importNames(native({ getHierarchiesLabelPage: fails, getHierarchySubsetsLabelPage: () => ({ entityLongIds: "1", labels: [] }), getLineItemsLabelPage: fails }), {});
     expect([names.list(PRODUCTS), names.lineItem(UNITS, PRICES), names.property(MANAGER, DIVISION)]).toEqual([undefined, undefined, undefined]);
+  });
+});
+
+describe("Missing import property names through Model Building", () => {
+  const properties = grid([[4000000017, "Notes"]], [[MANAGER, "Manager from grid", ""], [ACTIVE, "Active &amp; available", ""]]);
+  const lists = grid([], [[DIVISION, "Division"], [PRODUCTS, "Products"]]);
+  const tab = grid([[4000001301, "Source Type"], [4000001302, "Target Object"]], [
+    [112000000011, "Load division", "FILE", "Division"], [112000000012, "Update division", "FILE", "Division"],
+  ]);
+  const listDefinition = (list: number, ids = [MANAGER, ACTIVE]) => definition("HIERARCHY_DATA", list,
+    ids.map((target, index) => ({ targetType: "hierarchyProperty", target: id(target), sourceType: "column", sourceColumnId: `#${index + 1}` })));
+  const definitions = grid([[IMPORT_DEFINITION, "Import Definition"]], [
+    [112000000011, "Load division", listDefinition(DIVISION)], [112000000012, "Update division", listDefinition(DIVISION)],
+  ]);
+
+  /** Invented client label pages and transport. The real readGrid and assertRead guard every generated request. */
+  function client(grids: Record<string, Grid> = { [id(DIVISION)]: properties }) {
+    const requests: any[] = [];
+    const native: Native = {
+      workspaceId: "a".repeat(32), modelId: "b".repeat(32),
+      cache: {
+        getModelName: () => "Invented plan",
+        getHierarchyInfo: vi.fn(() => ({ propertiesLabelPage: { entityLongIds: [MANAGER], labels: ["Manager"] } })),
+        getHierarchySubsetsLabelPage: () => ({ entityLongIds: [[109000000001]], labels: [["Active products"]] }),
+      },
+      ids: { entityLongIdToEntityLongIdIdentifier: vi.fn(id) },
+      axisHelper: { getHierarchySystemAxisIdentifier: () => "listProperties" },
+      constants: {
+        SYSTEM_AXIS_IDENTIFIER_CUSTOM_PROPERTY_IDENTIFIER: "customProperties",
+        SYSTEM_AXIS_IDENTIFIER_PROPERTY_PROPERTY_IDENTIFIER: "propertyProperties",
+        SYSTEM_AXIS_IDENTIFIER_IMPORT_ALL_IDENTIFIER: "imports",
+        SYSTEM_AXIS_IDENTIFIER_IMPORT_DEFINITION_PROPERTY_IDENTIFIER: "importsTab",
+        SYSTEM_AXIS_IDENTIFIER_IMPORT_PROPERTY_IDENTIFIER: "importDefinitions",
+        SYSTEM_AXIS_IDENTIFIER_HIERARCHY_IDENTIFIER: "lists",
+      },
+      helper: { getAxesForViewDefinition: (rows: string[], columns: string[]) => ({ rowAxis: rows[0], columnAxis: columns[0] }) },
+      RequestGenerator: class { getRequest(params: unknown) { return { requestType: "VIEW_REQUEST_SET", submissions: [], systemActions: [], params }; } },
+      DataPage: class {
+        page: { startRow: number; rows: string[][] };
+        constructor({ page }: any) { this.page = page; }
+        contains(row: number, column: number) { return this.page.rows[row - this.page.startRow]?.[column] !== undefined; }
+        getIndex(row: number, column: number) { return (row - this.page.startRow) * this.page.rows[0].length + column; }
+        getOriginalText(index: number) { return this.page.rows.flat()[index]; }
+        getCellText(index: number) { return this.getOriginalText(index); }
+      },
+      aggregator: { isDirty: vi.fn(() => false), post(request: any, _flag: boolean, ok: (response: unknown) => void) {
+        requests.push(request);
+        const { viewDefinition, pageRequests: [{ startRow, rowCount }] } = request.params;
+        const grid = grids[viewDefinition.staticContextIdentifiers[0] ?? viewDefinition.columnAxis];
+        if (!grid) { ok({ error: "unavailable" }); return; }
+        const rows = grid.rows.slice(startRow, startRow + rowCount);
+        ok({ result: { viewRequestResults: [{ rowCount: grid.rows.length, columnCount: grid.columns.length,
+          rowLabelPages: [{ count: rows.length, entityLongIds: [rows.map(row => row.ids[0])], labels: [rows.map(row => row.labels[0])] }],
+          columnLabelPages: [{ count: grid.columns.length, entityLongIds: [grid.columns.map(column => column.ids[0])], labels: [grid.columns.map(column => column.labels[0])] }],
+          dataPages: [{ startRow, rows: rows.map(row => row.cells) }] }] } });
+      } },
+    };
+    return { native, requests };
+  }
+  beforeEach(() => vi.spyOn(Date, "now").mockReturnValue(1000));
+  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+  it.each(["missing property", "missing list info"])("names targets with %s from one scoped read for both imports", async cause => {
+    const { native, requests } = client();
+    if (cause === "missing list info") native.cache.getHierarchyInfo.mockReturnValue(undefined);
+    const log: string[] = [];
+    const names = importNames(native, { lists });
+    const result = await readImportMappings(native, tab, definitions, names, line => log.push(line));
+    expect(result.map(mapping => mapping.targets.map(target => target.target))).toEqual([
+      [cause === "missing property" ? "Manager" : "Manager from grid", "Active & available"],
+      [cause === "missing property" ? "Manager" : "Manager from grid", "Active & available"],
+    ]);
+    expect(requests.map(request => request.params.viewDefinition)).toEqual([
+      { type: "MODEL_DEFINITION", staticContextIdentifiers: [id(DIVISION)], rowAxis: "customProperties", columnAxis: "propertyProperties" },
+    ]);
+    expect(native.ids.entityLongIdToEntityLongIdIdentifier.mock.calls).toEqual([[DIVISION]]);
+    expect(requests.every(request => request.requestType === "VIEW_REQUEST_SET" && !request.submissions.length && !request.systemActions.length)).toBe(true);
+    expect(log.filter(line => line.startsWith("Import mapping properties:") || line.startsWith("Import mappings: list"))).toEqual([
+      "Import mapping properties: list 101000000007: 2 rows × 1 columns; columns: Notes",
+      "Import mapping properties: list 101000000007: rows 0–1 in 0.00 s",
+    ]);
+    // The page's cache was not filled by the read, and the next export gets a fresh grid.
+    expect(names.property(ACTIVE, DIVISION)).toBeUndefined();
+    await readImportMappings(native, tab, definitions, names, () => undefined);
+    expect(requests).toHaveLength(2);
+  });
+
+  it("does not read when built-in properties, cached properties and subsets already name every target", async () => {
+    const { native, requests } = client();
+    const namedDefinitions = grid([[IMPORT_DEFINITION, "Import Definition"]], [
+      [112000000011, "Load division", listDefinition(DIVISION, [4000000001, 4000000004, MANAGER, 109000000001])],
+    ]);
+    const result = await readImportMappings(native, tab, namedDefinitions, importNames(native, { lists }), () => undefined);
+    expect(result[0].targets.map(target => target.target)).toEqual(["Parent", "Code", "Manager", "Active products"]);
+    expect(requests).toEqual([]);
+    expect(native.ids.entityLongIdToEntityLongIdIdentifier).not.toHaveBeenCalled();
+  });
+
+  it("keeps IDs after a failed read and logs all remaining IDs once for the list", async () => {
+    const { native, requests } = client({});
+    native.cache.getHierarchyInfo.mockReturnValue(undefined);
+    const log: string[] = [];
+    const result = await readImportMappings(native, tab, definitions, importNames(native, { lists }), line => log.push(line));
+    expect(result.map(mapping => mapping.targets.map(target => target.target))).toEqual([
+      [`ID ${MANAGER}`, `ID ${ACTIVE}`], [`ID ${MANAGER}`, `ID ${ACTIVE}`],
+    ]);
+    expect(requests).toHaveLength(1);
+    expect(log.filter(line => line.startsWith("Import mappings: list"))).toEqual([
+      "Import mappings: list Division (101000000007): unnamed properties: ID 4100000000001, ID 4100000000002; properties grid not read (The model rejected the read.)",
+    ]);
+  });
+
+  it("keeps and logs an ID absent from the grid without borrowing another list's rows", async () => {
+    const otherTab = { ...tab, rows: [tab.rows[0], { ...tab.rows[1], cells: ["FILE", "Products"] }] };
+    const otherDefinitions = { ...definitions, rows: [definitions.rows[0], { ...definitions.rows[1], cells: [listDefinition(PRODUCTS)] }] };
+    const { native, requests } = client({ [id(DIVISION)]: properties, [id(PRODUCTS)]: grid([[4000000017, "Notes"]], [[MANAGER, "Owner", ""]]) });
+    native.cache.getHierarchyInfo.mockReturnValue(undefined);
+    const log: string[] = [];
+    const result = await readImportMappings(native, otherTab, otherDefinitions, importNames(native, { lists }), line => log.push(line));
+    expect(result.map(mapping => mapping.targets.map(target => target.target))).toEqual([
+      ["Manager from grid", "Active & available"], ["Owner", `ID ${ACTIVE}`],
+    ]);
+    expect(requests.map(request => request.params.viewDefinition.staticContextIdentifiers)).toEqual([[id(DIVISION)], [id(PRODUCTS)]]);
+    expect(log.filter(line => line.startsWith("Import mappings: list"))).toEqual([
+      "Import mappings: list Products (101000000001): unnamed properties: ID 4100000000002",
+    ]);
+  });
+
+  it.each([undefined, grid([], []), grid([[IMPORT_DEFINITION, "Import Definition"]], [
+    [112000000011, "Load division", "{"], [112000000012, "Update division", listDefinition(DIVISION, [ACTIVE]).replace(id(DIVISION), "invalid")],
+  ])])("does not read for missing or invalid definitions (%j)", async badDefinitions => {
+    const { native, requests } = client();
+    await readImportMappings(native, tab, badDefinitions, importNames(native, { lists }), () => undefined);
+    expect(requests).toEqual([]);
+  });
+
+  it("ignores definitions of imports that do not read files", async () => {
+    const { native, requests } = client();
+    const modelTab = { ...tab, rows: tab.rows.map(row => ({ ...row, cells: ["SAVED VIEW", "Division"] })) };
+    expect(await readImportMappings(native, modelTab, definitions, importNames(native, { lists }), () => undefined)).toEqual([]);
+    expect(requests).toEqual([]);
+  });
+
+  it("uses the existing Line Items grid when the module cache has no names, leaving constants alone", async () => {
+    const { native, requests } = client();
+    const lineItems: Grid = { columns: [], rows: [{ ids: [UNITS, PRICES], labels: ["Units", "Prices"], cells: [] }] };
+    const moduleDefinitions = grid([[IMPORT_DEFINITION, "Import Definition"]], [[112000000011, "Load prices", definition("MODULE_DATA", PRICES, [
+      { targetType: "moduleLineItem", target: id(UNITS), sourceType: "column", sourceColumnId: "#1" },
+      { targetType: "moduleLineItem", target: id(PRICE), sourceType: "undefined" },
+      { targetType: "moduleDimension", target: "_9000000001_", sourceType: "constant", sourceValue: "_5000000099_" },
+    ])]]);
+    const result = await readImportMappings(native, tab, moduleDefinitions, importNames(native, { lineItems }), () => undefined);
+    expect(result[0].targets).toEqual([
+      { target: "Units", source: "column", column: 1 }, { target: `ID ${PRICE}`, source: "none" }, { target: "Time", source: "constant", text: "ID 5000000099" },
+    ]);
+    expect(requests).toEqual([]);
+  });
+
+  it.each(["submissions", "systemActions"])("refuses generated %s before posting", async field => {
+    const { native, requests } = client();
+    native.RequestGenerator = class { getRequest() { return { requestType: "VIEW_REQUEST_SET", [field]: [{}] }; } };
+    const log: string[] = [];
+    const result = await readImportMappings(native, tab, definitions, importNames(native, { lists }), line => log.push(line));
+    expect(result[0].targets[1].target).toBe(`ID ${ACTIVE}`);
+    expect(requests).toEqual([]);
+    expect(log.filter(line => line.startsWith("Import mappings: list"))).toEqual([
+      "Import mappings: list Division (101000000007): unnamed properties: ID 4100000000002; properties grid not read (Refusing to send anything but a read.)",
+    ]);
+  });
+
+  it("does not swallow cancellation or read a second list after the run stops", async () => {
+    const { native, requests } = client();
+    const stopping = new AbortController();
+    const stopped = new Error("Stopped by the fixture");
+    const post = native.aggregator.post;
+    native.aggregator.post = (...args: any[]) => { stopping.abort(stopped); post(...args); };
+    const otherDefinitions = { ...definitions, rows: [definitions.rows[0], { ...definitions.rows[1], cells: [listDefinition(PRODUCTS)] }] };
+    await expect(readImportMappings(native, tab, otherDefinitions, importNames(native, { lists }), () => undefined,
+      IMPORT_DEFINITION, stopping.signal)).rejects.toBe(stopped);
+    expect(requests).toHaveLength(1);
+  });
+
+  it("includes grid property names in the model export's mappings", async () => {
+    const { native, requests } = client({ [id(DIVISION)]: properties, importsTab: tab, importDefinitions: definitions, listProperties: lists });
+    vi.stubGlobal("window", { workspaceId: native.workspaceId, modelId: native.modelId,
+      require: (_modules: string[], loaded: (...args: unknown[]) => void) => loaded(native.cache, native.aggregator, native.helper,
+        native.ids, native.constants, native.RequestGenerator, native.DataPage, native.axisHelper) });
+    vi.stubGlobal("location", { host: "example.test", pathname: "/model" });
+    const result = await exportModel({ status: () => undefined, log: () => undefined }, () => "");
+    expect(result.importMappings?.map(mapping => mapping.targets.map(target => target.target))).toEqual([
+      ["Manager", "Active & available"], ["Manager", "Active & available"],
+    ]);
+    expect(requests.filter(request => request.params.viewDefinition.rowAxis === "customProperties")).toHaveLength(1);
   });
 });

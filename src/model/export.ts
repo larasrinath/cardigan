@@ -7,7 +7,7 @@ import { ACCESS_LABEL, accessTable } from "./access.js";
 import { actionKind, mergeImports, missingActionColumns, otherActionsTable, type ActionKind } from "./actions.js";
 import { CALENDAR_HEADERS, calendarRows } from "./calendar.js";
 import { gridTable, type Grid, type GridRow, type Table } from "./grid.js";
-import { fileImports, IMPORT_DEFINITION, importMappings, importNames, importsLine } from "./import-mappings.js";
+import { fileImports, IMPORT_DEFINITION, importNames, importsLine, readImportMappings } from "./import-mappings.js";
 import { lineItemsTable } from "./lineitems.js";
 import { LINE_ITEM_SUBSETS, readLineItemSubsets } from "./line-item-subsets.js";
 import { axis, loadNative, readGrid, typeIndex, type Native } from "./native.js";
@@ -246,7 +246,8 @@ export async function exportModel(progress: Progress, diagnostics: () => string,
   // of those imports says that its mapping could not be read, and the log says why. The step is reported before the read,
   // as every grid's is, so that an export asked to stop reads nothing more. The log says first what the Imports tab holds,
   // whether an import reads a file or not, and the result carries the mappings once the tab was read, none or not: a
-  // result without them is one an earlier version made.
+  // result without them is one an earlier version made. Lists with unnamed property targets also have their properties
+  // read once each, with the list as the grid's context; a failed read leaves those targets as IDs.
   let mappings: ImportMapping[] | undefined;
   if (imports) {
     log(importsLine(imports));
@@ -261,7 +262,8 @@ export async function exportModel(progress: Progress, diagnostics: () => string,
       log(`Import mappings: ${message(error)}`);
     }
     const column = native.constants.SYSTEM_PROPERTY_IMPORT_DEFINITION;
-    mappings = importMappings(imports, definitions, importNames(native, { lists, lineItems }), log, typeof column === "number" ? column : IMPORT_DEFINITION);
+    mappings = await readImportMappings(native, imports, definitions, importNames(native, { lists, lineItems }), log,
+      typeof column === "number" ? column : IMPORT_DEFINITION, stop);
   }
   await plain("Import Data Sources", () => axis(native, "IMPORT_DATA_SOURCE"), () => axis(native, "IMPORT_DATA_SOURCE_DETAILS_PROPERTY"));
   if (actions) {

@@ -6,6 +6,10 @@ Every merged change that alters the extension has a version of its own: a new fe
 
 - **Minimap beside details.** The minimap moves beside the open details, or hides when space is tight, keeping your choice; Fit and the box counts follow its place.
 
+## 0.34.13 (11 October 2026)
+
+- **Named import targets.** File imports into lists read missing property names from each list's properties grid once, keeping IDs with a diagnostic if unavailable. Refresh the Anaplan tab once after updating. (#129)
+
 ## 0.34.12 (11 October 2026)
 
 - **Details headers stay in place.** The map's name, kind and opening buttons stay above the scrolling details, as in the tables; selecting another box starts at the top. (#128)
