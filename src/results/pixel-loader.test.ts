@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parseMarkup } from "./dom.test-support.js";
-import { ElapsedTimer, formatElapsed, pixelDelay, pixelGridHtml, SPINNER_WORD_INTERVAL_MS, SpinnerWords } from "./pixel-loader.js";
-import { WORD_POOLS } from "./spinner-words.js";
+import { ElapsedTimer, formatElapsed, pixelDelay, pixelGridHtml, SpinnerWords } from "./pixel-loader.js";
+import * as spinnerWords from "./spinner-words.js";
+import { ENGINE_WORDS, WORD_PACE_MS, WORD_POOLS, type WordPool } from "./spinner-words.js";
 
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
@@ -11,23 +12,48 @@ describe("Spinner word rotation", () => {
     vi.spyOn(Math, "random").mockReturnValue(0);
   });
 
-  it("shows a new word at each 500 ms boundary and keeps its clock within a pool", () => {
-    expect(SPINNER_WORD_INTERVAL_MS).toBe(500);
+  it.each<[WordPool, string, number]>([
+    ["opening", "Waiting for the model to open…", 1500],
+    ["time", "Reading Model Calendar…", 500],
+    ["lists", "Reading General Lists…", 500],
+    ["modules", "Reading Line Items…", 1500],
+    ["actions", "Reading Import mappings…", 1500],
+    ["pages", "Reading page 1 of 40: Demand board", 1500],
+    ["finishing", "Building the report…", 500],
+  ])("rotates %s at its own pace", (pool, status, pace) => {
+    expect(WORD_PACE_MS[pool]).toBe(pace);
+    const show = vi.fn();
+    const words = new SpinnerWords(show);
+    words.update(status);
+    expect(show).toHaveBeenLastCalledWith(WORD_POOLS[pool][0]);
+    for (let tick = 0; tick < 4; tick++) {
+      const previous = show.mock.lastCall![0];
+      vi.advanceTimersByTime(pace - 1);
+      expect(show).toHaveBeenCalledTimes(tick + 1);
+      vi.advanceTimersByTime(1);
+      expect(show).toHaveBeenCalledTimes(tick + 2);
+      expect(WORD_POOLS[pool]).toContain(show.mock.lastCall![0]);
+      expect(show.mock.lastCall![0]).not.toBe(previous);
+    }
+    expect(vi.getTimerCount()).toBe(1);
+  });
+
+  it("keeps its clock across statuses within a pool", () => {
     const show = vi.fn();
     const words = new SpinnerWords(show);
     words.update("Reading Modules…");
     expect(show).toHaveBeenLastCalledWith("Reading the blueprint…");
-    vi.advanceTimersByTime(SPINNER_WORD_INTERVAL_MS - 1);
+    vi.advanceTimersByTime(WORD_PACE_MS.modules - 1);
     expect(show).toHaveBeenCalledTimes(1);
     words.update("Reading Line Items…");
     expect(show).toHaveBeenCalledTimes(1);
     vi.advanceTimersByTime(1);
     expect(show).toHaveBeenLastCalledWith("Untangling formulas…");
     vi.mocked(Math.random).mockReturnValue(0.99);
-    vi.advanceTimersByTime(SPINNER_WORD_INTERVAL_MS - 1);
+    vi.advanceTimersByTime(WORD_PACE_MS.modules - 1);
     expect(show).toHaveBeenCalledTimes(2);
     vi.advanceTimersByTime(1);
-    expect(show).toHaveBeenLastCalledWith("Counting cells…");
+    expect(show).toHaveBeenLastCalledWith("Weighing calculation effort…");
     expect(show).toHaveBeenCalledTimes(3);
     expect(vi.getTimerCount()).toBe(1);
   });
@@ -36,14 +62,14 @@ describe("Spinner word rotation", () => {
     const show = vi.fn();
     const words = new SpinnerWords(show);
     words.update("Reading Modules…");
-    vi.advanceTimersByTime(2 * SPINNER_WORD_INTERVAL_MS);
+    vi.advanceTimersByTime(2 * WORD_PACE_MS.modules);
     expect(show.mock.calls).toEqual([
       ["Reading the blueprint…"], ["Untangling formulas…"], ["Reading the blueprint…"],
     ]);
     for (let tick = 0; tick < 100; tick++) {
       vi.mocked(Math.random).mockReturnValue([0, 0.5, 0.99][tick % 3]);
       const previous = show.mock.lastCall![0];
-      vi.advanceTimersByTime(SPINNER_WORD_INTERVAL_MS);
+      vi.advanceTimersByTime(WORD_PACE_MS.modules);
       expect(show).toHaveBeenCalledTimes(tick + 4);
       expect(WORD_POOLS.modules).toContain(show.mock.lastCall![0]);
       expect(show.mock.lastCall![0]).not.toBe(previous);
@@ -51,34 +77,40 @@ describe("Spinner word rotation", () => {
   });
 
   it("alternates a two-word pool", () => {
+    vi.spyOn(spinnerWords, "wordsForPool").mockReturnValue(["Connecting the plans…", "Drawing the model map…"]);
     const show = vi.fn();
     const words = new SpinnerWords(show);
     words.update("Building the report…", "model");
-    for (let tick = 1; tick <= 20; tick++) vi.advanceTimersByTime(SPINNER_WORD_INTERVAL_MS);
+    for (let tick = 1; tick <= 20; tick++) vi.advanceTimersByTime(WORD_PACE_MS.finishing);
     expect(show.mock.calls).toEqual(Array.from({ length: 21 }, (_, index) => [WORD_POOLS.finishing[index % 2]]));
   });
 
   it("holds a one-word pool", () => {
+    vi.spyOn(spinnerWords, "wordsForPool").mockReturnValue(["Connecting the plans…"]);
     const show = vi.fn();
     const words = new SpinnerWords(show);
     words.update("Building the report…", "app");
-    vi.advanceTimersByTime(20 * SPINNER_WORD_INTERVAL_MS);
+    vi.advanceTimersByTime(20 * WORD_PACE_MS.finishing);
     expect(show.mock.calls).toEqual([["Connecting the plans…"]]);
   });
 
-  it("switches to a new step's pool immediately and restarts its clock", () => {
+  it.each([
+    ["Reading Modules…", "Reading Time Ranges…", "time", 1499, 500],
+    ["Reading Time Ranges…", "Reading Modules…", "modules", 499, 1500],
+  ] as const)("switches from %s to %s immediately and starts the new pace then", (before, after, pool, elapsed, pace) => {
     const show = vi.fn();
     const words = new SpinnerWords(show);
-    words.update("Reading Modules…");
-    vi.advanceTimersByTime(SPINNER_WORD_INTERVAL_MS - 1);
-    words.update("Reading Time Ranges…");
+    words.update(before);
+    vi.advanceTimersByTime(elapsed);
+    words.update(after);
     expect(show).toHaveBeenCalledTimes(2);
-    expect(WORD_POOLS.time).toContain(show.mock.lastCall![0]);
-    vi.advanceTimersByTime(SPINNER_WORD_INTERVAL_MS - 1);
+    expect(WORD_POOLS[pool]).toContain(show.mock.lastCall![0]);
+    vi.advanceTimersByTime(pace - 1);
     expect(show).toHaveBeenCalledTimes(2);
     vi.advanceTimersByTime(1);
     expect(show).toHaveBeenCalledTimes(3);
-    expect(WORD_POOLS.time).toContain(show.mock.lastCall![0]);
+    expect(WORD_POOLS[pool]).toContain(show.mock.lastCall![0]);
+    expect(vi.getTimerCount()).toBe(1);
   });
 
   it.each(["stop", "run ends"])("clears the timer when %s and starts a new run afresh", end => {
@@ -90,7 +122,7 @@ describe("Spinner word rotation", () => {
     else words.update(undefined);
     expect(show).toHaveBeenLastCalledWith("");
     expect(vi.getTimerCount()).toBe(0);
-    vi.advanceTimersByTime(20 * SPINNER_WORD_INTERVAL_MS);
+    vi.advanceTimersByTime(20 * WORD_PACE_MS.finishing);
     expect(show).toHaveBeenCalledTimes(2);
     words.update("Building the report…", "app");
     expect(show).toHaveBeenLastCalledWith("Connecting the plans…");
@@ -102,45 +134,68 @@ describe("Spinner word rotation", () => {
     const show = vi.fn();
     const words = new SpinnerWords(show);
     words.update("Reading Modules…", "model", true);
-    vi.advanceTimersByTime(20 * SPINNER_WORD_INTERVAL_MS);
+    vi.advanceTimersByTime(20 * WORD_PACE_MS.modules);
     words.update("Reading Modules…", "model", true);
     expect(show).toHaveBeenCalledTimes(1);
     words.update("Reading Line Items…", "model", true);
     expect(show).toHaveBeenCalledTimes(2);
     expect(vi.getTimerCount()).toBe(0);
     words.update("Reading Line Items…", "model", false);
-    vi.advanceTimersByTime(SPINNER_WORD_INTERVAL_MS);
+    vi.advanceTimersByTime(WORD_PACE_MS.modules);
     expect(show).toHaveBeenCalledTimes(3);
     words.update("Reading Line Items…", "model", true);
     expect(vi.getTimerCount()).toBe(0);
-    vi.advanceTimersByTime(20 * SPINNER_WORD_INTERVAL_MS);
+    vi.advanceTimersByTime(20 * WORD_PACE_MS.modules);
     expect(show).toHaveBeenCalledTimes(3);
   });
 
-  it.each(["Classic", "Polaris"])("adds %s only after its engine line, remembers it and forgets it for a new run", engine => {
+  it.each(["Classic", "Polaris"] as const)("adds both %s phrases only after its engine line, remembers them and forgets them for a new run", engine => {
     vi.mocked(Math.random).mockReturnValue(0.99);
     const show = vi.fn();
     const words = new SpinnerWords(show);
     words.log(["14:02:05 Engine: unknown (no Classic client)", `14:02:05 page: Engine: ${engine}`]);
     words.update("Building the report…", "app");
-    vi.advanceTimersByTime(20 * SPINNER_WORD_INTERVAL_MS);
-    expect(show.mock.calls).toEqual([["Connecting the plans…"]]);
+    vi.advanceTimersByTime(20 * WORD_PACE_MS.finishing);
+    for (const [word] of show.mock.calls) {
+      expect(Object.values(ENGINE_WORDS).flat()).not.toContain(word);
+      expect(["Drawing the model map…", "Drawing the arrows…"]).not.toContain(word);
+    }
     words.log([`14:02:06 Engine: ${engine} (from the Line Items columns)`]);
     words.log(["14:03:00 Names read"]);
-    vi.advanceTimersByTime(SPINNER_WORD_INTERVAL_MS);
-    expect(show).toHaveBeenLastCalledWith(engine === "Classic" ? "Hyperblocking…" : "Polarising…");
-    vi.advanceTimersByTime(SPINNER_WORD_INTERVAL_MS);
-    expect(show).toHaveBeenLastCalledWith("Connecting the plans…");
-    vi.advanceTimersByTime(SPINNER_WORD_INTERVAL_MS);
-    expect(show).toHaveBeenLastCalledWith(engine === "Classic" ? "Hyperblocking…" : "Polarising…");
-    expect(show).toHaveBeenCalledTimes(4);
+    show.mockClear();
+    for (let tick = 0; tick < 4; tick++) vi.advanceTimersByTime(WORD_PACE_MS.finishing);
+    expect(show.mock.calls).toEqual([
+      [ENGINE_WORDS[engine][1]], [ENGINE_WORDS[engine][0]], [ENGINE_WORDS[engine][1]], [ENGINE_WORDS[engine][0]],
+    ]);
     words.stop();
     words.log([]);
     words.update("Building the report…", "model");
-    expect(show).toHaveBeenLastCalledWith("Drawing the model map…");
-    vi.advanceTimersByTime(SPINNER_WORD_INTERVAL_MS);
-    expect(show).toHaveBeenLastCalledWith("Connecting the plans…");
+    expect(show).toHaveBeenLastCalledWith("Drawing the arrows…");
+    vi.advanceTimersByTime(WORD_PACE_MS.finishing);
+    expect(show).toHaveBeenLastCalledWith("Almost there…");
     expect(show).toHaveBeenCalledTimes(7);
+  });
+
+  it("waits for Finishing even when the engine is already known, and keeps reduced motion still when it becomes known", () => {
+    vi.mocked(Math.random).mockReturnValue(0.99);
+    const show = vi.fn();
+    const words = new SpinnerWords(show);
+    words.log(["Engine: Classic"]);
+    words.update("Reading Line Items…");
+    vi.advanceTimersByTime(4 * WORD_PACE_MS.modules);
+    for (const [word] of show.mock.calls) expect(WORD_POOLS.modules).toContain(word);
+    words.update("Building the report…", "model", true);
+    expect(show).toHaveBeenLastCalledWith("Riding the Hyperblock…");
+    words.stop();
+    words.log([]);
+    words.update("Building the report…", "model", true);
+    expect(show).toHaveBeenLastCalledWith("Drawing the arrows…");
+    show.mockClear();
+    words.log(["Engine: Polaris"]);
+    words.update("Building the report…", "model", true);
+    vi.advanceTimersByTime(20 * WORD_PACE_MS.finishing);
+    expect(show).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
   });
 });
 
