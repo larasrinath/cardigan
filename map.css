@@ -83,7 +83,7 @@
 .map-zone-path{flex:1 0 max-content;max-width:100%}
 .map-zone-tools{flex:none;margin-left:auto}
 .map-free{grid-area:free;position:relative;min-width:0;min-height:0}
-.map-selection{grid-area:2 / 2;z-index:1;display:flex;flex-direction:column;gap:8px;min-height:0;margin-bottom:40px;overflow:auto;overscroll-behavior:contain;pointer-events:auto}
+.map-selection{grid-area:2 / 2;z-index:1;display:flex;flex-direction:column;gap:8px;min-height:0;margin-bottom:44px;overflow:auto;overscroll-behavior:contain;pointer-events:auto}
 .map-root:not(.map-has-inspector) .map-selection{display:none}
 
 /* ---------- the bar: where the map is, how it is built, its tools ---------- */
@@ -180,22 +180,24 @@
 .map-sign{flex:none}
 
 /* ---------- what stands over the canvas itself ---------- */
-/* Counts and controls share one fixed-height row. The status keeps its width as its words change, then shrinks on
-   narrow maps. The panels float above it; the trace stays with the details. */
+/* Only the two clusters cover the canvas. The transparent space between them passes clicks through. Counts have a
+   fixed allowance, shrinking before the buttons on narrow maps; changing their words never moves a control. */
 .map-foot{position:absolute;inset:0;z-index:2;pointer-events:none}
-.map-over{position:absolute;inset:0 auto 40px 0;display:flex;align-items:flex-end;gap:10px;width:min(650px,100%);min-height:0}
-.map-dock{position:absolute;inset:auto 0 0;display:flex;align-items:center;gap:6px;height:32px;padding:0 4px 0 10px;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--panel)}
-.map-dock > *{pointer-events:auto}
-.map-status{flex:0 1 360px;min-width:0;font-size:12px;color:var(--text-2);font-variant-numeric:tabular-nums}
+.map-over{position:absolute;inset:0 auto 44px 0;display:flex;align-items:flex-end;gap:10px;width:min(650px,100%);min-height:0}
+.map-clusters{position:absolute;inset:auto 0 0;display:flex;align-items:center;justify-content:space-between;gap:10px;pointer-events:none}
+.map-cluster{display:flex;align-items:center;flex:none;height:36px;padding:3px;border-radius:999px;font-size:12px;color:var(--text)}
+.map-summary{flex:0 1 390px;min-width:0;gap:4px;padding-left:11px}
+.map-cluster .map-btn{flex:none;min-width:28px}
+.map-cluster .map-btn svg{flex:none}
+.map-cluster-divider{flex:none;width:1px;height:16px;margin:0 2px;background:var(--border-strong)}
+.map-status{flex:1;min-width:0;font-size:12px;color:var(--text-2);font-variant-numeric:tabular-nums}
 .map-stats{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.map-dock .map-btn{flex:none;height:26px;padding:0 8px;border-color:transparent;border-radius:var(--r-xs);background:transparent}
-.map-dock .map-icon{width:26px;padding:0}
-.map-dock .map-btn:hover{background:var(--panel-2)}
-.map-dock .map-btn[aria-expanded="true"],.map-dock .map-btn[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent-ink);border-color:color-mix(in srgb,var(--accent) 35%,transparent)}
-/* The controls keep their places while any panel opens above the bar. */
-.map-corner{display:flex;flex:none;align-items:center;gap:4px;margin-left:auto}
-.map-zoom{display:flex;gap:2px}
-.map-minimap-wrap{position:absolute;right:0;bottom:40px;padding:6px;line-height:0}
+.map-navigation .map-btn{border:0;border-radius:0;padding:0 11px}
+.map-navigation .map-btn + .map-btn{border-left:1px solid var(--border-strong)}
+.map-navigation .map-icon{width:32px;padding:0}
+.map-navigation .map-btn:first-child{border-radius:999px 0 0 999px}
+.map-navigation .map-btn:last-child{border-radius:0 999px 999px 0}
+.map-minimap-wrap{position:absolute;right:0;bottom:44px;padding:6px;line-height:0}
 .map-minimap{display:block;width:196px;height:128px;border-radius:var(--r-xs);background:var(--map-canvas-bg);cursor:crosshair}
 
 .map-legend,.map-about{max-height:100%;overflow-y:auto;overscroll-behavior:contain}
@@ -308,16 +310,18 @@
   .map-chrome{grid-template-columns:minmax(0,1fr) minmax(0,280px)}
 }
 /* Up to 760px wide the details lie over the drawing, above the fixed foot, taking at most two fifths of the height.
-   Each part of the top bar has its own line. The bottom bar keeps one line. */
+   Each part of the top bar has its own line. The corner clusters stay in one row. */
 @container map (max-width:760px){
   .map-chrome{padding:8px;grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(96px,1fr) auto;grid-template-areas:"bar" "free" "details"}
-  .map-selection{grid-area:auto;position:absolute;right:8px;bottom:48px;width:min(380px,calc(100% - 16px));max-height:40cqh;margin-bottom:0}
+  .map-selection{grid-area:auto;position:absolute;right:8px;bottom:52px;width:min(380px,calc(100% - 16px));max-height:40cqh;margin-bottom:0}
   .map-zone-path,.map-zone-tools{flex:1 1 100%;margin-left:0}
   .map-zone-tools .map-searchwrap{flex:1 1 auto}
   .map-picker-input{width:180px}
-  .map-dock{gap:2px;padding-left:6px}
-  .map-dock .map-btn{padding:0 5px}
-  .map-dock .map-icon{padding:0}
+}
+@container map (max-width:500px){
+  .map-summary{gap:2px;padding-left:7px}
+  .map-summary .map-btn{width:28px;padding:0}
+  .map-control-label{display:none}
 }
 @media (prefers-reduced-motion:reduce){
   .map-root *,.map-root *::before,.map-root *::after{transition:none !important;animation:none !important}
