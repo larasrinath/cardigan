@@ -1238,7 +1238,7 @@ describe("The map's views", () => {
 
   it("opens and closes the legend and the notes about the map with their buttons, and says which is open", () => {
     open();
-    // In the stand-in page nothing is measured, so the legend costs the picture nothing: it starts open.
+    // A fresh map starts with its legend open.
     expect([part(".map-legend").hidden, act("legend").getAttribute("aria-expanded")]).toEqual([false, "true"]);
     act("legend").press();
     expect([part(".map-legend").hidden, act("legend").getAttribute("aria-expanded")]).toEqual([true, "false"]);
@@ -1606,6 +1606,20 @@ describe("Selecting a node on the map", () => {
     expect(root().querySelector(".map-tracebar")).toBeNull();
     act("close").press();
     expect([part(".map-inspector").hidden, page.document.activeElement === canvas()]).toEqual([true, true]);
+  });
+
+  it("starts the details body and a long header at the top when another box is shown", () => {
+    const { graph, revenue, gross, products } = sample();
+    open(graph);
+    clickNode("02: Calculations");
+    for (const id of [revenue, gross, products]) {
+      part(".map-insp-body").scrollTop = 240;
+      part(".map-insp-header").scrollTop = 60;
+      expect(map.reveal(id)).toBe(true);
+      expect([part(".map-insp-body").scrollTop, part(".map-insp-header").scrollTop, part(".map-inspector").scrollTop]).toEqual([0, 0, 0]);
+      expect(part(".map-insp-name").textContent).toBe(graph.nodes[id].name);
+      expect(part(".map-insp-header").contains(part(".map-insp-name"))).toBe(true);
+    }
   });
 
   it("opens the details of a node that is pressed, and says what feeds it and what it feeds", () => {
@@ -2178,8 +2192,6 @@ describe("Selecting a node on the map", () => {
 
   it("moves to where the small picture is pressed", () => {
     open();
-    act("minimap").press();
-    env.settle();
     const before = at("01: Inputs");
     pointer("pointerdown", 20, 64, part(".map-minimap"));
     env.settle();
@@ -2503,7 +2515,7 @@ describe("The room the map's picture has", () => {
   /** A map of 1200 by 800 laid out as its stylesheet lays it out: the bar across the top, the graph's room under it, the
    * details in a column at the right, the legend over the foot's line at the left, the small picture at the right. */
   function openLaidOut(graph?: ModelGraph, legend: Place = LEGEND): void {
-    mount(graph, { modelName: "Demand Plan", view: { view: "modules", minimap: true } });
+    mount(graph, { modelName: "Demand Plan" });
     layOut({
       ".map-canvas": [0, 0, 1200, 800],
       ".map-free": () => (root().classList.contains("map-has-inspector") ? [10, 56, 864, 790] : [10, 56, 1190, 790]),
@@ -2532,24 +2544,28 @@ describe("The room the map's picture has", () => {
     // Three sections fit at full size in a row above the legend: the legend stays open.
     expect([part(".map-legend").hidden, act("legend").getAttribute("aria-expanded")]).toEqual([false, "true"]);
     expect([...drawn.values()].map(box => Math.round(box.w * 1000) / 1000)).toEqual([266.8, 266.8, 266.8]);
+    expect([part(".map-minimap-wrap").hidden, act("minimap").getAttribute("aria-pressed")]).toEqual([false, "true"]);
+    act("fit").press();
+    env.settle();
+    expect(boxes()).toEqual(drawn);
   });
 
-  it("opens with the legend closed where the legend would cost the picture its names, and leaves it to the user from then on", () => {
+  it("opens with the legend even where it costs the picture room, and leaves it to the user from then on", () => {
     // A legend so large that, beside it, twelve sections fit only one under another, too small to be drawn in full.
     openLaidOut(sectionsOf(12), [10, 80, 900, 750]);
-    expect([part(".map-legend").hidden, act("legend").getAttribute("aria-expanded")]).toEqual([true, "false"]);
+    expect([part(".map-legend").hidden, act("legend").getAttribute("aria-expanded")]).toEqual([false, "true"]);
     const widths = (): number[] => [...boxes().values()].map(box => box.w);
-    const closed = widths();
-    expect(closed).toHaveLength(12);
-    expect(Math.min(...closed)).toBeGreaterThanOrEqual(232 * 0.76);
-    // The user opens it: it stays open without moving the picture, here and in the next view.
+    expect(widths()).toHaveLength(12);
+    expect(Math.min(...widths())).toBeGreaterThanOrEqual(232 * 13 / 48.5);
+    for (const box of boxes().values()) expect(overlaps(box, [10, 80, 900, 750])).toBe(false);
+    // The user closes it: it stays closed without moving the picture, here and in the next view.
     const before = boxes();
     act("legend").press();
-    expect(part(".map-legend").hidden).toBe(false);
+    expect(part(".map-legend").hidden).toBe(true);
     env.settle();
     expect(boxes()).toEqual(before);
     toggleGroups();
-    expect([part(".map-legend").hidden, act("legend").getAttribute("aria-expanded")]).toEqual([false, "true"]);
+    expect([part(".map-legend").hidden, act("legend").getAttribute("aria-expanded")]).toEqual([true, "false"]);
     map.destroy();
     // Beside a legend of the usual size the same twelve are drawn in full: it is open from the start.
     openLaidOut(sectionsOf(12));
@@ -2557,25 +2573,25 @@ describe("The room the map's picture has", () => {
     expect(Math.min(...widths())).toBeGreaterThanOrEqual(232 * 0.76);
   });
 
-  it("closes the legend first where the details of a box gone to make the room small; a legend the user opened stays", () => {
+  it("keeps the legend open when details take room, and fits beside both while names remain readable", () => {
     const high: Place = [10, 380, 236, 750];
     openLaidOut(sectionsOf(24), high);
     const size = (): number => [...boxes().values()][0].w;
     const names = (): number => lastPicture().filter(call => call.name === "fillText" && /^\d+: Section \d+$/.test(String(call.args[0]))).length;
     const opened = size();
     expect([part(".map-legend").hidden, act("legend").getAttribute("aria-expanded"), names()]).toEqual([false, "true", 24]);
-    // A section gone to by the search: the details take a column, and beside both them and the legend the picture would
-    // lose its small lines. The legend goes instead, and the picture is no smaller than it was.
+    // A section gone to by the search: the details take a column, and the legend stays open.
     goTo("24: Section 24");
     env.settle();
-    expect([part(".map-legend").hidden, act("legend").getAttribute("aria-expanded"), names(), size() >= opened]).toEqual([true, "false", 24, true]);
+    expect([part(".map-legend").hidden, act("legend").getAttribute("aria-expanded"), names(), size() < opened]).toEqual([false, "true", 24, true]);
     // The selection cleared: nothing moves, and the legend stays as it is.
     const there = boxes();
     act("close").press();
     env.settle();
-    expect([part(".map-legend").hidden, boxes()]).toEqual([true, there]);
-    // The user opens the legend: it is theirs now, and stays beside a box gone to. The picture is fitted beside both,
+    expect([part(".map-legend").hidden, boxes()]).toEqual([false, there]);
+    // The user closes and reopens the legend: it stays beside a box gone to. The picture is fitted beside both,
     // smaller, with every name still in its box.
+    act("legend").press();
     act("legend").press();
     goTo("24: Section 24");
     env.settle();
@@ -2583,20 +2599,22 @@ describe("The room the map's picture has", () => {
     for (const box of boxes().values()) expect([overlaps(box, high), box.x + box.w <= 864]).toEqual([false, true]);
   });
 
-  it("opens with the legend closed where the picture cannot be shown whole, and keeps every name when the notes are opened beside a selection", () => {
-    // Too many sections to read when fitted into this room: the picture opens on its start, and the legend stays shut.
+  it("keeps the legend open where the picture cannot be shown whole, and keeps names when notes open beside a selection", () => {
+    // Too many sections to read when fitted into this room: the picture opens on its start, with the legend open.
     openLaidOut(sectionsOf(400));
-    expect([part(".map-legend").hidden, wholeInView()]).toEqual([true, false]);
+    expect([part(".map-legend").hidden, wholeInView()]).toEqual([false, false]);
     expect(status()).toMatch(/^400 groups · 0 links\. \d+ of 400 boxes in view\.$/);
     map.destroy();
 
-    // The picture fits whole with the minimap in its new corner. A taller legend would cost the names their room,
-    // so it stays shut and the picture opens whole.
+    // With a larger legend the graph still opens with readable names; Fit can show it whole when asked.
     env = new FakeSurroundings();
     openLaidOut(sectionsOf(354), [10, 520, 400, 750]);
     const fitted = [...boxes().values()][0].w / 232;
-    expect([part(".map-legend").hidden, status(), wholeInView(), boxes().size, blankBoxes()]).toEqual([true, "354 groups · 0 links", true, 354, 0]);
+    expect([part(".map-legend").hidden, wholeInView(), blankBoxes()]).toEqual([false, false, 0]);
     expect(fitted).toBeGreaterThanOrEqual(13 / 48.5);
+    act("fit").press();
+    env.settle();
+    expect([status(), wholeInView(), boxes().size]).toEqual(["354 groups · 0 links", true, 354]);
     map.destroy();
 
     // Notes and legend cover a selected box without moving it or shrinking any name.
@@ -2813,9 +2831,9 @@ describe("The room the map's picture has", () => {
     // The same size told again changes nothing, and leaves the focus where it is.
     env.resize(1200, 800);
     expect(page.document.activeElement).toBe(item);
-    // A smaller place, in which the legend would cost the picture its names: it closes, and its button has the focus.
+    // Below the small-map area threshold it closes, and its button has the focus.
     legendBox = [10, 100, 900, 750];
-    env.resize(1190, 790);
+    env.resize(560, 400);
     expect([part(".map-legend").hidden, page.document.activeElement === act("legend")]).toEqual([true, true]);
     // A place with room for it again: it opens by itself, and the focus stays on the button.
     legendBox = LEGEND;
@@ -3746,50 +3764,90 @@ describe("How the map groups modules", () => {
 describe("Where the viewer left the map, which the page keeps for a refresh", () => {
   const heard: MapView[] = [];
   /** Mounts the sample's map at a view the page kept, or at none, telling `heard` each view the map shows. */
-  const openAt = (view?: MapView, onView: (told: MapView) => void = told => { heard.push(told); }): void => {
+  const openAt = (view?: MapView, onView: (told: MapView) => void = told => { heard.push(told); }, width = 1200, height = 800): void => {
     heard.length = 0;
     mount(sample().graph, { modelName: "Demand Plan", workspaceName: "Sandbox", ...(view ? { view } : {}), onView });
     map.show();
-    env.resize(1200, 800);
+    env.resize(width, height);
     env.settle();
   };
 
-  it("starts with the minimap hidden, toggles it without moving, and carries its choice through map views", () => {
-    openAt();
-    const icon = act("minimap").innerHTML;
-    expect([act("minimap").getAttribute("aria-label"), act("minimap").title]).toEqual(["Minimap", "Show minimap"]);
-    expect([part(".map-minimap-wrap").hidden, act("minimap").getAttribute("aria-pressed"), env.mini.calls.length])
-      .toEqual([true, "false", 0]);
-    const before = boxes();
-    act("minimap").press();
-    env.settle();
-    expect([part(".map-minimap-wrap").hidden, act("minimap").getAttribute("aria-pressed"), heard.at(-1)])
-      .toEqual([false, "true", { view: "modules", minimap: true }]);
+  /** Goes through the same serialization and default check as the results page on refresh. */
+  const refresh = (width = 1200, height = 800): void => {
+    const latest = heard.at(-1)!;
+    const text = keptText({ subject: "model:invented", tables: {}, ...(isMapAtStart(latest) ? {} : { map: latest }) });
+    const view = readKept({ getItem: key => key === VIEW_KEY ? text! : null })?.map;
+    map.destroy();
+    openAt(view, undefined, width, height);
+  };
+
+  it.each([undefined, { view: "modules" as const }, { view: "modules" as const, minimap: true }])("opens both panels in fresh and old kept views: %j", view => {
+    openAt(view);
+    expect([part(".map-minimap-wrap").hidden, act("minimap").getAttribute("aria-pressed"), act("minimap").title])
+      .toEqual([false, "true", "Hide minimap"]);
+    expect([part(".map-legend").hidden, act("legend").getAttribute("aria-expanded")]).toEqual([false, "true"]);
     expect(env.mini.calls.length).toBeGreaterThan(0);
-    expect([act("minimap").getAttribute("aria-label"), act("minimap").title, act("minimap").innerHTML]).toEqual(["Minimap", "Hide minimap", icon]);
+  });
+
+  it.each(["minimap", "legend"])("keeps closing and reopening the %s across refreshes and map views", panel => {
+    openAt();
+    const element = (): FakeElement => part(panel === "minimap" ? ".map-minimap-wrap" : ".map-legend");
+    const state = (): string | null => act(panel).getAttribute(panel === "minimap" ? "aria-pressed" : "aria-expanded");
+    const icon = act(panel).innerHTML;
+    const before = boxes();
+    act(panel).press();
+    env.settle();
+    expect([element().hidden, state(), heard.at(-1)?.[panel as "minimap" | "legend"]]).toEqual([true, "false", false]);
     expect(boxes()).toEqual(before);
+    refresh();
+    expect([element().hidden, state()]).toEqual([true, "false"]);
     for (const move of [() => groupChoice("1"), () => pickModule("CAL01 - Revenue")]) {
       move();
       env.settle();
-      expect(part(".map-minimap-wrap").hidden).toBe(false);
-      expect(heard.at(-1)?.minimap).toBe(true);
+      expect(element().hidden).toBe(true);
     }
-    const kept = heard.at(-1);
-    map.destroy();
-    openAt(kept);
-    expect([here(), part(".map-minimap-wrap").hidden]).toEqual(["CAL01 - Revenue", false]);
-    expect([act("minimap").getAttribute("aria-pressed"), act("minimap").title]).toEqual(["true", "Hide minimap"]);
+    refresh();
+    expect([here(), element().hidden, state()]).toEqual(["CAL01 - Revenue", true, "false"]);
+    const closed = boxes();
+    act(panel).press();
+    env.settle();
+    expect([element().hidden, state(), act(panel).innerHTML]).toEqual([false, "true", icon]);
+    expect(boxes()).toEqual(closed);
+    refresh();
+    expect([here(), element().hidden, state()]).toEqual(["CAL01 - Revenue", false, "true"]);
+  });
+
+  it("stops drawing the minimap while closed and resumes when reopened", () => {
+    openAt();
     act("minimap").press();
     env.settle();
     const calls = env.mini.calls.length;
     act("zoom-in").press();
     env.settle();
     expect(env.mini.calls).toHaveLength(calls);
-    expect([act("minimap").getAttribute("aria-pressed"), heard.at(-1)?.minimap]).toEqual(["false", undefined]);
-    expect([act("minimap").getAttribute("aria-label"), act("minimap").title, act("minimap").innerHTML]).toEqual(["Minimap", "Show minimap", icon]);
-    map.destroy();
-    openAt();
-    expect(part(".map-minimap-wrap").hidden).toBe(true);
+    expect(act("minimap").title).toBe("Show minimap");
+    act("minimap").press();
+    env.settle();
+    expect(env.mini.calls.length).toBeGreaterThan(calls);
+    expect(act("minimap").title).toBe("Hide minimap");
+  });
+
+  it.each([undefined, { view: "modules" as const }])("starts a small map with only the minimap open, until the user chooses: %j", view => {
+    openAt(view, undefined, 560, 400);
+    expect([part(".map-legend").hidden, act("legend").getAttribute("aria-expanded"), part(".map-minimap-wrap").hidden])
+      .toEqual([true, "false", false]);
+    act("legend").press();
+    refresh(560, 400);
+    expect([part(".map-legend").hidden, act("legend").getAttribute("aria-expanded")]).toEqual([false, "true"]);
+    act("legend").press();
+    refresh();
+    expect([part(".map-legend").hidden, act("legend").getAttribute("aria-expanded")]).toEqual([true, "false"]);
+  });
+
+  it.each([[600, 420, false], [600, 419, true], [840, 300, false]])("uses the map's area for the legend default at %s by %s", (width, height, closed) => {
+    openAt(undefined, undefined, width as number, height as number);
+    expect(part(".map-legend").hidden).toBe(closed);
+    expect(act("legend").getAttribute("aria-expanded")).toBe(String(!closed));
   });
 
   it.each(["groups", "modules", "line items"])("keeps the camera and dragged boxes while bottom panels open at %s level", level => {

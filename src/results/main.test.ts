@@ -1546,6 +1546,32 @@ describe("The results page's script, on the page", () => {
     expect(scrolled).toEqual([]);
   });
 
+  it.each(["row", "card", "object"] as const)("keeps the %s drawer header and why line outside its scrolling body", async kind => {
+    await openWith(kind === "row" ? MODEL : APP);
+    goTo(kind === "row" ? 1 : kind === "card" ? 2 : 4);
+    const buttons = () => page.all(kind === "card" ? '#tableWrap [data-act="card"]' : '#tableWrap tbody [data-act="row"]');
+    buttons()[0].press();
+    const drawer = page.id("drawer");
+    const header = page.find(".drawer-hd");
+    const body = page.id("drawerBody");
+    const why = page.id("drawerWhy");
+    expect([drawer.hidden, body.children.length > 0]).toEqual([false, true]);
+    for (const id of ["drawerTitle", "drawerSub", "drawerBack", "drawerClose", "drawerOpens"]) {
+      expect(header.contains(page.id(id)), id).toBe(true);
+      expect(body.contains(page.id(id)), id).toBe(false);
+    }
+    expect([header.parentElement, body.parentElement, why.parentElement]).toEqual([drawer, drawer, drawer]);
+    expect(drawer.children.indexOf(header)).toBeLessThan(drawer.children.indexOf(why));
+    expect(drawer.children.indexOf(why)).toBeLessThan(drawer.children.indexOf(body));
+    const styles = readFileSync(new URL("../../results.css", import.meta.url), "utf8");
+    expect(styles).toMatch(/\.drawer\{[^}]*display:flex;flex-direction:column/);
+    expect(styles).toMatch(/\.drawer-bd\{[^}]*overflow:auto/);
+    body.scrollTop = 240;
+    buttons()[1].press();
+    expect(body.scrollTop).toBe(0);
+    expect(page.document.activeElement).toBe(page.id("drawerClose"));
+  });
+
   it("opens a row from the keyboard: each row's first cell holds a button for it, in a model's tables too", async () => {
     await openWith(MODEL);
     goTo(1);
@@ -2098,7 +2124,7 @@ describe("What a click, a key and typing do on the results page", () => {
     expect(column("Format type")).toEqual(Array(5).fill("Number"));
     expect(page.all("#tableWrap tbody tr.heading")).toHaveLength(0);
     expect([page.texts("#view .view-note"), page.id("rowCount").textContent, page.id("live").textContent]).toEqual([
-      ["5 line items, each beside its module under Module Name. A module's own settings are in Modules."], "1–5 of 5 rows", "Line Items: 5 rows"]);
+      [], "1–5 of 5 rows", "Line Items: 5 rows"]);
     page.id("tblSearch").type("cost01");
     expect([column("Name"), page.id("rowCount").textContent]).toEqual([["Cost"], "1–1 of 1 row (filtered from 5)"]);
     page.id("tblSearch").type("archive");

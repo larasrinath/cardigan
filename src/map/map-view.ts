@@ -219,7 +219,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   let access = false;
   /** Whether the links of the pages' filters are drawn: only where the model has some (`filtersDrawable`). */
   let filters = false;
-  let minimapOpen = false;
+  let minimapOpen = true;
   /** A model whose modules stand under one heading, or under none: it has no sections to show, and opens on its modules. */
   let single = false;
   let onScreen: ViewGraph | undefined;
@@ -248,7 +248,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   let matches: Uint8Array | undefined;
   let hits: SearchHit[] = [];
   let hovered: ViewNode | undefined;
-  /** Whether the user opened or closed the legend: until then it is open where the picture has the room for it. */
+  /** The user's kept choice; until then the legend opens except on a very small map. */
   let legendWanted: boolean | undefined;
   let drag: { pointer: number; node: ViewNode | undefined; x: number; y: number; ox: number; oy: number; nodeX: number; nodeY: number; slop: number; moved: boolean; dismissed: boolean; home?: { wantsWhole: boolean } } | undefined;
   /** The last press on a node that was no drag: a second one at the same place soon after goes into that node. */
@@ -493,33 +493,14 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     go(fitCameraIn(wholeBox(onScreen), width, height, rooms()), animate);
   }
 
-  /** Opens or closes the legend for the room there is now, until the user says which they want: open where every box is
-   * drawn in full beside it, or where it costs the whole picture next to nothing and none of its names; closed
-   * otherwise, so that in a small room the legend goes before the names do. `fitted` says how large the whole picture
-   * is fitted into some rooms; where it also lays the graph out for them, each state of the legend is tried with its
-   * own layout. Gives the rooms that are left. Focus that was in a legend that goes is kept in the map, on its button. */
-  function settleLegend(current: ViewGraph, floor: number, fitted: (list: Insets[]) => number): Insets[] {
+  /** Opens the legend before measuring the rooms for layout and Fit, except below 600 by 420 pixels of map area or
+   * where there are no layers. A kept choice overrides the size default. Focus in a legend that closes stays in the map. */
+  function settleLegend(current: ViewGraph): Insets[] {
     const held = legend.contains(page.activeElement) ? (page.activeElement as HTMLElement) : undefined;
-    let list: Insets[];
-    if (legendWanted !== undefined || current.layers.length === 0) {
-      legend.hidden = !(legendWanted === true && current.layers.length > 0);
-      list = rooms();
-      fitted(list);
-    } else {
-      legend.hidden = true;
-      const closed = fitted(rooms());
-      legend.hidden = false;
-      list = rooms();
-      const open = fitted(list);
-      if (!(open >= fullFrom(current) || (open >= closed * 0.94 && open >= floor))) {
-        legend.hidden = true;
-        list = rooms();
-        fitted(list);
-      }
-    }
+    legend.hidden = current.layers.length === 0 || !(legendWanted ?? width * height >= 600 * 420);
     legendButton.setAttribute("aria-expanded", String(!legend.hidden));
     if (held) focusOn(legend.hidden ? legendButton : held);
-    return list;
+    return rooms();
   }
 
   /** The boxes a box has links with, of the links drawn: all of them where formulas' are, and otherwise those that count
@@ -563,10 +544,8 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     const floor = legibleFrom(current) - 1e-9;
     // The status line keeps its place while a selection's trace stands with its details.
     footFor(true);
-    let list = settleLegend(current, floor, each => {
-      layoutGraph(current, each.map(room => ({ width: width - room.l - room.r, height: height - room.t - room.b })));
-      return fitCameraIn(current.bounds, width, height, each).k;
-    });
+    let list = settleLegend(current);
+    layoutGraph(current, list.map(room => ({ width: width - room.l - room.r, height: height - room.t - room.b })));
     order = undefined;
     moved = false;
     const whole = fitCameraIn(wholeBox(current), width, height, list);
@@ -590,8 +569,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
    * search, a link of the details, a row of the page, an arrow key), and after a panel opened or closed or the trace
    * was kept to. The opening's rule holds every time: the picture is never taken so far away that a box no longer holds
    * a readable line.
-   * - A picture that is to show the whole graph is fitted whole where that can be read; in a room too small for it the
-   *   legend closes first, where the user has not asked for it.
+   * - A picture that is to show the whole graph is fitted whole where that can be read.
    * - Otherwise, with a box selected, the camera moves just far enough to have it in view beside the details, with the
    *   boxes it has links with where those fit too. With none selected, it stays where it is.
    * The line at the foot says how much of the graph is then in view. */
@@ -607,7 +585,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     if (wantsWhole) {
       // Measure with the status line in its fixed place.
       footFor(true);
-      const list = settleLegend(current, floor, each => fitCameraIn(wholeBox(current), width, height, each).k);
+      const list = settleLegend(current);
       const whole = fitCameraIn(wholeBox(current), width, height, list);
       if (whole.k >= floor) {
         go(whole, animate);
@@ -762,7 +740,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     pageOpens = selected.raw ? options.opens?.(selected.raw) ?? [] : [];
     inspector.innerHTML = inspectorHtml(inspection, traced, pageOpens, onlyTrace);
     inspector.hidden = false;
-    inspector.scrollTop = 0;
+    part(".map-insp-body").scrollTop = 0;
   }
 
   function renderTrace(): void {
@@ -1132,7 +1110,8 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
    * which links are drawn. The groups as a whole say no group, as does a model with no groups to show. */
   function viewNow(): MapView {
     const drawn = { ...(formulas ? {} : { noFormulas: true }), ...(access ? { access: true } : {}), ...(filters ? { filters: true } : {}),
-      ...(minimapOpen ? { minimap: true } : {}), ...(selected && model ? { selected: selectionKey(model, selected) } : {}) };
+      ...(minimapOpen ? {} : { minimap: false }), ...(legendWanted === undefined ? {} : { legend: legendWanted }),
+      ...(selected && model ? { selected: selectionKey(model, selected) } : {}) };
     if (view === "drill" && moduleId !== undefined) {
       const module = model?.node(moduleId);
       if (module) return { view: "drill", module: module.name, ...(expanded ? { others: true } : {}), ...drawn };
@@ -1154,7 +1133,8 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
    * model no longer has, a module or a group of that name, is let go, and the map opens as it opens by itself. */
   function takeView(left: MapView | undefined): void {
     if (!model || !left || typeof left !== "object") return;
-    minimapOpen = left.minimap === true;
+    minimapOpen = left.minimap !== false;
+    legendWanted = typeof left.legend === "boolean" ? left.legend : undefined;
     formulas = left.noFormulas !== true;
     access = left.access === true && model.accessEdges.length > 0;
     filters = left.filters === true && filtersDrawable();
@@ -1372,6 +1352,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     if (open && !other.hidden && (width <= NARROW || freeRooms()?.length === 0)) show(other, false);
     renderStatus();
     invalidate();
+    tellView();
   }
 
   /* ---------- focus ---------- */
