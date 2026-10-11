@@ -5,7 +5,7 @@ import type { Pen } from "./map-canvas.js";
 import * as drawing from "./map-canvas.js";
 import { isMapAtStart, keptText, readKept, VIEW_KEY } from "../results/view-keep.js";
 import { FALLBACK } from "./map-palette.js";
-import { accessMarkedModel } from "./map-fakes.test-support.js";
+import { accessMarkedModel, twinBoxesModel } from "./map-fakes.test-support.js";
 import { ACCESS_MARK_SAYS, ACCESS_NONE, ACCESS_UNREAD } from "./map-markup.js";
 import { mountModelMap, mountModelMapIn, type MapEnvironment } from "./map-view.js";
 import { FakePen, filteredModel, GraphMaker, HOSTILE, lineFilteredModel, ownFilteredModel, type PenCall } from "./map-fakes.test-support.js";
@@ -274,6 +274,47 @@ function click(x: number, y: number): void {
 const clickNode = (name: string): void => click(...at(name));
 
 describe("Nothing jumps when links change", () => {
+  it.each(["groups", "modules", "drill"])("keeps one outside object in %s through every link combination and a drag", level => {
+    const data = twinBoxesModel();
+    const spy = vi.spyOn(drawing, "drawScene");
+    open(data.graph);
+    if (level === "modules") groupChoice("0");
+    if (level === "drill") pickModule("ACC01 Access");
+    const scene = () => { env.settle(); return spy.mock.calls.at(-1)![1]; };
+    const snapshot = () => {
+      const current = scene();
+      return { camera: { ...current.camera }, boxes: current.graph.nodes.map(node => [node.id, node.x, node.y, node.w, node.h, node.meta]) };
+    };
+    const targetName = level === "groups" ? "Planning" : "PLN01 Forecast";
+    expect(scene().graph.nodes.filter(node => node.fullName === targetName)).toHaveLength(1);
+    for (const drag of [false, true]) {
+      if (drag) {
+        const node = scene().graph.nodes.find(node => node.fullName === targetName)!;
+        const position = [node.x, node.y];
+        const point = at(targetName);
+        pointer("pointerdown", ...point);
+        pointer("pointermove", point[0] + 37, point[1] + 19);
+        pointer("pointerup", point[0] + 37, point[1] + 19);
+        const moved = scene().graph.nodes.find(node => node.fullName === targetName)!;
+        expect([moved.x, moved.y]).not.toEqual(position);
+      }
+      if (!drag) clickNode(targetName);
+      const before = snapshot();
+      if (part(".map-links-pop").hidden) act("links").press();
+      for (let mask = 0; mask < 8; mask++) {
+        ["formulas", "access", "filters"].forEach((kind, bit) => {
+          const control = part(`.map-${kind}`);
+          if (control.checked !== Boolean(mask & (1 << bit))) control.tick();
+        });
+        expect(snapshot(), `link combination ${mask}, dragged ${drag}`).toEqual(before);
+        expect(text(".map-insp-name")).toBe(targetName);
+        if (level !== "groups") expect(scene().graph.nodes.find(node => node.raw?.id === data.plan)?.dimmed).toBe(mask === 0);
+      }
+      act("links").press();
+    }
+    spy.mockRestore();
+  });
+
   it.each(["groups", "modules", "drill"])("keeps the camera and every box in %s, including a dragged box and unticked-only neighbours", level => {
     const make = new GraphMaker();
     const home = make.module("Working", "Work");
@@ -378,6 +419,30 @@ describe("Access marks in the view", () => {
 });
 
 describe("A selected box kept for the tab", () => {
+  it.each(["module", "externalModule"])("restores the old %s selection into the merged outside box", kind => {
+    const data = twinBoxesModel();
+    mount(data.graph, { modelName: "Invented planning", view: { view: "drill", module: "ACC01 Access", access: true,
+      selected: JSON.stringify([kind, "module", "PLN01 Forecast", "", ""]) } });
+    map.show();
+    env.resize(1200, 800);
+    env.settle();
+    expect(part(".map-inspector").hidden).toBe(false);
+    expect(text(".map-insp-name")).toBe("PLN01 Forecast");
+    expect(parts(".map-details summary").map(summary => summary.textContent)).toContain("Its line items linked here · 1");
+  });
+
+  it("names the kind in both hover cards when a module and its same-named line item are expanded", () => {
+    open(twinBoxesModel().graph);
+    pickModule("ACC01 Access");
+    tickAccess();
+    tickExternal();
+    pointer("pointermove", ...at("PLN01 Forecast"));
+    expect(text(".map-tip-meta")).toContain("Module · 1 line item");
+    pointer("pointermove", ...at("Forecast"));
+    expect(text(".map-tip-meta")).toContain("Line item");
+    expect(text(".map-tip-meta")).toContain("PLN01 Forecast");
+  });
+
   it.each(["02: Calculations", "CAL01 - Revenue", "Net", "Products"])("reopens %s after a refresh and a reading with new IDs", name => {
     let saved: MapView | undefined;
     mount(sample().graph, { modelName: "Demand Plan", onView: view => { saved = view; } });

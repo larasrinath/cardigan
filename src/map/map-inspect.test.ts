@@ -2,7 +2,21 @@ import { describe, expect, it } from "vitest";
 import { LAYER, moduleGraph, modulesGraph, sectionsGraph, type ViewGraph, type ViewNode } from "./map-graphs.js";
 import { filterTipLines, FILTERS_LISTED, inspect, isHeading, layerOfObject, statusWords, traceWords, viewSentence } from "./map-inspect.js";
 import { indexModel } from "./map-model.js";
-import { filteredModel, GraphMaker, lineFilteredModel, ownFilteredModel } from "./map-fakes.test-support.js";
+import { filteredModel, GraphMaker, lineFilteredModel, ownFilteredModel, twinBoxesModel } from "./map-fakes.test-support.js";
+
+it("lists the merged module's linked line items once and leaves out an empty list for whole-module links alone", () => {
+  const data = twinBoxesModel();
+  for (const wholeOnly of [false, true]) {
+    const model = indexModel({ ...data.graph, edges: wholeOnly ? [[data.both, data.plan, "read_access"]] : data.graph.edges });
+    const graph = moduleGraph(model, data.home, false, true, true);
+    const info = inspect(model, graph, graph.byId.get(`external${data.plan}`)!, true);
+    expect(info.kind).toBe("Module");
+    const linked = info.lists.find(list => list.key === "referenced");
+    if (wholeOnly) expect(linked).toBeUndefined();
+    else expect(linked?.links.map(link => link.raw)).toEqual([data.forecast]);
+    expect(info.action?.module).toBe(data.plan);
+  }
+});
 
 function sample() {
   const make = new GraphMaker();

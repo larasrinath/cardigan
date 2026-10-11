@@ -93,7 +93,8 @@ export function traceNode(graph: ViewGraph, model: MapModel, selected: number, a
     return { selected, up, down, edges };
   }
 
-  const seeds = node.kind === "externalModule" ? [...(node.members ?? [])] : [node.raw.id];
+  // A grouped outside box also holds the module itself: access and older page filters can point straight at it.
+  const seeds = [node.raw.id, ...(node.kind === "externalModule" ? node.members ?? [] : [])];
   const seedSet = new Set(seeds);
   const rawUp = reachInModel(model, seeds, true, access, filters, formulas);
   const rawDown = reachInModel(model, seeds, false, access, filters, formulas);
@@ -101,7 +102,7 @@ export function traceNode(graph: ViewGraph, model: MapModel, selected: number, a
     const held = new Set<number>();
     for (const other of graph.nodes) {
       if (other.index === selected) continue;
-      const objects = other.kind === "externalModule" ? other.members ?? [] : other.raw ? [other.raw.id] : [];
+      const objects = other.raw ? [other.raw.id, ...(other.kind === "externalModule" ? other.members ?? [] : [])] : [];
       if (objects.some(id => reached.has(id))) held.add(other.index);
     }
     return held;

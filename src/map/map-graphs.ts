@@ -46,7 +46,7 @@ export interface ViewNode {
   readonly members?: readonly number[];
   /** Outside what the graph is of: drawn dashed. */
   readonly external: boolean;
-  /** For an external node of a module's graph: whether it is read ("in"), fed ("out") or both. */
+  /** For an external node of a module's graph: whether formulas read it ("in"), feed it ("out") or both. */
   readonly side?: "in" | "out" | "both";
   /** Where the pages' filters are drawn, what no link can show: a module's own line items that filter it. On a module's
    * box, how many of its own line items filter it; on a section's, how many of its modules their own line items filter;
@@ -284,7 +284,8 @@ export function modulesGraph(model: MapModel, section: string | undefined, acces
 }
 
 /** The line items of one module and what they read and feed outside it. `expanded` shows the line items of other
- * modules one by one; otherwise one node stands for all those of a module. */
+ * modules one by one; otherwise one node stands for the module and all its linked line items, including links to the
+ * whole module from access drivers or page filters whose line items were not read. */
 export function moduleGraph(model: MapModel, moduleId: number, expanded: boolean, access: boolean, filters = false): ViewGraph {
   const module = model.node(moduleId);
   const owned = model.itemsOf(moduleId);
@@ -306,12 +307,12 @@ export function moduleGraph(model: MapModel, moduleId: number, expanded: boolean
     if (own.has(id)) return String(id);
     const raw = model.node(id);
     if (!raw) return undefined;
-    const home = raw.kind === "lineItem" ? model.node(model.moduleOf(raw)) : undefined;
+    const home = raw.kind === "lineItem" ? model.node(model.moduleOf(raw)) : raw.kind === "module" && raw.id !== moduleId ? raw : undefined;
     if (home && !expanded) {
       const key = `external${home.id}`;
       let group = drafts.get(key);
       if (!group) drafts.set(key, group = { ...moduleDraft(model, home, true, false, false, access), id: key, kind: "externalModule", members: [] });
-      if (!grouped.has(id)) {
+      if (raw.kind === "lineItem" && !grouped.has(id)) {
         grouped.add(id);
         group.members!.push(id);
       }
@@ -319,9 +320,9 @@ export function moduleGraph(model: MapModel, moduleId: number, expanded: boolean
     }
     const key = String(id);
     if (!drafts.has(key)) {
-      if (raw.kind === "module") drafts.set(key, moduleDraft(model, raw, true, false, false, access));
+      if (raw.kind === "module") drafts.set(key, { ...moduleDraft(model, raw, true, false, false, access), meta: `Module · ${plural(model.itemsOf(raw.id).length, "line item")}` });
       // A line item of another module says which: the module's code, or its whole name where it has no code.
-      else if (raw.kind === "lineItem") drafts.set(key, { id: key, kind: "externalItem", layer: LAYER.external, code: home ? splitName(home.name).code || home.name : "", label: raw.name, fullName: raw.name, meta: "", raw, external: true,
+      else if (raw.kind === "lineItem") drafts.set(key, { id: key, kind: "externalItem", layer: LAYER.external, code: home ? splitName(home.name).code || home.name : "", label: raw.name, fullName: raw.name, meta: "Line item", raw, external: true,
         ...(access && model.isAccessDriver(raw.id) ? { accessMark: 1 } : {}) });
       else {
         const property = raw.kind === "property";
@@ -360,7 +361,8 @@ export function moduleGraph(model: MapModel, moduleId: number, expanded: boolean
     read.add(link.s);
   }
   for (const draft of drafts.values()) {
-    if (draft.kind === "externalModule") draft.meta = `${plural(draft.members!.length, "line item")} linked`;
+    if (draft.kind === "externalModule") draft.meta = draft.members!.length ? `${plural(draft.members!.length, "line item")} linked`
+      : `Module · ${plural(model.itemsOf(draft.raw!.id).length, "line item")}`;
     if (draft.external) draft.side = fed.has(draft.id) && read.has(draft.id) ? "both" : fed.has(draft.id) ? "out" : "in";
   }
   return finish(model, "drill", module?.name ?? "", [...drafts.values()], [...links.values()], owned.length);
