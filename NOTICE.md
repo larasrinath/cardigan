@@ -62,7 +62,7 @@ No module cell-data view is subscribed to. The views subscription asks for metad
 
 ### Classic model client
 
-Through the client already loaded in the model's page, Cardigan asks for paged `MODEL_DEFINITION` grids: Line Items, Modules, General Lists, Actions, Imports, Import Data Sources, Time Ranges, Versions, Source Models and Model Calendar. Actions is split into Processes, Imports, Exports and Other Actions; DCA is derived locally from the Line Items driver columns. The client's existing cache supplies names, object types and calendar labels.
+Through the client already loaded in the model's page, Cardigan asks for paged `MODEL_DEFINITION` grids: Line Items, Modules, General Lists, Line Item Subsets, the Line Item Subsets membership grid, Actions, Imports, Import Data Sources, Time Ranges, Versions, Source Models and Model Calendar. Actions is split into Processes, Imports, Exports and Other Actions; DCA is derived locally from the Line Items driver columns. The client's existing cache supplies names, object types and calendar labels.
 
 Two further definition grids supply saved file-import mappings and process actions in run order. These are reads of the stored definitions. Cardigan never saves them and never sends `GET_IMPORT_SOURCE_FIELDS`, `GET_IMPORT_SOURCE_ITEMS` or any other system action. Each client request is checked to reject submissions, system actions, model-summary fetches or any request type other than a view request. The client's transport sends the read; this is separate from Cardigan's GET-only REST helper.
 

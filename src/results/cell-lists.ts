@@ -265,6 +265,7 @@ const MODEL_LISTS: Record<string, Record<string, ListRule>> = {
   // An app's Filters rows with their app (page-files.ts): its cells list as that table's do, column by column.
   [PAGE_FILTERS_FILE]: APP_LISTS.Filters,
   [LISTS_FILE]: { Subsets: names, Properties: properties, "Referenced in Applies To": names, "Referenced as Format": names, "Referenced in Formula": names },
+  "Line Item Subsets.csv": { Modules: namesIn(MODULES_FILE), "Line Items": names, "Referenced in Applies To": names, "Referenced By": names },
   [MODULES_FILE]: { "Applies To": names, "Referenced By": names, "Line Items": moduleLineItems },
   [LINE_ITEMS_FILE]: { "Applies To": names, "Referenced By": names },
   // A process's Used in Processes is no column of the page's table, which adds the actions it runs instead.

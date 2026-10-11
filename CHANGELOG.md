@@ -6,6 +6,12 @@ Every merged change that alters the extension has a version of its own: a new fe
 
 - **Runs without the workspace cache getter.** Fix a run stopping with "Cannot read properties of undefined (reading 'modelSummaries')". The engine now comes from the Line Items columns; the export loads the client once.
 
+## 0.30.0 (11 October 2026)
+
+- **Line Item Subsets, for both engines.** Classic and Polaris read the Model settings grid through Model Building's client, keeping Anaplan's column names. A second read-only grid supplies the checked line items. If membership cannot be read, it is left out and the table and Overview say so. (#92)
+- **Under Lists.** General Lists and Line Item Subsets share the Lists menu, which shows the picked table's full name without moving the other tabs. Each subset has its details and a **Model** button for its settings page. Columns follow a reading order, IDs start hidden, and every column stays in the chooser. A model with no subsets gets no subset tab or tile; Lists holds General Lists alone. (#92)
+- **Names open their rows.** A subset's modules and line items link to their details, and Applies To in Modules and Line Items links to a matching subset. Back returns to the previous row. The Model map stays as it was. (#92)
+
 ## 0.29.11 (11 October 2026)
 
 - **Trust the full line item export.** Once the kept export covers every module in the module listing, filter IDs it lacks need no module search. An incomplete export searches only the uncovered modules, at most four at a time. Missing line items and unnamed filter context keep their existing words. The diagnostic log says how much the export covered and keeps the Time and Run lines. (#91)

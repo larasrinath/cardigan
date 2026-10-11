@@ -274,9 +274,9 @@ export interface NavGroup { group: (typeof NAV_GROUPS)[number]; entries: NavEntr
 export type NavItem = NavEntry | NavGroup;
 const isGroup = (item: NavItem): item is NavGroup => "entries" in item;
 
-/** The navigation's items. A model's tables stand in their groups (`NAV_GROUPS`), each group where its first table stands,
- * with the tables of its files that the result has: a group with none is not there. A group of one table is that table's
- * own entry, as Versions is: a menu of one entry would be a press more for nothing. Every other entry keeps its place.
+/** The navigation's items. Lists keeps its menu even with General Lists alone. A model's tables stand in their groups (`NAV_GROUPS`), each group where its first table stands,
+ * with the tables of its files that the result has: a group with none is not there. Outside Lists, a group of one table
+ * is that table's own entry, as Versions is. Every other entry keeps its place.
  * An app's entries stand as they are, whatever their files are called: `grouped` is the result's kind, never a file's name. */
 export function navItems(entries: readonly NavEntry[], grouped: boolean): NavItem[] {
   if (!grouped) return [...entries];
@@ -292,7 +292,7 @@ export function navItems(entries: readonly NavEntry[], grouped: boolean): NavIte
       items.push(made);
     } else items.push(entry);
   }
-  return items.map(item => (isGroup(item) && item.entries.length === 1 ? item.entries[0] : item));
+  return items.map(item => (isGroup(item) && item.entries.length === 1 && item.group.id !== "navGroupLists" ? item.entries[0] : item));
 }
 
 /** A menu entry's words, which keep the room of themselves in bold: the stylesheet sets them again under themselves,
