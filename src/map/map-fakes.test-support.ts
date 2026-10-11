@@ -159,6 +159,38 @@ export function ownFilteredModel(mixed = false) {
   return { graph, cust, res, rep, flt, incomplete, missing, resIncomplete, total, show };
 }
 
+/** A model whose filters on the pages built on it say which line items their grids show, as a run reads them now. MDM380 -
+ * Customer Entity #, in 01: Master Data, is filtered by its own Incomplete Records, on a grid that shows every line item
+ * of the module but its heading, Incomplete Records among them; and by its own Missing DisplayName, on a grid that shows
+ * only Name and Code. Name feeds Missing Name, which feeds Incomplete Records. FLT01 - Filters' Show?, in 00: Inputs,
+ * filters a grid of REP01 - Report, in 02: Reporting, that shows Total and Count. The result has the Page Filters table.
+ * Tests only. */
+export function lineFilteredModel() {
+  const make = new GraphMaker();
+  const flt = make.module("FLT01 - Filters", "00: Inputs");
+  const cust = make.module("MDM380 - Customer Entity #", "01: Master Data");
+  const rep = make.module("REP01 - Report", "02: Reporting");
+  const heading = make.item(cust, "--- Checks ---", { format: "NONE" });
+  const name = make.item(cust, "Name", { format: "TEXT" });
+  const code = make.item(cust, "Code", { format: "TEXT" });
+  const missingName = make.item(cust, "Missing Name", { format: "BOOLEAN", formula: "ISBLANK(Name)" });
+  const incomplete = make.item(cust, "Incomplete Records", { format: "BOOLEAN", formula: "Missing Name" });
+  const missing = make.item(cust, "Missing DisplayName", { format: "BOOLEAN" });
+  const total = make.item(rep, "Total");
+  const count = make.item(rep, "Count");
+  const show = make.item(flt, "Show?", { format: "BOOLEAN" });
+  const use = (card: string, module: number, lineItems: number[]): PageFilter => ({ app: "Data Hub", page: "Admin", card, modules: [module], dimension: "Customers", lineItems });
+  make.nodes[incomplete].pageFilters = [use("1", cust, [name, code, missingName, incomplete, missing])];
+  make.nodes[missing].pageFilters = [use("2", cust, [name, code])];
+  make.nodes[show].pageFilters = [use("3", rep, [total, count])];
+  make.link(name, missingName).link(missingName, incomplete);
+  for (const target of [name, code, missingName, missing]) make.link(incomplete, target, "page_filter");
+  for (const target of [name, code]) make.link(missing, target, "page_filter");
+  for (const target of [total, count]) make.link(show, target, "page_filter");
+  const graph: ModelGraph = { ...make.graph(), pageFilterTable: true };
+  return { graph, flt, cust, rep, heading, name, code, missingName, incomplete, missing, total, count, show };
+}
+
 /** A model whose filter line item, Show?, is the condition of filters on the pages built on it: on two cards of REV01 -
  * Revenue, the second of them also filtering MAR01 - Margin, each by Products. Revenue's formula also reads Show?; nothing
  * reads Margin. Each module is in a section of its own. Without `filters` it is the same model with no page filters at

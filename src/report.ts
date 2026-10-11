@@ -1,4 +1,5 @@
 import type { UxPageCardDetails } from "./card-reader/card-types.js";
+import { ALL_LINE_ITEMS, BY_SELECTOR, filteredLineItemsText, NOT_PLACED, type LineItemsShown } from "./filtered-line-items.js";
 import { list, type Obj } from "./util.js";
 
 /** The analyser's seven tables, in the format agreed on the template (27 Sep 2026). Input is the named card description
@@ -43,7 +44,7 @@ export const HEADERS: Record<TabName, string[]> = {
     "Context selectors", "Filters", "Sorts & hidden items", "Conditional formatting", "Buttons & links", "Text content", "Card settings", "Card ID", "Source IDs"],
   "Grid sections": ["Page", "Card #", "View type", "Section #", "Section layout", "Source module", "Saved view", "Rows", "Columns", "Context selectors",
     "Line items shown", "Row filter", "Column filter", "Sorts & hidden items", "Conditional formatting", "Card ID", "Section ID", "Module ID"],
-  Filters: ["Page", "Card #", "Section #", "Filtered module", "Filter on", "Filtered dimension", "Condition group", "Show items that match",
+  Filters: ["Page", "Card #", "Section #", "Filtered module", "Filter on", "Filtered dimension", "Filtered line items", "Condition group", "Show items that match",
     "Condition line item", "Condition line item's module", "Operator", "Value", "Condition context", "Card ID", "Line item ID"],
   Formatting: ["Page", "Card #", "Section #", "Formatted module", "Format style", "Formatted line item", "Colour driven by", "Colour stops", "Card ID", "Line item ID"],
   Actions: ["Page", "Card #", "Button label", "Action type", "Model action name", "Name source", "Runs automatically", "Cancel button", "Card ID", "Action ID"],
@@ -244,11 +245,33 @@ function regionLineItems(region: Obj): string {
       const where = `Line Items on ${axis}`;
       if (Array.isArray(entry.shows) && entry.shows.length) return `Only ${itemsText(entry.shows)} (${where})`;
       if (Array.isArray(entry.hides) && entry.hides.length) return `All except ${itemsText(entry.hides)} (${where})`;
-      return `All line items (${where})`;
+      return `${ALL_LINE_ITEMS} (${where})`;
     }
   }
-  if (list(region.pivot?.pages).some(page => page.dimension?.id === LINE_ITEMS)) return "Chosen by the Line Items selector";
-  return "Line Items not on rows, columns or a selector";
+  if (list(region.pivot?.pages).some(page => page.dimension?.id === LINE_ITEMS)) return BY_SELECTOR;
+  return NOT_PLACED;
+}
+
+/** The line items a Line Items entry narrows a section to, each by its name: only those it shows, or all but those it
+ * hides. Nothing for an entry that narrows nothing. */
+function narrowedTo(entry: Obj | undefined): LineItemsShown | undefined {
+  const names = (items: unknown[]): string[] => items.map(item => (item && typeof item === "object" ? name(item) : String(item)));
+  if (Array.isArray(entry?.shows) && entry.shows.length) return { only: names(entry.shows) };
+  if (Array.isArray(entry?.hides) && entry.hides.length) return { except: names(entry.hides) };
+  return undefined;
+}
+
+/** Which line items a section shows, every one by its name, as `regionLineItems` says it in a few: those of its Line Items
+ * entry on its rows or its columns; any of them, where the Line Items selector picks them one at a time, narrowed as the
+ * section's own entry for Line Items among its pages narrows them; nothing known where Line Items is on no axis and no
+ * selector. */
+function lineItemsShown(region: Obj): LineItemsShown | undefined {
+  for (const axis of ["rows", "columns"] as const) {
+    const entry = list(region[axis]?.dimensions).find(each => each.dimension?.id === LINE_ITEMS);
+    if (entry) return narrowedTo(entry) ?? { all: true };
+  }
+  if (!list(region.pivot?.pages).some(page => page.dimension?.id === LINE_ITEMS)) return undefined;
+  return narrowedTo(list(region.pages).find(each => each.dimension?.id === LINE_ITEMS)) ?? { all: true, selector: true };
 }
 
 function filterSummary(region: Obj, axis: Axis, sharedWith: number[]): string {
@@ -329,10 +352,12 @@ function filterRows(page: string, order: number, card: Obj, regions: Obj[], rows
       const filtered = list(axisDetail.dimensions).map(entry => name(entry.dimension)).join(", ");
       // The grid (module) the filter narrows; sections sharing an axis share its filter.
       const filteredModule = unique(orders.map(o => name(regions[o - 1].module))).join("; ");
+      // The line items the filter narrows: those its sections show, each section's after its module where they differ.
+      const filteredLineItems = filteredLineItemsText(orders.map(o => ({ module: name(regions[o - 1].module), shown: lineItemsShown(regions[o - 1]) })));
       for (const [group, match, condition] of conditions(axisDetail.filter)) {
         const parts = conditionParts(condition);
         filterTexts.push(`${where}, match ${match.toLowerCase()}: ${conditionText(parts)}`);
-        rows.Filters.push([page, order, section, filteredModule, capitalize(axis), filtered, group, match, parts.lineItem, parts.module,
+        rows.Filters.push([page, order, section, filteredModule, capitalize(axis), filtered, filteredLineItems, group, match, parts.lineItem, parts.module,
           parts.operator, parts.value, parts.context, card.id, parts.lineItemId]);
         use("Line item", parts.lineItem, parts.module, page, order, "Filter", parts.lineItemId);
         for (const context of list(condition.filterContext)) {

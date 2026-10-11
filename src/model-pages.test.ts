@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { loadCatalog } from "./analyse.js";
 import { addActions, addLineItems, addLists, addModuleViews, emptyCatalog } from "./catalog.js";
+import { NOT_PLACED } from "./filtered-line-items.js";
 import { addModelPages, AT_A_TIME, exportedLineItems, NO_APPS, NO_CUSTOMER, PAGE_ACTIONS_HEADERS, PAGE_FILTERS_HEADERS, startModelPages, type PageReads } from "./model-pages.js";
 import { MODULE_USAGE_FILE, MODULE_USAGE_HEADERS, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, PAGE_PLACE_HEADERS, PAGE_ROUTES } from "./page-files.js";
 import { HEADERS, PAGE_TYPE } from "./report.js";
@@ -176,10 +177,12 @@ describe("The pages built on a model", () => {
     // The cards that name another model are left out, and the others keep the numbers the app's own tables give them. A
     // filter says what filters, what it filters, its condition and where it is; a button, the model's action it runs,
     // where it is and how it behaves.
+    // These grids have Line Items on no axis and no selector: which line items they show is not known.
     expect(rowsOf(result, PAGE_FILTERS_FILE)).toEqual([
-      ["Factors", "Territory demand", "Factors", "Product", "is equal to", "true", "All", "1", "-", "Rows", "Another app", "Supply board", 1, "1", "Board", APP_B, PAGE_B, guid(1), LI(9)],
-      ["Factors", "Territory demand", "Demand", "Product", "is not equal to", "0", "All", "1", "Territory = current", "Rows", "Planning app", "Demand board", 3, "1", "Board", APP_A, PAGE_A,
-        guid(3), LI(9)]]);
+      ["Factors", "Territory demand", "Factors", "Product", NOT_PLACED, "is equal to", "true", "All", "1", "-", "Rows", "Another app", "Supply board", 1, "1", "Board", APP_B, PAGE_B,
+        guid(1), LI(9)],
+      ["Factors", "Territory demand", "Demand", "Product", NOT_PLACED, "is not equal to", "0", "All", "1", "Territory = current", "Rows", "Planning app", "Demand board", 3, "1", "Board",
+        APP_A, PAGE_A, guid(3), LI(9)]]);
     expect(rowsOf(result, PAGE_ACTIONS_FILE)).toEqual([
       ["Import demand", "Import", "Planning app", "Demand board", 2, "Reload plan", "Yes (default)", "n/a", "Model", "Board", APP_A, PAGE_A, guid(2), "112000000901"],
       ["Nightly process", "Process", "Planning app", "Demand board", 2, "Run nightly", "Yes (default)", "Cancel allowed", "Model", "Board", APP_A, PAGE_A, guid(2), "118000000901"]]);
@@ -430,11 +433,11 @@ describe("The pages built on a model", () => {
       // A filter rule whose one item nothing names has that item for its line item, as no module of the model lists it:
       // its module is not known. Its context stays the context. The ID stays in the hidden Line item ID.
       expect(rowsOf(result, PAGE_FILTERS_FILE)).toEqual([
-        ["Missing line item: module not known", `Missing line item (ID ${GONE})`, `Missing module (ID ${OTHER_MODULE})`, "Product", "is equal to", "true", "All", "1", "-", "Rows",
-          ...where, 1, "1", ...place, guid(1), GONE],
-        ["Missing line item: module not known", `Missing line item (ID ${GONE_2})`, "Demand", "Product", "is not equal to", "0", "All", "1", "Territory = current", "Rows",
-          ...where, 2, "1", ...place, guid(2), GONE_2],
-        ["Demand", "Volume", "Demand", "Product", "is equal to", "true", "All", "1", "-", "Rows", ...where, 4, "1", ...place, guid(4), LI(1)]]);
+        ["Missing line item: module not known", `Missing line item (ID ${GONE})`, `Missing module (ID ${OTHER_MODULE})`, "Product", NOT_PLACED, "is equal to", "true", "All", "1",
+          "-", "Rows", ...where, 1, "1", ...place, guid(1), GONE],
+        ["Missing line item: module not known", `Missing line item (ID ${GONE_2})`, "Demand", "Product", NOT_PLACED, "is not equal to", "0", "All", "1", "Territory = current",
+          "Rows", ...where, 2, "1", ...place, guid(2), GONE_2],
+        ["Demand", "Volume", "Demand", "Product", NOT_PLACED, "is equal to", "true", "All", "1", "-", "Rows", ...where, 4, "1", ...place, guid(4), LI(1)]]);
       // A button whose import the model's imports do not list names it by its type and ID; Name source says so as before.
       expect(rowsOf(result, PAGE_ACTIONS_FILE)).toEqual([
         [`Missing import (ID ${GONE_IMPORT})`, "Import", ...where, 3, "Load old", "Yes (default)", "n/a", "Card label (not found in the model)", ...place, guid(3), GONE_IMPORT],

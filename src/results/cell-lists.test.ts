@@ -309,8 +309,14 @@ describe("What an app's cell lists, item by item, for the drawer: the report's o
       { "Context selectors": ["Territory (visible, synced to page)", "Channel (hidden)"] }, {},
       { "Context selectors": ["Territory (visible, synced to page)", "Channel (hidden)"] }, {},
       { "Context selectors": ["Orders", "Region"] }]);
-    // The filtered dimensions and the values are names and values with a comma between them, which either may hold.
-    expect(listedIn("Filters")).toEqual([{}, { "Condition context": ["Territory = current", "Time = current"] }, { "Filtered module": ["Demand", "Factors"] }]);
+    // The filtered dimensions and the values are names and values with a comma between them, which either may hold. The
+    // line items a combined grid's filter narrows are listed section by section, each after its module.
+    expect(listedIn("Filters")).toEqual([{}, { "Condition context": ["Territory = current", "Time = current"] }, { "Filtered module": ["Demand", "Factors"],
+      "Filtered line items": ["'Demand': Line Items not on rows, columns or a selector", "'Factors': All line items"] }]);
+    // A bar inside a quoted name is the name's; quotes that do not pair up leave the cell whole.
+    const lists = (cell: string) => cellLists(app, { file: "Filters.csv", label: "Filters", headers: ["Filtered line items"], rows: [[cell]], guard: true }).get(0)?.(cell, [cell]);
+    expect([lists("'In | Out': All line items | 'Margin': Only Units, 'A | B'"), lists("Only Units, 'A | B'"), lists("'In | Out: All line items | 'Margin': Only Units")])
+      .toEqual([["'In | Out': All line items", "'Margin': Only Units, 'A | B'"], undefined, undefined]);
     expect(report.Formatting.rows.map(row => row[HEADERS.Formatting.indexOf("Colour stops")])).toEqual(["#FFFFFF at 0; #627786 at 100,000", "#FFFFFF at 0; #627786 at 100,000",
       "2 icons (arrow up, flag red); no threshold values set"]);
     expect(listedIn("Formatting")).toEqual([{ "Colour stops": ["#FFFFFF at 0", "#627786 at 100,000"] }, { "Colour stops": ["#FFFFFF at 0", "#627786 at 100,000"] }, {}]);

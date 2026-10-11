@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { NOT_PLACED } from "../filtered-line-items.js";
 import { PAGE_FILTERS_HEADERS } from "../model-pages.js";
 import { MISSING_LINE_ITEMS_MODULE, missingText } from "../page-files.js";
 import { HEADERS } from "../report.js";
@@ -428,6 +429,45 @@ describe("The model map's graph, from the tables of a model export", () => {
     expect(graph.edges.filter(([, , kind]) => kind !== "page_filter")).toEqual(buildModelGraph(tables).edges);
   });
 
+  it("links a page filter's line item to each line item its grid shows, as Filtered line items names them, but itself and the headings", () => {
+    const tables = [lineItems(moduleRow("FLT01 Filters"), item("FLT01 Filters", "Show?", { Format: BOOLEAN }), moduleRow("REV01 Revenue"),
+      item("REV01 Revenue", "-- Inputs", { Format: NO_DATA }), item("REV01 Revenue", "Revenue"), item("REV01 Revenue", "Rate, net"), item("REV01 Revenue", "Units"),
+      item("REV01 Revenue", "Active?", { Format: BOOLEAN }), moduleRow("REV02 Margin"), item("REV02 Margin", "Margin"), item("REV02 Margin", "Cost"))];
+    const filter = (card: number, lineItem: string, module: string, filtered: string, shown: string): Cell[] => PAGE_FILTERS_HEADERS.map(header =>
+      ({ App: "Planning app", Page: "Demand board", "Card #": card, "Condition line item": lineItem, "Condition line item's module": module, "Filtered module": filtered,
+        "Filtered dimension": "Products", "Filtered line items": shown } as Record<string, Cell>)[header] ?? "-");
+    const filters = file("Page Filters", [...PAGE_FILTERS_HEADERS], [
+      // Every line item of another module's grid, then two of them again, one with a comma in its name: no link twice.
+      filter(1, "Show?", "FLT01 Filters", "REV01 Revenue", "All line items"), filter(2, "Show?", "FLT01 Filters", "REV01 Revenue", "Only Revenue, 'Rate, net'"),
+      // Its own module's grid, which shows it too, and a combined grid whose two sections show different line items.
+      filter(3, "Active?", "REV01 Revenue", "REV01 Revenue", "All except Units"),
+      filter(4, "Active?", "REV01 Revenue", "REV01 Revenue; REV02 Margin", "'REV01 Revenue': Only Units | 'REV02 Margin': Chosen by the Line Items selector"),
+      // A name the map does not have, and a grid whose line items are not known: that module is linked as a whole.
+      filter(5, "Show?", "FLT01 Filters", "REV02 Margin", "Only Gone, Margin"), filter(6, "Show?", "FLT01 Filters", "REV02 Margin", NOT_PLACED)]);
+    const graph = buildModelGraph([...tables, filters]);
+    const name = (id: number): string => graph.nodes[id].name;
+    const id = (named: string): number => graph.nodes.find(node => node.name === named)!.id;
+    expect(graph.edges.filter(([, , kind]) => kind === "page_filter").map(([from, to]) => [name(from), name(to)])).toEqual([
+      ["Show?", "Revenue"], ["Show?", "Rate, net"], ["Show?", "Units"], ["Show?", "Active?"], ["Show?", "REV02 Margin"], ["Show?", "Margin"],
+      ["Active?", "Revenue"], ["Active?", "Rate, net"], ["Active?", "Units"], ["Active?", "Margin"], ["Active?", "Cost"]]);
+    // Each filter says which line items it filters: the condition among them where its grid shows it, the heading never.
+    expect(graph.nodes[id("Active?")].pageFilters?.map(use => [use.card, use.modules?.map(name), use.lineItems?.map(name)])).toEqual([
+      ["3", ["REV01 Revenue"], ["Revenue", "Rate, net", "Active?"]], ["4", ["REV01 Revenue", "REV02 Margin"], ["Units", "Margin", "Cost"]]]);
+    expect(graph.nodes[id("Show?")].pageFilters?.map(use => [use.card, use.lineItems?.map(name)])).toEqual([
+      ["1", ["Revenue", "Rate, net", "Units", "Active?"]], ["2", ["Revenue", "Rate, net"]], ["5", ["Margin"]], ["6", undefined]]);
+    // How the table met the map: five of the six say which line items they filter, and one name of those is none of the map's.
+    expect(graph.pageFilterCheck).toEqual({ rows: 6, found: 6, own: 1, other: 5, nowhere: 0, unnamed: 0, notFound: 0, missing: [], said: true, shown: 5, unmatched: 1 });
+    // On the map: the line item that filters itself is marked, and the module its own line item filters too.
+    const model = indexModel(graph);
+    expect([model.filtersItself(id("Active?")), model.filtersItself(id("Show?")), model.ownFiltersOf(id("REV01 Revenue")), model.filtersBetween]).toEqual([true, false, 1, 8]);
+    expect(model.filtersOfItem(id("Units")).map(({ item, uses }) => [item.name, uses.map(use => use.card)])).toEqual([["Show?", ["1"]], ["Active?", ["4"]]]);
+    // A table made before it said which line items: every filter is linked to the modules it filters, as before.
+    const before = buildModelGraph([...tables, without(filters, "Filtered line items")]);
+    expect(before.edges.filter(([, , kind]) => kind === "page_filter").map(([from, to]) => [name(from), name(to)])).toEqual([
+      ["Show?", "REV01 Revenue"], ["Show?", "REV02 Margin"], ["Active?", "REV02 Margin"]]);
+    expect([before.pageFilterCheck?.said, before.pageFilterCheck?.shown, indexModel(before).filtersItself(id("Active?"))]).toEqual([false, 0, true]);
+  });
+
   it("finds each filter's line item in a model whose filters are on their own modules, whatever spaces its names have, and says how the table met the map", () => {
     // Names as a live model writes them: a colon and a dash in a module's name, line items of one name in many modules,
     // a module written with a space at its end in Line Items and without it in Page Filters, a line item the other way
@@ -466,14 +506,16 @@ describe("The model map's graph, from the tables of a model export", () => {
     expect(graph.edges.filter(([, , kind]) => kind === "page_filter")).toEqual([[id("FLT01 Filters", "Show?"), module(MDM380), "page_filter"]]);
     // How the table met the map, for the run's log and for the map's note: each line item the map does not have named
     // once, however many rows name it.
-    expect(graph.pageFilterCheck).toEqual({ rows: 13, found: 10, own: 8, other: 1, nowhere: 1, unnamed: 1, notFound: 2, missing: ["MDM381 - Resources # · Gone"] });
+    // These rows say nothing of the line items their grids show: each filter filters its modules as a whole.
+    expect(graph.pageFilterCheck).toEqual({ rows: 13, found: 10, own: 8, other: 1, nowhere: 1, unnamed: 1, notFound: 2, missing: ["MDM381 - Resources # · Gone"], said: true,
+      shown: 0, unmatched: 0 });
     expect(pageFilterCheckLine(graph.pageFilterCheck!)).toBe("Page filters: 13 rows; 10 with the condition line item on the map (8 on its own module, 1 on another module, 1 on no module of the map); "
-      + "1 with no condition line item; 2 with a line item the map does not have: MDM381 - Resources # · Gone.");
+      + "0 say which line items they filter; 1 with no condition line item; 2 with a line item the map does not have: MDM381 - Resources # · Gone.");
     // On the map: each module that its own line items filter is marked with how many, and nothing else changes.
     const model = indexModel(graph);
     expect([model.ownFiltersOf(module(CLM)), model.ownFiltersOf(module(MDM380)), model.ownFiltersOf(module(MDM381)), model.ownFiltersOf(module(MDM702)), model.ownFiltersOf(module("FLT01 Filters")), model.ownFiltered])
       .toEqual([2, 2, 2, 1, 0, 5]);
-    expect([model.filtersOwnModule(id(CLM, "ISProcess")), model.filtersOwnModule(id("FLT01 Filters", "Show?")), model.filterEdges.length]).toEqual([true, false, 1]);
+    expect([model.filtersItself(id(CLM, "ISProcess")), model.filtersItself(id("FLT01 Filters", "Show?")), model.filterEdges.length]).toEqual([true, false, 1]);
     const plain = buildModelGraph(tables);
     expect([graph.edges.filter(([, , kind]) => kind !== "page_filter"), graph.unresolved, graph.limitations]).toEqual([plain.edges, plain.unresolved, plain.limitations]);
     // Without the table, nothing of it: no check and no line.
@@ -481,13 +523,22 @@ describe("The model map's graph, from the tables of a model export", () => {
   });
 
   it("says in one line how the Page Filters table met the map, its names cut to the first five", () => {
-    // The user's model: 32 filters, 30 on their own modules.
-    expect(pageFilterCheckLine({ rows: 32, found: 32, own: 30, other: 2, nowhere: 0, unnamed: 0, notFound: 0, missing: [] }))
-      .toBe("Page filters: 32 rows; 32 with the condition line item on the map (30 on its own module, 2 on another module); 0 with a line item the map does not have.");
+    // The user's model: 32 filters, 30 on their own modules, each saying which line items it filters.
+    const said = { said: true, shown: 0, unmatched: 0 };
+    expect(pageFilterCheckLine({ rows: 32, found: 32, own: 30, other: 2, nowhere: 0, unnamed: 0, notFound: 0, missing: [], ...said, shown: 32 }))
+      .toBe("Page filters: 32 rows; 32 with the condition line item on the map (30 on its own module, 2 on another module); 32 say which line items they filter; "
+        + "0 with a line item the map does not have.");
+    // Some of whose line items the map does not have; and a table that does not say which line items at all.
+    expect(pageFilterCheckLine({ rows: 3, found: 3, own: 3, other: 0, nowhere: 0, unnamed: 0, notFound: 0, missing: [], ...said, shown: 2, unmatched: 1 }))
+      .toBe("Page filters: 3 rows; 3 with the condition line item on the map (3 on its own module, 0 on another module); 2 say which line items they filter, naming 1 line item "
+        + "the map does not have; 0 with a line item the map does not have.");
+    expect(pageFilterCheckLine({ rows: 3, found: 3, own: 3, other: 0, nowhere: 0, unnamed: 0, notFound: 0, missing: [], ...said, said: false }))
+      .toBe("Page filters: 3 rows; 3 with the condition line item on the map (3 on its own module, 0 on another module); the table does not say which line items they filter; "
+        + "0 with a line item the map does not have.");
     const missing = Array.from({ length: 7 }, (_, index) => `Module ${index + 1} · Line ${index + 1}`);
-    expect(pageFilterCheckLine({ rows: 1, found: 0, own: 0, other: 0, nowhere: 0, unnamed: 0, notFound: 1, missing: missing.slice(0, 1) }))
+    expect(pageFilterCheckLine({ rows: 1, found: 0, own: 0, other: 0, nowhere: 0, unnamed: 0, notFound: 1, missing: missing.slice(0, 1), ...said }))
       .toBe("Page filters: 1 row; 0 with the condition line item on the map; 1 with a line item the map does not have: Module 1 · Line 1.");
-    expect(pageFilterCheckLine({ rows: 7, found: 0, own: 0, other: 0, nowhere: 0, unnamed: 0, notFound: 7, missing }))
+    expect(pageFilterCheckLine({ rows: 7, found: 0, own: 0, other: 0, nowhere: 0, unnamed: 0, notFound: 7, missing, ...said }))
       .toBe("Page filters: 7 rows; 0 with the condition line item on the map; 7 with a line item the map does not have: Module 1 · Line 1; Module 2 · Line 2; Module 3 · Line 3; "
         + "Module 4 · Line 4; Module 5 · Line 5; and 2 more.");
   });
@@ -513,7 +564,8 @@ describe("The model map's graph, from the tables of a model export", () => {
     expect([graph.nodes.map(node => node.name), graph.edges.filter(([, , kind]) => kind === "page_filter")]).toEqual([plain.nodes.map(node => node.name), []]);
     expect(graph.nodes[show].pageFilters).toEqual([{ app: "Data Hub", page: "Admin", card: "2" }, { app: "Data Hub", page: "Admin", card: "3", modules: [rev] }]);
     // The line item the model doesn't have is one the map does not have, named once in the run's log.
-    expect(graph.pageFilterCheck).toEqual({ rows: 3, found: 2, own: 1, other: 0, nowhere: 1, unnamed: 0, notFound: 1, missing: [`${MISSING_LINE_ITEMS_MODULE} · ${GONE_ITEM}`] });
+    expect(graph.pageFilterCheck).toEqual({ rows: 3, found: 2, own: 1, other: 0, nowhere: 1, unnamed: 0, notFound: 1, missing: [`${MISSING_LINE_ITEMS_MODULE} · ${GONE_ITEM}`],
+      said: true, shown: 0, unmatched: 0 });
     expect(indexModel(graph).ownFiltersOf(rev)).toBe(1);
     // Module Usage gives the model's module its app, and the module the model doesn't have nothing.
     expect(graph.nodes.filter(node => node.kind === "module").map(node => [node.name, node.apps])).toEqual([["REV01 Revenue", ["Data Hub"]]]);

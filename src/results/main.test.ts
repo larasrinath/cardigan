@@ -1667,7 +1667,7 @@ describe("What a click, a key and typing do on the results page", () => {
   });
 
   it("says once in the run's log how the Page Filters table met the map, when it builds the map's graph", async () => {
-    mapFilterCheck = { rows: 32, found: 31, own: 30, other: 1, nowhere: 0, unnamed: 0, notFound: 1, missing: ["MDM381 - Resources # · Gone"] };
+    mapFilterCheck = { rows: 32, found: 31, own: 30, other: 1, nowhere: 0, unnamed: 0, notFound: 1, missing: ["MDM381 - Resources # · Gone"], said: true, shown: 31, unmatched: 0 };
     await openWith(BLUEPRINT);
     /** The run's log lines about the page filters, as the control that copies the run's log copies them. */
     const filterLines = async (): Promise<string[]> => {
@@ -1682,7 +1682,7 @@ describe("What a click, a key and typing do on the results page", () => {
     expect(await filterLines()).toEqual([]);
     page.find('#navList [data-nav="map"]').press();
     expect(await filterLines()).toEqual(["Page filters: 32 rows; 31 with the condition line item on the map (30 on its own module, 1 on another module); "
-      + "1 with a line item the map does not have: MDM381 - Resources # · Gone."]);
+      + "31 say which line items they filter; 1 with a line item the map does not have: MDM381 - Resources # · Gone."]);
     goTo(1);
     page.find('#navList [data-nav="map"]').press();
     expect(await filterLines()).toHaveLength(1);

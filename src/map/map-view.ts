@@ -5,7 +5,7 @@ import {
 } from "./map-camera.js";
 import { createFonts, drawMinimap, drawScene, legibleFrom, type Fonts, type Pen } from "./map-canvas.js";
 import { edgeDrawn, moduleGraph, modulesGraph, sectionsGraph, type Box, type LinksDrawn, type ViewGraph, type ViewNode } from "./map-graphs.js";
-import { inspect, statusWords, traceWords, viewSentence, type Inspection, type TraceWords } from "./map-inspect.js";
+import { filterTipLines, inspect, statusWords, traceWords, viewSentence, type Inspection, type TraceWords } from "./map-inspect.js";
 import { boundsOf, fullFrom, layoutGraph, sizeNodes } from "./map-layout.js";
 import { automaticGrouping, groupingsOf, type Grouping } from "./map-groups.js";
 import {
@@ -711,8 +711,8 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     if (!onScreen) return;
     // A model that has no sections to show has none in its legend either: its modules are one entry, as what they are.
     // Of links it says only the kinds drawn: a link that is neither a filter's nor formulas' alone has an access driver.
-    legend.innerHTML = legendHtml(onScreen.kind === "drill" || single ? "On this map" : "Sections", onScreen.layers, hiddenLayers, onScreen.edges.some(edge => edge.filter),
-      onScreen.nodes.some(node => node.filterMark) ? onScreen.kind : undefined,
+    legend.innerHTML = legendHtml(onScreen.kind === "drill" || single ? "On this map" : "Sections", onScreen.layers, hiddenLayers,
+      onScreen.edges.some(edge => edge.filter) ? onScreen.kind : undefined, onScreen.nodes.some(node => node.filterMark) ? onScreen.kind : undefined,
       { formulas, access: onScreen.edges.some(edge => !edge.filter && !edge.formulaOnly), none: linksDrawn() === "none" });
     legendButton.hidden = onScreen.layers.length === 0;
   }
@@ -763,12 +763,12 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     buildZone.hidden = groupingField.hidden && externalCheck.hidden;
     formulasToggle.checked = formulas;
     accessToggle.checked = access;
-    // The pages' filters can be shown only where the model has some to show, as links between modules or as marks on
-    // modules their own line items filter: otherwise the switch is off, and the note under it says why in its
-    // explanation's place.
+    // The pages' filters can be shown only where the model has some to show, as links or as marks on modules their own
+    // line items filter: otherwise the switch is off, and the note under it says why in its explanation's place. What it
+    // shows is said by whether some of the links join two modules, and some modules are marked.
     filtersToggle.checked = filters;
     filtersToggle.disabled = !filtersDrawable();
-    filtersNote.textContent = filtersSay(model.graph, model.filterEdges.length > 0, model.ownFiltered > 0);
+    filtersNote.textContent = filtersSay(model.graph, model.filtersBetween > 0, model.ownFiltered > 0);
     // Which links are drawn is said on the button too, where they are not formulas' alone, as the map opens.
     linksButton.classList.toggle("map-on", !formulas || access || filters);
   }
@@ -832,9 +832,11 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
       const raw = node.raw;
       const module = raw && raw.kind !== "module" ? model.node(model.moduleOf(raw)) : undefined;
       const hint = node.kind === "section" ? "Double-click to open its modules" : raw?.kind === "module" ? "Double-click to open its line items" : node.kind === "externalItem" ? "Double-click to go to it in its module" : "";
+      // While the pages' filters are drawn, a line item says where it filters, and what filters it.
+      const filtered = filters && raw?.kind === "lineItem" ? filterTipLines(model, raw) : [];
       const tip: Tip = {
         layer: node.layer, kind: node.code || (raw ? raw.kind === "lineItem" ? "line item" : raw.kind : node.kind), name: node.fullName,
-        lines: [node.meta, module?.name ?? "", hint], ...(raw?.formula ? { formula: raw.formula } : {}),
+        lines: [node.meta, module?.name ?? "", ...filtered, hint], ...(raw?.formula ? { formula: raw.formula } : {}),
       };
       tooltip.innerHTML = tooltipHtml(tip);
       tooltip.classList.add("map-show");
@@ -1031,8 +1033,8 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     return formulas ? "all" : access || filters ? "noFormulas" : "none";
   }
 
-  /** Whether the model has its pages' filters to show: links of them between modules, or modules that their own line
-   * items filter, which are marked. */
+  /** Whether the model has its pages' filters to show: links of them, between modules or among a module's line items, or
+   * modules that their own line items filter, which are marked. */
   function filtersDrawable(): boolean {
     return (model?.filterEdges.length ?? 0) > 0 || (model?.ownFiltered ?? 0) > 0;
   }

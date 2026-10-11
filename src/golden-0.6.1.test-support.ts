@@ -7,10 +7,10 @@ import { parseCsv, safeCell, toCsv, zipEntries, zipStore } from "./zip.test-supp
  * Made once by running 0.6.1's own analyseApp and exportModel on those fixtures, with the clock at 2026-09-28 12:30:10 UTC and
  * the time zone UTC (a zip entry carries its time as local time). Never regenerate them from newer code: a difference means the
  * export changed. What is deliberately written otherwise since is named below: rows of the app's Details file, the dash
- * its other files hold for nothing to say and how they write a rule's colour stops, and of the model's files two columns,
- * rows of its Details file, the two rows about a file the export has gained, and a row of "How to read" on Source Models
- * (`APP_ROW_REWORDED`, `APP_ROWS_FOR_THE_PAGE`, `APP_ROW_ON_TWO_LINES`, `APP_DASH_PLAIN`, `APP_STOPS_IN_WORDS`,
- * `MODEL_COLUMN_ADDED`, `MODEL_ACTIONS_COLUMN_ADDED`,
+ * its other files hold for nothing to say, how they write a rule's colour stops and a column of its Filters file, and of
+ * the model's files two columns, rows of its Details file, the two rows about a file the export has gained, and a row of
+ * "How to read" on Source Models (`APP_ROW_REWORDED`, `APP_ROWS_FOR_THE_PAGE`, `APP_ROW_ON_TWO_LINES`, `APP_DASH_PLAIN`,
+ * `APP_STOPS_IN_WORDS`, `APP_FILTERS_COLUMN_ADDED`, `MODEL_COLUMN_ADDED`, `MODEL_ACTIONS_COLUMN_ADDED`,
  * `MODEL_ROW_REWORDED`, `MODEL_ACTIONS_ROW_REWORDED`, `MODEL_ROWS_FOR_THE_PAGE`, `IMPORTS_ROW_REWORDED`, `MODEL_FILE_ADDED`,
  * `MODEL_ROW_ADDED`). A test then compares with 0.6.1's zip but for what is named, and the zips themselves stay as they are.
  *
@@ -200,14 +200,39 @@ export function withStopsInWords(csv: string): string {
   return csv.charCodeAt(0) === 0xfeff ? text : text.slice(1);
 }
 
-/** The app's zip as 0.6.1 wrote it but for those rows, the dash and the colour stops: every file's bytes as they are in
- * `APP_ZIP_0_6_1`, with those lines of App Details.csv replaced and each cell of the dash or of colour stops in the other
- * files written as it is now, by zipStore with the same time on every entry. A file that holds none of them keeps its
- * bytes. analyse.test.ts pins that zipStore
+/** The column of the app's files that is deliberately not what 0.6.1 wrote. Filters.csv has a column more, after
+ * Filtered dimension: "Filtered line items", which says which line items the grid a filter narrows shows, the line items
+ * it filters (filtered-line-items.ts). This app's one filter is on a grid whose line items the Line Items selector picks,
+ * and its row says so, in the words its Grid Sections row has for them. */
+export const APP_FILTERS_COLUMN_ADDED = { file: "Filters.csv", header: "Filtered line items", after: "Filtered dimension", cells: ["Chosen by the Line Items selector"] } as const;
+
+/** 0.6.1's text of Filters.csv with that column (`APP_FILTERS_COLUMN_ADDED`): its name after the column it follows, and
+ * in each row its cell after that column's, guarded as the file's cells are. Every other cell is as it was. `csv` is the
+ * file's text as toCsv wrote it, with its byte order mark or without. */
+export function withFiltersColumn(csv: string): string {
+  const { header, after, cells } = APP_FILTERS_COLUMN_ADDED;
+  const [headers, ...rows] = parseCsv(csv);
+  const at = headers.indexOf(after) + 1;
+  if (at === 0 || rows.length !== cells.length) throw new Error(`0.6.1's Filters.csv is not the file the column is named for.`);
+  headers.splice(at, 0, header);
+  rows.forEach((row, index) => row.splice(at, 0, safeCell(cells[index])));
+  const text = toCsv(headers, rows, false);
+  return csv.charCodeAt(0) === 0xfeff ? text : text.slice(1);
+}
+
+/** 0.6.1's text of one of the app's files as the file is written now: with the rows, the dash, the colour stops and the
+ * column named above, each where it is. */
+export const withAppFileSince = (file: string, text: string): string =>
+  withStopsInWords(withPlainDash(file === "App Details.csv" ? withAppRowsSince(text) : file === APP_FILTERS_COLUMN_ADDED.file ? withFiltersColumn(text) : text));
+
+/** The app's zip as 0.6.1 wrote it but for those rows, the dash, the colour stops and the column: every file's bytes as
+ * they are in `APP_ZIP_0_6_1`, with those lines of App Details.csv replaced, each cell of the dash or of colour stops in
+ * the other files written as it is now and the column added to Filters.csv, by zipStore with the same time on every
+ * entry. A file that holds none of them keeps its bytes. analyse.test.ts pins that zipStore
  * writes `APP_ZIP_0_6_1` itself, byte for byte, from the files as they are, so what differs from this zip differs from 0.6.1. */
 export const APP_ZIP_REWORDED = zipStore(zipEntries(APP_ZIP_0_6_1).map(entry => {
   const text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(entry.data);
-  const now = withStopsInWords(withPlainDash(entry.name === "App Details.csv" ? withAppRowsSince(text) : text));
+  const now = withAppFileSince(entry.name, text);
   return now === text ? entry : { name: entry.name, data: new TextEncoder().encode(now) };
 }), ZIPPED_AT);
 

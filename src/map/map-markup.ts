@@ -29,13 +29,17 @@ export const LIST_CAP = 100;
 /** What access drivers are, said where they are switched, in a modeller's words. */
 export const ACCESS_SAYS = "Read and Write Access Drivers are line items that decide which cells of a module or line item someone can see or edit (Anaplan's dynamic cell access). Tick to draw an arrow from each driver to what it controls.";
 /** What page filters are, said where their links are switched, in the same words: for a model whose filters are all
- * on modules other than their line items' own, which links show. */
-export const FILTERS_SAY = "Boolean line items used as filters on the pages built on the model. Tick to draw an arrow from each filter line item to the module it filters.";
-/** The same, for a model whose filters are all on their line items' own modules: no link can show those, so the switch
- * marks the modules instead. */
-export const FILTERS_OWN_SAY = "Every filter on the pages built on this model has its condition in the module it filters, so no arrow can show it. Tick to mark each such module with how many of its own line items filter it.";
+ * on modules other than their line items' own, which links show between modules, and among line items from each filter
+ * line item to the line items it filters. */
+export const FILTERS_SAY = "Boolean line items used as filters on the pages built on the model. Tick to draw an arrow from each filter line item to the line items it filters, and between their modules.";
+/** The same, for a model whose filters are all on their line items' own modules: no link between modules can show
+ * those, so the switch marks the modules, and among a module's line items draws the links. */
+export const FILTERS_OWN_SAY = "Every filter on the pages built on this model is a line item of the module it filters. Tick to mark each such module with a funnel, and inside it to draw an arrow from each filter line item to the line items it filters.";
 /** The same, for a model with filters of both kinds. */
-export const FILTERS_BOTH_SAY = "Boolean line items used as filters on the pages built on the model. Tick to draw an arrow from each filter line item to another module it filters, and to mark each module with how many of its own line items filter it.";
+export const FILTERS_BOTH_SAY = "Boolean line items used as filters on the pages built on the model. Tick to draw an arrow from each filter line item to the line items it filters, and between their modules. A module that its own line items filter gets a funnel.";
+/** Said after what the switch shows, for a result whose Page Filters table does not say which line items a filter
+ * filters, as one read before the table said so: its filters are drawn as before, to their modules. */
+export const FILTERS_UNSAID = "This result does not say which line items each filter filters: run the model again to see them.";
 /** Why the pages' filters cannot be shown, said in the switch's place, which is then off and not to be ticked: the result
  * has no Page Filters table; the table has no row; none of its rows has a line item of the map as its condition; or
  * those that have one name no module of the map as what they filter. `links` is said for a graph that does not say how
@@ -51,26 +55,32 @@ export const FILTERS_NONE = {
 } as const;
 
 /** What the switch of the pages' filters says under it: what ticking it shows, by what the model has to show (its links
- * between modules, `links`, and its modules filtered by their own line items, `marks`), or, where it has nothing, why. */
+ * between modules, `links`, and its modules filtered by their own line items, `marks`), and for a result that does not
+ * say which line items its filters filter, that running the model again shows them; or, where it has nothing, why. */
 export function filtersNote(graph: Pick<ModelGraph, "pageFilterTable" | "pageFilterCheck">, links: boolean, marks: boolean): string {
-  if (links && marks) return FILTERS_BOTH_SAY;
-  if (links) return FILTERS_SAY;
-  if (marks) return FILTERS_OWN_SAY;
-  if (!graph.pageFilterTable) return FILTERS_NONE.table;
   const check = graph.pageFilterCheck;
+  const shows = links && marks ? FILTERS_BOTH_SAY : links ? FILTERS_SAY : marks ? FILTERS_OWN_SAY : undefined;
+  if (shows) return check && !check.said ? `${shows} ${FILTERS_UNSAID}` : shows;
+  if (!graph.pageFilterTable) return FILTERS_NONE.table;
   if (!check) return FILTERS_NONE.links;
   if (check.rows === 0) return FILTERS_NONE.empty;
   if (check.found === 0) return FILTERS_NONE.unfound(check.rows);
   return FILTERS_NONE.nowhere;
 }
-/** What a page filter's link looks like and means, said in the legend while those links are drawn. */
-export const FILTER_LINK_SAYS = "Dashed: a page filter, from its line item to the module it filters.";
+/** What a page filter's link looks like and means, by the kind of picture, said in the legend while those links are
+ * drawn: among a module's line items it ends at a line item it filters, or at the module of others, as one link stands
+ * for those; between modules and groups it stands for the filter of one module's grid. */
+export const FILTER_LINK_SAYS: Readonly<Record<ViewGraph["kind"], string>> = {
+  sections: "Dashed: a page filter, from the group of its line item to the group of a module it filters.",
+  modules: "Dashed: a page filter, from the module of its line item to a module it filters.",
+  drill: "Dashed: a page filter, from its line item to a line item it filters, or to the module of those.",
+};
 /** What a filter mark on a box means (map-canvas.ts `drawFilterMark`), by the kind of picture, said in the legend while
  * one is drawn. */
 export const FILTER_MARK_SAYS: Readonly<Record<ViewGraph["kind"], string>> = {
   sections: "Filter mark: how many of the group's modules their own line items filter on pages.",
   modules: "Filter mark: how many of the module's own line items filter it on pages.",
-  drill: "Filter mark: the line item filters its own module on pages.",
+  drill: "Filter mark: the line item filters itself on a page: the grid it filters shows it too, or does not say which line items it shows.",
 };
 /** A filter mark's funnel, as the canvas draws it (map-canvas.ts `funnel`). */
 const FUNNEL = '<svg class="map-mark-funnel" width="9" height="9" viewBox="0 0 10 10" aria-hidden="true"><path d="M0 .8h10L6.2 5.2v3.4L3.8 10V5.2Z"/></svg>';
@@ -247,18 +257,19 @@ const FORMULAS_ONLY: LegendLinks = { formulas: true, access: false, none: false 
 
 /** The legend: each layer of the graph on screen with its colour and its number, as a button that hides the layer and
  * shows it again, and under them what a line means, for only the kinds of link drawn (`links`): while the links of page
- * filters are drawn (`filters`), what theirs means too, beside a piece of the line they are drawn in; and while a box of
- * the picture has a filter mark, what the mark means on that kind of picture (`marks`), beside one. Where no kind of link
+ * filters are drawn, what theirs means on that kind of picture too (`filters`), beside a piece of the line they are drawn
+ * in; and while a box of the picture has a filter mark, what the mark means on that kind of picture (`marks`), beside
+ * one. Where no kind of link
  * is ticked, it says so plainly. A hidden layer says so in more than its colour: its name is struck through, and the
  * button is not pressed. */
-export function legendHtml(title: string, layers: readonly ViewLayer[], hidden: ReadonlySet<string>, filters = false, marks?: ViewGraph["kind"],
+export function legendHtml(title: string, layers: readonly ViewLayer[], hidden: ReadonlySet<string>, filters?: ViewGraph["kind"], marks?: ViewGraph["kind"],
   links: LegendLinks = FORMULAS_ONLY): string {
   return `<div class="map-legend-title">${esc(title)}</div>${layers.map(layer => {
     const off = hidden.has(layer.key);
     return `<button type="button" class="map-legend-item${off ? " map-off" : ""}" data-map-act="layer" data-map-layer="${esc(layer.key)}" aria-pressed="${off ? "false" : "true"}">${dot(layer.key)}<span class="map-legend-name">${esc(layer.label)}</span><span class="map-legend-count">${esc(formatCount(layer.count))}</span></button>`;
   }).join("")}${links.formulas ? `<p class="map-legend-note">${esc(LINK_SAYS)}</p>` : ""}${
     links.access ? `<p class="map-legend-note map-legend-access">${esc(ACCESS_LINK_SAYS)}</p>` : ""}${
-    links.none ? `<p class="map-legend-note map-legend-none">${esc(NO_LINKS_SAYS)}</p>` : ""}${filters ? `<p class="map-legend-note map-legend-filter"><span class="map-line-filter" aria-hidden="true"></span>${esc(FILTER_LINK_SAYS)}</p>` : ""}${
+    links.none ? `<p class="map-legend-note map-legend-none">${esc(NO_LINKS_SAYS)}</p>` : ""}${filters ? `<p class="map-legend-note map-legend-filter"><span class="map-line-filter" aria-hidden="true"></span>${esc(FILTER_LINK_SAYS[filters])}</p>` : ""}${
     marks ? `<p class="map-legend-note map-legend-mark"><span class="map-mark-filter" aria-hidden="true">${FUNNEL}</span>${esc(FILTER_MARK_SAYS[marks])}</p>` : ""}`;
 }
 

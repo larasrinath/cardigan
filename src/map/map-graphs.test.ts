@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { LAYER, moduleGraph, modulesGraph, sectionLayer, sectionsGraph, type ViewGraph } from "./map-graphs.js";
 import { indexModel } from "./map-model.js";
-import { filteredModel, GraphMaker, ownFilteredModel } from "./map-fakes.test-support.js";
+import { filteredModel, GraphMaker, lineFilteredModel, ownFilteredModel } from "./map-fakes.test-support.js";
 
 /** Three sections. Inputs feed Calculations, Calculations feed Reporting and read each other, and a flag of the inputs
  * drives who may write a calculation. */
@@ -264,7 +264,7 @@ describe("The links of the pages' filters in the graphs", () => {
     const own = moduleGraph(model, cust, false, false, true);
     expect(own.nodes.map(node => [node.fullName, node.kind, node.filterMark])).toEqual([["Incomplete Records", "lineItem", 1], ["Missing DisplayName", "lineItem", 1],
       ["REP01 - Report", "externalModule", undefined]]);
-    expect([model.filtersOwnModule(incomplete), model.filtersOwnModule(missing), model.ownFiltered]).toEqual([true, true, 2]);
+    expect([model.filtersItself(incomplete), model.filtersItself(missing), model.ownFiltered]).toEqual([true, true, 2]);
     // Where the pages' filters are not drawn, nothing is marked.
     for (const view of [modulesGraph(model, undefined, false), sectionsGraph(model, false), moduleGraph(model, cust, false, false)]) {
       expect(view.nodes.some(node => node.filterMark !== undefined), view.kind).toBe(false);
@@ -275,5 +275,38 @@ describe("The links of the pages' filters in the graphs", () => {
     const both = modulesGraph(mixed, undefined, false, true);
     expect([marks(both), both.edges.filter(edge => edge.filter).map(edge => [both.nodes[edge.s].fullName, both.nodes[edge.t].fullName])])
       .toEqual([[["FLT01 - Filters", undefined], ["MDM380 - Customer Entity #", 2], ["MDM381 - Resources #", 1], ["REP01 - Report", undefined]], [["FLT01 - Filters", "REP01 - Report"]]]);
+  });
+
+  it("run, among a module's line items, from a filter's line item to each line item its grid shows, and mark the one that filters itself", () => {
+    const { graph, cust, rep, flt, show } = lineFilteredModel();
+    const model = indexModel(graph);
+    const filterLinks = (view: ViewGraph): [string, string, number][] => view.edges.filter(edge => edge.filter).map(edge => [view.nodes[edge.s].fullName, view.nodes[edge.t].fullName, edge.w]);
+    const marks = (view: ViewGraph): [string, number | undefined][] => view.nodes.map(node => [node.fullName, node.filterMark]);
+    // The module's own filters are links among its line items, one to each line item their grids show, but to itself:
+    // Incomplete Records, which its grid shows too, carries the mark instead. Missing DisplayName's grid does not show it.
+    const own = moduleGraph(model, cust, false, false, true);
+    expect(filterLinks(own)).toEqual([["Incomplete Records", "Name", 1], ["Incomplete Records", "Code", 1], ["Incomplete Records", "Missing Name", 1],
+      ["Incomplete Records", "Missing DisplayName", 1], ["Missing DisplayName", "Name", 1], ["Missing DisplayName", "Code", 1]]);
+    expect(marks(own)).toEqual([["--- Checks ---", undefined], ["Name", undefined], ["Code", undefined], ["Missing Name", undefined], ["Incomplete Records", 1],
+      ["Missing DisplayName", undefined]]);
+    // A filter of another module's grid: from its line item to the box of that module's line items it filters, and,
+    // among those line items, from the box of the filter's module to each of them.
+    const filtering = moduleGraph(model, flt, false, false, true);
+    expect([filterLinks(filtering), filtering.nodes.find(node => node.kind === "externalModule")?.meta]).toEqual([[["Show?", "REP01 - Report", 2]], "2 line items linked"]);
+    const filtered = moduleGraph(model, rep, false, false, true);
+    expect([filterLinks(filtered), filtered.nodes.find(node => node.kind === "externalModule")?.members]).toEqual([[["FLT01 - Filters", "Total", 1], ["FLT01 - Filters", "Count", 1]], [show]]);
+    // Between modules and groups a filter is one link for each module whose grid it filters, however many line items:
+    // as it was when a filter was linked to the module. The module that its own line items filter is marked, as before.
+    const modules = modulesGraph(model, undefined, false, true);
+    expect([filterLinks(modules), marks(modules)]).toEqual([[["FLT01 - Filters", "REP01 - Report", 1]],
+      [["FLT01 - Filters", undefined], ["MDM380 - Customer Entity #", 2], ["REP01 - Report", undefined]]]);
+    const sections = sectionsGraph(model, false, true);
+    expect([filterLinks(sections), marks(sections)]).toEqual([[["00: Inputs", "02: Reporting", 1]], [["00: Inputs", undefined], ["01: Master Data", 1], ["02: Reporting", undefined]]]);
+    // What the switch says comes from these: links between modules, and modules their own line items filter.
+    expect([model.filtersBetween, model.ownFiltered, model.filterEdges.length]).toEqual([2, 1, 8]);
+    // Where the pages' filters are not drawn, none of it is.
+    for (const view of [moduleGraph(model, cust, false, false), modulesGraph(model, undefined, false), sectionsGraph(model, false)]) {
+      expect([view.edges.some(edge => edge.filter), view.nodes.some(node => node.filterMark !== undefined)], view.kind).toEqual([false, false]);
+    }
   });
 });

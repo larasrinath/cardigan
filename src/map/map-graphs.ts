@@ -10,7 +10,9 @@ import { plural, splitName } from "./map-text.js";
  *   for each module or one by one, and the lists and properties their formulas name.
  * A link from a thing to itself is no link between two modules or sections; between line items it stays, as the loop a
  * formula that reads its own line item makes. The links of the pages' filters, where they are drawn, are counted apart
- * from the others between the same two boxes: they are drawn in a style of their own (`ViewEdge.filter`). */
+ * from the others between the same two boxes: they are drawn in a style of their own (`ViewEdge.filter`). Among a
+ * module's line items they run from a filter's line item to each line item it filters, and between modules and groups
+ * one stands for each filter line item and module it filters. */
 
 export type ViewNodeKind = "section" | "module" | "lineItem" | "externalModule" | "externalItem" | "list" | "property";
 
@@ -48,8 +50,9 @@ export interface ViewNode {
   readonly side?: "in" | "out" | "both";
   /** Where the pages' filters are drawn, what no link can show: a module's own line items that filter it. On a module's
    * box, how many of its own line items filter it; on a section's, how many of its modules their own line items filter;
-   * on a line item's, 1 where it filters its own module. The canvas draws it as a mark on the box. None where there is
-   * nothing to mark, or the pages' filters are not drawn. */
+   * on a line item's, 1 where it filters itself (map-model.ts `filtersItself`): among a module's line items, a filter
+   * on the module's grid is a link from its line item to each line item the grid shows, but to itself. The canvas draws
+   * it as a mark on the box. None where there is nothing to mark, or the pages' filters are not drawn. */
   readonly filterMark?: number;
   x: number;
   y: number;
@@ -181,14 +184,22 @@ function activeEdges(model: MapModel, access: boolean, filters: boolean): readon
 }
 
 /** Links counted together by what each end belongs to. An end that belongs to nothing drops its link, and so does a
- * link whose two ends belong to the same thing. */
+ * link whose two ends belong to the same thing. A page filter's links to the line items of one module count once, as the
+ * one link from its line item to that module: the boxes here stand for modules and their groups, and a filter on a grid
+ * that shows a hundred line items is one filter of that module. */
 function aggregate(model: MapModel, edges: readonly GraphEdge[], endpoint: (node: GraphNode | undefined) => string | undefined): Link[] {
   const links = new Map<string, Link>();
+  const counted = new Set<string>();
   for (const [from, to, kind] of edges) {
     const s = endpoint(model.node(from));
     const t = endpoint(model.node(to));
     if (s === undefined || t === undefined || s === t) continue;
     const filter = isFilter(kind);
+    if (filter) {
+      const once = `${from}>${model.moduleOf(model.node(to))}`;
+      if (counted.has(once)) continue;
+      counted.add(once);
+    }
     const formula = isFormula(kind) ? 1 : 0;
     const key = linkKey(s, t, filter);
     const link = links.get(key);
@@ -271,8 +282,8 @@ export function moduleGraph(model: MapModel, moduleId: number, expanded: boolean
     drafts.set(String(item.id), {
       id: String(item.id), kind: "lineItem", layer: item.format?.toUpperCase() === "NONE" ? LAYER.heading : LAYER.lineItem,
       code: "", label: item.name, fullName: item.name, meta: "", raw: item, external: false,
-      // Where the pages' filters are drawn, a line item that filters its own module is marked: no link can show it.
-      ...(filters && model.filtersOwnModule(item.id) ? { filterMark: 1 } : {}),
+      // Where the pages' filters are drawn, a line item that filters itself is marked: no link can show it.
+      ...(filters && model.filtersItself(item.id) ? { filterMark: 1 } : {}),
     });
   }
 

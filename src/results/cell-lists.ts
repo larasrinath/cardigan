@@ -130,13 +130,33 @@ const colourStops: ListRule = table => {
   return style === undefined ? undefined : (text, row) => (cellText(row[style]).startsWith(KPI_INDICATOR) ? undefined : cut(text, SEMICOLON));
 };
 
+/** A filter's line items (filtered-line-items.ts) where its grid's sections show different ones: each section's part,
+ * after its module in single quotes, with " | " between them. The cell is cut there, outside the quotes, where a module's
+ * name or a line item's may hold a bar. Nothing where its quotes do not pair up, and a cell of one part, whatever names
+ * it gives, is shown whole. */
+const sectionsShown: ListRule = () => text => {
+  const parts: string[] = [];
+  let start = 0;
+  let quoted = false;
+  for (let index = 0; index < text.length; index++) {
+    if (text[index] === "'") quoted = !quoted;
+    else if (!quoted && text.startsWith(BAR, index)) {
+      parts.push(text.slice(start, index));
+      start = index + BAR.length;
+    }
+  }
+  if (quoted) return undefined;
+  parts.push(text.slice(start));
+  return asList(parts);
+};
+
 /** The app's columns that list items, by the report table they are in and their header (report.ts `HEADERS`), each with
  * how its items are joined. Many a column of the report holds one item that lists something in words, and is not cut:
  * - one sentence about a whole: a section's layout ("Beside section 2 (same rows); above or below section 3 (same
  *   columns)"), its line items, its row and column filters and its formatting rules, a filter's sections ("1, 2 (shared
  *   rows)") and a card's text;
  * - names or values with a comma and a space between them, which a name or a value may hold as well: a filter's
- *   dimensions, its line item when it is several items, and its values.
+ *   dimensions, its line item when it is several items, its values, and the line items its grid shows.
  * Every other column holds one value. */
 const APP_LISTS: Record<TabName, Record<string, ListRule>> = {
   // The number of each kind of view on the page, in the report's words alone: "1 custom view, 2 saved views".
@@ -147,7 +167,7 @@ const APP_LISTS: Record<TabName, Record<string, ListRule>> = {
     "Card settings": joinedWith(MIDDLE_DOT), "Source IDs": joinedWith(SEMICOLON),
   },
   "Grid sections": { Rows: joinedWith(SEMICOLON), Columns: joinedWith(SEMICOLON), "Context selectors": joinedWith(SEMICOLON), "Sorts & hidden items": joinedWith(SEMICOLON) },
-  Filters: { "Filtered module": joinedWith(SEMICOLON), "Condition context": joinedWith(SEMICOLON) },
+  Filters: { "Filtered module": joinedWith(SEMICOLON), "Filtered line items": sectionsShown, "Condition context": joinedWith(SEMICOLON) },
   Formatting: { "Colour stops": colourStops },
   Actions: {},
   "Where used": {},

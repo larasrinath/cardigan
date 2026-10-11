@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { moduleGraph, modulesGraph, sectionsGraph, type ViewGraph, type ViewNode } from "./map-graphs.js";
 import { boundsOf, CARD, components, FIT_ZOOM, FULL_CARD_ZOOM, hasSmallLine, ITEM, layoutGraph, sizeNodes, type Room } from "./map-layout.js";
 import { indexModel } from "./map-model.js";
-import { GraphMaker, HALF_EM } from "./map-fakes.test-support.js";
+import { GraphMaker, HALF_EM, lineFilteredModel } from "./map-fakes.test-support.js";
 
 /** A room so wide that the ranks of a small graph fit it at full size. */
 const WIDE: Room = { width: 2400, height: 1200 };
@@ -278,6 +278,32 @@ describe("Where the map's nodes stand", () => {
     expect(layoutGraph(packed, [{ width: 420, height: 800 }])).toBe("packed");
     const order = [...packed.nodes].sort((a, b) => a.x - b.x || a.y - b.y).map(node => node.id);
     expect(order).toEqual([`external${source}`, String(first), String(second), `external${target}`, String(lone)]);
+  });
+
+  it("places a module's line items by what their formulas read, and one that only a filter links after the line item that filters it", () => {
+    // Incomplete Records reads Missing Name, which reads Name, and filters a grid that shows both: counted, that link
+    // would close a circle and fold the three into one column.
+    const { graph, cust, heading, name, code, missingName, incomplete, missing } = lineFilteredModel();
+    const model = indexModel(graph);
+    const places = (filters: boolean): Map<string, [number, number]> => {
+      const view = moduleGraph(model, cust, false, false, filters);
+      expect(layoutGraph(view, [WIDE]), String(filters)).toBe("ranked");
+      return new Map(view.nodes.map(node => [node.id, [node.x, node.y]]));
+    };
+    const [plain, filtered] = [places(false), places(true)];
+    const x = (where: Map<string, [number, number]>, id: number): number => where.get(String(id))![0];
+    // The line items that formulas link keep their columns, in the order of what they read.
+    for (const id of [name, missingName, incomplete]) expect(x(filtered, id)).toBe(x(plain, id));
+    expect([x(filtered, name) < x(filtered, missingName), x(filtered, missingName) < x(filtered, incomplete)]).toEqual([true, true]);
+    // Code and Missing DisplayName, which no formula links, stand at the end with the heading where the filters are not
+    // drawn, and after Incomplete Records, which filters them, where they are: no longer beyond what nothing links.
+    expect([x(plain, code), x(plain, missing)]).toEqual([x(plain, heading), x(plain, heading)]);
+    expect([x(filtered, code) > x(filtered, incomplete), x(filtered, missing) > x(filtered, incomplete), x(filtered, code) < x(filtered, heading)]).toEqual([true, true, true]);
+    // Among modules, where a filter is one link between two boxes, it still counts, as it did.
+    const modules = modulesGraph(model, undefined, false, true);
+    layoutGraph(modules, [WIDE]);
+    const from = (named: string): number => modules.nodes.find(node => node.fullName === named)!.x;
+    expect(from("FLT01 - Filters")).toBeLessThan(from("REP01 - Report"));
   });
 
   it("keeps boxes of different heights the same distance apart in a column", () => {
