@@ -756,16 +756,16 @@ describe("What the results page's markup shows", () => {
   });
 
   it("writes the navigation's entries in the order given, a model's map among them as an entry like the others, each with its icon before its words", () => {
-    const entries = [{ id: "overview", label: "Overview" }, { id: "12", label: "Time Ranges", file: "Time Ranges.csv" }, { id: "1", label: "Line Items", file: "Line Items.csv" },
+    const entries = [{ id: "overview", label: "Overview" }, { id: "12", label: "Model Calendar", file: "Model Calendar.csv" }, { id: "1", label: "Line Items", file: "Line Items.csv" },
       { id: "details", label: "Details" }, { id: "map", label: MAP_LABEL }];
     /** Each entry: its name in the navigation, its words, and whether it is the current one. */
     const items = (current: string) => parseMarkup(navHtml(entries, current)).querySelectorAll(".nav-item").map(item =>
       [item.dataset.nav, text(item.querySelector("span")), item.getAttribute("aria-current") ?? ""]);
-    expect(items("12")).toEqual([["overview", "Overview", ""], ["12", "Time Ranges", "page"], ["1", "Line Items", ""], ["details", "Details", ""], ["map", "Model map", ""]]);
+    expect(items("12")).toEqual([["overview", "Overview", ""], ["12", "Model Calendar", "page"], ["1", "Line Items", ""], ["details", "Details", ""], ["map", "Model map", ""]]);
     // An entry is its icon, then its words, and nothing else: no count, which the overview's tile says. The icon is a
     // drawing, hidden from a screen reader, with no text: the button's text is its words.
     expect(parseMarkup(navHtml(entries, "12")).querySelectorAll(".nav-item").map(item => [item.children.map(child => child.localName), item.children[0].getAttribute("aria-hidden"), text(item)]))
-      .toEqual([[["svg", "span"], "true", "Overview"], [["svg", "span"], "true", "Time Ranges"], [["svg", "span"], "true", "Line Items"], [["svg", "span"], "true", "Details"],
+      .toEqual([[["svg", "span"], "true", "Overview"], [["svg", "span"], "true", "Model Calendar"], [["svg", "span"], "true", "Line Items"], [["svg", "span"], "true", "Details"],
         [["svg", "span"], "true", "Model map"]]);
     // The map's entry is written as every other: a button the Tab key reaches, which nothing marks as off or as still to
     // come, and the current one when its view is shown.
@@ -836,11 +836,10 @@ describe("What the results page's markup shows", () => {
     // An entry's room is its own words: marked as the view shown, in bold, it takes no more room than it has.
     expect(roomed("overview")[0]).toEqual(["Overview", "Overview"]);
     expect(roomed("map")[2]).toEqual(["Model map", "Model map"]);
-    // A group's room is its name and every table's label in its menu as the line shows it, whichever it shows: the group's
-    // name, or the label of the table shown in it, in shorter words where the table has them. So the group keeps the
-    // width of the widest, and the entries after it stay where they are.
-    const group = "Actions\nProcesses\nImports\nData Sources\nOther <b>x</b>";
-    expect(["overview", "5", "7", "8"].map(current => roomed(current)[1])).toEqual([["Actions", group], ["Processes", group], ["Data Sources", group], ["Other <b>x</b>", group]]);
+    // A group's room is its name and every table's label in its menu, whichever it shows: the group's name, or the label of
+    // the table shown in it. So the group keeps the width of the widest, and the entries after it stay where they are.
+    const group = "Actions\nProcesses\nImports\nImport Data Sources\nOther <b>x</b>";
+    expect(["overview", "5", "7", "8"].map(current => roomed(current)[1])).toEqual([["Actions", group], ["Processes", group], ["Import Data Sources", group], ["Other <b>x</b>", group]]);
     // The menu's entries keep their own words as their room, as every entry does.
     expect(parseMarkup(navHtml(items, "7")).querySelectorAll(".nav-menu .nav-item span").map(span => [text(span), span.getAttribute("data-room")]))
       .toEqual([["Processes", "Processes"], ["Imports", "Imports"], ["Import Data Sources", "Import Data Sources"], ["Other <b>x</b>", "Other <b>x</b>"]]);
@@ -849,37 +848,6 @@ describe("What the results page's markup shows", () => {
     // The one menu of a narrow window stands alone on its line: its button keeps no room, and grows with the view's name.
     const compact = parseMarkup(navMenuHtml(items, "7", "Import Data Sources")).querySelector(".nav-group-btn");
     expect([compact?.hasAttribute("data-room"), compact?.querySelectorAll(".nav-row").length]).toEqual([false, 0]);
-  });
-
-  it("shows three long names in shorter words on the line, by their files' names, with each name in full as the tab's title and its name; the menus name them in full", () => {
-    const entry = (id: string, label: string, file = `${label}.csv`) => ({ id, label, file });
-    // A model with each of the three, each in its group.
-    const items = navItems([{ id: "overview", label: "Overview" }, entry("1", "Model Calendar"), entry("2", "Time Ranges"), entry("3", "Modules"), entry("4", "Line Items"),
-      entry("5", "Dynamic Cell Access"), entry("6", "Processes"), entry("7", "Import Data Sources"), { id: "map", label: MAP_LABEL }], true);
-    /** Each group's button on the line: its words, its title, its name for a screen reader, and the room it keeps. */
-    const buttons = (current: string) => parseMarkup(navHtml(items, current)).querySelectorAll(".nav-group-btn").map(button =>
-      [text(button.querySelector(".nav-row span")), button.getAttribute("title"), button.getAttribute("aria-label"), button.getAttribute("data-room")]);
-    const rooms = ["Time\nCalendar\nTime Ranges", "Modules\nModules\nLine Items\nCell Access", "Actions\nProcesses\nData Sources"];
-    // A group that holds the view shown names its table, in shorter words where the table has them, with its name in full
-    // as the button's title and its name. Its room is of the words the line shows, whichever it shows.
-    expect(buttons("1")).toEqual([["Calendar", "Model Calendar", "Model Calendar", rooms[0]], ["Modules", null, null, rooms[1]], ["Actions", null, null, rooms[2]]]);
-    expect([buttons("2")[0], buttons("5")[1], buttons("7")[2]]).toEqual([["Time Ranges", null, null, rooms[0]], ["Cell Access", "Dynamic Cell Access", "Dynamic Cell Access", rooms[1]],
-      ["Data Sources", "Import Data Sources", "Import Data Sources", rooms[2]]]);
-    // The menus name every table in full, with no title of their own; so does the one menu of a narrow window.
-    expect(parseMarkup(navHtml(items, "7")).querySelectorAll(".nav-menu .nav-item").map(item => [text(item), item.hasAttribute("title")]))
-      .toEqual(["Model Calendar", "Time Ranges", "Modules", "Line Items", "Dynamic Cell Access", "Processes", "Import Data Sources"].map(name => [name, false]));
-    expect(parseMarkup(navMenuHtml(items, "7", "Import Data Sources")).querySelectorAll(".nav-item").map(text))
-      .toEqual(["Overview", "Model Calendar", "Time Ranges", "Modules", "Line Items", "Dynamic Cell Access", "Processes", "Import Data Sources", "Model map"]);
-    // One of the three alone in its group is the group's entry on the line: a tab in shorter words, its room of them, with
-    // its name in full as its title and its name.
-    const alone = parseMarkup(navHtml(navItems([entry("1", "Model Calendar")], true), "1")).querySelector(".nav-item");
-    expect([text(alone?.querySelector("span")), alone?.querySelector("span")?.getAttribute("data-room"), alone?.getAttribute("title"), alone?.getAttribute("aria-label")])
-      .toEqual(["Calendar", "Calendar", "Model Calendar", "Model Calendar"]);
-    // The shorter words go by the file's name, never by the table's words: a table of another file under one of the long
-    // names keeps it, and one of the three files under any label shows the shorter words, its label in full as its name.
-    expect(text(parseMarkup(navHtml([entry("1", "Import Data Sources", "Sources of mine.csv")], "")).querySelector("span"))).toBe("Import Data Sources");
-    const renamed = parseMarkup(navHtml([entry("1", "Sources <b>x</b>", "Import Data Sources.csv")], "")).querySelector(".nav-item");
-    expect([text(renamed?.querySelector("span")), renamed?.getAttribute("aria-label"), renamed?.querySelectorAll("b").length]).toEqual(["Data Sources", "Sources <b>x</b>", 0]);
   });
 
   it("writes the one menu of a narrow window: a button that names the view shown, as text, and every item in the line's order, a model's groups each in a section under its name", () => {

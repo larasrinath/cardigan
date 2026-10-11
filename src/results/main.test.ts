@@ -467,9 +467,8 @@ const choose = (nav: string) => {
 };
 /** Opens one of the result's tables from the navigation, by its place among the result's files. */
 const goTo = (table: number) => choose(String(table));
-/** What an entry of the navigation says: its name, which is its words, or the name the line gives a tab whose words are
- * shorter than its table's name (markup.ts `NAV_SHORT_LABELS`). Its icon is a drawing, which says nothing. */
-const entryLabel = (item: FakeElement): string => item.getAttribute("aria-label") ?? item.querySelector("span")?.textContent ?? "";
+/** What an entry of the navigation says: its words. Its icon is a drawing, which says nothing. */
+const entryLabel = (item: FakeElement): string => item.querySelector("span")?.textContent ?? "";
 /** The navigation's entries of the result's tables: those named by the table's place in the result, a number. The
  * overview's entry and a model map's are named by a word. */
 const tableEntries = (): FakeElement[] => page.all("#navList .nav-item").filter(item => /^\d+$/.test(item.dataset.nav ?? ""));
@@ -1296,10 +1295,6 @@ describe("The results page's script, on the page", () => {
       .toEqual([["About this export"], ["Model", "Anaplan host", "Workspace", "Captured on"], ["Model one", "us1a.app.anaplan.com", "Main", "2026-10-03"]]);
     // The navigation lists the same tables in the same order, and counts nothing: the tiles count the rows.
     expect(tableEntries().map(entryLabel)).toEqual(["Model Calendar", "Modules", "Line Items"]);
-    // Its line shows the calendar, a tab of its own, in shorter words, with its name in full as its title and its name; the
-    // tile and the view's heading name it in full.
-    const calendar = page.find('#navList [data-nav="3"]');
-    expect([calendar.querySelector("span")?.textContent, calendar.getAttribute("title"), calendar.getAttribute("aria-label")]).toEqual(["Calendar", "Model Calendar", "Model Calendar"]);
 
     // The table: the calendar's settings that hold a value, none of the rows about the model, and a line that says where
     // those are and how many settings have no value. The template's guidance for filling it in by hand is not shown.
