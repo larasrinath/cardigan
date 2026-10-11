@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { LEAST_GAP, MARKED_WEIGHT, PLAIN_WEIGHT, spreadLine, spreadOf, type ItemRoom, type LineReader, type WeightedText } from "./nav-spread.js";
+import { NAV_GROUPS, navItems } from "./markup.js";
+import { tableLabel } from "./result-view.js";
 
 /** The gap the stylesheet leaves between slots for a line `line` wide (results.css `.nav-list`). */
 const cssGap = (slots: readonly number[], line: number): number => Math.max(1, (line - 1 - slots.reduce((sum, slot) => sum + slot, 0)) / (slots.length - 1));
@@ -47,6 +49,31 @@ function modelLine(shown: string, width: number) {
 }
 
 describe("The navigation's line, spread over its width", () => {
+  it.each([1000, 1280, 1440])("keeps the shorter model bar on one line at %ipx with the same slots for every selected table", width => {
+    const entries = [
+      { id: "overview", label: "Overview" },
+      ...NAV_GROUPS.slice(0, 3).flatMap(group => group.files).map(file => ({ id: file, label: file.replace(/\.csv$/, ""), file })),
+      { id: "source", label: "Source Models", file: "Source Models.csv" },
+      ...NAV_GROUPS[3].files.map(file => ({ id: file, label: file.replace(/\.csv$/, ""), file })),
+      { id: "map", label: "Model map" },
+    ];
+    const items = navItems(entries.map(entry => entry.file ? { ...entry, label: tableLabel(entry) } : entry), true);
+    // Room after the page's gutters and scrollbar. The browser check measures the actual font and spacing too.
+    const available = width - 64;
+    const laid = entries.map(shown => {
+      const bar = line(items.map(entry => {
+        if (!("entries" in entry)) return item(entry.label, entry.id === shown.id);
+        const selected = entry.entries.find(each => each.id === shown.id);
+        return item(selected?.label ?? entry.group.label, !!selected, [entry.group.label, ...entry.entries.map(each => each.label)]);
+      }), available);
+      spreadLine(bar.list, bar.read);
+      const widths = bar.styles.map(style => Number.parseFloat(style.get("width")!));
+      expect(widths.reduce((sum, room) => sum + room, 0) + widths.length - 1).toBeLessThan(available);
+      return [widths, [...bar.set]];
+    });
+    expect(laid).toEqual(entries.map(() => laid[0]));
+  });
+
   it("gives each item a slot of its width at rest where the gaps are wide enough for the view shown's item to grow into them", () => {
     const rooms: ItemRoom[] = [{ rest: 80, widest: 83 }, { rest: 70, widest: 136 }, { rest: 78, widest: 81 }];
     const spread = spreadOf(rooms, 1000);

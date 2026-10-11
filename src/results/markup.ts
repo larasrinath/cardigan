@@ -181,10 +181,10 @@ export const NAV_ICONS = {
   map: navIcon('<path d="M1.8 4.2 5.8 2.5l4.4 1.8 4-1.7v9.2l-4 1.7-4.4-1.8-4 1.7Z"/><path d="M5.8 2.5v9.2M10.2 4.3v9.2"/>'),
   /** A table, with its row of headers and its first column. */
   table: navIcon('<rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M2 6.2h12M6.2 2.5v11"/>'),
-  /** An hourglass: the model's time. */
-  time: navIcon('<path d="M4.5 1.8h7M4.5 14.2h7"/><path d="M5.2 1.8v2.4c0 1.6 2.8 2.6 2.8 3.8S5.2 10.2 5.2 11.8v2.4M10.8 1.8v2.4c0 1.6-2.8 2.6-2.8 3.8s2.8 2.2 2.8 3.8v2.4"/>'),
-  /** A hierarchy, as a list's items stand under their parents. */
-  lists: navIcon('<rect x="5.8" y="1.8" width="4.4" height="3.4" rx="1"/><rect x="1.8" y="10.8" width="4.4" height="3.4" rx="1"/><rect x="9.8" y="10.8" width="4.4" height="3.4" rx="1"/><path d="M8 5.2v2.8M4 10.8V8h8v2.8"/>'),
+  /** Three axes: the dimensions of the model. */
+  dimensions: navIcon('<path d="M8 2v7M2 12.5 8 9l6 3.5M6 4l2-2 2 2M2.5 10l-.5 2.5 2.5.5M11.5 13l2.5-.5-.5-2.5"/>'),
+  /** An app window with a sidebar and page content. */
+  appUsage: navIcon('<rect x="1.8" y="2.2" width="12.4" height="11.6" rx="1.5"/><path d="M1.8 5.5h12.4M5.5 5.5v8.3M8 8.3h3.5M8 11h2"/>'),
   /** Blocks of one size, side by side: the model's modules. */
   modules: navIcon('<rect x="2" y="2" width="5" height="5" rx="1.2"/><rect x="9" y="2" width="5" height="5" rx="1.2"/><rect x="2" y="9" width="5" height="5" rx="1.2"/><rect x="9" y="9" width="5" height="5" rx="1.2"/>'),
   /** A button that runs something: the model's actions. */
@@ -263,14 +263,17 @@ const entryIcon = (entry: NavEntry): string =>
 
 /** The groups a model's navigation gathers its tables in, each a button that opens a menu of the group's tables: in the
  * order of Anaplan's Model settings (result-view.ts `MODEL_FILE_ORDER`), each group by the names the analysis writes its
- * files under, never by a table's words. Versions and Source Models are one file each, and stand in the bar on their own,
+ * files under, never by a table's words. Source Models stands in the bar on its own,
  * as does a file that no group names: none is left out. Each group's ID is the ID of its menu. The page's own words and
  * drawings only: nothing of a result. */
-export const NAV_GROUPS: readonly { id: string; label: string; icon: string; files: readonly string[] }[] = [
-  { id: "navGroupTime", label: "Time", icon: NAV_ICONS.time, files: [MODEL_CALENDAR_FILE, "Time Ranges.csv"] },
-  { id: "navGroupLists", label: "Lists", icon: NAV_ICONS.lists, files: ["General Lists.csv", "Line Item Subsets.csv"] },
+export const NAV_GROUPS: readonly { id: string; label: string; icon: string; files: readonly string[];
+  subgroups?: readonly { label: string; files: readonly string[] }[] }[] = [
+  { id: "navGroupDimensions", label: "Dimensions", icon: NAV_ICONS.dimensions,
+    files: [MODEL_CALENDAR_FILE, "Time Ranges.csv", "Versions.csv", "General Lists.csv", "Line Item Subsets.csv"],
+    subgroups: [{ label: "Time", files: [MODEL_CALENDAR_FILE, "Time Ranges.csv"] }, { label: "Lists", files: ["General Lists.csv", "Line Item Subsets.csv"] }] },
   { id: "navGroupModules", label: "Modules", icon: NAV_ICONS.modules, files: [MODULES_FILE, LINE_ITEMS_FILE, ACCESS_FILE] },
   { id: "navGroupActions", label: "Actions", icon: NAV_ICONS.actions, files: ["Processes.csv", "Imports.csv", "Import Data Sources.csv", "Exports.csv", "Other Actions.csv"] },
+  { id: "navGroupAppUsage", label: "App Usage", icon: NAV_ICONS.appUsage, files: [MODULE_USAGE_FILE, PAGE_FILTERS_FILE, PAGE_ACTIONS_FILE] },
 ];
 
 /** A group of a model's navigation, with the entries of the tables it holds, in their order. */
@@ -279,9 +282,9 @@ export interface NavGroup { group: (typeof NAV_GROUPS)[number]; entries: NavEntr
 export type NavItem = NavEntry | NavGroup;
 const isGroup = (item: NavItem): item is NavGroup => "entries" in item;
 
-/** The navigation's items. Lists keeps its menu even with General Lists alone. A model's tables stand in their groups (`NAV_GROUPS`), each group where its first table stands,
- * with the tables of its files that the result has: a group with none is not there. Outside Lists, a group of one table
- * is that table's own entry, as Versions is. Every other entry keeps its place.
+/** A model's tables stand in their groups (`NAV_GROUPS`), each group where its first table stands,
+ * with the tables of its files that the result has, in the group's file order: a group with none is not there. A group
+ * of one table is that table's own entry. Every other entry keeps its place.
  * An app's entries stand as they are, whatever their files are called: `grouped` is the result's kind, never a file's name. */
 export function navItems(entries: readonly NavEntry[], grouped: boolean): NavItem[] {
   if (!grouped) return [...entries];
@@ -297,7 +300,11 @@ export function navItems(entries: readonly NavEntry[], grouped: boolean): NavIte
       items.push(made);
     } else items.push(entry);
   }
-  return items.map(item => (isGroup(item) && item.entries.length === 1 && item.group.id !== "navGroupLists" ? item.entries[0] : item));
+  return items.map(item => {
+    if (!isGroup(item)) return item;
+    item.entries.sort((a, b) => item.group.files.indexOf(a.file!) - item.group.files.indexOf(b.file!));
+    return item.entries.length === 1 ? item.entries[0] : item;
+  });
 }
 
 /** A menu entry's words, which keep the room of themselves in bold: the stylesheet sets them again under themselves,
@@ -311,6 +318,20 @@ const wordsHtml = (words: string): string => `<span data-room="${esc(words)}">${
 const entryHtml = (entry: NavEntry, current: string, inMenu = true): string =>
   `<button type="button" class="nav-item" data-nav="${esc(entry.id)}"${entry.id === current ? ' aria-current="page"' : ""}${fullAttrs(entry.full)}>${entryIcon(entry)}`
   + `${inMenu ? wordsHtml(entry.label) : `<span>${esc(entry.label)}</span>`}</button>`;
+
+/** A heading names its group without taking focus or being read twice. */
+const navSectionHtml = (label: string, entries: string): string =>
+  `<div class="nav-section" role="group" aria-label="${esc(label)}"><p class="nav-heading" aria-hidden="true">${esc(label)}</p>${entries}</div>`;
+
+/** Both navigation layouts share the same subgroups. A lone table needs no heading. */
+function navGroupHtml(item: NavGroup, current: string): string {
+  return item.entries.map(entry => {
+    const subgroup = item.group.subgroups?.find(each => each.files.includes(entry.file ?? ""));
+    const members = subgroup && item.entries.filter(each => subgroup.files.includes(each.file ?? ""));
+    if (!subgroup || !members || members.length < 2) return entryHtml(entry, current);
+    return entry === members[0] ? navSectionHtml(subgroup.label, members.map(each => entryHtml(each, current)).join("")) : "";
+  }).join("");
+}
 
 /** A button that opens a menu, and the menu, which follows it on the page, so that Tab goes from the button into it: the
  * disclosure pattern. The button says whether its menu is open (main.ts opens and closes it), and names the menu it
@@ -332,7 +353,7 @@ export function navHtml(items: readonly NavItem[], current: string): string {
     if (!isGroup(item)) return entryHtml(item, current, false);
     const shown = item.entries.find(entry => entry.id === current);
     const button = shown ? `${entryIcon(shown)}<span>${esc(shown.label)}</span>` : `${item.group.icon}<span>${item.group.label}</span>`;
-    return menuHtml(item.group.id, button, shown !== undefined, item.entries.map(entry => entryHtml(entry, current)).join(""),
+    return menuHtml(item.group.id, button, shown !== undefined, navGroupHtml(item, current),
       [item.group.label, ...item.entries.map(entry => entry.label)], shown?.full);
   }).join("");
 }
@@ -341,7 +362,7 @@ export function navHtml(items: readonly NavItem[], current: string): string {
  * opens a menu of every item in the same order, a model's groups each under its name. */
 export function navMenuHtml(items: readonly NavItem[], current: string, here: string): string {
   const listed = items.map(item => (isGroup(item)
-    ? `<div class="nav-section" role="group" aria-label="${item.group.label}"><p class="nav-heading" aria-hidden="true">${item.group.label}</p>${item.entries.map(entry => entryHtml(entry, current)).join("")}</div>`
+    ? navSectionHtml(item.group.label, navGroupHtml(item, current))
     : entryHtml(item, current))).join("");
   return menuHtml("navMenu", `${NAV_ICONS.menu}<span>${esc(here)}</span>`, true, listed);
 }
