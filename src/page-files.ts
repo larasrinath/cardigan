@@ -30,7 +30,7 @@ export const FILTER_USES = "Page Filters";
 export type MissingKind = "module" | "line item" | "import" | "export" | "process";
 /** How the three tables name what a card on a page points at and the model does not have, deleted since the page was built
  * or hidden from whoever read it (model-pages.ts): plainly, with its ID, so that a search finds it. A hidden column of IDs
- * holds the ID as ever. */
+ * holds the ID, never these words. */
 export const missingText = (kind: MissingKind, id: string): string => `Missing ${kind} (ID ${id})`;
 /** What Condition line item's module says where the condition line item is missing: nothing says which module it was in,
  * and that module may be in the model still. */
