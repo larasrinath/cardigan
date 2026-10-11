@@ -62,7 +62,7 @@ The menu bar groups the model's tables:
 
 ![Line Items with Format type open, No Data unticked and the tick-all checkbox inside Find](docs/images/model-line-items.png)
 
-**Imports** shows where data comes from and where it goes. For file imports, the row's **Mapping** shows the saved sources and targets, including constants and prompts, and notes targets that are not mapped. It reads the saved definition, not the uploaded file.
+**Imports** shows where data comes from and where it goes. For file imports, the row's **Mapping** shows the saved sources and targets, including constants and prompts, and notes targets that are not mapped. It reads the saved definition, not the uploaded file. If the open page cannot name a property an import maps into, Cardigan reads that list's properties once. Properties it still cannot name keep their IDs, with a note in the diagnostic log.
 
 ![Load promotions file import with its saved Mapping open](docs/images/model-imports.png)
 
