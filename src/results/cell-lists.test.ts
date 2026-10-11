@@ -4,7 +4,7 @@ import { buildReport, HEADERS, type PageInput, type TabName } from "../report.js
 import type { AnalysisResult, Cell, ResultTable } from "../result-types.js";
 import { cellLists, LISTED_COLUMNS, rowItems, type Items } from "./cell-lists.js";
 import { APP_FILES } from "./columns.js";
-import { fileView, MODEL_CALENDAR_FILE, MODEL_FILE_ORDER } from "./result-view.js";
+import { fileView, MODEL_CALENDAR_FILE, MODEL_FILE_ORDER, PROCESSES_FILE } from "./result-view.js";
 import { NONE } from "./table-engine.js";
 
 // Made-up names only. A model's cells are written as the export writes them, after the cells of the golden models
@@ -156,6 +156,33 @@ describe("What a model's cell lists, item by item, for the drawer", () => {
     // Without the Processes table, or with none of its rows, nothing is known to cut by.
     expect(listed(result("model", imports, exports), imports)).toEqual([{}, {}, {}, {}, {}, {}]);
     expect(listed(result("model", { ...processes, rows: [] }, imports), imports)).toEqual([{}, {}, {}, {}, {}, {}]);
+  });
+
+  it("cuts a process's Actions, which the page adds, only into the names the result has for actions", () => {
+    const ACTION_HEADERS = ["", "Notes", "Used in Processes"];
+    const processes = file("Processes", ["", "Notes", "Used in Processes", "Used in Dashboards"], [["Nightly load", "", "", "Admin, Review"], ["Weekly", "", "", ""], ["Daily", "", "", ""]]);
+    // An import whose name holds a comma and a space, as a name may.
+    const imports = file("Imports", ACTION_HEADERS, [["Load prices", "", ""], ["Load prices, full", "", ""], ["Load regions", "", ""]]);
+    const exports = file("Exports", ACTION_HEADERS, [["Send prices", "", ""]]);
+    const others = file("Other Actions", ACTION_HEADERS, [["Delete old items", "", ""]]);
+    const model: AnalysisResult = { ...result("model", processes, imports, exports, others), processActions: [
+      // An action the Actions list does not have is named by its ID, and is known by that name.
+      { id: "118000000001", name: "Nightly load", actions: [{ id: "1", name: "Load prices, full", type: "IMPORT" }, { id: "2", name: "Send prices", type: "EXPORT" },
+        { id: "112000000099", name: "ID 112000000099", type: "IMPORT" }] },
+      { id: "118000000002", name: "Weekly", actions: [{ id: "3", name: "Delete old items", type: "ACTION" }] },
+      { id: "118000000003", name: "Daily", actions: [] }] };
+    const shown = fileView(model, processes).table;
+    expect(shown.file).toBe(PROCESSES_FILE);
+    // One action is no list, and none is an empty cell: neither is cut.
+    expect(listed(model, shown)).toEqual([{ Actions: ["Load prices, full", "Send prices", "ID 112000000099"] }, {}, {}]);
+    expectWhole(shown, listed(model, shown));
+    // Without a name the result knows, the cell is shown whole: a part that is no name may hold a comma.
+    const unknown = { ...shown, rows: [["Nightly load", "Load prices, Gone action", "", ""]] };
+    expect(listed(model, unknown)).toEqual([{}]);
+    // Without any action's name to cut by, nothing is cut.
+    expect(listed(result("model", processes), shown)).toEqual([{}, {}, {}]);
+    // A process's Used in Processes is no column of the page's table: no rule cuts it.
+    expect([...LISTED_COLUMNS.model.get(PROCESSES_FILE)?.keys() ?? []]).toEqual(["Actions"]);
   });
 
   it("lists the Model Calendar's allowed values, in the template's own words", () => {

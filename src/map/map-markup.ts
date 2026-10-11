@@ -160,9 +160,8 @@ export function shellHtml(ids: ShellIds, modelName: string): string {
       <div class="map-searchwrap">
         <div class="map-searchbox">
           ${SEARCH_ICON}
-          <input class="map-search" type="search" placeholder="Search the model…" aria-label="Search all sections, modules and line items" aria-controls="${esc(ids.results)}" autocomplete="off" spellcheck="false">
+          <input class="map-search" type="search" placeholder="Search the model…" aria-label="Search all sections, modules and line items" aria-controls="${esc(ids.results)}" autocomplete="off" spellcheck="false" title="Search the model. Press / to jump here." aria-keyshortcuts="/">
           <span class="map-search-count" aria-hidden="true"></span>
-          <kbd title="Press / to search">/</kbd>
         </div>
         <div class="map-panel map-results" id="${esc(ids.results)}" role="group" aria-label="Search results" hidden></div>
       </div>

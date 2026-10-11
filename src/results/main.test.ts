@@ -2346,7 +2346,7 @@ describe("What a click, a key and typing do on the results page", () => {
     expect(jumped()).toEqual(copies);
     // The page stands as a chip at the head of the table's toolbar, before the search box, with the button that clears it.
     expect([page.find(".toolbar").children.map(child => child.id), page.find('#pageFilter [data-act="clear-context"]').getAttribute("aria-label")])
-      .toEqual([["pageFilter", "searchWrap", "colBtn", "resetBtn", "rowCount", "pager"], "Clear page filter"]);
+      .toEqual([["pageFilter", "searchWrap", "resetBtn", "rowsNav"], "Clear page filter"]);
     // Pages: its second.
     goTo(1);
     page.all('#tableWrap tbody [data-act="page"]')[0].press();
@@ -2499,8 +2499,9 @@ describe("What a click, a key and typing do on the results page", () => {
     await openWith(MODEL);
     goTo(1);
     /** What the view holds, in order, and what the toolbar holds: each element by its ID, or its kind. */
-    const places = () => [page.id("view").children.map(child => child.id || child.localName), page.find(".toolbar").children.map(child => child.id)];
-    const expected = [["h1", "div", "tableWrap"], ["searchWrap", "colBtn", "resetBtn", "rowCount", "pager"]];
+    const places = () => [page.id("view").children.map(child => child.id || child.localName), page.find(".view-head").children.map(child => child.localName),
+      page.find(".toolbar").children.map(child => child.id), page.id("rowsNav").children.map(child => child.id)];
+    const expected = [["div", "tableWrap"], ["h1", "div"], ["searchWrap", "resetBtn", "rowsNav"], ["rowCount", "pager"]];
     expect(places()).toEqual(expected);
     expect([page.id("rowCount").textContent, pagerButtons().join(" "), page.id("pager").contains(page.id("pageSize")), page.id("pageSize").value]).toEqual(["1–50 of 120 rows", "(Previous) Next", true, "50"]);
     // A page turn, another number of rows per page and a search draw the pager again, where it stands.
@@ -2792,7 +2793,7 @@ describe("An app's Where Used table, by object and by use", () => {
     goTo(3);
     // The switch stands at the head of the toolbar, with By object shown: said to assistive technology, and filled.
     expect([page.find(".toolbar").children.map(child => child.id), page.id("tableWays").getAttribute("role"), page.id("tableWays").getAttribute("aria-label"), ways()])
-      .toEqual([["tableWays", "searchWrap", "colBtn", "resetBtn", "rowCount", "pager"], "group", "How Where Used is listed", ["By object (shown) filled", "Every use"]]);
+      .toEqual([["tableWays", "searchWrap", "resetBtn", "rowsNav"], "group", "How Where Used is listed", ["By object (shown) filled", "Every use"]]);
     expect(page.all("#tableWays button").every(button => button.localName === "button" && button.focusable)).toBe(true);
     // One row an object, in the order of an index: by type, then by name. The ID is there to choose, as in the file's own table.
     expect(headings()).toEqual(["Object type", "Object name", "Object's module", "Pages", "Cards", "Used as"]);
@@ -3037,7 +3038,7 @@ describe("An app's Where Used table, by object and by use", () => {
     await openWith(APP);
     goTo(4);
     expect([page.has("#tableWays"), page.find(".toolbar").children.map(child => child.id), page.all("#view .view-note").length, page.id("rowCount").textContent,
-      page.all('#tableWrap tbody [data-act="page"]').length]).toEqual([false, ["searchWrap", "colBtn", "resetBtn", "rowCount", "pager"], 0, "1–2 of 2 rows", 2]);
+      page.all('#tableWrap tbody [data-act="page"]').length]).toEqual([false, ["searchWrap", "resetBtn", "rowsNav"], 0, "1–2 of 2 rows", 2]);
     page.all('#tableWrap tbody [data-act="row"]')[0].press();
     expect(page.texts("#drawerBody h3")).toEqual(["All columns"]);
     page.key("Escape");
@@ -5819,6 +5820,38 @@ describe("The actions of a process, in its row's details", () => {
     openProcess("Nightly load");
     expect(steps()).toEqual([["Action", "Kind"], [["Prices from the hub", "Import"], ["1.1 Load regions", "Import"], ["Delete old items", "Other action"]],
       [PROCESS_LINES.unordered, NOT_READ]]);
+  });
+
+  it("shows each process's actions right after its name, without a Used in Processes, and filters the table by each action", async () => {
+    await openWith(WITH_PROCESSES);
+    goTo(3);
+    const headings = () => page.all("#tableWrap thead .th-sort").map(button => button.textContent.trim());
+    const column = (heading: string) => page.all("#tableWrap tbody tr").map(row => row.children[headings().indexOf(heading)].textContent.trim());
+    expect(headings()).toEqual(["Name", "Actions", "Notes", "Used in Dashboards"]);
+    expect(column("Actions")).toEqual(["Prices from the hub, 1.1 Load regions, Delete old items", "Send plan, 1.1 Load regions, ID 112000000099, Optimise", ""]);
+    // The column chooser has the Actions and no Used in Processes either.
+    page.id("colBtn").press();
+    expect(page.all("#popover .pop-opt").map(option => option.children[1].textContent)).toEqual(["Name", "Actions", "Notes", "Used in Dashboards"]);
+    page.key("Escape");
+    // The Actions column's filter lists each action once, with how many processes run it; a row shows while any of its
+    // actions is ticked.
+    page.find('[data-colfilter="1"]').press();
+    expect(choices()).toEqual([["(blank)", "1", true], ["1.1 Load regions", "2", true], ["Delete old items", "1", true], ["ID 112000000099", "1", true],
+      ["Optimise", "1", true], ["Prices from the hub", "1", true], ["Send plan", "1", true]]);
+    for (const option of page.all("#popover .pop-opt")) if (option.children[1].textContent !== "Send plan") option.children[0].tick();
+    expect(firstCells()).toEqual(["Weekly load"]);
+  });
+
+  it("lists a process's actions in its All columns one to a line, each opening its own row", async () => {
+    await openWith(WITH_PROCESSES);
+    goTo(3);
+    openProcess("Nightly load");
+    const values = new Map(page.all("#drawerBody .d-dl dt").map((name, at) => [name.textContent, page.all("#drawerBody .d-dl dd")[at]]));
+    const actions = values.get("Actions (3)");
+    expect([actions?.querySelectorAll(".cell-list li").map(item => item.textContent), actions?.querySelectorAll('[data-act="item"]').map(link => link.textContent), values.has("Used in Processes")])
+      .toEqual([["Prices from the hub", "1.1 Load regions", "Delete old items"], ["Prices from the hub", "1.1 Load regions", "Delete old items"], false]);
+    actions!.querySelectorAll('[data-act="item"]')[2].press();
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual(["Delete old items", "Row 1 of Other Actions"]);
   });
 
   it("writes every name and kind of a process's actions as text", async () => {

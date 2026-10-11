@@ -14,6 +14,24 @@ A cleaner header, one Timezone pill, and the version and an About page in the me
 - **Links under About this export.** On the Overview, the model's name opens the model in Model Building in the model's tab, and each app under **Apps** opens that app in the tab of apps and pages, as the details' **Model** and **App** buttons do, with their icons after the names. Where the model's tab shows the model in Model Building already, it is only brought to the front, with what is open there: Cardigan asks its script in the tab what the tab shows now. Anywhere else the model's address is loaded, the one Model Building's own model menu links to. An app is a link only where the rows of Module Usage, Page Filters and Page Actions give it one ID; an app of no row, or a name two apps share, stays plain, and so does every name where the result does not say where the model is. (#64)
 - **What stays the same.** What is read, the tables, the map and what the times say. (#64)
 
+## 0.18.11 (10 October 2026)
+
+The Processes table says what each process runs.
+
+- **The actions after the name.** Each process's row lists the actions it runs right after its name, in the order it runs them, as its details number them; where the result does not have that order, the actions whose **Used in Processes** names the process. A process that runs none has the cell empty. (#62)
+- **A filter by each action.** The **Actions** column always offers a filter, which lists each action once with how many processes run it: a process shows while any of its actions is ticked. (#62)
+- **One to a line in the details.** A process's details list its actions under **All columns** one to a line, each opening its own row in Imports, Exports or Other Actions where exactly one row there has its name. (#62)
+- **Two columns fewer.** **Used in Processes**, since Anaplan runs no process inside another, and **Action**, which a process leaves empty: an **Action** that a process does have stays. Imports, Exports and Other Actions keep both. A column choice kept for the tab of a column that is gone is dropped. (#62)
+- **What stays the same.** The numbered **Actions** section of a process's details, what is read from Anaplan, and the other tables. (#62)
+
+## 0.18.10 (10 October 2026)
+
+A table's name and its toolbar share one row, and the toolbar is quieter.
+
+- **One row.** Every table, an app's and a model's, has its name and then its toolbar on one line: the search box, **Reset** when something is in force, and at the right end the count of rows and the pager. The line under a table's name, where it has one, now stands under that row. In a window too narrow for one row, the name takes a line of its own first; the count and the pager go under the search box only after that, and always together: the count, the page buttons and the rows per page are never parted, as they could be before. Under 560 pixels the pager may go under the count, so the page never scrolls sideways. A table with the switch of ways or a page's chip keeps them at the toolbar's head. (#61)
+- **The column chooser is in the search box.** The **Columns** button is gone: a button with three lines at the search box's right end, set off by a thin line, opens the same chooser. Its tooltip and its name for screen readers say **Show or hide columns**. (#61)
+- **No key drawn in the search boxes.** The search boxes of the tables and of the model map no longer show a `/` key. The key still reaches them, and their tooltips and `aria-keyshortcuts` say so. (#61)
+
 ## 0.18.9 (10 October 2026)
 
 Three small mends: a module's code on the model map, what Forget this result forgets, and two tests that a busy machine could fail.

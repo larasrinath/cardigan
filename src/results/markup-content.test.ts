@@ -5,7 +5,7 @@ import { columnsOf, type Column } from "./columns.js";
 import { parseMarkup, type FakeElement } from "./dom.test-support.js";
 import { cardDrawerHtml, cardDrawerSubHtml, cellHtml, colChooserHtml, colFilterHtml, FILE_ICONS, FILTER_FIND_FROM, FILTER_LISTED_MAX, filterMatches, filterOptionsHtml, filterStatusText,
   filterTickWords, FORGOTTEN_LINE, keptCopyHtml, MAP_FAILED, MAP_LABEL, mapHtml, NAV_ICONS, navHtml, navItems, navMenuHtml, NOT_REMOVED_LINE, objectDrawerHtml, objectDrawerSubHtml, overviewHtml, pagerHtml, rangeFilterHtml, rowCellHtml, rowDrawerHtml, sourceModelHtml, tableHtml, USES_AT_FIRST, type KeptCopy, type Links, type NavItem,
-  type TableView } from "./markup.js";
+  SEARCH_TITLE, type TableView } from "./markup.js";
 import type { Overview } from "./result-view.js";
 import { dayOf, NONE, pageOf, rangeColumn, selectRows } from "./table-engine.js";
 import type { WhereUsedObject } from "./where-used-view.js";
@@ -262,14 +262,17 @@ describe("What the results page's markup shows", () => {
     expect(frame({ from: 51, to: 100, total: 120, all: 120 })[4]).toBe("51–100 of 120 rows");
   });
 
-  it("puts the pager at the right end of the toolbar, after the count, and nothing under the table", () => {
-    /** What the view holds, in order, and what its toolbar holds: each element by its ID, or by its class. */
+  it("puts a table's name and its toolbar in one row, the count and then the pager at the toolbar's right end as one group, and nothing under the table", () => {
+    /** What the view holds, in order, what its head holds, what its toolbar holds and what the group at the toolbar's right
+     * end holds: each element by its ID, or by its class. */
     const places = (overrides: Partial<TableView>) => {
       const view = parseMarkup(tableHtml(viewOf(CARDS, LINKS, overrides)));
-      const name = (element: { id: string; localName: string; classList: { contains(name: string): boolean } }) => element.id || (element.classList.contains("toolbar") ? "toolbar" : element.localName);
-      return [view.children.map(name), view.querySelector(".toolbar")?.children.map(name), view.querySelector("#pager")?.classList.contains("pager")];
+      const name = (element: { id: string; localName: string; classList: { contains(name: string): boolean } }) =>
+        element.id || (element.classList.contains("toolbar") ? "toolbar" : element.classList.contains("view-head") ? "head" : element.localName);
+      return [view.children.map(name), view.querySelector(".view-head")?.children.map(name), view.querySelector(".toolbar")?.children.map(name),
+        view.querySelector("#rowsNav")?.children.map(name), view.querySelector("#pager")?.classList.contains("pager")];
     };
-    const expected = [["h1", "toolbar", "tableWrap"], ["searchWrap", "colBtn", "resetBtn", "rowCount", "pager"], true];
+    const expected = [["head", "tableWrap"], ["h1", "toolbar"], ["searchWrap", "resetBtn", "rowsNav"], ["rowCount", "pager"], true];
     expect(places({})).toEqual(expected);
     // The same with several pages, with a search in force, and with no row to show, where the pager is empty.
     expect(places({ page: 1, pages: 3, from: 51, to: 100, total: 120, all: 120 })).toEqual(expected);
@@ -279,6 +282,25 @@ describe("What the results page's markup shows", () => {
     const pager = parseMarkup(tableHtml(viewOf(CARDS, LINKS, { page: 1, pages: 3, from: 51, to: 100, total: 120, all: 120 }))).querySelector("#pager");
     expect([pager?.querySelectorAll(".pg-btn[data-page]").map(button => button.getAttribute("aria-label")), pager?.querySelectorAll("select").map(list => list.id)])
       .toEqual([["Previous page", "Next page"], ["pageSize"]]);
+  });
+
+  it("puts the column chooser inside the search box, at its right end, named in words, and draws no key there: the box's title says that / reaches it", () => {
+    for (const overrides of [{}, { search: "sales", total: 1, to: 1 }, { rows: [], total: 0, from: 0, to: 0, search: "x" }]) {
+      const view = parseMarkup(tableHtml(viewOf(CARDS, LINKS, overrides)));
+      const box = view.querySelector("#searchWrap");
+      // The search box holds its drawing, the box, the cross that empties it and, last, the column chooser.
+      expect(box?.children.map(child => child.id || child.getAttribute("class") || child.localName)).toEqual(["svg", "tblSearch", "search-clear", "colBtn"]);
+      const chooser = view.querySelector("#colBtn");
+      expect([chooser?.parentElement === box, chooser?.getAttribute("class"), chooser?.getAttribute("type"), chooser?.getAttribute("aria-label"), chooser?.title,
+        chooser?.getAttribute("aria-haspopup"), chooser?.getAttribute("aria-expanded"), text(chooser), chooser?.querySelector("svg")?.getAttribute("aria-hidden")])
+        .toEqual([true, "search-cols", "button", "Show or hide columns", "Show or hide columns", "dialog", "false", "", "true"]);
+      // No key is drawn in the box, nor anywhere in the table's view: its title and aria-keyshortcuts say it.
+      const input = view.querySelector("#tblSearch");
+      expect([view.querySelectorAll("kbd").length, input?.title, input?.getAttribute("aria-keyshortcuts"), input?.getAttribute("placeholder")])
+        .toEqual([0, SEARCH_TITLE, "/", "Search all columns…"]);
+      // Reset stands beside the box, after it, not in it.
+      expect([view.querySelector("#resetBtn")?.parentElement === view.querySelector(".toolbar"), box?.querySelectorAll("#resetBtn").length]).toEqual([true, 0]);
+    }
   });
 
   it("says why a table shows no row: it has none, or nothing matches what is in force", () => {
@@ -647,7 +669,7 @@ describe("What the results page's markup shows", () => {
   it("puts the switch between a table's ways at the head of its toolbar: a button a way, the shown one said and filled", () => {
     const ways = [{ way: "object", label: "By object", chosen: true }, { way: "use", label: "Every use", chosen: false }];
     const view = parseMarkup(tableHtml(viewOf(CARDS, LINKS, { ways })));
-    expect(view.querySelector(".toolbar")?.children.map(child => child.id)).toEqual(["tableWays", "searchWrap", "colBtn", "resetBtn", "rowCount", "pager"]);
+    expect(view.querySelector(".toolbar")?.children.map(child => child.id)).toEqual(["tableWays", "searchWrap", "resetBtn", "rowsNav"]);
     const group = view.querySelector("#tableWays");
     expect([group?.getAttribute("role"), group?.getAttribute("aria-label"), group?.children.map(child => child.localName)]).toEqual(["group", "How Cards is listed", ["button", "button"]]);
     expect(group?.children.map(button => [text(button), button.dataset.way, button.getAttribute("aria-pressed"), button.classList.contains("primary"), button.getAttribute("type")]))
@@ -764,11 +786,13 @@ describe("What the results page's markup shows", () => {
   it("says under a table's name what the table leaves out, as text, and nothing for a table that lists every row", () => {
     const noted = parseMarkup(tableHtml(viewOf(CARDS, LINKS, { note: "5 rows about the model <i>are</i> not listed here." })));
     expect([noted.children.map(child => child.id || child.localName), noted.querySelectorAll(".view-note").map(text), noted.querySelectorAll("i").length])
-      .toEqual([["h1", "p", "div", "tableWrap"], ["5 rows about the model <i>are</i> not listed here."], 0]);
+      .toEqual([["div", "p", "tableWrap"], ["5 rows about the model <i>are</i> not listed here."], 0]);
     // Its look is the stylesheet's, by its class.
     expect([noted.querySelector("p")?.classList.contains("view-note"), noted.querySelector("p")?.hasAttribute("style")]).toEqual([true, false]);
     const plain = parseMarkup(tableHtml(viewOf(CARDS, LINKS)));
-    expect([plain.children.map(child => child.id || child.localName), plain.querySelectorAll(".view-note").length]).toEqual([["h1", "div", "tableWrap"], 0]);
+    expect([plain.children.map(child => child.id || child.localName), plain.querySelectorAll(".view-note").length]).toEqual([["div", "tableWrap"], 0]);
+    // The line stands under the table's head, the name and the toolbar's row: never between the two.
+    expect(noted.querySelector(".view-head")?.children.map(child => child.localName)).toEqual(["h1", "div"]);
   });
 
   it("writes the navigation's entries in the order given, a model's map among them as an entry like the others, each with its icon before its words", () => {
@@ -890,11 +914,11 @@ describe("What the results page's markup shows", () => {
       .toEqual([["button", "clear-context", "Clear page filter", true, "true"]]);
     // At the head of the toolbar, before the search box; after the switch of a table that has one.
     const toolbar = (overrides: Partial<TableView>) => parseMarkup(tableHtml(viewOf(CARDS, LINKS, overrides))).querySelector(".toolbar")?.children.map(child => child.id);
-    expect(toolbar({ context: "Stores" })).toEqual(["pageFilter", "searchWrap", "colBtn", "resetBtn", "rowCount", "pager"]);
+    expect(toolbar({ context: "Stores" })).toEqual(["pageFilter", "searchWrap", "resetBtn", "rowsNav"]);
     expect(toolbar({ context: "Stores", ways: [{ way: "object", label: "By object", chosen: true }, { way: "use", label: "Every use", chosen: false }] }))
-      .toEqual(["tableWays", "pageFilter", "searchWrap", "colBtn", "resetBtn", "rowCount", "pager"]);
+      .toEqual(["tableWays", "pageFilter", "searchWrap", "resetBtn", "rowsNav"]);
     // Without a jump there is no chip: the page's name is not kept, and the toolbar is as it always was.
-    expect([chip({}), toolbar({})]).toEqual([null, ["searchWrap", "colBtn", "resetBtn", "rowCount", "pager"]]);
+    expect([chip({}), toolbar({})]).toEqual([null, ["searchWrap", "resetBtn", "rowsNav"]]);
     // Its look is the stylesheet's: the page writes no style for it.
     expect(kept?.hasAttribute("style")).toBe(false);
   });
