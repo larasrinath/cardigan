@@ -1035,12 +1035,12 @@ describe("What a source model gives, as its row's details write it", () => {
   const TAG = "<img src=x onerror=alert(1)>";
   it("writes its objects and its imports as text, each a link only where the page can open its row, with the lines under them", () => {
     const view = parseMarkup(sourceModelHtml({ sources: [{ name: `Hub ${TAG}`, kind: "Saved view", row: 0 }, { name: "DAT01", kind: TAG, row: 1 }],
-      imports: [{ name: "IMP01", from: [`Hub ${TAG}`, "DAT01"] }], sourceLines: ["Sources counts 3; 2 are found in Import Data Sources."], importLines: [] }, [4, undefined], [undefined]));
+      imports: [{ name: "IMP01", from: [`Hub ${TAG}`, "DAT01"] }], sourceLines: ["Sources counts 3; 2 are found in Data Sources."], importLines: [] }, [4, undefined], [undefined]));
     expect(view.querySelectorAll("img")).toEqual([]);
     expect(view.querySelectorAll("h3").map(heading => heading.textContent)).toEqual(["Sources (2)", "Imports (1)"]);
     expect(view.querySelectorAll("#drawerSources tbody tr").map(row => row.children.map(cell => cell.textContent))).toEqual([[`Hub ${TAG}`, "Saved view"], ["DAT01", TAG]]);
     expect(view.querySelectorAll('#drawerSources [data-act="item"]').map(link => [link.textContent, link.dataset.item])).toEqual([[`Hub ${TAG}`, "4"]]);
-    expect(view.querySelectorAll("#drawerSources p").map(line => line.textContent)).toEqual(["Sources counts 3; 2 are found in Import Data Sources."]);
+    expect(view.querySelectorAll("#drawerSources p").map(line => line.textContent)).toEqual(["Sources counts 3; 2 are found in Data Sources."]);
     expect(view.querySelectorAll("#drawerSourceImports tbody tr").map(row => row.children.map(cell => cell.textContent))).toEqual([["IMP01", `Hub ${TAG}, DAT01`]]);
     expect(view.querySelectorAll('#drawerSourceImports [data-act="item"]')).toEqual([]);
   });
