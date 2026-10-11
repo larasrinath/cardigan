@@ -2,7 +2,7 @@ import { MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE } from "../page
 import type { Items } from "./cell-lists.js";
 import { headerWidth, ROW_BUTTON, WIDEST } from "./column-widths.js";
 import { APP_FILES, rowColumns, type Column } from "./columns.js";
-import { REFRESH_AND_RUN } from "./connection.js";
+import { REFRESH_AND_RUN, type RunState } from "./connection.js";
 import type { MappingView } from "./import-mapping-view.js";
 import type { ProcessView } from "./process-actions-view.js";
 import type { SourceModelView } from "./source-model-view.js";
@@ -478,11 +478,29 @@ function numberSize(tile: OverviewTile): string {
 
 /* ---------- the run, before there is a result ---------- */
 
+/** A drawn mark for the run's state. The adjacent heading names it for assistive technology. */
+export function runIconHtml(phase: RunState["phase"]): string {
+  const kind = phase === "old-reader" || phase === "missing-reader" ? "refresh"
+    : phase === "maintenance" || phase === "model-opening" ? "clock"
+    : phase === "connecting" || phase === "running" ? "progress"
+    : phase === "not-anaplan" || phase === "no-tab" || phase === "no-subject" || phase === "ready" || phase === "done" ? "info" : "warning";
+  const paths = {
+    info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7v.2"/>',
+    warning: '<path d="m10.3 4-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3l-8-14a2 2 0 0 0-3.4 0Z"/><path d="M12 9v5M12 17v.2"/>',
+    clock: '<circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/>',
+    refresh: '<path d="M20 4v6h-6M4 20v-6h6"/><path d="M4.6 8a8.5 8.5 0 0 1 14-3L20 10M4 14l1.4 5a8.5 8.5 0 0 0 14-3"/>',
+    progress: '<circle cx="12" cy="12" r="9" stroke-dasharray="42 15"/>',
+  };
+  return `<svg data-run-icon="${kind}" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[kind]}</svg>`;
+}
+
 /** The view while the page connects and the analysis runs, and when it could not: a heading, the status or the message,
  * what to do, and the diagnostic log. It holds no text of its own: the page sets each part as plain text. */
 export function runHtml(): string {
   return `
+  <div class="run-state">
     <section class="panel run-card" id="runCard" aria-labelledby="runTitle">
+      <div class="run-mark" id="runIcon" aria-hidden="true"></div>
       <h1 class="view-title" id="runTitle"></h1>
       <p id="runStatus"></p>
       <p class="run-hint" id="runHint"></p>
@@ -493,11 +511,12 @@ export function runHtml(): string {
       </div>
     </section>
     <details class="diag run-log" id="runLog" hidden>
-      ${DIAGNOSTICS_SUMMARY}
+      <summary>${CARET}<span class="when-closed">Show diagnostics</span><span class="when-open">Hide diagnostics</span></summary>
       <div class="diag-body">
         <pre id="diagLog" tabindex="0" role="region" aria-label="Diagnostic log"></pre>
       </div>
-    </details>`;
+    </details>
+  </div>`;
 }
 
 /** The banner a run's progress or failure stands in while an earlier result stays on the page: a heading, the status or
