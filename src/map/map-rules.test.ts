@@ -125,19 +125,25 @@ describe("The map's sources", () => {
 });
 
 describe("The map's stylesheet", () => {
-  it("keeps one 32-pixel bar and truncates long status text while panels float above it", () => {
-    const rules = (selector: string): string[] => [...STYLES.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
-      .filter(([, selectors]) => selectors.trim() === selector).map(([, , body]) => body);
-    const bar = rules(".map-dock").join(";");
-    expect(bar).toContain("display:flex");
-    expect(bar.match(/(?:^|;)height:[^;}]*/g)).toEqual([";height:32px"]);
-    expect(bar).not.toMatch(/wrap|grid-template-rows/);
-    expect(rules(".map-status").join(";")).toContain("min-width:0");
-    expect(rules(".map-status").join(";")).toContain("flex:0 1 360px");
-    const stats = rules(".map-stats").join(";");
-    for (const property of ["overflow:hidden", "text-overflow:ellipsis", "white-space:nowrap"]) expect(stats).toContain(property);
-    for (const selector of [".map-over", ".map-minimap-wrap"]) expect(rules(selector).join(";")).toContain("position:absolute");
-    expect(rules(".map-minimap-wrap").join(";")).not.toContain("display:none");
+  it("floats matching corner clusters over a full-height canvas, with shrinking counts and panels above", () => {
+    const rules = (selector: string): string => [...STYLES.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .filter(([, selectors]) => selectors.trim() === selector).map(([, , body]) => body).join(";");
+    expect(STYLES).not.toContain(".map-dock");
+    for (const property of ["position:absolute", "inset:0", "height:100%", "width:100%"]) expect(rules(".map-canvas")).toContain(property);
+    for (const property of ["position:absolute", "justify-content:space-between", "gap:10px", "pointer-events:none"]) expect(rules(".map-clusters")).toContain(property);
+    expect(rules(".map-clusters")).not.toMatch(/background:|border:|padding:|wrap/);
+    expect(rules(".map-cluster")).toContain("height:36px");
+    expect(rules(".map-cluster")).toContain("border-radius:999px");
+    expect(rules(".map-btn")).toContain("height:28px");
+    expect(rules(".map-cluster .map-btn")).toContain("flex:none");
+    expect(rules(".map-summary")).toContain("flex:0 1 390px");
+    expect(rules(".map-status")).toContain("min-width:0");
+    for (const property of ["overflow:hidden", "text-overflow:ellipsis", "white-space:nowrap"]) expect(rules(".map-stats")).toContain(property);
+    for (const selector of [".map-over", ".map-minimap-wrap"]) expect(rules(selector)).toContain("position:absolute");
+    expect(rules(".map-minimap-wrap")).toContain("bottom:44px");
+    expect(STYLES).toContain("@container map (max-width:500px)");
+    expect(rules(".map-summary .map-btn")).toContain("width:28px");
+    expect(rules(".map-control-label")).toContain("display:none");
   });
 
   it("names every class with the map's prefix, and styles nothing by an id or outside the map", () => {

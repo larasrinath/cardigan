@@ -167,9 +167,9 @@ The module pill opens **every module under its group heading**, with no count li
 
 ![The module picker open over the model map, listing modules under Functional area headings with a Find a module search box](docs/images/map-module-picker.png)
 
-The map search finds groups, modules and line items across the model. Drag to move, scroll to zoom, or press `F` to fit the whole map. In **Legend**, click a group to show or hide its boxes. **Full screen** gives the map the screen, or the browser window when full screen is unavailable; its button or `Esc` leaves it. **About this map** lists keyboard shortcuts and anything the map could not place.
+The map search finds groups, modules and line items across the model. Drag to move, scroll to zoom, or press `F` to fit the whole map. In **Legend**, click a group to show or hide its boxes. **Full screen** gives the map the screen, or the browser window when full screen is unavailable; its button or `Esc` leaves it. **About** lists keyboard shortcuts and anything the map could not place.
 
-One slim bar at the bottom holds the counts, **Legend**, **About this map**, zoom, **Fit** and a drawn **Minimap** button. It keeps the same height at every level and in full screen. Long counts end with an ellipsis; hover to read them in full. The minimap starts hidden and opens above the bar's right end. Opening any of these panels leaves the boxes and camera in place.
+Two rounded clusters float over the bottom corners, leaving the map its full height. The left holds the counts, **Legend** and **About**, with drawn icons; the right holds zoom, **Fit** and **Minimap** as one segmented control. They stay the same in full screen and keep apart on narrow maps, where the left buttons use their icons. Long counts end with an ellipsis; hover to read them in full. Legend and About open upward. The minimap starts hidden, opens just above the right cluster and keeps its choice for the tab. Opening panels leaves the boxes and camera in place; covered boxes count as out of view and can still be reached through search or the keyboard.
 
 A refresh or **Run again** keeps the map's level, group or module, links and selected box where its name and module or parent still match exactly one box. Edited formulas and counts do not lose it. Zoom, position, search and full screen may reset. **Forget this result** starts it afresh.
 
@@ -294,7 +294,7 @@ Closing the results page stops the reading.
 - In **DCA**, a driver that cannot be matched to a line item is listed last, as Line Items has it and with no **Driver Module**, and the page says how many there are. The table is not made when Line Items was not read.
 - Formula links from a Classic client read come from reference columns such as **Referenced By**, for either engine; the partial Polaris reader matches formula links by name. Access driver columns and Page Filters supply their own kinds of link. The map shows formulas as text and does not evaluate them.
 - The map draws groups, modules, line items and the lists that formulas name. Processes and actions are not drawn; a module's details name the imports that load into it.
-- **About this map**, at the foot of the map, says what the map leaves out and could not place for this model, such as a line item named twice in one module.
+- **About**, at the bottom-left of the map, says what the map leaves out and could not place for this model, such as a line item named twice in one module.
 - A large view is shown whole with names cut short: point at a box to read its name. One too large even for that opens on its start, and **Whole map** shows all of it.
 - The map stays up during **Run again** and is rebuilt in place on the same view, group or module and links when the new result arrives. A refresh keeps these too, along with the selected box and its details, by name where it still exists. Zoom and position, search and full screen may reset. **Forget this result** starts it afresh.
 - A result over 64 MB as JSON, or 9 MB compressed, is not kept for a refresh; the page says so.
