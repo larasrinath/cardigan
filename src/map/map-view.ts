@@ -137,7 +137,8 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   const canvas = part<HTMLCanvasElement>(".map-canvas");
   const miniCanvas = part<HTMLCanvasElement>(".map-minimap");
   const stats = part(".map-stats");
-  const wholeButton = part<HTMLButtonElement>('[data-map-act="whole"]');
+  const miniWrap = part(".map-minimap-wrap");
+  const miniButton = part<HTMLButtonElement>('[data-map-act="minimap"]');
   const notes = part(".map-notes");
   const pathRoot = part(".map-path-root");
   const groupName = part(".map-group-name");
@@ -174,7 +175,6 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   const aboutButton = part<HTMLButtonElement>('[data-map-act="about"]');
   const dock = part(".map-dock");
   const status = part(".map-status");
-  const corner = part(".map-corner");
   const inspector = part(".map-inspector");
   const selectionPanel = part(".map-selection");
   const free = part(".map-free");
@@ -210,6 +210,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   let access = false;
   /** Whether the links of the pages' filters are drawn: only where the model has some (`filtersDrawable`). */
   let filters = false;
+  let minimapOpen = false;
   /** A model whose modules stand under one heading, or under none: it has no sections to show, and opens on its modules. */
   let single = false;
   let onScreen: ViewGraph | undefined;
@@ -217,7 +218,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   /** Where the camera is going, while it is on its way. */
   let heading: Camera | undefined;
   /** Whether the picture is to show the whole graph: it was fitted so as it opened, or the user asked for the whole of
-   * it (F, Fit, Whole map), and has not moved it since. It is then fitted again whenever its room changes, as far as
+   * it (F or Fit), and has not moved it since. It is then fitted again whenever its room changes, as far as
    * its names stay readable. */
   let wantsWhole = false;
   /** Whether a node was dragged: the graph then keeps its places when the room changes. */
@@ -297,7 +298,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     const scene = { graph: onScreen, camera, width, height, palette, shown: shownNodes, trace, matches, order, time: moves ? time : undefined, formulas };
     pen.setTransform(ratio, 0, 0, ratio, 0, 0);
     const tracing = drawScene(pen, scene, fonts);
-    if (miniPen) {
+    if (miniPen && minimapOpen) {
       miniPen.setTransform(ratio, 0, 0, ratio, 0, 0);
       minimap = drawMinimap(miniPen, scene, MINIMAP.width, MINIMAP.height);
     }
@@ -421,7 +422,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   function freeRooms(): Insets[] | undefined {
     const freeArea = areaOf(free);
     if (!freeArea || freeArea.right - freeArea.left <= 2 * FIT_MARGIN || freeArea.bottom - freeArea.top <= 2 * FIT_MARGIN) return undefined;
-    const panels = [areaOf(legend), areaOf(about), areaOf(dock), areaOf(corner), areaOf(selectionPanel)].filter((area): area is Area => area !== undefined);
+    const panels = [areaOf(legend), areaOf(about), areaOf(dock), areaOf(miniWrap), areaOf(selectionPanel)].filter((area): area is Area => area !== undefined);
     return roomsBeside(freeArea, panels).map(room => insetsOf(room, width, height, FIT_MARGIN)).filter(room => width - room.l - room.r > 80 && height - room.t - room.b > 60);
   }
 
@@ -439,7 +440,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   function openRooms(): Insets[] {
     const freeArea = areaOf(free);
     if (!freeArea) return [defaultInsets(width, height, selected !== undefined)];
-    const panels = [areaOf(legend), areaOf(about), areaOf(dock), areaOf(corner), areaOf(selectionPanel)].filter((area): area is Area => area !== undefined);
+    const panels = [areaOf(legend), areaOf(about), areaOf(dock), areaOf(miniWrap), areaOf(selectionPanel)].filter((area): area is Area => area !== undefined);
     const found = roomsBeside(freeArea, panels).map(room => insetsOf(room, width, height));
     return found.length ? found : [insetsOf(freeArea, width, height)];
   }
@@ -471,7 +472,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
    * user has taken further away than that is taken no further. */
   const leastZoom = (current: ViewGraph, from: Camera): number => Math.min(legibleFrom(current), from.k) - 1e-9;
 
-  /** Shows the whole picture at once, as the user asks for it (F, Fit, Whole map), however small that makes it. */
+  /** Shows the whole picture at once, as the user asks for it (F or Fit), however small that makes it. */
   function fit(animate: boolean): void {
     if (!onScreen || width <= 0 || height <= 0) {
       needsFit = true;
@@ -649,7 +650,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     for (let pass = 0; pass < 3; pass++) {
       // In view is what stands in the graph's own room: a box under the bar or the details is not, nor is one under the
       // legend, the notes or the small picture.
-      const covered = [areaOf(legend), areaOf(about), areaOf(corner), areaOf(selectionPanel)].filter((area): area is Area => area !== undefined);
+      const covered = [areaOf(dock), areaOf(legend), areaOf(about), areaOf(miniWrap), areaOf(selectionPanel)].filter((area): area is Area => area !== undefined);
       const places = covered.map(area => `${area.left} ${area.top} ${area.right} ${area.bottom}`).join(", ");
       if (places === counted) break;
       counted = places;
@@ -657,7 +658,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
       // The full status stays visible with or without a selection.
       const said = statusWords(onScreen, shownCount, inView, false, linksDrawn());
       if (stats.textContent !== said) stats.textContent = said;
-      wholeButton.hidden = inView >= shownCount;
+      stats.title = said;
       status.hidden = false;
     }
   }
@@ -668,7 +669,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     // Not whole: the longest the line can be, with one box out of view.
     const said = statusWords(onScreen, shownCount, whole ? shownCount : Math.max(0, shownCount - 1), false, linksDrawn());
     if (stats.textContent !== said) stats.textContent = said;
-    wholeButton.hidden = whole;
+    stats.title = said;
     status.hidden = false;
   }
 
@@ -680,7 +681,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
       onScreen.edges.some(edge => edge.filter) ? onScreen.kind : undefined, onScreen.nodes.some(node => node.filterMark) ? onScreen.kind : undefined,
       { formulas, access: onScreen.edges.some(edge => !edge.filter && !edge.formulaOnly), none: linksDrawn() === "none" },
       onScreen.nodes.some(node => node.accessMark) ? onScreen.kind : undefined);
-    legendButton.hidden = onScreen.layers.length === 0;
+    legendButton.disabled = onScreen.layers.length === 0;
   }
 
   /** The group the module shown stands in, where the model has groups to show. */
@@ -710,6 +711,8 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
 
   function renderControls(): void {
     if (!model) return;
+    miniWrap.hidden = !minimapOpen;
+    miniButton.setAttribute("aria-pressed", String(minimapOpen));
     groupingField.hidden = false;
     groupingSelect.value = model.grouping?.kind ?? "";
     externalCheck.hidden = view !== "drill";
@@ -756,8 +759,8 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     if (!model || !onScreen) return;
     const nothing = onScreen.nodes.length === 0;
     empty.hidden = !nothing;
-    // With nothing drawn there is nothing to zoom, and no small picture of it.
-    corner.hidden = nothing;
+    // Empty views keep the same bar, with their zoom controls disabled.
+    for (const action of ["zoom-out", "zoom-in", "fit"]) part<HTMLButtonElement>(`[data-map-act="${action}"]`).disabled = nothing;
     if (!nothing) empty.innerHTML = "";
     // Why there are none is the graph's to say, in whichever of its sentences: all of them are listed under the map's own.
     else if (model.modules.length === 0) empty.innerHTML = emptyHtml("No modules to draw", "This export holds no modules, so there is nothing to map.", graph.limitations);
@@ -1038,7 +1041,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
    * which links are drawn. The groups as a whole say no group, as does a model with no groups to show. */
   function viewNow(): MapView {
     const drawn = { ...(formulas ? {} : { noFormulas: true }), ...(access ? { access: true } : {}), ...(filters ? { filters: true } : {}),
-      ...(selected && model ? { selected: selectionKey(model, selected) } : {}) };
+      ...(minimapOpen ? { minimap: true } : {}), ...(selected && model ? { selected: selectionKey(model, selected) } : {}) };
     if (view === "drill" && moduleId !== undefined) {
       const module = model?.node(moduleId);
       if (module) return { view: "drill", module: module.name, ...(expanded ? { others: true } : {}), ...drawn };
@@ -1060,6 +1063,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
    * model no longer has, a module or a group of that name, is let go, and the map opens as it opens by itself. */
   function takeView(left: MapView | undefined): void {
     if (!model || !left || typeof left !== "object") return;
+    minimapOpen = left.minimap === true;
     formulas = left.noFormulas !== true;
     access = left.access === true && model.accessEdges.length > 0;
     filters = left.filters === true && filtersDrawable();
@@ -1263,7 +1267,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
 
   /** Opens or closes one of the two panels that stand over the canvas: the legend, or the notes about the map. Where
    * the map has no room for both (a narrow map, or one in which the two would leave the picture none), the one that
-   * opens closes the other. The picture is then brought into the room that is left, as far as its names stay readable. */
+   * opens closes the other. Both float above the bar without moving the camera or any box. */
   function setPanel(panel: HTMLElement, open: boolean): void {
     const show = (which: HTMLElement, shown: boolean): void => {
       which.hidden = !shown;
@@ -1273,7 +1277,8 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     show(panel, open);
     const other = panel === legend ? about : legend;
     if (open && !other.hidden && (width <= NARROW || freeRooms()?.length === 0)) show(other, false);
-    reframe(true);
+    renderStatus();
+    invalidate();
   }
 
   /* ---------- focus ---------- */
@@ -1316,7 +1321,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
         setOnlyTrace(!onlyTrace);
         focusOn(inspector.querySelector<HTMLElement>('[data-map-act="focus"]'));
         break;
-      case "fit": case "whole":
+      case "fit":
         if (onlyTrace) {
           onlyTrace = false;
           refreshShown();
@@ -1328,6 +1333,14 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
       case "zoom-out": zoom(1 / 1.3); break;
       case "legend": setPanel(legend, legend.hidden); break;
       case "about": setPanel(about, about.hidden); break;
+      case "minimap":
+        minimapOpen = !minimapOpen;
+        miniWrap.hidden = !minimapOpen;
+        miniButton.setAttribute("aria-pressed", String(minimapOpen));
+        renderStatus();
+        invalidate();
+        tellView();
+        break;
       case "layer": {
         const layer = data.mapLayer ?? "";
         if (hiddenLayers.has(layer)) hiddenLayers.delete(layer); else hiddenLayers.add(layer);
@@ -1706,7 +1719,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   }), { passive: false });
 
   miniCanvas.addEventListener("pointerdown", guarded(event => {
-    if (!minimap) return;
+    if (!minimapOpen || !minimap) return;
     const box = miniCanvas.getBoundingClientRect();
     const scale = box.width > 0 ? MINIMAP.width / box.width : 1;
     const worldX = ((event.clientX - box.left) * scale - minimap.ox) / minimap.s;

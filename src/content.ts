@@ -1,9 +1,10 @@
 import { analyseApp } from "./analyse.js";
-import { exportInCore, greetFrames, openInCore, watchCore, watchProbes, type CoreHandle, type FrameProbe } from "./bridge.js";
+import { greetFrames, openInCore, runInCore, waitForCore, watchCore, watchProbes, type CoreHandle, type FrameProbe } from "./bridge.js";
 import { readPolarisModel, startModelPages } from "./model-pages.js";
 import { detectModelEngine } from "./model-engine.js";
 import { diagnosticRows, stampLine } from "./details.js";
-import { firstLine, type Progress } from "./progress.js";
+import { firstLine, ModelUnavailable, type Progress } from "./progress.js";
+import type { AnalysisResult } from "./result-types.js";
 import type { Subject } from "./protocol.js";
 import { RestError } from "./rest.js";
 import { maintenanceHeading } from "./maintenance.js";
@@ -81,7 +82,8 @@ if (window.top === window) {
     }
   };
 
-  /** A model's run: its export through its frame, and beside it the pages built on the model with the model's names,
+  /** A model's run: wait for its Classic client, whatever its engine; without one, read a partial result. With one,
+   * its export through its frame, and beside it the pages built on the model with the model's names,
    * which need nothing of the export to be read (model-pages.ts `startModelPages`). A failed or stopped export gives up
    * what was started beside it. The IDs of its line items come with the export for reading the pages built on it, and go
    * no further: they are taken off the result here, so that the results page never holds them. The export says it was
@@ -91,10 +93,10 @@ if (window.top === window) {
     const ids = { customerId: seen.customer, workspaceId: WORKSPACE_PATH.exec(location.pathname)?.[1], modelId: seen.id };
     const began = stampLine(firstLine("model", seen.id, location.host));
     const engineLog: string[] = [];
-    const engine = await detectModelEngine(ids, () => core()?.modelId.toUpperCase() === seen.id.toUpperCase(), {
+    const engine = await detectModelEngine(ids, {
       status: value => progress.status(value), log: value => { engineLog.push(stampLine(value)); progress.log(value); },
     }, signal);
-    const keepEngineLog = (result: Awaited<ReturnType<typeof exportInCore>>) => {
+    const keepEngineLog = (result: AnalysisResult) => {
       const details = result.tables.find(table => table.details);
       if (details) {
         const first = details.rows.findIndex(row => row[0] === "Diagnostics");
@@ -103,15 +105,26 @@ if (window.top === window) {
       return result;
     };
     const site = seen.origin && seen.customer ? { origin: seen.origin, customer: seen.customer } : undefined;
-    if (engine.engine === "polaris") {
+    let found: CoreHandle;
+    try {
+      found = await waitForCore(window, core, () => probes.values(), seen.id, progress, signal);
+    } catch (error) {
+      if (!(error instanceof ModelUnavailable)) throw error;
+      signal.throwIfAborted();
+      const fallback = "Classic reader: no frame answered within the wait; reading a partial result without it";
+      progress.log(fallback);
+      engineLog.push(stampLine(fallback));
       engineLog.unshift(began);
       const result = await readPolarisModel(ids, engine, progress, signal);
+      const note = "The model's Classic client didn't answer, so Cardigan read what it could without it.";
+      result.summary.unshift(note);
+      result.tables.find(table => table.details)?.rows.push(["Notes", "Classic client", note]);
       return { ...keepEngineLog(withVersion(result)), ...(site ? { site } : {}) };
     }
     const pages = startModelPages({ ...ids, frameHost }, progress, signal);
-    let exported: Awaited<ReturnType<typeof exportInCore>>;
+    let exported: AnalysisResult;
     try {
-      exported = await exportInCore(window, core, () => probes.values(), seen.id, progress, signal);
+      exported = await runInCore(window, found, progress, undefined, signal);
     } catch (error) {
       pages.abandon(error);
       throw error;

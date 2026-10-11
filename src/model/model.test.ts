@@ -583,6 +583,19 @@ describe("Model export: Model settings grids to tables", () => {
     expect(await waiting).toEqual(["The model has not finished opening in the Anaplan tab. Wait until it shows, then choose Run again.", "the model page's client did not load in 30 s"]);
   });
 
+  it.each([[], ["Populated Cell Count"], ["Calculation Complexity"], ["Populated Cell Count", "Calculation Complexity"]])("logs Polaris-only Classic columns %j without changing the reader or result kind", async (...columns: string[]) => {
+    const key = "LINE ITEMS × LINE ITEM PROPERTIES";
+    const grid = GOLDEN_GRIDS[key];
+    const said: string[] = [];
+    const result = await exportGoldenModel({ ...GOLDEN_GRIDS, [key]: { ...grid, columns: [...grid.columns, ...columns],
+      rows: grid.rows.map(row => ({ ...row, cells: [...row.cells, ...columns.map(() => "1")] })) } }, [], said);
+    const logged = said.filter(line => line.endsWith("Engine: Polaris, read through the Classic client"));
+    expect(logged).toHaveLength(columns.length ? 1 : 0);
+    expect(result.engine).toBeUndefined();
+    expect(result.tables.map(table => table.label)).toContain("Model Calendar");
+    if (columns.length) expect(result.tables.find(table => table.details)?.rows).toContainEqual(["Diagnostics", expect.any(String), "Engine: Polaris, read through the Classic client"]);
+  });
+
   it("exports the Line Items grid with the ratio columns, naming each operand by its line item, not its module", async () => {
     const ratio = JSON.stringify({ summaryMethod: "RATIO", timeSummaryMethod: "RATIO", ratioNumeratorIdentifier: "_1901000000001_",
       ratioDenominatorIdentifier: "_1901000000002_" });

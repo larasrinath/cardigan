@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { UxPageCardDetails } from "./card-reader/card-types.js";
 import { analyseApp, DETAILS_FILE, forgetModelHosts, loadCatalog, loadCatalogWhen, TAB_FILES, VIEW_TRIAL, type CatalogInputs } from "./analyse.js";
 import type { ExportedLineItems } from "./catalog.js";
+import { namePlainly, sayMissing } from "./page-missing.js";
 import { APP_DASH_PLAIN, APP_FILTERS_COLUMN_ADDED, APP_ROW_ON_TWO_LINES, APP_ROW_REWORDED, APP_ROWS_FOR_THE_PAGE, APP_STOPS_IN_WORDS, APP_ZIP_0_6_1, APP_ZIP_REWORDED,
   withAppFileSince, ZIPPED_AT } from "./golden-0.6.1.test-support.js";
 import { ANAPLAN_HOSTS, NOT_SCOPE_IDS, OTHER_HOSTS, SCOPE_IDS } from "./guards.test-support.js";
@@ -1125,6 +1126,141 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
     };
     const lineItemsLine = (log: string[]) => log.filter(line => line.startsWith("line items:"));
 
+    it.each([
+      [291, "rename", true], [50, "rename", true], [49, "rename", false],
+      [50, "export only", true], [49, "export only", false],
+      [50, "listing only", true], [49, "listing only", false],
+    ] as const)("compares the union of %i IDs with one %s difference (keep: %s)", async (total, difference, keep) => {
+      const items = Array.from({ length: total }, (_, n) => ({ id: ITEM(1901, n + 1), name: `Measure ${n + 1}`, moduleId: MODULE }));
+      const seed = exported();
+      seed.lineItems = [...(difference === "listing only" ? items.slice(1) : items), seed.lineItems[1]];
+      const live = difference === "export only" ? items.slice(1) : items.map((item, n) => ({ ...item,
+        name: n === 0 && difference === "rename" ? "Measure renamed" : item.name }));
+      serveModel({ [at(`/modules/${MODULE}/lineItems`)]: id => update(id, { data: live.map(item => ({ lineItemId: item.id, lineItemLabel: item.name })) }),
+        [at(`/modules/${MODULE_3}/lineItems`)]: id => update(id, { data: [{ lineItemId: FILTER_ITEM, lineItemLabel: "Include?" }] }) });
+      const { log, result } = named(withGrid({ kind: "module", id: MODULE_3 }), seed);
+      const { catalog } = await result;
+      expect(lineItemsLine(log)[0]).toContain(`export ${keep ? "kept" : "set aside"}; the sample module ${MODULE} differs on 1 of ${total}`);
+      expect(searched()).toEqual(keep ? [] : [MODULE_3]);
+      expect([...catalog.lineItems].filter(([, item]) => item.moduleId === MODULE)).toEqual(live.map(({ id, name, moduleId }) => [id, { name, moduleId }]));
+      expect(catalog.lineItems.get(FILTER_ITEM)?.name).toBe("Include?");
+    });
+
+    it("logs both quoted names, export-only and listing-only IDs, with at most five details and a count", async () => {
+      const oldName = ' Old "name"\t ';
+      const newName = 'Old "name"\n';
+      const items = Array.from({ length: 7 }, (_, n) => ({ id: ITEM(1901, n + 1), name: `Measure ${n}`, moduleId: MODULE }));
+      items[0].name = oldName;
+      const seed = { modules: [MODULE], lineItems: items.filter((_, n) => n !== 2) };
+      const live = items.filter((_, n) => n !== 1).map((item, n) => ({ lineItemId: item.id, lineItemLabel: n === 0 ? newName : `Changed ${n}` }));
+      serveModel({ [at(`/modules/${MODULE}/lineItems`)]: id => update(id, { data: live }) });
+      const { log, result } = named(pages, seed);
+      await result;
+      const prefix = `line item difference: module ${MODULE}, ID `;
+      expect(log.filter(line => line.startsWith("line item difference:"))).toEqual([
+        `${prefix}${items[0].id}, name differs: export ${JSON.stringify(oldName)}, listing ${JSON.stringify(newName)}`,
+        `${prefix}${items[1].id}, only in the export: "Measure 1"`,
+        `${prefix}${items[3].id}, name differs: export "Measure 3", listing "Changed 2"`,
+        `${prefix}${items[4].id}, name differs: export "Measure 4", listing "Changed 3"`,
+        `${prefix}${items[5].id}, name differs: export "Measure 5", listing "Changed 4"`,
+      ]);
+      expect(log).toContain("line item differences: 7 in all; 2 more not listed");
+      // A separate small sample puts the listing-only ID within the five details.
+      serveModel({ [at(`/modules/${MODULE}/lineItems`)]: id => update(id, { data: live.slice(0, 2) }) });
+      const added = named(pages, { modules: [MODULE], lineItems: items.slice(0, 2) });
+      await added.result;
+      expect(added.log).toContain(`${prefix}${items[2].id}, only in the listing: "Changed 1"`);
+    });
+
+    it("searches an ID absent from the export, even in a module the export covered, and uses that module's whole live listing", async () => {
+      const wanted = ITEM(1903, 2);
+      const seed = exported();
+      // Three export modules have distinct entity types. Their names must not rule out the absent ID.
+      seed.lineItems.push({ id: ITEM(1904, 1), name: "Flag", moduleId: candidate(1) });
+      serveModel({ [MODULE_VIEWS]: moduleList([MODULE_3, candidate(1)]),
+        [at(`/modules/${MODULE}/lineItems`)]: id => update(id, { data: [{ lineItemId: UNITS, lineItemLabel: "Units" }] }),
+        [at(`/modules/${MODULE_3}/lineItems`)]: id => update(id, { data: [{ lineItemId: wanted, lineItemLabel: "New filter" }] }),
+      });
+      const { result, log } = named(ruled(rule([wanted], ["true"])), seed);
+      const { catalog } = await result;
+      expect(catalog.lineItems.get(wanted)).toEqual({ name: "New filter", moduleId: MODULE_3 });
+      expect(catalog.lineItems.has(FILTER_ITEM)).toBe(false);
+      expect(catalog.lineItemFormats.has(FILTER_ITEM)).toBe(false);
+      expect(searched()).toContain(MODULE_3);
+      expect(log.find(line => line.startsWith("filter line items: 1 looked for"))).toContain("1 found");
+      expect(destinations().filter(destination => destination === at(`/modules/${MODULE}/lineItems`))).toHaveLength(1);
+    });
+
+    it("also searches a rule whose exported line item a later live listing removes", async () => {
+      const wanted = ITEM(1903, 2);
+      const first = ruled(rule([wanted], ["true"]));
+      const second = structuredClone(gridCard);
+      second.id = "card-2";
+      second.grid.regions[0].rows.dimensions = [{ dimension: { kind: "dimension", id: LIST_2 }, hides: [] }];
+      first[0].cards.push(second as unknown as UxPageCardDetails["cards"][number]);
+      serveModel({ [MODULE_VIEWS]: moduleList([MODULE_3]),
+        [at(`/modules/${MODULE}/lineItems`)]: id => update(id, { data: [{ lineItemId: UNITS, lineItemLabel: "Units" }] }),
+        [at(`/modules/${MODULE_3}/lineItems`)]: id => update(id, { data: [{ lineItemId: wanted, lineItemLabel: "New filter" }] }),
+        [at("/applicableModules")]: (id, asked) => update(id, { data: asked.dimensions[0] === Number(LIST_2) ? [{ id: candidate(2), label: "Other filters" }] : [] }),
+        [at(`/modules/${candidate(2)}/lineItems`)]: id => update(id, { data: [{ lineItemId: FILTER_ITEM, lineItemLabel: "Moved filter" }] }),
+      });
+      const { result, log } = named(first, exported());
+      const { catalog } = await result;
+      expect(catalog.lineItems.get(FILTER_ITEM)).toEqual({ name: "Moved filter", moduleId: candidate(2) });
+      expect(searched()).toEqual([MODULE_3, candidate(2)]);
+      expect(log.find(line => line.startsWith("filter line items: 2 looked for"))).toContain("2 found (1 in candidate modules), 0 not found");
+    });
+
+    it.each([false, true])("requires complete live reads before saying Missing for an absent filter ID (refused: %s)", async refused => {
+      const wanted = ITEM(1999, 1);
+      const page = ruled(rule([wanted], ["true"]));
+      serveModel({ [MODULE_VIEWS]: moduleList([MODULE_3, candidate(1)]),
+        [at(`/modules/${MODULE}/lineItems`)]: id => update(id, { data: [{ lineItemId: UNITS, lineItemLabel: "Units" }] }),
+        [at(`/modules/${MODULE_3}/lineItems`)]: id => refused ? rejected(id, "LINE_ITEMS_UNAVAILABLE") : update(id, { data: [] }),
+      });
+      const { result, log } = named(page, exported());
+      const { catalog } = await result;
+      expect(searched()).toEqual([MODULE_3, candidate(1)]);
+      expect(catalog.lineItemModules.has(MODULE_3)).toBe(!refused);
+      expect(log.find(line => line.startsWith("filter line items: 1 looked for"))).toContain("0 found, 1 not found");
+      const details = namePlainly(page[0], catalog);
+      const built = sayMissing(report.buildReport([{ appName: "Invented app", categoryName: "-", pageName: "Invented page", pageType: "BOARD",
+        pageGuid: "page-guid", appGuid: "app-guid", state: "Published", modelName: scope.modelName, workspaceName: "Invented workspace", modelId: MODEL, details }]));
+      const names = built.Filters.rows.map(row => row[report.HEADERS.Filters.indexOf("Condition line item")]);
+      expect(names).toEqual([refused ? wanted : `Missing line item (ID ${wanted})`]);
+    });
+
+    it("times names for an invented 440-module model with one differing sample item", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
+      const modules = [MODULE, ...Array.from({ length: 439 }, (_, index) => other(index + 1))];
+      const items = modules.flatMap((moduleId, index) => Array.from({ length: index === 0 ? 291 : 8 }, (_, n) => ({
+        id: ITEM(4000 + index, n + 1), name: `Measure ${n + 1}`, moduleId, format: { dataType: "BOOLEAN" },
+      })));
+      const filters = modules.slice(-23).map((_, index) => ITEM(4000 + 417 + index, 1));
+      const pages = ruled(...filters.map(id => rule([id], ["true"])));
+      pages[0].references.push(...modules.slice(1, 153).map(id => ({ kind: "module" as const, id })));
+      const candidates = modules.slice(153, 253);
+      serveModel({ [MODULE_VIEWS]: moduleList(modules.slice(1)),
+        [at("/applicableModules")]: id => update(id, { data: candidates.map(id => ({ id, label: `Module ${id}` })) }),
+        ...Object.fromEntries(modules.map(module => [at(`/modules/${module}/lineItems`), (id: string) => update(id, {
+          data: items.filter(item => item.moduleId === module).map(item => ({ lineItemId: item.id,
+            lineItemLabel: item.id === items[0].id ? "Renamed measure" : item.name, lineItemInfo: { format: item.format } })),
+        })])),
+      });
+      // Fixed simulated service latency, four module reads at a time; no real model or network.
+      slowly(destination => destination.endsWith("/lineItems"), 400);
+      const { result, log } = named(pages, { modules, lineItems: items });
+      await vi.advanceTimersByTimeAsync(90_000);
+      const { catalog, notes } = await result;
+      expect(notes).toEqual([]);
+      expect(filters.every(id => catalog.lineItems.has(id))).toBe(true);
+      expect(destinations().filter(destination => destination.endsWith("/lineItems"))).toEqual([at(`/modules/${MODULE}/lineItems`)]);
+      expect(destinations()).not.toContain(at("/applicableModules"));
+      expect(log.find(line => line.startsWith("Time:"))).toContain("names of Synthetic model in all 0.40 s");
+      expect(lineItemsLine(log)[0]).toContain("differs on 1 of 291 line items; 290 of 291 alike");
+      expect(catalog.lineItems.get(items[0].id)?.name).toBe("Renamed measure");
+    });
+
     it("reads of their modules only one the pages use, to compare it with the listing, and the pages' other modules; the filter search has nothing to find", async () => {
       serveModel({ [at(`/modules/${MODULE}/lineItems`)]: id => update(id, { data: [{ lineItemId: UNITS, lineItemLabel: "Units" }] }),
         [at(`/modules/${candidate(2)}/lineItems`)]: id => update(id, { data: [{ lineItemId: LINE_ITEM, lineItemLabel: "Margin" }] }) });
@@ -1139,8 +1275,9 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
         .toEqual([{ name: "Include?", moduleId: MODULE_3 }, "BOOLEAN", { name: "Margin", moduleId: candidate(2) }, { name: "Units", moduleId: MODULE }]);
       // Every module of the export counts as read, one with no line items too.
       expect([MODULE_3, candidate(1)].map(module => catalog.lineItemModules.has(module))).toEqual([true, true]);
-      expect(lineItemsLine(log)).toEqual([`line items: 1 named from the export, of 3 modules; 2 of the 2 modules the pages use read from the listing; `
-        + `the export and the listing agree on module ${MODULE}: 1 of 1 line items alike, by ID and name`]);
+      expect(lineItemsLine(log)).toEqual([`line items: export kept; the sample module ${MODULE} differs on 0 of 1 line items; `
+        + "1 of 1 alike, by ID and name (at least 98% required); the sample uses its live listing; 1 named from the export, of 3 modules; "
+        + "2 of the 2 modules the pages use read from the listing"]);
       expect(log.at(-1)).toBe("Synthetic model: 0 modules, 0 saved views, 0 dimensions, 3 line items (2 modules read), 0 actions");
     });
 
@@ -1154,14 +1291,14 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
       expect([catalog.lineItems.get(UNITS), catalog.lineItems.get("1901000000099"), catalog.lineItems.get(FILTER_ITEM), searched()])
         .toEqual([undefined, { name: "Units", moduleId: MODULE }, { name: "Include?", moduleId: MODULE_3 }, [MODULE_3]]);
       expect([catalog.lineItemModules.has(candidate(1)), catalog.lineItemFormats.has(FILTER_ITEM)]).toEqual([false, false]);
-      expect(lineItemsLine(log)).toEqual([`line items: 0 named from the export, of 3 modules; 1 of the 1 modules the pages use read from the listing; `
-        + `the export and the listing differ on module ${MODULE}: 0 of 1 line items alike, by ID and name; the export's line items are set aside, `
-        + "and every module the pages use is read from the listing"]);
+      expect(lineItemsLine(log)).toEqual([`line items: export set aside; the sample module ${MODULE} differs on 2 of 2 line items; `
+        + "0 of 2 alike, by ID and name (at least 98% required); every module the pages use is read from the listing; "
+        + "0 named from the export, of 3 modules; 1 of the 1 modules the pages use read from the listing"]);
       // A listing with no line item for a module the export gives some differs from it too.
       serveModel();
       const empty = named(withGrid(), exported());
       await empty.result;
-      expect(lineItemsLine(empty.log).at(-1)).toContain(`differ on module ${MODULE}: 0 of 0 line items alike`);
+      expect(lineItemsLine(empty.log).at(-1)).toContain(`the sample module ${MODULE} differs on 1 of 1 line items; 0 of 1 alike`);
     });
 
     it("keeps them when the listing refuses the module read to compare them, and reads nothing else for them", async () => {
@@ -1170,14 +1307,14 @@ describe("Page analyzer name loading against the live socket behaviour", () => {
       const { catalog } = await result;
       expect([catalog.lineItems.get(UNITS), catalog.lineItems.get(FILTER_ITEM), destinations().filter(destination => destination.endsWith("/lineItems") || destination.endsWith("/applicableModules"))])
         .toEqual([{ name: "Units", moduleId: MODULE }, { name: "Include?", moduleId: MODULE_3 }, [at(`/modules/${MODULE}/lineItems`)]]);
-      expect(lineItemsLine(log)).toEqual([`line items: 2 named from the export, of 3 modules; 0 of the 1 modules the pages use read from the listing; `
-        + `the listing of module ${MODULE} could not be read to compare (LINE_ITEMS_UNAVAILABLE): the export's line items are used`]);
+      expect(lineItemsLine(log)).toEqual([`line items: the listing of module ${MODULE} could not be read to compare (LINE_ITEMS_UNAVAILABLE): `
+        + "the export's line items are used; 2 named from the export, of 3 modules; 0 of the 1 modules the pages use read from the listing"]);
       // Nothing to compare where no page uses a module of theirs: each module the pages use is read.
       serveModel();
       const elsewhere = named([{ cards: [], references: [{ kind: "module", id: candidate(3) }] }] as unknown as UxPageCardDetails[], exported());
       await elsewhere.result;
-      expect(lineItemsLine(elsewhere.log)).toEqual(["line items: 2 named from the export, of 3 modules; 1 of the 1 modules the pages use read from the listing; "
-        + "no page uses a module that the export listed with line items: nothing to compare"]);
+      expect(lineItemsLine(elsewhere.log)).toEqual(["line items: no page uses a module that the export listed with line items: nothing to compare; "
+        + "2 named from the export, of 3 modules; 1 of the 1 modules the pages use read from the listing"]);
     });
   });
 

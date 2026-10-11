@@ -22,6 +22,7 @@ const openIcon = (label: MapOpen["label"]): string => `<svg width="13" height="1
   ? '<path d="M8 1.6 14 4.9v6.2L8 14.4 2 11.1V4.9Z"/><path d="M2 4.9 8 8.2l6-3.3M8 8.2v6.2"/>'
   : '<rect x="2" y="2" width="12" height="12" rx="1"/><path d="M2 6h12M2 10h12M6 2v12"/>'}</svg>`;
 const SEARCH_ICON = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="7" cy="7" r="4.6"/><path d="M10.6 10.6 14 14"/></svg>';
+const MINIMAP_ICON = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" aria-hidden="true"><rect x="1.5" y="2" width="13" height="12" rx="1.5"/><path d="M4 5h3v2H4zM9 9h3v2H9zM7 6h4v3"/><rect x="3" y="8.5" width="5" height="4" rx=".5"/></svg>';
 const dot = (layer: string): string => `<span class="map-dot ${layerClass(layer)}" aria-hidden="true"></span>`;
 /** The sign a box of a trace carries, beside the words that say which side it is on: the same mark the canvas draws on
  * the box's edge (map-canvas.ts), so that the two sides are told apart by more than their colours. */
@@ -142,9 +143,8 @@ export const fullIconHtml = (whole: boolean): string => (whole ? LEAVE_FULL_ICON
  * - How the modules are grouped, at every level.
  * - Its tools: which links are drawn, the search, and full screen.
  *
- * Over the canvas: at its foot on the left the
- * line that says what is shown, and over that line the legend and the notes about the map, both closed until asked
- * for; at its foot on the right the small picture with the zoom.
+ * One slim bar at the foot holds the status, Legend, About this map, zoom and the minimap toggle.
+ * The panels float above it. The minimap starts hidden; its button keeps the tab's choice.
  * The canvas is a picture to a screen reader, with a name, and the keys' list is its description. The notes can be
  * longer than the map is high: they scroll, and take the focus so that the keyboard scrolls them too. */
 export function shellHtml(ids: ShellIds, modelName: string): string {
@@ -204,6 +204,19 @@ export function shellHtml(ids: ShellIds, modelName: string): string {
   </div>
   <div class="map-free">
     <div class="map-foot">
+    <div class="map-dock">
+      <div class="map-status"><span class="map-stats"></span></div>
+      <button type="button" class="map-btn map-dock-btn" data-map-act="legend" aria-expanded="false" aria-controls="${esc(ids.legend)}">Legend</button>
+      <button type="button" class="map-btn map-dock-btn" data-map-act="about" aria-expanded="false" aria-controls="${esc(ids.about)}">About this map</button>
+      <div class="map-corner">
+        <div class="map-zoom" role="group" aria-label="Zoom">
+          <button type="button" class="map-btn map-icon" data-map-act="zoom-out" aria-label="Zoom out" title="Zoom out (-)">−</button>
+          <button type="button" class="map-btn map-icon" data-map-act="zoom-in" aria-label="Zoom in" title="Zoom in (+)">+</button>
+          <button type="button" class="map-btn" data-map-act="fit" title="Fit the whole map (F)">Fit</button>
+        </div>
+        <button type="button" class="map-btn map-icon" data-map-act="minimap" aria-label="Minimap" title="Minimap" aria-pressed="false" aria-controls="${esc(ids.legend)}-minimap">${MINIMAP_ICON}</button>
+      </div>
+    </div>
     <div class="map-over">
     <div class="map-panel map-legend" id="${esc(ids.legend)}" role="group" aria-label="Legend: shows and hides layers" hidden></div>
     <div class="map-panel map-about" id="${esc(ids.about)}" role="group" aria-label="About this map" tabindex="0" hidden>
@@ -220,19 +233,7 @@ export function shellHtml(ids: ShellIds, modelName: string): string {
       </p>
     </div>
     </div>
-    <div class="map-dock">
-      <div class="map-panel map-status"><span class="map-stats"></span><button type="button" class="map-btn map-small" data-map-act="whole" hidden>Whole map</button></div>
-      <button type="button" class="map-btn map-dock-btn" data-map-act="legend" aria-expanded="false" aria-controls="${esc(ids.legend)}">Legend</button>
-      <button type="button" class="map-btn map-dock-btn" data-map-act="about" aria-expanded="false" aria-controls="${esc(ids.about)}">About this map</button>
-    </div>
-    </div>
-    <div class="map-corner">
-      <div class="map-zoom" role="group" aria-label="Zoom">
-        <button type="button" class="map-btn map-icon" data-map-act="zoom-out" aria-label="Zoom out" title="Zoom out (-)">−</button>
-        <button type="button" class="map-btn map-icon" data-map-act="zoom-in" aria-label="Zoom in" title="Zoom in (+)">+</button>
-        <button type="button" class="map-btn" data-map-act="fit" title="Fit the whole map (F)">Fit</button>
-      </div>
-      <div class="map-panel map-minimap-wrap"><canvas class="map-minimap" width="196" height="128" aria-hidden="true"></canvas></div>
+    <div class="map-panel map-minimap-wrap" id="${esc(ids.legend)}-minimap" hidden><canvas class="map-minimap" width="196" height="128" aria-hidden="true"></canvas></div>
     </div>
     <div class="map-empty" hidden></div>
   </div>

@@ -18,6 +18,8 @@ Cardigan (a Chrome extension, called Anaplan Analyzer up to version 0.6.0) is an
 
 ## Requests to Anaplan
 
+Cardigan tries Model Building's Classic client first for every model, including Polaris. Polaris models are read in full when that client answers, as it usually does. Only when no Classic frame answers within the wait does Cardigan fall back to a partial read without it, including when the engine is unknown. The Overview explains the fallback and its limits. Engine diagnostics record the gateway's model and selected workspace field names, never their values.
+
 All of these are read-only, using your signed-in session. Braced words stand for the IDs in the app, model or page being read. No request goes to a Cardigan server, and Cardigan asks no AI model anything: from the Anaplan service named `llm-data-service` it only reads a Polaris model's metadata with the GETs listed below. The returned data stays in your browser.
 
 ### HTTP GETs
@@ -32,7 +34,7 @@ All of these are read-only, using your signed-in session. Braced words stand for
 | `/a/collaboration-actions-service/workspaces/{workspace}/models/{model}/imports` | Import names for page buttons and the Polaris import listing, including its type and source ID. |
 | `/a/collaboration-actions-service/workspaces/{workspace}/models/{model}/exports` | Export names for page buttons and the Polaris export listing. |
 | `/a/collaboration-actions-service/workspaces/{workspace}/models/{model}/processes` | Process names for page buttons and the Polaris process listing. No step definitions. |
-| `/a/springboard-platform-gateway-service/customers/{customer}/workspaces/{workspace}/models/{model}` | The model's engine and available model and workspace names, before choosing the reader. |
+| `/a/springboard-platform-gateway-service/customers/{customer}/workspaces/{workspace}/models/{model}` | Available engine fields and model and workspace names. Classic is tried first whatever the engine. |
 | `/a/springboard-platform-gateway-service/customers/{customer}/workspaces` | The workspace directory, only when the model's engine was not established. Cardigan inspects the selected workspace's engine and name. |
 | `/a/llm-data-service/meta-data/workspace/{workspace}/model/{model}/modules` | Polaris module settings. |
 | `/a/llm-data-service/meta-data/workspace/{workspace}/model/{model}/versions` | Polaris version names. |
