@@ -1,6 +1,17 @@
 # Changelog
 
-Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version stands next to Cardigan's name at the top of the results page and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
+Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version is in the menu of Cardigan's icon in Chrome's toolbar and on its About page, and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
+
+## 0.19.0 (10 October 2026)
+
+A cleaner header, one Timezone pill, and the version and an About page in the menu of Cardigan's icon.
+
+- **The header says the name alone.** It says the name of the app or model the result is of, cut with an ellipsis where it is too long and whole in its title, and nothing more: the version pill and the line under the name (the kind, the Anaplan host and when it was exported) are gone. Where it was read and when are under **About this export** on the Overview, as before. (#PR)
+- **One Timezone pill.** The two buttons **Times: Local · UTC** are one pill, **Timezone**, with a drawn globe: it says the zone the times are in, and a click switches to the other. It stands first on the right, before **Run again** and the theme's button, keeps room for the longer of the two words so that a click moves nothing, and says what a click does to a screen reader. The choice is kept as before, Local unless you chose UTC. (#PR)
+- **The version in the icon's menu.** Right-click Cardigan's icon in Chrome's toolbar: under **About Cardigan**, the menu says the version, greyed out. The icon's title says it too. (#PR)
+- **About Cardigan.** The same menu's **About Cardigan** opens a page of the extension's own in a new tab: the logo, the version, what Cardigan is, that it only reads, and links to what's new, privacy, help and the source on GitHub. It follows the theme you chose on the results page. (#PR)
+- **A third permission, with no warning.** The menu's items take **contextMenus**. Cardigan now asks for activeTab, contextMenus and scripting, and the packager holds the manifest to those three. The zip holds two more files, `about.html` and `dist/about.js`, and the packager checks the About page as it does the results page. (#PR)
+- **What stays the same.** What is read, the tables, the map and what the times say. (#PR)
 
 ## 0.18.3 (10 October 2026)
 
