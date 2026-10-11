@@ -27,6 +27,8 @@ export interface ResultTable {
 export interface AnalysisResult {
   /** An app's pages, or a model's Model settings. */
   kind: "app" | "model";
+  /** Polaris currently has only the socket inventory and the pages built on the model, with no Model settings. */
+  engine?: "polaris";
   /** The app's or the model's name, and its ID. */
   name: string;
   id: string;

@@ -304,8 +304,9 @@ describe("The Anaplan tab's end of the port to the results page", () => {
     const page = open();
     page.say({ type: "run" });
     expect(runs).toEqual([]);
-    expect(page.take()).toEqual([{ type: "subject", subject: { kind: "none" } }, { type: "error", message: NOTHING_TO_ANALYSE }]);
-    expect(NOTHING_TO_ANALYSE).toBe("This tab is not showing an Anaplan app or a model. Open an app, or a model in Model Building, then choose Run again.");
+    expect(page.take()).toEqual([{ type: "subject", subject: { kind: "none" } },
+      { type: "log", text: expect.stringContaining("case=NOT_MODEL_PAGE") }, { type: "error", message: NOTHING_TO_ANALYSE, code: "NOT_MODEL_PAGE" }]);
+    expect(NOTHING_TO_ANALYSE).toBe("This tab isn't showing a model. Open one in Model Building, then choose Run again.");
 
     // The user opens a model in the same tab, then runs again: the subject is sent once, the run reads what is there now.
     state.shows = MODEL;

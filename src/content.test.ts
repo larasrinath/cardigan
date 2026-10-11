@@ -4,6 +4,7 @@ import { assemble } from "./pieces.test-support.js";
 import type { AnalysisResult } from "./result-types.js";
 import { EXTENSION, FakePort } from "./tab-port.test-support.js";
 import { BUILD } from "./version.js";
+import { goldenApp } from "./results/engine.test-support.js";
 
 // The two bundles' entry points run on import; each test imports one afresh against a stand-in page.
 const WS = "0123456789abcdef0123456789abcdef";
@@ -36,6 +37,15 @@ const untouchable = () => new Proxy({}, {
   get: (_target, key) => { if (key === "cookie") return "other=1"; throw new Error(`the page's document was used: ${String(key)}`); },
   set: (_target, key) => { throw new Error(`the page's document was changed: ${String(key)}`); },
 });
+
+/** Compare the existing Classic export and progress separately from the new engine diagnostics. */
+const classicMessages = (port: FakePort) => port.received.filter(message => !("text" in message && typeof message.text === "string"
+  && /Engine detection:|Classic reader:|Checking the model's engine/.test(message.text)));
+const classicResult = (port: FakePort) => {
+  const result = assemble(port.received);
+  if (result) for (const table of result.tables) if (table.details) table.rows = table.rows.filter(row => !(row[0] === "Diagnostics" && String(row[2]).startsWith("Engine detection:")));
+  return result;
+};
 
 describe("The content scripts on an Anaplan page", () => {
   let connect: ((port: chrome.runtime.Port) => void) | undefined;
@@ -70,6 +80,31 @@ describe("The content scripts on an Anaplan page", () => {
   };
   const open = () => { const port = new FakePort(); connect!(port as unknown as chrome.runtime.Port); return port; };
   const hear = (data: unknown, origin: string, source: unknown) => { for (const listener of [...listeners]) listener({ data, origin, source }); };
+
+  it("detects Polaris first and delivers a socket inventory without asking or waiting for a Classic frame", async () => {
+    at(`/a/modeling/customers/${WS}/workspaces/${WS}/models/${MODEL}`);
+    const service = goldenApp();
+    service.answer = path => path.includes("springboard-platform-gateway-service")
+      ? new Response(JSON.stringify({ engine: "calculation_engine", label: "Practice plan", workspaceName: "Practice workspace" }))
+      : path.endsWith("/pages") ? new Response("[]") : undefined;
+    vi.stubGlobal("fetch", vi.fn(service.fetch));
+    vi.stubGlobal("WebSocket", service.WebSocket);
+    await import("./content.js");
+    const frame = { postMessage: vi.fn() };
+    hear({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD }, CORE, frame);
+    const port = open();
+    port.say({ type: "run" });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(port.received.at(-1)?.type).toBe("done");
+    const result = assemble(port.received)!;
+    expect(result.engine).toBe("polaris");
+    expect(result.tables.find(table => table.file === "Modules.csv")?.rows[0][0]).toBe("Demand");
+    expect(result.tables.find(table => table.file === "General Lists.csv")?.rows).toHaveLength(2);
+    expect(result.tables[0].rows).toContainEqual(["Diagnostics", "01:59:09", 'Engine detection: model.engine="calculation_engine"']);
+    expect(service.reads[0]).toContain("springboard-platform-gateway-service");
+    expect(frame.postMessage.mock.calls.map(([message]) => message.type)).toEqual(["ack"]);
+    expect(port.received.filter(message => message.type === "status").some(message => "text" in message && message.text.includes("Waiting for the model"))).toBe(false);
+  });
 
   it("puts nothing on the page and reads nothing when an Anaplan page is merely visited", async () => {
     at(`/a/springboard/apps/app/${APP}/page/board/${APP}`);
@@ -227,7 +262,7 @@ describe("The content scripts on an Anaplan page", () => {
     await vi.advanceTimersByTimeAsync(2500);
     // Acknowledged, and never asked to export: Model Building reads in the frame, so the page goes on waiting for it.
     expect(posted.map(message => (message as { type: string }).type)).toEqual(["ack"]);
-    expect(port.received.filter(message => message.type === "status")).toEqual(Array(3).fill({ type: "status", text: "Waiting for the model's frame…" }));
+    expect(port.received.filter(message => message.type === "status")).toEqual(Array(3).fill({ type: "status", text: "Waiting for the model to open…" }));
     port.close();
   });
 
@@ -256,13 +291,13 @@ describe("The content scripts on an Anaplan page", () => {
     await vi.advanceTimersByTimeAsync(0);
     // Then this window reads the pages built on the model, for the customer the address names. Anaplan answers that the
     // session has ended: the export is handed on all the same, and says why it has no tables of those pages.
-    expect(port.types()).toEqual(["log", "status", "log", "status", "log", "log", "result", "rows", "rows", "done"]);
-    expect(port.received.slice(0, 6)).toEqual([{ type: "log", text: `01:59:09 Cardigan dev: model ${MODEL} on us1a.app.anaplan.com` },
+    expect(classicMessages(port).map(message => message.type)).toEqual(["log", "status", "log", "status", "log", "log", "result", "rows", "rows", "done"]);
+    expect(classicMessages(port).slice(0, 6)).toEqual([{ type: "log", text: `01:59:09 Cardigan dev: model ${MODEL} on us1a.app.anaplan.com` },
       { type: "status", text: "Reading Versions…" }, { type: "log", text: "01:59:09 Reading Versions…" },
       { type: "status", text: "Reading the pages built on this model…" }, { type: "log", text: "01:59:09 Reading the pages built on this model…" },
       { type: "log", text: "01:59:09 pages built on the model: SIGNED_OUT (HTTP 401)" }]);
     // The result says where the model is, as the address said it: the results page opens its modules, apps and pages there.
-    expect(assemble(port.received)).toEqual({ ...withoutPages("you're signed out of Anaplan", ["Reading the pages built on this model…", "pages built on the model: SIGNED_OUT (HTTP 401)"]),
+    expect(classicResult(port)).toEqual({ ...withoutPages("you're signed out of Anaplan", ["Reading the pages built on this model…", "pages built on the model: SIGNED_OUT (HTTP 401)"]),
       site: { origin: SHELL, customer: WS } });
     // The frame did the export's reading. This window asked Anaplan for one thing, with GET, opened no socket, and asked the frame nothing more.
     expect(vi.mocked(globalThis.fetch).mock.calls.map(([url, init]) => [url, init?.method]))
@@ -289,17 +324,17 @@ describe("The content scripts on an Anaplan page", () => {
     hear({ ...RUN, type: "status", nonce, text: "Reading Versions…" }, CORE, frame);
     await vi.advanceTimersByTimeAsync(0);
     // The frame is still exporting, and the list of the pages built on the model has been asked for already.
-    expect(vi.mocked(globalThis.fetch).mock.calls.map(([url]) => url)).toEqual([`${SHELL}/a/springboard-definition-service/customer/${WS}/model/${MODEL}/pages`]);
+    expect(vi.mocked(globalThis.fetch).mock.calls.map(([url]) => url)).toEqual([`${SHELL}/a/springboard-platform-gateway-service/customers/${WS}/workspaces/${WS}/models/${MODEL}`, `${SHELL}/a/springboard-platform-gateway-service/customers/${WS}/workspaces`, `${SHELL}/a/springboard-definition-service/customer/${WS}/model/${MODEL}/pages`]);
     // The export's status is the one shown: nothing of the pages is said until the export has come.
-    expect(port.received.filter(message => message.type === "status")).toEqual([{ type: "status", text: "Reading Versions…" }]);
+    expect(classicMessages(port).filter(message => message.type === "status")).toEqual([{ type: "status", text: "Reading Versions…" }]);
     hear({ ...RUN, type: "done", nonce, result: { ...exportedModel(), lineItemIds: [["102000000001", ""]] } }, CORE, frame);
     await vi.advanceTimersByTimeAsync(0);
     // Then what the pages' reading said, as a run that read them after the export says it: Anaplan answered that the
     // session has ended, and the export is handed on all the same.
-    expect(port.types()).toEqual(["log", "status", "log", "status", "log", "log", "result", "rows", "rows", "done"]);
-    expect(assemble(port.received)).toEqual({ ...withoutPages("you're signed out of Anaplan", ["Reading the pages built on this model…", "pages built on the model: SIGNED_OUT (HTTP 401)"]),
+    expect(classicMessages(port).map(message => message.type)).toEqual(["log", "status", "log", "status", "log", "log", "result", "rows", "rows", "done"]);
+    expect(classicResult(port)).toEqual({ ...withoutPages("you're signed out of Anaplan", ["Reading the pages built on this model…", "pages built on the model: SIGNED_OUT (HTTP 401)"]),
       site: { origin: SHELL, customer: WS } });
-    expect(vi.mocked(globalThis.fetch).mock.calls).toHaveLength(1);
+    expect(vi.mocked(globalThis.fetch).mock.calls).toHaveLength(3);
   });
 
   it("gives up the pages it was reading beside an export that fails", async () => {
@@ -307,21 +342,21 @@ describe("The content scripts on an Anaplan page", () => {
     await import("./content.js");
     // The list of the pages answers only when the test says.
     let answer: (response: Response) => void = () => undefined;
-    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(resolve => { answer = resolve; })));
+    vi.stubGlobal("fetch", vi.fn((url: string) => url.includes("springboard-platform-gateway-service") ? Promise.resolve(new Response(JSON.stringify({ engine: "hyperblock" }))) : new Promise<Response>(resolve => { answer = resolve; })));
     const frame = { asked: [] as { type: string; nonce?: string }[], postMessage(message: { type: string; nonce?: string }) { this.asked.push(message); } };
     hear({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD }, CORE, frame);
     const port = open();
     port.take();
     port.say({ type: "run" });
     await vi.advanceTimersByTimeAsync(0);
-    expect(vi.mocked(globalThis.fetch)).toHaveBeenCalledOnce();
+    expect(vi.mocked(globalThis.fetch)).toHaveBeenCalledTimes(2);
     hear({ ...RUN, type: "error", nonce: frame.asked[1].nonce, message: "The Line Items grid did not load." }, CORE, frame);
     await vi.advanceTimersByTimeAsync(0);
     expect(port.received.filter(message => message.type === "error")).toEqual([expect.objectContaining({ type: "error" })]);
     // The list comes after the export failed: no page is asked for, and no socket opened.
     answer(new Response(JSON.stringify({ items: [{ guid: "00000000-0000-4000-8000-000000001000", name: "Demand board" }] }), { status: 200, headers: { "content-type": "application/json" } }));
     await vi.advanceTimersByTimeAsync(1000);
-    expect([vi.mocked(globalThis.fetch).mock.calls.length, vi.mocked(globalThis.WebSocket).mock.calls]).toEqual([1, []]);
+    expect([vi.mocked(globalThis.fetch).mock.calls.length, vi.mocked(globalThis.WebSocket).mock.calls]).toEqual([2, []]);
   });
 
   it("asks the reader of this build where a frame holds two, and refuses one of another build after a few seconds, saying whether the results page can reach its frame", async () => {
@@ -358,19 +393,22 @@ describe("The content scripts on an Anaplan page", () => {
     expect(frame.asked.filter(message => message.type === "run")).toHaveLength(1);
   });
 
-  it("waits three minutes for the model's frame in a run asked for right after the results page refreshed the tab, and twenty seconds otherwise", async () => {
+  it("waits two minutes while Model Building has no Classic frame, on ordinary and refreshed runs", async () => {
     at(MODEL_BUILDING);
     await import("./content.js");
+    hear({ protocol: PROTOCOL, type: "probe", probe: { host: "us1a.app.anaplan.com", path: "/a/modeling/", top: true } }, SHELL, page);
     const errors = (port: FakePort) => port.received.filter(message => message.type === "error").length;
     const port = open();
     port.take();
     port.say({ type: "run" });
-    await vi.advanceTimersByTimeAsync(21_000);
+    await vi.advanceTimersByTimeAsync(119_000);
+    expect(errors(port)).toBe(0);
+    await vi.advanceTimersByTimeAsync(1000);
     expect(errors(port)).toBe(1);
     const refreshed = open();
     refreshed.take();
     refreshed.say({ type: "run", afterRefresh: true });
-    await vi.advanceTimersByTimeAsync(170_000);
+    await vi.advanceTimersByTimeAsync(110_000);
     expect(errors(refreshed)).toBe(0);
     // The model shows: its frame checks in, and is asked.
     const frame = { asked: [] as { type: string }[], postMessage(message: { type: string }) { this.asked.push(message); } };
@@ -489,7 +527,7 @@ describe("The content scripts on an Anaplan page", () => {
     hear({ ...RUN, type: "done", nonce: frame.asked[1].nonce, result: { ...exportedModel(), lineItemIds: [["102000000001", ""]] } }, CORE, frame);
     await vi.advanceTimersByTimeAsync(0);
     // The IDs of the export's line items are not handed on, here either.
-    expect(assemble(port.received)).toEqual(withoutPages(NO_CUSTOMER));
+    expect(classicResult(port)).toEqual(withoutPages(NO_CUSTOMER));
     expect([vi.mocked(globalThis.fetch).mock.calls, vi.mocked(globalThis.WebSocket).mock.calls]).toEqual([[], []]);
   });
 
@@ -513,8 +551,8 @@ describe("The content scripts on an Anaplan page", () => {
     Object.assign(page, { require: () => undefined, modelId: MODEL, workspaceId: WS });
     vi.advanceTimersByTime(1000);
     expect(posted).toContainEqual({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD });
-    // It serves this window: one listener, for what the content script of the same window asks.
-    expect(listeners).toHaveLength(1);
+    // A diagnostic greeting listener and the reader that serves this window.
+    expect(listeners).toHaveLength(2);
   });
 
   it("begins the export's own log with the build, the model and the host on a classic model page opened on its own, and not inside Model Building", async () => {
@@ -575,8 +613,13 @@ describe("The content scripts on an Anaplan page", () => {
     await import("./model-content.js");
     vi.advanceTimersByTime(11 * 60_000);
     expect(vi.getTimerCount()).toBe(0);
-    expect(listeners).toEqual([]);
+    expect(listeners).toHaveLength(1); // diagnostics still answer greetings
     expect(posted.every(message => (message as { type: string }).type === "probe")).toBe(true);
+    const before = posted.length;
+    hear({ protocol: PROTOCOL, type: "hello" }, "https://elsewhere.example", page);
+    expect(posted).toHaveLength(before);
+    hear({ protocol: PROTOCOL, type: "hello" }, SHELL, page);
+    expect(posted).toHaveLength(before + 1);
     expect([vi.mocked(globalThis.fetch).mock.calls, vi.mocked(globalThis.WebSocket).mock.calls]).toEqual([[], []]);
   });
 });

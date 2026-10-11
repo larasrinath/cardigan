@@ -1,6 +1,6 @@
 import { stampLine } from "./details.js";
 import { resultMessages } from "./pieces.js";
-import { failureOf, firstLine, OldReader, SEND_LOG, type Progress } from "./progress.js";
+import { failureOf, firstLine, ModelUnavailable, OldReader, SEND_LOG, type Progress } from "./progress.js";
 import { PORT_NAME, type PageMessage, type Subject, type TabMessage } from "./protocol.js";
 import type { AnalysisResult } from "./result-types.js";
 import { message } from "./util.js";
@@ -52,7 +52,7 @@ export interface Tab {
 }
 
 export const SIGNED_OUT = "You're signed out of Anaplan. Sign in and try again.";
-export const NOTHING_TO_ANALYSE = "This tab is not showing an Anaplan app or a model. Open an app, or a model in Model Building, then choose Run again.";
+export const NOTHING_TO_ANALYSE = "This tab isn't showing a model. Open one in Model Building, then choose Run again.";
 /** The tab moved on to another app or model while what it showed before is still being analysed for another results page. */
 export const BUSY = "Cardigan is still analysing what this Anaplan tab showed before. Wait for that to finish, or close its results page, then choose Run again.";
 const STOPPING = "Stopping the previous run…";
@@ -103,7 +103,10 @@ export function serveTab(runtime: Pick<typeof chrome.runtime, "id" | "onConnect"
   const start = (ports: Set<Port>, asked: RunAsked = {}) => {
     const subject = tab.subject();
     if (subject.kind === "none") {
-      for (const port of ports) send(port, { type: "error", message: NOTHING_TO_ANALYSE });
+      for (const port of ports) {
+        send(port, { type: "log", text: stampLine("case=NOT_MODEL_PAGE; the tab shows neither an app nor a model") });
+        send(port, { type: "error", message: NOTHING_TO_ANALYSE, code: "NOT_MODEL_PAGE" });
+      }
       return;
     }
     const current: Run = run = { subject, ports, stop: new AbortController(), lines: [] };
@@ -129,6 +132,7 @@ export function serveTab(runtime: Pick<typeof chrome.runtime, "id" | "onConnect"
         log(`stopped: ${failed.detail ?? failed.message}`);
         tell(tab.signedOut(error) ? { type: "error", message: SIGNED_OUT, code: "SIGNED_OUT" }
           : error instanceof OldReader ? { type: "error", message: failed.message, code: "OLD_READER", renewable: error.renewable }
+          : error instanceof ModelUnavailable ? { type: "error", message: failed.message, code: error.code }
           : { type: "error", message: failed.message });
       } finally {
         // In the same turn as the last message, so that nothing the run still reports can follow it.

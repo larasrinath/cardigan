@@ -629,8 +629,8 @@ describe("The results page's escaping", () => {
   it("holds no text of a run in the run's view or in its banner: the page sets each part as plain text", () => {
     const ids = (html: string) => readMarkup(html).tags.flatMap(tag => (tag.attributes.has("id") ? [tag.attributes.get("id")] : []));
     const words = (html: string) => readMarkup(html).texts.map(text => text.trim()).filter(text => text !== "");
-    expect(ids(runHtml())).toEqual(["runTitle", "runStatus", "runHint", "runRefresh", "runLog", "diagLog"]);
-    expect(words(runHtml())).toEqual(["Refresh the Anaplan tab and run", "Diagnostics", "Copy diagnostic log"]);
+    expect(ids(runHtml())).toEqual(["runCard", "runTitle", "runStatus", "runHint", "runRefresh", "runRetry", "runCopy", "runLog", "diagLog"]);
+    expect(words(runHtml())).toEqual(["Refresh the Anaplan tab and run", "Run again", "Copy diagnostic log", "Diagnostics"]);
     expect(ids(runBannerHtml())).toEqual(["runBanner", "bannerTitle", "bannerText", "bannerHint", "bannerRefresh", "bannerCopy"]);
     expect(words(runBannerHtml())).toEqual(["The results below are from the earlier run.", "Refresh the Anaplan tab and run", "Copy diagnostic log"]);
     // The note above a result is the same: a place for one line, and the button, which waits hidden for a reason to copy.
@@ -640,7 +640,7 @@ describe("The results page's escaping", () => {
     // Both copy the log of the run, not the one a result carries; the banner's button waits, hidden, for a first line. The
     // button that refreshes the tab and runs again waits, hidden, in both, for a tab that still holds an earlier reader.
     const copies = (html: string) => parseMarkup(html).querySelectorAll("button").map(button => [button.dataset.act, button.textContent.trim(), button.hidden]);
-    expect(copies(runHtml())).toEqual([["refresh-run", "Refresh the Anaplan tab and run", true], ["copy-run-log", "Copy diagnostic log", false]]);
+    expect(copies(runHtml())).toEqual([["refresh-run", "Refresh the Anaplan tab and run", true], ["retry-run", "Run again", true], ["copy-run-log", "Copy diagnostic log", true]]);
     expect(copies(runBannerHtml())).toEqual([["refresh-run", "Refresh the Anaplan tab and run", true], ["copy-run-log", "Copy diagnostic log", true]]);
     expect(copies(noteBannerHtml())).toEqual([["copy-run-log", "Copy diagnostic log", true]]);
     expect(copies(overviewHtml(overviewWith({ log: ["a line"] })))).toEqual([["copy-diag", "Copy diagnostic log", false]]);
@@ -835,7 +835,7 @@ describe("A result whose every text is hostile, through every view of the page",
           if (name === "class") expect(value, "a class").toMatch(/^[a-z0-9 -]*$/);
           if (/^data-(sort|colfilter|col|fval|page|use|ov-open)$/.test(name)) expect(value, name).toMatch(/^-?\d+$/);
           if (name === "data-act") expect(["page", "card", "row", "reset", "clear-search", "clear-context", "copy-diag", "copy-run-log", "refresh-run", "use-page", "use-card", "more-uses", "forget",
-            "ov-open"]).toContain(value);
+            "ov-open", "retry-run"]).toContain(value);
           if (name === "data-nav") expect(value).toMatch(/^(overview|map|\d+)$/);
           if (name === "aria-controls") expect(value).toMatch(/^[A-Za-z]+$/);
           if (name === "data-way") expect(value).toMatch(/^(object|use)$/);

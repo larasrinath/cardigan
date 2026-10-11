@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { describeProbe, exportInCore, NO_MODEL, OLD_READER, openInCore, probeFrame, PROTOCOL, QUIET, RUN_PROTOCOL, runInCore, serveCore, serveOpen, UNREADABLE, watchCore,
+import { describeProbe, exportInCore, NO_MODEL, NO_READER, OLD_READER, openInCore, probeFrame, PROTOCOL, QUIET, RUN_PROTOCOL, runInCore, serveCore, serveOpen, UNREADABLE, watchCore,
   watchProbes,
   type CoreHandle,
   type Endpoint, type FrameProbe } from "./bridge.js";
@@ -156,8 +156,7 @@ describe("Model export bridge between the Model Building page and the model's co
 
   it("says in plain words why the page could not get the model exported, and keeps the count and the cause for the log", () => {
     // Each says what happened and what to do next; the last sentence names the button beside the diagnostic log.
-    expect(NO_MODEL).toBe("Cardigan could not reach the model inside this page. If the model is still opening, wait until it shows and choose Run again; "
-      + "otherwise refresh the Anaplan tab, then click the Cardigan icon again. If it keeps happening, choose Copy diagnostic log and send the log.");
+    expect(NO_MODEL).toBe("The model is still opening; wait until it shows in Anaplan, then choose Run again.");
     expect(QUIET).toBe("The model stopped answering while Cardigan was reading it. Check that it is still open in the Anaplan tab, then choose Run again.");
     expect(UNREADABLE).toBe("Cardigan could not read what the model's page sent back. Refresh the Anaplan tab, then click the Cardigan icon again. "
       + "If it keeps happening, choose Copy diagnostic log and send the log.");
@@ -699,8 +698,8 @@ describe("Model export bridge between the Model Building page and the model's co
     shell.receive({ ...RUN, type: "done", nonce: asked[0].nonce, result: exported() }, CORE, source);
     await expect(run).resolves.toEqual(exported());
     // The same model in another case is the same model: nothing is logged about it.
-    expect(lines).toEqual([...Array(3).fill("status: Waiting for the model's frame…"),
-      "log: frame eu2a.app.anaplan.com/core-webapp-<id>/anaplan/framework.jsp: loader=function model=id workspace=id"]);
+    expect(lines).toEqual([...Array(3).fill("status: Waiting for the model to open…"),
+      "log: frame eu2a.app.anaplan.com/core-webapp-<id>/anaplan/framework.jsp: loader=function model=id workspace=id", "log: Classic reader: answered; starting model settings"]);
   });
 
   it("says what reported in when no frame holds the model, and when the frame holds another model than the address names", async () => {
@@ -714,11 +713,11 @@ describe("Model export bridge between the Model Building page and the model's co
     };
     const nothing = failing([]);
     const something = failing([probe]);
-    await vi.advanceTimersByTimeAsync(20_000);
-    // The user is told the same either way; how many frames reported in is for the log.
-    expect(await nothing.outcome).toEqual([NO_MODEL, "no frame reported in"]);
-    expect(await something.outcome).toEqual([NO_MODEL, "the model's frame did not answer; 1 frame(s) reported in"]);
-    expect(nothing.lines).toEqual(Array(20).fill("status: Waiting for the model's frame…"));
+    await vi.advanceTimersByTimeAsync(120_000);
+    // No reader and a model still opening have different recovery paths.
+    expect(await nothing.outcome).toEqual([NO_READER, "case=NO_READER; no reader in the frames answered"]);
+    expect(await something.outcome).toEqual([NO_MODEL, "case=MODEL_OPENING; the Classic frame did not answer after 120 s; 1 frame(s) reported in"]);
+    expect(nothing.lines).toEqual(Array(4).fill("status: Waiting for the model to open…"));
     expect(something.lines.at(-1)).toBe("log: page us1a.app.anaplan.com/a/modeling/: loader=undefined model=undefined workspace=undefined");
 
     // A frame that is there at once is asked at once; a different model than the address names is noted, and still exported.
@@ -729,7 +728,7 @@ describe("Model export bridge between the Model Building page and the model's co
     await vi.advanceTimersByTimeAsync(0);
     (shell as unknown as FakeWindow).receive({ ...RUN, type: "done", nonce: asked[0].nonce, result: exported() }, CORE, source);
     await expect(run).resolves.toEqual(exported());
-    expect(lines).toEqual(["log: the model frame reports a different model than this page's address"]);
+    expect(lines).toEqual(["log: the model frame reports a different model than this page's address", "log: Classic reader: answered; starting model settings"]);
   });
 
   it("stops waiting for the model's frame when the run is stopped", async () => {
@@ -742,7 +741,7 @@ describe("Model export bridge between the Model Building page and the model's co
     stopping.abort(new Error("Stopped: the results page was closed."));
     await vi.advanceTimersByTimeAsync(1000);
     expect(await outcome).toBe("Stopped: the results page was closed.");
-    expect(lines).toEqual(Array(2).fill("status: Waiting for the model's frame…"));
+    expect(lines).toEqual(Array(2).fill("status: Waiting for the model to open…"));
   });
 
   it("reads a model only with a reader of its own build: one of another build is waited past for a few seconds, then refused, saying whether its frame is within the page's reach", async () => {
@@ -780,13 +779,13 @@ describe("Model export bridge between the Model Building page and the model's co
       await vi.advanceTimersByTimeAsync(1);
       return [meanwhile, outcome, lines];
     };
-    const waited = Array(4).fill("status: Waiting for the model's frame…");
+    const waited = Array(4).fill("status: Waiting for the model to open…");
     // Its frame on another Anaplan host than the page: out of the results page's reach.
     expect(await refused({ origin: CORE, modelId: MODEL, build: "0a1b2c3d4e5f" })).toEqual(["waiting",
-      [OLD_READER, `the model's reader is build 0a1b2c3d4e5f; this script is build ${BUILD}; its frame is on ${CORE}, the page on ${SHELL}`, false], waited]);
+      [OLD_READER, `case=OLD_READER; the model's reader is build 0a1b2c3d4e5f; this script is build ${BUILD}; its frame is on ${CORE}, the page on ${SHELL}`, false], waited]);
     // Its frame on the page's own origin: the results page may put this build's reader there.
     expect(await refused({ origin: SHELL, modelId: MODEL })).toEqual(["waiting",
-      [OLD_READER, `the model's reader is of a build that names none; this script is build ${BUILD}; its frame is on the page's own origin`, true], waited]);
+      [OLD_READER, `case=OLD_READER; the model's reader is of a build that names none; this script is build ${BUILD}; its frame is on the page's own origin`, true], waited]);
     expect(asked).toEqual([]);
 
     // A reader of this build that checks in meanwhile, as one the results page has just put into the frame does, is asked
