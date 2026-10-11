@@ -703,11 +703,12 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   function renderLegend(): void {
     if (!onScreen) return;
     // A model that has no sections to show has none in its legend either: its modules are one entry, as what they are.
-    // Of links it says only the kinds drawn: a link that is neither a filter's nor formulas' alone has an access driver.
-    // What a dotted box means is said while the picture has one, whichever of its layers are hidden.
+    // Of links it says only the kinds drawn, and nothing of formulas': a link that is neither a filter's nor formulas'
+    // alone has an access driver. What a dotted box means is said while the picture has one, whichever of its layers
+    // are hidden.
     legend.innerHTML = legendHtml(onScreen.kind === "drill" || single ? "On this map" : "Groups", onScreen.layers, hiddenLayers,
       onScreen.edges.some(edge => edge.filter) ? onScreen.kind : undefined, onScreen.nodes.some(node => node.filterMark) ? onScreen.kind : undefined,
-      { formulas, access: onScreen.edges.some(edge => !edge.filter && !edge.formulaOnly), none: linksDrawn() === "none" },
+      { access: onScreen.edges.some(edge => !edge.filter && !edge.formulaOnly), none: linksDrawn() === "none" },
       onScreen.nodes.some(node => node.accessMark) ? onScreen.kind : undefined, onScreen.nodes.some(node => node.raw?.modulesOnly === true));
     legendButton.disabled = onScreen.layers.length === 0;
   }

@@ -108,9 +108,9 @@ export const ACCESS_MARK_SAYS: Readonly<Record<ViewGraph["kind"], string>> = {
   drill: "Key mark: the line item is a read or write access driver. On another module, how many of its line items are drivers.",
 };
 const KEY = `<svg width="14" height="8" viewBox="0 0 14 8" fill="currentColor" aria-hidden="true"><path d="${KEY_PATH}" fill-rule="evenodd"/></svg>`;
-/** What the links of formulas are, said under their switch, which is ticked unless the viewer unticks it. */
-export const FORMULAS_SAY = "An arrow from A to B: B reads A. Untick to see only access drivers and page filters.";
-/** What a line on the map means. */
+/** What unticking the switch of formulas' links leaves, said under the switch, which is ticked unless the viewer unticks it. */
+export const FORMULAS_SAY = "Untick to see only access drivers and page filters.";
+/** What a line on the map means, said in the notes about the map, where the map is explained. */
 export const LINK_SAYS = "An arrow from A to B: B reads A.";
 /** What an access driver's link means, said in the legend while the picture draws some. */
 export const ACCESS_LINK_SAYS = "An arrow from an access driver to what it controls.";
@@ -219,8 +219,8 @@ export function shellHtml(ids: ShellIds, modelName: string): string {
       <button type="button" class="map-btn map-icon" data-map-act="zoom-out" aria-label="Zoom out" title="Zoom out (-)">${zoomIcon(false)}</button>
       <button type="button" class="map-btn map-icon" data-map-act="zoom-in" aria-label="Zoom in" title="Zoom in (+)">${zoomIcon(true)}</button>
       <button type="button" class="map-btn map-icon" data-map-act="fit" aria-label="Fit to screen" title="Fit to screen">${FIT_ICON}</button>
-      <button type="button" class="map-btn map-icon" data-map-act="minimap" aria-label="Minimap" title="Show minimap" aria-pressed="false" aria-controls="${esc(ids.legend)}-minimap">${MINIMAP_ICON}</button>
       <button type="button" class="map-btn map-icon" data-map-act="legend" aria-label="Legend" title="Legend" aria-expanded="false" aria-controls="${esc(ids.legend)}">${LEGEND_ICON}</button>
+      <button type="button" class="map-btn map-icon" data-map-act="minimap" aria-label="Minimap" title="Show minimap" aria-pressed="false" aria-controls="${esc(ids.legend)}-minimap">${MINIMAP_ICON}</button>
       <button type="button" class="map-btn map-icon" data-map-act="about" aria-label="About this map" title="About this map" aria-expanded="false" aria-controls="${esc(ids.about)}">${ABOUT_ICON}</button>
       <div class="map-status"><span class="map-stats"></span></div>
     </div>
@@ -278,10 +278,11 @@ export function pathRootHtml(model: string, workspace: string | undefined, whole
   return `<h2 class="map-title-name"><button type="button" class="map-crumb${whole ? " map-here" : ""}" data-map-act="crumb" data-map-crumb="root"${whole ? ' aria-current="location"' : ""} title="${esc(said)}">${esc(model)}</button></h2>`;
 }
 
-/** Which links the legend speaks of, besides those of page filters: formulas' where they are drawn, access drivers'
- * where the picture draws some, and, where the Links panel has no kind of link ticked, that none is drawn. */
-export interface LegendLinks { formulas: boolean; access: boolean; none: boolean }
-const FORMULAS_ONLY: LegendLinks = { formulas: true, access: false, none: false };
+/** Which links the legend speaks of, besides those of page filters: access drivers' where the picture draws some, and,
+ * where the Links panel has no kind of link ticked, that none is drawn. Formulas' links it leaves unsaid: what an arrow
+ * means is said in the notes about the map. */
+export interface LegendLinks { access: boolean; none: boolean }
+const NO_LINK_NOTES: LegendLinks = { access: false, none: false };
 /** What a dotted box is, said in the legend while the picture has one, and in such a module's details. */
 export const MODULES_ONLY_SAYS = "Module from Modules only: Line Items has no row for it.";
 /** The legend's mark for it: a box edged with round dots, as the canvas draws one (map-canvas.ts `DOTTED`). Its fill, its
@@ -290,19 +291,19 @@ export const MODULES_ONLY_SAYS = "Module from Modules only: Line Items has no ro
 const MODULES_ONLY_MARK = '<svg class="map-c-modules-only" width="22" height="14" viewBox="0 0 22 14" aria-hidden="true"><rect x="1" y="1" width="20" height="12" rx="4"/></svg>';
 
 /** The legend: each layer of the graph on screen with its colour and its number, as a button that hides the layer and
- * shows it again, and under them what a line means, for only the kinds of link drawn (`links`): while the links of page
- * filters are drawn, what theirs means on that kind of picture too (`filters`), beside a piece of the line they are drawn
- * in; and while a box of the picture has a filter mark, what the mark means on that kind of picture (`marks`), beside
- * one. Where no kind of link
- * is ticked, it says so plainly. A hidden layer says so in more than its colour: its name is struck through, and the
- * button is not pressed. While the picture has a box of a module from Modules alone (`modulesOnly`), a line under the
- * layers says what its dotted edge means, beside the mark. */
+ * shows it again, and under them what the links and marks that look like no other mean, each only while the picture
+ * has one: an access driver's link (`links`); while the links of page filters are drawn, what theirs means on that kind
+ * of picture (`filters`), beside a piece of the line they are drawn in; and while a box of the picture has a filter mark,
+ * what the mark means on that kind of picture (`marks`), beside one. What a formula's arrow means is said in the notes
+ * about the map, not here. Where no kind of link is ticked, it says so plainly. A hidden layer says so in more than its
+ * colour: its name is struck through, and the button is not pressed. While the picture has a box of a module from
+ * Modules alone (`modulesOnly`), a line under the layers says what its dotted edge means, beside the mark. */
 export function legendHtml(title: string, layers: readonly ViewLayer[], hidden: ReadonlySet<string>, filters?: ViewGraph["kind"], marks?: ViewGraph["kind"],
-  links: LegendLinks = FORMULAS_ONLY, accessMarks?: ViewGraph["kind"], modulesOnly = false): string {
+  links: LegendLinks = NO_LINK_NOTES, accessMarks?: ViewGraph["kind"], modulesOnly = false): string {
   return `<div class="map-legend-title">${esc(title)}</div>${layers.map(layer => {
     const off = hidden.has(layer.key);
     return `<button type="button" class="map-legend-item${off ? " map-off" : ""}" data-map-act="layer" data-map-layer="${esc(layer.key)}" aria-pressed="${off ? "false" : "true"}">${dot(layer.key)}<span class="map-legend-name">${esc(layer.label)}</span><span class="map-legend-count">${esc(formatCount(layer.count))}</span></button>`;
-  }).join("")}${modulesOnly ? `<p class="map-legend-note map-legend-mark">${MODULES_ONLY_MARK}${esc(MODULES_ONLY_SAYS)}</p>` : ""}${links.formulas ? `<p class="map-legend-note">${esc(LINK_SAYS)}</p>` : ""}${
+  }).join("")}${modulesOnly ? `<p class="map-legend-note map-legend-mark">${MODULES_ONLY_MARK}${esc(MODULES_ONLY_SAYS)}</p>` : ""}${
     links.access ? `<p class="map-legend-note map-legend-access">${esc(ACCESS_LINK_SAYS)}</p>` : ""}${
     links.none ? `<p class="map-legend-note map-legend-none">${esc(NO_LINKS_SAYS)}</p>` : ""}${filters ? `<p class="map-legend-note map-legend-filter"><span class="map-line-filter" aria-hidden="true"></span>${esc(FILTER_LINK_SAYS[filters])}</p>` : ""}${
     marks ? `<p class="map-legend-note map-legend-mark"><span class="map-mark-filter" aria-hidden="true">${FUNNEL}</span>${esc(FILTER_MARK_SAYS[marks])}</p>` : ""}${
