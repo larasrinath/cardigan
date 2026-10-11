@@ -2,6 +2,11 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version is in the menu of Cardigan's icon in Chrome's toolbar and on its About page, and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## Unreleased
+
+- **The path in order.** The Model map's path now reads model, Group by, Group, Module. Group names the current group, or says Group when none is chosen. All groups stays first in its list; All modules moves to the start of the Module list, before the modules under their group headings. Each whole pill opens its list, with names in full and the drawing kept in place.
+- **Why this grouping.** Group by shows the grouping's name. A drawn info button beside it explains the automatic choice with the model's figures and the rules, or says that you picked it. Hover for the explanation or click to keep it open; the keyboard reaches it too. Automatic stays first in the list to let Cardigan pick again. The selected box and previously kept views, including All modules, still load.
+
 ## 0.29.6 (11 October 2026)
 
 - **More room for the map.** One slim bottom bar holds the counts, Legend, About this map, zoom and Fit at every level and in full screen. Long counts end with an ellipsis and show their full text on hover. Legend, About and the minimap open above the bar without moving the boxes or camera. The minimap starts hidden and opens from its drawn button. (#86)

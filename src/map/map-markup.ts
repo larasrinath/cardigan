@@ -122,7 +122,6 @@ export interface ShellIds { results: string; hints: string; legend: string; abou
 /** The chevron of a select, which draws its own (map.css `.map-select-wrap`): the one the results page's menus have. */
 /** What stands between two parts of the map's path: a chevron pointing on, drawn as the bar's other chevrons are. */
 const PATH_CHEVRON = '<svg class="map-sep-chevron" width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 4l4 4-4 4"/></svg>';
-const SELECT_CHEVRON = '<svg class="map-select-chevron" width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg>';
 /** The same chevron after a button's words, as a menu's button has it. */
 const BUTTON_CHEVRON = '<svg class="map-btn-chevron" width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg>';
 /** The full screen button's two faces: four corners going out, to fill the screen, and coming in, to leave it. */
@@ -137,10 +136,8 @@ export const fullIconHtml = (whole: boolean): string => (whole ? LEAVE_FULL_ICON
  * The canvas comes first, under the panels; then one bar, the details of the box selected, and what stands over the
  * canvas itself.
  *
- * The bar has three parts, each of which stays on one line: where a line is too short for all three, a part takes the
- * next line whole, never half of it.
- * - Where the map is: the model name goes to the top; the group and module pills open their lists.
- * - How the modules are grouped, at every level.
+ * The path takes its own line before its full names wrap.
+ * - Where the map is: the model name goes to the top; Group by, Group and Module open their lists.
  * - Its tools: which links are drawn, the search, and full screen.
  *
  * One slim bar at the foot holds the status, Legend, About this map, zoom and the minimap toggle.
@@ -154,6 +151,19 @@ export function shellHtml(ids: ShellIds, modelName: string): string {
     <div class="map-zone map-zone-path">
       <nav class="map-crumbs" aria-label="Where the map is">
         <span class="map-path-root"></span>
+        <span class="map-sep" aria-hidden="true">${PATH_CHEVRON}</span>
+        <span class="map-grouping-field">
+          <span class="map-picker map-grouping-picker">
+            <button type="button" class="map-step" data-map-act="groupings" aria-label="Group by" aria-haspopup="listbox" aria-expanded="false" aria-controls="${esc(ids.picker)}-groupings"><span class="map-step-name map-grouping-name">Group by</span>${BUTTON_CHEVRON}</button>
+            <div class="map-panel map-picker-pop map-grouping-pop" hidden>
+              <div class="map-grouping-list" id="${esc(ids.picker)}-groupings" role="listbox" aria-label="Group by"></div>
+            </div>
+          </span>
+          <span class="map-grouping-info">
+            <button type="button" class="map-icon-btn" data-map-act="grouping-info" aria-label="Why this grouping" aria-expanded="false" aria-controls="${esc(ids.picker)}-reason" aria-describedby="${esc(ids.picker)}-reason"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="8" cy="8" r="6.2"/><path d="M8 7v5M8 4v1"/></svg></button>
+            <div class="map-panel map-grouping-reason" id="${esc(ids.picker)}-reason" role="note" tabindex="-1" hidden></div>
+          </span>
+        </span>
         <span class="map-sep" aria-hidden="true">${PATH_CHEVRON}</span>
         <span class="map-picker map-group-picker">
           <button type="button" class="map-step" data-map-act="groups" aria-label="Choose a group" aria-haspopup="listbox" aria-expanded="false" aria-controls="${esc(ids.picker)}-groups"><span class="map-step-name map-group-name">Group</span>${BUTTON_CHEVRON}</button>
@@ -170,9 +180,6 @@ export function shellHtml(ids: ShellIds, modelName: string): string {
           </div>
         </span>
       </nav>
-    </div>
-    <div class="map-zone map-zone-build">
-      <label class="map-field map-grouping-field" hidden><span class="map-field-label">Group by</span><span class="map-select-wrap"><select class="map-select map-grouping-select" aria-label="Group by"></select>${SELECT_CHEVRON}</span></label>
     </div>
     <div class="map-zone map-zone-tools">
       <div class="map-links">
@@ -362,28 +369,30 @@ export function brokenHtml(reason: string): string {
   return `<div class="map-broken" role="alert" tabindex="-1"><h2 class="map-empty-title">The map could not be drawn</h2><p class="map-empty-text">Drawing it failed${why}, and the map has stopped. The tables of this result are not affected.</p></div>`;
 }
 
-/** The choices of how to group the modules: each grouping the model has, by its kind (map-groups.ts), in the switch's
- * order, under the label "Group by". The one the map picks by itself says so. */
+/** Automatic stays a separate choice even when the viewer picks the same grouping by name. */
 export function groupingOptionsHtml(groupings: readonly { kind: string; label: string }[], automatic: string | undefined): string {
-  return groupings.map(grouping => `<option value="${esc(grouping.kind)}">${esc(grouping.label)}${grouping.kind === automatic ? " · automatic" : ""}</option>`).join("");
+  const label = groupings.find(grouping => grouping.kind === automatic)?.label;
+  return [{ kind: "automatic", label: `Automatic${label ? ` · ${label}` : ""}` }, ...groupings]
+    .map(grouping => `<button type="button" class="map-picker-opt" role="option" aria-selected="false" tabindex="-1" data-map-act="grouping" data-map-grouping="${esc(grouping.kind)}">${esc(grouping.label)}</button>`).join("");
 }
 
 /** The values of the Show list that are no group's place. */
 export const SHOW_GROUPS = "groups";
 export const SHOW_MODULES = "modules";
 
-/** Both path lists share a popover. Choosing a group always navigates, including the two whole-model choices. */
+/** Choosing a group always navigates; All groups returns to the overview. */
 export function groupOptionsHtml(groups: readonly string[], counts: readonly number[]): string {
-  return [{ value: SHOW_GROUPS, name: "All groups" }, { value: SHOW_MODULES, name: "All modules" },
+  return [{ value: SHOW_GROUPS, name: "All groups" },
     ...groups.map((name, index) => ({ value: String(index), name: `${name} · ${formatCount(counts[index] ?? 0)} ${(counts[index] ?? 0) === 1 ? "module" : "modules"}` }))]
     .map(group => `<button type="button" class="map-picker-opt" role="option" aria-selected="false" tabindex="-1" data-map-act="group" data-map-group="${esc(group.value)}">${esc(group.name)}</button>`).join("");
 }
 
 /** Modules arrive in group order. A group heading is written once, with its options beneath it. Keyboard focus and the
  * current module have separate marks: moving through the list does not change which module the map shows. */
-export function pickerOptionsHtml(listId: string, modules: readonly { name: string; group?: string; current?: boolean }[], active: number): string {
+export function pickerOptionsHtml(listId: string, modules: readonly { name: string; group?: string; current?: boolean }[], active: number, all?: { current: boolean }): string {
   let previous: string | undefined;
-  return modules.map((module, index) => {
+  const first = all ? `<div class="map-picker-opt${active === -1 ? " map-active" : ""}${all.current ? " map-current" : ""}" role="option" id="${esc(listId)}-all" aria-selected="${all.current}" data-map-pick="-1">All modules</div>` : "";
+  return first + modules.map((module, index) => {
     const heading = index === 0 || module.group !== previous;
     const end = index === modules.length - 1 || module.group !== modules[index + 1].group;
     previous = module.group;

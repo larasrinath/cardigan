@@ -165,23 +165,25 @@ const parts = (selector: string): FakeElement[] => root().querySelectorAll(selec
 const text = (selector: string): string => part(selector).textContent.replace(/\s+/g, " ").trim();
 const canvas = (): FakeElement => part(".map-canvas");
 const act = (name: string): FakeElement => part(`[data-map-act="${name}"]`);
-/** Where the path says the map is: the module of the Line items view, the group or "All modules" its Show list has
- * chosen, or the model's name where the map shows the model whole. */
+/** The module or group named in the path, Group when all modules are shown, or the model at the overview. */
 function here(): string {
   if (act("modules").getAttribute("aria-current")) return text(".map-module-name");
   return act("groups").getAttribute("aria-current") ? text(".map-group-name") : text(".map-title-name");
 }
 function groupChoice(value: string): void {
+  if (value === "modules") { openPicker(); part('[data-map-pick="-1"]').press(); return; }
   act("groups").press();
   part(`[data-map-group="${value}"]`).press();
 }
+function chooseGrouping(value: string): void { act("groupings").press(); part(`[data-map-grouping="${value}"]`).press(); }
+function groupingValue(): string { act("groupings").press(); const value = part('.map-grouping-list [aria-selected="true"]').dataset.mapGrouping!; act("groupings").press(); return value; }
 function toggleGroups(): void { groupChoice(here() === "Demand Plan" ? "modules" : "groups"); }
 function pickModule(name: string): void {
   openPicker();
   part(".map-picker-input").type(name);
   key("Enter");
 }
-function firstModule(): void { openPicker(); key("Enter"); }
+function firstModule(): void { openPicker(); part('[data-map-pick="0"]').press(); }
 /** Goes to a box by the search: its name typed, and Enter. */
 function goTo(name: string): void {
   part(".map-search").type(name);
@@ -225,6 +227,7 @@ const boxStrengths = (): number[] => {
 };
 const groupValue = (): string => {
   const name = text(".map-group-name");
+  if (name === "Group") return act("groups").getAttribute("aria-current") ? "modules" : "groups";
   const options = parts("[data-map-group]");
   return options.find(option => option.textContent === name || option.textContent.startsWith(`${name} · `))?.dataset.mapGroup ?? "";
 };
@@ -869,7 +872,7 @@ describe("Showing, hiding and ending the map", () => {
     env.time += 100;
     pointer("pointerdown", againX, againY);
     pointer("pointerup", againX, againY);
-    expect([here(), text(".map-insp-name")]).toEqual(["All modules", "CAL01 - Revenue"]);
+    expect([here(), text(".map-insp-name")]).toEqual(["Group", "CAL01 - Revenue"]);
   });
 
   it("stops the timer of a press when it is ended", () => {
@@ -1257,7 +1260,7 @@ describe("The map's views", () => {
   it("goes from the sections to all modules and back with the path's list", () => {
     open();
     groupChoice("modules");
-    expect([here(), groupValue(), status()]).toEqual(["All modules", "modules", "5 modules · 5 links"]);
+    expect([here(), groupValue(), status()]).toEqual(["Group", "modules", "5 modules · 5 links"]);
     expect([...locate().keys()].sort()).toEqual(["CAL01 - Revenue", "INP01 - Volumes", "INP02 - Prices", "Margin Workings", "REP01 - Board"]);
     expect(parts(".map-path-root button").map(crumb => crumb.textContent)).toEqual(["Demand Plan"]);
     // Among all modules each box says its section in words: its colour alone would not.
@@ -1269,7 +1272,7 @@ describe("The map's views", () => {
   it("shows one section's modules from the path's list, with the modules of other groups beside them", () => {
     open();
     expect(parts("[data-map-group]").map(option => [option.dataset.mapGroup, option.textContent]))
-      .toEqual([["groups", "All groups"], ["modules", "All modules"], ["0", "01: Inputs · 2 modules"], ["1", "02: Calculations · 2 modules"], ["2", "Reporting · 1 module"]]);
+      .toEqual([["groups", "All groups"], ["0", "01: Inputs · 2 modules"], ["1", "02: Calculations · 2 modules"], ["2", "Reporting · 1 module"]]);
     groupChoice("1");
     expect([here(), groupValue()]).toEqual(["02: Calculations", "1"]);
     expect(parts(".map-legend-item").map(item => item.textContent)).toEqual(["Modules of other groups3", "02: Calculations2"]);
@@ -1277,7 +1280,7 @@ describe("The map's views", () => {
     // The section's own modules are counted apart from those that stand beside them, on screen and aloud.
     expect([status(), text(".map-live")]).toEqual(["2 modules · 3 modules of other groups · 5 links", "02: Calculations: 2 modules, with 3 modules of other groups, 5 links."]);
     groupChoice("modules");
-    expect(here()).toBe("All modules");
+    expect(here()).toBe("Group");
     toggleGroups();
     expect(here()).toBe("Demand Plan");
   });
@@ -1341,7 +1344,7 @@ describe("The map's views", () => {
     groupChoice("2");
     pickModule("CAL01 - Revenue");
     expect([here(), text(".map-group-name")]).toEqual(["CAL01 - Revenue", "02: Calculations"]);
-    expect(parts("[data-map-group]").map(option => option.textContent)).toEqual(["All groups", "All modules", "01: Inputs · 2 modules", "02: Calculations · 2 modules", "Reporting · 1 module"]);
+    expect(parts("[data-map-group]").map(option => option.textContent)).toEqual(["All groups", "01: Inputs · 2 modules", "02: Calculations · 2 modules", "Reporting · 1 module"]);
     groupChoice("0");
     expect([here(), part(".map-module-picker .map-picker-pop").hidden]).toEqual(["01: Inputs", true]);
     openPicker();
@@ -1590,7 +1593,7 @@ describe("Selecting a node on the map", () => {
     clickNode("CAL01 - Revenue");
     expect(parts(".map-details summary").map(summary => summary.textContent)).toEqual(["Feeds it directly · 3", "It feeds directly · 2", "All its line items · 3"]);
     part('[data-map-node]').press();
-    expect([here(), text(".map-kind")]).toEqual(["All modules", "Module"]);
+    expect([here(), text(".map-kind")]).toEqual(["Group", "Module"]);
     expect(text(".map-insp-name")).not.toBe("CAL01 - Revenue");
     clickNode("CAL01 - Revenue");
     expect([act("open").textContent, act("open").dataset.mapModule]).toEqual(["Show its 3 line items", String(revenue)]);
@@ -2129,7 +2132,7 @@ describe("The map's keys", () => {
     page.id("outside").focus();
     const requested = env.requested;
     for (const name of ["Escape", "f", "+", "-", "/", "ArrowRight", "Enter"]) expect(page.key(name).defaultPrevented, name).toBe(false);
-    expect([here(), text(".map-insp-name"), env.requested, page.document.activeElement.id]).toEqual(["All modules", "CAL01 - Revenue", requested, "outside"]);
+    expect([here(), text(".map-insp-name"), env.requested, page.document.activeElement.id]).toEqual(["Group", "CAL01 - Revenue", requested, "outside"]);
   });
 
   it("fits with F, zooms with plus and minus, and goes to the search with the slash, from anywhere in the map but a box", () => {
@@ -2145,8 +2148,8 @@ describe("The map's keys", () => {
     // In the search box and in a list the same keys are typed, not taken.
     env.settle();
     for (const name of ["f", "+", "-", "/"]) expect([name, key(name).defaultPrevented, env.waiting]).toEqual([name, false, 0]);
-    part(".map-grouping-select").focus();
-    for (const name of ["f", "Escape", "ArrowDown"]) expect([name, key(name).defaultPrevented]).toEqual([name, false]);
+    part(".map-picker-input").focus();
+    for (const name of ["f", "+", "-"]) expect([name, key(name).defaultPrevented]).toEqual([name, false]);
     expect(here()).toBe("Demand Plan");
   });
 
@@ -2892,7 +2895,7 @@ describe("A model's texts on the map", () => {
     expect([text(".map-title-name"), act("crumb").title, here(), root().querySelector(".map-crumb-ws")]).toEqual([closers.trim(), `${closers} (workspace: ${breakOut})`, closers.trim(), null]);
     expect(part(".map-canvas").getAttribute("aria-label")).toContain(`Map of ${closers}: `);
     expect([text(".map-notes .map-about-line"), parts(".map-notes li")[0].textContent]).toEqual([`${closers}, in the workspace ${breakOut}: 2 modules · 2 line items`.replace(/\s+/g, " ").trim(), img]);
-    expect(parts("[data-map-group]").map(option => option.textContent)).toEqual(["All groups", "All modules", `${quoted} · 1 module`, `${entity} · 1 module`]);
+    expect(parts("[data-map-group]").map(option => option.textContent)).toEqual(["All groups", `${quoted} · 1 module`, `${entity} · 1 module`]);
     expect(parts(".map-legend-name").map(name => name.textContent)).toEqual([quoted, entity]);
     clickNode(quoted);
     check();
@@ -2975,7 +2978,82 @@ describe("The bar's tools and the module picker", () => {
   /** Lets the promises of the browser's full screen settle. */
   const settled = (): Promise<void> => new Promise(resolve => { setTimeout(resolve, 0); });
 
+  it("names the current group and uses Group at both whole-model views; only the module list offers All modules", () => {
+    open();
+    expect([text(".map-group-name"), text(".map-module-name")]).toEqual(["Group", "Module"]);
+    expect(parts("[data-map-group]").map(option => option.textContent)).not.toContain("All modules");
+    openPicker();
+    expect(parts(".map-picker-list .map-picker-opt")[0].textContent).toBe("All modules");
+    expect(page.document.activeElement).toBe(part(".map-picker-input"));
+    key("Enter");
+    expect([text(".map-group-name"), text(".map-module-name"), locate().size]).toEqual(["Group", "Module", 5]);
+    act("groups").press();
+    expect(page.document.activeElement.dataset.mapGroup).toBe("groups");
+    key("Escape");
+    groupChoice("1");
+    expect(text(".map-group-name")).toBe("02: Calculations");
+    pickModule("REP01 - Board");
+    expect([text(".map-group-name"), text(".map-module-name")]).toEqual(["Reporting", "REP01 - Board"]);
+    openPicker(); key("Home");
+    expect(part(".map-picker-list .map-active").textContent).toBe("All modules");
+    key("End");
+    expect(text(".map-picker-list .map-active .map-picker-name")).toBe("REP01 - Board");
+    key("Home"); key("Enter");
+    expect(text(".map-group-name")).toBe("Group");
+    key("Escape");
+    expect(here()).toBe("Demand Plan");
+  });
+
+  it.each(["Enter", " ", "Alt+Down"])("opens Group by with %s and navigates its list before Escape goes up the path", opening => {
+    open(); pickModule("CAL01 - Revenue");
+    act("groupings").focus();
+    if (opening === "Alt+Down") expect(key("ArrowDown", { altKey: true }).defaultPrevented).toBe(true);
+    else { expect(key(opening).defaultPrevented).toBe(false); act("groupings").press(); }
+    expect(page.document.activeElement.dataset.mapGrouping).toBe("headings");
+    key("Home"); expect(page.document.activeElement.dataset.mapGrouping).toBe("automatic");
+    key("ArrowDown"); expect(page.document.activeElement.dataset.mapGrouping).toBe("headings");
+    key("End"); expect(page.document.activeElement.dataset.mapGrouping).toBe("role");
+    key("ArrowUp"); expect(page.document.activeElement.dataset.mapGrouping).toBe("headings");
+    key("Escape");
+    expect([here(), page.document.activeElement, part(".map-grouping-pop").hidden]).toEqual(["CAL01 - Revenue", act("groupings"), true]);
+    key("Escape"); expect(here()).toBe("02: Calculations");
+  });
+
+  it("explains automatic and picked choices, keeps the same drawing when only mode changes, and dismisses the info", () => {
+    const heard: (string | undefined)[] = [];
+    mount(sample().graph, { modelName: "Demand Plan", grouping: undefined, onGrouping: kind => { heard.push(kind); } });
+    map.show(); env.resize(1200, 800); env.settle();
+    goTo("margin %"); env.settle();
+    const before = boxes();
+    const automatic = "Chosen automatically: Headings. Functional areas cover 0% of modules in 0 groups; Heading rows cover 100% of modules in 3 groups. The first with at least 60% in 2 or more groups wins. Pick another grouping to change it.";
+    expect(text(".map-grouping-name")).toBe("Headings");
+    expect(act("grouping-info").title).toBe(automatic);
+    act("grouping-info").focus(); act("grouping-info").press();
+    expect([text(".map-grouping-reason"), page.document.activeElement, act("grouping-info").getAttribute("aria-expanded")])
+      .toEqual([automatic, part(".map-grouping-reason"), "true"]);
+    expect(boxes()).toEqual(before);
+    key("Escape");
+    expect([here(), page.document.activeElement, part(".map-grouping-reason").hidden]).toEqual(["Margin Workings", act("grouping-info"), true]);
+    chooseGrouping("headings");
+    const picked = "You picked this grouping. Choose Automatic to let Cardigan pick.";
+    expect([act("grouping-info").title, heard, text(".map-insp-name"), boxes()]).toEqual([picked, ["headings"], "Margin %", before]);
+    act("grouping-info").press();
+    expect(text(".map-grouping-reason")).toBe(picked);
+    pointer("pointerdown", 600, 700); pointer("pointerup", 600, 700);
+    expect(part(".map-grouping-reason").hidden).toBe(true);
+    chooseGrouping("automatic");
+    expect([act("grouping-info").title, heard, boxes()]).toEqual([automatic, ["headings", undefined], before]);
+    act("grouping-info").press();
+    part(".map-grouping-reason").dispatch("focusout", { relatedTarget: page.id("outside") } as unknown as { key?: string });
+    page.id("outside").focus();
+    expect(part(".map-grouping-reason").hidden).toBe(true);
+    act("grouping-info").press(); map.hide(); map.show();
+    expect(part(".map-grouping-reason").hidden).toBe(true);
+  });
+
   it.each([
+    ["groupings", ".map-grouping-name", ".map-grouping-pop"],
+    ["groupings", ".map-grouping-picker .map-btn-chevron path", ".map-grouping-pop"],
     ["groups", ".map-group-name", ".map-group-pop"],
     ["groups", ".map-group-picker .map-btn-chevron path", ".map-group-pop"],
     ["modules", ".map-module-name", ".map-module-picker .map-picker-pop"],
@@ -2989,8 +3067,8 @@ describe("The bar's tools and the module picker", () => {
     expect([part(popover).hidden, act(action).getAttribute("aria-expanded"), here()]).toEqual([false, "true", "CAL01 - Revenue"]);
     expect(boxes()).toEqual(before);
     expect(text(".map-group-name") + text(".map-module-name")).toBe(path);
-    expect(page.document.activeElement).toBe(action === "modules" ? part(".map-picker-input") : part('.map-group-list [aria-selected="true"]'));
-    expect(act(action).getAttribute("aria-label")).toContain(action === "modules" ? "CAL01 - Revenue" : "02: Calculations");
+    expect(page.document.activeElement).toBe(action === "modules" ? part(".map-picker-input") : part(`.map-${action === "groups" ? "group" : "grouping"}-list [aria-selected="true"]`));
+    expect(act(action).getAttribute("aria-label")).toContain(action === "modules" ? "CAL01 - Revenue" : action === "groups" ? "02: Calculations" : "Headings");
     key("Escape");
     expect([part(popover).hidden, act(action).getAttribute("aria-expanded"), page.document.activeElement, here()])
       .toEqual([true, "false", act(action), "CAL01 - Revenue"]);
@@ -3010,7 +3088,7 @@ describe("The bar's tools and the module picker", () => {
     expect([here(), part(".map-group-pop").hidden, status()])
       .toEqual(["02: Calculations", true, "2 modules · 3 modules of other groups · 5 links"]);
     groupChoice("modules");
-    expect([here(), locate().size]).toEqual(["All modules", 5]);
+    expect([here(), locate().size]).toEqual(["Group", 5]);
     groupChoice("groups");
     expect([here(), locate().size]).toEqual(["Demand Plan", 3]);
     pickModule("CAL01 - Revenue");
@@ -3051,7 +3129,7 @@ describe("The bar's tools and the module picker", () => {
 
     openWithKey(act("modules"));
     expect([act("modules").getAttribute("aria-expanded"), page.document.activeElement]).toEqual(["true", part(".map-picker-input")]);
-    key("ArrowDown");
+    key("ArrowDown"); key("ArrowDown");
     expect(text(".map-picker-list .map-active .map-picker-name")).toBe("INP02 - Prices");
     key("ArrowUp");
     expect(text(".map-picker-list .map-active .map-picker-name")).toBe("INP01 - Volumes");
@@ -3126,7 +3204,7 @@ describe("The bar's tools and the module picker", () => {
     key("Escape");
     expect([part(".map-module-picker .map-picker-pop").hidden, page.document.activeElement]).toEqual([true, act("modules")]);
     openPicker();
-    const option = parts(".map-picker-list .map-picker-opt")[2];
+    const option = parts(".map-picker-list .map-picker-opt")[3];
     expect(option.dispatch("pointerdown").defaultPrevented).toBe(true);
     option.press();
     expect(here()).toBe("M60 - Module 60");
@@ -3205,7 +3283,7 @@ describe("How the map groups modules", () => {
     make.link(make.action("Load Volumes", { actionType: "Import" }), modules[0], "import_target");
     return make.graph();
   }
-  const choices = (): [string | null, string][] => parts(".map-grouping-select option").map(option => [option.getAttribute("value"), option.textContent]);
+  const choices = (): [string | null, string][] => parts("[data-map-grouping]").map(option => [option.dataset.mapGrouping ?? null, option.textContent]);
   const sectionNames = (): string[] => parts(".map-legend-name").map(name => name.textContent);
   const heard: (string | undefined)[] = [];
   const openGrouped = (graph: ModelGraph, grouping?: string): void => {
@@ -3218,10 +3296,10 @@ describe("How the map groups modules", () => {
 
   it("opens on the grouping it picks itself, which the switch says, and names each module's section with where it comes from", () => {
     openGrouped(coded());
-    expect(choices()).toEqual([["prefix", "Name prefix · automatic"], ["role", "Role in the data flow"]]);
-    expect([part(".map-grouping-field").hidden, text(".map-grouping-field .map-field-label"), part(".map-grouping-select").value]).toEqual([false, "Group by", "prefix"]);
+    expect(choices()).toEqual([["automatic", "Automatic · Name prefix"], ["prefix", "Name prefix"], ["role", "Role in the data flow"]]);
+    expect([part(".map-grouping-field").hidden, text(".map-grouping-name"), groupingValue()]).toEqual([false, "Name prefix", "automatic"]);
     expect(sectionNames()).toEqual(["INP", "CAL", "REP", "Other"]);
-    expect(parts("[data-map-group]").map(option => option.textContent)).toEqual(["All groups", "All modules", "INP · 3 modules", "CAL · 3 modules", "REP · 3 modules", "Other · 1 module"]);
+    expect(parts("[data-map-group]").map(option => option.textContent)).toEqual(["All groups", "INP · 3 modules", "CAL · 3 modules", "REP · 3 modules", "Other · 1 module"]);
     // A module's details and the search say its section and where that comes from.
     toggleGroups();
     env.settle();
@@ -3233,13 +3311,13 @@ describe("How the map groups modules", () => {
     expect(heard).toEqual([]);
   });
 
-  it("groups the modules anew from the switch, shows the model whole, says so, and tells the page the choice: the map's own pick as none", () => {
+  it("groups the modules anew, shows the model whole, and keeps a named choice even when Automatic would pick it", () => {
     openGrouped(coded());
     clickNode("CAL");
-    part(".map-grouping-select").choose("role");
+    chooseGrouping("role");
     env.settle();
     // The whole model, in the new sections, with nothing selected.
-    expect([sectionNames(), part(".map-inspector").hidden, part(".map-grouping-select").value]).toEqual([["Data", "Input", "Calculation", "Output"], true, "role"]);
+    expect([sectionNames(), part(".map-inspector").hidden, groupingValue()]).toEqual([["Data", "Input", "Calculation", "Output"], true, "role"]);
     expect(text(".map-live")).toMatch(/^Modules grouped by role in the data flow\. Groups of Demand Plan: 4 groups/);
     // The details say why a module is where the map put it.
     clickNode("Calculation");
@@ -3248,20 +3326,20 @@ describe("How the map groups modules", () => {
     clickNode("REP01 Board");
     expect(parts(".map-dl dt").map(term => term.textContent).slice(0, 2)).toEqual(["Group", "Why"]);
     expect(parts(".map-dl dd").map(value => value.textContent).slice(0, 2)).toEqual(["Calculation · from the data flow", "Calculation: 1 of its 1 line item has a formula, and another module reads it."]);
-    part(".map-grouping-select").choose("prefix");
+    chooseGrouping("prefix");
     env.settle();
-    expect([sectionNames(), heard]).toEqual([["INP", "CAL", "REP", "Other"], ["role", undefined]]);
+    expect([sectionNames(), heard]).toEqual([["INP", "CAL", "REP", "Other"], ["role", "prefix"]]);
     // The grouping on screen chosen again: nothing changes, and nothing is told.
-    part(".map-grouping-select").choose("prefix");
-    expect(heard).toEqual(["role", undefined]);
+    chooseGrouping("prefix");
+    expect(heard).toEqual(["role", "prefix"]);
   });
 
   it("opens on the grouping the viewer chose last where the model has it, and on its own pick where it has not", () => {
     openGrouped(coded(), "role");
-    expect([part(".map-grouping-select").value, sectionNames()]).toEqual(["role", ["Data", "Input", "Calculation", "Output"]]);
+    expect([groupingValue(), sectionNames()]).toEqual(["role", ["Data", "Input", "Calculation", "Output"]]);
     map.destroy();
     openGrouped(coded(), "functionalArea");
-    expect([part(".map-grouping-select").value, sectionNames()]).toEqual(["prefix", ["INP", "CAL", "REP", "Other"]]);
+    expect([groupingValue(), sectionNames()]).toEqual(["automatic", ["INP", "CAL", "REP", "Other"]]);
   });
 
   it("keeps a module, its selected line item and its camera when Group by changes", () => {
@@ -3269,7 +3347,7 @@ describe("How the map groups modules", () => {
     goTo("margin %");
     env.settle();
     const before = boxes();
-    part(".map-grouping-select").choose("role");
+    chooseGrouping("role");
     env.settle();
     expect([here(), text(".map-insp-name"), part(".map-grouping-field").hidden]).toEqual(["Margin Workings", "Margin %", false]);
     expect(boxes()).toEqual(before);
@@ -3285,7 +3363,7 @@ describe("How the map groups modules", () => {
     open();
     act("groups").press();
     expect(page.document.activeElement).toBe(part('[data-map-group="groups"]'));
-    key("ArrowDown"); expect(page.document.activeElement).toBe(part('[data-map-group="modules"]'));
+    key("ArrowDown"); expect(page.document.activeElement).toBe(part('[data-map-group="0"]'));
     key("End"); expect(page.document.activeElement).toBe(part('[data-map-group="2"]'));
     key("Home"); key("Escape");
     expect([here(), part(".map-group-pop").hidden, page.document.activeElement]).toEqual(["Demand Plan", true, act("groups")]);
@@ -3295,14 +3373,14 @@ describe("How the map groups modules", () => {
     openGrouped(coded());
     firstModule();
     env.settle();
-    expect([part(".map-grouping-field").hidden, part(".map-zone-build").hidden]).toEqual([false, false]);
+    expect([part(".map-grouping-field").hidden, part(".map-grouping-picker").hidden]).toEqual([false, false]);
     map.destroy();
     // Names that share no code, no heading, no list: only the role in the data flow, which makes one section here.
     const make = new GraphMaker();
     for (const name of ["Volumes", "Prices", "Rates"]) make.item(make.module(name), "Value");
     openGrouped(make.graph());
-    // How the map is built has nothing to choose in the Modules view then: that part of the bar goes.
-    expect([choices(), part(".map-grouping-field").hidden, part(".map-zone-build").hidden, part(".map-group-picker").hidden, sectionNames()]).toEqual([[["role", "Role in the data flow · automatic"]], false, false, false, ["Modules"]]);
+    // Automatic and the single named grouping remain available at every level.
+    expect([choices(), part(".map-grouping-field").hidden, part(".map-grouping-picker").hidden, part(".map-group-picker").hidden, sectionNames()]).toEqual([[["automatic", "Automatic · Role in the data flow"], ["role", "Role in the data flow"]], false, false, false, ["Modules"]]);
   });
 
   it("opens by itself on 22 functional areas its builders set, in the order of their names, and every part of the map follows a switch of grouping", () => {
@@ -3323,9 +3401,9 @@ describe("How the map groups modules", () => {
     openGrouped(graph);
     const shows = (): string[] => parts("[data-map-group]").map(option => option.textContent);
     const groupsListed = (): string[] => parts("[data-map-group]").map(option => option.textContent);
-    expect([part(".map-grouping-select").value, choices()[0], sectionNames().slice(0, 3), sectionNames().length])
-      .toEqual(["functionalArea", ["functionalArea", "Functional area · automatic"], ["000: Area 0", "001: Area 1", "002: Area 2"], 22]);
-    expect([shows().slice(0, 4), shows().length]).toEqual([["All groups", "All modules", "000: Area 0 · 2 modules", "001: Area 1 · 2 modules"], 24]);
+    expect([groupingValue(), choices()[0], sectionNames().slice(0, 3), sectionNames().length])
+      .toEqual(["automatic", ["automatic", "Automatic · Functional area"], ["000: Area 0", "001: Area 1", "002: Area 2"], 22]);
+    expect([shows().slice(0, 3), shows().length]).toEqual([["All groups", "000: Area 0 · 2 modules", "001: Area 1 · 2 modules"], 23]);
     // The search, a module's details and a module opened from the page all say its area, and where that comes from.
     part(".map-search").type("M5-1");
     expect(parts(".map-result").map(result => result.querySelector("small")?.textContent)[0]).toBe("Module · 005: Area 5 · from functional areas");
@@ -3334,10 +3412,10 @@ describe("How the map groups modules", () => {
     expect([text(".map-insp-name"), parts(".map-dl dd")[0].textContent]).toEqual(["M7-0", "007: Area 7 · from functional areas"]);
 
     // The heading rows: the lists, the legend, the search and the details are theirs at once.
-    part(".map-grouping-select").choose("headings");
+    chooseGrouping("headings");
     env.settle();
-    expect([sectionNames(), shows(), groupsListed()]).toEqual([["0: Heading", "1: Heading"], ["All groups", "All modules", "0: Heading · 22 modules", "1: Heading · 22 modules"],
-      ["All groups", "All modules", "0: Heading · 22 modules", "1: Heading · 22 modules"]]);
+    expect([sectionNames(), shows(), groupsListed()]).toEqual([["0: Heading", "1: Heading"], ["All groups", "0: Heading · 22 modules", "1: Heading · 22 modules"],
+      ["All groups", "0: Heading · 22 modules", "1: Heading · 22 modules"]]);
     part(".map-search").type("M5-1");
     expect(parts(".map-result").map(result => result.querySelector("small")?.textContent)[0]).toBe("Module · 1: Heading · from heading rows");
     part(".map-search").type("");
@@ -3345,9 +3423,9 @@ describe("How the map groups modules", () => {
     expect(parts(".map-dl dd")[0].textContent).toBe("0: Heading · from heading rows");
 
     // And back: nothing of the headings is left.
-    part(".map-grouping-select").choose("functionalArea");
+    chooseGrouping("functionalArea");
     env.settle();
-    expect([sectionNames().length, shows().length, groupsListed().slice(0, 2), heard]).toEqual([22, 24, ["All groups", "All modules"], ["headings", undefined]]);
+    expect([sectionNames().length, shows().length, groupsListed().slice(0, 2), heard]).toEqual([22, 23, ["All groups", "000: Area 0 · 2 modules"], ["headings", "functionalArea"]]);
   });
 
   it("goes on when the page cannot keep the choice", () => {
@@ -3355,7 +3433,7 @@ describe("How the map groups modules", () => {
     map.show();
     env.resize(1200, 800);
     env.settle();
-    part(".map-grouping-select").choose("role");
+    chooseGrouping("role");
     env.settle();
     expect([sectionNames(), parts(".map-broken").length]).toEqual([["Data", "Input", "Calculation", "Output"], 0]);
   });
@@ -3431,7 +3509,7 @@ describe("Where the viewer left the map, which the page keeps for a refresh", ()
     // Where it opens by itself: the groups as a whole.
     expect([here(), heard.at(-1)]).toEqual(["Demand Plan", { view: "modules" }]);
     toggleGroups();
-    expect([here(), heard.at(-1)]).toEqual(["All modules", { view: "modules", all: true }]);
+    expect([here(), heard.at(-1)]).toEqual(["Group", { view: "modules", all: true }]);
     groupChoice("1");
     expect([here(), heard.at(-1)]).toEqual(["02: Calculations", { view: "modules", group: "02: Calculations" }]);
     tickAccess();
@@ -3456,7 +3534,7 @@ describe("Where the viewer left the map, which the page keeps for a refresh", ()
     expect([here(), heard[0]]).toEqual(["Reporting", { view: "modules", group: "Reporting" }]);
     map.destroy();
     openAt({ view: "modules", all: true });
-    expect(here()).toBe("All modules");
+    expect(here()).toBe("Group");
     map.destroy();
     // A module or a group the model no longer has: the map opens as it does by itself, with the links it kept.
     openAt({ view: "drill", module: "Gone", access: true });
