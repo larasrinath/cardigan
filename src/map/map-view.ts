@@ -4,7 +4,7 @@ import {
   type Area, type Camera, type Direction, type Insets, type MinimapTransform,
 } from "./map-camera.js";
 import { createFonts, drawMinimap, drawScene, legibleFrom, type Fonts, type Pen } from "./map-canvas.js";
-import { moduleGraph, modulesGraph, sectionsGraph, type Box, type LinksDrawn, type ViewGraph, type ViewNode } from "./map-graphs.js";
+import { edgeDrawn, moduleGraph, modulesGraph, sectionsGraph, type Box, type LinksDrawn, type ViewGraph, type ViewNode } from "./map-graphs.js";
 import { inspect, statusWords, traceWords, viewSentence, type Inspection, type TraceWords } from "./map-inspect.js";
 import { boundsOf, fullFrom, layoutGraph, sizeNodes } from "./map-layout.js";
 import { automaticGrouping, groupingsOf, type Grouping } from "./map-groups.js";
@@ -514,11 +514,18 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     return list;
   }
 
+  /** The boxes a box has links with, of the links drawn: all of them where formulas' are, and otherwise those that count
+   * more than formulas' alone (map-graphs.ts `edgeDrawn`). */
+  function linkedWith(current: ViewGraph, node: ViewNode): ViewNode[] {
+    if (formulas) return [...current.in[node.index], ...current.out[node.index]].map(index => current.nodes[index]);
+    return current.edges.flatMap(edge => (!edgeDrawn(edge, false) ? [] : edge.s === node.index ? [current.nodes[edge.t]] : edge.t === node.index ? [current.nodes[edge.s]] : []));
+  }
+
   /** The camera that has a box of the graph in view in one of the rooms, from where the camera is: moved no further
    * than it must be and brought no nearer, with the boxes it has links with where those fit as well, and never further
    * away than `floor`. Where not even the box alone fits so, the camera stays. */
   function beside(current: ViewGraph, node: ViewNode, list: readonly Insets[], from: Camera, floor: number): Camera {
-    const linked = [node, ...current.in[node.index].map(index => current.nodes[index]), ...current.out[node.index].map(index => current.nodes[index])].filter(each => isShown(each.index));
+    const linked = [node, ...linkedWith(current, node)].filter(each => isShown(each.index));
     const cost = (to: Camera): number => (from.k - to.k) * 1e6 + Math.abs(to.ox - from.ox) + Math.abs(to.oy - from.oy);
     for (const box of [boxAround(linked, 8), boxAround([node], 8)]) {
       if (!box) continue;
@@ -1133,7 +1140,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     // The camera comes close: part of the graph will be out of view, and the line at the foot will say so.
     footFor(false);
     const list = rooms();
-    const linked = boxAround([node, ...current.in[node.index].map(index => current.nodes[index]), ...current.out[node.index].map(index => current.nodes[index])], 24);
+    const linked = boxAround([node, ...linkedWith(current, node)], 24);
     let to = linked ? fitCameraIn(linked, width, height, list, 1) : undefined;
     if (!to || to.k < full) {
       const alone = boxAround([node], 24);
