@@ -4,7 +4,7 @@ import { decode, readMarkup, shownValues, structure } from "../results/markup.te
 import type { PageFilterCheck } from "./graph-types.js";
 import type { InspectLink, Inspection, TraceWords } from "./map-inspect.js";
 import {
-  ACCESS_LINK_SAYS, ACCESS_SAYS, BESIDE_SAYS, brokenHtml, emptyHtml, esc, FILTER_LINK_SAYS, FILTER_MARK_SAYS, FILTERS_BOTH_SAY, FILTERS_NONE, FILTERS_OWN_SAY, FILTERS_SAY, FILTERS_UNSAID, filtersNote, FORMULAS_SAY, FULL_SAYS, fullIconHtml, groupingOptionsHtml, groupOptionsHtml, inspectorHtml,
+  ACCESS_LINK_SAYS, ACCESS_MARK_SAYS, ACCESS_SAYS, BESIDE_SAYS, brokenHtml, emptyHtml, esc, FILTER_LINK_SAYS, FILTER_MARK_SAYS, FILTERS_BOTH_SAY, FILTERS_NONE, FILTERS_OWN_SAY, FILTERS_SAY, FILTERS_UNSAID, filtersNote, FORMULAS_SAY, FULL_SAYS, fullIconHtml, groupingOptionsHtml, groupOptionsHtml, inspectorHtml,
   groupingReasonHtml, legendHtml, LINK_SAYS, LIST_CAP, listHtml, MODULES_ONLY_SAYS, NO_LINKS_SAYS, notesHtml, type LegendLinks,
   pathRootHtml, pickerOptionsHtml, resultsHtml, shellHtml, SHOW_GROUPS, SHOW_MODULES, TIP_FORMULA, tooltipHtml, traceHtml, type ShellIds,
 } from "./map-markup.js";
@@ -228,7 +228,7 @@ describe("The map's own markup", () => {
     // In the bar's order: where the map is, how it is built, and its tools. Each list and box is named as its label reads.
     expect(names).toEqual([
       "Group by", "How this grouping works", "Choose a group", "Choose a module", "Find a module", "Links", "Formulas", "Access drivers", "Page filters", "Other modules' line items", "Search all groups, modules and line items", FULL_SAYS.enter,
-      "Zoom out", "Zoom in", "Fit to screen", "Minimap", "Legend", "About this map",
+      "Zoom out", "Zoom in", "Fit to screen", "Legend", "Minimap", "About this map",
     ]);
     expect(shell.querySelector(".map-grouping-name")?.textContent).toBe("Group by");
     expect(shell.querySelector(".map-search")?.getAttribute("aria-controls")).toBe("map-results-1");
@@ -246,15 +246,17 @@ describe("The map's own markup", () => {
     const panel = shell.querySelector(".map-links-pop")!;
     expect([button.textContent, button.getAttribute("aria-expanded"), button.getAttribute("aria-controls"), panel.id, panel.hidden, panel.getAttribute("aria-label")])
       .toEqual(["Links", "false", "map-links-1", "map-links-1", true, "Links on the map"]);
-    // Formulas are the first box, ticked as the map opens, which a screen reader hears described by what they are and
-    // what unticking it leaves. No mark stands for them: no drawn tick, and no glyph.
+    // Formulas are the first box, ticked as the map opens, which a screen reader hears described by what unticking it
+    // leaves. What an arrow means is said in the notes about the map, not here. No mark stands for them: no drawn tick,
+    // and no glyph.
     expect(panel.querySelectorAll(".map-links-note").map(note => note.textContent)).toEqual([FORMULAS_SAY, ACCESS_SAYS, FILTERS_SAY]);
     expect(panel.querySelectorAll("input").map(input => input.getAttribute("class"))).toEqual(["map-formulas", "map-access", "map-filters", "map-external"]);
     const formulas = panel.querySelector(".map-formulas")!;
     expect([formulas.getAttribute("type"), formulas.getAttribute("checked"), formulas.getAttribute("aria-describedby"), formulas.closest("label")?.textContent])
       .toEqual(["checkbox", "", "map-formulas-1", "Formulas"]);
-    expect(shell.querySelector("#map-formulas-1")?.textContent).toBe(FORMULAS_SAY);
-    expect(FORMULAS_SAY).toBe(`${LINK_SAYS} Untick to see only access drivers and page filters.`);
+    expect(shell.querySelector("#map-formulas-1")?.textContent).toBe("Untick to see only access drivers and page filters.");
+    expect(FORMULAS_SAY).toBe("Untick to see only access drivers and page filters.");
+    expect(panel.textContent).not.toContain(LINK_SAYS);
     expect([panel.querySelector(".map-links-tick"), panel.querySelectorAll("svg").length, panel.textContent.includes("✓")]).toEqual([null, 0, false]);
     // Access drivers are a box, which a screen reader hears described by what they are.
     const box = panel.querySelector(".map-access")!;
@@ -313,7 +315,7 @@ describe("The map's own markup", () => {
   it("draws every round button at 16 pixels with the menu bar's stroke, including both full screen faces", () => {
     const shell = parseMarkup(shellHtml(IDS, "Demand Plan"));
     const buttons = shell.querySelectorAll(".map-btn.map-icon");
-    expect(buttons.map(button => button.dataset.mapAct)).toEqual(["fullscreen", "zoom-out", "zoom-in", "fit", "minimap", "legend", "about"]);
+    expect(buttons.map(button => button.dataset.mapAct)).toEqual(["fullscreen", "zoom-out", "zoom-in", "fit", "legend", "minimap", "about"]);
     const icons = [...buttons.map(button => button.querySelector("svg")!), parseMarkup(fullIconHtml(true)).querySelector("svg")!];
     for (const icon of icons) {
       expect(["width", "height", "viewBox", "fill", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin", "aria-hidden"].map(attribute => icon.getAttribute(attribute)))
@@ -378,11 +380,12 @@ describe("The map's own markup", () => {
     expect(shell.querySelectorAll(".map-clusters, .map-summary, .map-stats-size")).toHaveLength(0);
     const bar = shell.querySelector(".map-navigation")!;
     const navigation = bar;
+    // The legend's button stands before the minimap's.
     expect(navigation.children.map(child => child.dataset.mapAct ?? child.getAttribute("class")))
-      .toEqual(["zoom-out", "zoom-in", "fit", "minimap", "legend", "about", "map-status"]);
+      .toEqual(["zoom-out", "zoom-in", "fit", "legend", "minimap", "about", "map-status"]);
     expect(navigation.querySelector(".map-status")?.children.map(child => child.getAttribute("class"))).toEqual(["map-stats"]);
     expect(navigation.querySelectorAll("button").map(button => button.getAttribute("aria-label")))
-      .toEqual(["Zoom out", "Zoom in", "Fit to screen", "Minimap", "Legend", "About this map"]);
+      .toEqual(["Zoom out", "Zoom in", "Fit to screen", "Legend", "Minimap", "About this map"]);
     expect(navigation.classList.contains("map-panel")).toBe(false);
     expect(bar.querySelectorAll('.map-cluster-divider, [role="separator"], hr')).toHaveLength(0);
     const full = shell.querySelector('[data-map-act="fullscreen"] svg')!;
@@ -404,7 +407,7 @@ describe("The map's own markup", () => {
       expect(button.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
     }
     expect(bar.querySelectorAll("button").map(button => button.dataset.mapAct))
-      .toEqual(["zoom-out", "zoom-in", "fit", "minimap", "legend", "about"]);
+      .toEqual(["zoom-out", "zoom-in", "fit", "legend", "minimap", "about"]);
     expect(bar.querySelectorAll("[tabindex]")).toHaveLength(0);
     expect(bar.querySelector(".map-status")?.classList.contains("map-panel")).toBe(false);
     const button = bar.querySelector('[data-map-act="minimap"]')!;
@@ -561,23 +564,24 @@ describe("The map's panels", () => {
     for (const none of ["", "   "]) expect(parseMarkup(`<span>${pathRootHtml("Demand Plan", none, true)}</span>`).querySelector("button")?.getAttribute("title")).toBe("Demand Plan");
   });
 
-  it("makes each layer of the legend a button that says whether the layer is shown, and says under them what a line means", () => {
+  it("makes each layer of the legend a button that says whether the layer is shown, and says under them what the links and marks of their own mean", () => {
     const legend = parseMarkup(`<div>${legendHtml("On this map", [{ key: "lineitem", label: "Line items", count: 1200 }, { key: "external", label: "Other modules", count: 3 }, { key: "s9", label: "10: Archive", count: 1 }], new Set(["external"]))}</div>`);
     expect(legend.querySelector(".map-legend-title")?.textContent).toBe("On this map");
     expect(legend.querySelectorAll("button").map(item => [item.dataset.mapLayer, item.getAttribute("aria-pressed"), item.classList.contains("map-off"), item.querySelector(".map-legend-name")?.textContent, item.querySelector(".map-legend-count")?.textContent]))
       .toEqual([["lineitem", "true", false, "Line items", "1,200"], ["external", "false", true, "Other modules", "3"], ["s9", "true", false, "10: Archive", "1"]]);
     // A colour is a class of the stylesheet's: the tenth section has the second colour, in stripes.
     expect(legend.querySelectorAll(".map-dot").map(dot => dot.getAttribute("class"))).toEqual(["map-dot map-c-lineitem", "map-dot map-c-external", "map-dot map-c-s2 map-c-striped"]);
-    expect([legend.querySelector(".map-legend-note")?.localName, legend.querySelector(".map-legend-note")?.textContent]).toEqual(["p", LINK_SAYS]);
-    // Of the other links it says only the kinds drawn: formulas' as the map opens, access drivers' where the picture
-    // draws some, and, plainly, that none is drawn where the Links panel has no kind ticked.
+    // Formulas' arrows have no line of their own: the legend ends with its last layer, with no empty line or divider
+    // after it. The notes about the map say what an arrow means.
+    expect([legend.querySelectorAll(".map-legend-note").length, legend.children[0]?.children.at(-1)?.getAttribute("class"), legend.textContent.includes(LINK_SAYS)])
+      .toEqual([0, "map-legend-item", false]);
+    // Of the other links it says only the kinds drawn: access drivers' where the picture draws some, and, plainly, that
+    // none is drawn where the Links panel has no kind ticked.
     const notes = (links: LegendLinks): (string | undefined)[][] => parseMarkup(`<div>${legendHtml("On this map", [{ key: "lineitem", label: "Line items", count: 3 }], new Set(), undefined, undefined, links)}</div>`)
       .querySelectorAll(".map-legend-note").map(note => [note.getAttribute("class"), note.textContent]);
-    expect(notes({ formulas: true, access: false, none: false })).toEqual([["map-legend-note", LINK_SAYS]]);
-    expect(notes({ formulas: true, access: true, none: false })).toEqual([["map-legend-note", LINK_SAYS], ["map-legend-note map-legend-access", ACCESS_LINK_SAYS]]);
-    expect(notes({ formulas: false, access: true, none: false })).toEqual([["map-legend-note map-legend-access", ACCESS_LINK_SAYS]]);
-    expect(notes({ formulas: false, access: false, none: false })).toEqual([]);
-    expect(notes({ formulas: false, access: false, none: true })).toEqual([["map-legend-note map-legend-none", NO_LINKS_SAYS]]);
+    expect(notes({ access: false, none: false })).toEqual([]);
+    expect(notes({ access: true, none: false })).toEqual([["map-legend-note map-legend-access", ACCESS_LINK_SAYS]]);
+    expect(notes({ access: false, none: true })).toEqual([["map-legend-note map-legend-none", NO_LINKS_SAYS]]);
     expect([ACCESS_LINK_SAYS, NO_LINKS_SAYS]).toEqual(["An arrow from an access driver to what it controls.", "No links are drawn. Tick Formulas, Access drivers or Page filters under Links."]);
     // Page filters' links are said only while some are drawn, beside a piece of their dashed line, in words for the
     // picture's kind: among a module's line items they end at line items, between modules and groups at those.
@@ -608,6 +612,24 @@ describe("The map's panels", () => {
     // No mark is a text glyph: the funnel is drawn, and a link's way is said in words.
     expect(/[\u2190-\u21ff\u25b2-\u25bc\u25b6\u2b9e\u00bb\u203a]/.test([...Object.values(FILTER_MARK_SAYS), ...Object.values(FILTER_LINK_SAYS), FILTERS_SAY, FILTERS_OWN_SAY,
       FILTERS_BOTH_SAY, FILTERS_UNSAID].join(" "))).toBe(false);
+  });
+
+  it("has no line for formulas' arrows whatever the picture draws, and each other line of the legend only while its link or mark is drawn", () => {
+    const kinds = [undefined, "sections", "modules", "drill"] as const;
+    for (const access of [false, true]) for (const none of [false, true]) for (const modulesOnly of [false, true]) {
+      for (const filters of kinds) for (const marks of kinds) for (const accessMarks of kinds) {
+        const drawn = JSON.stringify({ access, none, modulesOnly, filters, marks, accessMarks });
+        const legend = parseMarkup(`<div>${legendHtml("On this map", [{ key: "lineitem", label: "Line items", count: 3 }], new Set(), filters, marks, { access, none }, accessMarks, modulesOnly)}</div>`);
+        expect(legend.textContent, drawn).not.toContain(LINK_SAYS);
+        // Every line under the layers is one of these, in this order, and none stands empty: nothing else follows the layers.
+        const lines = [
+          ...(modulesOnly ? [MODULES_ONLY_SAYS] : []), ...(access ? [ACCESS_LINK_SAYS] : []), ...(none ? [NO_LINKS_SAYS] : []),
+          ...(filters ? [FILTER_LINK_SAYS[filters]] : []), ...(marks ? [FILTER_MARK_SAYS[marks]] : []), ...(accessMarks ? [ACCESS_MARK_SAYS[accessMarks]] : []),
+        ];
+        expect(legend.querySelectorAll("p").map(line => line.textContent), drawn).toEqual(lines);
+        expect(legend.children[0]?.children.map(child => child.localName), drawn).toEqual(["div", "button", ...lines.map(() => "p")]);
+      }
+    }
   });
 
   it("says what is traced as the picture runs: what feeds the node, the node, what it feeds, each side with its sign", () => {
