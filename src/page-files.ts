@@ -25,3 +25,19 @@ export const MODULE_USAGE_HEADERS: readonly string[] = ["Module", "App", "Page",
 
 /** The column added to a model's Line Items: how many of the Page Filters rows have the line item as their condition. */
 export const FILTER_USES = "Page Filters";
+
+/** What a card on a page can point at that the model does not have: a module, a line item, or a model's action. */
+export type MissingKind = "module" | "line item" | "import" | "export" | "process";
+/** How the three tables name what a card on a page points at and the model does not have, deleted since the page was built
+ * or hidden from whoever read it (model-pages.ts): plainly, with its ID, so that a search finds it. A hidden column of IDs
+ * holds the ID, never these words. */
+export const missingText = (kind: MissingKind, id: string): string => `Missing ${kind} (ID ${id})`;
+/** What Condition line item's module says where the condition line item is missing: nothing says which module it was in,
+ * and that module may be in the model still. */
+export const MISSING_LINE_ITEMS_MODULE = "Missing line item: module not known";
+
+/** Each thing a cell names as missing (`missingText`), in its order: a cell that lists several names may hold one among
+ * them. */
+export function missingIn(cell: string): { kind: MissingKind; id: string }[] {
+  return [...cell.matchAll(/Missing (module|line item|import|export|process) \(ID (\d+)\)/g)].map(([, kind, id]) => ({ kind: kind as MissingKind, id }));
+}

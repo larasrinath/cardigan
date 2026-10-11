@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AreaCheck, ModelMapOptions, PageFilterCheck } from "../map/graph-types.js";
 import { PAGE_ACTIONS_HEADERS, PAGE_FILTERS_HEADERS } from "../model-pages.js";
-import { MODULE_USAGE_FILE, MODULE_USAGE_HEADERS, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE } from "../page-files.js";
+import { MISSING_LINE_ITEMS_MODULE, MODULE_USAGE_FILE, MODULE_USAGE_HEADERS, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE } from "../page-files.js";
 import { CALENDAR_HEADERS, CALENDAR_PROPERTIES, calendarRows } from "../model/calendar.js";
 import { FRESH_MS, PORT_NAME, RESULTS_PAGE, type TabMessage } from "../protocol.js";
 import type { AnalysisResult, Cell, ImportMapping, ProcessActions, ResultTable } from "../result-types.js";
@@ -5241,6 +5241,62 @@ describe("The buttons at the top right of a row's details that open it in Anapla
     expect(opens()).toEqual([["Model", "Open Actions in Model Building"], ["App", `Open the app Planning ${TAG} in Anaplan`], ["Page", "Open the page Cost report in Anaplan"]]);
     await press("Page");
     expect([tabUpdates.length, tabCreates]).toEqual([2, [[{ url: `${ORIGIN}/a/apps/app/${APP}/reports/${REPORT}`, active: true, index: OWN_TAB.index + 1, openerTabId: OWN_TAB.id }]]]);
+  });
+
+  it("opens nothing in Model Building that a page points at and the model doesn't have, says why, and still opens the page to fix the card", async () => {
+    const [GONE, GONE_ITEM, GONE_PROCESS] = ["Missing module (ID 102000000556)", "Missing line item (ID 1916000000014)", "Missing process (ID 118000000003)"];
+    const NOTE = "Pages built on the model: 2 cards on pages built on this model point at things the model doesn't have: deleted since the pages were built, "
+      + "or hidden from you. Module Usage, Page Filters and Page Actions say Missing, with the ID.";
+    const added: Record<string, Cell[]> = {
+      [MODULE_USAGE_FILE]: pageRow(MODULE_USAGE_HEADERS, { Module: GONE, Page: "Revenue board", ...place("Board", BOARD) }),
+      [PAGE_FILTERS_FILE]: pageRow(PAGE_FILTERS_HEADERS, { "Condition line item's module": MISSING_LINE_ITEMS_MODULE, "Condition line item": GONE_ITEM, "Filtered module": GONE,
+        Page: "Revenue board", ...place("Board", BOARD), "Card ID": "card-9", "Line item ID": "1916000000014" }),
+      [PAGE_ACTIONS_FILE]: pageRow(PAGE_ACTIONS_HEADERS, { "Model action name": GONE_PROCESS, "Action type": "Process", "Button label": "Run old", Page: "Cost report",
+        ...place("Report", REPORT), "Card ID": "card-8", "Action ID": "118000000003" }),
+    };
+    const gone: AnalysisResult = { ...WITH_PAGES, summary: [...WITH_PAGES.summary, NOTE],
+      tables: WITH_PAGES.tables.map(table => (added[table.file] ? { ...table, rows: [...table.rows, added[table.file]] } : table)) };
+    const show = (file: string) => choose(String(gone.tables.findIndex(table => table.file === file)));
+    const WHY = "deleted since the page was built, or hidden from you. Open the page to fix the card.";
+    await openModel(gone);
+    // The Overview says how many cards point at such things, among its notes.
+    expect(page.texts("#view .warn-list li")).toContain(NOTE);
+
+    // Module Usage: the line under its name, and no Model button for the module, but the app and the page, which open.
+    show(MODULE_USAGE_FILE);
+    expect(page.texts("#view .view-note")).toEqual(["1 page uses a module this model doesn't have: deleted since the page was built, or hidden from you. Open it to fix its cards."]);
+    openRow(GONE);
+    expect([opens().map(([label]) => label), why()]).toEqual([["App", "Page"], `The model doesn't have this module: ${WHY}`]);
+    await press("Page");
+    expect(tabCreates).toEqual([[{ url: `${ORIGIN}/a/apps/app/${APP}/boards/${BOARD}`, active: true, index: OWN_TAB.index + 1, openerTabId: OWN_TAB.id }]]);
+    page.key("Escape");
+    // The module's ID finds its row.
+    page.id("tblSearch").type("102000000556");
+    expect(firstCells()).toEqual([GONE]);
+
+    // Page Filters: neither module of the filter opens, and one line says why.
+    show(PAGE_FILTERS_FILE);
+    expect(page.texts("#view .view-note")).toEqual(["1 filter points at a module and a line item this model doesn't have: deleted since the page was built, or hidden from you. "
+      + "Open its page to fix the card."]);
+    openRow(MISSING_LINE_ITEMS_MODULE);
+    expect([opens().map(([label]) => label), why()]).toEqual([["App", "Page"], `The model doesn't have this module or this line item: ${WHY}`]);
+    page.key("Escape");
+    page.id("tblSearch").type("1916000000014");
+    expect(firstCells()).toEqual([MISSING_LINE_ITEMS_MODULE]);
+    // A filter of the model's own modules opens them as before, with no such line.
+    page.id("tblSearch").type("");
+    openRow("REV01 Revenue");
+    expect([opens().map(([label]) => label), why()]).toEqual([["Condition module", "Filtered module", "App", "Page"], undefined]);
+    page.key("Escape");
+
+    // Page Actions: the Actions page does not open for a process the model doesn't have.
+    show(PAGE_ACTIONS_FILE);
+    expect(page.texts("#view .view-note")).toEqual([`1 button runs a process this model doesn't have: ${WHY.replace("Open the page", "Open its page")}`]);
+    openRow(GONE_PROCESS);
+    expect([opens().map(([label]) => label), why()]).toEqual([["App", "Page"], `The model doesn't have this process: ${WHY}`]);
+    page.key("Escape");
+    page.id("tblSearch").type("118000000003");
+    expect(firstCells()).toEqual([GONE_PROCESS]);
   });
 
   it("says why the tables of the pages built on a model open no app and no page in a result an earlier version kept", async () => {

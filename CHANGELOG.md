@@ -2,6 +2,16 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version is in the menu of Cardigan's icon in Chrome's toolbar and on its About page, and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## 0.20.1 (10 October 2026)
+
+What a page built on a model points at that the model doesn't have now reads plainly.
+
+- **Missing, with the ID.** In **Module Usage**, **Page Filters** and **Page Actions**, a module, a line item, or an import, export or process that a card points at and the model doesn't have says so: **Missing module (ID 102000000556)**, **Missing line item (ID 1916000000014)**, **Missing process (ID 118000000003)**. Before, such a module read "102000000556 (not in the model)", a filter's line item was a bare ID beside a dash, and a button's action was a dash. Searching for the ID finds the row, and the hidden ID columns hold the ID too. (#67)
+- **A missing filter line item.** Where a filter rule has one item that no read names, and the line items of every module were read, that item is the rule's line item and the model doesn't have it: the filter says **Missing line item**, with its ID now also in the hidden **Line item ID**, and the rest of the rule stays in **Condition context**. Its module reads **Missing line item: module not known**, since nothing says which module it was in. Such a filter is the condition of none of the model's line items, so where every page was read, the **Page Filters** column of **Line Items** counts 0 rather than leaving its cells empty. (#67)
+- **A line under each table.** Where a table names something Missing, the line under its name says how many filters, buttons or pages point at such things, at what, why, and what to do: "1 filter points at a module and a line item this model doesn't have: deleted since the page was built, or hidden from you. Open its page to fix the card." The Overview's notes say how many cards on the pages built on the model point at things it doesn't have, and **How to read these tables** has a row on **Missing**. (#67)
+- **The row's details.** What a row names Missing has no **Model** button, and the line under the details' header says the model doesn't have it; **App** and **Page** still open the page, to fix the card. (#67)
+- **What stays the same.** What is read from Anaplan; an app's tables, which still say "(not in the model)"; and the map, where a missing module is no box and a filter on one marks nothing. Only what the model's names prove is said Missing: a dimension or a list that no read names keeps its ID, as does a filter rule with two items that no read names. A result an earlier version kept keeps its words until it is run again. (#67)
+
 ## 0.20.0 (10 October 2026)
 
 Taller Overview tiles with large numbers, a Formulas box on the map, and a dash for a module on no page.

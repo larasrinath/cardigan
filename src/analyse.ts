@@ -150,9 +150,10 @@ export interface ModelScope { customerId: string; workspaceId: string; modelId: 
 
 /** A page's cards with the names a model's catalog gives them: each reference named, the values of filter rules named,
  * the context the system sets said in words, and the context selectors a grid's dimensions make. As an app's pages are
- * named (`analyseApp`), and the pages built on a model too (model-pages.ts). */
-export function nameDetails(details: UxPageCardDetails, catalog: ModelCatalog): UxPageCardDetails {
-  const named = nameFilterValues(nameCardDetails(details, resolveFromCatalog(details.references, catalog)), catalog);
+ * named (`analyseApp`), and the pages built on a model too (model-pages.ts), which name the references with names of
+ * their own where the model does not have them (`resolved`, page-missing.ts). */
+export function nameDetails(details: UxPageCardDetails, catalog: ModelCatalog, resolved = resolveFromCatalog(details.references, catalog)): UxPageCardDetails {
+  const named = nameFilterValues(nameCardDetails(details, resolved), catalog);
   return addDerivedContextSelectors(describeSystemContext(named, catalog), catalog);
 }
 

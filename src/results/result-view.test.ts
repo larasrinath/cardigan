@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { DETAILS_HEADERS, diagnosticRows, exportRows, type DetailRow } from "../details.js";
 import { HEADERS, type TabName } from "../report.js";
 import { CALENDAR_HEADERS, CALENDAR_PROPERTIES, calendarRows } from "../model/calendar.js";
+import { PAGE_ACTIONS_HEADERS, PAGE_FILTERS_HEADERS } from "../model-pages.js";
+import { MISSING_LINE_ITEMS_MODULE, MODULE_USAGE_FILE, MODULE_USAGE_HEADERS, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE } from "../page-files.js";
 import type { AnalysisResult, Cell, ResultTable } from "../result-types.js";
 import { APP_FILES, cardsOf, columnsOf } from "./columns.js";
 import { lineItemsView } from "./line-items-view.js";
@@ -363,7 +365,8 @@ describe("What the results page reads out of a result", () => {
     expect([fileView(model, lineItems), fileView(model, modelDetails)]).toEqual([{ table: lineItems }, { table: modelDetails }]);
     expect(fileView(model, lineItems).table).toBe(lineItems);
     // The rules are few and each is one file's own, by the kind of result and the file's name.
-    expect([[...FILE_RULES.model.keys()], [...FILE_RULES.app.keys()]]).toEqual([["Model Calendar.csv", "Line Items.csv", "Dynamic Cell Access.csv", "Processes.csv", "Imports.csv", "Source Models.csv"], []]);
+    expect([[...FILE_RULES.model.keys()], [...FILE_RULES.app.keys()]]).toEqual([["Model Calendar.csv", "Line Items.csv", "Dynamic Cell Access.csv", "Processes.csv", "Imports.csv", "Source Models.csv",
+      "Module Usage.csv", "Page Filters.csv", "Page Actions.csv"], []]);
     // The rule is that file's alone: by its name, in a model's result, by its Section column.
     const renamed = { ...file, file: "Model Calendar (2).csv" };
     const regrouped = { ...file, headers: ["Group", ...file.headers.slice(1)] };
@@ -1009,6 +1012,47 @@ describe("What the results page reads out of a result", () => {
     expect([imports, exports, others].map(table => fileView(ordered, table).table.headers)).toEqual([used, used, used]);
     // An app's tables are never shaped so, whatever they are called.
     expect(fileView(result("app", [appDetails, processes]), processes)).toEqual({ table: processes });
+  });
+
+  it("says under a table of the pages built on a model how many of its rows name something the model doesn't have, at what, and what to do", () => {
+    const table = (file: string, headers: readonly string[], rows: Record<string, Cell>[]): ResultTable =>
+      ({ file, label: file.replace(/\.csv$/, ""), headers: [...headers], rows: rows.map(row => headers.map(header => row[header] ?? NONE)), guard: true });
+    const [GONE_MODULE, GONE_ITEM] = ["Missing module (ID 102000000556)", "Missing line item (ID 1916000000014)"];
+    const page = (n: number) => ({ App: "Planning app", Page: `Board ${n}`, "Page type": "Board", "App ID": "0f1e2d3c-4b5a-4968-8778-695a4b3c2d1e", "Page ID": `page-${n}` });
+    const filter = (n: number, card: string, cells: Record<string, Cell>) => ({ "Condition line item's module": "Demand", "Condition line item": "Volume", "Filtered module": "Demand",
+      ...page(n), "Card ID": card, ...cells });
+    // The row of the screenshot that asked what this is: a filter of a module and by a line item the model doesn't have.
+    const gone = filter(1, "card-1", { "Condition line item's module": MISSING_LINE_ITEMS_MODULE, "Condition line item": GONE_ITEM, "Filtered module": GONE_MODULE });
+    const filters = table(PAGE_FILTERS_FILE, PAGE_FILTERS_HEADERS, [gone, filter(1, "card-2", {})]);
+    const model = result("model", [modelDetails, filters]);
+    const OPEN = "deleted since the page was built, or hidden from you.";
+    expect(fileView(model, filters)).toEqual({ table: filters, note: `1 filter points at a module and a line item this model doesn't have: ${OPEN} Open its page to fix the card.` });
+    // Each thing is counted once by its ID, however many rows name it; the rows by card and by page.
+    const more = table(PAGE_FILTERS_FILE, PAGE_FILTERS_HEADERS, [gone, filter(1, "card-1", { "Filtered module": GONE_MODULE }),
+      filter(1, "card-3", { "Filtered module": "Demand; Missing module (ID 102000000557)" })]);
+    expect(fileView(model, more).note).toBe(`3 filters point at 2 modules and a line item this model doesn't have: ${OPEN} Open the page to fix the cards.`);
+    const pages = table(PAGE_FILTERS_FILE, PAGE_FILTERS_HEADERS, [gone, filter(2, "card-1", { "Condition line item's module": MISSING_LINE_ITEMS_MODULE,
+      "Condition line item": "Missing line item (ID 1916000000015)" })]);
+    expect(fileView(model, pages).note).toBe("2 filters point at a module and 2 line items this model doesn't have: deleted since the pages were built, or hidden from you. "
+      + "Open their pages to fix the cards.");
+    // A button, by the kind of the model's action it runs.
+    const actions = table(PAGE_ACTIONS_FILE, PAGE_ACTIONS_HEADERS, [{ "Model action name": "Missing process (ID 118000000003)", "Action type": "Process", ...page(1), "Card ID": "card-4" },
+      { "Model action name": "Missing import (ID 112000000009)", "Action type": "Import", ...page(1), "Card ID": "card-4" }, { "Model action name": "Load prices", ...page(1) }]);
+    expect(fileView(model, actions).note).toBe(`2 buttons run an import and a process this model doesn't have: ${OPEN} Open the page to fix the card.`);
+    // Module Usage counts the pages that use a module the model doesn't have.
+    const usage = table(MODULE_USAGE_FILE, MODULE_USAGE_HEADERS, [{ Module: "Demand", ...page(1) }, { Module: GONE_MODULE, ...page(1) }, { Module: GONE_MODULE, ...page(2) },
+      { Module: "Unused" }]);
+    expect(fileView(model, usage).note).toBe("2 pages use a module this model doesn't have: deleted since the pages were built, or hidden from you. Open them to fix their cards.");
+    const once = { ...usage, rows: usage.rows.slice(0, 2) };
+    expect(fileView(model, once).note).toBe(`1 page uses a module this model doesn't have: ${OPEN} Open it to fix its cards.`);
+    // A table that names nothing Missing is as it stands, with no line; so is one an earlier version kept, which said
+    // "(not in the model)"; and an app's table is never touched.
+    const fine = { ...filters, rows: filters.rows.slice(1) };
+    const earlier = table(MODULE_USAGE_FILE, MODULE_USAGE_HEADERS, [{ Module: "102000000556 (not in the model)", ...page(1) }]);
+    expect([fileView(model, fine), fileView(model, earlier), fileView(result("app", [appDetails, filters]), filters)]).toEqual([{ table: fine }, { table: earlier }, { table: filters }]);
+    // The table is the file as it stands: its tile counts its rows, and the IDs are in the cells a search reads.
+    expect(fileView(model, filters).table).toBe(filters);
+    expect(overviewOf(result("model", [modelDetails, filters])).tiles.find(tile => tile.label === "Page Filters")?.count).toBe(2);
   });
 
   it("says a Model Calendar's tile by the kind of its calendar and its current fiscal year, not by a count", () => {
