@@ -4,6 +4,7 @@ import { plainResult, textOf } from "./result-plain.js";
 import type { AnalysisResult } from "./result-types.js";
 import { SCOPE_ID, sleep } from "./util.js";
 import { BUILD } from "./version.js";
+import { knownDataEngineType, type DataEngineType } from "./model-engine.js";
 
 /** The Model Building page (`/a/modeling/…/models/{id}`) is a shell; the classic model client runs in a core frame inside it,
  * often on another data centre's host. The export must read there,
@@ -48,7 +49,7 @@ export interface MessageTarget {
 }
 /** A model's reader as it announced itself: its window, its origin, the model it holds, and its build (version.ts `BUILD`),
  * which a reader made before builds were marked does not say. */
-export interface CoreHandle { source: Endpoint; origin: string; modelId: string; build?: string }
+export interface CoreHandle { source: Endpoint; origin: string; modelId: string; build?: string; dataEngineType?: DataEngineType }
 /** A build's mark as a reader says it: a few letters and digits, which the log may quote. */
 const BUILD_MARK = /^[\w.-]{1,40}$/;
 
@@ -74,7 +75,9 @@ export function watchCore(self: MessageTarget, onCore: (core: CoreHandle) => voi
     if (data?.type !== "core-ready" || typeof data.modelId !== "string" || !SCOPE_ID.test(data.modelId) || !event.source) return;
     const source = event.source as unknown as Endpoint;
     source.postMessage({ protocol: PROTOCOL, type: "ack" }, event.origin);
-    onCore({ source, origin: event.origin, modelId: data.modelId, ...(typeof data.build === "string" && BUILD_MARK.test(data.build) ? { build: data.build } : {}) });
+    const dataEngineType = knownDataEngineType(data.dataEngineType);
+    onCore({ source, origin: event.origin, modelId: data.modelId, ...(typeof data.build === "string" && BUILD_MARK.test(data.build) ? { build: data.build } : {}),
+      ...(dataEngineType ? { dataEngineType } : {}) });
   });
 }
 
@@ -149,6 +152,7 @@ function originOf(self: Window): string | undefined {
 export async function exportInCore(self: Window, core: () => CoreHandle | undefined, probes: () => Iterable<FrameProbe>, model: string, progress: Progress,
   signal?: AbortSignal, waitMs = WAIT_FOR_CORE_MS): Promise<AnalysisResult> {
   const found = await waitForCore(self, core, probes, model, progress, signal, waitMs);
+  progress.log("Classic reader: answered; starting model settings");
   return runInCore(self, found, progress, undefined, signal);
 }
 
@@ -183,7 +187,6 @@ export async function waitForCore(self: Window, core: () => CoreHandle | undefin
       + `its frame is ${renewable ? "on the page's own origin" : `on ${found.origin}, the page on ${page ?? "an origin it does not say"}`}`, renewable);
   }
   if (found.modelId.toUpperCase() !== model.toUpperCase()) progress.log("the model frame reports a different model than this page's address");
-  progress.log("Classic reader: answered; starting model settings");
   return found;
 }
 
@@ -283,9 +286,14 @@ export function greetFrames(root: Window, depth = 0): void {
  * neither announces itself nor takes a run. */
 export function serveCore(self: MessageTarget, top: Endpoint, modelId: () => string | undefined,
   exporter: (progress: Progress, diagnostics: () => string, stop: Stop) => Promise<AnalysisResult>, announceMs = 2000, announceForMs = 10 * 60_000,
-  current: () => boolean = () => true): () => void {
+  current: () => boolean = () => true, engine: () => unknown = () => undefined): () => void {
   let running: { nonce: string; origin: string; stopped: boolean } | undefined;
-  const announce = () => { const id = current() ? modelId() : undefined; if (id) top.postMessage({ protocol: PROTOCOL, type: "core-ready", modelId: id, build: BUILD }, "*"); };
+  const announce = () => {
+    const id = current() ? modelId() : undefined;
+    if (!id) return;
+    const dataEngineType = knownDataEngineType(engine());
+    top.postMessage({ protocol: PROTOCOL, type: "core-ready", modelId: id, build: BUILD, ...(dataEngineType ? { dataEngineType } : {}) }, "*");
+  };
   const timer = setInterval(announce, announceMs);
   const stopAnnouncing = setTimeout(() => clearInterval(timer), announceForMs);
   announce();
