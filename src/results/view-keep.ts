@@ -276,6 +276,7 @@ function readMap(value: unknown): MapView | undefined {
     ...(value.noFormulas === true ? { noFormulas: true } : {}),
     ...(value.access === true ? { access: true } : {}),
     ...(value.filters === true ? { filters: true } : {}),
+    ...(value.minimap === true ? { minimap: true } : {}),
     ...(typeof value.selected === "string" ? { selected: value.selected } : {}),
   };
 }
@@ -331,7 +332,7 @@ export const objectKey = (object: { type: string; name: string; module: string; 
 /** Whether the map is where it opens by itself: the Modules view, the groups as a whole, formulas' links only. Then the
  * map has nothing to keep. */
 export const isMapAtStart = (map: MapView): boolean => map.view === "modules" && map.group === undefined && map.all !== true && map.noFormulas !== true
-  && map.access !== true && map.filters !== true && map.selected === undefined;
+  && map.access !== true && map.filters !== true && map.minimap !== true && map.selected === undefined;
 
 /** The settings as written: at most `MAX_VIEW_CHARS` characters. Where they are more, the filters with the longest lists
  * of values are let go, one by one, until they fit; where the rest is still more, nothing is written. */
