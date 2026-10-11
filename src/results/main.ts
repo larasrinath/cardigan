@@ -1,4 +1,6 @@
 import { areaCheckLine, buildModelGraph, pageFilterCheckLine } from "../map/build-graph.js";
+import { hasModelMap } from "../polaris.js";
+import { buildPolarisGraph } from "../polaris-map.js";
 import type { MapView, ModelGraph, ModelMap, ModelMapOptions } from "../map/graph-types.js";
 import { mountModelMap } from "../map/map-view.js";
 import { MISSING_LINE_ITEMS_MODULE, missingIn, MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, PAGE_ROUTES, type MissingKind } from "../page-files.js";
@@ -473,7 +475,7 @@ function navEntries(): NavEntry[] {
       return { id: String(entry.index), label: tableLabel(entry.table), file: entry.table.file, ...(full ? { full } : {}) };
     }),
     // A model's map, after its files. An app has none.
-    ...(result?.kind === "model" && result.engine !== "polaris" ? [{ id: "map", label: MAP_LABEL }] : []),
+    ...(hasModelMap(result) ? [{ id: "map", label: MAP_LABEL }] : []),
   ];
 }
 
@@ -748,7 +750,7 @@ function showResult(next: AnalysisResult, at: Date, back = false): void {
   }
   state.view = "overview";
   if (same && file) state.view = [...shown.values()].find(entry => entry.table.file === file)?.index ?? "overview";
-  else if (same && view === "map" && next.engine !== "polaris") state.view = "map";
+  else if (same && view === "map" && hasModelMap(next)) state.view = "map";
   state.context = same && typeof state.view === "number" ? context : undefined;
   const analysed = analysedOf(next);
   document.title = `Cardigan - ${analysed.name}`;
@@ -1753,7 +1755,7 @@ async function toFront(tab: chrome.tabs.Tab | undefined): Promise<void> {
  * named. */
 function graphFor(model: AnalysisResult): ModelGraph {
   if (!modelGraph) {
-    modelGraph = buildModelGraph(model.tables);
+    modelGraph = model.engine === "polaris" ? buildPolarisGraph(model) : buildModelGraph(model.tables);
     if (modelGraph.areaCheck) client.note(areaCheckLine(modelGraph.areaCheck));
     if (modelGraph.pageFilterCheck) client.note(pageFilterCheckLine(modelGraph.pageFilterCheck));
   }
@@ -1766,7 +1768,7 @@ function graphFor(model: AnalysisResult): ModelGraph {
  * where the map cannot be drawn. */
 function mapNodeOf(entry: Shown, row: Row): number | undefined {
   const file = entry.table.file;
-  if (result?.kind !== "model" || result.engine === "polaris" || modelMap === "failed"
+  if (result?.kind !== "model" || !hasModelMap(result) || modelMap === "failed"
     || ![LINE_ITEMS_FILE, MODULES_FILE, MODULE_USAGE_FILE, LISTS_FILE, "Dynamic Cell Access.csv", PAGE_FILTERS_FILE].includes(file)) {
     return undefined;
   }
@@ -1950,14 +1952,14 @@ function markedView(): "map" | number | undefined {
  * has, or a model's map. A mark that names no view of this result leaves the overview. The focus stays where it is. */
 function showMarked(view: "map" | number | undefined): void {
   if (!result || view === undefined || view === state.view) return;
-  if (view === "map" ? result.kind !== "model" || result.engine === "polaris" : !shown.has(view)) return;
+  if (view === "map" ? !hasModelMap(result) : !shown.has(view)) return;
   state.view = view;
   renderAll();
 }
 
 /* ================= view switching ================= */
 function navTo(view: View, context?: string): void {
-  if (view === "map" && result?.engine === "polaris") return;
+  if (view === "map" && result?.engine === "polaris" && !hasModelMap(result)) return;
   closePopover();
   // A page's cards end with the view. Each table's search and page stay with it.
   const left = currentEntry();

@@ -16,6 +16,20 @@ describe("Page analyzer REST reads", () => {
 
   const calls = () => vi.mocked(globalThis.fetch).mock.calls as unknown as [string, RequestInit][];
 
+  it("allows only the three verified Polaris metadata GET shapes, with the probe headers", async () => {
+    const base = `/a/llm-data-service/meta-data/workspace/${"E".repeat(32)}/model/${"F".repeat(32)}`;
+    for (const route of ["modules", "versions", "line-items/102000000501"]) await getJson(`${base}/${route}`);
+    for (const [, init] of calls()) {
+      expect(init).toMatchObject({ method: "GET", headers: { Accept: "application/json", "x-api-version": "1", "X-TracePath": "springboard-ui" } });
+      expect(init.body).toBeUndefined();
+    }
+    vi.mocked(fetch).mockClear();
+    for (const route of ["module/102000000501", "modules/fetch", "line-items", "line-items/0", "line-items/-1", "line-items/x", "line-items/102000000501/details", "versions?all=true", "modules/", "modules\n"]) {
+      await expect(getJson(`${base}/${route}`)).rejects.toMatchObject({ code: "INVALID_PATH" });
+    }
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it.each([[503, "unavailable", "MAINTENANCE"], [200, "<html><title>Anaplan Maintenance</title></html>", "MAINTENANCE"],
     [500, "<h1>Down for maintenance</h1>", "MAINTENANCE"], [500, "Internal error", "HTTP_ERROR"],
     [502, "Service unavailable", "HTTP_ERROR"], [200, "<title>Sign in</title><p>Maintenance tonight</p>", "INVALID_RESPONSE"]])(

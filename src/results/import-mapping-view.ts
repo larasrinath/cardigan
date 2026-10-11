@@ -1,4 +1,5 @@
 import { readsFile, SOURCE_TYPE } from "../file-imports.js";
+import { POLARIS_MAPPING_NOTE } from "../polaris.js";
 import { readImportMappings } from "../result-plain.js";
 import type { AnalysisResult, ImportHeader, ImportMapping, ItemMatch, MappedSource, MappedTarget, ResultTable } from "../result-types.js";
 import { columnIndex } from "./columns.js";
@@ -293,6 +294,7 @@ export function lineItemsOf(result: AnalysisResult, table: ResultTable, row: Row
  * table as the page shows it, whose rows stand each in the place it has in the file (result-view.ts `fileView`). */
 export function mappingOfRow(result: AnalysisResult | undefined, table: ResultTable, row: Row): MappingView | undefined {
   if (result?.kind !== "model" || table.file !== IMPORTS_FILE) return undefined;
+  if (result.engine === "polaris") return { rows: [], lines: [POLARIS_MAPPING_NOTE] };
   const type = columnIndex(table, SOURCE_TYPE);
   if (type === undefined || !readsFile(row[type])) return undefined;
   const mappings = readImportMappings(result.importMappings);

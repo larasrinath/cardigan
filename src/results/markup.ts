@@ -966,7 +966,7 @@ export function processActionsHtml(process: ProcessView, opens: readonly boolean
     ? `<button type="button" class="link" data-act="step" data-step="${index}">${esc(step.name)}</button>` : esc(step.name));
   const table = process.steps.length ? `<table class="mini"><thead><tr>${process.ordered ? "<th>#</th>" : ""}<th>Action</th><th>Kind</th></tr></thead>
       <tbody>${process.steps.map((step, index) => `<tr>${process.ordered ? `<td>${index + 1}</td>` : ""}<td>${name(step, index)}</td><td>${esc(step.kind)}</td></tr>`).join("")}</tbody></table>` : "";
-  return `<div class="d-sec" id="drawerSteps"><h3>Actions (${process.steps.length})</h3>
+  return `<div class="d-sec" id="drawerSteps"><h3>Actions${process.countKnown === false ? "" : ` (${process.steps.length})`}</h3>
       ${table}${process.lines.map(drawerLine).join("")}</div>`;
 }
 

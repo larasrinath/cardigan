@@ -2,6 +2,15 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version is in the menu of Cardigan's icon in Chrome's toolbar and on its About page, and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## Unreleased
+
+Polaris reads the settings the live probe found, with its limits kept visible.
+
+- **Modules and line items.** Modules keep Applies To, Time, Versions and Notes, with dimensions from the socket. Each module's line items are read by one GET, four at a time: Format, Formula, dimensions, summary, Time, Versions and Notes stay as read. Only certain format labels give a Format type. Functional Area stays empty.
+- **Lists and actions.** Lists name their parent and their display property where an ID has a name. The probe did not establish list properties or per-list subset membership, so Properties and Subset Count stay blank. Imports, exports and processes reuse the listings read for page buttons; details say mappings and steps are not read yet. Versions lists names.
+- **A Polaris map.** Once formulas were read, the map matches their names to returned line items and lists. Unknown and ambiguous references stay unresolved; numeric literals stay numbers. The tables keep their original strings. Classic's map and settings reads stay as before.
+- **Partial, said.** The Overview names what was read and what is still missing, with only populated tables in its tiles and tabs. A source that fails is logged and skipped on its own. Possible paging is logged and noted without guessing missing rows; completeness remains unknown. The log counts line-item requests and records their time. Closing the results page stops queued requests.
+
 ## 0.26.0 (11 October 2026)
 
 Coming back to Cardigan keeps the place you were reading.
