@@ -2,10 +2,10 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version is in the menu of Cardigan's icon in Chrome's toolbar and on its About page, and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
-## Unreleased
+## 0.29.10 (11 October 2026)
 
-- **Two corners, more map.** The Model map's bottom bar is gone. Counts, Legend and About share a rounded cluster at the left; zoom, Fit and the drawn Minimap button form one segmented control at the right. The buttons match the top pills, with drawn icons and room to press them. Legend and About open upward; the minimap floats above the right cluster and keeps its choice for the tab. Both themes and full screen use the same controls, and narrow maps keep the clusters apart.
-- **Nothing moves underneath.** Opening a panel keeps the boxes and camera in place. Boxes covered by either cluster or the minimap count as out of view and can still be reached. Long counts end with an ellipsis and keep their full text on hover. The covered-box test controls its timers and drawing frames.
+- **Two corners, more map.** The Model map's bottom bar is gone. Counts, Legend and About share a rounded cluster at the left; zoom, Fit and the drawn Minimap button form one segmented control at the right. The buttons match the top pills, with drawn icons and room to press them. Legend and About open upward; the minimap floats above the right cluster and keeps its choice for the tab. Both themes and full screen use the same controls, and narrow maps keep the clusters apart. (#90)
+- **Nothing moves underneath.** Opening a panel keeps the boxes and camera in place. Boxes covered by either cluster or the minimap count as out of view and can still be reached. Long counts end with an ellipsis and keep their full text on hover. The covered-box test controls its timers and drawing frames. (#90)
 
 ## 0.29.9 (11 October 2026)
 
