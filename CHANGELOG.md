@@ -6,6 +6,10 @@ Every merged change that alters the extension has a version of its own: a new fe
 
 - **Map panels open.** The minimap and legend start open, except the legend on very small maps; both keep your choice for the tab, and the first fit leaves room for them.
 
+## 0.34.10 (11 October 2026)
+
+- **Less text under Line Items.** The note under the title shows only warnings; the row count stays in the toolbar. (#126)
+
 ## 0.34.9 (11 October 2026)
 
 - **Clearer map connections.** A selected box's details say what feeds it and what it feeds, including when nothing does; **Hide the other boxes** and **Show all boxes** name what the button does. (#125)

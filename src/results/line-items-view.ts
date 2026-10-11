@@ -167,7 +167,7 @@ function viewOf(table: ResultTable, moduleNames: ReadonlySet<string> | undefined
   if (headings.size === 0 && !options.lineItemsOnly) return undefined;
   const listed = options.lineItemsOnly ? rows.filter(row => !headings.has(row)) : rows;
   const note = options.lineItemsOnly
-    ? `${listed.length.toLocaleString("en-US")} ${listed.length === 1 ? "line item" : "line items"}, each beside its module under ${MODULE_NAME}. A module's own settings are in Modules.`
+    ? undefined
     : noteOf(rows.length - headings.size, headings.size, unnamed, typed);
   return {
     table: { ...table, headers: order.flatMap(index => [headers[index], ...added(index)]), rows: listed },

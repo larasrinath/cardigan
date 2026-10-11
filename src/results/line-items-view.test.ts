@@ -736,7 +736,7 @@ describe("The line-items-only option", () => {
     expect(view.moduleRows).toBe(5);
     expect(said(view)[0]).toEqual(["Units", REVENUE, "Products, Regions", "Module"]);
     expect(view.table.rows.some(row => row[0] === "--- Checks ---")).toBe(true);
-    expect(view.note).toBe("12 line items, each beside its module under Module Name. A module's own settings are in Modules.");
+    expect(view.note).toBeUndefined();
     expect(view.warning).toBe("1 line item has no Module Name: its module is not known.");
     expect(table).toEqual(before);
     const defaultView = lineItemsView(table);
