@@ -39,6 +39,36 @@ describe("The map's names and numbers", () => {
     expect(splitName("SYS01")).toEqual({ code: "", label: "SYS01" });
     expect(splitName("")).toEqual({ code: "", label: "" });
   });
+
+  it("takes off whatever mix of spaces, colons and dashes stands between a code and the rest", () => {
+    // A model's own name: the code, then " : - " before the rest, which keeps its own colon.
+    expect(splitName("CLM101 : - Stat Combos: Without Order History")).toEqual({ code: "CLM101", label: "Stat Combos: Without Order History" });
+    expect(splitName("INP01 - Sales")).toEqual({ code: "INP01", label: "Sales" });
+    expect(splitName("FIN03: Cash")).toEqual({ code: "FIN03", label: "Cash" });
+    expect(splitName("FIN03 : Cash")).toEqual({ code: "FIN03", label: "Cash" });
+    expect(splitName("X_1 \u2014 Y")).toEqual({ code: "X_1", label: "Y" });
+    expect(splitName("REV01 -- Plan")).toEqual({ code: "REV01", label: "Plan" });
+    expect(splitName("REV01- Revenue")).toEqual({ code: "REV01", label: "Revenue" });
+    expect(splitName("SYS01\t:\t-\tTime")).toEqual({ code: "SYS01", label: "Time" });
+    // A mark written against the rest stays with it: only what ends with a space is between.
+    expect(splitName("SYS01 -Time")).toEqual({ code: "SYS01", label: "-Time" });
+    expect(splitName("SYS01 - -Adjustments")).toEqual({ code: "SYS01", label: "-Adjustments" });
+  });
+
+  it("leaves a name whole where no such marks or spaces follow a code, or nothing comes after them", () => {
+    // A colon with no dash takes only a word of capitals and digits for a code.
+    expect(splitName("Note: Revenue Plan")).toEqual({ code: "", label: "Note: Revenue Plan" });
+    // Nothing between the word and the rest, or nothing after what is between.
+    expect(splitName("FIN03:Cash")).toEqual({ code: "", label: "FIN03:Cash" });
+    expect(splitName("SYS01:")).toEqual({ code: "", label: "SYS01:" });
+    expect(splitName("SYS01 -")).toEqual({ code: "", label: "SYS01 -" });
+    expect(splitName("SYS01 : - ")).toEqual({ code: "", label: "SYS01 : - " });
+    // A heading row's name is all marks: no word is left for a code.
+    expect(splitName("--- INPUTS ---")).toEqual({ code: "", label: "--- INPUTS ---" });
+    // A space before the first word, and a first word longer than twelve characters.
+    expect(splitName(" SYS01 - Time")).toEqual({ code: "", label: " SYS01 - Time" });
+    expect(splitName("ABCDEFGHIJKLM - Plan")).toEqual({ code: "", label: "ABCDEFGHIJKLM - Plan" });
+  });
   it("says a count with its thousands apart, and nothing as 0", () => {
     expect([formatCount(0), formatCount(999), formatCount(12345), formatCount(1234567), formatCount(undefined), formatCount(NaN)]).toEqual(["0", "999", "12,345", "1,234,567", "0", "0"]);
   });
