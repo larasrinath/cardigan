@@ -20,6 +20,7 @@ import { processOfRow, type StepView } from "./process-actions-view.js";
 import { DATA_SOURCES_FILE, sourceModelOfRow, type SourceModelView } from "./source-model-view.js";
 import { analysedLine, notKeptNote } from "./keep-notes.js";
 import { ResultKeeper } from "./keep-result.js";
+import { ElapsedTimer, pixelGridHtml } from "./pixel-loader.js";
 import {
   cardDrawerHtml, cardDrawerSubHtml, colChooserHtml, colFilterHtml, filterMatches, filterOptionsHtml, filterStatusText, filterTickWords, headerMetaHtml, keptCopyHtml, MAP_FAILED,
   MAP_LABEL, mapHtml, MOON_ICON, navHtml, navItems, navMenuHtml,
@@ -445,6 +446,10 @@ const TEXT_NODE = 3;
 const ranBefore = (): boolean => client.asked || result !== undefined;
 /** The run control's words, after its icon: "Run" until an analysis has been made for this page, "Run again" after. */
 function showRunLabel(button: HTMLElement): void {
+  if (!button.querySelector(".pixel-grid")) {
+    button.querySelector(".run-spinner")?.remove();
+    button.innerHTML = pixelGridHtml(true) + button.innerHTML;
+  }
   const reading = client.state.phase === "running";
   const label = reading ? "Reading" : runLabel(ranBefore());
   const words = [...button.childNodes].reverse().find(node => node.nodeType === TEXT_NODE && node.textContent?.trim());
@@ -822,6 +827,10 @@ function showKept(kept: unknown, at: Date): boolean {
 /** The states in which a run did not start or did not finish. */
 const STOPPED: ReadonlySet<RunState["phase"]> = new Set(["unreachable", "not-anaplan", "tab-closed", "no-subject", "failed", "interrupted", "old-reader", "missing-reader", "model-opening", "maintenance"]);
 let logPhase: RunState["phase"] | undefined;
+const runTimer = new ElapsedTimer(text => {
+  const timer = find(".run-elapsed");
+  if (timer) timer.textContent = text;
+});
 
 /** Connecting, running, or why there is no new result. With a result on the page, progress is in the run control and live
  * region; only a failure adds a banner. A run that cannot start or finish takes nothing away. Every status is plain text. */
@@ -865,8 +874,10 @@ function showRun(runState: RunState): void {
     const icon = find("#runIcon");
     if (icon && icon.dataset.phase !== runState.phase) {
       icon.innerHTML = runIconHtml(runState.phase);
+      icon.hidden = runState.phase === "running" || runState.phase === "connecting";
       icon.dataset.phase = runState.phase;
     }
+    find("#runCard")?.classList.toggle("reading", runState.phase === "running" || runState.phase === "connecting");
   }
   // The one control that refreshes the Anaplan tab, there only while the tab still holds the reader of an earlier build.
   const refresh = runState.phase === "old-reader" || runState.phase === "missing-reader";
@@ -879,7 +890,8 @@ function showRun(runState: RunState): void {
   find("#runCard")?.classList.toggle("stopped", STOPPED.has(runState.phase));
   showLog(client.log);
   updateActions();
-  announce(text.message);
+  // The card's status has its own live region; an earlier result uses the shell's region.
+  announce(result ? text.message : "");
 }
 
 /** The run's diagnostic log. Before the first result its latest lines are under the message, kept in view. Beside an
@@ -2446,7 +2458,8 @@ showTimes();
 // the page goes, should it go before the settings were written.
 looks = readKept(tabStorage());
 looksText = looks && JSON.stringify(looks);
-window.addEventListener?.("pagehide", () => writeLooks());
+window.addEventListener?.("pagehide", () => { writeLooks(); runTimer.stop(); });
+el("live").setAttribute("role", "status");
 const tabId = tabIdFrom(location.search);
 const byIcon = openedByIcon();
 const keeper = new ResultKeeper({ tabId });
@@ -2465,7 +2478,12 @@ const client = new ResultsClient({
   tabGone: tabId === undefined ? undefined : () => chrome.tabs.get(tabId).then(() => false, () => true),
   tabLoading: tabId === undefined ? undefined : () => chrome.tabs.get(tabId).then(tab => tab.status === "loading", () => false),
   onState: next => {
-    if (next.phase !== "done") return showRun(next);
+    if (next.phase !== "done") {
+      showRun(next);
+      runTimer.update(next.phase === "running" || (next.phase === "connecting" && client.asked));
+      return;
+    }
+    runTimer.stop();
     logPhase = "done";
     // Only a run's result is kept, and only once it is drawn: a result that was brought back is kept already.
     showResult(next.result, next.received);

@@ -105,11 +105,16 @@ input,select{font:inherit;color:inherit}
 .btn svg{flex:none}
 /* The run control holds its size through every status; only its words and drawn icon change. */
 .run-control{width:116px;justify-content:center;white-space:nowrap;flex:none}
-.run-spinner{display:none;transform-origin:8px 8px}
-.reading .run-icon{display:none}
-.reading .run-spinner{display:block;animation:reading-spin .9s linear infinite}
-@keyframes reading-spin{to{transform:rotate(360deg)}}
-@media(prefers-reduced-motion:reduce){.reading .run-spinner{animation:none}}
+.run-spinner{display:none}
+.run-control > .pixel-grid{display:none}
+.run-control.reading > svg{display:none}
+.run-control.reading > .pixel-grid{display:inline-grid}
+.pixel-grid{display:inline-grid;grid-template-columns:repeat(3,4px);grid-template-rows:repeat(3,4px);gap:1.5px;flex:none;color:var(--ink)}
+.pixel-grid-small{grid-template-columns:repeat(3,3px);grid-template-rows:repeat(3,3px)}
+.pixel-cell{border-radius:1px;background:currentColor;opacity:.15}
+.reading .pixel-cell{animation:pixel-on 650ms ease-in-out infinite}
+@keyframes pixel-on{0%,100%{opacity:.15}50%{opacity:1}}
+@keyframes shimmer-text{from{background-position:200% 0}to{background-position:0 0}}
 .icon-btn{
   display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;
   border-radius:999px;border:1px solid var(--border-strong);background:var(--panel);color:var(--text-2);
@@ -409,7 +414,12 @@ body:has(.run-state) > .banners:empty{display:none}
 .run-mark{display:flex;align-items:center;justify-content:center;width:44px;height:44px;margin-bottom:16px;border-radius:var(--r-md);background:var(--panel-2);color:var(--text-2)}
 .run-mark:has([data-run-icon="warning"]){background:var(--warn-soft);color:var(--warn)}
 .run-mark:has([data-run-icon="info"]){background:var(--accent-soft);color:var(--accent)}
-[data-run-icon="progress"]{animation:reading-spin 1.2s linear infinite}
+.run-message{margin:0 0 12px;line-height:1.6}
+.run-message > .pixel-grid,.run-elapsed{display:none}
+.reading .run-message{display:flex;align-items:center;gap:10px}
+.reading .run-message > .pixel-grid{display:inline-grid}
+.reading #runStatus{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:500;background:linear-gradient(90deg,var(--text-3) 35%,var(--ink) 50%,var(--text-3) 65%);background-size:200% 100%;background-clip:text;-webkit-background-clip:text;color:transparent;animation:shimmer-text 1.4s linear infinite}
+.reading .run-elapsed{display:block;flex:none;width:9ch;font-family:var(--mono);font-size:12px;font-variant-numeric:tabular-nums;color:var(--text-3)}
 .run-card .view-title{margin:0 0 10px}
 .run-card p{margin:0 0 12px;line-height:1.6}
 .run-card .run-hint{color:var(--text-2);font-size:12.5px}
@@ -705,5 +715,7 @@ body:has(#mapHost:not([hidden])) .drawer{display:none}
    its height whatever its width: there they scroll away with the page. */
 @media (max-width:640px), (max-width:1120px) and (max-height:560px){ .top{position:static} }
 @media (prefers-reduced-motion:reduce){
+  .reading .pixel-cell,.reading #runStatus{animation:none}
+  .reading #runStatus{background:none;color:var(--text-3)}
   *,*::before,*::after{transition:none !important;animation:none !important}
 }

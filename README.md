@@ -217,7 +217,7 @@ To see which version you have, right-click Cardigan's icon in Chrome's toolbar: 
 
 1. Sign in to Anaplan. Open an app, or open a model in Model Building and wait until it has loaded.
 2. Click the Cardigan icon in Chrome's toolbar. If that Anaplan tab already has an open results page, Cardigan brings its tab and window forward and runs again there, keeping the table or map and the open row where it still exists. If it is already reading, it carries on. With no answering results page after about 300 milliseconds, a new one opens in the next tab and starts reading.
-3. Keep the Anaplan tab open until it finishes. The page shows each step in a centred card, then the result. Diagnostics starts folded and stays folded if the run stops. **Show diagnostics** and **Hide diagnostics** open and close the log under the card; **Copy diagnostic log** works in either state.
+3. Keep the Anaplan tab open until it finishes. The page shows each step in a centred card, beside a small pixel grid and an elapsed timer, then the result. The grid pulses to the right and the step's words shimmer. Reduced motion keeps both still while the timer ticks; screen readers announce only the step. Diagnostics starts folded and stays folded if the run stops. **Show diagnostics** and **Hide diagnostics** open and close the log under the card; **Copy diagnostic log** works in either state.
 
 Closing the results page stops the reading.
 
@@ -246,7 +246,7 @@ Closing the results page stops the reading.
 
 ### Run again, refresh and Forget this result
 
-- **Run again** reads the Anaplan tab again, keeping the table or map you are on. The result stays until the new one is complete. The button keeps its width and says **Reading** beside a small spinner; its title and the screen reader's live region say the progress. No progress banner moves the content. A failure still shows the existing card.
+- **Run again** reads the Anaplan tab again, keeping the table or map you are on. The result stays until the new one is complete. The button keeps its width and says **Reading** beside a small pixel grid; its title and the screen reader's live region say the progress. No progress banner moves the content. A failure still shows the existing card.
 - A row's details reopen after **Run again** on the same app or model, found by its table, name and module, or its list or parent where it has no module. An edited formula, format, count or note does not lose it. A row that is gone, renamed or no longer unique stays closed. The header's **Run again** stays usable while the details are open. A new results tab opens on the Overview.
 - The last finished result is kept for its tab, so a refresh brings it back without reading Anaplan, on the table or the map that was shown. A line above it says when it was analysed.
 - Each table keeps its own search when you switch away and come back. A refresh keeps how you left the result too, until the tab is closed: every table's search, filters and ranges, the columns you showed or hid, its sort and its page; the rows a page lists; how **Where Used** is listed; where the model map was, its group or module, its links and selected box; and a row's details that were open. **Run again** on the same app or model keeps what still fits its tables, each column by its name; another app or model starts clean. **Reset** clears a table's. Settings kept by earlier versions still load.
