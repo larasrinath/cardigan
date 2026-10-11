@@ -2,6 +2,16 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version stands next to Cardigan's name at the top of the results page and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## 0.18.7 (10 October 2026)
+
+The Processes table says what each process runs.
+
+- **The actions after the name.** Each process's row lists the actions it runs right after its name, in the order it runs them, as its details number them; where the result does not have that order, the actions whose **Used in Processes** names the process. A process that runs none has the cell empty. (#PR)
+- **A filter by each action.** The **Actions** column always offers a filter, which lists each action once with how many processes run it: a process shows while any of its actions is ticked. (#PR)
+- **One to a line in the details.** A process's details list its actions under **All columns** one to a line, each opening its own row in Imports, Exports or Other Actions where exactly one row there has its name. (#PR)
+- **Two columns fewer.** **Used in Processes**, since Anaplan runs no process inside another, and **Action**, which a process leaves empty: an **Action** that a process does have stays. Imports, Exports and Other Actions keep both. A column choice kept for the tab of a column that is gone is dropped. (#PR)
+- **What stays the same.** The numbered **Actions** section of a process's details, what is read from Anaplan, and the other tables. (#PR)
+
 ## 0.18.6 (10 October 2026)
 
 A source model's details list what it gives the model.
