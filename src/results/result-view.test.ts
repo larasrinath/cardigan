@@ -6,7 +6,7 @@ import type { AnalysisResult, Cell, ResultTable } from "../result-types.js";
 import { APP_FILES, cardsOf, columnsOf } from "./columns.js";
 import { lineItemsView } from "./line-items-view.js";
 import { ABOUT_MODEL, ACCESS_FILE, analysedOf, CALENDAR_GUIDANCE, CARD_PARTS, cardParts, cardSections, detailSections, detailsOf, detailValue, diagnosticLog, FILE_RULES, fileView, IMPORTS_FILE,
-  listedTables, MODEL_CALENDAR_FILE, MODEL_FILE_ORDER, modelFacts, MODULES_FILE, overviewOf, resultNotes, SOURCE_MODELS_FILE, THIS_MODEL } from "./result-view.js";
+  listedTables, matchedRemark, MODEL_CALENDAR_FILE, MODEL_FILE_ORDER, modelFacts, MODULES_FILE, overviewOf, resultNotes, SOURCE_MODELS_FILE, THIS_MODEL } from "./result-view.js";
 import { NONE } from "./table-engine.js";
 
 /** The app export's files, as the page names them, and the report table each holds. */
@@ -124,10 +124,13 @@ describe("What the results page reads out of a result", () => {
     const summary = ["Line Items: 120 rows", "Imports: 3 rows (2 matched in the Actions list)", "Exports: not exported (the grid did not load).",
       "Source Models: not exported (This model page has no REMOTE_MODEL axis.).", "Actions: the Actions list came without Notes."];
     const overview = overviewOf(result("model", tables, summary));
-    // The three are under Tables, each once, by the name the page has for the table; the note that is one is the only note.
-    expect([overview.notes, overview.files]).toEqual([["Actions: the Actions list came without Notes."], [["Imports", "3 rows (2 matched in the Actions list)"],
-      ["Exports", "Not exported: the grid did not load"], ["Source Models", "Not exported: This model page has no REMOTE_MODEL axis."]]]);
-    expect(resultNotes(result("model", tables, summary))).toEqual(overview.notes);
+    // The two that were not exported are under Tables, each once, by the name the page has for the table. The import of
+    // three that could not be matched in the Actions list is a note after the export's own, which says what that means;
+    // it is not said twice.
+    const unmatched = "Imports: 1 of the 3 rows could not be matched between the Imports tab and the Actions list, so some of its columns are empty.";
+    expect([overview.notes, overview.files]).toEqual([["Actions: the Actions list came without Notes.", unmatched],
+      [["Exports", "Not exported: the grid did not load"], ["Source Models", "Not exported: This model page has no REMOTE_MODEL axis."]]]);
+    expect([...resultNotes(result("model", tables, summary)), unmatched]).toEqual(overview.notes);
     // That name is the table's own label where the result has the file, whatever the file is called, and otherwise the
     // file's name without its extension: a file that was not exported has no table to ask. No file's name is shown.
     const named = overviewOf(result("model", [detailsTable("Model Details.csv", [["Files", "Imports.csv", "3 rows (2 matched)"], ["Files", "Gone.csv", "Not exported: no grid"],
@@ -185,6 +188,27 @@ describe("What the results page reads out of a result", () => {
       files: [["Line Items", "120 rows"], ["Imports", "Not exported: the grid did not load"]], howToRead: [], log: [] });
   });
 
+  it("leaves the export's check of the imports matched in the Actions list to the tile where every one was, and says in a note how many were not", () => {
+    const imports = (rows: number): ResultTable => ({ file: "Imports.csv", label: "Imports", headers: ["", "Source"], rows: Array.from({ length: rows }, (_, index) => [`Import ${index}`, ""]), guard: false });
+    const overview = (value: string, rows = 372) => overviewOf(result("model", [detailsTable("Model Details.csv", [["Files", "Imports.csv", value]]), imports(rows)]));
+    // Every row matched: the row says no more than the tile's count, so Tables has nothing of it, and there is no note.
+    expect(overview("372 rows (372 matched in the Actions list)")).toMatchObject({ tiles: [{ label: "Imports", count: 372 }], files: [], notes: [] });
+    // Some were not: a note says how many and what it means, with a word for one row and for several. Tables has nothing.
+    expect(overview("372 rows (370 matched in the Actions list)")).toMatchObject({ files: [],
+      notes: ["Imports: 2 of the 372 rows could not be matched between the Imports tab and the Actions list, so some of their columns are empty."] });
+    expect(overview("372 rows (371 matched in the Actions list)").notes).toEqual(
+      ["Imports: 1 of the 372 rows could not be matched between the Imports tab and the Actions list, so some of its columns are empty."]);
+    // Another remark, the Actions list not read, or a count that is not the table's own number of rows: under Tables as it is.
+    for (const value of ["372 rows (Imports tab only: the Actions list could not be read)", "371 rows (371 matched in the Actions list)", "372 rows (372 matched)"]) {
+      expect([value, overview(value).files, overview(value).notes]).toEqual([value, [["Imports", value]], []]);
+    }
+    // The note says the table by the name the page has for it; a row with no table of its own is left as it is.
+    expect(matchedRemark("All imports", "3 rows (2 matched in the Actions list)", 3)).toEqual(
+      { note: "All imports: 1 of the 3 rows could not be matched between the Imports tab and the Actions list, so some of its columns are empty." });
+    expect([matchedRemark("Imports", "3 rows (3 matched in the Actions list)", 3), matchedRemark("Imports", "3 rows (3 matched in the Actions list)", undefined)])
+      .toEqual([{ counted: true }, undefined]);
+  });
+
   it("holds on the overview every row of the Details file: none is dropped, and a file's row is left to its tile only when it says the tile's count", () => {
     const lineItems: ResultTable = { file: "Line Items.csv", label: "Line Items", headers: ["", "Formula"], rows: Array.from({ length: 120 }, (_, index) => [`Line item ${index}`, ""]), guard: false };
     const imports: ResultTable = { file: "Imports.csv", label: "Imports", headers: ["", "Source"], rows: [["Load", "a"], ["Other", "b"]], guard: false };
@@ -196,9 +220,10 @@ describe("What the results page reads out of a result", () => {
       ["How to read", "Layout", "As Anaplan's own export."], ...diagnosticRows(LOG),
     ]);
     const overview = overviewOf(result("model", [details, lineItems, imports]));
-    // The file whose row says only how many rows it has is the tile; the others are said, with what they say.
+    // The file whose row says only how many rows it has is the tile, and so is the Imports row whose every row was matched
+    // in the Actions list; the other is said, with what it says.
     expect([overview.tiles, overview.files]).toEqual([[{ label: "Line Items", count: 120 }, { label: "Imports", count: 2 }],
-      [["Imports", "2 rows (2 matched in the Actions list)"], ["Source Models", "Not exported: no such axis"]]]);
+      [["Source Models", "Not exported: no such axis"]]]);
     // A section the page does not know is part of what the export is about: its rows are there too.
     expect(overview.about.slice(-1)).toEqual([["A detail", "its value"]]);
     // Every row of the Details file is somewhere on the overview.
@@ -208,8 +233,11 @@ describe("What the results page reads out of a result", () => {
       if (section === "Diagnostics") return overview.log.includes(detail ? `${detail} ${value}` : value);
       if (section === "Notes") return overview.notes.includes(`${detail}: ${value}`);
       if (section === "How to read") return overview.howToRead.some(pair);
-      // A Files row names its file; the overview says it under the table's name, among the tables or as the table's tile.
-      if (section === "Files") return [...overview.files, ...overview.tiles.map(tile => [tile.label, `${tile.count} rows`])].some(([table, said]) => `${table}.csv` === detail && said === value);
+      // A Files row names its file; the overview says it under the table's name, among the tables or as the table's tile. A
+      // count whose every row was matched in the Actions list is the tile's count.
+      const matched = /^(\d+) rows \((\d+) matched in the Actions list\)$/.exec(value);
+      const said = matched && matched[1] === matched[2] ? `${matched[1]} rows` : value;
+      if (section === "Files") return [...overview.files, ...overview.tiles.map(tile => [tile.label, `${tile.count} rows`])].some(([table, shown]) => `${table}.csv` === detail && shown === said);
       return overview.about.some(pair);
     };
     expect([details.rows.length, details.rows.filter(row => !held(row))]).toEqual([16, []]);
@@ -231,10 +259,10 @@ describe("What the results page reads out of a result", () => {
       ["Files", "Line Items.csv", "5 rows"], ["Files", "Modules.csv", "2 rows"], ["Files", "Model Calendar.csv", "31 rows"], ["Files", "Imports.csv", "Not exported: the grid did not load"]]);
     const model = result("model", [details, blueprint, modules, calendar()], ["Line Items: 5 rows", "Modules: 2 rows", "Model Calendar: 31 rows", "Imports: not read"]);
     const overview = overviewOf(model);
-    // The table lists the 5 of the calendar's 31 rows that are settings with a value: its tile counts what the table lists,
-    // and that alone. A file whose table lists every row says the file's own number: Line Items lists the grid's 5 rows, the
-    // modules' own among them.
-    expect(overview.tiles).toEqual([{ label: "Model Calendar", count: 5 }, { label: "Modules", count: 2 }, { label: "Line Items", count: 5 }]);
+    // The table lists the 5 of the calendar's 31 rows that are settings with a value. Its tile says what the calendar is,
+    // a months one, and keeps the 5 it lists, which no line of it shows. A file whose table lists every row says the file's
+    // own number: Line Items lists the grid's 5 rows, the modules' own among them.
+    expect(overview.tiles).toEqual([{ label: "Model Calendar", count: 5, value: "Monthly", title: "Model Calendar: Calendar Months/Quarters/Years" }, { label: "Modules", count: 2 }, { label: "Line Items", count: 5 }]);
     // So the three rows that only count a file are not said under Tables, and the three summary lines that only count one are no notes.
     expect([overview.files, overview.notes]).toEqual([[["Imports", "Not exported: the grid did not load"]], ["Imports: not read"]]);
     // Every count the Details file gives is on the overview, under Tables or as a tile's number, but for the calendar's 31:
@@ -245,7 +273,8 @@ describe("What the results page reads out of a result", () => {
       .toEqual(["tile", "tile", "under its table", "Tables"]);
     // A count in the Details file that is not the file's own stays under Tables, whatever the tile says.
     const other = overviewOf(result("model", [detailsTable("Model Details.csv", [["Files", "Line Items.csv", "3 rows"], ["Files", "Model Calendar.csv", "26 rows"]]), blueprint, calendar()]));
-    expect([other.tiles, other.files]).toEqual([[{ label: "Model Calendar", count: 5 }, { label: "Line Items", count: 5 }], [["Line Items", "3 rows"], ["Model Calendar", "26 rows"]]]);
+    expect([other.tiles, other.files]).toEqual([[{ label: "Model Calendar", count: 5, value: "Monthly", title: "Model Calendar: Calendar Months/Quarters/Years" }, { label: "Line Items", count: 5 }],
+      [["Line Items", "3 rows"], ["Model Calendar", "26 rows"]]]);
     // An app's tiles say one number each too, a Where Used table by object's as well.
     expect(overviewOf(result("app", [appDetails, appTable("Pages.csv", [{ Page: "Overview" }]), appTable("Where Used.csv", [{ Page: "Overview" }, { Page: "Overview" }])])).tiles)
       .toEqual([{ label: "Pages", count: 1 }, { label: "Model objects", count: 2 }]);
@@ -910,6 +939,40 @@ describe("What the results page reads out of a result", () => {
     expect(fileView(result("app", [appDetails, actions]), actions)).toEqual({ table: actions });
   });
 
+  it("says a Model Calendar's tile by the kind of its calendar and its current fiscal year, not by a count", () => {
+    /** The tile of a model whose Model Calendar has these settings, and no other. */
+    const tileOf = (settings: [setting: string, value: string][], kind: "model" | "app" = "model") => overviewOf(result(kind, [{ file: "Model Calendar.csv", label: "Model Calendar",
+      headers: ["Section", "Setting", "Value"], rows: settings.map(([setting, value]) => ["Model Calendar", setting, value]), guard: false }])).tiles[0];
+    const type = (value: string): [string, string] => ["Calendar Type", value];
+    const year = (value: string): [string, string] => ["Current Fiscal Year", value];
+    // A months calendar is Monthly, with its current fiscal year's label under it; the title has the type as written and the
+    // year's dates, as the export writes them after the label.
+    expect(tileOf([type("Calendar Months/Quarters/Years"), year("FY24: 1 Jan 2024 - 31 Dec 2024")])).toEqual({ label: "Model Calendar", count: 2, value: "Monthly", detail: "FY24",
+      title: "Model Calendar: Calendar Months/Quarters/Years, current fiscal year FY24 (1 Jan 2024 - 31 Dec 2024)" });
+    // Each of Anaplan's weeks calendars is Weekly. A 4-4-5 one says the grouping its setting gives, a 13-period one that it
+    // has 13 periods, and a general one how many weeks it has, where its setting gives a number of them.
+    expect(tileOf([type("Weeks: 4-4-5, 4-5-4 or 5-4-4"), ["Week Grouping into Months / Qtrs", "4-5-4"], year("FY2025")])).toEqual({ label: "Model Calendar", count: 3,
+      value: "Weekly", detail: "4-5-4 · FY2025", title: "Model Calendar: Weeks: 4-4-5, 4-5-4 or 5-4-4, grouped 4-5-4, current fiscal year FY2025" });
+    expect([tileOf([type("Weeks: 13 4-week Periods"), year("FY24: 31 Dec 2023 - 28 Dec 2024")]), tileOf([type("Weeks: General"), ["Number of Weeks", "52"]])]
+      .map(tile => [tile.value, tile.detail])).toEqual([["Weekly", "13 periods · FY24"], ["Weekly", "52 weeks"]]);
+    // A 4-4-5 calendar whose grouping is not given, and a general one of no weeks, say only that they are weekly.
+    expect([tileOf([type("Weeks: 4-4-5, 4-5-4 or 5-4-4")]), tileOf([type("Weeks: General"), ["Number of Weeks", "0"]])].map(tile => [tile.value, tile.detail]))
+      .toEqual([["Weekly", undefined], ["Weekly", undefined]]);
+    // A type stored as its ID, where its label was not read, is the same type; a type of another text is said by what it
+    // names, and otherwise as it is written, up to its first colon or slash.
+    expect(["25000000000", "25000000001", "25000000002", "25000000003", "weeks: some new pattern", "Months of 5 weeks", "Quarters/Years", "Seasons: Spring"]
+      .map(text => tileOf([type(text)]).value)).toEqual(["Monthly", "Weekly", "Weekly", "Weekly", "Weekly", "Monthly", "Quarters", "Seasons"]);
+    // Without a type, the current year is the tile's value; without either, the tile counts the rows its table lists, as
+    // every other tile does.
+    expect(tileOf([year("FY24: 1 Jan 2024 - 31 Dec 2024")])).toEqual({ label: "Model Calendar", count: 1, value: "FY24",
+      title: "Model Calendar: current fiscal year FY24 (1 Jan 2024 - 31 Dec 2024)" });
+    expect([tileOf([["Fiscal Year Starts", "Jan"]]), tileOf([type(" "), year("")])]).toEqual([{ label: "Model Calendar", count: 1 }, { label: "Model Calendar", count: 1 }]);
+    // A file without the columns these are read by, and an app's file of that name, are counted.
+    expect(overviewOf(result("model", [{ file: "Model Calendar.csv", label: "Model Calendar", headers: ["Section", "Name", "Value"], rows: [["Model Calendar", "Calendar Type", "Weeks: General"]],
+      guard: false }])).tiles[0]).toEqual({ label: "Model Calendar", count: 1 });
+    expect(tileOf([type("Weeks: General")], "app")).toEqual({ label: "Model Calendar", count: 1 });
+  });
+
   it("reads the model's own facts out of its Model Calendar file, without the ones that have no value", () => {
     const model = result("model", [modelDetails, calendar("Main", "Demand: plan")]);
     // The export cannot know the model's size or who captured it: those two are empty, and are not facts.
@@ -927,7 +990,7 @@ describe("What the results page reads out of a result", () => {
     // the model's name and its workspace are in the Details file already.
     const overview = overviewOf(result("model", [modelDetails, calendar()], ["Model Calendar: 31 rows"]));
     expect([overview.about, overview.tiles]).toEqual([[["Model", "Model one"], ["Workspace", "Main"], ["Exported on", "2026-10-03 09:30 UTC"], ["Exported with", "Cardigan dev"],
-      ["Anaplan host", "eu2a.app.anaplan.com"], ["Captured on", "2026-10-03"]], [{ label: "Model Calendar", count: 5 }]]);
+      ["Anaplan host", "eu2a.app.anaplan.com"], ["Captured on", "2026-10-03"]], [{ label: "Model Calendar", count: 5, value: "Monthly", title: "Model Calendar: Calendar Months/Quarters/Years" }]]);
     // A fact that says something else than the Details file is said as well.
     expect(overviewOf(result("model", [modelDetails, calendar("Another workspace")])).about.slice(-2)).toEqual([["Workspace", "Another workspace"], ["Captured on", "2026-10-03"]]);
     // Without a Details file the facts are all the overview has about the export.

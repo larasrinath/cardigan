@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { LAYER, moduleGraph, modulesGraph, sectionLayer, sectionsGraph, type ViewGraph } from "./map-graphs.js";
 import { indexModel } from "./map-model.js";
-import { filteredModel, GraphMaker } from "./map-fakes.test-support.js";
+import { filteredModel, GraphMaker, ownFilteredModel } from "./map-fakes.test-support.js";
 
 /** Three sections. Inputs feed Calculations, Calculations feed Reporting and read each other, and a flag of the inputs
  * drives who may write a calculation. */
@@ -249,5 +249,31 @@ describe("The links of the pages' filters in the graphs", () => {
     expect(own.edges.filter(edge => edge.filter).map(edge => [own.nodes[edge.s].fullName, own.nodes[edge.t].kind, own.nodes[edge.t].raw?.id, own.nodes[edge.t].external, edge.refs]))
       .toEqual([["Show?", "module", rev, true, [[show, rev, "page_filter"]]], ["Show?", "module", mar, true, [[show, mar, "page_filter"]]]]);
     expect(moduleGraph(model, flt, false, false).edges.some(edge => edge.filter)).toBe(false);
+  });
+
+  it("mark the boxes their own line items filter, which no link can show, only where the pages' filters are drawn", () => {
+    const { graph, cust, missing, incomplete } = ownFilteredModel();
+    const model = indexModel(graph);
+    const marks = (view: ViewGraph): [string, number | undefined][] => view.nodes.map(node => [node.fullName, node.filterMark]);
+    // A module's box: how many of its own line items filter it. No link is drawn for them.
+    const modules = modulesGraph(model, undefined, false, true);
+    expect([marks(modules), modules.edges.some(edge => edge.filter)]).toEqual([[["MDM380 - Customer Entity #", 2], ["MDM381 - Resources #", 1], ["REP01 - Report", undefined]], false]);
+    // A section's box: how many of its modules their own line items filter.
+    expect(marks(sectionsGraph(model, false, true))).toEqual([["01: Master Data", 2], ["02: Reporting", undefined]]);
+    // A line item's box, among its module's: each that filters its own module. Another module beside them has none.
+    const own = moduleGraph(model, cust, false, false, true);
+    expect(own.nodes.map(node => [node.fullName, node.kind, node.filterMark])).toEqual([["Incomplete Records", "lineItem", 1], ["Missing DisplayName", "lineItem", 1],
+      ["REP01 - Report", "externalModule", undefined]]);
+    expect([model.filtersOwnModule(incomplete), model.filtersOwnModule(missing), model.ownFiltered]).toEqual([true, true, 2]);
+    // Where the pages' filters are not drawn, nothing is marked.
+    for (const view of [modulesGraph(model, undefined, false), sectionsGraph(model, false), moduleGraph(model, cust, false, false)]) {
+      expect(view.nodes.some(node => node.filterMark !== undefined), view.kind).toBe(false);
+    }
+    // A model with both kinds: the filter on another module is a link, and the modules their own line items filter are
+    // marked all the same.
+    const mixed = indexModel(ownFilteredModel(true).graph);
+    const both = modulesGraph(mixed, undefined, false, true);
+    expect([marks(both), both.edges.filter(edge => edge.filter).map(edge => [both.nodes[edge.s].fullName, both.nodes[edge.t].fullName])])
+      .toEqual([[["FLT01 - Filters", undefined], ["MDM380 - Customer Entity #", 2], ["MDM381 - Resources #", 1], ["REP01 - Report", undefined]], [["FLT01 - Filters", "REP01 - Report"]]]);
   });
 });

@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AreaCheck, ModelMapOptions } from "../map/graph-types.js";
+import type { AreaCheck, ModelMapOptions, PageFilterCheck } from "../map/graph-types.js";
 import { PAGE_ACTIONS_HEADERS, PAGE_FILTERS_HEADERS } from "../model-pages.js";
 import { MODULE_USAGE_FILE, MODULE_USAGE_HEADERS, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE } from "../page-files.js";
 import { CALENDAR_HEADERS, CALENDAR_PROPERTIES, calendarRows } from "../model/calendar.js";
@@ -220,6 +220,8 @@ let mapThrows: Partial<Record<"build" | "mount" | "show" | "hide" | "themeChange
 let mapNodes: object[];
 /** What the stand-in's graph says of the Modules file's functional areas: nothing unless a test gives it. */
 let mapAreaCheck: AreaCheck | undefined;
+/** What the stand-in's graph says of the Page Filters table: nothing unless a test gives it. */
+let mapFilterCheck: PageFilterCheck | undefined;
 /** Whether the stand-in takes the focus into itself, to its button, each time it is shown. */
 let mapTakesFocus: boolean;
 /** What the stand-in tells the page of its stop while it is asked for one of these, or while it hears a click or a key
@@ -236,6 +238,7 @@ beforeEach(() => {
   mapThrows = {};
   mapNodes = [];
   mapAreaCheck = undefined;
+  mapFilterCheck = undefined;
   mapTakesFocus = false;
   mapTells = {};
   const asked = (what: keyof typeof mapThrows, said: string) => {
@@ -244,7 +247,8 @@ beforeEach(() => {
   };
   mapStandIn.build = tables => {
     asked("build", "build");
-    const graph = { nodes: mapNodes, edges: [], unresolved: [], sections: [], limitations: [], ...(mapAreaCheck ? { areaCheck: mapAreaCheck } : {}) };
+    const graph = { nodes: mapNodes, edges: [], unresolved: [], sections: [], limitations: [], ...(mapAreaCheck ? { areaCheck: mapAreaCheck } : {}),
+      ...(mapFilterCheck ? { pageFilterTable: true, pageFilterCheck: mapFilterCheck } : {}) };
     mapBuilds.push({ tables, graph });
     return graph;
   };
@@ -1292,9 +1296,14 @@ describe("The results page's script, on the page", () => {
     await openWith(WITH_CALENDAR);
     const file = WITH_CALENDAR.tables[3];
     expect([file.rows.length, file.rows.filter(row => row[0] === "Model").length]).toEqual([31, 5]);
-    // The overview: the file's tile counts the rows its table lists, and only those. What the file says about the model
-    // stands with what the Details file says about the export, after it, and without the model's name, which that has said.
-    expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Model Calendar", "5", "rows"], ["Modules", "2", "rows"], ["Line Items", "120", "rows"]]);
+    // The overview: the calendar's tile says what the calendar is, a months one, where the other tiles count the rows their
+    // tables list; its title says the type as written, and so does its name for a screen reader. What the file says about
+    // the model stands with what the Details file says about the export, after it, and without the model's name, which
+    // that has said.
+    expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Model Calendar", "Monthly"], ["Modules", "2", "rows"], ["Line Items", "120", "rows"]]);
+    const calendarTile = page.all("#view .stat")[0];
+    expect([calendarTile.getAttribute("title"), calendarTile.getAttribute("aria-label"), page.all("#view .stat")[1].getAttribute("title")])
+      .toEqual(["Model Calendar: Calendar Months/Quarters/Years", "Model Calendar: Calendar Months/Quarters/Years", null]);
     expect([page.texts("#ovAbout h2"), page.texts("#ovAbout dt"), page.texts("#ovAbout dd")])
       .toEqual([["About this export"], ["Model", "Anaplan host", "Workspace", "Captured on"], ["Model one", "us1a.app.anaplan.com", "Main", "2026-10-03"]]);
     // The navigation lists the same tables in the same order, and counts nothing: the tiles count the rows.
@@ -1653,6 +1662,28 @@ describe("What a click, a key and typing do on the results page", () => {
     goTo(1);
     page.find('#navList [data-nav="map"]').press();
     expect(await areaLines()).toHaveLength(1);
+  });
+
+  it("says once in the run's log how the Page Filters table met the map, when it builds the map's graph", async () => {
+    mapFilterCheck = { rows: 32, found: 31, own: 30, other: 1, nowhere: 0, unnamed: 0, notFound: 1, missing: ["MDM381 - Resources # · Gone"] };
+    await openWith(BLUEPRINT);
+    /** The run's log lines about the page filters, as the control that copies the run's log copies them. */
+    const filterLines = async (): Promise<string[]> => {
+      const copy = page.document.createElement("button");
+      copy.dataset.act = "copy-run-log";
+      page.document.body.append(copy);
+      copy.press();
+      await settle();
+      copy.remove();
+      return (copied.at(-1) ?? "").split("\n").filter(line => / Page filters: /.test(line)).map(line => line.replace(/^\d\d:\d\d:\d\d /, ""));
+    };
+    expect(await filterLines()).toEqual([]);
+    page.find('#navList [data-nav="map"]').press();
+    expect(await filterLines()).toEqual(["Page filters: 32 rows; 31 with the condition line item on the map (30 on its own module, 1 on another module); "
+      + "1 with a line item the map does not have: MDM381 - Resources # · Gone."]);
+    goTo(1);
+    page.find('#navList [data-nav="map"]').press();
+    expect(await filterLines()).toHaveLength(1);
   });
 
   it("shows a model's counts with their thousands apart, right-aligned, sorted by their numbers and found with or without commas, and keeps the result as it was", async () => {
@@ -2565,9 +2596,13 @@ describe("What a click, a key and typing do on the results page", () => {
   it("says on the overview everything the Details file holds, for an app and for a model: no row is dropped", async () => {
     /** Every text the overview shows, with its closed sections' as well. */
     const texts = () => [...page.texts("#view dt"), ...page.texts("#view dd"), ...page.texts("#view .warn-list li"), ...page.id("diagLog").textContent.split("\n")];
-    /** What each file's tile says of its rows, by the file's own name, which is its entry's in the navigation (the tiles
-     * stand in the same order): the number its table lists. */
-    const tiles = () => tableEntries().map((item, index) => `${entryLabel(item)}.csv: ${page.all("#view .stat")[index].querySelector(".s-num")?.textContent} rows`);
+    /** What each file's tile says, by the file's own name, which is its entry's in the navigation (the tiles stand in the
+     * same order): the number of rows its table lists, or for a Model Calendar what the calendar is. */
+    const tiles = () => tableEntries().map((item, index) => {
+      const tile = page.all("#view .stat")[index];
+      const said = tile.querySelector(".s-num")?.textContent;
+      return `${entryLabel(item)}.csv: ${tile.querySelector(".sr-only") ? `${said} rows` : said}`;
+    });
     /** The rows of a result's Details file that the overview does not say: a detail and its value, a note, a line of the log, or a file's tile. */
     const unsaid = (result: AnalysisResult) => {
       const shown = texts();
@@ -2577,6 +2612,13 @@ describe("What a click, a key and typing do on the results page", () => {
         // A count of the file's own rows is its tile's number, but for a Model Calendar's: its table leaves rows out, and the
         // line under the table's name says how many.
         if (section === "Files" && /^\d+ rows$/.test(value)) return !tiles().includes(`${detail}: ${value}`) && detail !== "Model Calendar.csv";
+        // The export's check of the imports matched in the Actions list: the tile's count where every one was, and a note
+        // that says how many were not where some were not.
+        const matched = /^(\d+) rows \((\d+) matched in the Actions list\)$/.exec(value);
+        if (section === "Files" && matched) {
+          const missed = Number(matched[1]) - Number(matched[2]);
+          return missed === 0 ? !tiles().includes(`${detail}: ${matched[1]} rows`) : !shown.some(text => text.startsWith(`${detail.replace(/\.csv$/, "")}: ${missed} of the ${matched[1]} rows`));
+        }
         // Any other Files row is said under the name the page has for the table: the file's own name is shown nowhere.
         if (section === "Files") return !(shown.includes(detail.replace(/\.csv$/, "")) && shown.includes(value));
         return !(shown.includes(detail) && shown.includes(value));
@@ -2612,6 +2654,24 @@ describe("What a click, a key and typing do on the results page", () => {
       ["Modules", "Source Models"], ["2 rows (as listed)", "Not exported: This model page has no REMOTE_MODEL axis."]]);
     expect(["2 rows (as listed)", "REMOTE_MODEL"].map(said => page.id("view").textContent.split(said).length - 1)).toEqual([1, 1]);
 
+    // A model whose imports the export matched in the Actions list. Where every one was, the tile says the count, and
+    // there is no Tables section and no note. Where some were not, a note says how many, and Tables has nothing of it.
+    const imports: ResultTable = { file: "Imports.csv", label: "Imports", headers: ["", "Source Label"], rows: [["Load", "a.csv"], ["Prices", "b.csv"], ["Units", "c.csv"]], guard: false };
+    const importsMatched = (value: string): AnalysisResult => {
+      const matched = withFiles({ ...MODEL, tables: [...MODEL.tables, imports] });
+      matched.tables[0].rows[matched.tables[0].rows.length - 1] = ["Files", "Imports.csv", value];
+      return matched;
+    };
+    const allMatched = importsMatched("3 rows (3 matched in the Actions list)");
+    page.id("runAgain").press();
+    sendResult(ports[0], allMatched);
+    expect([unsaid(allMatched), page.has("#ovFiles"), page.has("#view .warn-list"), page.id("view").textContent.includes("matched in the Actions list")]).toEqual([[], false, false, false]);
+    const someMatched = importsMatched("3 rows (1 matched in the Actions list)");
+    page.id("runAgain").press();
+    sendResult(ports[0], someMatched);
+    expect([unsaid(someMatched), page.has("#ovFiles"), page.texts("#view .warn-list li")]).toEqual([[], false,
+      ["Imports: 2 of the 3 rows could not be matched between the Imports tab and the Actions list, so some of their columns are empty."]]);
+
     // A model one of whose tables lists fewer rows than its file has: the calendar, with its rows about the model. The
     // Details file counts all of each file's rows, 8 and 31.
     const left: AnalysisResult = { ...BLUEPRINT, summary: ["Line Items: 8 rows", "Modules: 3 rows", "Model Calendar: 31 rows"], tables: [...BLUEPRINT.tables, WITH_CALENDAR.tables[3]] };
@@ -2619,11 +2679,12 @@ describe("What a click, a key and typing do on the results page", () => {
     expect(counted.tables[0].rows.filter(row => row[0] === "Files")).toEqual([["Files", "Line Items.csv", "8 rows"], ["Files", "Modules.csv", "3 rows"], ["Files", "Model Calendar.csv", "31 rows"]]);
     page.id("runAgain").press();
     sendResult(ports[0], counted);
-    // The tiles count what the tables list, 5 settings and every row of Line Items, and nothing more: the calendar's 31 are
-    // said by the line under its table's name, which counts the rows it leaves out. No row of the Details file is lost.
-    expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Model Calendar", "5", "rows"], ["Modules", "3", "rows"],
+    // The tiles count what the tables list, every row of Line Items, and nothing more, and the calendar's says what the
+    // calendar is: its 31 rows are said by the line under its table's name, which counts the rows it leaves out. No row of
+    // the Details file is lost.
+    expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Model Calendar", "Monthly"], ["Modules", "3", "rows"],
       ["Line Items", "8", "rows"]]);
-    expect([tiles(), unsaid(counted), page.has("#ovFiles"), page.has("#view .warn-list")]).toEqual([["Model Calendar.csv: 5 rows", "Modules.csv: 3 rows",
+    expect([tiles(), unsaid(counted), page.has("#ovFiles"), page.has("#view .warn-list")]).toEqual([["Model Calendar.csv: Monthly", "Modules.csv: 3 rows",
       "Line Items.csv: 8 rows"], [], false, false]);
     goTo(3);
     expect(page.texts("#view .view-note")).toEqual([CALENDAR_NOTE]);
@@ -5752,6 +5813,66 @@ describe("The actions of a process, in its row's details", () => {
     goTo(3);
     openProcess("Nightly load");
     expect([strayImg(), steps()[1]]).toEqual([false, [["1", `Load ${TAG}`, TAG]]]);
+  });
+});
+
+describe("What a source model gives, in its row's details", () => {
+  // As the user's Source Models showed them (10 Oct 2026): each source model behind its workspace, with how many objects
+  // and imports it gives. The objects and imports are made up.
+  const DEMAND = "DEV - Supply Chain Applications - Polaris / DEV - Demand Ana";
+  const LOST = "NOWHERE / Lost model";
+  const MAPPED = '{"workspaceId":"9999aaaa0000bbbb1111cccc2222dddd","workspaceName":"Pedalwick Partners - Polaris","modelId":"2222BBBB3333CCCC4444DDDD5555EEEE","modelName":"Pedalwick Demand Analysis 2026"}';
+  const SOURCE_MODELS: ResultTable = { file: "Source Models.csv", label: "Source Models", guard: false, headers: ["", "Sources", "Imports", "Mapped To"],
+    rows: [[DEMAND, "2", "2", MAPPED], [LOST, "1", "1", MAPPED]] };
+  const DATA_SOURCES: ResultTable = { file: "Import Data Sources.csv", label: "Import Data Sources", guard: false,
+    headers: ["", "Source Model", "Source Type", "Source Object Name", "Production Data", "Imports"],
+    rows: [["SYS02 Products.Export", DEMAND, "SAVED VIEW", "SYS02 Products", "false", "IMP01 Products"], ["DAT01 Demand", DEMAND, "MODULE", "DAT01 Demand", "false", "IMP02 Demand"]] };
+  const IMPORTS: ResultTable = { file: "Imports.csv", label: "Imports", guard: false, headers: ["", "Source Label", "Source Object", "Source Type", "Target Object", "Target Type"],
+    rows: [["IMP01 Products", "IMP01", `${DEMAND} / 'SYS02 Products'.Export`, "SAVED VIEW", "Products", "LIST"], ["IMP02 Demand", "IMP02", `${DEMAND} / 'DAT01 Demand'`, "MODULE", "Demand", "MODULE"]] };
+  const WITH_SOURCES: AnalysisResult = { ...BLUEPRINT, summary: [...BLUEPRINT.summary, "Source Models: 2 rows", "Import Data Sources: 2 rows", "Imports: 2 rows"],
+    tables: [...BLUEPRINT.tables, SOURCE_MODELS, DATA_SOURCES, IMPORTS] };
+  const sections = () => page.all("#drawerBody .d-sec").map(section => section.querySelector("h3")?.textContent);
+  const rows = (id: string) => page.all(`#${id} tbody tr`).map(row => row.children.map(cell => cell.textContent));
+  const openSource = (name: string) => {
+    page.all('#tableWrap tbody [data-act="row"]')[firstCells().indexOf(name)].press();
+  };
+
+  it("lists above All columns the objects a source model gives, each with its kind, and the imports that read them, each opening its own row", async () => {
+    await openWith(WITH_SOURCES);
+    goTo(3);
+    openSource(DEMAND);
+    expect([page.id("drawerTitle").textContent, sections()]).toEqual([DEMAND, ["Sources (2)", "Imports (2)", "All columns"]]);
+    expect([page.texts("#drawerSources th"), rows("drawerSources"), page.texts("#drawerSources p")])
+      .toEqual([["Source", "Kind"], [["SYS02 Products", "Saved view"], ["DAT01 Demand", "Module"]], []]);
+    expect([page.texts("#drawerSourceImports th"), rows("drawerSourceImports")]).toEqual([["Import", "Reads"], [["IMP01 Products", "SYS02 Products"], ["IMP02 Demand", "DAT01 Demand"]]]);
+    // An object opens its row of Import Data Sources; an import its row of Imports.
+    page.all('#drawerSources [data-act="item"]')[1].press();
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual(["DAT01 Demand", "Row 2 of Import Data Sources"]);
+    page.key("Escape");
+    openSource(DEMAND);
+    page.all('#drawerSourceImports [data-act="item"]')[0].press();
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual(["IMP01 Products", "Row 1 of Imports"]);
+  });
+
+  it("shows no empty section for a source model no table names, and the log says so once", async () => {
+    await openWith(WITH_SOURCES);
+    /** The run's log lines about the source model, as the control that copies the run's log copies them. */
+    const lostLines = async (): Promise<string[]> => {
+      const copy = page.document.createElement("button");
+      copy.dataset.act = "copy-run-log";
+      page.document.body.append(copy);
+      copy.press();
+      await settle();
+      copy.remove();
+      return (copied.at(-1) ?? "").split("\n").filter(line => line.includes(LOST)).map(line => line.replace(/^\d\d:\d\d:\d\d /, ""));
+    };
+    goTo(3);
+    openSource(LOST);
+    expect(sections()).toEqual(["All columns"]);
+    page.key("Escape");
+    openSource(LOST);
+    page.key("Escape");
+    expect(await lostLines()).toEqual([`Source model ${LOST}: no row of Import Data Sources or Imports names it, so its details list none of its sources.`]);
   });
 });
 

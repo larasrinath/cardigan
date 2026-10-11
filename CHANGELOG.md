@@ -14,6 +14,42 @@ A cleaner header, one Timezone pill, and the version and an About page in the me
 - **Links under About this export.** On the Overview, the model's name opens the model in Model Building in the model's tab, and each app under **Apps** opens that app in the tab of apps and pages, as the details' **Model** and **App** buttons do, with their icons after the names. Where the model's tab shows the model in Model Building already, it is only brought to the front, with what is open there: Cardigan asks its script in the tab what the tab shows now. Anywhere else the model's address is loaded, the one Model Building's own model menu links to. An app is a link only where the rows of Module Usage, Page Filters and Page Actions give it one ID; an app of no row, or a name two apps share, stays plain, and so does every name where the result does not say where the model is. (#PR)
 - **What stays the same.** What is read, the tables, the map and what the times say. (#PR)
 
+## 0.18.7 (10 October 2026)
+
+The Overview's Model Calendar tile says what the calendar is, not how many of its settings hold a value.
+
+- **Monthly or Weekly.** In the number's place, a months calendar says **Monthly** and any of Anaplan's three weeks calendars **Weekly**. A calendar type stored as its ID reads the same, and a type of another text is said by what it names. (#59)
+- **The current year under it.** A smaller line says the current fiscal year by its label, such as **FY24**, after how a weeks calendar is grouped: 4-4-5, 4-5-4 or 5-4-4, 13 periods, or its number of weeks. The tile's title, and its name for a screen reader, hold the calendar type as Anaplan writes it and the year's dates. (#59)
+- **Every tile still the same size.** The row of tiles is as high as its highest, and what each tile holds now stands at its top, so the names stay on one line across a row. (#59)
+- **What stays the same.** What is read, and the Model Calendar table, whose line under its name still says how many rows it leaves out. A calendar whose type and year were not read is counted like any other table. (#59)
+
+## 0.18.6 (10 October 2026)
+
+A source model's details list what it gives the model.
+
+- **Sources.** A row of **Source Models** now opens with what that source model gives, above **All columns**: each of its objects that the model's imports read, with its kind (**Saved view**, **Module** or **List**), from the rows of **Import Data Sources** that name it. Each opens its own row of Import Data Sources. (#58)
+- **Imports.** Under them, each import that reads from the source model, with the objects it reads; each opens its own row of **Imports** where exactly one row has its name. Where Import Data Sources names none of the source model's objects, the imports are found by the Imports table's **Source Object**. (#58)
+- **Found by name, nothing guessed.** A source model is found by its name as each table writes it, out of its quotes and with its spaces evened out, or by the model's own name, the part after its workspace, where one table writes the workspace in front and the other does not, and no other source model has that name. A count that is not what the row's **Sources** or **Imports** says is said under its list. A source model neither table names gets no list, and the diagnostic log says so once. (#58)
+- **What stays the same.** What is read, the Source Models table and its columns, and **All columns**. (#58)
+
+## 0.18.5 (10 October 2026)
+
+The model map shows the filters a module's own line items put on it, and its **Page filters** box says truly what it draws.
+
+- **Marks for a module's own filters.** Most filters on a model's pages have their condition in the module they filter, such as a module's Incomplete Records filtering that module's rows. No arrow joins a module to itself, so the map drew nothing for them, and a model whose filters were all of that kind had **Page filters** greyed out, with a note that said, wrongly, that none of its filters had a line item of the model as its condition. Ticked, the box now marks each such module: a plum mark on the box's top edge, with a funnel and how many of its own line items filter it. A group's mark says how many of its modules are filtered so, and in the Line items view each line item that filters its own module has the mark, without a number. Zoomed out, where a box is too small for it, the mark is a plum dot at the box's top right. The legend says what it means on the picture shown. A filter on another module keeps its dashed arrow. (#57)
+- **A note that tells the truth.** The note under the box says what ticking it draws: arrows, marks or both. Where there is nothing to draw, the box is off and the note says why: the result has no **Page Filters** table; the pages have no filters; none of the filters has a line item of the map as its condition, with how many filters there are; or none of them filters a module of the map. (#57)
+- **Names found whatever their spaces.** A filter's line item is found by its module's name and its own. Where Line Items wrote either with a space at its end that **Page Filters** did not have, or the two wrote a run of spaces differently, the line item was not found, and its filter was left off the map and its details; it is found now, where one module or line item alone fits. A filtered module, and a row of **Modules** or **Module Usage**, is found despite a run of spaces written differently too; spaces at the ends were already allowed for there. The map's line items have no ID in the result, so their names are what a filter is matched by. (#57)
+- **One line in the log.** When the map is first built, the diagnostic log says how the Page Filters table met the map, such as "Page filters: 32 rows; 32 with the condition line item on the map (30 on its own module, 2 on another module); 0 with a line item the map does not have.", and names the first five line items it could not find, each once. (#57)
+- **What stays the same.** A module's details list its own line items under **Filtered on pages by**, as they did. A mark is followed by no trace, a filter's arrow only while it is drawn, and neither changes a module's role in the data flow. The tick is kept for the tab, as it was. (#57)
+
+## 0.18.4 (10 October 2026)
+
+The Overview says no more than it needs to of how a model's imports were matched.
+
+- **Nothing where every import was matched.** The export checks that each import in Anaplan's Imports tab is the same import as a row of its Actions list, which gives the import its last run, its notes and the processes that use it. Where every one was, the Overview showed "Imports: 372 rows (372 matched in the Actions list)" under **Tables**, which says no more than the tile's count. It is no longer shown, and with nothing else to list, neither is **Tables**. (#56)
+- **A note where some were not.** Where some could not be matched, a note says how many and what that means: "Imports: 2 of the 372 rows could not be matched between the Imports tab and the Actions list, so some of their columns are empty." It stands with the Overview's other notes, and the row is not said under **Tables** as well. (#56)
+- **What stays the same.** What is read, the Imports table, and the diagnostic log. A table that was not exported, and a count with another remark, such as imports read from the Imports tab alone when the Actions list could not be read, are still listed under **Tables**. (#56)
+
 ## 0.18.3 (10 October 2026)
 
 A row's buttons stand in one row under its name.

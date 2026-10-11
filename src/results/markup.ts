@@ -5,6 +5,7 @@ import { APP_FILES, rowColumns, type Column } from "./columns.js";
 import { REFRESH_AND_RUN } from "./connection.js";
 import type { MappingView } from "./import-mapping-view.js";
 import type { ProcessView } from "./process-actions-view.js";
+import type { SourceModelView } from "./source-model-view.js";
 import { LINE_ITEMS_FILE } from "./line-items-view.js";
 import type { RangeState } from "./range-filter.js";
 import { ACCESS_FILE, MODEL_CALENDAR_FILE, MODULES_FILE, type Analysed, type CardSection, type Overview, type SectionCell } from "./result-view.js";
@@ -443,12 +444,17 @@ export function overviewHtml(overview: Overview, copy: KeptCopy = "none", views:
         // The table's icon, the one its entry of the navigation has, then its name, and under that the number of rows the
         // table lists, without a word: only a screen reader is told that they are rows. A name too long for the tile ends
         // in an ellipsis, and its title holds it whole. A file with no icon of its own has none here, and no stand-in.
+        // A Model Calendar says what its calendar is in the number's place, and its current year under that: its title
+        // holds it all, and a screen reader is told the same.
         const file = tileFiles[at];
         const icon = file === undefined ? "" : FILE_ICONS.get(file) ?? "";
-        const parts = `<span class="s-lab" title="${esc(tile.label)}">${icon}${esc(tile.label)}</span><span class="s-num">${esc(tile.count)}</span>`
-          + `<span class="sr-only">${tile.count === 1 ? "row" : "rows"}</span>`;
+        const parts = `<span class="s-lab" title="${esc(tile.label)}">${icon}${esc(tile.label)}</span><span class="s-num">${esc(tile.value ?? tile.count)}</span>`
+          + (tile.value === undefined ? `<span class="sr-only">${tile.count === 1 ? "row" : "rows"}</span>` : "")
+          + (tile.detail === undefined ? "" : `<span class="s-detail">${esc(tile.detail)}</span>`);
+        const named = tile.title === undefined ? "" : ` title="${esc(tile.title)}"`;
         const view = views[at];
-        return view === undefined ? `<div class="stat">${parts}</div>` : `<button type="button" class="stat stat-open" data-nav="${view}">${parts}</button>`;
+        return view === undefined ? `<div class="stat"${named}>${parts}</div>`
+          : `<button type="button" class="stat stat-open" data-nav="${view}"${named}${tile.title === undefined ? "" : ` aria-label="${esc(tile.title)}"`}>${parts}</button>`;
       }).join("")}
     </div>${about}
     <p class="ov-kept" id="ovKept">${keptCopyHtml(copy)}</p>${notes}${files}${howToRead}${log}`;
@@ -927,17 +933,37 @@ export function processActionsHtml(process: ProcessView, opens: readonly boolean
       ${table}${process.lines.map(drawerLine).join("")}</div>`;
 }
 
+/** What a source model gives the model (source-model-view.ts), above a row's All columns: its objects that the imports
+ * read, each with its kind, then the imports that read them, each with the objects it reads, each list under how many it
+ * holds and above its lines. A name whose row the page can open is a link to that row's details: `sources` and `imports`
+ * have, by the name's place, the number the page knows that row by, as a list's items do (`itemsHtml`). */
+export function sourceModelHtml(model: SourceModelView, sources: readonly (number | undefined)[], imports: readonly (number | undefined)[]): string {
+  const name = (text: string, open: number | undefined): string => (open === undefined ? esc(text)
+    : `<button type="button" class="link" data-act="item" data-item="${open}">${esc(text)}</button>`);
+  const objects = model.sources.length ? `<div class="d-sec" id="drawerSources"><h3>Sources (${model.sources.length})</h3>
+      <table class="mini"><thead><tr><th>Source</th><th>Kind</th></tr></thead>
+        <tbody>${model.sources.map((source, index) => `<tr><td>${name(source.name, sources[index])}</td><td>${esc(source.kind)}</td></tr>`).join("")}</tbody></table>
+      ${model.sourceLines.map(drawerLine).join("")}</div>` : "";
+  const reads = model.imports.length ? `<div class="d-sec" id="drawerSourceImports"><h3>Imports (${model.imports.length})</h3>
+      <table class="mini"><thead><tr><th>Import</th><th>Reads</th></tr></thead>
+        <tbody>${model.imports.map((each, index) => `<tr><td>${name(each.name, imports[index])}</td><td>${esc(each.from.join(", "))}</td></tr>`).join("")}</tbody></table>
+      ${model.importLines.map(drawerLine).join("")}</div>` : "";
+  return objects + reads;
+}
+
 /** One row in full: every column, hidden ones included, with nothing cut short, for each cell that is said in words the
  * text that was read (`exported`), named by the file's column it was read from where that is another (`readUnder`), and
  * for each cell that lists several items those items, one to a line, with how many there are beside the column's name
  * (`items`); an item that names a row the page can open is a link to that row's details (`itemOpens`, by the column's
  * place and the item's, item-links.ts). A cell of a column of times says its time
  * in both zones, the one the page shows first (`times`). A row of an import from a file has its mapping after the columns
- * (`mapping`), and a row of a process the actions it runs (`process`). */
+ * (`mapping`), and a row of a process the actions it runs (`process`). A row of Source Models has what its source model
+ * gives before the columns (`source`). */
 export function rowDrawerHtml(columns: readonly Column[], row: Row, links: Links, exported?: ReadonlyMap<number, unknown>, items?: ReadonlyMap<number, Items>,
   readUnder?: ReadonlyMap<number, string>, mapping?: MappingView, process?: { view: ProcessView; opens: readonly boolean[] }, times?: DrawerTimes,
-  itemOpens?: ReadonlyMap<number, readonly (number | undefined)[]>): string {
-  return `<div class="d-sec"><h3>All columns</h3>
+  itemOpens?: ReadonlyMap<number, readonly (number | undefined)[]>,
+  source?: { view: SourceModelView; sources: readonly (number | undefined)[]; imports: readonly (number | undefined)[] }): string {
+  return `${source ? sourceModelHtml(source.view, source.sources, source.imports) : ""}<div class="d-sec"><h3>All columns</h3>
     ${allColumns(columns, row, links, exported, items, readUnder, times, itemOpens)}</div>${mapping ? importMappingHtml(mapping) : ""}${process ? processActionsHtml(process.view, process.opens) : ""}`;
 }
 
