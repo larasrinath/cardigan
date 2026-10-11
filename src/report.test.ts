@@ -433,6 +433,33 @@ describe("Page analyzer report, from a native page to the agreed CSV tables", ()
       ["Dimension", "Product", "Filter context", LIST], ["Line item", "Volume", "Filter", LI(2)], ["Line item", `Time, ${LOST}`, "Filter", NONE]]);
   });
 
+  it("says which line items each filter narrows, every one by its name: those a grid shows, all but those it hides, or those the Line Items selector offers", () => {
+    // Cards as the card reader describes them, each a grid of Demand filtered on its rows by Show?, with Line Items on its
+    // columns showing only two, all of them, or picked by the selector from all but one, as the section's own entry says.
+    const ref = (kind: string, id: string, name: string, extra: Obj = {}): Obj => ({ kind, id, name, ...extra });
+    const lineItems = (extra: Obj = {}): Obj => ({ dimension: ref("dimension", LINE_ITEMS, "Line Items"), ...extra });
+    const filter = { operator: "AND", match: "all", groups: [], conditions: [{ operator: "EQUALS", values: [true], selectedItems: [], filterLineItem: ref("lineItem", LI(1), "Show?",
+      { moduleName: "Filters" }) }] };
+    const rows = { dimensions: [{ dimension: ref("dimension", LIST, "Product") }], filter };
+    const card = (n: number, region: Obj): Obj => ({ id: guid(n), type: "TABLE", viewType: "customView", placement: { kind: "board", rowIndex: n, columnStart: 0 },
+      grid: { sections: [], regions: [{ region: "SINGLE", module: ref("module", MODULE, "Demand"), rows, pivot: { rows: [], columns: [], pages: [] }, ...region }] } });
+    const cards = [
+      card(1, { columns: { dimensions: [lineItems({ shows: [ref("lineItem", LI(2), "Rate, net"), ref("lineItem", LI(3), "Bob's plan")] })] } }),
+      card(2, { columns: { dimensions: [lineItems()] } }),
+      card(3, { columns: { dimensions: [{ dimension: ref("dimension", TIME, "Time") }] }, pages: [lineItems({ hides: [ref("lineItem", LI(4), "Units")] })],
+        pivot: { rows: [], columns: [], pages: [{ dimension: ref("dimension", LINE_ITEMS, "Line Items"), source: "contextSelector" }] } }),
+    ];
+    const result = buildReport([{ appName: "Planning app", categoryName: "Demand", pageName: "Filtered board", pageType: "BOARD", state: "Published (no unpublished changes)",
+      modelName: "Model one", workspaceName: "Workspace one", pageGuid: guid(1000), appGuid: guid(1002), modelId: "MODEL-1", details: { cards } as PageInput["details"] }]);
+    const at = (tab: TabName, header: string) => HEADERS[tab].indexOf(header);
+    // Every name, in full, written as the export writes a name among others: one with a comma or a quote in quotes.
+    expect(result.Filters.rows.map(row => [row[at("Filters", "Card #")], row[at("Filters", "Filtered line items")]])).toEqual([
+      [1, "Only 'Rate, net', 'Bob''s plan'"], [2, "All line items"], [3, "All except Units"]]);
+    // The Cards table says the same in its own few words.
+    expect(result.Cards.rows.map(row => row[at("Cards", "Line items shown")])).toEqual(["Only Rate, net, Bob's plan (Line Items on columns)",
+      "All line items (Line Items on columns)", "Chosen by the Line Items selector"]);
+  });
+
   it("lists in Where used each object a card uses in a role, also one that has the name of another: the first use of the same object wins", () => {
     const result = buildReport([pageOf("Plan", guid(1000),
       // Two line items of one name, from two modules, and the first of them once more.
