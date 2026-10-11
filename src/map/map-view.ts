@@ -251,7 +251,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   let hovered: ViewNode | undefined;
   /** Whether the user opened or closed the legend: until then it is open where the picture has the room for it. */
   let legendWanted: boolean | undefined;
-  let drag: { pointer: number; node: ViewNode | undefined; x: number; y: number; ox: number; oy: number; nodeX: number; nodeY: number; slop: number; moved: boolean; home?: { wantsWhole: boolean } } | undefined;
+  let drag: { pointer: number; node: ViewNode | undefined; x: number; y: number; ox: number; oy: number; nodeX: number; nodeY: number; slop: number; moved: boolean; dismissed: boolean; home?: { wantsWhole: boolean } } | undefined;
   /** The last press on a node that was no drag: a second one at the same place soon after goes into that node. */
   let lastPress: { node: ViewNode; time: number; x: number; y: number } | undefined;
   /** The timer that lets presses through the details for a moment after a press opened them. */
@@ -1704,7 +1704,9 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
       ownCamera();
     }
     const slop = PRESS_SLOP[event.pointerType] ?? PRESS_SLOP.mouse;
-    drag = { pointer: event.pointerId, node, x, y, ox: camera.ox, oy: camera.oy, nodeX: node?.x ?? 0, nodeY: node?.y ?? 0, slop, moved: false, ...(home ? { home } : {}) };
+    // The root dismisses these on pointerdown, after the canvas hears it. That press belongs to the open menu alone.
+    const dismissed = pickerOpen || !results.hidden || !groupPop.hidden || !groupingPop.hidden || !groupingReason.hidden || !linksPop.hidden;
+    drag = { pointer: event.pointerId, node, x, y, ox: camera.ox, oy: camera.oy, nodeX: node?.x ?? 0, nodeY: node?.y ?? 0, slop, moved: false, dismissed, ...(home ? { home } : {}) };
     // The canvas keeps the pointer while it is down, so that a drag goes on outside it. A pointer the browser does not
     // know cannot be kept, and the drag then ends at the canvas's edge.
     try { canvas.setPointerCapture?.(event.pointerId); } catch { /* not kept */ }
@@ -1785,6 +1787,12 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     // A click, and no drag: a camera it stopped on its way stays where it stopped. Whether the picture is to show the
     // whole graph stays as it was, for the next time its room changes.
     if (held.home) wantsWhole = held.home.wantsWhole;
+    // A press that dismissed an open menu belongs to that menu alone. Links do nothing when clicked, so a click on one
+    // is a click off the boxes, which clears the selection as empty canvas does.
+    if (!held.node && held.dismissed) {
+      lastPress = undefined;
+      return;
+    }
     // A second press at the same place soon after the first goes into the node the first one was on, whatever is under
     // the pointer by now: the first press may have opened the details over its box.
     const now = env.now();

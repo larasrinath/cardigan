@@ -5023,6 +5023,129 @@ describe("A model's map on the results page", () => {
   });
 });
 
+describe("Empty space closes the details panel", () => {
+  const isOpen = () => page.id("drawer").classList.contains("show");
+  const click = (target: FakeElement) => {
+    target.dispatch("pointerdown", { button: 0, pointerId: 1, clientX: 100 });
+    target.dispatch("pointerup", { button: 0, pointerId: 1, clientX: 100 });
+    target.press();
+  };
+  const openRow = async (result = MODEL) => {
+    await openWith(result);
+    goTo(1);
+    const opener = page.find('#tableWrap tbody [data-act="row"]');
+    click(opener);
+    return opener;
+  };
+
+  it.each(["body", ".shell", "#main", "#view", ".view-head", ".toolbar", "#tableWrap"])("closes on %s without redrawing or scrolling the table, and returns focus", async selector => {
+    const opener = await openRow();
+    const wrap = page.id("tableWrap");
+    const table = wrap.querySelector("table");
+    const rows = wrap.querySelectorAll("tbody tr");
+    wrap.scrollLeft = 120; wrap.scrollTop = 80;
+    const target = page.find(selector);
+    target.dispatch("pointerdown", { button: 0 });
+    expect(isOpen()).toBe(true);
+    target.dispatch("pointerup", { button: 0 });
+    target.press();
+    expect([isOpen(), page.all(".details-selected").length, page.document.activeElement]).toEqual([false, 0, opener]);
+    vi.advanceTimersByTime(300);
+    expect([page.id("drawer").hidden, page.id("tableWrap") === wrap, wrap.scrollLeft, wrap.scrollTop, opener.focusedIntoSight])
+      .toEqual([true, true, 120, 80, 0]);
+    expect(wrap.querySelector("table")).toBe(table);
+    expect(wrap.querySelectorAll("tbody tr").every((row, index) => row === rows[index])).toBe(true);
+    expect(JSON.parse(session.held.get(VIEW_KEY) ?? "{}").drawer).toBeUndefined();
+  });
+
+  it("keeps an app's details closed after a background click, refresh and Run again", async () => {
+    await openRow(APP);
+    await letKeep();
+    vi.advanceTimersByTime(300);
+    expect(JSON.parse(session.held.get(VIEW_KEY)!).drawer).toBeDefined();
+    click(page.find("body"));
+    const onHide = vi.mocked(window.addEventListener).mock.calls.filter(([event]) => event === "pagehide").at(-1)![1] as () => void;
+    onHide();
+    expect(JSON.parse(session.held.get(VIEW_KEY) ?? "{}").drawer).toBeUndefined();
+    await open(`?tab=42${location.hash}`);
+    await eventually(() => page.texts("#view h1")[0] === "Pages", "Pages after refresh");
+    expect(page.id("drawer").hidden).toBe(true);
+    page.id("runAgain").press();
+    sendResult(ports[0], APP);
+    vi.advanceTimersByTime(300);
+    expect([isOpen(), page.all(".details-selected").length]).toEqual([false, 0]);
+  });
+
+  it("switches to another row and keeps clicks, row links, Back and the resize edge inside the details", async () => {
+    await openRow(BLUEPRINT);
+    click(page.all("#tableWrap tbody tr")[1].children[1]);
+    const title = page.id("drawerTitle").textContent;
+    expect([isOpen(), title]).toEqual([true, "Units"]);
+    for (const id of ["drawer", "drawerTitle", "drawerBody", "drawerResize"]) {
+      click(page.id(id));
+      expect(isOpen(), id).toBe(true);
+    }
+    const link = page.all('#drawerBody [data-act="item"]').find(item => item.textContent === "REV01 Revenue")!;
+    click(link);
+    expect([isOpen(), page.id("drawerTitle").textContent]).toEqual([true, "REV01 Revenue"]);
+    click(page.id("drawerBack"));
+    expect([isOpen(), page.id("drawerTitle").textContent]).toEqual([true, title]);
+    click(page.id("drawerClose"));
+    expect(isOpen()).toBe(false);
+  });
+
+  it.each(["#tblSearch", "#searchWrap", "[data-colfilter]", "#colBtn", '#pager [aria-label="Next page"]', "#pager select", "#themeToggle", "#timeZone", "#topnav"])("keeps details when clicking %s", async selector => {
+    await openRow();
+    click(page.find(selector));
+    expect([isOpen(), page.id("drawerTitle").textContent]).toEqual([true, "Line item 1"]);
+  });
+
+  it.each(["drawerBody", "drawerResize"])("keeps a selection or resize begun in %s when released outside", async id => {
+    await openRow();
+    page.id(id).dispatch("pointerdown", { button: 0, pointerId: 1, clientX: 700 });
+    page.find("body").dispatch("pointermove", { pointerId: 1, clientX: 400 });
+    page.find("body").dispatch("pointerup", { pointerId: 1, clientX: 400 });
+    page.find("body").press();
+    expect(isOpen()).toBe(true);
+  });
+
+  it("requires a fresh press and click on the same empty target", async () => {
+    await openRow();
+    const background = page.find("body");
+    background.press();
+    expect(isOpen()).toBe(true);
+    page.id("tableWrap").dispatch("pointerdown", { button: 0 });
+    background.press();
+    expect(isOpen()).toBe(true);
+    for (const cancel of ["pointercancel", "dragstart"]) {
+      background.dispatch("pointerdown", { button: 0 });
+      background.dispatch(cancel);
+      background.press();
+      expect(isOpen()).toBe(true);
+    }
+    background.dispatch("pointerdown", { button: 2 });
+    background.press();
+    expect(isOpen()).toBe(true);
+    click(background);
+    expect(isOpen()).toBe(false);
+  });
+
+  it.each(["#colBtn", "[data-colfilter]", "#navList [aria-controls]", "#navCompact [aria-controls]"])("uses the first background click only to dismiss %s", async selector => {
+    await openRow();
+    const control = page.find(selector);
+    click(control);
+    expect(control.getAttribute("aria-expanded")).toBe("true");
+    if (!page.id("popover").hidden) {
+      click(page.id("popover"));
+      expect([isOpen(), page.id("popover").hidden]).toEqual([true, false]);
+    }
+    click(page.id("tableWrap"));
+    expect([isOpen(), control.getAttribute("aria-expanded"), page.id("popover").hidden]).toEqual([true, "false", true]);
+    click(page.id("tableWrap"));
+    expect(isOpen()).toBe(false);
+  });
+});
+
 describe("Navigation closes the details panel", () => {
   const model: AnalysisResult = { ...BLUEPRINT, tables: [...BLUEPRINT.tables,
     { file: "General Lists.csv", label: "General Lists", headers: ["Name"], rows: [["Products"]], guard: false },
