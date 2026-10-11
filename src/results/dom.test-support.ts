@@ -23,6 +23,10 @@ export interface FakeEvent {
   type: string;
   target: FakeElement;
   key?: string;
+  shiftKey?: boolean;
+  button?: number;
+  pointerId?: number;
+  clientX?: number;
   defaultPrevented: boolean;
   preventDefault(): void;
   stopPropagation(): void;
@@ -132,7 +136,9 @@ export class FakeElement {
   childNodes: (FakeElement | FakeText)[] = [];
   /** Each attribute with its value as the browser reads it; "" for an attribute without a value. */
   readonly attributes = new Map<string, string>();
-  readonly style: Record<string, string> = {};
+  readonly style = Object.assign({} as Record<string, string>, {
+    setProperty: (name: string, value: string): void => { this.style[name] = value; },
+  });
   /** How far a box is scrolled down and sideways. Nothing is laid out, so a box keeps both until the script sets them, as
    * a browser keeps them while the box stays and what it holds is as large as before. */
   scrollTop = 0;
@@ -297,6 +303,10 @@ export class FakeElement {
   }
   select(): void { /* nothing is laid out, so nothing is selected */ }
   scrollIntoView(): void { this.broughtIntoSight++; }
+  private readonly capturedPointers = new Set<number>();
+  setPointerCapture(id: number): void { this.capturedPointers.add(id); }
+  hasPointerCapture(id: number): boolean { return this.capturedPointers.has(id); }
+  releasePointerCapture(id: number): void { this.capturedPointers.delete(id); }
 
   addEventListener(type: string, listener: Listener): void {
     this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]);
@@ -304,7 +314,7 @@ export class FakeElement {
   /** Sends an event from this element up to the document, as the browser does for a click, a key or typing. The way up
    * is settled before the first listener hears the event, as in a browser: a listener that takes the element off the
    * page does not keep the event from those above it. */
-  dispatch(type: string, init: { key?: string } = {}): FakeEvent {
+  dispatch(type: string, init: Pick<FakeEvent, "key" | "shiftKey" | "button" | "pointerId" | "clientX"> = {}): FakeEvent {
     let stopped = false;
     const event: FakeEvent = {
       type, target: this, ...init, defaultPrevented: false,

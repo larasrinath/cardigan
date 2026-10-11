@@ -16,14 +16,20 @@ const { tags } = readMarkup(html, true);
 const opening = tags.filter(tag => !tag.closing);
 
 describe("The results page's files", () => {
-  it("keeps the details below the header and makes room beside the table on wide windows, without a scrim", () => {
+  it("floats details below the header without reserving any table width, and fills narrow windows without a scrim", () => {
     const page = new FakePage(html);
     expect([page.id("drawer").getAttribute("role"), page.id("drawer").getAttribute("aria-labelledby"), page.id("drawer").hasAttribute("aria-modal"), page.has("#scrim")])
       .toEqual(["region", "drawerTitle", false, false]);
     expect(declared(".drawer")[0]).toContain("top:var(--details-top)");
     expect(declared(".drawer")[0]).toContain("z-index:35");
     expect(declared(".top")[0]).toContain("z-index:40");
-    expect(css).toContain("@media(min-width:1100px){body.details-open:not(:has(#mapHost:not([hidden]))) .shell,body.details-open:not(:has(#mapHost:not([hidden]))) .banners{width:calc(100% - var(--details-width))");
+    expect(css).not.toContain("details-open");
+    expect(declared(".drawer")[0]).toContain("position:fixed");
+    expect(declared(".drawer")[0]).toContain("width:clamp(360px,var(--details-width),70vw)");
+    expect(css).toContain("@media(max-width:899px){.drawer{width:100%}.drawer-resize{display:none}}");
+    expect([page.id("drawerResize").getAttribute("role"), page.id("drawerResize").getAttribute("tabindex"), page.id("drawerResize").getAttribute("aria-controls")])
+      .toEqual(["separator", "0", "drawer"]);
+    expect(declared(".table-wrap tbody tr.details-selected > td")[0]).toContain("background:var(--accent-soft)");
     expect(declared("body:has(#mapHost:not([hidden])) .drawer")).toEqual(["display:none"]);
     expect(page.id("drawerBack").hidden).toBe(true);
   });
@@ -440,7 +446,7 @@ describe("The results page's files", () => {
     expect(header.children.map(child => child.id || child.getAttribute("class"))).toEqual(["d-head", "d-history", "drawerClose", "drawerOpens"]);
     expect(shell.find(".d-head").children.map(child => child.id)).toEqual(["drawerTitle", "drawerSub"]);
     expect([shell.id("drawerOpens").getAttribute("role"), shell.id("drawerOpens").getAttribute("aria-label")]).toEqual(["group", "Open elsewhere"]);
-    expect(shell.id("drawer").children.map(child => child.id || child.getAttribute("class"))).toEqual(["drawer-hd", "drawerWhy", "drawerBody"]);
+    expect(shell.id("drawer").children.map(child => child.id || child.getAttribute("class"))).toEqual(["drawerResize", "drawer-hd", "drawerWhy", "drawerBody"]);
     // The header wraps: the name beside the close button, then the buttons on a line of their own as wide as the header.
     // They sit side by side and wrap only where the details are too narrow for them; nothing stands them one under another.
     expect(declared(".drawer-hd")[0]).toContain("flex-wrap:wrap");

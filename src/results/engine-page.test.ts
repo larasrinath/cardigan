@@ -95,6 +95,7 @@ describe("The results page itself against the engine in the Anaplan tab", () => 
       setItem: (key: string, value: string) => { held.set(key, value); }, removeItem: (key: string) => { held.delete(key); } });
     vi.stubGlobal("Element", FakeElement);
     vi.stubGlobal("HTMLElement", FakeElement);
+    vi.stubGlobal("getComputedStyle", () => ({ paddingLeft: "0px", paddingRight: "0px" }));
     vi.stubGlobal("HTMLInputElement", FakeInput);
     vi.stubGlobal("HTMLSelectElement", FakeSelect);
     vi.stubGlobal("requestAnimationFrame", (callback: () => void) => { callback(); return 0; });

@@ -2,6 +2,12 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version is in the menu of Cardigan's icon in Chrome's toolbar and on its About page, and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## 0.29.8 (11 October 2026)
+
+- **Switching tabs closes the details.** Choosing another table, the Overview or the Model map in navigation clears the open row without moving the new table. Coming back or refreshing keeps the panel closed; links within details, the **Table** and **Model map** buttons, and **Run again** still keep or open their row. (#88)
+- **Details float over the table.** A row's details slide over its right edge, below the header, with no dimming or empty gap. The table keeps its full width, position and scroll, and the open row stays highlighted. Other rows and the header remain usable; **Back**, **Esc** and the close button work as before. (#88)
+- **A width that stays.** Drag the panel's left edge, or focus it and use the Left and Right arrow keys, to resize from 360 pixels to 70% of the window. The viewer's width is kept for next time. Below 900 pixels the panel fills the width. Refresh and **Run again** still reopen the same row where it exists. (#88)
+
 ## 0.29.7 (11 October 2026)
 
 - **The engine from the page, before reading.** The model frame reads the loaded client's workspace engine and sends it with its check-in: HYPERBLOCK means Classic, CALCULATION_ENGINE means Polaris, and anything else stays unknown. Diagnostics gives one engine decision before settings or pages are read. The gateway engine probe is gone; its GETs are used only for names when no Classic client answers. (#87)

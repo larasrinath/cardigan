@@ -196,7 +196,7 @@ const NOW = new Date(Date.UTC(2026, 9, 5, 14, 2, 5));
  * import's name and its source, and the kind of source that is. No other text here names a file, and none is the page's. */
 const THE_MODELS = /\b(?:prices|volumes)\.csv\b|\bFILE\b/g;
 /** The page's own window, as far as the page's script asks it anything. */
-const pageWindow = () => ({ matchMedia: () => ({ matches: false, addEventListener: () => undefined }), scrollTo: () => undefined, innerWidth: 1280, innerHeight: 800 });
+const pageWindow = () => ({ matchMedia: () => ({ matches: false, addEventListener: () => undefined }), addEventListener: vi.fn(), scrollTo: () => undefined, innerWidth: 1280, innerHeight: 800 });
 
 /** The port chrome.tabs.connect gives the page, with the tab's content script at the other end. */
 class FakePort {
@@ -228,6 +228,7 @@ beforeEach(() => {
     setItem: (key: string, value: string) => { held.set(key, value); }, removeItem: (key: string) => { held.delete(key); } });
   vi.stubGlobal("Element", FakeElement);
   vi.stubGlobal("HTMLElement", FakeElement);
+  vi.stubGlobal("getComputedStyle", () => ({ paddingLeft: "0px", paddingRight: "0px" }));
   vi.stubGlobal("HTMLInputElement", FakeInput);
   vi.stubGlobal("HTMLSelectElement", FakeSelect);
   vi.stubGlobal("requestAnimationFrame", (callback: () => void) => { callback(); return 0; });

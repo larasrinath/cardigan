@@ -515,16 +515,23 @@ main:has(> #mapHost:not([hidden])){align-self:stretch;display:flex;flex-directio
 
 /* ---------- drawer ---------- */
 :root{--details-width:620px;--details-top:100px}
-/* Only the content gives the panel room. The header and navigation keep their full width. */
-@media(min-width:1100px){body.details-open:not(:has(#mapHost:not([hidden]))) .shell,body.details-open:not(:has(#mapHost:not([hidden]))) .banners{width:calc(100% - var(--details-width));margin-right:var(--details-width)}}
+/* The panel floats over the table; no page content gives up room for it. */
 .drawer{
-  position:fixed;top:var(--details-top);right:0;bottom:0;width:min(var(--details-width),94vw);z-index:35;
+  position:fixed;top:var(--details-top);right:0;bottom:0;width:clamp(360px,var(--details-width),70vw);z-index:35;
   background:var(--panel);border-left:1px solid var(--border-strong);box-shadow:var(--shadow);
   transform:translateX(102%);transition:transform .2s cubic-bezier(.4,0,.2,1);display:flex;flex-direction:column;
 }
 /* Keep the row details for the return from the map, out of its picture and keyboard order. */
 body:has(#mapHost:not([hidden])) .drawer{display:none}
 .drawer.show{transform:translateX(0)}
+.drawer-resize{position:absolute;left:-5px;top:0;bottom:0;width:10px;cursor:ew-resize;touch-action:none;z-index:1}
+.drawer-resize::after{content:"";position:absolute;left:4px;top:0;bottom:0;width:2px;background:var(--border-strong)}
+.drawer-resize:hover::after,.drawer-resize:focus-visible::after,.drawer.resizing .drawer-resize::after{background:var(--accent)}
+.drawer-resize:focus-visible{outline:2px solid var(--ring);outline-offset:-2px}
+.drawer.resizing{user-select:none}
+.table-wrap tbody tr.details-selected > td{background:var(--accent-soft)}
+.table-wrap tbody tr.details-selected > td:first-child{box-shadow:inset 3px 0 var(--accent)}
+@media(max-width:899px){.drawer{width:100%}.drawer-resize{display:none}}
 .drawer-hd{display:flex;flex-wrap:wrap;align-items:flex-start;gap:10px;padding:14px 16px;border-bottom:1px solid var(--border)}
 .drawer-hd h2{font-size:14.5px;flex:1;word-break:break-word}
 .drawer-hd .d-sub{font-size:12px;color:var(--text-2);margin-top:3px}
