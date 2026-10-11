@@ -6,10 +6,10 @@ Every merged change that alters the extension has a version of its own: a new fe
 
 A source model's details list what it gives the model.
 
-- **Sources.** A row of **Source Models** now opens with what that source model gives, above **All columns**: each of its objects that the model's imports read, with its kind (**Saved view**, **Module** or **List**), from the rows of **Import Data Sources** that name it. Each opens its own row of Import Data Sources. (#PR)
-- **Imports.** Under them, each import that reads from the source model, with the objects it reads; each opens its own row of **Imports** where exactly one row has its name. Where Import Data Sources names none of the source model's objects, the imports are found by the Imports table's **Source Object**. (#PR)
-- **Found by name, nothing guessed.** A source model is found by its name as each table writes it, out of its quotes and with its spaces evened out, or by the model's own name, the part after its workspace, where one table writes the workspace in front and the other does not, and no other source model has that name. A count that is not what the row's **Sources** or **Imports** says is said under its list. A source model neither table names gets no list, and the diagnostic log says so once. (#PR)
-- **What stays the same.** What is read, the Source Models table and its columns, and **All columns**. (#PR)
+- **Sources.** A row of **Source Models** now opens with what that source model gives, above **All columns**: each of its objects that the model's imports read, with its kind (**Saved view**, **Module** or **List**), from the rows of **Import Data Sources** that name it. Each opens its own row of Import Data Sources. (#58)
+- **Imports.** Under them, each import that reads from the source model, with the objects it reads; each opens its own row of **Imports** where exactly one row has its name. Where Import Data Sources names none of the source model's objects, the imports are found by the Imports table's **Source Object**. (#58)
+- **Found by name, nothing guessed.** A source model is found by its name as each table writes it, out of its quotes and with its spaces evened out, or by the model's own name, the part after its workspace, where one table writes the workspace in front and the other does not, and no other source model has that name. A count that is not what the row's **Sources** or **Imports** says is said under its list. A source model neither table names gets no list, and the diagnostic log says so once. (#58)
+- **What stays the same.** What is read, the Source Models table and its columns, and **All columns**. (#58)
 
 ## 0.18.4 (10 October 2026)
 
