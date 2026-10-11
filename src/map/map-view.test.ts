@@ -5,7 +5,7 @@ import type { Pen } from "./map-canvas.js";
 import { FALLBACK } from "./map-palette.js";
 import { mountModelMap, mountModelMapIn, PICKER_CAP, type MapEnvironment } from "./map-view.js";
 import { FakePen, filteredModel, GraphMaker, HOSTILE, ownFilteredModel, type PenCall } from "./map-fakes.test-support.js";
-import { ACCESS_SAYS, FILTER_MARK_SAYS, FILTERS_BOTH_SAY, FILTERS_NONE, FILTERS_OWN_SAY, FILTERS_SAY, FULL_SAYS } from "./map-markup.js";
+import { ACCESS_LINK_SAYS, ACCESS_SAYS, FILTER_MARK_SAYS, FILTERS_BOTH_SAY, FILTERS_NONE, FILTERS_OWN_SAY, FILTERS_SAY, FORMULAS_SAY, FULL_SAYS, LINK_SAYS, NO_LINKS_SAYS } from "./map-markup.js";
 
 /** A page with a control outside the map, and the place the map is put into. */
 const SHELL = '<!DOCTYPE html><html lang="en" data-theme="light"><head><title>Page</title></head><body><button type="button" id="outside">Outside</button><main id="main"><div id="host"></div></main></body></html>';
@@ -199,6 +199,11 @@ const picked = (): string[] => parts(".map-picker-opt .map-picker-name").map(opt
 function tickAccess(): void {
   if (part(".map-links-pop").hidden) act("links").press();
   part(".map-access").tick();
+}
+/** Ticks or unticks Formulas in the panel of links, which is opened for it where it is closed. */
+function tickFormulas(): void {
+  if (part(".map-links-pop").hidden) act("links").press();
+  part(".map-formulas").tick();
 }
 /** The line that says what the map shows. */
 const status = (): string => text(".map-stats");
@@ -1153,6 +1158,60 @@ describe("The map's views", () => {
     // What access drivers are is said beside the box, and is its description to a screen reader.
     expect(text(`#${part(".map-access").getAttribute("aria-describedby")}`)).toBe(ACCESS_SAYS);
   });
+  it("leaves formulas' links out where unticked: of the picture, the trace, the line at the foot and the legend, with every box where it was", () => {
+    const heard: MapView[] = [];
+    mount(sample().graph, { modelName: "Demand Plan", workspaceName: "Sandbox", onView: told => { heard.push(told); } });
+    map.show();
+    env.resize(1200, 800);
+    env.settle();
+    tab("drill").press();
+    pickModule("CAL01 - Revenue");
+    const before = locate();
+    expect([part(".map-formulas").checked, linksDrawn().length, status(), act("links").classList.contains("map-on")])
+      .toEqual([true, 7, "3 line items · 5 outside the module · 7 links", false]);
+    expect(text(`#${part(".map-formulas").getAttribute("aria-describedby")}`)).toBe(FORMULAS_SAY);
+    expect(parts(".map-legend-note").map(note => note.textContent)).toEqual([LINK_SAYS]);
+    // Unticked, with no other kind ticked: no link is drawn, and the map says so plainly, at the foot and in the legend.
+    tickFormulas();
+    expect([part(".map-formulas").checked, act("links").classList.contains("map-on"), heard.at(-1)]).toEqual([false, true, { view: "drill", module: "CAL01 - Revenue", noFormulas: true }]);
+    expect(text(".map-live")).toBe("Formula links are not drawn. Line items of CAL01 - Revenue: 3 line items, with 5 outside the module, no links drawn.");
+    expect([status(), parts(".map-legend-note").map(note => note.textContent)]).toEqual(["3 line items · 5 outside the module · no links drawn", [NO_LINKS_SAYS]]);
+    // The boxes stay where they were: the graph is not laid out again, and only the drawing changes.
+    expect(locate()).toEqual(before);
+    expect(linksDrawn()).toEqual([]);
+    // A box selected traces along no link that is not drawn.
+    clickNode("Net");
+    expect([text(".map-insp-name"), text(".map-live")]).toEqual(["Net", "Line item Net selected. On the map 0 boxes feed it and it feeds 0 boxes, directly or through others."]);
+    // Access drivers ticked: theirs alone are drawn and traced, and the legend says what they are.
+    tickAccess();
+    expect(text(".map-live")).toBe("Access driver links are drawn. Line items of CAL01 - Revenue: 3 line items, with 5 outside the module, 1 link.");
+    expect([text(".map-insp-name"), parts(".map-legend-note").map(note => note.textContent), heard.at(-1)])
+      .toEqual(["Net", [ACCESS_LINK_SAYS], { view: "drill", module: "CAL01 - Revenue", noFormulas: true, access: true }]);
+    env.settle();
+    expect(linksDrawn()).toHaveLength(1);
+    clickNode("Net");
+    clickNode("Net");
+    expect(text(".map-live")).toBe("Line item Net selected. On the map 1 box feeds it and it feeds 0 boxes, directly or through others.");
+    // Ticked again: formulas' links are back, with the boxes where they were, and the trace follows them.
+    const kept = locate();
+    tickFormulas();
+    expect(text(".map-live")).toBe("Formula links are drawn. Line items of CAL01 - Revenue: 3 line items, with 5 outside the module, 8 links.");
+    expect([parts(".map-legend-note").map(note => note.textContent), heard.at(-1), act("links").classList.contains("map-on")])
+      .toEqual([[LINK_SAYS, ACCESS_LINK_SAYS], { view: "drill", module: "CAL01 - Revenue", access: true }, true]);
+    expect(locate()).toEqual(kept);
+    expect(linksDrawn()).toHaveLength(8);
+  });
+
+  it("opens with formulas' links left out where the page kept the box unticked", () => {
+    const heard: MapView[] = [];
+    mount(sample().graph, { modelName: "Demand Plan", workspaceName: "Sandbox", view: { view: "modules", noFormulas: true }, onView: told => { heard.push(told); } });
+    map.show();
+    env.resize(1200, 800);
+    env.settle();
+    expect([part(".map-formulas").checked, act("links").classList.contains("map-on"), heard[0], linksDrawn()]).toEqual([false, true, { view: "modules", noFormulas: true }, []]);
+    expect(status()).toMatch(/ · no links drawn$/);
+  });
+
   it("says a view that has nothing to draw", () => {
     const make = new GraphMaker();
     make.module("EMPTY - Nothing Yet", "01: Inputs");
@@ -2706,10 +2765,10 @@ describe("The bar's tools and the module picker", () => {
     open();
     const button = act("links");
     expect([button.getAttribute("aria-expanded"), part(".map-links-pop").hidden]).toEqual(["false", true]);
-    // Enter on the button is a press: the panel opens, with the focus on its box.
+    // Enter on the button is a press: the panel opens, with the focus on its first box.
     button.focus();
     button.press();
-    expect([button.getAttribute("aria-expanded"), part(".map-links-pop").hidden, page.document.activeElement === part(".map-access")]).toEqual(["true", false, true]);
+    expect([button.getAttribute("aria-expanded"), part(".map-links-pop").hidden, page.document.activeElement === part(".map-formulas")]).toEqual(["true", false, true]);
     // Escape from inside it closes it, and the focus goes back to its button: the map steps nowhere back.
     expect(key("Escape").defaultPrevented).toBe(true);
     expect([button.getAttribute("aria-expanded"), part(".map-links-pop").hidden, page.document.activeElement === button, here()]).toEqual(["false", true, true, "Demand Plan"]);
@@ -2721,7 +2780,7 @@ describe("The bar's tools and the module picker", () => {
     pointer("pointerdown", 600, 700);
     pointer("pointerup", 600, 700);
     expect([part(".map-links-pop").hidden, button.getAttribute("aria-expanded")]).toEqual([true, "false"]);
-    // Where more than formulas are drawn, the button says so with a dot, with the panel closed.
+    // Where the links drawn are not formulas' alone, as the map opens, the button says so with a dot, with the panel closed.
     expect(button.classList.contains("map-on")).toBe(false);
     tickAccess();
     expect([button.classList.contains("map-on"), part(".map-access").checked]).toEqual([true, true]);

@@ -167,6 +167,43 @@ describe("The trace of a line item in its module's graph", () => {
   });
 });
 
+describe("The trace while formulas' links are not drawn", () => {
+  /** Modules A, B and C, each read by the next. D holds an access driver of B, and of C, whose formula also reads it. */
+  function drivers() {
+    const make = new GraphMaker();
+    const [a, b, c, d] = ["A", "B", "C", "D"].map(name => make.item(make.module(name, "01: All"), "Value"));
+    make.link(a, b).link(b, c).link(d, b, "write_access").link(d, c).link(d, c, "read_access");
+    return { model: indexModel(make.graph()) };
+  }
+
+  it("follows between modules only the links still drawn, those that count more than formulas' alone, and marks no other", () => {
+    const { model } = drivers();
+    const graph = modulesGraph(model, undefined, true);
+    expect(graph.edges.filter(edge => edge.formulaOnly).map(edge => `${graph.nodes[edge.s].fullName} > ${graph.nodes[edge.t].fullName}`).sort()).toEqual(["A > B", "B > C"]);
+    // Every link drawn: B is fed by A and D, and feeds C.
+    const all = traceNode(graph, model, place(graph, "B"), true);
+    expect([names(graph, all.up), names(graph, all.down)]).toEqual([["A", "D"], ["C"]]);
+    // Formulas' links left out: D's access driver alone feeds B, which feeds nothing drawn.
+    const some = traceNode(graph, model, place(graph, "B"), true, false, false);
+    expect([names(graph, some.up), names(graph, some.down), marked(graph, some.edges)]).toEqual([["D"], [], ["D > B: 1"]]);
+    // D's link to C counts a formula and an access driver: it is still drawn, and followed.
+    expect(names(graph, traceNode(graph, model, place(graph, "C"), true, false, false).up)).toEqual(["D"]);
+  });
+
+  it("follows a line item's links through the model only where their kind is drawn", () => {
+    const { model } = drivers();
+    const module = model.modules.find(each => each.name === "B")!.id;
+    const graph = moduleGraph(model, module, false, true);
+    const value = place(graph, "Value");
+    expect(names(graph, traceNode(graph, model, value, true).up)).toEqual(["A", "D"]);
+    const some = traceNode(graph, model, value, true, false, false);
+    expect([names(graph, some.up), names(graph, some.down), marked(graph, some.edges)]).toEqual([["D"], [], ["D > Value: 1"]]);
+    // With no kind of link drawn, nothing is traced.
+    const none = traceNode(graph, model, value, false, false, false);
+    expect([none.up.size, none.down.size, [...none.edges].some(way => way > 0)]).toEqual([0, 0, false]);
+  });
+});
+
 describe("The trace of the pages' filters", () => {
   it("follows a page filter's link only while those links are drawn", () => {
     const { graph, flt } = filteredModel();

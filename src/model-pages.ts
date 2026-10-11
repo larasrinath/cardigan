@@ -5,7 +5,7 @@ import type { UxPageType } from "./card-reader/definition-types.js";
 import { emptyCatalog, type ExportedLineItems, type ModelCatalog } from "./catalog.js";
 import { diagnosticRows, stampLine, type DetailRow } from "./details.js";
 import { separator } from "./map/graph-names.js";
-import { FILTER_USES, MISSING_LINE_ITEMS_MODULE, MODULE_USAGE_FILE, MODULE_USAGE_HEADERS, NOT_ON_A_PAGE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, PAGE_PLACE_HEADERS } from "./page-files.js";
+import { FILTER_USES, MISSING_LINE_ITEMS_MODULE, MODULE_USAGE_FILE, MODULE_USAGE_HEADERS, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, PAGE_PLACE_HEADERS } from "./page-files.js";
 import { missingCards, missingNote, namePlainly, sayMissing } from "./page-missing.js";
 import type { Progress } from "./progress.js";
 import { buildReport, HEADERS, NONE, PAGE_TYPE, type Cell, type PageInput } from "./report.js";
@@ -62,7 +62,7 @@ const FILES: readonly [file: string, label: string][] = [[MODULE_USAGE_FILE, "Mo
 const HOW_TO_READ: readonly [detail: string, value: string][] = [
   ["Module Usage", "Not a Model settings grid: the pages built on this model that use each module. One row for each module and page, in the Modules "
     + "table's order, then by app and page. A page uses a module when a card on it that works on this model shows the module, a saved view of it or "
-    + `one of its line items, or filters or formats by one of its line items. A module that no page read uses has one row, which says ${NOT_ON_A_PAGE}. `
+    + "one of its line items, or filters or formats by one of its line items. A module that no page read uses has one row, with a dash for its app and its page. "
     + "After them come the modules a page uses that the Modules table does not list: one that reads Missing module, with its ID, is one a card "
     + "still points at that the model no longer has, or that you cannot see. Only published pages are read, and only those you can open."],
   ["Page Filters", "The card filters on the pages built on this model, with the columns of an app's Filters table: those of the cards that work on "
@@ -193,7 +193,8 @@ function exportedModules(result: AnalysisResult): string[] {
 }
 
 /** Module Usage's rows: each module of the export in its order, with the pages that use it, and after them the modules the
- * pages use that the export does not list. A module that no page uses has its one row, with no page to say where it is. */
+ * pages use that the export does not list. A module that no page uses has its one row, with the dash that says nothing
+ * (report.ts `NONE`) for its app, its page and where the page is, which the results page shows greyed. */
 function moduleUsageRows(exported: readonly string[], pages: readonly PageRows[]): Cell[][] {
   const uses = new Map<string, PageRows[]>();
   for (const page of pages) {
@@ -201,7 +202,7 @@ function moduleUsageRows(exported: readonly string[], pages: readonly PageRows[]
   }
   const rowsOf = (module: string): Cell[][] => {
     const at = uses.get(module);
-    return at?.length ? at.map(page => [module, page.app, page.page, ...page.place]) : [[module, NONE, NOT_ON_A_PAGE, ...PAGE_PLACE_HEADERS.map(() => NONE)]];
+    return at?.length ? at.map(page => [module, page.app, page.page, ...page.place]) : [[module, NONE, NONE, ...PAGE_PLACE_HEADERS.map(() => NONE)]];
   };
   const listed = new Set(exported);
   const rest = [...uses.keys()].filter(module => !listed.has(module)).sort(byText);
@@ -567,7 +568,7 @@ function tablesOf(result: AnalysisResult, read: PagesRead, named: Named, progres
   const notes: string[] = [
     ...(missing ? [missing] : []),
     ...(unpublished ? [`${unpublished} of the ${items.length} pages built on this model ${unpublished === 1 ? "has" : "have"} no published version, so ${unpublished === 1 ? "it is" : "they are"} not in these tables.`] : []),
-    ...(unread.length ? [`${unread.length} ${unread.length === 1 ? "page" : "pages"} could not be read, so a module on ${unread.length === 1 ? "it" : "one of them"} may show as ${NOT_ON_A_PAGE.toLowerCase()}: `
+    ...(unread.length ? [`${unread.length} ${unread.length === 1 ? "page" : "pages"} could not be read, so a module on ${unread.length === 1 ? "it" : "one of them"} may show a dash for its page: `
       + `${unread.slice(0, NAMED_UNREAD).join("; ")}${unread.length > NAMED_UNREAD ? `; and ${unread.length - NAMED_UNREAD} more` : ""}.`] : []),
     ...(appsUnread ? [`The names of ${appsUnread} ${appsUnread === 1 ? "app" : "apps"} could not be read: ${appsUnread === 1 ? "it is" : "they are"} shown by ID.`] : []),
     ...named.notes.map(note => names.reduce((said, name) => (said === note && note.startsWith(`${name}: `) ? note.slice(name.length + 2) : said), note)),

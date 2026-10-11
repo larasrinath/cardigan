@@ -23,8 +23,6 @@ export const PAGE_ROUTES: ReadonlyMap<string, string> = new Map([["Board", "boar
 
 export const MODULE_USAGE_HEADERS: readonly string[] = ["Module", "App", "Page", ...PAGE_PLACE_HEADERS];
 
-/** A module's one row in Module Usage when no page that was read uses it. */
-export const NOT_ON_A_PAGE = "Not on any page";
 /** The column added to a model's Line Items: how many of the Page Filters rows have the line item as their condition. */
 export const FILTER_USES = "Page Filters";
 

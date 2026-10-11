@@ -422,16 +422,25 @@ main:has(> #mapHost:not([hidden])){align-self:stretch;display:flex;flex-directio
 /* ---------- overview ---------- */
 /* Every tile the same size: columns of one width, rows of one height, and a tile that never grows with what it holds. */
 .ov-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(158px,1fr));grid-auto-rows:1fr;gap:12px;margin-bottom:16px}
-/* What a tile holds stands at its top: a row as high as its highest tile leaves the others room below, never above. A
-   button would centre what it holds, so a tile lays its lines out itself. */
-.stat{min-width:0;height:100%;box-sizing:border-box;background:var(--panel);border:1px solid var(--border);border-radius:var(--r-md);padding:12px 14px;display:flex;flex-direction:column;justify-content:flex-start;align-items:stretch}
+/* A tile's name stands at its top left, and its number at its bottom right: a row as high as its highest tile leaves the
+   others room between the two, never above the name. A button would centre what it holds, so a tile lays its lines out
+   itself. Each tile is the container its number is sized by (cqi). */
+.stat{min-width:0;height:100%;min-height:120px;box-sizing:border-box;background:var(--panel);border:1px solid var(--border);border-radius:var(--r-md);padding:14px 16px;display:flex;flex-direction:column;justify-content:flex-start;align-items:stretch;container-type:inline-size}
 /* A name keeps to one line, cut with an ellipsis where it is too long; the table's icon stands before it, at its size. */
 .stat .s-lab{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--text-3);line-height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .stat .s-lab svg{width:12px;height:12px;margin-right:6px;vertical-align:-2px}
-.stat .s-num{font-size:26px;font-weight:650;font-variant-numeric:tabular-nums;margin-top:4px;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-/* A Model Calendar's current year, under its kind: one line, cut with an ellipsis. Every row of tiles is as high as the
-   highest, so the others keep the same size. */
-.stat .s-detail{font-size:12px;line-height:16px;margin-top:3px;color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* The number in large figures of one width, at the tile's bottom right: a count of up to four figures at full size in
+   the narrowest tile, and a longer one, or the Model Calendar's word, as large as the tile's width leaves it whole, up to
+   that size (markup.ts `numberSize`). */
+.stat .s-num{font-size:44px;font-weight:650;font-variant-numeric:tabular-nums;letter-spacing:-.01em;margin-top:auto;padding-top:10px;line-height:1.15;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stat .s-num.s-n5{font-size:min(44px,33cqi)}
+.stat .s-num.s-n6{font-size:min(44px,27cqi)}
+.stat .s-num.s-n7{font-size:min(44px,23cqi)}
+.stat .s-num.s-n8{font-size:min(44px,20cqi)}
+.stat .s-num.s-word{font-size:min(40px,24cqi)}
+/* A Model Calendar's current year, under its kind and at its right, small: one line, cut with an ellipsis. Every row of
+   tiles is as high as the highest, so the others keep the same size. */
+.stat .s-detail{font-size:12px;line-height:16px;margin-top:4px;color:var(--text-2);text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* A tile opens its table: a button with the tile's look, a little lifted under the pointer. */
 .stat-open{width:100%;text-align:left;font:inherit;color:inherit;cursor:pointer;transition:background .15s,border-color .15s}
 .stat-open:hover{background:var(--panel-2);border-color:var(--border-strong)}

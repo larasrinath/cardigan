@@ -1,5 +1,5 @@
 import type { GraphEdge, GraphNode } from "./graph-types.js";
-import { isFilter, type MapModel } from "./map-model.js";
+import { isFilter, isFormula, type MapModel } from "./map-model.js";
 import { plural, splitName } from "./map-text.js";
 
 /** The three graphs the map draws of one model, each made of the model's own links counted together:
@@ -68,7 +68,18 @@ export interface ViewEdge {
   /** Whether it counts the links of the pages' filters (map-model.ts `isFilter`), which are never counted together with
    * the others: it is drawn in a style of its own. */
   readonly filter?: boolean;
+  /** Whether it counts formulas' links alone: none of who may read or write. Where the map leaves formulas undrawn
+   * (`edgeDrawn`), such a link is not drawn, and a trace does not follow it; the boxes stay where they are. */
+  readonly formulaOnly?: boolean;
 }
+
+/** Whether a link of the graph is drawn: every link where formulas are, and otherwise only those that count more than
+ * formulas' links. */
+export const edgeDrawn = (edge: ViewEdge, formulas: boolean): boolean => formulas || !edge.formulaOnly;
+
+/** Which of a graph's links the map draws, as its Links panel has them ticked: all of them; all but those that count
+ * formulas' links alone (`edgeDrawn`); or none, where no kind of link is ticked. */
+export type LinksDrawn = "all" | "noFormulas" | "none";
 
 /** A layer of the legend: what its nodes are, and how many there are. In the graph of sections a layer is one section,
  * and its count is the section's modules. */
@@ -114,7 +125,7 @@ interface Draft {
   side?: "in" | "out" | "both";
   filterMark?: number;
 }
-interface Link { s: string; t: string; w: number; refs?: GraphEdge[]; filter?: boolean }
+interface Link { s: string; t: string; w: number; refs?: GraphEdge[]; filter?: boolean; formula?: number }
 
 /** The key a link is counted under: its two ends, and apart for a page filter's link. */
 const linkKey = (s: string, t: string, filter: boolean): string => `${s}>${t}${filter ? ">filter" : ""}`;
@@ -139,7 +150,8 @@ function finish(model: MapModel, kind: ViewGraph["kind"], name: string, drafts: 
     const from = byId.get(link.s);
     const to = byId.get(link.t);
     if (!from || !to) continue;
-    edges.push({ s: from.index, t: to.index, w: link.w, ...(link.refs ? { refs: link.refs } : {}), ...(link.filter ? { filter: true } : {}) });
+    edges.push({ s: from.index, t: to.index, w: link.w, ...(link.refs ? { refs: link.refs } : {}),
+      ...(link.filter ? { filter: true } : (link.formula ?? 0) === link.w ? { formulaOnly: true } : {}) });
     out[from.index].push(to.index);
     into[to.index].push(from.index);
   }
@@ -177,9 +189,13 @@ function aggregate(model: MapModel, edges: readonly GraphEdge[], endpoint: (node
     const t = endpoint(model.node(to));
     if (s === undefined || t === undefined || s === t) continue;
     const filter = isFilter(kind);
+    const formula = isFormula(kind) ? 1 : 0;
     const key = linkKey(s, t, filter);
     const link = links.get(key);
-    if (link) link.w++; else links.set(key, { s, t, w: 1, ...(filter ? { filter } : {}) });
+    if (link) {
+      link.w++;
+      link.formula = (link.formula ?? 0) + formula;
+    } else links.set(key, { s, t, w: 1, formula, ...(filter ? { filter } : {}) });
   }
   return [...links.values()];
 }
@@ -301,12 +317,14 @@ export function moduleGraph(model: MapModel, moduleId: number, expanded: boolean
     const t = endpoint(edge[1]);
     if (s === undefined || t === undefined) continue;
     const filter = isFilter(edge[2]);
+    const formula = isFormula(edge[2]) ? 1 : 0;
     const key = linkKey(s, t, filter);
     const link = links.get(key);
     if (link) {
       link.w++;
+      link.formula = (link.formula ?? 0) + formula;
       link.refs!.push(edge);
-    } else links.set(key, { s, t, w: 1, refs: [edge], ...(filter ? { filter } : {}) });
+    } else links.set(key, { s, t, w: 1, formula, refs: [edge], ...(filter ? { filter } : {}) });
   }
 
   const fed = new Set<string>();

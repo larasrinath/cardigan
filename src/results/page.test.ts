@@ -469,6 +469,28 @@ describe("The results page's files", () => {
     expect([["white-space:nowrap", "overflow:hidden", "text-overflow:ellipsis"].every(rule => label.includes(rule) && number.includes(rule)), rules(".s-sub").length]).toEqual([true, 0]);
   });
 
+  it("stands a tile's name at its top left and its number at its bottom right, in large figures that are never cut, in a taller tile", () => {
+    const body = (selector: string) => rules(selector).find(([found]) => found === selector)?.[1] ?? "";
+    const [tile, number, detail] = [body(".stat"), body(".stat .s-num"), body(".stat .s-detail")];
+    // The tile is taller than its lines need, and the container its number is sized by. A tile that is a button sets its
+    // lines at the left, as a button would not: the name stays there.
+    expect([/min-height:(\d+)px/.exec(tile)?.[1], tile.includes("container-type:inline-size"), body(".stat-open").includes("text-align:left")]).toEqual(["120", true, true]);
+    // The number goes to the bottom, at the right, in figures of one width at full size; a Model Calendar's year stands
+    // under its kind, at the right as well, small.
+    expect([number.includes("margin-top:auto"), number.includes("text-align:right"), /(?:^|;)font-size:44px(?:;|$)/.test(number), number.includes("font-variant-numeric:tabular-nums"),
+      detail.includes("text-align:right"), detail.includes("font-size:12px")]).toEqual([true, true, true, true, true, true]);
+    // A count of five figures or more, and the calendar's word, are as large as the tile's width leaves them whole: in a
+    // hundredths of the tile's width (cqi), never above full size.
+    const sizes = Object.fromEntries(["s-n5", "s-n6", "s-n7", "s-n8", "s-word"].map(size => [size, /^font-size:min\((\d+)px,(\d+)cqi\)$/.exec(body(`.stat .s-num.${size}`))?.slice(1).map(Number)]));
+    expect(sizes).toEqual({ "s-n5": [44, 33], "s-n6": [44, 27], "s-n7": [44, 23], "s-n8": [44, 20], "s-word": [40, 24] });
+    // In Chrome's sans serif of the page, a figure of one width is 0.57 of the size wide, and "Monthly" 3.92 of it: five
+    // figures at 33 hundredths of the width, six at 27, seven at 23, eight at 20 and the word at 24 take no more than the
+    // tile has. Four figures at full size take 100 of the 124 pixels inside the narrowest tile, its width less its padding
+    // and its border.
+    expect([5 * 0.57 * 33, 6 * 0.57 * 27, 7 * 0.57 * 23, 8 * 0.57 * 20, 3.92 * 24].every(width => width <= 100)).toBe(true);
+    expect([4 * 0.57 * 44 <= 158 - 2 * 16 - 2, tile.includes("padding:14px 16px"), /minmax\(158px,1fr\)/.test(body(".ov-grid"))]).toEqual([true, true, true]);
+  });
+
   it("carries no demo left from the design: no sample name, no version, no preview control", () => {
     expect(html).not.toMatch(/Demo|Preview state|previewState|Assortment|0\.9\.3/);
     // The version is no longer in the header: the toolbar icon's menu and the About page say it (background.ts, about.html).

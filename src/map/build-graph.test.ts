@@ -524,7 +524,7 @@ describe("The model map's graph, from the tables of a model export", () => {
     const modules = file("Modules", ["", "Functional Area", "Applies To"], [["REV01 Revenue", " Sales ", ""], ["REV02 Margin", "-", ""], ["SYS01 Time", "Admin", ""], ["Gone", "Sales", ""], ["-- HEADING", "Sales", ""]]);
     // A row for each module and page, and one with no app for a module that no page uses (model-pages.ts).
     const usage = file("Module Usage", ["Module", "App", "Page", "Page type", "App ID", "Page ID"], [["REV01 Revenue", "Planning", "Board", "Board", "a", "p"],
-      ["REV01 Revenue", "Planning", "Grid", "Worksheet", "a", "q"], ["REV01 Revenue", "Pricing", "Rates", "Board", "b", "r"], ["REV02 Margin", "-", "Not on any page", "-", "-", "-"],
+      ["REV01 Revenue", "Planning", "Grid", "Worksheet", "a", "q"], ["REV01 Revenue", "Pricing", "Rates", "Board", "b", "r"], ["REV02 Margin", "-", "-", "-", "-", "-"],
       ["SYS01 Time ", "Admin app", "Setup", "Board", "c", "s"], ["Gone", "Planning", "Board", "Board", "a", "p"]]);
     const facts = (graph: ModelGraph): unknown[] => graph.nodes.filter(node => node.kind === "module").map(node => [node.name, node.functionalArea, node.apps]);
     const graph = buildModelGraph([...tables, modules, usage]);

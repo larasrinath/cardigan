@@ -139,7 +139,6 @@
 .map-links-pop{position:absolute;right:0;top:calc(100% + 8px);z-index:6;width:320px;max-width:calc(100cqw - 24px);padding:12px 14px;border-color:var(--border-strong);box-shadow:var(--shadow);white-space:normal}
 .map-links-row{display:flex;align-items:center;gap:8px;margin-top:6px;font-size:12.5px;color:var(--text)}
 .map-links-row b{font-weight:600}
-.map-links-tick{flex:none;width:13px;height:13px;color:var(--accent)}
 /* A switch of links the result cannot draw is off and dim; the note under it says why. */
 .map-check:has(input:disabled){cursor:default;color:var(--text-3)}
 .map-links-note{margin:2px 0 6px 21px;font-size:12px;line-height:1.5;color:var(--text-2)}

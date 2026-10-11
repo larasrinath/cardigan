@@ -204,6 +204,8 @@ export interface MapView {
   /** In the Line items view: the module shown, by its name, and whether other modules' line items stand one by one. */
   module?: string;
   others?: boolean;
+  /** Whether formulas' links are left undrawn: they are drawn unless this says so. */
+  noFormulas?: boolean;
   /** Whether the links of access drivers are drawn too. */
   access?: boolean;
   /** Whether the links of page filters are drawn too. */

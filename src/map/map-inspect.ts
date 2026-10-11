@@ -1,6 +1,6 @@
 import { formatWords, summaryWords } from "../results/readable-cells.js";
 import type { GraphNode, PageFilter } from "./graph-types.js";
-import { LAYER, sectionLayer, type ViewGraph, type ViewNode } from "./map-graphs.js";
+import { edgeDrawn, LAYER, sectionLayer, type LinksDrawn, type ViewGraph, type ViewNode } from "./map-graphs.js";
 import { isAccess, isFilter, type MapModel } from "./map-model.js";
 import { formatCount, plural } from "./map-text.js";
 
@@ -290,14 +290,21 @@ function boxesOf(graph: ViewGraph, count: number, kind: "own" | "others"): strin
   return kind === "own" ? plural(count, "line item") : `${formatCount(count)} outside the module`;
 }
 
-/** The line that says what the map shows: the boxes of the graph, what stands beside them, and the links. `shown` is
- * how many boxes are drawn (fewer than the graph has when a layer is hidden or the view keeps to a trace), `inView` how
- * many of those the reader has on screen. Every number is of what is there now. `brief` leaves out what the graph
- * holds and says only how much of it is drawn and in view: beside a selection, whose own bar stands under the line. */
-export function statusWords(graph: ViewGraph, shown: number, inView: number, brief = false): string {
+/** The links of the graph the map draws (`drawn`), in words: how many, or plainly none where no kind of link is ticked. */
+function linksOf(graph: ViewGraph, drawn: LinksDrawn): string {
+  if (drawn === "none") return "no links drawn";
+  return plural(drawn === "all" ? graph.edges.length : graph.edges.filter(edge => edgeDrawn(edge, false)).length, "link");
+}
+
+/** The line that says what the map shows: the boxes of the graph, what stands beside them, and the links drawn
+ * (`drawn`). `shown` is how many boxes are drawn (fewer than the graph has when a layer is hidden or the view keeps to a
+ * trace), `inView` how many of those the reader has on screen. Every number is of what is there now. `brief` leaves out
+ * what the graph holds and says only how much of it is drawn and in view: beside a selection, whose own bar stands
+ * under the line. */
+export function statusWords(graph: ViewGraph, shown: number, inView: number, brief = false, drawn: LinksDrawn = "all"): string {
   const total = graph.nodes.length;
   const others = total - graph.local;
-  const parts = [boxesOf(graph, graph.local, "own"), ...(others > 0 ? [boxesOf(graph, others, "others")] : []), plural(graph.edges.length, "link")];
+  const parts = [boxesOf(graph, graph.local, "own"), ...(others > 0 ? [boxesOf(graph, others, "others")] : []), linksOf(graph, drawn)];
   const said = parts.join(" · ");
   if (total === 0) return said;
   const more = shown < total ? `Showing ${formatCount(shown)} of ${plural(total, "box", "boxes")}${inView < shown ? `, ${formatCount(inView)} in view` : ""}.`
@@ -305,11 +312,11 @@ export function statusWords(graph: ViewGraph, shown: number, inView: number, bri
   return more === "" ? said : brief ? more : `${said}. ${more}`;
 }
 
-/** What the map says aloud when a view opens: what it is of and how much it holds. */
-export function viewSentence(graph: ViewGraph, modelName: string): string {
+/** What the map says aloud when a view opens: what it is of and how much it holds, of links those drawn (`drawn`). */
+export function viewSentence(graph: ViewGraph, modelName: string, drawn: LinksDrawn = "all"): string {
   const others = graph.nodes.length - graph.local;
   const beside = others > 0 ? `, with ${boxesOf(graph, others, "others")}` : "";
-  const links = plural(graph.edges.length, "link");
+  const links = linksOf(graph, drawn);
   if (graph.kind === "sections") return `Sections of ${modelName}: ${plural(graph.local, "section")}, ${links}.`;
   if (graph.kind === "modules") return `${graph.name}: ${plural(graph.local, "module")}${beside}, ${links}.`;
   return `Line items of ${graph.name}: ${plural(graph.local, "line item")}${beside}, ${links}.`;

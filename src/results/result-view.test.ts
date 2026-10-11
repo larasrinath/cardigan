@@ -3,7 +3,7 @@ import { DETAILS_HEADERS, diagnosticRows, exportRows, type DetailRow } from "../
 import { HEADERS, type TabName } from "../report.js";
 import { CALENDAR_HEADERS, CALENDAR_PROPERTIES, calendarRows } from "../model/calendar.js";
 import { PAGE_ACTIONS_HEADERS, PAGE_FILTERS_HEADERS } from "../model-pages.js";
-import { MISSING_LINE_ITEMS_MODULE, MODULE_USAGE_FILE, MODULE_USAGE_HEADERS, NOT_ON_A_PAGE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE } from "../page-files.js";
+import { MISSING_LINE_ITEMS_MODULE, MODULE_USAGE_FILE, MODULE_USAGE_HEADERS, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE } from "../page-files.js";
 import type { AnalysisResult, Cell, ResultTable } from "../result-types.js";
 import { APP_FILES, cardsOf, columnsOf } from "./columns.js";
 import { lineItemsView } from "./line-items-view.js";
@@ -1041,7 +1041,7 @@ describe("What the results page reads out of a result", () => {
     expect(fileView(model, actions).note).toBe(`2 buttons run an import and a process this model doesn't have: ${OPEN} Open the page to fix the card.`);
     // Module Usage counts the pages that use a module the model doesn't have.
     const usage = table(MODULE_USAGE_FILE, MODULE_USAGE_HEADERS, [{ Module: "Demand", ...page(1) }, { Module: GONE_MODULE, ...page(1) }, { Module: GONE_MODULE, ...page(2) },
-      { Module: "Unused", Page: NOT_ON_A_PAGE }]);
+      { Module: "Unused" }]);
     expect(fileView(model, usage).note).toBe("2 pages use a module this model doesn't have: deleted since the pages were built, or hidden from you. Open them to fix their cards.");
     const once = { ...usage, rows: usage.rows.slice(0, 2) };
     expect(fileView(model, once).note).toBe(`1 page uses a module this model doesn't have: ${OPEN} Open it to fix its cards.`);
