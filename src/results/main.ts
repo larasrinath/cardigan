@@ -10,7 +10,7 @@ import type { AnalysisResult, ResultTable } from "../result-types.js";
 import { cellLists, rowItems, type CellList } from "./cell-lists.js";
 import { columnWidths } from "./column-widths.js";
 import { resizeDetails } from "./details-size.js";
-import { cardsNamed, cardsOf, columnIndex, columnsOf, rowKeys, rowNameIndex, writesNone, type CardsTable, type Column, type RowKeys } from "./columns.js";
+import { cardsNamed, cardsOf, columnIndex, columnsOf, rowKeys, rowNameIndex, type CardsTable, type Column, type RowKeys } from "./columns.js";
 import { askShown, describeState, openedJustNow, reloadTab, renewReader, repairTab, ResultsClient, runLabel, tabIdFrom, withoutOpened, type RunState } from "./connection.js";
 import { mappingOfRow } from "./import-mapping-view.js";
 import { serveIcon } from "./icon-entry.js";
@@ -34,8 +34,8 @@ import { ACCESS_FILE, analysedOf, cardParts, detailsOf, detailValue, diagnosticL
   SOURCE_MODELS_FILE, tableFullLabel, tableLabel, type FileView, type Overview } from "./result-view.js";
 import { browserZone, fileRow, hasTimes, inTimeMode, momentRange, momentsOf, readText, storedTimeMode, storeTimeMode, timesOf, zoneWords, type TimeMode } from "./times.js";
 import { rangeInForce, rangeSummary, readRange, type RangeState } from "./range-filter.js";
-import { cellText, NONE, pageOf, rangeColumn, rememberingSelect, rowName, valueCounts, type RangeColumn, type RangeQuery, type Row, type Sort, type TableQuery } from "./table-engine.js";
-import { DEFAULT_PAGE_SIZE, findRow, forgetKept, isMapAtStart, keepTable, objectKey, readKept, rowKey, subjectOf, takeTable, writeKept, type KeptDrawer, type KeptTable, type KeptView,
+import { cellText, NONE, pageOf, rangeColumn, rememberingSelect, rowName, tableText, valueCounts, type RangeColumn, type RangeQuery, type Row, type Sort, type TableQuery } from "./table-engine.js";
+import { columnKeys, DEFAULT_PAGE_SIZE, findRow, forgetKept, isMapAtStart, keepTable, objectKey, readKept, rowKey, subjectOf, takeTable, writeKept, type KeptDrawer, type KeptTable, type KeptView,
   type ViewStorage } from "./view-keep.js";
 import { EVERY_USE, objectOf, WHERE_USED_FILE, whereUsedView, type WhereUsedObject, type WhereUsedView } from "./where-used-view.js";
 
@@ -321,7 +321,22 @@ function forgetLooks(): void {
  * columns are still those the settings name. */
 function takeLooks(entry: Shown, kept: KeptView | undefined): void {
   const table = kept?.tables[tableKey(entry)];
-  if (table) Object.assign(entry, takeTable(table, entry.columns, column => valuesOf(entry, column), ownZone));
+  if (table) {
+    // Blanking a dash can turn a formerly mixed column into a number or date range. Keep an older value selection
+    // editable as a value list, including on subsequent refreshes, instead of dropping it as an incompatible range.
+    const keys = columnKeys(entry.columns, ownZone);
+    entry.columns = entry.columns.map((column, at) => table.filters?.[keys[at]] && !table.ranges?.[keys[at]]
+      ? { ...column, range: undefined } : column);
+    // Both saved forms may hold dashes from an older view. Translate before matching against today's values,
+    // including unticked dashes, so they exclude the merged blank. Inherited settings keep their dashes.
+    const columns = new Map(columnKeys(entry.columns, ownZone).map((key, at) => [key, entry.columns[at]]));
+    const filters = Object.fromEntries(Object.entries(table.filters ?? {}).map(([key, filter]) => {
+      const none = columns.get(key)?.none ?? true;
+      const values = ("t" in filter ? filter.t : filter.u).map(value => tableText(value, none));
+      return [key, "t" in filter ? { t: values } : { u: values }];
+    }));
+    Object.assign(entry, takeTable({ ...table, filters }, entry.columns, column => valuesOf(entry, column), ownZone));
+  }
   // Before searches belonged to each table, only the shown table's search was kept.
   if (kept?.search?.view === String(entry.index) && !Object.values(kept.tables).some(table => table.search !== undefined)) entry.search = kept.search.text;
 }
@@ -746,18 +761,19 @@ function showResult(next: AnalysisResult, at: Date, back = false): void {
     // The file in two ways. By object, the table is the view's: one row an object, in the view's own order and with its
     // columns. Its cells link to nothing: a row opens the object, which lists its uses. Such a row opens the object's own
     // drawer, which lists the object's roles and uses a row each: no cell of the view is cut into items.
+    const objectTable = fileView(next, { ...file, headers: byObject.headers, rows: byObject.rows }).table;
     const object: Shown = {
-      index, table: { ...file, headers: byObject.headers, rows: byObject.rows }, note: byObject.note, none: undefined, empty: undefined, opensFrom: undefined,
+      index, table: objectTable, note: byObject.note, none: undefined, empty: undefined, opensFrom: undefined,
       exported: undefined, readUnder: undefined, headings: undefined, lists: new Map(), columns: byObject.columns,
       keys: { page: undefined, cardId: undefined, number: undefined }, search: "", links: { page: false, card: false },
-      filters: new Map(), ranges: new Map(), read: new Map(), hidden: defaultHidden(byObject.columns), sort: undefined, page: 0, objects: byObject,
+      filters: new Map(), ranges: new Map(), read: new Map(), hidden: defaultHidden(byObject.columns), sort: undefined, page: 0, objects: { ...byObject, rows: objectTable.rows },
     };
     takeLooks(object, kept);
     entry.ways = object.ways = { object, use: entry };
     // As every use, a row names its card by its number, and the file has no column of card IDs. The view knows each use's
     // card where the result has it: there the number opens the card, as it does from the object's drawer.
     const cardIds = new Map<Row, string>();
-    for (const use of byObject.objects.flatMap(each => each.uses)) if (use.cardId !== undefined) cardIds.set(file.rows[use.row], use.cardId);
+    for (const use of byObject.objects.flatMap(each => each.uses)) if (use.cardId !== undefined) cardIds.set(table.rows[use.row], use.cardId);
     entry.cardIds = cardIds;
     entry.columns = entry.columns.map(column => (column.label === "Card #" ? { ...column, kind: "card" } : column));
     entry.links = { ...entry.links, card: entry.links.page, hasCard: row => cardIds.has(row) };
@@ -1215,9 +1231,8 @@ function closeDrawer(returnFocus = true): void {
 }
 /** Any row, in full. Its heading is the row's own name: the cell of the column that names the file's rows (the one its
  * rows open from, where the file's rule names one, and else columns.ts `ROW_NAME_COLUMNS`), or, where the page knows no
- * such column or the cell says nothing, the first cell that does. A cell says nothing when it is empty, and in one of the
- * app's files when it is the dash the analysis writes for nothing to say (columns.ts `writesNone`): in a model's file
- * that dash is Anaplan's text, which names a row like any other. The line under the heading names the
+ * such column or the cell says nothing, the first cell that does. A cell says nothing when the view shows it blank;
+ * a dash that means inheritance remains text. The line under the heading names the
  * table it belongs to. An import's Mapping, a process's Actions, or a source model's Sources and Imports stand before
  * All columns, with raw values folded afterwards. */
 function openRowDrawer(entry: Shown, row: Row, opener: Element, trackHistory = true): void {
@@ -1230,8 +1245,7 @@ function openRowDrawer(entry: Shown, row: Row, opener: Element, trackHistory = t
   drawerLooks = { kind: "row", file: entry.table.file, key: rowKey(row, entry.table, identityName(entry)) };
   const position = entry.table.rows.findIndex(candidate => candidate === row) + 1;
   const named = entry.opensFrom ?? rowNameIndex(entry.table);
-  const none = writesNone(entry.table);
-  const name = (named === undefined ? "" : rowName([row[named] ?? ""], none)) || rowName(row, none) || `Row ${position}`;
+  const name = (named === undefined ? "" : rowName([row[named] ?? ""], false)) || rowName(row, false) || `Row ${position}`;
   // A process's row lists the actions it runs: each opens its own row, where its table has one row of its name.
   const process = processOfRow(result, entry.table, row);
   drawerSteps = process ? process.steps.map(stepRow) : [];

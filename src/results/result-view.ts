@@ -4,12 +4,12 @@ import { LINE_ITEM_SUBSETS_FILE } from "../model/line-item-subsets.js";
 import { lineItemSubsetsView } from "./line-item-subsets-view.js";
 import { calendarTile } from "./calendar-tile.js";
 import { cellLists, type Items } from "./cell-lists.js";
-import { APP_FILES, cardsNamed, columnIndex, COLUMN_CHOICES, type CardsTable } from "./columns.js";
+import { APP_FILES, blanksDash, cardsNamed, columnIndex, COLUMN_CHOICES, type CardsTable } from "./columns.js";
 import { LINE_ITEMS_FILE, lineItemsView } from "./line-items-view.js";
 import { actionNamesByRow } from "./process-actions-view.js";
 import { mappingWords, READABLE_HEADERS, readableCell, type CellNames } from "./readable-cells.js";
 import { sourceObjectOf } from "./source-object.js";
-import { cellText, NONE, type Row } from "./table-engine.js";
+import { cellText, NONE, tableText, type Row } from "./table-engine.js";
 
 /** What the results page reads out of a result besides its tables: the Details file's sections, the diagnostic log, and
  * what the overview says: its counts and notes, and everything the Details file holds, which has no view of its own.
@@ -533,7 +533,32 @@ function inWords(view: FileView): FileView {
  * read, and that stays kept). An app's tables are never put into words: its columns of those names hold other things. */
 export function fileView(result: AnalysisResult, file: ResultTable): FileView {
   const view = ruledView(result, file);
-  return result.kind === "model" ? inReadingOrder(inWords(view), result) : view;
+  return blankDashes(result.kind === "model" ? inReadingOrder(inWords(view), result) : view);
+}
+
+/** Blank lone dashes after resolving the file's settings and definitions. Searches, filters, sorts and details all
+ * read these same cells; analyses keep the source tables. Copy only changed rows and carry their metadata with them. */
+function blankDashes(view: FileView): FileView {
+  const { table } = view;
+  const none = table.headers.map(header => blanksDash(table.file, header));
+  let changed = false;
+  const rows = table.rows.map(row => {
+    let shown: Cell[] | undefined;
+    row.forEach((cell, index) => {
+      if (cellText(cell) === tableText(cell, none[index] ?? true)) return;
+      shown ??= [...row];
+      shown[index] = "";
+    });
+    changed ||= shown !== undefined;
+    return shown ?? row;
+  });
+  if (!changed) return view;
+  const exported = view.exported && new Map(rows.flatMap((row, index) => {
+    const kept = view.exported?.get(table.rows[index]);
+    return kept ? [[row, kept] as const] : [];
+  }));
+  const headings = view.headings && new Set(rows.filter((_, index) => view.headings?.has(table.rows[index])));
+  return { ...view, table: { ...table, rows }, ...(exported ? { exported } : {}), ...(headings ? { headings } : {}) };
 }
 
 const readingCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });

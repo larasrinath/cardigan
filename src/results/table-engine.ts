@@ -8,13 +8,15 @@ export type Row = readonly Cell[];
 /** A cell as the page shows it: its text as it stands, and nothing for a missing value. */
 export const cellText = (cell: unknown): string => (cell === null || cell === undefined ? "" : String(cell));
 
-/** The dash the app export writes where there is nothing to say (report.ts `NONE`): a plain hyphen, alone in its cell. In
- * an app's tables the page shows it greyed, as text, and wherever it reads an app's cells it takes it for no value. A
- * hyphen that an Anaplan user typed alone, as a card's title or an object's name, is then taken for no value as well:
- * that is accepted, as the two cannot be told apart. Anaplan writes the same hyphen in a model's grids, in Applies To on a
- * heading row of Modules and in Source Object of a file import, so in a model's tables it is the cell's text like any
- * other (columns.ts `writesNone`). */
+/** A lone dash is blank in table views, except in columns where it means inheritance (columns.ts `blanksDash`).
+ * The stored result keeps it, including a dash typed as a name: those cannot be told apart from absent values. */
 export const NONE = "-";
+
+/** The cell's text in a table view. Only a whole, trimmed dash changes; words and negative numbers stay intact. */
+export const tableText = (cell: unknown, none = true): string => {
+  const text = cellText(cell);
+  return none && text.trim() === NONE ? "" : text;
+};
 
 /** A count as the page shows it: its digits with a comma between each group of three, counted from the right, so that
  * 15389009578 reads 15,389,009,578. The grouping is always this one, whatever language the browser speaks, so that the
@@ -29,7 +31,7 @@ export function groupedCount(text: string): string {
 }
 
 /** A name for a row: the text of its first cell that says something, which is neither empty nor, in a table where the dash
- * says that there is nothing (`none`, columns.ts `writesNone`), the dash. Nothing when no cell does. A text far longer
+ * says that there is nothing (`none`), the dash. Nothing when no cell does. A text far longer
  * than a name is cut, since it stands as a heading; the cell itself is never cut. */
 export function rowName(row: Row, none: boolean): string {
   for (const cell of row) {
@@ -95,7 +97,7 @@ export const dayText = (day: number): string => new Date(day * DAY).toISOString(
 export const rangeValue = (text: string, kind: RangeKind): number | undefined => (kind === "number" ? numberOf(text) : dayOf(text));
 
 /** Whether a cell says nothing, as a range reads it: it is empty, or in a table where the dash says that there is nothing
- * (`none`, columns.ts `writesNone`), it is the dash. */
+ * (`none`), it is the dash. */
 export const saysNothing = (text: string, none: boolean): boolean => {
   const trimmed = text.trim();
   return trimmed === "" || (none && trimmed === NONE);
@@ -138,7 +140,7 @@ export interface RangeQuery {
   from?: number;
   to?: number;
   blanks: boolean;
-  /** Whether the table's dash says that there is nothing (columns.ts `writesNone`). */
+  /** Whether this column treats a lone dash as blank. */
   none: boolean;
   values?: ReadonlyMap<Row, number | undefined>;
 }

@@ -92,7 +92,7 @@ describe("A model's reading layouts", () => {
     expect(fileView(model([actions]), actions).table.rows).toEqual([actions.rows[3], actions.rows[2], actions.rows[1], actions.rows[0]]);
     const modules = table("Modules", [""], [["Zulu"], ["--- Heading ---"], ["Alpha"]]);
     const usage = table("Module Usage", ["Module", "App", "Page"], [["Alpha", "A", "Home"], ["Zulu", "B", "Home"], ["Zulu", "A", "Totals"], ["Zulu", "A", "Home"], ["--- Heading ---", "-", "-"]]);
-    expect(fileView(model([modules, usage]), usage).table.rows).toEqual([usage.rows[3], usage.rows[2], usage.rows[1], usage.rows[4], usage.rows[0]]);
+    expect(fileView(model([modules, usage]), usage).table.rows).toEqual([usage.rows[3], usage.rows[2], usage.rows[1], ["--- Heading ---", "", ""], usage.rows[0]]);
     expect(fileView(model([modules]), modules).table.rows).toEqual(modules.rows);
   });
 });

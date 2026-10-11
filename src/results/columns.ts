@@ -1,4 +1,4 @@
-import { FILTER_USES, MODEL_PAGE_FILES, MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, PAGE_PLACE_HEADERS } from "../page-files.js";
+import { FILTER_USES, MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, PAGE_PLACE_HEADERS } from "../page-files.js";
 import type { TabName } from "../report.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
 import { FORMAT_TYPE, LINE_ITEMS_FILE } from "./line-items-view.js";
@@ -53,8 +53,7 @@ export interface Column {
   range?: RangeKind;
   /** Hidden until chosen in the column chooser. */
   hidden: boolean;
-  /** Whether the dash alone in a cell (table-engine.ts `NONE`) says that there is nothing, as the page shows it, greyed: so
-   * in a table of one of the app's files (`writesNone`). In any other table the dash is the cell's text like any other. */
+  /** Whether a lone dash is blank in this column. False only for Line Items' inherited settings (`blanksDash`). */
   none: boolean;
 }
 
@@ -114,16 +113,10 @@ const CHOICES: Record<TabName, Record<string, Choice>> = {
 export const COLUMN_CHOICES: ReadonlyMap<string, ReadonlyMap<string, Choice>> = new Map(
   (Object.keys(CHOICES) as TabName[]).map((tab): [string, ReadonlyMap<string, Choice>] => [APP_FILES[tab], new Map(Object.entries(CHOICES[tab]))]));
 
-/** The files the analysis writes by name: the app's, and the tables of the pages built on a model (page-files.ts). A set,
- * so that a file with the name of an object's built-in property is none of them. */
-const WRITTEN_FILES: ReadonlySet<string> = new Set([...Object.values(APP_FILES), ...MODEL_PAGE_FILES]);
-
-/** Whether a table is one the analysis writes (report.ts): one of the app's files, or a table of the pages built on a
- * model. There, and only there, the dash alone in a cell (table-engine.ts `NONE`) is the analysis's own, which says that
- * there is nothing. A model's other files are Anaplan's own grids, where Anaplan writes that dash itself, in Applies To on
- * a heading row of Modules and in Source Object of a file import, and the page leaves it in Applies To of a line item
- * whose module is not found (line-items-view.ts). There it is a text like any other, and the page shows it as one. */
-export const writesNone = (table: ResultTable): boolean => WRITTEN_FILES.has(table.file);
+/** Only Line Items' Applies To and access drivers keep a dash: it means the module's setting. Applies To is resolved
+ * before blanking, so an unresolved dash stays visible. Every other column, including an unnamed extra, blanks it. */
+export const blanksDash = (file: string, header: string): boolean => file !== LINE_ITEMS_FILE
+  || !["Applies To", "Read Access Driver", "Write Access Driver"].includes(header);
 
 /** The columns of a model export's files that count something, by file and header: a module's cells, a line item's cells
  * and a list's items. The files are named as model/export.ts writes them, and the headers are those of Anaplan's own
@@ -295,11 +288,11 @@ function rangeOf(rows: readonly Row[], index: number, header: string, choice: Ch
  * `model` is false for an app result, whose columns retain their existing order and choices. */
 export function columnsOf(table: ResultTable, lists?: ReadonlyMap<number, ItemsOf>, zone = "UTC", model = true): Column[] {
   const choices = COLUMN_CHOICES.get(table.file) ?? MODEL_CHOICES.get(table.file);
-  const none = writesNone(table);
   const layout = model ? MODEL_LAYOUTS.get(table.file) : undefined;
   const order = layout && [...layout.shown, ...layout.hidden];
   const columns = table.headers.map((value, index): Column => {
     const header = cellText(value);
+    const none = blanksDash(table.file, header);
     const choice = choices?.get(header) ?? {};
     const label = header !== "" ? header : index === 0 ? "Name" : `Column ${index + 1}`;
     const subsetCount = table.file === "Line Item Subsets.csv" && header === "Line Items";
@@ -323,10 +316,9 @@ export function columnsOf(table: ResultTable, lists?: ReadonlyMap<number, ItemsO
  * the page's own. The row holds those cells, so the place where a row is read in full shows them too. Such a cell is
  * the table's like any other: the dash alone in it says what it says in the table's own columns. */
 export function rowColumns(columns: readonly Column[], row: readonly unknown[]): Column[] {
-  const none = columns.some(column => column.none);
   const beyond = Array.from({ length: Math.max(0, row.length - columns.length) }, (_, extra): Column => {
     const index = columns.length + extra;
-    return { index, label: `Column ${index + 1}`, kind: "text", num: false, filter: false, hidden: false, none };
+    return { index, label: `Column ${index + 1}`, kind: "text", num: false, filter: false, hidden: false, none: true };
   });
   return [...columns, ...beyond];
 }

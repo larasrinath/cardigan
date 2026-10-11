@@ -12,7 +12,7 @@ import type { RangeState } from "./range-filter.js";
 import { pixelGridHtml } from "./pixel-loader.js";
 import { ALL_WORDS } from "./spinner-words.js";
 import { ACCESS_FILE, MODEL_CALENDAR_FILE, MODULES_FILE, type Analysed, type CardSection, type Overview, type OverviewTile, type SectionCell } from "./result-view.js";
-import { cellText, dayText, groupedCount, NONE, type RangeColumn, type Row, type Sort } from "./table-engine.js";
+import { cellText, dayText, groupedCount, NONE, tableText, type RangeColumn, type Row, type Sort } from "./table-engine.js";
 import { bothTimes, timesOf, type TimeMode } from "./times.js";
 import { usedOn, type WhereUsedObject } from "./where-used-view.js";
 
@@ -30,7 +30,6 @@ const ESCAPES: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;"
 /** A value as text that cannot end the text or the quoted attribute it is written into. */
 export const esc = (value: unknown): string => cellText(value).replace(/[&<>"']/g, char => ESCAPES[char]);
 
-const DASH = `<span class="dash">${NONE}</span>`;
 const BLANK = "<em>(blank)</em>";
 const CLOSE_ICON = '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 3l10 10M13 3 3 13"/></svg>';
 const SEARCH_PATH = '<circle cx="7" cy="7" r="4.6"/><path d="M10.6 10.6 14 14"/>';
@@ -59,15 +58,10 @@ const pill = (text: string): string =>
  * drawer. There the dash says that the files have no such ID. A cell of a table is shown the way its column is shown
  * (`cellHtml`). */
 export function idPill(id: unknown): string {
-  const text = cellText(id);
+  const text = tableText(id);
   if (text === "") return "";
-  if (text === NONE) return DASH;
   return pill(text);
 }
-
-/** Whether a cell is the dash that says that there is nothing: the dash alone, in a column where it says so (columns.ts
- * `Column`). */
-const isNone = (column: Column, text: string): boolean => column.none && text === NONE;
 
 const plain = (text: string): string => `<span class="cell-t" title="${esc(text)}">${esc(text)}</span>`;
 
@@ -100,16 +94,15 @@ export interface Links { page: boolean; card: boolean; hasCard?: (row: Row) => b
 /** Whether a row's card is a link: the table's cards are, and this row's card is one to open. */
 const cardLinked = (links: Links, row: Row): boolean => links.card && (links.hasCard?.(row) ?? true);
 
-/** One cell: always the cell's own text, shown the way its column is shown. An empty cell stays empty, and the dash that
- * says that there is nothing is greyed (`isNone`). `whole` is for the drawer, where a value is read in full: there its
+/** One cell, shown the way its column is shown. An empty cell or a dash that says nothing stays empty.
+ * `whole` is for the drawer, where a value is read in full: there its
  * text stands in a `cell-t` whatever the column's kind, and that is the element in which the stylesheet keeps a value's
  * line breaks and spaces (an ID is a pill, which it shows uncut). A count is its text with its thousands apart, in the
  * table and in the drawer alike: what the page shows of the cell, which is not changed. A cell of a count's column that
  * is no plain number shows as it is. */
 export function cellHtml(column: Column, row: Row, links: Links, whole = false): string {
-  const text = cellText(row[column.index]);
+  const text = tableText(row[column.index], column.none);
   if (text === "") return "";
-  if (isNone(column, text)) return DASH;
   const shown = whole ? `<span class="cell-t">${esc(text)}</span>` : esc(text);
   switch (column.kind) {
     case "id":
@@ -138,9 +131,9 @@ const ROW_ICON = '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" st
  * cell that is already a link or an ID to copy keeps that, and a cell without text has nothing to make a button of:
  * there a small button stands before the cell's own content. */
 export function rowCellHtml(column: Column, row: Row, links: Links): string {
-  const text = cellText(row[column.index]);
+  const text = tableText(row[column.index], column.none);
   const own = cellHtml(column, row, links);
-  const control = !isNone(column, text) && (column.kind === "id" || (column.kind === "page" && links.page) || (column.kind === "card" && cardLinked(links, row)));
+  const control = column.kind === "id" || (column.kind === "page" && links.page) || (column.kind === "card" && cardLinked(links, row));
   if (text === "" || control) return `<button type="button" class="link" data-act="row" aria-label="Open this row" title="Open this row">${ROW_ICON}</button> ${own}`;
   return `<button type="button" class="link" data-act="row" title="Open this row">${own}</button>`;
 }
