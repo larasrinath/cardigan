@@ -406,7 +406,7 @@ function retime(): void {
     entry.exported = timed.exported;
     entry.headings = timed.headings;
     entry.lists = cellLists(result, entry.table);
-    entry.columns = columnsOf(entry.table, entry.lists, ownZone);
+    entry.columns = columnsOf(entry.table, entry.lists, ownZone, result?.kind === "model");
     entry.keys = rowKeys(entry.table);
     entry.read = new Map();
     entry.moments = undefined;
@@ -471,7 +471,7 @@ function query(entry: Shown): TableQuery {
   // Each range in force, with its column read once: a page of a long table turned keeps the rows it chose.
   const ranges = new Map<number, RangeQuery>();
   for (const [index, range] of entry.ranges) {
-    const ofRange = entry.columns[index];
+    const ofRange = entry.columns.find(column => column.index === index);
     if (ofRange?.range) ranges.set(index, rangeQuery(entry, ofRange, range));
   }
   const sortKeys = timeSortKeys(entry);
@@ -533,7 +533,7 @@ function tableView(entry: Shown): TableView {
     columns: entry.columns.filter(column => !entry.hidden.has(column.index)), widths: entry.widths, rows: page.rows, ...(entry.headings ? { headings: entry.headings } : {}),
     page: page.page, pages: page.pages, pageSize: state.pageSize, from: page.from, to: page.to, total: page.total, all: entry.table.rows.length,
     search: state.search, sort: entry.sort, filtered: new Set([...entry.filters.keys(), ...entry.ranges.keys()]), context: state.context, links: entry.links,
-    ranged: new Map([...entry.ranges].map(([index, range]) => [index, rangeWords(entry.columns[index], range)])),
+    ranged: new Map([...entry.ranges].map(([index, range]) => [index, rangeWords(entry.columns.find(column => column.index === index)!, range)])),
   };
 }
 /** The shade at the foot of the table's box goes once there is nothing more to scroll to. */
@@ -702,7 +702,7 @@ function showResult(next: AnalysisResult, at: Date, back = false): void {
     const base = fileView(next, file);
     const { table, note, none, empty, opensFrom, exported, readUnder, headings } = inTimeMode(base, timeMode, ownZone);
     const lists = cellLists(next, table);
-    const columns = columnsOf(table, lists, ownZone);
+    const columns = columnsOf(table, lists, ownZone, result.kind === "model");
     const keys = rowKeys(table);
     const page = cards !== undefined && keys.page !== undefined;
     const entry: Shown = {
@@ -2156,7 +2156,7 @@ document.addEventListener("click", event => {
   const filterButton = target.closest<HTMLElement>("[data-colfilter]");
   if (filterButton && entry) {
     const index = Number(filterButton.dataset.colfilter);
-    const column = entry.columns[index];
+    const column = entry.columns.find(column => column.index === index);
     const owner = `[data-colfilter="${index}"]`;
     if ((!popover.hidden && popOwner === owner) || !column) closePopover();
     else openColFilter(entry, column, owner, filterButton);

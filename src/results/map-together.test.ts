@@ -444,7 +444,7 @@ describe("A model's result on the results page, with the map's real graph and th
     expect([text(".map-formula"), said.Module, said.Format, said.Summary]).toEqual(["Margin / Revenue", REVENUE, onThePage.Format, onThePage.Summary]);
     // Its dimensions are its module's, as the page's table says in a column of its own, and its notes are the file's.
     expect([onThePage["Applies To"], onThePage["Applies To from"], said["Applies To"], text(".map-inspector .map-insp-note")])
-      .toEqual(["Products", "Module", expect.stringMatching(/^Products\b.*\bmodule/), "Margin as a share of revenue"]);
+      .toEqual(["Products", undefined, expect.stringMatching(/^Products\b.*\bmodule/), "Margin as a share of revenue"]);
     // What feeds it directly, as its formula reads: the two line items whose Referenced By names it, each with its module.
     expect(listed("depends")).toEqual([["Revenue", REVENUE], ["Margin", REVENUE]]);
     // The details name no file, and no row of one: there is no file for the user to open. The line item is in the page's
@@ -598,10 +598,10 @@ describe("A model's result on the results page, with the map's real graph and th
     // what was read for it, and what a control is named by. Of the map: a note of what it leaves out, and a box on its
     // picture.
     const has = (begins: string): boolean => words.some(text => text.startsWith(begins));
-    expect([has("Each table is laid out as Anaplan's own export of the same Model settings grid: each row's name first"), has("The table lists every row of the grid: each module's own row, in bold, then its line items."),
+    expect([has("Columns follow a reading order with Anaplan's names."), words.some(text => text.includes("The table lists every row of the grid: each module's own row, in bold, then its line items.")),
       words.some(text => text.includes("14:02:05 Line Items: 16 rows × 25 columns; columns: Format | Formula | Summary")),
-      !words.some(text => text.includes("rows in all")), has("5 rows about the model are not listed here: the Overview names the workspace and the model, under About this export."),
-      has("Every row of Anaplan's Line Items grid: 11 line items, and 5 modules' own rows, each in bold above its line items"), words.includes("Format as read"), words.includes("Open this row"),
+      !words.some(text => text.includes("rows in all")), !has("5 rows about the model are not listed here: the Overview names the workspace and the model, under About this export."),
+      !has("Every row of Anaplan's Line Items grid: 11 line items, and 5 modules' own rows, each in bold above its line items"), words.includes("Format as read"), words.includes("Open this row"),
       words.includes("Where an import takes its data from is in the Imports table, not on the map."), drawn.includes("Units")]).toEqual([true, true, true, true, true, true, true, true, true, true]);
   });
 });

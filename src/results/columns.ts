@@ -7,7 +7,7 @@ import { fileLabel } from "./times.js";
 
 /** The names of an app export's files, by the report table each holds. The analysis writes its files under these names
  * (analyse.ts), and whatever the page knows about one of them, here or in result-view.ts, is keyed by a name from this
- * one place. A model's files are not named anywhere: the page knows nothing about any of them in particular. */
+ * one place. Model layouts are keyed by their file names in MODEL_LAYOUTS. */
 export const APP_FILES: Record<TabName, string> = {
   Pages: "Pages.csv", Cards: "Cards.csv", "Grid sections": "Grid Sections.csv", Filters: "Filters.csv", Formatting: "Conditional Formatting.csv",
   Actions: "Action Buttons.csv", "Where used": "Where Used.csv",
@@ -16,10 +16,10 @@ export const APP_FILES: Record<TabName, string> = {
 /** How the results page shows each column. Columns come from a table's headers. The design's choices for the app's seven
  * files are kept by header name: which columns offer a filter, which start hidden, which are numbers, and which are shown
  * as an ID to copy, a tag, a link or a count. Every cell shows its own text whatever the choice; a count shows it with its
- * thousands apart. Of a model export's files the page knows only the columns that count something (`MODEL_COUNTS`), those
- * that start hidden (`MODEL_HIDDEN`) and those that always offer a filter (`MODEL_FILTERED`); the tables of the pages
+ * thousands apart. Model tables have a reading order and defaults (`MODEL_LAYOUTS`) and columns that count things
+ * (`MODEL_COUNTS`). Their filters exclude Name, Formula, Notes and IDs. The tables of the pages
  * built on a model are shown as the app's tables they are made from (`PAGE_FILE_CHOICES`). A file or a header that is
- * not listed here gets a plain text column. In any file, almost every column offers a filter by what it holds as well
+ * not listed here gets a plain text column. In an app or an unknown file, columns offer filters by what they hold
  * (`offersFilter`): one with a few different texts always, and one with many unless it is a row's name or a code, free
  * text, an ID or a measure. A column whose cells list items is filtered by each item. A column of numbers or of dates is
  * filtered by a range, from one to another, rather than by a list of its values to tick (`rangeOf`).
@@ -131,10 +131,49 @@ const CELL_COUNTS = ["Cell Count", "Populated Cell Count"];
 export const MODEL_COUNTS: ReadonlyMap<string, readonly string[]> = new Map([
   ["Modules.csv", CELL_COUNTS], ["Line Items.csv", [...CELL_COUNTS, FILTER_USES]], ["General Lists.csv", ["Item Count"]],
 ]);
-/** The columns of a model export's files that start hidden: a Model Calendar's Section, which says the same of every
- * setting the table lists, and a setting's allowed values, which only guide filling the template in by hand. Such a
- * column is still in the column chooser, in the search and in the row's details. */
-export const MODEL_HIDDEN: ReadonlyMap<string, readonly string[]> = new Map([["Model Calendar.csv", ["Section", "Allowed values"]]]);
+interface ModelLayout { shown: readonly string[]; hidden: readonly string[] }
+
+const RUN = ["Start Date and Time (UTC)", "Most recent duration (ms)"];
+const DASHBOARDS = ["Used in Dashboards"];
+const PAGE_HIDDEN = ["Page type", "App ID", "Page ID"];
+
+/** The reading order of a model's tables. These are matching names, never replacement labels. Every column remains
+ * available; absent columns are skipped and unlisted columns follow the layout, shown. Line Items lists its known
+ * extra columns explicitly, so a new column is shown there too. */
+export const MODEL_LAYOUTS: ReadonlyMap<string, ModelLayout> = new Map([
+  ["Model Calendar.csv", { shown: ["Setting", "Value"], hidden: ["Section", "Allowed values"] }],
+  ["Time Ranges.csv", { shown: ["Name", "Start Period", "End Period"], hidden: [] }],
+  ["Versions.csv", { shown: ["Name", "Is Actual", "Switchover", "Edit From", "Edit To"], hidden: [] }],
+  ["General Lists.csv", { shown: ["Name", "Parent Hierarchy", "Top Level", "Item Count", "Numbered", "Production Data", "Properties", "Subsets", "Notes"],
+    hidden: ["Display Name Property", "Referenced in Applies To", "Referenced as Format", "Referenced in Formula"] }],
+  ["Modules.csv", { shown: ["Name", "Functional Area", "Applies To", "Time Scale", "Time Range", "Versions", "Cell Count", "Notes"],
+    hidden: ["Line Items", "Referenced By"] }],
+  [LINE_ITEMS_FILE, { shown: ["Name", "Module Name", "Format", FORMAT_TYPE, "Formula", "Applies To", "Time Scale", "Versions", "Summary", "Referenced By",
+    "Cell Count", "Calculation Effort", FILTER_USES, "Notes"], hidden: ["Applies To from", "Time Range", "Style", "Read Access Driver", "Write Access Driver", "Users List",
+    "Parent", "Is Summary", "Formula Scope", "Code", "Use Switchover", "Breakback", "Brought-Forward", "Start of Section", "Data Tags", "Ratio Numerator", "Ratio Denominator", "Format List"] }],
+  ["Dynamic Cell Access.csv", { shown: ["Driver Module", "Driver Line Item", "Access", "Controlled Module", "Controlled Line Item"], hidden: [] }],
+  ["Processes.csv", { shown: ["Name", "Actions", ...RUN, "Notes"], hidden: DASHBOARDS }],
+  ["Imports.csv", { shown: ["Name", "Source Type", "Source Label", "Source Model", "Source Module", "Saved View", "Target Type", "Target Object", "Used in Processes",
+    ...RUN, "Notes", "Production Data"], hidden: DASHBOARDS }],
+  ["Import Data Sources.csv", { shown: ["Name", "Source Type", "Source Model", "Source Object Name", "Imports"], hidden: [] }],
+  ["Exports.csv", { shown: ["Name", "Action", "Used in Processes", ...RUN, "Notes"], hidden: DASHBOARDS }],
+  ["Other Actions.csv", { shown: ["Name", "Action", "Action List", "Used in Processes", ...RUN, "Notes"], hidden: DASHBOARDS }],
+  ["Source Models.csv", { shown: ["Name", "Mapped Workspace", "Mapped Model", "Sources", "Imports"], hidden: [] }],
+  [MODULE_USAGE_FILE, { shown: ["Module", "App", "Page"], hidden: PAGE_HIDDEN }],
+  [PAGE_FILTERS_FILE, { shown: ["Condition line item's module", "Condition line item", "Filtered module", "Filtered dimension", "Filtered line items", "Operator", "Value",
+    "Show items that match", "Condition group", "Condition context", "Filter on", "App", "Page"], hidden: ["Card #", "Section #", ...PAGE_HIDDEN, "Card ID", "Line item ID"] }],
+  [PAGE_ACTIONS_FILE, { shown: ["Model action name", "Action type", "App", "Page", "Button label", "Runs automatically", "Cancel button"],
+    hidden: ["Card #", "Name source", ...PAGE_HIDDEN, "Card ID", "Action ID"] }],
+]);
+
+const HEADER_VARIANTS: ReadonlyMap<string, string> = new Map([
+  ["Top Level Item", "Top Level"], ["Numbered List", "Numbered"], ["Populated Cell Count", "Cell Count"], ["Type", "Source Type"], ["Used in Imports", "Imports"],
+  ["Start Date and Time", "Start Date and Time (UTC)"],
+]);
+const layoutName = (label: string, zone: string): string => {
+  const header = fileLabel(label, zone);
+  return HEADER_VARIANTS.get(header) ?? header;
+};
 /** The columns of a model's tables that always offer a filter, however many different texts they hold: the data type of a
  * line item's format, which the page adds to Line Items after Format (line-items-view.ts), and the actions a process runs,
  * which the page adds to Processes after its name (result-view.ts `processesRule`, which names the file and the column).
@@ -151,9 +190,8 @@ export const PAGE_FILE_CHOICES: ReadonlyMap<string, Readonly<Record<string, Choi
   [PAGE_ACTIONS_FILE, { App: FILTER, ...CHOICES.Actions, ...PAGE_PLACE }],
 ]);
 const MODEL_CHOICES: ReadonlyMap<string, ReadonlyMap<string, Choice>> = new Map([
-  ...[...new Set([...MODEL_COUNTS.keys(), ...MODEL_HIDDEN.keys(), ...MODEL_FILTERED.keys()])].map((file): [string, ReadonlyMap<string, Choice>] => [file,
+  ...[...new Set([...MODEL_COUNTS.keys(), ...MODEL_FILTERED.keys()])].map((file): [string, ReadonlyMap<string, Choice>] => [file,
     new Map<string, Choice>([...(MODEL_COUNTS.get(file) ?? []).map((header): [string, Choice] => [header, COUNT]),
-      ...(MODEL_HIDDEN.get(file) ?? []).map((header): [string, Choice] => [header, { hidden: true }]),
       ...(MODEL_FILTERED.get(file) ?? []).map((header): [string, Choice] => [header, FILTER])])]),
   ...[...PAGE_FILE_CHOICES].map(([file, choices]): [string, ReadonlyMap<string, Choice>] => [file, new Map(Object.entries(choices))]),
 ]);
@@ -243,20 +281,32 @@ function rangeOf(rows: readonly Row[], index: number, header: string, choice: Ch
   return numbers ? "number" : "date";
 }
 
-/** A table's columns, in the order of its headers. The rows must be complete: which columns offer a filter depends on them.
+/** A table's columns, in its reading order for a model, otherwise its headers' order. Each index still points into the
+ * original headers and cells. The rows must be complete: which columns offer a range depends on them.
  * `lists` are the columns whose cells list items, by their place (cell-lists.ts): their filters read each item. `zone` is
- * the viewer's, where the table's times are shown in it (times.ts `inTimeMode`); UTC, the default, is the file's own. */
-export function columnsOf(table: ResultTable, lists?: ReadonlyMap<number, ItemsOf>, zone = "UTC"): Column[] {
+ * the viewer's, where the table's times are shown in it (times.ts `inTimeMode`); UTC, the default, is the file's own.
+ * `model` is false for an app result, whose columns retain their existing order and choices. */
+export function columnsOf(table: ResultTable, lists?: ReadonlyMap<number, ItemsOf>, zone = "UTC", model = true): Column[] {
   const choices = COLUMN_CHOICES.get(table.file) ?? MODEL_CHOICES.get(table.file);
   const none = writesNone(table);
-  return table.headers.map((value, index) => {
+  const layout = model ? MODEL_LAYOUTS.get(table.file) : undefined;
+  const order = layout && [...layout.shown, ...layout.hidden];
+  const columns = table.headers.map((value, index): Column => {
     const header = cellText(value);
     const choice = choices?.get(header) ?? {};
     const label = header !== "" ? header : index === 0 ? "Name" : `Column ${index + 1}`;
     const range = rangeOf(table.rows, index, header, choice, none, lists?.has(index) === true);
-    const filter = range !== undefined || choice.filter === true || offersFilter(table.rows, index, lists?.get(index), wideFilter(header, index, choice, zone));
-    return { index, label, kind: choice.kind ?? "text", num: choice.num === true, filter, ...(range ? { range } : {}), hidden: choice.hidden === true, none };
+    const filter = layout ? !["Name", "Formula", "Notes"].includes(label) && !/(?:^| )IDs?$/.test(label)
+      : range !== undefined || choice.filter === true || offersFilter(table.rows, index, lists?.get(index), wideFilter(header, index, choice, zone));
+    const hidden = layout ? layout.hidden.includes(layoutName(label, zone)) : choice.hidden === true;
+    return { index, label, kind: choice.kind ?? "text", num: choice.num === true, filter, ...(range ? { range } : {}), hidden, none };
   });
+  if (!order) return columns;
+  const rank = (column: Column): number => {
+    const at = order.indexOf(layoutName(column.label, zone));
+    return at < 0 ? order.length : at;
+  };
+  return columns.sort((a, b) => rank(a) - rank(b));
 }
 
 /** The columns of one row in full: the table's, then one for each cell the row holds beyond its headers, under a name of

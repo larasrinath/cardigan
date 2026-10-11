@@ -222,7 +222,7 @@ describe("The results page against the engine in the Anaplan tab", () => {
     // those that the overview says too, under About this export.
     const calendar = result.tables.find(table => table.file === MODEL_CALENDAR_FILE);
     expect([calendar?.rows.length, calendar && fileView(result, calendar).note, calendar && fileView(result, calendar).table.rows.length, modelFacts(result)])
-      .toEqual([31, "5 rows about the model are not listed here: the Overview names the workspace and the model, under About this export. 16 settings have no value and are not listed: they do not apply to this calendar type, or the model does not show them.", 10, [["Workspace", "Workspace one"], ["Model", "Demand: plan"], ["Captured on", "2026-09-28"]]]);
+      .toEqual([31, "16 settings have no value and are not listed: they do not apply to this calendar type, or the model does not show them.", 10, [["Workspace", "Workspace one"], ["Model", "Demand: plan"], ["Captured on", "2026-09-28"]]]);
     // The overview loses none of the counts the export's Details file gives. Each row that only counts a file is said by
     // the file's tile, as the rows its table lists, but for the calendar's: its table lists 10 of its 31, and the line under
     // the table's name says the rest, 5 rows about the model and 16 settings with no value. The calendar's tile says what
@@ -235,8 +235,8 @@ describe("The results page against the engine in the Anaplan tab", () => {
     expect([counts.length, counts.filter(line => !onTiles.includes(line)), overview.tiles.find(tile => tile.label === "Model Calendar")])
       .toEqual([10, ["Model Calendar: 31 rows"], { label: "Model Calendar", count: 10, value: "Weekly", detail: "FY24",
         title: "Model Calendar: Weeks: 4-4-5, 4-5-4 or 5-4-4, current fiscal year FY24 (31 Dec 2023 - 28 Dec 2024)" }]);
-    const leftOut = /^(\d+) rows about the model are not listed here.* (\d+) settings have no value and are not listed/.exec(calendar ? fileView(result, calendar).note ?? "" : "");
-    expect(10 + Number(leftOut?.[1]) + Number(leftOut?.[2])).toBe(31);
+    const leftOut = /^(\d+) settings have no value and are not listed/.exec(calendar ? fileView(result, calendar).note ?? "" : "");
+    expect(10 + 5 + Number(leftOut?.[1])).toBe(31);
     // About this export says the workspace and the model, each with its ID, and no more (`ABOUT_SHOWN`). The other rows
     // about the model and about the export are deliberately not on the overview: where, when and with what the export was
     // made stay in the Details file, whose log begins with the version, and the calendar's file keeps when the model was
@@ -385,7 +385,7 @@ describe("The results page against the engine in the Anaplan tab", () => {
     const shown = fileView(result, file);
     const COUNTED = "12 rows (2 with a driver that could not be matched)";
     expect([shown.table === file, shown.opensFrom, file.rows.length, file.rows.filter(row => row[0] === "").map(row => row[1]), shown.note]).toEqual([true, 1, 12, ["Gone.Flag", "'Old access'.Can write"],
-      `${ACCESS_LINE} 2 rows have a driver that could not be matched to a line item: they come last, with the driver as Line Items has it and no Driver Module.`]);
+      `2 rows have a driver that could not be matched to a line item: they come last, with the driver as Line Items has it and no Driver Module.`]);
     expect(result.summary.slice(0, 3)).toEqual(["Line Items: 16 rows", `Dynamic Cell Access: ${COUNTED}`, "Modules: 5 rows"]);
     // The page makes the model map from the tables it holds. The file's rows are that map's access links, each once,
     // and then the two driver cells the map could match to no line item. The map places every row of this model.
@@ -425,7 +425,7 @@ describe("The results page against the engine in the Anaplan tab", () => {
     const overview = overviewOf(result);
     expect([result.summary[1], overview.files[0], overview.tiles.find(tile => tile.label === "DCA"), fileView(result, file).note]).toEqual([`Dynamic Cell Access: ${COUNTED}`,
       ["DCA", COUNTED], { label: "DCA", count: 4, full: "Dynamic Cell Access (DCA)" },
-      `${ACCESS_LINE} 2 rows have a driver that could not be matched to a line item: they come last, with the driver as Line Items has it and no Driver Module.`]);
+      `2 rows have a driver that could not be matched to a line item: they come last, with the driver as Line Items has it and no Driver Module.`]);
     // The map of the same tables has a link for one of the four rows and an unmatched name for another: on those the
     // file and the map agree. The two rows beyond them are the cells of the line item the map left out, as it says.
     const held = againstMap(file.rows, result.tables);

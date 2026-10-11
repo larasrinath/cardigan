@@ -167,9 +167,6 @@ export const MODEL_CALENDAR_FILE = "Model Calendar.csv";
 /** The Section of the Model Calendar file's rows about the model. */
 export const ABOUT_MODEL = "Model";
 
-/** The rows about the model that About this export says too (`ABOUT_SHOWN`), and how the calendar's line names them. */
-const ABOUT_NAMED: ReadonlyMap<string, string> = new Map([["Workspace", "the workspace"], ["Model", "the model"]]);
-
 /** The Model Calendar file's columns that guide whoever fills the template in by hand: which calendar types a setting is
  * for, and how to fill it in. The export fills the values in itself, so the page leaves the two out. */
 export const CALENDAR_GUIDANCE = ["Applies to", "Notes"];
@@ -180,22 +177,11 @@ const calendarView: FileRule = file => {
   // A file without rows is shown as it stands: the page says that nothing was found for it.
   if (about === undefined || !file.rows.length) return undefined;
   const settings = file.rows.filter(row => cellText(row[about]) !== ABOUT_MODEL);
-  const left = file.rows.length - settings.length;
   // A setting with no value does not apply to the model's calendar type, or the model does not show it (the export
   // leaves those blank): it says nothing of the model, so the table lists the settings that hold a value.
   const rows = value === undefined ? settings : settings.filter(row => cellText(row[value]) !== "");
   const blank = settings.length - rows.length;
   const notes: string[] = [];
-  if (left) {
-    // The line says where the rows are, so that the table's count is not taken for all the file has. The overview names
-    // the workspace and the model under About this export (`ABOUT_SHOWN`), from such a row where the Details file does
-    // not: the line says which of those the rows hold a value for (`factsOf`), and where they hold neither, or the file
-    // lacks the columns they are read by, only that the rows are not shown.
-    const named = new Set(factsOf(file).map(([setting]) => setting).filter(setting => ABOUT_NAMED.has(setting)));
-    const what = [...ABOUT_NAMED.keys()].filter(setting => named.has(setting)).map(setting => ABOUT_NAMED.get(setting));
-    const where = what.length ? `not listed here: the Overview names ${what.join(" and ")}, under About this export` : "not shown";
-    notes.push(`${left} ${left === 1 ? "row about the model is" : "rows about the model are"} ${where}.`);
-  }
   if (blank) {
     notes.push(`${blank} ${blank === 1 ? "setting has no value and is" : "settings have no value and are"} not listed: `
       + `${blank === 1 ? "it does" : "they do"} not apply to this calendar type, or the model does not show ${blank === 1 ? "it" : "them"}.`);
@@ -215,8 +201,7 @@ export const MODULES_FILE = "Modules.csv";
 /** A model's Line Items file is every module's blueprint in one grid: a module's own row, then its line items. The page
  * shows every row of it, each with its module, a line item with the dimensions it really has and the data type of its
  * format, and a module's own row as a heading (line-items-view.ts). So the table counts the rows the file has, as the
- * grid does, and the line under the table's name says how many of them are line items and how many modules' own, and how
- * the filter on Format type lists the line items alone.
+ * grid does. How to read explains the layout and the filter on Format type. Only warnings stand under the table.
  *
  * The view is given the modules' names where the result has them: the first column of the Modules file, as the file has
  * it. A row that holds nothing but a name is then a module's own row only when the name is a module's, and otherwise a
@@ -232,7 +217,7 @@ const lineItemsRule: FileRule = (file, result) => {
   if (view.table === file) return undefined;
   // A Modules file that was not exported is not among the result's tables; one without rows is, under its own label.
   const unchecked = names ? "" : ` The ${modules ? `${cellText(modules.label)} table lists no modules` : "Modules table was not exported"}, so a row with only a name is taken for a module's row.`;
-  return { table: view.table, note: view.note === undefined ? undefined : `${view.note}${unchecked}`, headings: view.headings };
+  return { table: view.table, note: [view.warning, unchecked.trim()].filter(Boolean).join(" ") || undefined, headings: view.headings };
 };
 
 /** A model's Dynamic Cell Access file (model/export.ts writes it under this name). It is no grid of Anaplan's: the
@@ -246,8 +231,8 @@ const DRIVER_MODULE = "Driver Module";
 /** The file's column for the line item that drives: what a row of the table is called by. */
 const DRIVER_LINE_ITEM = "Driver Line Item";
 
-/** The table is the file as it stands. No column of Anaplan's is called as these are, so a line under the table's name
- * says what it lists, and how many of its rows name a driver that could not be matched. Those rows are the file's own:
+/** The table is the file as it stands. A warning under its name counts rows whose driver could not be matched.
+ * Those rows are the file's own:
  * the count is read from them, and is the same for a result that was kept or brought back. A file without rows is that
  * of a model that drives no access, and its table says so. A row opens from its driver's name, and is called by it: the
  * file's first column is the driver's module, which is one name down the rows of a model that keeps its drivers in one
@@ -261,8 +246,7 @@ const accessRule: FileRule = file => {
   const opensFrom = columnIndex(file, DRIVER_LINE_ITEM);
   return {
     table: file, ...(opensFrom === undefined ? {} : { opensFrom }),
-    note: "The Read Access Driver and Write Access Driver columns of Line Items, listed from the driver's side. "
-      + `One row for each use of a driver: the driver, Read or Write, and the line item it controls.${said}`,
+    note: said.trim() || undefined,
     empty: "No line item in this model has a read or write access driver.",
   };
 };
@@ -347,8 +331,7 @@ const READS_A_MODULE = /view|module/i;
  * Only a row whose Source Type says that it reads a saved view or a module is read. A file's name is written as a module
  * and a saved view would be ("prices.csv"), and a list is no module: their rows, the dash Anaplan writes for a file's
  * import, and text that is not written as a model's object are left as they are, under Source Model (`splitColumn`).
- * The line under the table's name says what the three columns are, and counts the rows that are not read where their
- * cell says something. A file without the Source Type column, or without a row that is read, is shown as it stands.
+ * A warning under the table's name counts the rows that are not read where their cell says something. A file without the Source Type column, or without a row that is read, is shown as it stands.
  * The file itself stays as the export wrote it: a model's map is built from the result's own tables, and asks of this
  * column only whether the file has it (map/build-graph.ts). */
 const importsRule: FileRule = (file, result) => {
@@ -362,13 +345,7 @@ const importsRule: FileRule = (file, result) => {
   });
   if (!split) return undefined;
   const { unread, ...view } = split;
-  const [sourceModel, sourceModule, savedView] = SOURCE_PARTS;
-  return {
-    ...view,
-    note: `${SOURCE_OBJECT} is shown as three columns, ${sourceModel}, ${sourceModule} and ${savedView}, for an import from a module or a saved view. ${sourceModel} `
-      + `${own === THIS_MODEL ? `says ${THIS_MODEL}` : "names this model"} where the import reads from this model itself. A row's details add ${SOURCE_OBJECT} as it was read.`
-      + unreadLine(unread, SOURCE_OBJECT, "is not a module or a saved view", sourceModel),
-  };
+  return { ...view, note: unreadLine(unread, SOURCE_OBJECT, "is not a module or a saved view", SOURCE_PARTS[0]).trim() || undefined };
 };
 
 /** This model's name, which Source Model gives an import from one of its own modules: the result's name, unless the export
@@ -393,8 +370,8 @@ const MAPPED_MODEL = "Mapped Model";
  * or by its ID where the cell gives no name for it, and empty where the cell gives neither. A name is never made up.
  *
  * A cell that names neither a workspace nor a model is left as it is, under Mapped Workspace (`splitColumn`): an empty
- * cell, text that is no object, or an object without any of the four. The line under the table's name says what the two
- * columns are, and counts the rows whose cell could not be read where it says something, so that such a text is not
+ * cell, text that is no object, or an object without any of the four. A warning under the table's name counts rows
+ * whose cell could not be read where it says something, so that such a text is not
  * taken for a workspace's name. A file none of whose cells names either is shown as it stands, under the grid's own
  * label. The file itself stays as the export wrote it: a model's map is built from the result's own tables. */
 const sourceModelsRule: FileRule = file => {
@@ -405,11 +382,7 @@ const sourceModelsRule: FileRule = file => {
   });
   if (!split) return undefined;
   const { unread, ...view } = split;
-  return {
-    ...view,
-    note: `${MAPPED_TO} is shown as two columns, ${MAPPED_WORKSPACE} and ${MAPPED_MODEL}: the workspace and the model each source model is mapped to, by name, `
-      + `or by ID where ${MAPPED_TO} gives no name. A row's details add ${MAPPED_TO} as it was read.${unreadLine(unread, MAPPED_TO, "could not be read", MAPPED_WORKSPACE)}`,
-  };
+  return { ...view, note: unreadLine(unread, MAPPED_TO, "could not be read", MAPPED_WORKSPACE).trim() || undefined };
 };
 
 /** A model's Processes file (model/export.ts writes it under this name): one row for each process of the Actions list,
@@ -482,10 +455,8 @@ const missingRule: FileRule = file => {
     + `built, or hidden from you. ${open}.` };
 };
 
-/** The files the page has a rule for, each with its rule, by the kind of result and the file's name: five that it shows
- * otherwise than as they stand, and four that it shows as they stand, under a line that says what each is: Dynamic Cell
- * Access always, and the tables of the pages built on a model where they name something Missing (`missingRule`). No other
- * file is touched: a rule is a file's own, not a filter over all of them. */
+/** File-specific views and warnings, keyed by result kind and file name. Explanations of the layouts live in How to read;
+ * missing references and unread cells keep their warnings here. Page row ordering is applied afterwards. */
 export const FILE_RULES: Record<AnalysisResult["kind"], ReadonlyMap<string, FileRule>> = {
   app: new Map(),
   model: new Map([[MODEL_CALENDAR_FILE, calendarView], [LINE_ITEMS_FILE, lineItemsRule], [ACCESS_FILE, accessRule], [PROCESSES_FILE, processesRule], [IMPORTS_FILE, importsRule], [SOURCE_MODELS_FILE, sourceModelsRule],
@@ -566,7 +537,56 @@ function inWords(view: FileView): FileView {
  * read, and that stays kept). An app's tables are never put into words: its columns of those names hold other things. */
 export function fileView(result: AnalysisResult, file: ResultTable): FileView {
   const view = ruledView(result, file);
-  return result.kind === "model" ? inWords(view) : view;
+  return result.kind === "model" ? inReadingOrder(inWords(view), result) : view;
+}
+
+const readingCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+const PAGE_ROW_ORDER: ReadonlyMap<string, readonly string[]> = new Map([
+  [MODULE_USAGE_FILE, ["App", "Page"]],
+  [PAGE_FILTERS_FILE, ["Condition line item's module", "Condition line item", "App", "Page", "Card #"]],
+  [PAGE_ACTIONS_FILE, ["Model action name", "App", "Page"]],
+]);
+
+/** The page tables' initial order is part of the view, not a user sort: no sort mark or Reset, and clearing a sort
+ * returns here. Rows and the captured result stay intact, including the identity used by details and headings. */
+function inReadingOrder(view: FileView, result: AnalysisResult): FileView {
+  const { table } = view;
+  const names = PAGE_ROW_ORDER.get(table.file);
+  if (!names) return view;
+  const indexes = names.flatMap(name => {
+    const index = columnIndex(table, name);
+    return index === undefined ? [] : [index];
+  });
+  const moduleAt = table.file === MODULE_USAGE_FILE ? columnIndex(table, "Module") : undefined;
+  const modules = new Map<string, number>();
+  for (const row of result.tables.find(file => file.file === MODULES_FILE)?.rows ?? []) {
+    const name = cellText(row[0]);
+    if (!modules.has(name)) modules.set(name, modules.size);
+  }
+  // An older result may have no Modules table. Its existing module order is then the only one available.
+  if (!modules.size && moduleAt !== undefined) {
+    for (const row of table.rows) {
+      const name = cellText(row[moduleAt]);
+      if (!modules.has(name)) modules.set(name, modules.size);
+    }
+  }
+  const rows = [...table.rows].sort((a, b) => {
+    if (moduleAt !== undefined) {
+      const first = cellText(a[moduleAt]), second = cellText(b[moduleAt]);
+      const rank = (modules.get(first) ?? modules.size) - (modules.get(second) ?? modules.size);
+      if (rank) return rank;
+      if (!modules.has(first) && !modules.has(second)) {
+        const compared = readingCollator.compare(first, second);
+        if (compared) return compared;
+      }
+    }
+    for (const index of indexes) {
+      const compared = readingCollator.compare(cellText(a[index]), cellText(b[index]));
+      if (compared) return compared;
+    }
+    return 0;
+  });
+  return { ...view, table: { ...table, rows } };
 }
 
 /** What a Model Calendar file says about the model itself: each setting with its value, in the file's order. A setting
