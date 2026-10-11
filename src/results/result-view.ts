@@ -3,6 +3,7 @@ import type { AnalysisResult, Cell, ResultTable } from "../result-types.js";
 import { cellLists, type Items } from "./cell-lists.js";
 import { APP_FILES, cardsNamed, columnIndex, COLUMN_CHOICES, type CardsTable } from "./columns.js";
 import { LINE_ITEMS_FILE, lineItemsView } from "./line-items-view.js";
+import { actionNamesByRow } from "./process-actions-view.js";
 import { mappingWords, READABLE_HEADERS, readableCell, type CellNames } from "./readable-cells.js";
 import { sourceObjectOf } from "./source-object.js";
 import { cellText, NONE, type Row } from "./table-engine.js";
@@ -388,12 +389,43 @@ const sourceModelsRule: FileRule = file => {
   };
 };
 
-/** The files the page has a rule for, each with its rule, by the kind of result and the file's name: four that it shows
+/** A model's Processes file (model/export.ts writes it under this name): one row for each process of the Actions list,
+ * with the columns that list has for every action. A process runs actions, and no process runs it: Anaplan runs no
+ * process inside another. So its Used in Processes never names one, and its Action cell, which says what any other action
+ * does, is empty. The page leaves Used in Processes out, and Action wherever no process has one, and shows right after
+ * the process's name the actions it runs (process-actions-view.ts `actionNamesByRow`), in the order it runs them where the
+ * result has that order, with a comma and a space between them, as Anaplan's grids join the names a cell gives. A row's
+ * details list them one to a line, each opening its own row (cell-lists.ts, item-links.ts). A process that runs none has
+ * the cell empty. Cells a row holds beyond the headers stay after them, as the file has them. */
+export const PROCESSES_FILE = "Processes.csv";
+/** The column of a process's actions, which the page adds after the name. */
+export const PROCESS_ACTIONS = "Actions";
+const USED_IN_PROCESSES = "Used in Processes";
+const ACTION = "Action";
+
+const processesRule: FileRule = (file, result) => {
+  const used = columnIndex(file, USED_IN_PROCESSES);
+  const action = columnIndex(file, ACTION);
+  const left = new Set<number>([0]);
+  if (used !== undefined) left.add(used);
+  if (action !== undefined && file.rows.every(row => cellText(row[action]).trim() === "")) left.add(action);
+  const kept = file.headers.map((_, index) => index).filter(index => !left.has(index));
+  const actions = actionNamesByRow(result, file);
+  return {
+    table: {
+      ...file,
+      headers: [file.headers[0] ?? "", PROCESS_ACTIONS, ...kept.map(index => file.headers[index])],
+      rows: file.rows.map((row, at) => [row[0] ?? "", actions[at].join(", "), ...kept.map(index => row[index] ?? ""), ...row.slice(file.headers.length)]),
+    },
+  };
+};
+
+/** The files the page has a rule for, each with its rule, by the kind of result and the file's name: five that it shows
  * otherwise than as they stand, and one that it shows as it stands, under a line that says what it is. No other file is
  * touched: a rule is a file's own, not a filter over all of them. */
 export const FILE_RULES: Record<AnalysisResult["kind"], ReadonlyMap<string, FileRule>> = {
   app: new Map(),
-  model: new Map([[MODEL_CALENDAR_FILE, calendarView], [LINE_ITEMS_FILE, lineItemsRule], [ACCESS_FILE, accessRule], [IMPORTS_FILE, importsRule], [SOURCE_MODELS_FILE, sourceModelsRule]]),
+  model: new Map([[MODEL_CALENDAR_FILE, calendarView], [LINE_ITEMS_FILE, lineItemsRule], [ACCESS_FILE, accessRule], [PROCESSES_FILE, processesRule], [IMPORTS_FILE, importsRule], [SOURCE_MODELS_FILE, sourceModelsRule]]),
 };
 
 /** One of the result's files by its rule alone, or as it stands: the rows the page lists, before any cell is said in words. */

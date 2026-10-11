@@ -21,6 +21,11 @@ const LISTS = table("General Lists", ["", "Referenced in Applies To"], [["Produc
 const PROCESSES = table("Processes", ["", "Used in Processes"], [["Nightly load", ""], ["Weekly", ""]]);
 const IMPORTS = table("Imports", ["", "Used in Processes"], [["Load prices", "Nightly load, Weekly, Monthly"]]);
 const SOURCES = table("Import Data Sources", ["", "Imports"], [["prices.csv", "Load prices, Gone import"]]);
+const EXPORTS = table("Exports", ["", "Used in Processes"], [["Send plan", "Weekly"], ["Twin", ""]]);
+const OTHERS = table("Other Actions", ["", "Used in Processes"], [["Delete old items", "Nightly load"]]);
+/** The Processes table as the page shows it, with the actions each process runs after its name (result-view.ts). */
+const PROCESS_VIEW = table("Processes", ["", "Actions"], [["Nightly load", "Load prices, Send plan, Delete old items, Twin, Gone action"]]);
+const TWIN_IMPORTS = table("Imports", ["", "Used in Processes"], [["Load prices", ""], ["Twin", ""]]);
 
 const TABLES = new Map<string, NamedRows>([
   [MODULES.file, { table: MODULES, name: 0 }],
@@ -58,6 +63,16 @@ describe("Which row of the result an item of a row's details names", () => {
     expect(named(LISTS, "Referenced in Applies To", 0, ["REV01 Revenue", "'REV01 Revenue'.Units"])).toEqual(["Modules.csv: REV01 Revenue", "Line Items.csv: Units / REV01 Revenue"]);
     expect(named(IMPORTS, "Used in Processes", 0, ["Nightly load", "Weekly", "Monthly"])).toEqual(["Processes.csv: Nightly load", "Processes.csv: Weekly", undefined]);
     expect(named(SOURCES, "Imports", 0, ["Load prices", "Gone import"])).toEqual(["Imports.csv: Load prices", undefined]);
+  });
+
+  it("finds an action a process runs among the imports, the exports and the other actions together", () => {
+    const tables = new Map([...TABLES, [TWIN_IMPORTS.file, { table: TWIN_IMPORTS, name: 0 }], [EXPORTS.file, { table: EXPORTS, name: 0 }], [OTHERS.file, { table: OTHERS, name: 0 }]]);
+    const found = itemRows(PROCESS_VIEW, "Actions", ["Load prices", "Send plan", "Delete old items", "Twin", "Gone action"], PROCESS_VIEW.rows[0], tables)
+      .map(row => (row ? `${row.file}: ${cellText(row.row[0])}` : undefined));
+    // An import and an export of one name name neither, and a name no action has names nothing.
+    expect(found).toEqual(["Imports.csv: Load prices", "Exports.csv: Send plan", "Other Actions.csv: Delete old items", undefined, undefined]);
+    // A process's own Used in Processes, which the page's table does not have, names no row.
+    expect(named(PROCESSES, "Used in Processes", 0, ["Nightly load"])).toEqual([undefined]);
   });
 
   it("names nothing for a column that names no rows, nor without the table its items would be rows of", () => {

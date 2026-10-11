@@ -2,7 +2,6 @@ import { readProcessActions } from "../result-plain.js";
 import type { AnalysisResult, ProcessStep, ResultTable } from "../result-types.js";
 import { cellLists } from "./cell-lists.js";
 import { columnIndex } from "./columns.js";
-import { IMPORTS_FILE } from "./result-view.js";
 import { cellText, type Row } from "./table-engine.js";
 
 /** The actions a process runs, as the details of its row of a model's Processes show them, under All columns: each action
@@ -11,8 +10,10 @@ import { cellText, type Row } from "./table-engine.js";
  * the details list instead the actions whose Used in Processes names the process, as the Actions list says it, and say
  * that the order they run in is not known: Anaplan's grids of the actions say which processes use each, not when. */
 
-/** The files of the Actions list, by the names model/export.ts writes them under. */
+/** The files of the Actions list, by the names model/export.ts writes them under. They are named here, and not taken from
+ * result-view.ts, which reads this module for the Processes table's Actions column. */
 const PROCESSES_FILE = "Processes.csv";
+const IMPORTS_FILE = "Imports.csv";
 const EXPORTS_FILE = "Exports.csv";
 const OTHER_ACTIONS_FILE = "Other Actions.csv";
 /** The column of each action's processes, as Anaplan's grid of the actions names it. */
@@ -48,11 +49,12 @@ function stepView(step: ProcessStep): StepView {
   return kind ? { name: step.name, kind: kind.words, file: kind.file } : { name: step.name, kind: step.type.trim() === "" ? "Not said" : step.type };
 }
 
-/** The actions whose Used in Processes names the process `name`, by kind, each table in its rows' order: Imports, then
- * Exports, then Other Actions. A cell lists its processes as the drawer lists it (cell-lists.ts): cut into the names of the
- * Processes table's rows where it names several, and whole where it does not. */
-function usedIn(result: AnalysisResult, name: string): StepView[] {
-  const steps: StepView[] = [];
+/** For every process an action's Used in Processes names, the actions that name it, by kind, each table in its rows'
+ * order: Imports, then Exports, then Other Actions. A cell lists its processes as the drawer lists it (cell-lists.ts): cut
+ * into the names of the Processes table's rows where it names several, and whole where it does not. Each table is read
+ * once, whatever number of processes is asked about. Names are told apart without the spaces around them. */
+function usedInAll(result: AnalysisResult): ReadonlyMap<string, StepView[]> {
+  const byProcess = new Map<string, StepView[]>();
   for (const [file, words] of ACTION_FILES) {
     const table = result.tables.find(candidate => candidate.file === file);
     const at = table && columnIndex(table, USED_IN_PROCESSES);
@@ -60,12 +62,20 @@ function usedIn(result: AnalysisResult, name: string): StepView[] {
     const list = cellLists(result, table).get(at);
     for (const row of table.rows) {
       const text = cellText(row[at]);
-      const names = list?.(text, row) ?? [text];
-      if (names.some(each => each.trim() === name)) steps.push({ name: cellText(row[0]), kind: words, file });
+      for (const name of new Set((list?.(text, row) ?? [text]).map(each => each.trim()))) {
+        if (name === "") continue;
+        const steps = byProcess.get(name);
+        const step = { name: cellText(row[0]), kind: words, file };
+        if (steps) steps.push(step);
+        else byProcess.set(name, [step]);
+      }
     }
   }
-  return steps;
+  return byProcess;
 }
+
+/** The actions whose Used in Processes names the process `name`, as `usedInAll` finds them. */
+const usedIn = (result: AnalysisResult, name: string): StepView[] => usedInAll(result).get(name) ?? [];
 
 /** The actions of the process a row of a model's Processes is, or none for any other row and for an app's result. The
  * Processes table has no column of IDs, so the row's process is the one of its name, as the result lists the processes;
@@ -86,4 +96,24 @@ export function processOfRow(result: AnalysisResult | undefined, table: ResultTa
   // earlier version or by none that read this process, has none of it.
   const steps = usedIn(result, name);
   return { steps, ordered: false, lines: [steps.length ? PROCESS_LINES.unordered : PROCESS_LINES.noneUsed, process?.note ?? PROCESS_LINES.earlier] };
+}
+
+/** For each row of a model's Processes file, in its order, the names of the actions the process runs: the actions its
+ * details list (`processOfRow`), in the order it runs them where the result has that order, and otherwise those whose
+ * Used in Processes names it. The Processes table shows them in its Actions column (result-view.ts). A row is its process
+ * as `processOfRow` finds one: by its name, and among processes of one name by its place among them. The result's
+ * processes and the actions' tables are read once for the whole file. */
+export function actionNamesByRow(result: AnalysisResult, table: ResultTable): string[][] {
+  const processes = readProcessActions(result.processActions);
+  let used: ReadonlyMap<string, StepView[]> | undefined;
+  const seen = new Map<string, number>();
+  return table.rows.map(row => {
+    const name = cellText(row[0]).trim();
+    const place = seen.get(name) ?? 0;
+    seen.set(name, place + 1);
+    const process = processes?.filter(each => each.name.trim() === name)[place];
+    if (process && process.note === undefined) return process.actions.map(step => step.name);
+    used ??= usedInAll(result);
+    return (used.get(name) ?? []).map(step => step.name);
+  });
 }

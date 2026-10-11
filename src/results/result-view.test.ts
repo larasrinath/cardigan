@@ -321,7 +321,7 @@ describe("What the results page reads out of a result", () => {
     expect([fileView(model, lineItems), fileView(model, modelDetails)]).toEqual([{ table: lineItems }, { table: modelDetails }]);
     expect(fileView(model, lineItems).table).toBe(lineItems);
     // The rules are few and each is one file's own, by the kind of result and the file's name.
-    expect([[...FILE_RULES.model.keys()], [...FILE_RULES.app.keys()]]).toEqual([["Model Calendar.csv", "Line Items.csv", "Dynamic Cell Access.csv", "Imports.csv", "Source Models.csv"], []]);
+    expect([[...FILE_RULES.model.keys()], [...FILE_RULES.app.keys()]]).toEqual([["Model Calendar.csv", "Line Items.csv", "Dynamic Cell Access.csv", "Processes.csv", "Imports.csv", "Source Models.csv"], []]);
     // The rule is that file's alone: by its name, in a model's result, by its Section column.
     const renamed = { ...file, file: "Model Calendar (2).csv" };
     const regrouped = { ...file, headers: ["Group", ...file.headers.slice(1)] };
@@ -902,12 +902,69 @@ describe("What the results page reads out of a result", () => {
     const byId = ["Delete from list ID 101000000007 using Selection", "Order list ID 101000000008"];
     expect(fileView(result("model", [before]), before).table.rows.map(row => row[1])).toEqual(byId);
     // The column is the Other Actions file's: in another of a model's files a column of that name names no list, and in
-    // this file a column named as Line Items names a list format's list names none.
+    // this file a column named as Line Items names a list format's list names none. The Processes table keeps an Action
+    // column that holds something, after the actions it adds.
     const other: ResultTable = { ...actions, file: "Processes.csv", rows: actions.rows.slice(0, 2) };
     const formatList: ResultTable = { ...actions, headers: [...headers.slice(0, -1), "Format List"], rows: actions.rows.slice(0, 2) };
-    expect([other, formatList].map(table => fileView(result("model", [table]), table).table.rows.map(row => row[1]))).toEqual([byId, byId]);
+    const actionCells = (table: ResultTable) => {
+      const view = fileView(result("model", [table]), table).table;
+      return view.rows.map(row => row[view.headers.indexOf("Action")]);
+    };
+    expect([other, formatList].map(actionCells)).toEqual([byId, byId]);
     // An app's tables are never said in words.
     expect(fileView(result("app", [appDetails, actions]), actions)).toEqual({ table: actions });
+  });
+
+  it("shows a model's Processes without Used in Processes or an Action that no process has, and with the actions each runs right after its name", () => {
+    // The Processes file as the export writes it: the Actions list's own columns, of which Used in Processes and Action say
+    // nothing of a process, as Anaplan runs no process inside another.
+    const headers = ["", "Action", "Start Date and Time (UTC)", "Most recent duration (ms)", "Notes", "Used in Processes", "Used in Dashboards"];
+    const processes: ResultTable = { file: "Processes.csv", label: "Processes", guard: false, headers, rows: [
+      ["Nightly load", "", "2026-03-12 23:19:56", "582", "Runs at 2am", "", "Admin"], ["Weekly load", "", "", "", "", "", ""], ["Empty", "", "", "", "", "", ""],
+      // Two processes of one name: each is the process in its place among them.
+      ["Twin", "", "", "", "", "", ""], ["Twin", "", "", "", "", "", "", "beyond"]] };
+    const used = ["", "Notes", "Used in Processes"];
+    const imports: ResultTable = { file: "Imports.csv", label: "Imports", guard: false, headers: used,
+      rows: [["Prices from the hub", "", "Nightly load"], ["1.1 Load regions", "", "Nightly load, Weekly load"]] };
+    const exports: ResultTable = { file: "Exports.csv", label: "Exports", guard: false, headers: used, rows: [["Send plan", "", "Weekly load"]] };
+    const others: ResultTable = { file: "Other Actions.csv", label: "Other Actions", guard: false, headers: used, rows: [["Delete old items", "", "Nightly load, Twin"]] };
+    const tables = [modelDetails, processes, imports, exports, others];
+    const kept = structuredClone(processes);
+    const shownAs = (model: AnalysisResult) => {
+      const view = fileView(model, processes).table;
+      return [view.headers, view.rows];
+    };
+    // Each process with its actions, in the order it runs them, as the export reads them out of its definition: the
+    // Actions column holds them, with a comma and a space between them. A process that runs none has the cell empty.
+    const ordered: AnalysisResult = { ...result("model", tables), processActions: [
+      { id: "118000000001", name: "Nightly load", actions: [{ id: "112000000002", name: "Prices from the hub", type: "IMPORT" },
+        { id: "112000000001", name: "1.1 Load regions", type: "IMPORT" }, { id: "117000000001", name: "Delete old items", type: "ACTION" }] },
+      { id: "118000000002", name: "Weekly load", actions: [{ id: "116000000001", name: "Send plan", type: "EXPORT" }, { id: "112000000099", name: "ID 112000000099", type: "IMPORT" }] },
+      { id: "118000000003", name: "Empty", actions: [] },
+      { id: "118000000004", name: "Twin", actions: [{ id: "116000000001", name: "Send plan", type: "EXPORT" }] },
+      { id: "118000000005", name: "Twin", actions: [{ id: "117000000001", name: "Delete old items", type: "ACTION" }] }] };
+    const kept1 = ["", "Actions", "Start Date and Time (UTC)", "Most recent duration (ms)", "Notes", "Used in Dashboards"];
+    expect(shownAs(ordered)).toEqual([kept1, [
+      ["Nightly load", "Prices from the hub, 1.1 Load regions, Delete old items", "2026-03-12 23:19:56", "582", "Runs at 2am", "Admin"],
+      ["Weekly load", "Send plan, ID 112000000099", "", "", "", ""], ["Empty", "", "", "", "", ""],
+      ["Twin", "Send plan", "", "", "", ""], ["Twin", "Delete old items", "", "", "", "", "beyond"]]]);
+    // Without the processes' own actions, as a result of an earlier version has it, each lists the actions whose Used in
+    // Processes names it, by kind: imports, then exports, then other actions. Both processes named Twin are named so.
+    expect(shownAs(result("model", tables))[1].map(row => [row[0], row[1]])).toEqual([["Nightly load", "Prices from the hub, 1.1 Load regions, Delete old items"],
+      ["Weekly load", "1.1 Load regions, Send plan"], ["Empty", ""], ["Twin", "Delete old items"], ["Twin", "Delete old items"]]);
+    // A process whose definition could not be read is said by those too, beside the others' own.
+    const unread = { ...ordered, processActions: ordered.processActions!.map(process => (process.name === "Weekly load" ? { ...process, actions: [], note: "Not read." } : process)) };
+    expect(shownAs(unread)[1].map(row => row[1])).toEqual(["Prices from the hub, 1.1 Load regions, Delete old items", "1.1 Load regions, Send plan", "", "Send plan", "Delete old items"]);
+    // An Action that a process has after all is kept, after the actions: only an Action no process has is left out.
+    const withAction = { ...processes, rows: processes.rows.map((row, at) => (at === 1 ? row.map((cell, index) => (index === 1 ? "Something" : cell)) : row)) };
+    expect(fileView(ordered, withAction).table.headers).toEqual(["", "Actions", "Action", "Start Date and Time (UTC)", "Most recent duration (ms)", "Notes", "Used in Dashboards"]);
+    // The Actions column is a column like any other: plain text, shown, with a filter by each action (cell-lists.ts).
+    expect(columnsOf(fileView(ordered, processes).table).slice(0, 2).map(column => [column.label, column.kind, column.hidden])).toEqual([["Name", "text", false], ["Actions", "text", false]]);
+    // The file itself is as it was: the model map is made of it. The other actions' tables keep their Used in Processes.
+    expect(processes).toEqual(kept);
+    expect([imports, exports, others].map(table => fileView(ordered, table).table.headers)).toEqual([used, used, used]);
+    // An app's tables are never shaped so, whatever they are called.
+    expect(fileView(result("app", [appDetails, processes]), processes)).toEqual({ table: processes });
   });
 
   it("reads the model's own facts out of its Model Calendar file, without the ones that have no value", () => {
