@@ -1503,7 +1503,7 @@ describe("The map's views", () => {
     expect(linksDrawn()).toEqual([]);
     // A box selected traces along no link that is not drawn.
     clickNode("Net");
-    expect([text(".map-insp-name"), text(".map-live")]).toEqual(["Net", "Line item Net selected. On the map 0 boxes feed it and it feeds 0 boxes, directly or through others."]);
+    expect([text(".map-insp-name"), text(".map-live")]).toEqual(["Net", "Line item Net selected. Nothing feeds it and feeds nothing on this map, including links through other boxes."]);
     // Access drivers ticked: theirs alone are drawn and traced, and the legend says what they are.
     tickAccess();
     expect(text(".map-live")).toBe("Access driver links are drawn. Line items of CAL01 - Revenue: 3 line items, with 5 outside the module, 1 link.");
@@ -1513,7 +1513,7 @@ describe("The map's views", () => {
     expect(linksDrawn()).toHaveLength(1);
     clickNode("Net");
     clickNode("Net");
-    expect(text(".map-live")).toBe("Line item Net selected. On the map 1 box feeds it and it feeds 0 boxes, directly or through others.");
+    expect(text(".map-live")).toBe("Line item Net selected. Fed by 1 box and feeds nothing on this map, including links through other boxes.");
     // Ticked again: formulas' links are back, with the boxes where they were, and the trace follows them.
     const kept = locate();
     tickFormulas();
@@ -1614,10 +1614,10 @@ describe("Selecting a node on the map", () => {
     expect([part(".map-inspector").hidden, text(".map-kind"), text(".map-insp-name")]).toEqual([false, "Group", "02: Calculations"]);
     expect(parts(".map-dl dt").map(term => term.textContent)).toEqual(["Modules", "Line items"]);
     expect(parts(".map-dl dd").map(value => value.textContent)).toEqual(["2", "5"]);
-    expect([part(".map-inspector").hidden, text(".map-insp-name"), parts(".map-insp-trace .map-trace-count").map(count => count.textContent)]).toEqual([false, "02: Calculations", ["1 box feeds it", "it feeds 1 box"]]);
-    expect(text(".map-insp-trace")).toBe("1 box feeds it, it feeds 1 box. On the map, directly or through others. Only these");
-    expect([act("focus").textContent, root().classList.contains("map-has-inspector"), part(".map-inspector").getAttribute("aria-label")]).toEqual(["Only these", true, "Details of the box selected"]);
-    expect(text(".map-live")).toBe("Group 02: Calculations selected. On the map 1 box feeds it and it feeds 1 box, directly or through others.");
+    expect([part(".map-inspector").hidden, text(".map-insp-name"), parts(".map-insp-trace .map-trace-count").map(count => count.textContent)]).toEqual([false, "02: Calculations", ["Fed by 1 box", "Feeds 1 box"]]);
+    expect(text(".map-insp-trace")).toBe("Fed by 1 box · Feeds 1 box On this map, including links through other boxes. Hide the other boxes");
+    expect([act("focus").textContent, root().classList.contains("map-has-inspector"), part(".map-inspector").getAttribute("aria-label")]).toEqual(["Hide the other boxes", true, "Details of the box selected"]);
+    expect(text(".map-live")).toBe("Group 02: Calculations selected. Fed by 1 box and feeds 1 box on this map, including links through other boxes.");
     // The trace in the details leaves the status at the foot visible.
     expect(part(".map-status").hidden).toBe(false);
   });
@@ -1644,7 +1644,7 @@ describe("Selecting a node on the map", () => {
     expect(parts(".map-link").map(link => link.querySelector(".map-link-text")?.childNodes[0].textContent)).toEqual(["Products", "Units", "Price", "Net", "Margin %"]);
     // The details name no file and no row of one.
     expect(part(".map-inspector").textContent).not.toMatch(/\.csv|\brow \d/);
-    expect(parts(".map-insp-trace .map-trace-count").map(count => count.textContent)).toEqual(["3 boxes feed it", "it feeds 3 boxes"]);
+    expect(parts(".map-insp-trace .map-trace-count").map(count => count.textContent)).toEqual(["Fed by 3 boxes", "Feeds 3 boxes"]);
     // It is among its module's line items already: the details offer no way that leads nowhere.
     expect(root().querySelector('[data-map-act="open"]')).toBeNull();
     clickNode("Workings");
@@ -1709,20 +1709,20 @@ describe("Selecting a node on the map", () => {
     open();
     toggleGroups();
     clickNode("INP02 - Prices");
-    expect(act("focus").textContent).toBe("Only these");
+    expect(act("focus").textContent).toBe("Hide the other boxes");
     act("focus").press();
     env.settle();
-    expect(act("focus").textContent).toBe("All boxes");
+    expect(act("focus").textContent).toBe("Show all boxes");
     // Prices feeds Revenue, which feeds Margin Workings and the Board: Volumes has no part in that.
     expect([...locate().keys()].sort()).toEqual(["CAL01 - Revenue", "INP02 - Prices", "Margin Workings", "REP01 - Board"]);
     act("focus").press();
     env.settle();
-    expect(act("focus").textContent).toBe("Only these");
+    expect(act("focus").textContent).toBe("Hide the other boxes");
     expect(locate().size).toBe(5);
     act("focus").press();
     act("fit").press();
     env.settle();
-    expect([act("focus").textContent, locate().size]).toEqual(["Only these", 5]);
+    expect([act("focus").textContent, locate().size]).toEqual(["Hide the other boxes", 5]);
   });
   it("keeps to the trace of a line item that has nowhere to go into", () => {
     open();
@@ -1730,7 +1730,7 @@ describe("Selecting a node on the map", () => {
     pickModule("CAL01 - Revenue");
     doubleClick("Net");
     env.settle();
-    expect([here(), text(".map-insp-name"), act("focus").textContent]).toEqual(["CAL01 - Revenue", "Net", "All boxes"]);
+    expect([here(), text(".map-insp-name"), act("focus").textContent]).toEqual(["CAL01 - Revenue", "Net", "Show all boxes"]);
     expect([...locate().keys()]).not.toContain("Workings");
   });
 
@@ -1932,10 +1932,10 @@ describe("Selecting a node on the map", () => {
     // Kept to what it feeds, which is every box there is: they are not all fitted in at once, blank. And shown all again.
     act("focus").press();
     env.settle();
-    expect([act("focus").textContent, boxes().get("Read By All")!.w, blankBoxes()]).toEqual(["All boxes", before.w, 0]);
+    expect([act("focus").textContent, boxes().get("Read By All")!.w, blankBoxes()]).toEqual(["Show all boxes", before.w, 0]);
     act("focus").press();
     env.settle();
-    expect([act("focus").textContent, boxes().get("Read By All")!.w, blankBoxes()]).toEqual(["Only these", before.w, 0]);
+    expect([act("focus").textContent, boxes().get("Read By All")!.w, blankBoxes()]).toEqual(["Hide the other boxes", before.w, 0]);
     // A reader has links with the first line item alone: the two fit, and the camera goes no further than it must.
     const reader = [...boxes()].find(([name, box]) => name.startsWith("Reader") && box.x > 300 && box.x + box.w < 800 && box.y > 120 && box.y < 600)!;
     click(reader[1].x + reader[1].w / 2, reader[1].y + reader[1].h / 2);
@@ -2357,7 +2357,7 @@ describe("The map's keys", () => {
     // The button that keeps the view to the trace is written anew when it is pressed: the focus stays on it.
     clickNode("01: Inputs");
     act("focus").press();
-    expect([act("focus").textContent, page.document.activeElement === act("focus")]).toEqual(["All boxes", true]);
+    expect([act("focus").textContent, page.document.activeElement === act("focus")]).toEqual(["Show all boxes", true]);
   });
 });
 

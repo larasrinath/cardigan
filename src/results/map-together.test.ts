@@ -465,7 +465,7 @@ describe("A model's result on the results page, with the map's real graph and th
     expect(written()).toEqual(expect.arrayContaining(["Revenue", "Cost", "Margin", "Margin %", "Volumes", "Prices", "Summary"]));
     // Beside a selection the line of what is shown stays where it stands, and the bar of what is traced has its own place. Margin and Revenue feed
     // it, Cost feeds Margin, and the two input modules feed those: five boxes. Nothing reads it.
-    expect([shownStatus(), traced()]).toEqual(["4 line items · 3 outside the module · 10 links", [expect.stringMatching(/^5 boxes\b/), "Margin %", expect.stringMatching(/\b0 boxes$/)]]);
+    expect([shownStatus(), traced()]).toEqual(["4 line items · 3 outside the module · 10 links", ["Fed by 5 boxes", "Margin %", "Feeds nothing"]]);
     // Its formula as the file has it, and its settings under the names of the table's columns: the module it is in, and
     // its Format and Summary in the very words the page's table has for them.
     const said = settings();
@@ -516,7 +516,7 @@ describe("A model's result on the results page, with the map's real graph and th
     /** What the user has made of the map: where it is, the box selected and its trace, and the text in its search. */
     const left = () => [where(), text(".map-insp-name"), traced(), part(".map-search").value];
     const was = left();
-    expect(was).toEqual([["Model one", "02 Calculations", REVENUE], "Margin %", [expect.stringMatching(/^5 boxes\b/), "Margin %", expect.stringMatching(/\b0 boxes$/)], "cost"]);
+    expect(was).toEqual([["Model one", "02 Calculations", REVENUE], "Margin %", ["Fed by 5 boxes", "Margin %", "Feeds nothing"], "cost"]);
 
     // Another view: the map gives its place up, and what it made stays there, out of sight.
     choose("Line Items");
