@@ -200,26 +200,18 @@ const calendarView: FileRule = file => {
 /** A model's Modules file, which lists every module (model/export.ts writes it under this name). */
 export const MODULES_FILE = "Modules.csv";
 
-/** A model's Line Items file is every module's blueprint in one grid: a module's own row, then its line items. The page
- * shows every row of it, each with its module, a line item with the dimensions it really has and the data type of its
- * format, and a module's own row as a heading (line-items-view.ts). So the table counts the rows the file has, as the
- * grid does. How to read explains the layout and the filter on Format type. Only warnings stand under the table.
- *
- * The view is given the modules' names where the result has them: the first column of the Modules file, as the file has
- * it. A row that holds nothing but a name is then a module's own row only when the name is a module's, and otherwise a
- * line item whose module is not known. A result without the Modules file, or with one that lists nothing, has no names
- * to give, and every such row is taken for a module's own. The line then says that, and why: a line item of which only
- * the name was read is among the rows it counts as modules' own, and nothing else on the page tells that the names could
- * not be checked. */
+/** The page lists only line items, after resolving dimensions from the full grid. Module names distinguish a module's
+ * own row from a line item whose module is unknown. Without those names, a row holding only a name is taken for a
+ * module's own; the note explains that limit. The result and all analyses keep the full grid. */
 const lineItemsRule: FileRule = (file, result) => {
   const modules = result.tables.find(table => table.file === MODULES_FILE);
   const names = modules?.rows.length ? new Set(modules.rows.map(row => cellText(row[0]))) : undefined;
-  const view = lineItemsView(file, names);
+  const view = lineItemsView(file, names, { lineItemsOnly: true });
   // The view gives the table itself back when it does not apply to it.
   if (view.table === file) return undefined;
   // A Modules file that was not exported is not among the result's tables; one without rows is, under its own label.
   const unchecked = names ? "" : ` The ${modules ? `${cellText(modules.label)} table lists no modules` : "Modules table was not exported"}, so a row with only a name is taken for a module's row.`;
-  return { table: view.table, note: [view.warning, unchecked.trim()].filter(Boolean).join(" ") || undefined, headings: view.headings };
+  return { table: view.table, note: [view.note, view.warning, unchecked.trim()].filter(Boolean).join(" ") || undefined, headings: view.headings };
 };
 
 /** A model's Dynamic Cell Access file (model/export.ts writes it under this name). It is no grid of Anaplan's: the

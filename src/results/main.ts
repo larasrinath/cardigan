@@ -28,7 +28,7 @@ import {
   SUN_ICON, tableHtml, tableParts, type AboutLink, type KeptCopy, type Links, type NavEntry, type OpenButton, type TableView,
 } from "./markup.js";
 import type { PageId } from "./page-ids.js";
-import { LINE_ITEMS_FILE, MODULE_NAME } from "./line-items-view.js";
+import { LINE_ITEMS_FILE, lineItemsView, MODULE_NAME } from "./line-items-view.js";
 import { subsetOfRow } from "./line-item-subsets-view.js";
 import { ACCESS_FILE, analysedOf, cardParts, detailsOf, detailValue, diagnosticLog, fileView, IMPORTS_FILE, listedTables, MODEL_CALENDAR_FILE, MODULES_FILE, overviewOf,
   SOURCE_MODELS_FILE, tableFullLabel, tableLabel, type FileView, type Overview } from "./result-view.js";
@@ -349,6 +349,14 @@ function reopenDrawer(drawer: KeptDrawer, opener: Element = el("view"), trackHis
     return;
   }
   const entry = tables.find(candidate => !candidate.objects && candidate.table.file === drawer.file);
+  // Old module drawers must stay closed, even if a remaining line item has the same name and owner.
+  if (result?.kind === "model" && drawer.file === LINE_ITEMS_FILE) {
+    const source = result.tables.find(table => table.file === LINE_ITEMS_FILE);
+    const modules = result.tables.find(table => table.file === MODULES_FILE);
+    const names = modules?.rows.length ? new Set(modules.rows.map(row => cellText(row[0]))) : undefined;
+    const full = source && lineItemsView(source, names);
+    if (full && [...full.headings].some(row => rowKey(row, drawer.key.startsWith("row:") ? full.table : undefined) === drawer.key)) return;
+  }
   const row = entry && findShownRow(entry, drawer.key);
   if (!entry || !row) return;
   if (drawer.kind === "card") openCardDrawer(row, opener, trackHistory);
@@ -1904,11 +1912,15 @@ function mapOpens(node: GraphNode): MapOpen[] {
     openRowDrawer(entry, row, el("view"));
     drawerRowOpener(drawerLooks)?.scrollIntoView({ block: "nearest" });
   } });
-  // A module can still open in Model Building if its Modules table was not read but Line Items has its own row.
-  const source = to ?? (node.kind === "module" ? rowOfName(LINE_ITEMS_FILE, node.name) : undefined);
-  const model = source && opensOf(source.entry, source.row).opens.find(open => open.kind === "module");
+  const model = to && opensOf(to.entry, to.row).opens.find(open => open.kind === "module");
   if (model?.kind === "module") opens.push({ label: "Model", title: model.title,
     open: () => { void openInModel(model.url, model.what, model.object); } });
+  // A module's Model action needs its ID, even when Modules has no row for the Table action.
+  else if (node.kind === "module") {
+    const { url, id } = objectAddress("module", node.name.trim());
+    if (url !== undefined && id !== undefined) opens.push({ label: "Model", title: `Open ${node.name} in Model Building`,
+      open: () => { void openInModel(url, `the module ${node.name}`, id); } });
+  }
   return opens;
 }
 

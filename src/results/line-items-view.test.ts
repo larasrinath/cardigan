@@ -722,3 +722,32 @@ describe("The Line Items table as the results page shows it", () => {
     expect([names.size, named.table, named.note, headings(named)]).toEqual([250, view.table, view.note, headings(view)]);
   });
 });
+
+
+describe("The line-items-only option", () => {
+  it("drops module and divider rows last, retaining inherited dimensions, No Data and unknown modules", () => {
+    const table: ResultTable = { file: LINE_ITEMS_FILE, label: "Line Items", guard: false, headers: [...HEADERS], rows: [
+      ...MODEL, real({ "": "Unknown", Format: NUMBER, "Applies To": "Products" }),
+    ] };
+    const before = structuredClone(table);
+    const view = lineItemsView(table, undefined, { lineItemsOnly: true });
+    expect(view.table.rows.map(row => row[0])).toEqual([...MODEL.filter((_, index) => !MODULE_ROWS.includes(index)).map(row => row[0]), "Unknown"]);
+    expect(view.headings.size).toBe(0);
+    expect(view.moduleRows).toBe(5);
+    expect(said(view)[0]).toEqual(["Units", REVENUE, "Products, Regions", "Module"]);
+    expect(view.table.rows.some(row => row[0] === "--- Checks ---")).toBe(true);
+    expect(view.note).toBe("12 line items, each beside its module under Module Name. A module's own settings are in Modules.");
+    expect(view.warning).toBe("1 line item has no Module Name: its module is not known.");
+    expect(table).toEqual(before);
+    const defaultView = lineItemsView(table);
+    expect(defaultView.table.rows).toHaveLength(table.rows.length);
+    expect(lineItemsView(table, undefined, { lineItemsOnly: false })).toEqual(defaultView);
+  });
+
+  it("keeps an unknown name-only line item when module names are available", () => {
+    const table: ResultTable = { file: LINE_ITEMS_FILE, label: "Line Items", guard: false, headers: SHORT,
+      rows: [moduleRow(REVENUE, "Products"), lineItem("Units", REVENUE), moduleRow("Unknown"), lineItem("Price", REVENUE)] };
+    const view = lineItemsView(table, new Set([REVENUE]), { lineItemsOnly: true });
+    expect(said(view)).toEqual([["Units", REVENUE, "Products", "Module"], ["Unknown", "", "", ""], ["Price", REVENUE, "Products", "Module"]]);
+  });
+});

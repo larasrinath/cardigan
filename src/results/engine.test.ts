@@ -312,11 +312,11 @@ describe("The results page against the engine in the Anaplan tab", () => {
     expect([file.headers, file.rows.map(row => [row[0], row[1], row.at(-1)])]).toEqual([["", "Format", "Summary", "Applies To", "Module Name", "Ratio Numerator", "Ratio Denominator", "Format List"],
       [["Profitability", "", ""], ["Product", list(101000000001), "Products"], ["Region", list(101000000002), "+ Regions"], ["Active product", list(109000000001), ""]]]);
     // The page says the format with that name, and with the list's ID where the file has none, and its data type after
-    // it. The column is in its table, and so is the module's own row, which has no format.
+    // it. The column is in its table; the module's own row stays only in the source grid.
     const shown = fileView(result, file).table;
     expect([shown.headers, shown.rows.map(row => [row[0], row[2], row[3], row.at(-1)])]).toEqual([
       ["", "Module Name", "Format", "Format type", "Summary", "Applies To", "Applies To from", "Ratio Numerator", "Ratio Denominator", "Format List"],
-      [["Profitability", "", "", ""], ["Product", "List: Products", "List", "Products"], ["Region", "List: + Regions", "List", "+ Regions"],
+      [["Product", "List: Products", "List", "Products"], ["Region", "List: + Regions", "List", "+ Regions"],
         ["Active product", "List: ID 109000000001", "List", ""]]]);
   });
 

@@ -427,17 +427,15 @@ describe("A model's result on the results page, with the map's real graph and th
     // there, and each has the columns the map reads.
     part('[data-map-act="about"]').press();
     expect([part(".map-about").hidden, text(".map-notes .map-about-line")]).toEqual([false, expect.stringMatching(/^Model one\b.*\bPlanning\b.*\b4 modules\b.*\b10 line items$/)]);
-    expect(listed).toBe("17");
+    expect(listed).toBe("10");
     const leftOut = parts(".map-notes li").map(line => line.textContent);
     expect(leftOut.filter(line => /^\d/.test(line))).toEqual([expect.stringMatching(/^1 export is linked to no module or list/)]);
     expect(leftOut.filter(line => /was not exported|has no .* columns?:/.test(line))).toEqual([]);
-    // Its line items are as many as the page's own Line Items table lists without the blanks of the format's data type,
-    // which are the modules' own rows and the headings among them, as the map leaves them out.
+    // The table counts only line items; module rows no longer add a blank format choice.
     choose("Line Items");
+    expect(page.id("rowCount").textContent).toBe("1–10 of 10 rows");
     page.find('[data-colfilter="3"]').press();
-    expect(page.all("#popover .pop-opt").map(option => option.textContent.replace(/\s+/g, " ").trim())[0]).toMatch(/^\(blank\) 7\b/);
-    page.all("#popover input")[0].tick();
-    expect(page.id("rowCount").textContent).toBe("1–10 of 10 rows (filtered from 17)");
+    expect(page.all("#popover .pop-opt").some(option => option.textContent.includes("(blank)"))).toBe(false);
   });
 
   it("finds a line item by search and says its formula, its format and summary in the page's words, and its module, and names no file", async () => {
@@ -522,7 +520,7 @@ describe("A model's result on the results page, with the map's real graph and th
 
     // Another view: the map gives its place up, and what it made stays there, out of sight.
     choose("Line Items");
-    expect([host().hidden, root.hidden, host().children[0] === root, page.texts("#view h1"), page.id("rowCount").textContent]).toEqual([true, true, true, ["Line Items"], "1–17 of 17 rows"]);
+    expect([host().hidden, root.hidden, host().children[0] === root, page.texts("#view h1"), page.id("rowCount").textContent]).toEqual([true, true, true, ["Line Items"], "1–10 of 10 rows"]);
     // Back: the same map, where it was left: the module's line items, the line item selected, the text in its search.
     // It is drawn again, and has the focus on its picture.
     toMap();
@@ -624,7 +622,7 @@ describe("A model's result on the results page, with the map's real graph and th
     // what was read for it, and what a control is named by. Of the map: a note of what it leaves out, and a box on its
     // picture.
     const has = (begins: string): boolean => words.some(text => text.startsWith(begins));
-    expect([has("Columns follow a reading order with Anaplan's names."), words.some(text => text.includes("The table lists every row of the grid: each module's own row, in bold, then its line items.")),
+    expect([has("Columns follow a reading order with Anaplan's names."), words.some(text => text.includes("The table lists only line items, each beside its module under Module Name.")),
       words.some(text => text.includes("14:02:05 Line Items: 16 rows × 25 columns; columns: Format | Formula | Summary")),
       !words.some(text => text.includes("rows in all")), !has("5 rows about the model are not listed here: the Overview names the workspace and the model, under About this export."),
       !has("Every row of Anaplan's Line Items grid: 11 line items, and 5 modules' own rows, each in bold above its line items"), words.includes("Format as read"), words.includes("Open this row"),
