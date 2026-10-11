@@ -232,7 +232,7 @@ beforeEach(() => {
   vi.stubGlobal("HTMLSelectElement", FakeSelect);
   vi.stubGlobal("requestAnimationFrame", (callback: () => void) => { callback(); return 0; });
   vi.stubGlobal("navigator", { clipboard: { writeText: async () => undefined } });
-  vi.stubGlobal("chrome", { tabs: { connect: () => port = new FakePort() }, runtime: { lastError: undefined } });
+  vi.stubGlobal("chrome", { tabs: { connect: () => port = new FakePort() }, runtime: { id: "cardigan-test", onMessage: { addListener: () => undefined }, lastError: undefined } });
   // The viewer's clock is UTC's, on any machine: the page says its times in the viewer's zone (times.ts).
   fixTimeZone("UTC");
 });

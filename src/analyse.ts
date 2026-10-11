@@ -75,6 +75,7 @@ export async function readPublished(guid: string, declared: UxPageType | undefin
       if (native && typeof native === "object" && !Array.isArray(native)) return { type, native: native as Obj };
       problem ??= "unexpected page format";
     } catch (error) {
+      if (error instanceof RestError && error.code === "MAINTENANCE") throw error;
       if (error instanceof RestError && error.code === "SIGNED_OUT") throw error;
       const status = error instanceof RestError ? error.status : undefined;
       log(`page ${guid}: ${ROUTE[type]} answered ${message(error)}`);
@@ -227,6 +228,7 @@ async function readActionNames(scope: ModelScope, refs: readonly UxEntityRef[], 
         problem = undefined;
         break;
       } catch (error) {
+        if (error instanceof RestError && error.code === "MAINTENANCE") throw error;
         progress.log(`${scope.modelName}: ${key} from ${host} answered ${message(error)}`);
         problem ??= message(error);
       }
@@ -992,6 +994,7 @@ export async function loadCatalogWhen(scope: ModelScope, inputs: Promise<Catalog
       }
     }, options.frameHost);
   } catch (error) {
+    if (error instanceof RestError && error.code === "MAINTENANCE") throw error;
     notes.push(`${scope.modelName}: names from the model data service were not available (${message(error)}); IDs are shown instead.`);
   }
   signal?.throwIfAborted();
@@ -1041,7 +1044,7 @@ const APP_UNREAD = {
 /** A failed read of the app as the sentence for the user, with the read's own code and HTTP status as the detail for the
  * log. A session that has ended is passed on as it is: the content script tells it by its code. */
 function appUnread(error: unknown): unknown {
-  if (!(error instanceof RestError) || error.code === "SIGNED_OUT") return error;
+  if (!(error instanceof RestError) || error.code === "SIGNED_OUT" || error.code === "MAINTENANCE") return error;
   const said = error.code === "HTTP_ERROR" ? (error.status === 403 ? APP_UNREAD.refused : error.status === 404 ? APP_UNREAD.missing : APP_UNREAD.failed)
     : error.code === "NETWORK_ERROR" ? APP_UNREAD.unreachable : error.code === "TIMEOUT" ? APP_UNREAD.slow : APP_UNREAD.unreadable;
   return new Failure(said, error.message);

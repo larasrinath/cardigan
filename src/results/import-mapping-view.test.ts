@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AnalysisResult, ImportMapping, ItemMatch, MappedTarget, ResultTable } from "../result-types.js";
-import { columnLines, HEADER_ROW_BY_HAND, HEADER_ROW_MATCHED, HEADER_ROW_UNSTORED, lineItemsOf, mappingOfRow, mappingView, matchWords, NO_MAPPING, numbersWords, sourceWords,
+import { columnLines, HEADER_ROW_BY_HAND, HEADER_ROW_MATCHED, lineItemsOf, mappingOfRow, mappingView, matchWords, NO_MAPPING, numbersWords, sourceWords,
   unfedLine } from "./import-mapping-view.js";
 import { fileView } from "./result-view.js";
 
@@ -58,21 +58,20 @@ describe("An import's mapping, in the drawer's words", () => {
   });
 
   it("names the columns before the last one mapped that no target takes, and says that what follows it is not known", () => {
-    const AFTER = (last: number) => `Whether there are columns after column ${last} is not known: Anaplan keeps the import's mapping, not the header row it was made from.`;
     // The user's example: columns 3, 5 and 6 are not used, and the last one mapped is the 7th.
     expect(columnLines([column("Division", 1), column("Parent", 2), column("Code", 4), column("Manager", 7), { target: "Active", source: "none" }]))
-      .toEqual(["Columns 3, 5 and 6 are not used.", AFTER(7)]);
-    expect(columnLines([column("Division", 1), column("Parent", 3)])).toEqual(["Column 2 is not used.", AFTER(3)]);
+      .toEqual(["Columns 3, 5 and 6 are not used."]);
+    expect(columnLines([column("Division", 1), column("Parent", 3)])).toEqual(["Column 2 is not used."]);
     // A column that feeds two targets is used once; a gap of many is said as a run.
-    expect(columnLines([column("Products", 2), column("Code", 2), column("Value", 9)])).toEqual(["Columns 1 and 3 to 8 are not used.", AFTER(9)]);
-    expect(columnLines([column("Products", 1), column("Time", 2), column("Value", 3)])).toEqual(["Columns 1 to 3 are all used.", AFTER(3)]);
-    expect(columnLines([column("Products", 1), column("Value", 2)])).toEqual(["Columns 1 and 2 are both used.", AFTER(2)]);
-    expect(columnLines([column("Value", 1)])).toEqual(["Column 1 is used.", AFTER(1)]);
+    expect(columnLines([column("Products", 2), column("Code", 2), column("Value", 9)])).toEqual(["Columns 1 and 3 to 8 are not used."]);
+    expect(columnLines([column("Products", 1), column("Time", 2), column("Value", 3)])).toEqual(["Columns 1 to 3 are all used."]);
+    expect(columnLines([column("Products", 1), column("Value", 2)])).toEqual(["Columns 1 and 2 are both used."]);
+    expect(columnLines([column("Value", 1)])).toEqual(["Column 1 is used."]);
     // A target that names its column by its heading alone could take any column, so the columns no number takes may be used.
     expect(columnLines([column("Products", 1), column("Units", undefined, "Units"), column("Price", 4)]))
-      .toEqual(["Columns 2 and 3 are not mapped by number. 1 target names its column by heading alone, and may use them.", AFTER(4)]);
+      .toEqual(["Columns 2 and 3 are not mapped by number. 1 target names its column by heading alone, and may use them."]);
     expect(columnLines([column("Products", 1), column("Units", undefined, "Units"), column("Price", undefined, "Price"), column("Value", 3)]))
-      .toEqual(["Column 2 is not mapped by number. 2 targets name their columns by heading alone, and may use it.", AFTER(3)]);
+      .toEqual(["Column 2 is not mapped by number. 2 targets name their columns by heading alone, and may use it."]);
     expect(columnLines([column("Units", undefined, "Units"), column("Price", undefined, "Price")]))
       .toEqual(["Each column mapped is named by its heading alone, so Cardigan cannot say which columns are not used."]);
     // A column given neither place nor heading is not said to be named by its heading, alone or with others.
@@ -80,9 +79,9 @@ describe("An import's mapping, in the drawer's words", () => {
       .toEqual([["The definition gives no column's place, so Cardigan cannot say which columns are not used."],
         ["The definition gives no column's place, so Cardigan cannot say which columns are not used."]]);
     expect(columnLines([column("Products", 1), column("Units"), column("Price", undefined, "Price"), column("Value", 4)]))
-      .toEqual(["Columns 2 and 3 are not mapped by number. 2 targets give no place for their columns, and may use them.", AFTER(4)]);
+      .toEqual(["Columns 2 and 3 are not mapped by number. 2 targets give no place for their columns, and may use them."]);
     expect(columnLines([column("Products", 1), { target: "Units", source: "column", id: "f12" }, column("Value", 3)]))
-      .toEqual(["Column 2 is not mapped by number. 1 target gives no place for its column, and may use it.", AFTER(3)]);
+      .toEqual(["Column 2 is not mapped by number. 1 target gives no place for its column, and may use it."]);
     // A mapping of constants and prompts alone maps no column.
     expect(columnLines([{ target: "Versions", source: "constant", text: "Actual" }, { target: "Products", source: "prompt" }])).toEqual(["No column is mapped."]);
   });
@@ -92,14 +91,14 @@ describe("An import's mapping, in the drawer's words", () => {
     const BY_CODE: ImportMapping = { id: "112000000171", name: "Division by code", importType: "HIERARCHY_DATA",
       targets: [{ target: "Division", source: "none" }, column("Code", 1, "Code"), column("Parent", 2, "Region")] };
     expect(mappingView(BY_CODE)).toEqual({ rows: [["Code", "Code"], ["Region", "Parent"]],
-      lines: ["Not mapped: Division.", "Columns 1 and 2 are both used.", "Whether there are columns after column 2 is not known: Anaplan keeps the import's mapping, not the header row it was made from."] });
+      lines: ["Not mapped: Division.", "Columns 1 and 2 are both used."] });
   });
 
   it("shows a row of Source and Target for each source and the target it feeds, or what stands in their place", () => {
     const DIVISION: ImportMapping = { id: "112000000001", name: "Division from HQ Network.csv", importType: "HIERARCHY_DATA",
       targets: [column("Division", 1, "Division Name"), column("Parent", 2, "Region"), { target: "Code", source: "none" }] };
     expect(mappingView(DIVISION)).toEqual({ rows: [["Division Name", "Division"], ["Region", "Parent"]],
-      lines: ["Not mapped: Code.", "Columns 1 and 2 are both used.", "Whether there are columns after column 2 is not known: Anaplan keeps the import's mapping, not the header row it was made from."] });
+      lines: ["Not mapped: Code.", "Columns 1 and 2 are both used."] });
     // An import whose definition could not be read says why; one of another kind says what it loads.
     expect(mappingView({ ...DIVISION, importType: "", targets: [], note: "Cardigan could not read this import's mapping." }))
       .toEqual({ rows: [], lines: ["Cardigan could not read this import's mapping."] });
@@ -136,8 +135,7 @@ describe("An import's mapping, in the drawer's words", () => {
       rows: [["Column 2", "Regions"], ["Column 2", "Territory"], ["Price", "Discount"], ["Price", "Products"], ["Value", "Value"], ["Units", "Units"],
         ["Column with ID f12", "Region code"], ["Constant: Actual", "Versions"], ["Prompt: chosen each time the import runs", "Channel"],
         [HEADER_ROW_MATCHED, "Line Items"], ["A source Cardigan does not know (field)", "Manager"]],
-      lines: ["Not mapped: Active.", HEADER_ROW_UNSTORED, "Columns 1, 3 and 5 are not mapped by number. 3 targets give no place for their columns, and may use them.",
-        "Whether there are columns after column 6 is not known: Anaplan keeps the import's mapping, not the header row it was made from."] });
+      lines: ["Not mapped: Active.", "Columns 1, 3 and 5 are not mapped by number. 3 targets give no place for their columns, and may use them."] });
     // Every target is on the page: in a row, or in the line under the mapping.
     const view = mappingView(MIXED);
     const words = [...view.rows.flat(), ...view.lines].join("\n");
@@ -170,7 +168,6 @@ describe("An import's mapping, in the drawer's words", () => {
       rows: [["Resource", "Resources #"], ["Price (EUR)", "Price"], ["Hours", "Hours booked"], ["Notes", "Ignored"],
         [HEADER_ROW_BY_HAND, "Line Items", "Mapped by hand: 2 headers, 1 ignored"]],
       lines: ["Items of Resources # are matched on their names or codes when the import runs.",
-        "Anaplan stores the headers mapped by hand; any other header of the header row is not known.",
         "Each column mapped is named by its heading alone, so Cardigan cannot say which columns are not used."] });
   });
 
@@ -180,13 +177,13 @@ describe("An import's mapping, in the drawer's words", () => {
     const many = ["Cost", "Hours", "Rate", "Start Date", "End Date", "Notes", "Active"];
     expect(mappingView(MATCHED, many)).toEqual({
       rows: [["Resource", "MDL3801 - Resources #"], [HEADER_ROW_MATCHED, "Line Items", "Line items a header can match: Cost, Hours, Rate, Start Date, End Date and 2 more", many]],
-      lines: ["Items of MDL3801 - Resources # are matched on their names or codes when the import runs.", HEADER_ROW_UNSTORED,
+      lines: ["Items of MDL3801 - Resources # are matched on their names or codes when the import runs.",
         "Each column mapped is named by its heading alone, so Cardigan cannot say which columns are not used."] });
     // Five or fewer are said in full, and with none known the row says nothing more.
     expect(mappingView(MATCHED, ["Cost", "Hours"]).rows[1]).toEqual([HEADER_ROW_MATCHED, "Line Items", "Line items a header can match: Cost and Hours"]);
     expect(mappingView(MATCHED).rows[1]).toEqual([HEADER_ROW_MATCHED, "Line Items"]);
     // With no column but the header row, no line says that no column is mapped: the header row's columns are.
-    expect(mappingView({ ...MATCHED, targets: [MATCHED.targets[1]] }).lines).toEqual([HEADER_ROW_UNSTORED]);
+    expect(mappingView({ ...MATCHED, targets: [MATCHED.targets[1]] }).lines).toEqual([]);
   });
 
   it("says under a source how it is read: items mapped by hand and ignored, Time's period format or names, a date line item's format", () => {
@@ -198,12 +195,11 @@ describe("An import's mapping, in the drawer's words", () => {
       { ...column("Channel", 5, "Channel"), items: { byHand: 0, ignored: 0 } }] };
     expect(mappingView(READ)).toEqual({ rows: [["Product", "Products", "3 items mapped by hand, 2 ignored"], ["Region", "Regions", "1 item mapped by hand"],
       ["Month", "Time", "Period format: MMM YY"], ["Shipped", "Ship Date", "Date format: DD/MM/YYYY"], ["Channel", "Channel"]],
-    lines: ["Items of Channel are matched on their names or codes when the import runs.", "Columns 1 to 5 are all used.",
-      "Whether there are columns after column 5 is not known: Anaplan keeps the import's mapping, not the header row it was made from."] });
+    lines: ["Items of Channel are matched on their names or codes when the import runs.", "Columns 1 to 5 are all used."] });
     expect(mappingView({ ...READ, targets: [{ ...column("Time", 1, "Month"), periodFormat: null }] }).rows).toEqual([["Month", "Time", "Periods matched by their names"]]);
     // No word of these names a file.
     const view = mappingView(READ);
-    expect([...view.rows.flat(), ...view.lines, HEADER_ROW_MATCHED, HEADER_ROW_BY_HAND, HEADER_ROW_UNSTORED].filter(words => typeof words === "string" && NAMES_A_FILE.test(words))).toEqual([]);
+    expect([...view.rows.flat(), ...view.lines, HEADER_ROW_MATCHED, HEADER_ROW_BY_HAND].filter(words => typeof words === "string" && NAMES_A_FILE.test(words))).toEqual([]);
   });
 
   it("names in one line the targets nothing feeds, with why where there is more to say, and has no such line where every target has a source", () => {
@@ -280,7 +276,7 @@ describe("The mapping of a row of a model's Imports", () => {
     const few: AnalysisResult = { ...MODEL, importMappings: [mapping("Prices", "First")] };
     const table = fileView(few, IMPORTS).table;
     expect(table.rows.map(row => mappingOfRow(few, table, row))).toEqual([{ rows: [], lines: [NO_MAPPING] }, undefined,
-      { rows: [["Column 1", "First"]], lines: ["Column 1 is used.", "Whether there are columns after column 1 is not known: Anaplan keeps the import's mapping, not the header row it was made from."] },
+      { rows: [["Column 1", "First"]], lines: ["Column 1 is used."] },
       { rows: [], lines: [NO_MAPPING] }, undefined]);
   });
 });

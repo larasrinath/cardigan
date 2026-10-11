@@ -6,6 +6,7 @@ import { diagnosticRows, stampLine } from "./details.js";
 import { firstLine, type Progress } from "./progress.js";
 import type { Subject } from "./protocol.js";
 import { RestError } from "./rest.js";
+import { maintenanceHeading } from "./maintenance.js";
 import { serveTab, type Opened, type Seen } from "./tab-port.js";
 import { sleep } from "./util.js";
 import { withVersion } from "./version-label.js";
@@ -54,6 +55,9 @@ if (window.top === window) {
   /** An app or a model, by the page's address. The classic model page opened on its own names no model in its address: it
    * is a model page once the main-world script in this same window has announced the model it holds. */
   const subject = (): Subject => {
+    if (maintenanceHeading(document.title) || [...document.querySelectorAll("h1, h2, h3, h4, h5, h6")].some(heading => maintenanceHeading(heading.textContent ?? ""))) {
+      return { kind: "none", maintenance: true };
+    }
     const app = APP_PATH.exec(location.pathname)?.[1];
     if (app) return { kind: "app", id: app };
     const building = MODEL_PATH.exec(location.pathname)?.[1];
@@ -145,6 +149,7 @@ if (window.top === window) {
       ? analyseApp(seen.id, progress, diagnostics, signal)
       : readModel(seen, progress, signal)),
     signedOut: error => error instanceof RestError && error.code === "SIGNED_OUT",
+    maintenance: error => error instanceof RestError && error.code === "MAINTENANCE",
     open,
   });
 }

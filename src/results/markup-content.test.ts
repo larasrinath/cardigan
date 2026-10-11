@@ -1006,17 +1006,17 @@ describe("What the results page's markup shows", () => {
     // button's look, so that it is as large as the two will be. Each part is marked as to come, which the stylesheet does
     // not show, and is kept from a screen reader. Neither is a button, takes the focus, has an ID or says what a click
     // on it does: nothing is said yet, and nothing can be forgotten yet.
-    expect(place("keeping")).toEqual([...where, [["span", undefined, "A copy of this result is kept for a refresh of this page."], ["span", undefined, "Forget this result"]]]);
+    expect(place("keeping")).toEqual([...where, [["span", undefined, "Forget this result"]]]);
     expect(overview("keeping").querySelectorAll("#ovKept span").map(part => [part.getAttribute("class"), part.getAttribute("aria-hidden"), part.focusable, part.id]))
-      .toEqual([["to-come", "true", false, ""], ["btn sm to-come", "true", false, ""]]);
+      .toEqual([["btn sm to-come", "true", false, ""]]);
     expect([overview("keeping").querySelectorAll("#ovKept button, #ovKept [data-act], #ovKept [tabindex], #ovKept [id]").length, overview("keeping").querySelector("#ovKept")?.textContent])
       .toEqual([0, overview("kept").querySelector("#ovKept")?.textContent]);
     // A copy is kept: a line that says so, and beside it the button that forgets the copy.
-    expect(place("kept")).toEqual([...where, [["span", "keptLine", "A copy of this result is kept for a refresh of this page."], ["button", "forget", "Forget this result"]]]);
+    expect(place("kept")).toEqual([...where, [["span", "keptLine", ""], ["button", "forget", "Forget this result"]]]);
     const button = overview("kept").querySelector('#ovKept [data-act="forget"]');
     // It is the design's small button, one the Tab key reaches, and the line beside it describes it to a screen reader.
     expect([button?.getAttribute("type"), button?.getAttribute("class"), button?.focusable, button?.getAttribute("aria-describedby"), button?.hasAttribute("aria-label"),
-      overview("kept").querySelector("#keptLine")?.hasAttribute("tabindex")]).toEqual(["button", "btn sm", true, "keptLine", false, false]);
+      overview("kept").querySelector("#keptLine")?.hasAttribute("tabindex")]).toEqual(["button", "btn sm", true, null, false, false]);
     // Forgotten: the button is gone, and one line says what happened. It can take the focus the button had, by script only.
     expect(place("forgotten")).toEqual([...where, [["span", "keptLine", "The copy kept for refreshes is removed. This result stays here until you refresh or close this page."]]]);
     expect(FORGOTTEN_LINE).toBe("The copy kept for refreshes is removed. This result stays here until you refresh or close this page.");

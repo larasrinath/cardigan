@@ -10,6 +10,15 @@ The Model map's details lead into the box, back to its table, and into Model Bui
 - **The trace in one place.** Its counts and **Only these** sit under the buttons in the details. The separate trace card is gone. Closing the details clears the selection. Opening and closing them leaves every box and the camera in place. Raw format and summary values sit last under **As read**, folded at first.
 - **Back to the same box.** A row's **Model map** button keeps the table's details for the return. **Table** brings the row into view, with its details open; **Model map** selects that box again. The table keeps its sort and column choices, and its search and filters where they include the row.
 
+## 0.26.0 (11 October 2026)
+
+Coming back to Cardigan keeps the place you were reading.
+
+- **The icon reuses the result.** Click it on the same Anaplan tab to bring its results tab and window forward and run again there. The table or map and the open row stay, where they still exist. A run already in progress comes forward and carries on. With no answering results page after about 300 milliseconds, a new tab opens. No new permission. (#77)
+- **A folded log.** Diagnostics starts closed during a run and on the Overview. A failed run opens it; Copy diagnostic log still works. (#77)
+- **Maintenance, named.** Anaplan's HTTP 503 or a page title or heading announcing maintenance shows **Anaplan is down for maintenance**, with **Run again**. Ordinary errors keep their own messages. The diagnostic log names the maintenance case. (#77)
+- **Fewer remarks.** The Overview keeps **Forget this result** without the sentence about the kept copy. An import's Mapping keeps its own notes; How to read explains saved headers and why columns after the last mapped one are not known. (#77)
+
 ## 0.25.1 (11 October 2026)
 
 The Model map keeps its places when links change, and keeps the box you were reading.

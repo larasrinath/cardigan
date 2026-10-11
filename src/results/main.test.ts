@@ -159,6 +159,8 @@ const WITH_ACCESS: AnalysisResult = {
 
 // The page under test, and what stands in for the browser around it. A test loads the page with `open`.
 let page: FakePage;
+type RuntimeListener = Parameters<typeof chrome.runtime.onMessage.addListener>[0];
+let iconListener: RuntimeListener;
 /** The watch for a page that makes a file, starts a download or goes somewhere to save one (no-file.test-support.ts):
  * it is on from before each test to after it, whatever the test does with the page. */
 let watch: FileWatch;
@@ -377,7 +379,7 @@ beforeEach(() => {
       throw new Error("Cannot access contents of the page. Extension manifest must request permission to access the respective host.");
     } },
     windows: { update: async (id: number, info: unknown) => { windowUpdates.push([id, info]); } },
-    runtime: { get lastError() { return lastError; } },
+    runtime: { id: "cardigan-test", onMessage: { addListener: (listener: RuntimeListener) => { iconListener = listener; } }, get lastError() { return lastError; } },
   });
   vi.stubGlobal("navigator", { clipboard: { writeText: async (text: string) => {
     if (clipboardRefuses) throw new Error("Write permission denied.");
@@ -434,6 +436,15 @@ const clicked = (tab: number) => `?tab=${tab}&opened=${NOW.getTime() - 1500}`;
 const runControl = () => [page.id("runAgain").textContent.trim(), page.id("runAgain").title, page.all("#runAgain svg").length];
 /** Lets what the script started without waiting for it, such as a copy to the clipboard, come to its end. */
 const settle = async () => { for (let turn = 0; turn < 5; turn++) await Promise.resolve(); };
+/** Both halves of a toolbar click, through the page's actual runtime listener. */
+async function clickIcon(): Promise<void> {
+  const replies: unknown[] = [];
+  iconListener({ type: "cardigan-find-results", tabId: 42 }, { id: "cardigan-test" }, answer => replies.push(answer));
+  await settle();
+  expect(replies).toHaveLength(1);
+  iconListener({ type: "cardigan-reuse-results", tabId: 42, resultsTabId: OWN_TAB.id }, { id: "cardigan-test" }, () => undefined);
+  await settle();
+}
 /** What Chrome says when it closes a port to a tab without the content script. */
 const NO_RECEIVER = "Could not establish connection. Receiving end does not exist.";
 /** Lets the page ask a tab whose content script never answers again, until it gives up: each port it opens meanwhile
@@ -497,6 +508,38 @@ const pagerButtons = () => page.all("#pager .pg-btn").map(button => {
 });
 
 describe("The results page's script, on the page", () => {
+  it("folds Diagnostics for reading, opens it on failure, and copies the log in either state", async () => {
+    await open(clicked(42));
+    ports[0].send({ type: "subject", subject: { kind: "model", id: MODEL.id } });
+    ports[0].send({ type: "log", text: "Reading invented model settings" });
+    expect(page.id("runLog").hasAttribute("open")).toBe(false);
+    page.id("runCopy").press();
+    await settle();
+    expect(copied.at(-1)).toContain("Reading invented model settings");
+    ports[0].send({ type: "error", message: "The connection stopped." });
+    expect(page.id("runLog").hasAttribute("open")).toBe(true);
+    page.id("runRetry").press();
+    expect(page.id("runLog").hasAttribute("open")).toBe(false);
+    sendResult(ports[0], MODEL);
+    expect(page.id("ovLog").hasAttribute("open")).toBe(false);
+    page.find("#ovLog summary").press();
+    page.id("runAgain").press();
+    expect(page.id("ovLog").hasAttribute("open")).toBe(false);
+  });
+
+  it("shows the maintenance card with Run again and an open diagnostic log", async () => {
+    await open(clicked(42));
+    ports[0].send({ type: "subject", subject: { kind: "none", maintenance: true } });
+    expect(page.id("runTitle").textContent).toBe("Anaplan is down for maintenance");
+    expect(page.id("runStatus").textContent).toBe("Try again when it's back. Nothing was read.");
+    expect(page.id("runRetry").hidden).toBe(false);
+    expect(page.id("runLog").hasAttribute("open")).toBe(true);
+    page.id("runCopy").press();
+    await settle();
+    expect(copied.at(-1)).toContain("case=MAINTENANCE");
+    page.id("runRetry").press();
+    expect(ports).toHaveLength(2);
+  });
   it("shows a Polaris overview with only populated tables, the usual About rows, and no map even from a kept address", async () => {
     const { polarisResult, POLARIS_NOTE } = await import("../polaris.js");
     const { emptyCatalog, addModuleViews, addLists } = await import("../catalog.js");
@@ -531,7 +574,7 @@ describe("The results page's script, on the page", () => {
     expect(page.id("runRefresh").hidden).toBe(false);
     expect(page.id("runRetry").hidden).toBe(true);
     expect(page.id("runCopy").hidden).toBe(false);
-    expect(page.id("runLog").hasAttribute("open")).toBe(false);
+    expect(page.id("runLog").hasAttribute("open")).toBe(true);
     page.id("runCopy").press();
     await settle();
     expect(copied[0]).toContain("case=NO_READER");
@@ -597,7 +640,7 @@ describe("The results page's script, on the page", () => {
       ports[index].send({ type: "subject", subject: { kind: "app", id: RESULT.id } });
       expect(ports[index].posted, address).toEqual([]);
       expect(["runTitle", "runStatus", "runHint"].map(id => page.id(id).textContent), address).toEqual(["Ready to analyse", "That Anaplan tab shows an app.",
-        "Choose Run to analyse it. This page starts by itself only when the Cardigan icon has just opened it."]);
+        "Choose Run to analyse it, or click the Cardigan icon on the Anaplan tab."]);
       expect(runControl(), address).toEqual(["Run", "Analyse the Anaplan tab", 1]);
       expect(disabled("runAgain"), address).toEqual([false]);
       // A time that is in the address goes, fresh or not.
@@ -3438,7 +3481,7 @@ describe("A result kept while the results page is refreshed", () => {
     expect([session.held.size, runControl()[0], disabled("runAgain")]).toEqual([0, "Run", [false]]);
     ports[1].send({ type: "subject", subject: { kind: "app", id: APP.id } });
     expect([page.id("runTitle").textContent, page.id("runHint").textContent, ports[1].posted])
-      .toEqual(["Ready to analyse", "Choose Run to analyse it. This page starts by itself only when the Cardigan icon has just opened it.", []]);
+      .toEqual(["Ready to analyse", "Choose Run to analyse it, or click the Cardigan icon on the Anaplan tab.", []]);
   });
 
   it("takes everything a kept result had drawn off the page again when showing it fails at its last step", async () => {
@@ -3530,9 +3573,9 @@ describe("A result kept while the results page is refreshed", () => {
    * does, or that it only holds the room for what is to come, and its text. Nothing on a view that has no such place. */
   const keptPlace = () => (page.has("#ovKept")
     ? page.id("ovKept").children.map(child => [child.id || child.dataset.act || (child.classList.contains("to-come") ? "to come" : ""), child.textContent]) : undefined);
-  const KEPT = [["keptLine", "A copy of this result is kept for a refresh of this page."], ["forget", "Forget this result"]];
+  const KEPT = [["keptLine", ""], ["forget", "Forget this result"]];
   /** While a result is being kept: the room for the line and the control of a kept copy, which holds their words. */
-  const TO_COME = [["to come", "A copy of this result is kept for a refresh of this page."], ["to come", "Forget this result"]];
+  const TO_COME = [["to come", "Forget this result"]];
   const FORGOTTEN = [["keptLine", FORGOTTEN_LINE]];
   const NOT_REMOVED = [["keptLine", NOT_REMOVED_LINE], ["forget", "Forget this result"]];
   /** The control that forgets the kept result, once the overview offers it. */
@@ -3914,7 +3957,7 @@ describe("A result kept while the results page is refreshed", () => {
     // as to come, which the stylesheet does not show, and kept from a screen reader. The second has the control's look,
     // and so its size. Neither is a control, or anything the page looks up: nothing here takes the focus or a click.
     expect([keptPlace(), compression.asked]).toEqual([TO_COME, 0]);
-    expect(parts()).toEqual([["span", "to-come", "true", false, false], ["span", "btn sm to-come", "true", false, false]]);
+    expect(parts()).toEqual([["span", "btn sm to-come", "true", false, false]]);
     expect([page.has('[data-act="forget"]'), page.has("#keptLine"), page.all("#ovKept button, #ovKept [tabindex]").length]).toEqual([false, false, 0]);
     const held = page.id("ovKept").textContent;
     // While it is being kept, the same, also when the overview is drawn again.
@@ -4415,7 +4458,7 @@ describe("A model's map on the results page", () => {
     await openWith(MODEL);
     toMap();
     (mapMounts[0].options as ModelMapOptions).onView?.(view);
-    page.id("runAgain").press();
+    await clickIcon();
     ports[0].send({ type: "status", text: "Reading line items" });
     expect([mapAsked, host().hidden, host().contains(mapMounts[0].button), shows(), banner(), page.id("runAgain").title])
       .toEqual([["build", "mount 1", "show 1"], false, true, ["Model map", "Model map"], [], "Reading line items"]);
@@ -5873,15 +5916,14 @@ describe("The mapping of an import from a file, in its row's details", () => {
     // The import's file is no longer available, and its mapping is shown all the same: the mapping is the import's own.
     // Each source first, with the target it feeds; the target nothing feeds is no row, but a name in the line under them.
     expect(mapping()).toEqual([[["Division Name", "Division"], ["Region", "Parent"], ["Column 4", "Code"], ["Manager", "Manager"]],
-      ["Not mapped: Active.", "Columns 3, 5 and 6 are not used.", "Whether there are columns after column 7 is not known: Anaplan keeps the import's mapping, not the header row it was made from."]]);
+      ["Not mapped: Active.", "Columns 3, 5 and 6 are not used."]]);
     expect(page.texts("#drawerMapping th")).toEqual(["Source", "Target"]);
     page.key("Escape");
     // An import into a module: a line item by its column's heading alone after the column with a place, then a constant
     // and the line items from the header row.
     openImport("Prices from prices.csv");
     expect(mapping()).toEqual([[["Product", "Products"], ["Price", "Price"], ["Constant: Actual", "Versions"], ["Header row: each column whose header is a line item's name or code", "Line Items"]],
-      ["Headers that match a line item's name or code are matched when the import runs; Anaplan stores no such match, so those columns are not listed.", "Column 1 is used.",
-      "Whether there are columns after column 1 is not known: Anaplan keeps the import's mapping, not the header row it was made from."]]);
+      ["Column 1 is used."]]);
     page.key("Escape");
     // An import from another model has no mapping: its details are All columns alone.
     openImport("Regions from the hub");
@@ -5911,8 +5953,7 @@ describe("The mapping of an import from a file, in its row's details", () => {
     page.key("Escape");
     // An import into a module tells no items apart: it has no such line.
     openImport("Prices from prices.csv");
-    expect(mapping()[1]).toEqual(["Headers that match a line item's name or code are matched when the import runs; Anaplan stores no such match, so those columns are not listed.",
-      "Column 1 is used.", "Whether there are columns after column 1 is not known: Anaplan keeps the import's mapping, not the header row it was made from."]);
+    expect(mapping()[1]).toEqual(["Column 1 is used."]);
   });
 
   it("shows no mapping for a result an earlier version kept, which has none", async () => {
@@ -6253,7 +6294,7 @@ describe("How a result was looked at, kept through a refresh of the page until t
     return text === undefined ? undefined : JSON.parse(text);
   };
 
-  it("keeps the table and details through an edit and table reordering, with progress only in the run controls and live region", async () => {
+  it.each(["button", "icon"])("keeps the table and details through an edit and table reordering, started by %s", async entry => {
     await openWith(MODEL);
     goTo(1);
     page.id("tblSearch").type("Line item 2");
@@ -6261,7 +6302,7 @@ describe("How a result was looked at, kept through a refresh of the page until t
     const table = page.id("tableWrap");
     const drawer = page.id("drawerBody").innerHTML;
     expect(page.id("runAgain").focusable).toBe(true);
-    page.id("runAgain").press();
+    if (entry === "icon") await clickIcon(); else page.id("runAgain").press();
     ports[0].send({ type: "status", text: `Reading ${TAG}` });
     expect([page.id("tableWrap") === table, page.id("drawerBody").innerHTML, page.has("#runBanner"), page.id("live").textContent, strayImg()])
       .toEqual([true, drawer, false, `Reading ${TAG}`, false]);

@@ -10,6 +10,7 @@ import { columnWidths } from "./column-widths.js";
 import { cardsNamed, cardsOf, columnIndex, columnsOf, rowKeys, rowNameIndex, writesNone, type CardsTable, type Column, type RowKeys } from "./columns.js";
 import { askShown, describeState, openedJustNow, reloadTab, renewReader, repairTab, ResultsClient, runLabel, tabIdFrom, withoutOpened, type RunState } from "./connection.js";
 import { mappingOfRow } from "./import-mapping-view.js";
+import { serveIcon } from "./icon-entry.js";
 import { spreadLine } from "./nav-spread.js";
 import { itemRows, type NamedRows } from "./item-links.js";
 import { processOfRow, type StepView } from "./process-actions-view.js";
@@ -813,7 +814,8 @@ function showKept(kept: unknown, at: Date): boolean {
 }
 
 /** The states in which a run did not start or did not finish. */
-const STOPPED: ReadonlySet<RunState["phase"]> = new Set(["unreachable", "not-anaplan", "tab-closed", "no-subject", "failed", "interrupted", "old-reader", "missing-reader", "model-opening"]);
+const STOPPED: ReadonlySet<RunState["phase"]> = new Set(["unreachable", "not-anaplan", "tab-closed", "no-subject", "failed", "interrupted", "old-reader", "missing-reader", "model-opening", "maintenance"]);
+let logPhase: RunState["phase"] | undefined;
 
 /** Connecting, running, or why there is no new result. With a result on the page, progress is in the run control and live
  * region; only a failure adds a banner. A run that cannot start or finish takes nothing away. Every status is plain text. */
@@ -822,6 +824,14 @@ function showRun(runState: RunState): void {
   // reached, or was not, says nothing about it. And a page that may still bring one back draws no waiting view yet.
   if (result ? broughtBack && !client.asked : takingBack) return updateActions();
   const text = describeState(runState, ranBefore());
+  // Change the fold only on entering a run or a failure; progress updates leave the user's choice alone.
+  if (runState.phase !== logPhase) {
+    for (const log of document.querySelectorAll("#runLog, #ovLog")) {
+      if (runState.phase === "running") log.removeAttribute("open");
+      else if (STOPPED.has(runState.phase)) log.setAttribute("open", "");
+    }
+    logPhase = runState.phase;
+  }
   const set = (selector: string, value: string) => {
     const node = find(selector);
     if (node) {
@@ -843,6 +853,7 @@ function showRun(runState: RunState): void {
       // The page before its first result: there is nothing to navigate yet.
       el("topnav").hidden = true;
       el("view").innerHTML = runHtml();
+      if (STOPPED.has(runState.phase)) find("#runLog")?.setAttribute("open", "");
     }
     set("#runTitle", text.title);
     set("#runStatus", text.message);
@@ -2419,6 +2430,7 @@ const client = new ResultsClient({
   tabLoading: tabId === undefined ? undefined : () => chrome.tabs.get(tabId).then(tab => tab.status === "loading", () => false),
   onState: next => {
     if (next.phase !== "done") return showRun(next);
+    logPhase = "done";
     // Only a run's result is kept, and only once it is drawn: a result that was brought back is kept already.
     showResult(next.result, next.received);
     keepLater(next.result, next.received);
@@ -2432,6 +2444,7 @@ const client = new ResultsClient({
 const marked = markedView();
 takingBack = !byIcon;
 client.start();
+serveIcon(chrome, tabId, () => client.state.phase === "running" || (client.state.phase === "connecting" && client.asked), () => client.runAgain());
 if (takingBack) {
   void keeper.takeBack().then(back => {
     takingBack = false;

@@ -4,6 +4,7 @@ import { failureOf, firstLine, ModelUnavailable, OldReader, SEND_LOG, type Progr
 import { PORT_NAME, type PageMessage, type Subject, type TabMessage } from "./protocol.js";
 import type { AnalysisResult } from "./result-types.js";
 import { message } from "./util.js";
+import { MAINTENANCE_MESSAGE } from "./maintenance.js";
 
 /** The Anaplan tab's end of the port to the results page (protocol.ts). The page opens the port; this side says what the
  * tab shows and reads nothing until the page sends "run". It then reports each step and each line of the diagnostic log,
@@ -44,6 +45,7 @@ export interface Tab {
   run(subject: Seen, progress: Progress, diagnostics: () => string, signal: AbortSignal, asked?: RunAsked): Promise<AnalysisResult>;
   /** True for the error that means Anaplan's session has ended. */
   signedOut(error: unknown): boolean;
+  maintenance?(error: unknown): boolean;
   /** False once a later copy of the content script serves the document: this one then leaves new results pages to it. */
   current?(): boolean;
   /** Opens a module or a list of the model inside the Model Building page the tab shows, beside the tabs open there
@@ -104,8 +106,8 @@ export function serveTab(runtime: Pick<typeof chrome.runtime, "id" | "onConnect"
     const subject = tab.subject();
     if (subject.kind === "none") {
       for (const port of ports) {
-        send(port, { type: "log", text: stampLine("case=NOT_MODEL_PAGE; the tab shows neither an app nor a model") });
-        send(port, { type: "error", message: NOTHING_TO_ANALYSE, code: "NOT_MODEL_PAGE" });
+        send(port, { type: "log", text: stampLine(subject.maintenance ? "case=MAINTENANCE; Anaplan's page announces maintenance" : "case=NOT_MODEL_PAGE; the tab shows neither an app nor a model") });
+        send(port, { type: "error", message: subject.maintenance ? MAINTENANCE_MESSAGE : NOTHING_TO_ANALYSE, code: subject.maintenance ? "MAINTENANCE" : "NOT_MODEL_PAGE" });
       }
       return;
     }
@@ -129,8 +131,9 @@ export function serveTab(runtime: Pick<typeof chrome.runtime, "id" | "onConnect"
         for (const port of current.ports) deliver(port, result);
       } catch (error) {
         const failed = failureOf(error);
-        log(`stopped: ${failed.detail ?? failed.message}`);
+        log(`${tab.maintenance?.(error) ? "case=MAINTENANCE; " : ""}stopped: ${failed.detail ?? failed.message}`);
         tell(tab.signedOut(error) ? { type: "error", message: SIGNED_OUT, code: "SIGNED_OUT" }
+          : tab.maintenance?.(error) ? { type: "error", message: MAINTENANCE_MESSAGE, code: "MAINTENANCE" }
           : error instanceof OldReader ? { type: "error", message: failed.message, code: "OLD_READER", renewable: error.renewable }
           : error instanceof ModelUnavailable ? { type: "error", message: failed.message, code: error.code }
           : { type: "error", message: failed.message });

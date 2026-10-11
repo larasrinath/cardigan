@@ -701,7 +701,7 @@ describe("The results page against the engine in the Anaplan tab", () => {
     expect(page.client.state).toEqual({ phase: "ready", kind: "app" });
     expect(page.ports[0].heard).toEqual([{ type: "subject", subject: { kind: "app", id: GOLDEN_APP } }]);
     expect([page.ports[0].other.heard, runs, service.reads, service.sockets]).toEqual([[], [], [], []]);
-    expect(page.says().hint).toBe("Choose Run to analyse it. This page starts by itself only when the Cardigan icon has just opened it.");
+    expect(page.says().hint).toBe("Choose Run to analyse it, or click the Cardigan icon on the Anaplan tab.");
 
     page.client.runAgain();
     await until(done(page), "the result");

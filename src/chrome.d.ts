@@ -15,6 +15,9 @@ declare namespace chrome {
     const lastError: { message?: string } | undefined;
     function getURL(path: string): string;
     function getManifest(): { name: string; version: string };
+    interface MessageSender { id?: string; tab?: tabs.Tab }
+    function sendMessage(message: unknown): Promise<unknown>;
+    const onMessage: { addListener(listener: (message: unknown, sender: MessageSender, reply: (response: unknown) => void) => true | void): void };
     const onConnect: { addListener(listener: (port: Port) => void): void };
     /** When the extension is installed or updated, and when the browser starts with it: where the service worker sets up
      * what Chrome keeps for it, such as the toolbar icon's menu. */

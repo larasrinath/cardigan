@@ -425,7 +425,7 @@ describe("The results page's files", () => {
     // While a result is being kept the place holds the words of the line and of the button (markup.ts `keptCopyHtml`).
     // They say that a copy is kept, which is not so yet: each part is marked, and the stylesheet must not show a marked one.
     const room = parseMarkup(keptCopyHtml("keeping")).children;
-    expect(room.map(part => [part.classList.contains("to-come"), part.textContent])).toEqual([[true, "A copy of this result is kept for a refresh of this page."], [true, "Forget this result"]]);
+    expect(room.map(part => [part.classList.contains("to-come"), part.textContent])).toEqual([[true, "Forget this result"]]);
     // Unseen, and still taking its room, which `display:none` would not: that room is what it is there for.
     expect(rules(".to-come")).toEqual([[".ov-kept .to-come", "visibility:hidden"]]);
     // The place of a result that could not be kept holds nothing, and takes no room.
