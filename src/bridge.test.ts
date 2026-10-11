@@ -714,10 +714,10 @@ describe("Model export bridge between the Model Building page and the model's co
     const nothing = failing([]);
     const something = failing([probe]);
     await vi.advanceTimersByTimeAsync(120_000);
-    // No reader and a model still opening have different recovery paths.
+    // Both absent readers get the full wait before the caller can choose a fallback.
     expect(await nothing.outcome).toEqual([NO_READER, "case=NO_READER; no reader in the frames answered"]);
     expect(await something.outcome).toEqual([NO_MODEL, "case=MODEL_OPENING; the Classic frame did not answer after 120 s; 1 frame(s) reported in"]);
-    expect(nothing.lines).toEqual(Array(4).fill("status: Waiting for the model to open…"));
+    expect(nothing.lines).toEqual(Array(120).fill("status: Waiting for the model to open…"));
     expect(something.lines.at(-1)).toBe("log: page us1a.app.anaplan.com/a/modeling/: loader=undefined model=undefined workspace=undefined");
 
     // A frame that is there at once is asked at once; a different model than the address names is noted, and still exported.

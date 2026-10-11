@@ -148,6 +148,13 @@ function originOf(self: Window): string | undefined {
  * builds the two are. */
 export async function exportInCore(self: Window, core: () => CoreHandle | undefined, probes: () => Iterable<FrameProbe>, model: string, progress: Progress,
   signal?: AbortSignal, waitMs = WAIT_FOR_CORE_MS): Promise<AnalysisResult> {
+  const found = await waitForCore(self, core, probes, model, progress, signal, waitMs);
+  return runInCore(self, found, progress, undefined, signal);
+}
+
+/** Wait before starting either reader: both Classic and Polaris models can load the Classic client late. */
+export async function waitForCore(self: Window, core: () => CoreHandle | undefined, probes: () => Iterable<FrameProbe>, model: string, progress: Progress,
+  signal?: AbortSignal, waitMs = WAIT_FOR_CORE_MS): Promise<CoreHandle> {
   const deadline = Date.now() + waitMs;
   const began = Date.now();
   /** When a reader of another build was first heard, while none of this build has been. */
@@ -156,9 +163,6 @@ export async function exportInCore(self: Window, core: () => CoreHandle | undefi
     const found = core();
     if (found?.build === BUILD) break;
     if (found) otherSince ??= Date.now();
-    // No MAIN-world script anywhere after a greeting: typical of a tab open before installation. Ask the results
-    // page to inject it once. During document loading, let Chrome finish putting the scripts into the frames first.
-    if (!found && Date.now() - began >= OWN_READER_WAIT_MS && ![...probes()].length && self.document?.readyState !== "loading") break;
     if (Date.now() >= deadline || (otherSince !== undefined && Date.now() - otherSince >= OWN_READER_WAIT_MS)) break;
     signal?.throwIfAborted();
     progress.status("Waiting for the model to open…");
@@ -180,7 +184,7 @@ export async function exportInCore(self: Window, core: () => CoreHandle | undefi
   }
   if (found.modelId.toUpperCase() !== model.toUpperCase()) progress.log("the model frame reports a different model than this page's address");
   progress.log("Classic reader: answered; starting model settings");
-  return runInCore(self, found, progress, undefined, signal);
+  return found;
 }
 
 /** How long the page waits for the model's frame to say whether it opened a module, a list or a settings page (`openInCore`). The frame
