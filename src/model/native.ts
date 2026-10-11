@@ -135,8 +135,8 @@ function selectorLabel(view: Any, page: Any, index: number): string | undefined 
  * it that the export is still going (bridge.ts `serveCore`): nothing else is reported between two pages, so it has to be
  * asked before every one. Once the grid is read, the log says how long each of its pages took. */
 export async function readGrid(native: Native, rows: string, columns: string, name: string, log: Log, cellsPerRead = CELLS_PER_READ,
-  selectorLabels = false, stop?: Stop): Promise<Grid> {
-  const viewDefinition = { type: "MODEL_DEFINITION", staticContextIdentifiers: [], ...native.helper.getAxesForViewDefinition([rows], [columns]) };
+  selectorLabels = false, stop?: Stop, staticContextIdentifiers: string[] = []): Promise<Grid> {
+  const viewDefinition = { type: "MODEL_DEFINITION", staticContextIdentifiers, ...native.helper.getAxesForViewDefinition([rows], [columns]) };
   const firstRows = Math.max(1, Math.floor(cellsPerRead / FIRST_PAGE_COLUMNS));
   stop?.throwIfAborted();
   let asked = Date.now();
