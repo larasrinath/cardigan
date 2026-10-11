@@ -1,5 +1,5 @@
 import type { Log, Stop } from "../progress.js";
-import { message } from "../util.js";
+import { message, seconds } from "../util.js";
 import { gridTable, type Grid, type Table } from "./grid.js";
 import { axis, readGrid, type Native } from "./native.js";
 
@@ -19,13 +19,14 @@ export function subsetModules(value: string, modules: readonly (readonly [name: 
 
 /** The client's tabs/Settings._getLineItemSubsetsViewDefinition uses LINE_ITEM_SUBSET against
  * LINE_ITEM_SUBSET_PROPERTY. Read every returned property with its own heading. Its membership view
- * (settings/LineItemSubsets._createTabs) uses MODULE_WITH_LINE_ITEM against LINE_ITEM_SUBSET. Request
- * it without a category filter. No editor, cache update or
- * system action is involved. */
+ * (Settings._getViewDefinition for entity type 114) uses MODULE_WITH_LINE_ITEM against LINE_ITEM_SUBSET,
+ * with one subset as static context. The context-free matrix does not give membership. No editor,
+ * cache update or system action is involved. */
 export async function readLineItemSubsets(native: Native, log: Log, stop?: Stop, modules: readonly (readonly [string, string])[] = []): Promise<{ table: Table; note?: string }> {
   const definitions = await readGrid(native, axis(native, "LINE_ITEM_SUBSET"), axis(native, "LINE_ITEM_SUBSET_PROPERTY"), LINE_ITEM_SUBSETS, log, undefined, false, stop);
   const table = gridTable(definitions);
   const moduleColumn = table.headers.indexOf("Modules");
+  const moduleCells = table.rows.map(row => row[moduleColumn] ?? "");
   if (moduleColumn >= 0) {
     const resolved = table.rows.map(row => subsetModules(row[moduleColumn] ?? "", modules));
     if (resolved.some(Boolean)) {
@@ -37,25 +38,60 @@ export async function readLineItemSubsets(native: Native, log: Log, stop?: Stop,
       for (const id of new Set(resolved.flatMap(value => value?.unknown ?? []))) log(`${LINE_ITEM_SUBSETS}: module ID ${id} has no name; kept as ID`);
     }
   }
-  if (!definitions.rows.length || table.headers.includes("Line Items")) return { table };
-  try {
-    const membership = await readGrid(native, axis(native, "MODULE_WITH_LINE_ITEM"), axis(native, "LINE_ITEM_SUBSET"), `${LINE_ITEM_SUBSETS} membership`, log, undefined, false, stop);
-    const items = subsetLineItems(definitions, membership, log);
-    table.headers.push("Line Items");
-    table.rows.forEach((row, index) => row.push(items[index] ?? ""));
-    if (items.some(items => items === undefined)) {
-      table.headers.push(MEMBERSHIP_READ);
-      table.rows.forEach((row, index) => row.push(String(items[index] !== undefined)));
-    }
-    const read = items.filter(items => items !== undefined).length;
-    const missing = items.length - read;
-    log(`${LINE_ITEM_SUBSETS} membership: ${read} ${read === 1 ? "subset" : "subsets"} read${missing ? `; ${missing} ${missing === 1 ? "subset" : "subsets"} not read` : ""}`);
-    return { table };
-  } catch (error) {
+  if (!definitions.rows.length) return { table };
+  const started = Date.now();
+  const items: (string | undefined)[] = [];
+  let empty = 0;
+  for (const [index, subset] of definitions.rows.entries()) {
     stop?.throwIfAborted();
-    log(`${LINE_ITEM_SUBSETS} membership: not read (${message(error)})`);
-    return { table, note: MEMBERSHIP_NOT_READ };
+    if (moduleColumn >= 0 && !moduleCells[index].trim()) {
+      items.push("");
+      empty++;
+      continue;
+    }
+    const id = subset.ids[0];
+    try {
+      if (typeof native.ids?.entityLongIdToEntityLongIdIdentifier !== "function") {
+        throw new Error("the model page has no entityLongIdToEntityLongIdIdentifier helper");
+      }
+      if (!Number.isSafeInteger(id) || id <= 0) throw new Error("subset ID missing or invalid");
+      const context = native.ids.entityLongIdToEntityLongIdIdentifier(id);
+      if (typeof context !== "string" || !context) throw new Error("the model page returned no subset identifier");
+      const membership = await readGrid(native, axis(native, "MODULE_WITH_LINE_ITEM"), axis(native, "LINE_ITEM_SUBSET"),
+        `${LINE_ITEM_SUBSETS} membership: subset ${id}`, log, undefined, false, stop, [context]);
+      items.push(subsetLineItems({ ...definitions, rows: [subset] }, membership, log)[0]);
+    } catch (error) {
+      stop?.throwIfAborted();
+      log(`${LINE_ITEM_SUBSETS} membership: subset ${id} not read (${message(error)})`);
+      items.push(undefined);
+    }
   }
+  stop?.throwIfAborted();
+  // Compare the original Modules cells, before IDs were replaced by display names. Module order is
+  // irrelevant to this diagnostic; the membership data is kept exactly as read.
+  const matching = new Map<string, { ids: number[]; modules: Set<string> }>();
+  items.forEach((members, index) => {
+    if (!members || moduleColumn < 0) return;
+    const group = matching.get(members) ?? { ids: [], modules: new Set<string>() };
+    group.ids.push(definitions.rows[index].ids[0]);
+    const modules = moduleCells[index].split(",").map(id => id.trim());
+    group.modules.add(JSON.stringify([...new Set(modules)].sort()));
+    matching.set(members, group);
+  });
+  for (const group of matching.values()) {
+    if (group.modules.size > 1) log(`${LINE_ITEM_SUBSETS} membership: subsets ${group.ids.join(", ")} have different Modules but identical non-empty member lists`);
+  }
+  const column = table.headers.includes("Line Items") ? table.headers.indexOf("Line Items") : table.headers.push("Line Items") - 1;
+  table.rows.forEach((row, index) => { row[column] = items[index] ?? ""; });
+  const missing = items.filter(items => items === undefined).length;
+  if (missing) {
+    table.headers.push(MEMBERSHIP_READ);
+    table.rows.forEach((row, index) => row.push(String(items[index] !== undefined)));
+  }
+  const read = items.length - missing - empty;
+  const subsets = (count: number): string => `${count} ${count === 1 ? "subset" : "subsets"}`;
+  log(`${LINE_ITEM_SUBSETS} membership: ${subsets(read)} read${empty ? `; ${subsets(empty)} without Modules (no read)` : ""}${missing ? `; ${subsets(missing)} not read` : ""} in ${seconds(Date.now() - started)}`);
+  return { table, ...(missing === items.length ? { note: MEMBERSHIP_NOT_READ } : {}) };
 }
 
 /** Match by subset ID, never by a possibly repeated label. A module's own row is a heading, not a
