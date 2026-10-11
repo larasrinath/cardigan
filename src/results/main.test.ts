@@ -5701,6 +5701,66 @@ describe("The actions of a process, in its row's details", () => {
   });
 });
 
+describe("What a source model gives, in its row's details", () => {
+  // As the user's Source Models showed them (10 Oct 2026): each source model behind its workspace, with how many objects
+  // and imports it gives. The objects and imports are made up.
+  const DEMAND = "DEV - Supply Chain Applications - Polaris / DEV - Demand Ana";
+  const LOST = "NOWHERE / Lost model";
+  const MAPPED = '{"workspaceId":"9999aaaa0000bbbb1111cccc2222dddd","workspaceName":"Pedalwick Partners - Polaris","modelId":"2222BBBB3333CCCC4444DDDD5555EEEE","modelName":"Pedalwick Demand Analysis 2026"}';
+  const SOURCE_MODELS: ResultTable = { file: "Source Models.csv", label: "Source Models", guard: false, headers: ["", "Sources", "Imports", "Mapped To"],
+    rows: [[DEMAND, "2", "2", MAPPED], [LOST, "1", "1", MAPPED]] };
+  const DATA_SOURCES: ResultTable = { file: "Import Data Sources.csv", label: "Import Data Sources", guard: false,
+    headers: ["", "Source Model", "Source Type", "Source Object Name", "Production Data", "Imports"],
+    rows: [["SYS02 Products.Export", DEMAND, "SAVED VIEW", "SYS02 Products", "false", "IMP01 Products"], ["DAT01 Demand", DEMAND, "MODULE", "DAT01 Demand", "false", "IMP02 Demand"]] };
+  const IMPORTS: ResultTable = { file: "Imports.csv", label: "Imports", guard: false, headers: ["", "Source Label", "Source Object", "Source Type", "Target Object", "Target Type"],
+    rows: [["IMP01 Products", "IMP01", `${DEMAND} / 'SYS02 Products'.Export`, "SAVED VIEW", "Products", "LIST"], ["IMP02 Demand", "IMP02", `${DEMAND} / 'DAT01 Demand'`, "MODULE", "Demand", "MODULE"]] };
+  const WITH_SOURCES: AnalysisResult = { ...BLUEPRINT, summary: [...BLUEPRINT.summary, "Source Models: 2 rows", "Import Data Sources: 2 rows", "Imports: 2 rows"],
+    tables: [...BLUEPRINT.tables, SOURCE_MODELS, DATA_SOURCES, IMPORTS] };
+  const sections = () => page.all("#drawerBody .d-sec").map(section => section.querySelector("h3")?.textContent);
+  const rows = (id: string) => page.all(`#${id} tbody tr`).map(row => row.children.map(cell => cell.textContent));
+  const openSource = (name: string) => {
+    page.all('#tableWrap tbody [data-act="row"]')[firstCells().indexOf(name)].press();
+  };
+
+  it("lists above All columns the objects a source model gives, each with its kind, and the imports that read them, each opening its own row", async () => {
+    await openWith(WITH_SOURCES);
+    goTo(3);
+    openSource(DEMAND);
+    expect([page.id("drawerTitle").textContent, sections()]).toEqual([DEMAND, ["Sources (2)", "Imports (2)", "All columns"]]);
+    expect([page.texts("#drawerSources th"), rows("drawerSources"), page.texts("#drawerSources p")])
+      .toEqual([["Source", "Kind"], [["SYS02 Products", "Saved view"], ["DAT01 Demand", "Module"]], []]);
+    expect([page.texts("#drawerSourceImports th"), rows("drawerSourceImports")]).toEqual([["Import", "Reads"], [["IMP01 Products", "SYS02 Products"], ["IMP02 Demand", "DAT01 Demand"]]]);
+    // An object opens its row of Import Data Sources; an import its row of Imports.
+    page.all('#drawerSources [data-act="item"]')[1].press();
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual(["DAT01 Demand", "Row 2 of Import Data Sources"]);
+    page.key("Escape");
+    openSource(DEMAND);
+    page.all('#drawerSourceImports [data-act="item"]')[0].press();
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual(["IMP01 Products", "Row 1 of Imports"]);
+  });
+
+  it("shows no empty section for a source model no table names, and the log says so once", async () => {
+    await openWith(WITH_SOURCES);
+    /** The run's log lines about the source model, as the control that copies the run's log copies them. */
+    const lostLines = async (): Promise<string[]> => {
+      const copy = page.document.createElement("button");
+      copy.dataset.act = "copy-run-log";
+      page.document.body.append(copy);
+      copy.press();
+      await settle();
+      copy.remove();
+      return (copied.at(-1) ?? "").split("\n").filter(line => line.includes(LOST)).map(line => line.replace(/^\d\d:\d\d:\d\d /, ""));
+    };
+    goTo(3);
+    openSource(LOST);
+    expect(sections()).toEqual(["All columns"]);
+    page.key("Escape");
+    openSource(LOST);
+    page.key("Escape");
+    expect(await lostLines()).toEqual([`Source model ${LOST}: no row of Import Data Sources or Imports names it, so its details list none of its sources.`]);
+  });
+});
+
 describe("A row's details list a cell of several items one to a line, each that names a row as a link to it", () => {
   /** A model whose Modules table says, as Anaplan's grid writes them, what each module applies to, what refers to it and
    * its line items: twenty of them for one module, two for the other. */
