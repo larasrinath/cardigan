@@ -6,6 +6,17 @@ Every merged change that alters the extension has a version of its own: a new fe
 
 - **More room for the map.** One slim bottom bar holds the counts, Legend, About this map, zoom and Fit at every level and in full screen. Long counts end with an ellipsis and show their full text on hover. Legend, About and the minimap open above the bar without moving the boxes or camera. The minimap starts hidden and opens from its drawn button.
 
+## 0.29.5 (11 October 2026)
+
+- **A small difference keeps the export.** One module's live line items check the names read from the model's settings. If at least 98% of the IDs present in either source have the same name in both, the export keeps naming the other modules. A rename, an addition or a deletion counts as one difference. Below that threshold, the modules the pages use are read from the listing as before. (#85)
+- **The difference, said.** The diagnostic log says whether the export was kept, lists up to five differing line items and counts the rest. It shows IDs, items only in one source, and both names where they differ, quoted so spaces and quotes show. Any module read live uses its listing in full, including names and formats changed or removed since the export. (#85)
+- **Filters use the names already read.** A filter line item in the export needs no module search. An ID absent from it is still searched for, including in modules the export covered; the existing time limit and Missing rules stay in place. Line Items, Page Filters and Module Usage keep their layout and counts. (#85)
+
+## 0.29.4 (11 October 2026)
+
+- **Classic first for every model.** Polaris models use Model Building's Classic client when it answers, as it usually does, keeping the full settings read, import mappings and process steps. Cardigan waits up to about two minutes; without an answering frame it falls back to a partial read, even when the engine is unknown, and the Overview says why. (#84)
+- **The engine check, safely.** Diagnostics lists the field names returned for the model and selected workspace, never their values. The check tries six candidate fields. Polaris-only Line Items columns log **Engine: Polaris, read through the Classic client**, without changing the tables or the map. (#84)
+
 ## 0.29.3 (11 October 2026)
 
 - **The whole pill opens its list.** Click the group or module name or chevron in the Model map's path to choose from its list; the module search takes focus, and the keyboard opens and moves through both lists without moving the map. (#83)
