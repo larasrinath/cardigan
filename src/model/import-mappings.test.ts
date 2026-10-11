@@ -394,8 +394,8 @@ describe("Missing import property names through Model Building", () => {
   const tab = grid([[4000001301, "Source Type"], [4000001302, "Target Object"]], [
     [112000000011, "Load division", "FILE", "Division"], [112000000012, "Update division", "FILE", "Division"],
   ]);
-  const listDefinition = (list: number, ids = [MANAGER, ACTIVE]) => definition("HIERARCHY_DATA", list,
-    ids.map((target, index) => ({ targetType: "hierarchyProperty", target: id(target), sourceType: "column", sourceColumnId: `#${index + 1}` })));
+  const listDefinition = (list: number, ids = [MANAGER, ACTIVE], targetType = "hierarchyProperty") => definition("HIERARCHY_DATA", list,
+    ids.map((target, index) => ({ targetType, target: id(target), sourceType: "column", sourceColumnId: `#${index + 1}` })));
   const definitions = grid([[IMPORT_DEFINITION, "Import Definition"]], [
     [112000000011, "Load division", listDefinition(DIVISION)], [112000000012, "Update division", listDefinition(DIVISION)],
   ]);
@@ -447,12 +447,15 @@ describe("Missing import property names through Model Building", () => {
   beforeEach(() => vi.spyOn(Date, "now").mockReturnValue(1000));
   afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
-  it.each(["missing property", "missing list info"])("names targets with %s from one scoped read for both imports", async cause => {
+  it.each(["hierarchyProperty", "hierarchyPropertyValue"].flatMap(targetType =>
+    ["missing property", "missing list info"].map(cause => ({ targetType, cause }))))(
+    "names $targetType targets with $cause from one scoped read for both imports", async ({ targetType, cause }) => {
     const { native, requests } = client();
     if (cause === "missing list info") native.cache.getHierarchyInfo.mockReturnValue(undefined);
+    const targetDefinitions = { ...definitions, rows: definitions.rows.map(row => ({ ...row, cells: [listDefinition(DIVISION, undefined, targetType)] })) };
     const log: string[] = [];
     const names = importNames(native, { lists });
-    const result = await readImportMappings(native, tab, definitions, names, line => log.push(line));
+    const result = await readImportMappings(native, tab, targetDefinitions, names, line => log.push(line));
     expect(result.map(mapping => mapping.targets.map(target => target.target))).toEqual([
       [cause === "missing property" ? "Manager" : "Manager from grid", "Active & available"],
       [cause === "missing property" ? "Manager" : "Manager from grid", "Active & available"],
@@ -465,22 +468,30 @@ describe("Missing import property names through Model Building", () => {
     expect(log.filter(line => line.startsWith("Import mapping properties:") || line.startsWith("Import mappings: list"))).toEqual([
       "Import mapping properties: list 101000000007: 2 rows × 1 columns; columns: Notes",
       "Import mapping properties: list 101000000007: rows 0–1 in 0.00 s",
+      `Import mappings: list Division (101000000007): properties grid held 2 properties; named ${cause === "missing property" ? "1 ID" : "2 IDs"}`,
     ]);
     // The page's cache was not filled by the read, and the next export gets a fresh grid.
     expect(names.property(ACTIVE, DIVISION)).toBeUndefined();
-    await readImportMappings(native, tab, definitions, names, () => undefined);
+    await readImportMappings(native, tab, targetDefinitions, names, () => undefined);
     expect(requests).toHaveLength(2);
   });
 
-  it("does not read when built-in properties, cached properties and subsets already name every target", async () => {
+  it("does not read when targetOf already names every target, including unfamiliar types", async () => {
     const { native, requests } = client();
     const namedDefinitions = grid([[IMPORT_DEFINITION, "Import Definition"]], [
-      [112000000011, "Load division", listDefinition(DIVISION, [4000000001, 4000000004, MANAGER, 109000000001])],
+      [112000000011, "Load division", definition("HIERARCHY_DATA", DIVISION, [
+        { targetType: "hierarchyMemberEntityName", target: id(ACTIVE), sourceType: "undefined" },
+        ...[4000000001, 4000000004, MANAGER, 109000000001].map(target => ({ targetType: "hierarchyProperty", target: id(target), sourceType: "undefined" })),
+        ...[MANAGER, 109000000001, PRODUCTS].map(target => ({ targetType: "hierarchyPropertyValue", target: id(target), sourceType: "undefined" })),
+        { targetType: "moduleDimension", target: "_9000000001_", sourceType: "undefined" },
+      ])],
     ]);
-    const result = await readImportMappings(native, tab, namedDefinitions, importNames(native, { lists }), () => undefined);
-    expect(result[0].targets.map(target => target.target)).toEqual(["Parent", "Code", "Manager", "Active products"]);
+    const log: string[] = [];
+    const result = await readImportMappings(native, tab, namedDefinitions, importNames(native, { lists }), line => log.push(line));
+    expect(result[0].targets.map(target => target.target)).toEqual(["Division", "Parent", "Code", "Manager", "Active products", "Manager", "Active products", "Products", "Time"]);
     expect(requests).toEqual([]);
     expect(native.ids.entityLongIdToEntityLongIdIdentifier).not.toHaveBeenCalled();
+    expect(log.filter(line => line.startsWith("Import mappings: list"))).toEqual([]);
   });
 
   it("keeps IDs after a failed read and logs all remaining IDs once for the list", async () => {
@@ -493,13 +504,13 @@ describe("Missing import property names through Model Building", () => {
     ]);
     expect(requests).toHaveLength(1);
     expect(log.filter(line => line.startsWith("Import mappings: list"))).toEqual([
-      "Import mappings: list Division (101000000007): unnamed properties: ID 4100000000001, ID 4100000000002; properties grid not read (The model rejected the read.)",
+      "Import mappings: list Division (101000000007): unnamed targets: ID 4100000000001 (targetType hierarchyProperty), ID 4100000000002 (targetType hierarchyProperty); properties grid not read (The model rejected the read.)",
     ]);
   });
 
   it("keeps and logs an ID absent from the grid without borrowing another list's rows", async () => {
     const otherTab = { ...tab, rows: [tab.rows[0], { ...tab.rows[1], cells: ["FILE", "Products"] }] };
-    const otherDefinitions = { ...definitions, rows: [definitions.rows[0], { ...definitions.rows[1], cells: [listDefinition(PRODUCTS)] }] };
+    const otherDefinitions = { ...definitions, rows: [definitions.rows[0], { ...definitions.rows[1], cells: [listDefinition(PRODUCTS, undefined, "hierarchyPropertyValue")] }] };
     const { native, requests } = client({ [id(DIVISION)]: properties, [id(PRODUCTS)]: grid([[4000000017, "Notes"]], [[MANAGER, "Owner", ""]]) });
     native.cache.getHierarchyInfo.mockReturnValue(undefined);
     const log: string[] = [];
@@ -509,7 +520,28 @@ describe("Missing import property names through Model Building", () => {
     ]);
     expect(requests.map(request => request.params.viewDefinition.staticContextIdentifiers)).toEqual([[id(DIVISION)], [id(PRODUCTS)]]);
     expect(log.filter(line => line.startsWith("Import mappings: list"))).toEqual([
-      "Import mappings: list Products (101000000001): unnamed properties: ID 4100000000002",
+      "Import mappings: list Division (101000000007): properties grid held 2 properties; named 2 IDs",
+      "Import mappings: list Products (101000000001): properties grid held 1 property; named 1 ID",
+      "Import mappings: list Products (101000000001): unnamed targets: ID 4100000000002 (targetType hierarchyPropertyValue)",
+    ]);
+  });
+
+  it("counts named IDs once across target types and logs each remaining kind once", async () => {
+    const { native, requests } = client({ [id(DIVISION)]: { ...properties, rows: [properties.rows[0]] } });
+    native.cache.getHierarchyInfo.mockReturnValue(undefined);
+    const mixed = definition("HIERARCHY_DATA", DIVISION, ["hierarchyProperty", "hierarchyPropertyValue"].flatMap(targetType =>
+      [MANAGER, ACTIVE].map(target => ({ targetType, target, sourceType: "undefined" }))));
+    const mixedDefinitions = { ...definitions, rows: definitions.rows.map(row => ({ ...row, cells: [mixed] })) };
+    const log: string[] = [];
+    const result = await readImportMappings(native, tab, mixedDefinitions, importNames(native, { lists }), line => log.push(line));
+    expect(result.map(mapping => mapping.targets.map(target => target.target))).toEqual([
+      ["Manager from grid", `ID ${ACTIVE}`, "Manager from grid", `ID ${ACTIVE}`],
+      ["Manager from grid", `ID ${ACTIVE}`, "Manager from grid", `ID ${ACTIVE}`],
+    ]);
+    expect(requests).toHaveLength(1);
+    expect(log.filter(line => line.startsWith("Import mappings: list"))).toEqual([
+      "Import mappings: list Division (101000000007): properties grid held 1 property; named 1 ID",
+      "Import mappings: list Division (101000000007): unnamed targets: ID 4100000000002 (targetType hierarchyProperty), ID 4100000000002 (targetType hierarchyPropertyValue)",
     ]);
   });
 
@@ -551,7 +583,7 @@ describe("Missing import property names through Model Building", () => {
     expect(result[0].targets[1].target).toBe(`ID ${ACTIVE}`);
     expect(requests).toEqual([]);
     expect(log.filter(line => line.startsWith("Import mappings: list"))).toEqual([
-      "Import mappings: list Division (101000000007): unnamed properties: ID 4100000000002; properties grid not read (Refusing to send anything but a read.)",
+      "Import mappings: list Division (101000000007): unnamed targets: ID 4100000000002 (targetType hierarchyProperty); properties grid not read (Refusing to send anything but a read.)",
     ]);
   });
 

@@ -477,8 +477,8 @@ function definitionsAt(definitions: Grid, column: number): number {
   return byId >= 0 ? byId : definitions.columns.findIndex(entry => (entry.labels[0] ?? "").trim().toLowerCase() === DEFINITION_LABEL);
 }
 
-/** Fill gaps in the client's property names before making the mappings. Only file imports with unnamed property
- * targets need a read: CUSTOM_PROPERTY against PROPERTY_PROPERTY, with the target list as static context, as the
+/** Fill gaps in the client's property names before making the mappings. Only file imports into lists with unnamed
+ * numeric targets need a read: CUSTOM_PROPERTY against PROPERTY_PROPERTY, with the target list as static context, as the
  * list-property blueprint in anaplan-sam's authoring-core.ts reads it. Group all missing IDs first so each list's grid,
  * including a failed read, is tried only once per export. Names stay local to the run; the client cache is not changed. */
 export async function readImportMappings(native: Native, tab: Grid, definitions: Grid | undefined, names: ImportNames,
@@ -487,7 +487,7 @@ export async function readImportMappings(native: Native, tab: Grid, definitions:
   const at = definitions ? definitionsAt(definitions, column) : -1;
   const byId = new Map((definitions?.rows ?? []).map(row => [row.ids[0], row]));
   const target = columnAt(tab, "Target Object");
-  const missing = new Map<number, { name: string; ids: Set<number> }>();
+  const missing = new Map<number, { name: string; mappings: Json[] }>();
   for (const row of at < 0 ? [] : fileImports(tab)) {
     let definition: unknown;
     try { definition = JSON.parse(byId.get(row.ids[0])?.cells[at] ?? ""); } catch { continue; }
@@ -495,21 +495,24 @@ export async function readImportMappings(native: Native, tab: Grid, definitions:
         || !Array.from(definition.mappings as unknown[]).every(isObject)) continue;
     const list = idOf(definition.target);
     if (!Number.isSafeInteger(list) || list <= 0) continue;
+    const listName = names.list(list) ?? (target < 0 ? undefined : row.cells[target] || undefined) ?? asId(list);
     for (const mapping of definition.mappings as Json[]) {
       const id = idOf(mapping.target);
-      if (mapping.targetType !== "hierarchyProperty" || !Number.isSafeInteger(id) || id <= 0
-          || PROPERTY_WORDS.has(id) || names.property(id, list) !== undefined) continue;
-      const group = missing.get(list) ?? { name: names.list(list) ?? (target < 0 ? undefined : row.cells[target] || undefined) ?? asId(list), ids: new Set<number>() };
-      group.ids.add(id);
+      if (!Number.isFinite(id) || id === -1 || mapping.targetType === "hierarchyMemberEntityName" || PROPERTY_WORDS.has(id)
+          || targetOf(mapping, HIERARCHY_DATA, list, names, listName) !== asId(id)) continue;
+      const group = missing.get(list) ?? { name: listName, mappings: [] };
+      group.mappings.push(mapping);
       missing.set(list, group);
     }
   }
   const properties = new Map<number, Map<number, string>>();
+  const withProperties: ImportNames = { ...names, property: (id, list) => names.property(id, list) ?? properties.get(list)?.get(id) };
   for (const [list, group] of missing) {
     stop?.throwIfAborted();
     const found = new Map<number, string>();
     properties.set(list, found);
     let failure: string | undefined;
+    let propertyCount = 0;
     try {
       if (typeof native.ids.entityLongIdToEntityLongIdIdentifier !== "function") throw new Error("the model page has no entityLongIdToEntityLongIdIdentifier helper");
       const context = native.ids.entityLongIdToEntityLongIdIdentifier(list);
@@ -519,16 +522,26 @@ export async function readImportMappings(native: Native, tab: Grid, definitions:
       for (const row of grid.rows) {
         if (Number.isSafeInteger(row.ids[0]) && named(row.labels[0])) found.set(row.ids[0], row.labels[0]);
       }
+      propertyCount = grid.rows.length;
     } catch (error) {
       stop?.throwIfAborted();
       failure = message(error);
     }
-    const left = [...group.ids].filter(id => !found.has(id));
-    if (left.length) log(`Import mappings: list ${group.name} (${list}): unnamed properties: ${left.map(asId).join(", ")}`
+    const namedIds = new Set<number>();
+    const unnamed = new Set<string>();
+    for (const mapping of group.mappings) {
+      const id = idOf(mapping.target);
+      if (targetOf(mapping, HIERARCHY_DATA, list, withProperties, group.name) === asId(id)) unnamed.add(`${asId(id)} (targetType ${logWord(mapping.targetType)})`);
+      else namedIds.add(id);
+    }
+    if (failure === undefined) {
+      log(`Import mappings: list ${group.name} (${list}): properties grid held ${propertyCount} ${propertyCount === 1 ? "property" : "properties"}; named ${namedIds.size} ${namedIds.size === 1 ? "ID" : "IDs"}`);
+    }
+    if (unnamed.size) log(`Import mappings: list ${group.name} (${list}): unnamed targets: ${[...unnamed].join(", ")}`
       + (failure === undefined ? "" : `; properties grid not read (${failure})`));
   }
   stop?.throwIfAborted();
-  return importMappings(tab, definitions, { ...names, property: (id, list) => names.property(id, list) ?? properties.get(list)?.get(id) }, log, column);
+  return importMappings(tab, definitions, withProperties, log, column);
 }
 
 /** Each import of the Imports tab that reads a file, in the tab's order, with its mapping: out of its definition's cell in
