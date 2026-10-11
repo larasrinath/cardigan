@@ -740,7 +740,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     pageOpens = selected.raw ? options.opens?.(selected.raw) ?? [] : [];
     inspector.innerHTML = inspectorHtml(inspection, traced, pageOpens, onlyTrace);
     inspector.hidden = false;
-    inspector.scrollTop = 0;
+    part(".map-insp-body").scrollTop = 0;
   }
 
   function renderTrace(): void {

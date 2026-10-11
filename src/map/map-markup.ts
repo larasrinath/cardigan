@@ -344,7 +344,7 @@ export function listHtml(list: InspectList, all: boolean): string {
   return `<summary>${PATH_CHEVRON}${esc(list.title)}</summary>${shown.map(linkHtml).join("")}${more}`;
 }
 
-/** The name and kind, opening buttons, trace, readable details, then folded raw values. */
+/** A fixed header with the name, kind and opening buttons, then a scrolling body of details and folded raw values. */
 export function inspectorHtml(inspection: Inspection, trace?: TraceWords, opens: readonly MapOpen[] = [], focused = false): string {
   const rows = inspection.rows.length ? `<dl class="map-dl">${inspection.rows.map(([label, value]) => `<dt>${esc(label)}</dt><dd>${esc(value)}</dd>`).join("")}</dl>` : "";
   const action = inspection.action;
@@ -358,8 +358,8 @@ export function inspectorHtml(inspection: Inspection, trace?: TraceWords, opens:
   const texts = inspection.texts.map(text => `<details class="map-details"><summary>${PATH_CHEVRON}${esc(text.title)}</summary><ul class="map-lines">${text.lines.map(line => `<li>${esc(line)}</li>`).join("")}</ul></details>`).join("");
   const notes = inspection.notes === undefined ? "" : `<h4 class="map-insp-sec">Notes</h4><p class="map-insp-note">${esc(inspection.notes)}</p>`;
   const raw = !inspection.asRead?.length ? "" : `<details class="map-details map-as-read"><summary>${PATH_CHEVRON}As read</summary>${inspection.asRead.map(([label, value]) => `<h4 class="map-insp-sec">${esc(label)}</h4><pre class="map-formula">${esc(value)}</pre>`).join("")}</details>`;
-  return `<div class="map-insp-head"><div><h3 class="map-insp-name" tabindex="-1">${esc(inspection.name)}</h3><span class="map-kind">${dot(inspection.layer)}${esc(inspection.kind)}</span></div><button type="button" class="map-icon-btn" data-map-act="close" aria-label="Close details" title="Close details">${CLOSE_ICON}</button></div>
-    ${buttons ? `<div class="map-insp-opens">${buttons}</div>` : ""}${traced}${formula}${rows}${lists}${texts}${notes}${raw}`;
+  return `<div class="map-insp-header"><div class="map-insp-head"><div><h3 class="map-insp-name" tabindex="-1">${esc(inspection.name)}</h3><span class="map-kind">${dot(inspection.layer)}${esc(inspection.kind)}</span></div><button type="button" class="map-icon-btn" data-map-act="close" aria-label="Close details" title="Close details">${CLOSE_ICON}</button></div>
+    ${buttons ? `<div class="map-insp-opens">${buttons}</div>` : ""}</div><div class="map-insp-body">${traced}${formula}${rows}${lists}${texts}${notes}${raw}</div>`;
 }
 
 /** What a map that stopped after a failure says in its own place: that it could not be drawn, the failure's own words

@@ -243,8 +243,10 @@
 .map-empty-box .map-about-title{margin-top:14px}
 
 /* ---------- details of the node selected ---------- */
-/* The whole height under the bar is theirs: a line item's formula stands near the top, and the rest scrolls. */
-.map-inspector{flex:none;min-width:0;padding:14px}
+/* The panel fills its column. Only the body scrolls; an unusually tall header scrolls within its own capped space. */
+.map-inspector{display:flex;flex-direction:column;flex:1;min-width:0;min-height:0;overflow:hidden}
+.map-insp-header{flex:none;max-height:40%;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable;padding:14px;border-bottom:1px solid var(--border)}
+.map-insp-body{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable;padding:14px}
 /* For a moment after a press on a node opened them, the details let presses through to
    the canvas: they may have opened over the node, and the second press of a double press is meant for the node
    (map-view.ts). */
@@ -258,11 +260,11 @@
 /* The name takes the focus when the details open from the keyboard. It is no box to type into: a bar beside it says
    where the focus is. */
 .map-root .map-insp-name:focus-visible{outline:none;box-shadow:-9px 0 0 -6px var(--ring)}
-.map-insp-opens{display:flex;align-items:center;gap:5px;margin-bottom:12px}
+.map-insp-opens{display:flex;flex-wrap:wrap;align-items:center;gap:5px}
 .map-insp-opens .map-btn{padding:3px 7px;font-size:11.5px;gap:5px;background:var(--ink);color:var(--ink-text);border-color:var(--ink)}
 .map-insp-opens .map-btn:hover{opacity:.9}
 .map-insp-opens svg{flex:none}
-.map-insp-trace{padding:10px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);margin:0 0 12px;font-size:12px;line-height:1.6;color:var(--text-2)}
+.map-insp-trace{padding:0 0 10px;border-bottom:1px solid var(--border);margin:0 0 12px;font-size:12px;line-height:1.6;color:var(--text-2)}
 .map-trace-counts{margin:0}
 .map-trace-note{margin:2px 0 7px;color:var(--text-3)}
 /* The trace button keeps the room of its wider label in both states, so nothing moves when it toggles. */
@@ -323,6 +325,8 @@
 @container map (max-width:760px){
   .map-chrome{padding:8px;grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(96px,1fr);grid-template-areas:"bar" "free"}
   .map-selection{grid-area:auto;position:absolute;right:8px;bottom:52px;width:min(380px,calc(100% - 16px));max-height:40cqh;margin-bottom:0}
+  /* A definite height keeps the header's percentage cap working in the floating panel too. */
+  .map-inspector{height:40cqh;flex:none}
   .map-zone-path,.map-zone-tools{flex:1 1 100%;margin-left:0}
   .map-zone-tools .map-searchwrap{flex:1 1 auto}
   .map-picker-input{width:180px}
