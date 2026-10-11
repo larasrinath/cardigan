@@ -412,6 +412,7 @@ function drawNodes(pen: Pen, scene: Scene, fonts: Fonts): void {
     const feeds = !!trace && !selected && trace.up.has(index);
     const fed = !!trace && !selected && trace.down.has(index);
     let alpha = trace && !selected && !feeds && !fed ? 0.18 : 1;
+    if (node.dimmed && !selected) alpha = Math.min(alpha, 0.3);
     if (matches && !matches[index]) alpha = Math.min(alpha, 0.18);
 
     if (k < PATCH_BELOW) {
@@ -506,7 +507,7 @@ export function drawMinimap(pen: Pen, scene: Scene, width: number, height: numbe
     let colour = colours.get(node.layer);
     if (colour === undefined) colours.set(node.layer, colour = layerColour(palette, node.layer));
     if (colour !== last) pen.fillStyle = last = colour;
-    pen.globalAlpha = trace?.selected === node.index ? 1 : 0.7;
+    pen.globalAlpha = trace?.selected === node.index ? 1 : node.dimmed ? 0.3 : 0.7;
     pen.fillRect(ox + node.x * s, oy + node.y * s, Math.max(node.w * s, 2), Math.max(node.h * s, 2));
   }
   const [worldLeft, worldTop] = toWorld(scene.camera, 0, 0);

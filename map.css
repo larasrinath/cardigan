@@ -82,27 +82,27 @@
    whichever line they are on. */
 .map-bar{grid-area:bar;display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;min-width:0;padding:5px 8px;border-radius:16px}
 .map-zone{display:flex;flex-wrap:nowrap;align-items:center;gap:6px;min-width:0}
-.map-zone-path{flex:1 1 auto}
+.map-zone-path{flex:1 0 max-content;max-width:100%}
 .map-zone-build{flex:none;gap:10px}
 .map-zone-tools{flex:none;margin-left:auto}
 .map-free{grid-area:free;position:relative;min-width:0;min-height:0}
-.map-inspector{grid-area:details}
+.map-selection{grid-area:details;display:flex;flex-direction:column;gap:8px;min-height:0;margin-bottom:90px;overflow:auto;overscroll-behavior:contain;pointer-events:auto}
+.map-root:not(.map-has-inspector) .map-selection{display:none}
 
 /* ---------- the bar: where the map is, how it is built, its tools ---------- */
-/* The path keeps the same three widths at every level; names give way to ellipses. */
-.map-crumbs{display:flex;align-items:center;gap:7px;min-width:0;white-space:nowrap}
-.map-path-root{flex:0 1 180px;min-width:64px;overflow:hidden}
-.map-title-name{min-width:0;overflow:hidden;text-overflow:ellipsis;font-size:12.5px;font-weight:650;color:var(--text)}
-.map-crumb{max-width:100%;overflow:hidden;text-overflow:ellipsis;color:var(--accent);font-weight:inherit;border-radius:var(--r-xs);vertical-align:bottom}
+/* Names take their full width. The path takes a line of its own before its steps or their names wrap. */
+.map-crumbs{display:flex;flex-wrap:wrap;align-items:center;gap:7px;min-width:0;max-width:100%}
+.map-path-root{flex:none;max-width:100%;overflow-wrap:anywhere}
+.map-title-name{font-size:12.5px;font-weight:650;color:var(--text)}
+.map-crumb{max-width:100%;text-align:left;overflow-wrap:anywhere;color:var(--accent);font-weight:inherit;border-radius:var(--r-xs);vertical-align:bottom}
 .map-crumb:hover{text-decoration:underline}
 .map-sep{display:inline-flex;align-items:center;flex:none;color:var(--text-3)}
-.map-picker{position:relative;display:inline-flex;align-items:center;min-width:100px;height:28px;border:1px solid var(--border-strong);border-radius:999px;background:var(--panel)}
-.map-group-picker{flex:0 1 190px;width:190px}
-.map-module-picker{flex:0 1 240px;width:240px}
-.map-step-name{flex:1;min-width:0;padding:0 10px;font-size:12px;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;height:100%;border-radius:999px 0 0 999px}
+.map-picker{position:relative;display:inline-flex;align-items:stretch;min-width:100px;min-height:28px;max-width:100%;border:1px solid var(--border-strong);border-radius:16px;background:var(--panel)}
+.map-group-picker,.map-module-picker{flex:none;width:max-content}
+.map-step-name{flex:1;min-width:0;padding:4px 10px;font-size:12px;text-align:left;overflow-wrap:anywhere;white-space:normal;border-radius:16px 0 0 16px}
 .map-step-name:disabled{color:var(--text-3);cursor:default}
 .map-step-name[aria-current]{font-weight:650}
-.map-step-list{display:flex;flex:none;align-items:center;justify-content:center;width:28px;height:100%;border-left:1px solid var(--border);border-radius:0 999px 999px 0}
+.map-step-list{display:flex;flex:none;align-items:center;justify-content:center;width:28px;border-left:1px solid var(--border);border-radius:0 16px 16px 0}
 .map-step-name:hover:not(:disabled),.map-step-list:hover{background:var(--panel-2)}
 .map-step-list .map-btn-chevron{margin:0}
 .map-picker-pop{position:absolute;left:0;top:calc(100% + 8px);z-index:6;width:360px;max-width:calc(100cqw - 24px);padding:5px;border-color:var(--border-strong);box-shadow:var(--shadow);white-space:normal}
@@ -132,7 +132,8 @@
 .map-btn[aria-expanded="true"],.map-btn[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent-ink);border-color:color-mix(in srgb,var(--accent) 35%,transparent)}
 .map-btn-chevron{flex:none;margin-right:-2px;color:var(--text-3)}
 /* Links drawn beside the formulas' are said on the button: it has the accent's dot. */
-.map-links-btn.map-on::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--accent)}
+.map-links-btn::before{content:"";flex:none;width:7px;height:7px;border-radius:50%;background:var(--accent);visibility:hidden}
+.map-links-btn.map-on::before{visibility:visible}
 .map-links{position:relative;display:inline-flex}
 .map-links-pop{position:absolute;right:0;top:calc(100% + 8px);z-index:6;width:320px;max-width:calc(100cqw - 24px);padding:12px 14px;border-color:var(--border-strong);box-shadow:var(--shadow);white-space:normal}
 .map-links-row{display:flex;align-items:center;gap:8px;margin-top:6px;font-size:12.5px;color:var(--text)}
@@ -187,20 +188,21 @@
 .map-sign{flex:none}
 
 /* ---------- what stands over the canvas itself ---------- */
-/* The line of what is shown, with the buttons of the legend and the notes, at the foot on the left, and under them the
-   bar of what is traced; the small picture and the zoom at the foot on the right; the legend and the notes, while they
-   are open, over the line, however many rows the foot takes. */
-.map-foot{position:absolute;inset:0 auto 0 0;max-width:calc(100% - 232px);display:flex;flex-direction:column;justify-content:flex-end;gap:8px;pointer-events:none}
+/* The status has a fixed row over Legend and About. The trace stands with the details, so selecting a box never
+   changes this foot. The legend and notes grow upwards over the drawing. */
+.map-foot{position:absolute;inset:0 auto 0 0;width:min(650px,calc(100cqw - 44px));display:flex;flex-direction:column;justify-content:flex-end;gap:8px;pointer-events:none}
 .map-over{display:flex;flex:0 1 auto;align-items:flex-end;gap:10px;min-height:0}
-.map-dock{display:flex;flex:none;flex-wrap:wrap;align-items:center;gap:6px}
+.map-dock{display:grid;flex:none;grid-template-columns:max-content max-content 1fr;grid-template-rows:48px 28px;align-items:center;gap:6px}
 .map-dock > *{pointer-events:auto}
-.map-status{display:flex;align-items:center;gap:8px;min-width:0;min-height:30px;padding:3px 6px 3px 12px;border-radius:15px;font-size:12px;color:var(--text-2);font-variant-numeric:tabular-nums}
-.map-stats{min-width:0;padding-right:6px;overflow-wrap:anywhere}
+.map-status{grid-column:1 / -1;display:flex;align-items:center;gap:8px;min-width:0;height:48px;padding:3px 6px 3px 12px;border-radius:15px;font-size:12px;color:var(--text-2);font-variant-numeric:tabular-nums}
+.map-stats{flex:1;min-width:0;max-height:100%;overflow:auto;padding-right:6px;overflow-wrap:anywhere}
+.map-status [data-map-act="whole"]{flex:none}
+.map-status [data-map-act="whole"][hidden]{display:inline-flex !important;visibility:hidden}
 /* The bar of what is traced gives its two buttons a second row, together, where one row is too short for it: nothing
    of it is cut. */
-.map-tracebar{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;min-width:0;max-width:100%;min-height:30px;padding:3px 4px 3px 12px;border-radius:15px;font-size:12px;color:var(--text-2);font-variant-numeric:tabular-nums}
+.map-tracebar{display:flex;flex:none;flex-wrap:wrap;align-items:center;gap:6px 10px;min-width:0;max-width:100%;padding:10px 12px;font-size:12px;color:var(--text-2);font-variant-numeric:tabular-nums}
 .map-trace-acts{display:inline-flex;flex:none;gap:6px}
-.map-trace-name{flex:0 1 auto;min-width:0;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;color:var(--text)}
+.map-trace-name{flex:1 0 100%;order:-1;min-width:0;overflow-wrap:anywhere;font-weight:600;color:var(--text)}
 .map-trace-count{flex:none}
 .map-corner{position:absolute;right:0;bottom:0;display:flex;flex-direction:column;align-items:flex-end;gap:6px;pointer-events:none}
 .map-corner > *{pointer-events:auto}
@@ -246,7 +248,7 @@
 
 /* ---------- details of the node selected ---------- */
 /* The whole height under the bar is theirs: a line item's formula stands near the top, and the rest scrolls. */
-.map-inspector{min-width:0;min-height:0;max-height:100%;align-self:start;overflow-y:auto;overscroll-behavior:contain;padding:14px}
+.map-inspector{flex:none;min-width:0;padding:14px}
 /* For a moment after a press on a node opened them, the details and the bar of what is traced let presses through to
    the canvas: either may have opened over the node, and the second press of a double press is meant for the node
    (map-view.ts). */
@@ -310,27 +312,23 @@
 .map-root .map-broken:focus-visible{outline-offset:-4px;border-radius:var(--r-md)}
 
 /* ---------- a smaller map ---------- */
-/* Up to 1300px wide the bar of what is traced keeps to its counts: the details beside it name what is selected. */
 @container map (max-width:1300px){
-  .map-trace-name{display:none}
+  .map-corner{bottom:90px}
 }
 /* Up to 940px wide the details' column is narrower. */
 @container map (max-width:940px){
   .map-chrome{grid-template-columns:minmax(0,1fr) minmax(0,280px)}
 }
-/* Up to 760px wide the details come up from the foot, over at most two fifths of the height, in a row of their own:
-   they cover neither the bar nor the graph's room. Each part of the bar has a line of its own, and the search takes
-   what the tools leave of theirs. The small picture goes while the details are open. */
+/* Up to 760px wide the details lie over the drawing, above the fixed foot, taking at most two fifths of the height.
+   Each part of the bar has its own line. The small picture goes while the details are open. */
 @container map (max-width:760px){
   .map-chrome{padding:8px;grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(96px,1fr) auto;grid-template-areas:"bar" "free" "details"}
   .map-has-inspector .map-chrome{grid-template-areas:"bar" "free" "details"}
-  .map-inspector{max-height:40cqh}
+  .map-selection{position:absolute;right:8px;bottom:98px;width:min(316px,calc(100% - 16px));max-height:40cqh;margin-bottom:0}
   .map-zone-path,.map-zone-tools{flex:1 1 100%;margin-left:0}
   .map-zone-tools .map-searchwrap{flex:1 1 auto}
   .map-picker-input{width:180px}
   .map-has-inspector .map-corner{display:none}
-  .map-foot{max-width:100%}
-  .map-root:not(.map-has-inspector) .map-foot{max-width:calc(100% - 150px)}
   .map-minimap-wrap{transform:scale(.66);transform-origin:bottom right;margin:-44px 0 0 -67px}
 }
 /* A low map keeps its height for the graph and the details: the small picture goes, the zoom stays. */

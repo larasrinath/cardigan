@@ -331,7 +331,7 @@ describe("The map's own markup", () => {
     expect(shell.querySelectorAll(".map-sep").map(sep => [sep.dataset.mapSep, sep.hidden, sep.getAttribute("aria-hidden")])).toEqual([[undefined, false, "true"], [undefined, false, "true"]]);
     expect(shell.querySelectorAll(".map-tab").map(tab => [tab.textContent, tab.dataset.mapView, tab.getAttribute("aria-pressed")])).toEqual([]);
     // The line of what is shown and the small picture stand over the graph's own room, with the bar above it.
-    expect(shell.querySelector(".map-chrome")?.children.map(child => child.getAttribute("class"))).toEqual(["map-panel map-bar", "map-panel map-inspector", "map-free"]);
+    expect(shell.querySelector(".map-chrome")?.children.map(child => child.getAttribute("class"))).toEqual(["map-panel map-bar", "map-selection", "map-free"]);
     // The bar's three parts, each of which takes a line whole where one is too short: where the map is, how it is built,
     // and its tools, the last of which is full screen.
     expect(shell.querySelector(".map-bar")?.children.map(child => child.getAttribute("class"))).toEqual(["map-zone map-zone-path", "map-zone map-zone-build", "map-zone map-zone-tools"]);
@@ -341,8 +341,9 @@ describe("The map's own markup", () => {
     expect(shell.querySelector(".map-free")?.children.map(child => child.getAttribute("class"))).toEqual(["map-foot", "map-corner", "map-empty"]);
     // The legend and the notes stand over the line at the foot, whatever its height.
     expect(shell.querySelector(".map-foot")?.children.map(child => child.getAttribute("class"))).toEqual(["map-over", "map-dock"]);
-    // At the foot: the line of what is shown with the two buttons beside it, and under them the bar of what is traced.
-    expect(shell.querySelector(".map-dock")?.children.map(child => child.getAttribute("class"))).toEqual(["map-panel map-status", "map-btn map-dock-btn", "map-btn map-dock-btn", "map-panel map-tracebar"]);
+    // At the foot: the status and its two buttons. The trace shares the details column.
+    expect(shell.querySelector(".map-selection")?.children.map(child => child.getAttribute("class"))).toEqual(["map-panel map-tracebar", "map-panel map-inspector"]);
+    expect(shell.querySelector(".map-dock")?.children.map(child => child.getAttribute("class"))).toEqual(["map-panel map-status", "map-btn map-dock-btn", "map-btn map-dock-btn"]);
     expect(shell.querySelector(".map-over")?.children.map(child => child.getAttribute("class"))).toEqual(["map-panel map-legend", "map-panel map-about"]);
   });
 });

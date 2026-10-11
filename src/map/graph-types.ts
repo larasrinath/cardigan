@@ -201,8 +201,7 @@ export interface ModelMapOptions {
   /** Where the viewer left this model's map, as `onView` last told it: the map opens there, as far as this model still
    * has it, and otherwise as it opens by itself. */
   view?: MapView;
-  /** Called each time the map shows another view, or draws other links, with where it is now: the page keeps it for a
-   * refresh of the page. The map keeps nothing itself. */
+  /** Called when the view, drawn links or selection changes: the page keeps it for a refresh. The map keeps nothing itself. */
   onView?: (view: MapView) => void;
 }
 
@@ -223,6 +222,8 @@ export interface MapView {
   access?: boolean;
   /** Whether the links of page filters are drawn too. */
   filters?: boolean;
+  /** The selected box by kind, full name and its module or parent, encoded by map-selection.ts. */
+  selected?: string;
 }
 
 /** The mounted map (map-view.ts). The page shows and hides it as its navigation goes: while hidden it draws nothing and

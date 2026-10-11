@@ -11,6 +11,15 @@ Coming back to Cardigan keeps the place you were reading.
 - **Maintenance, named.** Anaplan's HTTP 503 or a page title or heading announcing maintenance shows **Anaplan is down for maintenance**, with **Run again**. Ordinary errors keep their own messages. The diagnostic log names the maintenance case.
 - **Fewer remarks.** The Overview keeps **Forget this result** without the sentence about the kept copy. An import's Mapping keeps its own notes; How to read explains saved headers and why columns after the last mapped one are not known.
 
+## 0.25.1 (11 October 2026)
+
+The Model map keeps its places when links change, and keeps the box you were reading.
+
+- **Links change without a jump.** Ticking or unticking Formulas, Access drivers or Page filters keeps the camera and every box where they were, including a box dragged by hand. Formula links alone place the boxes at every level. A box brought in only by an unticked kind stays in place, dimmed; the other links are drawn over that layout. A taller legend lies over the map. (#76)
+- **The bar and foot stay put.** The Links button keeps the room for its dot. The line at the foot always shows, and Legend and About this map keep their places. The trace's name, counts and buttons stand with the selected box's details. (#76)
+- **Names in full.** The model, group and module in the path take the room their names need. The path takes its own line before its steps or names wrap. The traced name wraps too, and stays visible on a narrow map. (#76)
+- **The selected box is kept.** A refresh or Run again reopens its details where the box still exists, found by its name and its module or parent. Changed formulas, counts and object numbers do not lose it. A missing or ambiguous name leaves the selection clear. (#76)
+
 ## 0.25.0 (11 October 2026)
 
 One details panel, in the same order wherever a row opens.
