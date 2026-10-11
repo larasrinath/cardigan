@@ -655,7 +655,7 @@ describe("The results page's script, on the page", () => {
 
     // The earlier result is all still there: its name, its navigation, the table and the row the user was reading.
     const earlier = () => [page.document.title, page.texts("#hdMeta .meta-app"), page.all("#navList [data-nav]").length, page.texts("#view h1"), firstCells().length,
-      page.id("drawer").hidden, page.texts("#drawerBody dd")[2]];
+      page.id("drawer").hidden, page.texts("#drawerBody dd")[1]];
     expect(earlier()).toEqual(["Cardigan - Demo <img src=x onerror=alert(1)> app", ["Demo <img src=x onerror=alert(1)> app"], 3, ["Cards"], 2, false, "=Margin"]);
     expect(disabled("runAgain")).toEqual([true]);
     page.id("drawerClose").press();
@@ -769,7 +769,7 @@ describe("The results page's script, on the page", () => {
     // its title, and the line under it says which row of which table it is.
     page.find("#tableWrap tbody tr .tag").press();
     expect(page.id("drawer").hidden).toBe(false);
-    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual([`Sales ${TAG}`, `Row 1 of Cards ${TAG}`]);
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual([`Sales ${TAG}`, `Cards ${TAG}`]);
     expect([page.id("drawerTitle").children, page.id("drawerSub").children]).toEqual([[], []]);
     expect(page.texts("#drawerBody dd")).toContain(`Sales ${TAG}`);
     // A card's number opens the card. The drawer's title is the card's own title.
@@ -782,7 +782,7 @@ describe("The results page's script, on the page", () => {
     page.id("drawerClose").press();
     goTo(1);
     page.all('#tableWrap tbody [data-act="row"]')[1].press();
-    expect([page.id("drawerTitle").textContent, page.id("drawerTitle").children, page.id("drawerSub").textContent]).toEqual([`Stores ${TAG}`, [], "Row 2 of Pages"]);
+    expect([page.id("drawerTitle").textContent, page.id("drawerTitle").children, page.id("drawerSub").textContent]).toEqual([`Stores ${TAG}`, [], "Pages"]);
     // None of the names became an element, anywhere on the page.
     expect([strayImg(), page.all("[onerror]")]).toEqual([false, []]);
   });
@@ -1118,7 +1118,7 @@ describe("The results page's script, on the page", () => {
     buttons()[1].press();
     expect(page.texts("#drawerBody dd")).toEqual(["Line item 19", "Number", "Source 19 * 2", "Revenue"]);
     // The drawer is headed by the row's own name, and says where the row is in the file, not on screen.
-    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual(["Line item 19", "Row 19 of Line Items"]);
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual(["Line item 19", "Line Items"]);
     page.id("drawerClose").press();
 
     // A click on the row itself opens it as before, and the focus then goes back to the row's button.
@@ -1133,7 +1133,7 @@ describe("The results page's script, on the page", () => {
     page.key("Escape");
     expect(buttons().slice(0, 2).map(button => button.textContent)).toEqual(["Text", "Number"]);
     buttons()[0].press();
-    expect(page.texts("#drawerBody dd")[0]).toBe("Line item 20");
+    expect(page.texts("#drawerBody dd").at(-1)).toBe("Line item 20");
   });
 
   it("shows a row whole in its drawer: each cell as it is, and the cells it holds beyond the table's headers", async () => {
@@ -1158,7 +1158,7 @@ describe("The results page's script, on the page", () => {
     const dash = page.all("#tableWrap tbody tr")[2].children[1];
     expect([dash.querySelectorAll(".cell-t").map(text => [text.textContent, text.title]), page.has("#tableWrap .dash")]).toEqual([[["-", "-"]], false]);
     page.all('#tableWrap tbody [data-act="row"]')[2].press();
-    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent, page.has("#drawerBody .dash")]).toEqual(["-", "Row 3 of Line Items", false]);
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent, page.has("#drawerBody .dash")]).toEqual(["-", "Line Items", false]);
   });
 
   it("keeps a page's link in an app's first column, with the row's button before it", async () => {
@@ -1169,7 +1169,7 @@ describe("The results page's script, on the page", () => {
     // The row's button opens the row, not the card and not the page's cards.
     page.all('#tableWrap tbody [data-act="row"]')[1].press();
     expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent, page.texts("#drawerBody h3"), page.texts("#drawerBody dd")])
-      .toEqual(["=Margin", "Row 2 of Cards", ["All columns"], ["Overview", "2", "=Margin", "KPI", "card-b"]]);
+      .toEqual(["=Margin", "Cards", ["All columns"], ["Overview", "=Margin", "KPI", "2", "card-b"]]);
     page.key("Escape");
     // And the page's name still shows that page's cards.
     page.find('#tableWrap tbody [data-act="page"]').press();
@@ -1191,69 +1191,45 @@ describe("The results page's script, on the page", () => {
       return title;
     };
     // Pages: the page, not the app that every row begins with. Cards: the card's title, not its page.
-    expect([heading(1, 0), heading(1, 1)]).toEqual([["Overview", "Row 1 of Pages"], ["Overview (copy)", "Row 2 of Pages"]]);
-    expect([heading(2, 1), heading(2, 3)]).toEqual([["Margin", "Row 2 of Cards"], ["Margin, copied", "Row 4 of Cards"]]);
+    expect([heading(1, 0), heading(1, 1)]).toEqual([["Overview", "Pages"], ["Overview (copy)", "Pages"]]);
+    expect([heading(2, 1), heading(2, 3)]).toEqual([["Margin", "Cards"], ["Margin, copied", "Cards"]]);
     // The other files: what the row is about. A grid section's source module, an object's name, a button's label.
-    expect([heading(3, 2), heading(4, 1), heading(5, 0)]).toEqual([["REP02 Gone", "Row 3 of Grid Sections"], ["REP09 Copy", "Row 2 of Where Used"], ["Reload plan", "Row 1 of Action Buttons"]]);
+    expect([heading(3, 2), heading(4, 1), heading(5, 0)]).toEqual([["REP02 Gone", "Grid Sections"], ["REP09 Copy", "Where Used"], ["Reload plan", "Action Buttons"]]);
     // A card without a title, a dash or nothing in its place: the first cell of the row that says something.
-    expect([heading(2, 4), heading(2, 5)]).toEqual([["Overview", "Row 5 of Cards"], ["Overview", "Row 6 of Cards"]]);
+    expect([heading(2, 4), heading(2, 5)]).toEqual([["Overview", "Cards"], ["Overview", "Cards"]]);
     // A row no cell of which says anything, only the dash for nothing to say and empty cells, has no name of its own: its
     // drawer is headed by its place in the file.
-    expect(heading(5, 1)).toEqual(["Row 2", "Row 2 of Action Buttons"]);
+    expect(heading(5, 1)).toEqual(["Row 2", "Action Buttons"]);
     // A model's rows are named by their first column, as they were.
     page.id("runAgain").press();
     sendResult(ports[0], MODEL);
-    expect([heading(1, 2), heading(2, 1)]).toEqual([["Line item 3", "Row 3 of Line Items"], ["Cost", "Row 2 of Modules"]]);
+    expect([heading(1, 2), heading(2, 1)]).toEqual([["Line item 3", "Line Items"], ["Cost", "Modules"]]);
   });
 
-  it("keeps the keyboard inside the open drawer: what lies behind it is inert until it closes, however it closes", async () => {
+  it("keeps the table and header usable beside a labelled region, moves focus in, and returns it to the last selected row", async () => {
     await openWith();
     goTo(2);
-    /** What lies behind the drawer, each part by whether it is inert: the link that skips to the results, the header, the
-     * navigation under it, the banner area and the shell. */
-    const behind = () => [page.find(".skip"), page.find(".hd"), page.id("topnav"), page.id("banners"), page.find(".shell")].map(part => part.inert);
-    const IN_REACH = [false, false, false, false, false];
-    const OUT_OF_REACH = [true, true, true, true, true];
-    const rowButton = () => page.all('#tableWrap tbody [data-act="row"]')[0];
-    expect(behind()).toEqual(IN_REACH);
-
-    rowButton().press();
-    expect(behind()).toEqual(OUT_OF_REACH);
-    // Nothing behind the drawer takes the focus, an entry of the navigation neither; the drawer's own controls do, and
-    // the drawer has it.
-    expect([page.id("tblSearch"), page.id("runAgain"), page.find(".skip"), page.find("#navList .nav-item"), rowButton(), page.id("drawerClose"), page.find("#drawerBody .link")]
-      .map(control => control.focusable)).toEqual([false, false, false, false, false, true, true]);
-    expect([page.id("drawer").inert, page.document.activeElement === page.id("drawerClose")]).toEqual([false, true]);
-    // The message a copied ID gives is not behind the drawer: it is still announced.
-    expect([page.id("toast"), page.id("live")].map(part => part.closest("[inert]"))).toEqual([null, null]);
-
-    // Escape: the page takes part again, and the focus is back on the row's button, which can take it again.
+    const rows = page.all('#tableWrap tbody [data-act="row"]');
+    rows[0].press();
+    expect(page.id("drawerBack").hidden).toBe(true);
+    expect([page.id("drawer").getAttribute("role"), page.id("drawer").getAttribute("aria-modal"), page.has("#scrim")])
+      .toEqual(["region", null, false]);
+    expect(page.id("drawer").getAttribute("aria-labelledby")).toBe("drawerTitle");
+    expect(page.document.activeElement).toBe(page.id("drawerClose"));
+    expect([page.id("tblSearch"), page.id("runAgain"), page.id("themeToggle"), page.find(".skip"), rows[1]].map(control => control.focusable))
+      .toEqual([true, true, true, true, true]);
+    page.id("themeToggle").press();
+    expect(page.id("drawer").classList.contains("show")).toBe(true);
+    rows[1].press();
+    expect([page.id("drawerTitle").textContent, page.id("drawerBack").hidden]).toEqual(["=Margin", true]);
+    expect(page.document.activeElement).toBe(page.id("drawerClose"));
     page.key("Escape");
-    expect([behind(), page.document.activeElement === rowButton()]).toEqual([IN_REACH, true]);
-    // The close button, a click beside the drawer, and a jump from the drawer to a page's cards.
-    rowButton().press();
-    page.id("drawerClose").press();
-    expect(behind()).toEqual(IN_REACH);
-    rowButton().press();
-    page.id("scrim").press();
-    expect(behind()).toEqual(IN_REACH);
-    rowButton().press();
-    page.find('#drawerBody [data-act="page"]').press();
-    expect([behind(), page.texts("#pageFilter")]).toEqual([IN_REACH, ["Page: Overview"]]);
-    // The jump draws the view anew, so what opened the drawer is gone: the focus is on the view, not left in the drawer.
-    expect(page.document.activeElement).toBe(page.id("view"));
+    expect(page.document.activeElement).toBe(rows[1]);
     vi.advanceTimersByTime(210);
-    expect([page.id("drawer").hidden, page.document.activeElement === page.id("view")]).toEqual([true, true]);
-    // A card's drawer is the same drawer.
-    page.find('#tableWrap tbody [data-act="card"]').press();
-    expect(behind()).toEqual(OUT_OF_REACH);
-    // A new result reopens this same card, keeping the drawer modal.
+    expect(page.id("drawer").hidden).toBe(true);
+    rows[0].press();
     page.id("drawerClose").press();
-    page.id("runAgain").press();
-    page.find('#tableWrap tbody [data-act="card"]').press();
-    expect(behind()).toEqual(OUT_OF_REACH);
-    sendResult(ports[0]);
-    expect([behind(), page.id("drawer").classList.contains("show"), page.texts("#view h1")]).toEqual([OUT_OF_REACH, true, ["Cards"]]);
+    expect(page.document.activeElement).toBe(rows[0]);
   });
 
   it("goes down the page's headings one level at a time, in every view and in the drawer", async () => {
@@ -1375,7 +1351,7 @@ describe("The results page's script, on the page", () => {
     expect([page.find("#view .view-note") === note, filterable().includes("Section")]).toEqual([true, false]);
     // A row's drawer says its place among the rows the table lists.
     page.all('#tableWrap tbody [data-act="row"]')[0].press();
-    expect([page.id("drawerSub").textContent, page.texts("#drawerBody dd").slice(0, 3)]).toEqual(["Row 1 of Model Calendar", ["Calendar Type", "Calendar Months/Quarters/Years", "Model Calendar"]]);
+    expect([page.id("drawerSub").textContent, page.texts("#drawerBody dd").slice(0, 3)]).toEqual(["Model Calendar", ["Calendar Type", "Calendar Months/Quarters/Years", "Model Calendar"]]);
     page.key("Escape");
 
     // The page's own table is whole, the rows about the model first: a model's map is built from the result's tables.
@@ -1690,11 +1666,11 @@ describe("What a click, a key and typing do on the results page", () => {
     // A row's drawer is headed by the row's name and says its place among the table's rows; it holds the view's columns.
     page.all('#tableWrap tbody [data-act="row"]')[2].press();
     expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent, page.texts("#drawerBody dt").slice(0, 2), page.texts("#drawerBody dd").slice(0, 2)])
-      .toEqual(["Cost", "Row 8 of Line Items", ["Name", "Module Name"], ["Cost", "COST01 Costs"]]);
+      .toEqual(["Cost", "Line Items", ["Name", "Module Name"], ["Cost", "COST01 Costs"]]);
     page.key("Escape");
     page.all('#tableWrap tbody [data-act="row"]')[1].press();
     expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent, page.texts("#drawerBody dd").slice(0, 2)])
-      .toEqual(["COST01 Costs", "Row 7 of Line Items", ["COST01 Costs", "COST01 Costs"]]);
+      .toEqual(["COST01 Costs", "Line Items", ["COST01 Costs", "COST01 Costs"]]);
     page.key("Escape");
 
     // The page's own table is the file as the export wrote it, with the modules' rows, the dashes and the file's own
@@ -1937,12 +1913,12 @@ describe("What a click, a key and typing do on the results page", () => {
     // as it is written. The focus goes back to the button it was opened from.
     const rowButtons = () => page.all('#tableWrap tbody [data-act="row"]');
     rowButtons()[0].press();
-    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent, page.texts("#drawerBody dd")]).toEqual(["Can read", "Row 1 of DCA", ["ACC01 Access", "Can read", "Read", "REV01 Revenue", "Units"]]);
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent, page.texts("#drawerBody dd")]).toEqual(["Can read", "DCA", ["ACC01 Access", "Can read", "Read", "REV01 Revenue", "Units"]]);
     page.key("Escape");
     expect(page.document.activeElement).toBe(rowButtons()[0]);
     rowButtons()[4].press();
     expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent, page.texts("#drawerBody dt"), page.texts("#drawerBody dd").slice(1)])
-      .toEqual(["'Old access'.Flag", "Row 5 of DCA", ["Driver Module", "Driver Line Item", "Access", "Controlled Module", "Controlled Line Item"], ["'Old access'.Flag", "Write", "COST01 Costs", "Cost"]]);
+      .toEqual(["'Old access'.Flag", "DCA", ["Driver Module", "Driver Line Item", "Access", "Controlled Module", "Controlled Line Item"], ["'Old access'.Flag", "Write", "COST01 Costs", "Cost"]]);
     page.key("Escape");
     // With the driver's name hidden, the first column shown opens the row, as in any table: the module, and for the row
     // that has none, a button of its own before the empty cell. The row is still called by its driver.
@@ -2020,13 +1996,13 @@ describe("What a click, a key and typing do on the results page", () => {
     // dimensions the line item has from its module are listed one to a line there, with how many beside the column's
     // name, and the table says them as the file has them, on one line, in the very row that was opened.
     page.all('#tableWrap tbody [data-act="row"]')[0].press();
-    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual(["Margin %", "Row 5 of Line Items"]);
-    expect(page.texts("#drawerBody dt")).toEqual(["Name", "Module Name", "Format", "Format as read", "Format type", "Formula", "Applies To (2)", "Summary", "Summary as read",
-      "Applies To from", "Ratio Numerator", "Ratio Denominator"]);
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual(["Margin %", "Line Items"]);
+    expect(page.texts("#drawerBody dt")).toEqual(["Name", "Module Name", "Format", "Format type", "Formula", "Applies To (2)", "Summary",
+      "Applies To from", "Ratio Numerator", "Ratio Denominator", "Format as read", "Summary as read"]);
     /** A value of the drawer: its items where it lists several, and otherwise its text. */
     const value = (dd: FakeElement) => (dd.querySelectorAll("li").length ? dd.querySelectorAll(".cell-list li .cell-t").map(item => item.textContent) : dd.textContent);
-    expect(page.all("#drawerBody dd").map(value)).toEqual(["Margin %", "REV01 Revenue", "Number, 2 decimal places, %", PERCENT, "Number", "Margin / Revenue", ["Products", "Time"], "Ratio = Margin / Revenue",
-      RATIO, "Module", "Margin", "Revenue"]);
+    expect(page.all("#drawerBody dd").map(value)).toEqual(["Margin %", "REV01 Revenue", "Number, 2 decimal places, %", "Number", "Margin / Revenue", ["Products", "Time"], "Ratio = Margin / Revenue",
+      "Module", "Margin", "Revenue", PERCENT, RATIO]);
     expect([column("Name")[0], column("Applies To")[0]]).toEqual(["Margin %", "Products, Time"]);
     page.key("Escape");
     // The search finds the dimensions as the table shows them, the comma between them as well: the module's own row and
@@ -2036,8 +2012,8 @@ describe("What a click, a key and typing do on the results page", () => {
     page.id("tblSearch").type("");
     // Another row has its own: the drawer is the row's, after a sort as well.
     page.all('#tableWrap tbody [data-act="row"]')[4].press();
-    expect([page.id("drawerTitle").textContent, page.texts("#drawerBody dd").slice(2, 5), page.texts("#drawerBody dd").slice(7, 9)])
-      .toEqual(["Cost", ["Number", NUMBER, "Number"], ["Sum, Time: Closing Balance", CLOSING]]);
+    expect([page.id("drawerTitle").textContent, page.texts("#drawerBody dd").slice(2, 4), page.texts("#drawerBody dd").slice(-2)])
+      .toEqual(["Cost", ["Number", "Number"], [NUMBER, CLOSING]]);
     page.key("Escape");
 
     // The page's own table is the file as the export wrote it: Anaplan's text, and none of the words. A model's map is
@@ -2135,8 +2111,9 @@ describe("What a click, a key and typing do on the results page", () => {
 
     // The row's drawer: the three columns, then Source Object as it was read, once, under the file's own name for it.
     page.all('#tableWrap tbody [data-act="row"]')[0].press();
-    expect([page.texts("#drawerBody dt").slice(3, 7), page.all("#drawerBody dd").map(value => value.textContent).slice(3, 7)])
-      .toEqual([["Source Model", "Source Module", "Saved View", "Source Object as read"], ["M0 Data Hub [DEV]", "HRY01 ORG Hierarchy Builder", "DATA & LIST: ORG3 Area", HUB]]);
+    expect([page.texts("#drawerBody dt").slice(3, 6), page.all("#drawerBody dd").map(value => value.textContent).slice(3, 6)])
+      .toEqual([["Source Model", "Source Module", "Saved View"], ["M0 Data Hub [DEV]", "HRY01 ORG Hierarchy Builder", "DATA & LIST: ORG3 Area"]]);
+    expect(page.texts("#drawerBody .d-raw dd")).toEqual([HUB]);
     page.key("Escape");
     // The list's import has nothing that was read in words, and so nothing as read.
     page.all('#tableWrap tbody [data-act="row"]')[2].press();
@@ -2206,12 +2183,12 @@ describe("What a click, a key and typing do on the results page", () => {
     for (const [index, row] of APP.tables[3].rows.entries()) {
       // On a plain cell of the row: its section layout.
       page.all("#tableWrap tbody tr")[index].children[1].press();
-      expect([page.all("#drawerBody dd").map(value => value.textContent), page.id("drawerSub").textContent], `row ${index + 1}`).toEqual([row.map(String), `Row ${index + 1} of Grid Sections`]);
+      expect([page.all("#drawerBody dd").map(value => value.textContent), page.id("drawerSub").textContent], `row ${index + 1}`).toEqual([[row[0], row[3], row[4], row[1], row[2], row[5]].map(String), "Grid Sections"]);
       page.key("Escape");
     }
     // On the cell itself, beside its text, as well as on the text.
     page.all("#tableWrap tbody tr")[1].children[2].querySelector(".cell-t")?.press();
-    expect(page.texts("#drawerBody dd")[4]).toBe("REP09 Copy");
+    expect(page.texts("#drawerBody dd")[2]).toBe("REP09 Copy");
     page.key("Escape");
     // A control in a row does what it does and does not open the row: the ID's pill, once its column is shown, copies the ID.
     toggleColumn("Card ID");
@@ -2281,7 +2258,7 @@ describe("What a click, a key and typing do on the results page", () => {
     expect(cardLinks().map(link => link.textContent)).toEqual(["Sales", "Margin", "Sales, copied", "Margin, copied"]);
     cardLinks()[2].press();
     expect(card()).toEqual(["Card 1 - Sales, copied", "Overview (copy)", ["Card details", "Grid sections (1)"], ["1", "Own rows and columns", "REP09 Copy"]]);
-    expect(page.texts("#drawerBody .d-dl dd")).toEqual(["Overview (copy)", "1", "Sales, copied", "Grid", "card-a"]);
+    expect(page.texts("#drawerBody .d-dl dd")).toEqual(["Overview (copy)", "Sales, copied", "Grid", "1", "card-a"]);
     page.key("Escape");
     cardLinks()[0].press();
     expect(card()).toEqual(["Card 1 - Sales", "Overview", ["Card details", "Grid sections (1)"], ["1", "Own rows and columns", "REP01 Sales"]]);
@@ -2304,7 +2281,7 @@ describe("What a click, a key and typing do on the results page", () => {
     const rowButton = () => page.all('#tableWrap tbody [data-act="row"]')[1];
     rowButton().press();
     expect([page.id("drawerSub").textContent, page.texts("#drawerBody dt").slice(0, 3), page.all('#drawerBody [data-act="card"]').map(link => [link.textContent, link.title])])
-      .toEqual(["Row 2 of Grid Sections", ["Page", "Card #", "Section #"], [["1", "Open card details"]]]);
+      .toEqual(["Grid Sections", ["Page", "Section layout", "Source module"], [["1", "Open card details"]]]);
     page.find('#drawerBody [data-act="card"]').press();
     expect(card()).toEqual(["Card 1 - Sales, copied", "Overview (copy)", ["Card details", "Grid sections (1)"], ["1", "Own rows and columns", "REP09 Copy"]]);
     // Inside the card's drawer, a card's link opens that card too: here the same one again, by its title.
@@ -2355,14 +2332,14 @@ describe("What a click, a key and typing do on the results page", () => {
     // Sales is on both pages with one number and one ID. Each row opens its own card: the copy's title and its formatting
     // rule, not those of the first card that has the page's name and the ID.
     cardLinks()[3].press();
-    expect(card()).toEqual({ title: "Card 1 - Sales, copied", cells: ["Overview", "1", "Sales, copied", "Grid", "1 rule", "card-a"], sections: ["Card details"], rows: [], note: [NOTE] });
+    expect(card()).toEqual({ title: "Card 1 - Sales, copied", cells: ["Overview", "Sales, copied", "Grid", "1 rule", "1", "card-a"], sections: ["Card details"], rows: [], note: [NOTE] });
     // Its grid sections and its formatting rules are in the other files under the same name, number and ID as the first
     // page's: neither card's are listed as this one's (two grid sections for a card that has one), and the line says why.
     // The line's page still leads to the cards under that name.
     expect(page.all("#drawerSub [data-act]").map(control => [control.dataset.act, control.textContent])).toEqual([["page", "Overview"]]);
     page.key("Escape");
     cardLinks()[0].press();
-    expect(card()).toEqual({ title: "Card 1 - Sales", cells: ["Overview", "1", "Sales", "Grid", "-", "card-a"], sections: ["Card details"], rows: [], note: [NOTE] });
+    expect(card()).toEqual({ title: "Card 1 - Sales", cells: ["Overview", "Sales", "Grid", "-", "1", "card-a"], sections: ["Card details"], rows: [], note: [NOTE] });
     // Inside the drawer the card's own links open the same card again, not its twin.
     page.all('#drawerBody [data-act="card"]')[1].press();
     expect(card().title).toBe("Card 1 - Sales");
@@ -2396,7 +2373,7 @@ describe("What a click, a key and typing do on the results page", () => {
     expect(card().title).toBe("Card 3 - Stock");
     page.key("Escape");
     page.all('#tableWrap tbody [data-act="row"]')[2].press();
-    expect([page.id("drawerSub").textContent, page.texts("#drawerBody dd").slice(0, 2), page.all('#drawerBody [data-act="card"]').length]).toEqual(["Row 3 of Grid Sections", ["Overview", "1"], 0]);
+    expect([page.id("drawerSub").textContent, page.texts("#drawerBody dd").slice(0, 2), page.all('#drawerBody [data-act="card"]').length]).toEqual(["Grid Sections", ["Overview", "1"], 0]);
     page.key("Escape");
     // A row of the moved card names it by its number among the two that have its ID.
     goTo(4);
@@ -2538,8 +2515,8 @@ describe("What a click, a key and typing do on the results page", () => {
     goTo(4);
     expect(headings()).toEqual(["Object type", "Object name", "Object's module", "Page", "Used as"]);
     page.all('#tableWrap tbody [data-act="row"]')[0].press();
-    expect([page.texts("#drawerBody dt"), page.texts("#drawerBody dd")[4], page.all('#drawerBody [data-act="card"]')])
-      .toEqual([["Object type", "Object name", "Object's module", "Page", "Card #", "Used as", "Object ID"], "1", []]);
+    expect([page.texts("#drawerBody dt"), page.texts("#drawerBody dd")[5], page.all('#drawerBody [data-act="card"]')])
+      .toEqual([["Object type", "Object name", "Object's module", "Page", "Used as", "Card #", "Object ID"], "1", []]);
   });
 
   it("turns a table's pages and changes how many rows a page holds, with the rows that belong there", async () => {
@@ -2618,10 +2595,10 @@ describe("What a click, a key and typing do on the results page", () => {
     cardLinks()[0].press();
     expect(drawerShown()).toBe(true);
     page.key("Escape");
-    // The drawer slides out, and is out of the page once it has, with the scrim.
-    expect([drawerShown(), page.id("drawer").hidden, page.id("scrim").hidden]).toEqual([false, false, false]);
+    // The drawer slides out, and is out of the page once it has, without a scrim.
+    expect([drawerShown(), page.id("drawer").hidden, page.has("#scrim")]).toEqual([false, false, false]);
     vi.advanceTimersByTime(210);
-    expect([page.id("drawer").hidden, page.id("scrim").hidden]).toEqual([true, true]);
+    expect([page.id("drawer").hidden, page.has("#scrim")]).toEqual([true, false]);
     // Opened again before it has slid out, it stays.
     cardLinks()[0].press();
     page.key("Escape");
@@ -2993,7 +2970,7 @@ describe("An app's Where Used table, by object and by use", () => {
     // In the other way a row is a use, and opens as any row does.
     way("use").press();
     page.all('#tableWrap tbody [data-act="row"]')[2].press();
-    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent, page.texts("#drawerBody h3")]).toEqual(["Time", "Row 3 of Where Used", ["All columns"]]);
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent, page.texts("#drawerBody h3")]).toEqual(["Time", "Where Used", ["All columns"]]);
   });
 
   it("says of an object used on a page name that two pages share that its counts are at least that many, why, and which of its uses those are", async () => {
@@ -3089,7 +3066,7 @@ describe("An app's Where Used table, by object and by use", () => {
     const rowButton = (index: number) => page.all('#tableWrap tbody [data-act="row"]')[index];
     rowButton(4).press();
     expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent, page.texts("#drawerBody dt")])
-      .toEqual(["Time", "Row 5 of Where Used", ["Object type", "Object name", "Object's module", "Page", "Card #", "Used as", "Object ID"]]);
+      .toEqual(["Time", "Where Used", ["Object type", "Object name", "Object's module", "Page", "Used as", "Card #", "Object ID"]]);
     expect(page.all('#drawerBody [data-act="card"]').map(link => [link.textContent, link.title])).toEqual([["2", "Open card details"]]);
     page.find('#drawerBody [data-act="card"]').press();
     expect([page.id("drawerTitle").textContent, page.texts("#drawerSub .link"), page.texts("#drawerBody h3")[0]]).toEqual(["Card 2 - Margin", ["Overview"], "Card details"]);
@@ -3103,7 +3080,7 @@ describe("An app's Where Used table, by object and by use", () => {
     page.key("Escape");
     // A use on a card the result does not have: its number is a number, and the row's page is a link still.
     rowButton(8).press();
-    expect([page.id("drawerTitle").textContent, page.texts("#drawerBody dd")[4], page.all('#drawerBody [data-act="card"]').length, page.all('#drawerBody [data-act="page"]').length])
+    expect([page.id("drawerTitle").textContent, page.texts("#drawerBody dd")[5], page.all('#drawerBody [data-act="card"]').length, page.all('#drawerBody [data-act="page"]').length])
       .toEqual(["REP03 Gone", "9", 0, 1]);
     page.key("Escape");
     // With the column shown, the same holds in the table: a link in each row whose card is there, the number alone in the other.
@@ -4031,9 +4008,9 @@ describe("The navigation bar of the results page", () => {
     expect([page.has("#navToggle"), page.find(".hd").children.map(child => child.id || child.getAttribute("class")), page.document.documentElement.hasAttribute("data-navigation")])
       .toEqual([false, ["brand", "hdMeta", "hd-actions"], false]);
     // Nothing slides in over the page, at any width: the page asks the window nothing of its width, nothing is put out of
-    // reach, and the scrim is the drawer's alone.
+    // reach, and there is no scrim.
     goTo(1);
-    expect([[...new Set(mediaAsked)], page.all("[inert]"), page.id("scrim").hidden]).toEqual([["(prefers-color-scheme: dark)"], [], true]);
+    expect([[...new Set(mediaAsked)], page.all("[inert]"), page.has("#scrim")]).toEqual([["(prefers-color-scheme: dark)"], [], false]);
   });
 
   it("marks the entry of the view shown and the button of the group that holds it; the line's buttons are in the Tab key's reach, a menu's entries once it is open, and the view takes the focus on a choice", async () => {
@@ -4858,6 +4835,59 @@ describe("A model's map on the results page", () => {
   });
 });
 
+describe("Row links and Back in the details panel", () => {
+  const table = (label: string, headers: string[], rows: Cell[][]): ResultTable => ({ file: `${label}.csv`, label, headers, rows, guard: false });
+  const linked: AnalysisResult = { ...MODEL, tables: [MODEL.tables[0],
+    table("Modules", ["Name", "Line Items"], [["Inventory", "Input, Total"]]),
+    table("Line Items", ["Name", "Module Name", "Format", "Referenced By"], [["Input", "Inventory", "NUMBER", "Total"], ["Total", "Inventory", "NUMBER", ""]]),
+    table("Processes", ["Name"], [["Refresh inventory"]]),
+    table("Imports", ["Name", "Used in Processes", "Target Type", "Target Object"], [["Load inventory", "Refresh inventory", "MODULE", "Inventory"]]),
+    table("Dynamic Cell Access", ["Driver Module", "Driver Line Item", "Access", "Controlled Module", "Controlled Line Item"], [["Inventory", "Input", "Read", "Inventory", "Total"]]),
+    table("Page Filters", ["Condition line item's module", "Condition line item", "Filtered module"], [["Inventory", "Input", "Inventory"]]),
+    table("Page Actions", ["Model action name", "Action type"], [["Refresh inventory", "Process"]]),
+    table("Source Models", ["Name"], [["Seed model"]]),
+    table("Import Data Sources", ["Name", "Source Model", "Imports"], [["Seed values", "Seed model", "Load inventory"]]),
+  ] };
+  const row = (index = 0) => page.all('#tableWrap tbody [data-act="row"]')[index];
+  const item = (words: string) => page.all('#drawerBody [data-act="item"]').find(link => link.textContent === words)!;
+
+  it("renders single references and the new links, and follows their actual row", async () => {
+    await openWith(linked);
+    for (const [index, names] of [
+      [2, ["Inventory", "Total"]], [4, ["Inventory", "Refresh inventory"]], [5, ["Inventory", "Input", "Inventory", "Total"]],
+      [6, ["Inventory", "Input", "Inventory"]], [7, ["Refresh inventory"]], [9, ["Seed model", "Load inventory"]],
+    ] as const) {
+      goTo(index);
+      row().press();
+      expect(page.texts('#drawerBody [data-act="item"]'), `table ${index}`).toEqual(names);
+      item(names[0]).press();
+      expect(page.id("drawerTitle").textContent).toBe(names[0]);
+      expect(page.id("drawerBack").hidden).toBe(false);
+      page.id("drawerBack").press();
+      expect(page.id("drawerBack").hidden).toBe(true);
+    }
+  });
+
+  it("returns through several links, resets history on a table row, and closes to that row after a table redraw", async () => {
+    await openWith(linked);
+    goTo(2);
+    row().press();
+    item("Inventory").press();
+    item("Total").press();
+    expect(page.id("drawerTitle").textContent).toBe("Total");
+    page.id("drawerBack").press();
+    expect([page.id("drawerTitle").textContent, page.id("drawerBack").hidden]).toEqual(["Inventory", false]);
+    page.id("drawerBack").press();
+    expect([page.id("drawerTitle").textContent, page.id("drawerBack").hidden]).toEqual(["Input", true]);
+    item("Inventory").press();
+    row(1).press();
+    expect([page.id("drawerTitle").textContent, page.id("drawerBack").hidden]).toEqual(["Total", true]);
+    page.id("tblSearch").type("Total");
+    page.key("Escape");
+    expect(page.document.activeElement === row(1)).toBe(true);
+  });
+});
+
 describe("The ways from a count or a row to where it leads", () => {
   /** BLUEPRINT's modules and line items, as the map's graph holds them: what the button in a row's details reads. */
   const blueprintNodes = () => [
@@ -4906,6 +4936,29 @@ describe("The ways from a count or a row to where it leads", () => {
     goTo(1);
     openRow("--- Archive ---");
     expect([drawerOpen(), mapButton()]).toEqual([true, undefined]);
+  });
+
+  it("offers Model map for DCA and Page Filters only where their line item has a box", async () => {
+    mapNodes = blueprintNodes();
+    const dca: ResultTable = { file: "Dynamic Cell Access.csv", label: "Dynamic Cell Access", guard: false,
+      headers: ["Driver Module", "Driver Line Item", "Access", "Controlled Module", "Controlled Line Item"],
+      rows: [["REV01 Revenue", "Units", "Read", "COST01 Costs", "Cost"], ["Gone", "Missing", "Read", "Gone", "Missing"]] };
+    const filters: ResultTable = { file: PAGE_FILTERS_FILE, label: "Page Filters", guard: true,
+      headers: ["Condition line item's module", "Condition line item", "Filtered module"],
+      rows: [["REV01 Revenue", "Units", "COST01 Costs"], ["REV01 Revenue", "Missing line item (ID 191000000999)", "COST01 Costs"]] };
+    await openWith({ ...BLUEPRINT, tables: [...BLUEPRINT.tables, dca, filters] });
+    for (const table of [3, 4]) {
+      goTo(table);
+      const matching = (name: string) => page.all('#tableWrap tbody tr').find(row => row.children.some(cell => cell.textContent === name))!.querySelector('[data-act="row"]')!;
+      matching("Units").press();
+      expect(mapButton()).toBeDefined();
+      expect(mapButton()!.title).toBe("Show Units on the Model map");
+      mapButton()!.press();
+      expect(mapAsked.at(-1)).toBe("reveal 1 1");
+      goTo(table);
+      matching(table === 3 ? "Missing" : "Missing line item (ID 191000000999)").press();
+      expect(mapButton()).toBeUndefined();
+    }
   });
 
   it("opens a module's box on the model map from its row of Module Usage", async () => {
@@ -5096,7 +5149,7 @@ describe("The buttons at the top right of a row's details that open it in Anapla
     expect(page.all("#tableWrap tbody tr").map(row => row.getAttribute("title"))).toEqual(Array(8).fill(null));
     openRow("Revenue");
     expect([opens(), page.id("drawerOpens").hidden, why()]).toEqual([[["Model", "Open REV01 Revenue in Model Building"]], false, undefined]);
-    page.id("scrim").dispatch("dblclick");
+    page.id("drawerBody").dispatch("dblclick");
     await settle();
     expect([tabUpdates, asks()]).toEqual([[], []]);
     // The tab is asked first, and says it cannot: it goes to the module's address and comes to the front, and so does its
@@ -5758,7 +5811,7 @@ describe("The mapping of an import from a file, in its row's details", () => {
   const WITH_MAPPINGS: AnalysisResult = { ...BLUEPRINT, summary: [...BLUEPRINT.summary, "Imports: 3 rows", "Import Data Sources: 2 rows"],
     tables: [...BLUEPRINT.tables, IMPORTS, SOURCES], importMappings: MAPPINGS };
   /** The drawer's sections by their headings, and the Mapping section's rows and lines. */
-  const sections = () => page.all("#drawerBody .d-sec").map(section => section.querySelector("h3")?.textContent);
+  const sections = () => page.texts("#drawerBody h3");
   const mapping = () => [page.all("#drawerMapping tbody tr").map(row => row.children.map(cell => cell.textContent)), page.texts("#drawerMapping p")];
   const openImport = (name: string) => {
     page.all('#tableWrap tbody [data-act="row"]')[firstCells().indexOf(name)].press();
@@ -5769,11 +5822,11 @@ describe("The mapping of an import from a file, in its row's details", () => {
     theirs = /\bFILE\b|HQ Network\.csv|prices\.csv|The uploaded file is no longer available; please upload the file again/g;
   });
 
-  it("ends the details of an import from a file with its mapping, below All columns: each source with the target it feeds, then the targets nothing feeds and the columns it does not use", async () => {
+  it("starts the details of an import from a file with its mapping, before All columns: each source with the target it feeds, then the targets nothing feeds and the columns it does not use", async () => {
     await openWith(WITH_MAPPINGS);
     goTo(3);
     openImport("Division from HQ Network.csv");
-    expect([page.id("drawerTitle").textContent, sections()]).toEqual(["Division from HQ Network.csv", ["All columns", "Mapping"]]);
+    expect([page.id("drawerTitle").textContent, sections()]).toEqual(["Division from HQ Network.csv", ["Mapping", "All columns"]]);
     // The import's file is no longer available, and its mapping is shown all the same: the mapping is the import's own.
     // Each source first, with the target it feeds; the target nothing feeds is no row, but a name in the line under them.
     expect(mapping()).toEqual([[["Division Name", "Division"], ["Region", "Parent"], ["Column 4", "Code"], ["Manager", "Manager"]],
@@ -5834,7 +5887,7 @@ describe("The mapping of an import from a file, in its row's details", () => {
     await eventually(() => page.document.title === `Cardigan - ${WITH_MAPPINGS.name}`, "the result to come back");
     goTo(3);
     openImport("Prices from prices.csv");
-    expect([sections(), mapping()[0][0]]).toEqual([["All columns", "Mapping"], ["Product", "Products"]]);
+    expect([sections(), mapping()[0][0]]).toEqual([["Mapping", "All columns"], ["Product", "Products"]]);
   });
 
   it("says why there is no mapping to show: one that could not be read, or an import of another kind", async () => {
@@ -5842,7 +5895,7 @@ describe("The mapping of an import from a file, in its row's details", () => {
     await openWith({ ...WITH_MAPPINGS, importMappings: [{ ...MAPPINGS[0], importType: "", targets: [], note: NOT_READ }, { ...MAPPINGS[1], importType: "USERS", targets: [] }] });
     goTo(3);
     openImport("Division from HQ Network.csv");
-    expect([sections(), mapping()]).toEqual([["All columns", "Mapping"], [[], [NOT_READ]]]);
+    expect([sections(), mapping()]).toEqual([["Mapping", "All columns"], [[], [NOT_READ]]]);
     expect(page.has("#drawerMapping table")).toBe(false);
     page.key("Escape");
     openImport("Prices from prices.csv");
@@ -5913,27 +5966,27 @@ describe("The actions of a process, in its row's details", () => {
   const WITH_PROCESSES: AnalysisResult = { ...BLUEPRINT, summary: [...BLUEPRINT.summary, "Processes: 3 rows", "Imports: 2 rows", "Exports: 1 rows", "Other Actions: 1 rows"],
     tables: [...BLUEPRINT.tables, PROCESSES, IMPORTS, EXPORTS, OTHERS], processActions: PROCESS_ACTIONS };
   /** The drawer's sections by their headings, and the Actions section's headings, rows and lines. */
-  const sections = () => page.all("#drawerBody .d-sec").map(section => section.querySelector("h3")?.textContent);
+  const sections = () => page.texts("#drawerBody h3");
   const steps = () => [page.texts("#drawerSteps th"), page.all("#drawerSteps tbody tr").map(row => row.children.map(cell => cell.textContent)), page.texts("#drawerSteps p")];
   const links = () => page.all('#drawerSteps [data-act="step"]').map(link => link.textContent);
   const openProcess = (name: string) => {
     page.all('#tableWrap tbody [data-act="row"]')[firstCells().indexOf(name)].press();
   };
 
-  it("lists the actions a process runs below All columns, numbered in the order it runs them, each with its kind, and each opens its own row's details", async () => {
+  it("lists the actions a process runs before All columns, numbered in the order it runs them, each with its kind, and each opens its own row's details", async () => {
     await openWith(WITH_PROCESSES);
     goTo(3);
     openProcess("Nightly load");
-    expect([page.id("drawerTitle").textContent, sections()]).toEqual(["Nightly load", ["All columns", "Actions (3)"]]);
+    expect([page.id("drawerTitle").textContent, sections()]).toEqual(["Nightly load", ["Actions (3)", "All columns"]]);
     expect(steps()).toEqual([["#", "Action", "Kind"], [["1", "Prices from the hub", "Import"], ["2", "1.1 Load regions", "Import"], ["3", "Delete old items", "Other action"]], []]);
     expect(links()).toEqual(["Prices from the hub", "1.1 Load regions", "Delete old items"]);
     // An action's name opens its row of its own table, as a click on that row does.
     page.all('#drawerSteps [data-act="step"]')[1].press();
-    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent, sections()]).toEqual(["1.1 Load regions", "Row 2 of Imports", ["All columns"]]);
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent, sections()]).toEqual(["1.1 Load regions", "Imports", ["All columns"]]);
     page.key("Escape");
     openProcess("Nightly load");
     page.all('#drawerSteps [data-act="step"]')[2].press();
-    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual(["Delete old items", "Row 1 of Other Actions"]);
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual(["Delete old items", "Other Actions"]);
   });
 
   it("names as text an action whose row it cannot open, says a kind it does not know as Anaplan does, and says that a process runs none", async () => {
@@ -5945,7 +5998,7 @@ describe("The actions of a process, in its row's details", () => {
     expect(links()).toEqual(["Send plan", "1.1 Load regions"]);
     page.key("Escape");
     openProcess("Empty");
-    expect([sections(), steps(), page.has("#drawerSteps table")]).toEqual([["All columns", "Actions (0)"], [[], [], ["This process runs no action."]], false]);
+    expect([sections(), steps(), page.has("#drawerSteps table")]).toEqual([["Actions (0)", "All columns"], [[], [], ["This process runs no action."]], false]);
     page.key("Escape");
     // A row of another table has no actions to list, though it names a process.
     goTo(4);
@@ -5999,16 +6052,22 @@ describe("The actions of a process, in its row's details", () => {
     expect(firstCells()).toEqual(["Weekly load"]);
   });
 
-  it("lists a process's actions in its All columns one to a line, each opening its own row", async () => {
+  it("lists actions only once, follows one, and goes Back to the process", async () => {
     await openWith(WITH_PROCESSES);
     goTo(3);
     openProcess("Nightly load");
-    const values = new Map(page.all("#drawerBody .d-dl dt").map((name, at) => [name.textContent, page.all("#drawerBody .d-dl dd")[at]]));
-    const actions = values.get("Actions (3)");
-    expect([actions?.querySelectorAll(".cell-list li").map(item => item.textContent), actions?.querySelectorAll('[data-act="item"]').map(link => link.textContent), values.has("Used in Processes")])
-      .toEqual([["Prices from the hub", "1.1 Load regions", "Delete old items"], ["Prices from the hub", "1.1 Load regions", "Delete old items"], false]);
-    actions!.querySelectorAll('[data-act="item"]')[2].press();
-    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual(["Delete old items", "Row 1 of Other Actions"]);
+    expect(page.texts("#drawerBody dt")).not.toContain("Actions");
+    expect(page.texts("#drawerBody dt")).not.toContain("Actions (3)");
+    expect(page.texts('#drawerBody [data-act="step"]')).toEqual(["Prices from the hub", "1.1 Load regions", "Delete old items"]);
+    expect(page.id("drawerBack").hidden).toBe(true);
+    page.all('#drawerSteps [data-act="step"]')[2].press();
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual(["Delete old items", "Other Actions"]);
+    expect(page.id("drawerBack").hidden).toBe(false);
+    page.id("drawerBack").press();
+    expect([page.id("drawerTitle").textContent, page.id("drawerBack").hidden]).toEqual(["Nightly load", true]);
+    expect(links()).toEqual(["Prices from the hub", "1.1 Load regions", "Delete old items"]);
+    page.key("Escape");
+    expect(page.document.activeElement.textContent).toBe("Nightly load");
   });
 
   it("writes every name and kind of a process's actions as text", async () => {
@@ -6034,7 +6093,7 @@ describe("What a source model gives, in its row's details", () => {
     rows: [["IMP01 Products", "IMP01", `${DEMAND} / 'SYS02 Products'.Export`, "SAVED VIEW", "Products", "LIST"], ["IMP02 Demand", "IMP02", `${DEMAND} / 'DAT01 Demand'`, "MODULE", "Demand", "MODULE"]] };
   const WITH_SOURCES: AnalysisResult = { ...BLUEPRINT, summary: [...BLUEPRINT.summary, "Source Models: 2 rows", "Import Data Sources: 2 rows", "Imports: 2 rows"],
     tables: [...BLUEPRINT.tables, SOURCE_MODELS, DATA_SOURCES, IMPORTS] };
-  const sections = () => page.all("#drawerBody .d-sec").map(section => section.querySelector("h3")?.textContent);
+  const sections = () => page.texts("#drawerBody h3");
   const rows = (id: string) => page.all(`#${id} tbody tr`).map(row => row.children.map(cell => cell.textContent));
   const openSource = (name: string) => {
     page.all('#tableWrap tbody [data-act="row"]')[firstCells().indexOf(name)].press();
@@ -6045,16 +6104,18 @@ describe("What a source model gives, in its row's details", () => {
     goTo(3);
     openSource(DEMAND);
     expect([page.id("drawerTitle").textContent, sections()]).toEqual([DEMAND, ["Sources (2)", "Imports (2)", "All columns"]]);
+    expect(page.texts("#drawerBody dt")).not.toContain("Sources");
+    expect(page.texts("#drawerBody dt")).not.toContain("Imports");
     expect([page.texts("#drawerSources th"), rows("drawerSources"), page.texts("#drawerSources p")])
       .toEqual([["Source", "Kind"], [["SYS02 Products", "Saved view"], ["DAT01 Demand", "Module"]], []]);
     expect([page.texts("#drawerSourceImports th"), rows("drawerSourceImports")]).toEqual([["Import", "Reads"], [["IMP01 Products", "SYS02 Products"], ["IMP02 Demand", "DAT01 Demand"]]]);
     // An object opens its row of Import Data Sources; an import its row of Imports.
     page.all('#drawerSources [data-act="item"]')[1].press();
-    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual(["DAT01 Demand", "Row 2 of Data Sources"]);
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual(["DAT01 Demand", "Data Sources"]);
     page.key("Escape");
     openSource(DEMAND);
     page.all('#drawerSourceImports [data-act="item"]')[0].press();
-    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual(["IMP01 Products", "Row 1 of Imports"]);
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual(["IMP01 Products", "Imports"]);
   });
 
   it("shows no empty section for a source model no table names, and the log says so once", async () => {
@@ -6112,11 +6173,11 @@ describe("A row's details list a cell of several items one to a line, each that 
     expect([items(shown.get("Line Items (20)")), links(shown.get("Line Items (20)")).length]).toEqual([ITEMS, 20]);
     // An item opens its row's details, as a click on the row in its own table does.
     shown.get("Referenced By (3)")!.querySelectorAll('[data-act="item"]')[1].press();
-    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual(["Price", "Row 23 of Line Items"]);
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual(["Price", "Line Items"]);
     page.key("Escape");
     openModule("SYS100 Time");
     values().get("Referenced By (3)")!.querySelectorAll('[data-act="item"]')[0].press();
-    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual(["REV01 Revenue", "Row 2 of Modules"]);
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent]).toEqual(["REV01 Revenue", "Modules"]);
     // A short list shows every item, with nothing to show more.
     expect([items(values().get("Line Items (2)")), page.all("#drawerBody .cell-more").length]).toEqual([["Price", "Units"], 0]);
   });
@@ -6156,12 +6217,12 @@ describe("How a result was looked at, kept through a refresh of the page until t
     page.find('#tableWrap tbody [data-act="row"]').press();
     const table = page.id("tableWrap");
     const drawer = page.id("drawerBody").innerHTML;
-    expect(page.id("drawerRun").focusable).toBe(true);
-    page.id("drawerRun").press();
+    expect(page.id("runAgain").focusable).toBe(true);
+    page.id("runAgain").press();
     ports[0].send({ type: "status", text: `Reading ${TAG}` });
     expect([page.id("tableWrap") === table, page.id("drawerBody").innerHTML, page.has("#runBanner"), page.id("live").textContent, strayImg()])
       .toEqual([true, drawer, false, `Reading ${TAG}`, false]);
-    for (const id of ["runAgain", "drawerRun"]) {
+    for (const id of ["runAgain"]) {
       expect([page.id(id).textContent.trim(), page.id(id).title, page.id(id).disabled, page.id(id).classList.contains("reading"), page.id(id).getAttribute("aria-busy")])
         .toEqual(["Reading", `Reading ${TAG}`, true, true, "true"]);
       expect(page.id(id).querySelector("svg .run-spinner")).not.toBeNull();
@@ -6172,7 +6233,7 @@ describe("How a result was looked at, kept through a refresh of the page until t
     expect([page.texts("#view h1"), location.hash, page.id("tblSearch").value, page.id("drawer").classList.contains("show"), page.id("drawerTitle").textContent])
       .toEqual([["Line Items"], "#2", "Line item 2", true, "Line item 2"]);
     expect(page.texts("#drawerBody dd")).toEqual(["Line item 2", "Boolean", "Changed formula", "Revenue"]);
-    expect([page.id("drawerRun").textContent.trim(), page.id("drawerRun").disabled, page.id("runAgain").classList.contains("reading")]).toEqual(["Run again", false, false]);
+    expect([page.id("runAgain").textContent.trim(), page.id("runAgain").disabled, page.id("runAgain").classList.contains("reading")]).toEqual(["Run again", false, false]);
     expect(page.document.activeElement).toBe(page.id("drawerClose"));
     page.id("drawerClose").press();
     goTo(1);
@@ -6184,7 +6245,7 @@ describe("How a result was looked at, kept through a refresh of the page until t
     goTo(1);
     page.id("tblSearch").type("Line item 2");
     page.find('#tableWrap tbody [data-act="row"]').press();
-    page.id("drawerRun").press();
+    page.id("runAgain").press();
     const original = LINES[1];
     const replacement = change === "removed" ? [] : change === "renamed" ? [["Renamed", ...original.slice(1)]]
       : change === "other module" ? [[...original.slice(0, 3), "Cost"]] : [original, [...original.slice(0, 2), "Changed formula", original[3]]];
@@ -6478,7 +6539,14 @@ describe("Times in the viewer's own zone, or in UTC, as the Timezone pill in the
     page.all('#tableWrap tbody [data-act="row"]')[0].press();
     expect([page.texts("#drawerBody dt"), page.texts("#drawerBody dd")]).toEqual([["Name", "Source Type", "Start Date and Time (Asia/Tokyo)"],
       ["Load", "MODEL", "2026-03-13 08:19:56 local · 2026-03-12 23:19:56 UTC"]]);
+    // The header remains usable while details are open; the row and its focus return survive the table being retimed.
+    switchZone();
+    expect(page.texts("#drawerBody dd").at(-1)).toBe("2026-03-12 23:19:56 UTC · 2026-03-13 08:19:56 local");
+    expect(page.document.activeElement === page.id("timeZone")).toBe(true);
+    expect(page.id("drawerBack").hidden).toBe(true);
     page.key("Escape");
+    expect(page.document.activeElement === page.all('#tableWrap tbody [data-act="row"]')[0]).toBe(true);
+    switchZone();
     vi.advanceTimersByTime(300);
     // Ordered by the time, from the earliest moment, and the action that never ran first.
     page.find('[data-sort="1"]').press();

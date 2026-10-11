@@ -255,18 +255,18 @@ describe("The results page itself against the engine in the Anaplan tab", () => 
     const before = page.texts("#drawerBody dd");
     service.name = "Planning: app, edited";
     const board = service.hold(BOARD);
-    page.id("drawerRun").press();
+    page.id("runAgain").press();
     await until(() => board.waiting === 1, "the second run to pause");
     await tab.quiet();
-    expect([page.id("tableWrap") === table, page.texts("#drawerBody dd"), page.has("#runBanner"), page.id("drawerRun").textContent.trim()])
+    expect([page.id("tableWrap") === table, page.texts("#drawerBody dd"), page.has("#runBanner"), page.id("runAgain").textContent.trim()])
       .toEqual([true, before, false, "Reading"]);
-    expect(page.id("drawerRun").title).toBe(page.id("live").textContent);
+    expect(page.id("runAgain").title).toBe(page.id("live").textContent);
     board.release();
     await until(shown("Planning: app, edited"), "the edited result");
     expect([page.texts("#view h1"), page.id("tblSearch").value, page.id("drawerTitle").textContent, page.id("drawer").classList.contains("show")])
       .toEqual([heading, title, title, true]);
     expect(page.texts("#drawerBody dd")).toContain("Planning: app, edited");
-    expect(page.id("drawerRun").textContent.trim()).toBe("Run again");
+    expect(page.id("runAgain").textContent.trim()).toBe("Run again");
   });
 
   it("keeps the result on the page while the engine runs again, and through a run whose result cannot be sent", async () => {

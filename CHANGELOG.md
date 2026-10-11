@@ -11,6 +11,15 @@ The Model map keeps its places when links change, and keeps the box you were rea
 - **Names in full.** The model, group and module in the path take the room their names need. The path takes its own line before its steps or names wrap. The traced name wraps too, and stays visible on a narrow map.
 - **The selected box is kept.** A refresh or Run again reopens its details where the box still exists, found by its name and its module or parent. Changed formulas, counts and object numbers do not lose it. A missing or ambiguous name leaves the selection clear.
 
+## 0.25.0 (11 October 2026)
+
+One details panel, in the same order wherever a row opens.
+
+- **Read beside the table.** The details leave the table usable, with no scrim. Click another row to read it there. A link inside the panel shows **Back** to return to the previous row. The header stays whole above the panel, with Timezone, Run again and the theme button together. (#75)
+- **The same order.** The row's name and table, the buttons for opening it elsewhere, then Mapping, Actions, or Sources and Imports. **All columns** follows in the table's order, hidden columns after. A section's column is not repeated, so a process lists its actions once. Raw values sit last under **As read**, folded at first. (#75)
+- **Names open their rows.** A single item links as several do. Module Name, Target Object, DCA's line items, a page filter's condition line item and modules, a page action's model action and a data source's Source Model link where one row matches. Missing and unmatched names stay plain. DCA and Page Filters offer **Model map** where the box exists. (#75)
+- **Keyboard and kept place.** The panel is a labelled region. Opening it moves focus inside; **Esc** closes it and returns focus to the opening row. The open row still comes back after refresh or Run again where it exists. (#75)
+
 ## 0.24.0 (11 October 2026)
 
 The Model map has one path, and calls each group a group.

@@ -2,6 +2,6 @@
  * of them exactly once, so the page and its script cannot drift apart unnoticed. */
 export const PAGE_IDS = [
   "hdMeta", "timeZone", "runAgain", "themeToggle", "topnav", "navList", "navCompact", "banners", "view", "mapHost",
-  "scrim", "drawer", "drawerTitle", "drawerSub", "drawerOpens", "drawerRun", "drawerClose", "drawerWhy", "drawerBody", "popover", "toast", "live",
+  "drawer", "drawerTitle", "drawerSub", "drawerOpens", "drawerBack", "drawerClose", "drawerWhy", "drawerBody", "popover", "toast", "live",
 ] as const;
 export type PageId = (typeof PAGE_IDS)[number];
