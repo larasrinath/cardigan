@@ -7,6 +7,14 @@ Every merged change that alters the extension has a version of its own: a new fe
 - **Map headings from any divider style.** Empty modules and lists whose names are set off by symbols, in any style a model uses, now head the Headings groups; the group name keeps the words' own brackets, and dividers are left out of Module Usage.
 - **Modules missing from Line Items.** A module listed in Modules with no row in Line Items is now on the map with a dotted outline, placed by each grouping where it can be, or else in that grouping's usual catch-all.
 
+## 0.34.18 (11 October 2026)
+
+- **Periods and missing line items in import mappings.** A constant into Time is named from Model Building's own period labels before the Model Calendar's choices. A line item an import still maps to that the model doesn't have reads Missing line item, with its ID, and a line under the Mapping says what that means. A period that stays an ID gets one line in the diagnostic log on what the client held. (#135)
+
+## 0.34.17 (11 October 2026)
+
+- **One refresh icon.** The **Refresh the Anaplan tab** card shows the circular arrow of the **Run again** button, at the card's size and line weight, in place of two arcs whose arrowheads did not meet them. (#134)
+
 ## 0.34.16 (11 October 2026)
 
 - **Import mappings name more.** A target or constant still shown as an ID is named from what Model Building's client knows of it, and a constant into Time by its period, from the Model Calendar's choices. Headers mapped by hand are listed under the header row, each with its line item, in place of their count. An ID nothing names stays, and the diagnostic log says what kind of entity it is. (#133)

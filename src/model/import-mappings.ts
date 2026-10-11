@@ -1,4 +1,5 @@
 import { readsFile, SOURCE_TYPE } from "../file-imports.js";
+import { missingIn, missingText } from "../page-files.js";
 import type { Log, Stop } from "../progress.js";
 import type { ImportHeader, ImportMapping, ItemMatch, MappedSource, MappedTarget } from "../result-types.js";
 import { message } from "../util.js";
@@ -58,7 +59,10 @@ import { axis, readGrid, type Native } from "./native.js";
  * The words for a target are Anaplan's, as the dialog's `_getTargetLabel` gives them, where they are names; the lines and
  * the page's words are said where the dialog has none ("Time", "Line Items"). Every name is the model's own, out of a
  * grid the export has read or the model page's own lists of names. A list with unnamed property targets has its
- * properties grid read once more (`readImportMappings`): the cache need not hold all of its properties. */
+ * properties grid read once more (`readImportMappings`): the cache need not hold all of its properties. A constant into
+ * Time is named by the client's own labels of the model's periods, then by the Model Calendar's period choices. A line item
+ * that the import holds and nothing names, which the client classes as a line item, is one the model doesn't have: it is
+ * said as the pages' tables say one, "Missing line item (ID 1901000000003)" (page-files.ts `missingText`). */
 
 /** SYSTEM_PROPERTY_IMPORT_DEFINITION (anaplan/constants.js): the grid's column that holds each import's definition. */
 export const IMPORT_DEFINITION = 4000001300;
@@ -102,12 +106,16 @@ export interface ImportNames {
   property(id: number, list: number): string | undefined;
   /** Whether a list is numbered, where the names know it. */
   numbered?(list: number): boolean | undefined;
-  /** Last resort, from the client's entity class and labels already in memory. */
+  /** Last resort, from the client's entity class and labels already in memory. A line item, by the client's class, that
+   * nothing names is said as missing, with its ID (page-files.ts `missingText`): the import still maps to it, and the model
+   * doesn't have it. */
   entity?(id: number, into: number, constant?: boolean): string | undefined;
   describe?(id: number): string;
-  /** Period choices retained from the existing Model Calendar read. */
+  /** A period's name, for a constant into Time: the client's own label of it, then the Model Calendar's choice of it. */
   period?(id: number): string | undefined;
-  periodsAvailable?: boolean;
+  /** For the log, where a constant into Time stays unnamed: what the client and the Model Calendar held of periods, and that
+   * the ID is not among them. */
+  periodsLine?(id: number): string;
 }
 
 type Json = Record<string, unknown>;
@@ -126,6 +134,11 @@ function idOf(value: unknown): number {
 
 /** An ID as the page says one the model gave no name for, as it says such a list elsewhere (readable-cells.ts). */
 const asId = (id: number): string => `ID ${id}`;
+/** The ID a text says, where the text is an ID that nothing names (`asId`); none for any other text. */
+const idSaid = (text: string | undefined): number | undefined => {
+  const match = /^ID (\d+)$/.exec(text ?? "");
+  return match ? Number(match[1]) : undefined;
+};
 
 /** A column's place in the file, counted from 1: `sourceColumnId` ("#3") counts from 1, `sourceColumnNumber` from 0, where -1
  * gives none. */
@@ -156,8 +169,8 @@ function identifierOf(mapping: Json): string | undefined {
   return undefined;
 }
 
-/** A constant's value: its stored label, then a period choice or the client's entity name, with an ID left when unknown.
- * Ordinary numeric and text values are kept as values. */
+/** A constant's value: its stored label, then, into Time, the period's name, or else the client's entity name, with an ID
+ * left when unknown. Ordinary numeric and text values are kept as values. */
 function constantOf(mapping: Json, names: ImportNames, into: number): string | undefined {
   if (named(mapping.sourceValueLabel)) return mapping.sourceValueLabel;
   const value = mapping.sourceValue;
@@ -578,7 +591,8 @@ export function importMappings(tab: Grid, definitions: Grid | undefined, names: 
   const byId = new Map((definitions?.rows ?? []).map(row => [row.ids[0], row]));
   if (definitions && at < 0) log(`Import mappings: no column of definitions among the ${definitions.columns.length} given`);
   let [found, read] = [0, 0];
-  let missingPeriodsLogged = false;
+  // Why a constant into Time keeps its ID is said once a run, for the first such constant.
+  let periodsLogged = false;
   const mappings = imports.map((row): ImportMapping => {
     const id = Number.isSafeInteger(row.ids[0]) && row.ids[0] > 0 ? String(row.ids[0]) : "";
     const known = { id, name: row.labels[0] ?? "" };
@@ -595,8 +609,10 @@ export function importMappings(tab: Grid, definitions: Grid | undefined, names: 
       for (const detail of details) log(`Import mapping ${id || "?"}: ${detail}`);
       const unnamed = new Set<number>();
       const inspect = (value: string | undefined) => {
-        const match = /^ID (\d+)$/.exec(value ?? "");
-        if (match) unnamed.add(Number(match[1]));
+        const id = idSaid(value);
+        if (id !== undefined) unnamed.add(id);
+        // A line item said to be missing has no name either: the log says what the client classes it as.
+        for (const missing of missingIn(value ?? "")) if (missing.kind === "line item") unnamed.add(Number(missing.id));
       };
       for (const target of mapping.targets) {
         inspect(target.target);
@@ -605,9 +621,12 @@ export function importMappings(tab: Grid, definitions: Grid | undefined, names: 
       for (const header of mapping.headers ?? []) inspect(header.lineItem);
       for (const property of mapping.matchedBy?.properties ?? []) inspect(property);
       if (unnamed.size && names.describe) log(`Import mappings: ${known.name}: ${[...unnamed].map(entity => names.describe!(entity)).join("; ")}`);
-      if (!missingPeriodsLogged && names.periodsAvailable === false && mapping.targets.some(target => target.target === "Time" && target.source === "constant" && /^ID \d+$/.test(target.text ?? ""))) {
-        log("Import mappings: Model Calendar supplied no period selector labels; unnamed Time constants keep their IDs.");
-        missingPeriodsLogged = true;
+      if (!periodsLogged && names.periodsLine) {
+        const time = mapping.targets.find(target => target.target === "Time" && target.source === "constant" && idSaid(target.text) !== undefined);
+        if (time) {
+          log(`Import mappings: ${names.periodsLine(idSaid(time.text)!)}`);
+          periodsLogged = true;
+        }
       }
       if (mapping.note === undefined) read++;
       return { ...known, ...mapping };
@@ -640,12 +659,18 @@ function labelIn(page: () => unknown, id: number): string | undefined {
   }
 }
 
-/** Optional memory access only: preserve the receiver, check the method, and contain a client's missing metadata or error. */
-function memory(owner: unknown, method: string, ...args: unknown[]): unknown {
+/** Optional memory access only: preserve the receiver, check the method, and contain a client's missing metadata or error.
+ * What became of the call is kept for the log: its value, or that the method is missing or threw. */
+function recall(owner: unknown, method: string, ...args: unknown[]): { value?: unknown; failure?: "missing" | "threw" } {
   try {
     const read = isObject(owner) ? owner[method] : undefined;
-    return typeof read === "function" ? read.apply(owner, args) : undefined;
-  } catch { return undefined; }
+    return typeof read === "function" ? { value: read.apply(owner, args) } : { failure: "missing" };
+  } catch { return { failure: "threw" }; }
+}
+
+/** The value of a call to the client's memory (`recall`), or nothing where the method is missing or threw. */
+function memory(owner: unknown, method: string, ...args: unknown[]): unknown {
+  return recall(owner, method, ...args).value;
 }
 
 const field = (value: unknown, key: string): unknown => isObject(value) ? value[key] : undefined;
@@ -654,13 +679,62 @@ const infoName = (value: unknown): string | undefined => {
   return named(name) ? plainText(name) : undefined;
 };
 
+/** A count with its noun, for the log: "1 period", "3 periods". */
+const counted = (count: number, one: string, many: string): string => `${count} ${count === 1 ? one : many}`;
+
+/** The client's own information on the model's time scale (anaplan/data/ModelContentCache.js): of its superset first, then of
+ * the time scale itself. Each getter asserts that the model is loaded, and may throw. */
+const TIMESCALES = ["getTimescaleSupersetInfo", "getTimescaleInfo"] as const;
+
+/** What one getter of `TIMESCALES` held of periods, for the log: its label pages and their periods, or that it is missing or
+ * threw. */
+type PeriodSource = { getter: string; failure: "missing" | "threw" } | { getter: string; pages: number; periods: number };
+
+/** The client's own labels of the model's periods, by their IDs, with what each getter of `TIMESCALES` held. Each info's
+ * `allowedTimeEntityPeriodTypeLabelPages` has a label page for each period type the model allows, which the client's own
+ * editors name a period by (gridlet/_editor/TimeEntityEditor.js, view/Filter/Condition.js): the place of its ID in the
+ * page's first list of IDs, and the label in that place of its first list of labels. Each getter is called once, through
+ * the guard. Only a whole number above 0 is an ID, and only text that is not blank a label; an ID is looked up as it is,
+ * and nothing is worked out of its digits. A period's first label is kept: the superset's before the time scale's. */
+function periodLabels(cache: unknown): { labels: Map<number, string>; sources: PeriodSource[] } {
+  const labels = new Map<number, string>();
+  const sources = TIMESCALES.map((getter): PeriodSource => {
+    const { value, failure } = recall(cache, getter);
+    if (failure) return { getter, failure };
+    let [pages, periods] = [0, 0];
+    try {
+      const all = field(value, "allowedTimeEntityPeriodTypeLabelPages");
+      for (const page of Array.isArray(all) ? all : []) {
+        const [ids, said] = [field(page, "entityLongIds"), field(page, "labels")];
+        const own: unknown = Array.isArray(ids) ? ids[0] : undefined;
+        const words: unknown = Array.isArray(said) ? said[0] : undefined;
+        if (!Array.isArray(own) || !Array.isArray(words)) continue;
+        pages++;
+        own.forEach((id: unknown, at: number) => {
+          const label: unknown = words[at];
+          if (typeof id !== "number" || !Number.isSafeInteger(id) || id <= 0 || !named(label)) return;
+          periods++;
+          if (!labels.has(id)) labels.set(id, plainText(label));
+        });
+      }
+    } catch {
+      // Information the client holds in a way of its own: what it held up to there is kept.
+    }
+    return { getter, pages, periods };
+  });
+  return { labels, sources };
+}
+
 /** The names of a model's lists and line items, by the grids the export has read: General Lists (a list's own row) and
  * Line Items (a line item's own row). For one they do not have, as a list subset, the model page's own lists of names:
  * the lists, the list subsets and a module's line items, as the dialog looks them up (anaplan/widgets/Mapping.js
  * `_lookupHierarchyLabel`), and a list's properties, which no grid of the export lists. Whether a list is numbered is its
  * row's Numbered cell of General Lists, "true" or "false", and not known for a list the grid does not have. Remaining IDs
  * use getEntityTypeIndex and getEntityType, as Model Building does in anaplan-sam's authoring-core.ts. A dynamic type's
- * hierarchyEntityLongId identifies its owning list; labels and metadata here are optional memory lookups, never reads. */
+ * hierarchyEntityLongId identifies its owning list; labels and metadata here are optional memory lookups, never reads. A
+ * line item of that class that nothing names is said as missing. A period is named by the client's own labels of the
+ * model's periods (`periodLabels`), taken once, when a constant into Time first needs one, and then by the Model
+ * Calendar's period choices, which the export's read of the calendar kept (`periods`). */
 export function importNames(native: Native, grids: { lists?: Grid; lineItems?: Grid; modules?: Grid }, periods: ReadonlyMap<number, string> = new Map()): ImportNames {
   const byId = (grid: Grid | undefined): Map<number, string> => {
     const names = new Map<number, string>();
@@ -694,13 +768,21 @@ export function importNames(native: Native, grids: { lists?: Grid; lineItems?: G
     types.set(id, info);
     return info;
   };
+  // The client's labels of the model's periods: taken on first use, and kept for the run, with a getter that failed.
+  let clientPeriods: ReturnType<typeof periodLabels> | undefined;
+  const periodsHeld = () => (clientPeriods ??= periodLabels(cache));
   const names: ImportNames = {
     list: listName,
     lineItem: (id, module) => lineItems.get(id) ?? pageLabel("getLineItemsLabelPage", id, module),
     property: (id, list) => labelIn(() => field(hierarchy(list), "propertiesLabelPage"), id) ?? pageLabel("getHierarchySubsetsLabelPage", id),
     numbered: list => numbered.get(list),
-    period: id => periods.get(id),
-    periodsAvailable: periods.size > 0,
+    period: id => periodsHeld().labels.get(id) ?? periods.get(id),
+    periodsLine: id => {
+      const held = periodsHeld().sources.map(source => `${source.getter}: ${"failure" in source ? source.failure
+        : `${counted(source.pages, "label page", "label pages")}, ${counted(source.periods, "period", "periods")}`}`);
+      return `Time constant ${asId(id)} is not among the client's periods (${held.join("; ")}) or the Model Calendar's `
+        + `${counted(periods.size, "period choice", "period choices")}; unnamed Time constants keep their IDs.`;
+    },
     entity: (id, into, constant = false) => {
       const { index, kind, list } = entityInfo(id);
       if (kind === "CUSTOM" && list !== undefined) {
@@ -715,7 +797,9 @@ export function importNames(native: Native, grids: { lists?: Grid; lineItems?: G
       if (kind === "LINE_ITEM") {
         const info = memory(native.helper, "getLineItemInfo", cache, id);
         const module = idOf(field(info, "moduleEntityLongId"));
-        return names.lineItem(id, Number.isFinite(module) ? module : into) ?? infoName(info);
+        // A line item that nothing names is one the import still maps to that the model doesn't have, as far as a Line Items
+        // grid that was read says: without one, nothing proves it is gone, and its ID stays.
+        return names.lineItem(id, Number.isFinite(module) ? module : into) ?? infoName(info) ?? (lineItems.size ? missingText("line item", String(id)) : undefined);
       }
       if (kind === "MODULE" || index === 102) return modules.get(id) ?? pageLabel("getModulesLabelPage", id) ?? infoName(memory(cache, "getModuleInfo", id));
       // Subsets and properties also have label pages in models where their class is SYSTEM.

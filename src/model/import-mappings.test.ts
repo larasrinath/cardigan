@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { HEADER_ROW_BY_HAND, MISSING_LINE_ITEM_NOTE, mappingView } from "../results/import-mapping-view.js";
 import { exportModel } from "./export.js";
 import type { Grid } from "./grid.js";
 import { fileImports, IMPORT_DEFINITION, importMappings, importNames, importsLine, MAPPING_NOTES, readDefinition, readImportMappings, type ImportNames } from "./import-mappings.js";
@@ -757,21 +758,35 @@ describe("Mapping names from this model's entity information and calendar", () =
     expect(requests.every(request => !request.submissions.length && !request.systemActions.length)).toBe(true);
   });
 
-  it("keeps unknown periods as IDs and reports missing period choices once across imports", () => {
+  it("names a period by the client's own label first, through the same export reads and nothing more", async () => {
+    const { native, requests } = client();
+    native.cache.getTimescaleSupersetInfo = vi.fn(() => ({ allowedTimeEntityPeriodTypes: [{ entityId: "WEEK" }],
+      allowedTimeEntityPeriodTypeLabelPages: [page([period + 1, period], ["Week 6 FY24", "Week 2 FY24"])] }));
+    vi.stubGlobal("window", { require: (_modules: string[], ready: (...args: unknown[]) => void) => ready(native.cache, native.aggregator, native.helper,
+      native.ids, native.constants, native.RequestGenerator, native.DataPage, native.axisHelper) });
+    vi.stubGlobal("location", { host: "example.test", pathname: "/model" });
+    const result = await exportModel({ status: () => undefined, log: () => undefined }, () => "");
+    // The client's label of the period comes before the calendar's choice of it ("Jan 24"), and is read from memory once.
+    expect(result.importMappings?.[0].targets[1]).toEqual({ target: "Time", source: "constant", text: "Week 2 FY24" });
+    expect(native.cache.getTimescaleSupersetInfo).toHaveBeenCalledTimes(1);
+    expect(requests.map(request => request.params.viewDefinition.columnAxis)).toEqual(["tab", "definitions", "empty"]);
+    expect(requests.every(request => !request.submissions.length && !request.systemActions.length)).toBe(true);
+  });
+
+  it("keeps unknown periods as IDs and says why once a run, across imports", () => {
     const { native } = client();
     const entries = [{ ...mappings[1], sourceValue: id(unknownPeriod) }];
     const log: string[] = [];
-    const result = importMappings(tab, definitions(entries), importNames(native, {}, new Map([[period, "Jan 24"]])), line => log.push(line));
-    expect(result[0].targets[0].text).toBe(`ID ${unknownPeriod}`);
-    expect(log.filter(line => line.startsWith("Import mappings: Load outlook:"))).toEqual([
+    const result = importMappings({ ...tab, rows: [...tab.rows, ...tab.rows] }, definitions(entries), importNames(native, {}, new Map([[period, "Jan 24"]])), line => log.push(line));
+    expect(result.map(mapping => mapping.targets[0].text)).toEqual([`ID ${unknownPeriod}`, `ID ${unknownPeriod}`]);
+    // Each import says what the client classes the ID as; the line on the periods is said once, after the first. This
+    // client has no period label pages, and the calendar's one choice is another period.
+    expect(log.filter(line => line.startsWith("Import mappings: Load outlook:") || line.startsWith("Import mappings: Time constant"))).toEqual([
+      "Import mappings: Load outlook: ID 9600097 is entity type 923 (class TIME) with no name in the client",
+      "Import mappings: Time constant ID 9600097 is not among the client's periods (getTimescaleSupersetInfo: missing; getTimescaleInfo: missing) or the Model Calendar's 1 period choice; unnamed Time constants keep their IDs.",
       "Import mappings: Load outlook: ID 9600097 is entity type 923 (class TIME) with no name in the client",
     ]);
     expect(log.some(line => line.includes("no period selector labels"))).toBe(false);
-    log.length = 0;
-    importMappings({ ...tab, rows: [...tab.rows, ...tab.rows] }, definitions(entries), importNames(native, {}), line => log.push(line));
-    expect(log.filter(line => line.includes("no period selector labels"))).toEqual([
-      "Import mappings: Model Calendar supplied no period selector labels; unnamed Time constants keep their IDs.",
-    ]);
     expect(readDefinition(definition("MODULE_DATA", module, [{ ...mappings[1], sourceValue: String(period) }]), importNames(native, {}, new Map([[period, "Jan 24"]]))).mapping.targets[0].text).toBe("Jan 24");
   });
 
@@ -785,7 +800,8 @@ describe("Mapping names from this model's entity information and calendar", () =
   });
 
   const methods = ["getEntityType", "getHierarchyInfo", "getHierarchiesLabelPage", "getHierarchySubsetsLabelPage", "getHierarchyLabelPage",
-    "getLineItemsLabelPage", "getModulesLabelPage", "getModuleInfo", "getLineItemSubsetsLabelPage", "getEntityTypeIndex", "getLineItemInfo"];
+    "getLineItemsLabelPage", "getModulesLabelPage", "getModuleInfo", "getLineItemSubsetsLabelPage", "getEntityTypeIndex", "getLineItemInfo",
+    "getTimescaleSupersetInfo", "getTimescaleInfo"];
   it.each(methods.flatMap(method => ["missing", "throws"].map(failure => ({ method, failure }))))("guards $method when it $failure", ({ method, failure }) => {
     const { native } = client();
     const holder = method === "getEntityTypeIndex" ? native.ids : method === "getLineItemInfo" ? native.helper : native.cache;
@@ -794,7 +810,7 @@ describe("Mapping names from this model's entity information and calendar", () =
       if (method !== "getEntityType") native.cache.getEntityType = () => ({ entityTypeClass: kind, hierarchyEntityLongId: owner });
       const names = importNames(native, {});
       expect(() => [names.entity?.(dynamic, module), names.entity?.(missing, module, true), names.describe?.(missing),
-        names.list(missing), names.lineItem(missing, module), names.property(missing, owner)]).not.toThrow();
+        names.list(missing), names.lineItem(missing, module), names.property(missing, owner), names.period?.(period), names.periodsLine?.(period)]).not.toThrow();
     }
   });
 
@@ -807,5 +823,166 @@ describe("Mapping names from this model's entity information and calendar", () =
       expect(result.rows[0].cells).toEqual([String(period + 1)]);
       expect(periods.size).toBe(method === "getFormat" ? 0 : 2);
     }
+  });
+});
+
+describe("Periods named by the client's own labels, and line items the model doesn't have", () => {
+  // Every ID is made up, with digits that say nothing of what it is: only the fixture client knows. Periods of two types,
+  // months and quarters, each with a label page of its own.
+  const [jan, feb, mar, q1, q2, apr, unknown] = [8600086, 7200311, 5300427, 4410052, 6930118, 3700295, 9600097];
+  const [plan, units, shelf, gone, goneToo, odd] = [6710042, 7810031, 2860013, 6180093, 3130054, 5550061];
+  const page = (ids: unknown[], labels: unknown[]) => ({ entityLongIds: [ids], labels: [labels] });
+  const PERIOD_TYPES = [{ entityId: "MONTH", entityLabel: "Month" }, { entityId: "QUARTER", entityLabel: "Quarter" }];
+  /** The time scale's superset holds January, February and the first quarter. The time scale itself holds January by a
+   * label of its own, March and the second quarter. The Model Calendar's choices hold April alone. */
+  const SUPERSET = { allowedTimeEntityPeriodTypes: PERIOD_TYPES, allowedTimeEntityPeriodTypeLabelPages: [page([jan, feb], ["Jan 26", "Feb 26"]), page([q1], ["Q1 FY26"])] };
+  const TIMESCALE = { calendarTypeEntityIndex: 3, allowedTimeEntityPeriodTypes: PERIOD_TYPES,
+    allowedTimeEntityPeriodTypeLabelPages: [page([jan, mar], ["January 2026", "Mar 26"]), page([q2], ["Q2 FY26"])] };
+  const CALENDAR = new Map([[apr, "Apr 26"]]);
+  const tab = grid([[12, "Source Type"], [13, "Target Object"]], [[45, "Load plan", "FILE", "Plan"], [46, "Load plan again", "FILE", "Plan"]]);
+  /** The grid of definitions: one for each import of the tab, in its order, each of these mappings, into the plan. */
+  const definitions = (...each: [mappings: unknown[], more?: Record<string, unknown>][]) => grid([[IMPORT_DEFINITION, "Import Definition"]],
+    each.map(([mappings, more], at): [number, string, string] => [45 + at, tab.rows[at].labels[0] ?? "", definition("MODULE_DATA", plan, mappings, more)]));
+  const timeConstant = (period: number) => ({ targetType: "moduleDimension", target: "_9000000001_", sourceType: "constant", sourceValue: id(period) });
+
+  /** The classes of the fixture client's entity types, by their made-up indexes. */
+  const CLASSES = new Map([[817, "LINE_ITEM"], [455, "SYSTEM"], [923, "TIME"]]);
+  /** A model page's client that classes the line items as LINE_ITEM, one more ID as SYSTEM and the periods as TIME, and
+   * names one line item of the plan on its own page. */
+  function client(): Native {
+    return {
+      workspaceId: "a".repeat(32), modelId: "b".repeat(32),
+      ids: { getEntityTypeIndex: vi.fn((entity: number) => ([units, shelf, gone, goneToo].includes(entity) ? 817 : entity === odd ? 455 : 923)) },
+      cache: {
+        getEntityType: vi.fn((index: number) => (CLASSES.has(index) ? { entityTypeClass: CLASSES.get(index) } : null)),
+        getLineItemsLabelPage: vi.fn((module: number) => (module === plan ? page([units], ["Units"]) : undefined)),
+        getTimescaleSupersetInfo: vi.fn(() => SUPERSET),
+        getTimescaleInfo: vi.fn(() => TIMESCALE),
+      },
+      helper: { getLineItemInfo: vi.fn(() => null) },
+    } as unknown as Native;
+  }
+  const getters = (native: Native): number[] => [native.cache.getTimescaleSupersetInfo, native.cache.getTimescaleInfo].map(getter => getter.mock.calls.length);
+
+  it("names a constant into Time by the superset's period labels, then the time scale's, then the Model Calendar's choices", () => {
+    const native = client();
+    const names = importNames(native, {}, CALENDAR);
+    // Nothing is asked of the client until a constant into Time needs a name.
+    expect(getters(native)).toEqual([0, 0]);
+    const said = [jan, feb, q1, mar, q2, apr, unknown].map(period => readDefinition(definition("MODULE_DATA", plan, [timeConstant(period)]), names).mapping.targets[0]);
+    // January is in both infos: the superset's label is kept. March and the second quarter are in the time scale's alone,
+    // April among the calendar's choices alone; the last is in none, and keeps its ID.
+    expect(said.map(target => target.text)).toEqual(["Jan 26", "Feb 26", "Q1 FY26", "Mar 26", "Q2 FY26", "Apr 26", `ID ${unknown}`]);
+    expect(said.every(target => target.target === "Time" && target.source === "constant")).toBe(true);
+    // Each getter was asked once, for all of them.
+    expect(getters(native)).toEqual([1, 1]);
+  });
+
+  it("keeps a constant into Time that nothing names as its ID, and says once a run what the client and the calendar held", () => {
+    const native = client();
+    const log: string[] = [];
+    const result = importMappings(tab, definitions([[timeConstant(unknown)]], [[timeConstant(unknown)]]), importNames(native, {}, CALENDAR), line => log.push(line));
+    expect(result.map(mapping => mapping.targets)).toEqual([1, 2].map(() => [{ target: "Time", source: "constant", text: `ID ${unknown}` }]));
+    expect(log.filter(line => /^Import mappings: (Load plan|Time constant)/.test(line))).toEqual([
+      "Import mappings: Load plan: ID 9600097 is entity type 923 (class TIME) with no name in the client",
+      "Import mappings: Time constant ID 9600097 is not among the client's periods (getTimescaleSupersetInfo: 2 label pages, 3 periods; getTimescaleInfo: 2 label pages, 3 periods) "
+        + "or the Model Calendar's 1 period choice; unnamed Time constants keep their IDs.",
+      "Import mappings: Load plan again: ID 9600097 is entity type 923 (class TIME) with no name in the client",
+    ]);
+    expect(getters(native)).toEqual([1, 1]);
+    // A run with no constant into Time asks neither getter, and says nothing of periods.
+    const other = client();
+    log.length = 0;
+    importMappings(tab, definitions([[{ targetType: "moduleLineItem", target: id(units), sourceType: "column", sourceColumnId: "#1" }]]), importNames(other, {}, CALENDAR),
+      line => log.push(line));
+    expect([getters(other), log.filter(line => line.includes("Time constant"))]).toEqual([[0, 0], []]);
+  });
+
+  it.each(["missing", "throws"])("names no period by the client's labels when both getters are %s, and says so", failure => {
+    const native = client();
+    for (const getter of ["getTimescaleSupersetInfo", "getTimescaleInfo"]) {
+      native.cache[getter] = failure === "missing" ? undefined : vi.fn(() => { throw new Error("The model is not loaded."); });
+    }
+    const names = importNames(native, {}, CALENDAR);
+    expect(() => [names.period?.(jan), names.period?.(mar)]).not.toThrow();
+    // The calendar's choices still name their periods.
+    expect([names.period?.(jan), names.period?.(apr)]).toEqual([undefined, "Apr 26"]);
+    const log: string[] = [];
+    const result = importMappings(tab, definitions([[timeConstant(jan)]]), names, line => log.push(line));
+    expect(result[0].targets).toEqual([{ target: "Time", source: "constant", text: `ID ${jan}` }]);
+    const said = failure === "missing" ? "missing" : "threw";
+    expect(log.filter(line => line.includes("Time constant"))).toEqual([`Import mappings: Time constant ID 8600086 is not among the client's periods (getTimescaleSupersetInfo: ${said}; `
+      + `getTimescaleInfo: ${said}) or the Model Calendar's 1 period choice; unnamed Time constants keep their IDs.`]);
+    // A getter that threw is not asked again in the run.
+    if (failure === "throws") expect(getters(native)).toEqual([1, 1]);
+  });
+
+  it("takes only label pages of the client's own make: lists of IDs and of labels, IDs that are whole numbers above 0, labels that are text", () => {
+    const native = client();
+    native.cache.getTimescaleSupersetInfo = () => ({ allowedTimeEntityPeriodTypeLabelPages: [null, "page", { entityLongIds: [feb], labels: ["Flat"] },
+      { entityLongIds: [[String(feb), 2 ** 53, -4, 0, 1.5, mar]], labels: [["Text ID", "Too long", "Below 0", "Zero", "Fraction", 42]] },
+      page([q1, q2], ["  ", "Q2 &amp; spring"])] });
+    native.cache.getTimescaleInfo = () => ({ allowedTimeEntityPeriodTypeLabelPages: "pages" });
+    const names = importNames(native, {});
+    expect([feb, mar, q1, q2].map(period => names.period?.(period))).toEqual([undefined, undefined, undefined, "Q2 & spring"]);
+    // The pages counted are the two made of lists; the periods, the one with a whole-number ID and a label.
+    expect(names.periodsLine?.(feb)).toBe("Time constant ID 7200311 is not among the client's periods (getTimescaleSupersetInfo: 2 label pages, 1 period; "
+      + "getTimescaleInfo: 0 label pages, 0 periods) or the Model Calendar's 0 period choices; unnamed Time constants keep their IDs.");
+  });
+
+  it("says a line item the client classes as one that nothing names as missing, in a header pair and in a column target, and the Mapping says what that means", () => {
+    const native = client();
+    // The Line Items grid names one line item; the client's page of the plan's line items names another.
+    const lineItems: Grid = { columns: [], rows: [{ ids: [shelf, plan], labels: ["Shelf units", "Plan"], cells: [] }] };
+    const lists = grid([], [[PRODUCTS, "Products"]]);
+    const mappings = [
+      { targetType: "moduleDimension", target: id(PRODUCTS), sourceType: "column", sourceColumnId: "#1", sourceColumnName: "Product" },
+      timeConstant(mar),
+      { targetType: "moduleDimension", target: "", sourceType: "headerRow" },
+      { targetType: "moduleLineItem", target: id(units), sourceType: "column", sourceColumnId: "#2" },
+      { targetType: "moduleLineItem", target: id(goneToo), sourceType: "column", sourceColumnId: "#3" },
+      { targetType: "moduleLineItem", target: id(odd), sourceType: "column", sourceColumnId: "#4" }];
+    const valueMaps = [{ targetType: "moduleDimension", target: "", values: { "Unit count": units, Shelf: shelf, "Display share": gone, Comment: -1 } }];
+    const log: string[] = [];
+    const [mapping] = importMappings(tab, definitions([mappings, { valueMaps }]), importNames(native, { lists, lineItems }, CALENDAR), line => log.push(line));
+    expect(mapping).toEqual({ id: "45", name: "Load plan", importType: "MODULE_DATA", targets: [
+      { target: "Products", source: "column", column: 1, text: "Product", items: { byHand: 0, ignored: 0 } },
+      { target: "Time", source: "constant", text: "Mar 26" },
+      { target: "Line Items", source: "headerRow", items: { byHand: 3, ignored: 1 } },
+      // Named line items stay named; one the client classes as a line item, that nothing names, is missing; an ID of another
+      // class that nothing names stays an ID.
+      { target: "Units", source: "column", column: 2 },
+      { target: "Missing line item (ID 3130054)", source: "column", column: 3 },
+      { target: "ID 5550061", source: "column", column: 4 }],
+    headers: [{ header: "Unit count", lineItem: "Units" }, { header: "Shelf", lineItem: "Shelf units" }, { header: "Display share", lineItem: "Missing line item (ID 6180093)" },
+      { header: "Comment" }] });
+    // The log says what the client classes each unnamed ID as, the missing line items among them.
+    expect(log.filter(line => line.startsWith("Import mappings: Load plan:"))).toEqual([
+      "Import mappings: Load plan: ID 3130054 is entity type 817 (class LINE_ITEM) with no name in the client; ID 5550061 is entity type 455 (class SYSTEM) with no name in the client; "
+        + "ID 6180093 is entity type 817 (class LINE_ITEM) with no name in the client"]);
+    // The Mapping shows both, and its last line says what a missing line item is.
+    expect(mappingView(mapping)).toEqual({ rows: [["Product", "Products"], ["Column 2", "Units"], ["Column 3", "Missing line item (ID 3130054)"], ["Column 4", "ID 5550061"],
+      ["Constant: Mar 26", "Time"],
+      [HEADER_ROW_BY_HAND, "Line Items", undefined, undefined, ["Unit count to Units", "Shelf to Shelf units", "Display share to Missing line item (ID 6180093)", "Comment: Ignored"]]],
+    lines: ["Items of Products are matched on their names or codes when the import runs.", "Columns 1 to 4 are all used.", MISSING_LINE_ITEM_NOTE] });
+  });
+
+  it("says the line items fed by a constant as missing too, and keeps an unnamed ID of another class as an ID, with no line on missing line items", () => {
+    const lineItems: Grid = { columns: [], rows: [{ ids: [shelf, plan], labels: ["Shelf units", "Plan"], cells: [] }] };
+    const names = importNames(client(), { lineItems });
+    // The line items fed by a constant: one line item, which the model doesn't have.
+    const constant = readDefinition(definition("MODULE_DATA", plan, [{ targetType: "moduleDimension", target: "", sourceType: "constant", sourceValue: id(gone) }]), names);
+    expect(constant.mapping.targets).toEqual([{ target: "Line Items", source: "constant", text: "Missing line item (ID 6180093)" }]);
+    expect(mappingView({ id: "45", name: "Load plan", ...constant.mapping }).lines).toEqual(["No column is mapped.", MISSING_LINE_ITEM_NOTE]);
+    const other = readDefinition(definition("MODULE_DATA", plan, [{ targetType: "moduleLineItem", target: id(odd), sourceType: "column", sourceColumnId: "#1" }]), names);
+    expect(other.mapping.targets).toEqual([{ target: "ID 5550061", source: "column", column: 1 }]);
+    expect(mappingView({ id: "45", name: "Load plan", ...other.mapping }).lines).toEqual(["Column 1 is used."]);
+  });
+
+  it("keeps a line item's ID where no Line Items grid was read: nothing then proves the model lacks it", () => {
+    const names = importNames(client(), {});
+    const read = readDefinition(definition("MODULE_DATA", plan, [{ targetType: "moduleLineItem", target: id(gone), sourceType: "column", sourceColumnId: "#1" }]), names);
+    expect(read.mapping.targets).toEqual([{ target: "ID 6180093", source: "column", column: 1 }]);
+    expect(mappingView({ id: "45", name: "Load plan", ...read.mapping }).lines).toEqual(["Column 1 is used."]);
   });
 });
