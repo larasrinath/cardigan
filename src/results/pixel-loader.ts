@@ -42,6 +42,8 @@ export class ElapsedTimer {
   }
 }
 
+export const SPINNER_WORD_INTERVAL_MS = 500;
+
 /** One silent phrase beside the pixels. Status updates leave the rotation's clock alone within a pool. */
 export class SpinnerWords {
   private interval: ReturnType<typeof setInterval> | undefined;
@@ -49,7 +51,7 @@ export class SpinnerWords {
   private pool: WordPool | undefined;
   private kind: "app" | "model" = "model";
   private engine: WordEngine | undefined;
-  private recent: string[] = [];
+  private lastWord: string | undefined;
 
   constructor(private readonly show: (text: string) => void) {}
 
@@ -78,7 +80,7 @@ export class SpinnerWords {
       clearInterval(this.interval);
       this.interval = undefined;
     } else if (this.interval === undefined) {
-      this.interval = setInterval(() => this.pick(), 3000);
+      this.interval = setInterval(() => this.pick(), SPINNER_WORD_INTERVAL_MS);
     }
   }
 
@@ -87,17 +89,17 @@ export class SpinnerWords {
     this.interval = undefined;
     this.status = undefined;
     this.pool = undefined;
-    this.recent = [];
+    this.lastWord = undefined;
     this.show("");
   }
 
   private pick(): void {
     if (!this.pool) return;
-    const words = wordsForPool(this.pool, this.kind, this.engine).filter(word => !this.recent.includes(word));
-    // Finishing can have only one or two words. Hold the last one rather than repeat either of the last two.
+    const words = wordsForPool(this.pool, this.kind, this.engine).filter(word => word !== this.lastWord);
+    // A one-word pool keeps its word until another becomes available.
     if (!words.length) return;
     const word = words[Math.floor(Math.random() * words.length)];
-    this.recent = [...this.recent.slice(-1), word];
+    this.lastWord = word;
     this.show(word);
   }
 }

@@ -22,6 +22,7 @@ import { NONE } from "./table-engine.js";
 import { fixTimeZone } from "./time-zone.test-support.js";
 import { TIMES_KEY } from "./times.js";
 import { WORD_POOLS } from "./spinner-words.js";
+import { SPINNER_WORD_INTERVAL_MS } from "./pixel-loader.js";
 
 /** What stands in for the model map (src/map). The page calls its two functions and drives what the second returns; how
  * a graph is built and a map drawn is not the page's, and is tested with them. Each test is given its own stand-ins. */
@@ -536,6 +537,8 @@ describe("The results page's script, on the page", () => {
     await eventually(() => page.has("#runIcon svg") && page.find("#runIcon svg").getAttribute("data-run-icon") === icon, "the run card's icon");
     expect(page.find("#runIcon svg").getAttribute("data-run-icon")).toBe(icon);
     expect(page.find("#runIcon svg").getAttribute("aria-hidden")).toBe("true");
+    expect(page.id("runStatus").classList.contains("sr-only")).toBe(false);
+    expect(page.id("runStatus").hidden).toBe(false);
     expect(page.find(".run-state").children.map(child => child.id)).toEqual(["runCard", "runLog"]);
     expect(page.all(".run-actions button").filter(button => !button.hidden).map(button => button.textContent.trim()))
       .toEqual([action, "Copy diagnostic log"]);
@@ -546,7 +549,29 @@ describe("The results page's script, on the page", () => {
     expect(page.id("runLog").hasAttribute("open")).toBe(false);
   });
 
+  it.each([false, true])("keeps the real step in the live region and tooltip with reduced motion %s", async reduced => {
+    const matchMedia = window.matchMedia;
+    vi.spyOn(window, "matchMedia").mockImplementation(query => query.includes("reduced-motion")
+      ? { matches: reduced, addEventListener: vi.fn() } as unknown as MediaQueryList : matchMedia(query));
+    await open(clicked(42));
+    const status = page.id("runStatus");
+    const wordRow = page.find(".run-word-row");
+    expect(status.classList.contains("sr-only")).toBe(true);
+    expect(wordRow.title).toBe(status.textContent);
+    ports[0].send({ type: "subject", subject: { kind: "model", id: MODEL.id } });
+    for (const step of ["Reading Line Items…", "Reading page 2 of 40: Demand board…", "Reading page 3 of 40: Supply board…"]) {
+      ports[0].send({ type: "status", text: step });
+      expect(page.id("runStatus")).toBe(status);
+      expect([status.textContent, wordRow.title]).toEqual([step, step]);
+      expect(status.classList.contains("sr-only")).toBe(true);
+      expect([status.getAttribute("role"), status.getAttribute("aria-live"), status.getAttribute("aria-hidden"), status.hidden])
+        .toEqual(["status", "polite", null, false]);
+      expect(page.find(".run-word").getAttribute("aria-hidden")).toBe("true");
+    }
+  });
+
   it("rotates only the silent phrase, switches pools immediately, and preserves the real live status", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0);
     await open(clicked(42));
     ports[0].send({ type: "subject", subject: { kind: "model", id: MODEL.id } });
     ports[0].send({ type: "status", text: "Reading Line Items…" });
@@ -554,13 +579,14 @@ describe("The results page's script, on the page", () => {
     const first = word.textContent;
     expect(WORD_POOLS.modules).toContain(first);
     expect(word.getAttribute("aria-hidden")).toBe("true");
-    vi.advanceTimersByTime(2999);
+    vi.advanceTimersByTime(SPINNER_WORD_INTERVAL_MS - 1);
     expect(word.textContent).toBe(first);
     vi.advanceTimersByTime(1);
     const second = word.textContent;
     expect(second).not.toBe(first);
-    vi.advanceTimersByTime(3000);
-    expect([first, second]).not.toContain(word.textContent);
+    vi.advanceTimersByTime(SPINNER_WORD_INTERVAL_MS);
+    expect(word.textContent).not.toBe(second);
+    expect(word.textContent).toBe(first);
     expect(page.id("runStatus").textContent).toBe("Reading Line Items…");
     expect(page.id("live").textContent).toBe("");
     ports[0].send({ type: "status", text: "Reading page 2 of 40: Demand board" });
@@ -569,6 +595,7 @@ describe("The results page's script, on the page", () => {
   });
 
   it("uses the browser's reduced motion preference and follows a change to it", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0);
     const media = { matches: true, addEventListener: vi.fn() };
     const matchMedia = window.matchMedia;
     vi.spyOn(window, "matchMedia").mockImplementation(query => query.includes("reduced-motion") ? media as unknown as MediaQueryList : matchMedia(query));
@@ -577,14 +604,14 @@ describe("The results page's script, on the page", () => {
     ports[0].send({ type: "status", text: "Reading Modules…" });
     const word = page.find(".run-word");
     const first = word.textContent;
-    vi.advanceTimersByTime(9000);
+    vi.advanceTimersByTime(20 * SPINNER_WORD_INTERVAL_MS);
     expect(word.textContent).toBe(first);
     ports[0].send({ type: "status", text: "Reading Line Items…" });
     const next = word.textContent;
     expect(next).not.toBe(first);
     media.matches = false;
     media.addEventListener.mock.calls[0][1]();
-    vi.advanceTimersByTime(3000);
+    vi.advanceTimersByTime(SPINNER_WORD_INTERVAL_MS);
     expect(word.textContent).not.toBe(next);
   });
 
@@ -595,10 +622,10 @@ describe("The results page's script, on the page", () => {
     ports[0].send({ type: "status", text: "Building the report…" });
     const word = page.find(".run-word");
     expect(word.textContent).toBe("Connecting the plans…");
-    vi.advanceTimersByTime(9000);
+    vi.advanceTimersByTime(20 * SPINNER_WORD_INTERVAL_MS);
     expect(word.textContent).toBe("Connecting the plans…");
     ports[0].send({ type: "log", text: `14:02:05 Engine: ${engine} (from the Line Items columns)` });
-    vi.advanceTimersByTime(3000);
+    vi.advanceTimersByTime(SPINNER_WORD_INTERVAL_MS);
     expect(word.textContent).toBe(engine === "Classic" ? "Hyperblocking…" : "Polarising…");
   });
 
@@ -635,6 +662,8 @@ describe("The results page's script, on the page", () => {
     const word = page.find(".run-word");
     expect(word.textContent).toBe("");
     expect(page.id("runCard").classList.contains("reading")).toBe(false);
+    expect(page.id("runStatus").classList.contains("sr-only")).toBe(false);
+    expect(page.id("runStatus").hidden).toBe(false);
     vi.advanceTimersByTime(500);
     expect(timer.textContent).toBe("");
     page.id("runRetry").press();
@@ -661,12 +690,19 @@ describe("The results page's script, on the page", () => {
     expect(timer.textContent).toBe("1.2s");
     expect(word.textContent).toBe("");
     if (ending === "done") expect(page.has(".run-word")).toBe(false);
-    else expect(page.id("runCard").classList.contains("reading")).toBe(false);
+    else {
+      expect(page.id("runCard").classList.contains("reading")).toBe(false);
+      expect(page.id("runStatus").classList.contains("sr-only")).toBe(false);
+      expect(page.id("runStatus").hidden).toBe(false);
+      expect(page.id("runStatus").textContent).not.toBe("");
+      expect(page.id("runStatus").getAttribute("aria-hidden")).toBe(null);
+    }
     expect(page.id("runAgain").classList.contains("reading")).toBe(false);
     expect(page.id("live").getAttribute("role")).toBe("status");
     if (ending !== "failed") return;
     page.id("runRetry").press();
     expect(timer.textContent).toBe("0.0s");
+    expect(page.id("runStatus").classList.contains("sr-only")).toBe(true);
     vi.advanceTimersByTime(100);
     expect(timer.textContent).toBe("0.1s");
   });
@@ -4325,6 +4361,8 @@ describe("The navigation bar of the results page", () => {
     expect(page.key("ArrowDown").defaultPrevented).toBe(true);
     expect(openMenus()).toEqual([id]);
     const entries = page.all(`#${id} .nav-item`);
+    expect(page.texts(`#${id} .nav-heading`)).toEqual(id === "navGroupDimensions" ? ["Time", "Versions", "Lists"]
+      : id === "navMenu" ? ["Dimensions", "Time", "Versions", "Lists", "Modules", "Actions", "App Usage"] : []);
     expect(page.document.activeElement).toBe(entries[0]);
     for (const entry of [...entries.slice(1), entries[0]]) {
       page.key("ArrowDown");
@@ -4516,7 +4554,8 @@ describe("The navigation bar of the results page", () => {
       "Actions: Processes, Imports, Data Sources, Exports, Other Actions", "Source Models", "Model map"]]);
     // A group's name heads its entries, a heading that a screen reader is told as the name of the group.
     expect(page.all("#navMenu .nav-section").map(section => [section.getAttribute("role"), section.querySelector(".nav-heading")?.textContent, section.querySelector(".nav-heading")?.getAttribute("aria-hidden")]))
-      .toEqual([["group", "Dimensions", "true"], ["group", "Time", "true"], ["group", "Modules", "true"], ["group", "Actions", "true"]]);
+      .toEqual([["group", "Dimensions", "true"], ["group", "Time", "true"], ["group", "Versions", "true"], ["group", "Lists", "true"],
+        ["group", "Modules", "true"], ["group", "Actions", "true"]]);
     // Choosing from it shows that view; the menu is drawn again, closed, and its button names the new view.
     page.find('#navMenu [data-nav="11"]').press();
     expect([page.texts("#view h1"), button().textContent.trim(), page.id("navMenu").hidden]).toEqual([["Versions"], "Versions", true]);
