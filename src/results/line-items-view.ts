@@ -2,15 +2,10 @@ import type { Cell, ResultTable } from "../result-types.js";
 import { formatType } from "./readable-cells.js";
 import { cellText } from "./table-engine.js";
 
-/** The model's Line Items table as the results page shows it. The file is laid out as Anaplan's own Line Items grid for all
- * modules, which is every module's blueprint in one grid: a module's own row (its name and its Applies To, no format and
- * no summary), then that module's line items, where a line item with no dimensions of its own shows a dash under Applies
- * To. That is what the file holds, and the file stays as it is. The page lists every row of it, in the file's order, so
- * that the table counts what the grid counts. It names each row's module directly after the row's own name (a module's
- * own row names itself), shows under Applies To the dimensions a line item really has, and after Format the data type of
- * the line item's format, which a module's own row has none of: a filter on that column lists the modules' rows, or the
- * line items alone. The page shows a module's own row as a heading above its line items. The table given is never
- * changed: a model's map is built from it, never from the view.
+/** The Line Items grid with each row's module, format type and resolved dimensions. The default view keeps every row,
+ * including modules' own rows and module headings, in the file's order. The results page asks for line items only:
+ * it leaves out those rows after resolving dimensions from the module's own row. The source table is never changed;
+ * the map and other analyses keep reading it in full.
  *
  * A module's own row names no module under Module Name and has no Format, no Formula and no Summary. A line item's row
  * names its module there, and always has a Format and a Summary (the classic client parses every line item's Format, and
@@ -23,7 +18,7 @@ import { cellText } from "./table-engine.js";
  * model's module names tell the two apart, where the caller has them: a row whose name is a module's is that module's
  * own, and any other is a line item whose module is not known. A name is a module's when it is one of those names, or
  * when a line item of the file gives it as its module. Without the names every such row is taken for a module's own. A
- * table in which no row is a module's own is not the grid as the view knows it, and is shown as it is.
+ * table in which no row is a module's own is shown as it is by default; the line-items-only option still adds its columns.
  *
  * A module's name is compared whole and as it is written, wherever the view compares one: with the names given, with the
  * Module Names of the file's line items, and with the name of the module's row above a line item. A name that differs
@@ -60,8 +55,8 @@ export const APPLIES_TO_SOURCE = { module: "Module", lineItem: "Line item", notF
 
 /** The column the view adds after Format, where the table has that column: the data type of the line item's format, by
  * the Format dialog's label (readable-cells.ts `formatType`). Empty for a module's own row, which has no format, and for a
- * line item whose Format names no data type. The page always offers a filter on it (columns.ts): without the blanks it
- * lists only line items, and without No Data it leaves out the line items that are headings. */
+ * line item whose Format names no data type. The page always offers a filter on it (columns.ts): without No Data it
+ * leaves out the line items that are headings. */
 export const FORMAT_TYPE = "Format type";
 
 /** What a line item shows under Applies To when it has no dimensions of its own. */
@@ -71,16 +66,19 @@ export interface LineItemsView {
   /** The table to show: headers and rows of flat cells, as columns.ts and table-engine.ts take them. It is the table
    * given, itself, when the view does not apply to it. It is for showing only: the table given stays as it is. */
   table: ResultTable;
-  /** How many of its rows are modules' own. */
+  /** How many source rows are modules' own, including module headings. */
   moduleRows: number;
-  /** Those rows, as `table` holds them: the page shows each as a heading above its line items. None when the table is
-   * shown as it is. */
+  /** Modules' own rows as `table` holds them in the default view. Empty in the line-items-only view. */
   headings: ReadonlySet<readonly Cell[]>;
-  /** One line for the page to show with the table: what its rows are, how the filter on Format type lists the line items
-   * alone, and how many line items name no module. None when the table is shown as it is. */
+  /** What this view lists. The default note also describes the Format type filter and unknown modules. */
   note?: string;
   /** A warning for the results page; the explanation of the layout is in How to read. */
   warning?: string;
+}
+
+export interface LineItemsOptions {
+  /** Leave out modules' own rows and module headings after resolving inherited dimensions. Default: keep every row. */
+  lineItemsOnly?: boolean;
 }
 
 interface ModuleRow { name: string; appliesTo: Cell }
@@ -113,9 +111,9 @@ function moduleNamed(rows: readonly Cell[][], moduleName: number, names: Readonl
   return name => given.has(name) || inFile.has(name);
 }
 
-/** The view of the engine's Line Items table, or nothing for any other table: another file, one without a column the
- * view reads after the row's name, or one in which no row is a module's own (the view itself is such a table). */
-function viewOf(table: ResultTable, moduleNames: ReadonlySet<string> | undefined): LineItemsView | undefined {
+/** The view of the engine's Line Items table, or nothing for another file or one missing a required column.
+ * The default view also leaves a table without modules' own rows as it is. */
+function viewOf(table: ResultTable, moduleNames: ReadonlySet<string> | undefined, options: LineItemsOptions): LineItemsView | undefined {
   if (table.file !== LINE_ITEMS_FILE) return undefined;
   const { headers } = table;
   const moduleName = headers.indexOf(MODULE_NAME);
@@ -166,10 +164,14 @@ function viewOf(table: ResultTable, moduleNames: ReadonlySet<string> | undefined
       : [own, APPLIES_TO_SOURCE.notFound];
     rows.push(shown(row, row[moduleName] ?? "", applies, from, typed ? formatType(row[format]) ?? "" : ""));
   }
-  if (headings.size === 0) return undefined;
+  if (headings.size === 0 && !options.lineItemsOnly) return undefined;
+  const listed = options.lineItemsOnly ? rows.filter(row => !headings.has(row)) : rows;
+  const note = options.lineItemsOnly
+    ? `${listed.length.toLocaleString("en-US")} ${listed.length === 1 ? "line item" : "line items"}, each beside its module under ${MODULE_NAME}. A module's own settings are in Modules.`
+    : noteOf(rows.length - headings.size, headings.size, unnamed, typed);
   return {
-    table: { ...table, headers: order.flatMap(index => [headers[index], ...added(index)]), rows },
-    moduleRows: headings.size, headings, note: noteOf(rows.length - headings.size, headings.size, unnamed, typed),
+    table: { ...table, headers: order.flatMap(index => [headers[index], ...added(index)]), rows: listed },
+    moduleRows: headings.size, headings: options.lineItemsOnly ? new Set() : headings, note,
     ...(unnamed ? { warning: count(unnamed, "line item has no Module Name: its module is not known.", "line items have no Module Name: their module is not known.") } : {}),
   };
 }
@@ -178,10 +180,10 @@ function viewOf(table: ResultTable, moduleNames: ReadonlySet<string> | undefined
  * model's modules, where the caller has them (the first column of the result's Modules file): they tell a module's own
  * row from a line item's row of which the file holds only the name. It never throws: a table the view does not apply to,
  * or one that cannot be read at all, comes back as it is, with no note, and the page shows it as any other table. */
-export function lineItemsView(table: ResultTable, moduleNames?: ReadonlySet<string>): LineItemsView {
+export function lineItemsView(table: ResultTable, moduleNames?: ReadonlySet<string>, options: LineItemsOptions = {}): LineItemsView {
   const asItIs: LineItemsView = { table, moduleRows: 0, headings: new Set() };
   try {
-    return viewOf(table, moduleNames) ?? asItIs;
+    return viewOf(table, moduleNames, options) ?? asItIs;
   } catch {
     return asItIs;
   }
