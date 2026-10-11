@@ -1,4 +1,4 @@
-import { MODEL_PAGE_FILES } from "../page-files.js";
+import { MODEL_PAGE_FILES, MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, missingIn, type MissingKind } from "../page-files.js";
 import type { AnalysisResult, Cell, ResultTable } from "../result-types.js";
 import { calendarTile } from "./calendar-tile.js";
 import { cellLists, type Items } from "./cell-lists.js";
@@ -443,12 +443,53 @@ const processesRule: FileRule = (file, result) => {
   };
 };
 
+/** What the line under a table of the pages built on a model counts of its rows that name something Missing, as one and as
+ * several: a filter or a button, each its own row, or a page, which Module Usage has a row for with each module it uses. */
+const MISSING_ROWS: ReadonlyMap<string, readonly [one: string, several: string]> = new Map([
+  [PAGE_FILTERS_FILE, ["filter points at", "filters point at"]], [PAGE_ACTIONS_FILE, ["button runs", "buttons run"]], [MODULE_USAGE_FILE, ["page uses", "pages use"]]]);
+/** The kinds of what is missing, in the order the line names them, each as one ("a module") and as several ("2 modules"). */
+const MISSING_WORDS: ReadonlyMap<MissingKind, readonly [one: string, several: string]> = new Map([["module", ["a module", "modules"]], ["line item", ["a line item", "line items"]],
+  ["import", ["an import", "imports"]], ["export", ["an export", "exports"]], ["process", ["a process", "processes"]]]);
+
+/** The tables of the pages built on a model name what a card on a page points at that the model does not have Missing,
+ * with its ID (page-files.ts `missingText`). Such a table is shown as it stands, under a line that says how many filters,
+ * buttons or pages name such a thing, what they point at, each thing once by its ID, why, and what to do. A table that
+ * names nothing Missing is shown as it stands, with no line. */
+const missingRule: FileRule = file => {
+  const [one, several] = MISSING_ROWS.get(file.file) ?? [];
+  const rows = file.rows.filter(row => row.some(cell => missingIn(cellText(cell)).length));
+  if (one === undefined || several === undefined || !rows.length) return undefined;
+  const cell = (row: readonly Cell[], header: string): string => {
+    const at = columnIndex(file, header);
+    return at === undefined ? "" : cellText(row[at]).trim();
+  };
+  // A page by its ID, or where the table has none, as in a result an earlier version kept, by its app and its name.
+  const pageOf = (row: readonly Cell[]): string => cell(row, "Page ID") || `${cell(row, "App")}\n${cell(row, "Page")}`;
+  const pages = new Set(rows.map(pageOf)).size;
+  const cards = new Set(rows.map(row => `${pageOf(row)}\n${cell(row, "Card ID")}`)).size;
+  const ids = new Map<MissingKind, Set<string>>();
+  for (const { kind, id } of rows.flatMap(row => row.flatMap(each => missingIn(cellText(each))))) ids.set(kind, (ids.get(kind) ?? new Set<string>()).add(id));
+  const things = [...MISSING_WORDS].flatMap(([kind, [a, many]]) => {
+    const count = ids.get(kind)?.size ?? 0;
+    return count === 0 ? [] : [count === 1 ? a : `${count} ${many}`];
+  });
+  const what = things.length > 1 ? `${things.slice(0, -1).join(", ")} and ${things.at(-1)}` : things[0];
+  const usage = file.file === MODULE_USAGE_FILE;
+  const count = usage ? pages : rows.length;
+  const open = usage ? (pages === 1 ? "Open it to fix its cards" : "Open them to fix their cards")
+    : `Open ${pages > 1 ? "their pages" : count === 1 ? "its page" : "the page"} to fix ${cards === 1 ? "the card" : "the cards"}`;
+  return { table: file, note: `${count} ${count === 1 ? one : several} ${what} this model doesn't have: deleted since ${pages === 1 ? "the page was" : "the pages were"} `
+    + `built, or hidden from you. ${open}.` };
+};
+
 /** The files the page has a rule for, each with its rule, by the kind of result and the file's name: five that it shows
- * otherwise than as they stand, and one that it shows as it stands, under a line that says what it is. No other file is
- * touched: a rule is a file's own, not a filter over all of them. */
+ * otherwise than as they stand, and four that it shows as they stand, under a line that says what each is: Dynamic Cell
+ * Access always, and the tables of the pages built on a model where they name something Missing (`missingRule`). No other
+ * file is touched: a rule is a file's own, not a filter over all of them. */
 export const FILE_RULES: Record<AnalysisResult["kind"], ReadonlyMap<string, FileRule>> = {
   app: new Map(),
-  model: new Map([[MODEL_CALENDAR_FILE, calendarView], [LINE_ITEMS_FILE, lineItemsRule], [ACCESS_FILE, accessRule], [PROCESSES_FILE, processesRule], [IMPORTS_FILE, importsRule], [SOURCE_MODELS_FILE, sourceModelsRule]]),
+  model: new Map([[MODEL_CALENDAR_FILE, calendarView], [LINE_ITEMS_FILE, lineItemsRule], [ACCESS_FILE, accessRule], [PROCESSES_FILE, processesRule], [IMPORTS_FILE, importsRule], [SOURCE_MODELS_FILE, sourceModelsRule],
+    ...MODEL_PAGE_FILES.map((file): [string, FileRule] => [file, missingRule])]),
 };
 
 /** One of the result's files by its rule alone, or as it stands: the rows the page lists, before any cell is said in words. */
