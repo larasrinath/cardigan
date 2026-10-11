@@ -2,7 +2,7 @@
 
 Cardigan is a read-only Chrome extension that shows you inside any Anaplan model or app: modules, line items, imports and their mappings, processes and page filters as searchable tables, plus an interactive model map. Nothing leaves your browser.
 
-Open a model or app in Anaplan and click the Cardigan icon. The result opens in its own tab, where you can search, sort and filter the tables and follow the model's dependencies. Classic models get their Model settings; [Polaris models](#polaris-models) get partial settings and a map when formulas were read.
+Open a model or app in Anaplan and click the Cardigan icon. The result opens in its own tab, where you can search, sort and filter the tables and follow the model's dependencies. Classic and [Polaris models](#polaris-models) get their full Model settings when Model Building's Classic client answers; without it, Cardigan falls back to a partial read.
 
 Cardigan makes no file and offers no download: the results page is the only place to see a result. The last result is kept for its tab in the browser's session storage, so that a refresh brings it back, as you left it.
 
@@ -16,7 +16,7 @@ The pictures show model analysis of an invented bicycle planning model. Names, i
 
 ### For a model
 
-Open the model in Model Building; the classic model page opened on its own works too. Cardigan checks the model's engine first, with GET requests using the signed-in session. It reads the model's `engine` from the platform gateway (`hyperblock` means Classic; `calculation_engine` means Polaris), then tries the selected workspace's `dataEngineType` if needed. A Classic frame answering is the next fallback; an unknown engine continues with the Classic reader. The diagnostic log records the raw values and the chosen path.
+Open the model in Model Building; the classic model page opened on its own works too. Cardigan always tries the Classic client first, whatever the model's engine, waiting up to about two minutes for it to answer. The engine check uses GET requests with the signed-in session: model details from the platform gateway, then the selected workspace's entry if needed. It checks `engine`, `engineType`, `calculationEngine`, `modelType`, `isPolaris` and `dataEngineType`. The strings `hyperblock` and `calculation_engine` still mean Classic and Polaris, ignoring case; a boolean `isPolaris` flag is also recognised. Other values leave the engine unknown. Diagnostics lists the returned field names, never their values. A Classic client answering does not establish the calculation engine.
 
 #### Classic settings
 
@@ -89,7 +89,9 @@ The **Actions** column follows the process name. Its filter picks processes by t
 
 ### Polaris models
 
-Cardigan reads Polaris without waiting for a Classic frame. The Overview names what was read and what is missing; only tables with data get tiles and tabs. **About this export** keeps Workspace, Workspace ID, Model, Model ID and Apps.
+Polaris models are read in full when Model Building's Classic client answers, as it usually does. This includes the settings, import mappings and process steps described above. Polaris-only Line Items columns such as **Populated Cell Count** or **Calculation Complexity** add `Engine: Polaris, read through the Classic client` to Diagnostics, with no change to the result's presentation.
+
+Only when no Classic frame answers within the wait does Cardigan use the partial Polaris reader. This fallback also applies when the engine is unknown. The Overview says **The model's Classic client didn't answer, so Cardigan read what it could without it.** It names what was read and what is missing; only tables with data get tiles and tabs. **About this export** keeps Workspace, Workspace ID, Model, Model ID and Apps. The following limits apply to this partial read:
 
 | Table | What is read |
 | --- | --- |
@@ -102,11 +104,11 @@ Cardigan reads Polaris without waiting for a Classic frame. The Overview names w
 
 The **Model map** is available when line items with formulas were read. It matches quoted, bare and module-qualified names to the returned line items and lists. Unknown or ambiguous references remain unresolved. Formulas are not evaluated, and numbers are never replaced with names.
 
-**Not read yet:** Model Calendar, Time Ranges, Line Item Subsets, Dynamic Cell Access, Other Actions, Source Models, list properties and per-list subset membership, functional area assignments, import mappings, process steps, export definitions or calculation metrics. Import and process details say that their mappings or steps are not read. Access driver arrows and key marks are unavailable.
+**Not read yet:** Model Calendar, Time Ranges, Dynamic Cell Access, Other Actions, Source Models, list properties and per-list subset membership, functional area assignments, import mappings, process steps, export definitions or calculation metrics. Import and process details say that their mappings or steps are not read. Access driver arrows and key marks are unavailable.
 
 A source that fails or times out is skipped independently, including HTTP 503 from an optional Polaris source. Line items use one GET per module, at most four at once, with a 60-second timeout per request. Closing the last results page stops queued reads. Listing completeness is unknown: possible paging is noted on the Overview and in Diagnostics, and unverified continuation links are not followed.
 
-**Copy diagnostic log** includes the engine decision, source counts, line-item request counts and timings, unavailable sources, possible paging and whether formulas allow a map. Look for `Engine detection:`, `Polaris source read:`, `Polaris source unavailable:`, `Polaris line items:`, `Polaris possibly incomplete:` and `Polaris partial result:`.
+**Copy diagnostic log** includes the engine decision and reader used. Look for `Engine detection: model details fields:`, `Engine detection: workspace entry fields:` (when the workspace was needed), and `Classic reader: answered; starting model settings`. A partial read instead logs `Classic reader: no frame answered within the wait; reading a partial result without it`, then source counts, line-item request counts and timings, unavailable sources, possible paging and whether formulas allow a map: `Polaris source read:`, `Polaris source unavailable:`, `Polaris line items:`, `Polaris possibly incomplete:` and `Polaris partial result:`.
 
 ### Model map
 
@@ -143,7 +145,7 @@ With **Access drivers** enabled, teal keys mark Read or Write Access Drivers. A 
 
 ![Dark Model map of REP03 Exceptions with plum page filter arrows between line items, a funnel on Exception, and teal keys on its access drivers](docs/images/map-line-items.png)
 
-A switch with nothing to draw is disabled and says why. Polaris has no access driver columns. An older result without **Filtered line items** draws page filters to modules and asks you to run again for the finer view. Page filters and access drivers do not change formula counts or roles. The details list page filters, what they filter and where they are used even with their arrows off.
+A switch with nothing to draw is disabled and says why. A partial read without the Classic client has no access driver columns. An older result without **Filtered line items** draws page filters to modules and asks you to run again for the finer view. Page filters and access drivers do not change formula counts or roles. The details list page filters, what they filter and where they are used even with their arrows off.
 
 #### Map details
 
@@ -250,7 +252,7 @@ Closing the results page stops the reading.
 
 ### If it does not start
 
-- **Waiting for the model to open…**: the tab is loading, or Model Building is there and the Classic frame has not answered yet. Cardigan waits for up to about two minutes and starts when it answers. If it still has not opened, the card says **Model still opening**; wait until it shows in Anaplan, then choose **Run again**.
+- **Waiting for the model to open…**: the tab is loading, or Model Building is there and the Classic frame has not answered yet. Cardigan waits for up to about two minutes and starts when it answers. When Model Building is open but no Classic frame answers, Cardigan falls back to a partial read and says so on the Overview. If the Anaplan tab itself is still loading, the card says **Model still opening**; wait until it shows in Anaplan, then choose **Run again**.
 - **Refresh the Anaplan tab**: Cardigan's reader is missing or belongs to an earlier version. Cardigan first tries putting its reader into the open tab. Where Chrome refuses, or the reader cannot reach the model, choose **Refresh the Anaplan tab and run**. This closes the modules and lists open in Model Building; nothing refreshes the tab unless you choose it.
 - **Not an Anaplan tab** or **Tab closed**: the page says what the tab shows, or that it was closed. Open the app or model in Anaplan, then click the icon on that tab.
 - **No model open**: the tab shows an Anaplan page that is neither an app nor a model. Open a model in Model Building, then choose **Run again**.
@@ -288,7 +290,7 @@ Closing the results page stops the reading.
 - Line Item Subsets are not read as a settings table. A Model settings grid of more than 250,000 rows is not read. The Overview lists it under **Tables** as "Not exported", with the reason.
 - An import's **Mapping** knows the file only as the import's definition does: Anaplan keeps the mapping, not the file's header row. So it cannot say whether the file has columns after the last one mapped, and a column that the import names by its heading alone has no number: the columns before it that no number takes may be used, and the page says so. Where no column mapped has a number, the page says that it cannot tell which columns are not used. A header that the import matches on a line item's name or code when it runs is stored nowhere, so the columns matched that way are not listed: the line items under the header row are only those a header can match. An import from a module, a saved view or another model has no **Mapping**, and neither has a result that an earlier version kept: choose **Run again**.
 - In **DCA**, a driver that cannot be matched to a line item is listed last, as Line Items has it and with no **Driver Module**, and the page says how many there are. The table is not made when Line Items was not read.
-- Classic formula links come from reference columns such as **Referenced By**; Polaris formula links are matched by name. Access driver columns and Page Filters supply their own kinds of link. The map shows formulas as text and does not evaluate them.
+- Formula links from a Classic client read come from reference columns such as **Referenced By**, for either engine; the partial Polaris reader matches formula links by name. Access driver columns and Page Filters supply their own kinds of link. The map shows formulas as text and does not evaluate them.
 - The map draws groups, modules, line items and the lists that formulas name. Processes and actions are not drawn; a module's details name the imports that load into it.
 - **About this map**, at the foot of the map, says what the map leaves out and could not place for this model, such as a line item named twice in one module.
 - A large view is shown whole with names cut short: point at a box to read its name. One too large even for that opens on its start, and **Whole map** shows all of it.

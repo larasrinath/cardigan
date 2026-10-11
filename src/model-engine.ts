@@ -15,13 +15,22 @@ export function parseEngine(value: unknown): ModelEngine {
     : typeof value === "string" && value.toLowerCase() === "calculation_engine" ? "polaris" : "unknown";
 }
 
-const raw = (value: unknown): string => value === undefined ? "missing" : JSON.stringify(value)?.replace(/[\r\n]/g, " ").slice(0, 120) ?? "missing";
+const ENGINE_FIELDS = ["engine", "engineType", "calculationEngine", "modelType", "isPolaris", "dataEngineType"] as const;
+const engineOf = (details: Record<string, unknown>): ModelEngine => {
+  for (const field of ENGINE_FIELDS) {
+    const value = details[field];
+    const engine = field === "isPolaris" && typeof value === "boolean" ? (value ? "polaris" : "classic") : parseEngine(value);
+    if (engine !== "unknown") return engine;
+  }
+  return "unknown";
+};
+const fields = (details: Record<string, unknown>): string => Object.keys(details).sort().join(", ") || "none";
 const name = (value: unknown): string | undefined => typeof value === "string" && value.trim() ? value : undefined;
 
 /** GET only, using the same session and headers as the page's other REST reads. The native platform contracts are
  * getModel (one model) and getWorkspaces (the customer's directory); only this workspace's entry is inspected.
  * Neither a refused read nor an unfamiliar engine prevents the existing Classic reader from running. */
-export async function detectModelEngine(scope: EngineScope, classicFrame: () => boolean, progress: Progress, signal?: AbortSignal,
+export async function detectModelEngine(scope: EngineScope, progress: Progress, signal?: AbortSignal,
   read: typeof getJson = getJson): Promise<EngineDetails> {
   const result: EngineDetails = { engine: "unknown" };
   const { customerId, workspaceId, modelId } = scope;
@@ -31,8 +40,8 @@ export async function detectModelEngine(scope: EngineScope, classicFrame: () => 
     progress.status("Checking the model's engine…");
     try {
       const model = object(await read(`${base}/${workspaceId}/models/${modelId}`, { timeoutMs: 5000 }));
-      progress.log(`Engine detection: model.engine=${raw(model.engine)}`);
-      result.engine = parseEngine(model.engine);
+      progress.log(`Engine detection: model details fields: ${fields(model)}`);
+      result.engine = engineOf(model);
       result.modelName = name(model.label) ?? name(model.name);
       result.workspaceName = name(model.workspaceName);
     } catch (error) {
@@ -45,8 +54,8 @@ export async function detectModelEngine(scope: EngineScope, classicFrame: () => 
         const directory = await read(base, { timeoutMs: 5000 });
         const workspace = (Array.isArray(directory) ? directory : []).map(object)
           .find(item => String(item.WorkspaceGuid ?? item.id ?? "").toLowerCase() === workspaceId.toLowerCase());
-        progress.log(`Engine detection: workspace.dataEngineType=${raw(workspace?.dataEngineType)}`);
-        result.engine = parseEngine(workspace?.dataEngineType);
+        progress.log(`Engine detection: workspace entry fields: ${fields(workspace ?? {})}`);
+        result.engine = engineOf(workspace ?? {});
         result.workspaceName ??= name(workspace?.Name) ?? name(workspace?.label) ?? name(workspace?.name);
       } catch (error) {
         if (error instanceof RestError && error.code === "MAINTENANCE") throw error;
@@ -55,11 +64,7 @@ export async function detectModelEngine(scope: EngineScope, classicFrame: () => 
     }
   } else progress.log("Engine detection: the address does not name the customer, workspace and model needed for platform details");
   signal?.throwIfAborted();
-  if (result.engine === "unknown" && classicFrame()) {
-    result.engine = "classic";
-    progress.log("Engine detection: a Classic frame answered");
-  }
-  progress.log(`Engine detection: ${result.engine === "polaris" ? "Polaris; reading a partial result without the Classic frame"
-    : result.engine === "classic" ? "Classic; reading model settings" : "unknown; continuing with the Classic reader"}`);
+  // Both engines can load the Classic client; its presence says nothing about the calculation engine.
+  progress.log(`Engine detection: ${result.engine === "polaris" ? "Polaris" : result.engine === "classic" ? "Classic" : "unknown"}; trying the Classic reader first`);
   return result;
 }
