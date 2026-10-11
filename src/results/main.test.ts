@@ -1292,9 +1292,14 @@ describe("The results page's script, on the page", () => {
     await openWith(WITH_CALENDAR);
     const file = WITH_CALENDAR.tables[3];
     expect([file.rows.length, file.rows.filter(row => row[0] === "Model").length]).toEqual([31, 5]);
-    // The overview: the file's tile counts the rows its table lists, and only those. What the file says about the model
-    // stands with what the Details file says about the export, after it, and without the model's name, which that has said.
-    expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Model Calendar", "5", "rows"], ["Modules", "2", "rows"], ["Line Items", "120", "rows"]]);
+    // The overview: the calendar's tile says what the calendar is, a months one, where the other tiles count the rows their
+    // tables list; its title says the type as written, and so does its name for a screen reader. What the file says about
+    // the model stands with what the Details file says about the export, after it, and without the model's name, which
+    // that has said.
+    expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Model Calendar", "Monthly"], ["Modules", "2", "rows"], ["Line Items", "120", "rows"]]);
+    const calendarTile = page.all("#view .stat")[0];
+    expect([calendarTile.getAttribute("title"), calendarTile.getAttribute("aria-label"), page.all("#view .stat")[1].getAttribute("title")])
+      .toEqual(["Model Calendar: Calendar Months/Quarters/Years", "Model Calendar: Calendar Months/Quarters/Years", null]);
     expect([page.texts("#ovAbout h2"), page.texts("#ovAbout dt"), page.texts("#ovAbout dd")])
       .toEqual([["About this export"], ["Model", "Anaplan host", "Workspace", "Captured on"], ["Model one", "us1a.app.anaplan.com", "Main", "2026-10-03"]]);
     // The navigation lists the same tables in the same order, and counts nothing: the tiles count the rows.
@@ -2587,9 +2592,13 @@ describe("What a click, a key and typing do on the results page", () => {
   it("says on the overview everything the Details file holds, for an app and for a model: no row is dropped", async () => {
     /** Every text the overview shows, with its closed sections' as well. */
     const texts = () => [...page.texts("#view dt"), ...page.texts("#view dd"), ...page.texts("#view .warn-list li"), ...page.id("diagLog").textContent.split("\n")];
-    /** What each file's tile says of its rows, by the file's own name, which is its entry's in the navigation (the tiles
-     * stand in the same order): the number its table lists. */
-    const tiles = () => tableEntries().map((item, index) => `${entryLabel(item)}.csv: ${page.all("#view .stat")[index].querySelector(".s-num")?.textContent} rows`);
+    /** What each file's tile says, by the file's own name, which is its entry's in the navigation (the tiles stand in the
+     * same order): the number of rows its table lists, or for a Model Calendar what the calendar is. */
+    const tiles = () => tableEntries().map((item, index) => {
+      const tile = page.all("#view .stat")[index];
+      const said = tile.querySelector(".s-num")?.textContent;
+      return `${entryLabel(item)}.csv: ${tile.querySelector(".sr-only") ? `${said} rows` : said}`;
+    });
     /** The rows of a result's Details file that the overview does not say: a detail and its value, a note, a line of the log, or a file's tile. */
     const unsaid = (result: AnalysisResult) => {
       const shown = texts();
@@ -2666,11 +2675,12 @@ describe("What a click, a key and typing do on the results page", () => {
     expect(counted.tables[0].rows.filter(row => row[0] === "Files")).toEqual([["Files", "Line Items.csv", "8 rows"], ["Files", "Modules.csv", "3 rows"], ["Files", "Model Calendar.csv", "31 rows"]]);
     page.id("runAgain").press();
     sendResult(ports[0], counted);
-    // The tiles count what the tables list, 5 settings and every row of Line Items, and nothing more: the calendar's 31 are
-    // said by the line under its table's name, which counts the rows it leaves out. No row of the Details file is lost.
-    expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Model Calendar", "5", "rows"], ["Modules", "3", "rows"],
+    // The tiles count what the tables list, every row of Line Items, and nothing more, and the calendar's says what the
+    // calendar is: its 31 rows are said by the line under its table's name, which counts the rows it leaves out. No row of
+    // the Details file is lost.
+    expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Model Calendar", "Monthly"], ["Modules", "3", "rows"],
       ["Line Items", "8", "rows"]]);
-    expect([tiles(), unsaid(counted), page.has("#ovFiles"), page.has("#view .warn-list")]).toEqual([["Model Calendar.csv: 5 rows", "Modules.csv: 3 rows",
+    expect([tiles(), unsaid(counted), page.has("#ovFiles"), page.has("#view .warn-list")]).toEqual([["Model Calendar.csv: Monthly", "Modules.csv: 3 rows",
       "Line Items.csv: 8 rows"], [], false, false]);
     goTo(3);
     expect(page.texts("#view .view-note")).toEqual([CALENDAR_NOTE]);
