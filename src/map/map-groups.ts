@@ -8,15 +8,15 @@ import type { MapModel } from "./map-model.js";
  * - Functional area: the Modules file's Functional Area, which the model's builders set.
  * - Headings: the heading rows of Line Items above the modules, as the map has always grouped them.
  * - Name prefix: the code a module's name starts with, where enough modules share it: learnt from the names themselves.
- * - Role in the data flow: Data, Input, System, Calculation or Output, worked out from what the model does with the
+ * - DISCO: Data, Input, System, Calculation or Output, worked out from what the model does with the
  *   module, never from its name (`roleOf`).
  * - App: the app whose pages use the module, from the Module Usage table.
  * - Main dimension: the first list the module applies to.
  *
  * The map opens on the functional areas where the model's builders filed most modules into them, and otherwise on the
  * heading rows where they did so with those (`isBuilt`), however many groups either makes: the builders chose them.
- * Otherwise it opens on the name prefixes where they group the model well (`isGood`), and else on the role in the data
- * flow, which every model with modules has (`automaticGrouping`). */
+ * Otherwise it opens on the name prefixes where they group the model well (`isGood`), and else on DISCO,
+ * which every model with modules has (`automaticGrouping`). */
 
 export type GroupingKind = "functionalArea" | "headings" | "prefix" | "role" | "app" | "dimension";
 
@@ -144,7 +144,7 @@ function byPrefix(model: MapModel): Grouping | undefined {
   return grouped(model, { kind: "prefix", label: "Name prefix", source: "from module names", rest: OTHER }, module => shared.get(keyOf.get(module.id) ?? "") ?? OTHER);
 }
 
-/* ---------- role in the data flow: what the model does with a module ---------- */
+/* ---------- DISCO: what the model does with a module ---------- */
 
 /** How many other modules make "several" that read a module. */
 export const SEVERAL = 3;
@@ -197,7 +197,7 @@ export function flowsOf(model: MapModel): Map<number, Flow> {
 /** "3 of its 5 line items have", "1 of its 1 line item has": a part of the line items, and the verb that goes with it. */
 const partOf = (part: number, items: number): string => `${part} of its ${items} ${items === 1 ? "line item" : "line items"} ${part === 1 ? "has" : "have"}`;
 
-/** A module's role in the data flow, and why, by what the model does with it and never by its name. The first rule that
+/** A module's DISCO role, and why, by what the model does with it and never by its name. The first rule that
  * holds gives it:
  * 1. It has no line items but headings: nothing tells its role ("No line items").
  * 2. Data: an import loads into it, and most of its line items have no formula. The model takes data in there.
@@ -229,7 +229,7 @@ function byRole(model: MapModel): Grouping {
     roles.set(id, role);
     whyOf.set(id, `${role}: ${why}`);
   }
-  return grouped(model, { kind: "role", label: "Role in the data flow", source: "from the data flow", rest: NO_LINE_ITEMS, order: Object.values(ROLES), whyOf },
+  return grouped(model, { kind: "role", label: "DISCO", source: "DISCO role", rest: NO_LINE_ITEMS, order: Object.values(ROLES), whyOf },
     module => roles.get(module.id) ?? NO_LINE_ITEMS);
 }
 
@@ -316,7 +316,7 @@ export const LEARNT: readonly GroupingKind[] = ["prefix"];
 export const AUTOMATIC: readonly GroupingKind[] = [...BUILDERS, ...LEARNT, "role"];
 
 /** The grouping the map opens on by itself: the functional areas or the heading rows where the builders filed most
- * modules by them, else the name prefixes where they are good, and otherwise the role in the data flow. Nothing for a
+ * modules by them, else the name prefixes where they are good, and otherwise DISCO. Nothing for a
  * model with no grouping at all. */
 export function automaticGrouping(groupings: readonly Grouping[]): Grouping | undefined {
   const of = (kind: GroupingKind): Grouping | undefined => groupings.find(grouping => grouping.kind === kind);
@@ -344,7 +344,7 @@ export function howGroupingWorks(grouping: Grouping | undefined, model: MapModel
       return `Modules whose names start with the same code, like ${examples}, form a group when ${prefixThreshold(model)} or more share it. The rest are under Other.`;
     }
     case "role":
-      return "Each module gets a role from how the model uses it, never from its name: Data (an import loads it), Input (people type into it), System (settings other modules read), Calculation (formulas other modules read) or Output (results, or an export takes it). Select a module to see why it has its role.";
+      return "Each module gets a DISCO role from how the model uses it, never from its name: Data (an import loads it), Input (people type into it), System (settings other modules read), Calculation (formulas other modules read) or Output (results, or an export takes it). Select a module to see why it has its role.";
     case "app":
       return "Each module is in the app whose pages use it, from Module Usage. Modules on pages of several apps are under Several apps, and those on none under Not on any page.";
     case "dimension":

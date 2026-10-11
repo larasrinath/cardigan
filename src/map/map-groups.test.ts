@@ -23,7 +23,7 @@ describe("Why the automatic grouping was chosen", () => {
     expect(words.get("functionalArea")).toBe("Each module is in the Functional Area set for it in the model. Modules without one are under No functional area.");
     expect(words.get("headings")).toBe("Each module is under the model heading above it, a module whose name starts with --, ==, **, << or >>. Modules with no heading above them are under Ungrouped.");
     expect(words.get("prefix")).toBe("Modules whose names start with the same code, like SYS, PRM, DAT, form a group when 3 or more share it. The rest are under Other.");
-    expect(words.get("role")).toBe("Each module gets a role from how the model uses it, never from its name: Data (an import loads it), Input (people type into it), System (settings other modules read), Calculation (formulas other modules read) or Output (results, or an export takes it). Select a module to see why it has its role.");
+    expect(words.get("role")).toBe("Each module gets a DISCO role from how the model uses it, never from its name: Data (an import loads it), Input (people type into it), System (settings other modules read), Calculation (formulas other modules read) or Output (results, or an export takes it). Select a module to see why it has its role.");
     expect(words.get("app")).toBe("Each module is in the app whose pages use it, from Module Usage. Modules on pages of several apps are under Several apps, and those on none under Not on any page.");
     expect(words.get("dimension")).toBe("Each module is in the first list it applies to. Modules with only a time scale are under Time only, and those with neither are under No dimensions.");
     for (const wordsOf of words.values()) expect(wordsOf).not.toMatch(/automatic|You picked|Pick another/i);
@@ -201,7 +201,7 @@ describe("The ways the map groups a model's modules", () => {
       ["Feed", "Output", "Output: An export takes it."],
       ["Notes", "No line items", "No line items: Its line items are all headings, so nothing tells its role."],
     ]);
-    expect([role?.source, role?.rest]).toEqual(["from the data flow", "No line items"]);
+    expect([role?.source, role?.rest]).toEqual(["DISCO role", "No line items"]);
   });
 
   it("gives a module that its own line items filter on pages the role it has without those filters", () => {
@@ -272,7 +272,7 @@ describe("The ways the map groups a model's modules", () => {
     for (const [index, name] of ["INP01 Volumes", "INP02 Prices", "INP03 Rates"].entries()) make.module(name, `${index}`, { functionalArea: "Sales", dimensions: [products] });
     const graph: ModelGraph = { ...make.graph(), moduleFacts: { functionalAreas: true, moduleUsage: true } };
     expect(groupingsOf(indexModel(graph)).map(grouping => [grouping.kind, grouping.label])).toEqual([["functionalArea", "Functional area"], ["headings", "Headings"],
-      ["prefix", "Name prefix"], ["role", "Role in the data flow"], ["app", "App"], ["dimension", "Main dimension"]]);
+      ["prefix", "Name prefix"], ["role", "DISCO"], ["app", "App"], ["dimension", "Main dimension"]]);
     expect(groupingsOf(indexModel(new GraphMaker().graph()))).toEqual([]);
   });
 });

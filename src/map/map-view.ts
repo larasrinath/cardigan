@@ -1027,7 +1027,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
       renderPath(); renderControls();
       if (!results.hidden) runSearch();
     } else setView("modules");
-    if (onScreen) announce(`Modules grouped by ${grouping.label.toLowerCase()}. ${viewSentence(onScreen, options.modelName, linksDrawn())}`);
+    if (onScreen) announce(`Modules grouped by ${grouping.kind === "role" ? grouping.label : grouping.label.toLowerCase()}. ${viewSentence(onScreen, options.modelName, linksDrawn())}`);
   }
 
   /* ---------- the links shown, and full screen ---------- */
