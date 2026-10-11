@@ -537,6 +537,8 @@ describe("The results page's script, on the page", () => {
     await eventually(() => page.has("#runIcon svg") && page.find("#runIcon svg").getAttribute("data-run-icon") === icon, "the run card's icon");
     expect(page.find("#runIcon svg").getAttribute("data-run-icon")).toBe(icon);
     expect(page.find("#runIcon svg").getAttribute("aria-hidden")).toBe("true");
+    expect(page.id("runStatus").classList.contains("sr-only")).toBe(false);
+    expect(page.id("runStatus").hidden).toBe(false);
     expect(page.find(".run-state").children.map(child => child.id)).toEqual(["runCard", "runLog"]);
     expect(page.all(".run-actions button").filter(button => !button.hidden).map(button => button.textContent.trim()))
       .toEqual([action, "Copy diagnostic log"]);
@@ -545,6 +547,27 @@ describe("The results page's script, on the page", () => {
     await settle();
     expect(copied.at(-1)).toBe(page.id("diagLog").textContent);
     expect(page.id("runLog").hasAttribute("open")).toBe(false);
+  });
+
+  it.each([false, true])("keeps the real step in the live region and tooltip with reduced motion %s", async reduced => {
+    const matchMedia = window.matchMedia;
+    vi.spyOn(window, "matchMedia").mockImplementation(query => query.includes("reduced-motion")
+      ? { matches: reduced, addEventListener: vi.fn() } as unknown as MediaQueryList : matchMedia(query));
+    await open(clicked(42));
+    const status = page.id("runStatus");
+    const wordRow = page.find(".run-word-row");
+    expect(status.classList.contains("sr-only")).toBe(true);
+    expect(wordRow.title).toBe(status.textContent);
+    ports[0].send({ type: "subject", subject: { kind: "model", id: MODEL.id } });
+    for (const step of ["Reading Line Items…", "Reading page 2 of 40: Demand board…", "Reading page 3 of 40: Supply board…"]) {
+      ports[0].send({ type: "status", text: step });
+      expect(page.id("runStatus")).toBe(status);
+      expect([status.textContent, wordRow.title]).toEqual([step, step]);
+      expect(status.classList.contains("sr-only")).toBe(true);
+      expect([status.getAttribute("role"), status.getAttribute("aria-live"), status.getAttribute("aria-hidden"), status.hidden])
+        .toEqual(["status", "polite", null, false]);
+      expect(page.find(".run-word").getAttribute("aria-hidden")).toBe("true");
+    }
   });
 
   it("rotates only the silent phrase, switches pools immediately, and preserves the real live status", async () => {
@@ -639,6 +662,8 @@ describe("The results page's script, on the page", () => {
     const word = page.find(".run-word");
     expect(word.textContent).toBe("");
     expect(page.id("runCard").classList.contains("reading")).toBe(false);
+    expect(page.id("runStatus").classList.contains("sr-only")).toBe(false);
+    expect(page.id("runStatus").hidden).toBe(false);
     vi.advanceTimersByTime(500);
     expect(timer.textContent).toBe("");
     page.id("runRetry").press();
@@ -665,12 +690,19 @@ describe("The results page's script, on the page", () => {
     expect(timer.textContent).toBe("1.2s");
     expect(word.textContent).toBe("");
     if (ending === "done") expect(page.has(".run-word")).toBe(false);
-    else expect(page.id("runCard").classList.contains("reading")).toBe(false);
+    else {
+      expect(page.id("runCard").classList.contains("reading")).toBe(false);
+      expect(page.id("runStatus").classList.contains("sr-only")).toBe(false);
+      expect(page.id("runStatus").hidden).toBe(false);
+      expect(page.id("runStatus").textContent).not.toBe("");
+      expect(page.id("runStatus").getAttribute("aria-hidden")).toBe(null);
+    }
     expect(page.id("runAgain").classList.contains("reading")).toBe(false);
     expect(page.id("live").getAttribute("role")).toBe("status");
     if (ending !== "failed") return;
     page.id("runRetry").press();
     expect(timer.textContent).toBe("0.0s");
+    expect(page.id("runStatus").classList.contains("sr-only")).toBe(true);
     vi.advanceTimersByTime(100);
     expect(timer.textContent).toBe("0.1s");
   });
@@ -4329,6 +4361,8 @@ describe("The navigation bar of the results page", () => {
     expect(page.key("ArrowDown").defaultPrevented).toBe(true);
     expect(openMenus()).toEqual([id]);
     const entries = page.all(`#${id} .nav-item`);
+    expect(page.texts(`#${id} .nav-heading`)).toEqual(id === "navGroupDimensions" ? ["Time", "Versions", "Lists"]
+      : id === "navMenu" ? ["Dimensions", "Time", "Versions", "Lists", "Modules", "Actions", "App Usage"] : []);
     expect(page.document.activeElement).toBe(entries[0]);
     for (const entry of [...entries.slice(1), entries[0]]) {
       page.key("ArrowDown");
@@ -4520,7 +4554,8 @@ describe("The navigation bar of the results page", () => {
       "Actions: Processes, Imports, Data Sources, Exports, Other Actions", "Source Models", "Model map"]]);
     // A group's name heads its entries, a heading that a screen reader is told as the name of the group.
     expect(page.all("#navMenu .nav-section").map(section => [section.getAttribute("role"), section.querySelector(".nav-heading")?.textContent, section.querySelector(".nav-heading")?.getAttribute("aria-hidden")]))
-      .toEqual([["group", "Dimensions", "true"], ["group", "Time", "true"], ["group", "Modules", "true"], ["group", "Actions", "true"]]);
+      .toEqual([["group", "Dimensions", "true"], ["group", "Time", "true"], ["group", "Versions", "true"], ["group", "Lists", "true"],
+        ["group", "Modules", "true"], ["group", "Actions", "true"]]);
     // Choosing from it shows that view; the menu is drawn again, closed, and its button names the new view.
     page.find('#navMenu [data-nav="11"]').press();
     expect([page.texts("#view h1"), button().textContent.trim(), page.id("navMenu").hidden]).toEqual([["Versions"], "Versions", true]);

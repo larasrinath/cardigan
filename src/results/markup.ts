@@ -270,7 +270,8 @@ export const NAV_GROUPS: readonly { id: string; label: string; icon: string; fil
   subgroups?: readonly { label: string; files: readonly string[] }[] }[] = [
   { id: "navGroupDimensions", label: "Dimensions", icon: NAV_ICONS.dimensions,
     files: [MODEL_CALENDAR_FILE, "Time Ranges.csv", "Versions.csv", "General Lists.csv", "Line Item Subsets.csv"],
-    subgroups: [{ label: "Time", files: [MODEL_CALENDAR_FILE, "Time Ranges.csv"] }, { label: "Lists", files: ["General Lists.csv", "Line Item Subsets.csv"] }] },
+    subgroups: [{ label: "Time", files: [MODEL_CALENDAR_FILE, "Time Ranges.csv"] }, { label: "Versions", files: ["Versions.csv"] },
+      { label: "Lists", files: ["General Lists.csv", "Line Item Subsets.csv"] }] },
   { id: "navGroupModules", label: "Modules", icon: NAV_ICONS.modules, files: [MODULES_FILE, LINE_ITEMS_FILE, ACCESS_FILE] },
   { id: "navGroupActions", label: "Actions", icon: NAV_ICONS.actions, files: ["Processes.csv", "Imports.csv", "Import Data Sources.csv", "Exports.csv", "Other Actions.csv"] },
   { id: "navGroupAppUsage", label: "App Usage", icon: NAV_ICONS.appUsage, files: [MODULE_USAGE_FILE, PAGE_FILTERS_FILE, PAGE_ACTIONS_FILE] },
@@ -323,12 +324,14 @@ const entryHtml = (entry: NavEntry, current: string, inMenu = true): string =>
 const navSectionHtml = (label: string, entries: string): string =>
   `<div class="nav-section" role="group" aria-label="${esc(label)}"><p class="nav-heading" aria-hidden="true">${esc(label)}</p>${entries}</div>`;
 
-/** Both navigation layouts share the same subgroups. A lone table needs no heading. */
+/** Both navigation layouts show subgroup headings when tables from at least two subgroups are present. */
 function navGroupHtml(item: NavGroup, current: string): string {
+  const subgroups = item.group.subgroups?.filter(subgroup => item.entries.some(entry => subgroup.files.includes(entry.file ?? ""))) ?? [];
+  if (subgroups.length < 2) return item.entries.map(entry => entryHtml(entry, current)).join("");
   return item.entries.map(entry => {
-    const subgroup = item.group.subgroups?.find(each => each.files.includes(entry.file ?? ""));
+    const subgroup = subgroups.find(each => each.files.includes(entry.file ?? ""));
     const members = subgroup && item.entries.filter(each => subgroup.files.includes(each.file ?? ""));
-    if (!subgroup || !members || members.length < 2) return entryHtml(entry, current);
+    if (!subgroup || !members) return entryHtml(entry, current);
     return entry === members[0] ? navSectionHtml(subgroup.label, members.map(each => entryHtml(each, current)).join("")) : "";
   }).join("");
 }
