@@ -9,6 +9,7 @@ import { plainResult, textOf } from "../result-plain.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
 import { cellLists, rowItems, type CellList } from "./cell-lists.js";
 import { columnWidths } from "./column-widths.js";
+import { resizeDetails } from "./details-size.js";
 import { cardsNamed, cardsOf, columnIndex, columnsOf, rowKeys, rowNameIndex, writesNone, type CardsTable, type Column, type RowKeys } from "./columns.js";
 import { askShown, describeState, openedJustNow, reloadTab, renewReader, repairTab, ResultsClient, runLabel, tabIdFrom, withoutOpened, type RunState } from "./connection.js";
 import { mappingOfRow } from "./import-mapping-view.js";
@@ -571,6 +572,7 @@ function renderTable(entry: Shown): void {
   const search = find<HTMLInputElement>("#tblSearch");
   if (search) search.selectionStart = search.selectionEnd = search.value.length;
   markPopOwner();
+  markDrawerRow();
   announceTable(view, entry);
   rememberLooks();
 }
@@ -598,6 +600,7 @@ function updateTable(entry: Shown): void {
   find("#searchWrap")?.classList.toggle("has-value", view.search !== "");
   updateFade(wrap);
   markPopOwner();
+  markDrawerRow();
   announceTable(view, entry);
   rememberLooks();
 }
@@ -1075,10 +1078,18 @@ let drawerOrigin: KeptDrawer | undefined;
 /** The opening row may have been redrawn by sorting, filtering or changing time zones. */
 function drawerRowOpener(kept: KeptDrawer | undefined): HTMLElement | undefined {
   const entry = currentEntry();
-  if (!entry || !kept || kept.kind === "object" || kept.file !== entry.table.file) return undefined;
-  const row = findShownRow(entry, kept.key);
+  if (!entry || !kept) return undefined;
+  const row = kept === drawerLooks && drawerRow?.entry === entry ? drawerRow.row : kept.kind === "object" ? currentSlice.find(candidate => {
+    const object = entry.objects && objectOf(entry.objects, candidate);
+    return object && objectKey(object) === kept.key;
+  }) : kept.file === entry.table.file ? findShownRow(entry, kept.key) : undefined;
   const index = row ? currentSlice.indexOf(row) : -1;
   return index < 0 ? undefined : document.querySelectorAll<HTMLElement>('#tableWrap tbody [data-act="row"]')[index];
+}
+/** Mark the row without rewriting the table or changing its scroll position. */
+function markDrawerRow(): void {
+  const selected = drawerLooks ? (drawerRowOpener(drawerLooks) ?? drawerRowOpener(drawerOrigin))?.closest("tr") : undefined;
+  for (const row of document.querySelectorAll("#tableWrap tbody tr")) row.classList.toggle("details-selected", row === selected);
 }
 function visitDrawer(opener: Element, trackHistory: boolean): void {
   if (!trackHistory) return;
@@ -1088,7 +1099,7 @@ function visitDrawer(opener: Element, trackHistory: boolean): void {
 /** The panel always starts below the whole header, including navigation when it wraps. */
 function placeDrawer(): void {
   const top = find(".top");
-  if (top) el("drawer").style.top = `${top.getBoundingClientRect().bottom}px`;
+  if (top) el("drawer").style.top = `${Math.max(0, top.getBoundingClientRect().bottom)}px`;
 }
 /** Shows the drawer. The title is a text and is set as one; the line under it and the body are markup.ts' markup. What
  * the focus goes back to afterwards is what opened the drawer from the page: a link inside the drawer that opens another
@@ -1115,31 +1126,40 @@ function openDrawer(title: string, subHtml: string, bodyHtml: string, opener?: E
   const drawer = el("drawer");
   drawer.hidden = false;
   placeDrawer();
-  document.body.classList.add("details-open");
+  detailsSize.refresh();
+  markDrawerRow();
   requestAnimationFrame(() => {
-    drawer.classList.add("show");
+    if (drawerLooks) drawer.classList.add("show");
   });
-  el("drawerClose").focus();
+  el("drawerClose").focus({ preventScroll: true });
   el("drawerBody").scrollTop = 0;
   rememberLooks();
 }
-function closeDrawer(): void {
+function closeDrawer(returnFocus = true): void {
   const drawer = el("drawer");
+  detailsSize.stop();
   drawer.classList.remove("show");
-  document.body.classList.remove("details-open");
   clearTimeout(drawerTimer);
   drawerTimer = setTimeout(() => {
     drawer.hidden = true;
   }, 210);
-  if (state.lastFocus instanceof HTMLElement && document.contains(state.lastFocus)) state.lastFocus.focus();
-  else if (drawerLooks) (drawerRowOpener(drawerOrigin) ?? el("view")).focus();
+  if (returnFocus) {
+    if (state.lastFocus instanceof HTMLElement && document.contains(state.lastFocus)) state.lastFocus.focus({ preventScroll: true });
+    else if (drawerLooks) (drawerRowOpener(drawerOrigin) ?? el("view")).focus({ preventScroll: true });
+  }
   state.lastFocus = null;
   drawerOrigin = undefined;
   drawerHistory.length = 0;
+  drawerRow = undefined;
+  drawerObject = undefined;
+  drawerItems = [];
+  drawerSteps = [];
+  drawerOpens = [];
   if (drawerLooks) {
     drawerLooks = undefined;
     rememberLooks();
   }
+  markDrawerRow();
 }
 /** Any row, in full. Its heading is the row's own name: the cell of the column that names the file's rows (the one its
  * rows open from, where the file's rule names one, and else columns.ts `ROW_NAME_COLUMNS`), or, where the page knows no
@@ -1843,7 +1863,7 @@ function mapOpens(node: GraphNode): MapOpen[] {
       rows = select(entry.table.rows, query(entry));
     }
     entry.page = Math.floor(rows.indexOf(row) / state.pageSize);
-    navTo(entry.index);
+    navTo(entry.index, { keepDetails: true });
     openRowDrawer(entry, row, el("view"));
     drawerRowOpener(drawerLooks)?.scrollIntoView({ block: "nearest" });
   } });
@@ -2005,9 +2025,12 @@ function showMarked(view: "map" | number | undefined): void {
 }
 
 /* ================= view switching ================= */
-function navTo(view: View, context?: string): void {
+function navTo(view: View, { context, keepDetails = false }: { context?: string; keepDetails?: boolean } = {}): void {
   if (view === "map" && result?.engine === "polaris" && !hasModelMap(result)) return;
   closePopover();
+  // Navigation leaves the old row behind. Row/map buttons keep it for their explicit handoff.
+  // The new view takes focus below; closing must not return to the old table.
+  if (view !== state.view && !keepDetails) closeDrawer(false);
   // A page's cards end with the view. Each table's search and page stay with it.
   const left = currentEntry();
   if (left && state.context !== undefined) left.page = 0;
@@ -2037,7 +2060,7 @@ function gotoPage(page: string): void {
   if (!entry) return;
   closeDrawer();
   entry.page = 0;
-  navTo(entry.index, page);
+  navTo(entry.index, { context: page });
 }
 
 /* ================= the navigation's menus ================= */
@@ -2115,7 +2138,7 @@ document.addEventListener("click", event => {
         if (!open) return;
         if (open.kind === "module") return void openInModel(open.url, open.what, open.object);
         if (open.kind !== "map") return void openInAppTab(open.url, open.what);
-        navTo("map");
+        navTo("map", { keepDetails: true });
         if (modelMap && modelMap !== "failed" && !modelMap.reveal(open.node)) toast("Not found on the map");
         return;
       }
@@ -2333,7 +2356,11 @@ document.addEventListener("keydown", event => {
 document.addEventListener("focusin", event => {
   if (event.target instanceof Element) closeNavMenus(event.target.closest("#topnav .nav-group"));
 });
-el("drawerClose").addEventListener("click", closeDrawer);
+el("drawerClose").addEventListener("click", () => closeDrawer());
+const detailsSize = resizeDetails(el("drawer"), el("drawerResize"));
+window.addEventListener("resize", placeDrawer);
+// On a short or narrow page the header scrolls away instead of sticking.
+window.addEventListener("scroll", placeDrawer, { passive: true });
 el("drawerBack").addEventListener("click", () => {
   const previous = drawerHistory.pop();
   if (previous) reopenDrawer(previous, el("drawerBack"), false);

@@ -324,7 +324,7 @@ beforeEach(() => {
       mediaAsked.push(query);
       return { get matches() { return systemDark; }, addEventListener: (_type: string, listener: (event: { matches: boolean }) => void) => { systemListeners.push(listener); } };
     },
-    scrollTo: () => undefined, innerWidth: 1280, innerHeight: 800,
+    scrollTo: () => undefined, addEventListener: vi.fn(), innerWidth: 1280, innerHeight: 800,
   });
   vi.stubGlobal("localStorage", {
     getItem: (key: string) => { if (storeRefuses) throw storeRefuses; return stored.get(key) ?? null; },
@@ -348,6 +348,7 @@ beforeEach(() => {
   // The kinds of element the script tells apart.
   vi.stubGlobal("Element", FakeElement);
   vi.stubGlobal("HTMLElement", FakeElement);
+  vi.stubGlobal("getComputedStyle", () => ({ paddingLeft: "0px", paddingRight: "0px" }));
   vi.stubGlobal("HTMLInputElement", FakeInput);
   vi.stubGlobal("HTMLSelectElement", FakeSelect);
   vi.stubGlobal("requestAnimationFrame", (callback: () => void) => { callback(); return 0; });
@@ -1269,11 +1270,15 @@ describe("The results page's script, on the page", () => {
     expect([heading(1, 2), heading(2, 1)]).toEqual([["Line item 3", "Line Items"], ["Cost", "Modules"]]);
   });
 
-  it("keeps the table and header usable beside a labelled region, moves focus in, and returns it to the last selected row", async () => {
+  it("keeps the table and header usable under a labelled region, marks the row, and returns focus without scrolling", async () => {
     await openWith();
     goTo(2);
     const rows = page.all('#tableWrap tbody [data-act="row"]');
+    const wrap = page.id("tableWrap");
+    wrap.scrollLeft = 240;
+    wrap.scrollTop = 100;
     rows[0].press();
+    expect(rows[0].closest("tr")?.classList.contains("details-selected")).toBe(true);
     expect(page.id("drawerBack").hidden).toBe(true);
     expect([page.id("drawer").getAttribute("role"), page.id("drawer").getAttribute("aria-modal"), page.has("#scrim")])
       .toEqual(["region", null, false]);
@@ -1284,15 +1289,33 @@ describe("The results page's script, on the page", () => {
     page.id("themeToggle").press();
     expect(page.id("drawer").classList.contains("show")).toBe(true);
     rows[1].press();
+    expect(rows.map(row => row.closest("tr")?.classList.contains("details-selected"))).toEqual([false, true]);
     expect([page.id("drawerTitle").textContent, page.id("drawerBack").hidden]).toEqual(["=Margin", true]);
     expect(page.document.activeElement).toBe(page.id("drawerClose"));
     page.key("Escape");
     expect(page.document.activeElement).toBe(rows[1]);
     vi.advanceTimersByTime(210);
     expect(page.id("drawer").hidden).toBe(true);
+    expect(page.all(".details-selected")).toHaveLength(0);
     rows[0].press();
     page.id("drawerClose").press();
     expect(page.document.activeElement).toBe(rows[0]);
+    expect([page.id("tableWrap") === wrap, wrap.scrollLeft, wrap.scrollTop]).toEqual([true, 240, 100]);
+    expect([rows[0], rows[1], page.id("drawerClose")].map(node => node.focusedIntoSight)).toEqual([0, 0, 0]);
+  });
+
+  it("highlights the exact open row even when its name cannot identify it uniquely", async () => {
+    await openWith({ ...MODEL, tables: [MODEL.tables[0], {
+      file: "Modules.csv", label: "Modules", headers: ["Name", "Cell Count"], rows: [["Revenue", 10], ["Revenue", 20]],
+    }] });
+    goTo(1);
+    const rows = page.all('#tableWrap tbody [data-act="row"]');
+    rows[1].press();
+    expect(rows.map(row => row.closest("tr")?.classList.contains("details-selected"))).toEqual([false, true]);
+    page.id("tblSearch").type("Revenue");
+    expect(page.find(".details-selected").textContent).toContain("20");
+    page.key("Escape");
+    expect(page.document.activeElement.closest("tr")?.textContent).toContain("20");
   });
 
   it("goes down the page's headings one level at a time, in every view and in the drawer", async () => {
@@ -4898,6 +4921,85 @@ describe("A model's map on the results page", () => {
   });
 });
 
+describe("Navigation closes the details panel", () => {
+  const model: AnalysisResult = { ...BLUEPRINT, tables: [...BLUEPRINT.tables,
+    { file: "General Lists.csv", label: "General Lists", headers: ["Name"], rows: [["Products"]], guard: false },
+    { file: "Line Item Subsets.csv", label: "Line Item Subsets", headers: ["Name"], rows: [["Planning items"]], guard: false },
+  ] };
+  const isOpen = () => page.id("drawer").classList.contains("show");
+
+  it.each([
+    ["navList", "2", "Modules"], ["navList", "overview", "Overview"], ["navList", "map", "Model map"],
+    ["navCompact", "2", "Modules"], ["navCompact", "overview", "Overview"], ["navCompact", "map", "Model map"],
+  ])("closes from General Lists through %s to %s, and keeps it closed on return and refresh", async (navigation, destination, title) => {
+    await openWith(model);
+    await letKeep();
+    goTo(3);
+    const opener = page.find('#tableWrap tbody [data-act="row"]');
+    opener.press();
+    vi.advanceTimersByTime(300);
+    expect(JSON.parse(session.held.get(VIEW_KEY)!).drawer.file).toBe("General Lists.csv");
+
+    const entry = page.find(`#${navigation} [data-nav="${destination}"]`);
+    const menu = entry.closest(".nav-menu");
+    if (menu?.hidden) {
+      page.find(`#${navigation} [aria-controls="${menu.id}"]`).press();
+      expect(isOpen()).toBe(true);
+    }
+    entry.press();
+    expect([page.texts("#view h1"), isOpen(), page.all(".details-selected").length]).toEqual([[title], false, 0]);
+    expect(page.document.activeElement).toBe(page.id("view"));
+    expect(opener.focusedIntoSight).toBe(0);
+
+    // The slide-out timer must not redraw, focus or scroll the new table.
+    const wrap = page.has("#tableWrap") ? page.id("tableWrap") : undefined;
+    if (wrap) { wrap.scrollLeft = 120; wrap.scrollTop = 80; }
+    // Refreshing before the write delay still flushes the cleared row on pagehide.
+    const onHide = vi.mocked(window.addEventListener).mock.calls.filter(([event]) => event === "pagehide").at(-1)![1] as () => void;
+    onHide();
+    expect(JSON.parse(session.held.get(VIEW_KEY) ?? "{}").drawer).toBeUndefined();
+    vi.advanceTimersByTime(210);
+    expect(page.id("drawer").hidden).toBe(true);
+    expect(page.document.activeElement).toBe(page.id("view"));
+    if (wrap) expect([page.id("tableWrap") === wrap, wrap.scrollLeft, wrap.scrollTop]).toEqual([true, 120, 80]);
+
+    const address = `?tab=42${location.hash}`;
+    await open(address);
+    await eventually(() => page.texts("#view h1")[0] === title, "the destination view after refresh");
+    expect(page.id("drawer").hidden).toBe(true);
+    goTo(3);
+    expect([isOpen(), page.all(".details-selected").length]).toEqual([false, 0]);
+    page.find('#tableWrap tbody [data-act="row"]').press();
+    expect([isOpen(), page.id("drawerTitle").textContent, page.id("drawerBack").hidden]).toEqual([true, "Products", true]);
+  });
+
+  it("keeps the row cleared through Run again after an app's tab switch", async () => {
+    await openWith(APP);
+    goTo(2);
+    page.find('#tableWrap tbody [data-act="row"]').press();
+    goTo(1);
+    page.id("runAgain").press();
+    sendResult(ports[0], APP);
+    vi.advanceTimersByTime(300);
+    expect([page.texts("#view h1"), page.id("drawer").hidden]).toEqual([["Pages"], true]);
+    goTo(2);
+    expect([isOpen(), page.all(".details-selected").length]).toEqual([false, 0]);
+  });
+
+  it("does not reopen from a pending animation frame after switching tabs", async () => {
+    await openWith(model);
+    await letKeep();
+    goTo(3);
+    const frames: (() => void)[] = [];
+    vi.stubGlobal("requestAnimationFrame", (callback: () => void) => { frames.push(callback); return frames.length; });
+    page.find('#tableWrap tbody [data-act="row"]').press();
+    goTo(2);
+    frames.forEach(callback => callback());
+    vi.advanceTimersByTime(300);
+    expect([isOpen(), page.id("drawer").hidden, page.all(".details-selected").length]).toEqual([false, true, 0]);
+  });
+});
+
 describe("Row links and Back in the details panel", () => {
   const table = (label: string, headers: string[], rows: Cell[][]): ResultTable => ({ file: `${label}.csv`, label, headers, rows, guard: false });
   const linked: AnalysisResult = { ...MODEL, tables: [MODEL.tables[0],
@@ -4925,6 +5027,7 @@ describe("Row links and Back in the details panel", () => {
       expect(page.texts('#drawerBody [data-act="item"]'), `table ${index}`).toEqual(names);
       item(names[0]).press();
       expect(page.id("drawerTitle").textContent).toBe(names[0]);
+      expect(page.id("drawer").classList.contains("show")).toBe(true);
       expect(page.id("drawerBack").hidden).toBe(false);
       page.id("drawerBack").press();
       expect(page.id("drawerBack").hidden).toBe(true);
@@ -4948,6 +5051,18 @@ describe("Row links and Back in the details panel", () => {
     page.id("tblSearch").type("Total");
     page.key("Escape");
     expect(page.document.activeElement === row(1)).toBe(true);
+  });
+
+  it("clears linked rows and Back when navigation switches tables", async () => {
+    await openWith(linked);
+    goTo(2);
+    row().press();
+    item("Inventory").press();
+    expect(page.id("drawerBack").hidden).toBe(false);
+    goTo(1);
+    expect(page.id("drawer").classList.contains("show")).toBe(false);
+    row().press();
+    expect([page.id("drawerTitle").textContent, page.id("drawerBack").hidden]).toEqual(["Inventory", true]);
   });
 });
 
@@ -6337,6 +6452,7 @@ describe("How a result was looked at, kept through a refresh of the page until t
     expect([page.texts("#view h1"), location.hash, page.id("tblSearch").value, page.id("drawer").classList.contains("show"), page.id("drawerTitle").textContent])
       .toEqual([["Line Items"], "#2", "Line item 2", true, "Line item 2"]);
     expect(page.texts("#drawerBody dd")).toEqual(["Line item 2", "Boolean", "Changed formula", "Revenue"]);
+    expect(page.find(".details-selected").textContent).toContain("Line item 2");
     expect([page.id("runAgain").textContent.trim(), page.id("runAgain").disabled, page.id("runAgain").classList.contains("reading")]).toEqual(["Run again", false, false]);
     expect(page.document.activeElement).toBe(page.id("drawerClose"));
     page.id("drawerClose").press();
@@ -6520,6 +6636,7 @@ describe("How a result was looked at, kept through a refresh of the page until t
     await open(`${refreshed}#1`);
     await back("Model one");
     expect([page.id("drawer").hidden, page.id("drawerTitle").textContent]).toEqual([false, "Line item 103"]);
+    expect(page.find(".details-selected").textContent).toContain("Line item 103");
     // Closed, they stay closed.
     page.id("drawerClose").press();
     letLooksKeep();
