@@ -151,7 +151,7 @@ describe("The results page's files", () => {
     expect(declared(".shell")[0]).toBe("display:flex;padding:12px var(--gutter) 32px;align-items:flex-start");
     expect(declared(".banners")).toEqual(["padding:12px var(--gutter) 0;display:grid;gap:8px"]);
     expect(declared(".hd")[0]).toContain("padding:10px var(--gutter);");
-    expect([declared(".nav-list")[0], declared(".nav-compact")[0]]).toEqual(["display:flex;flex-wrap:wrap;align-items:center;gap:4px 1px;padding:6px var(--gutter)", "display:none;padding:6px var(--gutter)"]);
+    expect([declared(".nav-list")[0], declared(".nav-compact")[0]]).toEqual(["display:flex;flex-wrap:wrap;align-items:center;row-gap:4px;column-gap:max(1px,calc((100% - var(--nav-need,9999px) - 1px) / var(--nav-gaps,1)));padding:6px var(--gutter)", "display:none;padding:6px var(--gutter)"]);
     // The narrow layout gives none of their sides of its own: the gutter narrows with the window by itself.
     const narrow = new Map(mediaRules("(max-width:1120px)").map(([selector, body]) => [selector, body]));
     expect([narrow.get(".hd"), narrow.get(".nav-list"), narrow.get(".nav-compact"), narrow.get(".banners"), narrow.get(".shell")]).toEqual(["gap:10px", undefined, undefined, undefined, "padding-bottom:28px"]);
@@ -241,7 +241,7 @@ describe("The results page's files", () => {
     // One line of items, each as wide as its words and on one line of its own: no item fills the line. An item goes to the
     // next line only where the line has no room, which no line the page knows needs where it is shown (see below).
     // Nothing of the line scrolls: no rule of it holds an overflow or a scroll.
-    expect(declared(".nav-list")[0]).toBe("display:flex;flex-wrap:wrap;align-items:center;gap:4px 1px;padding:6px var(--gutter)");
+    expect(declared(".nav-list")[0]).toBe("display:flex;flex-wrap:wrap;align-items:center;row-gap:4px;column-gap:max(1px,calc((100% - var(--nav-need,9999px) - 1px) / var(--nav-gaps,1)));padding:6px var(--gutter)");
     const item = declared(".nav-item,.nav-group-btn")[0];
     expect([item.includes("flex:none;"), item.includes("white-space:nowrap;"), /width|margin/.test(item)]).toEqual([true, true, false]);
     expect([".nav-list", ".nav-item", ".nav-group-btn", ".topnav"].flatMap(name => rules(name)).filter(([, body]) => /overflow|scroll/.test(body))).toEqual([]);
@@ -269,6 +269,19 @@ describe("The results page's files", () => {
     const written = parseMarkup(navHtml(navItems(entries, true), "2") + navMenuHtml(navItems(entries, true), "2", "Line Items"));
     expect([".nav-item", ".nav-group", ".nav-group-btn", ".nav-chevron", ".nav-menu", ".nav-section", ".nav-heading", '.nav-item[aria-current="page"]', '.nav-group-btn[aria-current="true"]', ".cnt"]
       .map(selector => written.querySelectorAll(selector).length)).toEqual([6, 2, 2, 2, 2, 1, 1, 2, 1, 0]);
+  });
+
+  it("spreads the navigation's items over the line's width where they fit on it, by gaps worked out from what the page tells the line, and packs them where they do not", () => {
+    // The gap between items is the line's width beyond its items, shared out between them (less 1px, so that rounding
+    // never takes the last item to a next line), and never less than 1px: where the items do not fit, they wrap, packed
+    // at the line's start. Until the page has told the line its items' widths in all, the gaps are 1px.
+    const list = declared(".nav-list")[0];
+    expect(list.split(";").filter(part => /gap/.test(part))).toEqual(["row-gap:4px", "column-gap:max(1px,calc((100% - var(--nav-need,9999px) - 1px) / var(--nav-gaps,1)))"]);
+    // The items keep their own widths: no rule of the line's items lets one grow or shrink, so the space between them is
+    // all the line's.
+    const items = [...rules(".nav-item"), ...rules(".nav-group-btn"), ...rules(".nav-group")].filter(([selector]) => !selector.includes(".nav-menu") && !selector.includes(".nav-compact"));
+    expect(items.filter(([, body]) => /flex(-grow|-basis)?:(?!none)|flex-grow|justify-content/.test(body))).toEqual([]);
+    expect(declared(".nav-item,.nav-group-btn")[0]).toContain("flex:none");
   });
 
   it("keeps each item of the navigation one width whatever it shows and however it is marked, so that no item after it moves", () => {
