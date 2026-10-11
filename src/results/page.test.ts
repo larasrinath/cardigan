@@ -341,6 +341,25 @@ describe("The results page's files", () => {
     expect(declared(".ctx")[0]).toContain("overflow-wrap:anywhere;");
   });
 
+  it("lays a table's head out as one row, its name then its toolbar, which gives way in turn: the name first, then the count and the pager as one group, which parts only under 560px", () => {
+    const stripped = css.replace(/\/\*[\s\S]*?\*\//g, "");
+    const body = (selector: string) => rules(selector).filter(([found]) => found === selector).map(([, declared]) => declared);
+    // The head wraps: the toolbar, as wide as all it holds on one line, takes a line of its own where the name leaves it too little.
+    const [head] = body(".view-head");
+    const [toolbar] = body(".toolbar");
+    expect([head.includes("display:flex"), head.includes("flex-wrap:wrap"), toolbar.includes("flex-wrap:wrap"), toolbar.includes("flex:1 1 auto")]).toEqual([true, true, true, true]);
+    expect(body(".view-head .view-title")[0]).toContain("margin:0");
+    // The count and the pager stand together at the toolbar's right end and never part, but in a window under 560px.
+    const ends = body(".tb-end");
+    expect([ends.length, ends[0].includes("flex:none"), ends[0].includes("margin-left:auto"), ends[0].includes("flex-wrap")]).toEqual([2, true, true, false]);
+    expect(stripped).toMatch(/@media \(max-width:560px\)\{\s*\.tb-end\{flex-wrap:wrap;/);
+    const [pager] = body(".pager");
+    expect([pager.includes("flex-wrap"), pager.includes("margin-left:auto"), body(".rowcount")[0].includes("white-space:nowrap")]).toEqual([false, false, true]);
+    // The search box grows and gives way between its bounds; the column chooser is a round button inside it, and no key is drawn.
+    const [box] = body(".search-wrap");
+    expect([box.includes("min-width:220px"), box.includes("max-width:420px"), body(".search-cols").length, stripped.includes("kbd")]).toEqual([true, true, 1, false]);
+  });
+
   it("lays the results table out by the widths the page writes on its columns, and by nothing the rows on screen hold", () => {
     const every = rules("");
     // Only the results table is laid out by its columns' widths, by rules of its box's own: a card's small tables in the

@@ -208,27 +208,43 @@ input,select{font:inherit;color:inherit}
 
 main{flex:1;min-width:0}
 .view-title{font-size:17px;font-weight:650;margin:0 0 12px}
-/* The line under a table's name that says what the table lists and what it leaves out: close under the name, in the secondary text. */
-.view-note{font-size:12px;color:var(--text-2);margin:-6px 0 12px}
+/* A table's head: its name and its toolbar in one row. The toolbar is as wide as everything in it on one line; where the
+   row has no room for that beside the name, the toolbar takes the next line, whole, and the name keeps the first. */
+.view-head{display:flex;align-items:center;flex-wrap:wrap;column-gap:16px;row-gap:8px;margin-bottom:10px}
+.view-head .view-title{margin:0;flex:0 1 auto;min-width:0;overflow-wrap:anywhere}
+/* The line under a table's head that says what the table lists and what it leaves out: close under it, in the secondary text. */
+.view-note{font-size:12px;color:var(--text-2);margin:-4px 0 10px}
 
 /* ---------- toolbar ---------- */
-.toolbar{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap}
+/* What the head's row has beside the name: the switch of ways and a jump's chip where the table has them, the search box,
+   Reset, and at the right end the count with the pager. The toolbar is never narrower than all it holds on one line while
+   its line has room for that (min-width:fit-content): beside a name that leaves it less, it takes the next line rather
+   than wrap within itself. Where even a line of its own is too short, the last group goes under the search box, whole,
+   at the right: the count, the page buttons and the rows per page are never parted. */
+.toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex:1 1 auto;min-width:fit-content}
+/* The search box grows from 260px to 420px with the room its line has, and gives way to 220px before anything moves. Its
+   width says the 260px as well: the toolbar is measured by it when the head decides whether the toolbar fits beside the name. */
 .search-wrap{
   display:flex;align-items:center;gap:7px;background:var(--panel);border:1px solid var(--border-strong);
-  border-radius:999px;padding:0 8px 0 12px;height:32px;min-width:280px;color:var(--text-3);
+  border-radius:999px;padding:0 3px 0 12px;height:32px;flex:1 1 260px;width:260px;min-width:220px;max-width:420px;color:var(--text-3);
 }
 .search-wrap:focus-within{border-color:var(--ring);box-shadow:0 0 0 2px color-mix(in srgb,var(--ring) 30%,transparent)}
 .search-wrap input{border:0;background:none;flex:1;min-width:80px;color:var(--text);font-size:12.5px}
 .search-wrap input:focus-visible{outline:none}
-.search-wrap kbd{
-  font-family:var(--mono);font-size:10.5px;color:var(--text-3);border:1px solid var(--border);
-  border-bottom-width:2px;border-radius:4px;padding:0 5px;background:var(--panel-2);
-}
 .search-clear{display:none;color:var(--text-3);border-radius:999px;padding:2px}
 .search-clear:hover{color:var(--text)}
 .search-wrap.has-value .search-clear{display:inline-flex}
-/* The count takes the room that is left in its line and stands at the right end of it, beside the pager that follows it. */
-.rowcount{flex:1 1 auto;text-align:right;font-size:12px;color:var(--text-2);font-variant-numeric:tabular-nums}
+/* The column chooser at the search box's right end, inside its round end, set off from what is typed by a thin line. */
+.search-cols{
+  position:relative;flex:none;display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;
+  margin-left:4px;border-radius:999px;color:var(--text-2);
+}
+.search-cols::before{content:"";position:absolute;left:-6px;top:6px;bottom:6px;width:1px;background:var(--border)}
+.search-cols:hover{background:var(--panel-2);color:var(--text)}
+.search-cols[aria-expanded="true"]{background:var(--accent-soft);color:var(--accent-ink)}
+/* The count and the pager: one group at the toolbar's right end, which neither wraps within itself nor parts. */
+.tb-end{display:flex;align-items:center;gap:10px;flex:none;margin-left:auto}
+.rowcount{white-space:nowrap;font-size:12px;color:var(--text-2);font-variant-numeric:tabular-nums}
 /* The page a jump keeps, at the head of a table's toolbar: a chip with the page's name and the button that clears it. Its
    name wraps inside the chip, anywhere when it has no place to break at, so the page never scrolls sideways for it. On
    one line the chip is a pill as high as the toolbar's small buttons; on more it keeps the pill's corners, clear of the
@@ -356,13 +372,11 @@ td.num{font-variant-numeric:tabular-nums}
   background:var(--swatch);box-shadow:inset 0 0 0 1px var(--border-strong);
 }
 
-/* pagination: the toolbar's last child, at its right end beside the count. When the toolbar has no room for it there
-   it takes a line of its own, still at the right, and wraps within itself when that line is too short for it. A table
-   with no row to show has an empty pager, which takes no room. */
-.pager{display:flex;align-items:center;gap:10px;margin-left:auto;font-size:12px;color:var(--text-2);flex-wrap:wrap}
+/* pagination: the last of the toolbar's right-hand group, after the count. It keeps to one line: the page buttons and the
+   choice of rows per page stand together. A table with no row to show has an empty pager, which takes no room. */
+.pager{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--text-2)}
 .pager:empty{display:none}
-/* The choice of rows per page ends the pager: where the pager wraps within itself, it stands at the right of its line. */
-.pager .per-page{margin-left:auto}
+.pager .per-page{white-space:nowrap}
 .pg-btn{display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:28px;border-radius:999px;border:1px solid var(--border-strong);background:var(--panel);padding:0 8px}
 .pg-btn:hover:not([disabled]){background:var(--panel-2)}
 .pg-btn[disabled]{opacity:.4;cursor:default}
@@ -605,6 +619,11 @@ main:has(> #mapHost:not([hidden])){align-self:stretch;display:flex;flex-directio
 @media (max-width:1000px){
   .nav-list{display:none}
   .nav-compact{display:flex}
+}
+/* Under 560px a toolbar's line is too short for the count and the pager together: there, and only there, the pager goes
+   under the count, still at the right, so the page never scrolls sideways. */
+@media (max-width:560px){
+  .tb-end{flex-wrap:wrap;justify-content:flex-end}
 }
 /* Under 530px the drawer cannot hold a card's table of seven columns however its words break. A cell keeps its words
    whole there, up to the 160px it asks for at most (a longer word breaks), and the table scrolls inside its section. */
