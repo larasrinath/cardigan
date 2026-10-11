@@ -286,7 +286,7 @@ function inspectModule(model: MapModel, graph: ViewGraph, node: ViewNode, raw: G
   row(rows, "Time Range", raw.timeRange);
   row(rows, "Versions", raw.versions);
   const lists: InspectList[] = [];
-  if (node.kind === "externalModule") {
+  if (node.kind === "externalModule" && node.members?.length) {
     const members = (node.members ?? []).map(id => model.node(id)).filter((member): member is GraphNode => member !== undefined);
     lists.push({ key: "referenced", title: `Its line items linked here · ${formatCount(members.length)}`, open: true, links: members.map(member => objectLink(model, member)) });
   }

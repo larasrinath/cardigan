@@ -156,6 +156,26 @@ export function accessMarkedModel() {
   return { graph: { ...make.graph(), pageFilterTable: true, accessDriversRead: true }, home, checks, plan, read, write, both, local, second, units, price };
 }
 
+/** One outside module reached through its line item and as a whole module. The two used to become twin boxes.
+ * The second filter card has no line-item selection, as in results read before 0.21.0. Names and data are invented. */
+export function twinBoxesModel() {
+  const make = new GraphMaker();
+  const home = make.module("ACC01 Access", "Access");
+  const plan = make.module("PLN01 Forecast", "Planning");
+  const read = make.item(home, "Can read", { format: "BOOLEAN", formula: "'PLN01 Forecast'.Forecast > 0" });
+  const write = make.item(home, "Can write", { format: "BOOLEAN" });
+  const both = make.item(home, "Open and visible", { format: "BOOLEAN" });
+  const forecast = make.item(plan, "Forecast", { formula: "IF 'ACC01 Access'.Can write THEN 1 ELSE 0" });
+  make.nodes[both].pageFilters = [
+    { app: "Invented planning", page: "Forecast review", card: "1", modules: [plan], lineItems: [forecast] },
+    { app: "Invented planning", page: "Forecast review", card: "2", modules: [plan] },
+  ];
+  make.link(forecast, read).link(write, forecast)
+    .link(read, forecast, "read_access").link(write, forecast, "write_access").link(both, plan, "read_access")
+    .link(both, forecast, "page_filter").link(both, plan, "page_filter");
+  return { make, graph: { ...make.graph(), pageFilterTable: true, accessDriversRead: true }, home, plan, read, write, both, forecast };
+}
+
 /** A model whose filters on the pages built on it are, as in a live model, on the modules of their own line items, which
  * no link can show: MDM380 - Customer Entity # is filtered by its own Incomplete Records and Missing DisplayName, and
  * MDM381 - Resources # by its own Incomplete Records, both modules in 01: Master Data; REP01 - Report, in 02: Reporting,

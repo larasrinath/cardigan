@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { LAYER, moduleGraph, modulesGraph, sectionLayer, sectionsGraph, type ViewGraph } from "./map-graphs.js";
 import { indexModel } from "./map-model.js";
-import { filteredModel, GraphMaker, lineFilteredModel, ownFilteredModel } from "./map-fakes.test-support.js";
+import { filteredModel, GraphMaker, lineFilteredModel, ownFilteredModel, twinBoxesModel } from "./map-fakes.test-support.js";
 
 /** Three sections. Inputs feed Calculations, Calculations feed Reporting and read each other, and a flag of the inputs
  * drives who may write a calculation. */
@@ -32,6 +32,54 @@ function sample() {
 
 const links = (graph: ViewGraph): string[] => graph.edges.map(edge => `${graph.nodes[edge.s].id}>${graph.nodes[edge.t].id}:${edge.w}`).sort();
 const ids = (graph: ViewGraph): string[] => graph.nodes.map(node => node.id);
+
+describe("One outside module in several roles", () => {
+  it.each([[true, false], [false, true], [true, true]])("shares a box across formulas, access %s and filters %s", (access, filters) => {
+    const data = twinBoxesModel();
+    const model = indexModel(data.graph);
+    const graph = moduleGraph(model, data.home, false, access, filters);
+    const outside = graph.nodes.filter(node => node.raw?.id === data.plan);
+    expect(outside).toHaveLength(1);
+    expect(outside[0]).toMatchObject({ id: `external${data.plan}`, kind: "externalModule", code: "PLN01", label: "Forecast",
+      meta: "1 line item linked", members: [data.forecast], side: "both" });
+    const expected = data.graph.edges.filter(edge => edge[2] === "reference" || (edge[2] === "page_filter" ? filters : access));
+    expect(graph.edges.flatMap(edge => edge.refs ?? []).sort()).toEqual([...expected].sort());
+    expect(graph.edges.reduce((sum, edge) => sum + (edge.formulas ?? 0), 0)).toBe(2);
+    expect(graph.edges.filter(edge => edge.filter).flatMap(edge => edge.refs ?? []).every(edge => edge[2] === "page_filter")).toBe(true);
+    // The same identities at the other levels, even when filters and module access share formula endpoints.
+    const modules = modulesGraph(model, "Access", access, filters);
+    expect(modules.nodes.map(node => node.raw?.id)).toEqual([data.home, data.plan]);
+    expect(modules.nodes.filter(node => node.external)).toHaveLength(1);
+    expect(sectionsGraph(model, access, filters).nodes.map(node => node.fullName)).toEqual(["Access", "Planning"]);
+  });
+
+  it("counts each linked line item once across all three kinds, without counting the module as a line item", () => {
+    const data = twinBoxesModel();
+    const adjustment = data.make.item(data.plan, "Adjustment");
+    data.make.link(data.both, adjustment, "page_filter").link(data.read, adjustment, "read_access");
+    const graph = moduleGraph(indexModel(data.make.graph()), data.home, false, true, true);
+    const outside = graph.nodes.filter(node => node.raw?.id === data.plan);
+    expect(outside).toHaveLength(1);
+    expect(outside[0].meta).toBe("2 line items linked");
+    expect(outside[0].members?.slice().sort()).toEqual([data.forecast, adjustment].sort());
+  });
+
+  it("labels a module and its same-named line item distinctly when outside line items are expanded", () => {
+    const data = twinBoxesModel();
+    const graph = moduleGraph(indexModel(data.graph), data.home, true, true, true);
+    expect(graph.byId.get(String(data.plan))).toMatchObject({ code: "PLN01", label: "Forecast", meta: "Module · 1 line item" });
+    expect(graph.byId.get(String(data.forecast))).toMatchObject({ code: "PLN01", label: "Forecast", meta: "Line item" });
+  });
+
+  it.each(["read_access", "page_filter"] as const)("keeps the same identity for a whole-module %s link alone", kind => {
+    const data = twinBoxesModel();
+    const model = indexModel({ ...data.graph, edges: [[data.both, data.plan, kind]] });
+    const graph = moduleGraph(model, data.home, false, true, true);
+    expect(graph.nodes.filter(node => node.external)).toHaveLength(1);
+    expect(graph.byId.get(`external${data.plan}`)).toMatchObject({ members: [], meta: "Module · 1 line item" });
+    expect(graph.edges[0].refs).toEqual([[data.both, data.plan, kind]]);
+  });
+});
 
 describe("The graph of a model's sections", () => {
   it("has a node for each section, in the model's order, that says how much the section holds", () => {
@@ -247,7 +295,7 @@ describe("The links of the pages' filters in the graphs", () => {
     // Among the line items of the filter's module, each module it filters stands beside them as the module itself.
     const own = moduleGraph(model, flt, false, false, true);
     expect(own.edges.filter(edge => edge.filter).map(edge => [own.nodes[edge.s].fullName, own.nodes[edge.t].kind, own.nodes[edge.t].raw?.id, own.nodes[edge.t].external, edge.refs]))
-      .toEqual([["Show?", "module", rev, true, [[show, rev, "page_filter"]]], ["Show?", "module", mar, true, [[show, mar, "page_filter"]]]]);
+      .toEqual([["Show?", "externalModule", rev, true, [[show, rev, "page_filter"]]], ["Show?", "externalModule", mar, true, [[show, mar, "page_filter"]]]]);
     expect(moduleGraph(model, flt, false, false).edges.some(edge => edge.filter)).toBe(false);
   });
 

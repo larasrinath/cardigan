@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { moduleGraph, modulesGraph, sectionsGraph, type ViewGraph } from "./map-graphs.js";
 import { indexModel } from "./map-model.js";
 import { inTrace, traceNode } from "./map-trace.js";
-import { filteredModel, GraphMaker } from "./map-fakes.test-support.js";
+import { filteredModel, GraphMaker, twinBoxesModel } from "./map-fakes.test-support.js";
 
 const names = (graph: ViewGraph, places: ReadonlySet<number>): string[] => [...places].map(place => graph.nodes[place].fullName).sort();
 const place = (graph: ViewGraph, name: string): number => graph.nodes.findIndex(node => node.fullName === name);
@@ -82,6 +82,22 @@ describe("The trace of a module or a section", () => {
 });
 
 describe("The trace of a line item in its module's graph", () => {
+  it.each([[true, false], [false, true], [true, true]])("traces the merged module and its line items with access %s and filters %s", (access, filters) => {
+    const data = twinBoxesModel();
+    const model = indexModel(data.graph);
+    const graph = moduleGraph(model, data.home, false, access, filters);
+    const outside = graph.byId.get(`external${data.plan}`)!;
+    const toModule = traceNode(graph, model, place(graph, "Open and visible"), access, filters, false);
+    expect([...toModule.down]).toEqual([outside.index]);
+    expect([...toModule.edges].filter(Boolean)).toHaveLength(Number(access) + Number(filters));
+    const fromModule = traceNode(graph, model, outside.index, access, filters, false);
+    expect(names(graph, fromModule.up)).toEqual(access ? ["Can read", "Can write", "Open and visible"] : ["Open and visible"]);
+    expect(fromModule.down.size).toBe(0);
+    // Switching every kind off leaves neither an item link nor a whole-module link in the trace.
+    const off = traceNode(graph, model, outside.index, false, false, false);
+    expect([off.up.size, off.down.size, [...off.edges].some(Boolean)]).toEqual([0, 0, false]);
+  });
+
   /** A module in the middle. Outside it, one module holds two line items that have nothing to do with each other: one
    * feeds the middle's First, the other its Second. Further out, a module feeds the first of those, and the middle's
    * Last feeds a module that feeds another. */
@@ -214,9 +230,9 @@ describe("The trace of the pages' filters", () => {
     const drawn = modulesGraph(model, undefined, false, true);
     expect(names(plain, traceNode(plain, model, at(plain, "FLT01 - Filters"), false).down)).toEqual(["REV01 - Revenue"]);
     expect(names(drawn, traceNode(drawn, model, at(drawn, "FLT01 - Filters"), false, true).down)).toEqual(["MAR01 - Margin", "REV01 - Revenue"]);
-    // Among the filter's module's line items: the box of Revenue's module for its formula, and each module it filters.
+    // Revenue's formula and its whole-module filter share one box.
     const own = moduleGraph(model, flt, false, false, true);
-    expect(names(own, traceNode(own, model, at(own, "Show?"), false, true).down)).toEqual(["MAR01 - Margin", "REV01 - Revenue", "REV01 - Revenue"]);
+    expect(names(own, traceNode(own, model, at(own, "Show?"), false, true).down)).toEqual(["MAR01 - Margin", "REV01 - Revenue"]);
     expect(names(own, traceNode(own, model, at(own, "Show?"), false).down)).toEqual(["REV01 - Revenue"]);
   });
 });
