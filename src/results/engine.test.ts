@@ -233,8 +233,8 @@ describe("The results page against the engine in the Anaplan tab", () => {
       .map(row => `${tableLabel({ file: String(row[1]), label: String(row[1]).replace(/\.csv$/, "") })}: ${row[2]}`);
     const onTiles = overview.tiles.map(tile => `${tile.label}: ${tile.count} rows`);
     expect([counts.length, counts.filter(line => !onTiles.includes(line)), overview.tiles.find(tile => tile.label === "Model Calendar")])
-      .toEqual([10, ["Model Calendar: 31 rows"], { label: "Model Calendar", count: 10, value: "Weekly", detail: "FY24",
-        title: "Model Calendar: Weeks: 4-4-5, 4-5-4 or 5-4-4, current fiscal year FY24 (31 Dec 2023 - 28 Dec 2024)" }]);
+      .toEqual([10, ["Model Calendar: 31 rows"], expect.objectContaining({ label: "Model Calendar", count: 10, value: "Weekly", detail: "FY24",
+        title: "Model Calendar: Weeks: 4-4-5, 4-5-4 or 5-4-4, current fiscal year FY24 (31 Dec 2023 - 28 Dec 2024)" })]);
     const leftOut = /^(\d+) settings have no value and are not listed/.exec(calendar ? fileView(result, calendar).note ?? "" : "");
     expect(10 + 5 + Number(leftOut?.[1])).toBe(31);
     // About this export says the workspace and the model, each with its ID, and no more (`ABOUT_SHOWN`). The other rows
@@ -393,7 +393,7 @@ describe("The results page against the engine in the Anaplan tab", () => {
     // The overview has a tile for the file with its number of rows, and says the export's count with the files, once. Its
     // only note is the model's import that the export could not match in the Actions list.
     const overview = overviewOf(result);
-    expect([overview.tiles.find(tile => tile.label === "DCA"), overview.notes, overview.files[0]]).toEqual([{ label: "DCA", count: 12, full: "Dynamic Cell Access (DCA)" },
+    expect([overview.tiles.find(tile => tile.label === "DCA"), overview.notes, overview.files[0]]).toEqual([expect.objectContaining({ label: "DCA", count: 12, full: "Dynamic Cell Access (DCA)" }),
       ["Imports: 1 of the 3 rows could not be matched between the Imports tab and the Actions list, so some of its columns are empty."], ["DCA", COUNTED]]);
   });
 
@@ -423,7 +423,7 @@ describe("The results page against the engine in the Anaplan tab", () => {
     const COUNTED = "4 rows (2 with a driver that could not be matched)";
     const overview = overviewOf(result);
     expect([result.summary[1], overview.files[0], overview.tiles.find(tile => tile.label === "DCA"), fileView(result, file).note]).toEqual([`Dynamic Cell Access: ${COUNTED}`,
-      ["DCA", COUNTED], { label: "DCA", count: 4, full: "Dynamic Cell Access (DCA)" },
+      ["DCA", COUNTED], expect.objectContaining({ label: "DCA", count: 4, full: "Dynamic Cell Access (DCA)" }),
       `2 rows have a driver that could not be matched to a line item: they come last, with the driver as Line Items has it and no Driver Module.`]);
     // The map of the same tables has a link for one of the four rows and an unmatched name for another: on those the
     // file and the map agree. The two rows beyond them are the cells of the line item the map left out, as it says.

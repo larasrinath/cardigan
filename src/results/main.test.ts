@@ -648,8 +648,71 @@ describe("The results page's script, on the page", () => {
     page.id("runRetry").press();
     expect(ports).toHaveLength(2);
   });
-  it("shows a Polaris overview with only populated tables, the usual About rows, and no map even from a kept address", async () => {
-    const { polarisResult, POLARIS_NOTE } = await import("../polaris.js");
+  it.each(["app", "model"] as const)("opens each %s tile across empty tables and restores an empty table for every read", async kind => {
+    for (const read of ["Classic", "full Polaris", "partial Polaris"] as const) {
+      const names = kind === "model" ? ["Exports", "Line Item Subsets", "Versions", "Source Models", "General Lists"]
+        : ["Pages", "Filters", "Cards", "Conditional Formatting", "Action Buttons"];
+      const mixed: AnalysisResult = { kind, id: `invented-${kind}`, name: "Practice plan", zipName: "Practice.zip",
+        ...(read === "partial Polaris" ? { engine: "polaris" as const } : {}),
+        summary: read === "full Polaris" ? ["Polaris model, read in full through Model Building."] : [],
+        tables: names.map((label, index) => ({ file: `${label}.csv`, label, headers: ["Name", "Notes"], guard: true,
+          rows: index % 2 === 0 ? [[`Practice ${label}`, "Invented row"]] : [] })),
+      };
+      // Each read starts with its own page and session; a refresh below reuses that session.
+      session.held.clear();
+      await open(clicked(42));
+      const port = ports.at(-1)!;
+      port.send({ type: "subject", subject: { kind, id: mixed.id } });
+      sendResult(port, mixed);
+      const indexes = kind === "model" ? [2, 4, 0] : [0, 2, 4];
+      expect(page.all("#view .stat").map(tile => tile.dataset.nav), read).toEqual(indexes.map(String));
+      expect(page.all("#navList [data-nav]").filter(entry => /^\d+$/.test(entry.dataset.nav ?? "")).map(entry => Number(entry.dataset.nav)), read)
+        .toEqual(kind === "model" ? [2, 4, 1, 0, 3] : [0, 1, 2, 3, 4]);
+      if (kind === "model") {
+        const subset = page.find('#navList [data-nav="1"]');
+        const menu = subset.closest(".nav-menu")!;
+        expect(page.find(`#navList [aria-controls="${menu.id}"]`).textContent.trim()).toBe("Lists");
+      }
+      for (const index of indexes) {
+        const tile = page.find(`#view .stat[data-nav="${index}"]`);
+        expect(tile.querySelector(".s-lab svg")?.outerHTML).toBe(parseMarkup(FILE_ICONS.get(mixed.tables[index].file)!).querySelector("svg")?.outerHTML);
+        tile.press();
+        expect(page.texts("#view h1"), read).toEqual([names[index]]);
+        expect(page.texts("#tableWrap tbody tr").join(" ")).toContain(`Practice ${names[index]}`);
+        choose("overview");
+      }
+      for (const index of [1, 3]) {
+        goTo(index);
+        expect(page.texts("#view h1")).toEqual([names[index]]);
+        expect(page.texts("#tableWrap thead .th-sort")).toEqual(["Name", "Notes"]);
+        expect(page.texts("#tableWrap .e-title")).toEqual([`${names[index]} has no rows`]);
+      }
+      page.id("tblSearch").type("Kept search");
+      await letKeep();
+      vi.advanceTimersByTime(300);
+      await open("?tab=42#3");
+      await eventually(() => page.document.title === "Cardigan - Practice plan", "the kept empty table");
+      expect([page.texts("#view h1"), page.id("tblSearch").value, page.id("rowCount").textContent], read)
+        .toEqual([[names[3]], "Kept search", "No rows"]);
+      expect(page.texts("#tableWrap thead .th-sort")).toEqual(["Name", "Notes"]);
+    }
+  });
+
+  it.each(["app", "model"] as const)("omits the whole tile grid when every %s table is empty", async kind => {
+    const empty: AnalysisResult = { ...RESULT, kind, tables: [
+      { file: "Versions.csv", label: "Versions", headers: ["Name"], rows: [], guard: true },
+      { file: "Source Models.csv", label: "Source Models", headers: ["Name"], rows: [], guard: true },
+    ] };
+    await openWith(empty);
+    expect(page.has("#view .ov-grid")).toBe(false);
+    expect(page.texts("#view h1")).toEqual(["Overview"]);
+    goTo(1);
+    expect([page.texts("#view h1"), page.texts("#tableWrap thead .th-sort"), page.texts("#tableWrap .e-title")])
+      .toEqual([["Source Models"], ["Name"], ["Source Models has no rows"]]);
+  });
+
+  it("shows only populated Polaris tiles, keeps empty tables in navigation and blocks a map even from a kept address", async () => {
+    const { describePolarisRead, hasModelMap, polarisResult, POLARIS_NOTE } = await import("../polaris.js");
     const { emptyCatalog, addModuleViews, addLists } = await import("../catalog.js");
     const catalog = emptyCatalog();
     addModuleViews(catalog, { data: [{ id: "102000000001", name: "Practice demand" }] });
@@ -657,14 +720,25 @@ describe("The results page's script, on the page", () => {
     const partial = polarisResult({ customerId: "A".repeat(32), workspaceId: "B".repeat(32), modelId: "C".repeat(32) },
       { engine: "polaris", modelName: "Practice plan", workspaceName: "Practice workspace" }, catalog);
     partial.tables[0].rows.push(["Model", "Apps", "Practice app"]);
-    partial.tables.push({ file: "Page Filters.csv", label: "Page Filters", headers: [], rows: [], guard: true });
+    partial.tables.push({ file: "Page Filters.csv", label: "Page Filters", headers: ["Page", "Filter on"], rows: [], guard: true });
+    describePolarisRead(partial);
+    expect(partial.summary[0]).toBe("Polaris read: Modules, General Lists.");
+    expect(hasModelMap(partial)).toBe(false);
     await open(clicked(42));
     ports[0].send({ type: "subject", subject: { kind: "model", id: partial.id } });
     sendResult(ports[0], partial);
     expect(page.id("view").textContent).toContain(POLARIS_NOTE);
     expect(page.all('#navList [data-nav="map"]')).toHaveLength(0);
-    expect(page.all("#navList [data-nav]").map(each => each.textContent.trim())).toEqual(["Overview", "General Lists", "Modules"]);
+    expect(page.all("#navList [data-nav]").map(each => each.textContent.trim())).toEqual(["Overview", "General Lists", "Modules", "Page Filters"]);
     expect(page.all("#ovAbout dt").map(each => each.textContent)).toEqual(["Workspace", "Workspace ID", "Model", "Model ID", "Apps"]);
+    expect(page.texts("#view .stat .s-lab")).toEqual(["General Lists", "Modules"]);
+    const unavailableMap = page.document.createElement("button");
+    unavailableMap.dataset.nav = "map";
+    page.document.body.append(unavailableMap);
+    unavailableMap.press();
+    expect(mapAsked).toEqual([]);
+    expect(page.texts("#view h1")).toEqual(["Overview"]);
+    unavailableMap.remove();
     await letKeep();
     await open("?tab=42#map");
     await eventually(() => page.document.title === "Cardigan - Practice plan", "the kept Polaris result");
@@ -1560,9 +1634,8 @@ describe("The results page's script, on the page", () => {
     const file = WITH_CALENDAR.tables[3];
     const only: AnalysisResult = { ...WITH_CALENDAR, tables: [...WITH_CALENDAR.tables.slice(0, 3), { ...file, rows: file.rows.slice(0, 5) }] };
     await openWith(only);
-    // The tile counts the rows the table lists, none, and says nothing of the five the file has. The table keeps its entry
-    // in the navigation.
-    expect(page.all("#view .stat")[0].children.map(child => child.textContent)).toEqual(["Model Calendar", "0", "rows"]);
+    // No calendar rows means no tile; the table keeps its navigation entry.
+    expect(page.texts("#view .stat .s-lab")).not.toContain("Model Calendar");
     expect(entryLabel(page.find('#navList [data-nav="3"]'))).toBe("Model Calendar");
     goTo(3);
     // The line under the name says where the five rows are. In the rows' place the table says that none is the calendar's
