@@ -1,6 +1,7 @@
 import { MODEL_PAGE_FILES, MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, missingIn, type MissingKind } from "../page-files.js";
 import type { AnalysisResult, Cell, ResultTable } from "../result-types.js";
-import { LINE_ITEM_SUBSETS_FILE, MEMBERSHIP_NOT_READ } from "../model/line-item-subsets.js";
+import { LINE_ITEM_SUBSETS_FILE } from "../model/line-item-subsets.js";
+import { lineItemSubsetsView } from "./line-item-subsets-view.js";
 import { calendarTile } from "./calendar-tile.js";
 import { cellLists, type Items } from "./cell-lists.js";
 import { APP_FILES, cardsNamed, columnIndex, COLUMN_CHOICES, type CardsTable } from "./columns.js";
@@ -462,7 +463,7 @@ const missingRule: FileRule = file => {
 export const FILE_RULES: Record<AnalysisResult["kind"], ReadonlyMap<string, FileRule>> = {
   app: new Map(),
   model: new Map([[MODEL_CALENDAR_FILE, calendarView], [LINE_ITEMS_FILE, lineItemsRule], [ACCESS_FILE, accessRule], [PROCESSES_FILE, processesRule], [IMPORTS_FILE, importsRule], [SOURCE_MODELS_FILE, sourceModelsRule],
-    [LINE_ITEM_SUBSETS_FILE, file => ({ table: file, ...(file.headers.includes("Line Items") ? {} : { note: MEMBERSHIP_NOT_READ }) })],
+    [LINE_ITEM_SUBSETS_FILE, lineItemSubsetsView],
     ...MODEL_PAGE_FILES.map((file): [string, FileRule] => [file, missingRule])]),
 };
 

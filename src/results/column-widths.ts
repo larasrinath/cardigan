@@ -1,5 +1,5 @@
-import type { Column } from "./columns.js";
-import { cellText, groupedCount, NONE, type Row } from "./table-engine.js";
+import { countText, type Column } from "./columns.js";
+import { cellText, NONE, type Row } from "./table-engine.js";
 
 /** How wide the results page draws each column of a table. The table is laid out by the widths the page gives its
  * columns (results.css), not by the rows on screen: a browser that sized each column to the rows it shows would give
@@ -91,7 +91,7 @@ function cellNeed(column: Column, text: string, most: number): number {
     case "tag":
       return textWidth(text, most) * TAG_TYPE + TAG_ROOM;
     case "count":
-      return textWidth(groupedCount(text), most);
+      return textWidth(countText(column, text), most);
     case "colours":
       return Math.min(most, textWidth(text, most) + SQUARE_ROOM * (text.split("#").length - 1));
     default:
@@ -111,7 +111,7 @@ export function columnWidths(columns: readonly Column[], rows: readonly Row[]): 
     let widest = 0;
     for (const row of rows) {
       const text = cellText(row[column.index]);
-      if (text.length * WIDEST_CHARACTER + MOST_ROOM <= widest) continue;
+      if ((text.length + (column.unit?.length ?? 0) + (column.unit ? 2 : 0)) * WIDEST_CHARACTER + MOST_ROOM <= widest) continue;
       widest = Math.max(widest, cellNeed(column, text, most));
       if (widest >= most) break;
     }

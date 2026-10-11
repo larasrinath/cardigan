@@ -118,7 +118,7 @@ const RESOLVERS: ReadonlyMap<string, ReadonlyMap<string, Resolver>> = new Map(Ob
   [LINE_ITEMS_FILE]: { "Module Name": rowNamed(MODULES_FILE), "Applies To": dimensionNamed, "Referenced By": objectNamed,
     "Read Access Driver": objectNamed, "Write Access Driver": objectNamed, "Ratio Numerator": objectNamed, "Ratio Denominator": objectNamed, "Format List": rowNamed(LISTS_FILE) },
   [LISTS_FILE]: { "Parent Hierarchy": rowNamed(LISTS_FILE), "Referenced in Applies To": objectNamed, "Referenced as Format": objectNamed, "Referenced in Formula": objectNamed },
-  "Line Item Subsets.csv": { Modules: rowNamed(MODULES_FILE), "Line Items": objectNamed, "Referenced in Applies To": objectNamed, "Referenced By": objectNamed },
+  "Line Item Subsets.csv": { Modules: rowNamed(MODULES_FILE), "Line Item Names": objectNamed, "Referenced in Applies To": objectNamed, "Referenced By": objectNamed },
   [PROCESSES_FILE]: { Actions: actionNamed },
   [IMPORTS_FILE]: { "Used in Processes": rowNamed(PROCESSES_FILE), "Target Object": targetObject },
   "Exports.csv": { "Used in Processes": rowNamed(PROCESSES_FILE) },
