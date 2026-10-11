@@ -212,7 +212,7 @@ export interface ModelMapOptions {
   /** Where the viewer left this model's map, as `onView` last told it: the map opens there, as far as this model still
    * has it, and otherwise as it opens by itself. */
   view?: MapView;
-  /** Called when the view, drawn links, minimap or selection changes: the page keeps it for a refresh. The map keeps nothing itself. */
+  /** Called when the view, drawn links, minimap, legend or selection changes: the page keeps it for a refresh. The map keeps nothing itself. */
   onView?: (view: MapView) => void;
 }
 
@@ -233,8 +233,10 @@ export interface MapView {
   access?: boolean;
   /** Whether the links of page filters are drawn too. */
   filters?: boolean;
-  /** Whether the floating minimap is open. It starts closed in a new tab. */
+  /** Whether the floating minimap is open. Missing means open. */
   minimap?: boolean;
+  /** The user's legend choice. Missing means open where there are layers, except on a very small map. */
+  legend?: boolean;
   /** The selected box by kind, full name and its module or parent, encoded by map-selection.ts. */
   selected?: string;
 }

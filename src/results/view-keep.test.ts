@@ -232,6 +232,25 @@ describe("What the tab keeps of how a result is looked at", () => {
     expect([isMapAtStart({ view: "modules", noFormulas: true }), isMapAtStart({ view: "modules" })]).toEqual([false, true]);
   });
 
+  it.each([true, false])("keeps both map panel choices when they are %s, including explicit legend choices on small maps", open => {
+    const tab = storage();
+    const map = { view: "modules" as const, minimap: open, legend: open };
+    tab.held.set(VIEW_KEY, keptText({ subject: "model:ABC", tables: {}, map })!);
+    expect(readKept(tab)?.map).toEqual(map);
+    expect(isMapAtStart(map)).toBe(false);
+    expect(isMapAtStart({ view: "modules", minimap: open })).toBe(open);
+    expect(isMapAtStart({ view: "modules", legend: open })).toBe(false);
+  });
+
+  it("leaves missing or invalid map panel choices at their defaults", () => {
+    const tab = storage();
+    for (const fields of [{}, { minimap: "false", legend: "true" }, { minimap: null, legend: 1 }]) {
+      tab.held.set(VIEW_KEY, JSON.stringify({ subject: "model:ABC", tables: {}, map: { view: "modules", ...fields } }));
+      expect(readKept(tab)?.map).toEqual({ view: "modules" });
+      expect(isMapAtStart(readKept(tab)!.map!)).toBe(true);
+    }
+  });
+
   it("knows an object of Where Used by all four of its names, and the map where it opens by itself", () => {
     expect(objectKey({ type: "Module", name: "REP01", module: "-", model: "Model one" })).not.toBe(objectKey({ type: "Module", name: "REP01", module: "-", model: "Model two" }));
     expect([isMapAtStart({ view: "modules" }), isMapAtStart({ view: "modules", all: true }), isMapAtStart({ view: "modules", access: true }), isMapAtStart({ view: "drill", module: "A" })])

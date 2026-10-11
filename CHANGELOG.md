@@ -6,6 +6,14 @@ Every merged change that alters the extension has a version of its own: a new fe
 
 - **Named import targets.** File imports into lists read missing property names from each list's properties grid once, keeping IDs with a diagnostic if unavailable. Refresh the Anaplan tab once after updating.
 
+## 0.34.12 (11 October 2026)
+
+- **Details headers stay in place.** The map's name, kind and opening buttons stay above the scrolling details, as in the tables; selecting another box starts at the top. (#128)
+
+## 0.34.11 (11 October 2026)
+
+- **Map panels open.** The minimap and legend start open, except the legend on very small maps; both keep your choice for the tab, and the first fit leaves room for them. (#127)
+
 ## 0.34.10 (11 October 2026)
 
 - **Less text under Line Items.** The note under the title shows only warnings; the row count stays in the toolbar. (#126)
