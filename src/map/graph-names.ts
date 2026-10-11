@@ -32,6 +32,14 @@ export const nothing = (cell: string): boolean => {
   return text === "" || text === "-";
 };
 
+/** A name written among others, as the export writes one that needs it: in single quotes, with each single quote of its
+ * own doubled, where it holds a comma, a bar or a single quote, has white space at an end, or says nothing on its own (it
+ * is empty, or a dash). Any other name is written as it is. `splitOutside` then never cuts it, and `unquote` gives it
+ * back as it was. */
+export function quoted(name: string): string {
+  return /[,|']/.test(name) || name !== name.trim() || nothing(name) ? `'${name.replaceAll("'", "''")}'` : name;
+}
+
 const OPENS = "([{";
 const CLOSES = ")]}";
 

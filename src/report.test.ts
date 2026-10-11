@@ -299,14 +299,16 @@ describe("Page analyzer report, from a native page to the agreed CSV tables", ()
         "Product: sorted (1 sort key); Product: only North shown; Line Items: 1 item hidden (Show?)", "1 rule (Font colour)", guid(15), "SINGLE", MODULE],
       ["Synthetic KPI board", 6, "Saved view", 1, "-", "Factors", "Default view of the module", "-", "-", "-", "Set by the saved view", "Set in the model (saved view)",
         "Set in the model (saved view)", "Set in the model (saved view)", "-", guid(16), "-", MODULE_2]]);
+    // Which line items each filter narrows: the selector's, any of them; a combined grid's sections, each after its module
+    // where they show different line items; and all but the one a grid hides.
     expect(result.Filters.rows).toEqual([
-      ["Synthetic demand board", 2, "1", "Demand", "Rows", "Product", "1", "All", "Territory demand", "Factors", "is not equal to", "0", "Territory = current", guid(2),
-        LI(9)],
-      ["Synthetic demand board", 4, "1, 2 (shared rows)", "Demand; Factors", "Rows", "Product", "1", "All", "Show?", "Demand", "is equal to", "true", "-", guid(4),
-        LI(1)],
-      ["Synthetic KPI board", 5, "1", "Demand", "Columns", "Time", "1", "Any", "Volume", "Demand", "is greater than", "1500.5", "-", guid(15), LI(2)],
-      ["Synthetic KPI board", 5, "1", "Demand", "Columns", "Time", "1.1", "All", "Show?", "Demand", "is equal to", "true", "-", guid(15), LI(1)],
-      ["Synthetic KPI board", 5, "1", "Demand", "Columns", "Time", "1.1", "All", "Volume", "Demand", "is blank", "-", "-", guid(15), LI(2)]]);
+      ["Synthetic demand board", 2, "1", "Demand", "Rows", "Product", "Chosen by the Line Items selector", "1", "All", "Territory demand", "Factors", "is not equal to", "0",
+        "Territory = current", guid(2), LI(9)],
+      ["Synthetic demand board", 4, "1, 2 (shared rows)", "Demand; Factors", "Rows", "Product", "'Demand': Chosen by the Line Items selector | 'Factors': All line items", "1",
+        "All", "Show?", "Demand", "is equal to", "true", "-", guid(4), LI(1)],
+      ["Synthetic KPI board", 5, "1", "Demand", "Columns", "Time", "All except Show?", "1", "Any", "Volume", "Demand", "is greater than", "1500.5", "-", guid(15), LI(2)],
+      ["Synthetic KPI board", 5, "1", "Demand", "Columns", "Time", "All except Show?", "1.1", "All", "Show?", "Demand", "is equal to", "true", "-", guid(15), LI(1)],
+      ["Synthetic KPI board", 5, "1", "Demand", "Columns", "Time", "All except Show?", "1.1", "All", "Volume", "Demand", "is blank", "-", "-", guid(15), LI(2)]]);
     expect(result.Formatting.rows).toEqual([
       ["Synthetic demand board", 2, "1", "Demand", "Border", "Volume", "Volume", "#FFFFFF at 0; #627786 at 100,000", guid(2), LI(2)],
       ["Synthetic demand board", 4, "2", "Factors", "Background", "Factor", "Factor", "#FFFFFF at 0; #627786 at 100,000", guid(4), LI(8)],

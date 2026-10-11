@@ -46,12 +46,14 @@ export const NO_APPS = "No app's pages use this model";
 
 /** Page Filters and Page Actions hold an app's Filters and Action Buttons rows, with their app and where their page is
  * (`PAGE_PLACE_HEADERS`), in an order of their own (asked for by the user, 9 Oct 2026). A filter: what filters, the
- * condition line item and its module, then what is filtered, the module and the dimension, then the condition, then
- * where it is, by app, page, card and section, and last the columns that start hidden. A button: the model's action it
- * runs, by name and type, then where it is, by app, page, card and its label, then how it behaves, and last the columns
- * that start hidden. Every column of the app's table is there, and no other but the app and where the page is. */
-export const PAGE_FILTERS_HEADERS: readonly string[] = ["Condition line item's module", "Condition line item", "Filtered module", "Filtered dimension", "Operator", "Value",
-  "Show items that match", "Condition group", "Condition context", "Filter on", "App", "Page", "Card #", "Section #", ...PAGE_PLACE_HEADERS, "Card ID", "Line item ID"];
+ * condition line item and its module, then what is filtered, the module, the dimension and the line items the grid shows
+ * (filtered-line-items.ts), then the condition, then where it is, by app, page, card and section, and last the columns
+ * that start hidden. A button: the model's action it runs, by name and type, then where it is, by app, page, card and its
+ * label, then how it behaves, and last the columns that start hidden. Every column of the app's table is there, and no
+ * other but the app and where the page is. */
+export const PAGE_FILTERS_HEADERS: readonly string[] = ["Condition line item's module", "Condition line item", "Filtered module", "Filtered dimension", "Filtered line items",
+  "Operator", "Value", "Show items that match", "Condition group", "Condition context", "Filter on", "App", "Page", "Card #", "Section #", ...PAGE_PLACE_HEADERS, "Card ID",
+  "Line item ID"];
 export const PAGE_ACTIONS_HEADERS: readonly string[] = ["Model action name", "Action type", "App", "Page", "Card #", "Button label", "Runs automatically", "Cancel button",
   "Name source", ...PAGE_PLACE_HEADERS, "Card ID", "Action ID"];
 
@@ -67,7 +69,9 @@ const HOW_TO_READ: readonly [detail: string, value: string][] = [
     + "still points at that the model no longer has, or that you cannot see. Only published pages are read, and only those you can open."],
   ["Page Filters", "The card filters on the pages built on this model, with the columns of an app's Filters table: those of the cards that work on "
     + "this model, by app, page and card. Each row says first what filters, the condition line item's module and the line item, then what it "
-    + "filters, the module and the dimension, then the condition, and then where the filter is: its app, page, card and section. "
+    + "filters, the module, the dimension and the line items the grid shows, then the condition, and then where the filter is: its app, page, card "
+    + "and section. Filtered line items reads All line items, or Only or All except with the line items' names, a name that holds a comma in "
+    + "single quotes; for sections of different modules that share a filter, each module's in turn. "
     + `The ${FILTER_USES} column of Line Items counts the rows that have each line item as `
     + "their condition. It is empty, not 0, where a page could not be read, or a filter's condition line item could not be named: the line item "
     + "may be the condition of that filter. A condition line item the model doesn't have is none of them."],

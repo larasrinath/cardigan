@@ -360,8 +360,8 @@ describe("The results page's columns", () => {
 
   it("finds a header's place, and the columns that identify a row's page and card", () => {
     const filters = appTable("Filters.csv");
-    expect([columnIndex(filters, "Page"), columnIndex(filters, "Card ID"), columnIndex(filters, "Nothing")]).toEqual([0, 13, undefined]);
-    expect(rowKeys(filters)).toEqual({ page: 0, cardId: 13, number: 1 });
+    expect([columnIndex(filters, "Page"), columnIndex(filters, "Card ID"), columnIndex(filters, "Nothing")]).toEqual([0, 14, undefined]);
+    expect(rowKeys(filters)).toEqual({ page: 0, cardId: 14, number: 1 });
     expect(rowKeys(appTable("Where Used.csv"))).toEqual({ page: 3, cardId: undefined, number: 4 });
     expect(rowKeys(table("Modules.csv", ["", "Functional Area"]))).toEqual({ page: undefined, cardId: undefined, number: undefined });
   });
@@ -372,8 +372,8 @@ describe("The results page's columns", () => {
     // One for each of the app's files, each a column the analysis really writes, and none of them the file's first column,
     // which is the app or the page that the rows of a page share.
     expect(Object.keys(ROW_NAME_COLUMNS)).toEqual(Object.keys(HEADERS));
-    expect((Object.keys(HEADERS) as TabName[]).map(tab => HEADERS[tab].indexOf(ROW_NAME_COLUMNS[tab]))).toEqual([2, 2, 5, 8, 5, 2, 1]);
-    expect(Object.keys(FILES).map(file => rowNameIndex(appTable(file)))).toEqual([2, 2, 5, 8, 5, 2, 1]);
+    expect((Object.keys(HEADERS) as TabName[]).map(tab => HEADERS[tab].indexOf(ROW_NAME_COLUMNS[tab]))).toEqual([2, 2, 5, 9, 5, 2, 1]);
+    expect(Object.keys(FILES).map(file => rowNameIndex(appTable(file)))).toEqual([2, 2, 5, 9, 5, 2, 1]);
     // A table that lacks the column, and a file the page knows no such column of: a model's, whatever its columns are called.
     expect([rowNameIndex(table("Cards.csv", ["Page", "Card #"])), rowNameIndex(table("Line Items.csv", ["", "Page", "Card title"])), rowNameIndex(table("constructor", ["Page"]))])
       .toEqual([undefined, undefined, undefined]);
