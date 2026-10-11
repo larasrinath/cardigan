@@ -22,6 +22,7 @@ import { NONE } from "./table-engine.js";
 import { fixTimeZone } from "./time-zone.test-support.js";
 import { TIMES_KEY } from "./times.js";
 import { WORD_POOLS } from "./spinner-words.js";
+import { SPINNER_WORD_INTERVAL_MS } from "./pixel-loader.js";
 
 /** What stands in for the model map (src/map). The page calls its two functions and drives what the second returns; how
  * a graph is built and a map drawn is not the page's, and is tested with them. Each test is given its own stand-ins. */
@@ -570,6 +571,7 @@ describe("The results page's script, on the page", () => {
   });
 
   it("rotates only the silent phrase, switches pools immediately, and preserves the real live status", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0);
     await open(clicked(42));
     ports[0].send({ type: "subject", subject: { kind: "model", id: MODEL.id } });
     ports[0].send({ type: "status", text: "Reading Line Items…" });
@@ -577,13 +579,14 @@ describe("The results page's script, on the page", () => {
     const first = word.textContent;
     expect(WORD_POOLS.modules).toContain(first);
     expect(word.getAttribute("aria-hidden")).toBe("true");
-    vi.advanceTimersByTime(2999);
+    vi.advanceTimersByTime(SPINNER_WORD_INTERVAL_MS - 1);
     expect(word.textContent).toBe(first);
     vi.advanceTimersByTime(1);
     const second = word.textContent;
     expect(second).not.toBe(first);
-    vi.advanceTimersByTime(3000);
-    expect([first, second]).not.toContain(word.textContent);
+    vi.advanceTimersByTime(SPINNER_WORD_INTERVAL_MS);
+    expect(word.textContent).not.toBe(second);
+    expect(word.textContent).toBe(first);
     expect(page.id("runStatus").textContent).toBe("Reading Line Items…");
     expect(page.id("live").textContent).toBe("");
     ports[0].send({ type: "status", text: "Reading page 2 of 40: Demand board" });
@@ -592,6 +595,7 @@ describe("The results page's script, on the page", () => {
   });
 
   it("uses the browser's reduced motion preference and follows a change to it", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0);
     const media = { matches: true, addEventListener: vi.fn() };
     const matchMedia = window.matchMedia;
     vi.spyOn(window, "matchMedia").mockImplementation(query => query.includes("reduced-motion") ? media as unknown as MediaQueryList : matchMedia(query));
@@ -600,14 +604,14 @@ describe("The results page's script, on the page", () => {
     ports[0].send({ type: "status", text: "Reading Modules…" });
     const word = page.find(".run-word");
     const first = word.textContent;
-    vi.advanceTimersByTime(9000);
+    vi.advanceTimersByTime(20 * SPINNER_WORD_INTERVAL_MS);
     expect(word.textContent).toBe(first);
     ports[0].send({ type: "status", text: "Reading Line Items…" });
     const next = word.textContent;
     expect(next).not.toBe(first);
     media.matches = false;
     media.addEventListener.mock.calls[0][1]();
-    vi.advanceTimersByTime(3000);
+    vi.advanceTimersByTime(SPINNER_WORD_INTERVAL_MS);
     expect(word.textContent).not.toBe(next);
   });
 
@@ -618,10 +622,10 @@ describe("The results page's script, on the page", () => {
     ports[0].send({ type: "status", text: "Building the report…" });
     const word = page.find(".run-word");
     expect(word.textContent).toBe("Connecting the plans…");
-    vi.advanceTimersByTime(9000);
+    vi.advanceTimersByTime(20 * SPINNER_WORD_INTERVAL_MS);
     expect(word.textContent).toBe("Connecting the plans…");
     ports[0].send({ type: "log", text: `14:02:05 Engine: ${engine} (from the Line Items columns)` });
-    vi.advanceTimersByTime(3000);
+    vi.advanceTimersByTime(SPINNER_WORD_INTERVAL_MS);
     expect(word.textContent).toBe(engine === "Classic" ? "Hyperblocking…" : "Polarising…");
   });
 

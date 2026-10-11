@@ -1,84 +1,146 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parseMarkup } from "./dom.test-support.js";
-import { ElapsedTimer, formatElapsed, pixelDelay, pixelGridHtml, SpinnerWords } from "./pixel-loader.js";
+import { ElapsedTimer, formatElapsed, pixelDelay, pixelGridHtml, SPINNER_WORD_INTERVAL_MS, SpinnerWords } from "./pixel-loader.js";
 import { WORD_POOLS } from "./spinner-words.js";
 
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
 describe("Spinner word rotation", () => {
-  it("chooses randomly every three seconds, excludes the last two and switches pools immediately", () => {
+  beforeEach(() => {
     vi.useFakeTimers();
-    const random = vi.spyOn(Math, "random").mockReturnValue(0);
+    vi.spyOn(Math, "random").mockReturnValue(0);
+  });
+
+  it("shows a new word at each 500 ms boundary and keeps its clock within a pool", () => {
+    expect(SPINNER_WORD_INTERVAL_MS).toBe(500);
     const show = vi.fn();
     const words = new SpinnerWords(show);
     words.update("Reading Modules…");
     expect(show).toHaveBeenLastCalledWith("Reading the blueprint…");
-    vi.advanceTimersByTime(2999);
+    vi.advanceTimersByTime(SPINNER_WORD_INTERVAL_MS - 1);
     expect(show).toHaveBeenCalledTimes(1);
     words.update("Reading Line Items…");
     expect(show).toHaveBeenCalledTimes(1);
     vi.advanceTimersByTime(1);
     expect(show).toHaveBeenLastCalledWith("Untangling formulas…");
-    random.mockReturnValue(0.99);
-    vi.advanceTimersByTime(3000);
-    expect(show).toHaveBeenLastCalledWith("Counting cells…");
-    for (let tick = 0; tick < 30; tick++) vi.advanceTimersByTime(3000);
-    const shown = show.mock.calls.map(([word]) => word);
-    shown.forEach((word, index) => expect(shown.slice(Math.max(0, index - 2), index)).not.toContain(word));
-    words.update("Reading Time Ranges…");
-    expect(WORD_POOLS.time).toContain(show.mock.lastCall![0]);
-    const calls = show.mock.calls.length;
-    vi.advanceTimersByTime(2999);
-    expect(show).toHaveBeenCalledTimes(calls);
+    vi.mocked(Math.random).mockReturnValue(0.99);
+    vi.advanceTimersByTime(SPINNER_WORD_INTERVAL_MS - 1);
+    expect(show).toHaveBeenCalledTimes(2);
     vi.advanceTimersByTime(1);
-    expect(show).toHaveBeenCalledTimes(calls + 1);
-    words.stop();
+    expect(show).toHaveBeenLastCalledWith("Counting cells…");
+    expect(show).toHaveBeenCalledTimes(3);
+    expect(vi.getTimerCount()).toBe(1);
+  });
+
+  it("picks randomly from the current pool without repeating the previous word over many ticks", () => {
+    const show = vi.fn();
+    const words = new SpinnerWords(show);
+    words.update("Reading Modules…");
+    vi.advanceTimersByTime(2 * SPINNER_WORD_INTERVAL_MS);
+    expect(show.mock.calls).toEqual([
+      ["Reading the blueprint…"], ["Untangling formulas…"], ["Reading the blueprint…"],
+    ]);
+    for (let tick = 0; tick < 100; tick++) {
+      vi.mocked(Math.random).mockReturnValue([0, 0.5, 0.99][tick % 3]);
+      const previous = show.mock.lastCall![0];
+      vi.advanceTimersByTime(SPINNER_WORD_INTERVAL_MS);
+      expect(show).toHaveBeenCalledTimes(tick + 4);
+      expect(WORD_POOLS.modules).toContain(show.mock.lastCall![0]);
+      expect(show.mock.lastCall![0]).not.toBe(previous);
+    }
+  });
+
+  it("alternates a two-word pool", () => {
+    const show = vi.fn();
+    const words = new SpinnerWords(show);
+    words.update("Building the report…", "model");
+    for (let tick = 1; tick <= 20; tick++) vi.advanceTimersByTime(SPINNER_WORD_INTERVAL_MS);
+    expect(show.mock.calls).toEqual(Array.from({ length: 21 }, (_, index) => [WORD_POOLS.finishing[index % 2]]));
+  });
+
+  it("holds a one-word pool", () => {
+    const show = vi.fn();
+    const words = new SpinnerWords(show);
+    words.update("Building the report…", "app");
+    vi.advanceTimersByTime(20 * SPINNER_WORD_INTERVAL_MS);
+    expect(show.mock.calls).toEqual([["Connecting the plans…"]]);
+  });
+
+  it("switches to a new step's pool immediately and restarts its clock", () => {
+    const show = vi.fn();
+    const words = new SpinnerWords(show);
+    words.update("Reading Modules…");
+    vi.advanceTimersByTime(SPINNER_WORD_INTERVAL_MS - 1);
+    words.update("Reading Time Ranges…");
+    expect(show).toHaveBeenCalledTimes(2);
+    expect(WORD_POOLS.time).toContain(show.mock.lastCall![0]);
+    vi.advanceTimersByTime(SPINNER_WORD_INTERVAL_MS - 1);
+    expect(show).toHaveBeenCalledTimes(2);
+    vi.advanceTimersByTime(1);
+    expect(show).toHaveBeenCalledTimes(3);
+    expect(WORD_POOLS.time).toContain(show.mock.lastCall![0]);
+  });
+
+  it.each(["stop", "run ends"])("clears the timer when %s and starts a new run afresh", end => {
+    const show = vi.fn();
+    const words = new SpinnerWords(show);
+    words.update("Building the report…", "app");
+    expect(vi.getTimerCount()).toBe(1);
+    if (end === "stop") words.stop();
+    else words.update(undefined);
     expect(show).toHaveBeenLastCalledWith("");
     expect(vi.getTimerCount()).toBe(0);
-    vi.advanceTimersByTime(9000);
-    expect(show).toHaveBeenCalledTimes(calls + 2);
+    vi.advanceTimersByTime(20 * SPINNER_WORD_INTERVAL_MS);
+    expect(show).toHaveBeenCalledTimes(2);
+    words.update("Building the report…", "app");
+    expect(show).toHaveBeenLastCalledWith("Connecting the plans…");
+    expect(show).toHaveBeenCalledTimes(3);
+    expect(vi.getTimerCount()).toBe(1);
   });
 
   it("shows one word per exact step with reduced motion, including steps within the same pool", () => {
-    vi.useFakeTimers();
     const show = vi.fn();
     const words = new SpinnerWords(show);
     words.update("Reading Modules…", "model", true);
-    vi.advanceTimersByTime(9000);
+    vi.advanceTimersByTime(20 * SPINNER_WORD_INTERVAL_MS);
     words.update("Reading Modules…", "model", true);
     expect(show).toHaveBeenCalledTimes(1);
     words.update("Reading Line Items…", "model", true);
     expect(show).toHaveBeenCalledTimes(2);
     expect(vi.getTimerCount()).toBe(0);
     words.update("Reading Line Items…", "model", false);
-    vi.advanceTimersByTime(3000);
+    vi.advanceTimersByTime(SPINNER_WORD_INTERVAL_MS);
     expect(show).toHaveBeenCalledTimes(3);
     words.update("Reading Line Items…", "model", true);
     expect(vi.getTimerCount()).toBe(0);
+    vi.advanceTimersByTime(20 * SPINNER_WORD_INTERVAL_MS);
+    expect(show).toHaveBeenCalledTimes(3);
   });
 
   it.each(["Classic", "Polaris"])("adds %s only after its engine line, remembers it and forgets it for a new run", engine => {
-    vi.useFakeTimers();
-    vi.spyOn(Math, "random").mockReturnValue(0.99);
+    vi.mocked(Math.random).mockReturnValue(0.99);
     const show = vi.fn();
     const words = new SpinnerWords(show);
     words.log(["14:02:05 Engine: unknown (no Classic client)", `14:02:05 page: Engine: ${engine}`]);
     words.update("Building the report…", "app");
-    vi.advanceTimersByTime(9000);
+    vi.advanceTimersByTime(20 * SPINNER_WORD_INTERVAL_MS);
     expect(show.mock.calls).toEqual([["Connecting the plans…"]]);
     words.log([`14:02:06 Engine: ${engine} (from the Line Items columns)`]);
     words.log(["14:03:00 Names read"]);
-    vi.advanceTimersByTime(3000);
+    vi.advanceTimersByTime(SPINNER_WORD_INTERVAL_MS);
     expect(show).toHaveBeenLastCalledWith(engine === "Classic" ? "Hyperblocking…" : "Polarising…");
-    vi.advanceTimersByTime(9000);
-    expect(show).toHaveBeenCalledTimes(2);
+    vi.advanceTimersByTime(SPINNER_WORD_INTERVAL_MS);
+    expect(show).toHaveBeenLastCalledWith("Connecting the plans…");
+    vi.advanceTimersByTime(SPINNER_WORD_INTERVAL_MS);
+    expect(show).toHaveBeenLastCalledWith(engine === "Classic" ? "Hyperblocking…" : "Polarising…");
+    expect(show).toHaveBeenCalledTimes(4);
     words.stop();
     words.log([]);
     words.update("Building the report…", "model");
     expect(show).toHaveBeenLastCalledWith("Drawing the model map…");
-    vi.advanceTimersByTime(9000);
+    vi.advanceTimersByTime(SPINNER_WORD_INTERVAL_MS);
     expect(show).toHaveBeenLastCalledWith("Connecting the plans…");
-    expect(show).toHaveBeenCalledTimes(5);
+    expect(show).toHaveBeenCalledTimes(7);
   });
 });
 
