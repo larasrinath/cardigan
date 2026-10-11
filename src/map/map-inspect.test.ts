@@ -36,14 +36,14 @@ describe("What the details say of a section", () => {
     const { model, volumes } = sample();
     const graph = sectionsGraph(model, false);
     const inspection = inspect(model, graph, graph.nodes[0], false);
-    expect(inspection).toMatchObject({ kind: "SECTION", layer: "s0", name: "01: Inputs", rows: [["Modules", "1"], ["Line items", "3"]], action: { label: "Open its 1 module", section: 0 }, texts: [] });
+    expect(inspection).toMatchObject({ kind: "GROUP", layer: "s0", name: "01: Inputs", rows: [["Modules", "1"], ["Line items", "3"]], action: { label: "Show its 1 module", section: 0 }, texts: [] });
     expect(inspection.lists).toEqual([
       { key: "used", title: "It feeds directly · 1", open: true, links: [{ node: "section1", name: "02: Calculations", layer: "s1" }] },
       { key: "modules", title: "Its modules · 1", open: true, links: [{ raw: volumes, name: "INP01 - Volumes", layer: "s0" }] },
     ]);
     // The section that reads it has it among what feeds it.
     const reader = inspect(model, graph, graph.nodes[1], false);
-    expect(reader.action).toEqual({ label: "Open its 1 module", section: 1 });
+    expect(reader.action).toEqual({ label: "Show its 1 module", section: 1 });
     expect(reader.lists.map(list => [list.key, list.title])).toEqual([["depends", "Feeds it directly · 1"], ["modules", "Its modules · 1"]]);
   });
 });
@@ -54,8 +54,8 @@ describe("What the details say of a module", () => {
     const graph = modulesGraph(model, undefined, false);
     const inspection = inspect(model, graph, byName(graph, "INP01 - Volumes"), false);
     expect(inspection.kind).toBe("MODULE");
-    expect(inspection.rows).toEqual([["Section", "01: Inputs"], ["Line items", "3"], ["Applies To", "Products, Regions"], ["Cell Count", "48,000"], ["Time Scale", "Month"], ["Time Range", "Model Calendar"], ["Versions", "All"]]);
-    expect(inspection.action).toEqual({ label: "Open its 3 line items", module: volumes });
+    expect(inspection.rows).toEqual([["Group", "01: Inputs"], ["Line items", "3"], ["Applies To", "Products, Regions"], ["Cell Count", "48,000"], ["Time Scale", "Month"], ["Time Range", "Model Calendar"], ["Versions", "All"]]);
+    expect(inspection.action).toEqual({ label: "Show its 3 line items", module: volumes });
     expect(inspection.lists.map(list => [list.key, list.title, list.open])).toEqual([["used", "It feeds directly · 1", true], ["items", "All its line items · 3", false]]);
     // The module it feeds is a node of the graph on screen; its own line items are objects of the model.
     expect(inspection.lists[0].links).toEqual([{ node: String(revenue), name: "CAL01 - Revenue", layer: "s1" }]);
@@ -135,7 +135,7 @@ describe("What the details say of a line item", () => {
     const graph = moduleGraph(model, revenue, true, false);
     const inspection = inspect(model, graph, byName(graph, "Units"), false);
     expect(inspection.layer).toBe(LAYER.external);
-    expect(inspection.action).toEqual({ label: "Open its module with it selected", module: volumes, select: units });
+    expect(inspection.action).toEqual({ label: "Show its module with it selected", module: volumes, select: units });
   });
 
   it("lists what feeds it and what it feeds across the whole model, each object once", () => {
@@ -294,7 +294,7 @@ describe("What a trace found, in words", () => {
     });
     expect(traceWords(gross, 1, 0)).toMatchObject({ feeds: "1 box feeds it", fed: "it feeds 0 boxes" });
     const sections = sectionsGraph(model, false);
-    expect(traceWords(inspect(model, sections, sections.nodes[1], false), 1, 0).sentence).toBe("Section 02: Calculations selected. On the map 1 box feeds it and it feeds 0 boxes, directly or through others.");
+    expect(traceWords(inspect(model, sections, sections.nodes[1], false), 1, 0).sentence).toBe("Group 02: Calculations selected. On the map 1 box feeds it and it feeds 0 boxes, directly or through others.");
     const subset = inspect(model, graph, byName(graph, "Active Products"), false);
     expect(traceWords(subset, 0, 2).sentence).toMatch(/^List subset Active Products selected\./);
   });
@@ -304,11 +304,11 @@ describe("The line that says what the map shows", () => {
   it("counts the graph's own boxes, what stands beside them and the links, in the words of each view", () => {
     const { model, revenue } = sample();
     const sections = sectionsGraph(model, false);
-    expect(statusWords(sections, 2, 2)).toBe("2 sections · 1 link");
+    expect(statusWords(sections, 2, 2)).toBe("2 groups · 1 link");
     const all = modulesGraph(model, undefined, false);
     expect(statusWords(all, 2, 2)).toBe("2 modules · 1 link");
     const one = modulesGraph(model, "02: Calculations", false);
-    expect(statusWords(one, 2, 2)).toBe("1 module · 1 module of other sections · 1 link");
+    expect(statusWords(one, 2, 2)).toBe("1 module · 1 module of other groups · 1 link");
     const drill = moduleGraph(model, revenue, false, false);
     // Four line items of the module; beside them the module it reads, a subset and a property.
     expect(statusWords(drill, 7, 7)).toBe("4 line items · 3 outside the module · 4 links");
@@ -330,29 +330,29 @@ describe("The line that says what the map shows", () => {
   it("counts only the links drawn where formulas' are left out, and says plainly where no kind of link is drawn", () => {
     const { model, revenue } = sample();
     // Formulas alone link the sections; once the links of access drivers are in the graph, they link them too.
-    expect(statusWords(sectionsGraph(model, false), 2, 2, false, "noFormulas")).toBe("2 sections · 0 links");
-    expect(statusWords(sectionsGraph(model, true), 2, 2, false, "noFormulas")).toBe("2 sections · 1 link");
-    expect(statusWords(sectionsGraph(model, false), 2, 2, false, "none")).toBe("2 sections · no links drawn");
+    expect(statusWords(sectionsGraph(model, false), 2, 2, false, "noFormulas")).toBe("2 groups · 0 links");
+    expect(statusWords(sectionsGraph(model, true), 2, 2, false, "noFormulas")).toBe("2 groups · 1 link");
+    expect(statusWords(sectionsGraph(model, false), 2, 2, false, "none")).toBe("2 groups · no links drawn");
     const drill = moduleGraph(model, revenue, false, true);
     expect([statusWords(drill, 7, 7), statusWords(drill, 7, 7, false, "noFormulas")]).toEqual(["4 line items · 3 outside the module · 4 links", "4 line items · 3 outside the module · 1 link"]);
-    expect(viewSentence(sectionsGraph(model, false), "Demand Model", "none")).toBe("Sections of Demand Model: 2 sections, no links drawn.");
+    expect(viewSentence(sectionsGraph(model, false), "Demand Model", "none")).toBe("Groups of Demand Model: 2 groups, no links drawn.");
     expect(viewSentence(drill, "Demand Model", "noFormulas")).toBe("Line items of CAL01 - Revenue: 4 line items, with 3 outside the module, 1 link.");
   });
 
   it("says of an empty graph only what it would hold", () => {
     const model = indexModel(new GraphMaker().graph());
     expect(statusWords(modulesGraph(model, undefined, false), 0, 0)).toBe("0 modules · 0 links");
-    expect(statusWords(sectionsGraph(model, false), 0, 0)).toBe("0 sections · 0 links");
+    expect(statusWords(sectionsGraph(model, false), 0, 0)).toBe("0 groups · 0 links");
   });
 });
 
 describe("What the map says aloud when a view opens", () => {
   it("names the view and counts what it is of apart from what stands beside it", () => {
     const { model, revenue } = sample();
-    expect(viewSentence(sectionsGraph(model, false), "Demand Model")).toBe("Sections of Demand Model: 2 sections, 1 link.");
+    expect(viewSentence(sectionsGraph(model, false), "Demand Model")).toBe("Groups of Demand Model: 2 groups, 1 link.");
     expect(viewSentence(modulesGraph(model, undefined, false), "Demand Model")).toBe("All modules: 2 modules, 1 link.");
     // A section of one module, with the one module of another section it reads: not two modules.
-    expect(viewSentence(modulesGraph(model, "02: Calculations", false), "Demand Model")).toBe("02: Calculations: 1 module, with 1 module of other sections, 1 link.");
+    expect(viewSentence(modulesGraph(model, "02: Calculations", false), "Demand Model")).toBe("02: Calculations: 1 module, with 1 module of other groups, 1 link.");
     expect(viewSentence(moduleGraph(model, revenue, false, false), "Demand Model")).toBe("Line items of CAL01 - Revenue: 4 line items, with 3 outside the module, 4 links.");
   });
 });

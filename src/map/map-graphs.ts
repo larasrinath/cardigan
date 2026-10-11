@@ -140,7 +140,7 @@ function externalLabel(kind: ViewGraph["kind"], nodes: readonly Draft[]): string
   const kinds = new Set(nodes.filter(node => node.layer === LAYER.external).map(node => node.kind));
   if (kinds.size === 1 && kinds.has("externalItem")) return "Line items of other modules";
   if (![...kinds].every(each => each === "module" || each === "externalModule")) return "Other objects";
-  return kind === "drill" ? "Other modules" : "Modules of other sections";
+  return kind === "drill" ? "Other modules" : "Modules of other groups";
 }
 
 function finish(model: MapModel, kind: ViewGraph["kind"], name: string, drafts: readonly Draft[], links: readonly Link[], local = 0): ViewGraph {
@@ -253,7 +253,7 @@ export function sectionsGraph(model: MapModel, access: boolean, filters = false)
     const module = model.node(model.moduleOf(node));
     return module ? `section${model.sectionIndex(model.sectionOf(module))}` : undefined;
   });
-  return finish(model, "sections", "Model sections", drafts, links, drafts.length);
+  return finish(model, "sections", "Model groups", drafts, links, drafts.length);
 }
 
 /** The modules of one section, or all modules when no section is named. */

@@ -75,7 +75,7 @@ describe("The map's sources", () => {
     expect(new Set(asked)).toEqual(new Set(["createElement", "activeElement", "fullscreenElement", "exitFullscreen"]));
     // Lookups are from the map's element down.
     const lookedIn = [...view.matchAll(/(\w+)\.querySelector(?:All)?[<(]/g)].map(match => match[1]);
-    for (const owner of lookedIn) expect(["root", "inspector", "results", "holder", "tracebar", "pickerList"]).toContain(owner);
+    for (const owner of lookedIn) expect(["root", "inspector", "results", "holder", "tracebar", "pickerList", "groupList"]).toContain(owner);
   });
 
   it("write markup only through the functions that escape it", () => {
@@ -142,8 +142,8 @@ describe("The map's stylesheet", () => {
     // The one rule fixed to the window is the map's own element's while it fills the window: the user asked for full
     // screen, and the browser would not give it (map-view.ts `setFull`).
     const rules = STYLES.replace(/\s*\n\s*/g, " ").split("}").map(rule => rule.trim()).filter(rule => /position\s*:\s*(?:fixed|sticky)/.test(rule));
-    expect(rules.map(rule => rule.slice(0, rule.indexOf("{")).trim())).toEqual([".map-root.map-full-window"]);
-    expect(found(STYLES, /position\s*:\s*sticky/)).toEqual([]);
+    expect(rules.map(rule => rule.slice(0, rule.indexOf("{")).trim())).toEqual([".map-root.map-full-window", ".map-picker-heading"]);
+    expect(found(STYLES, /position\s*:\s*sticky/)).toEqual(["position:sticky"]);
     expect(found(STYLES, /\d(?:vw|vh|vmin|vmax|dvh|dvw|svh|svw|lvh|lvw)\b/)).toEqual([]);
     // The only question it asks of the window is whether the user wants less motion. Its sizes are its own element's.
     const media = selectors(STYLES).filter(selector => selector.startsWith("@media"));
@@ -190,9 +190,9 @@ describe("The map's stylesheet", () => {
       notesHtml({ name: "Model", workspace: "Workspace", modules: 2, lineItems: 3 }, ["A sentence."], 1),
       pathRootHtml("Model", "Workspace", true), pathRootHtml("Model", "Workspace", false), fullIconHtml(true),
       pickerOptionsHtml("map-picker-1", [{ name: "Module", group: "Group" }, { name: "Other" }], 0),
-      legendHtml("Sections", layers.map(key => ({ key, label: key, count: 1 })), new Set(["external"]), true, "modules"), tracebarHtml("Node", words, false), tracebarHtml("Node", words, true),
+      legendHtml("Groups", layers.map(key => ({ key, label: key, count: 1 })), new Set(["external"]), true, "modules"), tracebarHtml("Node", words, false), tracebarHtml("Node", words, true),
       tooltipHtml({ layer: "s0", kind: "kind", name: "Node", lines: ["a line"], formula: "A + B" }),
-      resultsHtml({ hits: [{ kind: "module", name: "Module", context: "Section" }], total: 2 }), resultsHtml({ hits: [], total: 0 }),
+      resultsHtml({ hits: [{ kind: "module", name: "Module", context: "Group" }], total: 2 }), resultsHtml({ hits: [], total: 0 }),
       inspectorHtml({ kind: "LINE ITEM", layer: "lineitem", name: "Node", rows: [["Module", "Module"]], action: { label: "Open", module: 1 }, formula: "A + B", lists: [{ key: "depends", title: "Feeds it directly", open: true, links }],
         texts: [{ key: "actions", title: "Actions", lines: ["An action"] }], notes: "A note." }, words),
       inspectorHtml({ kind: "LINE ITEM", layer: "heading", name: "Node", rows: [], remark: "No formula.", lists: [], texts: [] }), emptyHtml("Nothing", "Nothing here.", ["A sentence."]),
@@ -203,7 +203,7 @@ describe("The map's stylesheet", () => {
     // The classes the view sets: its element's own, and those that say a state.
     const view = code("map-view.ts");
     const states = new Set([...view.matchAll(/classList\.(?:add|remove|toggle)\("(map-[a-z0-9-]+)"/g)].map(match => match[1]));
-    expect([...states].sort()).toEqual(["map-active", "map-arriving", "map-dragging", "map-full-window", "map-has-inspector", "map-off", "map-on", "map-over-node", "map-show"]);
+    expect([...states].sort()).toEqual(["map-active", "map-arriving", "map-current", "map-dragging", "map-full-window", "map-has-inspector", "map-off", "map-on", "map-over-node", "map-show"]);
     for (const name of states) written.add(name);
     for (const [, name] of view.matchAll(/setAttribute\("class", "(map-[a-z0-9-]+)"\)/g)) written.add(name);
     const styled = new Set([...STYLES.matchAll(/\.(map-[a-z][a-z0-9-]*)/g)].map(match => match[1]));

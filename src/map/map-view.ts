@@ -10,7 +10,7 @@ import { boundsOf, fullFrom, layoutGraph, sizeNodes } from "./map-layout.js";
 import { automaticGrouping, groupingsOf, type Grouping } from "./map-groups.js";
 import {
   brokenHtml, emptyHtml, filtersNote as filtersSay, FULL_SAYS, fullIconHtml, groupingOptionsHtml, groupOptionsHtml, inspectorHtml, legendHtml, listHtml, notesHtml, pathRootHtml,
-  pickerOptionsHtml, resultsHtml, shellHtml, SHOW_GROUPS, SHOW_MODULES, showOptionsHtml, tooltipHtml, tracebarHtml, type Tip,
+  pickerOptionsHtml, resultsHtml, shellHtml, SHOW_GROUPS, SHOW_MODULES, tooltipHtml, tracebarHtml, type Tip,
 } from "./map-markup.js";
 import { indexModel, isAccess, isFilter, withGrouping, type MapModel } from "./map-model.js";
 import { FALLBACK, readPalette, type MapPalette } from "./map-palette.js";
@@ -102,8 +102,6 @@ const TELLING_ZOOM = 0.62;
 /** Up to this width of the map the legend and the notes about the map are not shown side by side (map.css puts the
  * details under the graph from the same width down). */
 const NARROW = 760;
-/** How many modules the module picker lists at once: a model of hundreds is narrowed by typing. */
-export const PICKER_CAP = 200;
 /** What the graph files a module under that has no heading row above it (graph-types.ts `group`). */
 const NO_HEADING = "Ungrouped";
 /** A colour no token holds: what a canvas still answers after a value it did not take was a colour. */
@@ -144,15 +142,18 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   const wholeButton = part<HTMLButtonElement>('[data-map-act="whole"]');
   const notes = part(".map-notes");
   const pathRoot = part(".map-path-root");
-  const showSelect = part<HTMLSelectElement>(".map-show-select");
-  const groupSelect = part<HTMLSelectElement>(".map-group-select");
-  const picker = part(".map-picker");
+  const groupName = part<HTMLButtonElement>(".map-group-name");
+  const moduleName = part<HTMLButtonElement>(".map-module-name");
+  const groupButton = part<HTMLButtonElement>('[data-map-act="groups"]');
+  const moduleButton = part<HTMLButtonElement>('[data-map-act="modules"]');
+  const groupPicker = part(".map-group-picker");
+  const groupPop = part(".map-group-pop");
+  const groupList = part(".map-group-list");
+  const picker = part(".map-module-picker");
   const pickerInput = part<HTMLInputElement>(".map-picker-input");
-  const pickerPop = part(".map-picker-pop");
+  const pickerPop = part(".map-module-picker .map-picker-pop");
   const pickerList = part(".map-picker-list");
   const pickerNote = part(".map-picker-note");
-  const separators = { show: part('[data-map-sep="show"]'), group: part('[data-map-sep="group"]'), module: part('[data-map-sep="module"]') };
-  const buildZone = part(".map-zone-build");
   const groupingField = part(".map-grouping-field");
   const groupingSelect = part<HTMLSelectElement>(".map-grouping-select");
   const externalCheck = part(".map-external-check");
@@ -246,13 +247,10 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   let arriving: ReturnType<typeof setTimeout> | undefined;
   /** Ends the watching of the canvas's size (set once the watching has begun). */
   let stopWatching: () => void = () => undefined;
-  /** The module picker of the Line items view: whether its list is open, what was typed into it since it opened, the
-   * group the path's list narrowed it to (`pickerChosen`, where one was chosen there: no group is every group), the
-   * modules it lists, and the one the arrows are on. Closed, it names the module shown. */
+  /** The picker always holds every group. Names are indexed once per grouping, in the map's group order. */
+  let orderedModules: { node: GraphNode; name: string }[] = [];
   let pickerOpen = false;
   let pickerQuery = "";
-  let pickerChosen = false;
-  let pickerGroup: string | undefined;
   let pickerModules: GraphNode[] = [];
   let pickerActive = -1;
   /** Whether the map fills the browser's window because the browser would not give it the screen. */
@@ -711,7 +709,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     if (!onScreen) return;
     // A model that has no sections to show has none in its legend either: its modules are one entry, as what they are.
     // Of links it says only the kinds drawn: a link that is neither a filter's nor formulas' alone has an access driver.
-    legend.innerHTML = legendHtml(onScreen.kind === "drill" || single ? "On this map" : "Sections", onScreen.layers, hiddenLayers,
+    legend.innerHTML = legendHtml(onScreen.kind === "drill" || single ? "On this map" : "Groups", onScreen.layers, hiddenLayers,
       onScreen.edges.some(edge => edge.filter) ? onScreen.kind : undefined, onScreen.nodes.some(node => node.filterMark) ? onScreen.kind : undefined,
       { formulas, access: onScreen.edges.some(edge => !edge.filter && !edge.formulaOnly), none: linksDrawn() === "none" });
     legendButton.hidden = onScreen.layers.length === 0;
@@ -720,47 +718,35 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   /** The group the module shown stands in, where the model has groups to show. */
   function homeOf(id: number | undefined): string | undefined {
     const module = model?.node(id);
-    return model && module && !single ? model.sectionOf(module) : undefined;
+    return model && module ? model.sectionOf(module) : undefined;
   }
 
-  /** The path says where the map is, and is the way elsewhere. Its first step is the model's name. In the Modules view
-   * its list says what is shown: the groups as a whole, all modules, or one group's. In the Line items view it names the
-   * module's group, which narrows the module picker after it, and the module. A model with no groups to show has no list
-   * of them. */
+  /** The same three steps at every level. The group is always the displayed module's own group. */
   function renderPath(): void {
     if (!model || !onScreen) return;
     const drill = view === "drill";
-    // The model whole: its groups, or all its modules where it has no groups to show.
-    const whole = onScreen.kind === "sections" || (single && onScreen.kind === "modules");
+    const whole = onScreen.kind === "sections" || (single && onScreen.kind === "modules" && section === undefined);
     pathRoot.innerHTML = pathRootHtml(options.modelName, options.workspaceName, whole);
-    showSelect.hidden = separators.show.hidden = drill || single;
-    showSelect.value = section !== undefined ? String(model.sectionIndex(section)) : grouped ? SHOW_GROUPS : SHOW_MODULES;
-    groupSelect.hidden = separators.group.hidden = !drill || single;
-    picker.hidden = separators.module.hidden = !drill;
-    // An open picker keeps what is being typed into it, and the group it was narrowed to.
-    if (pickerOpen) return;
-    pickerChosen = false;
-    pickerGroup = undefined;
-    const home = drill ? homeOf(moduleId) : undefined;
-    groupSelect.value = home === undefined ? "" : String(model.sectionIndex(home));
-    pickerInput.value = drill ? model.node(moduleId)?.name ?? "" : "";
+    groupName.textContent = (drill ? homeOf(moduleId) : section) ?? (grouped ? "All groups" : "All modules");
+    groupName.title = groupName.textContent;
+    groupName.setAttribute("aria-label", `Show ${groupName.textContent}`);
+    const current = drill ? model.node(moduleId) : selected?.raw?.kind === "module" ? selected.raw : undefined;
+    moduleName.textContent = current?.name ?? "Module";
+    moduleName.title = moduleName.textContent;
+    moduleName.disabled = !current;
+    moduleName.setAttribute("aria-label", current ? `Show ${current.name}'s line items` : "Module");
+    moduleButton.disabled = model.modules.length === 0;
+    for (const name of [groupName, moduleName]) name.removeAttribute("aria-current");
+    if (drill) moduleName.setAttribute("aria-current", "location");
+    else if (!whole) groupName.setAttribute("aria-current", "location");
   }
 
   function renderControls(): void {
     if (!model) return;
-    for (const tab of root.querySelectorAll<HTMLButtonElement>(".map-tab")) {
-      const active = tab.dataset.mapView === view;
-      tab.classList.toggle("map-active", active);
-      tab.setAttribute("aria-pressed", String(active));
-      if (tab.dataset.mapView === "drill") tab.disabled = model.modules.length === 0;
-    }
-    // How the map is built: how the modules are grouped, where the model can be grouped more than one way, among the
-    // modules; and among a module's line items, whether those of other modules stand one by one.
-    groupingField.hidden = view !== "modules" || groupings.length < 2;
+    groupingField.hidden = false;
     groupingSelect.value = model.grouping?.kind ?? "";
     externalCheck.hidden = view !== "drill";
     externalToggle.checked = expanded;
-    buildZone.hidden = groupingField.hidden && externalCheck.hidden;
     formulasToggle.checked = formulas;
     accessToggle.checked = access;
     // The pages' filters can be shown only where the model has some to show, as links or as marks on modules their own
@@ -807,7 +793,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     if (!nothing) empty.innerHTML = "";
     // Why there are none is the graph's to say, in whichever of its sentences: all of them are listed under the map's own.
     else if (model.modules.length === 0) empty.innerHTML = emptyHtml("No modules to draw", "This export holds no modules, so there is nothing to map.", graph.limitations);
-    else empty.innerHTML = emptyHtml("Nothing to show here", onScreen.kind === "drill" ? "This module has no line items." : "This section has no modules.");
+    else empty.innerHTML = emptyHtml("Nothing to show here", onScreen.kind === "drill" ? "This module has no line items." : "This group has no modules.");
   }
 
   function renderChrome(): void {
@@ -831,12 +817,11 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
       hovered = node;
       const raw = node.raw;
       const module = raw && raw.kind !== "module" ? model.node(model.moduleOf(raw)) : undefined;
-      const hint = node.kind === "section" ? "Double-click to open its modules" : raw?.kind === "module" ? "Double-click to open its line items" : node.kind === "externalItem" ? "Double-click to go to it in its module" : "";
       // While the pages' filters are drawn, a line item says where it filters, and what filters it.
       const filtered = filters && raw?.kind === "lineItem" ? filterTipLines(model, raw) : [];
       const tip: Tip = {
-        layer: node.layer, kind: node.code || (raw ? raw.kind === "lineItem" ? "line item" : raw.kind : node.kind), name: node.fullName,
-        lines: [node.meta, module?.name ?? "", ...filtered, hint], ...(raw?.formula ? { formula: raw.formula } : {}),
+        layer: node.layer, kind: node.code || (raw ? raw.kind === "lineItem" ? "line item" : raw.kind : node.kind === "section" ? "group" : node.kind), name: node.fullName,
+        lines: [node.meta, module?.name ?? "", ...filtered], ...(raw?.formula ? { formula: raw.formula } : {}),
       };
       tooltip.innerHTML = tooltipHtml(tip);
       tooltip.classList.add("map-show");
@@ -857,60 +842,93 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
 
   /* ---------- the module picker ---------- */
 
-  /** The group the picker keeps to: the one chosen in the path's list, where one was; otherwise the module's own group
-   * until something is typed, and then every group, for a name is looked for among all modules. */
-  function pickerScope(): string | undefined {
-    if (pickerChosen) return pickerGroup;
-    return searchText(pickerQuery) === "" ? homeOf(moduleId) : undefined;
-  }
-
-  /** The modules the picker offers: those of the group it keeps to, or all, whose name holds what was typed. */
   function pickerMatches(): GraphNode[] {
-    if (!model) return [];
     const typed = searchText(pickerQuery);
-    const scope = pickerScope();
-    return model.modules.filter(module => (scope === undefined || model?.sectionOf(module) === scope) && (typed === "" || module.name.toLowerCase().includes(typed)));
+    return orderedModules.filter(module => !typed || module.name.includes(typed)).map(module => module.node);
   }
 
-  /** Writes the picker's list: the first of its modules, with the one the arrows are on, and a line where there are more. */
+  /** Render once on opening or filtering. Arrow keys update just two classes and the active descendant. */
   function renderPicker(): void {
     if (!model) return;
-    const all = pickerMatches();
-    pickerModules = all.slice(0, PICKER_CAP);
+    pickerModules = pickerMatches();
     pickerActive = pickerModules.length ? Math.min(Math.max(pickerActive, 0), pickerModules.length - 1) : -1;
-    // A list of one group's modules has no need to name the group on each line.
-    const named = !single && pickerScope() === undefined;
-    pickerList.innerHTML = pickerOptionsHtml(pickerId, pickerModules.map(module => ({ name: module.name, ...(named && model ? { group: model.sectionOf(module) } : {}) })), pickerActive);
-    pickerNote.hidden = all.length > 0 && all.length <= pickerModules.length;
-    pickerNote.textContent = all.length === 0 ? "No module's name holds that." : `First ${formatCount(pickerModules.length)} of ${formatCount(all.length)} modules. Type to narrow.`;
-    if (pickerActive >= 0) pickerInput.setAttribute("aria-activedescendant", `${pickerId}-${pickerActive}`);
+    pickerList.innerHTML = pickerOptionsHtml(pickerId, pickerModules.map(module => ({ name: module.name, group: model!.sectionOf(module), current: view === "drill" && module.id === moduleId })), pickerActive);
+    pickerNote.hidden = pickerModules.length > 0;
+    pickerNote.textContent = "No module's name holds that.";
+    markPicker();
+  }
+
+  function markPicker(previous = -1): void {
+    pickerList.querySelector(`[data-map-pick="${previous}"]`)?.classList.remove("map-active");
+    const active = pickerList.querySelector<HTMLElement>(`[data-map-pick="${pickerActive}"]`);
+    active?.classList.add("map-active");
+    if (active) pickerInput.setAttribute("aria-activedescendant", active.id);
     else pickerInput.removeAttribute("aria-activedescendant");
-    pickerList.querySelector<HTMLElement>(".map-active")?.scrollIntoView?.({ block: "nearest" });
+    active?.scrollIntoView?.({ block: "nearest" });
   }
 
-  /** Opens the picker's list: every module of its group until something is typed, from the module shown. */
   function openPicker(): void {
-    if (!model || view !== "drill") return;
+    if (!model || pickerOpen) return;
     closeLinks();
+    closeGroups();
     pickerOpen = true;
-    pickerQuery = "";
-    pickerActive = Math.max(0, pickerMatches().findIndex(module => module.id === moduleId));
-    renderPicker();
+    pickerQuery = pickerInput.value = "";
+    const current = view === "drill" ? moduleId : selected?.raw?.id;
+    pickerActive = Math.max(0, pickerMatches().findIndex(module => module.id === current));
     pickerPop.hidden = false;
+    moduleButton.setAttribute("aria-expanded", "true");
     pickerInput.setAttribute("aria-expanded", "true");
-    pickerInput.select?.();
+    renderPicker();
+    // Reveal the current group's heading, then its module if the group is taller than the list.
+    const active = pickerList.querySelector<HTMLElement>(".map-active");
+    const heading = active?.parentElement?.querySelector<HTMLElement>(".map-picker-heading");
+    heading?.scrollIntoView?.({ block: "start" });
+    if (heading) pickerList.scrollTop += heading.getBoundingClientRect().top - pickerList.getBoundingClientRect().top;
+    active?.scrollIntoView?.({ block: "nearest" });
+    focusOn(pickerInput);
   }
 
-  /** Closes the picker's list. The path names the module shown, and its group, again. */
   function closePicker(): void {
     if (!pickerOpen) return;
     pickerOpen = false;
     pickerPop.hidden = true;
     pickerList.innerHTML = "";
     pickerModules = [];
+    moduleButton.setAttribute("aria-expanded", "false");
     pickerInput.setAttribute("aria-expanded", "false");
     pickerInput.removeAttribute("aria-activedescendant");
-    renderPath();
+  }
+
+  function closeGroups(): void {
+    groupPop.hidden = true;
+    groupButton.setAttribute("aria-expanded", "false");
+  }
+
+  function openGroups(): void {
+    closePicker();
+    closeLinks();
+    groupPop.hidden = false;
+    groupButton.setAttribute("aria-expanded", "true");
+    const home = view === "drill" ? homeOf(moduleId) : section;
+    const current = home !== undefined ? String(model!.sectionIndex(home)) : grouped ? SHOW_GROUPS : SHOW_MODULES;
+    for (const option of groupList.querySelectorAll<HTMLElement>("[data-map-group]")) {
+      const chosen = option.dataset.mapGroup === current;
+      option.classList.toggle("map-current", chosen);
+      if (chosen) option.setAttribute("aria-current", "true");
+      else option.removeAttribute("aria-current");
+    }
+    groupList.scrollTop = 0;
+    focusOn(groupList.querySelector<HTMLElement>("[data-map-group]"));
+  }
+
+  function chooseGroup(value: string): void {
+    closeGroups();
+    if (value === SHOW_GROUPS) showSections();
+    else if (value === SHOW_MODULES) {
+      section = undefined;
+      grouped = false;
+      setView("modules");
+    } else openSection(Number(value));
   }
 
   /** Shows the line items of a module the picker lists, and gives the map the focus, for its keys. */
@@ -930,7 +948,8 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     event.preventDefault();
     event.stopPropagation();
     if (key === "Escape") {
-      if (pickerOpen) closePicker(); else focusOn(canvas);
+      closePicker();
+      focusOn(moduleButton);
       return;
     }
     if (!pickerOpen) {
@@ -939,15 +958,16 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     }
     if (key === "Enter") pickModule(pickerActive);
     else {
+      const previous = pickerActive;
       pickerActive = key === "ArrowDown" ? Math.min(pickerModules.length - 1, pickerActive + 1) : Math.max(0, pickerActive - 1);
-      renderPicker();
+      markPicker(previous);
     }
   }
 
   /* ---------- the links shown, and full screen ---------- */
 
   function setLinks(open: boolean): void {
-    if (open) closePicker();
+    if (open) { closePicker(); closeGroups(); }
     linksPop.hidden = !open;
     linksButton.setAttribute("aria-expanded", String(open));
   }
@@ -1089,6 +1109,8 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   /** Goes to a view: the selection, the hidden layers and the search start afresh there. */
   function setView(next: "modules" | "drill", module?: number): void {
     if (!model) return;
+    closePicker();
+    closeGroups();
     view = next;
     if (next === "drill") {
       moduleId = module !== undefined && model.node(module)?.kind === "module" ? module : moduleId ?? model.modules[0]?.id;
@@ -1118,6 +1140,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     trace = node ? traceNode(onScreen, model, node.index, access, filters, formulas) : undefined;
     refreshShown();
     renderInspector();
+    renderPath();
     if (node && traced) announce(traced.sentence);
     else if (had) announce("Selection cleared.");
     invalidate();
@@ -1223,12 +1246,13 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     invalidate();
   }
 
-  /** One step back, as Escape takes it: the selection goes first, then a module's line items give way to the modules
-   * last shown, and those to the model whole. Says whether there was a step to take. */
+  /** Escape follows the path, independent of earlier views and the current selection. */
   function back(): boolean {
-    if (selected) select(undefined);
-    else if (view === "drill") setView("modules");
-    else if (!single && (section !== undefined || !grouped)) showSections();
+    if (view === "drill") {
+      const home = homeOf(moduleId);
+      if (home !== undefined) openSection(model!.sectionIndex(home)); else showSections();
+    } else if (section !== undefined || (!single && !grouped)) showSections();
+    else if (selected) select(undefined);
     else return false;
     return true;
   }
@@ -1307,7 +1331,19 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     if (!model || !onScreen) return;
     const data = target.dataset;
     switch (data.mapAct) {
-      case "view": setView(data.mapView === "drill" ? "drill" : "modules", moduleId); break;
+      case "groups": if (groupPop.hidden) openGroups(); else closeGroups(); break;
+      case "modules": if (pickerOpen) closePicker(); else openPicker(); break;
+      case "group": chooseGroup(data.mapGroup ?? SHOW_GROUPS); focusOn(canvas); break;
+      case "group-home": {
+        const home = view === "drill" ? homeOf(moduleId) : section;
+        chooseGroup(home === undefined ? grouped ? SHOW_GROUPS : SHOW_MODULES : String(model.sectionIndex(home)));
+        break;
+      }
+      case "module-home": {
+        const current = view === "drill" ? moduleId : selected?.raw?.kind === "module" ? selected.raw.id : undefined;
+        if (current !== undefined && view !== "drill") setView("drill", current);
+        break;
+      }
       case "crumb": if (data.mapCrumb === "section") openSection(Number(data.mapSection)); else showSections(); break;
       case "links": setLinks(linksPop.hidden); if (!linksPop.hidden) focusOn(formulasToggle); break;
       case "fullscreen": setFull(!(fullWindow || onScreenWhole())); break;
@@ -1387,7 +1423,8 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     const to = (event as FocusEvent).relatedTarget as Element | null;
     if (from?.closest(".map-searchwrap") && to && !to.closest(".map-searchwrap")) closeResults();
     // So does the picker's list, and the panel of links.
-    if (from?.closest(".map-picker") && to && !to.closest(".map-picker")) closePicker();
+    if (from && picker.contains(from) && to && !picker.contains(to)) closePicker();
+    if (from && groupPicker.contains(from) && to && !groupPicker.contains(to)) closeGroups();
     if (from?.closest(".map-links") && to && !to.closest(".map-links")) setLinks(false);
   }));
   root.addEventListener("focusin", guarded(event => {
@@ -1406,27 +1443,16 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
       try {
         options.onGrouping?.(grouping === automatic ? undefined : grouping.kind);
       } catch { /* not kept */ }
-      // The model whole, grouped anew: the selection, the hidden layers and the search start afresh.
+      closePicker();
+      closeGroups();
       applyGrouping(grouping);
-      setView("modules");
+      if (view === "drill") {
+        // Grouping changes the path and lists, not this module's drawing, camera or selection.
+        renderPath();
+        renderControls();
+        if (!results.hidden) runSearch();
+      } else setView("modules");
       if (onScreen) announce(`Modules grouped by ${grouping.label.toLowerCase()}. ${viewSentence(onScreen, options.modelName, linksDrawn())}`);
-    } else if (target === showSelect) {
-      // The groups as a whole, all modules, or one group's.
-      if (showSelect.value === SHOW_GROUPS) showSections();
-      else if (showSelect.value === SHOW_MODULES) {
-        section = undefined;
-        grouped = false;
-        setView("modules");
-      } else openSection(Number(showSelect.value));
-    } else if (target === groupSelect) {
-      // A group narrows the picker to its modules, which it then lists, for one of them to be picked; "All groups" lists
-      // every module.
-      openPicker();
-      pickerChosen = true;
-      pickerGroup = groupSelect.value === "" ? undefined : model.sections[Number(groupSelect.value)];
-      pickerActive = Math.max(0, pickerMatches().findIndex(module => module.id === moduleId));
-      renderPicker();
-      focusOn(pickerInput);
     } else if (target === externalToggle) {
       expanded = externalToggle.checked;
       setView("drill", moduleId);
@@ -1505,6 +1531,20 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     if (!shown || !onScreen || !target) return;
     if (target === searchInput) return searchKey(event);
     if (target === pickerInput) return pickerKey(event);
+    if (groupPicker.contains(target) && !groupPop.hidden) {
+      if (event.key === "Escape") {
+        event.preventDefault(); closeGroups(); focusOn(groupButton); return;
+      }
+      if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+        event.preventDefault();
+        const choices = [...groupList.querySelectorAll<HTMLElement>("[data-map-group]")];
+        const current = choices.indexOf(target as HTMLElement);
+        const next = event.key === "Home" ? 0 : event.key === "End" ? choices.length - 1 : Math.max(0, Math.min(choices.length - 1, current + (event.key === "ArrowDown" ? 1 : -1)));
+        focusOn(choices[next]);
+        choices[next]?.scrollIntoView?.({ block: "nearest" });
+        return;
+      }
+    }
     if (results.contains(target) && resultsKey(event, target)) return;
     // Escape closes the panel of links from inside it or its button.
     if (event.key === "Escape" && links.contains(target) && !linksPop.hidden) {
@@ -1550,8 +1590,9 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   root.addEventListener("pointerdown", guarded(event => {
     const target = event.target as Element | null;
     if (target && !target.closest(".map-searchwrap")) closeResults();
-    if (target && !target.closest(".map-picker")) closePicker();
-    else if (target && pickerPop.contains(target)) event.preventDefault();
+    if (target && !picker.contains(target)) closePicker();
+    else if (target && pickerList.contains(target)) event.preventDefault();
+    if (target && !groupPicker.contains(target)) closeGroups();
     if (target && !target.closest(".map-links")) setLinks(false);
   }));
 
@@ -1733,8 +1774,10 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
       held.set(group, (held.get(group) ?? 0) + 1);
     }
     const counts = model.sections.map(group => held.get(group) ?? 0);
-    showSelect.innerHTML = showOptionsHtml(model.sections, counts);
-    groupSelect.innerHTML = groupOptionsHtml(model.sections, counts);
+    groupList.innerHTML = groupOptionsHtml(model.sections, counts);
+    const buckets = new Map(model.sections.map(group => [group, [] as GraphNode[]]));
+    for (const module of model.modules) buckets.get(model.sectionOf(module))?.push(module);
+    orderedModules = [...buckets.values()].flat().map(node => ({ node, name: searchText(node.name) }));
   }
 
   /** What is done once, at the first showing: the model is looked up, its modules grouped, and the first view built.
@@ -1782,6 +1825,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
       hideTip();
       closeResults();
       closePicker();
+      closeGroups();
       setLinks(false);
       endDrag();
       // A hidden map fills nothing.
