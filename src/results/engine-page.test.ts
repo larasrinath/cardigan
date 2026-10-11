@@ -241,6 +241,34 @@ describe("The results page itself against the engine in the Anaplan tab", () => 
     expect(files(resultZip(result, NOW), DETAILS_FILE)).toEqual(files(APP_ZIP_REWORDED, DETAILS_FILE));
   });
 
+  it("keeps a searched table and its open row through a real engine run with an edited cell", async () => {
+    await open(clicked);
+    await until(shown("Planning: app"), "the first result");
+    page.find('#navList [data-nav="1"]').press();
+    const heading = page.texts("#view h1");
+    page.find('#tableWrap tbody [data-act="row"]').press();
+    const title = page.id("drawerTitle").textContent;
+    page.id("drawerClose").press();
+    page.id("tblSearch").type(title);
+    page.find('#tableWrap tbody [data-act="row"]').press();
+    const table = page.id("tableWrap");
+    const before = page.texts("#drawerBody dd");
+    service.name = "Planning: app, edited";
+    const board = service.hold(BOARD);
+    page.id("drawerRun").press();
+    await until(() => board.waiting === 1, "the second run to pause");
+    await tab.quiet();
+    expect([page.id("tableWrap") === table, page.texts("#drawerBody dd"), page.has("#runBanner"), page.id("drawerRun").textContent.trim()])
+      .toEqual([true, before, false, "Reading"]);
+    expect(page.id("drawerRun").title).toBe(page.id("live").textContent);
+    board.release();
+    await until(shown("Planning: app, edited"), "the edited result");
+    expect([page.texts("#view h1"), page.id("tblSearch").value, page.id("drawerTitle").textContent, page.id("drawer").classList.contains("show")])
+      .toEqual([heading, title, title, true]);
+    expect(page.texts("#drawerBody dd")).toContain("Planning: app, edited");
+    expect(page.id("drawerRun").textContent.trim()).toBe("Run again");
+  });
+
   it("keeps the result on the page while the engine runs again, and through a run whose result cannot be sent", async () => {
     await open(clicked);
     await until(shown("Planning: app"), "the result on the page");
@@ -257,8 +285,8 @@ describe("The results page itself against the engine in the Anaplan tab", () => 
     await tab.quiet();
     // The engine is in the middle of its second run, which reads the app's pages a few at a time: it has begun the second
     // page beside the board. The page shows where that run is, above the first result, which is all still there, cell for cell.
-    expect([page.id("bannerText").textContent, page.id("banners").textContent.includes("The results below are from the earlier run.")])
-      .toEqual(["Reading page 2 of 2: Draft page", true]);
+    expect([page.id("runAgain").title, page.has("#runBanner")])
+      .toEqual(["Reading page 2 of 2: Draft page", false]);
     expect([page.document.title, navigation().length, page.id("runAgain").disabled]).toEqual(["Cardigan - Planning: app", 7, true]);
     expect(shownTables()).toEqual(first);
 

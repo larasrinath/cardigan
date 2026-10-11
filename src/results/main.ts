@@ -106,6 +106,7 @@ async function copyText(text: string, what = text): Promise<void> {
 /** One file of the result as the page shows it: its columns, and what the user chose for it. The files are kept in the
  * order the navigation lists them in (result-view.ts `listedTables`). */
 interface Shown {
+  search: string;
   /** Its place in the result's tables, which is also its name in the navigation. */
   index: number;
   /** The file as the page shows it: the result's own table, unless the file has a rule of its own (result-view.ts
@@ -181,7 +182,6 @@ let cards: CardsTable | undefined;
 let shown = new Map<number, Shown>();
 const state = {
   view: "overview" as View,
-  search: "",
   pageSize: 50,
   /** The page a jump to the Cards table keeps. */
   context: undefined as string | undefined,
@@ -205,8 +205,6 @@ let select = rememberingSelect();
 let modelMap: ModelMap | "failed" | undefined;
 /** The graph of the model on the page: built once, for its map and for the button in a row's details that goes there. */
 let modelGraph: ModelGraph | undefined;
-/** True while a run is going, so that a run that starts is told from one that goes on. */
-let running = false;
 /** What the tab keeps of how the result is looked at, for a refresh of the page (view-keep.ts): what was kept when the
  * page loaded, and from then on what the page last made of it. Its subject is the result it was made on: another
  * result's settings are not taken. */
@@ -215,7 +213,7 @@ let looks: KeptView | undefined;
 let looksText: string | undefined;
 /** Where the model map is, as it last said, where that is not where it opens by itself (`mapOptions`). */
 let mapLooks: MapView | undefined;
-/** The details that are open, as the tab keeps them: what a refresh opens again. */
+/** The details that are open, as the tab keeps them for a refresh or another run. */
 let drawerLooks: KeptDrawer | undefined;
 /** Which zone the page says its times in (times.ts): the viewer's own unless the viewer chose UTC, which is kept for every
  * result and tab. */
@@ -257,8 +255,8 @@ const valuesOf = (entry: Shown, column: number): string[] => valueCounts(entry.t
 /** Every table the page holds for the result: each file once, and an app's Where Used in both its ways. */
 const everyTable = (): Shown[] => [...shown.values()].flatMap(entry => (entry.ways ? [entry.ways.object, entry.ways.use] : [entry]));
 
-/** How the result on the page is looked at now, as the tab keeps it: each table's filters, ranges, columns, order and page,
- * the search and the jump of the table shown, how many rows a page lists, the way Where Used is shown, where the map is,
+/** How the result on the page is looked at now, as the tab keeps it: each table's search, filters, ranges, columns, order and page,
+ * the jump of the table shown, how many rows a page lists, the way Where Used is shown, where the map is,
  * and the details that are open. Nothing without a result. */
 function looksNow(): KeptView | undefined {
   if (!result) return undefined;
@@ -267,12 +265,13 @@ function looksNow(): KeptView | undefined {
     const kept = keepTable(entry, column => valuesOf(entry, column), ownZone);
     if (kept) tables[tableKey(entry)] = kept;
   }
-  const searched = typeof state.view === "number" && (state.search !== "" || state.context !== undefined);
+  const search = currentEntry()?.search ?? "";
+  const searched = typeof state.view === "number" && (search !== "" || state.context !== undefined);
   return {
     subject: subjectOf(result), tables,
     ...(state.pageSize !== DEFAULT_PAGE_SIZE ? { pageSize: state.pageSize } : {}),
     ...(everyUse ? { everyUse: true } : {}),
-    ...(searched ? { search: { view: String(state.view), text: state.search, ...(state.context !== undefined ? { context: state.context } : {}) } } : {}),
+    ...(searched ? { search: { view: String(state.view), text: search, ...(state.context !== undefined ? { context: state.context } : {}) } } : {}),
     ...(mapLooks ? { map: mapLooks } : {}),
     ...(drawerLooks ? { drawer: drawerLooks } : {}),
   };
@@ -316,8 +315,9 @@ function forgetLooks(): void {
  * columns are still those the settings name. */
 function takeLooks(entry: Shown, kept: KeptView | undefined): void {
   const table = kept?.tables[tableKey(entry)];
-  if (!table) return;
-  Object.assign(entry, takeTable(table, entry.columns, column => valuesOf(entry, column), ownZone));
+  if (table) Object.assign(entry, takeTable(table, entry.columns, column => valuesOf(entry, column), ownZone));
+  // Before searches belonged to each table, only the shown table's search was kept.
+  if (kept?.search?.view === String(entry.index) && !Object.values(kept.tables).some(table => table.search !== undefined)) entry.search = kept.search.text;
 }
 
 /** Once a result that was brought back is on the page, on the view the address marked: the search and the jump of that
@@ -326,15 +326,14 @@ function takeBackLooks(): void {
   const kept = looks;
   if (!result || !kept || kept.subject !== subjectOf(result)) return;
   if (currentEntry() && kept.search && kept.search.view === String(state.view)) {
-    state.search = kept.search.text;
     state.context = kept.search.context;
     renderAll();
   }
   if (kept.drawer) reopenDrawer(kept.drawer);
 }
 
-/** Opens the details that were open before a refresh: a row by what it holds, a card, or an object of Where Used by
- * object. Where it is not there any more, or more than one row holds the same, nothing opens. */
+/** Opens the kept details: a row by its identity, a card, or an object of Where Used by object. Where that identity is
+ * no longer there, or belongs to more than one row, nothing opens. */
 function reopenDrawer(drawer: KeptDrawer): void {
   const opener = el("view");
   const tables = everyTable();
@@ -423,10 +422,13 @@ function zoneLine(column: Column, range: RangeState | undefined): string | undef
   const days = range?.zone !== undefined && range.zone !== shownZone() ? `The days set are ${zoneWords(range.zone, ownZone)} days, which keep the same rows in either zone. ` : "";
   return `${times}${days}`;
 }
-/** The one row of a table with this key, as the tab keeps rows: by what the file holds, its times as they were read. */
+/** The column naming a row, independent of where its other columns stand. */
+const identityName = (entry: Shown): number => entry.opensFrom ?? rowNameIndex(entry.table)
+  ?? columnIndex(entry.table, "Name") ?? columnIndex(entry.table, "") ?? 0;
+/** Finds the kept identity, or an earlier version's hash with times as they were read. */
 function findShownRow(entry: Shown, key: string): Row | undefined {
   const asRead = entry.table.rows.map(row => fileRow(entry.table.headers, entry.exported, row, ownZone));
-  const found = findRow(asRead, key);
+  const found = findRow(asRead, key, entry.table, identityName(entry));
   return found && entry.table.rows[asRead.indexOf(found)];
 }
 /** A text node, as Node.TEXT_NODE names it. */
@@ -435,19 +437,24 @@ const TEXT_NODE = 3;
  * refreshed brings back without asking. The run control then says "again". */
 const ranBefore = (): boolean => client.asked || result !== undefined;
 /** The run control's words, after its icon: "Run" until an analysis has been made for this page, "Run again" after. */
-function showRunLabel(): void {
-  const button = el("runAgain");
-  const label = runLabel(ranBefore());
+function showRunLabel(button: HTMLElement): void {
+  const reading = client.state.phase === "running";
+  const label = reading ? "Reading" : runLabel(ranBefore());
   const words = [...button.childNodes].reverse().find(node => node.nodeType === TEXT_NODE && node.textContent?.trim());
   if (!words) button.append(label);
   else if (words.textContent !== label) words.textContent = label;
-  button.title = ranBefore() ? "Analyse the Anaplan tab again" : "Analyse the Anaplan tab";
+  button.classList.toggle("reading", reading);
+  button.setAttribute("aria-busy", String(reading));
+  button.title = reading ? describeState(client.state, ranBefore()).message : ranBefore() ? "Analyse the Anaplan tab again" : "Analyse the Anaplan tab";
 }
 /** The run control follows what there is to act on. */
 function updateActions(): void {
   const phase = client.state.phase;
-  el<HTMLButtonElement>("runAgain").disabled = phase === "running" || phase === "no-tab";
-  showRunLabel();
+  for (const id of ["runAgain", "drawerRun"] as const) {
+    const button = el<HTMLButtonElement>(id);
+    button.disabled = phase === "running" || phase === "no-tab";
+    showRunLabel(button);
+  }
 }
 
 /* ================= views ================= */
@@ -476,7 +483,7 @@ function query(entry: Shown): TableQuery {
   }
   const sortKeys = timeSortKeys(entry);
   return {
-    search: state.search, filters: entry.filters, lists: entry.lists, ranges, sort: entry.sort, ...(sortKeys ? { sortKeys } : {}),
+    search: entry.search, filters: entry.filters, lists: entry.lists, ranges, sort: entry.sort, ...(sortKeys ? { sortKeys } : {}),
     context: state.context !== undefined && column !== undefined ? { column, value: state.context } : undefined,
     // The search finds a count as the table shows it too, with its commas: in every column of counts, shown or hidden.
     counts: new Set(entry.columns.filter(shown => shown.kind === "count").map(shown => shown.index)),
@@ -532,7 +539,7 @@ function tableView(entry: Shown): TableView {
     ways: entry.ways && [{ way: "object", label: "By object", chosen: entry === entry.ways.object }, { way: "use", label: EVERY_USE, chosen: entry === entry.ways.use }],
     columns: entry.columns.filter(column => !entry.hidden.has(column.index)), widths: entry.widths, rows: page.rows, ...(entry.headings ? { headings: entry.headings } : {}),
     page: page.page, pages: page.pages, pageSize: state.pageSize, from: page.from, to: page.to, total: page.total, all: entry.table.rows.length,
-    search: state.search, sort: entry.sort, filtered: new Set([...entry.filters.keys(), ...entry.ranges.keys()]), context: state.context, links: entry.links,
+    search: entry.search, sort: entry.sort, filtered: new Set([...entry.filters.keys(), ...entry.ranges.keys()]), context: state.context, links: entry.links,
     ranged: new Map([...entry.ranges].map(([index, range]) => [index, rangeWords(entry.columns.find(column => column.index === index)!, range)])),
   };
 }
@@ -656,13 +663,16 @@ function showNotRemoved(): void {
   announce(NOT_REMOVED_LINE);
 }
 
-/** A result arrived, complete: the page becomes the design's results page for it. Only now does it take the place of an
- * earlier result, of which nothing is kept: not the rows on the page, the drawer's row, the last selection, its map, or the
- * banner of the run that has just ended. `back` is for a result the page kept before it was refreshed and has now brought back:
- * it is shown like any other, under a line that says when it was analysed. */
+/** A complete result replaces the earlier one. Another run on the same subject keeps the view by its file, each table's
+ * choices, the map's level and place, and the row's details where its identity still exists. The map is rebuilt from the
+ * new tables. A first result opens on the Overview; `back` brings a kept result back before restoring the address's view. */
 function showResult(next: AnalysisResult, at: Date, back = false): void {
   // How the result that is replaced was looked at is written first, as it is now: what of it fits the new result is taken.
   if (result) writeLooks();
+  const same = result !== undefined && subjectOf(result) === subjectOf(next);
+  const view = state.view;
+  const file = currentEntry()?.table.file;
+  const context = state.context;
   // Focus that is inside what the new result replaces moves to the new view; anywhere else, in the header, it stays.
   const replaced = [el("view"), el("mapHost"), el("drawer"), el("popover")].some(part => part.contains(document.activeElement));
   closePopover();
@@ -680,10 +690,8 @@ function showResult(next: AnalysisResult, at: Date, back = false): void {
   // What the tab keeps of how a result is looked at is taken where it was made on this app or model: on a result that
   // came back after a refresh all of it, and on a run again what fits its tables. Another app or model starts clean.
   const kept = looks?.subject === subjectOf(next) ? looks : undefined;
-  if (back && kept) {
-    everyUse = kept.everyUse === true;
-    state.pageSize = kept.pageSize ?? DEFAULT_PAGE_SIZE;
-  }
+  everyUse = kept?.everyUse === true;
+  state.pageSize = kept?.pageSize ?? DEFAULT_PAGE_SIZE;
   mapLooks = kept?.map;
   drawerLooks = undefined;
   // A result that was brought back is kept: the tab's storage still holds what it came from. A run's result is not kept
@@ -706,7 +714,7 @@ function showResult(next: AnalysisResult, at: Date, back = false): void {
     const keys = rowKeys(table);
     const page = cards !== undefined && keys.page !== undefined;
     const entry: Shown = {
-      index, table, note, none, empty, opensFrom, exported, readUnder, headings, lists, columns, keys, links: { page, card: page && keys.cardId !== undefined },
+      index, table, note, none, empty, opensFrom, exported, readUnder, headings, lists, columns, keys, search: "", links: { page, card: page && keys.cardId !== undefined },
       filters: new Map(), ranges: new Map(), read: new Map(), hidden: defaultHidden(columns), sort: undefined, page: 0, ...(hasTimes(base) ? { base } : {}),
     };
     // A number that could be more than one card's opens none of them: there it is plain text.
@@ -720,7 +728,7 @@ function showResult(next: AnalysisResult, at: Date, back = false): void {
     const object: Shown = {
       index, table: { ...file, headers: byObject.headers, rows: byObject.rows }, note: byObject.note, none: undefined, empty: undefined, opensFrom: undefined,
       exported: undefined, readUnder: undefined, headings: undefined, lists: new Map(), columns: byObject.columns,
-      keys: { page: undefined, cardId: undefined, number: undefined }, links: { page: false, card: false },
+      keys: { page: undefined, cardId: undefined, number: undefined }, search: "", links: { page: false, card: false },
       filters: new Map(), ranges: new Map(), read: new Map(), hidden: defaultHidden(byObject.columns), sort: undefined, page: 0, objects: byObject,
     };
     takeLooks(object, kept);
@@ -735,8 +743,9 @@ function showResult(next: AnalysisResult, at: Date, back = false): void {
     shown.set(index, everyUse ? entry : object);
   }
   state.view = "overview";
-  state.search = "";
-  state.context = undefined;
+  if (same && file) state.view = [...shown.values()].find(entry => entry.table.file === file)?.index ?? "overview";
+  else if (same && view === "map" && next.engine !== "polaris") state.view = "map";
+  state.context = same && typeof state.view === "number" ? context : undefined;
   const analysed = analysedOf(next);
   document.title = `Cardigan - ${analysed.name}`;
   el("hdMeta").innerHTML = headerMetaHtml(analysed);
@@ -744,6 +753,7 @@ function showResult(next: AnalysisResult, at: Date, back = false): void {
   el("timeZone").hidden = false;
   renderAll();
   if (replaced) el("view").focus({ preventScroll: true });
+  if (same && kept?.drawer) reopenDrawer(kept.drawer);
   if (!back) return announce(`Analysis finished: ${analysed.name}`);
   // Nothing was analysed just now: the page says what it shows, and from when.
   const line = analysedLine(at, new Date());
@@ -772,7 +782,6 @@ function clearResult(): void {
   mapLooks = undefined;
   drawerLooks = undefined;
   state.view = "overview";
-  state.search = "";
   state.context = undefined;
   document.title = TITLE;
   for (const id of ["hdMeta", "banners", "navList", "navCompact", "view"] as const satisfies readonly PageId[]) {
@@ -803,9 +812,8 @@ function showKept(kept: unknown, at: Date): boolean {
 /** The states in which a run did not start or did not finish. */
 const STOPPED: ReadonlySet<RunState["phase"]> = new Set(["unreachable", "not-anaplan", "tab-closed", "no-subject", "failed", "interrupted", "old-reader", "missing-reader", "model-opening"]);
 
-/** Connecting, running, or why there is no new result. Before the first result this is the whole view. Once a result is on
- * the page it stays there until a new one is complete, and the same words stand in the banner area above it: a run that
- * cannot start or does not finish takes nothing away. Every text is set as plain text. */
+/** Connecting, running, or why there is no new result. With a result on the page, progress is in the run control and live
+ * region; only a failure adds a banner. A run that cannot start or finish takes nothing away. Every status is plain text. */
 function showRun(runState: RunState): void {
   // A result that was brought back stands under its own line until an analysis is asked for on this page: that the tab was
   // reached, or was not, says nothing about it. And a page that may still bring one back draws no waiting view yet.
@@ -819,7 +827,8 @@ function showRun(runState: RunState): void {
     }
   };
   if (result) {
-    if (!find("#runBanner")) el("banners").innerHTML = runBannerHtml();
+    if (STOPPED.has(runState.phase) && !find("#runBanner")) el("banners").innerHTML = runBannerHtml();
+    if (!STOPPED.has(runState.phase) && find("#runBanner")) el("banners").innerHTML = "";
     const banner = find("#runBanner");
     banner?.classList.toggle("warn", STOPPED.has(runState.phase));
     banner?.classList.toggle("note", !STOPPED.has(runState.phase));
@@ -1112,8 +1121,8 @@ function openRowDrawer(entry: Shown, row: Row, opener: Element): void {
   if (entry.objects && object) return openObjectDrawer(entry.objects, object, opener);
   drawerObject = undefined;
   drawerRow = { entry, row };
-  // A row is kept by what the file holds, its times as they were read: the same row in either zone.
-  drawerLooks = { kind: "row", file: entry.table.file, key: rowKey(fileRow(entry.table.headers, entry.exported, row, ownZone)) };
+  // Its identity ignores edited values and the zone its times are shown in.
+  drawerLooks = { kind: "row", file: entry.table.file, key: rowKey(row, entry.table, identityName(entry)) };
   const position = entry.table.rows.findIndex(candidate => candidate === row) + 1;
   const named = entry.opensFrom ?? rowNameIndex(entry.table);
   const none = writesNone(entry.table);
@@ -1265,7 +1274,7 @@ function openCardDrawer(row: Row, opener: Element): void {
   const { sections, note } = cardParts(result, found, row);
   drawerObject = undefined;
   drawerRow = { entry, row };
-  drawerLooks = { kind: "card", file: entry.table.file, key: rowKey(row) };
+  drawerLooks = { kind: "card", file: entry.table.file, key: rowKey(row, entry.table, identityName(entry)) };
   openDrawer(`Card ${cell("Card #")}${title !== "" && title !== NONE ? ` - ${title}` : ""}`,
     cardDrawerSubHtml(cellText(row[found.page]), cell("Card type"), cellText(row[found.cardId]), note), cardDrawerHtml(entry.columns, row, entry.links, sections, rowItems(entry.lists, row)), opener);
 }
@@ -1785,7 +1794,7 @@ function tellMap(call: "hide" | "themeChanged" | "destroy", map = modelMap): voi
   try { map[call](); } catch (error) { client.note(mapFailure(call, error)); }
 }
 
-/** Takes the map of the result on the page away. A new result, a run that starts and a result that is forgotten each end
+/** Takes the map of the result on the page away. A new result and a result that is forgotten each end
  * it: its entry builds it afresh when it is next chosen. The host is left as the page had it at first, hidden and empty,
  * whatever the map left in it. A page whose shell lacks the host is passed over, as in `clearResult`.
  * The map is no longer the page's from before it is told to go: what it tells the page while it goes is not heard. */
@@ -1872,18 +1881,6 @@ function enterMap(model: AnalysisResult): void {
   announce(modelMap === "failed" ? MAP_FAILED : MAP_LABEL);
 }
 
-/** A run has started: the map of the result on the page ends with it, as it will with the result the run brings. Where
- * the map was the view shown, the overview takes its place under the run's banner, and focus that was inside the map
- * goes to it. The map's entry stays: it builds the map afresh from the result that is still on the page. */
-function endMapForRun(): void {
-  const inside = el("mapHost").contains(document.activeElement);
-  dropMap();
-  if (state.view !== "map") return;
-  state.view = "overview";
-  renderAll();
-  if (inside) el("view").focus({ preventScroll: true });
-}
-
 /* ================= the view in the address ================= */
 /** Marks the view shown in the page's address, so that a refreshed page opens on it once the result it kept is back
  * (`showMarked`): a table by its place among the result's tables, a number the page counted itself, and a model's map by
@@ -1916,10 +1913,9 @@ function showMarked(view: "map" | number | undefined): void {
 function navTo(view: View, context?: string): void {
   if (view === "map" && result?.engine === "polaris") return;
   closePopover();
-  // The search and the jump end with the view. The table that is left had its page counted among the rows they kept,
-  // so it is shown from its first page when the user comes back to it.
+  // A page's cards end with the view. Each table's search and page stay with it.
   const left = currentEntry();
-  if (left && (state.search.trim() !== "" || state.context !== undefined)) left.page = 0;
+  if (left && state.context !== undefined) left.page = 0;
   // A choice made with the focus outside the map leaves the map before the view is drawn. For another view that is
   // all there is to it. For the map's own entry, chosen again while the map is shown, it has the map shown anew, as on
   // coming back to it: choosing the entry took the focus out of the map, to the entry, and the map's keys with it, and
@@ -1931,7 +1927,6 @@ function navTo(view: View, context?: string): void {
   const host = el("mapHost");
   if (!host.contains(document.activeElement)) leaveMap();
   state.view = view;
-  state.search = "";
   state.context = context;
   renderAll();
   // The view takes the focus, unless a map that is shown has it: one that took it as it was shown, whose keys are its
@@ -2082,7 +2077,7 @@ document.addEventListener("click", event => {
         el("view").focus({ preventScroll: true });
         return;
       case "reset":
-        state.search = "";
+        if (entry) entry.search = "";
         state.context = undefined;
         if (entry) {
           entry.filters.clear();
@@ -2094,7 +2089,7 @@ document.addEventListener("click", event => {
         focusOn("#tblSearch");
         return;
       case "clear-search": {
-        state.search = "";
+        if (entry) entry.search = "";
         const box = find<HTMLInputElement>("#tblSearch");
         if (box) box.value = "";
         if (entry) {
@@ -2175,7 +2170,9 @@ document.addEventListener("click", event => {
   if (way && entry?.ways) {
     closePopover();
     everyUse = way.dataset.way === "use";
-    shown.set(entry.index, everyUse ? entry.ways.use : entry.ways.object);
+    const next = everyUse ? entry.ways.use : entry.ways.object;
+    next.search = entry.search;
+    shown.set(entry.index, next);
     renderAll();
     focusOn(`[data-way="${everyUse ? "use" : "object"}"]`);
     return;
@@ -2210,7 +2207,7 @@ document.addEventListener("click", event => {
 document.addEventListener("input", event => {
   const entry = currentEntry();
   if (event.target instanceof HTMLInputElement && event.target.id === "tblSearch" && entry) {
-    state.search = event.target.value;
+    entry.search = event.target.value;
     entry.page = 0;
     updateTable(entry);
   }
@@ -2248,6 +2245,7 @@ el("scrim").addEventListener("click", closeDrawer);
 el("themeToggle").addEventListener("click", toggleTheme);
 el("timeZone").addEventListener("click", () => setTimeMode(timeMode === "local" ? "utc" : "local"));
 el("runAgain").addEventListener("click", () => client.runAgain());
+el("drawerRun").addEventListener("click", () => client.runAgain());
 // The navigation's line is told again how wide its items are whenever it changes size, as when a window that was too narrow
 // for it widens: it is measured only where it is laid out (nav-spread.ts).
 if (typeof ResizeObserver === "function") new ResizeObserver(() => spreadLine(el("navList"))).observe(el("navList"));
@@ -2334,9 +2332,6 @@ const client = new ResultsClient({
   tabGone: tabId === undefined ? undefined : () => chrome.tabs.get(tabId).then(() => false, () => true),
   tabLoading: tabId === undefined ? undefined : () => chrome.tabs.get(tabId).then(tab => tab.status === "loading", () => false),
   onState: next => {
-    // Only a run that starts ends the map: one that goes on says "running" again with each step.
-    if (next.phase === "running" && !running) endMapForRun();
-    running = next.phase === "running";
     if (next.phase !== "done") return showRun(next);
     // Only a run's result is kept, and only once it is drawn: a result that was brought back is kept already.
     showResult(next.result, next.received);

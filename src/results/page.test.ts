@@ -420,12 +420,12 @@ describe("The results page's files", () => {
     expect(rules(".ov-kept:empty")).toEqual([[".ov-kept:empty", "display:none"]]);
   });
 
-  it("puts a row's buttons in one row under its name in its details, across the header, with the close button alone at the top right", () => {
-    // The name and the line under it stand together, then the close button, then the buttons: in the page as on screen,
+  it("puts a row's buttons under its name, with Run again and Close at the top right", () => {
+    // The name and the line under it stand together, then Run again and Close, then the buttons: in the page as on screen,
     // since the page draws nothing out of its order. The line that says why a button is missing follows the header.
     const shell = new FakePage(html);
     const header = shell.find(".drawer-hd");
-    expect(header.children.map(child => child.id || child.getAttribute("class"))).toEqual(["d-head", "drawerClose", "drawerOpens"]);
+    expect(header.children.map(child => child.id || child.getAttribute("class"))).toEqual(["d-head", "drawerRun", "drawerClose", "drawerOpens"]);
     expect(shell.find(".d-head").children.map(child => child.id)).toEqual(["drawerTitle", "drawerSub"]);
     expect([shell.id("drawerOpens").getAttribute("role"), shell.id("drawerOpens").getAttribute("aria-label")]).toEqual(["group", "Open elsewhere"]);
     expect(shell.id("drawer").children.map(child => child.id || child.getAttribute("class"))).toEqual(["drawer-hd", "drawerWhy", "drawerBody"]);
@@ -438,6 +438,20 @@ describe("The results page's files", () => {
     // Each button keeps its words on one line, a little smaller than the page's other buttons, so that a page filter's
     // five fit on one row in the details' usual width.
     expect(declared(".d-opens .btn")).toEqual(["white-space:nowrap;padding:3px 9px;gap:5px;font-size:11.5px"]);
+  });
+
+  it("holds the run controls' width, draws their spinner and respects reduced motion", () => {
+    const shell = new FakePage(html);
+    for (const id of ["runAgain", "drawerRun"]) {
+      expect(shell.id(id).classList.contains("run-control")).toBe(true);
+      expect(shell.id(id).querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+      expect(shell.id(id).querySelector("svg .run-spinner")?.localName).toBe("circle");
+    }
+    expect(declared(".run-control")[0]).toContain("width:116px");
+    expect(declared(".run-control")[0]).toContain("flex:none");
+    expect(declared(".reading .run-icon")).toEqual(["display:none"]);
+    expect(css).toContain("@media(prefers-reduced-motion:reduce){.reading .run-spinner{animation:none}}");
+    expect(shell.id("live").getAttribute("aria-live")).toBe("polite");
   });
 
   it("lists a value of several items one to a line, in the drawer's values and in a card's parts alike, by the page's tokens alone", () => {
