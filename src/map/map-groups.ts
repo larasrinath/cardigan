@@ -37,7 +37,7 @@ export interface Grouping {
 }
 
 export const NO_FUNCTIONAL_AREA = "No functional area";
-/** The group of a module with no heading row above it, or under one that is nothing but dashes (graph-types.ts `group`). */
+/** The group of a module with no heading row above it, or under one that is nothing but heading marks. */
 export const UNGROUPED = "Ungrouped";
 export const OTHER = "Other";
 export const ROLES = { data: "Data", input: "Input", system: "System", calculation: "Calculation", output: "Output" } as const;
@@ -338,7 +338,7 @@ export function howGroupingWorks(grouping: Grouping | undefined, model: MapModel
     case "functionalArea":
       return "Each module is in the Functional Area set for it in the model. Modules without one are under No functional area.";
     case "headings":
-      return "Each module is under the model heading above it, a module whose name starts with --. Modules with no heading above them are under Ungrouped.";
+      return "Each module is under the model heading above it, a module whose name starts with --, ==, **, << or >>. Modules with no heading above them are under Ungrouped.";
     case "prefix": {
       const examples = grouping.groups.filter(group => group !== grouping.rest).slice(0, 3).join(", ");
       return `Modules whose names start with the same code, like ${examples}, form a group when ${prefixThreshold(model)} or more share it. The rest are under Other.`;
