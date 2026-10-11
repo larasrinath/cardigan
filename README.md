@@ -169,9 +169,10 @@ Closing the results page stops the reading.
 
 ### Run again, refresh and Forget this result
 
-- **Run again** reads the Anaplan tab again. The result on the page stays until the new one is complete.
+- **Run again** reads the Anaplan tab again, keeping the table or map you are on. The result stays until the new one is complete. The button keeps its width and says **Reading** beside a small spinner; its title and the screen reader's live region say the progress. No progress banner moves the content. A failure still shows the existing card.
+- A row's details reopen after **Run again** on the same app or model, found by its table, name and module, or its list or parent where it has no module. An edited formula, format, count or note does not lose it. A row that is gone, renamed or no longer unique stays closed. The details panel has its own **Run again** button, so you can read again without closing it. A first run from the icon opens on the Overview.
 - The last finished result is kept for its tab, so a refresh brings it back without reading Anaplan, on the table or the map that was shown. A line above it says when it was analysed.
-- A refresh keeps how you left the result too, until the tab is closed: each table's filters and ranges, the columns you showed or hid, its sort and its page; the rows a page lists; the search of the table you were on; how **Where Used** is listed; where the model map was, its group or module and its links; and a row's details that were open. **Run again** on the same app or model keeps what still fits its tables, each column by its name; another app or model starts clean. **Reset** clears a table's.
+- Each table keeps its own search when you switch away and come back. A refresh keeps how you left the result too, until the tab is closed: every table's search, filters and ranges, the columns you showed or hid, its sort and its page; the rows a page lists; how **Where Used** is listed; where the model map was, its group or module and its links; and a row's details that were open. **Run again** on the same app or model keeps what still fits its tables, each column by its name; another app or model starts clean. **Reset** clears a table's. Settings kept by earlier versions still load.
 - **Forget this result**, on the Overview, removes the kept copy at once, and how you left it. The result stays on the page until you refresh or close it.
 - Only the icon starts a reading unasked. A results page that is reloaded, duplicated or reopened waits for **Run** or **Run again**.
 
@@ -218,7 +219,7 @@ Closing the results page stops the reading.
 - The map draws sections, modules, line items and the lists that formulas name. Processes and actions are not drawn; a module's details name the imports that load into it.
 - **About this map**, at the foot of the map, says what the map leaves out and could not place for this model, such as a line item named twice in one module.
 - A large view is shown whole with names cut short: point at a box to read its name. One too large even for that opens on its start, and **Whole map** shows all of it.
-- The map keeps its view, group or module and links, for a refresh and for **Run again** on the same model; not its zoom and position, the box selected, its search or full screen. **Forget this result** starts it afresh.
+- The map stays up during **Run again** and is rebuilt in place on the same view, group or module and links when the new result arrives. A refresh keeps these too; zoom and position, the box selected, its search and full screen may reset. **Forget this result** starts it afresh.
 - A result over 64 MB as JSON, or 9 MB compressed, is not kept for a refresh; the page says so.
 - Anaplan can change the internal services Cardigan reads without notice: see [NOTICE.md](NOTICE.md).
 

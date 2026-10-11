@@ -12,6 +12,15 @@ The Model map has one path, and calls each group a group.
 - **The words agree.** Group replaces section in the legend, details, search, foot and empty map. The details say Show its modules or Show its line items, with the count. The hover card leaves the double-click shortcut to About this map, and the details' list headings have drawn chevrons.
 - **Kept as before.** Search across the model, Model map from the tables, the traces and page filters, the three kinds of link, full screen and the map's other tools. Views kept for the tab by earlier versions still load.
 
+## 0.23.1 (11 October 2026)
+
+Run again keeps the place you were reading.
+
+- **The same table and details.** Run again on the same app or model keeps the table shown and reopens the row's details where that row still exists. A row is found by its name and module, or its list or parent, so an edited formula, format, count or note does not lose it. A missing or ambiguous row stays closed. The details panel has its own **Run again** button. (#73)
+- **Reading without a jump.** The run button keeps its width, with a small drawn spinner and **Reading**. Its title and the screen reader's live region say the progress. No progress banner pushes the result down; a failure still shows the existing card. (#73)
+- **The map stays up.** The Model map remains on screen during a run and is rebuilt on the same view, group or module when the result arrives. Zoom and selection may reset. (#73)
+- **Each table's search.** Switching tables and coming back restores that table's search and page. A refresh keeps every search for the life of the tab, along with the other view settings. Settings kept by earlier versions still load. A first run from the icon still opens on the Overview. (#73)
+
 ## 0.23.0 (10 October 2026)
 
 Cardigan checks the model's engine first, and reads what it can from Polaris.

@@ -48,6 +48,46 @@ describe("What the tab keeps of how a result is looked at", () => {
     expect([findRow(rows, rowKey(rows[0])), findRow(rows, rowKey(rows[1])), findRow(rows, rowKey(["Gone"]))]).toEqual([rows[0], undefined, undefined]);
   });
 
+  it("finds an edited row by its table, name and module, even with columns reordered", () => {
+    const table = { file: "Line Items.csv", headers: ["Name", "Module Name", "Formula", "Format", "Cell Count", "Notes"] };
+    const key = rowKey(["Revenue", "Sales", "Units * Price", "Number", 10, "Old"], table);
+    const next = { ...table, headers: ["Notes", "Name", "Module Name", "Format", "Cell Count", "Formula"] };
+    const other = ["New", "Revenue", "Costs", "Text", 30, "Changed"];
+    const row = ["New", "Revenue", "Sales", "Text", 30, "Changed"];
+    expect(findRow([other, row], key, next, 1)).toBe(row);
+    expect(findRow([other], key, next, 1)).toBeUndefined();
+    expect(findRow([row, row.slice()], key, next, 1)).toBeUndefined();
+    expect(findRow([row], key, { ...next, file: "Modules.csv" }, 1)).toBeUndefined();
+  });
+
+  it.each(["List", "List Name", "Parent", "Parent Hierarchy"])("uses %s where a row has no module", owner => {
+    const table = { file: "General Lists.csv", headers: ["Name", owner, "Item Count", "Notes"] };
+    const key = rowKey(["Stores", "Regions", 8, "Before"], table);
+    const row = ["Stores", "Regions", 12, "Edited"];
+    expect(findRow([["Stores", "Countries", 12, "Edited"], row], key, table)).toBe(row);
+    expect(findRow([["Stores", "Countries", 12, "Edited"]], key, table)).toBeUndefined();
+  });
+
+  it.each(["Module", "Object's module", "Condition line item's module", "Formatted module", "Driver Module"])("distinguishes modules under %s", module => {
+    const table = { file: "Rows.csv", headers: ["Name", module, "Notes"] };
+    const key = rowKey(["Revenue", "Sales", "Before"], table);
+    expect(findRow([["Revenue", "Costs", "Edited"]], key, table)).toBeUndefined();
+  });
+
+  it("reads the old whole-row hash even when the caller supplies the table", () => {
+    const row = ["Revenue", "Number", 1];
+    expect(findRow([row], rowKey(row), { file: "Line Items.csv", headers: ["Name", "Format", "Cell Count"] })).toBe(row);
+  });
+
+  it("keeps and reads each table's search while ignoring a malformed one", () => {
+    const kept = keepTable(looks({ search: "Revenue" }), valuesOf)!;
+    expect(kept).toEqual({ search: "Revenue" });
+    expect(takeTable(kept, COLUMNS, valuesOf).search).toBe("Revenue");
+    const store = storage();
+    store.held.set(VIEW_KEY, JSON.stringify({ subject: "model:demo", tables: { lines: kept, modules: { search: 23 }, lists: { search: "Stores" } } }));
+    expect(readKept(store)?.tables).toEqual({ lines: kept, modules: {}, lists: { search: "Stores" } });
+  });
+
   it("keeps nothing of a table as the page starts it, and a table's choices by its columns' names", () => {
     expect(keepTable(looks(), valuesOf)).toBeUndefined();
     const kept = keepTable(looks({
@@ -74,7 +114,7 @@ describe("What the tab keeps of how a result is looked at", () => {
       ranges: new Map([[2, range("10", "20", false)]]), hidden: new Set([3, 5]), sort: { column: 1, dir: "asc" }, page: 1,
     }), valuesOf)!;
     // The same table: the same choices.
-    expect(takeTable(kept, COLUMNS, valuesOf)).toEqual({
+    expect(takeTable(kept, COLUMNS, valuesOf)).toEqual({ search: "",
       filters: new Map([[1, new Set(["Number"])], [3, new Set(["a"])]]), ranges: new Map([[2, range("10", "20", false)]]), hidden: new Set([3, 5]), sort: { column: 1, dir: "asc" }, page: 1,
     });
     // A new run: Format is now the third column and lists a new value; Notes has gone; Cell Count is a column of text now;
@@ -83,7 +123,7 @@ describe("What the tab keeps of how a result is looked at", () => {
       { index: 0, label: "Name", hidden: false }, { index: 1, label: "Cell Count", hidden: false }, { index: 2, label: "Format", hidden: false }, { index: 3, label: "Code", hidden: true },
     ];
     const laterValues = (column: number): string[] => (column === 2 ? ["Number", "Text", "Time Period"] : column === 1 ? ["12", "x"] : []);
-    expect(takeTable(kept, later, laterValues)).toEqual({ filters: new Map([[2, new Set(["Number"])]]), ranges: new Map(), hidden: new Set([3]), sort: { column: 2, dir: "asc" }, page: 1 });
+    expect(takeTable(kept, later, laterValues)).toEqual({ search: "", filters: new Map([[2, new Set(["Number"])]]), ranges: new Map(), hidden: new Set([3]), sort: { column: 2, dir: "asc" }, page: 1 });
   });
 
   it("lets a new value in where the filter was kept as the values left out, and not where it was kept as the values ticked", () => {
