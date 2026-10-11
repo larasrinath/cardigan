@@ -23,7 +23,8 @@ describe("The results page's files", () => {
     expect(declared(".drawer")[0]).toContain("top:var(--details-top)");
     expect(declared(".drawer")[0]).toContain("z-index:35");
     expect(declared(".top")[0]).toContain("z-index:40");
-    expect(css).toContain("@media(min-width:1100px){body.details-open .shell,body.details-open .banners{width:calc(100% - var(--details-width))");
+    expect(css).toContain("@media(min-width:1100px){body.details-open:not(:has(#mapHost:not([hidden]))) .shell,body.details-open:not(:has(#mapHost:not([hidden]))) .banners{width:calc(100% - var(--details-width))");
+    expect(declared("body:has(#mapHost:not([hidden])) .drawer")).toEqual(["display:none"]);
     expect(page.id("drawerBack").hidden).toBe(true);
   });
 
@@ -113,7 +114,7 @@ describe("The results page's files", () => {
     // sizes, from the page down to the main area, and a hidden place changes nothing on the page. While it is shown the
     // shell keeps 12px at the window's two sides, at every width, less than the gutter that every other view keeps: the
     // map takes nearly the whole width. The banners keep the gutter, as the header and the navigation do.
-    expect(rules("#mapHost").filter(([selector]) => selector !== "#mapHost")).toEqual([
+    expect(rules("#mapHost").filter(([selector]) => selector !== "#mapHost" && !selector.includes("details-open") && !selector.includes(".drawer"))).toEqual([
       ["body:has(#mapHost:not([hidden]))", "display:flex;flex-direction:column;height:100dvh"],
       ["body:has(#mapHost:not([hidden])) > .banners,body:has(#mapHost:not([hidden])) > .shell", "width:100%"],
       ["body:has(#mapHost:not([hidden])) > .shell", "flex:1 1 0;min-height:0;padding:12px"],

@@ -6,7 +6,7 @@ import type { InspectLink, Inspection, TraceWords } from "./map-inspect.js";
 import {
   ACCESS_LINK_SAYS, ACCESS_SAYS, BESIDE_SAYS, brokenHtml, emptyHtml, esc, FILTER_LINK_SAYS, FILTER_MARK_SAYS, FILTERS_BOTH_SAY, FILTERS_NONE, FILTERS_OWN_SAY, FILTERS_SAY, FILTERS_UNSAID, filtersNote, FORMULAS_SAY, FULL_SAYS, fullIconHtml, groupingOptionsHtml, groupOptionsHtml, inspectorHtml,
   legendHtml, LINK_SAYS, LIST_CAP, listHtml, NO_LINKS_SAYS, notesHtml, type LegendLinks,
-  pathRootHtml, pickerOptionsHtml, resultsHtml, shellHtml, SHOW_GROUPS, SHOW_MODULES, TIP_FORMULA, tooltipHtml, tracebarHtml, type ShellIds,
+  pathRootHtml, pickerOptionsHtml, resultsHtml, shellHtml, SHOW_GROUPS, SHOW_MODULES, TIP_FORMULA, tooltipHtml, traceHtml, type ShellIds,
 } from "./map-markup.js";
 import { HOSTILE } from "./map-fakes.test-support.js";
 
@@ -70,7 +70,7 @@ const everything = (text: Texts): string[] => [
   pathRootHtml(text(0), text(1), false),
   pathRootHtml(text(0), undefined, true),
   legendHtml(text(0), [{ key: "s0", label: text(1), count: 3 }, { key: "external", label: text(2), count: 1 }], new Set(["external"])),
-  tracebarHtml(text(0), words(text, 1), false),
+  traceHtml(words(text), false),
   tooltipHtml({ layer: "s1", kind: text(0), name: text(1), lines: [text(2), "", text(3)], formula: text(4) }),
   resultsHtml({ hits: [{ kind: "module", name: text(0), context: text(1) }, { kind: "section", section: 1, name: text(2), context: text(3) }], total: 80 }),
   inspectorHtml(inspectionOf(text), words(text, INSPECTION_TEXTS)),
@@ -101,7 +101,7 @@ describe("The map's escaping", () => {
     expectInert(text => pathRootHtml(text(0), text(1), true), 2);
     expectInert(text => pathRootHtml(text(0), undefined, true), 1);
     expectInert(text => legendHtml(text(0), [{ key: "s0", label: text(1), count: 3 }, { key: "external", label: text(2), count: 1 }], new Set()), 3);
-    expectInert(text => tracebarHtml(text(0), words(text, 1), true), 3);
+    expectInert(text => traceHtml(words(text), true), 2);
     expectInert(text => tooltipHtml({ layer: "s1", kind: text(0), name: text(1), lines: [text(2), text(3)], formula: text(4) }), 5);
     expectInert(text => resultsHtml({ hits: [{ kind: "module", name: text(0), context: text(1) }, { kind: "lineItem", name: text(2), context: text(3) }], total: 2 }), 4);
     expectInert(text => inspectorHtml(inspectionOf(text), words(text, INSPECTION_TEXTS)), INSPECTION_TEXTS + 2);
@@ -323,7 +323,7 @@ describe("The map's own markup", () => {
 
   it("starts with the panels of a selection hidden, and the first view's controls shown", () => {
     const shell = parseMarkup(shellHtml(IDS, "Demand Plan"));
-    for (const selector of [".map-inspector", ".map-tracebar", ".map-results", ".map-picker-pop", ".map-empty", ".map-external-check", ".map-links-pop", '[data-map-act="whole"]']) {
+    for (const selector of [".map-inspector", ".map-results", ".map-picker-pop", ".map-empty", ".map-external-check", ".map-links-pop", '[data-map-act="whole"]']) {
       expect(shell.querySelector(selector)?.hidden, selector).toBe(true);
     }
     for (const selector of [".map-status", ".map-corner"]) expect(shell.querySelector(selector)?.hidden, selector).toBe(false);
@@ -342,7 +342,7 @@ describe("The map's own markup", () => {
     // The legend and the notes stand over the line at the foot, whatever its height.
     expect(shell.querySelector(".map-foot")?.children.map(child => child.getAttribute("class"))).toEqual(["map-over", "map-dock"]);
     // At the foot: the status and its two buttons. The trace shares the details column.
-    expect(shell.querySelector(".map-selection")?.children.map(child => child.getAttribute("class"))).toEqual(["map-panel map-tracebar", "map-panel map-inspector"]);
+    expect(shell.querySelector(".map-selection")?.children.map(child => child.getAttribute("class"))).toEqual(["map-panel map-inspector"]);
     expect(shell.querySelector(".map-dock")?.children.map(child => child.getAttribute("class"))).toEqual(["map-panel map-status", "map-btn map-dock-btn", "map-btn map-dock-btn"]);
     expect(shell.querySelector(".map-over")?.children.map(child => child.getAttribute("class"))).toEqual(["map-panel map-legend", "map-panel map-about"]);
   });
@@ -474,21 +474,18 @@ describe("The map's panels", () => {
   });
 
   it("says what is traced as the picture runs: what feeds the node, the node, what it feeds, each side with its sign", () => {
-    const bar = parseMarkup(`<div>${tracebarHtml("CAL01 - Revenue", TRACED, false)}</div>`);
-    // Its two buttons are one piece: where the bar is too short for one row, they take the second together.
-    expect(bar.querySelector("div")?.children.map(child => child.getAttribute("class"))).toEqual(["map-trace-count map-trace-up", "map-trace-name", "map-trace-count map-trace-down", "map-trace-acts"]);
-    expect(bar.querySelector(".map-trace-acts")?.children.map(child => child.getAttribute("class"))).toEqual(["map-btn map-small", "map-btn map-small"]);
-    expect([bar.querySelector(".map-trace-name")?.textContent, bar.querySelector(".map-trace-name")?.getAttribute("title")]).toEqual(["CAL01 - Revenue", "CAL01 - Revenue"]);
+    const bar = parseMarkup(`<div>${traceHtml(TRACED, false)}</div>`);
+    expect(bar.querySelectorAll("button")).toHaveLength(1);
     expect(bar.querySelectorAll(".map-trace-count").map(count => count.textContent)).toEqual(["1,200 boxes feed it", "it feeds 1 box"]);
     // The sign is a picture beside the words, not a word: a screen reader hears the words alone.
     expect(bar.querySelectorAll(".map-sign").map(sign => [sign.localName, sign.getAttribute("aria-hidden"), sign.parentElement?.getAttribute("class")])).toEqual([["svg", "true", "map-trace-count map-trace-up"], ["svg", "true", "map-trace-count map-trace-down"]]);
     // The first button keeps the picture to the boxes the bar has just counted. Its face is short, so that the bar keeps
     // to one row; its name to a screen reader and on hover says it in full, and holds the words on its face.
-    const buttons = (focused: boolean): (string | undefined)[][] => parseMarkup(`<div>${tracebarHtml("CAL01 - Revenue", TRACED, focused)}</div>`).querySelectorAll("button")
+    const buttons = (focused: boolean): (string | undefined)[][] => parseMarkup(`<div>${traceHtml(TRACED, focused)}</div>`).querySelectorAll("button")
       .map(button => [button.textContent, button.dataset.mapAct, button.getAttribute("aria-label") ?? undefined, button.getAttribute("title") ?? undefined]);
-    expect(buttons(false)).toEqual([["Only these", "focus", "Show only these boxes", "Show only these boxes"], ["Clear", "clear", "Clear the selection", "Clear the selection"]]);
+    expect(buttons(false)).toEqual([["Only these", "focus", "Show only these boxes", "Show only these boxes"]]);
     // While the picture keeps to them, the same button leads back.
-    expect(buttons(true)).toEqual([["All boxes", "focus", "Show all boxes", "Show all boxes"], ["Clear", "clear", "Clear the selection", "Clear the selection"]]);
+    expect(buttons(true)).toEqual([["All boxes", "focus", "Show all boxes", "Show all boxes"]]);
     for (const [face, , name] of [...buttons(false), ...buttons(true)]) expect(name?.toLowerCase()).toContain(face?.toLowerCase());
   });
 
@@ -535,7 +532,7 @@ describe("The map's panels", () => {
 
 describe("The details' markup", () => {
   const inspection: Inspection = {
-    kind: "LINE ITEM", layer: "lineitem", name: "Gross", rows: [["Module", "CAL01 - Revenue"], ["Format", "Number, 2 decimal places"]],
+    kind: "Line item", layer: "lineitem", name: "Gross", rows: [["Module", "CAL01 - Revenue"], ["Format", "Number, 2 decimal places"]],
     action: { label: "Show its module with it selected", module: 12, select: 34 }, formula: "Units\n  * Price",
     lists: [
       { key: "depends", title: "Feeds it directly · 2", open: true, links: [{ raw: 5, name: "Units", sub: "INP01 - Volumes", caption: "read access driver", layer: "lineitem" }, { node: "external7", name: "INP02 - Prices", layer: "external" }] },
@@ -547,7 +544,7 @@ describe("The details' markup", () => {
 
   it("shows what the node is, its name as a heading that can take the focus, and the button that closes it", () => {
     const panel = parseMarkup(inspectorHtml(inspection));
-    expect(panel.querySelector(".map-kind")?.textContent).toBe("LINE ITEM");
+    expect(panel.querySelector(".map-kind")?.textContent).toBe("Line item");
     expect(panel.querySelector(".map-kind .map-dot")?.getAttribute("class")).toBe("map-dot map-c-lineitem");
     const name = panel.querySelector(".map-insp-name")!;
     expect([name.localName, name.textContent, name.getAttribute("tabindex")]).toEqual(["h3", "Gross", "-1"]);
@@ -566,7 +563,7 @@ describe("The details' markup", () => {
     // The notes end the details: nothing names a file or a row after them.
     expect([panel.children[panel.children.length - 1].textContent, html.includes(".csv"), /\brow \d/.test(panel.textContent)]).toEqual(["Before discounts.", false, false]);
     // The order a modeller reads in: the name, what the trace found, the way in, the formula, and only then the rest.
-    const order = ["map-insp-name", "map-insp-trace", "map-primary", "map-formula", "map-dl", "map-details", "map-insp-note"].map(name => html.indexOf(`class="${name}"`));
+    const order = ["map-insp-name", "map-insp-opens", "map-insp-trace", "map-formula", "map-dl", "map-details", "map-insp-note"].map(name => html.indexOf(`class="${name}"`));
     expect(order.every(at => at >= 0)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
   });
@@ -574,8 +571,8 @@ describe("The details' markup", () => {
   it("says what the trace found in words, each side with its sign, and nothing of a trace it was not given", () => {
     const panel = parseMarkup(inspectorHtml(inspection, TRACED));
     const traced = panel.querySelector(".map-insp-trace")!;
-    expect(traced.textContent).toBe("On the map, directly or through others: 1,200 boxes feed it, it feeds 1 box.");
-    expect(traced.children.map(child => [child.getAttribute("class"), child.querySelector(".map-sign")?.getAttribute("aria-hidden")])).toEqual([["map-trace-up", "true"], ["map-trace-down", "true"]]);
+    expect(traced.querySelector(".map-trace-counts")?.textContent).toBe("1,200 boxes feed it, it feeds 1 box.");
+    expect(traced.querySelectorAll(".map-trace-count").map(child => [child.getAttribute("class"), child.querySelector(".map-sign")?.getAttribute("aria-hidden")])).toEqual([["map-trace-count map-trace-up", "true"], ["map-trace-count map-trace-down", "true"]]);
     expect(parseMarkup(inspectorHtml(inspection)).querySelector(".map-insp-trace")).toBeNull();
   });
 
@@ -585,6 +582,22 @@ describe("The details' markup", () => {
     const section = parseMarkup(inspectorHtml({ ...inspection, action: { label: "Show its 2 modules", section: 0 } })).querySelector('[data-map-act="open"]')!;
     expect([section.textContent, section.dataset.mapSection, section.dataset.mapModule]).toEqual(["Show its 2 modules", "0", undefined]);
     expect(parseMarkup(inspectorHtml({ ...inspection, action: undefined })).querySelector('[data-map-act="open"]')).toBeNull();
+  });
+
+  it("orders the name, kind, one button row and trace, with raw cells folded last", () => {
+    const opens = [{ label: "Table" as const, title: 'A <row> "name"', open: () => undefined },
+      { label: "Model" as const, title: "Open in Model Building", open: () => undefined }];
+    const html = inspectorHtml({ ...inspection, asRead: [["Format", '<format> "raw"']] }, TRACED, opens);
+    const panel = parseMarkup(html);
+    expect(panel.querySelectorAll(".map-insp-opens button").map(button => button.textContent)).toEqual(["Show its module with it selected", "Table", "Model"]);
+    expect(panel.querySelector('[data-map-open="0"]')?.title).toBe('A <row> "name"');
+    expect(panel.querySelectorAll('[data-map-act="focus"]')).toHaveLength(1);
+    const raw = panel.querySelector(".map-as-read")!;
+    expect([raw.hasAttribute("open"), raw.querySelector("summary")?.textContent, raw.querySelector("pre")?.textContent])
+      .toEqual([false, "As read", '<format> "raw"']);
+    expect(raw.querySelector("summary svg")).not.toBeNull();
+    const order = ["map-insp-name", "map-kind", "map-insp-opens", "map-insp-trace", "map-as-read"].map(name => html.indexOf(name));
+    expect(order).toEqual([...order].sort((a, b) => a - b));
   });
 
   it("makes each thing that feeds it a button: to an object of the model, or to a node on screen", () => {
@@ -598,7 +611,7 @@ describe("The details' markup", () => {
   });
 
   it("says in the formula's place why there is none, and leaves out what an inspection lacks", () => {
-    const panel = parseMarkup(inspectorHtml({ kind: "LINE ITEM", layer: "heading", name: "Workings", rows: [], remark: "No formula.", lists: [], texts: [] }));
+    const panel = parseMarkup(inspectorHtml({ kind: "Line item", layer: "heading", name: "Workings", rows: [], remark: "No formula.", lists: [], texts: [] }));
     expect(panel.querySelector(".map-formula")).toBeNull();
     expect(panel.querySelectorAll(".map-insp-note").map(note => note.textContent)).toEqual(["No formula."]);
     expect([panel.querySelector("dl"), panel.querySelector(".map-details"), panel.querySelector("h4"), panel.querySelector(".map-primary")]).toEqual([null, null, null, null]);

@@ -344,7 +344,7 @@ const writes = (...words: string[]): boolean => written().some(line => words.eve
  * stands in its place. */
 const shownStatus = (): string | undefined => (part(".map-status").hidden ? undefined : status());
 /** The bar of what is traced, for the box selected: how many boxes feed it, its name, and how many it feeds. */
-const traced = (): string[] => [".map-trace-up", ".map-trace-name", ".map-trace-down"].map(piece => text(`.map-tracebar ${piece}`));
+const traced = (): string[] => [text(".map-insp-trace .map-trace-up"), text(".map-insp-name"), text(".map-insp-trace .map-trace-down")];
 /** The details of the box selected: each of its settings beside its value. */
 const settings = (): Record<string, string> => Object.fromEntries(parts(".map-inspector .map-dl dt").map((term, index) => [term.textContent, parts(".map-inspector .map-dl dd")[index].textContent]));
 /** One of the details' lists: each object it names, with what stands under the name (a line item's module). */
@@ -359,6 +359,33 @@ function tableRow(name: string): Record<string, string> {
 }
 
 describe("A model's result on the results page, with the map's real graph and the map's real view", () => {
+  it("returns each box to its table row with details open, then selects it again on the map", async () => {
+    await openWith(MODEL);
+    for (const [name, table] of [["Margin %", "Line Items"], [REVENUE, "Modules"], ["Products", "General Lists"]]) {
+      choose(table);
+      // The target must be made visible even when the table was left on a search that hides it.
+      page.id("tblSearch").type("no matching invented row");
+      toMap();
+      part(".map-search").type(name === "Products" ? "Unit Cost" : name);
+      parts(".map-result").find(button => button.querySelector("span")?.textContent === (name === "Products" ? "Unit Cost" : name))!.press();
+      if (name === "Products") part('.map-inspector [data-map-list="depends"] .map-link').press();
+      const initial = traced();
+      const tableButton = () => parts('[data-map-act="page-open"]').find(button => button.textContent === "Table")!;
+      tableButton().press();
+      expect([host().hidden, page.texts("#view h1"), page.id("drawerTitle").textContent, page.id("drawer").classList.contains("show")])
+        .toEqual([true, [table], name, true]);
+      expect(page.all('#tableWrap tbody [data-act="row"]').some(row => row.textContent.includes(name))).toBe(true);
+      expect(page.id("tblSearch").value).toBe("");
+      expect(page.document.activeElement).toBe(page.id("drawerClose"));
+      page.all("#drawerOpens button").find(button => button.textContent.trim() === "Model map")!.press();
+      around.shows();
+      expect([host().hidden, page.id("drawer").classList.contains("show"), page.id("drawerTitle").textContent, text(".map-insp-name"), traced()])
+        .toEqual([false, true, name, name, initial]);
+      tableButton().press();
+      expect([page.texts("#view h1"), page.id("drawerTitle").textContent]).toEqual([[table], name]);
+    }
+  });
+
   it("draws the made-up model as its sections and its modules, by name, under a line that counts them and their links", async () => {
     await openWith(MODEL);
     // The overview's tile counts the rows of the page's own Line Items table: every row of the file, the modules' own too.
@@ -431,7 +458,7 @@ describe("A model's result on the results page, with the map's real graph and th
     around.shows();
     // The map goes to the line item's module and selects it there: the module's four line items, with the three
     // modules they read and feed beside them.
-    expect([where(), text(".map-kind"), text(".map-insp-name"), part(".map-inspector").hidden]).toEqual([["Model one", "02 Calculations", REVENUE], "LINE ITEM", "Margin %", false]);
+    expect([where(), text(".map-kind"), text(".map-insp-name"), part(".map-inspector").hidden]).toEqual([["Model one", "02 Calculations", REVENUE], "Line item", "Margin %", false]);
     expect(written()).toEqual(expect.arrayContaining(["Revenue", "Cost", "Margin", "Margin %", "Volumes", "Prices", "Summary"]));
     // Beside a selection the line of what is shown stays where it stands, and the bar of what is traced has its own place. Margin and Revenue feed
     // it, Cost feeds Margin, and the two input modules feed those: five boxes. Nothing reads it.
@@ -450,7 +477,7 @@ describe("A model's result on the results page, with the map's real graph and th
     expect(part(".map-inspector").textContent).not.toMatch(/\.csv|\brow \d/);
     // With the selection cleared, the line counts what this view holds: the module's four line items, the three modules
     // beside them, and the ten links among them.
-    part('.map-tracebar [data-map-act="clear"]').press();
+    part('.map-inspector [data-map-act="close"]').press();
     expect([part(".map-inspector").hidden, shownStatus()]).toEqual([true, "4 line items · 3 outside the module · 10 links"]);
 
     // A line item formatted as a list says the list, which the export names beside the format's ID: in the page's words too.
@@ -460,7 +487,7 @@ describe("A model's result on the results page, with the map's real graph and th
     // A module says what loads into it: the one import, by the Imports file's Target Object.
     part(".map-search").type("inp01");
     parts(".map-result")[0].press();
-    expect([text(".map-kind"), text(".map-insp-name")]).toEqual(["MODULE", VOLUMES]);
+    expect([text(".map-kind"), text(".map-insp-name")]).toEqual(["Module", VOLUMES]);
     expect(parts(".map-inspector .map-lines li").map(line => line.textContent)).toEqual([expect.stringMatching(/^Load volumes\b.*\bImport\b/)]);
 
     // A list comes from General Lists. That file says which formulas name the list: the line item whose formula reads
@@ -471,7 +498,7 @@ describe("A model's result on the results page, with the map's real graph and th
     expect([text(".map-insp-name"), text(".map-formula"), listed("depends"), written().includes("Products")]).toEqual(["Unit Cost", "Products.'Standard Cost'", [["Products", ""]], true]);
     // The list's own details say how many items it has.
     part('.map-inspector [data-map-list="depends"] .map-link').press();
-    expect([text(".map-kind"), text(".map-insp-name"), settings()["Item Count"], part(".map-inspector").textContent.includes(".csv")]).toEqual(["LIST", "Products", "40", false]);
+    expect([text(".map-kind"), text(".map-insp-name"), settings()["Item Count"], part(".map-inspector").textContent.includes(".csv")]).toEqual(["List", "Products", "40", false]);
   });
 
   it("keeps the map through another view of the page and back, and drops it when a new result takes the page", async () => {
@@ -580,7 +607,7 @@ describe("A model's result on the results page, with the map's real graph and th
       shows();
       return [text(".map-kind"), text(".map-insp-name"), part(".map-inspector").hidden];
     });
-    expect([panels, boxes]).toEqual([[true, false, false, false], [["LINE ITEM", "Units", false], ["MODULE", "REV01 Revenue v1.2", false]]]);
+    expect([panels, boxes]).toEqual([[true, false, false, false], [["Line item", "Units", false], ["Module", "REV01 Revenue v1.2", false]]]);
 
     // Nothing of all that names a file, a CSV or a zip, or a download, in the page's own words or the map's: what the
     // page has had for its user since it was made, and what the map has drawn. The model itself names a file, the one

@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { InspectLink } from "./map-inspect.js";
-import { brokenHtml, emptyHtml, fullIconHtml, inspectorHtml, legendHtml, LIST_CAP, notesHtml, pathRootHtml, pickerOptionsHtml, resultsHtml, shellHtml, tooltipHtml, tracebarHtml } from "./map-markup.js";
+import { brokenHtml, emptyHtml, fullIconHtml, inspectorHtml, legendHtml, LIST_CAP, notesHtml, pathRootHtml, pickerOptionsHtml, resultsHtml, shellHtml, tooltipHtml, traceHtml } from "./map-markup.js";
 
 /** What the map may not do, checked in its own files: the stylesheet and the sources that are bundled. These are the
  * rules the map was built to; a change that breaks one fails here rather than on the page. */
@@ -75,7 +75,7 @@ describe("The map's sources", () => {
     expect(new Set(asked)).toEqual(new Set(["createElement", "activeElement", "fullscreenElement", "exitFullscreen"]));
     // Lookups are from the map's element down.
     const lookedIn = [...view.matchAll(/(\w+)\.querySelector(?:All)?[<(]/g)].map(match => match[1]);
-    for (const owner of lookedIn) expect(["root", "inspector", "results", "holder", "tracebar", "pickerList", "groupList"]).toContain(owner);
+    for (const owner of lookedIn) expect(["root", "inspector", "results", "holder", "pickerList", "groupList"]).toContain(owner);
   });
 
   it("write markup only through the functions that escape it", () => {
@@ -190,7 +190,7 @@ describe("The map's stylesheet", () => {
       notesHtml({ name: "Model", workspace: "Workspace", modules: 2, lineItems: 3 }, ["A sentence."], 1),
       pathRootHtml("Model", "Workspace", true), pathRootHtml("Model", "Workspace", false), fullIconHtml(true),
       pickerOptionsHtml("map-picker-1", [{ name: "Module", group: "Group" }, { name: "Other" }], 0),
-      legendHtml("Groups", layers.map(key => ({ key, label: key, count: 1 })), new Set(["external"]), true, "modules"), tracebarHtml("Node", words, false), tracebarHtml("Node", words, true),
+      legendHtml("Groups", layers.map(key => ({ key, label: key, count: 1 })), new Set(["external"]), true, "modules"), traceHtml(words, false), traceHtml(words, true),
       tooltipHtml({ layer: "s0", kind: "kind", name: "Node", lines: ["a line"], formula: "A + B" }),
       resultsHtml({ hits: [{ kind: "module", name: "Module", context: "Group" }], total: 2 }), resultsHtml({ hits: [], total: 0 }),
       inspectorHtml({ kind: "LINE ITEM", layer: "lineitem", name: "Node", rows: [["Module", "Module"]], action: { label: "Open", module: 1 }, formula: "A + B", lists: [{ key: "depends", title: "Feeds it directly", open: true, links }],
