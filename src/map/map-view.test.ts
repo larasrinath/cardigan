@@ -168,8 +168,8 @@ const act = (name: string): FakeElement => part(`[data-map-act="${name}"]`);
 /** Where the path says the map is: the module of the Line items view, the group or "All modules" its Show list has
  * chosen, or the model's name where the map shows the model whole. */
 function here(): string {
-  if (part(".map-module-name").getAttribute("aria-current")) return text(".map-module-name");
-  return part(".map-group-name").getAttribute("aria-current") ? text(".map-group-name") : text(".map-title-name");
+  if (act("modules").getAttribute("aria-current")) return text(".map-module-name");
+  return act("groups").getAttribute("aria-current") ? text(".map-group-name") : text(".map-title-name");
 }
 function groupChoice(value: string): void {
   act("groups").press();
@@ -187,7 +187,7 @@ function goTo(name: string): void {
   part(".map-search").type(name);
   key("Enter");
 }
-/** Puts the focus in the module picker, as a press or Tab does, which opens its list. */
+/** Opens the module list from its pill, with focus in its search box. */
 function openPicker(): void { if (part(".map-module-picker .map-picker-pop").hidden) act("modules").press(); }
 /** The names the picker lists now. */
 const picked = (): string[] => parts(".map-picker-list .map-picker-opt .map-picker-name").map(option => option.textContent);
@@ -1094,7 +1094,7 @@ describe("The map's views", () => {
     expect(parts(".map-legend-item").map(item => [item.querySelector(".map-legend-name")?.textContent, item.querySelector(".map-legend-count")?.textContent])).toEqual([["01: Inputs", "2"], ["02: Calculations", "2"], ["Reporting", "1"]]);
     expect([...locate().keys()].sort()).toEqual(["01: Inputs", "02: Calculations", "Reporting"]);
     // The path's list says what is shown: the groups whole. The module picker and its group are the Line items view's.
-    expect([String(!part(".map-module-name").getAttribute("aria-current")), String(!!part(".map-module-name").getAttribute("aria-current")), groupValue()]).toEqual(["true", "false", "groups"]);
+    expect([String(!act("modules").getAttribute("aria-current")), String(!!act("modules").getAttribute("aria-current")), groupValue()]).toEqual(["true", "false", "groups"]);
     expect([part(".map-module-picker").hidden, part(".map-group-picker").hidden, part(".map-external-check").hidden, part(".map-inspector").hidden])
       .toEqual([false, false, true, true]);
     // A section's box says how much the section holds.
@@ -1302,10 +1302,10 @@ describe("The map's views", () => {
     open();
     firstModule();
     // The first module of the model, until one is picked: the path names its group, then the module.
-    expect([here(), groupValue(), String(!!part(".map-module-name").getAttribute("aria-current")), String(!part(".map-module-name").getAttribute("aria-current"))]).toEqual(["INP01 - Volumes", "0", "true", "false"]);
+    expect([here(), groupValue(), String(!!act("modules").getAttribute("aria-current")), String(!act("modules").getAttribute("aria-current"))]).toEqual(["INP01 - Volumes", "0", "true", "false"]);
     expect([part(".map-module-picker").hidden, part(".map-group-picker").hidden, part(".map-external-check").hidden, part(".map-group-picker").hidden]).toEqual([false, false, false, false]);
     expect(text(".map-legend-title")).toBe("On this map");
-    // The picker lists the modules of the module's group until a name is typed, and then every module whose name holds it.
+    // The picker lists every group, then filters modules by their names.
     openPicker();
     expect([part(".map-picker-input").getAttribute("aria-expanded"), picked(), part(".map-picker-note").hidden]).toEqual(["true", ["INP01 - Volumes", "INP02 - Prices", "CAL01 - Revenue", "Margin Workings", "REP01 - Board"], true]);
     part(".map-picker-input").type("rev");
@@ -1314,12 +1314,12 @@ describe("The map's views", () => {
     expect([here(), groupValue(), part(".map-picker-input").getAttribute("aria-expanded"), page.document.activeElement === canvas()]).toEqual(["CAL01 - Revenue", "1", "false", true]);
     expect([status(), text(".map-live")]).toEqual(["3 line items · 5 outside the module · 7 links", "Line items of CAL01 - Revenue: 3 line items, with 5 outside the module, 7 links."]);
     expect(parts(".map-legend-name").map(name => name.textContent)).toEqual(["No Data line items (headings)", "Line items", "Lists and subsets", "Other modules"]);
-    act("group-home").press();
+    groupChoice(groupValue());
     doubleClick("Margin Workings");
     expect(here()).toBe("Margin Workings");
-    act("group-home").press();
+    groupChoice(groupValue());
     clickNode("CAL01 - Revenue");
-    act("module-home").press();
+    openPicker(); key("Enter");
     expect(here()).toBe("CAL01 - Revenue");
   });
   it("calls a group a group in its hover card and leaves the shortcut to About this map", () => {
@@ -1335,7 +1335,7 @@ describe("The map's views", () => {
     key("Enter"); expect(here()).toBe("Demand Plan");
   });
 
-  it("always navigates from the group list, and its name leads to the module's own group", () => {
+  it("always navigates from the group list, including the current module's own group", () => {
     open();
     groupChoice("2");
     pickModule("CAL01 - Revenue");
@@ -1349,7 +1349,7 @@ describe("The map's views", () => {
     part(".map-picker-input").type("rev");
     expect([picked(), parts(".map-picker-heading").map(heading => heading.textContent)]).toEqual([["CAL01 - Revenue"], ["02: Calculations"]]);
     key("Enter");
-    act("group-home").press();
+    groupChoice(groupValue());
     expect(here()).toBe("02: Calculations");
     pickModule("REP01 - Board");
     canvas().focus(); key("Escape");
@@ -1455,7 +1455,7 @@ describe("The map's views", () => {
     expect(root().querySelector(".map-empty ul")).toBeNull();
     // Nothing to zoom, and no small picture of nothing.
     expect([status(), part(".map-corner").hidden]).toEqual(["0 line items · 0 links", true]);
-    act("group-home").press();
+    groupChoice(groupValue());
     expect([part(".map-empty").hidden, part(".map-empty").innerHTML, part(".map-corner").hidden]).toEqual([true, "", false]);
   });
 
@@ -1473,7 +1473,7 @@ describe("The map's views", () => {
     expect([part(".map-legend").hidden, act("legend").hidden, part(".map-group-picker").hidden, part(".map-group-picker").hidden]).toEqual([true, true, false, false]);
     expect(status()).toBe("0 modules · 0 links");
     // Nothing on it can be selected, and the keys say so.
-    act("group-home").press();
+    groupChoice(groupValue());
     key("f");
     canvas().focus();
     key("ArrowRight");
@@ -1984,7 +1984,7 @@ describe("Selecting a node on the map", () => {
     // A new view shows every layer again.
     item().press();
     firstModule();
-    act("group-home").press();
+    groupChoice(groupValue());
     expect(parts(".map-legend-item").map(each => each.getAttribute("aria-pressed"))).toEqual(["true", "true"]);
   });
 
@@ -2977,7 +2977,7 @@ describe("Going to an object the page names", () => {
     open(graph);
     // From the groups whole: the list stands among the line items of CAL01 - Revenue, whose Gross it formats.
     expect(map.reveal(products)).toBe(true);
-    expect([text(".map-insp-name"), here(), groupValue(), String(!!part(".map-module-name").getAttribute("aria-current")), page.document.activeElement === part(".map-insp-name")])
+    expect([text(".map-insp-name"), here(), groupValue(), String(!!act("modules").getAttribute("aria-current")), page.document.activeElement === part(".map-insp-name")])
       .toEqual(["Products", "CAL01 - Revenue", "1", "true", true]);
     // A module: the path's list names its group.
     expect(map.reveal(margin)).toBe(true);
@@ -3001,6 +3001,111 @@ describe("Going to an object the page names", () => {
 describe("The bar's tools and the module picker", () => {
   /** Lets the promises of the browser's full screen settle. */
   const settled = (): Promise<void> => new Promise(resolve => { setTimeout(resolve, 0); });
+
+  it.each([
+    ["groups", ".map-group-name", ".map-group-pop"],
+    ["groups", ".map-group-picker .map-btn-chevron path", ".map-group-pop"],
+    ["modules", ".map-module-name", ".map-module-picker .map-picker-pop"],
+    ["modules", ".map-module-picker .map-btn-chevron path", ".map-module-picker .map-picker-pop"],
+  ])("opens %s by clicking %s, keeping the view, boxes and camera in place", (action, target, popover) => {
+    open();
+    pickModule("CAL01 - Revenue");
+    const before = boxes();
+    const path = text(".map-group-name") + text(".map-module-name");
+    part(target).press();
+    expect([part(popover).hidden, act(action).getAttribute("aria-expanded"), here()]).toEqual([false, "true", "CAL01 - Revenue"]);
+    expect(boxes()).toEqual(before);
+    expect(text(".map-group-name") + text(".map-module-name")).toBe(path);
+    expect(page.document.activeElement).toBe(action === "modules" ? part(".map-picker-input") : part('.map-group-list [aria-selected="true"]'));
+    expect(act(action).getAttribute("aria-label")).toContain(action === "modules" ? "CAL01 - Revenue" : "02: Calculations");
+    key("Escape");
+    expect([part(popover).hidden, act(action).getAttribute("aria-expanded"), page.document.activeElement, here()])
+      .toEqual([true, "false", act(action), "CAL01 - Revenue"]);
+    expect(boxes()).toEqual(before);
+    part(target).press();
+    part(target).press();
+    expect([part(popover).hidden, act(action).getAttribute("aria-expanded")]).toEqual([true, "false"]);
+  });
+
+  it("chooses the current group, all modules and all groups from the list, and goes to the top from the model name", () => {
+    open();
+    pickModule("CAL01 - Revenue");
+    part(".map-group-name").press();
+    const current = part('.map-group-list [aria-selected="true"]');
+    expect([current.dataset.mapGroup, current.getAttribute("role"), current.getAttribute("tabindex")]).toEqual(["1", "option", "0"]);
+    current.press();
+    expect([here(), part(".map-group-pop").hidden, status()])
+      .toEqual(["02: Calculations", true, "2 modules · 3 modules of other groups · 5 links"]);
+    groupChoice("modules");
+    expect([here(), locate().size]).toEqual(["All modules", 5]);
+    groupChoice("groups");
+    expect([here(), locate().size]).toEqual(["Demand Plan", 3]);
+    pickModule("CAL01 - Revenue");
+    part(".map-path-root button").press();
+    expect([here(), locate().size, part(".map-group-pop").hidden, part(".map-module-picker .map-picker-pop").hidden])
+      .toEqual(["Demand Plan", 3, true, true]);
+  });
+
+  it.each(["Enter", " ", "Alt+Down"])("opens both pills with %s, moves through the lists and closes before going up the path", opening => {
+    open();
+    pickModule("CAL01 - Revenue");
+    const openWithKey = (button: FakeElement): void => {
+      button.focus();
+      if (opening === "Alt+Down") expect(key("ArrowDown", { altKey: true }).defaultPrevented).toBe(true);
+      else {
+        // The fake DOM has no native button activation: leave the key to the browser, then send its click.
+        expect(key(opening).defaultPrevented).toBe(false);
+        button.press();
+      }
+    };
+    openWithKey(act("groups"));
+    expect(act("groups").getAttribute("aria-expanded")).toBe("true");
+    const current = part('.map-group-list [aria-selected="true"]');
+    expect(page.document.activeElement).toBe(current);
+    key("ArrowDown");
+    expect(page.document.activeElement.dataset.mapGroup).toBe("2");
+    key("ArrowUp");
+    expect(page.document.activeElement).toBe(current);
+    key("Home");
+    expect(page.document.activeElement.dataset.mapGroup).toBe("groups");
+    key("End");
+    expect(page.document.activeElement.dataset.mapGroup).toBe("2");
+    expect(parts('.map-group-list [tabindex="0"]')).toEqual([page.document.activeElement]);
+    expect(part('.map-group-list [aria-selected="true"]')).toBe(current);
+    key("ArrowUp");
+    page.document.activeElement.press();
+    expect(here()).toBe("02: Calculations");
+
+    openWithKey(act("modules"));
+    expect([act("modules").getAttribute("aria-expanded"), page.document.activeElement]).toEqual(["true", part(".map-picker-input")]);
+    key("ArrowDown");
+    expect(text(".map-picker-list .map-active .map-picker-name")).toBe("INP02 - Prices");
+    key("ArrowUp");
+    expect(text(".map-picker-list .map-active .map-picker-name")).toBe("INP01 - Volumes");
+    part(".map-picker-input").type("rev");
+    expect(picked()).toEqual(["CAL01 - Revenue"]);
+    key("Enter");
+    expect([here(), page.document.activeElement]).toEqual(["CAL01 - Revenue", canvas()]);
+    openWithKey(act("modules"));
+    key("Escape");
+    expect([here(), act("modules").getAttribute("aria-expanded"), page.document.activeElement]).toEqual(["CAL01 - Revenue", "false", act("modules")]);
+    openWithKey(act("groups"));
+    key("Escape");
+    expect([here(), act("groups").getAttribute("aria-expanded"), page.document.activeElement]).toEqual(["CAL01 - Revenue", "false", act("groups")]);
+    key("Escape");
+    expect(here()).toBe("02: Calculations");
+    key("Escape");
+    expect(here()).toBe("Demand Plan");
+  });
+
+  it("closes the module list with Escape even when focus returns to its pill", () => {
+    open();
+    firstModule();
+    openPicker();
+    act("modules").focus();
+    key("Escape");
+    expect([here(), act("modules").getAttribute("aria-expanded"), page.document.activeElement]).toEqual(["INP01 - Volumes", "false", act("modules")]);
+  });
 
   it("opens the panel of links from its button, by a press or the keyboard, and closes it by the button, Escape and a press elsewhere", () => {
     open();

@@ -138,7 +138,7 @@ export const fullIconHtml = (whole: boolean): string => (whole ? LEAVE_FULL_ICON
  *
  * The bar has three parts, each of which stays on one line: where a line is too short for all three, a part takes the
  * next line whole, never half of it.
- * - Where the map is: the model, group and module. Each name goes there; each list goes elsewhere.
+ * - Where the map is: the model name goes to the top; the group and module pills open their lists.
  * - How the modules are grouped, at every level.
  * - Its tools: which links are drawn, the search, and full screen.
  *
@@ -156,16 +156,14 @@ export function shellHtml(ids: ShellIds, modelName: string): string {
         <span class="map-path-root"></span>
         <span class="map-sep" aria-hidden="true">${PATH_CHEVRON}</span>
         <span class="map-picker map-group-picker">
-          <button type="button" class="map-step-name map-group-name" data-map-act="group-home">Group</button>
-          <button type="button" class="map-step-list" data-map-act="groups" aria-label="Choose a group" aria-expanded="false" aria-controls="${esc(ids.picker)}-groups">${BUTTON_CHEVRON}</button>
+          <button type="button" class="map-step" data-map-act="groups" aria-label="Choose a group" aria-haspopup="listbox" aria-expanded="false" aria-controls="${esc(ids.picker)}-groups"><span class="map-step-name map-group-name">Group</span>${BUTTON_CHEVRON}</button>
           <div class="map-panel map-picker-pop map-group-pop" hidden>
-            <div class="map-group-list" id="${esc(ids.picker)}-groups" role="group" aria-label="Groups"></div>
+            <div class="map-group-list" id="${esc(ids.picker)}-groups" role="listbox" aria-label="Groups"></div>
           </div>
         </span>
         <span class="map-sep" aria-hidden="true">${PATH_CHEVRON}</span>
         <span class="map-picker map-module-picker">
-          <button type="button" class="map-step-name map-module-name" data-map-act="module-home" disabled>Module</button>
-          <button type="button" class="map-step-list" data-map-act="modules" aria-label="Choose a module" aria-expanded="false" aria-controls="${esc(ids.picker)}-pop">${BUTTON_CHEVRON}</button>
+          <button type="button" class="map-step" data-map-act="modules" aria-label="Choose a module" aria-haspopup="listbox" aria-expanded="false" aria-controls="${esc(ids.picker)}"><span class="map-step-name map-module-name">Module</span>${BUTTON_CHEVRON}</button>
           <div class="map-panel map-picker-pop" id="${esc(ids.picker)}-pop" hidden>
             <input class="map-picker-input" type="text" role="combobox" aria-label="Find a module" placeholder="Find a module…" aria-autocomplete="list" aria-expanded="false" aria-controls="${esc(ids.picker)}" autocomplete="off" spellcheck="false">
             <div class="map-picker-list" id="${esc(ids.picker)}" role="listbox" aria-label="Modules"></div><p class="map-picker-note" hidden></p>
@@ -377,7 +375,7 @@ export const SHOW_MODULES = "modules";
 export function groupOptionsHtml(groups: readonly string[], counts: readonly number[]): string {
   return [{ value: SHOW_GROUPS, name: "All groups" }, { value: SHOW_MODULES, name: "All modules" },
     ...groups.map((name, index) => ({ value: String(index), name: `${name} · ${formatCount(counts[index] ?? 0)} ${(counts[index] ?? 0) === 1 ? "module" : "modules"}` }))]
-    .map(group => `<button type="button" class="map-picker-opt" data-map-act="group" data-map-group="${esc(group.value)}">${esc(group.name)}</button>`).join("");
+    .map(group => `<button type="button" class="map-picker-opt" role="option" aria-selected="false" tabindex="-1" data-map-act="group" data-map-group="${esc(group.value)}">${esc(group.name)}</button>`).join("");
 }
 
 /** Modules arrive in group order. A group heading is written once, with its options beneath it. Keyboard focus and the

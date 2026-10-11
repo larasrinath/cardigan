@@ -112,7 +112,7 @@ A source that fails or times out is skipped independently, including HTTP 503 fr
 
 #### Groups and links
 
-One path stays in the bar: **Model / Group / Module**. Click a name to go there, or its chevron to open a list. The group list offers **All groups**, **All modules**, then each group with its module count. From a module, `Esc` goes to its own group, then to the model; an open list closes first. Names stay in full, wrapping on a narrow map.
+One path stays in the bar: **Model / Group / Module**. Click the model name to go to the top. Click anywhere on the group or module pill to open its list. The group list offers **All groups**, **All modules**, then each group with its module count; choosing the current group shows its modules. Choosing a module shows its line items. `Enter`, `Space` or `Alt+Down` opens a focused pill's list; the arrow keys move through it. From a module, `Esc` goes to its own group, then to the model; an open list closes first. Names stay in full, wrapping on a narrow map.
 
 **Group by** is available at every level:
 
@@ -159,7 +159,7 @@ A row's **Model map** button keeps the table's details for the return. **Table**
 
 #### Module picker
 
-The module chevron opens **every module under its group heading**, with no count limit. The current module is marked and its group scrolled into view. Typing searches across all groups; it keeps headings that have matches. The group step never narrows this picker.
+The module pill opens **every module under its group heading**, with no count limit, and focuses **Find a module…**. The current module is marked and its group scrolled into view. Typing searches across all groups; it keeps headings that have matches. The group step never narrows this picker.
 
 ![The module picker open over the model map, listing modules under Functional area headings with a Find a module search box](docs/images/map-module-picker.png)
 

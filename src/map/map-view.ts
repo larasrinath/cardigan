@@ -140,8 +140,8 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   const wholeButton = part<HTMLButtonElement>('[data-map-act="whole"]');
   const notes = part(".map-notes");
   const pathRoot = part(".map-path-root");
-  const groupName = part<HTMLButtonElement>(".map-group-name");
-  const moduleName = part<HTMLButtonElement>(".map-module-name");
+  const groupName = part(".map-group-name");
+  const moduleName = part(".map-module-name");
   const groupButton = part<HTMLButtonElement>('[data-map-act="groups"]');
   const moduleButton = part<HTMLButtonElement>('[data-map-act="modules"]');
   const groupPicker = part(".map-group-picker");
@@ -696,17 +696,16 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     const whole = onScreen.kind === "sections" || (single && onScreen.kind === "modules" && section === undefined);
     pathRoot.innerHTML = pathRootHtml(options.modelName, options.workspaceName, whole);
     groupName.textContent = (drill ? homeOf(moduleId) : section) ?? (grouped ? "All groups" : "All modules");
-    groupName.title = groupName.textContent;
-    groupName.setAttribute("aria-label", `Show ${groupName.textContent}`);
+    groupButton.title = groupName.textContent;
+    groupButton.setAttribute("aria-label", `Choose a group: ${groupName.textContent}`);
     const current = drill ? model.node(moduleId) : selected?.raw?.kind === "module" ? selected.raw : undefined;
     moduleName.textContent = current?.name ?? "Module";
-    moduleName.title = moduleName.textContent;
-    moduleName.disabled = !current;
-    moduleName.setAttribute("aria-label", current ? `Show ${current.name}'s line items` : "Module");
+    moduleButton.title = moduleName.textContent;
+    moduleButton.setAttribute("aria-label", current ? `Choose a module: ${current.name}` : "Choose a module");
     moduleButton.disabled = model.modules.length === 0;
-    for (const name of [groupName, moduleName]) name.removeAttribute("aria-current");
-    if (drill) moduleName.setAttribute("aria-current", "location");
-    else if (!whole) groupName.setAttribute("aria-current", "location");
+    for (const button of [groupButton, moduleButton]) button.removeAttribute("aria-current");
+    if (drill) moduleButton.setAttribute("aria-current", "location");
+    else if (!whole) groupButton.setAttribute("aria-current", "location");
   }
 
   function renderControls(): void {
@@ -885,11 +884,13 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     for (const option of groupList.querySelectorAll<HTMLElement>("[data-map-group]")) {
       const chosen = option.dataset.mapGroup === current;
       option.classList.toggle("map-current", chosen);
-      if (chosen) option.setAttribute("aria-current", "true");
-      else option.removeAttribute("aria-current");
+      option.setAttribute("aria-selected", String(chosen));
+      option.setAttribute("tabindex", chosen ? "0" : "-1");
     }
     groupList.scrollTop = 0;
-    focusOn(groupList.querySelector<HTMLElement>("[data-map-group]"));
+    const selected = groupList.querySelector<HTMLElement>('[aria-selected="true"]');
+    focusOn(selected);
+    selected?.scrollIntoView?.({ block: "nearest" });
   }
 
   function chooseGroup(value: string): void {
@@ -1308,16 +1309,6 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
       case "groups": if (groupPop.hidden) openGroups(); else closeGroups(); break;
       case "modules": if (pickerOpen) closePicker(); else openPicker(); break;
       case "group": chooseGroup(data.mapGroup ?? SHOW_GROUPS); focusOn(canvas); break;
-      case "group-home": {
-        const home = view === "drill" ? homeOf(moduleId) : section;
-        chooseGroup(home === undefined ? grouped ? SHOW_GROUPS : SHOW_MODULES : String(model.sectionIndex(home)));
-        break;
-      }
-      case "module-home": {
-        const current = view === "drill" ? moduleId : selected?.raw?.kind === "module" ? selected.raw.id : undefined;
-        if (current !== undefined && view !== "drill") setView("drill", current);
-        break;
-      }
       case "crumb": if (data.mapCrumb === "section") openSection(Number(data.mapSection)); else showSections(); break;
       case "links": setLinks(linksPop.hidden); if (!linksPop.hidden) focusOn(formulasToggle); break;
       case "fullscreen": setFull(!(fullWindow || onScreenWhole())); break;
@@ -1495,23 +1486,36 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   }
 
   /** A key anywhere else in the map. Only while the map is shown, and only for a key pressed inside it: the listener
-   * is on the map's own element. A key with Ctrl, Alt or the command key is the browser's. */
+   * is on the map's own element. Alt+Down opens a path list; other modified keys belong to the browser. */
   root.addEventListener("keydown", guarded(event => {
     const target = event.target as HTMLElement | null;
     if (!shown || !onScreen || !target) return;
     if (target === searchInput) return searchKey(event);
     if (target === pickerInput) return pickerKey(event);
+    // Enter and Space use the buttons' native click. Down also opens the list, with or without Alt.
+    if ((target === groupButton || target === moduleButton) && event.key === "ArrowDown" && !event.ctrlKey && !event.metaKey) {
+      if ((target as HTMLButtonElement).disabled) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (target === groupButton) openGroups(); else openPicker();
+      return;
+    }
+    if (event.key === "Escape" && picker.contains(target) && pickerOpen) {
+      event.preventDefault(); closePicker(); focusOn(moduleButton); event.stopPropagation(); return;
+    }
     if (groupPicker.contains(target) && !groupPop.hidden) {
       if (event.key === "Escape") {
-        event.preventDefault(); closeGroups(); focusOn(groupButton); return;
+        event.preventDefault(); closeGroups(); focusOn(groupButton); event.stopPropagation(); return;
       }
       if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
         event.preventDefault();
         const choices = [...groupList.querySelectorAll<HTMLElement>("[data-map-group]")];
         const current = choices.indexOf(target as HTMLElement);
         const next = event.key === "Home" ? 0 : event.key === "End" ? choices.length - 1 : Math.max(0, Math.min(choices.length - 1, current + (event.key === "ArrowDown" ? 1 : -1)));
+        for (const [index, option] of choices.entries()) option.setAttribute("tabindex", index === next ? "0" : "-1");
         focusOn(choices[next]);
         choices[next]?.scrollIntoView?.({ block: "nearest" });
+        event.stopPropagation();
         return;
       }
     }
