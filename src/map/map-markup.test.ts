@@ -48,7 +48,7 @@ const classes = (html: string): string[] => [...new Set(readMarkup(html).tags.fl
 const IDS: ShellIds = { results: "map-results-1", hints: "map-hints-1", legend: "map-legend-1", about: "map-about-1", formulas: "map-formulas-1", access: "map-access-1", filters: "map-filters-1", links: "map-links-1", picker: "map-picker-1" };
 const size = (text: Texts, from = 0) => ({ name: text(from), workspace: text(from + 1), modules: 250, lineItems: 5000 });
 const words = (text: Texts, from = 0): TraceWords => ({ feeds: text(from), fed: text(from + 1), sentence: "" });
-const TRACED: TraceWords = { feeds: "1,200 boxes feed it", fed: "it feeds 1 box", sentence: "Line item Gross selected." };
+const TRACED: TraceWords = { feeds: "Fed by 1,200 boxes", fed: "Feeds 1 box", sentence: "Line item Gross selected." };
 
 const link = (text: Texts, at: number, target: Pick<InspectLink, "raw" | "node">): InspectLink => ({ ...target, name: text(at), sub: text(at + 1), caption: text(at + 2), layer: "s3" });
 /** An inspection that holds a text in every place that takes one. `used` says how many. */
@@ -598,17 +598,17 @@ describe("The map's panels", () => {
   it("says what is traced as the picture runs: what feeds the node, the node, what it feeds, each side with its sign", () => {
     const bar = parseMarkup(`<div>${traceHtml(TRACED, false)}</div>`);
     expect(bar.querySelectorAll("button")).toHaveLength(1);
-    expect(bar.querySelectorAll(".map-trace-count").map(count => count.textContent)).toEqual(["1,200 boxes feed it", "it feeds 1 box"]);
+    expect(bar.querySelectorAll(".map-trace-count").map(count => count.textContent)).toEqual(["Fed by 1,200 boxes", "Feeds 1 box"]);
+    expect(bar.querySelector(".map-trace-counts")?.textContent).toBe("Fed by 1,200 boxes · Feeds 1 box");
+    expect(bar.querySelector(".map-trace-note")?.textContent).toBe("On this map, including links through other boxes.");
     // The sign is a picture beside the words, not a word: a screen reader hears the words alone.
     expect(bar.querySelectorAll(".map-sign").map(sign => [sign.localName, sign.getAttribute("aria-hidden"), sign.parentElement?.getAttribute("class")])).toEqual([["svg", "true", "map-trace-count map-trace-up"], ["svg", "true", "map-trace-count map-trace-down"]]);
-    // The first button keeps the picture to the boxes the bar has just counted. Its face is short, so that the bar keeps
-    // to one row; its name to a screen reader and on hover says it in full, and holds the words on its face.
+    // Its face, screen-reader name and tooltip all say what pressing it does.
     const buttons = (focused: boolean): (string | undefined)[][] => parseMarkup(`<div>${traceHtml(TRACED, focused)}</div>`).querySelectorAll("button")
-      .map(button => [button.textContent, button.dataset.mapAct, button.getAttribute("aria-label") ?? undefined, button.getAttribute("title") ?? undefined]);
-    expect(buttons(false)).toEqual([["Only these", "focus", "Show only these boxes", "Show only these boxes"]]);
+      .map(button => [button.textContent, button.dataset.mapAct, button.getAttribute("aria-label") ?? undefined, button.getAttribute("title") ?? undefined, button.getAttribute("aria-pressed") ?? undefined]);
+    expect(buttons(false)).toEqual([["Hide the other boxes", "focus", "Hide the other boxes", "Hide the other boxes", "false"]]);
     // While the picture keeps to them, the same button leads back.
-    expect(buttons(true)).toEqual([["All boxes", "focus", "Show all boxes", "Show all boxes"]]);
-    for (const [face, , name] of [...buttons(false), ...buttons(true)]) expect(name?.toLowerCase()).toContain(face?.toLowerCase());
+    expect(buttons(true)).toEqual([["Show all boxes", "focus", "Show all boxes", "Show all boxes", "true"]]);
   });
 
   it("cuts a long formula short in the tooltip, and leaves out lines that say nothing", () => {
@@ -711,7 +711,7 @@ describe("The details' markup", () => {
   it("says what the trace found in words, each side with its sign, and nothing of a trace it was not given", () => {
     const panel = parseMarkup(inspectorHtml(inspection, TRACED));
     const traced = panel.querySelector(".map-insp-trace")!;
-    expect(traced.querySelector(".map-trace-counts")?.textContent).toBe("1,200 boxes feed it, it feeds 1 box.");
+    expect(traced.querySelector(".map-trace-counts")?.textContent).toBe("Fed by 1,200 boxes · Feeds 1 box");
     expect(traced.querySelectorAll(".map-trace-count").map(child => [child.getAttribute("class"), child.querySelector(".map-sign")?.getAttribute("aria-hidden")])).toEqual([["map-trace-count map-trace-up", "true"], ["map-trace-count map-trace-down", "true"]]);
     expect(parseMarkup(inspectorHtml(inspection)).querySelector(".map-insp-trace")).toBeNull();
   });

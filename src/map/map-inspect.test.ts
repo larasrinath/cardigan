@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { LAYER, moduleGraph, modulesGraph, sectionsGraph, type ViewGraph, type ViewNode } from "./map-graphs.js";
-import { filterTipLines, FILTERS_LISTED, inspect, isHeading, layerOfObject, statusWords, traceWords, viewSentence } from "./map-inspect.js";
+import { filterTipLines, FILTERS_LISTED, inspect, isHeading, layerOfObject, statusWords, traceWords, viewSentence, type Inspection } from "./map-inspect.js";
 import { indexModel } from "./map-model.js";
 import { filteredModel, GraphMaker, lineFilteredModel, ownFilteredModel, twinBoxesModel } from "./map-fakes.test-support.js";
 
@@ -307,17 +307,30 @@ describe("What the map says of an object", () => {
 });
 
 describe("What a trace found, in words", () => {
+  it.each([
+    [0, 0, "Nothing feeds it", "Feeds nothing", "Nothing feeds it and feeds nothing"],
+    [1, 0, "Fed by 1 box", "Feeds nothing", "Fed by 1 box and feeds nothing"],
+    [0, 1, "Nothing feeds it", "Feeds 1 box", "Nothing feeds it and feeds 1 box"],
+    [3, 2, "Fed by 3 boxes", "Feeds 2 boxes", "Fed by 3 boxes and feeds 2 boxes"],
+    [1200, 1, "Fed by 1,200 boxes", "Feeds 1 box", "Fed by 1,200 boxes and feeds 1 box"],
+    [1, 2300, "Fed by 1 box", "Feeds 2,300 boxes", "Fed by 1 box and feeds 2,300 boxes"],
+  ] as const)("describes %i boxes feeding it and %i boxes it feeds", (up, down, feeds, fed, sentence) => {
+    const inspection: Inspection = { kind: "Module", name: "Revenue", layer: "s0", rows: [], lists: [], texts: [] };
+    expect(traceWords(inspection, up, down)).toEqual({ feeds, fed,
+      sentence: `Module Revenue selected. ${sentence} on this map, including links through other boxes.` });
+  });
+
   it("says how many boxes feed the node and how many it feeds, one and many, and both in one sentence", () => {
     const { model, revenue } = sample();
     const graph = moduleGraph(model, revenue, false, false);
     const gross = inspect(model, graph, byName(graph, "Gross"), false);
     expect(traceWords(gross, 1200, 1)).toEqual({
-      feeds: "1,200 boxes feed it", fed: "it feeds 1 box",
-      sentence: "Line item Gross selected. On the map 1,200 boxes feed it and it feeds 1 box, directly or through others.",
+      feeds: "Fed by 1,200 boxes", fed: "Feeds 1 box",
+      sentence: "Line item Gross selected. Fed by 1,200 boxes and feeds 1 box on this map, including links through other boxes.",
     });
-    expect(traceWords(gross, 1, 0)).toMatchObject({ feeds: "1 box feeds it", fed: "it feeds 0 boxes" });
+    expect(traceWords(gross, 1, 0)).toMatchObject({ feeds: "Fed by 1 box", fed: "Feeds nothing" });
     const sections = sectionsGraph(model, false);
-    expect(traceWords(inspect(model, sections, sections.nodes[1], false), 1, 0).sentence).toBe("Group 02: Calculations selected. On the map 1 box feeds it and it feeds 0 boxes, directly or through others.");
+    expect(traceWords(inspect(model, sections, sections.nodes[1], false), 1, 0).sentence).toBe("Group 02: Calculations selected. Fed by 1 box and feeds nothing on this map, including links through other boxes.");
     const subset = inspect(model, graph, byName(graph, "Active Products"), false);
     expect(traceWords(subset, 0, 2).sentence).toMatch(/^List subset Active Products selected\./);
   });

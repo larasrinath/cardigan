@@ -300,15 +300,16 @@ export function legendHtml(title: string, layers: readonly ViewLayer[], hidden: 
     accessMarks ? `<p class="map-legend-note map-legend-mark map-legend-key"><span class="map-mark-access" aria-hidden="true">${KEY}</span>${esc(ACCESS_MARK_SAYS[accessMarks])}</p>` : ""}`;
 }
 
-/** What the first button of the trace's bar does, in full: its face is short, for the bar to keep to one row. */
-const ONLY_SAYS = "Show only these boxes";
+/** What the trace's button does, on its face, on hover and to a screen reader. */
+export const ONLY_SAYS = "Hide the other boxes";
 const ALL_SAYS = "Show all boxes";
 
 /** The trace lives once, below the details' opening buttons. */
 export function traceHtml(words: TraceWords, focused: boolean): string {
-  return `<p class="map-trace-counts"><span class="map-trace-count map-trace-up">${SIGN}${esc(words.feeds)}</span>, <span class="map-trace-count map-trace-down">${SIGN}${esc(words.fed)}</span>.</p>
-    <p class="map-trace-note">On the map, directly or through others.</p>
-    <button type="button" class="map-btn map-small" data-map-act="focus" aria-label="${focused ? ALL_SAYS : ONLY_SAYS}" title="${focused ? ALL_SAYS : ONLY_SAYS}" aria-pressed="${focused}">${focused ? "All boxes" : "Only these"}</button>`;
+  const label = focused ? ALL_SAYS : ONLY_SAYS;
+  return `<p class="map-trace-counts"><span class="map-trace-count map-trace-up">${SIGN}${esc(words.feeds)}</span> · <span class="map-trace-count map-trace-down">${SIGN}${esc(words.fed)}</span></p>
+    <p class="map-trace-note">On this map, including links through other boxes.</p>
+    <button type="button" class="map-btn map-small map-trace-focus" data-map-act="focus" aria-label="${label}" title="${label}" aria-pressed="${focused}"><span>${label}</span></button>`;
 }
 
 export interface Tip { layer: string; kind: string; name: string; lines: readonly string[]; formula?: string }

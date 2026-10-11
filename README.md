@@ -75,7 +75,7 @@ The map shows how a model's groups, modules and line items connect. It is built 
 - **Group by** offers ways to organise modules: functional area, headings, name prefix, DISCO (Data, Input, System, Calculation, Output), app or main dimension. Its (i) explains how the grouping works and which fits the model best.
 - Choose a **Group** or **Module** to explore it, or search for a group, module or line item.
 - **Links** lets you show formula, access-driver and page-filter connections.
-- Click a box for details and its connections. **Only these** narrows the view; **Table** and **Model** open the matching row or place in Anaplan where available.
+- Click a box for details and its connections. **Hide the other boxes** keeps its chain in view; **Show all boxes** brings the others back. **Table** and **Model** open the matching row or place in Anaplan where available.
 - Zoom out, Zoom in, Fit, Minimap, Legend and About share the controls row at the bottom left. **About** explains the map and its limits.
 
 ![Model map grouped by functional area with Links open](docs/images/map-groups.png)

@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { InspectLink } from "./map-inspect.js";
-import { brokenHtml, emptyHtml, fullIconHtml, groupingOptionsHtml, inspectorHtml, legendHtml, LIST_CAP, notesHtml, pathRootHtml, pickerOptionsHtml, resultsHtml, shellHtml, tooltipHtml, traceHtml } from "./map-markup.js";
+import { ONLY_SAYS, brokenHtml, emptyHtml, fullIconHtml, groupingOptionsHtml, inspectorHtml, legendHtml, LIST_CAP, notesHtml, pathRootHtml, pickerOptionsHtml, resultsHtml, shellHtml, tooltipHtml, traceHtml } from "./map-markup.js";
 
 /** What the map may not do, checked in its own files: the stylesheet and the sources that are bundled. These are the
  * rules the map was built to; a change that breaks one fails here rather than on the page. */
@@ -178,6 +178,12 @@ describe("The map's stylesheet", () => {
     expect(narrow).toContain(".map-minimap-wrap{bottom:44px}");
     expect(narrow).toContain(".map-navigation{max-width:100%}");
     expect(narrow).toContain(".map-over{width:100%;bottom:196px}");
+  });
+
+  it("keeps the trace button as wide as its wider label in both states", () => {
+    // The stylesheet holds the wider label as unseen content, so the button's own text stays the label shown.
+    expect(STYLES).toContain(`.map-trace-focus::before{content:"${ONLY_SAYS}";visibility:hidden}`);
+    expect(STYLES).toContain(".map-btn.map-trace-focus{display:inline-grid}");
   });
 
   it("names every class with the map's prefix, and styles nothing by an id or outside the map", () => {

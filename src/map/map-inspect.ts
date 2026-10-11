@@ -361,9 +361,9 @@ export function inspect(model: MapModel, graph: ViewGraph, node: ViewNode, _acce
 export interface TraceWords { feeds: string; fed: string; sentence: string }
 export function traceWords(inspection: Inspection, up: number, down: number): TraceWords {
   const kind = inspection.kind.charAt(0) + inspection.kind.slice(1).toLowerCase();
-  const feeds = `${plural(up, "box", "boxes")} ${up === 1 ? "feeds" : "feed"} it`;
-  const fed = `it feeds ${plural(down, "box", "boxes")}`;
-  return { feeds, fed, sentence: `${kind} ${inspection.name} selected. On the map ${feeds} and ${fed}, directly or through others.` };
+  const feeds = up === 0 ? "Nothing feeds it" : `Fed by ${plural(up, "box", "boxes")}`;
+  const fed = down === 0 ? "Feeds nothing" : `Feeds ${plural(down, "box", "boxes")}`;
+  return { feeds, fed, sentence: `${kind} ${inspection.name} selected. ${feeds} and ${fed.toLowerCase()} on this map, including links through other boxes.` };
 }
 
 /** What stands for a count of the graph's boxes, one and many. */
