@@ -2,6 +2,11 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version is in the menu of Cardigan's icon in Chrome's toolbar and on its About page, and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## 0.30.1 (11 October 2026)
+
+- **Run cards in the middle.** Notices, failures and progress share a centred column, at most 600 pixels wide, with a drawn mark for the case and 16 pixels at each side in a narrow window. The card holds the main action first, with **Copy diagnostic log** beside it. The theme button stays in the header; **Run again** returns there when a result is shown. (#93)
+- **Diagnostics stays folded.** A stopped run no longer opens the log. **Show diagnostics** and **Hide diagnostics** open and close it under the card; **Copy diagnostic log** works while it is folded. Reading again keeps the earlier result in place, with no progress banner moving it. (#93)
+
 ## 0.30.0 (11 October 2026)
 
 - **Line Item Subsets, for both engines.** Classic and Polaris read the Model settings grid through Model Building's client, keeping Anaplan's column names. A second read-only grid supplies the checked line items. If membership cannot be read, it is left out and the table and Overview say so. (#92)
