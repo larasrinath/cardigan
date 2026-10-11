@@ -421,12 +421,17 @@ export function overviewHtml(overview: Overview, copy: KeptCopy = "none", views:
         // The table's icon, the one its entry of the navigation has, then its name, and under that the number of rows the
         // table lists, without a word: only a screen reader is told that they are rows. A name too long for the tile ends
         // in an ellipsis, and its title holds it whole. A file with no icon of its own has none here, and no stand-in.
+        // A Model Calendar says what its calendar is in the number's place, and its current year under that: its title
+        // holds it all, and a screen reader is told the same.
         const file = tileFiles[at];
         const icon = file === undefined ? "" : FILE_ICONS.get(file) ?? "";
-        const parts = `<span class="s-lab" title="${esc(tile.label)}">${icon}${esc(tile.label)}</span><span class="s-num">${esc(tile.count)}</span>`
-          + `<span class="sr-only">${tile.count === 1 ? "row" : "rows"}</span>`;
+        const parts = `<span class="s-lab" title="${esc(tile.label)}">${icon}${esc(tile.label)}</span><span class="s-num">${esc(tile.value ?? tile.count)}</span>`
+          + (tile.value === undefined ? `<span class="sr-only">${tile.count === 1 ? "row" : "rows"}</span>` : "")
+          + (tile.detail === undefined ? "" : `<span class="s-detail">${esc(tile.detail)}</span>`);
+        const named = tile.title === undefined ? "" : ` title="${esc(tile.title)}"`;
         const view = views[at];
-        return view === undefined ? `<div class="stat">${parts}</div>` : `<button type="button" class="stat stat-open" data-nav="${view}">${parts}</button>`;
+        return view === undefined ? `<div class="stat"${named}>${parts}</div>`
+          : `<button type="button" class="stat stat-open" data-nav="${view}"${named}${tile.title === undefined ? "" : ` aria-label="${esc(tile.title)}"`}>${parts}</button>`;
       }).join("")}
     </div>${about}
     <p class="ov-kept" id="ovKept">${keptCopyHtml(copy)}</p>${notes}${files}${howToRead}${log}`;

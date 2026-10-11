@@ -537,6 +537,22 @@ describe("What the results page's markup shows", () => {
     expect(view.querySelectorAll(".stat .s-lab").map(label => label.getAttribute("title"))).toEqual(["Line Items", "Model Calendar", "Odd", "Bare"]);
   });
 
+  it("says on a Model Calendar's tile what its calendar is in the number's place, its current year under that, and the whole in its title", () => {
+    const calendar = { label: "Model Calendar", count: 21, value: "Weekly", detail: "4-4-5 · FY24", title: "Model Calendar: Weeks: 4-4-5, 4-5-4 or 5-4-4, grouped 4-4-5, current fiscal year FY24" };
+    const view = parseMarkup(overviewHtml(overviewWith({ tiles: [calendar, { label: "Modules", count: 2 }] }), "none", [3, 4], ["Model Calendar.csv", "Modules.csv"]));
+    const [tile, other] = view.querySelectorAll(".stat");
+    // The kind in the number's place, and under it the year: no word for a screen reader that it is a count, for it is none.
+    expect(tile.children.map(child => [child.getAttribute("class"), child.textContent])).toEqual([["s-lab", "Model Calendar"], ["s-num", "Weekly"], ["s-detail", "4-4-5 · FY24"]]);
+    // Its title and its name for a screen reader are the tile in full; a tile that counts has neither.
+    expect([tile.getAttribute("title"), tile.getAttribute("aria-label"), tile.dataset.nav, other.getAttribute("title"), other.getAttribute("aria-label")])
+      .toEqual([calendar.title, calendar.title, "3", null, null]);
+    expect(other.children.map(child => child.textContent)).toEqual(["Modules", "2", "rows"]);
+    // A tile that opens nothing keeps its title, and no name that would stand for what it holds.
+    const still = parseMarkup(overviewHtml(overviewWith({ tiles: [{ ...calendar, detail: undefined }] }))).querySelector(".stat");
+    expect([still?.localName, still?.getAttribute("title"), still?.getAttribute("aria-label"), still?.children.map(child => child.textContent)])
+      .toEqual(["div", calendar.title, null, ["Model Calendar", "Weekly"]]);
+  });
+
   it("shows in a row's drawer, after a cell that is said in words, the text that was read in its place, named as that", () => {
     const columns = [column(0, "Name"), column(1, "Format"), column(2, "Formula"), column(3, "Summary", "tag")];
     const row = ["Margin %", "Number, 2 decimal places, %", "Margin / Revenue", "Ratio = Margin / Revenue"];

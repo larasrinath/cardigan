@@ -2,7 +2,7 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version stands next to Cardigan's name at the top of the results page and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
-## 0.18.7 (10 October 2026)
+## 0.18.8 (10 October 2026)
 
 The Processes table says what each process runs.
 
@@ -11,6 +11,15 @@ The Processes table says what each process runs.
 - **One to a line in the details.** A process's details list its actions under **All columns** one to a line, each opening its own row in Imports, Exports or Other Actions where exactly one row there has its name. (#PR)
 - **Two columns fewer.** **Used in Processes**, since Anaplan runs no process inside another, and **Action**, which a process leaves empty: an **Action** that a process does have stays. Imports, Exports and Other Actions keep both. A column choice kept for the tab of a column that is gone is dropped. (#PR)
 - **What stays the same.** The numbered **Actions** section of a process's details, what is read from Anaplan, and the other tables. (#PR)
+
+## 0.18.7 (10 October 2026)
+
+The Overview's Model Calendar tile says what the calendar is, not how many of its settings hold a value.
+
+- **Monthly or Weekly.** In the number's place, a months calendar says **Monthly** and any of Anaplan's three weeks calendars **Weekly**. A calendar type stored as its ID reads the same, and a type of another text is said by what it names. (#59)
+- **The current year under it.** A smaller line says the current fiscal year by its label, such as **FY24**, after how a weeks calendar is grouped: 4-4-5, 4-5-4 or 5-4-4, 13 periods, or its number of weeks. The tile's title, and its name for a screen reader, hold the calendar type as Anaplan writes it and the year's dates. (#59)
+- **Every tile still the same size.** The row of tiles is as high as its highest, and what each tile holds now stands at its top, so the names stay on one line across a row. (#59)
+- **What stays the same.** What is read, and the Model Calendar table, whose line under its name still says how many rows it leaves out. A calendar whose type and year were not read is counted like any other table. (#59)
 
 ## 0.18.6 (10 October 2026)
 
