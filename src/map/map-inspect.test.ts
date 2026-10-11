@@ -327,6 +327,18 @@ describe("The line that says what the map shows", () => {
     expect(statusWords(drill, 7, 7, true)).toBe("4 line items · 3 outside the module · 4 links");
   });
 
+  it("counts only the links drawn where formulas' are left out, and says plainly where no kind of link is drawn", () => {
+    const { model, revenue } = sample();
+    // Formulas alone link the sections; once the links of access drivers are in the graph, they link them too.
+    expect(statusWords(sectionsGraph(model, false), 2, 2, false, "noFormulas")).toBe("2 sections · 0 links");
+    expect(statusWords(sectionsGraph(model, true), 2, 2, false, "noFormulas")).toBe("2 sections · 1 link");
+    expect(statusWords(sectionsGraph(model, false), 2, 2, false, "none")).toBe("2 sections · no links drawn");
+    const drill = moduleGraph(model, revenue, false, true);
+    expect([statusWords(drill, 7, 7), statusWords(drill, 7, 7, false, "noFormulas")]).toEqual(["4 line items · 3 outside the module · 4 links", "4 line items · 3 outside the module · 1 link"]);
+    expect(viewSentence(sectionsGraph(model, false), "Demand Model", "none")).toBe("Sections of Demand Model: 2 sections, no links drawn.");
+    expect(viewSentence(drill, "Demand Model", "noFormulas")).toBe("Line items of CAL01 - Revenue: 4 line items, with 3 outside the module, 1 link.");
+  });
+
   it("says of an empty graph only what it would hold", () => {
     const model = indexModel(new GraphMaker().graph());
     expect(statusWords(modulesGraph(model, undefined, false), 0, 0)).toBe("0 modules · 0 links");

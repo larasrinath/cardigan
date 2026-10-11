@@ -12,6 +12,8 @@ export const UNGROUPED = "Ungrouped";
 
 const FORMULA: ReadonlySet<EdgeKind> = new Set<EdgeKind>(["reference", "list_formula"]);
 const ACCESS: ReadonlySet<EdgeKind> = new Set<EdgeKind>(["read_access", "write_access"]);
+/** Whether a link is a formula's: what a line item's formula reads, or what a list's formula does. */
+export const isFormula = (kind: EdgeKind): boolean => FORMULA.has(kind);
 /** Whether a link says who may read or write, and not what a formula reads. */
 export const isAccess = (kind: EdgeKind): boolean => ACCESS.has(kind);
 /** Whether a link is a page's filter, from its condition line item to the module it filters (graph-types.ts

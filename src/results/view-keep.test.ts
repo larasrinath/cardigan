@@ -180,6 +180,18 @@ describe("What the tab keeps of how a result is looked at", () => {
     expect([isMapAtStart({ view: "modules", filters: true }), isMapAtStart({ view: "modules" })]).toEqual([false, true]);
   });
 
+  it("keeps formulas' links unticked, and only that: a map without them is not where it opens by itself", () => {
+    const tab = storage();
+    tab.held.set(VIEW_KEY, JSON.stringify({ subject: "model:ABC", tables: {}, map: { view: "drill", module: "A", noFormulas: true, access: true } }));
+    expect(readKept(tab)?.map).toEqual({ view: "drill", module: "A", noFormulas: true, access: true });
+    // Formulas drawn is where the map opens, so nothing is kept for it; anything but true is that.
+    for (const noFormulas of [false, "yes", 1]) {
+      tab.held.set(VIEW_KEY, JSON.stringify({ subject: "model:ABC", tables: {}, map: { view: "modules", noFormulas } }));
+      expect(readKept(tab)?.map).toEqual({ view: "modules" });
+    }
+    expect([isMapAtStart({ view: "modules", noFormulas: true }), isMapAtStart({ view: "modules" })]).toEqual([false, true]);
+  });
+
   it("knows an object of Where Used by all four of its names, and the map where it opens by itself", () => {
     expect(objectKey({ type: "Module", name: "REP01", module: "-", model: "Model one" })).not.toBe(objectKey({ type: "Module", name: "REP01", module: "-", model: "Model two" }));
     expect([isMapAtStart({ view: "modules" }), isMapAtStart({ view: "modules", all: true }), isMapAtStart({ view: "modules", access: true }), isMapAtStart({ view: "drill", module: "A" })])
