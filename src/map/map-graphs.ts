@@ -46,6 +46,11 @@ export interface ViewNode {
   readonly external: boolean;
   /** For an external node of a module's graph: whether it is read ("in"), fed ("out") or both. */
   readonly side?: "in" | "out" | "both";
+  /** Where the pages' filters are drawn, what no link can show: a module's own line items that filter it. On a module's
+   * box, how many of its own line items filter it; on a section's, how many of its modules their own line items filter;
+   * on a line item's, 1 where it filters its own module. The canvas draws it as a mark on the box. None where there is
+   * nothing to mark, or the pages' filters are not drawn. */
+  readonly filterMark?: number;
   x: number;
   y: number;
   w: number;
@@ -107,6 +112,7 @@ interface Draft {
   members?: number[];
   external: boolean;
   side?: "in" | "out" | "both";
+  filterMark?: number;
 }
 interface Link { s: string; t: string; w: number; refs?: GraphEdge[]; filter?: boolean }
 
@@ -192,11 +198,14 @@ function moduleLinks(model: MapModel, access: boolean, filters: boolean): Link[]
 }
 
 /** A module's box. Its small line says how many line items it has, or its section where the graph holds modules of
- * more than one (`inSection`): there the section is said in words, and not by the box's colour alone. */
-function moduleDraft(model: MapModel, raw: GraphNode, external: boolean, inSection = false): Draft {
+ * more than one (`inSection`): there the section is said in words, and not by the box's colour alone. Where the pages'
+ * filters are drawn (`filters`), it is marked with how many of its own line items filter it. */
+function moduleDraft(model: MapModel, raw: GraphNode, external: boolean, inSection = false, filters = false): Draft {
+  const own = filters ? model.ownFiltersOf(raw.id) : 0;
   return {
     id: String(raw.id), kind: "module", layer: external ? LAYER.external : sectionLayer(model.sectionIndex(model.sectionOf(raw))),
     ...splitName(raw.name), fullName: raw.name, meta: inSection ? model.sectionOf(raw) : plural(model.itemsOf(raw.id).length, "line item"), raw, external,
+    ...(own ? { filterMark: own } : {}),
   };
 }
 
@@ -205,10 +214,12 @@ export function sectionsGraph(model: MapModel, access: boolean, filters = false)
   const drafts: Draft[] = model.sections.map((section, index) => {
     const members = model.modules.filter(module => model.sectionOf(module) === section);
     const lineItems = members.reduce((count, module) => count + model.itemsOf(module.id).length, 0);
+    // Where the pages' filters are drawn: how many of its modules their own line items filter.
+    const marked = filters ? members.filter(module => model.ownFiltersOf(module.id) > 0).length : 0;
     return {
       id: `section${index}`, kind: "section", layer: sectionLayer(index), section: index, code: "",
       label: section, fullName: section, meta: `${plural(members.length, "module")} · ${plural(lineItems, "line item")}`,
-      members: members.map(module => module.id), external: false,
+      members: members.map(module => module.id), external: false, ...(marked ? { filterMark: marked } : {}),
     };
   });
   const links = aggregate(model, activeEdges(model, access, filters), node => {
@@ -229,7 +240,7 @@ export function modulesGraph(model: MapModel, section: string | undefined, acces
     shown.add(Number(link.t));
   }
   // Among all modules every box says its section; among one section's, the boxes from other sections say theirs.
-  const drafts = model.modules.filter(module => shown.has(module.id)).map(module => moduleDraft(model, module, !own.has(module.id), section === undefined ? model.sections.length > 1 : !own.has(module.id)));
+  const drafts = model.modules.filter(module => shown.has(module.id)).map(module => moduleDraft(model, module, !own.has(module.id), section === undefined ? model.sections.length > 1 : !own.has(module.id), filters));
   return finish(model, "modules", section ?? "All modules", drafts, links, own.size);
 }
 
@@ -244,6 +255,8 @@ export function moduleGraph(model: MapModel, moduleId: number, expanded: boolean
     drafts.set(String(item.id), {
       id: String(item.id), kind: "lineItem", layer: item.format?.toUpperCase() === "NONE" ? LAYER.heading : LAYER.lineItem,
       code: "", label: item.name, fullName: item.name, meta: "", raw: item, external: false,
+      // Where the pages' filters are drawn, a line item that filters its own module is marked: no link can show it.
+      ...(filters && model.filtersOwnModule(item.id) ? { filterMark: 1 } : {}),
     });
   }
 

@@ -52,6 +52,13 @@ export interface MapModel {
   /** The line items whose page filters filter a module, each with those of its filters, in the order of the line items:
    * its own line items among them, which have no link to it. */
   filtersOf(module: number): readonly ModuleFilter[];
+  /** How many of a module's own line items filter it on the pages: a filter that no link can show, for its line item and
+   * the module it filters are one module. The map marks the module with it where it draws the pages' filters. */
+  ownFiltersOf(module: number): number;
+  /** Whether a line item filters its own module on the pages. */
+  filtersOwnModule(lineItem: number): boolean;
+  /** How many modules their own line items filter on the pages. */
+  readonly ownFiltered: number;
   unresolvedOf(id: number): readonly Unresolved[];
   /** How the modules are filed into the sections, where the map chose a grouping (`withGrouping`); none where the
    * sections are the heading rows the graph gives. */
@@ -142,6 +149,16 @@ export function indexModel(graph: ModelGraph): MapModel {
     }
   }
 
+  // Each module's filters by its own line items, which no link shows: how many of its line items, and which.
+  const ownFilters = new Map<number, number>();
+  const filtersOwn = new Set<number>();
+  for (const [module, listed] of filters) {
+    const own = listed.filter(({ item }) => item.module === module);
+    if (!own.length) continue;
+    ownFilters.set(module, own.length);
+    for (const { item } of own) filtersOwn.add(item.id);
+  }
+
   const unresolved = new Map<number, Unresolved[]>();
   for (const entry of graph.unresolved) {
     const entries = unresolved.get(entry.source);
@@ -157,6 +174,9 @@ export function indexModel(graph: ModelGraph): MapModel {
     outgoing: id => outOf.get(id) ?? NONE,
     actionsOf: module => actions.get(module) ?? NONE,
     filtersOf: module => filters.get(module) ?? NONE,
+    ownFiltersOf: module => ownFilters.get(module) ?? 0,
+    filtersOwnModule: lineItem => filtersOwn.has(lineItem),
+    ownFiltered: ownFilters.size,
     unresolvedOf: id => unresolved.get(id) ?? NONE,
   };
 }
