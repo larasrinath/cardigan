@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { RESULTS_PAGE } from "../protocol.js";
 import { FakePage, parseMarkup } from "./dom.test-support.js";
-import { cardDrawerHtml, keptCopyHtml, navHtml, navItems, navMenuHtml, overviewHtml, rowDrawerHtml, runHtml, tableHtml } from "./markup.js";
+import { cardDrawerHtml, keptCopyHtml, NAV_GROUPS, navHtml, navItems, navMenuHtml, overviewHtml, rowDrawerHtml, runHtml, tableHtml } from "./markup.js";
 import { readMarkup } from "./markup.test-support.js";
 import { MARKED_WEIGHT, PLAIN_WEIGHT } from "./nav-spread.js";
 import { PAGE_IDS } from "./page-ids.js";
@@ -10,12 +10,44 @@ import { PAGE_IDS } from "./page-ids.js";
 // The page itself and its stylesheet, as they are packaged: an extension page runs no inline script and no inline handler.
 const html = readFileSync(new URL(`../../${RESULTS_PAGE}`, import.meta.url), "utf8");
 const css = readFileSync(new URL("../../results.css", import.meta.url), "utf8");
+const currentItem = ':is([aria-current="page"],[aria-current="true"],[role="option"][aria-selected="true"])';
 /** The extension's manifest, which names the icons that are packaged with it. */
 const manifest = JSON.parse(readFileSync(new URL("../../manifest.json", import.meta.url), "utf8")) as { icons: Record<string, string> };
 const { tags } = readMarkup(html, true);
 const opening = tags.filter(tag => !tag.closing);
 
 describe("The results page's files", () => {
+  it("shares one pill highlight across navigation and map listboxes, keeping hover plain and focus keyboard-only", () => {
+    const mapCss = readFileSync(new URL("../../map.css", import.meta.url), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+    const declarations = "background:var(--accent-soft);color:var(--accent-ink);font-weight:600";
+    expect(declared(currentItem)).toEqual([declarations]);
+    expect((css + mapCss).split(declarations).length - 1).toBe(1);
+    expect(declared(".nav-item,.nav-group-btn")[0]).toContain("border-radius:var(--r-pill)");
+    expect(declared(".nav-menu .nav-item")).toEqual([]);
+    expect(mapCss).toMatch(/\.map-picker-opt\{[^}]*border-radius:var\(--r-pill\)/);
+    expect(mapCss).not.toContain("map-current");
+    const optionRules = [...mapCss.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter(([, selector]) => selector.includes(".map-picker-opt"));
+    expect(optionRules.filter(([, , body]) => /box-shadow|border:|outline:/.test(body))).toEqual([]);
+    expect(optionRules.filter(([, , body]) => body.includes("background:" )).map(([, selector, body]) => [selector.trim(), body]))
+      .toEqual([['.map-picker-opt:where(:hover,.map-active,:focus-visible):not([aria-selected="true"])', "background:var(--panel-2)"]]);
+    expect(declared(':where(.nav-item,.nav-group-btn):is(:hover,:focus-visible):not([aria-current])')).toEqual(["background:var(--panel-2);color:var(--text)"]);
+    expect(declared(":focus")).toEqual(["outline:none"]);
+    expect(declared(":focus-visible")[0]).toContain("outline:2px solid var(--ring)");
+    // The only native select left in either navigation is the table's page size control.
+    const sources = ["markup.ts", "../map/map-markup.ts"].map(file => readFileSync(new URL(file, import.meta.url), "utf8")).join("");
+    expect(sources.match(/<select\b[^>]*>/g)).toEqual(['<select id="pageSize" aria-label="Rows per page">']);
+  });
+
+  it.each(NAV_GROUPS)("marks the current item in the $label menu and the compact navigation with the shared attribute", group => {
+    const entries = group.files.map((file, index) => ({ id: String(index), label: file.replace(/\.csv$/, ""), file }));
+    const items = navItems(entries, true);
+    for (const { id } of entries) {
+      const menus = parseMarkup(navHtml(items, id) + navMenuHtml(items, id, entries[Number(id)].label));
+      expect(menus.querySelectorAll('.nav-item[aria-current="page"]').map(item => item.dataset.nav)).toEqual([id, id]);
+      expect(menus.querySelectorAll('.nav-group-btn[aria-current="true"]').length).toBe(2);
+    }
+  });
+
   it("floats details below the header without reserving any table width, and fills narrow windows without a scrim", () => {
     const page = new FakePage(html);
     expect([page.id("drawer").getAttribute("role"), page.id("drawer").getAttribute("aria-labelledby"), page.id("drawer").hasAttribute("aria-modal"), page.has("#scrim")])
@@ -295,14 +327,14 @@ describe("The results page's files", () => {
     // The entry of the view shown is marked as it always was, in the accent's soft colour and its ink with its words in
     // bold, and so is the button of the group that holds it. Every colour of the bar is one of the page's tokens, so that
     // both themes have it.
-    expect(declared('.nav-item[aria-current="page"],.nav-group-btn[aria-current="true"]')).toEqual(["background:var(--accent-soft);color:var(--accent-ink);font-weight:600"]);
+    expect(declared(currentItem)).toEqual(["background:var(--accent-soft);color:var(--accent-ink);font-weight:600"]);
     expect([...rules(".nav-"), ...rules(".topnav")].flatMap(([, body]) => body.match(/#[0-9a-f]{3,8}\b|rgba?\(/gi) ?? [])).toEqual([]);
     // What these rules name is what the page writes: entries, a group with its button, chevron and menu, and the one menu
     // with a group's section under its heading, the entry of the view shown marked in each, and its group.
     const entries = [{ id: "overview", label: "Overview" }, { id: "1", label: "Modules", file: "Modules.csv" }, { id: "2", label: "Line Items", file: "Line Items.csv" }];
     const written = parseMarkup(navHtml(navItems(entries, true), "2") + navMenuHtml(navItems(entries, true), "2", "Line Items"));
     expect([".nav-item", ".nav-group", ".nav-group-btn", ".nav-chevron", ".nav-menu", ".nav-section", ".nav-heading", '.nav-item[aria-current="page"]', '.nav-group-btn[aria-current="true"]', ".cnt"]
-      .map(selector => written.querySelectorAll(selector).length)).toEqual([6, 2, 2, 2, 2, 1, 1, 2, 1, 0]);
+      .map(selector => written.querySelectorAll(selector).length)).toEqual([6, 2, 2, 2, 2, 1, 1, 2, 2, 0]);
   });
 
   it("spreads the navigation's items over the line's width where they fit on it, by gaps worked out from what the page tells the line, and packs them where they do not", () => {
@@ -332,7 +364,7 @@ describe("The results page's files", () => {
     // The words of the view shown's item are in the bold the page measures them in, and every other's in the weight it
     // measures them in, the page's own.
     const bold = (body: string) => /font-weight:(\d+)/.exec(body)?.[1];
-    expect([bold(declared('.nav-item[aria-current="page"],.nav-group-btn[aria-current="true"]')[0] ?? ""), bold(declared(".nav-item,.nav-group-btn")[0] ?? "") ?? "400"])
+    expect([bold(declared(currentItem)[0] ?? ""), bold(declared(".nav-item,.nav-group-btn")[0] ?? "") ?? "400"])
       .toEqual([MARKED_WEIGHT, PLAIN_WEIGHT]);
     // A menu's entry keeps the room of its words in bold, unseen, of no height and read by nothing (markup.ts `wordsHtml`), so
     // that the menu does not widen as its table is chosen; the room's bold is the mark's.
