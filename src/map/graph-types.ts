@@ -206,7 +206,7 @@ export interface ModelMapOptions {
   /** How the viewer last chose to group modules, by the kind of grouping (map-groups.ts `GroupingKind`): the map opens
    * on it where this model has it, and otherwise on the grouping it picks itself. */
   grouping?: string;
-  /** Called when the viewer chooses a grouping, with its kind, or with nothing where the choice is the map's own pick:
+  /** Called when the viewer chooses a grouping, with its kind, or with nothing when they choose Automatic:
    * the page keeps it for the viewer's next map. The map keeps nothing itself. */
   onGrouping?: (kind: string | undefined) => void;
   /** Where the viewer left this model's map, as `onView` last told it: the map opens there, as far as this model still

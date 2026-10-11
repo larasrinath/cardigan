@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { describeProbe, exportInCore, NO_MODEL, NO_READER, OLD_READER, openInCore, probeFrame, PROTOCOL, QUIET, RUN_PROTOCOL, runInCore, serveCore, serveOpen, UNREADABLE, watchCore,
-  watchProbes,
+  watchProbes, waitForCore,
   type CoreHandle,
   type Endpoint, type FrameProbe } from "./bridge.js";
 import { NOT_SCOPE_IDS, SCOPE_IDS } from "./guards.test-support.js";
@@ -95,15 +95,31 @@ function stepped() {
 describe("Model export bridge between the Model Building page and the model's core frame", () => {
   afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
 
-  it.each(["HYPERBLOCK", "CALCULATION_ENGINE", undefined, "future_engine", 1, { engine: "HYPERBLOCK" }])("carries only a known dataEngineType in the check-in, before running: %j", async value => {
+  it.each(["HYPERBLOCK", "CALCULATION_ENGINE", undefined, "future_engine", "throw", 1, { engine: "HYPERBLOCK" }])("reads the engine after check-in, awaiting the client, before the full export: %j", async value => {
     const shell = new FakeWindow(SHELL), core = new FakeWindow(CORE);
     const exporter = vi.fn(async () => exported());
     let found: CoreHandle | undefined;
     watchCore(shell, handle => { found = handle; });
-    const stop = serveCore(core, shell.seenBy(core), () => MODEL, exporter, 5, undefined, undefined, () => value);
+    let loaded: (() => void) | undefined;
+    const engine = vi.fn(async () => {
+      await new Promise<void>(resolve => { loaded = resolve; });
+      if (value === "throw") throw new Error("Unavailable workspace info");
+      return value;
+    });
+    const stop = serveCore(core, shell.seenBy(core), () => MODEL, exporter, 5, undefined, undefined, engine);
     await settle();
-    expect(found?.dataEngineType).toBe(value === "HYPERBLOCK" || value === "CALCULATION_ENGINE" ? value : undefined);
+    expect(found?.dataEngineType).toBeUndefined();
+    expect(engine).not.toHaveBeenCalled();
+    const progress = collect().progress;
+    const pending = waitForCore(shell as unknown as Window, () => found, () => [], MODEL, progress);
+    await settle();
+    expect(engine).toHaveBeenCalledOnce();
     expect(exporter).not.toHaveBeenCalled();
+    loaded!();
+    const ready = await pending;
+    expect(ready.dataEngineType).toBe(value === "HYPERBLOCK" || value === "CALCULATION_ENGINE" ? value : undefined);
+    expect(await runInCore(shell, ready, progress)).toEqual(exported());
+    expect(exporter).toHaveBeenCalledOnce();
     // Even a raw message cannot carry arbitrary data into the remembered engine.
     shell.receive({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD, dataEngineType: { private: "invented" } }, CORE, core.seenBy(shell));
     await settle();
@@ -135,6 +151,35 @@ describe("Model export bridge between the Model Building page and the model's co
     expect(result.summary).toEqual(["Line Items: 2 rows"]);
     expect(lines).toEqual(["status: Reading Line Items…", "log: Line Items: 3 rows × 2 columns"]);
     stop();
+  });
+
+  it.each(["timeout", "stop"])("bounds the engine wait and ignores a late answer after %s", async end => {
+    vi.useFakeTimers();
+    const shell = new FakeWindow(SHELL), core = new FakeWindow(CORE);
+    let found: CoreHandle | undefined;
+    let answer: ((value: string) => void) | undefined;
+    const exporter = vi.fn(async () => exported());
+    watchCore(shell, handle => { found = handle; });
+    const close = serveCore(core, shell.seenBy(core), () => MODEL, exporter, 5, undefined, undefined,
+      () => new Promise(resolve => { answer = resolve; }));
+    await vi.advanceTimersByTimeAsync(1);
+    const abort = new AbortController();
+    const result = waitForCore(shell as unknown as Window, () => found, () => [], MODEL, collect().progress, abort.signal)
+      .then(value => value, error => error);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(answer).toBeDefined();
+    const stopped = new Error("Stopped");
+    if (end === "stop") abort.abort(stopped);
+    else await vi.advanceTimersByTimeAsync(31_000);
+    const done = await result;
+    if (end === "stop") expect(done).toBe(stopped);
+    else expect(done.dataEngineType).toBeUndefined();
+    answer!("CALCULATION_ENGINE");
+    await vi.advanceTimersByTimeAsync(1);
+    expect(found?.dataEngineType).toBeUndefined();
+    expect(exporter).not.toHaveBeenCalled();
+    close();
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("ignores other origins and other windows, and gives up on a frame that stops answering", async () => {

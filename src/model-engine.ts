@@ -20,7 +20,7 @@ export function engineLine(value: unknown): string {
 export const POLARIS_FULL_NOTE = "Polaris model, read in full through Model Building.";
 
 /** These columns are positive evidence of Polaris. Their absence (or an unread grid) cannot establish Classic.
- * This check reports a disagreement without replacing the decision made from the page before any reads. */
+ * This check reports a disagreement without replacing the decision from the loaded page client. */
 export function engineCrossCheck(engine: ModelEngine, headers: readonly string[]): string | undefined {
   if (!headers.some(header => header === "Populated Cell Count" || header === "Calculation Complexity")) return;
   if (engine === "classic") return "Engine cross-check: Polaris-only Line Items columns disagree with dataEngineType HYPERBLOCK (Classic).";

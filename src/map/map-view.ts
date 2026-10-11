@@ -7,7 +7,7 @@ import { createFonts, drawMinimap, drawScene, legibleFrom, type Fonts, type Pen 
 import { drawLinks, edgeDrawn, moduleGraph, modulesGraph, sectionsGraph, type Box, type LinksDrawn, type ViewGraph, type ViewNode } from "./map-graphs.js";
 import { accessTipLines, filterTipLines, inspect, statusWords, traceWords, viewSentence, type Inspection, type TraceWords } from "./map-inspect.js";
 import { boundsOf, fullFrom, layoutGraph, sizeNodes } from "./map-layout.js";
-import { automaticGrouping, groupingsOf, type Grouping } from "./map-groups.js";
+import { automaticGrouping, automaticGroupingReason, groupingsOf, type Grouping } from "./map-groups.js";
 import {
   accessNote as accessSay, brokenHtml, emptyHtml, filtersNote as filtersSay, FULL_SAYS, fullIconHtml, groupingOptionsHtml, groupOptionsHtml, inspectorHtml, legendHtml, listHtml, notesHtml, pathRootHtml,
   pickerOptionsHtml, resultsHtml, shellHtml, SHOW_GROUPS, SHOW_MODULES, tooltipHtml, traceHtml, type Tip,
@@ -154,7 +154,14 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   const pickerList = part(".map-picker-list");
   const pickerNote = part(".map-picker-note");
   const groupingField = part(".map-grouping-field");
-  const groupingSelect = part<HTMLSelectElement>(".map-grouping-select");
+  const groupingPicker = part(".map-grouping-picker");
+  const groupingButton = part<HTMLButtonElement>('[data-map-act="groupings"]');
+  const groupingName = part(".map-grouping-name");
+  const groupingPop = part(".map-grouping-pop");
+  const groupingList = part(".map-grouping-list");
+  const groupingInfo = part(".map-grouping-info");
+  const infoButton = part<HTMLButtonElement>('[data-map-act="grouping-info"]');
+  const groupingReason = part(".map-grouping-reason");
   const externalCheck = part(".map-external-check");
   const externalToggle = part<HTMLInputElement>(".map-external");
   const links = part(".map-links");
@@ -173,7 +180,8 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   const legendButton = part<HTMLButtonElement>('[data-map-act="legend"]');
   const about = part(".map-about");
   const aboutButton = part<HTMLButtonElement>('[data-map-act="about"]');
-  const dock = part(".map-dock");
+  const summary = part(".map-summary");
+  const navigation = part(".map-navigation");
   const status = part(".map-status");
   const inspector = part(".map-inspector");
   const selectionPanel = part(".map-selection");
@@ -198,6 +206,8 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   /** The ways this model's modules can be grouped (map-groups.ts), and the one the map picks by itself. */
   let groupings: Grouping[] = [];
   let automatic: Grouping | undefined;
+  let automaticReason = "";
+  let pickedGrouping = false;
   let search: ReturnType<typeof createSearch> | undefined;
   /** The view: the modules (as sections, of one section, or all) or the line items of one module. */
   let view: "modules" | "drill" = "modules";
@@ -422,7 +432,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   function freeRooms(): Insets[] | undefined {
     const freeArea = areaOf(free);
     if (!freeArea || freeArea.right - freeArea.left <= 2 * FIT_MARGIN || freeArea.bottom - freeArea.top <= 2 * FIT_MARGIN) return undefined;
-    const panels = [areaOf(legend), areaOf(about), areaOf(dock), areaOf(miniWrap), areaOf(selectionPanel)].filter((area): area is Area => area !== undefined);
+    const panels = [areaOf(legend), areaOf(about), areaOf(summary), areaOf(navigation), areaOf(miniWrap), areaOf(selectionPanel)].filter((area): area is Area => area !== undefined);
     return roomsBeside(freeArea, panels).map(room => insetsOf(room, width, height, FIT_MARGIN)).filter(room => width - room.l - room.r > 80 && height - room.t - room.b > 60);
   }
 
@@ -440,7 +450,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   function openRooms(): Insets[] {
     const freeArea = areaOf(free);
     if (!freeArea) return [defaultInsets(width, height, selected !== undefined)];
-    const panels = [areaOf(legend), areaOf(about), areaOf(dock), areaOf(miniWrap), areaOf(selectionPanel)].filter((area): area is Area => area !== undefined);
+    const panels = [areaOf(legend), areaOf(about), areaOf(summary), areaOf(navigation), areaOf(miniWrap), areaOf(selectionPanel)].filter((area): area is Area => area !== undefined);
     const found = roomsBeside(freeArea, panels).map(room => insetsOf(room, width, height));
     return found.length ? found : [insetsOf(freeArea, width, height)];
   }
@@ -650,7 +660,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     for (let pass = 0; pass < 3; pass++) {
       // In view is what stands in the graph's own room: a box under the bar or the details is not, nor is one under the
       // legend, the notes or the small picture.
-      const covered = [areaOf(dock), areaOf(legend), areaOf(about), areaOf(miniWrap), areaOf(selectionPanel)].filter((area): area is Area => area !== undefined);
+      const covered = [areaOf(summary), areaOf(navigation), areaOf(legend), areaOf(about), areaOf(miniWrap), areaOf(selectionPanel)].filter((area): area is Area => area !== undefined);
       const places = covered.map(area => `${area.left} ${area.top} ${area.right} ${area.bottom}`).join(", ");
       if (places === counted) break;
       counted = places;
@@ -690,13 +700,13 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     return model && module ? model.sectionOf(module) : undefined;
   }
 
-  /** The same three steps at every level. The group is always the displayed module's own group. */
+  /** The same path at every level. The group is always the displayed module's own group. */
   function renderPath(): void {
     if (!model || !onScreen) return;
     const drill = view === "drill";
     const whole = onScreen.kind === "sections" || (single && onScreen.kind === "modules" && section === undefined);
     pathRoot.innerHTML = pathRootHtml(options.modelName, options.workspaceName, whole);
-    groupName.textContent = (drill ? homeOf(moduleId) : section) ?? (grouped ? "All groups" : "All modules");
+    groupName.textContent = (drill ? homeOf(moduleId) : section) ?? "Group";
     groupButton.title = groupName.textContent;
     groupButton.setAttribute("aria-label", `Choose a group: ${groupName.textContent}`);
     const current = drill ? model.node(moduleId) : selected?.raw?.kind === "module" ? selected.raw : undefined;
@@ -714,7 +724,12 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     miniWrap.hidden = !minimapOpen;
     miniButton.setAttribute("aria-pressed", String(minimapOpen));
     groupingField.hidden = false;
-    groupingSelect.value = model.grouping?.kind ?? "";
+    groupingName.textContent = model.grouping?.label ?? "Group by";
+    groupingButton.setAttribute("aria-label", `Group by: ${groupingName.textContent}`);
+    groupingButton.title = `Group by: ${groupingName.textContent}`;
+    groupingButton.disabled = groupings.length === 0;
+    groupingReason.textContent = pickedGrouping ? "You picked this grouping. Choose Automatic to let Cardigan pick." : automaticReason;
+    infoButton.title = groupingReason.textContent;
     externalCheck.hidden = view !== "drill";
     externalToggle.checked = expanded;
     formulasToggle.checked = formulas;
@@ -759,7 +774,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     if (!model || !onScreen) return;
     const nothing = onScreen.nodes.length === 0;
     empty.hidden = !nothing;
-    // Empty views keep the same bar, with their zoom controls disabled.
+    // Empty views keep the same clusters, with their zoom controls disabled.
     for (const action of ["zoom-out", "zoom-in", "fit"]) part<HTMLButtonElement>(`[data-map-act="${action}"]`).disabled = nothing;
     if (!nothing) empty.innerHTML = "";
     // Why there are none is the graph's to say, in whichever of its sentences: all of them are listed under the map's own.
@@ -824,14 +839,16 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   function renderPicker(): void {
     if (!model) return;
     pickerModules = pickerMatches();
-    pickerActive = pickerModules.length ? Math.min(Math.max(pickerActive, 0), pickerModules.length - 1) : -1;
-    pickerList.innerHTML = pickerOptionsHtml(pickerId, pickerModules.map(module => ({ name: module.name, group: model!.sectionOf(module), current: view === "drill" && module.id === moduleId })), pickerActive);
+    const all = searchText(pickerQuery) === "";
+    pickerActive = Math.min(Math.max(pickerActive, all ? -1 : 0), pickerModules.length - 1);
+    pickerList.innerHTML = pickerOptionsHtml(pickerId, pickerModules.map(module => ({ name: module.name, group: model!.sectionOf(module), current: view === "drill" && module.id === moduleId })), pickerActive,
+      all ? { current: view === "modules" && section === undefined && !grouped } : undefined);
     pickerNote.hidden = pickerModules.length > 0;
     pickerNote.textContent = "No module's name holds that.";
     markPicker();
   }
 
-  function markPicker(previous = -1): void {
+  function markPicker(previous = -2): void {
     pickerList.querySelector(`[data-map-pick="${previous}"]`)?.classList.remove("map-active");
     const active = pickerList.querySelector<HTMLElement>(`[data-map-pick="${pickerActive}"]`);
     active?.classList.add("map-active");
@@ -844,11 +861,14 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     if (!model || pickerOpen) return;
     closeLinks();
     closeGroups();
+    closeGroupings();
+    closeGroupingInfo();
     pickerOpen = true;
     pickerQuery = pickerInput.value = "";
     const current = view === "drill" ? moduleId : selected?.raw?.id;
-    pickerActive = Math.max(0, pickerMatches().findIndex(module => module.id === current));
+    pickerActive = pickerMatches().findIndex(module => module.id === current);
     pickerPop.hidden = false;
+    placePopover(pickerPop);
     moduleButton.setAttribute("aria-expanded", "true");
     pickerInput.setAttribute("aria-expanded", "true");
     renderPicker();
@@ -880,7 +900,10 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   function openGroups(): void {
     closePicker();
     closeLinks();
+    closeGroupings();
+    closeGroupingInfo();
     groupPop.hidden = false;
+    placePopover(groupPop);
     groupButton.setAttribute("aria-expanded", "true");
     const home = view === "drill" ? homeOf(moduleId) : section;
     const current = home !== undefined ? String(model!.sectionIndex(home)) : grouped ? SHOW_GROUPS : SHOW_MODULES;
@@ -892,7 +915,9 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     }
     groupList.scrollTop = 0;
     const selected = groupList.querySelector<HTMLElement>('[aria-selected="true"]');
-    focusOn(selected);
+    const focused = selected ?? groupList.querySelector<HTMLElement>("[data-map-group]");
+    focused?.setAttribute("tabindex", "0");
+    focusOn(focused);
     selected?.scrollIntoView?.({ block: "nearest" });
   }
 
@@ -908,6 +933,12 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
 
   /** Shows the line items of a module the picker lists, and gives the map the focus, for its keys. */
   function pickModule(index: number): void {
+    if (index === -1 && searchText(pickerQuery) === "") {
+      closePicker();
+      chooseGroup(SHOW_MODULES);
+      focusOn(canvas);
+      return;
+    }
     const module = pickerModules[index];
     if (!module) return;
     closePicker();
@@ -919,7 +950,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
    * and from a closed list goes back to the map. */
   function pickerKey(event: KeyboardEvent): void {
     const key = event.key;
-    if (key !== "ArrowDown" && key !== "ArrowUp" && key !== "Enter" && key !== "Escape") return;
+    if (!["ArrowDown", "ArrowUp", "Home", "End", "Enter", "Escape"].includes(key)) return;
     event.preventDefault();
     event.stopPropagation();
     if (key === "Escape") {
@@ -934,15 +965,72 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     if (key === "Enter") pickModule(pickerActive);
     else {
       const previous = pickerActive;
-      pickerActive = key === "ArrowDown" ? Math.min(pickerModules.length - 1, pickerActive + 1) : Math.max(0, pickerActive - 1);
+      const first = searchText(pickerQuery) === "" ? -1 : 0;
+      pickerActive = key === "Home" ? first : key === "End" ? pickerModules.length - 1
+        : key === "ArrowDown" ? Math.min(pickerModules.length - 1, pickerActive + 1) : Math.max(first, pickerActive - 1);
       markPicker(previous);
     }
+  }
+
+  /* ---------- Group by and its explanation ---------- */
+
+  /** Keep an overlaid list inside the map even when a long name puts its pill near the right edge. */
+  function placePopover(pop: HTMLElement): void {
+    pop.style.left = "0px";
+    const box = pop.getBoundingClientRect();
+    const edge = root.getBoundingClientRect().right - 12;
+    if (box.right > edge) pop.style.left = `${edge - box.right}px`;
+  }
+
+  function closeGroupings(): void {
+    groupingPop.hidden = true;
+    groupingButton.setAttribute("aria-expanded", "false");
+  }
+
+  function closeGroupingInfo(): void {
+    groupingReason.hidden = true;
+    infoButton.setAttribute("aria-expanded", "false");
+  }
+
+  function openGroupings(): void {
+    closePicker(); closeGroups(); closeLinks(); closeGroupingInfo();
+    groupingPop.hidden = false;
+    placePopover(groupingPop);
+    groupingButton.setAttribute("aria-expanded", "true");
+    const current = pickedGrouping ? model?.grouping?.kind : "automatic";
+    for (const option of groupingList.querySelectorAll<HTMLElement>("[data-map-grouping]")) {
+      const chosen = option.dataset.mapGrouping === current;
+      option.classList.toggle("map-current", chosen);
+      option.setAttribute("aria-selected", String(chosen));
+      option.setAttribute("tabindex", chosen ? "0" : "-1");
+    }
+    focusOn(groupingList.querySelector<HTMLElement>('[aria-selected="true"]'));
+  }
+
+  function chooseGrouping(value: string): void {
+    const grouping = value === "automatic" ? automatic : groupings.find(each => each.kind === value);
+    if (!grouping || !model) return;
+    const picked = value !== "automatic";
+    closeGroupings();
+    focusOn(groupingButton);
+    if (grouping === model.grouping && picked === pickedGrouping) return;
+    pickedGrouping = picked;
+    try { options.onGrouping?.(picked ? grouping.kind : undefined); } catch { /* not kept */ }
+    if (grouping === model.grouping) { renderControls(); return; }
+    closePicker(); closeGroups(); closeGroupingInfo();
+    applyGrouping(grouping);
+    if (view === "drill") {
+      // Grouping changes the path and lists, not this module's drawing, camera or selection.
+      renderPath(); renderControls();
+      if (!results.hidden) runSearch();
+    } else setView("modules");
+    if (onScreen) announce(`Modules grouped by ${grouping.label.toLowerCase()}. ${viewSentence(onScreen, options.modelName, linksDrawn())}`);
   }
 
   /* ---------- the links shown, and full screen ---------- */
 
   function setLinks(open: boolean): void {
-    if (open) { closePicker(); closeGroups(); }
+    if (open) { closePicker(); closeGroups(); closeGroupings(); closeGroupingInfo(); }
     linksPop.hidden = !open;
     linksButton.setAttribute("aria-expanded", String(open));
   }
@@ -1091,6 +1179,8 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     if (!model) return;
     closePicker();
     closeGroups();
+    closeGroupings();
+    closeGroupingInfo();
     view = next;
     if (next === "drill") {
       moduleId = module !== undefined && model.node(module)?.kind === "module" ? module : moduleId ?? model.modules[0]?.id;
@@ -1312,6 +1402,18 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     const data = target.dataset;
     switch (data.mapAct) {
       case "groups": if (groupPop.hidden) openGroups(); else closeGroups(); break;
+      case "groupings": if (groupingPop.hidden) openGroupings(); else closeGroupings(); break;
+      case "grouping": chooseGrouping(data.mapGrouping ?? "automatic"); break;
+      case "grouping-info":
+        if (!groupingReason.hidden) closeGroupingInfo();
+        else {
+          closePicker(); closeGroups(); closeGroupings(); closeLinks();
+          groupingReason.hidden = false;
+          placePopover(groupingReason);
+          infoButton.setAttribute("aria-expanded", "true");
+          focusOn(groupingReason);
+        }
+        break;
       case "modules": if (pickerOpen) closePicker(); else openPicker(); break;
       case "group": chooseGroup(data.mapGroup ?? SHOW_GROUPS); focusOn(canvas); break;
       case "crumb": if (data.mapCrumb === "section") openSection(Number(data.mapSection)); else showSections(); break;
@@ -1404,6 +1506,8 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     // So does the picker's list, and the panel of links.
     if (from && picker.contains(from) && to && !picker.contains(to)) closePicker();
     if (from && groupPicker.contains(from) && to && !groupPicker.contains(to)) closeGroups();
+    if (from && groupingPicker.contains(from) && to && !groupingPicker.contains(to)) closeGroupings();
+    if (from && groupingInfo.contains(from) && to && !groupingInfo.contains(to)) closeGroupingInfo();
     if (from?.closest(".map-links") && to && !to.closest(".map-links")) setLinks(false);
   }));
   root.addEventListener("focusin", guarded(event => {
@@ -1414,25 +1518,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   root.addEventListener("change", guarded(event => {
     const target = event.target as HTMLElement | null;
     if (!model || !shown || !target) return;
-    if (target === groupingSelect) {
-      const grouping = groupings.find(each => each.kind === groupingSelect.value);
-      if (!grouping || grouping === model.grouping) return;
-      // The page keeps the choice for the viewer's next map; the map's own pick is kept as no choice at all. A page that
-      // cannot keep it leaves the choice to hold here.
-      try {
-        options.onGrouping?.(grouping === automatic ? undefined : grouping.kind);
-      } catch { /* not kept */ }
-      closePicker();
-      closeGroups();
-      applyGrouping(grouping);
-      if (view === "drill") {
-        // Grouping changes the path and lists, not this module's drawing, camera or selection.
-        renderPath();
-        renderControls();
-        if (!results.hidden) runSearch();
-      } else setView("modules");
-      if (onScreen) announce(`Modules grouped by ${grouping.label.toLowerCase()}. ${viewSentence(onScreen, options.modelName, linksDrawn())}`);
-    } else if (target === externalToggle) {
+    if (target === externalToggle) {
       expanded = externalToggle.checked;
       setView("drill", moduleId);
     } else if (target === formulasToggle) {
@@ -1506,23 +1592,30 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     if (target === searchInput) return searchKey(event);
     if (target === pickerInput) return pickerKey(event);
     // Enter and Space use the buttons' native click. Down also opens the list, with or without Alt.
-    if ((target === groupButton || target === moduleButton) && event.key === "ArrowDown" && !event.ctrlKey && !event.metaKey) {
+    if ((target === groupButton || target === moduleButton || target === groupingButton) && event.key === "ArrowDown" && !event.ctrlKey && !event.metaKey) {
       if ((target as HTMLButtonElement).disabled) return;
       event.preventDefault();
       event.stopPropagation();
-      if (target === groupButton) openGroups(); else openPicker();
+      if (target === groupButton) openGroups(); else if (target === groupingButton) openGroupings(); else openPicker();
       return;
     }
     if (event.key === "Escape" && picker.contains(target) && pickerOpen) {
       event.preventDefault(); closePicker(); focusOn(moduleButton); event.stopPropagation(); return;
     }
-    if (groupPicker.contains(target) && !groupPop.hidden) {
+    if (event.key === "Escape" && groupingInfo.contains(target) && !groupingReason.hidden) {
+      event.preventDefault(); closeGroupingInfo(); focusOn(infoButton); event.stopPropagation(); return;
+    }
+    const inGrouping = groupingPicker.contains(target) && !groupingPop.hidden;
+    if (inGrouping || (groupPicker.contains(target) && !groupPop.hidden)) {
       if (event.key === "Escape") {
-        event.preventDefault(); closeGroups(); focusOn(groupButton); event.stopPropagation(); return;
+        event.preventDefault();
+        if (inGrouping) { closeGroupings(); focusOn(groupingButton); }
+        else { closeGroups(); focusOn(groupButton); }
+        event.stopPropagation(); return;
       }
       if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
         event.preventDefault();
-        const choices = [...groupList.querySelectorAll<HTMLElement>("[data-map-group]")];
+        const choices = [...(inGrouping ? groupingList : groupList).querySelectorAll<HTMLElement>(inGrouping ? "[data-map-grouping]" : "[data-map-group]")];
         const current = choices.indexOf(target as HTMLElement);
         const next = event.key === "Home" ? 0 : event.key === "End" ? choices.length - 1 : Math.max(0, Math.min(choices.length - 1, current + (event.key === "ArrowDown" ? 1 : -1)));
         for (const [index, option] of choices.entries()) option.setAttribute("tabindex", index === next ? "0" : "-1");
@@ -1580,6 +1673,8 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     if (target && !picker.contains(target)) closePicker();
     else if (target && pickerList.contains(target)) event.preventDefault();
     if (target && !groupPicker.contains(target)) closeGroups();
+    if (target && !groupingPicker.contains(target)) closeGroupings();
+    if (target && !groupingInfo.contains(target)) closeGroupingInfo();
     if (target && !target.closest(".map-links")) setLinks(false);
   }));
 
@@ -1775,8 +1870,11 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     base = indexModel(graph);
     groupings = groupingsOf(base);
     automatic = automaticGrouping(groupings);
-    groupingSelect.innerHTML = groupingOptionsHtml(groupings, automatic?.kind);
-    applyGrouping(groupings.find(grouping => grouping.kind === options.grouping) ?? automatic);
+    automaticReason = automaticGroupingReason(groupings);
+    groupingList.innerHTML = groupingOptionsHtml(groupings, automatic?.kind);
+    const keptGrouping = groupings.find(grouping => grouping.kind === options.grouping);
+    pickedGrouping = keptGrouping !== undefined;
+    applyGrouping(keptGrouping ?? automatic);
     // A heading row is a section of the map: the name the graph files modules under where they have none is no heading.
     const headings = base.sections.filter(name => name !== NO_HEADING).length;
     notes.innerHTML = notesHtml({ name: options.modelName, workspace: options.workspaceName, modules: base.modules.length, lineItems: base.lineItems.length, headings }, graph.limitations, graph.unresolved.length);
@@ -1813,6 +1911,8 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
       closeResults();
       closePicker();
       closeGroups();
+      closeGroupings();
+      closeGroupingInfo();
       setLinks(false);
       endDrag();
       // A hidden map fills nothing.
