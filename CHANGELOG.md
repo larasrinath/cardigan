@@ -2,6 +2,11 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version is in the menu of Cardigan's icon in Chrome's toolbar and on its About page, and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## Unreleased
+
+- **Run cards in the middle.** Notices, failures and progress share a centred column, at most 600 pixels wide, with a drawn mark for the case and 16 pixels at each side in a narrow window. The card holds the main action first, with **Copy diagnostic log** beside it. The theme button stays in the header; **Run again** returns there when a result is shown.
+- **Diagnostics stays folded.** A stopped run no longer opens the log. **Show diagnostics** and **Hide diagnostics** open and close it under the card; **Copy diagnostic log** works while it is folded. Reading again keeps the earlier result in place, with no progress banner moving it.
+
 ## 0.29.9 (11 October 2026)
 
 - **The path in order.** The Model map's path now reads model, Group by, Group, Module. Group names the current group, or says Group when none is chosen. All groups stays first in its list; All modules moves to the start of the Module list, before the modules under their group headings. Each whole pill opens its list, with names in full and the drawing kept in place. (#89)

@@ -215,7 +215,7 @@ To see which version you have, right-click Cardigan's icon in Chrome's toolbar: 
 
 1. Sign in to Anaplan. Open an app, or open a model in Model Building and wait until it has loaded.
 2. Click the Cardigan icon in Chrome's toolbar. If that Anaplan tab already has an open results page, Cardigan brings its tab and window forward and runs again there, keeping the table or map and the open row where it still exists. If it is already reading, it carries on. With no answering results page after about 300 milliseconds, a new one opens in the next tab and starts reading.
-3. Keep the Anaplan tab open until it finishes. The page shows each step, then the result. Diagnostics starts folded; a failed run opens it, and **Copy diagnostic log** works in either state.
+3. Keep the Anaplan tab open until it finishes. The page shows each step in a centred card, then the result. Diagnostics starts folded and stays folded if the run stops. **Show diagnostics** and **Hide diagnostics** open and close the log under the card; **Copy diagnostic log** works in either state.
 
 Closing the results page stops the reading.
 
@@ -259,7 +259,7 @@ Closing the results page stops the reading.
 - **Not an Anaplan tab** or **Tab closed**: the page says what the tab shows, or that it was closed. Open the app or model in Anaplan, then click the icon on that tab.
 - **No model open**: the tab shows an Anaplan page that is neither an app nor a model. Open a model in Model Building, then choose **Run again**.
 - **Anaplan is down for maintenance**: an Anaplan request returned HTTP 503, or an HTML page's title or heading announces maintenance. The card says **Try again when it's back. Nothing was read.** Choose **Run again** when Anaplan is back. Other HTTP errors and ordinary error pages are not called maintenance.
-- When a reading stops, a compact card gives the reason and a main button to try again or refresh, with **Copy diagnostic log** beside it. The log's last line identifies a connection case as `MODEL_OPENING`, `NO_READER`, `OLD_READER`, `NOT_MODEL_PAGE` or `MAINTENANCE`. It also holds request paths, statuses, counts and how long each step took, and the names of a few modules and line items the map could not match, and no cookies, tokens or cell values.
+- Before there is a result, notices and stopped runs use the same centred column, at most 600 pixels wide, with 16 pixels at each side in a narrow window. A drawn icon marks the case, followed by the reason and a main button to try again or refresh, with **Copy diagnostic log** beside it. The theme button stays in the header; **Run again** appears there once a result is shown. Diagnostics stays folded below the card until opened. The log's last line identifies a connection case as `MODEL_OPENING`, `NO_READER`, `OLD_READER`, `NOT_MODEL_PAGE` or `MAINTENANCE`. It also holds request paths, statuses, counts and how long each step took, and the names of a few modules and line items the map could not match, and no cookies, tokens or cell values.
 - If the model map cannot be drawn, the page says so in the map's place. The tables are not affected, and **Copy diagnostic log** beside the message copies the reason.
 
 ## Privacy and permissions

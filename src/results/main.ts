@@ -23,7 +23,7 @@ import { ResultKeeper } from "./keep-result.js";
 import {
   cardDrawerHtml, cardDrawerSubHtml, colChooserHtml, colFilterHtml, filterMatches, filterOptionsHtml, filterStatusText, filterTickWords, headerMetaHtml, keptCopyHtml, MAP_FAILED,
   MAP_LABEL, mapHtml, MOON_ICON, navHtml, navItems, navMenuHtml,
-  noteBannerHtml, NOT_REMOVED_LINE, objectDrawerHtml, objectDrawerSubHtml, opensHtml, overviewHtml, rangeFilterHtml, rowDrawerHtml, rowDrawerSubHtml, runBannerHtml, runHtml,
+  noteBannerHtml, NOT_REMOVED_LINE, objectDrawerHtml, objectDrawerSubHtml, opensHtml, overviewHtml, rangeFilterHtml, rowDrawerHtml, rowDrawerSubHtml, runBannerHtml, runHtml, runIconHtml,
   SUN_ICON, tableHtml, tableParts, type AboutLink, type KeptCopy, type Links, type NavEntry, type OpenButton, type TableView,
 } from "./markup.js";
 import type { PageId } from "./page-ids.js";
@@ -459,6 +459,7 @@ function updateActions(): void {
   const phase = client.state.phase;
   for (const id of ["runAgain"] as const) {
     const button = el<HTMLButtonElement>(id);
+    button.hidden = result === undefined && find("#runCard") !== null;
     button.disabled = phase === "running" || phase === "no-tab";
     showRunLabel(button);
   }
@@ -829,11 +830,10 @@ function showRun(runState: RunState): void {
   // reached, or was not, says nothing about it. And a page that may still bring one back draws no waiting view yet.
   if (result ? broughtBack && !client.asked : takingBack) return updateActions();
   const text = describeState(runState, ranBefore());
-  // Change the fold only on entering a run or a failure; progress updates leave the user's choice alone.
+  // A new run starts folded. Status updates and failures leave the user's choice alone.
   if (runState.phase !== logPhase) {
     for (const log of document.querySelectorAll("#runLog, #ovLog")) {
       if (runState.phase === "running") log.removeAttribute("open");
-      else if (STOPPED.has(runState.phase)) log.setAttribute("open", "");
     }
     logPhase = runState.phase;
   }
@@ -858,17 +858,24 @@ function showRun(runState: RunState): void {
       // The page before its first result: there is nothing to navigate yet.
       el("topnav").hidden = true;
       el("view").innerHTML = runHtml();
-      if (STOPPED.has(runState.phase)) find("#runLog")?.setAttribute("open", "");
     }
     set("#runTitle", text.title);
     set("#runStatus", text.message);
     set("#runHint", text.hint);
+    const icon = find("#runIcon");
+    if (icon && icon.dataset.phase !== runState.phase) {
+      icon.innerHTML = runIconHtml(runState.phase);
+      icon.dataset.phase = runState.phase;
+    }
   }
   // The one control that refreshes the Anaplan tab, there only while the tab still holds the reader of an earlier build.
   const refresh = runState.phase === "old-reader" || runState.phase === "missing-reader";
   for (const button of document.querySelectorAll("#runRefresh, #bannerRefresh")) (button as HTMLElement).hidden = !refresh;
   const retry = find("#runRetry");
-  if (retry) retry.hidden = refresh || !STOPPED.has(runState.phase);
+  if (retry) {
+    retry.hidden = refresh || !(STOPPED.has(runState.phase) || runState.phase === "ready");
+    retry.textContent = runState.phase === "ready" ? runLabel(ranBefore()) : "Run again";
+  }
   find("#runCard")?.classList.toggle("stopped", STOPPED.has(runState.phase));
   showLog(client.log);
   updateActions();

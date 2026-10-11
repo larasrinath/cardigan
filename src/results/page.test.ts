@@ -16,6 +16,23 @@ const { tags } = readMarkup(html, true);
 const opening = tags.filter(tag => !tag.closing);
 
 describe("The results page's files", () => {
+  it("centres the run card and its quiet disclosure in one 600px column with 16px side gutters on narrow windows", () => {
+    const run = parseMarkup(runHtml());
+    expect(run.querySelector(".run-state")?.children.map(child => child.id)).toEqual(["runCard", "runLog"]);
+    expect(declared(".run-state")).toEqual(["width:100%;max-width:600px;margin:12vh auto 0"]);
+    expect(declared(".shell:has(.run-state)")).toEqual(["padding:0 16px 32px"]);
+    expect(declared(".panel.run-card")[0]).toContain("padding:24px");
+    expect(mediaRules("(max-width:560px)")).toContainEqual([".panel.run-card", "padding:20px"]);
+    expect(declared(".run-actions")[0]).toContain("display:flex;align-items:center;gap:8px");
+    expect(declared(".run-actions")[0]).not.toContain("flex-wrap:wrap");
+    expect(declared(".run-log")[0]).toContain("background:transparent;border-color:transparent");
+    expect(declared(".run-log summary")[0]).toContain("padding:8px 16px");
+    expect(declared(".run-log[open] summary")).toEqual([]);
+    expect(declared(".run-log:not([open]) .when-open,.run-log[open] .when-closed")).toEqual(["display:none"]);
+    expect(declared(".hd-actions")[0]).toContain("min-height:33px");
+    expect(run.querySelector("#runLog")?.hasAttribute("open")).toBe(false);
+  });
+
   it("floats details below the header without reserving any table width, and fills narrow windows without a scrim", () => {
     const page = new FakePage(html);
     expect([page.id("drawer").getAttribute("role"), page.id("drawer").getAttribute("aria-labelledby"), page.id("drawer").hasAttribute("aria-modal"), page.has("#scrim")])
