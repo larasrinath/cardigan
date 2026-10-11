@@ -16,6 +16,7 @@ import { VIEW_KEY } from "./view-keep.js";
 import { FILE_ICONS, FORGOTTEN_LINE, keptCopyHtml, MAP_FAILED, NAV_ICONS, NOT_REMOVED_LINE } from "./markup.js";
 import { fileWords, watchForFiles, type FileWatch } from "./no-file.test-support.js";
 import { PROCESS_LINES } from "./process-actions-view.js";
+import { ABOUT_SHOWN } from "./result-view.js";
 import { NONE } from "./table-engine.js";
 import { fixTimeZone } from "./time-zone.test-support.js";
 import { TIMES_KEY } from "./times.js";
@@ -112,7 +113,7 @@ const WITH_CALENDAR: AnalysisResult = {
       [CALENDAR_PROPERTIES["Include Quarter Totals"], "true"]]) }) }],
 };
 /** The line under the Model Calendar table of that model. */
-const CALENDAR_NOTE = "5 rows about the model are not listed here: 3 hold a value, which the Overview has under About this export. "
+const CALENDAR_NOTE = "5 rows about the model are not listed here: the Overview names the workspace and the model, under About this export. "
   + "21 settings have no value and are not listed: they do not apply to this calendar type, or the model does not show them.";
 
 /** A model whose Line Items file is laid out as the export writes it, with some of the grid's columns: each module's own
@@ -1214,7 +1215,8 @@ describe("The results page's script, on the page", () => {
   });
 
   it("goes down the page's headings one level at a time, in every view and in the drawer", async () => {
-    await openWith();
+    // The app, with a Details file that names it, so that the overview has About this export.
+    await openWith({ ...RESULT, tables: [{ ...RESULT.tables[0], rows: [["App", "App", "Demo app"], ...RESULT.tables[0].rows] }, ...RESULT.tables.slice(1)] });
     /** The levels of the headings inside a part of the page, in the order they stand. */
     const levels = (part: string) => page.all(`${part} h1, ${part} h2, ${part} h3, ${part} h4, ${part} h5, ${part} h6`).map(heading => Number(heading.localName[1]));
     // The overview: the view's heading, then its panels and sections one level under it, the one that starts closed too.
@@ -1297,15 +1299,15 @@ describe("The results page's script, on the page", () => {
     const file = WITH_CALENDAR.tables[3];
     expect([file.rows.length, file.rows.filter(row => row[0] === "Model").length]).toEqual([31, 5]);
     // The overview: the calendar's tile says what the calendar is, a months one, where the other tiles count the rows their
-    // tables list; its title says the type as written, and so does its name for a screen reader. What the file says about
-    // the model stands with what the Details file says about the export, after it, and without the model's name, which
-    // that has said.
+    // tables list; its title says the type as written, and so does its name for a screen reader. About this export names
+    // the workspace, which only the file says, before the model, which the Details file says: neither when the model was
+    // captured nor the export's host is said there.
     expect(page.all("#view .stat").map(tile => tile.children.map(child => child.textContent))).toEqual([["Model Calendar", "Monthly"], ["Modules", "2", "rows"], ["Line Items", "120", "rows"]]);
     const calendarTile = page.all("#view .stat")[0];
     expect([calendarTile.getAttribute("title"), calendarTile.getAttribute("aria-label"), page.all("#view .stat")[1].getAttribute("title")])
       .toEqual(["Model Calendar: Calendar Months/Quarters/Years", "Model Calendar: Calendar Months/Quarters/Years", null]);
     expect([page.texts("#ovAbout h2"), page.texts("#ovAbout dt"), page.texts("#ovAbout dd")])
-      .toEqual([["About this export"], ["Model", "Anaplan host", "Workspace", "Captured on"], ["Model one", "us1a.app.anaplan.com", "Main", "2026-10-03"]]);
+      .toEqual([["About this export"], ["Workspace", "Model"], ["Main", "Model one"]]);
     // The navigation lists the same tables in the same order, and counts nothing: the tiles count the rows.
     expect(tableEntries().map(entryLabel)).toEqual(["Model Calendar", "Modules", "Line Items"]);
 
@@ -1356,7 +1358,7 @@ describe("The results page's script, on the page", () => {
     // The line under the name says where the five rows are. In the rows' place the table says that none is the calendar's
     // own, which does not contradict it; "Nothing was found" would.
     expect([page.texts("#view .view-note"), page.texts("#tableWrap .e-title"), page.texts("#tableWrap .e-sub"), page.id("rowCount").textContent])
-      .toEqual([["5 rows about the model are not listed here: 3 hold a value, which the Overview has under About this export."], ["Model Calendar has no rows of its own"], ["Every row is about the model."], "No rows"]);
+      .toEqual([["5 rows about the model are not listed here: the Overview names the workspace and the model, under About this export."], ["Model Calendar has no rows of its own"], ["Every row is about the model."], "No rows"]);
     expect([page.id("view").textContent.includes("Nothing was found"), page.all("#tableWrap tbody tr").length, page.id("pager").children]).toEqual([false, 0, []]);
     // The page's own table has the five rows still: a model's map is built from the result's tables.
     page.find('#navList [data-nav="map"]').press();
@@ -2607,7 +2609,7 @@ describe("What a click, a key and typing do on the results page", () => {
     expect([page.key("Escape").defaultPrevented, page.key("/").defaultPrevented, section.hasAttribute("open")]).toEqual([false, false, true]);
   });
 
-  it("says on the overview everything the Details file holds, for an app and for a model: no row is dropped", async () => {
+  it("says on the overview everything the Details file holds, for an app and for a model, but what About this export leaves out on purpose: no row is dropped", async () => {
     /** Every text the overview shows, with its closed sections' as well. */
     const texts = () => [...page.texts("#view dt"), ...page.texts("#view dd"), ...page.texts("#view .warn-list li"), ...page.id("diagLog").textContent.split("\n")];
     /** What each file's tile says, by the file's own name, which is its entry's in the navigation (the tiles stand in the
@@ -2617,10 +2619,21 @@ describe("What a click, a key and typing do on the results page", () => {
       const said = tile.querySelector(".s-num")?.textContent;
       return `${entryLabel(item)}.csv: ${tile.querySelector(".sr-only") ? `${said} rows` : said}`;
     });
-    /** The rows of a result's Details file that the overview does not say: a detail and its value, a note, a line of the log, or a file's tile. */
+    /** Whether a row of a Details file is one About this export leaves out on purpose (`ABOUT_SHOWN`): where, when and with
+     * what the export was made, and what more the file says of the app or the model. The result keeps the file whole, and
+     * the log's first line says the version. */
+    const aside = (section: string, detail: string) => !["Files", "Notes", "How to read", "Diagnostics"].includes(section) && !ABOUT_SHOWN.includes(detail);
+    /** Those rows of a result's Details file, by their details, and whether About this export says any of them after all. */
+    const leftOut = (result: AnalysisResult) => {
+      const details = result.tables[0].rows.map(row => row.map(String)).filter(([section, detail]) => aside(section, detail)).map(([, detail]) => detail);
+      return [details, details.some(detail => page.texts("#ovAbout dt").includes(detail))];
+    };
+    /** The rows of a result's Details file that the overview does not say, but for those it leaves out on purpose: a detail
+     * and its value, a note, a line of the log, or a file's tile. */
     const unsaid = (result: AnalysisResult) => {
       const shown = texts();
       return result.tables[0].rows.map(row => row.map(String)).filter(([section, detail, value]) => {
+        if (aside(section, detail)) return false;
         if (section === "Diagnostics") return !shown.includes(detail ? `${detail} ${value}` : value);
         if (section === "Notes") return !shown.includes(`${detail}: ${value}`);
         // A count of the file's own rows is its tile's number, but for a Model Calendar's: its table leaves rows out, and the
@@ -2640,19 +2653,20 @@ describe("What a click, a key and typing do on the results page", () => {
     };
     const withFiles = (result: AnalysisResult, ...more: Cell[][]): AnalysisResult => ({ ...result, tables: [{ ...result.tables[0], rows: [...result.tables[0].rows,
       ...result.tables.slice(1).map((table): Cell[] => ["Files", table.file, `${table.rows.length} rows`]), ...more] }, ...result.tables.slice(1)] });
-    // An app: what it is and how it was exported, a note, and how to read the tables.
+    // An app: what it is and how it was exported, a note, and how to read the tables. About this export names the app,
+    // and leaves out where it was exported from.
     const app = withFiles(APP, ["Notes", "Archive", "Not published"], ["How to read", "Page and Card #", "Identify a card in every table."]);
     await openWith(app);
-    expect([app.tables[0].rows.length, unsaid(app)]).toEqual([11, []]);
+    expect([app.tables[0].rows.length, unsaid(app), leftOut(app)]).toEqual([11, [], [["Anaplan host"], false]]);
     expect(page.texts("#view h2")).toEqual(["About this export", "Notes", "How to read these tables", "Diagnostics"]);
-    expect([page.texts("#ovAbout dt"), page.has("#ovFiles")]).toEqual([["App", "Anaplan host"], false]);
+    expect([page.texts("#ovAbout dt"), page.has("#ovFiles")]).toEqual([["App"], false]);
     // A model, one of whose files was not exported and another counted with a remark: those two are said under Tables,
     // each by the name the page has for the table.
     const model = withFiles(MODEL, ["Files", "Source Models.csv", "Not exported: This model page has no REMOTE_MODEL axis."], ["How to read", "Layout", "As Anaplan's own export."]);
     model.tables[0].rows[4] = ["Files", "Modules.csv", "2 rows (as listed)"];
     page.id("runAgain").press();
     sendResult(ports[0], model);
-    expect([model.tables[0].rows.length, unsaid(model)]).toEqual([7, []]);
+    expect([model.tables[0].rows.length, unsaid(model), leftOut(model)]).toEqual([7, [], [["Anaplan host"], false]]);
     expect([page.texts("#view h2"), page.texts("#ovFiles dt"), page.texts("#ovFiles dd")]).toEqual([["About this export", "Tables", "How to read these tables", "Diagnostics"],
       ["Modules", "Source Models"], ["2 rows (as listed)", "Not exported: This model page has no REMOTE_MODEL axis."]]);
     // No file's name is on the page: a table is said by its name alone.
@@ -5571,9 +5585,10 @@ describe("The buttons at the top right of a row's details that open it in Anapla
     });
 
     it("has none for an app's result", async () => {
-      await openWith(RESULT);
+      // The app's name and the models it is built on are said, and none of them opens anything.
+      await openWith({ ...RESULT, tables: [{ ...RESULT.tables[0], rows: [["App", "App", "Demo app"], ["App", "Models", "Model one (Main)"], ...RESULT.tables[0].rows] }, ...RESULT.tables.slice(1)] });
       await letKeep();
-      expect([page.has("#ovAbout"), links()]).toEqual([true, []]);
+      expect([page.texts("#ovAbout dt"), links()]).toEqual([["App", "Models"], []]);
     });
   });
 });
@@ -6188,7 +6203,10 @@ describe("Times in the viewer's own zone, or in UTC, as the Timezone pill in the
   const zone = () => page.all("#timeZone [data-tz]").filter(word => word.classList.contains("on")).map(word => word.dataset.tz);
   /** A press of the pill: the times in the other zone. */
   const switchZone = () => page.id("timeZone").press();
-  const about = () => page.texts("#ovAbout dt").map((detail, index) => [detail, page.texts("#ovAbout dd")[index]]).filter(([detail]) => detail === "Exported on");
+  /** What the overview says under About this export, and whether it says when the export was made, in either zone:
+   * About this export says what was read, and the result's Details file keeps the time (`ABOUT_SHOWN`). */
+  const about = () => [page.texts("#ovAbout dt").map((detail, index) => [detail, page.texts("#ovAbout dd")[index]]),
+    ["14:02", "23:02"].some(time => page.id("view").textContent.includes(time))];
   const sortOf = (index: number) => page.find(`[data-sort="${index}"]`).closest("th")?.getAttribute("aria-sort");
   const rangeTo = (from: string, to: string) => {
     page.find('[data-colfilter="1"]').press();
@@ -6207,9 +6225,9 @@ describe("Times in the viewer's own zone, or in UTC, as the Timezone pill in the
     // the viewer's zone.
     expect([page.id("timeZone").hidden, zone(), page.id("timeZone").getAttribute("aria-label"), page.id("timeZone").title])
       .toEqual([false, ["local"], "Timezone: Local. Switch to UTC", "Times in your time zone, Asia/Tokyo. Press to say them in UTC."]);
-    // The header no longer says when the export was made; the overview says it in both zones, the viewer's first.
+    // Neither the header nor the overview says when the export was made.
     expect(page.id("hdMeta").textContent).not.toContain("Exported");
-    expect(about()).toEqual([["Exported on", "2026-10-03 23:02 local · 2026-10-03 14:02 UTC"]]);
+    expect(about()).toEqual([[["Model", "Model one"]], false]);
     goTo(1);
     expect([headings(), column("Start Date and Time (Asia/Tokyo)")]).toEqual([["Name", "Start Date and Time (Asia/Tokyo)", "Source Type"],
       ["2026-03-13 08:19:56", "2026-03-13 09:00:01", "2026-03-14 05:00:00", ""]]);
@@ -6235,7 +6253,7 @@ describe("Times in the viewer's own zone, or in UTC, as the Timezone pill in the
     goTo(1);
     page.find('[data-sort="1"]').press();
     switchZone();
-    // The table shown is said anew, as the file has it, in the order it had; the pill and the overview follow.
+    // The table shown is said anew, as the file has it, in the order it had; the pill follows.
     expect([zone(), headings(), column("Start Date and Time (UTC)"), sortOf(1), stored.get(TIMES_KEY), page.id("live").textContent])
       .toEqual([["utc"], ["Name", "Start Date and Time (UTC)", "Source Type"], ["", "2026-03-12 23:19:56", "2026-03-13 00:00:01", "2026-03-13 20:00:00"], "ascending",
         "utc", "Times in UTC."]);
@@ -6244,8 +6262,9 @@ describe("Times in the viewer's own zone, or in UTC, as the Timezone pill in the
     expect(page.texts("#drawerBody dd")[1]).toBe("2026-03-12 23:19:56 UTC · 2026-03-13 08:19:56 local");
     page.key("Escape");
     vi.advanceTimersByTime(300);
+    // The overview has no time to say in UTC either.
     page.find('#navList [data-nav="overview"]').press();
-    expect(about()).toEqual([["Exported on", "2026-10-03 14:02 UTC · 2026-10-03 23:02 local"]]);
+    expect(about()).toEqual([[["Model", "Model one"]], false]);
     // A page opened later, for any result, says its times in UTC.
     await open(clicked(42));
     const port = ports[ports.length - 1];

@@ -26,7 +26,7 @@ import type { PageId } from "./page-ids.js";
 import { LINE_ITEMS_FILE, MODULE_NAME } from "./line-items-view.js";
 import { ACCESS_FILE, analysedOf, cardParts, detailsOf, detailValue, diagnosticLog, fileView, IMPORTS_FILE, listedTables, MODEL_CALENDAR_FILE, MODULES_FILE, overviewOf,
   SOURCE_MODELS_FILE, tableFullLabel, tableLabel, type FileView, type Overview } from "./result-view.js";
-import { bothTimes, browserZone, fileRow, hasTimes, inTimeMode, momentRange, momentsOf, readText, storedTimeMode, storeTimeMode, timesOf, zoneWords, type TimeMode } from "./times.js";
+import { browserZone, fileRow, hasTimes, inTimeMode, momentRange, momentsOf, readText, storedTimeMode, storeTimeMode, timesOf, zoneWords, type TimeMode } from "./times.js";
 import { rangeInForce, rangeSummary, readRange, type RangeState } from "./range-filter.js";
 import { cellText, NONE, pageOf, rangeColumn, rememberingSelect, rowName, valueCounts, type RangeColumn, type RangeQuery, type Row, type Sort, type TableQuery } from "./table-engine.js";
 import { DEFAULT_PAGE_SIZE, findRow, forgetKept, isMapAtStart, keepTable, objectKey, readKept, rowKey, subjectOf, takeTable, writeKept, type KeptDrawer, type KeptTable, type KeptView,
@@ -414,10 +414,6 @@ function retime(): void {
   }
   renderAll();
 }
-/** The overview with each time it says, the export's among what it says about the export, in both zones, the one chosen
- * first. */
-const timedOverview = (overview: Overview): Overview =>
-  ({ ...overview, about: overview.about.map(([detail, value]): [string, string] => [detail, bothTimes(value, timeMode, ownZone) ?? value]) });
 /** What a range's filter says of the zone of its column's times, for a column of times, where its days were set in the
  * other zone also that: they keep the same rows in either. Nothing for any other column. */
 function zoneLine(column: Column, range: RangeState | undefined): string | undefined {
@@ -613,10 +609,9 @@ function renderAll(): void {
   // Each tile opens its table: the tiles are in the navigation's order, which `listedTables` gives.
   else {
     // Each tile opens its table, and has the table's icon from the navigation: both by the table's file, in the tiles' order.
-    // A time the overview says, the export's, is said in both zones, the one chosen first. A model's name and its apps' under
-    // About this export open them in Anaplan, where the page knows where they are.
+    // A model's name and its apps' under About this export open them in Anaplan, where the page knows where they are.
     const listed = listedTables(result);
-    const overview = timedOverview(overviewOf(result));
+    const overview = overviewOf(result);
     el("view").innerHTML = overviewHtml(overview, keptCopy, listed.map(({ index }) => index), listed.map(({ table }) => table.file), aboutLinks(overview.about));
   }
   // The line above a result that was brought back says "today" by the clock: each view says it anew, so that it is still

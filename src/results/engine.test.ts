@@ -14,7 +14,7 @@ import { APP_FILES } from "./columns.js";
 import { describeState, ResultsClient, type RunState } from "./connection.js";
 import { APP_HOST, GOLDEN_APP, GOLDEN_GRIDS, goldenApp, LINE_ITEMS, MODEL, MODEL_HOST, modelPage, serveEngine, SHELL_HOST, type EngineRun } from "./engine.test-support.js";
 import { FakeTab, MESSAGE_MAX_BYTES, NOBODY, TOO_LARGE, type PortEnd } from "./port-pair.test-support.js";
-import { ACCESS_FILE, detailsOf, diagnosticLog, fileView, IMPORTS_FILE, listedTables, MODEL_CALENDAR_FILE, MODEL_FILE_ORDER, modelFacts, overviewOf, tableLabel } from "./result-view.js";
+import { ABOUT_SHOWN, ACCESS_FILE, detailsOf, diagnosticLog, fileView, IMPORTS_FILE, listedTables, MODEL_CALENDAR_FILE, MODEL_FILE_ORDER, modelFacts, overviewOf, tableLabel } from "./result-view.js";
 
 // The results page's client against the engine: the content script's real side of the port around the real analysis of an
 // app and the real export of a model in its frame, joined to the page by ports that pass messages as Chrome's do. What
@@ -218,10 +218,11 @@ describe("The results page against the engine in the Anaplan tab", () => {
       { target: "Products", source: "column", column: 1, text: "Product" }, { target: "Time", source: "column", column: 2, text: "Month" },
       { target: "Line Items", source: "column", column: 3, text: "Line item" }, { target: "Value", source: "column", column: 5, text: "Price" }] }]);
     // The page's one rule about a model's file fits the file the export writes: its name, its Section column, and the
-    // template's five rows about the model, of which the export fills in three.
+    // template's five rows about the model, of which the export fills in three. The line under the table names the two of
+    // those that the overview says too, under About this export.
     const calendar = result.tables.find(table => table.file === MODEL_CALENDAR_FILE);
     expect([calendar?.rows.length, calendar && fileView(result, calendar).note, calendar && fileView(result, calendar).table.rows.length, modelFacts(result)])
-      .toEqual([31, "5 rows about the model are not listed here: 3 hold a value, which the Overview has under About this export. 16 settings have no value and are not listed: they do not apply to this calendar type, or the model does not show them.", 10, [["Workspace", "Workspace one"], ["Model", "Demand: plan"], ["Captured on", "2026-09-28"]]]);
+      .toEqual([31, "5 rows about the model are not listed here: the Overview names the workspace and the model, under About this export. 16 settings have no value and are not listed: they do not apply to this calendar type, or the model does not show them.", 10, [["Workspace", "Workspace one"], ["Model", "Demand: plan"], ["Captured on", "2026-09-28"]]]);
     // The overview loses none of the counts the export's Details file gives. Each row that only counts a file is said by
     // the file's tile, as the rows its table lists, but for the calendar's: its table lists 10 of its 31, and the line under
     // the table's name says the rest, 5 rows about the model and 16 settings with no value. The calendar's tile says what
@@ -236,6 +237,13 @@ describe("The results page against the engine in the Anaplan tab", () => {
         title: "Model Calendar: Weeks: 4-4-5, 4-5-4 or 5-4-4, current fiscal year FY24 (31 Dec 2023 - 28 Dec 2024)" }]);
     const leftOut = /^(\d+) rows about the model are not listed here.* (\d+) settings have no value and are not listed/.exec(calendar ? fileView(result, calendar).note ?? "" : "");
     expect(10 + Number(leftOut?.[1]) + Number(leftOut?.[2])).toBe(31);
+    // About this export says the workspace and the model, each with its ID, and no more (`ABOUT_SHOWN`). The other rows
+    // about the model and about the export are deliberately not on the overview: where, when and with what the export was
+    // made stay in the Details file, whose log begins with the version, and the calendar's file keeps when the model was
+    // captured. The result keeps both files whole.
+    const aboutRows = [...(detailsOf(result)?.rows ?? []), ...(calendar?.rows ?? [])].filter(row => ["Model", "Export"].includes(String(row[0])));
+    expect([overview.about.map(([detail]) => detail), [...new Set(aboutRows.map(row => String(row[1])))].filter(detail => !ABOUT_SHOWN.includes(detail))])
+      .toEqual([["Workspace", "Workspace ID", "Model", "Model ID"], ["Exported on", "Exported with", "Anaplan host", "Model size (GB)", "Captured on", "Captured by"]]);
     // The export says three things both in its summary and in a Files row: how many imports it matched, and that two files
     // were not exported, the source models and Dynamic Cell Access, which it makes from Line Items and for which this
     // model's Line Items grid lacks the three columns it is made from. The overview says each once: the two that were not

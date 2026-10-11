@@ -5,7 +5,7 @@ import { CALENDAR_HEADERS, CALENDAR_PROPERTIES, calendarRows } from "../model/ca
 import type { AnalysisResult, Cell, ResultTable } from "../result-types.js";
 import { APP_FILES, cardsOf, columnsOf } from "./columns.js";
 import { lineItemsView } from "./line-items-view.js";
-import { ABOUT_MODEL, ACCESS_FILE, analysedOf, CALENDAR_GUIDANCE, CARD_PARTS, cardParts, cardSections, detailSections, detailsOf, detailValue, diagnosticLog, FILE_RULES, fileView, IMPORTS_FILE,
+import { ABOUT_MODEL, ABOUT_SHOWN, ACCESS_FILE, analysedOf, CALENDAR_GUIDANCE, CARD_PARTS, cardParts, cardSections, detailSections, detailsOf, detailValue, diagnosticLog, FILE_RULES, fileView, IMPORTS_FILE,
   listedTables, matchedRemark, MODEL_CALENDAR_FILE, MODEL_FILE_ORDER, modelFacts, MODULES_FILE, overviewOf, resultNotes, SOURCE_MODELS_FILE, tableFullLabel, tableLabel,
   THIS_MODEL } from "./result-view.js";
 import { NONE } from "./table-engine.js";
@@ -157,10 +157,10 @@ describe("What the results page reads out of a result", () => {
     expect(overviewOf(result("app", [appDetails, pages, cards, appTable("Filters.csv", [])]))).toEqual({
       tiles: [{ label: "Pages", count: 4 }, { label: "Cards", count: 6 }, { label: "Filters", count: 0 }],
       notes: ["Legacy archive: Not published", "Names: Demo model: the model is closed, so IDs are shown instead of names."],
-      // What the Details file says besides: what was read, in the file's order; the tables whose row says something else than
-      // the file's own number of rows (here the Details file was written for fewer rows); how to read them; and the log.
-      about: [["App", "Demo app"], ["App ID", "01234567-89ab-cdef-0123-456789abcdef"], ["Cards", "3"], ["Exported on", "2026-10-03 14:02 UTC"], ["Exported with", "Cardigan dev"],
-        ["Anaplan host", "us1a.app.anaplan.com"]],
+      // What the Details file says besides: the app and its ID, and no more, under About this export; the tables whose row
+      // says something else than the file's own number of rows (here the Details file was written for fewer rows); how to
+      // read them; and the log.
+      about: [["App", "Demo app"], ["App ID", "01234567-89ab-cdef-0123-456789abcdef"]],
       files: [["Pages", "2 rows"], ["Cards", "3 rows"]],
       howToRead: [["Page and Card #", "Identify a card in every table."]],
       log: diagnosticLog(appDetails),
@@ -185,7 +185,7 @@ describe("What the results page reads out of a result", () => {
     expect(overviewOf(result("model", [modelDetails, lineItems, modules], ["Line Items: 2 rows", "Modules: 1 rows"]))).toEqual({
       tiles: [{ label: "Modules", count: 1 }, { label: "Line Items", count: 2 }],
       notes: ["Actions: the Actions list came without Notes; the diagnostic log lists the columns it had."],
-      about: [["Model", "Model one"], ["Workspace", "Main"], ["Exported on", "2026-10-03 09:30 UTC"], ["Exported with", "Cardigan dev"], ["Anaplan host", "eu2a.app.anaplan.com"]],
+      about: [["Workspace", "Main"], ["Model", "Model one"]],
       files: [["Line Items", "120 rows"], ["Imports", "Not exported: the grid did not load"]], howToRead: [], log: [] });
   });
 
@@ -225,8 +225,9 @@ describe("What the results page reads out of a result", () => {
     // in the Actions list; the other is said, with what it says.
     expect([overview.tiles, overview.files]).toEqual([[{ label: "Line Items", count: 120 }, { label: "Imports", count: 2 }],
       [["Source Models", "Not exported: no such axis"]]]);
-    // A section the page does not know is part of what the export is about: its rows are there too.
-    expect(overview.about.slice(-1)).toEqual([["A detail", "its value"]]);
+    // About this export says the workspace, the model and its ID, in that order, and no more: neither a section the page
+    // does not know nor the export's host, time and tool.
+    expect(overview.about.map(([detail]) => detail)).toEqual(["Workspace", "Model", "Model ID"]);
     // Every row of the Details file is somewhere on the overview.
     const held = (row: Cell[]): boolean => {
       const [section, detail, value] = row.map(String);
@@ -241,11 +242,19 @@ describe("What the results page reads out of a result", () => {
       if (section === "Files") return [...overview.files, ...overview.tiles.map(tile => [tile.label, `${tile.count} rows`])].some(([table, shown]) => `${table}.csv` === detail && shown === said);
       return overview.about.some(pair);
     };
-    expect([details.rows.length, details.rows.filter(row => !held(row))]).toEqual([16, []]);
+    // The rows About this export leaves out on purpose (`ABOUT_SHOWN`): where, when and with what the export was made,
+    // and a section the page does not know. The overview does not say them; they stay in the result's Details file,
+    // which the page keeps whole, and the export's version is the first line of its log.
+    const leftOut = (row: Cell[]): boolean => !["Files", "Notes", "How to read", "Diagnostics"].includes(String(row[0])) && !ABOUT_SHOWN.includes(String(row[1]));
+    expect(details.rows.filter(leftOut).map(row => String(row[1]))).toEqual(["Exported on", "Exported with", "Anaplan host", "A detail"]);
+    // Every other row of the Details file is somewhere on the overview.
+    expect([details.rows.length, details.rows.filter(row => !leftOut(row) && !held(row))]).toEqual([16, []]);
     // The same for the app's Details file, whose Files rows are said too where they differ from the files.
     const app = overviewOf(result("app", [appDetails]));
-    expect([app.about.length, app.files.length, app.notes.length, app.howToRead.length, app.log.length]).toEqual([6, 2, 2, 1, 4]);
-    expect(app.about.length + app.files.length + app.notes.length + app.howToRead.length + app.log.length).toBe(appDetails.rows.length);
+    const appLeftOut = appDetails.rows.filter(leftOut).map(row => String(row[1]));
+    expect(appLeftOut).toEqual(["Cards", "Exported on", "Exported with", "Anaplan host"]);
+    expect([app.about.length, app.files.length, app.notes.length, app.howToRead.length, app.log.length]).toEqual([2, 2, 2, 1, 4]);
+    expect(app.about.length + appLeftOut.length + app.files.length + app.notes.length + app.howToRead.length + app.log.length).toBe(appDetails.rows.length);
     // Without a Details file the overview has none of it.
     expect(overviewOf(result("model", [lineItems]))).toMatchObject({ about: [], files: [], howToRead: [], log: [] });
   });
@@ -331,7 +340,7 @@ describe("What the results page reads out of a result", () => {
   const calendar = (workspace = "Main", model = "Model one"): ResultTable => ({ file: "Model Calendar.csv", label: "Model Calendar", headers: [...CALENDAR_HEADERS], guard: false,
     rows: calendarRows({ workspace, model, capturedOn: "2026-10-03", values: CALENDAR_VALUES }) });
   /** The line under the table of that calendar: where its rows about the model are, and how many settings have no value. */
-  const CALENDAR_NOTE = "5 rows about the model are not listed here: 3 hold a value, which the Overview has under About this export. "
+  const CALENDAR_NOTE = "5 rows about the model are not listed here: the Overview names the workspace and the model, under About this export. "
     + "21 settings have no value and are not listed: they do not apply to this calendar type, or the model does not show them.";
 
   it("lists every row of every file, but for the rows about the model in a model's Model Calendar file", () => {
@@ -361,7 +370,7 @@ describe("What the results page reads out of a result", () => {
     expect([fileView(model, renamed), fileView(result("app", [appDetails, file]), file), fileView(model, regrouped)]).toEqual([{ table: renamed }, { table: file }, { table: regrouped }]);
     // A row is left out for being about the model, not for its place: wherever such a row stands, and only such a row.
     const mixed: ResultTable = { ...file, headers: ["Setting", "Section", "Value"], rows: [["Calendar Type", "Model Calendar", "x"], ["Model", "Model", "y"], ["Other", "Something else", "z"], ["Model", "model", "w"]] };
-    expect(fileView(model, mixed)).toEqual({ table: { ...mixed, rows: [mixed.rows[0], mixed.rows[2], mixed.rows[3]] }, note: "1 row about the model is not listed here: the Overview has its value, under About this export." });
+    expect(fileView(model, mixed)).toEqual({ table: { ...mixed, rows: [mixed.rows[0], mixed.rows[2], mixed.rows[3]] }, note: "1 row about the model is not listed here: the Overview names the model, under About this export." });
     // A calendar file with no row about the model lists its settings that hold a value, under a line that counts the rest.
     const none: ResultTable = { ...file, rows: file.rows.slice(5) };
     expect([fileView(model, none).table.rows.length, fileView(model, none).note]).toEqual([5, CALENDAR_NOTE.slice(CALENDAR_NOTE.indexOf("21 settings"))]);
@@ -372,25 +381,27 @@ describe("What the results page reads out of a result", () => {
     // and the line under its name counts the rows as ever. A table that has rows to list says nothing in their place.
     const only: ResultTable = { ...file, rows: file.rows.slice(0, 5) };
     expect(fileView(model, only)).toEqual({ table: { ...only, headers: CALENDAR_HEADERS.slice(0, 4), rows: [] },
-      note: "5 rows about the model are not listed here: 3 hold a value, which the Overview has under About this export.", none: "Every row is about the model." });
+      note: "5 rows about the model are not listed here: the Overview names the workspace and the model, under About this export.", none: "Every row is about the model." });
     // One whose settings all have no value says that in the rows' place.
     const blank: ResultTable = { ...calendar(), rows: calendarRows({ workspace: "Main", model: "Model one", capturedOn: "2026-10-03", values: new Map() }) };
     expect([fileView(model, blank).table.rows.length, fileView(model, blank).none]).toEqual([0, "No setting of the calendar holds a value."]);
     expect([fileView(model, file).none, fileView(model, lineItems).none]).toEqual([undefined, undefined]);
-    // The line says where the rows' values are, which is on the overview: it has the setting and the value of each such
-    // row that holds a value (`modelFacts`), and of no other. The template's five rows hold three: the export cannot
-    // know the model's size or who captured it, and leaves those two without a value. So the line says three, and the
-    // overview has those three.
+    // The line says which of the rows' values the overview names: the workspace and the model, under About this export
+    // (`ABOUT_SHOWN`). The template's five rows hold three values: the export cannot know the model's size or who captured
+    // it, and leaves those two without one. The third, Captured on, is not said on the overview.
     expect(modelFacts(model)).toEqual([["Workspace", "Main"], ["Model", "Model one"], ["Captured on", "2026-10-03"]]);
-    expect(overviewOf(model).about).toEqual(expect.arrayContaining(modelFacts(model)));
+    expect(overviewOf(model).about).toEqual(expect.arrayContaining(modelFacts(model).filter(([setting]) => ABOUT_SHOWN.includes(setting))));
+    expect(overviewOf(model).about.some(([detail]) => detail === "Captured on")).toBe(false);
     expect(file.rows.filter(row => row[0] === "Model" && row[2] === "").map(row => row[1])).toEqual(["Model size (GB)", "Captured by"]);
-    // Where every such row holds a value the line says so of them all; where one of several does, of that one; and where
-    // none does, that the rows are not shown, which is all that is true of them. Spaces alone are no value.
-    const facts = (...values: string[]): ResultTable => ({ ...file, headers: ["Section", "Setting", "Value"],
-      rows: [...values.map((value, index) => ["Model", `Fact ${index + 1}`, value]), ["Model Calendar", "Calendar Type", "Weeks: General"]] });
-    expect([facts("a", "b"), facts("a", "", " "), facts("", " ")].map(table => [fileView(model, table).note, modelFacts(result("model", [table])).length])).toEqual([
-      ["2 rows about the model are not listed here: the Overview has their values, under About this export.", 2],
-      ["3 rows about the model are not listed here: 1 holds a value, which the Overview has under About this export.", 1],
+    // Where the rows hold the workspace or the model's name, the line says the overview names it; where they hold neither,
+    // only that the rows are not shown, which is all that is true of them. Spaces alone are no value.
+    const facts = (...rows: [setting: string, value: string][]): ResultTable => ({ ...file, headers: ["Section", "Setting", "Value"],
+      rows: [...rows.map(([setting, value]) => ["Model", setting, value]), ["Model Calendar", "Calendar Type", "Weeks: General"]] });
+    expect([facts(["Workspace", "Main"], ["Captured on", "2026-10-03"]), facts(["Model", "One"], ["Workspace", " "], ["Other", "x"]), facts(["Fact 1", "a"], ["Fact 2", "b"]),
+      facts(["Workspace", ""], ["Model", " "])].map(table => [fileView(model, table).note, modelFacts(result("model", [table])).length])).toEqual([
+      ["2 rows about the model are not listed here: the Overview names the workspace, under About this export.", 2],
+      ["3 rows about the model are not listed here: the Overview names the model, under About this export.", 2],
+      ["2 rows about the model are not shown.", 2],
       ["2 rows about the model are not shown.", 0]]);
     // Of a file without one of the columns the overview reads them by it has nothing, and the line says the same.
     const bare: ResultTable = { ...file, headers: ["Section", "Setting"], rows: [["Model", "Workspace"], ["Model", "Model"], ["Model Calendar", "Calendar Type"]] };
@@ -1034,6 +1045,31 @@ describe("What the results page reads out of a result", () => {
     expect(tileOf([type("Weeks: General")], "app")).toEqual({ label: "Model Calendar", count: 1 });
   });
 
+  it("says under About this export the workspace and its ID, what was read and its ID, and its apps or models: in that order and no more", () => {
+    // A model's rows in another order, with every row About does not say among them.
+    const model = detailsTable("Model Details.csv", [
+      ["Model", "Apps", "Sales app\nOps app"], ...exportRows("eu2a.app.anaplan.com", new Date(Date.UTC(2026, 9, 3, 9, 30, 0))), ["Model", "Model ID", "0123456789ABCDEF0123456789ABCDEF"],
+      ["Model", "Model", "Model one"], ["Something new", "A detail", "its value"], ["Model", "Workspace ID", "3333dddd4444eeee5555ffff6666aaaa"], ["Model", "Workspace", "Main"],
+    ]);
+    expect(overviewOf(result("model", [model, calendar()])).about).toEqual([["Workspace", "Main"], ["Workspace ID", "3333dddd4444eeee5555ffff6666aaaa"],
+      ["Model", "Model one"], ["Model ID", "0123456789ABCDEF0123456789ABCDEF"], ["Apps", "Sales app\nOps app"]]);
+    // A row the result does not have leaves no gap: here no apps and no workspace ID.
+    expect(overviewOf(result("model", [detailsTable("Model Details.csv", [["Model", "Model ID", "X1"], ["Model", "Model", "Model one"], ["Model", "Workspace", "Main"]])])).about)
+      .toEqual([["Workspace", "Main"], ["Model", "Model one"], ["Model ID", "X1"]]);
+    // An app: the app and its ID, then the models it is built on; not its categories, pages or cards, nor the export's
+    // host, time and tool. An app names no workspace of its own, so it has none.
+    const app = detailsTable("App Details.csv", [
+      ["App", "App", "Demo app"], ["App", "App ID", "01234567-89ab-cdef-0123-456789abcdef"], ["App", "Categories", "Demand"], ["App", "Pages", "3 (3 boards)"],
+      ["App", "Pages analysed", "3 of 3 (published versions)"], ["App", "Cards", 12], ["App", "Models", "Model one (Main)"],
+      ...exportRows("us1a.app.anaplan.com", new Date(Date.UTC(2026, 9, 3, 14, 2, 5))),
+    ]);
+    expect(overviewOf(result("app", [app])).about).toEqual([["App", "Demo app"], ["App ID", "01234567-89ab-cdef-0123-456789abcdef"], ["Models", "Model one (Main)"]]);
+    // An app whose pages name no model says no models: the Details file's dash is no value.
+    expect(overviewOf(result("app", [detailsTable("App Details.csv", [["App", "App", "Demo app"], ["App", "Models", NONE]])])).about).toEqual([["App", "Demo app"]]);
+    // The list itself: the two kinds of result share it.
+    expect(ABOUT_SHOWN).toEqual(["Workspace", "Workspace ID", "App", "App ID", "Model", "Model ID", "Models", "Apps"]);
+  });
+
   it("reads the model's own facts out of its Model Calendar file, without the ones that have no value", () => {
     const model = result("model", [modelDetails, calendar("Main", "Demand: plan")]);
     // The export cannot know the model's size or who captured it: those two are empty, and are not facts.
@@ -1047,15 +1083,18 @@ describe("What the results page reads out of a result", () => {
     // Nothing for an app, for a model without the file, and for a file without those columns.
     expect([modelFacts(result("app", [appDetails, calendar()])), modelFacts(result("model", [modelDetails])),
       modelFacts(result("model", [{ ...calendar(), headers: ["Section", "Name", "Value"] }]))]).toEqual([[], [], []]);
-    // The overview says the facts with what the Details file says about the export, after its rows, and none of them twice:
-    // the model's name and its workspace are in the Details file already.
+    // About this export names the workspace and the model once each, from the Details file: the calendar's Captured on and
+    // the export's host, time and tool are not said there.
     const overview = overviewOf(result("model", [modelDetails, calendar()], ["Model Calendar: 31 rows"]));
-    expect([overview.about, overview.tiles]).toEqual([[["Model", "Model one"], ["Workspace", "Main"], ["Exported on", "2026-10-03 09:30 UTC"], ["Exported with", "Cardigan dev"],
-      ["Anaplan host", "eu2a.app.anaplan.com"], ["Captured on", "2026-10-03"]], [{ label: "Model Calendar", count: 5, value: "Monthly", title: "Model Calendar: Calendar Months/Quarters/Years" }]]);
-    // A fact that says something else than the Details file is said as well.
-    expect(overviewOf(result("model", [modelDetails, calendar("Another workspace")])).about.slice(-2)).toEqual([["Workspace", "Another workspace"], ["Captured on", "2026-10-03"]]);
+    expect([overview.about, overview.tiles]).toEqual([[["Workspace", "Main"], ["Model", "Model one"]],
+      [{ label: "Model Calendar", count: 5, value: "Monthly", title: "Model Calendar: Calendar Months/Quarters/Years" }]]);
+    // Where the two say different things, the Details file's value is the one said; a fact fills in only what the Details
+    // file does not say, or says with a dash.
+    expect(overviewOf(result("model", [modelDetails, calendar("Another workspace")])).about).toEqual([["Workspace", "Main"], ["Model", "Model one"]]);
+    const dashed = detailsTable("Model Details.csv", [["Model", "Model", "Model one"], ["Model", "Workspace", NONE]]);
+    expect(overviewOf(result("model", [dashed, calendar("Another workspace")])).about).toEqual([["Workspace", "Another workspace"], ["Model", "Model one"]]);
     // Without a Details file the facts are all the overview has about the export.
-    expect(overviewOf(result("model", [calendar()])).about).toEqual([["Workspace", "Main"], ["Model", "Model one"], ["Captured on", "2026-10-03"]]);
+    expect(overviewOf(result("model", [calendar()])).about).toEqual([["Workspace", "Main"], ["Model", "Model one"]]);
     // The summary's line that says how many rows the file has is still no note: it counts the file, as it was read.
     expect(overview.notes).toEqual(["Actions: the Actions list came without Notes; the diagnostic log lists the columns it had."]);
   });
