@@ -6728,6 +6728,26 @@ describe("The mapping of an import from a file, in its row's details", () => {
     expect(mapping()[1]).toEqual(["Column 1 is used."]);
   });
 
+  it("names a line item the model doesn't have as missing, with its ID, and says under the mapping what that means", async () => {
+    // As the export says a period the client labels, and a line item the import still maps to that the model doesn't have.
+    const MISSING: ImportMapping = { ...MAPPINGS[1], targets: [{ target: "Products", source: "column", column: 1, text: "Product" },
+      { target: "Time", source: "constant", text: "Mar 26" }, { target: "Missing line item (ID 3130054)", source: "column", column: 2 },
+      { target: "Line Items", source: "headerRow" }], headers: [{ header: "Display share", lineItem: "Missing line item (ID 6180093)" }] };
+    await openWith({ ...WITH_MAPPINGS, importMappings: [MAPPINGS[0], MISSING] });
+    goTo(3);
+    openImport("Prices from prices.csv");
+    expect(mapping()).toEqual([[["Product", "Products"], ["Column 2", "Missing line item (ID 3130054)"], ["Constant: Mar 26", "Time"],
+      ["Header row: each line item from the header mapped to itDisplay share to Missing line item (ID 6180093)", "Line Items"]],
+    ["Columns 1 and 2 are both used.", "A missing line item is one this import still maps to that the model doesn't have: deleted since the import was saved, or hidden from you."]]);
+    // The line stands last, under the table.
+    const html = page.id("drawerMapping").innerHTML;
+    expect(html.indexOf("</table>") < html.indexOf("A missing line item is")).toBe(true);
+    page.key("Escape");
+    // A mapping that names none has no such line.
+    openImport("Division from HQ Network.csv");
+    expect(mapping()[1]).toEqual(["Not mapped: Active.", "Columns 3, 5 and 6 are not used."]);
+  });
+
   it("shows no mapping for a result an earlier version kept, which has none", async () => {
     const { importMappings: _mappings, ...earlier } = WITH_MAPPINGS;
     await openWith(earlier);

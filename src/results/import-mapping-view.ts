@@ -1,4 +1,5 @@
 import { readsFile, SOURCE_TYPE } from "../file-imports.js";
+import { missingIn } from "../page-files.js";
 import { POLARIS_MAPPING_NOTE } from "../polaris.js";
 import { readImportMappings } from "../result-plain.js";
 import type { AnalysisResult, ImportHeader, ImportMapping, ItemMatch, MappedSource, MappedTarget, ResultTable } from "../result-types.js";
@@ -29,7 +30,10 @@ import { cellText, type Row } from "./table-engine.js";
  * mapped by hand or ignored, the format of Time's periods, a date line item's format. Where the line items come from the
  * header row, each header the modeller mapped by hand is listed beneath it with its line item, and each ignored header
  * says so. A header the import matches on a line item's name or code when it runs is
- * stored nowhere, and the page says so rather than list what it cannot know: with the line items such a header can be. */
+ * stored nowhere, and the page says so rather than list what it cannot know: with the line items such a header can be.
+ *
+ * A line item the import still maps to that the model doesn't have is named Missing, with its ID, as the pages' tables
+ * name one (page-files.ts `missingText`), and the last line under the mapping says what that means. */
 
 /** A row of a mapping: its source, the target it feeds, and where there is more to say of how the source is read, a line
  * under the source; with the names that line lists in full, where it shows the first of them. */
@@ -58,6 +62,9 @@ const LOADS: ReadonlyMap<string, string> = new Map([["USERS", "users"], ["VERSIO
 const ONLY_LISTED = "Cardigan lists the mapping of an import into a module or a list.";
 /** What the drawer says where the result has no mapping for a row it has mappings for: a result the page cannot match. */
 export const NO_MAPPING = "Cardigan has no mapping for this import: choose Run again to read it.";
+/** The line under a mapping that names a line item the model doesn't have, worded as the pages' note on such things
+ * (page-missing.ts `missingNote`). */
+export const MISSING_LINE_ITEM_NOTE = "A missing line item is one this import still maps to that the model doesn't have: deleted since the import was saved, or hidden from you.";
 
 /** Numbers as the page says them, in order: "3", "3 and 5", "3, 5 and 6", with three or more in a run said as one, "3 to 9". */
 export function numbersWords(numbers: readonly number[]): string {
@@ -260,9 +267,19 @@ export function columnLines(targets: readonly MappedTarget[]): string[] {
   return lines;
 }
 
+/** Whether a mapping names a line item the model doesn't have (page-files.ts `missingIn`), where it names things: a target, a
+ * constant, a header's line item, or a property that tells a list's items apart. A column's heading or a header is the
+ * file's own text, and says nothing of the model. */
+function namesMissingLineItem(mapping: ImportMapping): boolean {
+  const names = [...mapping.targets.flatMap(target => [target.target, ...(target.source === "constant" && target.text !== undefined ? [target.text] : [])]),
+    ...(mapping.headers ?? []).flatMap(({ lineItem }) => (lineItem === undefined ? [] : [lineItem])), ...(mapping.matchedBy?.properties ?? [])];
+  return names.some(name => missingIn(name).some(({ kind }) => kind === "line item"));
+}
+
 /** An import's mapping as the drawer shows it, or what stands in its place: why it could not be read, what an import of
  * another kind loads, or that the definition maps nothing. `lineItems` are the line items of the module it loads into
- * that a header can match, where the page knows them (`lineItemsOf`). */
+ * that a header can match, where the page knows them (`lineItemsOf`). The last line says what a missing line item is,
+ * where the mapping names one. */
 export function mappingView(mapping: ImportMapping | undefined, lineItems?: readonly string[]): MappingView {
   if (!mapping) return { rows: [], lines: [NO_MAPPING] };
   if (mapping.note !== undefined) return { rows: [], lines: [mapping.note] };
@@ -275,7 +292,8 @@ export function mappingView(mapping: ImportMapping | undefined, lineItems?: read
   const unfed = unfedLine(mapping.targets);
   const headers = mapping.headers ?? [];
   return { ...match, rows: sourceRows(mapping.targets, headers, lineItems),
-    lines: [...(unfed === undefined ? [] : [unfed]), ...matchingLines(mapping.targets), ...columnLines(mapping.targets)] };
+    lines: [...(unfed === undefined ? [] : [unfed]), ...matchingLines(mapping.targets), ...columnLines(mapping.targets),
+      ...(namesMissingLineItem(mapping) ? [MISSING_LINE_ITEM_NOTE] : [])] };
 }
 
 /** The line items of the module an import loads into that a header of its header row can match, by the import's Target

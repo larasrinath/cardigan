@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AnalysisResult, ImportMapping, ItemMatch, MappedTarget, ResultTable } from "../result-types.js";
-import { columnLines, HEADER_ROW_BY_HAND, HEADER_ROW_MATCHED, lineItemsOf, mappingOfRow, mappingView, matchWords, NO_MAPPING, numbersWords, sourceWords,
-  unfedLine } from "./import-mapping-view.js";
+import { columnLines, HEADER_ROW_BY_HAND, HEADER_ROW_MATCHED, lineItemsOf, mappingOfRow, mappingView, matchWords, MISSING_LINE_ITEM_NOTE, NO_MAPPING, numbersWords,
+  sourceWords, unfedLine } from "./import-mapping-view.js";
 import { fileView } from "./result-view.js";
 
 // Mappings as the model export reads them out of an import's definition (model/import-mappings.ts). The first import is
@@ -208,6 +208,31 @@ describe("An import's mapping, in the drawer's words", () => {
     // No word of these names a file.
     const view = mappingView(READ);
     expect([...view.rows.flat(), ...view.lines, HEADER_ROW_MATCHED, HEADER_ROW_BY_HAND].filter(words => typeof words === "string" && NAMES_A_FILE.test(words))).toEqual([]);
+  });
+
+  it("says in its last line what a missing line item is, once, where the mapping names one: as a target, a constant, a header's line item or a property", () => {
+    // As the export says a line item that the import still maps to and the model doesn't have (model/import-mappings.ts).
+    const MISSING: ImportMapping = { id: "112000000030", name: "Load plan", importType: "MODULE_DATA", targets: [
+      column("Units", 2), column("Missing line item (ID 3130054)", 3), { target: "Time", source: "constant", text: "Mar 26" }, { target: "Line Items", source: "headerRow" }],
+    headers: [{ header: "Display share", lineItem: "Missing line item (ID 6180093)" }, { header: "Comment" }] };
+    expect(mappingView(MISSING)).toEqual({ rows: [["Column 2", "Units"], ["Column 3", "Missing line item (ID 3130054)"], ["Constant: Mar 26", "Time"],
+      [HEADER_ROW_BY_HAND, "Line Items", undefined, undefined, ["Display share to Missing line item (ID 6180093)", "Comment: Ignored"]]],
+    lines: ["Column 1 is not used.", MISSING_LINE_ITEM_NOTE] });
+    expect(MISSING_LINE_ITEM_NOTE).toBe("A missing line item is one this import still maps to that the model doesn't have: deleted since the import was saved, or hidden from you.");
+    // Each place a name stands says it on its own: a header's line item, a constant, a target nothing feeds, a property.
+    const plain: ImportMapping = { ...MISSING, targets: [column("Units", 1)], headers: undefined };
+    for (const mapping of [{ ...plain, targets: [...plain.targets, { target: "Line Items", source: "headerRow" }], headers: MISSING.headers } as ImportMapping,
+      { ...plain, targets: [...plain.targets, { target: "Line Items", source: "constant", text: "Missing line item (ID 6180093)" }] } as ImportMapping,
+      { ...plain, targets: [...plain.targets, { target: "Missing line item (ID 6180093)", source: "none" }] } as ImportMapping,
+      { ...plain, importType: "HIERARCHY_DATA", matchedBy: { by: "properties", properties: ["Missing line item (ID 6180093)"] } } as ImportMapping]) {
+      expect(mappingView(mapping).lines.filter(line => line === MISSING_LINE_ITEM_NOTE)).toEqual([MISSING_LINE_ITEM_NOTE]);
+      expect(mappingView(mapping).lines.at(-1)).toBe(MISSING_LINE_ITEM_NOTE);
+    }
+    // A column's heading or a header is the file's own text, and a mapping that names no missing line item has no such line.
+    expect(mappingView({ ...plain, targets: [column("Units", 1, "Missing line item (ID 6180093)"), { target: "Line Items", source: "headerRow" }],
+      headers: [{ header: "Missing line item (ID 3130054)", lineItem: "Units" }] }).lines).toEqual(["Column 1 is used."]);
+    expect(mappingView(plain).lines).toEqual(["Column 1 is used."]);
+    expect([MISSING_LINE_ITEM_NOTE].filter(line => NAMES_A_FILE.test(line))).toEqual([]);
   });
 
   it("names in one line the targets nothing feeds, with why where there is more to say, and has no such line where every target has a source", () => {
