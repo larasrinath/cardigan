@@ -2,14 +2,14 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version is in the menu of Cardigan's icon in Chrome's toolbar and on its About page, and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
-## Unreleased
+## 0.23.1 (11 October 2026)
 
 Run again keeps the place you were reading.
 
-- **The same table and details.** Run again on the same app or model keeps the table shown and reopens the row's details where that row still exists. A row is found by its name and module, or its list or parent, so an edited formula, format, count or note does not lose it. A missing or ambiguous row stays closed. The details panel has its own **Run again** button.
-- **Reading without a jump.** The run button keeps its width, with a small drawn spinner and **Reading**. Its title and the screen reader's live region say the progress. No progress banner pushes the result down; a failure still shows the existing card.
-- **The map stays up.** The Model map remains on screen during a run and is rebuilt on the same view, group or module when the result arrives. Zoom and selection may reset.
-- **Each table's search.** Switching tables and coming back restores that table's search and page. A refresh keeps every search for the life of the tab, along with the other view settings. Settings kept by earlier versions still load. A first run from the icon still opens on the Overview.
+- **The same table and details.** Run again on the same app or model keeps the table shown and reopens the row's details where that row still exists. A row is found by its name and module, or its list or parent, so an edited formula, format, count or note does not lose it. A missing or ambiguous row stays closed. The details panel has its own **Run again** button. (#73)
+- **Reading without a jump.** The run button keeps its width, with a small drawn spinner and **Reading**. Its title and the screen reader's live region say the progress. No progress banner pushes the result down; a failure still shows the existing card. (#73)
+- **The map stays up.** The Model map remains on screen during a run and is rebuilt on the same view, group or module when the result arrives. Zoom and selection may reset. (#73)
+- **Each table's search.** Switching tables and coming back restores that table's search and page. A refresh keeps every search for the life of the tab, along with the other view settings. Settings kept by earlier versions still load. A first run from the icon still opens on the Overview. (#73)
 
 ## 0.23.0 (10 October 2026)
 
