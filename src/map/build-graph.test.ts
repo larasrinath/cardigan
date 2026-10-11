@@ -115,10 +115,14 @@ function seeded(seed: number): () => number {
 }
 
 describe("The names in a cell of a model export", () => {
-  it("takes a row for a heading when its name starts with two dashes or is nothing but spaces, dots and dashes", () => {
-    for (const name of ["-- MODEL ADMIN", "--- 01 : INPUTS ---", "--", "------", "-", "", " ", ". . . .", "- - -", " .-. "]) expect(separator(name), JSON.stringify(name)).toBe(true);
-    // One dash and a name is a name, and so is a row of other strokes.
-    for (const name of ["Revenue", "- Notes", "REV01 -- Revenue", " -- Indented", "======", "\u2014\u2014 Inputs \u2014\u2014", "_____"]) expect(separator(name), JSON.stringify(name)).toBe(false);
+  it("recognises doubled heading marks after spaces and names made only of spaces, dots and heading marks", () => {
+    for (const name of ["-- MODEL ADMIN", "--- 01 : INPUTS ---", " == INPUTS == ", " ** Calc ** ", " << Inputs >> ", " >> Outputs", " >> Outputs << ", ">>Outputs", " -- Indented",
+      "==Inputs", "**Calc", "<<Inputs", "--", "------", "======", "*****", "<<>>", ">>>", "-", "=", "*", "<", ">", "", " ", ". . . .", "- - -", " .-=*<>. "])
+      expect(separator(name), JSON.stringify(name)).toBe(true);
+    // Single or mixed marks before a name, closing marks and marks inside a name do not start a heading.
+    for (const name of ["Revenue", "- Revenue", "*Archive", "=Total", "<Draft>", " >Draft", " *Archive", "-=Inputs", "<>Inputs",
+      "REV01 -- Revenue", "Revenue ==", "Revenue **", "Revenue <<", "\u2014\u2014 Inputs \u2014\u2014", "_____"])
+      expect(separator(name), JSON.stringify(name)).toBe(false);
     expect([stripChars("-- 01 : INPUTS --", " -"), stripChars("------", " -"), stripChars("_101000000007_", "_"), stripChars("a-b", "-"), stripChars("", "-")])
       .toEqual(["01 : INPUTS", "", "101000000007", "a-b", ""]);
   });
@@ -248,6 +252,61 @@ describe("The names in a cell of a model export", () => {
 });
 
 describe("The model map's graph, from the tables of a model export", () => {
+  it.each([
+    [" -- Admin ", "Admin"], [" == INPUTS == ", "INPUTS"], [" << Inputs >> ", "Inputs"], [" >> Outputs", "Outputs"], [" >> Outputs << ", "Outputs"], [" ** Calc ** ", "Calc"],
+    ["-- P&L -- 2025", "P&L -- 2025"], ["== P&L == ** << >> 2025 ==", "P&L == ** << >> 2025"],
+    ["--", "Ungrouped"], ["====", "Ungrouped"], ["*****", "Ungrouped"], ["<<>>", "Ungrouped"], [" -*=<> ", "Ungrouped"], ["", "Ungrouped"],
+  ])("uses %j for the group %j in Modules, Line Items and General Lists", (name, group) => {
+    const graph = buildModelGraph([
+      file("Modules", ["", "Functional Area"], [[name, ""], ["Planning", ""], ["=Only in Modules", ""]]),
+      lineItems(heading(name), ...(name ? [item(name, "Heading child")] : []), moduleRow("Planning"), item("Planning", "Value"),
+        item("Planning", "** Checks **", { Format: NO_DATA })),
+      generalLists(heading(name), list("Products", { Subsets: "Active Products", Properties: "Code: TEXT" })),
+    ]);
+    expect(graph.nodes.map(({ kind, name, group }) => [kind, name, group])).toEqual([
+      ["list", "Products", group], ["subset", "Active Products", group], ["property", "Code", group],
+      ["module", "Planning", group], ["lineItem", "Value", group], ["lineItem", "** Checks **", group],
+    ]);
+    expect(graph.sections).toEqual([group]);
+    expect(graph.areaCheck).toMatchObject({ modules: 1, rowsNotOnMap: ["=Only in Modules"], modulesNotInFile: [] });
+    expect(counted(graph)).toEqual(name ? ["1 line item names a heading row as its module and is left out: a heading is no module on the map."] : []);
+    const model = indexModel(graph);
+    const headings = groupingsOf(model).find(each => each.kind === "headings");
+    if (group === "Ungrouped") expect(headings).toBeUndefined();
+    else {
+      expect(headings?.groups).toEqual([group]);
+      expect(headings?.groupOf.get(node(graph, "Planning").id)).toBe(group);
+    }
+  });
+
+  it("offers and chooses Headings when the new marks divide the modules into groups", () => {
+    const names = ["== Inputs ==", "** Calculations **", "<< Outputs >>"];
+    const graph = buildModelGraph([modulesFile(...names, "Planning", "Revenue", "Reporting"),
+      lineItems(heading(names[0]), moduleRow("Planning"), heading(names[1]), moduleRow("Revenue"), heading(names[2]), moduleRow("Reporting"))]);
+    const model = indexModel(graph);
+    const picked = automaticGrouping(groupingsOf(model));
+    expect(picked?.kind).toBe("headings");
+    expect(picked?.groups).toEqual(["Inputs", "Calculations", "Outputs"]);
+    expect(model.modules.map(module => picked?.groupOf.get(module.id))).toEqual(["Inputs", "Calculations", "Outputs"]);
+  });
+
+  it("keeps names starting with single marks as modules and lists", () => {
+    const objects = ["*Archive", "=Total", "<Draft>", "- Revenue"];
+    const graph = buildModelGraph([modulesFile(...objects), lineItems(...objects.map(name => moduleRow(name))), generalLists(...objects.map(name => list(name)))]);
+    expect(graph.nodes.filter(node => node.kind === "module").map(node => node.name)).toEqual(objects);
+    expect(graph.nodes.filter(node => node.kind === "list").map(node => node.name)).toEqual(objects);
+    expect(graph.sections).toEqual(["Ungrouped"]);
+  });
+
+  it.each([processesFile, importsFile, exportsFile, otherActions])("omits and counts every heading style in each file of actions", makeFile => {
+    const headings = [" -- Admin -- ", " == Inputs == ", " ** Calc ** ", " << Outputs >> ", "<<>>", "*****", " .-=*<>. ", ""];
+    const objects = ["*Archive", "=Total", "<Draft>", "- Revenue"];
+    const table = makeFile(...headings.map(heading), ...objects.map(name => action(name)));
+    const graph = buildModelGraph([table]);
+    expect(graph.nodes.map(node => node.name)).toEqual(objects);
+    expect(graph.limitations).toContain(`8 rows of ${table.label} are named as headings are and are left out.`);
+  });
+
   it("makes a list, its subsets and its properties from General Lists, under the heading rows above them", () => {
     const graph = buildModelGraph([generalLists(
       heading("-- ORGANISATION --"),

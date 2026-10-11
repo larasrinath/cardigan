@@ -3258,7 +3258,7 @@ describe("The bar's tools and the module picker", () => {
     map.show(); env.resize(1200, 800); env.settle();
     goTo("margin %"); env.settle();
     const before = boxes();
-    const automatic = "How it groups\nEach module is under the model heading above it, a module whose name starts with --. Modules with no heading above them are under Ungrouped.\n\nBest fit for this model: Headings\nHeadings sort 100% of modules into 3 groups. This model has no functional areas.";
+    const automatic = "How it groups\nEach module is under the model heading above it, a module whose name starts with --, ==, **, << or >>. Modules with no heading above them are under Ungrouped.\n\nBest fit for this model: Headings\nHeadings sort 100% of modules into 3 groups. This model has no functional areas.";
     expect(text(".map-grouping-name")).toBe("Headings");
     expect(act("grouping-info").title).toBe(automatic);
     expect(act("grouping-info").getAttribute("aria-label")).toBe("How this grouping works");

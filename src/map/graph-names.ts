@@ -5,10 +5,16 @@
  * the prototype read them: see `knownSequence`. Text in, text out: nothing here knows a table or a node. White space is
  * what JavaScript's `trim` takes off. */
 
-/** Whether a row's name makes the row a heading and no object: a name that starts with two dashes ("-- MODEL ADMIN"),
- * or one of nothing but spaces, dots and dashes, the empty name among them. Model builders divide a list of modules, of
- * lists or of actions with such rows. */
-export const separator = (name: string): boolean => name.startsWith("--") || stripChars(name, " .-") === "";
+/** Heading prefixes and their closing marks. A closing mark is optional. */
+export const HEADING_MARKS = { "--": "--", "==": "==", "**": "**", "<<": ">>", ">>": "<<" } as const;
+/** Every character used by a heading mark, for trimming either end of a heading. */
+export const HEADING_CHARS = Object.entries(HEADING_MARKS).flat().join("");
+
+/** Whether a row's name makes the row a heading and no object: after leading spaces, it starts with a heading prefix,
+ * or holds nothing but spaces, dots and heading marks, the empty name included. Model builders divide a list of modules,
+ * lists or actions with such rows. */
+export const separator = (name: string): boolean =>
+  Object.keys(HEADING_MARKS).some(mark => name.trimStart().startsWith(mark)) || stripChars(name, ` .${HEADING_CHARS}`) === "";
 
 /** `text` without the characters of `chars` at its two ends. */
 export function stripChars(text: string, chars: string): string {

@@ -3,7 +3,7 @@ import { MODULE_USAGE_FILE, PAGE_FILTERS_FILE } from "../page-files.js";
 import { textOf as plainText } from "../result-plain.js";
 import type { Cell, ResultTable } from "../result-types.js";
 import { message } from "../util.js";
-import { definitionOf, idOf, integer, knownNames, knownSequence, nothing, separator, splitOutside, stripChars, unquote, type KnownNames } from "./graph-names.js";
+import { definitionOf, HEADING_CHARS, idOf, integer, knownNames, knownSequence, nothing, separator, splitOutside, stripChars, unquote, type KnownNames } from "./graph-names.js";
 import type { AreaCheck, EdgeKind, GraphEdge, GraphNode, ModelGraph, PageFilterCheck, Unresolved } from "./graph-types.js";
 
 /** The model map's graph, made from the tables of a model export and from nothing else. It started as the owner's
@@ -45,7 +45,7 @@ const IMPORTS_FILE = "Imports.csv";
 const EXPORTS_FILE = "Exports.csv";
 const OTHER_ACTIONS_FILE = "Other Actions.csv";
 
-/** The group of an object with no heading above it, and of one under a heading that is nothing but dashes. */
+/** The group of an object with no heading above it, and of one under a heading that is nothing but heading marks. */
 const UNGROUPED = "Ungrouped";
 
 /** What the map reads of one file: what its sentences call the file's objects, and each column read, with what the map
@@ -293,8 +293,8 @@ function fieldOf(definition: Record<string, unknown> | undefined, name: string, 
   return typeof value === "string" ? value : value === null ? "" : otherwise;
 }
 
-/** A heading's name as its group's: without the spaces and dashes at its two ends. */
-const groupOf = (heading: string): string => stripChars(heading, " -") || UNGROUPED;
+/** A heading's name as its group's: without the spaces and heading marks at its two ends. */
+const groupOf = (heading: string): string => stripChars(heading, ` ${HEADING_CHARS}`) || UNGROUPED;
 
 /** The one object among those a name could be. A name that is no one's is none, and so is a name that two of them
  * have: nothing in the export tells which of the two is meant, and the map does not choose. */

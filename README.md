@@ -125,11 +125,13 @@ One path stays in the bar: **Model / Group by / Group / Module**. Click the mode
 | Choice | Groups modules by |
 | --- | --- |
 | Functional area | The module's Functional Area, with unassigned modules last |
-| Headings | Model headings whose names start with `--` |
+| Headings | Each module is under a module whose name starts with `--`, `==`, `**`, `<<` or `>>` |
 | Name prefix | Shared codes at the start of module names |
 | Role in the data flow | Data, Input, System, Calculation or Output, inferred from imports, dimensions and formula links |
 | App | The app whose pages use the module, Several apps, or Not on any page |
 | Main dimension | The first list the module applies to, Time only, or No dimensions |
+
+Heading marks may follow spaces. Group names drop spaces and heading marks at both ends: `== INPUTS ==` becomes **INPUTS**, `<< Inputs >>` becomes **Inputs**, and `>> Outputs` becomes **Outputs**. Marks inside a name stay. A row made only of spaces, dots or heading marks also counts as a heading, including an empty name; a name made only of spaces and marks gives **Ungrouped**. A single mark before a name, such as `*Archive`, `=Total`, `<Draft>` or `- Revenue`, stays an object. The same rule applies to the map's Modules and Line Items, General Lists, Processes and action files, the model's pages list, and the rows and counts left out of the map.
 
 The Group by pill shows the grouping's name and holds a drawn **(i)** at its right end, separated by a thin divider. Each grouping appears once in its list; **Best fit** marks the one Cardigan would choose for this model. Picking it returns to automatic mode, which chooses again for each model. Picking another grouping keeps your manual choice in this browser. The **(i)** explains **How it groups** and **Best fit for this model: {label}**, each under a bold heading, with whole percentages and examples from the model's own prefixes. Name prefix uses this model's threshold: at least three modules and at least 2% of its modules must share a code. Hover and click give the same explanation, whether the grouping was picked or kept. The name and chevron open the list; the **(i)** opens only the explanation. The keyboard reaches both buttons, each with its own focus ring. A grouping with only one group shows its modules. Changing Group by inside a module keeps its drawing and selection; the group name and picker headings change with it. Previously kept views and choices, including Automatic and All modules, still load.
 
