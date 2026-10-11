@@ -96,11 +96,18 @@
 .map-sep{display:inline-flex;align-items:center;flex:none;color:var(--text-3)}
 .map-picker{position:relative;display:inline-flex;align-items:stretch;min-width:100px;min-height:28px;max-width:100%;border:1px solid var(--border-strong);border-radius:16px;background:var(--panel)}
 .map-group-picker,.map-module-picker,.map-grouping-picker{flex:none;width:max-content}
-.map-grouping-field{display:inline-flex;align-items:center;gap:3px;max-width:100%;min-width:0}
-.map-grouping-picker{flex:0 1 auto;min-width:0}
-.map-grouping-info{position:relative;display:inline-flex;flex:none}
-.map-grouping-reason{position:absolute;left:0;top:calc(100% + 8px);z-index:6;width:360px;max-width:calc(100cqw - 24px);max-height:50cqh;overflow:auto;padding:12px;font-size:12px;white-space:pre-line;overflow-wrap:anywhere;box-shadow:var(--shadow)}
-.map-suggested{margin-left:8px;font-size:11.5px;font-weight:400;color:var(--text-2)}
+.map-grouping-field{display:inline-flex;align-items:center;max-width:100%;min-width:0}
+.map-grouping-picker{flex:0 1 auto;min-width:0;padding-right:1px}
+.map-grouping-info{display:inline-flex;align-items:center;flex:none}
+/* Like the table search's column chooser: a separate control inside the pill, with a thin divider. */
+.map-grouping-info-btn{position:relative;flex:none;display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;margin-left:4px;border-radius:999px;color:var(--text-2)}
+.map-grouping-info-btn::before{content:"";position:absolute;left:-6px;top:6px;bottom:6px;width:1px;background:var(--border)}
+.map-grouping-info-btn:hover{background:var(--panel-2);color:var(--text)}
+.map-grouping-info-btn[aria-expanded="true"]{background:var(--accent-soft);color:var(--accent-ink)}
+.map-grouping-reason{position:absolute;left:0;top:calc(100% + 8px);z-index:6;width:360px;max-width:calc(100cqw - 24px);max-height:50cqh;overflow:auto;padding:12px;font-size:12px;overflow-wrap:anywhere;box-shadow:var(--shadow)}
+.map-grouping-reason strong{display:block}
+.map-grouping-reason p + p{margin-top:10px}
+.map-best-fit{margin-left:8px;font-size:11.5px;font-weight:400;color:var(--text-2)}
 .map-step{display:flex;flex:1;align-items:center;min-width:0;border-radius:16px}
 .map-step-name{flex:1;min-width:0;padding:4px 10px;font-size:12px;text-align:left;overflow-wrap:anywhere;white-space:normal}
 .map-step:disabled{color:var(--text-3);cursor:default}
@@ -181,19 +188,19 @@
 .map-sign{flex:none}
 
 /* ---------- what stands over the canvas itself ---------- */
-/* Only the two clusters cover the canvas. The transparent space between them passes clicks through. Counts have a
-   fixed allowance, shrinking before the buttons on narrow maps; changing their words never moves a control. */
+/* Only the two clusters cover the canvas. The transparent space between them passes clicks through. The invisible
+   longest counts share the text's grid cell, shrinking before the buttons on narrow maps. Panning moves no control. */
 .map-foot{position:absolute;inset:0;z-index:2;pointer-events:none}
 .map-over{position:absolute;inset:0 auto 44px 0;display:flex;align-items:flex-end;gap:10px;width:min(650px,100%);min-height:0}
 .map-clusters{position:absolute;inset:auto 0 0;display:flex;align-items:center;justify-content:space-between;gap:10px;pointer-events:none}
-.map-cluster{display:flex;align-items:center;flex:none;height:36px;padding:3px;border-radius:999px;font-size:12px;color:var(--text)}
-.map-summary{flex:0 1 390px;min-width:0;gap:6px;padding-left:11px}
-.map-cluster .map-btn{flex:none;min-width:28px}
-.map-cluster .map-btn svg{flex:none}
-.map-status{flex:1;min-width:0;font-size:12px;color:var(--text-2);font-variant-numeric:tabular-nums}
-.map-stats{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.map-navigation{display:flex;align-items:center;flex:none;gap:6px}
-.map-navigation .map-btn{flex:none;pointer-events:auto}
+.map-summary{display:flex;align-items:center;flex:none;gap:6px}
+.map-clusters .map-btn{flex:none;pointer-events:auto}
+.map-clusters .map-btn svg{flex:none}
+.map-status{display:grid;align-items:center;flex:0 1 auto;min-width:0;height:28px;font-size:12px;color:var(--text-2);font-variant-numeric:tabular-nums;pointer-events:none}
+.map-stats,.map-stats-size{grid-area:1 / 1;min-width:0;max-width:100%;box-sizing:border-box;overflow:hidden;white-space:nowrap;padding:0 11px;line-height:26px;border:1px solid transparent;border-radius:999px}
+.map-stats{justify-self:end;text-overflow:ellipsis;border-color:var(--border-strong);background:var(--panel);pointer-events:auto}
+.map-stats-size{visibility:hidden}
+.map-navigation{display:flex;align-items:center;justify-content:flex-end;flex:0 1 auto;min-width:0;gap:6px}
 .map-minimap-wrap{position:absolute;right:0;bottom:44px;padding:6px;line-height:0}
 .map-minimap{display:block;width:196px;height:128px;border-radius:var(--r-xs);background:var(--map-canvas-bg);cursor:crosshair}
 
@@ -316,9 +323,7 @@
   .map-picker-input{width:180px}
 }
 @container map (max-width:500px){
-  .map-summary{padding-left:7px}
-  .map-summary .map-btn{width:28px;padding:0}
-  .map-control-label{display:none}
+  .map-stats,.map-stats-size{padding-inline:7px}
 }
 @media (prefers-reduced-motion:reduce){
   .map-root *,.map-root *::before,.map-root *::after{transition:none !important;animation:none !important}

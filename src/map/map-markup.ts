@@ -24,8 +24,8 @@ const openIcon = (label: MapOpen["label"]): string => `<svg width="13" height="1
 const SEARCH_ICON = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="7" cy="7" r="4.6"/><path d="M10.6 10.6 14 14"/></svg>';
 const MINIMAP_ICON = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="2" width="12" height="12" rx="1.5"/><rect x="8" y="8" width="4" height="4" rx=".6" fill="currentColor" fill-opacity=".7" stroke="none"/></svg>';
 const FIT_ICON = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="1.5" y="1.5" width="13" height="13" rx="2"/><path d="M6.5 6.5 4 4M4 6.5V4h2.5"/><path d="M9.5 6.5 12 4M9.5 4H12v2.5"/><path d="M6.5 9.5 4 12M4 9.5V12h2.5"/><path d="M9.5 9.5 12 12M9.5 12H12V9.5"/></svg>';
-const LEGEND_ICON = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true"><rect x="2" y="2" width="3" height="3" rx=".7"/><rect x="2" y="10" width="3" height="3" rx=".7"/><path d="M8 3.5h6M8 11.5h6"/></svg>';
-const INFO_ICON = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6.2"/><path d="M8 7v5M8 4v.2"/></svg>';
+const LEGEND_ICON = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="2" width="3" height="3" rx=".7"/><rect x="2" y="10" width="3" height="3" rx=".7"/><path d="M8 3.5h6M8 11.5h6"/></svg>';
+const ABOUT_ICON = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.2 8a6.2 6.2 0 1 1-12.4 0 6.2 6.2 0 1 1 12.4 0Z"/><path d="M6 5.5a2 2 0 0 1 4 .2c0 1.5-2 1.5-2 3M8 11.4v.1"/></svg>';
 const zoomIcon = (plus: boolean): string => `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8h10${plus ? 'M8 3v10' : ''}"/></svg>`;
 const dot = (layer: string): string => `<span class="map-dot ${layerClass(layer)}" aria-hidden="true"></span>`;
 /** The sign a box of a trace carries, beside the words that say which side it is on: the same mark the canvas draws on
@@ -144,7 +144,7 @@ export const fullIconHtml = (whole: boolean): string => (whole ? LEAVE_FULL_ICON
  * - Where the map is: the model name goes to the top; Group by, Group and Module open their lists.
  * - Its tools: which links are drawn, the search, and full screen.
  *
- * Two floating corner clusters hold the status, Legend and About at the left, zoom and the minimap toggle at the right.
+ * Two round buttons for Legend and About float at the bottom left; counts, zoom and the minimap toggle at the right.
  * Their panels open above them. The minimap starts hidden; its button keeps the tab's choice.
  * The canvas is a picture to a screen reader, with a name, and the keys' list is its description. The notes can be
  * longer than the map is high: they scroll, and take the focus so that the keyboard scrolls them too. */
@@ -162,10 +162,10 @@ export function shellHtml(ids: ShellIds, modelName: string): string {
             <div class="map-panel map-picker-pop map-grouping-pop" hidden>
               <div class="map-grouping-list" id="${esc(ids.picker)}-groupings" role="listbox" aria-label="Group by"></div>
             </div>
-          </span>
-          <span class="map-grouping-info">
-            <button type="button" class="map-icon-btn" data-map-act="grouping-info" aria-label="Why this grouping" aria-expanded="false" aria-controls="${esc(ids.picker)}-reason" aria-describedby="${esc(ids.picker)}-reason"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="8" cy="8" r="6.2"/><path d="M8 7v5M8 4v1"/></svg></button>
-            <div class="map-panel map-grouping-reason" id="${esc(ids.picker)}-reason" role="note" tabindex="-1" hidden></div>
+            <span class="map-grouping-info">
+              <button type="button" class="map-grouping-info-btn" data-map-act="grouping-info" aria-label="How this grouping works" aria-expanded="false" aria-controls="${esc(ids.picker)}-reason" aria-describedby="${esc(ids.picker)}-reason"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6.2"/><path d="M8 7v5M8 4v.2"/></svg></button>
+              <div class="map-panel map-grouping-reason" id="${esc(ids.picker)}-reason" role="note" tabindex="-1" hidden></div>
+            </span>
           </span>
         </span>
         <span class="map-sep" aria-hidden="true">${PATH_CHEVRON}</span>
@@ -216,12 +216,12 @@ export function shellHtml(ids: ShellIds, modelName: string): string {
   <div class="map-free">
     <div class="map-foot">
     <div class="map-clusters">
-    <div class="map-panel map-cluster map-summary">
-      <div class="map-status"><span class="map-stats"></span></div>
-      <button type="button" class="map-btn" data-map-act="legend" aria-label="Legend" title="Legend" aria-expanded="false" aria-controls="${esc(ids.legend)}">${LEGEND_ICON}<span class="map-control-label">Legend</span></button>
-      <button type="button" class="map-btn" data-map-act="about" aria-label="About this map" title="About this map" aria-expanded="false" aria-controls="${esc(ids.about)}">${INFO_ICON}<span class="map-control-label">About</span></button>
+    <div class="map-summary">
+      <button type="button" class="map-btn map-icon" data-map-act="legend" aria-label="Legend" title="Legend" aria-expanded="false" aria-controls="${esc(ids.legend)}">${LEGEND_ICON}</button>
+      <button type="button" class="map-btn map-icon" data-map-act="about" aria-label="About this map" title="About this map" aria-expanded="false" aria-controls="${esc(ids.about)}">${ABOUT_ICON}</button>
     </div>
       <div class="map-navigation" role="group" aria-label="Map navigation">
+        <div class="map-status"><span class="map-stats-size" aria-hidden="true"></span><span class="map-stats"></span></div>
           <button type="button" class="map-btn map-icon" data-map-act="zoom-out" aria-label="Zoom out" title="Zoom out (-)">${zoomIcon(false)}</button>
           <button type="button" class="map-btn map-icon" data-map-act="zoom-in" aria-label="Zoom in" title="Zoom in (+)">${zoomIcon(true)}</button>
           <button type="button" class="map-btn map-icon" data-map-act="fit" aria-label="Fit to screen" title="Fit to screen">${FIT_ICON}</button>
@@ -373,15 +373,14 @@ export function brokenHtml(reason: string): string {
   return `<div class="map-broken" role="alert" tabindex="-1"><h2 class="map-empty-title">The map could not be drawn</h2><p class="map-empty-text">Drawing it failed${why}, and the map has stopped. The tables of this result are not affected.</p></div>`;
 }
 
-/** Each grouping appears once. The suggested one returns to automatic mode when chosen. */
+/** Each grouping appears once. The best fit returns to automatic mode when chosen. */
 export function groupingOptionsHtml(groupings: readonly { kind: string; label: string }[], automatic: string | undefined): string {
-  return groupings.map(grouping => `<button type="button" class="map-picker-opt" role="option" aria-selected="false" tabindex="-1" data-map-act="grouping" data-map-grouping="${esc(grouping.kind)}">${esc(grouping.label)}${grouping.kind === automatic ? ' <span class="map-suggested">Suggested</span>' : ""}</button>`).join("");
+  return groupings.map(grouping => `<button type="button" class="map-picker-opt" role="option" aria-selected="false" tabindex="-1" data-map-act="grouping" data-map-grouping="${esc(grouping.kind)}">${esc(grouping.label)}${grouping.kind === automatic ? ' <span class="map-best-fit">Best fit</span>' : ""}</button>`).join("");
 }
 
-/** The first line names the choice in bold; the same plain text is also the info button's tooltip. */
-export function groupingReasonHtml(reason: string): string {
-  const [heading, ...lines] = reason.split("\n");
-  return `<strong>${esc(heading)}</strong>${lines.length ? `\n${esc(lines.join("\n"))}` : ""}`;
+/** Two parts with their own bold headings. The caller supplies plain text separately for the tooltip. */
+export function groupingReasonHtml(how: string, label: string, best: string): string {
+  return `<p><strong>How it groups</strong>\n${esc(how)}</p>\n\n<p><strong>Best fit for this model: ${esc(label)}</strong>\n${esc(best)}</p>`;
 }
 
 /** The values of the Show list that are no group's place. */

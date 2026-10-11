@@ -109,7 +109,7 @@ describe("The map's escaping", () => {
     expectInert(text => groupOptionsHtml([text(0), text(1), text(2)], [1, 2, 3]), 3);
     expectInert(text => groupOptionsHtml([text(0), text(1)], [4, 1]), 2);
     expectInert(text => groupingOptionsHtml([{ kind: "headings", label: text(0) }, { kind: "role", label: text(1) }], "role"), 2);
-    expectInert(text => groupingReasonHtml(`${text(0)}\n${text(1)}`), 2);
+    expectInert(text => groupingReasonHtml(text(0), text(1), text(2)), 3);
     expectInert(text => pickerOptionsHtml("map-picker-1", [{ name: text(0), group: text(1) }, { name: text(2) }], 0), 3);
     expectInert(text => emptyHtml(text(0), text(1), [text(2), text(3)]), 4);
     expectInert(text => brokenHtml(text(0)), 1);
@@ -212,7 +212,7 @@ describe("The map's own markup", () => {
     }
     // In the bar's order: where the map is, how it is built, and its tools. Each list and box is named as its label reads.
     expect(names).toEqual([
-      "Group by", "Why this grouping", "Choose a group", "Choose a module", "Find a module", "Links", "Formulas", "Access drivers", "Page filters", "Other modules' line items", "Search all groups, modules and line items", FULL_SAYS.enter,
+      "Group by", "How this grouping works", "Choose a group", "Choose a module", "Find a module", "Links", "Formulas", "Access drivers", "Page filters", "Other modules' line items", "Search all groups, modules and line items", FULL_SAYS.enter,
       "Legend", "About this map", "Zoom out", "Zoom in", "Fit to screen", "Minimap",
     ]);
     expect(shell.querySelector(".map-grouping-name")?.textContent).toBe("Group by");
@@ -295,6 +295,21 @@ describe("The map's own markup", () => {
     for (const whole of [false, true]) expect(parseMarkup(fullIconHtml(whole)).querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
   });
 
+  it("keeps both grouping controls inside one pill, in keyboard order, with separate panel names", () => {
+    const shell = parseMarkup(shellHtml(IDS, "Demand Plan"));
+    const field = shell.querySelector(".map-grouping-field")!;
+    const pill = field.querySelector(".map-grouping-picker")!;
+    expect(field.children).toEqual([pill]);
+    expect(pill.querySelectorAll("button").map(button => [button.dataset.mapAct, button.getAttribute("aria-label"), button.getAttribute("aria-expanded"), button.getAttribute("aria-controls")]))
+      .toEqual([["groupings", "Group by", "false", "map-picker-1-groupings"], ["grouping-info", "How this grouping works", "false", "map-picker-1-reason"]]);
+    expect(shell.querySelectorAll('[data-map-act="grouping-info"]')).toHaveLength(1);
+    expect(pill.querySelector("button button")).toBeNull();
+    const reason = parseMarkup(`<div>${groupingReasonHtml("Modules share a heading.", "Headings", "Headings cover 100% of modules.")}</div>`);
+    expect(reason.querySelectorAll("p")).toHaveLength(2);
+    expect(reason.querySelectorAll("strong").map(heading => heading.textContent)).toEqual(["How it groups", "Best fit for this model: Headings"]);
+    expect(reason.textContent).toBe("How it groups\nModules share a heading.\n\nBest fit for this model: Headings\nHeadings cover 100% of modules.");
+  });
+
   it("draws Fit to screen as four outward arrows inside a rounded frame, distinct from full screen", () => {
     const shell = parseMarkup(shellHtml(IDS, "Demand Plan"));
     const button = shell.querySelector('[data-map-act="fit"]')!;
@@ -337,12 +352,16 @@ describe("The map's own markup", () => {
     const bar = shell.querySelector(".map-clusters")!;
     expect(bar.querySelector(".map-summary")?.querySelectorAll("button").map(button => button.dataset.mapAct)).toEqual(["legend", "about"]);
     const navigation = bar.querySelector(".map-navigation")!;
-    expect(navigation.children.map(button => button.dataset.mapAct)).toEqual(["zoom-out", "zoom-in", "fit", "minimap"]);
-    expect(navigation.children.map(button => button.getAttribute("aria-label"))).toEqual(["Zoom out", "Zoom in", "Fit to screen", "Minimap"]);
+    expect(navigation.children[0].getAttribute("class")).toBe("map-status");
+    expect(navigation.querySelector(".map-stats-size")?.getAttribute("aria-hidden")).toBe("true");
+    expect(bar.querySelector(".map-summary")?.classList.contains("map-panel")).toBe(false);
+    expect(bar.querySelector(".map-summary .map-status")).toBeNull();
+    expect(navigation.querySelectorAll("button").map(button => button.dataset.mapAct)).toEqual(["zoom-out", "zoom-in", "fit", "minimap"]);
+    expect(navigation.querySelectorAll("button").map(button => button.getAttribute("aria-label"))).toEqual(["Zoom out", "Zoom in", "Fit to screen", "Minimap"]);
     expect(navigation.classList.contains("map-panel")).toBe(false);
     expect(bar.querySelectorAll('.map-cluster-divider, [role="separator"], hr')).toHaveLength(0);
     const full = shell.querySelector('[data-map-act="fullscreen"] svg')!;
-    for (const button of navigation.children) {
+    for (const button of navigation.querySelectorAll("button")) {
       expect(button.localName).toBe("button");
       expect(button.getAttribute("class")).toBe("map-btn map-icon");
       for (const attribute of ["width", "height", "viewBox", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin"]) {
@@ -389,7 +408,13 @@ describe("The map's own markup", () => {
   it("keeps the legend and the notes about the map closed until asked for, each behind a button that says whether it is open", () => {
     const shell = parseMarkup(shellHtml(IDS, "Demand Plan"));
     const buttons = shell.querySelectorAll('[data-map-act="legend"], [data-map-act="about"]');
-    expect(buttons.map(button => [button.textContent, button.getAttribute("aria-expanded"), button.getAttribute("aria-controls")])).toEqual([["Legend", "false", "map-legend-1"], ["About", "false", "map-about-1"]]);
+    expect(buttons.map(button => [button.textContent, button.getAttribute("aria-expanded"), button.getAttribute("aria-controls")])).toEqual([["", "false", "map-legend-1"], ["", "false", "map-about-1"]]);
+    expect(buttons.map(button => [button.getAttribute("class"), button.getAttribute("aria-label"), button.getAttribute("title")]))
+      .toEqual([["map-btn map-icon", "Legend", "Legend"], ["map-btn map-icon", "About this map", "About this map"]]);
+    const aboutIcon = buttons[1].querySelector("svg")!;
+    expect(aboutIcon.querySelectorAll("path")).toHaveLength(2);
+    expect(aboutIcon.getAttribute("stroke-width")).toBe("1.7");
+    expect(aboutIcon.outerHTML).not.toBe(shell.querySelector('[data-map-act="grouping-info"] svg')?.outerHTML);
     expect([shell.querySelector(".map-legend")?.id, shell.querySelector(".map-legend")?.hidden]).toEqual(["map-legend-1", true]);
     const about = shell.querySelector(".map-about")!;
     expect([about.id, about.hidden, about.getAttribute("tabindex")]).toEqual(["map-about-1", true, "0"]);
@@ -425,7 +450,7 @@ describe("The map's own markup", () => {
     expect(shell.querySelector(".map-foot")?.children.map(child => child.getAttribute("class"))).toEqual(["map-clusters", "map-over", "map-panel map-minimap-wrap"]);
     // At the foot: the status and its two buttons. The trace shares the details column.
     expect(shell.querySelector(".map-selection")?.children.map(child => child.getAttribute("class"))).toEqual(["map-panel map-inspector"]);
-    expect(shell.querySelector(".map-summary")?.children.map(child => child.getAttribute("class"))).toEqual(["map-status", "map-btn", "map-btn"]);
+    expect(shell.querySelector(".map-summary")?.children.map(child => child.getAttribute("class"))).toEqual(["map-btn map-icon", "map-btn map-icon"]);
     expect(shell.querySelector(".map-over")?.children.map(child => child.getAttribute("class"))).toEqual(["map-panel map-legend", "map-panel map-about"]);
   });
 });
@@ -602,10 +627,10 @@ describe("The map's panels", () => {
     expect(options(groupOptionsHtml(["01: Inputs", "02: Calculations"], [2, 0]))).toEqual([["groups", "All groups"], ["0", "01: Inputs · 2 modules"], ["1", "02: Calculations · 0 modules"]]);
     // Group by names each grouping as the switch's label has it, and the one the map picks says so.
     expect(options(groupingOptionsHtml([{ kind: "headings", label: "Headings" }, { kind: "role", label: "Role in the data flow" }], "role")))
-      .toEqual([["headings", "Headings"], ["role", "Role in the data flow Suggested"]]);
+      .toEqual([["headings", "Headings"], ["role", "Role in the data flow Best fit"]]);
     const choices = parseMarkup(`<div>${groupingOptionsHtml([{ kind: "headings", label: "Headings" }, { kind: "role", label: "Role in the data flow" }], "headings")}</div>`);
-    expect(choices.querySelectorAll("[role=option]").map(option => [option.dataset.mapGrouping, option.textContent, option.querySelector(".map-suggested")?.textContent]))
-      .toEqual([["headings", "Headings Suggested", "Suggested"], ["role", "Role in the data flow", undefined]]);
+    expect(choices.querySelectorAll("[role=option]").map(option => [option.dataset.mapGrouping, option.textContent, option.querySelector(".map-best-fit")?.textContent]))
+      .toEqual([["headings", "Headings Best fit", "Best fit"], ["role", "Role in the data flow", undefined]]);
     expect(choices.querySelectorAll("select")).toEqual([]);
   });
 
