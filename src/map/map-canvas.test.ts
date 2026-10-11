@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Camera } from "./map-camera.js";
 import { createFonts, drawMinimap, drawScene, legibleFrom, linkStrength, type Pen, type Scene } from "./map-canvas.js";
-import { moduleGraph, modulesGraph, type ViewGraph, type ViewNode } from "./map-graphs.js";
+import { drawLinks, moduleGraph, modulesGraph, type ViewGraph, type ViewNode } from "./map-graphs.js";
 import { CARD, FULL_CARD_ZOOM, FULL_ITEM_ZOOM, ITEM, layoutGraph, sizeNodes, type Room } from "./map-layout.js";
 import { indexModel } from "./map-model.js";
 import { FALLBACK } from "./map-palette.js";
@@ -50,6 +50,24 @@ function draw(scene: Scene): { pen: FakePen; traced: boolean } {
   const traced = drawScene(pen as unknown as Pen, scene, createFonts(pen as unknown as Pen, scene.palette));
   return { pen, traced };
 }
+
+it("draws a neighbour whose kind is unticked dimly in both pictures, and keeps it selectable", () => {
+  const make = new GraphMaker();
+  const home = make.module("Work");
+  const value = make.item(home, "Value");
+  const driver = make.item(make.module("Access"), "Can edit");
+  make.link(driver, value, "write_access");
+  const model = indexModel(make.graph());
+  const graph = ready(drawLinks(moduleGraph(model, home, false, true), moduleGraph(model, home, false, false), true));
+  const scene = sceneOf(graph);
+  const fills = draw(scene).pen.calls.filter((call, index, calls) => call.name === "fill" && calls[index - 1]?.name === "roundRect");
+  expect(fills.map(call => call.globalAlpha)).toEqual([1, 0.3]);
+  const mini = new FakePen();
+  drawMinimap(mini as unknown as Pen, scene, 196, 128);
+  expect(mini.calls.filter(call => call.name === "fillRect").map(call => call.globalAlpha)).toEqual([0.7, 0.3]);
+  const selected = sceneOf(graph, { trace: traceNode(graph, model, 1, false) });
+  expect(draw(selected).pen.calls.some(call => call.name === "fillText" && call.args[0] === "Access" && call.globalAlpha === 1)).toBe(true);
+});
 
 const place = (graph: ViewGraph, name: string): number => graph.nodes.findIndex(node => node.fullName === name);
 const named = (graph: ViewGraph, name: string): ViewNode => graph.nodes[place(graph, name)];

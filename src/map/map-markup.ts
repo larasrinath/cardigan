@@ -182,7 +182,10 @@ export function shellHtml(ids: ShellIds, modelName: string): string {
       <button type="button" class="map-btn map-icon map-full-btn" data-map-act="fullscreen" aria-pressed="false" aria-label="${FULL_SAYS.enter}" title="${FULL_SAYS.enter}">${FULL_ICON}</button>
     </div>
   </div>
-  <aside class="map-panel map-inspector" aria-label="Details of the box selected" hidden></aside>
+  <div class="map-selection">
+    <div class="map-panel map-tracebar" hidden></div>
+    <aside class="map-panel map-inspector" aria-label="Details of the box selected" hidden></aside>
+  </div>
   <div class="map-free">
     <div class="map-foot">
     <div class="map-over">
@@ -205,7 +208,6 @@ export function shellHtml(ids: ShellIds, modelName: string): string {
       <div class="map-panel map-status"><span class="map-stats"></span><button type="button" class="map-btn map-small" data-map-act="whole" hidden>Whole map</button></div>
       <button type="button" class="map-btn map-dock-btn" data-map-act="legend" aria-expanded="false" aria-controls="${esc(ids.legend)}">Legend</button>
       <button type="button" class="map-btn map-dock-btn" data-map-act="about" aria-expanded="false" aria-controls="${esc(ids.about)}">About this map</button>
-      <div class="map-panel map-tracebar" hidden></div>
     </div>
     </div>
     <div class="map-corner">

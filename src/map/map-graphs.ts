@@ -54,6 +54,8 @@ export interface ViewNode {
    * on the module's grid is a link from its line item to each line item the grid shows, but to itself. The canvas draws
    * it as a mark on the box. None where there is nothing to mark, or the pages' filters are not drawn. */
   readonly filterMark?: number;
+  /** Kept in place while none of the drawn links brings this external box into the view. */
+  readonly dimmed?: boolean;
   x: number;
   y: number;
   w: number;
@@ -74,6 +76,8 @@ export interface ViewEdge {
   /** Whether it counts formulas' links alone: none of who may read or write. Where the map leaves formulas undrawn
    * (`edgeDrawn`), such a link is not drawn, and a trace does not follow it; the boxes stay where they are. */
   readonly formulaOnly?: boolean;
+  /** How many formulas this link counts, including when access drivers share its endpoints. */
+  readonly formulas?: number;
 }
 
 /** Whether a link of the graph is drawn: every link where formulas are, and otherwise only those that count more than
@@ -153,7 +157,7 @@ function finish(model: MapModel, kind: ViewGraph["kind"], name: string, drafts: 
     const from = byId.get(link.s);
     const to = byId.get(link.t);
     if (!from || !to) continue;
-    edges.push({ s: from.index, t: to.index, w: link.w, ...(link.refs ? { refs: link.refs } : {}),
+    edges.push({ s: from.index, t: to.index, w: link.w, formulas: link.formula ?? 0, ...(link.refs ? { refs: link.refs } : {}),
       ...(link.filter ? { filter: true } : (link.formula ?? 0) === link.w ? { formulaOnly: true } : {}) });
     out[from.index].push(to.index);
     into[to.index].push(from.index);
@@ -341,6 +345,7 @@ export function moduleGraph(model: MapModel, moduleId: number, expanded: boolean
   const fed = new Set<string>();
   const read = new Set<string>();
   for (const link of links.values()) {
+    if (!link.formula) continue;
     fed.add(link.t);
     read.add(link.s);
   }
@@ -349,4 +354,24 @@ export function moduleGraph(model: MapModel, moduleId: number, expanded: boolean
     if (draft.external) draft.side = fed.has(draft.id) && read.has(draft.id) ? "both" : fed.has(draft.id) ? "out" : "in";
   }
   return finish(model, "drill", module?.name ?? "", [...drafts.values()], [...links.values()], owned.length);
+}
+
+/** Draw other links over the complete view's boxes. The complete view supplies their order, sizes and places;
+ * the drawn view supplies links and filter marks. Boxes brought in only by unticked kinds stay, dimmed. */
+export function drawLinks(places: ViewGraph, drawn: ViewGraph, formulas: boolean): ViewGraph {
+  const linked = new Set<string>();
+  for (const edge of drawn.edges) if (edgeDrawn(edge, formulas)) {
+    linked.add(drawn.nodes[edge.s].id);
+    linked.add(drawn.nodes[edge.t].id);
+  }
+  const nodes = places.nodes.map(node => {
+    const active = drawn.byId.get(node.id);
+    return { ...node, filterMark: active?.filterMark, dimmed: node.external && !linked.has(node.id) };
+  });
+  const byId = new Map(nodes.map(node => [node.id, node]));
+  const edges = drawn.edges.map(edge => ({ ...edge, s: byId.get(drawn.nodes[edge.s].id)!.index, t: byId.get(drawn.nodes[edge.t].id)!.index }));
+  const out: number[][] = nodes.map(() => []);
+  const into: number[][] = nodes.map(() => []);
+  for (const edge of edges) { out[edge.s].push(edge.t); into[edge.t].push(edge.s); }
+  return { ...places, nodes, byId, edges, out, in: into };
 }

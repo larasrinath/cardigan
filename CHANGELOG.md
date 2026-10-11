@@ -2,6 +2,15 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version is in the menu of Cardigan's icon in Chrome's toolbar and on its About page, and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## Unreleased
+
+The Model map keeps its places when links change, and keeps the box you were reading.
+
+- **Links change without a jump.** Ticking or unticking Formulas, Access drivers or Page filters keeps the camera and every box where they were, including a box dragged by hand. Formula links alone place the boxes at every level. A box brought in only by an unticked kind stays in place, dimmed; the other links are drawn over that layout. A taller legend lies over the map.
+- **The bar and foot stay put.** The Links button keeps the room for its dot. The line at the foot always shows, and Legend and About this map keep their places. The trace's name, counts and buttons stand with the selected box's details.
+- **Names in full.** The model, group and module in the path take the room their names need. The path takes its own line before its steps or names wrap. The traced name wraps too, and stays visible on a narrow map.
+- **The selected box is kept.** A refresh or Run again reopens its details where the box still exists, found by its name and its module or parent. Changed formulas, counts and object numbers do not lose it. A missing or ambiguous name leaves the selection clear.
+
 ## 0.24.0 (11 October 2026)
 
 The Model map has one path, and calls each group a group.

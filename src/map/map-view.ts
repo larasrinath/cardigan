@@ -4,7 +4,7 @@ import {
   type Area, type Camera, type Direction, type Insets, type MinimapTransform,
 } from "./map-camera.js";
 import { createFonts, drawMinimap, drawScene, legibleFrom, type Fonts, type Pen } from "./map-canvas.js";
-import { edgeDrawn, moduleGraph, modulesGraph, sectionsGraph, type Box, type LinksDrawn, type ViewGraph, type ViewNode } from "./map-graphs.js";
+import { drawLinks, edgeDrawn, moduleGraph, modulesGraph, sectionsGraph, type Box, type LinksDrawn, type ViewGraph, type ViewNode } from "./map-graphs.js";
 import { filterTipLines, inspect, statusWords, traceWords, viewSentence, type Inspection, type TraceWords } from "./map-inspect.js";
 import { boundsOf, fullFrom, layoutGraph, sizeNodes } from "./map-layout.js";
 import { automaticGrouping, groupingsOf, type Grouping } from "./map-groups.js";
@@ -17,6 +17,7 @@ import { FALLBACK, readPalette, type MapPalette } from "./map-palette.js";
 import { createSearch, matchNodes, searchText, type SearchHit } from "./map-search.js";
 import { formatCount, plural } from "./map-text.js";
 import { inTrace, traceNode, type Trace } from "./map-trace.js";
+import { keptSelection, selectionKey } from "./map-selection.js";
 
 /** What the map asks of the browser around it. The page gives it none of this: `mountModelMap` takes it from the browser,
  * and a test hands in its own. */
@@ -177,6 +178,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   const status = part(".map-status");
   const corner = part(".map-corner");
   const inspector = part(".map-inspector");
+  const selectionPanel = part(".map-selection");
   const tracebar = part(".map-tracebar");
   const free = part(".map-free");
   const empty = part(".map-empty");
@@ -421,7 +423,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   function freeRooms(): Insets[] | undefined {
     const freeArea = areaOf(free);
     if (!freeArea || freeArea.right - freeArea.left <= 2 * FIT_MARGIN || freeArea.bottom - freeArea.top <= 2 * FIT_MARGIN) return undefined;
-    const panels = [areaOf(legend), areaOf(about), areaOf(dock), areaOf(corner)].filter((area): area is Area => area !== undefined);
+    const panels = [areaOf(legend), areaOf(about), areaOf(dock), areaOf(corner), areaOf(selectionPanel)].filter((area): area is Area => area !== undefined);
     return roomsBeside(freeArea, panels).map(room => insetsOf(room, width, height, FIT_MARGIN)).filter(room => width - room.l - room.r > 80 && height - room.t - room.b > 60);
   }
 
@@ -439,7 +441,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   function openRooms(): Insets[] {
     const freeArea = areaOf(free);
     if (!freeArea) return [defaultInsets(width, height, selected !== undefined)];
-    const panels = [areaOf(legend), areaOf(about), areaOf(dock), areaOf(corner)].filter((area): area is Area => area !== undefined);
+    const panels = [areaOf(legend), areaOf(about), areaOf(dock), areaOf(corner), areaOf(selectionPanel)].filter((area): area is Area => area !== undefined);
     const found = roomsBeside(freeArea, panels).map(room => insetsOf(room, width, height));
     return found.length ? found : [insetsOf(freeArea, width, height)];
   }
@@ -551,8 +553,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     needsFit = false;
     const current = onScreen;
     const floor = legibleFrom(current) - 1e-9;
-    // The room is measured with the foot as it is beside a whole picture: with a box selected, the line of what is
-    // shown gives way to the bar of what is traced.
+    // The status line keeps its place while a selection's trace stands with its details.
     footFor(true);
     let list = settleLegend(current, floor, each => {
       layoutGraph(current, each.map(room => ({ width: width - room.l - room.r, height: height - room.t - room.b })));
@@ -596,7 +597,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     const from = heading ?? camera;
     const floor = leastZoom(current, from);
     if (wantsWhole) {
-      // Beside a whole picture the line at the foot gives way to the bar of what is traced: the room is measured so.
+      // Measure with the status line in its fixed place.
       footFor(true);
       const list = settleLegend(current, floor, each => fitCameraIn(wholeBox(current), width, height, each).k);
       const whole = fitCameraIn(wholeBox(current), width, height, list);
@@ -672,37 +673,32 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     if (!onScreen) return;
     const at = heading ?? camera;
     countedFor = at;
-    // The line's own words can move what it counts by: in a narrow foot a longer line, or its button, takes the foot to
-    // another row, and the legend and the notes stand on the foot. So the count is made again with the foot as the line
-    // has left it, until the two agree: at once wherever the foot keeps its height.
+    // Read again if the panels' measured places settle while the words are rendered.
     let counted: string | undefined;
     for (let pass = 0; pass < 3; pass++) {
       // In view is what stands in the graph's own room: a box under the bar or the details is not, nor is one under the
       // legend, the notes or the small picture.
-      const covered = [areaOf(legend), areaOf(about), areaOf(corner)].filter((area): area is Area => area !== undefined);
+      const covered = [areaOf(legend), areaOf(about), areaOf(corner), areaOf(selectionPanel)].filter((area): area is Area => area !== undefined);
       const places = covered.map(area => `${area.left} ${area.top} ${area.right} ${area.bottom}`).join(", ");
       if (places === counted) break;
       counted = places;
       inView = width > 0 && height > 0 ? countInView(onScreen.nodes, isShown, at, areaOf(free) ?? { left: 0, top: 0, right: width, bottom: height }, covered) : shownCount;
-      // Beside a selection the bar of what is traced stands in the line's place, unless the line has more to say than
-      // what the graph holds: that part of it is not drawn, or is out of view. It then says that alone.
-      const said = statusWords(onScreen, shownCount, inView, selected !== undefined, linksDrawn());
+      // The full status stays visible with or without a selection.
+      const said = statusWords(onScreen, shownCount, inView, false, linksDrawn());
       if (stats.textContent !== said) stats.textContent = said;
       wholeButton.hidden = inView >= shownCount;
-      status.hidden = selected !== undefined && shownCount >= onScreen.nodes.length && inView >= shownCount;
+      status.hidden = false;
     }
   }
 
-  /** Puts the line at the foot as it will stand beside a picture that is whole, or beside one that is not, before the
-   * room for the picture is measured: the line's words and its button can take the foot to another row, and the legend
-   * and the notes stand on the foot. Once the camera is chosen, `renderStatus` says what is counted. */
+  /** Sets the status before measuring a fit. Its place stays fixed; `renderStatus` supplies the final counts. */
   function footFor(whole: boolean): void {
     if (!onScreen) return;
     // Not whole: the longest the line can be, with one box out of view.
-    const said = statusWords(onScreen, shownCount, whole ? shownCount : Math.max(0, shownCount - 1), selected !== undefined, linksDrawn());
+    const said = statusWords(onScreen, shownCount, whole ? shownCount : Math.max(0, shownCount - 1), false, linksDrawn());
     if (stats.textContent !== said) stats.textContent = said;
     wholeButton.hidden = whole;
-    status.hidden = whole && selected !== undefined && shownCount >= onScreen.nodes.length;
+    status.hidden = false;
   }
 
   function renderLegend(): void {
@@ -1031,19 +1027,22 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
 
   /* ---------- views and selection ---------- */
 
-  /** Builds the graph the view asks for, sizes its boxes to their names, and lays it out for the room it has. */
-  function build(): void {
+  /** Build every box once. Link switches reuse those places, including any box the viewer has dragged. */
+  function build(keepPlaces = false, restore?: string): void {
     if (!model || !fonts) return;
-    onScreen = view === "drill" && moduleId !== undefined ? moduleGraph(model, moduleId, expanded, access, filters)
-      : grouped && section === undefined ? sectionsGraph(model, access, filters) : modulesGraph(model, section, access, filters);
-    sizeNodes(onScreen, fonts.measure("label"), fonts.measure("item"));
-    selected = selected && onScreen.byId.get(selected.id);
+    const graphFor = (access: boolean, filters: boolean): ViewGraph => view === "drill" && moduleId !== undefined ? moduleGraph(model!, moduleId, expanded, access, filters)
+      : grouped && section === undefined ? sectionsGraph(model!, access, filters) : modulesGraph(model!, section, access, filters);
+    const places = keepPlaces && onScreen ? onScreen : graphFor(true, true);
+    onScreen = drawLinks(places, graphFor(access, filters), formulas);
+    if (!keepPlaces) sizeNodes(onScreen, fonts.measure("label"), fonts.measure("item"));
+    selected = restore === undefined ? selected && onScreen.byId.get(selected.id) : keptSelection(model, onScreen, restore);
     trace = selected ? traceNode(onScreen, model, selected.index, access, filters, formulas) : undefined;
     if (!selected) onlyTrace = false;
     refreshShown();
-    matches = undefined;
+    if (!keepPlaces) matches = undefined;
     renderChrome();
-    arrange();
+    if (!keepPlaces) arrange();
+    else invalidate();
     renderStatus();
     tellView();
   }
@@ -1062,7 +1061,8 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   /** Where the map is, as the page keeps it: the view, and in it the group, all modules or the module shown, by name, and
    * which links are drawn. The groups as a whole say no group, as does a model with no groups to show. */
   function viewNow(): MapView {
-    const drawn = { ...(formulas ? {} : { noFormulas: true }), ...(access ? { access: true } : {}), ...(filters ? { filters: true } : {}) };
+    const drawn = { ...(formulas ? {} : { noFormulas: true }), ...(access ? { access: true } : {}), ...(filters ? { filters: true } : {}),
+      ...(selected && model ? { selected: selectionKey(model, selected) } : {}) };
     if (view === "drill" && moduleId !== undefined) {
       const module = model?.node(moduleId);
       if (module) return { view: "drill", module: module.name, ...(expanded ? { others: true } : {}), ...drawn };
@@ -1149,6 +1149,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     if (node && deliberate) reframe(true);
     else if (node) uncover(node);
     else renderStatus();
+    tellView();
   }
 
   /** Selects a box of the graph on screen by its name there: from the search, or from a link of the details. Where the
@@ -1457,26 +1458,21 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
       expanded = externalToggle.checked;
       setView("drill", moduleId);
     } else if (target === formulasToggle) {
-      // The same picture with formulas' links drawn or not: no box moves, as the graph is not built again. What is
-      // selected stays selected, its trace following only the links drawn.
+      // Reuse the picture's places; the selection's trace follows only the links drawn.
       formulas = formulasToggle.checked;
       onlyTrace = false;
-      if (onScreen) trace = selected ? traceNode(onScreen, model, selected.index, access, filters, formulas) : undefined;
-      refreshShown();
-      renderChrome();
-      invalidate();
-      tellView();
+      build(true);
       if (onScreen) announce(`${formulas ? "Formula links are drawn." : "Formula links are not drawn."} ${viewSentence(onScreen, options.modelName, linksDrawn())}`);
     } else if (target === accessToggle) {
       // The same view with other links: what is selected stays selected where it is still on screen.
       access = accessToggle.checked;
       onlyTrace = false;
-      build();
+      build(true);
       if (onScreen) announce(`${access ? "Access driver links are drawn." : "Access driver links are not drawn."} ${viewSentence(onScreen, options.modelName, linksDrawn())}`);
     } else if (target === filtersToggle) {
       filters = filtersToggle.checked && filtersDrawable();
       onlyTrace = false;
-      build();
+      build(true);
       if (onScreen) announce(`${filters ? "Page filters are drawn." : "Page filters are not drawn."} ${viewSentence(onScreen, options.modelName, linksDrawn())}`);
     }
   }));
@@ -1794,7 +1790,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     const headings = base.sections.filter(name => name !== NO_HEADING).length;
     notes.innerHTML = notesHtml({ name: options.modelName, workspace: options.workspaceName, modules: base.modules.length, lineItems: base.lineItems.length, headings }, graph.limitations, graph.unresolved.length);
     takeView(options.view);
-    build();
+    build(false, options.view?.selected);
   }
 
   return {
