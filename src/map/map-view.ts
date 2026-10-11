@@ -723,6 +723,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     if (!model) return;
     miniWrap.hidden = !minimapOpen;
     miniButton.setAttribute("aria-pressed", String(minimapOpen));
+    miniButton.title = minimapOpen ? "Hide minimap" : "Show minimap";
     groupingField.hidden = false;
     groupingName.textContent = model.grouping?.label ?? "Group by";
     groupingButton.setAttribute("aria-label", `Group by: ${groupingName.textContent}`);
@@ -1439,6 +1440,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
         minimapOpen = !minimapOpen;
         miniWrap.hidden = !minimapOpen;
         miniButton.setAttribute("aria-pressed", String(minimapOpen));
+        miniButton.title = minimapOpen ? "Hide minimap" : "Show minimap";
         renderStatus();
         invalidate();
         tellView();

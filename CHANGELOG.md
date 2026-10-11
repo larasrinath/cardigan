@@ -2,6 +2,10 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version is in the menu of Cardigan's icon in Chrome's toolbar and on its About page, and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## Unreleased
+
+- **Round map controls.** Zoom, Fit to screen and Minimap are separate round buttons, matching Full screen, with no pipes in either bottom cluster. Fit has its own drawn icon; Minimap shows a small inset in the frame's bottom-right corner and stays highlighted while open.
+
 ## 0.30.3 (11 October 2026)
 
 - **One highlight, one grouping.** The map's lists and navigation menus use the same rounded highlight as the tabs, with plain hover and a ring for keyboard focus in both themes. Group by lists each choice once, tags the suggestion, and returns to automatic when it is picked; its info explains the choice in plain words with whole percentages and real prefixes. (#95)

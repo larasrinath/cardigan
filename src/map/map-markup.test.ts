@@ -213,7 +213,7 @@ describe("The map's own markup", () => {
     // In the bar's order: where the map is, how it is built, and its tools. Each list and box is named as its label reads.
     expect(names).toEqual([
       "Group by", "Why this grouping", "Choose a group", "Choose a module", "Find a module", "Links", "Formulas", "Access drivers", "Page filters", "Other modules' line items", "Search all groups, modules and line items", FULL_SAYS.enter,
-      "Legend", "About this map", "Zoom out", "Zoom in", "Fit", "Minimap",
+      "Legend", "About this map", "Zoom out", "Zoom in", "Fit to screen", "Minimap",
     ]);
     expect(shell.querySelector(".map-grouping-name")?.textContent).toBe("Group by");
     expect(shell.querySelector(".map-search")?.getAttribute("aria-controls")).toBe("map-results-1");
@@ -316,10 +316,28 @@ describe("The map's own markup", () => {
     expect(shell.querySelector(".map-dock")).toBeNull();
     const bar = shell.querySelector(".map-clusters")!;
     expect(bar.querySelector(".map-summary")?.querySelectorAll("button").map(button => button.dataset.mapAct)).toEqual(["legend", "about"]);
-    expect(bar.querySelector(".map-navigation")?.querySelectorAll("button").map(button => button.dataset.mapAct)).toEqual(["zoom-out", "zoom-in", "fit", "minimap"]);
+    const navigation = bar.querySelector(".map-navigation")!;
+    expect(navigation.children.map(button => button.dataset.mapAct)).toEqual(["zoom-out", "zoom-in", "fit", "minimap"]);
+    expect(navigation.children.map(button => button.getAttribute("aria-label"))).toEqual(["Zoom out", "Zoom in", "Fit to screen", "Minimap"]);
+    expect(navigation.classList.contains("map-panel")).toBe(false);
+    expect(bar.querySelectorAll('.map-cluster-divider, [role="separator"], hr')).toHaveLength(0);
+    const full = shell.querySelector('[data-map-act="fullscreen"] svg')!;
+    for (const button of navigation.children) {
+      expect(button.localName).toBe("button");
+      expect(button.getAttribute("class")).toBe("map-btn map-icon");
+      for (const attribute of ["width", "height", "viewBox", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin"]) {
+        expect(button.querySelector("svg")?.getAttribute(attribute), attribute).toBe(full.getAttribute(attribute));
+      }
+    }
+    const fit = navigation.querySelector('[data-map-act="fit"]')!;
+    expect([fit.textContent, fit.getAttribute("title")]).toEqual(["", "Fit to screen"]);
+    expect(fit.querySelector("rect")).not.toBeNull();
+    for (const whole of [false, true]) {
+      expect(fit.querySelector("path")?.getAttribute("d")).not.toBe(parseMarkup(fullIconHtml(whole)).querySelector("path")?.getAttribute("d"));
+    }
     for (const button of bar.querySelectorAll("button")) {
       expect(button.getAttribute("tabindex")).toBeNull();
-      if (button.dataset.mapAct !== "fit") expect(button.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+      expect(button.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
     }
     expect(bar.querySelectorAll("button").map(button => button.dataset.mapAct))
       .toEqual(["legend", "about", "zoom-out", "zoom-in", "fit", "minimap"]);
@@ -329,6 +347,22 @@ describe("The map's own markup", () => {
     expect([button.getAttribute("aria-label"), button.getAttribute("aria-pressed"), button.getAttribute("aria-controls"), panel.id, panel.hidden])
       .toEqual(["Minimap", "false", panel.id, "map-legend-1-minimap", true]);
     expect(button.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+    expect(button.getAttribute("title")).toBe("Show minimap");
+    const rectangles = button.querySelectorAll("rect");
+    expect(rectangles).toHaveLength(2);
+    const [frame, inset] = rectangles;
+    expect(button.querySelector("path")).toBeNull();
+    expect([inset.getAttribute("fill"), inset.getAttribute("stroke")]).toEqual(["currentColor", "none"]);
+    expect(Number(inset.getAttribute("fill-opacity"))).toBeGreaterThanOrEqual(.5);
+    for (const rectangle of rectangles) expect(Number(rectangle.getAttribute("rx"))).toBeGreaterThan(0);
+    // The filled panel sits inside the frame's bottom-right quarter with a visible gap to both edges.
+    for (const [position, size] of [["x", "width"], ["y", "height"]]) {
+      const start = Number(frame.getAttribute(position));
+      const length = Number(frame.getAttribute(size));
+      const panelStart = Number(inset.getAttribute(position));
+      expect(panelStart).toBeGreaterThanOrEqual(start + length / 2);
+      expect(panelStart + Number(inset.getAttribute(size))).toBeLessThan(start + length - 1);
+    }
     expect(bar.querySelector(".map-minimap-wrap")).toBeNull();
   });
 
@@ -371,7 +405,7 @@ describe("The map's own markup", () => {
     expect(shell.querySelector(".map-foot")?.children.map(child => child.getAttribute("class"))).toEqual(["map-clusters", "map-over", "map-panel map-minimap-wrap"]);
     // At the foot: the status and its two buttons. The trace shares the details column.
     expect(shell.querySelector(".map-selection")?.children.map(child => child.getAttribute("class"))).toEqual(["map-panel map-inspector"]);
-    expect(shell.querySelector(".map-summary")?.children.map(child => child.getAttribute("class"))).toEqual(["map-status", "map-cluster-divider", "map-btn", "map-btn"]);
+    expect(shell.querySelector(".map-summary")?.children.map(child => child.getAttribute("class"))).toEqual(["map-status", "map-btn", "map-btn"]);
     expect(shell.querySelector(".map-over")?.children.map(child => child.getAttribute("class"))).toEqual(["map-panel map-legend", "map-panel map-about"]);
   });
 });
