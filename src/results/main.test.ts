@@ -4357,6 +4357,8 @@ describe("The navigation bar of the results page", () => {
     expect(page.key("ArrowDown").defaultPrevented).toBe(true);
     expect(openMenus()).toEqual([id]);
     const entries = page.all(`#${id} .nav-item`);
+    expect(page.texts(`#${id} .nav-heading`)).toEqual(id === "navGroupDimensions" ? ["Time", "Versions", "Lists"]
+      : id === "navMenu" ? ["Dimensions", "Time", "Versions", "Lists", "Modules", "Actions", "App Usage"] : []);
     expect(page.document.activeElement).toBe(entries[0]);
     for (const entry of [...entries.slice(1), entries[0]]) {
       page.key("ArrowDown");
@@ -4548,7 +4550,8 @@ describe("The navigation bar of the results page", () => {
       "Actions: Processes, Imports, Data Sources, Exports, Other Actions", "Source Models", "Model map"]]);
     // A group's name heads its entries, a heading that a screen reader is told as the name of the group.
     expect(page.all("#navMenu .nav-section").map(section => [section.getAttribute("role"), section.querySelector(".nav-heading")?.textContent, section.querySelector(".nav-heading")?.getAttribute("aria-hidden")]))
-      .toEqual([["group", "Dimensions", "true"], ["group", "Time", "true"], ["group", "Modules", "true"], ["group", "Actions", "true"]]);
+      .toEqual([["group", "Dimensions", "true"], ["group", "Time", "true"], ["group", "Versions", "true"], ["group", "Lists", "true"],
+        ["group", "Modules", "true"], ["group", "Actions", "true"]]);
     // Choosing from it shows that view; the menu is drawn again, closed, and its button names the new view.
     page.find('#navMenu [data-nav="11"]').press();
     expect([page.texts("#view h1"), button().textContent.trim(), page.id("navMenu").hidden]).toEqual([["Versions"], "Versions", true]);

@@ -21,7 +21,8 @@ describe("The model's shorter menu bar", () => {
     ]);
     expect(parseMarkup(navHtml(items, "overview")).querySelectorAll(".nav-item").map(words)).toEqual(full.map(entry => entry.label));
     expect(NAV_GROUPS.find(group => group.label === "Dimensions")?.subgroups).toEqual([
-      { label: "Time", files: ["Model Calendar.csv", "Time Ranges.csv"] }, { label: "Lists", files: ["General Lists.csv", "Line Item Subsets.csv"] },
+      { label: "Time", files: ["Model Calendar.csv", "Time Ranges.csv"] }, { label: "Versions", files: ["Versions.csv"] },
+      { label: "Lists", files: ["General Lists.csv", "Line Item Subsets.csv"] },
     ]);
   });
 
@@ -29,11 +30,15 @@ describe("The model's shorter menu bar", () => {
     const items = navItems(full, true);
     const wide = parseMarkup(navHtml(items, "overview"));
     const compact = parseMarkup(navMenuHtml(items, "overview", "Overview"));
-    const dimensions = [["Time", DIMENSIONS.slice(0, 2)], "Versions", ["Lists", DIMENSIONS.slice(3)]];
+    const dimensions = [["Time", DIMENSIONS.slice(0, 2)], ["Versions", ["Versions"]], ["Lists", DIMENSIONS.slice(3)]];
     expect(tree(wide.querySelector("#navGroupDimensions")!)).toEqual(dimensions);
     expect(tree(compact.querySelector("#navMenu")!)).toEqual([
       "Overview", ["Dimensions", dimensions], ["Modules", MODULES], ["Actions", ACTIONS], "Source Models", ["App Usage", USAGE], "Model map",
     ]);
+    // Every Dimensions table sits at the same section depth, which sets its indent in results.css.
+    for (const menu of [wide.querySelector("#navGroupDimensions")!, compact.querySelector('[aria-label="Dimensions"]')!]) {
+      expect(menu.querySelectorAll(".nav-item").map(entry => entry.parentElement?.parentElement === menu)).toEqual(DIMENSIONS.map(() => true));
+    }
     for (const root of [wide, compact]) {
       for (const section of root.querySelectorAll(".nav-section")) {
         const heading = section.children[0];
@@ -46,12 +51,15 @@ describe("The model's shorter menu bar", () => {
   });
 
   it.each([
-    [DIMENSIONS, ["Time", "Lists"]],
-    [["Model Calendar", "Time Ranges", "General Lists"], ["Time"]],
-    [["Model Calendar", "Versions", "General Lists", "Line Item Subsets"], ["Lists"]],
-    [["Time Ranges", "Versions", "General Lists"], []],
+    [DIMENSIONS, ["Time", "Versions", "Lists"]],
+    [["Model Calendar", "Time Ranges", "General Lists"], ["Time", "Lists"]],
+    [["Model Calendar", "Versions", "General Lists", "Line Item Subsets"], ["Time", "Versions", "Lists"]],
+    [["Time Ranges", "Versions", "General Lists"], ["Time", "Versions", "Lists"]],
+    [["Versions", "General Lists"], ["Versions", "Lists"]],
+    [["General Lists", "Line Item Subsets"], []],
+    [["Model Calendar", "Time Ranges"], []],
     [["General Lists"], []],
-  ])("shows only subheadings with at least two tables: %j", (names, headings) => {
+  ])("heads every subgroup only when two or more subgroups are present: %j", (names, headings) => {
     const items = navItems(entries(names), true);
     for (const html of [navHtml(items, ""), navMenuHtml(items, "", "Overview")]) {
       const root = parseMarkup(html);
