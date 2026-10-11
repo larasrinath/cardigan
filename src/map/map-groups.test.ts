@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ModelGraph } from "./graph-types.js";
-import { automaticGrouping, automaticGroupingReason, BUILT, GOOD, groupingsOf, isBuilt, isGood, leadingCode, roleOf, type Flow, type Grouping, type GroupingKind } from "./map-groups.js";
+import { automaticGrouping, bestGroupingReason, BUILT, GOOD, groupingsOf, howGroupingWorks, prefixThreshold, isBuilt, isGood, leadingCode, roleOf, type Flow, type Grouping, type GroupingKind } from "./map-groups.js";
 import { indexModel, withGrouping } from "./map-model.js";
 import { filteredModel, GraphMaker, ownFilteredModel } from "./map-fakes.test-support.js";
 
@@ -13,12 +13,43 @@ const groupsOf = (graph: ModelGraph, grouping: Grouping | undefined): [string, s
   graph.nodes.filter(node => node.kind === "module").map(module => [module.name, grouping?.groupOf.get(module.id)]);
 
 describe("Why the automatic grouping was chosen", () => {
+  it("explains all six groupings from the rules that file the modules", () => {
+    const make = new GraphMaker();
+    const list = make.list("Products");
+    for (let i = 0; i < 12; i++) make.module(`${["SYS", "PRM", "DAT"][i % 3]}${i} Settings`, `Heading ${i % 2}`,
+      { functionalArea: `Area ${i % 2}`, dimensions: [list], apps: ["Planning"] });
+    const model = indexModel({ ...make.graph(), moduleFacts: { functionalAreas: true, moduleUsage: true } });
+    const words = new Map(groupingsOf(model).map(grouping => [grouping.kind, howGroupingWorks(grouping, model)]));
+    expect(words.get("functionalArea")).toBe("Each module is in the Functional Area set for it in the model. Modules without one are under No functional area.");
+    expect(words.get("headings")).toBe("Each module is under the model heading above it, a module whose name starts with --. Modules with no heading above them are under Ungrouped.");
+    expect(words.get("prefix")).toBe("Modules whose names start with the same code, like SYS, PRM, DAT, form a group when 3 or more share it. The rest are under Other.");
+    expect(words.get("role")).toBe("Each module gets a role from how the model uses it, never from its name: Data (an import loads it), Input (people type into it), System (settings other modules read), Calculation (formulas other modules read) or Output (results, or an export takes it). Select a module to see why it has its role.");
+    expect(words.get("app")).toBe("Each module is in the app whose pages use it, from Module Usage. Modules on pages of several apps are under Several apps, and those on none under Not on any page.");
+    expect(words.get("dimension")).toBe("Each module is in the first list it applies to. Modules with only a time scale are under Time only, and those with neither are under No dimensions.");
+    for (const wordsOf of words.values()) expect(wordsOf).not.toMatch(/automatic|You picked|Pick another/i);
+    expect(howGroupingWorks(undefined, indexModel(new GraphMaker().graph()))).toBe("There are no modules to group.");
+  });
+
+  it("uses nine as both the prefix threshold and its explanation for 405 modules", () => {
+    const make = new GraphMaker();
+    for (const code of ["SYS", "PRM", "DAT", "RARE"]) {
+      for (let i = 0; i < (code === "RARE" ? 8 : 9); i++) make.module(`${code}${i} Example`);
+    }
+    for (let i = 35; i < 405; i++) make.module(`Unique${i}name`);
+    const model = indexModel(make.graph());
+    const prefix = groupingsOf(model).find(grouping => grouping.kind === "prefix")!;
+    expect(prefixThreshold(model)).toBe(9);
+    expect(prefix.groups).toEqual(["SYS", "PRM", "DAT", "Other"]);
+    expect(howGroupingWorks(prefix, model)).toContain("like SYS, PRM, DAT, form a group when 9 or more share it.");
+    expect([...prefix.groupOf.values()].filter(group => group === "Other")).toHaveLength(378);
+  });
+
   it("rounds only the words, never the figures used to choose a grouping", () => {
     const make = new GraphMaker();
     for (let i = 0; i < 99; i++) make.module(`Module${i}name`, i < 59 ? `Heading ${i % 2}` : undefined);
     const groupings = groupingsOf(indexModel(make.graph()));
     expect(automaticGrouping(groupings)?.kind).toBe("role");
-    expect(automaticGroupingReason(groupings)).toBe("Grouped by role in the data flow.\nNo other grouping fits this model well enough.\n\nPick another grouping to change it.");
+    expect(bestGroupingReason(groupings)).toBe("No other grouping fits this model well enough.");
   });
 
   it("explains headings with whole percentages, including missing areas and areas that form only one group", () => {
@@ -27,14 +58,14 @@ describe("Why the automatic grouping was chosen", () => {
       i < 49 ? { functionalArea: `Area ${i % 7}` } : {});
     let groupings = groupingsOf(indexModel(make.graph()));
     expect(automaticGrouping(groupings)?.kind).toBe("headings");
-    const reason = automaticGroupingReason(groupings);
-    expect(reason).toBe("Grouped by headings.\nThey sort 99% of modules into 10 groups. Functional areas only cover 58% of modules, so they weren't used.\n\nPick another grouping to change it.");
+    const reason = bestGroupingReason(groupings);
+    expect(reason).toBe("Headings sort 99% of modules into 10 groups. Functional areas cover only 58% of modules.");
     for (const node of make.nodes) node.functionalArea = "One area";
     groupings = groupingsOf(indexModel(make.graph()));
     expect(automaticGrouping(groupings)?.kind).toBe("headings");
-    expect(automaticGroupingReason(groupings)).toBe("Grouped by headings.\nThey sort 99% of modules into 10 groups. The modules with functional areas are all in one area, so they weren't used.\n\nPick another grouping to change it.");
+    expect(bestGroupingReason(groupings)).toBe("Headings sort 99% of modules into 10 groups. The modules with functional areas are all in one area.");
     for (const node of make.nodes) delete node.functionalArea;
-    expect(automaticGroupingReason(groupingsOf(indexModel(make.graph())))).toBe("Grouped by headings.\nThey sort 99% of modules into 10 groups. This model has no functional areas.\n\nPick another grouping to change it.");
+    expect(bestGroupingReason(groupingsOf(indexModel(make.graph())))).toBe("Headings sort 99% of modules into 10 groups. This model has no functional areas.");
   });
 
   it("explains functional-area priority, a qualifying prefix, and the role fallback with real figures", () => {
@@ -42,17 +73,17 @@ describe("Why the automatic grouping was chosen", () => {
     for (let i = 0; i < 10; i++) make.module(i === 9 ? "Odd name" : `${["INP", "CAL", "REP"][i % 3]}${i} Module`);
     let groupings = groupingsOf(indexModel(make.graph()));
     expect(automaticGrouping(groupings)?.kind).toBe("prefix");
-    expect(automaticGroupingReason(groupings)).toBe("Grouped by name prefix.\nIt splits the modules into 4 groups (like INP, CAL, REP). Functional areas and heading rows don't cover enough modules.\n\nPick another grouping to change it.");
+    expect(bestGroupingReason(groupings)).toBe("Name prefix splits the modules into 4 groups (like INP, CAL, REP). Functional areas and heading rows don't cover enough modules.");
     for (const node of make.nodes) node.functionalArea = "One area";
-    expect(automaticGroupingReason(groupingsOf(indexModel(make.graph())))).toContain("Functional areas and headings don't divide this model well enough.");
+    expect(bestGroupingReason(groupingsOf(indexModel(make.graph())))).toContain("Functional areas and headings don't divide this model well enough.");
     make.module("Another odd name"); make.module("Unshared name");
     groupings = groupingsOf(indexModel(make.graph()));
     expect(automaticGrouping(groupings)?.kind).toBe("role");
-    expect(automaticGroupingReason(groupings)).toBe("Grouped by role in the data flow.\nNo other grouping fits this model well enough.\n\nPick another grouping to change it.");
+    expect(bestGroupingReason(groupings)).toBe("No other grouping fits this model well enough.");
     for (const [i, node] of make.nodes.entries()) { node.functionalArea = `Area ${i % 6}`; node.group = `Heading ${i % 3}`; }
     groupings = groupingsOf(indexModel(make.graph()));
-    expect(automaticGroupingReason(groupings)).toBe("Grouped by functional area.\n100% of modules have one, across 6 areas.\n\nPick another grouping to change it.");
-    expect(automaticGroupingReason([])).toBe("There are no modules to group.");
+    expect(bestGroupingReason(groupings)).toBe("100% of modules have a functional area, across 6 areas.");
+    expect(bestGroupingReason([])).toBe("There are no modules to group.");
   });
 });
 

@@ -369,7 +369,7 @@ describe("Model export: Model settings grids to tables", () => {
     expect([named, said]).toEqual([[false, false, true, true, false, false], [false, false, true, true, false, false]]);
   });
 
-  it("reads a large grid in row pages through the page's client, sending reads only", async () => {
+  it.each([{ staticContext: undefined }, { staticContext: ["_114000000004_"] }])("reads a large grid in row pages through the page's client, sending reads only ($staticContext)", async ({ staticContext }) => {
     const total = 7;
     const columns = ["Formula", "Format"];
     const requests: { startRow: number; rowCount: number }[] = [];
@@ -380,7 +380,7 @@ describe("Model export: Model settings grids to tables", () => {
       DataPage: class extends FakePage { constructor({ page }: any) { super(page); } },
       aggregator: { isDirty: () => false, post: (request: any, _flag: boolean, ok: (response: unknown) => boolean) => {
         const { startRow, rowCount } = request.params.pageRequests[0];
-        expect(request.params.viewDefinition).toMatchObject({ type: "MODEL_DEFINITION", rowAxis: "ROWS", columnAxis: "COLS" });
+        expect(request.params.viewDefinition).toEqual({ type: "MODEL_DEFINITION", staticContextIdentifiers: staticContext ?? [], rowAxis: "ROWS", columnAxis: "COLS" });
         requests.push({ startRow, rowCount });
         const ids = Array.from({ length: rowCount }, (_, i) => 1901000000000 + startRow + i);
         queueMicrotask(() => ok({ result: { viewRequestResults: [{ rowCount: total, columnCount: 2,
@@ -390,7 +390,7 @@ describe("Model export: Model settings grids to tables", () => {
         return true;
       } } } as never;
     const log: string[] = [];
-    const grid = await readGrid(native, "ROWS", "COLS", "Line Items", line => log.push(line), 6);
+    const grid = await readGrid(native, "ROWS", "COLS", "Line Items", line => log.push(line), 6, false, undefined, staticContext);
     // Six cells a read: the first page, sized for thirty columns before the grid has said how many it has, is one row, and
     // it says the grid's size; the pages after it are three rows of the grid's two columns. No row is read twice.
     expect(requests).toEqual([{ startRow: 0, rowCount: 1 }, { startRow: 1, rowCount: 3 }, { startRow: 4, rowCount: 3 }]);
@@ -406,7 +406,7 @@ describe("Model export: Model settings grids to tables", () => {
       const page = request.params.pageRequests[0];
       return (native as any).aggregator.post({ ...request, params: { ...request.params, pageRequests: [{ ...page, rowCount: page.startRow === 0 ? 2 : page.rowCount }] } }, flag, ok);
     } } } as never;
-    const short = await readGrid(capped, "ROWS", "COLS", "Line Items", () => undefined, 120);
+    const short = await readGrid(capped, "ROWS", "COLS", "Line Items", () => undefined, 120, false, undefined, staticContext);
     expect([requests, short.rows.map(row => row.labels[0])]).toEqual([[{ startRow: 0, rowCount: 2 }, { startRow: 2, rowCount: 5 }],
       Array.from({ length: total }, (_, i) => `Item ${i}`)]);
 
@@ -414,7 +414,7 @@ describe("Model export: Model settings grids to tables", () => {
     let posted = 0;
     const unsafeNative = { ...native, RequestGenerator: class { getRequest() { return { requestType: "VIEW_REQUEST_SET", submissions: [{ change: 1 }] }; } },
       aggregator: { isDirty: () => false, post: () => { posted++; return true; } } } as never;
-    await expect(readGrid(unsafeNative, "ROWS", "COLS", "Modules", () => undefined)).rejects.toThrow("Refusing to send anything but a read.");
+    await expect(readGrid(unsafeNative, "ROWS", "COLS", "Modules", () => undefined, undefined, false, undefined, staticContext)).rejects.toThrow("Refusing to send anything but a read.");
     expect(posted).toBe(0);
 
     for (const unsafe of [{ submissions: [{}] }, { systemActions: [{}] }, { fetchAllModelSummaries: true }, { requestType: "SUBMISSION" }]) {

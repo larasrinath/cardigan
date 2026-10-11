@@ -6,6 +6,19 @@ Every merged change that alters the extension has a version of its own: a new fe
 
 - **Anaplan words while reading.** The run card rotates phrases suited to each step, with the real progress underneath and the grid and timer held in place; reduced motion keeps one phrase per step, and screen readers hear only the progress.
 
+## 0.31.8 (11 October 2026)
+
+- **Modules in the chosen group.** The Module list shows and searches only that group's modules, with **All modules in {group}** first to show its map; at the overview and in All modules, the list still holds every module under its group heading. (#104)
+
+## 0.31.7 (11 October 2026)
+
+- **Each subset's own line items.** In 0.31.4 every Line Item Subset showed the same line items: they came from an all-subsets grid that Model Building never uses for membership, whose cells are locked. Membership is now read one subset at a time, with the subset as the grid's context, as Model Building's own editor reads it. A subset without modules has no members and costs no read; one subset that can't be read leaves only its own membership unknown. Refresh the Anaplan tab once after updating. (#103)
+
+## 0.31.6 (11 October 2026)
+
+- **How the map groups.** The (i) sits inside Group by and explains how the shown grouping files modules and which grouping best fits the model, with its own figures and prefixes. Both parts have bold headings; the list marks **Best fit**, and the words stay the same after a manual pick. (#102)
+- **Map corners.** Round Legend and About buttons sit at the bottom left, with a question mark for About and a highlight while open. Counts sit beside zoom at the right, keeping their width while panning and ending with an ellipsis on narrow maps; Fit keeps boxes clear of both corners. (#102)
+
 ## 0.31.5 (11 October 2026)
 
 - **Tiles for tables with rows.** Model and app Overviews show tiles only for tables that list rows, on both engines. Every table stays in the menu bar, including empty Line Item Subsets under Lists; each tile opens its own table. (#101)
