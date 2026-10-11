@@ -16,7 +16,7 @@ export interface ModelCatalog {
   lineItemFormats: Map<string, LineItemFormat>;
   actions: Map<string, string>;
   pages: Map<string, string>;
-  /** Modules whose line items were read. Export coverage is withdrawn when a filter ID needs a live search. */
+  /** Modules whose complete line item listing was read, from the kept export or a live listing. */
   lineItemModules: Set<string>;
   /** Modules whose line items could not be read, so a second pass does not ask again. */
   unreadableModules: Set<string>;
@@ -148,7 +148,7 @@ export function addLineItems(catalog: ModelCatalog, moduleId: string, json: unkn
     const id = idText(item.lineItemId);
     const label = text(item.lineItemLabel);
     if (!id || !label) continue;
-    catalog.lineItems.set(id, { name: label, moduleId });
+    catalog.lineItems.set(id, { name: decodeListingName(label), moduleId });
     catalog.lineItemFormats.delete(id);
     const format: unknown = item.lineItemInfo?.format;
     if (format && typeof format === "object" && !Array.isArray(format)) catalog.lineItemFormats.set(id, lineItemFormat(format as Obj, catalog));
@@ -187,12 +187,23 @@ export function forgetExportedLineItems(catalog: ModelCatalog, exported: Exporte
   }
 }
 
-/** The line items a listing answer gives (`addLineItems`), by ID and name, in its order. */
+/** Decode one layer at the listing boundary only. Export names are already plain text. A replacement is never scanned
+ * again, so a literal "&amp;" returned as "&amp;amp;" keeps its literal spelling. Unknown entities stay as received. */
+function decodeListingName(name: string): string {
+  const named: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
+  return name.replace(/&(#(?:x[0-9a-f]+|[0-9]+)|amp|lt|gt|quot|apos);/gi, (entity, key: string) => {
+    if (!key.startsWith("#")) return named[key] ?? entity;
+    const code = key[1].toLowerCase() === "x" ? parseInt(key.slice(2), 16) : Number(key.slice(1));
+    return code > 0 && code <= 0x10ffff && !(code >= 0xd800 && code <= 0xdfff) ? String.fromCodePoint(code) : "\ufffd";
+  });
+}
+
+/** The line items a raw listing answer gives (`addLineItems`), by ID and decoded name, in its order. */
 export function listedLineItems(json: unknown): { id: string; name: string }[] {
   return list((json as Obj | undefined)?.data).flatMap(item => {
     const id = idText(item.lineItemId);
     const name = text(item.lineItemLabel);
-    return id && name ? [{ id, name }] : [];
+    return id && name ? [{ id, name: decodeListingName(name) }] : [];
   });
 }
 

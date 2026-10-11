@@ -4,29 +4,37 @@ import { engineCrossCheck, engineLine, knownDataEngineType, parseEngine } from "
 import { dataEngineTypeOnPage } from "./model/native.js";
 
 describe("Calculation engine from the model's page", () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
 
   it.each([
     ["HYPERBLOCK", "classic", "Engine: Classic (dataEngineType HYPERBLOCK)"],
     ["CALCULATION_ENGINE", "polaris", "Engine: Polaris (dataEngineType CALCULATION_ENGINE)"],
     ...[undefined, null, 17, {}, "future_engine", "hyperblock", "Polaris"].map(value =>
       [value, "unknown", "Engine: unknown (dataEngineType missing or unrecognized)"]),
-  ])("reads and maps %j without making any request", (raw, expected, line) => {
+  ])("reads and maps %j only after the asynchronous client loader completes", async (raw, expected, line) => {
     const getWorkspaceInfo = vi.fn(function (this: unknown) { expect(this).toBe(cache); return { dataEngineType: raw }; });
     const cache = new Proxy({ getWorkspaceInfo }, {
       get(target, key) { if (key !== "getWorkspaceInfo") throw new Error("Only the workspace getter may be read"); return target.getWorkspaceInfo; },
       set() { throw new Error("The cache must not be changed"); },
     });
-    const require = vi.fn((id: string) => { expect(id).toBe("anaplan/data/ModelContentCache"); return cache; });
+    let deliver: ((cache: unknown) => void) | undefined;
+    const require = vi.fn((ids: string[], callback: (cache: unknown) => void) => {
+      expect(Array.isArray(ids)).toBe(true);
+      expect(ids[0]).toBe("anaplan/data/ModelContentCache");
+      deliver = callback;
+    });
     vi.stubGlobal("window", { require });
     vi.stubGlobal("fetch", vi.fn(() => { throw new Error("No requests"); }));
     vi.stubGlobal("WebSocket", vi.fn(() => { throw new Error("No requests"); }));
-    const value = dataEngineTypeOnPage();
+    const pending = dataEngineTypeOnPage();
+    expect(getWorkspaceInfo).not.toHaveBeenCalled();
+    deliver!(cache);
+    const value = await pending;
     expect(value).toBe(knownDataEngineType(raw));
     expect(parseEngine(value)).toBe(expected);
     expect(engineLine(value)).toBe(line);
     expect(getWorkspaceInfo).toHaveBeenCalledOnce();
-    expect(require).toHaveBeenCalledExactlyOnceWith("anaplan/data/ModelContentCache");
+    expect(require).toHaveBeenCalledOnce();
     expect(fetch).not.toHaveBeenCalled();
     expect(WebSocket).not.toHaveBeenCalled();
   });
@@ -36,15 +44,27 @@ describe("Calculation engine from the model's page", () => {
     { getWorkspaceInfo() { throw new Error("Still opening"); } },
     { get getWorkspaceInfo() { throw new Error("Unavailable getter"); } },
     { getWorkspaceInfo: () => ({ get dataEngineType() { throw new Error("Unavailable field"); } }) },
-  ])("leaves an unavailable or malformed cache unknown (%#)", cache => {
-    vi.stubGlobal("window", { require: () => cache });
-    expect(dataEngineTypeOnPage()).toBeUndefined();
+  ])("leaves an unavailable or malformed cache unknown after loading (%#)", async cache => {
+    vi.stubGlobal("window", { require: (_ids: string[], callback: (cache: unknown) => void) => { queueMicrotask(() => callback(cache)); } });
+    expect(await dataEngineTypeOnPage()).toBeUndefined();
   });
 
   it.each([{}, { require: true }, { require() { throw new Error("Module not loaded"); } },
-    { get require() { throw new Error("Loader unavailable"); } }])("leaves an unavailable loader unknown (%#)", page => {
+    { get require() { throw new Error("Loader unavailable"); } }])("leaves an unavailable loader unknown (%#)", async page => {
     vi.stubGlobal("window", page);
-    expect(dataEngineTypeOnPage()).toBeUndefined();
+    expect(await dataEngineTypeOnPage()).toBeUndefined();
+  });
+
+  it("leaves a failed or unanswered async loader unknown without preventing the full reader", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { require: (_ids: string[], _callback: unknown, failed: () => void) => failed() });
+    expect(await dataEngineTypeOnPage()).toBeUndefined();
+    expect(vi.getTimerCount()).toBe(0);
+    vi.stubGlobal("window", { require: () => undefined });
+    const pending = dataEngineTypeOnPage();
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(await pending).toBeUndefined();
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it.each(["Populated Cell Count", "Calculation Complexity"])("cross-checks %s without replacing the decision", column => {

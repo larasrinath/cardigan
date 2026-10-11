@@ -41,13 +41,12 @@ export function modelOnPage(): string | undefined {
     && typeof w.workspaceId === "string" && SCOPE_ID.test(w.workspaceId) ? w.modelId : undefined;
 }
 
-/** Reads the already loaded AMD cache synchronously: no module loading or request. On the cache itself, only the
- * workspace getter is called. A client still opening, or any unfamiliar/throwing property, leaves the engine unknown. */
-export function dataEngineTypeOnPage(): DataEngineType | undefined {
+/** Read only after loadNative has delivered the client's cache through asynchronous AMD require.
+ * The bridge asks for this after check-in, when a run needs it, and waits before passing the engine to the full reader.
+ * On the cache itself only the workspace getter is called; missing, unfamiliar or throwing fields stay unknown. */
+export async function dataEngineTypeOnPage(): Promise<DataEngineType | undefined> {
   try {
-    const w = window as unknown as { require?: unknown };
-    if (typeof w.require !== "function") return;
-    const engineCache: unknown = w.require("anaplan/data/ModelContentCache");
+    const engineCache: unknown = (await loadNative()).cache;
     if (!engineCache || typeof engineCache !== "object" || Array.isArray(engineCache)) return;
     const cache = engineCache as { getWorkspaceInfo?: unknown };
     if (typeof cache.getWorkspaceInfo !== "function") return;
@@ -63,10 +62,13 @@ export function loadNative(timeoutMs = 30_000): Promise<Native> {
   const w = window as Any;
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Failure(NOT_OPEN, `the model page's client did not load in ${timeoutMs / 1000} s`)), timeoutMs);
-    w.require(MODULES, (cache: Any, aggregator: Any, helper: Any, ids: Any, constants: Any, RequestGenerator: Any, DataPage: Any, axisHelper: Any) => {
-      clearTimeout(timer);
-      resolve({ cache, aggregator, helper, ids, constants, RequestGenerator, DataPage, axisHelper, workspaceId: w.workspaceId, modelId: w.modelId });
-    }, () => { clearTimeout(timer); reject(new Failure(NO_CLIENT, "the model page's client modules are not available")); });
+    const unavailable = () => { clearTimeout(timer); reject(new Failure(NO_CLIENT, "the model page's client modules are not available")); };
+    try {
+      w.require(MODULES, (cache: Any, aggregator: Any, helper: Any, ids: Any, constants: Any, RequestGenerator: Any, DataPage: Any, axisHelper: Any) => {
+        clearTimeout(timer);
+        resolve({ cache, aggregator, helper, ids, constants, RequestGenerator, DataPage, axisHelper, workspaceId: w.workspaceId, modelId: w.modelId });
+      }, unavailable);
+    } catch { unavailable(); }
   });
 }
 

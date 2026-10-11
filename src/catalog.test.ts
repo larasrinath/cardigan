@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { UxEntityRef } from "./card-reader/card-types.js";
 import {
   addActions, addExportedLineItems, addLineItems, addLists, addMetadataDimensionNames, addModuleDimensions, addModuleViews, addSelections, applicableModuleIds, CURRENT_USER,
-  describeFormat, emptyCatalog, entityType, filterItemNeeds, filterLineItemSearch, moduleViewsShape, nameFilterValues, resolveFromCatalog, selectionShape,
+  describeFormat, emptyCatalog, entityType, filterItemNeeds, filterLineItemSearch, listedLineItems, moduleViewsShape, nameFilterValues, resolveFromCatalog, selectionShape,
   unnamedDimensionIds, unnamedFilterRules, unresolvedFilterItems, viewLayoutFromMetadata,
 } from "./catalog.js";
 
@@ -31,6 +31,26 @@ function loaded() {
 }
 
 describe("Page analyzer names from the model data service", () => {
+  it("decodes one layer of named and numeric listing entities without changing the raw answer or plain exports", () => {
+    const cases = [
+      ["&amp; &lt; &gt; &quot; &#39; &apos;", '& < > " \' \''],
+      ["&#65; &#x41; &#X1f600;", "A A 😀"],
+      ["&amp;amp; &amp;#39; &#38;lt;", "&amp; &#39; &lt;"],
+      ["&unknown; & partial", "&unknown; & partial"],
+      ["&#0; &#xD800; &#1114112;", "� � �"],
+    ];
+    const json = { data: cases.map(([lineItemLabel], n) => ({ lineItemId: ITEM(1901, n + 1), lineItemLabel })) };
+    const raw = structuredClone(json);
+    const catalog = emptyCatalog();
+    expect(listedLineItems(json).map(item => item.name)).toEqual(cases.map(([, plain]) => plain));
+    addLineItems(catalog, MODULE, json);
+    addLineItems(catalog, MODULE, json);
+    expect([...catalog.lineItems.values()].map(item => item.name)).toEqual(cases.map(([, plain]) => plain));
+    expect(json).toEqual(raw);
+    addExportedLineItems(catalog, { modules: [MODULE_2], lineItems: [{ id: ITEM(1902, 1), name: "Literal &amp;", moduleId: MODULE_2 }] });
+    expect(catalog.lineItems.get(ITEM(1902, 1))?.name).toBe("Literal &amp;");
+  });
+
   it("reads modules, saved views, dimension labels, lists, line items and actions, keeping IDs as text", () => {
     const catalog = loaded();
     expect([...catalog.modules]).toEqual([[MODULE, "Demand"], [MODULE_2, "Factors"]]);

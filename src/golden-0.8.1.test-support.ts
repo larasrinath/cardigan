@@ -335,6 +335,15 @@ export const LIST_IDS_ADDED = {
 
 /** Lines of the log as 0.8.1 said them, in order, with the lines of `added` right after its line `saidAfter`, which the log
  * must hold. A line stamped with its time gives the lines after it the same stamp. */
+export const SUBSETS_READ_ADDED = {
+  saidAfter: LIST_IDS_ADDED.said[0],
+  said: ["Reading Line Item Subsets…", "Line Item Subsets: This model page has no LINE_ITEM_SUBSET axis."],
+  rows: {
+    after: LIST_IDS_ADDED.rows.line,
+    line: "Diagnostics,12:30:10,Reading Line Item Subsets…\r\nDiagnostics,12:30:10,Line Item Subsets: This model page has no LINE_ITEM_SUBSET axis.\r\n",
+  },
+} as const;
+
 function withSaid(lines: readonly string[], added: { saidAfter: string; said: readonly string[] }): string[] {
   const at = lines.findIndex(line => line === added.saidAfter || line.endsWith(` ${added.saidAfter}`));
   if (at < 0) throw new Error(`The log does not hold the line ${added.saidAfter}.`);
@@ -374,7 +383,7 @@ export function withPageTimeRows(csv: string): string {
  * imports' definitions (`MAPPINGS_ADDED`), and on the time each grid's page took (`withPageTimes`), each where the export
  * says them. */
 export const withLinesSaid = (lines: readonly string[]): string[] =>
-  withPageTimes(withSaid(withSaid(withSaid(withSaid(lines, MODULE_IDS_ADDED), LIST_IDS_ADDED), PROCESSES_ADDED), MAPPINGS_ADDED));
+  withPageTimes(withSaid(withSaid(withSaid(withSaid(withSaid(lines, MODULE_IDS_ADDED), LIST_IDS_ADDED), SUBSETS_READ_ADDED), PROCESSES_ADDED), MAPPINGS_ADDED));
 
 /** What is deliberately not what 0.8.1 wrote for this model because the export has gained a file: the file itself, which
  * stands right after Line Items.csv in the zip, and the two rows of Model Details.csv about it, each as the row's whole
@@ -420,7 +429,7 @@ export const ACCESS_ROWS_REWORDED = [ACCESS_ROWS_FOR_THE_PAGE[0], ACCESS_ROWS_FO
  * each grid's page took (`withPageTimeRows`). */
 export const withAccessRows = (csv: string): string =>
   withPageTimeRows(withRowsAdded(withRowsReworded(csv, ACCESS_ROWS_REWORDED), [ACCESS_FILE_ADDED.written, ACCESS_FILE_ADDED.howToRead, MODEL_ROW_ADDED, ...MODEL_LAYOUT_ROWS, MODULE_IDS_ADDED.rows,
-    LIST_IDS_ADDED.rows, PROCESSES_ADDED.rows, MAPPINGS_ADDED.rows]));
+    LIST_IDS_ADDED.rows, SUBSETS_READ_ADDED.rows, PROCESSES_ADDED.rows, MAPPINGS_ADDED.rows]));
 
 /** The model's zip as 0.8.1 wrote it but for that: every file's bytes as they are in `ACCESS_ZIP_0_8_1`, with five lines
  * of Model Details.csv replaced and nine added (three rows of the file's own, a Diagnostics row on the modules' IDs and

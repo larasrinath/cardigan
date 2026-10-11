@@ -180,7 +180,8 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   const legendButton = part<HTMLButtonElement>('[data-map-act="legend"]');
   const about = part(".map-about");
   const aboutButton = part<HTMLButtonElement>('[data-map-act="about"]');
-  const dock = part(".map-dock");
+  const summary = part(".map-summary");
+  const navigation = part(".map-navigation");
   const status = part(".map-status");
   const inspector = part(".map-inspector");
   const selectionPanel = part(".map-selection");
@@ -431,7 +432,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   function freeRooms(): Insets[] | undefined {
     const freeArea = areaOf(free);
     if (!freeArea || freeArea.right - freeArea.left <= 2 * FIT_MARGIN || freeArea.bottom - freeArea.top <= 2 * FIT_MARGIN) return undefined;
-    const panels = [areaOf(legend), areaOf(about), areaOf(dock), areaOf(miniWrap), areaOf(selectionPanel)].filter((area): area is Area => area !== undefined);
+    const panels = [areaOf(legend), areaOf(about), areaOf(summary), areaOf(navigation), areaOf(miniWrap), areaOf(selectionPanel)].filter((area): area is Area => area !== undefined);
     return roomsBeside(freeArea, panels).map(room => insetsOf(room, width, height, FIT_MARGIN)).filter(room => width - room.l - room.r > 80 && height - room.t - room.b > 60);
   }
 
@@ -449,7 +450,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   function openRooms(): Insets[] {
     const freeArea = areaOf(free);
     if (!freeArea) return [defaultInsets(width, height, selected !== undefined)];
-    const panels = [areaOf(legend), areaOf(about), areaOf(dock), areaOf(miniWrap), areaOf(selectionPanel)].filter((area): area is Area => area !== undefined);
+    const panels = [areaOf(legend), areaOf(about), areaOf(summary), areaOf(navigation), areaOf(miniWrap), areaOf(selectionPanel)].filter((area): area is Area => area !== undefined);
     const found = roomsBeside(freeArea, panels).map(room => insetsOf(room, width, height));
     return found.length ? found : [insetsOf(freeArea, width, height)];
   }
@@ -659,7 +660,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     for (let pass = 0; pass < 3; pass++) {
       // In view is what stands in the graph's own room: a box under the bar or the details is not, nor is one under the
       // legend, the notes or the small picture.
-      const covered = [areaOf(dock), areaOf(legend), areaOf(about), areaOf(miniWrap), areaOf(selectionPanel)].filter((area): area is Area => area !== undefined);
+      const covered = [areaOf(summary), areaOf(navigation), areaOf(legend), areaOf(about), areaOf(miniWrap), areaOf(selectionPanel)].filter((area): area is Area => area !== undefined);
       const places = covered.map(area => `${area.left} ${area.top} ${area.right} ${area.bottom}`).join(", ");
       if (places === counted) break;
       counted = places;
@@ -773,7 +774,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     if (!model || !onScreen) return;
     const nothing = onScreen.nodes.length === 0;
     empty.hidden = !nothing;
-    // Empty views keep the same bar, with their zoom controls disabled.
+    // Empty views keep the same clusters, with their zoom controls disabled.
     for (const action of ["zoom-out", "zoom-in", "fit"]) part<HTMLButtonElement>(`[data-map-act="${action}"]`).disabled = nothing;
     if (!nothing) empty.innerHTML = "";
     // Why there are none is the graph's to say, in whichever of its sentences: all of them are listed under the map's own.

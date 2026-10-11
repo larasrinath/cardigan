@@ -304,8 +304,8 @@ async function readLineItems(reads: SocketReads, moduleId: string, givingUp?: Ab
  * the pages use is read from the listing, as before. A comparison that cannot be
  * made, because the listing refused the read, keeps the export's: their names are the model's own, from its Model
  * settings. Either way the module that was read keeps what the listing gave. A failed connection and a stopped run are
- * rethrown, as a read of any step rethrows them. Returns what the log says of it. */
-async function compareExported(reads: SocketReads, used: ReadonlySet<string>, exported: ExportedLineItems): Promise<string> {
+ * rethrown, as a read of any step rethrows them. */
+async function compareExported(reads: SocketReads, used: ReadonlySet<string>, exported: ExportedLineItems): Promise<{ kept: boolean; message: string }> {
   const { scope, connection, subscribe, settle, halted, catalog, listed, progress } = reads;
   const { workspaceId: ws, modelId: model } = scope;
   const ofModule = new Map<string, Map<string, string>>();
@@ -315,13 +315,13 @@ async function compareExported(reads: SocketReads, used: ReadonlySet<string>, ex
     ofModule.set(moduleId, items);
   }
   const moduleId = [...used].find(id => ofModule.has(id));
-  if (moduleId === undefined) return "no page uses a module that the export listed with line items: nothing to compare";
+  if (moduleId === undefined) return { kept: true, message: "no page uses a module that the export listed with line items: nothing to compare" };
   let json: unknown;
   try {
     json = await settle(subscribe(`core://${ws}:${model}/modules/${moduleId}/lineItems`, { body: {}, timeoutMs: LINE_ITEMS_MS }));
   } catch (error) {
     if (connection.failed || halted()) throw error;
-    return `the listing of module ${moduleId} could not be read to compare (${message(error)}): the export's line items are used`;
+    return { kept: true, message: `the listing of module ${moduleId} could not be read to compare (${message(error)}): the export's line items are used` };
   }
   const given = new Map(listedLineItems(json).map(item => [item.id, item.name]));
   const known = ofModule.get(moduleId)!;
@@ -344,9 +344,9 @@ async function compareExported(reads: SocketReads, used: ReadonlySet<string>, ex
   if (!keep) forgetExportedLineItems(catalog, exported, listed);
   addLineItems(catalog, moduleId, json);
   listed.add(moduleId);
-  return `export ${keep ? "kept" : "set aside"}; the sample module ${moduleId} differs on ${differences} of ${ids.size} line items; `
+  return { kept: keep, message: `export ${keep ? "kept" : "set aside"}; the sample module ${moduleId} differs on ${differences} of ${ids.size} line items; `
     + `${alike} of ${ids.size} alike, by ID and name (at least 98% required)`
-    + (keep ? "; the sample uses its live listing" : "; every module the pages use is read from the listing");
+    + (keep ? "; the sample uses its live listing" : "; every module the pages use is read from the listing") };
 }
 
 /** Context selectors: each section's module dimensions, the list Page Builder's grid section settings read. */
@@ -484,10 +484,18 @@ async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCar
   const cards = pages.flatMap(page => page.cards);
   const { itemIds } = unresolvedFilterItems(cards, catalog);
   if (!itemIds.size) return;
-  // Export names have already resolved every ID they hold. For the remaining rules, absence from an export is not
-  // proof of absence from the live model. Keep its names, but search its modules too and require live coverage before
-  // saying Missing. A module already read live is never asked twice, including the comparison's sample.
-  for (const moduleId of exported?.modules ?? []) if (!reads.listed.has(moduleId)) catalog.lineItemModules.delete(moduleId);
+  // A kept export holds every line item of each module it covers. Preserve that coverage, including empty modules:
+  // the existing Missing rules use it just as they use a live listing. A rejected export is not passed here.
+  const knownModules = exported && catalog.moduleListLoaded;
+  if (knownModules && catalog.modules.size > 0) {
+    const covered = new Set(exported.modules);
+    if ([...catalog.modules.keys()].every(id => covered.has(id))) {
+      progress.log(`filter line items: ${itemIds.size} not in the export, which covers all ${catalog.modules.size} modules; none searched`);
+      return;
+    }
+    const missing = [...catalog.modules.keys()].filter(id => !covered.has(id));
+    progress.log(`filter line items: ${itemIds.size} not in the export; only the ${missing.length} modules it does not cover may be searched`);
+  }
   // A model that closed earlier, while its module dimensions were read, is only logged there. The search does not begin
   // for it: it shows no step and counts nothing, and what ended the work is thrown, as a read that waits throws it
   // (nothing would be sent in any case: `subscribe`). After this, every wait of the search is one that the end of the
@@ -520,8 +528,15 @@ async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCar
    * candidate. */
   const waiting = new Map<string, { since: number; named: boolean; answered: Promise<void> }>();
   const asked = new Set<string>();
-  const plan = (places: number) => filterLineItemSearch(unresolvedFilterItems(cards, catalog).rules, [...candidates].filter(id => !asked.has(id) && unread(id)),
-    others().filter(id => !asked.has(id) && unread(id)), catalog, places);
+  const plan = (places: number) => {
+    const rules = unresolvedFilterItems(cards, catalog).rules;
+    const remaining = others().filter(id => !asked.has(id) && unread(id));
+    // Every uncovered module is worth checking. Export coverage proves absence only within the covered modules;
+    // inferred entity types must not rule an ID out of the uncovered ones.
+    if (knownModules) return { everywhere: [...new Set(rules.flat())], candidatesOnly: [], ruledOut: [], modules: remaining.slice(0, places),
+      toRead: remaining.length, bracketed: 0, evidence: "only modules outside the kept export are searched" };
+    return filterLineItemSearch(rules, [...candidates].filter(id => !asked.has(id) && unread(id)), remaining, catalog, places);
+  };
   let [bracketed, givenUp, unsaid, spared, said] = [0, 0, 0, 0, started];
   let step = plan(0);
   progress.status(`Finding filter line items in ${scope.modelName}…`);
@@ -551,17 +566,19 @@ async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCar
       // dimensions in the search too, without counting its ID as context or overlooking its candidate modules.
       const unresolved = unresolvedFilterItems(cards, catalog);
       for (const id of unresolved.itemIds) itemIds.add(id);
-      if (left() > 0) askDimensions(unresolved.axisDimensionIds);
+      // With a kept export and the module inventory, only the uncovered modules can help. No dimension question is
+      // needed to discover them. Without that inventory, retain the candidate discovery used by app reads.
+      if (!knownModules && left() > 0) askDimensions(unresolved.axisDimensionIds);
       const now = Date.now();
       // The reading starts once the questions are answered, or after as long as a read holds its place.
       const begun = !questions.size || now - started >= FILTER_LINE_ITEMS_READ_MS;
       /** The reads that hold a place: those asked for less than FILTER_LINE_ITEMS_READ_MS ago. */
-      const holding = [...waiting.values()].filter(read => now - read.since < FILTER_LINE_ITEMS_READ_MS);
+      const holding = [...waiting.values()].filter(read => exported || now - read.since < FILTER_LINE_ITEMS_READ_MS);
       // A candidate does not wait for a place held by a read that was not asked for as a candidate's (but as another
       // module's, while the model had not yet said which modules have the filtered dimensions): it is asked for as soon as
       // it was before the other modules were searched at all.
       const toStart = [...candidates].filter(id => !asked.has(id) && unread(id)).length;
-      const forCandidates = Math.min(toStart, FILTER_LINE_ITEMS_AT_A_TIME - holding.filter(read => read.named).length);
+      const forCandidates = exported ? 0 : Math.min(toStart, FILTER_LINE_ITEMS_AT_A_TIME - holding.filter(read => read.named).length);
       step = plan(begun ? Math.max(FILTER_LINE_ITEMS_AT_A_TIME - holding.length, forCandidates) : 0);
       // Until every rule has its line item (what a rule then still holds unnamed is its context, which no module lists),
       // or the time is up.
@@ -584,7 +601,7 @@ async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCar
       if (!helping && (!questions.size || (begun && whole()))) break;
       // What happens next: an answer; the end of the time; the moment the reading starts without the questions' answers;
       // or, while a module waits for a place, the moment a read has held its place long enough.
-      const places = begun && step.toRead > step.modules.length
+      const places = !exported && begun && step.toRead > step.modules.length
         ? [...waiting.values()].filter(read => now - read.since < FILTER_LINE_ITEMS_READ_MS).map(read => read.since + FILTER_LINE_ITEMS_READ_MS - now) : [];
       let timer: ReturnType<typeof setTimeout> | undefined;
       const moment = new Promise<void>(resolve => { timer = setTimeout(resolve, Math.min(left(), ...places, ...(begun ? [] : [started + FILTER_LINE_ITEMS_READ_MS - now]))); });
@@ -797,8 +814,9 @@ function dimensionUse(pages: readonly UxPageCardDetails[], id: string): string {
 
 /** Dimensions the cards name that no answer named so far. A page can save a card's context selector for a list that is no
  * dimension of the card's module (seen live, 7 Oct 2026), and the module's dimensions do not name it then. Such a dimension
- * is looked for once among the lists with their subsets; then, for at most MAX_DIMENSION_QUESTIONS of those still unnamed,
- * the model is asked which modules have it, and the dimensions of two of them per dimension are read, which label it. A
+ * is looked for once among the lists with their subsets. Only IDs present in those lists, module views or module
+ * dimensions warrant further questions: at most MAX_DIMENSION_QUESTIONS, four at a time. The model is asked which
+ * modules have each ID, and the dimensions of two of them per dimension are read, which label it. A
  * read that is refused or not answered is logged and the next is made. A read waits DIMENSION_NAME_READ_MS at most, all of
  * them together take DIMENSION_NAMES_BUDGET_MS at most, and after two reads that went unanswered no more are made; the log
  * says when the asking ended so. A connection that fails, a model that closes and a run that is stopped end the step, as
@@ -841,13 +859,22 @@ async function readDimensionNames(reads: SocketReads, pages: readonly UxPageCard
     return `: ${selectionShape(json)}`;
   });
   const modulesOf = new Map<string, string[]>();
-  for (const id of unnamed().slice(0, MAX_DIMENSION_QUESTIONS)) {
+  const asText = (json: unknown) => (json === undefined ? undefined : JSON.stringify(json) ?? "");
+  const held = () => ({ lists: asText(answers.lists), subsets: asText(subsets), views: asText(answers.moduleViews),
+    dimensions: answers.moduleDimensions.length ? answers.moduleDimensions.map(json => JSON.stringify(json) ?? "").join("\n") : undefined });
+  const holds = (body: string | undefined, id: string) => (body === undefined ? "no answer" : new RegExp(`(?<!\\d)${id}(?!\\d)`).test(body) ? "yes" : "no");
+  const evidence = Object.values(held());
+  const remaining = unnamed();
+  const eligible = remaining.filter(id => evidence.some(body => holds(body, id) === "yes"));
+  const skipped = remaining.length - eligible.length;
+  if (skipped) progress.log(`dimension names: ${skipped} IDs absent from lists, module views and module dimensions; ${eligible.length ? "skipped their module lookups" : "no module lookups"}`);
+  await settle(eachAtMost(eligible.slice(0, MAX_DIMENSION_QUESTIONS), AT_A_TIME, reads.signal, async id => {
     await read(`modules with dimension ${id}`, `core://${ws}:${model}/applicableModules`, { dimensions: [Number(id)] }, json => {
       const found = applicableModuleIds(catalog, json).filter(module => ENTITY_ID.test(module));
       modulesOf.set(id, found);
       return `: ${found.length ? found.slice(0, MAX_LOGGED).join(", ") : "none"}`;
     });
-  }
+  }));
   const modules = [...new Set([...modulesOf.values()].flatMap(found => found.slice(0, 2)))].filter(module => !catalog.moduleDimensions.has(module));
   if (modules.length) {
     const json = await read(`dimensions of ${modules.length} modules that have an unnamed dimension`, `core://${ws}:${model}/dimensions`, { moduleIds: modules },
@@ -860,13 +887,10 @@ async function readDimensionNames(reads: SocketReads, pages: readonly UxPageCard
   if (unanswered >= 2) progress.log("dimension names: two reads went unanswered, no more were made");
   if (timeUp) progress.log(`dimension names: the ${DIMENSION_NAMES_BUDGET_MS / 1000} seconds allowed for them ran out`);
   if (!left.length) return;
-  const asText = (json: unknown) => (json === undefined ? undefined : JSON.stringify(json) ?? "");
-  const held = { lists: asText(answers.lists), subsets: asText(subsets), views: asText(answers.moduleViews),
-    dimensions: answers.moduleDimensions.length ? answers.moduleDimensions.map(json => JSON.stringify(json) ?? "").join("\n") : undefined };
-  const holds = (body: string | undefined, id: string) => (body === undefined ? "no answer" : new RegExp(`(?<!\\d)${id}(?!\\d)`).test(body) ? "yes" : "no");
+  const final = held();
   for (const id of left.slice(0, MAX_LOGGED)) {
-    progress.log(`dimension ${id} has no name: ${dimensionUse(pages, id)}; its ID is in the answers of lists: ${holds(held.lists, id)}, `
-      + `lists with subsets: ${holds(held.subsets, id)}, module views: ${holds(held.views, id)}, module dimensions: ${holds(held.dimensions, id)}; `
+    progress.log(`dimension ${id} has no name: ${dimensionUse(pages, id)}; its ID is in the answers of lists: ${holds(final.lists, id)}, `
+      + `lists with subsets: ${holds(final.subsets, id)}, module views: ${holds(final.views, id)}, module dimensions: ${holds(final.dimensions, id)}; `
       + `modules that have it: ${modulesOf.get(id)?.length ?? "not asked"}`);
   }
   if (left.length > MAX_LOGGED) progress.log(`dimensions with no name: ${left.length - MAX_LOGGED} more are not listed`);
@@ -893,7 +917,7 @@ export function loadCatalog(scope: ModelScope, pages: readonly UxPageCardDetails
  * model that is not open reports status UNKNOWN until a data request loads it (observed live, 28 Sep 2026), so the
  * status is watched and logged, never waited for. `exported` (of `inputs`) are the model's line items as its export read
  * them, where the run has them (model-pages.ts): they are taken before anything is asked of them. The sample is checked
- * against the listing (`compareExported`); missing filter IDs still get a live search. A connection-level error such as
+ * against the listing (`compareExported`); missing filter IDs search only modules it does not cover. A connection-level error such as
  * REDIRECTION_REQUIRED fails every subscription and is rethrown, so withSocket reconnects to the host it names. When
  * `signal` asks the run to stop, the socket work ends at once, as it does for a closed model, and the stop is rethrown
  * instead of noted. A run that was stopped before its socket had connected asks the model for nothing at all: subscribing
@@ -933,7 +957,7 @@ export async function loadCatalogWhen(scope: ModelScope, inputs: Promise<Catalog
   /** The modules whose line items the listing gave, and what the comparison of the export's line items with it said: it is
    * made once, on the host that answers it (after a redirect, the model's own). */
   const listed = new Set<string>();
-  let compared: string | undefined;
+  let compared: Awaited<ReturnType<typeof compareExported>> | undefined;
   /** How long each step took, from the first: those of the host the socket settled on, after a redirect the model's own. */
   let time = stepTimes();
   const began = Date.now();
@@ -1018,7 +1042,7 @@ export async function loadCatalogWhen(scope: ModelScope, inputs: Promise<Catalog
         });
         if (exported) {
           const named = [...catalog.lineItems.values()].filter(item => !listed.has(item.moduleId)).length;
-          progress.log(`line items: ${compared}; ${named} named from the export, of ${exported.modules.length} modules; `
+          progress.log(`line items: ${compared?.message}; ${named} named from the export, of ${exported.modules.length} modules; `
             + `${listed.size} of the ${moduleIds.size} modules the pages use read from the listing`);
         }
 
@@ -1027,7 +1051,7 @@ export async function loadCatalogWhen(scope: ModelScope, inputs: Promise<Catalog
         await time.step("item names", () => readItemNames(reads, needs.items));
         if (options.viewLayouts !== false) await time.step("saved views", () => readViewLayouts(reads, refs));
         else if (refs.some(ref => ref.kind === "view")) progress.log("saved views: their rows, columns and context selectors are not read, as no table of a model's run shows them");
-        await time.step("filter line items", () => findFilterLineItems(reads, pages, exported));
+        await time.step("filter line items", () => findFilterLineItems(reads, pages, compared?.kept ? exported : undefined));
         await time.step("filter item names", () => readFilterItemNames(reads, pages, needs.modules));
         await time.step("dimension names", () => readDimensionNames(reads, pages));
         // Whatever a rule still holds unnamed, by what the rule's items are: it shows a live run's reader what was not found.

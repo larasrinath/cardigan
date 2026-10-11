@@ -4196,12 +4196,12 @@ describe("The navigation bar of the results page", () => {
   it("gathers a model's tables in groups on one line, in the order of Model settings, each group with the tables the result has; a group of one table, and a file no group names, stand on their own", async () => {
     await openWith(withFiles(...EXPORTED));
     // Every file the export writes: Time, Versions, the one list file, Modules, Actions, Source Models, and the map.
-    expect(line()).toEqual(["Overview (shown)", "Time: Model Calendar, Time Ranges", "Versions", "General Lists", "Modules: Modules, Line Items, DCA",
+    expect(line()).toEqual(["Overview (shown)", "Time: Model Calendar, Time Ranges", "Versions", "Lists: General Lists", "Modules: Modules, Line Items, DCA",
       "Actions: Processes, Imports, Data Sources, Exports, Other Actions", "Source Models", "Model map"]);
     // Each group's button has the group's own icon, its name and a chevron, and holds no view's name of its own.
     const buttons = page.all("#navList .nav-group-btn");
     expect(buttons.map(button => [button.querySelector("svg")?.outerHTML, button.querySelectorAll(".nav-chevron").length, button.hasAttribute("data-nav")]))
-      .toEqual(drawnIcons(NAV_ICONS.time, NAV_ICONS.modules, NAV_ICONS.actions).map(icon => [icon, 1, false]));
+      .toEqual(drawnIcons(NAV_ICONS.time, NAV_ICONS.lists, NAV_ICONS.modules, NAV_ICONS.actions).map(icon => [icon, 1, false]));
     // Line Item Subsets makes the lists two, and a group of their own. A group the result has no table of is not there,
     // a group of one table is that table's entry, and a file no group names stands after the groups, before the map.
     page.id("runAgain").press();
@@ -4278,11 +4278,11 @@ describe("The navigation bar of the results page", () => {
     expect([button().textContent.trim(), button().querySelector("svg")?.outerHTML, button().getAttribute("aria-expanded"), page.id("navMenu").hidden])
       .toEqual(["DCA", drawnIcons(NAV_ICONS.menu)[0], "false", true]);
     button().press();
-    expect([openMenus(), listed()]).toEqual([["navMenu"], ["Overview", "Time: Model Calendar, Time Ranges", "Versions", "General Lists", "Modules: Modules, Line Items, DCA (shown)",
+    expect([openMenus(), listed()]).toEqual([["navMenu"], ["Overview", "Time: Model Calendar, Time Ranges", "Versions", "Lists: General Lists", "Modules: Modules, Line Items, DCA (shown)",
       "Actions: Processes, Imports, Data Sources, Exports, Other Actions", "Source Models", "Model map"]]);
     // A group's name heads its entries, a heading that a screen reader is told as the name of the group.
     expect(page.all("#navMenu .nav-section").map(section => [section.getAttribute("role"), section.querySelector(".nav-heading")?.textContent, section.querySelector(".nav-heading")?.getAttribute("aria-hidden")]))
-      .toEqual([["group", "Time", "true"], ["group", "Modules", "true"], ["group", "Actions", "true"]]);
+      .toEqual([["group", "Time", "true"], ["group", "Lists", "true"], ["group", "Modules", "true"], ["group", "Actions", "true"]]);
     // Choosing from it shows that view; the menu is drawn again, closed, and its button names the new view.
     page.find('#navMenu [data-nav="11"]').press();
     expect([page.texts("#view h1"), button().textContent.trim(), page.id("navMenu").hidden]).toEqual([["Versions"], "Versions", true]);
@@ -5069,6 +5069,28 @@ describe("Navigation closes the details panel", () => {
 
 describe("Row links and Back in the details panel", () => {
   const table = (label: string, headers: string[], rows: Cell[][]): ResultTable => ({ file: `${label}.csv`, label, headers, rows, guard: false });
+  it("opens subset members and returns with Back, with a Model button before All columns and no links in table cells", async () => {
+    const subsets = table("Line Item Subsets", ["", "Notes", "Modules", "Line Items"], [["Planning measures", "For planning", "Inventory", "'Inventory'.'Input'"]]);
+    const model = { ...MODEL, site: { origin: "https://us1a.app.anaplan.com", customer: "a".repeat(32) },
+      tables: [{ ...MODEL.tables[0], rows: [...MODEL.tables[0].rows, ["Model", "Workspace ID", "b".repeat(32)], ["Model", "Model ID", MODEL.id]] }, subsets,
+      table("Modules", ["", "Applies To"], [["Inventory", "Planning measures"]]),
+      table("Line Items", ["", "Module Name", "Applies To"], [["Input", "Inventory", "Planning measures"]])] };
+    await openWith(model);
+    goTo(1);
+    row().press();
+    expect(page.texts('#drawerBody [data-act="item"]')).toEqual(["Inventory", "'Inventory'.'Input'"]);
+    expect(page.has('#tableWrap [data-act="item"]')).toBe(false);
+    expect(page.texts("#drawerOpens button")).toContain("Model");
+    expect(page.id("drawer").innerHTML.indexOf('id="drawerOpens"')).toBeLessThan(page.id("drawer").innerHTML.indexOf('id="drawerBody"'));
+    item("'Inventory'.'Input'").press();
+    expect(page.id("drawerTitle").textContent).toBe("Input");
+    item("Planning measures").press();
+    expect(page.id("drawerTitle").textContent).toBe("Planning measures");
+    page.id("drawerBack").press();
+    expect(page.id("drawerTitle").textContent).toBe("Input");
+    page.id("drawerBack").press();
+    expect(page.id("drawerTitle").textContent).toBe("Planning measures");
+  });
   const linked: AnalysisResult = { ...MODEL, tables: [MODEL.tables[0],
     table("Modules", ["Name", "Line Items"], [["Inventory", "Input, Total"]]),
     table("Line Items", ["Name", "Module Name", "Format", "Referenced By"], [["Input", "Inventory", "NUMBER", "Total"], ["Total", "Inventory", "NUMBER", ""]]),
