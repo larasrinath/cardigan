@@ -2,13 +2,31 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version stands next to Cardigan's name at the top of the results page and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
-## 0.18.6 (10 October 2026)
+## 0.18.8 (10 October 2026)
 
 A table's name and its toolbar share one row, and the toolbar is quieter.
 
 - **One row.** Every table, an app's and a model's, has its name and then its toolbar on one line: the search box, **Reset** when something is in force, and at the right end the count of rows and the pager. The line under a table's name, where it has one, now stands under that row. In a window too narrow for one row, the name takes a line of its own first; the count and the pager go under the search box only after that, and always together: the count, the page buttons and the rows per page are never parted, as they could be before. Under 560 pixels the pager may go under the count, so the page never scrolls sideways. A table with the switch of ways or a page's chip keeps them at the toolbar's head. (#61)
 - **The column chooser is in the search box.** The **Columns** button is gone: a button with three lines at the search box's right end, set off by a thin line, opens the same chooser. Its tooltip and its name for screen readers say **Show or hide columns**. (#61)
 - **No key drawn in the search boxes.** The search boxes of the tables and of the model map no longer show a `/` key. The key still reaches them, and their tooltips and `aria-keyshortcuts` say so. (#61)
+
+## 0.18.7 (10 October 2026)
+
+The Overview's Model Calendar tile says what the calendar is, not how many of its settings hold a value.
+
+- **Monthly or Weekly.** In the number's place, a months calendar says **Monthly** and any of Anaplan's three weeks calendars **Weekly**. A calendar type stored as its ID reads the same, and a type of another text is said by what it names. (#59)
+- **The current year under it.** A smaller line says the current fiscal year by its label, such as **FY24**, after how a weeks calendar is grouped: 4-4-5, 4-5-4 or 5-4-4, 13 periods, or its number of weeks. The tile's title, and its name for a screen reader, hold the calendar type as Anaplan writes it and the year's dates. (#59)
+- **Every tile still the same size.** The row of tiles is as high as its highest, and what each tile holds now stands at its top, so the names stay on one line across a row. (#59)
+- **What stays the same.** What is read, and the Model Calendar table, whose line under its name still says how many rows it leaves out. A calendar whose type and year were not read is counted like any other table. (#59)
+
+## 0.18.6 (10 October 2026)
+
+A source model's details list what it gives the model.
+
+- **Sources.** A row of **Source Models** now opens with what that source model gives, above **All columns**: each of its objects that the model's imports read, with its kind (**Saved view**, **Module** or **List**), from the rows of **Import Data Sources** that name it. Each opens its own row of Import Data Sources. (#58)
+- **Imports.** Under them, each import that reads from the source model, with the objects it reads; each opens its own row of **Imports** where exactly one row has its name. Where Import Data Sources names none of the source model's objects, the imports are found by the Imports table's **Source Object**. (#58)
+- **Found by name, nothing guessed.** A source model is found by its name as each table writes it, out of its quotes and with its spaces evened out, or by the model's own name, the part after its workspace, where one table writes the workspace in front and the other does not, and no other source model has that name. A count that is not what the row's **Sources** or **Imports** says is said under its list. A source model neither table names gets no list, and the diagnostic log says so once. (#58)
+- **What stays the same.** What is read, the Source Models table and its columns, and **All columns**. (#58)
 
 ## 0.18.5 (10 October 2026)
 

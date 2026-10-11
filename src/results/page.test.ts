@@ -439,6 +439,14 @@ describe("The results page's files", () => {
   it("makes every tile of the overview the same size: columns of one width, rows of one height, a name on one line, and no word under the number", () => {
     const body = (name: string, selector: string) => rules(name).find(([found]) => found === selector)?.[1] ?? "";
     const [grid, tile, label, number] = [body(".ov-grid", ".ov-grid"), body(".stat", ".stat"), body(".s-lab", ".stat .s-lab"), body(".s-num", ".stat .s-num")];
+    // A Model Calendar's current year, under its kind, keeps to one line as well, cut with an ellipsis: every row of tiles is
+    // as high as the highest, so the tiles stay one size.
+    const detail = body(".s-detail", ".stat .s-detail");
+    expect(["white-space:nowrap", "overflow:hidden", "text-overflow:ellipsis"].every(rule => detail.includes(rule))).toBe(true);
+    // What a tile holds stands at its top, also in a tile that is a button, which would centre it: in a row made as high as
+    // its highest tile, the names of all the tiles stand on one line.
+    expect(["display:flex", "flex-direction:column", "justify-content:flex-start"].every(rule => tile.includes(rule))).toBe(true);
+    expect(body(".stat-open", ".stat-open")).not.toMatch(/display:/);
     // Columns of one width, and every row as high as the highest: a tile never grows with its name or its number.
     expect([/grid-template-columns:repeat\(auto-fill,minmax\(\d+px,1fr\)\)/.test(grid), grid.includes("grid-auto-rows:1fr"), tile.includes("min-width:0"), tile.includes("height:100%")])
       .toEqual([true, true, true, true]);

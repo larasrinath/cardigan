@@ -1,5 +1,6 @@
 import { MODEL_PAGE_FILES } from "../page-files.js";
 import type { AnalysisResult, Cell, ResultTable } from "../result-types.js";
+import { calendarTile } from "./calendar-tile.js";
 import { cellLists, type Items } from "./cell-lists.js";
 import { APP_FILES, cardsNamed, columnIndex, COLUMN_CHOICES, type CardsTable } from "./columns.js";
 import { LINE_ITEMS_FILE, lineItemsView } from "./line-items-view.js";
@@ -631,11 +632,16 @@ const TILE_LABELS: ReadonlyMap<string, string> = new Map([
   [APP_FILES.Formatting, "Formatting rules"], [APP_FILES.Actions, "Action buttons"], [APP_FILES["Where used"], "Model objects"],
 ]);
 
+/** One tile of the overview: its table's name, the number of rows the table lists, and for a Model Calendar what its
+ * calendar is, where its table tells (calendar-tile.ts). */
+export interface OverviewTile { label: string; count: number; value?: string; detail?: string; title?: string }
+
 export interface Overview {
   /** Every file but the Details file, in the navigation's order (`listedTables`), with the number of rows its table lists.
    * A tile says that one number: where a table leaves rows of its file out, as a Model Calendar's does, the line under the
-   * table's name says how many and why. */
-  tiles: { label: string; count: number }[];
+   * table's name says how many and why. A model's Model Calendar says what its calendar is instead, where its table tells
+   * (calendar-tile.ts): `value` in the number's place, `detail` under it, and `title` the tile in full. */
+  tiles: OverviewTile[];
   /** The result's notes (`resultNotes`), then a note for each table some of whose rows the export could not match in the
    * Actions list (`matchedRemark`). */
   notes: string[];
@@ -670,9 +676,12 @@ export function overviewOf(result: AnalysisResult): Overview {
   // A tile counts the rows the file's table lists, and nothing more. The words change no row, so the count needs the
   // file's rule only.
   // In the order of `listedTables`, which is the navigation's: the page opens a tile's table by that order.
-  const tiles = listedTables(result).map(({ table }) => {
+  const tiles = listedTables(result).map(({ table }): OverviewTile => {
     const count = ruledView(result, table).table.rows.length;
-    return { label: TILE_LABELS.get(table.file) ?? cellText(table.label), count };
+    const label = TILE_LABELS.get(table.file) ?? cellText(table.label);
+    // A calendar is said by its kind and its current year, not by how many of the template's settings hold a value.
+    const calendar = result.kind === "model" && table.file === MODEL_CALENDAR_FILE ? calendarTile(table, label) : undefined;
+    return { label, count, ...calendar };
   });
 
   const sections = detailSections(detailsOf(result));
