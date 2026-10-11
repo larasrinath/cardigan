@@ -298,14 +298,15 @@ async function readLineItems(reads: SocketReads, moduleId: string, givingUp?: Ab
 
 /** Whether the line items the export read (model-pages.ts) are those the listing gives. Of the modules the pages use, the
  * first that the export listed with line items is read from the listing all the same, and the two are compared line item
- * by line item, by ID and by name. Where they agree, the export's line items stand for the listing's for every other
- * module of theirs, and those modules are not read again. Where they differ, the export's are set aside, and every module
- * the pages use is read from the listing, as before: a mismatch costs time, never a name. A comparison that cannot be
+ * by line item, by ID and by exact name. At least 98% of the union of IDs must have the same name in both sources:
+ * additions and deletions count equally, and a rename counts once. This admits a small change without letting extra
+ * export IDs escape the check. Below that threshold the export's are set aside, and every module
+ * the pages use is read from the listing, as before. A comparison that cannot be
  * made, because the listing refused the read, keeps the export's: their names are the model's own, from its Model
  * settings. Either way the module that was read keeps what the listing gave. A failed connection and a stopped run are
  * rethrown, as a read of any step rethrows them. Returns what the log says of it. */
 async function compareExported(reads: SocketReads, used: ReadonlySet<string>, exported: ExportedLineItems): Promise<string> {
-  const { scope, connection, subscribe, settle, halted, catalog, listed } = reads;
+  const { scope, connection, subscribe, settle, halted, catalog, listed, progress } = reads;
   const { workspaceId: ws, modelId: model } = scope;
   const ofModule = new Map<string, Map<string, string>>();
   for (const { id, name, moduleId } of exported.lineItems) {
@@ -322,16 +323,30 @@ async function compareExported(reads: SocketReads, used: ReadonlySet<string>, ex
     if (connection.failed || halted()) throw error;
     return `the listing of module ${moduleId} could not be read to compare (${message(error)}): the export's line items are used`;
   }
-  const given = listedLineItems(json);
+  const given = new Map(listedLineItems(json).map(item => [item.id, item.name]));
   const known = ofModule.get(moduleId)!;
-  const alike = given.filter(item => known.get(item.id) === item.name).length;
-  const agree = given.length > 0 && alike === given.length;
-  if (!agree) forgetExportedLineItems(catalog, exported, listed);
+  const ids = new Set([...known.keys(), ...given.keys()]);
+  let differences = 0;
+  for (const id of ids) {
+    const [before, now] = [known.get(id), given.get(id)];
+    if (before === now) continue;
+    differences++;
+    if (differences <= 5) {
+      const why = now === undefined ? `only in the export: ${JSON.stringify(before)}`
+        : before === undefined ? `only in the listing: ${JSON.stringify(now)}`
+          : `name differs: export ${JSON.stringify(before)}, listing ${JSON.stringify(now)}`;
+      progress.log(`line item difference: module ${moduleId}, ID ${id}, ${why}`);
+    }
+  }
+  if (differences) progress.log(`line item differences: ${differences} in all; ${Math.max(0, differences - 5)} more not listed`);
+  const alike = ids.size - differences;
+  const keep = ids.size > 0 && alike * 100 >= ids.size * 98;
+  if (!keep) forgetExportedLineItems(catalog, exported, listed);
   addLineItems(catalog, moduleId, json);
   listed.add(moduleId);
-  return agree ? `the export and the listing agree on module ${moduleId}: ${alike} of ${given.length} line items alike, by ID and name`
-    : `the export and the listing differ on module ${moduleId}: ${alike} of ${given.length} line items alike, by ID and name; the export's line items `
-      + "are set aside, and every module the pages use is read from the listing";
+  return `export ${keep ? "kept" : "set aside"}; the sample module ${moduleId} differs on ${differences} of ${ids.size} line items; `
+    + `${alike} of ${ids.size} alike, by ID and name (at least 98% required)`
+    + (keep ? "; the sample uses its live listing" : "; every module the pages use is read from the listing");
 }
 
 /** Context selectors: each section's module dimensions, the list Page Builder's grid section settings read. */
@@ -463,12 +478,16 @@ async function readViewLayouts(reads: SocketReads, refs: readonly UxEntityRef[])
  * The diagnostic log is kept small: the reads of line items write no frame lines, and the step says how far the search is
  * no more often than FILTER_LINE_ITEMS_STATUS_MS. The search's own lines say how far it went, in IDs and counts only, and
  * a note says so when it ended with a rule still without its line item and something left undone. */
-async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCardDetails[]): Promise<void> {
+async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCardDetails[], exported?: ExportedLineItems): Promise<void> {
   const { scope, connection, subscribe, settle, ended, catalog, notes, progress } = reads;
   const { workspaceId: ws, modelId: model } = scope;
   const cards = pages.flatMap(page => page.cards);
-  const { itemIds, axisDimensionIds } = unresolvedFilterItems(cards, catalog);
+  const { itemIds } = unresolvedFilterItems(cards, catalog);
   if (!itemIds.size) return;
+  // Export names have already resolved every ID they hold. For the remaining rules, absence from an export is not
+  // proof of absence from the live model. Keep its names, but search its modules too and require live coverage before
+  // saying Missing. A module already read live is never asked twice, including the comparison's sample.
+  for (const moduleId of exported?.modules ?? []) if (!reads.listed.has(moduleId)) catalog.lineItemModules.delete(moduleId);
   // A model that closed earlier, while its module dimensions were read, is only logged there. The search does not begin
   // for it: it shows no step and counts nothing, and what ended the work is thrown, as a read that waits throws it
   // (nothing would be sent in any case: `subscribe`). After this, every wait of the search is one that the end of the
@@ -506,9 +525,9 @@ async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCar
   let [bracketed, givenUp, unsaid, spared, said] = [0, 0, 0, 0, started];
   let step = plan(0);
   progress.status(`Finding filter line items in ${scope.modelName}…`);
-  try {
-    for (const dimensionId of axisDimensionIds) {
-      if (!ENTITY_ID.test(dimensionId)) continue;
+  const askDimensions = (dimensions: ReadonlySet<string>) => {
+    for (const dimensionId of dimensions) {
+      if (!ENTITY_ID.test(dimensionId) || named.has(dimensionId)) continue;
       named.set(dimensionId, []);
       const question: Promise<void> = subscribe(`core://${ws}:${model}/applicableModules`, { body: { dimensions: [Number(dimensionId)] }, signal: givingUp.signal })
         .then(json => {
@@ -525,7 +544,14 @@ async function findFilterLineItems(reads: SocketReads, pages: readonly UxPageCar
         .finally(() => { questions.delete(question); });
       questions.add(question);
     }
+  };
+  try {
     for (;;) {
+      // A live listing can remove an exported item that resolved another rule earlier. Include that rule and its
+      // dimensions in the search too, without counting its ID as context or overlooking its candidate modules.
+      const unresolved = unresolvedFilterItems(cards, catalog);
+      for (const id of unresolved.itemIds) itemIds.add(id);
+      if (left() > 0) askDimensions(unresolved.axisDimensionIds);
       const now = Date.now();
       // The reading starts once the questions are answered, or after as long as a read holds its place.
       const begun = !questions.size || now - started >= FILTER_LINE_ITEMS_READ_MS;
@@ -866,8 +892,8 @@ export function loadCatalog(scope: ModelScope, pages: readonly UxPageCardDetails
 /** Names for one model. Like Page Builder, it asks for the data straight away and lets the service load the model: a
  * model that is not open reports status UNKNOWN until a data request loads it (observed live, 28 Sep 2026), so the
  * status is watched and logged, never waited for. `exported` (of `inputs`) are the model's line items as its export read
- * them, where the run has them (model-pages.ts): they are taken before anything is asked of them, and a module of theirs
- * is not read from the listing (`compareExported` says when one is, and why). A connection-level error such as
+ * them, where the run has them (model-pages.ts): they are taken before anything is asked of them. The sample is checked
+ * against the listing (`compareExported`); missing filter IDs still get a live search. A connection-level error such as
  * REDIRECTION_REQUIRED fails every subscription and is rethrown, so withSocket reconnects to the host it names. When
  * `signal` asks the run to stop, the socket work ends at once, as it does for a closed model, and the stop is rethrown
  * instead of noted. A run that was stopped before its socket had connected asks the model for nothing at all: subscribing
@@ -992,8 +1018,8 @@ export async function loadCatalogWhen(scope: ModelScope, inputs: Promise<Catalog
         });
         if (exported) {
           const named = [...catalog.lineItems.values()].filter(item => !listed.has(item.moduleId)).length;
-          progress.log(`line items: ${named} named from the export, of ${exported.modules.length} modules; ${listed.size} of the ${moduleIds.size} modules the pages use `
-            + `read from the listing; ${compared}`);
+          progress.log(`line items: ${compared}; ${named} named from the export, of ${exported.modules.length} modules; `
+            + `${listed.size} of the ${moduleIds.size} modules the pages use read from the listing`);
         }
 
         const needs = gridNeeds(pages);
@@ -1001,7 +1027,7 @@ export async function loadCatalogWhen(scope: ModelScope, inputs: Promise<Catalog
         await time.step("item names", () => readItemNames(reads, needs.items));
         if (options.viewLayouts !== false) await time.step("saved views", () => readViewLayouts(reads, refs));
         else if (refs.some(ref => ref.kind === "view")) progress.log("saved views: their rows, columns and context selectors are not read, as no table of a model's run shows them");
-        await time.step("filter line items", () => findFilterLineItems(reads, pages));
+        await time.step("filter line items", () => findFilterLineItems(reads, pages, exported));
         await time.step("filter item names", () => readFilterItemNames(reads, pages, needs.modules));
         await time.step("dimension names", () => readDimensionNames(reads, pages));
         // Whatever a rule still holds unnamed, by what the rule's items are: it shows a live run's reader what was not found.
