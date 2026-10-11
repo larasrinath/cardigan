@@ -2,15 +2,15 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version is in the menu of Cardigan's icon in Chrome's toolbar and on its About page, and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
-## Unreleased
+## 0.24.0 (11 October 2026)
 
 The Model map has one path, and calls each group a group.
 
-- **One path at every level.** The model, group and module stay in the bar; the Modules and Line items switch is gone. A name goes there and its chevron opens its list. The group list has All groups, All modules, then every group with its module count. A choice always moves the map. Esc goes from a module to its own group, then to the model.
-- **Every module in one picker.** Modules stand under their group headings, in the map's order, with the current module marked and its group scrolled into view. Typing searches every group, leaving the headings that have matches. The 200-module limit is gone; moving through the list with the arrows updates only the rows whose focus changes.
-- **Group by stays.** It is there at every level. Changing it inside a module keeps the module, its selection and its drawing; the group step and the picker's headings follow the new grouping. Other modules' line items is now under Links, where it appears only inside a module.
-- **The words agree.** Group replaces section in the legend, details, search, foot and empty map. The details say Show its modules or Show its line items, with the count. The hover card leaves the double-click shortcut to About this map, and the details' list headings have drawn chevrons.
-- **Kept as before.** Search across the model, Model map from the tables, the traces and page filters, the three kinds of link, full screen and the map's other tools. Views kept for the tab by earlier versions still load.
+- **One path at every level.** The model, group and module stay in the bar; the Modules and Line items switch is gone. A name goes there and its chevron opens its list. The group list has All groups, All modules, then every group with its module count. A choice always moves the map. Esc goes from a module to its own group, then to the model. (#74)
+- **Every module in one picker.** Modules stand under their group headings, in the map's order, with the current module marked and its group scrolled into view. Typing searches every group, leaving the headings that have matches. The 200-module limit is gone; moving through the list with the arrows updates only the rows whose focus changes. (#74)
+- **Group by stays.** It is there at every level. Changing it inside a module keeps the module, its selection and its drawing; the group step and the picker's headings follow the new grouping. Other modules' line items is now under Links, where it appears only inside a module. (#74)
+- **The words agree.** Group replaces section in the legend, details, search, foot and empty map. The details say Show its modules or Show its line items, with the count. The hover card leaves the double-click shortcut to About this map, and the details' list headings have drawn chevrons. (#74)
+- **Kept as before.** Search across the model, Model map from the tables, the traces and page filters, the three kinds of link, full screen and the map's other tools. Views kept for the tab by earlier versions still load. (#74)
 
 ## 0.23.1 (11 October 2026)
 
