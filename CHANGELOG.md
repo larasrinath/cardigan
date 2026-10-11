@@ -7,6 +7,16 @@ Every merged change that alters the extension has a version of its own: a new fe
 - **The engine from the page, before reading.** The model frame reads the loaded client's workspace engine and sends it with its check-in: HYPERBLOCK means Classic, CALCULATION_ENGINE means Polaris, and anything else stays unknown. Diagnostics gives one engine decision before settings or pages are read. The gateway engine probe is gone; its GETs are used only for names when no Classic client answers.
 - **Both engines read in full.** Classic and Polaris use Model Building's Classic client for the settings, import mappings and process steps. A Polaris Overview says **Polaris model, read in full through Model Building.** About stays as before. Polaris-only Line Items columns cross-check the page's engine and log any disagreement without changing the reader. The partial reader still runs only when no Classic client answers within the wait.
 
+## 0.29.6 (11 October 2026)
+
+- **More room for the map.** One slim bottom bar holds the counts, Legend, About this map, zoom and Fit at every level and in full screen. Long counts end with an ellipsis and show their full text on hover. Legend, About and the minimap open above the bar without moving the boxes or camera. The minimap starts hidden and opens from its drawn button. (#86)
+
+## 0.29.5 (11 October 2026)
+
+- **A small difference keeps the export.** One module's live line items check the names read from the model's settings. If at least 98% of the IDs present in either source have the same name in both, the export keeps naming the other modules. A rename, an addition or a deletion counts as one difference. Below that threshold, the modules the pages use are read from the listing as before. (#85)
+- **The difference, said.** The diagnostic log says whether the export was kept, lists up to five differing line items and counts the rest. It shows IDs, items only in one source, and both names where they differ, quoted so spaces and quotes show. Any module read live uses its listing in full, including names and formats changed or removed since the export. (#85)
+- **Filters use the names already read.** A filter line item in the export needs no module search. An ID absent from it is still searched for, including in modules the export covered; the existing time limit and Missing rules stay in place. Line Items, Page Filters and Module Usage keep their layout and counts. (#85)
+
 ## 0.29.4 (11 October 2026)
 
 - **Classic first for every model.** Polaris models use Model Building's Classic client when it answers, as it usually does, keeping the full settings read, import mappings and process steps. Cardigan waits up to about two minutes; without an answering frame it falls back to a partial read, even when the engine is unknown, and the Overview says why. (#84)

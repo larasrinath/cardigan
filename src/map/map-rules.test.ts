@@ -125,6 +125,21 @@ describe("The map's sources", () => {
 });
 
 describe("The map's stylesheet", () => {
+  it("keeps one 32-pixel bar and truncates long status text while panels float above it", () => {
+    const rules = (selector: string): string[] => [...STYLES.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .filter(([, selectors]) => selectors.trim() === selector).map(([, , body]) => body);
+    const bar = rules(".map-dock").join(";");
+    expect(bar).toContain("display:flex");
+    expect(bar.match(/(?:^|;)height:[^;}]*/g)).toEqual([";height:32px"]);
+    expect(bar).not.toMatch(/wrap|grid-template-rows/);
+    expect(rules(".map-status").join(";")).toContain("min-width:0");
+    expect(rules(".map-status").join(";")).toContain("flex:0 1 360px");
+    const stats = rules(".map-stats").join(";");
+    for (const property of ["overflow:hidden", "text-overflow:ellipsis", "white-space:nowrap"]) expect(stats).toContain(property);
+    for (const selector of [".map-over", ".map-minimap-wrap"]) expect(rules(selector).join(";")).toContain("position:absolute");
+    expect(rules(".map-minimap-wrap").join(";")).not.toContain("display:none");
+  });
+
   it("names every class with the map's prefix, and styles nothing by an id or outside the map", () => {
     const all = selectors(STYLES);
     expect(all.length).toBeGreaterThan(100);
@@ -149,7 +164,7 @@ describe("The map's stylesheet", () => {
     const media = selectors(STYLES).filter(selector => selector.startsWith("@media"));
     expect(media).toEqual(["@media (prefers-reduced-motion:reduce)"]);
     const containers = selectors(STYLES).filter(selector => selector.startsWith("@container"));
-    expect(containers.length).toBeGreaterThanOrEqual(3);
+    expect(containers.length).toBeGreaterThanOrEqual(2);
     for (const query of containers) expect(query).toMatch(/^@container map \(max-(width|height):\d+px\)$/);
     expect(STYLES).toMatch(/container:map \/ size/);
   });
