@@ -141,12 +141,10 @@ export function rowCellHtml(column: Column, row: Row, links: Links): string {
 
 /* ---------- header, navigation ---------- */
 
-export function headerMetaHtml(analysed: Analysed): string {
-  const parts = [esc(analysed.kind)];
-  if (analysed.host) parts.push(`<span style="font-family:var(--mono);font-size:11px">${esc(analysed.host)}</span>`);
-  if (analysed.exportedOn) parts.push(`Exported ${esc(analysed.exportedOn)}`);
-  return `<div class="meta-app">${esc(analysed.name)}</div>
-     <div class="meta-sub">${parts.join('<span class="dotsep">·</span>')}</div>`;
+/** What the header says of the result: its name alone, the model's or the app's, cut with an ellipsis where the header
+ * has no room for it and whole in its title. Where it was read and when are the overview's to say, in About this export. */
+export function headerMetaHtml(analysed: Pick<Analysed, "name">): string {
+  return `<div class="meta-app" title="${esc(analysed.name)}">${esc(analysed.name)}</div>`;
 }
 
 export interface NavEntry {

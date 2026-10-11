@@ -54,14 +54,20 @@ describe("The results page's files", () => {
     expect(declared(".brand img")).toEqual(["display:block"]);
   });
 
-  it("offers nothing to download: its header holds the run control, the switch of the times' zone and the theme's button, and the page no link that saves a file", () => {
-    // A result is shown on the page and saved nowhere. The header's controls are these three, the page's one link leads
-    // to a place in the page, and no word of it names a download, a zip or a CSV.
+  it("offers nothing to download: its header holds the Timezone pill, the run control and the theme's button, and the page no link that saves a file", () => {
+    // A result is shown on the page and saved nowhere. The header's controls are these three, in this order, the page's one
+    // link leads to a place in the page, and no word of it names a download, a zip or a CSV.
     const shell = new FakePage(html);
-    expect(shell.find(".hd-actions").children.map(child => [child.localName, child.id])).toEqual([["button", "runAgain"], ["div", "timesSwitch"], ["button", "themeToggle"]]);
-    // The switch is two buttons, Local first, after a word that names them; it is hidden until a result is shown.
-    expect([shell.id("timesSwitch").hidden, shell.all("#timesSwitch [data-times]").map(button => [button.dataset.times, button.textContent.trim()]), shell.texts("#timesSwitch .times-lab")])
-      .toEqual([true, [["local", "Local"], ["utc", "UTC"]], ["Times"]]);
+    expect(shell.find(".hd-actions").children.map(child => [child.localName, child.id])).toEqual([["button", "timeZone"], ["button", "runAgain"], ["button", "themeToggle"]]);
+    // The Timezone pill is one button with a drawn globe: "Timezone:" and the zone in force, Local, with UTC beside it in the
+    // same place, unseen, so that the pill is as wide for either. Its name says what a press does. It is hidden until a
+    // result is shown.
+    const pill = shell.id("timeZone");
+    expect([pill.hidden, pill.getAttribute("type"), pill.getAttribute("aria-label"), pill.querySelectorAll("svg").length, shell.texts("#timeZone .tz-lab"),
+      shell.all("#timeZone [data-tz]").map(word => [word.dataset.tz, word.textContent, word.classList.contains("on")])])
+      .toEqual([true, "button", "Timezone: Local. Switch to UTC", 1, ["Timezone:"], [["local", "Local", true], ["utc", "UTC", false]]]);
+    // The zone's two words share one cell of a grid, and the one not in force keeps its room unseen.
+    expect([declared(".tz-words"), declared(".tz-words > span"), declared(".tz-words > span:not(.on)")]).toEqual([["display:inline-grid"], ["grid-area:1/1"], ["visibility:hidden"]]);
     expect(opening.filter(tag => tag.name === "a" || tag.attributes.has("download")).map(tag => [...tag.attributes])).toEqual([[["class", "skip"], ["href", "#view"]]]);
     expect(html).not.toMatch(/download|\.zip|\.csv/i);
   });
@@ -409,8 +415,8 @@ describe("The results page's files", () => {
 
   it("carries no demo left from the design: no sample name, no version, no preview control", () => {
     expect(html).not.toMatch(/Demo|Preview state|previewState|Assortment|0\.9\.3/);
-    expect(opening.find(tag => tag.attributes.get("id") === "version")?.attributes.get("class")).toBe("ver");
-    expect(html).toContain("<span class=\"ver\" id=\"version\"></span>");
+    // The version is no longer in the header: the toolbar icon's menu and the About page say it (background.ts, about.html).
+    expect([opening.some(tag => tag.attributes.get("id") === "version"), html.includes('class="ver"'), /\.ver\b/.test(css)]).toEqual([false, false, false]);
     expect(css).not.toMatch(/preview-lab/);
   });
 });

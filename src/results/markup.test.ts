@@ -132,7 +132,7 @@ describe("The results page's escaping", () => {
 
   it("shows a name that holds quotes and angle brackets as its text: the app, a file, a page, a detail of the export", () => {
     const pieces = [
-      headerMetaHtml({ name: QUOTED, kind: "App", host: QUOTED, exportedOn: QUOTED }),
+      headerMetaHtml({ name: QUOTED }),
       navHtml([{ id: "overview", label: "Overview" }, { id: "1", label: QUOTED, file: QUOTED }], "1"),
       overviewHtml({ tiles: [{ label: QUOTED, count: 1 }], notes: [QUOTED], about: [[QUOTED, QUOTED]], files: [[QUOTED, QUOTED]], howToRead: [[QUOTED, QUOTED]], log: [QUOTED] }),
       tableHtml(viewOf({ file: "Pages.csv", label: QUOTED, headers: ["Page", QUOTED], rows: [[QUOTED, QUOTED]], guard: true }, LINKS, { search: QUOTED, context: QUOTED })),
@@ -244,7 +244,7 @@ describe("The results page's escaping", () => {
   });
 
   it("lets no text change the header or the navigation, its icons included: a file's name chooses an icon and is written nowhere", () => {
-    expectInert(text => headerMetaHtml({ name: text(0), kind: text(1), host: text(2), exportedOn: text(3) }), 4);
+    expectInert(text => headerMetaHtml({ name: text(0) }), 1);
     expectInert(text => navHtml([{ id: "overview", label: text(0) }, { id: "1", label: text(1) }, { id: "details", label: text(2) }], "details"), 3);
     // A file's name, as a result can hold any, is only looked up: whatever it holds, the entry has a drawing of the
     // page's own, and the name is not in the markup at all. A known file under a hostile label keeps its own icon.
@@ -822,7 +822,7 @@ describe("A result whose every text is hostile, through every view of the page",
     // square, # and hexadecimal digits, and a column's width in ch (column-widths.ts), which the stylesheet reads as --width.
     // That number is counted from the lengths of the table's texts, and no text of a result can reach the style: each
     // column's style is the width and nothing else, a whole number of ch, here where every text of the result is hostile.
-    expect([...styles].sort()).toEqual(["--swatch:#hex", "--width:Nch", "font-family:var(--mono);font-size:11px", "font-size:12px;color:var(--text-3);margin:4px 0 0",
+    expect([...styles].sort()).toEqual(["--swatch:#hex", "--width:Nch", "font-size:12px;color:var(--text-3);margin:4px 0 0",
       "margin-bottom:12px", "margin-left:auto;flex:none", "overflow:hidden;text-overflow:ellipsis"]);
     expect(widths.length).toBeGreaterThan(20);
     expect(widths.filter(width => !/^--width:[1-9]\d?ch$/.test(width))).toEqual([]);

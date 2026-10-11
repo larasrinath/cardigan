@@ -5,7 +5,6 @@ import { MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, PAGE_ROUTES } 
 import { CONTENT_SCRIPT_ORIGIN, PORT_NAME } from "../protocol.js";
 import { plainResult, textOf } from "../result-plain.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
-import { VERSION } from "../version.js";
 import { cellLists, rowItems, type CellList } from "./cell-lists.js";
 import { columnWidths } from "./column-widths.js";
 import { cardsNamed, cardsOf, columnIndex, columnsOf, rowKeys, rowNameIndex, writesNone, type CardsTable, type Column, type RowKeys } from "./columns.js";
@@ -24,9 +23,9 @@ import {
 } from "./markup.js";
 import type { PageId } from "./page-ids.js";
 import { LINE_ITEMS_FILE, MODULE_NAME } from "./line-items-view.js";
-import { ACCESS_FILE, analysedOf, cardParts, detailsOf, detailValue, diagnosticLog, fileView, listedTables, MODEL_CALENDAR_FILE, MODULES_FILE, overviewOf, type Analysed, type FileView,
+import { ACCESS_FILE, analysedOf, cardParts, detailsOf, detailValue, diagnosticLog, fileView, listedTables, MODEL_CALENDAR_FILE, MODULES_FILE, overviewOf, type FileView,
   type Overview } from "./result-view.js";
-import { bothTimes, browserZone, chosenTime, fileRow, hasTimes, inTimeMode, momentRange, momentsOf, readText, storedTimeMode, storeTimeMode, timesOf, zoneWords, type TimeMode } from "./times.js";
+import { bothTimes, browserZone, fileRow, hasTimes, inTimeMode, momentRange, momentsOf, readText, storedTimeMode, storeTimeMode, timesOf, zoneWords, type TimeMode } from "./times.js";
 import { rangeInForce, rangeSummary, readRange, type RangeState } from "./range-filter.js";
 import { cellText, NONE, pageOf, rangeColumn, rememberingSelect, rowName, valueCounts, type RangeColumn, type RangeQuery, type Row, type Sort, type TableQuery } from "./table-engine.js";
 import { DEFAULT_PAGE_SIZE, findRow, forgetKept, isMapAtStart, keepTable, objectKey, readKept, rowKey, subjectOf, takeTable, writeKept, type KeptDrawer, type KeptTable, type KeptView,
@@ -368,15 +367,15 @@ function toggleTheme(): void {
 }
 
 /* ================= times ================= */
-/** The switch says which zone the times are in: that zone's button is the filled one, and pressed. Each button's title
- * names its zone, the viewer's own by the name the browser gives it. */
+/** The Timezone pill says which zone the times are in, and a press says them in the other. Its words are the zone in
+ * force, Local or UTC; it keeps room for the longer of the two, so the switch moves nothing beside it. Its name says what
+ * a press does, and its title names the zone in force, the viewer's own by the name the browser gives it. */
 function showTimes(): void {
-  for (const button of document.querySelectorAll<HTMLElement>("#timesSwitch [data-times]")) {
-    const chosen = button.dataset.times === timeMode;
-    button.classList.toggle("primary", chosen);
-    button.setAttribute("aria-pressed", String(chosen));
-    button.title = button.dataset.times === "utc" ? "Times in UTC, as Anaplan writes them" : `Times in your time zone, ${ownZone}`;
-  }
+  const pill = el<HTMLButtonElement>("timeZone");
+  const local = timeMode === "local";
+  for (const word of pill.querySelectorAll<HTMLElement>("[data-tz]")) word.classList.toggle("on", word.dataset.tz === timeMode);
+  pill.setAttribute("aria-label", local ? "Timezone: Local. Switch to UTC" : "Timezone: UTC. Switch to Local");
+  pill.title = local ? `Times in your time zone, ${ownZone}. Press to say them in UTC.` : "Times in UTC, as Anaplan writes them. Press to say them in your time zone.";
 }
 /** The viewer chose a zone: it is kept for every result and tab, and every time on the page is said in it now. */
 function setTimeMode(mode: TimeMode): void {
@@ -388,7 +387,7 @@ function setTimeMode(mode: TimeMode): void {
   announce(mode === "local" ? `Times in your time zone, ${ownZone}.` : "Times in UTC.");
 }
 /** Says every time on the page again in the zone chosen: each table with a column of times, from the file's own table,
- * and the header's and the overview's time. What the user chose of each table stays as it was: its filters, ranges,
+ * and the overview's time. What the user chose of each table stays as it was: its filters, ranges,
  * hidden columns, order and page, each by the column's place, which a zone does not move. A range of days keeps the rows
  * it kept, in the zone its days were set in. A filter's popover closes; the details cannot be open, as the switch is
  * behind them. */
@@ -408,12 +407,8 @@ function retime(): void {
     entry.moments = undefined;
     entry.widths = undefined;
   }
-  el("hdMeta").innerHTML = headerMetaHtml(timedAnalysed(analysedOf(result)));
   renderAll();
 }
-/** What the header says of the result, with the time of the export in the zone chosen. */
-const timedAnalysed = (analysed: Analysed): Analysed =>
-  (analysed.exportedOn === undefined ? analysed : { ...analysed, exportedOn: chosenTime(analysed.exportedOn, timeMode, ownZone) });
 /** The overview with each time it says, the export's among what it says about the export, in both zones, the one chosen
  * first. */
 const timedOverview = (overview: Overview): Overview =>
@@ -737,9 +732,9 @@ function showResult(next: AnalysisResult, at: Date, back = false): void {
   state.context = undefined;
   const analysed = analysedOf(next);
   document.title = `Cardigan - ${analysed.name}`;
-  el("hdMeta").innerHTML = headerMetaHtml(timedAnalysed(analysed));
+  el("hdMeta").innerHTML = headerMetaHtml(analysed);
   el("topnav").hidden = false;
-  el("timesSwitch").hidden = false;
+  el("timeZone").hidden = false;
   renderAll();
   if (replaced) el("view").focus({ preventScroll: true });
   if (!back) return announce(`Analysis finished: ${analysed.name}`);
@@ -777,7 +772,7 @@ function clearResult(): void {
     const part = document.getElementById(id);
     if (part) part.innerHTML = "";
   }
-  const times = document.getElementById("timesSwitch" satisfies PageId);
+  const times = document.getElementById("timeZone" satisfies PageId);
   if (times) times.hidden = true;
 }
 
@@ -2086,10 +2081,7 @@ el("drawerClose").addEventListener("click", closeDrawer);
 // A click beside the drawer, on the scrim, closes it: the scrim is the drawer's alone.
 el("scrim").addEventListener("click", closeDrawer);
 el("themeToggle").addEventListener("click", toggleTheme);
-el("timesSwitch").addEventListener("click", event => {
-  const mode = (event.target instanceof Element ? event.target.closest<HTMLElement>("[data-times]") : null)?.dataset.times;
-  if (mode === "local" || mode === "utc") setTimeMode(mode);
-});
+el("timeZone").addEventListener("click", () => setTimeMode(timeMode === "local" ? "utc" : "local"));
 el("runAgain").addEventListener("click", () => client.runAgain());
 // The navigation's line is told again how wide its items are whenever it changes size, as when a window that was too narrow
 // for it widens: it is measured only where it is laid out (nav-spread.ts).
@@ -2152,7 +2144,6 @@ function keepLater(kept: AnalysisResult, at: Date): void {
   setTimeout(keep, KEEP_WITHOUT_FRAME_MS);
 }
 
-el("version").textContent = `v${VERSION}`;
 applyTheme(currentTheme());
 showTimes();
 // How the result was looked at before a refresh, as the tab keeps it; and what is chosen from now on is written before
