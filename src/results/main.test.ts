@@ -22,8 +22,7 @@ import { ABOUT_SHOWN } from "./result-view.js";
 import { NONE } from "./table-engine.js";
 import { fixTimeZone } from "./time-zone.test-support.js";
 import { TIMES_KEY } from "./times.js";
-import { WORD_POOLS } from "./spinner-words.js";
-import { SPINNER_WORD_INTERVAL_MS } from "./pixel-loader.js";
+import { ALL_WORDS, ENGINE_WORDS, WORD_PACE_MS, WORD_POOLS } from "./spinner-words.js";
 
 /** What stands in for the model map (src/map). The page calls its two functions and drives what the second returns; how
  * a graph is built and a map drawn is not the page's, and is tested with them. Each test is given its own stand-ins. */
@@ -580,12 +579,12 @@ describe("The results page's script, on the page", () => {
     const first = word.textContent;
     expect(WORD_POOLS.modules).toContain(first);
     expect(word.getAttribute("aria-hidden")).toBe("true");
-    vi.advanceTimersByTime(SPINNER_WORD_INTERVAL_MS - 1);
+    vi.advanceTimersByTime(WORD_PACE_MS.modules - 1);
     expect(word.textContent).toBe(first);
     vi.advanceTimersByTime(1);
     const second = word.textContent;
     expect(second).not.toBe(first);
-    vi.advanceTimersByTime(SPINNER_WORD_INTERVAL_MS);
+    vi.advanceTimersByTime(WORD_PACE_MS.modules);
     expect(word.textContent).not.toBe(second);
     expect(word.textContent).toBe(first);
     expect(page.id("runStatus").textContent).toBe("Reading Line Items…");
@@ -593,6 +592,29 @@ describe("The results page's script, on the page", () => {
     ports[0].send({ type: "status", text: "Reading page 2 of 40: Demand board" });
     expect(WORD_POOLS.pages).toContain(word.textContent);
     expect(page.id("runStatus").textContent).toBe("Reading page 2 of 40: Demand board");
+    vi.advanceTimersByTime(WORD_PACE_MS.pages - 1);
+    expect(word.textContent).toBe(WORD_POOLS.pages[0]);
+    ports[0].send({ type: "status", text: "Reading Time Ranges…" });
+    expect(word.textContent).toBe(WORD_POOLS.time[0]);
+    vi.advanceTimersByTime(WORD_PACE_MS.time - 1);
+    expect(word.textContent).toBe(WORD_POOLS.time[0]);
+    vi.advanceTimersByTime(1);
+    expect(word.textContent).toBe(WORD_POOLS.time[1]);
+    expect(page.id("runStatus").textContent).toBe("Reading Time Ranges…");
+    expect(page.find(".run-word-row").title).toBe("Reading Time Ranges…");
+    expect(page.id("live").textContent).toBe("");
+  });
+
+  it("reserves space for every phrase including the longest and both engines before the run knows its kind or engine", async () => {
+    await open(clicked(42));
+    const sizes = page.all(".run-word-size");
+    expect(sizes.map(word => word.textContent)).toEqual(ALL_WORDS);
+    const longest = ALL_WORDS.reduce((longest, word) => word.length > longest.length ? word : longest);
+    expect(sizes.some(word => word.textContent === longest)).toBe(true);
+    expect(page.find(".run-words").getAttribute("aria-hidden")).toBe("true");
+    ports[0].send({ type: "subject", subject: { kind: "app", id: RESULT.id } });
+    ports[0].send({ type: "status", text: "Building the report…" });
+    expect(page.all(".run-word-size")).toEqual(sizes);
   });
 
   it("uses the browser's reduced motion preference and follows a change to it", async () => {
@@ -605,29 +627,34 @@ describe("The results page's script, on the page", () => {
     ports[0].send({ type: "status", text: "Reading Modules…" });
     const word = page.find(".run-word");
     const first = word.textContent;
-    vi.advanceTimersByTime(20 * SPINNER_WORD_INTERVAL_MS);
+    vi.advanceTimersByTime(20 * WORD_PACE_MS.modules);
     expect(word.textContent).toBe(first);
     ports[0].send({ type: "status", text: "Reading Line Items…" });
     const next = word.textContent;
     expect(next).not.toBe(first);
     media.matches = false;
     media.addEventListener.mock.calls[0][1]();
-    vi.advanceTimersByTime(SPINNER_WORD_INTERVAL_MS);
+    vi.advanceTimersByTime(WORD_PACE_MS.modules);
     expect(word.textContent).not.toBe(next);
   });
 
-  it.each(["Classic", "Polaris"])("hears the %s engine line during the run and never draws a map for an app", async engine => {
+  it.each(["Classic", "Polaris"] as const)("hears both %s phrases only after its engine line and never draws a map for an app", async engine => {
     vi.spyOn(Math, "random").mockReturnValue(0.99);
     await open(clicked(42));
     ports[0].send({ type: "subject", subject: { kind: "app", id: RESULT.id } });
     ports[0].send({ type: "status", text: "Building the report…" });
     const word = page.find(".run-word");
-    expect(word.textContent).toBe("Connecting the plans…");
-    vi.advanceTimersByTime(20 * SPINNER_WORD_INTERVAL_MS);
-    expect(word.textContent).toBe("Connecting the plans…");
+    expect(word.textContent).toBe("Almost there…");
+    for (let tick = 0; tick < 20; tick++) {
+      vi.advanceTimersByTime(WORD_PACE_MS.finishing);
+      expect(["Wrapping up…", "Almost there…"]).toContain(word.textContent);
+      expect(Object.values(ENGINE_WORDS).flat()).not.toContain(word.textContent);
+    }
     ports[0].send({ type: "log", text: `14:02:05 Engine: ${engine} (from the Line Items columns)` });
-    vi.advanceTimersByTime(SPINNER_WORD_INTERVAL_MS);
-    expect(word.textContent).toBe(engine === "Classic" ? "Hyperblocking…" : "Polarising…");
+    vi.advanceTimersByTime(WORD_PACE_MS.finishing);
+    expect(word.textContent).toBe(ENGINE_WORDS[engine][1]);
+    vi.advanceTimersByTime(WORD_PACE_MS.finishing);
+    expect(word.textContent).toBe(ENGINE_WORDS[engine][0]);
   });
 
   it("keeps progress in the card until a result arrives, then keeps the header run control through another run and failure", async () => {
@@ -1578,12 +1605,11 @@ describe("The results page's script, on the page", () => {
     page.all('#tableWrap tbody [data-act="row"]')[1].press();
     expect(page.texts("#drawerBody dt")).toEqual(["Name", "Formula"]);
     page.id("drawerClose").press();
-    // A dash in a model's file is Anaplan's own text, as Anaplan wrote it: shown as the text it is, with its tooltip, and
-    // not greyed as the dash an app's file has for nothing to say. A row with nothing else names itself by it.
+    // A lone dash is blank in the table and details; an unnamed row uses its position.
     const dash = page.all("#tableWrap tbody tr")[2].children[1];
-    expect([dash.querySelectorAll(".cell-t").map(text => [text.textContent, text.title]), page.has("#tableWrap .dash")]).toEqual([[["-", "-"]], false]);
+    expect([dash.querySelectorAll(".cell-t").map(text => [text.textContent, text.title]), page.has("#tableWrap .dash")]).toEqual([[], false]);
     page.all('#tableWrap tbody [data-act="row"]')[2].press();
-    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent, page.has("#drawerBody .dash")]).toEqual(["-", "Line Items", false]);
+    expect([page.id("drawerTitle").textContent, page.id("drawerSub").textContent, page.has("#drawerBody .dash")]).toEqual(["Row 3", "Line Items", false]);
   });
 
   it("keeps a page's link in an app's first column, with the row's button before it", async () => {
@@ -2763,7 +2789,7 @@ describe("What a click, a key and typing do on the results page", () => {
     expect(page.all("#drawerSub [data-act]").map(control => [control.dataset.act, control.textContent])).toEqual([["page", "Overview"]]);
     page.key("Escape");
     cardLinks()[0].press();
-    expect(card()).toEqual({ title: "Card 1 - Sales", cells: ["Overview", "Sales", "Grid", "-", "1", "card-a"], sections: ["Card details"], rows: [], note: [NOTE] });
+    expect(card()).toEqual({ title: "Card 1 - Sales", cells: ["Overview", "Sales", "Grid", "", "1", "card-a"], sections: ["Card details"], rows: [], note: [NOTE] });
     // Inside the drawer the card's own links open the same card again, not its twin.
     page.all('#drawerBody [data-act="card"]')[1].press();
     expect(card().title).toBe("Card 1 - Sales");
@@ -3280,10 +3306,10 @@ describe("An app's Where Used table, by object and by use", () => {
     // One row an object, in the order of an index: by type, then by name. The ID is there to choose, as in the file's own table.
     expect(headings()).toEqual(["Object type", "Object name", "Object's module", "Pages", "Cards", "Used as"]);
     expect(page.all("#tableWrap tbody tr").map(row => row.children.map(cell => cell.textContent.trim()))).toEqual([
-      ["Module", "REP01 Sales", "-", "1", "2", "Source module"],
-      ["Module", "REP02 Stores", "-", "1", "1", "Source module"],
+      ["Module", "REP01 Sales", "", "1", "2", "Source module"],
+      ["Module", "REP02 Stores", "", "1", "1", "Source module"],
       ["Line item", "Revenue", "REP01 Sales", "2", "2", "Line item shown; Filter line item"],
-      ["Dimension", "Time", "-", "2", "3", "Column dimension; Context selector"]]);
+      ["Dimension", "Time", "", "2", "3", "Column dimension; Context selector"]]);
     // The line under the name says how many uses that is, and of how many objects, and where each of them is listed: it
     // names the switch's other button as that reads. The count beside the pager is the table's.
     expect([page.texts("#view .view-note"), page.id("rowCount").textContent, page.id("live").textContent, page.texts("#view h1")])
@@ -6106,22 +6132,22 @@ describe("The buttons at the top right of a row's details that open it in Anapla
     expect([asks(), tabUpdates.filter(([tab]) => tab === 7)]).toEqual([[], []]);
   });
 
-  it("shows a module on no page with a greyed dash for its app and its page, which their filters list, and the search finds it by its name", async () => {
+  it("shows a module on no page with blank cells for its app and its page, which their filters list, and the search finds it by its name", async () => {
     await openModel(WITH_PAGES);
     choose(String(WITH_PAGES.tables.findIndex(table => table.file === MODULE_USAGE_FILE)));
     const row = page.all("#tableWrap tbody tr").find(row => row.children[0].textContent.trim() === "--- Archive ---")!;
-    expect([row.children[0].textContent.trim(), row.children[1].querySelector(".dash")?.textContent, row.children[2].querySelector(".dash")?.textContent, row.textContent.includes("Not on any page")])
-      .toEqual(["--- Archive ---", "-", "-", false]);
+    expect([row.children[0].textContent.trim(), row.children[1].textContent, row.children[2].textContent, row.textContent.includes("Not on any page")])
+      .toEqual(["--- Archive ---", "", "", false]);
     // App always has a filter, and Page has one for its few pages, as Module has for its few modules: App's and Page's
-    // list the dash as a value, with its one row.
+    // list (blank) as a value, with its one row.
     expect(filterable()).toEqual(["Module", "App", "Page"]);
     page.find('[data-colfilter="1"]').press();
-    expect(choices()).toContainEqual(["-", "1", true]);
+    expect(choices()).toContainEqual(["(blank)", "1", true]);
     page.key("Escape");
     page.find('[data-colfilter="2"]').press();
-    expect(choices()).toContainEqual(["-", "1", true]);
-    // The dash alone ticked: the module on no page alone is shown.
-    for (const option of page.all("#popover .pop-opt")) if (option.children[1].textContent !== "-") option.children[0].tick();
+    expect(choices()).toContainEqual(["(blank)", "1", true]);
+    // Only (blank) ticked: the module on no page alone is shown.
+    for (const option of page.all("#popover .pop-opt")) if (option.children[1].textContent !== "(blank)") option.children[0].tick();
     expect(firstCells()).toEqual(["--- Archive ---"]);
     page.find("#popover [data-ftoggle]").tick();
     page.key("Escape");
@@ -7116,6 +7142,62 @@ describe("How a result was looked at, kept through a refresh of the page until t
     expect(firstCells()).toEqual(onlyBlank ? [] : ["Units", "Price", "Revenue", "Margin %", "Cost"]);
     page.find('[data-colfilter="3"]').press();
     expect(page.all("#popover .pop-opt").some(option => option.textContent.includes("(blank)"))).toBe(false);
+  });
+
+  it.each([{ t: ["-"] }, { u: ["-"] }, { t: [" - ", ""] }])("restores old dash filters %j as the merged blank, through another refresh", async filter => {
+    const file: ResultTable = { file: "Imports.csv", label: "Imports", headers: ["", "Source Model"], guard: false,
+      rows: [["Uploaded data", "-"], ["Empty", ""], ["Spaced", " - "], ["From model", "Example hub"]] };
+    const stored: AnalysisResult = { ...MODEL, tables: [MODEL.tables[0], file] };
+    await openWith(stored);
+    await letKeep();
+    session.held.set(VIEW_KEY, JSON.stringify({ subject: `model:${stored.id}`,
+      tables: { "Imports.csv": { filters: { "Source Model": filter } } } }));
+    await open(`${refreshed}#1`);
+    await back("Model one");
+    const expected = "t" in filter ? ["Uploaded data", "Empty", "Spaced"] : ["From model"];
+    expect(firstCells()).toEqual(expected);
+    page.find('[data-colfilter="1"]').press();
+    expect(choices()).toEqual([["(blank)", "3", "t" in filter], ["Example hub", "1", "u" in filter]]);
+    page.key("Escape");
+    letLooksKeep();
+    expect(looksKept()).toMatchObject({ tables: { "Imports.csv": { filters: { "Source Model": "t" in filter ? { u: ["Example hub"] } : { u: [""] } } } } });
+    await open(`${refreshed}#1`);
+    await back("Model one");
+    expect(firstCells()).toEqual(expected);
+  });
+
+  it.each(["number", "date"].flatMap(kind => [{ kind, filter: { t: ["-"] } }, { kind, filter: { u: ["-"] } }]))(
+    "keeps a saved value filter $filter when blanking dashes makes a $kind range possible", async ({ kind, filter }) => {
+      const file: ResultTable = { file: "Imports.csv", label: "Imports", headers: ["", "Value"], guard: false,
+        rows: [["Dash", "-"], ["Empty", ""], ["Low", kind === "number" ? "2" : "2026-01-02"], ["High", kind === "number" ? "10" : "2026-01-10"]] };
+      await openWith({ ...MODEL, tables: [MODEL.tables[0], file] });
+      await letKeep();
+      session.held.set(VIEW_KEY, JSON.stringify({ subject: `model:${MODEL.id}`, tables: { "Imports.csv": { filters: { Value: filter } } } }));
+      for (let refresh = 0; refresh < 2; refresh++) {
+        await open(`${refreshed}#1`);
+        await back("Model one");
+        expect(firstCells()).toEqual("t" in filter ? ["Dash", "Empty"] : ["Low", "High"]);
+        page.find('[data-colfilter="1"]').press();
+        expect(choices()).toContainEqual(["(blank)", "2", "t" in filter]);
+        page.key("Escape");
+        letLooksKeep();
+      }
+    });
+
+  it.each(["Applies To", "Read Access Driver", "Write Access Driver"].flatMap(header => [
+    { header, filter: { t: ["-"] } }, { header, filter: { u: ["-"] } },
+  ]))("keeps an inherited dash distinct from blank in the saved $header filter $filter", async ({ header, filter }) => {
+    const file: ResultTable = { file: "Line Items.csv", label: "Line Items", guard: false,
+      headers: ["", "Module Name", "Format", "Applies To", "Read Access Driver", "Write Access Driver"],
+      rows: [["Inherited", "Plan", "Number", "-", "-", "-"], ["Empty", "Plan", "Number", "", "", ""],
+        ["Own", "Plan", "Number", "Products", "Access.Read", "Access.Write"]] };
+    await openWith({ ...MODEL, tables: [MODEL.tables[0], file] });
+    await letKeep();
+    session.held.set(VIEW_KEY, JSON.stringify({ subject: `model:${MODEL.id}`,
+      tables: { "Line Items.csv": { filters: { [header]: filter } } } }));
+    await open(`${refreshed}#1`);
+    await back("Model one");
+    expect(firstCells()).toEqual("t" in filter ? ["Inherited"] : ["Empty", "Own"]);
   });
 
   it.each(["checkbox", "one by one"])("clears a column's filter, mark and kept choice when all values are ticked by %s", async method => {

@@ -52,39 +52,29 @@ describe("What the results page's markup shows", () => {
         for (const index of [0, 1, 2, 3]) expect(text(parseMarkup(cellHtml(column(index, "Any", kind), row, links))), `${kind} ${index}`).toBe(row[index]);
       }
     }
-    // A number shows as its digits, 0 included. An empty or missing cell shows nothing, and in an app's table the dash is
-    // the greyed dash, in every kind of column. In a model's it is Anaplan's text, shown as any text is in its column.
+    // A number shows as its digits, 0 included. Empty, missing and lone-dash cells show nothing.
+    // A column that preserves inheritance shows its dash as text.
     expect([text(parseMarkup(cellHtml(column(1, "Card #"), ["a", 0], NO_LINKS))), text(parseMarkup(cellHtml(column(1, "Card #"), ["a", -12.5], NO_LINKS)))]).toEqual(["0", "-12.5"]);
     for (const kind of KINDS) {
       expect([cellHtml(column(0, "Any", kind), [""], LINKS), cellHtml(column(3, "Any", kind), ["a"], LINKS)], kind).toEqual(["", ""]);
       const dash = parseMarkup(cellHtml(column(0, "Any", kind), [NONE], LINKS)).children;
-      expect(dash.map(element => [element.localName, element.getAttribute("class"), element.textContent]), kind).toEqual([["span", "dash", NONE]]);
+      expect(dash.map(element => [element.localName, element.getAttribute("class"), element.textContent]), kind).toEqual([]);
       const anaplans = parseMarkup(cellHtml(column(0, "Any", kind, { none: false }), [NONE], LINKS));
       expect([text(anaplans), anaplans.querySelectorAll(".dash").length], kind).toEqual([NONE, 0]);
     }
   });
 
-  it("greys the dash in an app's table, where it says that there is nothing, and shows it as text in a model's, where it is Anaplan's", () => {
-    // The app's Cards file with the dash for a card without a title, and a model's Modules file as Anaplan writes it: a
-    // dash under Applies To on the rows that divide the list of modules, one of which is called by a dash alone.
+  it("blanks a dash in app and model cells, keeping a button for an unnamed row", () => {
     const cards: ResultTable = { ...CARDS, rows: [["Overview", 1, NONE, "Grid", "card-a"]] };
     const modules: ResultTable = { file: "Modules.csv", label: "Modules", headers: ["", "Applies To"], guard: false,
       rows: [["REV01 Revenue", "Products, Time"], ["--- Inputs ---", NONE], [NONE, NONE]] };
-    const [app, model] = [columnsOf(cards), columnsOf(modules)];
-    /** What a cell is made of: each element, by its name, its class, its text and its tooltip. */
-    const made = (html: string) => parseMarkup(html).children.map(element => [element.localName, element.getAttribute("class"), element.textContent, element.title]);
-    // In the app's table the dash is greyed, and is no text with a tooltip; in the table and in the drawer alike.
-    expect([made(cellHtml(app[2], cards.rows[0], LINKS)), made(cellHtml(app[2], cards.rows[0], LINKS, true))]).toEqual([[["span", "dash", NONE, ""]], [["span", "dash", NONE, ""]]]);
-    // In the model's table it is the cell's text like any other, with its tooltip, whichever column it is in.
-    expect([made(cellHtml(model[1], modules.rows[1], NO_LINKS)), made(cellHtml(model[0], modules.rows[2], NO_LINKS))]).toEqual([[["span", "cell-t", NONE, NONE]], [["span", "cell-t", NONE, NONE]]]);
-    // Where it is the cell that opens its row, it is the button's own content, as a name is, and the button is named by it.
-    const [opens, ...others] = parseMarkup(rowCellHtml(model[0], modules.rows[2], NO_LINKS)).children;
-    expect([others.length, opens.dataset.act, opens.getAttribute("aria-label"), opens.children.map(child => [child.getAttribute("class"), child.textContent])])
-      .toEqual([0, "row", null, [["cell-t", NONE]]]);
-    // Whole tables: the app's greys its one dash; the model's greys none of its three, and shows each as it was written.
-    expect(parseMarkup(tableHtml(viewOf(cards, LINKS))).querySelectorAll("tbody .dash").map(text)).toEqual([NONE]);
-    const shown = tableHtml(viewOf(modules, NO_LINKS));
-    expect([parseMarkup(shown).querySelectorAll(".dash").length, cells(shown)]).toEqual([0, [["REV01 Revenue", "Products, Time"], ["--- Inputs ---", NONE], [NONE, NONE]]]);
+    for (const table of [cards, modules]) {
+      const html = tableHtml(viewOf(table, NO_LINKS));
+      expect(parseMarkup(html).querySelectorAll(".dash")).toHaveLength(0);
+      expect(cells(html)).toEqual(table.rows.map(row => row.map(cell => cell === NONE ? "" : String(cell))));
+    }
+    const opens = parseMarkup(rowCellHtml(columnsOf(modules)[0], modules.rows[2], NO_LINKS)).children[0];
+    expect([opens.dataset.act, opens.getAttribute("aria-label"), opens.textContent]).toEqual(["row", "Open this row", ""]);
   });
 
   it("shows a cell the way its column is shown: plain text, an ID to copy, a tag, or a link to a page or a card", () => {
@@ -160,7 +150,7 @@ describe("What the results page's markup shows", () => {
 
   it("puts each cell under its own heading: the value of that column, for the rows of the page, in their order", () => {
     const all = columnsOf(CARDS);
-    const expected = (rows: Cell[][], shown: number[]) => rows.map(row => shown.map(index => String(row[index])));
+    const expected = (rows: Cell[][], shown: number[]) => rows.map(row => shown.map(index => (row[index] === NONE ? "" : String(row[index]))));
     for (const shown of [[0, 1, 2, 3, 4], [1, 3, 4], [4], [2, 0], [4, 3, 2, 1, 0]]) {
       const html = tableHtml(viewOf(CARDS, NO_LINKS, { columns: shown.map(index => all[index]) }));
       expect(cells(html), shown.join()).toEqual(expected(CARDS.rows, shown));
@@ -208,10 +198,10 @@ describe("What the results page's markup shows", () => {
     const rows: Cell[][] = [["Revenue", "15389009578", "102000000001", "102000000001"], ["Units", 1234, "x", "1234"], ["Empty", "", "", ""], ["None", NONE, NONE, NONE],
       ["Word", "n/a", "", ""], ["Fraction", "12.5", "", ""], ["Grouped", "2,400", "", ""], ["Code", "0012", "", ""], ["Open", "41+", "", ""], ["Small", "12", "", ""]];
     const shown = rows.map(row => text(parseMarkup(cellHtml(columns[1], row, NO_LINKS))));
-    expect(shown).toEqual(["15,389,009,578", "1,234", "", NONE, "n/a", "12.5", "2,400", "0012", "41+", "12"]);
-    // The tooltip says what the cell shows; the dash is the greyed dash, as in every column.
+    expect(shown).toEqual(["15,389,009,578", "1,234", "", "", "n/a", "12.5", "2,400", "0012", "41+", "12"]);
+    // The tooltip says what the cell shows; a blank has no tooltip.
     expect(parseMarkup(cellHtml(columns[1], rows[0], NO_LINKS)).children[0].title).toBe("15,389,009,578");
-    expect(parseMarkup(cellHtml(columns[1], rows[3], NO_LINKS)).children.map(element => element.getAttribute("class"))).toEqual(["dash"]);
+    expect(parseMarkup(cellHtml(columns[1], rows[3], NO_LINKS)).children.map(element => element.getAttribute("class"))).toEqual([]);
     // An ID and a code of figures are not counts: they show as they are, in the table and in the drawer.
     expect([text(parseMarkup(cellHtml(columns[2], rows[0], NO_LINKS))), text(parseMarkup(cellHtml(columns[3], rows[0], NO_LINKS))), text(parseMarkup(cellHtml(columns[3], rows[1], NO_LINKS)))])
       .toEqual(["102000000001", "102000000001", "1234"]);

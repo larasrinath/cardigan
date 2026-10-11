@@ -203,7 +203,7 @@ describe("The results page's escaping", () => {
     expect(cell("text", "Revenue")).toEqual([[["row", "Revenue", null]], ""]);
     expect(cell("text", 0)).toEqual([[["row", "0", null]], ""]);
     expect(cell("tag", "Grid")).toEqual([[["row", "Grid", null]], ""]);
-    expect(cell("text", "-")).toEqual([[["row", "-", null]], ""]);
+    expect(cell("text", "-")).toEqual([[["row", "", "Open this row"]], ""]);
     // Without the result's Cards file a page or a card is plain text, and so the button.
     expect(cell("page", "Overview", NO_LINKS)).toEqual([[["row", "Overview", null]], ""]);
     expect(cell("card", 3, NO_LINKS)).toEqual([[["row", "3", null]], ""]);
@@ -396,7 +396,7 @@ describe("The results page's escaping", () => {
       const values = parseMarkup(html).querySelectorAll(".d-dl dd");
       expect(parseMarkup(html).querySelectorAll(".d-dl dt").map(name => name.textContent)).toEqual(["Formula", "Type", "Page", "Card title", "Empty", "None", "Card ID"]);
       // Every cell's own text, to the character, whatever its column's kind; an empty cell stays empty.
-      expect(values.map(value => value.textContent)).toEqual([text, text, text, text, "", "-", text]);
+      expect(values.map(value => value.textContent)).toEqual([text, text, text, text, "", "", text]);
       // The text of a value stands in a cell-t or, for an ID, in its pill, and in nothing else: the dd holds no other text.
       for (const value of [...values.slice(0, 4), values[6]]) {
         const holders = value.querySelectorAll(".cell-t, .id-pill");
@@ -629,7 +629,7 @@ describe("The results page's escaping", () => {
 
   it("holds no text of a run in the run's view or in its banner: the page sets each part as plain text", () => {
     const ids = (html: string) => readMarkup(html).tags.flatMap(tag => (tag.attributes.has("id") ? [tag.attributes.get("id")] : []));
-    const words = (html: string) => readMarkup(html).texts.map(text => text.trim()).filter(text => text !== "");
+    const words = (html: string) => readMarkup(html).texts.map(text => decode(text).trim()).filter(text => text !== "");
     expect(ids(runHtml())).toEqual(["runCard", "runIcon", "runTitle", "runStatus", "runHint", "runRefresh", "runRetry", "runCopy", "runLog", "diagLog"]);
     expect(words(runHtml())).toEqual([...ALL_WORDS, "Refresh the Anaplan tab and run", "Run again", "Copy diagnostic log", "Show diagnostics", "Hide diagnostics"]);
     expect(ids(runBannerHtml())).toEqual(["runBanner", "bannerTitle", "bannerText", "bannerHint", "bannerRefresh", "bannerCopy"]);
@@ -681,8 +681,8 @@ describe("A formatting rule's colours", () => {
     const stops = "#FFFFFF at 0; #F9E95C at 3";
     expect([parseMarkup(cellHtml(colours, [stops], LINKS)).querySelector(".cell-t")?.getAttribute("title"), squares(cellHtml(colours, [stops], LINKS)).length]).toEqual([stops, 2]);
     expect([parseMarkup(cellHtml(colours, [stops], LINKS, true)).querySelector(".cell-t")?.hasAttribute("title"), squares(cellHtml(colours, [stops], LINKS, true)).length]).toEqual([false, 2]);
-    // A dash stays a dash, and an empty cell stays empty.
-    expect([cellHtml(colours, ["-"], LINKS), cellHtml(colours, [""], LINKS)]).toEqual(['<span class="dash">-</span>', ""]);
+    // A dash and an empty cell both show blank.
+    expect([cellHtml(colours, ["-"], LINKS), cellHtml(colours, [""], LINKS)]).toEqual(["", ""]);
     // In a card's details, the column that holds colour stops shows their squares, and only that one.
     const drawer = cardDrawerHtml([], [], LINKS, [{ title: "Conditional formatting", none: "formatting rules", headings: ["Style", "Colour stops"], colours: [false, true],
       rows: [["#FFFFFF at 0", stops]] }]);

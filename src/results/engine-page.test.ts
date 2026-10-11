@@ -44,7 +44,7 @@ async function until(holds: () => unknown, what: string): Promise<void> {
 /** A result's tables as text, by the names the page lists them under: each one's headers, then its rows cell for cell.
  * The Details file is no table of the page's: the overview says what it holds. */
 const tablesOf = (result: AnalysisResult): Map<string, string[][]> =>
-  new Map(result.tables.filter(table => table.details !== true).map(table => [table.label, [table.headers, ...table.rows.map(row => row.map(cell => String(cell).trim()))]]));
+  new Map(result.tables.filter(table => table.details !== true).map(table => [table.label, [table.headers, ...table.rows.map(row => row.map(cell => (cell === "-" ? "" : String(cell).trim())))]]));
 
 /** A zip's files as text. The Details file is given as its rows without the Diagnostics ones: a run's log is its own. */
 function files(zip: Uint8Array, details: string): Map<string, string | string[][]> {
@@ -194,7 +194,7 @@ describe("The results page itself against the engine in the Anaplan tab", () => 
     // Of the engine's columns, the IDs and the card's number start hidden; each card's title is on screen.
     const headings = page.all("#tableWrap thead .th-sort").map(button => button.textContent.trim());
     expect(headings).toEqual(cards.headers.filter(header => !["Card #", "Card ID", "Source IDs"].includes(header)));
-    expect(page.all("#tableWrap tbody tr").map(row => row.children[headings.indexOf("Card title")].textContent.trim())).toEqual(cards.rows.map(row => String(row[cards.headers.indexOf("Card title")])));
+    expect(page.all("#tableWrap tbody tr").map(row => row.children[headings.indexOf("Card title")].textContent.trim())).toEqual(cards.rows.map(row => (row[cards.headers.indexOf("Card title")] === "-" ? "" : String(row[cards.headers.indexOf("Card title")]))));
 
     // What the page shows is the engine's result: every table the navigation lists, with every column, cell for cell;
     // and on the overview what the engine's Details file says, with the log of the run.
@@ -342,15 +342,15 @@ describe("The results page itself against the engine in the Anaplan tab", () => 
     expect([page.texts("#view .view-note"), page.all("#tableWays button").map(button => [button.textContent.trim(), button.getAttribute("aria-pressed")]), page.id("rowCount").textContent])
       .toEqual([["10 uses of 9 objects. Choose Every use to list each one."], [["By object", "true"], ["Every use", "false"]], "1–9 of 9 rows"]);
     expect(cells()).toEqual([
-      ["Module", "Demand", "-", "1", "1", "Data source (custom view)"],
+      ["Module", "Demand", "", "1", "1", "Data source (custom view)"],
       ["Line item", "Include?", "Filter flags", "1", "1", "Filter"],
       ["Line item", "Volume", "Demand", "1", "1", "Formatting"],
-      ["Dimension", "Line Items", "-", "1", "1", "Page selector"],
-      ["Dimension", "Product", "-", "1", "1", "Rows"],
-      ["Dimension", "Territory", "-", "1", "1", "Page selector; Filter context"],
-      ["Dimension", "Time", "-", "1", "1", "Columns"],
-      ["Import", "Import demand", "-", "1", "1", "Action button"],
-      ["Process", "Run nightly", "-", "1", "1", "Action button"]]);
+      ["Dimension", "Line Items", "", "1", "1", "Page selector"],
+      ["Dimension", "Product", "", "1", "1", "Rows"],
+      ["Dimension", "Territory", "", "1", "1", "Page selector; Filter context"],
+      ["Dimension", "Time", "", "1", "1", "Columns"],
+      ["Import", "Import demand", "", "1", "1", "Action button"],
+      ["Process", "Run nightly", "", "1", "1", "Action button"]]);
     // Territory's drawer: what it is, its two roles, and its two uses on the one card, which the card's number opens.
     page.all('#tableWrap tbody [data-act="row"]')[5].press();
     const drawerRows = (section: number) => page.all("#drawerBody .d-sec")[section].querySelectorAll("tbody tr").map(row => row.children.map(cell => cell.textContent.trim()));

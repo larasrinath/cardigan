@@ -280,14 +280,14 @@ describe("The results page against the engine in the Anaplan tab", () => {
     expect(cells("Other Actions.csv", "Action")).toEqual([['{"actionType":"DELETE_BY_SELECTION"}'], ["Delete from List using Selection"]]);
     expect(cells("Exports.csv", "Action")).toEqual([['{"exportType":"GRID_CURRENT_PAGE"}'], ['{"exportType":"GRID_CURRENT_PAGE"}']]);
     // The page's rule for the Imports file fits the file the export writes: the import of a saved view of another model
-    // is shown by its model, its module and its view; the file's import keeps its dash, and the import that only the
+    // is shown by its model, its module and its view; the file's import shows blank, and the import that only the
     // Actions list has keeps its empty cell. The table the result holds keeps the tab's text.
     const imports = result.tables.find(candidate => candidate.file === IMPORTS_FILE);
     if (!imports) throw new Error("The export wrote no Imports.csv.");
     const importsShown = fileView(result, imports).table;
     const parts = ["Source Model", "Source Module", "Saved View"].map(header => importsShown.headers.indexOf(header));
     expect([imports.rows.map(row => row[imports.headers.indexOf("Source Object")]), importsShown.rows.map(row => parts.map(index => row[index]))])
-      .toEqual([["Hub / 'LIST - Regions'.Export", "-", ""], [["Hub", "LIST - Regions", "Export"], ["-", "", ""], ["", "", ""]]]);
+      .toEqual([["Hub / 'LIST - Regions'.Export", "-", ""], [["Hub", "LIST - Regions", "Export"], ["", "", ""], ["", "", ""]]]);
   });
 
   it("says a line item's list format with the name the export wrote beside it, from the model's General Lists", async () => {

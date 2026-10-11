@@ -4,7 +4,7 @@ import { MODEL_PAGE_FILES, MODULE_USAGE_FILE, MODULE_USAGE_HEADERS, PAGE_ACTIONS
 import { HEADERS, type TabName } from "../report.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
 import { APP_FILES, cardsNamed, cardsOf, COLUMN_CHOICES, columnIndex, columnsOf, FILTER_MAX, FILTER_MIN, FREE_TEXT, MEASURES, MODEL_COUNTS, MODEL_FILTERED, MODEL_LAYOUTS, NUMBERS_HIDDEN,
-  ROW_NAME_COLUMNS, rowColumns, rowKeys, rowNameIndex, writesNone } from "./columns.js";
+  ROW_NAME_COLUMNS, rowColumns, rowKeys, rowNameIndex, blanksDash } from "./columns.js";
 import { cellText } from "./table-engine.js";
 import { MODEL_FILE_ORDER } from "./result-view.js";
 
@@ -164,7 +164,7 @@ describe("The results page's columns", () => {
       expect(labels(columns.filter(column => column.hidden))).toEqual(MODEL_LAYOUTS.get(file)?.hidden);
     }
     // The run writes them, so the dash alone says there is nothing, and a row is named as the app's own tables name one.
-    expect(MODEL_PAGE_FILES.map(file => writesNone(table(file, ["App"])))).toEqual([true, true, true]);
+    expect(MODEL_PAGE_FILES.map(file => blanksDash(file, "App"))).toEqual([true, true, true]);
     expect([rowNameIndex(table(PAGE_FILTERS_FILE, [...PAGE_FILTERS_HEADERS])), rowNameIndex(table(PAGE_ACTIONS_FILE, [...PAGE_ACTIONS_HEADERS])),
       rowNameIndex(table(MODULE_USAGE_FILE, [...MODULE_USAGE_HEADERS]))]).toEqual([1, 5, undefined]);
   });
@@ -326,21 +326,13 @@ describe("The results page's columns", () => {
     expect(columnsOf({ ...pages, rows: twoModels }).find(column => column.label === "Model ID")).toMatchObject({ kind: "id", hidden: true, filter: true });
   });
 
-  it("takes the dash alone for nothing to say in the app's files only: in a model's file it is Anaplan's own text", () => {
-    // Each of the app's files is written by the analysis, which writes the dash where it has nothing to say: in every
-    // column the dash says that.
-    for (const file of Object.keys(FILES)) {
-      expect([writesNone(appTable(file)), columnsOf(appTable(file)).every(column => column.none)], file).toEqual([true, true]);
+  it("blanks dashes in every column except Line Items' three inherited settings", () => {
+    for (const file of [...Object.keys(FILES), ...MODEL_PAGE_FILES, "Modules.csv", "Imports.csv", "constructor", "__proto__", ""]) {
+      expect(columnsOf(table(file, ["", "Applies To", "Read Access Driver", "Write Access Driver"])).every(column => column.none), file).toBe(true);
     }
-    // A model's file is Anaplan's grid, where Anaplan writes a dash itself, and a file the page knows nothing about is no
-    // file of the app's either: whatever its name or its columns, the dash is its text.
-    for (const other of [table("Modules.csv", ["", "Applies To"]), table("Imports.csv", ["", "Source Object"]), table("Line Items.csv", ["", "Page", "Card ID"]),
-      table("constructor", ["Page"]), table("__proto__", ["Page"]), table("", ["Page"])]) {
-      expect([writesNone(other), columnsOf(other).some(column => column.none)], other.file).toEqual([false, false]);
-    }
-    // A cell beyond a row's headers is its table's like any other.
-    const beyond = (file: string, headers: string[]) => rowColumns(columnsOf(table(file, headers)), ["a", "b", "c"]).map(column => column.none);
-    expect([beyond("Cards.csv", ["Page"]), beyond("Line Items.csv", [""])]).toEqual([[true, true, true], [false, false, false]]);
+    const columns = columnsOf(table("Line Items.csv", ["", "Applies To", "Read Access Driver", "Write Access Driver", "Formula"]));
+    expect(columns.filter(column => !column.none).map(column => column.label)).toEqual(["Applies To", "Read Access Driver", "Write Access Driver"]);
+    expect(rowColumns(columns, ["a", "b", "c", "d", "e", "-"]).at(-1)?.none).toBe(true);
   });
 
   it("gives a row its table's columns, and one more for each cell it holds beyond the headers", () => {
