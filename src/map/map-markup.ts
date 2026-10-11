@@ -260,12 +260,14 @@ function leftOutHtml(lines: readonly string[]): string {
  * own sentences say it, with how many names matched no object, or more than one. `headings` is how many heading rows
  * stand among the model's modules: the page's Modules table counts each as a row, and the map counts none as a module,
  * so the two numbers differ by them, and the notes say why. */
-export function notesHtml(model: { name: string; workspace?: string; modules: number; lineItems: number; headings?: number }, limitations: readonly string[], unresolved: number): string {
+export function notesHtml(model: { name: string; workspace?: string; modules: number; lineItems: number; headings?: number; modulesOnly?: number }, limitations: readonly string[], unresolved: number): string {
   const lines = [...limitations, ...(unresolved > 0 ? [`${formatCount(unresolved)} ${unresolved === 1 ? "name" : "names"} in the export matched no object, or more than one. A box's details list its own.`] : [])];
   const { modules, lineItems, headings = 0 } = model;
   const where = model.workspace !== undefined && model.workspace.trim() !== "" ? `, in the workspace ${esc(model.workspace)}` : "";
   const rows = headings <= 0 ? "" : `<p class="map-about-line">${esc(formatCount(headings))} heading ${headings === 1 ? "row stands" : "rows stand"} among the modules. The map counts ${headings === 1 ? "it" : "them"} as no module, and the page's Modules table counts ${headings === 1 ? "it as a row" : "each as a row"}: that table has more rows than the map has modules.</p>`;
-  return `<h3 class="map-about-title">This model</h3><p class="map-about-line">${esc(model.name)}${where}: ${esc(formatCount(modules))} ${modules === 1 ? "module" : "modules"} · ${esc(formatCount(lineItems))} ${lineItems === 1 ? "line item" : "line items"}</p>${rows}${leftOutHtml(lines)}`;
+  const added = model.modulesOnly ?? 0;
+  const fromModules = added === 0 ? "" : `<p class="map-about-line">${esc(formatCount(added))} ${added === 1 ? "module comes" : "modules come"} from Modules alone; Line Items has no row for ${added === 1 ? "it" : "them"}.</p>`;
+  return `<h3 class="map-about-title">This model</h3><p class="map-about-line">${esc(model.name)}${where}: ${esc(formatCount(modules))} ${modules === 1 ? "module" : "modules"} · ${esc(formatCount(lineItems))} ${lineItems === 1 ? "line item" : "line items"}</p>${rows}${fromModules}${leftOutHtml(lines)}`;
 }
 
 /** The first step of the path: the model's name, which is the map's heading. Where the map shows the model whole it says
@@ -280,6 +282,12 @@ export function pathRootHtml(model: string, workspace: string | undefined, whole
  * where the picture draws some, and, where the Links panel has no kind of link ticked, that none is drawn. */
 export interface LegendLinks { formulas: boolean; access: boolean; none: boolean }
 const FORMULAS_ONLY: LegendLinks = { formulas: true, access: false, none: false };
+/** What a dotted box is, said in the legend while the picture has one, and in such a module's details. */
+export const MODULES_ONLY_SAYS = "Module from Modules only: Line Items has no row for it.";
+/** The legend's mark for it: a box edged with round dots, as the canvas draws one (map-canvas.ts `DOTTED`). Its fill, its
+ * colour and its dots are the stylesheet's (map.css `.map-c-modules-only`), 2 pixels across and spread evenly round
+ * this 20 by 12 box with corners of 4. */
+const MODULES_ONLY_MARK = '<svg class="map-c-modules-only" width="22" height="14" viewBox="0 0 22 14" aria-hidden="true"><rect x="1" y="1" width="20" height="12" rx="4"/></svg>';
 
 /** The legend: each layer of the graph on screen with its colour and its number, as a button that hides the layer and
  * shows it again, and under them what a line means, for only the kinds of link drawn (`links`): while the links of page
@@ -287,13 +295,14 @@ const FORMULAS_ONLY: LegendLinks = { formulas: true, access: false, none: false 
  * in; and while a box of the picture has a filter mark, what the mark means on that kind of picture (`marks`), beside
  * one. Where no kind of link
  * is ticked, it says so plainly. A hidden layer says so in more than its colour: its name is struck through, and the
- * button is not pressed. */
+ * button is not pressed. While the picture has a box of a module from Modules alone (`modulesOnly`), a line under the
+ * layers says what its dotted edge means, beside the mark. */
 export function legendHtml(title: string, layers: readonly ViewLayer[], hidden: ReadonlySet<string>, filters?: ViewGraph["kind"], marks?: ViewGraph["kind"],
-  links: LegendLinks = FORMULAS_ONLY, accessMarks?: ViewGraph["kind"]): string {
+  links: LegendLinks = FORMULAS_ONLY, accessMarks?: ViewGraph["kind"], modulesOnly = false): string {
   return `<div class="map-legend-title">${esc(title)}</div>${layers.map(layer => {
     const off = hidden.has(layer.key);
     return `<button type="button" class="map-legend-item${off ? " map-off" : ""}" data-map-act="layer" data-map-layer="${esc(layer.key)}" aria-pressed="${off ? "false" : "true"}">${dot(layer.key)}<span class="map-legend-name">${esc(layer.label)}</span><span class="map-legend-count">${esc(formatCount(layer.count))}</span></button>`;
-  }).join("")}${links.formulas ? `<p class="map-legend-note">${esc(LINK_SAYS)}</p>` : ""}${
+  }).join("")}${modulesOnly ? `<p class="map-legend-note map-legend-mark">${MODULES_ONLY_MARK}${esc(MODULES_ONLY_SAYS)}</p>` : ""}${links.formulas ? `<p class="map-legend-note">${esc(LINK_SAYS)}</p>` : ""}${
     links.access ? `<p class="map-legend-note map-legend-access">${esc(ACCESS_LINK_SAYS)}</p>` : ""}${
     links.none ? `<p class="map-legend-note map-legend-none">${esc(NO_LINKS_SAYS)}</p>` : ""}${filters ? `<p class="map-legend-note map-legend-filter"><span class="map-line-filter" aria-hidden="true"></span>${esc(FILTER_LINK_SAYS[filters])}</p>` : ""}${
     marks ? `<p class="map-legend-note map-legend-mark"><span class="map-mark-filter" aria-hidden="true">${FUNNEL}</span>${esc(FILTER_MARK_SAYS[marks])}</p>` : ""}${
@@ -344,8 +353,9 @@ export function listHtml(list: InspectList, all: boolean): string {
   return `<summary>${PATH_CHEVRON}${esc(list.title)}</summary>${shown.map(linkHtml).join("")}${more}`;
 }
 
-/** A fixed header with the name, kind and opening buttons, then a scrolling body of details and folded raw values. */
-export function inspectorHtml(inspection: Inspection, trace?: TraceWords, opens: readonly MapOpen[] = [], focused = false): string {
+/** A fixed header with the name, kind and opening buttons, then a scrolling body of details and folded raw values. The
+ * body of a module from Modules alone (`modulesOnly`) starts with the line that says so. */
+export function inspectorHtml(inspection: Inspection, trace?: TraceWords, opens: readonly MapOpen[] = [], focused = false, modulesOnly = false): string {
   const rows = inspection.rows.length ? `<dl class="map-dl">${inspection.rows.map(([label, value]) => `<dt>${esc(label)}</dt><dd>${esc(value)}</dd>`).join("")}</dl>` : "";
   const action = inspection.action;
   const button = !action ? "" : `<button type="button" class="map-btn map-small map-primary" data-map-act="open"${action.section === undefined ? "" : ` data-map-section="${esc(action.section)}"`}${
@@ -359,7 +369,7 @@ export function inspectorHtml(inspection: Inspection, trace?: TraceWords, opens:
   const notes = inspection.notes === undefined ? "" : `<h4 class="map-insp-sec">Notes</h4><p class="map-insp-note">${esc(inspection.notes)}</p>`;
   const raw = !inspection.asRead?.length ? "" : `<details class="map-details map-as-read"><summary>${PATH_CHEVRON}As read</summary>${inspection.asRead.map(([label, value]) => `<h4 class="map-insp-sec">${esc(label)}</h4><pre class="map-formula">${esc(value)}</pre>`).join("")}</details>`;
   return `<div class="map-insp-header"><div class="map-insp-head"><div><h3 class="map-insp-name" tabindex="-1">${esc(inspection.name)}</h3><span class="map-kind">${dot(inspection.layer)}${esc(inspection.kind)}</span></div><button type="button" class="map-icon-btn" data-map-act="close" aria-label="Close details" title="Close details">${CLOSE_ICON}</button></div>
-    ${buttons ? `<div class="map-insp-opens">${buttons}</div>` : ""}</div><div class="map-insp-body">${traced}${formula}${rows}${lists}${texts}${notes}${raw}</div>`;
+    ${buttons ? `<div class="map-insp-opens">${buttons}</div>` : ""}</div><div class="map-insp-body">${modulesOnly ? `<p class="map-insp-note">${esc(MODULES_ONLY_SAYS)}</p>` : ""}${traced}${formula}${rows}${lists}${texts}${notes}${raw}</div>`;
 }
 
 /** What a map that stopped after a failure says in its own place: that it could not be drawn, the failure's own words

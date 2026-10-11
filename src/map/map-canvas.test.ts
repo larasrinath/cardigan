@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { Camera } from "./map-camera.js";
-import { createFonts, drawMinimap, drawScene, legibleFrom, linkStrength, type Pen, type Scene } from "./map-canvas.js";
+import { hitNode, type Camera } from "./map-camera.js";
+import { createFonts, DOTTED, drawMinimap, drawScene, legibleFrom, linkStrength, type Pen, type Scene } from "./map-canvas.js";
 import { drawLinks, moduleGraph, modulesGraph, type ViewGraph, type ViewNode } from "./map-graphs.js";
 import { CARD, FULL_CARD_ZOOM, FULL_ITEM_ZOOM, ITEM, layoutGraph, sizeNodes, type Room } from "./map-layout.js";
 import { indexModel } from "./map-model.js";
@@ -684,6 +684,134 @@ describe("The map's picture without formulas' links", () => {
     expect(some.named("roundRect").map(call => call.args)).toEqual(all.named("roundRect").map(call => call.args));
     // Where formulas alone link the boxes, no link is drawn at all.
     expect(linkStrokes(draw(sceneOf(ready(modulesGraph(model, undefined, false)), { formulas: false })).pen)).toEqual([]);
+  });
+});
+
+describe("A module from Modules alone in the map's picture", () => {
+  /** A section of three modules, the second from Modules alone, and a module of another section that feeds the first. */
+  function reserved(modulesOnly = true) {
+    const make = new GraphMaker();
+    const outside = make.item(make.module("OUT - Outside", "00: Other"), "Value");
+    const first = make.item(make.module("AAA - First Module", "01: Main"), "Value");
+    make.module("RES - Reserve", "01: Main", modulesOnly ? { modulesOnly: true, file: "Modules" } : {});
+    make.item(make.module("ZZZ - Last Module", "01: Main"), "Value");
+    make.link(outside, first);
+    const model = indexModel(make.graph());
+    return { model, graph: ready(modulesGraph(model, "01: Main", false)) };
+  }
+  /** The stroke round a box's own rounded shape, as the box is drawn at a zoom: not the rings of a selection. */
+  const edgeOf = (pen: FakePen, node: ViewNode, k: number): PenCall => {
+    const edge = pen.named("stroke").find(call => shapeBefore(pen, call).some(each => each.name === "roundRect"
+      && JSON.stringify((each.args as number[]).slice(0, 4)) === JSON.stringify([node.x * k, node.y * k, node.w * k, node.h * k])));
+    if (!edge) throw new Error(`No edge drawn round ${node.fullName} at ${k}`);
+    return edge;
+  };
+  /** How long the edge of a box with rounded corners is. */
+  const around = (width: number, height: number, radius: number): number => {
+    const r = Math.min(radius, width / 2, height / 2);
+    return 2 * (width - 2 * r) + 2 * (height - 2 * r) + 2 * Math.PI * r;
+  };
+
+  it("edges its box with round dots of one size and spacing on screen at every zoom, in the box's quieter text colour, never in dashes", () => {
+    const { graph } = reserved();
+    const [reserve, outside, first] = ["RES - Reserve", "OUT - Outside", "AAA - First Module"].map(name => named(graph, name));
+    for (const k of [0.1, 0.27, 0.5, 1, 2, 3]) {
+      const { pen } = draw(sceneOf(graph, { camera: { ox: 0, oy: 0, k }, width: 9000, height: 9000 }));
+      const edge = edgeOf(pen, reserve, k);
+      // A dash of no length with round ends is a dot as wide as the line.
+      expect([edge.dash.length, edge.dash[0], edge.lineCap, edge.lineWidth, edge.strokeStyle], `at ${k}`).toEqual([2, 0, "round", DOTTED.size, FALLBACK.nodeTextMuted]);
+      // About a dot every four and a half pixels, as many as go evenly round the box, at whatever zoom.
+      const dots = around(reserve.w * k, reserve.h * k, Math.min(8, 8 * k)) / edge.dash[1];
+      expect(Math.abs(dots - Math.round(dots)), `at ${k}`).toBeLessThan(1e-9);
+      expect(Math.abs(edge.dash[1] - DOTTED.pitch), `at ${k}`).toBeLessThanOrEqual(DOTTED.pitch / 16);
+      // A box beside the graph keeps its dashes, and an ordinary box its whole edge.
+      expect([edgeOf(pen, outside, k).dash, edgeOf(pen, outside, k).lineCap, edgeOf(pen, first, k).dash, edgeOf(pen, first, k).lineCap], `at ${k}`).toEqual([[4, 4], "butt", [], "butt"]);
+    }
+  });
+
+  it("keeps the round ends to its own edge: every other line of the picture, and of the next, has square-cut ends", () => {
+    const { graph } = reserved();
+    const pen = new FakePen();
+    const fonts = createFonts(pen as unknown as Pen, FALLBACK);
+    drawScene(pen as unknown as Pen, sceneOf(graph), fonts);
+    const edge = edgeOf(pen, named(graph, "RES - Reserve"), 1);
+    const strokes = pen.named("stroke");
+    expect(strokes.filter(call => call !== edge).map(call => call.lineCap)).toEqual(strokes.filter(call => call !== edge).map(() => "butt"));
+    // The last box, drawn after it, and the next picture's grid of dots.
+    expect(strokes.indexOf(edgeOf(pen, named(graph, "ZZZ - Last Module"), 1))).toBeGreaterThan(strokes.indexOf(edge));
+    pen.clear();
+    drawScene(pen as unknown as Pen, sceneOf(graph), fonts);
+    expect(pen.named("stroke").find(call => call.strokeStyle === FALLBACK.grid)?.lineCap).toBe("butt");
+  });
+
+  it("keeps the size, the place, the strip of its section's colour and the hit area the box has without the dots", () => {
+    const marked = reserved(true).graph;
+    const plain = reserved(false).graph;
+    const places = (graph: ViewGraph): number[][] => graph.nodes.map(({ x, y, w, h }) => [x, y, w, h]);
+    expect(places(marked)).toEqual(places(plain));
+    for (const k of [0.05, 0.3, 1, 3]) {
+      const camera = { ox: 0, oy: 0, k };
+      const drawn = (graph: ViewGraph): { boxes: unknown[]; strips: number } => {
+        const { pen } = draw(sceneOf(graph, { camera, width: 9000, height: 9000 }));
+        return { boxes: pen.named("roundRect").map(call => call.args), strips: pen.named("fill").filter(call => call.fillStyle === FALLBACK.sections[1]).length };
+      };
+      expect(drawn(marked), `at ${k}`).toEqual(drawn(plain));
+      for (const node of marked.nodes) {
+        for (const [x, y] of [[node.x + 0.5, node.y + 0.5], [node.x + node.w / 2, node.y + node.h / 2], [node.x + node.w - 0.5, node.y + node.h - 0.5], [node.x - 1, node.y]]) {
+          expect(hitNode(marked.nodes, () => true, camera, x * k, y * k)?.id, `${node.fullName} at ${k}`).toBe(hitNode(plain.nodes, () => true, camera, x * k, y * k)?.id);
+        }
+      }
+    }
+    // Each box of the section has its strip, the one from Modules alone too.
+    expect(draw(sceneOf(marked)).pen.named("fill").filter(call => call.fillStyle === FALLBACK.sections[1])).toHaveLength(3);
+  });
+
+  it("stays dotted while selected, in the selection's colour, with the selection's ring round it", () => {
+    const { model, graph } = reserved();
+    const reserve = named(graph, "RES - Reserve");
+    const { pen } = draw(sceneOf(graph, { trace: traceNode(graph, model, reserve.index, false) }));
+    const edge = edgeOf(pen, reserve, 1);
+    expect([edge.dash[0], edge.lineCap, edge.lineWidth, edge.strokeStyle]).toEqual([0, "round", DOTTED.size, FALLBACK.select]);
+    const ring = pen.named("stroke").filter(call => call.lineWidth === 1.4);
+    expect(ring.map(call => [call.strokeStyle, call.dash, (shapeBefore(pen, call).find(each => each.name === "roundRect")!.args as number[])[0]])).toEqual([[FALLBACK.select, [], reserve.x - 2]]);
+  });
+
+  it("stays dotted where it stands beside the graph, with no strip, as no box beside the graph has one", () => {
+    // A page filter is the one link a module without line items can have: here a line item of Main filters it.
+    const make = new GraphMaker();
+    const reserve = make.module("RES - Reserve", "00: Other", { modulesOnly: true, file: "Modules" });
+    make.link(make.item(make.module("FLT - Filters", "01: Main"), "Show?", { format: "BOOLEAN" }), reserve, "page_filter");
+    const graph = ready(modulesGraph(indexModel(make.graph()), "01: Main", false, true));
+    const node = named(graph, "RES - Reserve");
+    const { pen } = draw(sceneOf(graph));
+    const edge = edgeOf(pen, node, 1);
+    expect([node.external, edge.dash[0], edge.lineCap, edge.lineWidth, edge.strokeStyle]).toEqual([true, 0, "round", DOTTED.size, FALLBACK.nodeTextMuted]);
+    // Main's own box has its strip; the box beside it has none, in no colour.
+    expect(pen.named("fill").filter(call => call.fillStyle !== FALLBACK.nodeFill && shapeBefore(pen, call).some(each => each.name === "arc")).map(call => call.fillStyle)).toEqual([FALLBACK.sections[1]]);
+  });
+
+  it("breaks its patch into squares far away, where every other box is a whole patch, within the patch's own place", () => {
+    const { graph } = reserved();
+    for (const k of [0.025, 0.05, 0.099]) {
+      const { pen } = draw(sceneOf(graph, { camera: { ox: 0, oy: 0, k } }));
+      const reserve = named(graph, "RES - Reserve");
+      const [x, y, w, h] = [reserve.x * k, reserve.y * k, Math.max(reserve.w * k, 2), Math.max(reserve.h * k, 2)];
+      const patches = pen.named("fillRect").slice(1);
+      const inside = (call: PenCall): boolean => {
+        const [left, top, wide, high] = call.args as number[];
+        return left >= x - 1e-9 && left + wide <= x + w + 1e-9 && top === y && high === h;
+      };
+      const squares = patches.filter(inside);
+      // Two squares or more, as high as the patch, one at each end and the rest evenly between, in the section's colour.
+      expect(squares.length, `at ${k}`).toBeGreaterThanOrEqual(2);
+      expect(patches.length, `at ${k}`).toBe(graph.nodes.length - 1 + squares.length);
+      expect(new Set(squares.map(call => call.fillStyle)), `at ${k}`).toEqual(new Set([FALLBACK.sections[1]]));
+      const lefts = squares.map(call => call.args[0] as number);
+      const side = squares[0].args[2] as number;
+      expect([lefts[0], lefts.at(-1)! + side, side], `at ${k}`).toEqual([x, x + w, Math.min(w, h)].map(value => expect.closeTo(value, 9)));
+      expect(lefts.slice(1).map((left, at) => left - lefts[at] - side).every(gap => gap > 0), `at ${k}`).toBe(true);
+      expect(pen.named("roundRect"), `at ${k}`).toEqual([]);
+    }
   });
 });
 

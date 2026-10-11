@@ -182,6 +182,11 @@
 .map-dot.map-c-striped{background:repeating-linear-gradient(135deg,var(--map-c) 0 2px,transparent 2px 3.5px);box-shadow:inset 0 0 0 1.5px var(--map-c)}
 .map-c-lineitem{background:var(--map-line-item)} .map-c-heading{background:var(--map-heading)} .map-c-list{background:var(--map-list)} .map-c-property{background:var(--map-property)}
 .map-c-external{border:1.5px dashed var(--map-external)}
+/* A module from Modules alone: the canvas edges its box with round dots 2px across, about 4.5px apart and spread evenly
+   round it, in the box's quieter text colour (map-canvas.ts DOTTED). The legend's mark is such a box, 20 by 12 with
+   corners of 4, round which 13 dots stand 4.395px apart. Dots, never the dashes of what stands beside the graph. */
+.map-c-modules-only{flex:none;overflow:visible}
+.map-c-modules-only rect{fill:var(--map-node-fill);stroke:var(--map-node-text-2);stroke-width:2px;stroke-linecap:round;stroke-dasharray:0 4.395}
 /* What feeds the node selected and what it feeds: each has its colour and its sign, which stands before the words of the
    one and after the words of the other, as it stands at the right and at the left edge of their boxes on the canvas. */
 .map-trace-up,.map-trace-down{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}

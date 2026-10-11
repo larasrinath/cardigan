@@ -81,6 +81,8 @@ The menu bar groups the model's tables:
 The map shows how a model's groups, modules and line items connect. It is built from the result already in your browser.
 
 - **Group by** offers ways to organise modules: functional area, headings, name prefix, DISCO (Data, Input, System, Calculation, Output), app or main dimension. Its (i) explains how the grouping works and which fits the model best.
+- **Headings** groups modules under empty divider modules whose names are set off by symbols, such as "-- Inputs --" or "## Data ##", learnt from each model.
+- Modules in **Modules** with no row in **Line Items** show with a dotted outline.
 - Choose a **Group** or **Module** to explore it, or search for a group, module or line item.
 - **Links** lets you show formula, access-driver and page-filter connections.
 - Click a box for details and its connections. **Hide the other boxes** keeps its chain in view; **Show all boxes** brings the others back. **Table** and **Model** open the matching row or place in Anaplan where available.

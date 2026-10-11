@@ -5,7 +5,7 @@ import type { PageFilterCheck } from "./graph-types.js";
 import type { InspectLink, Inspection, TraceWords } from "./map-inspect.js";
 import {
   ACCESS_LINK_SAYS, ACCESS_SAYS, BESIDE_SAYS, brokenHtml, emptyHtml, esc, FILTER_LINK_SAYS, FILTER_MARK_SAYS, FILTERS_BOTH_SAY, FILTERS_NONE, FILTERS_OWN_SAY, FILTERS_SAY, FILTERS_UNSAID, filtersNote, FORMULAS_SAY, FULL_SAYS, fullIconHtml, groupingOptionsHtml, groupOptionsHtml, inspectorHtml,
-  groupingReasonHtml, legendHtml, LINK_SAYS, LIST_CAP, listHtml, NO_LINKS_SAYS, notesHtml, type LegendLinks,
+  groupingReasonHtml, legendHtml, LINK_SAYS, LIST_CAP, listHtml, MODULES_ONLY_SAYS, NO_LINKS_SAYS, notesHtml, type LegendLinks,
   pathRootHtml, pickerOptionsHtml, resultsHtml, shellHtml, SHOW_GROUPS, SHOW_MODULES, TIP_FORMULA, tooltipHtml, traceHtml, type ShellIds,
 } from "./map-markup.js";
 import { HOSTILE } from "./map-fakes.test-support.js";
@@ -62,6 +62,20 @@ const inspectionOf = (text: Texts): Inspection => ({
   notes: text(22),
 });
 const INSPECTION_TEXTS = 23;
+
+it("explains Modules-only boxes in the legend and details and counts them once in About", () => {
+  const legend = legendHtml("Groups", [], new Set(), undefined, undefined, undefined, undefined, true);
+  expect(legend).toContain("map-c-modules-only");
+  expect(shownValues(legend)).toContain(MODULES_ONLY_SAYS);
+  expect(shownValues(inspectorHtml(inspectionOf(harmless), undefined, [], false, true))).toContain(MODULES_ONLY_SAYS);
+  expect(inspectorHtml(inspectionOf(harmless))).not.toContain(MODULES_ONLY_SAYS);
+  const about = notesHtml({ name: "Orchard planner", modules: 5, lineItems: 3, modulesOnly: 2 }, ["Existing limit."], 0);
+  expect(about).toContain("5 modules");
+  expect(about.match(/2 modules come from Modules alone/g)).toHaveLength(1);
+  expect(about.indexOf("2 modules come from Modules alone")).toBeLessThan(about.indexOf("What this map leaves out"));
+  expect(about).not.toMatch(/missing|no module of the map/);
+  expect(notesHtml({ name: "Orchard planner", modules: 1, lineItems: 0, modulesOnly: 1 }, [], 0)).toContain("1 module comes from Modules alone; Line Items has no row for it.");
+});
 
 /** Every piece of markup the map writes, built with one set of texts. */
 const everything = (text: Texts): string[] => [

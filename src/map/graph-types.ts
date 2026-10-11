@@ -18,8 +18,9 @@ export interface GraphNode {
    * count in. The row gives the Dynamic Cell Access table its order (model/access.ts). */
   file: string;
   row: number;
-  /** The heading row above it in its file, without the heading's dashes; "Ungrouped" where there is none, or where the
-   * heading is nothing but dashes. For a list, a subset, a property, a module and a line item (its module's). */
+  /** The heading row above it in its file, without the heading's decoration; "Ungrouped" where there is none, where the
+   * heading is nothing but symbols, and for a module from Modules alone (`modulesOnly`). For a list, a subset, a
+   * property, a module and a line item (its module's). */
   group?: string;
   /** A line item's module. */
   module?: number;
@@ -76,6 +77,9 @@ export interface GraphNode {
   functionalArea?: string;
   /** A module's apps: those whose pages use it, as the Module Usage table has them, each once, in the table's order. */
   apps?: string[];
+  /** A module that the Modules file lists and Line Items has no row for (build-graph.ts `readMissingModules`): it has no
+   * line items and no heading above it, and the canvas draws its box with a dotted edge. Nothing else has it. */
+  modulesOnly?: true;
 }
 
 /** A filter of a card on a page, by where it is: the app, the page and the card's number on the page; and what it
@@ -128,7 +132,7 @@ export interface ModelGraph {
   edges: GraphEdge[];
   unresolved: Unresolved[];
   /** The module sections in the order of the Line Items file; "Ungrouped" is among them only when a module has no
-   * heading above it, or stands under a heading that is nothing but dashes. */
+   * heading above it, stands under a heading that is nothing but symbols, or comes from Modules alone. */
   sections: string[];
   /** In plain sentences, what this graph could not hold: a file that was not exported or lacks a column the map reads,
    * and what no export says (list members, the order a process runs its actions in). */

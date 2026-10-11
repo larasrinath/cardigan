@@ -71,6 +71,11 @@ const THINNEST = 0.2;
 export const linkStrength = (links: number): number => Math.min(1, Math.max(THINNEST, Math.sqrt(FULL_UP_TO / Math.max(1, links))));
 /** A trace's links are in full strength up to this many, and thinned beyond. Those of the box selected always are. */
 const TRACE_IN_FULL = 300;
+/** The edge of a module that Modules lists and Line Items has no row for (graph-types.ts `modulesOnly`): round dots
+ * `size` pixels across, about one every `pitch` pixels, spread evenly round the box. Both are screen pixels at every
+ * zoom, so the dots never grow into the dashes of a box outside the graph (4 on, 4 off, a line as wide as the zoom
+ * makes it). The legend's mark draws the same dots (map-markup.ts, map.css `.map-c-modules-only`). */
+export const DOTTED = { size: 2, pitch: 4.5 } as const;
 
 /** The zoom from which every box of a graph holds at least a line of letters: a view fitted smaller than that would be
  * boxes nobody can read. */
@@ -127,6 +132,25 @@ function roundedRect(pen: Pen, x: number, y: number, width: number, height: numb
   pen.arcTo(x, y + height, x, y, r);
   pen.arcTo(x, y, x + width, y, r);
   pen.closePath();
+}
+
+/** The dashes of a dotted edge round a box with the corners `roundedRect` gives it: each dash has no length, and the
+ * line's round ends make it a dot `DOTTED.size` across. As many dots as fit at `DOTTED.pitch`, spread evenly, so that
+ * the last stands as far from the first as every other. */
+export function dotsRound(width: number, height: number, radius: number): number[] {
+  const r = Math.max(0, Math.min(radius, width / 2, height / 2));
+  const around = 2 * (width + height) - (8 - 2 * Math.PI) * r;
+  return [0, around / Math.max(4, Math.round(around / DOTTED.pitch))];
+}
+
+/** A dotted box far away, where every box is a patch of its colour: the patch broken into squares as high as it is,
+ * evenly apart within its own place, so that it is still told from a whole patch. */
+function dottedPatch(pen: Pen, x: number, y: number, width: number, height: number): void {
+  const side = Math.min(width, height);
+  const gap = Math.max(1, side * 0.6);
+  const count = Math.max(2, Math.floor((width + gap) / (side + gap)));
+  const step = (width - side) / (count - 1);
+  for (let at = 0; at < count; at++) pen.fillRect(x + at * step, y, side, height);
 }
 
 /** The strip of a node's colour down its left side: the part of the node's rounded shape left of a line. */
@@ -441,21 +465,35 @@ function drawNodes(pen: Pen, scene: Scene, fonts: Fonts): void {
     if (node.dimmed && !selected) alpha = Math.min(alpha, 0.3);
     if (matches && !matches[index]) alpha = Math.min(alpha, 0.18);
 
+    // A module from Modules alone has a dotted edge, whether it stands in the graph or beside it.
+    const dotted = node.raw?.modulesOnly === true;
     if (k < PATCH_BELOW) {
       pen.globalAlpha = alpha * (node.external ? 0.45 : 0.85);
       pen.fillStyle = colour;
-      pen.fillRect(x, y, Math.max(w, 2), Math.max(h, 2));
+      if (dotted) dottedPatch(pen, x, y, Math.max(w, 2), Math.max(h, 2));
+      else pen.fillRect(x, y, Math.max(w, 2), Math.max(h, 2));
     } else {
       pen.globalAlpha = alpha;
       roundedRect(pen, x, y, w, h, radius);
       pen.fillStyle = selected ? palette.nodeFillSelected : palette.nodeFill;
       pen.fill();
-      if (node.external) pen.setLineDash([4, 4]);
-      pen.lineWidth = selected ? 1.8 : Math.max(1, 1.1 * k);
-      pen.strokeStyle = selected ? palette.select : node.external ? palette.external : palette.nodeBorder;
-      pen.stroke();
-      if (node.external) pen.setLineDash([]);
-      else {
+      if (dotted) {
+        // Round dots in the box's quieter text colour, or the selection's: the same on screen at every zoom.
+        pen.setLineDash(dotsRound(w, h, radius));
+        pen.lineCap = "round";
+        pen.lineWidth = DOTTED.size;
+        pen.strokeStyle = selected ? palette.select : palette.nodeTextMuted;
+        pen.stroke();
+        pen.lineCap = "butt";
+        pen.setLineDash([]);
+      } else {
+        if (node.external) pen.setLineDash([4, 4]);
+        pen.lineWidth = selected ? 1.8 : Math.max(1, 1.1 * k);
+        pen.strokeStyle = selected ? palette.select : node.external ? palette.external : palette.nodeBorder;
+        pen.stroke();
+        if (node.external) pen.setLineDash([]);
+      }
+      if (!node.external) {
         const railWidth = Math.min(w, Math.max(2.5, 4 * k));
         rail(pen, x, y, railWidth, h, radius);
         pen.fillStyle = colour;
@@ -508,6 +546,7 @@ function drawNodes(pen: Pen, scene: Scene, fonts: Fonts): void {
 export function drawScene(pen: Pen, scene: Scene, fonts: Fonts): boolean {
   pen.globalAlpha = 1;
   pen.setLineDash([]);
+  pen.lineCap = "butt";
   pen.fillStyle = scene.palette.canvas;
   pen.fillRect(0, 0, scene.width, scene.height);
   drawGrid(pen, scene);

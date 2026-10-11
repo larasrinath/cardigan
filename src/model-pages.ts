@@ -4,7 +4,7 @@ import type { UxPageCardDetails } from "./card-reader/card-types.js";
 import type { UxPageType } from "./card-reader/definition-types.js";
 import { emptyCatalog, type ExportedLineItems, type ModelCatalog } from "./catalog.js";
 import { diagnosticRows, stampLine, type DetailRow } from "./details.js";
-import { separator } from "./map/graph-names.js";
+import { moduleHeadings } from "./map/graph-names.js";
 import { FILTER_USES, MISSING_LINE_ITEMS_MODULE, MODULE_USAGE_FILE, MODULE_USAGE_HEADERS, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, PAGE_PLACE_HEADERS } from "./page-files.js";
 import { missingCards, missingNote, namePlainly, sayMissing } from "./page-missing.js";
 import type { EngineDetails, EngineScope } from "./model-engine.js";
@@ -196,7 +196,8 @@ function modelDetail(result: AnalysisResult, detail: string): string | undefined
 /** The modules of the export's Modules table, in its order: each row's name, but for a heading's. */
 function exportedModules(result: AnalysisResult): string[] {
   const table = result.tables.find(each => each.file === "Modules.csv");
-  return (table?.rows ?? []).map(row => String(row[0] ?? "").trim()).filter(name => !separator(name));
+  const headings = moduleHeadings(result.tables);
+  return (table?.rows ?? []).map(row => String(row[0] ?? "")).filter(name => !headings.has(name)).map(name => name.trim());
 }
 
 /** Module Usage's rows: each module of the export in its order, with the pages that use it, and after them the modules the
