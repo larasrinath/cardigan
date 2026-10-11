@@ -9,7 +9,7 @@ import { accessTipLines, filterTipLines, inspect, statusWords, traceWords, viewS
 import { boundsOf, fullFrom, layoutGraph, sizeNodes } from "./map-layout.js";
 import { automaticGrouping, automaticGroupingReason, groupingsOf, type Grouping } from "./map-groups.js";
 import {
-  accessNote as accessSay, brokenHtml, emptyHtml, filtersNote as filtersSay, FULL_SAYS, fullIconHtml, groupingOptionsHtml, groupOptionsHtml, inspectorHtml, legendHtml, listHtml, notesHtml, pathRootHtml,
+  accessNote as accessSay, brokenHtml, emptyHtml, filtersNote as filtersSay, FULL_SAYS, fullIconHtml, groupingOptionsHtml, groupingReasonHtml, groupOptionsHtml, inspectorHtml, legendHtml, listHtml, notesHtml, pathRootHtml,
   pickerOptionsHtml, resultsHtml, shellHtml, SHOW_GROUPS, SHOW_MODULES, tooltipHtml, traceHtml, type Tip,
 } from "./map-markup.js";
 import { indexModel, isAccess, isFilter, withGrouping, type MapModel } from "./map-model.js";
@@ -728,7 +728,9 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     groupingButton.setAttribute("aria-label", `Group by: ${groupingName.textContent}`);
     groupingButton.title = `Group by: ${groupingName.textContent}`;
     groupingButton.disabled = groupings.length === 0;
-    groupingReason.textContent = pickedGrouping ? "You picked this grouping. Choose Automatic to let Cardigan pick." : automaticReason;
+    groupingReason.innerHTML = groupingReasonHtml(pickedGrouping
+      ? `You picked ${model.grouping!.label}.\n${automatic!.label} is suggested for this model; pick it to go back to automatic.`
+      : automaticReason);
     infoButton.title = groupingReason.textContent;
     externalCheck.hidden = view !== "drill";
     externalToggle.checked = expanded;
@@ -909,7 +911,6 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     const current = home !== undefined ? String(model!.sectionIndex(home)) : grouped ? SHOW_GROUPS : SHOW_MODULES;
     for (const option of groupList.querySelectorAll<HTMLElement>("[data-map-group]")) {
       const chosen = option.dataset.mapGroup === current;
-      option.classList.toggle("map-current", chosen);
       option.setAttribute("aria-selected", String(chosen));
       option.setAttribute("tabindex", chosen ? "0" : "-1");
     }
@@ -997,10 +998,9 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     groupingPop.hidden = false;
     placePopover(groupingPop);
     groupingButton.setAttribute("aria-expanded", "true");
-    const current = pickedGrouping ? model?.grouping?.kind : "automatic";
+    const current = model?.grouping?.kind;
     for (const option of groupingList.querySelectorAll<HTMLElement>("[data-map-grouping]")) {
       const chosen = option.dataset.mapGrouping === current;
-      option.classList.toggle("map-current", chosen);
       option.setAttribute("aria-selected", String(chosen));
       option.setAttribute("tabindex", chosen ? "0" : "-1");
     }
@@ -1010,7 +1010,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   function chooseGrouping(value: string): void {
     const grouping = value === "automatic" ? automatic : groupings.find(each => each.kind === value);
     if (!grouping || !model) return;
-    const picked = value !== "automatic";
+    const picked = grouping !== automatic;
     closeGroupings();
     focusOn(groupingButton);
     if (grouping === model.grouping && picked === pickedGrouping) return;

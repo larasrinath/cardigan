@@ -338,7 +338,7 @@ export function navMenuHtml(items: readonly NavItem[], current: string, here: st
   const listed = items.map(item => (isGroup(item)
     ? `<div class="nav-section" role="group" aria-label="${item.group.label}"><p class="nav-heading" aria-hidden="true">${item.group.label}</p>${item.entries.map(entry => entryHtml(entry, current)).join("")}</div>`
     : entryHtml(item, current))).join("");
-  return menuHtml("navMenu", `${NAV_ICONS.menu}<span>${esc(here)}</span>`, false, listed);
+  return menuHtml("navMenu", `${NAV_ICONS.menu}<span>${esc(here)}</span>`, true, listed);
 }
 
 /* ---------- overview ---------- */
