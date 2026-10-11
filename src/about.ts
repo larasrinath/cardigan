@@ -1,6 +1,7 @@
 import { VERSION } from "./version.js";
 
-/** The About page's script (about.html): it gives the page the theme the results page has, the one the viewer chose there
+/** The About page describes Cardigan's read-only model and app analysis, searchable tables and interactive model map.
+ * Its description and privacy text live in about.html. This script gives the page the theme the results page has, the one the viewer chose there
  * or, where none was chosen, the system's, and writes the version Cardigan is at. It reads nothing else and sends nothing. */
 
 /** Where the results page keeps the viewer's theme (results/main.ts): the extension's pages share their storage. */

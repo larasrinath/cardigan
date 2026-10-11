@@ -2,6 +2,13 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version is in the menu of Cardigan's icon in Chrome's toolbar and on its About page, and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## Unreleased
+
+The pictures and the docs now follow model analysis through the current results page.
+
+- **Eight new pictures.** An invented model shows the Overview, Line Items, import mappings, process actions, map groups and links, page filter arrows and access driver keys, map details and the module picker. The old app pictures are gone.
+- **The words brought up to date.** The README covers the engine check, partial Polaris reads, kept place, details and the map's current controls. The privacy notice lists every Anaplan request, including the platform gateway and Polaris metadata routes. About Cardigan, the manifest description and How to read use the same words. No behaviour changes.
+
 ## 0.29.1 (11 October 2026)
 
 - **One outside module, one box.** Formula, access driver and page filter links share one outside module box on the Model map. With other modules' line items shown, the boxes and hover cards say Module or Line item. Link switches keep every box and the camera in place. (#81)
