@@ -153,7 +153,12 @@ export interface NavEntry {
   label: string;
   /** For the entry of a file: the file's name as the analysis writes it ("Cards.csv"), by which its icon is chosen. */
   file?: string;
+  /** What a short name stands for (result-view.ts `tableFullLabel`): the entry's title and its name to a screen reader. */
+  full?: string;
 }
+
+/** The title and the accessible name of an entry whose short name stands for a longer one, or of a button that shows it. */
+const fullAttrs = (full: string | undefined): string => (full ? ` title="${esc(full)}" aria-label="${esc(full)}"` : "");
 
 /** An icon of the navigation: a small drawing before an entry's words, drawn as the page's other icons are, and hidden from
  * a screen reader, for the words beside it say what the entry is. Each is the page's own markup, written once, here:
@@ -297,7 +302,7 @@ const wordsHtml = (words: string): string => `<span data-room="${esc(words)}">${
 /** An entry: a button with its icon and its words, marked where it is the view shown. How many rows a table has is the
  * overview's to say, on the table's tile. */
 const entryHtml = (entry: NavEntry, current: string): string =>
-  `<button type="button" class="nav-item" data-nav="${esc(entry.id)}"${entry.id === current ? ' aria-current="page"' : ""}>${entryIcon(entry)}${wordsHtml(entry.label)}</button>`;
+  `<button type="button" class="nav-item" data-nav="${esc(entry.id)}"${entry.id === current ? ' aria-current="page"' : ""}${fullAttrs(entry.full)}>${entryIcon(entry)}${wordsHtml(entry.label)}</button>`;
 
 /** A button that opens a menu, and the menu, which follows it on the page, so that Tab goes from the button into it: the
  * disclosure pattern. The button says whether its menu is open (main.ts opens and closes it), and names the menu it
@@ -305,8 +310,8 @@ const entryHtml = (entry: NavEntry, current: string): string =>
  * Where `room` holds the texts the button can show, what it shows, `button` and the chevron, is one row, which stands in
  * the middle of the room of the widest of them in bold (results.css `data-room`), so that the button is as wide
  * whichever it shows and the items after it never move. */
-const menuHtml = (id: string, button: string, here: boolean, menu: string, room: readonly string[] = []): string =>
-  `<div class="nav-group"><button type="button" class="nav-group-btn" aria-expanded="false" aria-controls="${id}"${here ? ' aria-current="true"' : ""}`
+const menuHtml = (id: string, button: string, here: boolean, menu: string, room: readonly string[] = [], full?: string): string =>
+  `<div class="nav-group"><button type="button" class="nav-group-btn" aria-expanded="false" aria-controls="${id}"${here ? ' aria-current="true"' : ""}${fullAttrs(full)}`
   + (room.length ? ` data-room="${room.map(esc).join("\n")}"><span class="nav-row">${button}${NAV_CHEVRON}</span>` : `>${button}${NAV_CHEVRON}`)
   + `</button><div class="nav-menu" id="${id}" hidden>${menu}</div></div>`;
 
@@ -322,7 +327,7 @@ export function navHtml(items: readonly NavItem[], current: string): string {
     const shown = item.entries.find(entry => entry.id === current);
     const button = shown ? `${entryIcon(shown)}<span>${esc(shown.label)}</span>` : `${item.group.icon}<span>${item.group.label}</span>`;
     return menuHtml(item.group.id, button, shown !== undefined, item.entries.map(entry => entryHtml(entry, current)).join(""),
-      [item.group.label, ...item.entries.map(entry => entry.label)]);
+      [item.group.label, ...item.entries.map(entry => entry.label)], shown?.full);
   }).join("");
 }
 
@@ -448,7 +453,9 @@ export function overviewHtml(overview: Overview, copy: KeptCopy = "none", views:
         // holds it all, and a screen reader is told the same.
         const file = tileFiles[at];
         const icon = file === undefined ? "" : FILE_ICONS.get(file) ?? "";
-        const parts = `<span class="s-lab" title="${esc(tile.label)}">${icon}${esc(tile.label)}</span><span class="s-num">${esc(tile.value ?? tile.count)}</span>`
+        // A short name is said in full to a screen reader, and as the name's title.
+        const name = tile.full ? `<span aria-hidden="true">${esc(tile.label)}</span><span class="sr-only">${esc(tile.full)}</span>` : esc(tile.label);
+        const parts = `<span class="s-lab" title="${esc(tile.full ?? tile.label)}">${icon}${name}</span><span class="s-num">${esc(tile.value ?? tile.count)}</span>`
           + (tile.value === undefined ? `<span class="sr-only">${tile.count === 1 ? "row" : "rows"}</span>` : "")
           + (tile.detail === undefined ? "" : `<span class="s-detail">${esc(tile.detail)}</span>`);
         const named = tile.title === undefined ? "" : ` title="${esc(tile.title)}"`;

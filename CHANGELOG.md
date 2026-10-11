@@ -14,6 +14,15 @@ A cleaner header, one Timezone pill, and the version and an About page in the me
 - **Links under About this export.** On the Overview, the model's name opens the model in Model Building in the model's tab, and each app under **Apps** opens that app in the tab of apps and pages, as the details' **Model** and **App** buttons do, with their icons after the names. Where the model's tab shows the model in Model Building already, it is only brought to the front, with what is open there: Cardigan asks its script in the tab what the tab shows now. Anywhere else the model's address is loaded, the one Model Building's own model menu links to. An app is a link only where the rows of Module Usage, Page Filters and Page Actions give it one ID; an app of no row, or a name two apps share, stays plain, and so does every name where the result does not say where the model is. (#64)
 - **What stays the same.** What is read, the tables, the map and what the times say. (#64)
 
+## 0.18.8 (10 October 2026)
+
+Two of a model's tables have shorter names on the page.
+
+- **Data Sources.** Anaplan's Import Data Sources is called **Data Sources**: in the navigation and the Actions menu, on its tile, as its table's heading, in a row's details, in the Overview's rows about it, and in a source model's details, whose lines say what was found in Data Sources, as does the log's note on a source model found in neither table. (#60)
+- **DCA.** Dynamic Cell Access is called **DCA**, in the same places and in the Modules menu. Its tab, its group's button and its tile say "Dynamic Cell Access (DCA)" when hovered and to a screen reader, and a screen reader hears the full name when the table is shown. (#60)
+- **The navigation is narrower.** The model bar needs about 99px less: about 1,184px instead of 1,283px, so it fits on one line from a window about 1,314px wide instead of 1,413px. (#60)
+- **What stays the same.** What is read, and the tables themselves. The export's own log and status lines keep Anaplan's names. A result kept from an earlier version shows the new names as well, since the page names these two tables by their files.
+
 ## 0.18.7 (10 October 2026)
 
 The Overview's Model Calendar tile says what the calendar is, not how many of its settings hold a value.

@@ -49,8 +49,8 @@ describe("A source model's details", () => {
       imports: [{ name: "IMP01 Products from Demand", from: ["SYS02 Products"] }, { name: "IMP02 Demand from Demand", from: ["DAT01 Demand"] },
         { name: "IMP03 Demand again", from: ["DAT01 Demand"] }],
       sourceLines: [],
-      // The row counts 2 imports, and Import Data Sources names 3: the line says so.
-      importLines: ["Imports counts 2; 3 are found in Import Data Sources."],
+      // The row counts 2 imports, and Import Data Sources names 3: the line says so, naming the table as the page does.
+      importLines: ["Imports counts 2; 3 are found in Data Sources."],
     });
     const stat = rowOf(result, STAT);
     expect(sourceModelOfRow(result, stat.shown, stat.row)).toEqual({ sources: [{ name: "Stat Combos", kind: "Saved view", row: 2 }],
@@ -62,7 +62,7 @@ describe("A source model's details", () => {
     const result = model(counted, DATA_SOURCES, IMPORTS);
     const { shown, row } = rowOf(result, DEMAND);
     const view = sourceModelOfRow(result, shown, row);
-    expect([view?.sourceLines, view?.importLines]).toEqual([["Sources counts 3; 2 are found in Import Data Sources."], []]);
+    expect([view?.sourceLines, view?.importLines]).toEqual([["Sources counts 3; 2 are found in Data Sources."], []]);
   });
 
   it("finds a source model that one table names behind its workspace and the other by its own name, where no other source model has that name", () => {
