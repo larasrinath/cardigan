@@ -35,7 +35,7 @@ function selectors(styles: string): string[] {
 
 describe("The map's sources", () => {
   it("are the map's own files, and take nothing from the rest of the extension but the contract and the page's words for a cell", () => {
-    expect(SOURCES).toEqual(["map-camera.ts", "map-canvas.ts", "map-graphs.ts", "map-groups.ts", "map-inspect.ts", "map-layout.ts", "map-markup.ts", "map-model.ts", "map-palette.ts", "map-search.ts", "map-selection.ts", "map-text.ts", "map-trace.ts", "map-view.ts"]);
+    expect(SOURCES).toEqual(["map-camera.ts", "map-canvas.ts", "map-graphs.ts", "map-groups.ts", "map-inspect.ts", "map-layout.ts", "map-marks.ts", "map-markup.ts", "map-model.ts", "map-palette.ts", "map-search.ts", "map-selection.ts", "map-text.ts", "map-trace.ts", "map-view.ts"]);
     const outside: string[] = [];
     for (const name of SOURCES) {
       const imports = [...source(name).matchAll(/from "([^"]+)"/g)].map(match => match[1]);
@@ -190,7 +190,7 @@ describe("The map's stylesheet", () => {
       notesHtml({ name: "Model", workspace: "Workspace", modules: 2, lineItems: 3 }, ["A sentence."], 1),
       pathRootHtml("Model", "Workspace", true), pathRootHtml("Model", "Workspace", false), fullIconHtml(true),
       pickerOptionsHtml("map-picker-1", [{ name: "Module", group: "Group" }, { name: "Other" }], 0),
-      legendHtml("Groups", layers.map(key => ({ key, label: key, count: 1 })), new Set(["external"]), true, "modules"), traceHtml(words, false), traceHtml(words, true),
+      legendHtml("Groups", layers.map(key => ({ key, label: key, count: 1 })), new Set(["external"]), "modules", "modules", undefined, "modules"), traceHtml(words, false), traceHtml(words, true),
       tooltipHtml({ layer: "s0", kind: "kind", name: "Node", lines: ["a line"], formula: "A + B" }),
       resultsHtml({ hits: [{ kind: "module", name: "Module", context: "Group" }], total: 2 }), resultsHtml({ hits: [], total: 0 }),
       inspectorHtml({ kind: "LINE ITEM", layer: "lineitem", name: "Node", rows: [["Module", "Module"]], action: { label: "Open", module: 1 }, formula: "A + B", lists: [{ key: "depends", title: "Feeds it directly", open: true, links }],

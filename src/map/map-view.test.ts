@@ -5,6 +5,8 @@ import type { Pen } from "./map-canvas.js";
 import * as drawing from "./map-canvas.js";
 import { isMapAtStart, keptText, readKept, VIEW_KEY } from "../results/view-keep.js";
 import { FALLBACK } from "./map-palette.js";
+import { accessMarkedModel } from "./map-fakes.test-support.js";
+import { ACCESS_MARK_SAYS, ACCESS_NONE, ACCESS_UNREAD } from "./map-markup.js";
 import { mountModelMap, mountModelMapIn, type MapEnvironment } from "./map-view.js";
 import { FakePen, filteredModel, GraphMaker, HOSTILE, lineFilteredModel, ownFilteredModel, type PenCall } from "./map-fakes.test-support.js";
 import { ACCESS_LINK_SAYS, ACCESS_SAYS, FILTER_LINK_SAYS, FILTER_MARK_SAYS, FILTERS_BOTH_SAY, FILTERS_NONE, FILTERS_OWN_SAY, FILTERS_SAY, FORMULAS_SAY, FULL_SAYS, LINK_SAYS, NO_LINKS_SAYS } from "./map-markup.js";
@@ -301,6 +303,7 @@ describe("Nothing jumps when links change", () => {
       for (const kind of ["formulas", "access", "filters"]) for (let times = 0; times < 2; times++) {
         part(`.map-${kind}`).tick();
         expect(snapshot(), kind).toEqual(before);
+        if (kind === "access") expect(spy.mock.calls.at(-1)![1].graph.nodes.some(node => node.accessMark)).toBe(times === 0);
       }
     };
     check();
@@ -316,6 +319,60 @@ describe("Nothing jumps when links change", () => {
       env.settle();
       expect(spy.mock.calls.at(-1)![1].graph.nodes.filter(node => node.external).map(node => node.dimmed)).toEqual([false, true]);
     }
+    spy.mockRestore();
+  });
+});
+
+describe("Access marks in the view", () => {
+  it("adds the key legend at each level and keeps the driver's read/write facts beside both marks", () => {
+    const data = accessMarkedModel();
+    const spy = vi.spyOn(drawing, "drawScene");
+    open(data.graph);
+    expect(parts(".map-legend-key")).toHaveLength(0);
+    tickAccess();
+    expect(text(".map-legend-key")).toBe(ACCESS_MARK_SAYS.sections);
+    groupChoice("modules");
+    expect(text(".map-legend-key")).toBe(ACCESS_MARK_SAYS.modules);
+    pickModule("ACC01 Access");
+    act("links").press();
+    part(".map-filters").tick();
+    act("links").press();
+    env.settle();
+    expect(text(".map-legend-key")).toBe(ACCESS_MARK_SAYS.drill);
+    expect(spy.mock.calls.at(-1)![1].graph.byId.get(String(data.both))).toMatchObject({ filterMark: 1, accessMark: 1 });
+    for (const [name, words] of [["Can read", "Read access driver for 2 line items"], ["Can write", "Write access driver for 1 line item"], ["Open and visible", "Write access driver for 1 line item"]]) {
+      pointer("pointermove", ...at(name));
+      expect(text(".map-tip-meta")).toContain(words);
+    }
+    expect(text(".map-tip-meta")).toContain("Read access driver for 1 line item and 1 module");
+    expect(text(".map-tip-meta")).toContain("Page filter on");
+    clickNode("Open and visible");
+    expect(parts(".map-details summary").map(summary => summary.textContent)).toContain("Controls · 2");
+    part(`[data-map-raw="${data.local}"]`).press();
+    expect(text(".map-insp-name")).toBe("Local value");
+    expect(parts(".map-details summary").map(summary => summary.textContent)).toContain("Access driven by · 1");
+    part(`[data-map-raw="${data.both}"]`).press();
+    expect(text(".map-insp-name")).toBe("Open and visible");
+    tickAccess();
+    env.settle();
+    expect(parts(".map-legend-key")).toHaveLength(0);
+    pointer("pointermove", ...at("Open and visible"));
+    expect(text(".map-tip-meta")).not.toContain("access driver");
+    expect(spy.mock.calls.at(-1)![1].graph.byId.get(String(data.both))).toMatchObject({ filterMark: 1, accessMark: undefined });
+    spy.mockRestore();
+  });
+
+  it.each([true, false])("leaves access off when nothing was found (columns read: %s), even with a saved tick", accessDriversRead => {
+    const graph = { ...accessMarkedModel().graph, edges: [], accessDriversRead };
+    const spy = vi.spyOn(drawing, "drawScene");
+    mount(graph, { modelName: "Invented plan", view: { view: "modules", access: true } });
+    map.show();
+    env.resize(1200, 800);
+    env.settle();
+    expect([part(".map-access").disabled, part(".map-access").checked]).toEqual([true, false]);
+    expect(text(".map-access-note")).toBe(accessDriversRead ? ACCESS_NONE : ACCESS_UNREAD);
+    expect(parts(".map-legend-key")).toHaveLength(0);
+    expect(spy.mock.calls.at(-1)![1].graph.nodes.some(node => node.accessMark)).toBe(false);
     spy.mockRestore();
   });
 });
@@ -1256,15 +1313,15 @@ describe("The map's views", () => {
     firstModule();
     pickModule("CAL01 - Revenue");
     clickNode("Net");
-    expect(parts(".map-details summary").map(summary => summary.textContent)).toEqual(["Feeds it directly · 2", "It feeds directly · 1"]);
+    expect(parts(".map-details summary").map(summary => summary.textContent)).toEqual(["Access driven by · 1", "Feeds it directly · 2", "It feeds directly · 1"]);
     tickAccess();
     expect(part(".map-access").checked).toBe(true);
     expect(text(".map-insp-name")).toBe("Net");
-    expect(parts(".map-details summary").map(summary => summary.textContent)).toEqual(["Feeds it directly · 3", "It feeds directly · 1"]);
-    expect(parts(".map-link small").map(small => small.textContent)).toContain("write access driver");
+    expect(parts(".map-details summary").map(summary => summary.textContent)).toEqual(["Access driven by · 1", "Feeds it directly · 2", "It feeds directly · 1"]);
+    expect(parts(".map-link small").map(small => small.textContent)).toContain("Write access");
     expect(text(".map-live")).toBe("Access driver links are drawn. Line items of CAL01 - Revenue: 3 line items, with 5 outside the module, 8 links.");
     tickAccess();
-    expect(parts(".map-details summary")[0].textContent).toBe("Feeds it directly · 2");
+    expect(parts(".map-details summary")[0].textContent).toBe("Access driven by · 1");
     expect(text(".map-live")).toBe("Access driver links are not drawn. Line items of CAL01 - Revenue: 3 line items, with 5 outside the module, 7 links.");
     // What access drivers are is said beside the box, and is its description to a screen reader.
     expect(text(`#${part(".map-access").getAttribute("aria-describedby")}`)).toBe(ACCESS_SAYS);
@@ -1297,7 +1354,7 @@ describe("The map's views", () => {
     tickAccess();
     expect(text(".map-live")).toBe("Access driver links are drawn. Line items of CAL01 - Revenue: 3 line items, with 5 outside the module, 1 link.");
     expect([text(".map-insp-name"), parts(".map-legend-note").map(note => note.textContent), heard.at(-1)])
-      .toEqual(["Net", [ACCESS_LINK_SAYS], { view: "drill", module: "CAL01 - Revenue", noFormulas: true, access: true, selected: JSON.stringify(["lineItem", "lineItem", "Net", "CAL01 - Revenue", ""]) }]);
+      .toEqual(["Net", [ACCESS_LINK_SAYS, ACCESS_MARK_SAYS.drill], { view: "drill", module: "CAL01 - Revenue", noFormulas: true, access: true, selected: JSON.stringify(["lineItem", "lineItem", "Net", "CAL01 - Revenue", ""]) }]);
     env.settle();
     expect(linksDrawn()).toHaveLength(1);
     clickNode("Net");
@@ -1308,7 +1365,7 @@ describe("The map's views", () => {
     tickFormulas();
     expect(text(".map-live")).toBe("Formula links are drawn. Line items of CAL01 - Revenue: 3 line items, with 5 outside the module, 8 links.");
     expect([parts(".map-legend-note").map(note => note.textContent), heard.at(-1), act("links").classList.contains("map-on")])
-      .toEqual([[LINK_SAYS, ACCESS_LINK_SAYS], { view: "drill", module: "CAL01 - Revenue", access: true, selected: JSON.stringify(["lineItem", "lineItem", "Net", "CAL01 - Revenue", ""]) }, true]);
+      .toEqual([[LINK_SAYS, ACCESS_LINK_SAYS, ACCESS_MARK_SAYS.drill], { view: "drill", module: "CAL01 - Revenue", access: true, selected: JSON.stringify(["lineItem", "lineItem", "Net", "CAL01 - Revenue", ""]) }, true]);
     expect(locate()).toEqual(kept);
     expect(linksDrawn()).toHaveLength(8);
   });

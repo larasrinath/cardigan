@@ -1,7 +1,7 @@
 import { formatWords, summaryWords } from "../results/readable-cells.js";
 import type { GraphNode, PageFilter } from "./graph-types.js";
 import { edgeDrawn, LAYER, sectionLayer, type LinksDrawn, type ViewGraph, type ViewNode } from "./map-graphs.js";
-import { isAccess, isFilter, type MapModel } from "./map-model.js";
+import { isAccess, isFormula, type MapModel } from "./map-model.js";
 import { formatCount, plural } from "./map-text.js";
 
 /** What the map says in words about the graph on screen and the node selected, as plain data: the markup
@@ -126,6 +126,39 @@ export function filterTipLines(model: MapModel, raw: GraphNode): string[] {
   return lines;
 }
 
+/** Each access role counts its distinct targets. A module target stays a module: its line items are counted only
+ * where the graph has their own access links (including inherited drivers). */
+export function accessTipLines(model: MapModel, raw: GraphNode): string[] {
+  return (["read_access", "write_access"] as const).flatMap(kind => {
+    const targets = new Set(model.outgoing(raw.id).filter(edge => edge[2] === kind).map(edge => edge[1]));
+    const items = [...targets].filter(id => model.node(id)?.kind === "lineItem").length;
+    const modules = [...targets].filter(id => model.node(id)?.kind === "module").length;
+    const counts = [items ? plural(items, "line item") : "", modules ? plural(modules, "module") : ""].filter(Boolean);
+    return counts.length ? [`${kind === "read_access" ? "Read" : "Write"} access driver for ${counts.join(" and ")}`] : [];
+  });
+}
+
+/** Access has its own lists, whether its arrows are drawn or not, as page filters do. Each target or driver appears
+ * once, with both roles where it has both. Formula links to the same object remain in the formula lists. */
+function accessLists(model: MapModel, raw: GraphNode): InspectList[] {
+  return [false, true].flatMap(incoming => {
+    const found = new Map<number, Set<string>>();
+    for (const edge of incoming ? model.incoming(raw.id) : model.outgoing(raw.id)) {
+      if (!isAccess(edge[2])) continue;
+      const id = edge[incoming ? 0 : 1];
+      let roles = found.get(id);
+      if (!roles) found.set(id, roles = new Set());
+      roles.add(edge[2] === "read_access" ? "Read" : "Write");
+    }
+    const links: InspectLink[] = [];
+    for (const [id, roles] of found) {
+      const node = model.node(id);
+      if (node) links.push(objectLink(model, node, ["Read", "Write"].filter(role => roles.has(role)).join(" and ").replace("and Write", "and write") + " access"));
+    }
+    return links.length ? [{ key: incoming ? "accessDrivenBy" : "controls", title: `${incoming ? "Access driven by" : "Controls"} · ${formatCount(links.length)}`, open: true, links }] : [];
+  });
+}
+
 /** The modules a line item's page filters filter, each once, as links, with where the line item filters it: what the
  * map's page filter links say of it, whether they are drawn or not. Its own module is among them where a filter names
  * it. Nothing for a line item that filters no module of the map. */
@@ -194,23 +227,17 @@ function summaryOf(node: GraphNode): string | undefined {
   return words ?? node.summary;
 }
 
-/** What an object reads (`upstream`) or what reads it, one entry for each object, with the access it gives where the
- * link is one of who may read or write. The links of the pages' filters are no reading: the details list them on their
- * own (`filtersModules`, `filteredBy`). */
-function related(model: MapModel, id: number, upstream: boolean, access: boolean): InspectLink[] {
-  const found = new Map<number, Set<string>>();
+/** What an object's formulas read (`upstream`) or what reads it, once per object. Access and page filters each have
+ * their own lists. */
+function related(model: MapModel, id: number, upstream: boolean): InspectLink[] {
+  const found = new Set<number>();
   for (const edge of upstream ? model.incoming(id) : model.outgoing(id)) {
-    if ((!access && isAccess(edge[2])) || isFilter(edge[2])) continue;
-    const other = edge[upstream ? 0 : 1];
-    let kinds = found.get(other);
-    if (!kinds) found.set(other, kinds = new Set());
-    kinds.add(edge[2]);
+    if (isFormula(edge[2])) found.add(edge[upstream ? 0 : 1]);
   }
   const links: InspectLink[] = [];
-  for (const [other, kinds] of found) {
+  for (const other of found) {
     const node = model.node(other);
-    const driver = (kind: string): string => `${kind === "read_access" ? "read" : "write"} access ${upstream ? "driver" : "driven by this"}`;
-    if (node) links.push(objectLink(model, node, [...kinds].filter(kind => kind.includes("access")).map(driver).join(", ")));
+    if (node) links.push(objectLink(model, node));
   }
   return links;
 }
@@ -265,6 +292,7 @@ function inspectModule(model: MapModel, graph: ViewGraph, node: ViewNode, raw: G
   }
   lists.push(...linkLists(graph.in[node.index].map(index => nodeLink(graph.nodes[index])), graph.out[node.index].map(index => nodeLink(graph.nodes[index]))));
   lists.push(...filteredBy(model, raw));
+  lists.push(...accessLists(model, raw));
   if (owned.length) lists.push({ key: "items", title: `All its line items · ${formatCount(owned.length)}`, open: false, links: owned.map(item => objectLink(model, item)) });
   const actions = model.actionsOf(raw.id);
   return {
@@ -276,10 +304,12 @@ function inspectModule(model: MapModel, graph: ViewGraph, node: ViewNode, raw: G
   };
 }
 
-function inspectObject(model: MapModel, node: ViewNode, raw: GraphNode, access: boolean): Inspection {
+function inspectObject(model: MapModel, node: ViewNode, raw: GraphNode): Inspection {
   const rows: [string, string][] = [];
   const module = model.node(model.moduleOf(raw));
   row(rows, "Module", module?.name);
+  const roles = accessTipLines(model, raw);
+  if (roles.length) row(rows, "Access driver", roles.length === 2 ? "Read and write" : roles[0].startsWith("Read") ? "Read" : "Write");
   if (raw.kind === "property") row(rows, "List", model.node(raw.parent)?.name);
   row(rows, "Format", formatOf(model, raw));
   row(rows, "Summary", summaryOf(raw));
@@ -303,17 +333,16 @@ function inspectObject(model: MapModel, node: ViewNode, raw: GraphNode, access: 
     // A line item of another module can be gone to in its own module. One of the module on screen is already there.
     ...(module && node.external ? { action: { label: "Show its module with it selected", module: module.id, select: raw.id } } : {}),
     ...(formula !== undefined ? { formula } : raw.kind === "lineItem" ? { remark: isHeading(raw) ? "No formula. Its format is No Data: a heading among the line items." : "No formula." } : {}),
-    lists: [...linkLists(related(model, raw.id, true, access), related(model, raw.id, false, access)), ...filtersModules(model, raw), ...filtersLineItems(model, raw),
+    lists: [...accessLists(model, raw), ...linkLists(related(model, raw.id, true), related(model, raw.id, false)), ...filtersModules(model, raw), ...filtersLineItems(model, raw),
       ...itemFilteredBy(model, raw)], texts: pageFiltersText(model, raw),
   };
 }
 
-/** What the details say of a node of the graph on screen. `access` says whether the links of read and write access
- * drivers count among what feeds an object and what it feeds. */
-export function inspect(model: MapModel, graph: ViewGraph, node: ViewNode, access: boolean): Inspection {
+/** What the details say of a node of the graph on screen. Access roles remain readable when their arrows are off. */
+export function inspect(model: MapModel, graph: ViewGraph, node: ViewNode, _access: boolean): Inspection {
   const raw = node.raw;
   if (!raw) return inspectSection(model, graph, node);
-  const inspection = raw.kind === "module" ? inspectModule(model, graph, node, raw) : inspectObject(model, node, raw, access);
+  const inspection = raw.kind === "module" ? inspectModule(model, graph, node, raw) : inspectObject(model, node, raw);
   // What the export names in this object's row that the graph could not take for one object: none of that name, or
   // more than one with nothing to tell them apart.
   const unresolved = model.unresolvedOf(raw.id);

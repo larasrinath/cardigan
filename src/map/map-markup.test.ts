@@ -238,7 +238,7 @@ describe("The map's own markup", () => {
     const box = panel.querySelector(".map-access")!;
     expect([box.getAttribute("type"), box.getAttribute("aria-describedby"), box.closest("label")?.textContent]).toEqual(["checkbox", "map-access-1", "Access drivers"]);
     expect(shell.querySelector("#map-access-1")?.textContent).toBe(ACCESS_SAYS);
-    expect(ACCESS_SAYS).toBe("Read and Write Access Drivers are line items that decide which cells of a module or line item someone can see or edit (Anaplan's dynamic cell access). Tick to draw an arrow from each driver to what it controls.");
+    expect(ACCESS_SAYS).toBe("Read and Write Access Drivers are line items that decide which cells of a module or line item someone can see or edit (Anaplan's dynamic cell access). Tick to mark drivers with a key and draw an arrow from each driver to what it controls.");
     // Page filters are a box after them, described the same way. The view turns the note into why there are none where
     // the model has none to draw.
     const filters = panel.querySelector(".map-filters")!;

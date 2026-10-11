@@ -2,6 +2,7 @@ import { minimapTransform, toWorld, type Camera, type MinimapTransform } from ".
 import { edgeDrawn, type ViewGraph, type ViewNode } from "./map-graphs.js";
 import { CARD, FULL_CARD_ZOOM, FULL_ITEM_ZOOM, hasSmallLine, ITEM } from "./map-layout.js";
 import { layerColour, layerStriped, type MapPalette } from "./map-palette.js";
+import { KEY_SHAPES } from "./map-marks.js";
 import { shorten, wrapLines, type TextMeasure } from "./map-text.js";
 import type { Trace } from "./map-trace.js";
 
@@ -356,38 +357,63 @@ function funnel(pen: Pen, x: number, y: number, size: number): void {
   pen.fill();
 }
 
-/** A box's filter mark (map-graphs.ts `ViewNode.filterMark`): a pill in the colour of the pages' filters, on the box's
- * top edge at its right, with a funnel and, on a module's box or a section's, the figure it counts. It is in the page
- * filters' colour, not a section's, and its funnel and figure are in the canvas's colour, which stands against it in
- * both themes. A box too small to hold it has a dot of the colour at its top right corner instead. */
-function drawFilterMark(pen: Pen, scene: Scene, fonts: Fonts, node: ViewNode, x: number, y: number, width: number, height: number): void {
+/** Draw the legend's SVG key path on the canvas, including the hole in its bow. */
+function key(pen: Pen, x: number, y: number, width: number): void {
+  const scale = width / 14;
+  pen.beginPath();
+  for (const points of KEY_SHAPES) {
+    points.forEach(([px, py], index) => {
+      if (index === 0) pen.moveTo(x + px * scale, y + py * scale);
+      else pen.lineTo(x + px * scale, y + py * scale);
+    });
+    pen.closePath();
+  }
+  pen.fill("evenodd");
+}
+
+/** Marks share the box's top edge, outside its name's padding. Measure both before drawing either so their pills
+ * never overlap; where the pair cannot fit, use separate dots on the edge. Neither sizing nor layout depends on marks. */
+function drawMarks(pen: Pen, scene: Scene, fonts: Fonts, node: ViewNode, x: number, y: number, width: number, height: number): void {
   const { palette } = scene;
   const k = scene.camera.k;
   const high = Math.max(MARK_LEAST, Math.min(MARK_MOST, MARK_AT_ONE * k));
-  pen.fillStyle = palette.filter;
-  if (height < high || width < high * 3) {
-    pen.beginPath();
-    pen.arc(x + width - MARK_DOT - 2, y + MARK_DOT + 2, MARK_DOT, 0, Math.PI * 2);
-    pen.fill();
-    return;
-  }
-  const figure = node.kind === "lineItem" ? "" : String(node.filterMark ?? "");
   const size = high * 0.64;
-  // Measured before the pen is given its font: measuring a word sets the pen's font to the measure's own.
-  const wide = figure === "" ? 0 : fonts.measure("code").word(figure) * size;
   const pad = high * 0.32;
-  const icon = high * 0.58;
-  const markWidth = pad + icon + (figure === "" ? 0 : high * 0.2 + wide) + pad;
-  const right = x + width - Math.max(8, 12 * k);
-  const left = right - markWidth;
-  const top = y - high / 2;
-  roundedRect(pen, left, top, markWidth, high, high / 2);
-  pen.fill();
-  pen.fillStyle = palette.canvas;
-  funnel(pen, left + pad, top + (high - icon) / 2, icon);
-  if (figure === "") return;
-  pen.font = fonts.css("code", size);
-  pen.fillText(figure, left + pad + icon + high * 0.2, top + high * 0.72);
+  const gap = Math.max(3, 4 * k);
+  const margin = Math.max(8, 12 * k);
+  const item = node.kind === "lineItem" || node.kind === "externalItem";
+  const marks = (["filter", "access"] as const).flatMap(kind => {
+    const count = kind === "filter" ? node.filterMark : node.accessMark;
+    if (!count) return [];
+    const figure = item ? "" : String(count);
+    const icon = high * (kind === "filter" ? 0.58 : 0.95);
+    const wide = figure === "" ? 0 : fonts.measure("code").word(figure) * size;
+    return [{ kind, figure, icon, width: pad + icon + (figure === "" ? 0 : high * 0.2 + wide) + pad }];
+  });
+  const dots = k < (node.kind === "lineItem" ? FULL_ITEM_ZOOM : FULL_CARD_ZOOM) || height < high
+    || width < Math.max(high * 3, marks.reduce((sum, mark) => sum + mark.width + gap, margin * 2));
+  let right = x + width - margin;
+  for (const mark of marks) {
+    pen.fillStyle = palette[mark.kind];
+    if (dots) {
+      pen.beginPath();
+      pen.arc(x + width - MARK_DOT - 2 - marks.indexOf(mark) * (MARK_DOT * 2 + 3), y, MARK_DOT, 0, Math.PI * 2);
+      pen.fill();
+      continue;
+    }
+    const left = right - mark.width;
+    const top = y - high / 2;
+    roundedRect(pen, left, top, mark.width, high, high / 2);
+    pen.fill();
+    pen.fillStyle = palette.canvas;
+    if (mark.kind === "filter") funnel(pen, left + pad, top + (high - mark.icon) / 2, mark.icon);
+    else key(pen, left + pad, top + (high - mark.icon * 8 / 14) / 2, mark.icon);
+    if (mark.figure !== "") {
+      pen.font = fonts.css("code", size);
+      pen.fillText(mark.figure, left + pad + mark.icon + high * 0.2, top + high * 0.72);
+    }
+    right = left - gap;
+  }
 }
 
 function drawNodes(pen: Pen, scene: Scene, fonts: Fonts): void {
@@ -472,7 +498,7 @@ function drawNodes(pen: Pen, scene: Scene, fonts: Fonts): void {
     if (k >= PATCH_BELOW) {
       pen.globalAlpha = alpha;
       drawText(pen, scene, fonts, node, x, y, w, h);
-      if (node.filterMark) drawFilterMark(pen, scene, fonts, node, x, y, w, h);
+      if (node.filterMark || node.accessMark) drawMarks(pen, scene, fonts, node, x, y, w, h);
     }
   }
   pen.globalAlpha = 1;

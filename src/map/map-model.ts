@@ -38,6 +38,9 @@ export interface MapModel {
   readonly sections: readonly string[];
   readonly formulaEdges: readonly GraphEdge[];
   readonly accessEdges: readonly GraphEdge[];
+  /** Whether this line item drives read or write access, and how many distinct drivers its module holds. */
+  isAccessDriver(lineItem: number): boolean;
+  accessDriversOf(module: number): number;
   /** The links of the pages' filters (`isFilter`), in the graph's order. */
   readonly filterEdges: readonly GraphEdge[];
   node(id: number | undefined): GraphNode | undefined;
@@ -143,6 +146,10 @@ export function indexModel(graph: ModelGraph): MapModel {
     if (listed) listed.push({ action, kind }); else actions.set(module.id, [{ action, kind }]);
   }
 
+  const accessDrivers = new Set(accessEdges.map(([from]) => from).filter(id => byId.get(id)?.kind === "lineItem"));
+  const driversOf = new Map<number, number>();
+  for (const item of lineItems) if (accessDrivers.has(item.id)) driversOf.set(item.module!, (driversOf.get(item.module!) ?? 0) + 1);
+
   // Each module's filters on the pages: the line items whose filters name it, its own included.
   const filters = new Map<number, ModuleFilter[]>();
   for (const item of lineItems) {
@@ -198,6 +205,8 @@ export function indexModel(graph: ModelGraph): MapModel {
 
   return {
     graph, modules, lineItems, sections, formulaEdges, accessEdges, filterEdges, moduleOf, sectionOf,
+    isAccessDriver: lineItem => accessDrivers.has(lineItem),
+    accessDriversOf: module => driversOf.get(module) ?? 0,
     node: id => (id === undefined ? undefined : byId.get(id)),
     itemsOf: module => items.get(module) ?? NONE,
     sectionIndex: section => sectionPlace.get(section) ?? -1,

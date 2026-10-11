@@ -179,6 +179,15 @@ describe("The map's colours in the stylesheet", () => {
     expect(on(FALLBACK.edge, FALLBACK.canvas)).toBeGreaterThanOrEqual(3);
   });
 
+  it("gives the key and its count contrast in both themes, in a colour distinct from the funnel", () => {
+    for (const theme of themes) {
+      const palette = paletteOf(theme);
+      expect(palette.access).not.toBe(palette.filter);
+      expect(on(palette.access, palette.nodeFill), theme).toBeGreaterThanOrEqual(3);
+      expect(on(palette.canvas, palette.access), theme).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
   it("makes every layer's colour seen on a node and on a panel, where a name always stands beside it", () => {
     for (const theme of themes) {
       const palette = paletteOf(theme);

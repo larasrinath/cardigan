@@ -4,6 +4,7 @@ import type { InspectLink, InspectList, Inspection, TraceWords } from "./map-ins
 import { layerClass } from "./map-palette.js";
 import type { SearchOutcome } from "./map-search.js";
 import { formatCount } from "./map-text.js";
+import { KEY_PATH } from "./map-marks.js";
 
 /** The model map's markup: each function turns data into the HTML text the view then shows inside its own element.
  * Every name, note and formula of a model was typed by an Anaplan user, so every value that comes from the graph goes
@@ -30,7 +31,16 @@ const SIGN = '<svg class="map-sign" width="9" height="10" viewBox="0 0 9 10" ari
 export const LIST_CAP = 100;
 
 /** What access drivers are, said where they are switched, in a modeller's words. */
-export const ACCESS_SAYS = "Read and Write Access Drivers are line items that decide which cells of a module or line item someone can see or edit (Anaplan's dynamic cell access). Tick to draw an arrow from each driver to what it controls.";
+export const ACCESS_SAYS = "Read and Write Access Drivers are line items that decide which cells of a module or line item someone can see or edit (Anaplan's dynamic cell access). Tick to mark drivers with a key and draw an arrow from each driver to what it controls.";
+export const ACCESS_NONE = "No Read or Write Access Drivers were found in this result.";
+export const ACCESS_UNREAD = "Access drivers were not read in this result. Cardigan does not read them from Polaris models.";
+export const ACCESS_UNMATCHED = "No access drivers could be matched to line items on the map. Each controlled box's details list its unmatched names.";
+export function accessNote(graph: ModelGraph, links: boolean): string {
+  if (links) return ACCESS_SAYS;
+  if (graph.accessDriversRead === false) return ACCESS_UNREAD;
+  if (graph.unresolved.some(entry => entry.field === "Read Access Driver" || entry.field === "Write Access Driver")) return ACCESS_UNMATCHED;
+  return ACCESS_NONE;
+}
 /** What page filters are, said where their links are switched, in the same words: for a model whose filters are all
  * on modules other than their line items' own, which links show between modules, and among line items from each filter
  * line item to the line items it filters. */
@@ -78,7 +88,7 @@ export const FILTER_LINK_SAYS: Readonly<Record<ViewGraph["kind"], string>> = {
   modules: "Dashed: a page filter, from the module of its line item to a module it filters.",
   drill: "Dashed: a page filter, from its line item to a line item it filters, or to the module of those.",
 };
-/** What a filter mark on a box means (map-canvas.ts `drawFilterMark`), by the kind of picture, said in the legend while
+/** What a filter mark on a box means (map-canvas.ts `drawMarks`), by the kind of picture, said in the legend while
  * one is drawn. */
 export const FILTER_MARK_SAYS: Readonly<Record<ViewGraph["kind"], string>> = {
   sections: "Filter mark: how many of the group's modules their own line items filter on pages.",
@@ -87,6 +97,12 @@ export const FILTER_MARK_SAYS: Readonly<Record<ViewGraph["kind"], string>> = {
 };
 /** A filter mark's funnel, as the canvas draws it (map-canvas.ts `funnel`). */
 const FUNNEL = '<svg class="map-mark-funnel" width="9" height="9" viewBox="0 0 10 10" aria-hidden="true"><path d="M0 .8h10L6.2 5.2v3.4L3.8 10V5.2Z"/></svg>';
+export const ACCESS_MARK_SAYS: Readonly<Record<ViewGraph["kind"], string>> = {
+  sections: "Key mark: how many of the group's modules hold access drivers.",
+  modules: "Key mark: how many of the module's line items are access drivers.",
+  drill: "Key mark: the line item is a read or write access driver. On another module, how many of its line items are drivers.",
+};
+const KEY = `<svg width="14" height="8" viewBox="0 0 14 8" fill="currentColor" aria-hidden="true"><path d="${KEY_PATH}" fill-rule="evenodd"/></svg>`;
 /** What the links of formulas are, said under their switch, which is ticked unless the viewer unticks it. */
 export const FORMULAS_SAY = "An arrow from A to B: B reads A. Untick to see only access drivers and page filters.";
 /** What a line on the map means. */
@@ -168,7 +184,7 @@ export function shellHtml(ids: ShellIds, modelName: string): string {
           <label class="map-check map-links-row"><input type="checkbox" class="map-formulas" checked aria-describedby="${esc(ids.formulas)}"><b>Formulas</b></label>
           <p class="map-links-note" id="${esc(ids.formulas)}">${esc(FORMULAS_SAY)}</p>
           <label class="map-check map-links-row"><input type="checkbox" class="map-access" aria-describedby="${esc(ids.access)}"><b>Access drivers</b></label>
-          <p class="map-links-note" id="${esc(ids.access)}">${esc(ACCESS_SAYS)}</p>
+          <p class="map-links-note map-access-note" id="${esc(ids.access)}">${esc(ACCESS_SAYS)}</p>
           <label class="map-check map-links-row map-filters-row"><input type="checkbox" class="map-filters" aria-describedby="${esc(ids.filters)}"><b>Page filters</b></label>
           <p class="map-links-note map-filters-note" id="${esc(ids.filters)}">${esc(FILTERS_SAY)}</p>
           <label class="map-check map-links-row map-external-check" hidden><input type="checkbox" class="map-external">Other modules' line items</label>
@@ -267,14 +283,15 @@ const FORMULAS_ONLY: LegendLinks = { formulas: true, access: false, none: false 
  * is ticked, it says so plainly. A hidden layer says so in more than its colour: its name is struck through, and the
  * button is not pressed. */
 export function legendHtml(title: string, layers: readonly ViewLayer[], hidden: ReadonlySet<string>, filters?: ViewGraph["kind"], marks?: ViewGraph["kind"],
-  links: LegendLinks = FORMULAS_ONLY): string {
+  links: LegendLinks = FORMULAS_ONLY, accessMarks?: ViewGraph["kind"]): string {
   return `<div class="map-legend-title">${esc(title)}</div>${layers.map(layer => {
     const off = hidden.has(layer.key);
     return `<button type="button" class="map-legend-item${off ? " map-off" : ""}" data-map-act="layer" data-map-layer="${esc(layer.key)}" aria-pressed="${off ? "false" : "true"}">${dot(layer.key)}<span class="map-legend-name">${esc(layer.label)}</span><span class="map-legend-count">${esc(formatCount(layer.count))}</span></button>`;
   }).join("")}${links.formulas ? `<p class="map-legend-note">${esc(LINK_SAYS)}</p>` : ""}${
     links.access ? `<p class="map-legend-note map-legend-access">${esc(ACCESS_LINK_SAYS)}</p>` : ""}${
     links.none ? `<p class="map-legend-note map-legend-none">${esc(NO_LINKS_SAYS)}</p>` : ""}${filters ? `<p class="map-legend-note map-legend-filter"><span class="map-line-filter" aria-hidden="true"></span>${esc(FILTER_LINK_SAYS[filters])}</p>` : ""}${
-    marks ? `<p class="map-legend-note map-legend-mark"><span class="map-mark-filter" aria-hidden="true">${FUNNEL}</span>${esc(FILTER_MARK_SAYS[marks])}</p>` : ""}`;
+    marks ? `<p class="map-legend-note map-legend-mark"><span class="map-mark-filter" aria-hidden="true">${FUNNEL}</span>${esc(FILTER_MARK_SAYS[marks])}</p>` : ""}${
+    accessMarks ? `<p class="map-legend-note map-legend-mark map-legend-key"><span class="map-mark-access" aria-hidden="true">${KEY}</span>${esc(ACCESS_MARK_SAYS[accessMarks])}</p>` : ""}`;
 }
 
 /** What the first button of the trace's bar does, in full: its face is short, for the bar to keep to one row. */
