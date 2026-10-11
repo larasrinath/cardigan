@@ -74,7 +74,7 @@ const HOW_TO_READ: readonly [detail: string, value: string][] = [
     + "this model, sorted by the condition line item's module, then Condition line item, app, page and card. Each row says first what filters, the condition line item's module and the line item, then what it "
     + "filters, the module, the dimension and the line items the grid shows, then the condition, and then where the filter is: its app, page, card "
     + "and section. Filtered line items reads All line items, or Only or All except with the line items' names, a name that holds a comma in "
-    + "single quotes; for sections of different modules that share a filter, each module's in turn. Card and section numbers, page type and IDs start hidden in the column chooser. "
+    + "single quotes; for sections of different modules that share a filter, each module's in turn. The Model map uses these line items for its page filter arrows. Card and section numbers, page type and IDs start hidden in the column chooser. "
     + `The ${FILTER_USES} column of Line Items counts the rows that have each line item as `
     + "their condition. It is empty, not 0, where a page could not be read, or a filter's condition line item could not be named: the line item "
     + "may be the condition of that filter. A condition line item the model doesn't have is none of them."],
