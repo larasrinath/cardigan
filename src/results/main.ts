@@ -300,11 +300,15 @@ function writeLooks(): void {
   looks = now;
   writeKept(tabStorage(), now);
 }
-/** The settings go: those the tab keeps, and what the page would write of them, until the user chooses something again. */
+/** The settings go: those the tab keeps, and what the page would write of them, until the user chooses something again.
+ * Where the map was and the details that were open go too: a map built afresh would otherwise take back the place it was
+ * left at, say it, and so write again what was just forgotten. */
 function forgetLooks(): void {
   clearTimeout(looksTimer);
   looksTimer = undefined;
   forgetKept(tabStorage());
+  mapLooks = undefined;
+  drawerLooks = undefined;
   looks = result ? { subject: subjectOf(result), tables: {} } : undefined;
   looksText = looks && JSON.stringify(looks);
 }

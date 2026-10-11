@@ -64,10 +64,24 @@ describe("The widths of a table's columns", () => {
     // A table of many thousands of rows, as a model's Line Items can be, is measured quickly: once a column is as wide as
     // a column gets, its other cells are not looked at, and a cell shorter than the widest so far is not measured.
     const rows = Array.from({ length: 200_000 }, (_, index): Cell[] => [`Line item ${index}`, formula, index % 7 ? "Number" : "Boolean", String(index * 31)]);
-    const started = performance.now();
-    const many = columnWidths(columnsOf({ ...LINES, rows }), rows);
-    expect(performance.now() - started).toBeLessThan(1000);
-    expect(many.get(1)).toBe(WIDEST);
+    const columns = columnsOf({ ...LINES, rows });
+    // What is done is counted, not the clock: each cell is read once at most, and the long column's only until it is as
+    // wide as a column gets, which its first cell already is.
+    const reads = new Map<string, number>();
+    const counted = rows.map(row => new Proxy(row, {
+      get(target, key, receiver) {
+        if (typeof key === "string" && /^\d+$/.test(key)) reads.set(key, (reads.get(key) ?? 0) + 1);
+        return Reflect.get(target, key, receiver) as unknown;
+      },
+    }));
+    const many = columnWidths(columns, counted);
+    expect([many.get(1), reads.get("1"), reads.get("0"), reads.get("2"), reads.get("3")]).toEqual([WIDEST, 1, 200_000, 200_000, 200_000]);
+    // And what it costs is the process's own time, which a busy machine does not lengthen as it lengthens the clock's:
+    // about a quarter of a second, where measuring every long cell in full, or every row again for each, takes minutes.
+    const before = process.cpuUsage();
+    columnWidths(columns, rows);
+    const { user, system } = process.cpuUsage(before);
+    expect((user + system) / 1000).toBeLessThan(3000);
   });
 
   it("measures each cell as its column shows it: a text, a tag, an ID in its pill, a count with its commas, and colours with their squares", () => {

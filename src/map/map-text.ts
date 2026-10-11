@@ -5,15 +5,37 @@
 /** A first word that is a code by its look: capitals and digits with at least one of each, as in SYS01, C3 or REV01.2. */
 const CODE = /^[A-Z][A-Z0-9]*[0-9][A-Z0-9]*(?:[._][A-Z0-9]+)?$/;
 
-/** A module's name as its code and the rest. A code is one word at the start: the word before a dash ("REV01 - Revenue"),
- * or a word of capitals and digits before a space ("SYS01 Time Settings"). Any other name is the label whole.
- * Both patterns start at the name's start with a word of a few characters, so that neither has a choice of where a run
- * of spaces begins: a name of a hundred thousand spaces is read in the time it takes to pass over it once. */
+/** The marks that may stand between a code and the rest of a name, beside spaces: a colon, a hyphen and the two dashes. */
+const MARKS = new Set([":", "-", "\u2013", "\u2014"]);
+const DASH = /[-\u2013\u2014]/;
+const isSpace = (char: string): boolean => /\s/.test(char);
+
+/** A module's name as its code and the rest. A code is one word at the start, of at most twelve characters, set apart from
+ * the rest by spaces, colons and dashes in any mix: "REV01 - Revenue", "CLM101 : - Stat Combos", "FIN03: Cash", "X_1 \u2014 Y".
+ * Where the marks between them hold a dash, any word is a code, as the word before " - " always was. Where they hold a
+ * colon and no dash, or are spaces alone, only a word of capitals and digits is ("FIN03: Cash", "SYS01 Time Settings"):
+ * "Note: Revenue" and "Revenue Plan" stay whole. What is between ends with its last space, so a mark written against the
+ * rest stays with the rest ("SYS01 -Time" keeps "-Time"). A name with no such space after its first word, or nothing after
+ * it, is the label whole. The name is read once from its start: a name of a hundred thousand spaces is read in the time it
+ * takes to pass over it once. */
 export function splitName(name: string): { code: string; label: string } {
-  const dashed = /^(\S{1,12})\s+[-\u2013\u2014]\s+(\S.*)$/.exec(name);
-  if (dashed) return { code: dashed[1], label: dashed[2] };
-  const spaced = /^(\S{2,12})\s+(\S.*)$/.exec(name);
-  return spaced && CODE.test(spaced[1]) ? { code: spaced[1], label: spaced[2] } : { code: "", label: name };
+  const whole = { code: "", label: name };
+  // The first word runs to the first space; the marks at its end belong to what is between ("FIN03:").
+  let wordEnd = 0;
+  while (wordEnd < name.length && !isSpace(name[wordEnd])) wordEnd++;
+  let codeEnd = wordEnd;
+  while (codeEnd > 0 && MARKS.has(name[codeEnd - 1])) codeEnd--;
+  const code = name.slice(0, codeEnd);
+  if (code === "" || code.length > 12 || wordEnd === name.length) return whole;
+  // Then spaces and marks up to the rest. The first of them is a space, which the word ended at, so the rest starts after
+  // the last space of the run: going back from its end passes only over marks.
+  let runEnd = wordEnd;
+  while (runEnd < name.length && (isSpace(name[runEnd]) || MARKS.has(name[runEnd]))) runEnd++;
+  if (runEnd === name.length) return whole;
+  let labelStart = runEnd;
+  while (!isSpace(name[labelStart - 1])) labelStart--;
+  const between = name.slice(codeEnd, labelStart);
+  return DASH.test(between) || CODE.test(code) ? { code, label: name.slice(labelStart) } : whole;
 }
 
 /** A count with its thousands apart: 12,345. */
