@@ -224,12 +224,14 @@ describe("The results page against the engine in the Anaplan tab", () => {
       .toEqual([31, "5 rows about the model are not listed here: 3 hold a value, which the Overview has under About this export. 16 settings have no value and are not listed: they do not apply to this calendar type, or the model does not show them.", 10, [["Workspace", "Workspace one"], ["Model", "Demand: plan"], ["Captured on", "2026-09-28"]]]);
     // The overview loses none of the counts the export's Details file gives. Each row that only counts a file is said by
     // the file's tile, as the rows its table lists, but for the calendar's: its table lists 10 of its 31, and the line under
-    // the table's name says the rest, 5 rows about the model and 16 settings with no value.
+    // the table's name says the rest, 5 rows about the model and 16 settings with no value. The calendar's tile says what
+    // the calendar is instead: a 4-4-5 weeks calendar, in its fiscal year FY24.
     const overview = overviewOf(result);
     const counts = (detailsOf(result)?.rows ?? []).filter(row => row[0] === "Files" && /^\d+ rows$/.test(String(row[2]))).map(row => `${String(row[1]).replace(/\.csv$/, "")}: ${row[2]}`);
     const onTiles = overview.tiles.map(tile => `${tile.label}: ${tile.count} rows`);
     expect([counts.length, counts.filter(line => !onTiles.includes(line)), overview.tiles.find(tile => tile.label === "Model Calendar")])
-      .toEqual([10, ["Model Calendar: 31 rows"], { label: "Model Calendar", count: 10 }]);
+      .toEqual([10, ["Model Calendar: 31 rows"], { label: "Model Calendar", count: 10, value: "Weekly", detail: "FY24",
+        title: "Model Calendar: Weeks: 4-4-5, 4-5-4 or 5-4-4, current fiscal year FY24 (31 Dec 2023 - 28 Dec 2024)" }]);
     const leftOut = /^(\d+) rows about the model are not listed here.* (\d+) settings have no value and are not listed/.exec(calendar ? fileView(result, calendar).note ?? "" : "");
     expect(10 + Number(leftOut?.[1]) + Number(leftOut?.[2])).toBe(31);
     // The export says three things both in its summary and in a Files row: how many imports it matched, and that two files
