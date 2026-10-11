@@ -4,7 +4,7 @@ Every merged change that alters the extension has a version of its own: a new fe
 
 ## Unreleased
 
-- Fix every Line Item Subset showing the same line items. Membership is now read one subset at a time, as Model Building's editor reads it.
+- **Each subset's own line items.** In 0.31.4 every Line Item Subset showed the same line items: they came from an all-subsets grid that Model Building never uses for membership, whose cells are locked. Membership is now read one subset at a time, with the subset as the grid's context, as Model Building's own editor reads it. A subset without modules has no members and costs no read; one subset that can't be read leaves only its own membership unknown. Refresh the Anaplan tab once after updating.
 
 ## 0.31.6 (11 October 2026)
 
