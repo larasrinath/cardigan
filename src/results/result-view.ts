@@ -1,5 +1,6 @@
 import { MODEL_PAGE_FILES, MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, missingIn, type MissingKind } from "../page-files.js";
 import type { AnalysisResult, Cell, ResultTable } from "../result-types.js";
+import { LINE_ITEM_SUBSETS_FILE, MEMBERSHIP_NOT_READ } from "../model/line-item-subsets.js";
 import { calendarTile } from "./calendar-tile.js";
 import { cellLists, type Items } from "./cell-lists.js";
 import { APP_FILES, cardsNamed, columnIndex, COLUMN_CHOICES, type CardsTable } from "./columns.js";
@@ -461,6 +462,7 @@ const missingRule: FileRule = file => {
 export const FILE_RULES: Record<AnalysisResult["kind"], ReadonlyMap<string, FileRule>> = {
   app: new Map(),
   model: new Map([[MODEL_CALENDAR_FILE, calendarView], [LINE_ITEMS_FILE, lineItemsRule], [ACCESS_FILE, accessRule], [PROCESSES_FILE, processesRule], [IMPORTS_FILE, importsRule], [SOURCE_MODELS_FILE, sourceModelsRule],
+    [LINE_ITEM_SUBSETS_FILE, file => ({ table: file, ...(file.headers.includes("Line Items") ? {} : { note: MEMBERSHIP_NOT_READ }) })],
     ...MODEL_PAGE_FILES.map((file): [string, FileRule] => [file, missingRule])]),
 };
 
@@ -609,7 +611,7 @@ export function modelFacts(result: AnalysisResult): [setting: string, value: str
 /** The order of a model's files in the navigation and among the overview's tiles: the order of Anaplan's own Model
  * settings, with the Actions list's files in the order the owner gave. Each file is known by the name model/export.ts
  * writes it under. Dynamic Cell Access is none of Anaplan's settings: it is made from Line Items, and comes right after
- * it. Line Item Subsets is not exported yet, and has its place for when it is. After the settings come the tables of the
+ * it. Line Item Subsets follows General Lists. After the settings come the tables of the
  * pages built on the model, Module Usage, Page Filters and Page Actions (page-files.ts), last before the map. A file of a
  * result that is not listed here comes after these, in the result's own order: a file that is renamed, or new, moves to
  * the end and does not go missing. */
@@ -622,7 +624,8 @@ export const MODEL_FILE_ORDER: readonly string[] = [
  * file, each with its place in the result's tables. An app's are in the result's order; a model's in `MODEL_FILE_ORDER`.
  * Only this list is ordered: the result keeps its own order. */
 export function listedTables(result: AnalysisResult): { index: number; table: ResultTable }[] {
-  const tables = result.tables.map((table, index) => ({ index, table })).filter(({ table }) => table.details !== true && (result.engine !== "polaris" || table.rows.length > 0));
+  const tables = result.tables.map((table, index) => ({ index, table })).filter(({ table }) => table.details !== true
+    && ((result.engine !== "polaris" && (result.kind !== "model" || table.file !== LINE_ITEM_SUBSETS_FILE)) || table.rows.length > 0));
   if (result.kind !== "model") return tables;
   const rank = (table: ResultTable): number => {
     const place = MODEL_FILE_ORDER.indexOf(table.file);

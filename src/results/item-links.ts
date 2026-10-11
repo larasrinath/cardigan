@@ -60,6 +60,12 @@ type Resolver = (item: string, row: Row, table: ResultTable, tables: ReadonlyMap
 
 const rowNamed = (file: string): Resolver => (item, _row, _table, tables) => oneRow(tables, file, unquote(item));
 
+/** Applies To can name a general list or a line item subset. Ambiguous names stay plain. */
+const dimensionNamed: Resolver = (item, _row, _table, tables) => {
+  const found = [LISTS_FILE, "Line Item Subsets.csv"].flatMap(file => rowsNamed(tables, file, unquote(item)));
+  return found.length === 1 ? found[0] : undefined;
+};
+
 /** An action a process runs, by its name as the Actions list gives it, without quotes: the one row of Imports, Exports and
  * Other Actions together that has it. An import and an export of one name name neither: which is meant is not known. */
 const actionNamed: Resolver = (item, _row, _table, tables) => {
@@ -108,10 +114,11 @@ const pageAction: Resolver = (item, row, table, tables) => {
 /** File name -> header -> how its items name rows. A column that names nothing the page has rows of is not here: a list's
  * subsets and properties, the calendar's allowed values, and every column of an app's tables. */
 const RESOLVERS: ReadonlyMap<string, ReadonlyMap<string, Resolver>> = new Map(Object.entries({
-  [MODULES_FILE]: { "Applies To": rowNamed(LISTS_FILE), "Referenced By": objectNamed, "Line Items": ownLineItem },
-  [LINE_ITEMS_FILE]: { "Module Name": rowNamed(MODULES_FILE), "Applies To": rowNamed(LISTS_FILE), "Referenced By": objectNamed,
+  [MODULES_FILE]: { "Applies To": dimensionNamed, "Referenced By": objectNamed, "Line Items": ownLineItem },
+  [LINE_ITEMS_FILE]: { "Module Name": rowNamed(MODULES_FILE), "Applies To": dimensionNamed, "Referenced By": objectNamed,
     "Read Access Driver": objectNamed, "Write Access Driver": objectNamed, "Ratio Numerator": objectNamed, "Ratio Denominator": objectNamed, "Format List": rowNamed(LISTS_FILE) },
   [LISTS_FILE]: { "Parent Hierarchy": rowNamed(LISTS_FILE), "Referenced in Applies To": objectNamed, "Referenced as Format": objectNamed, "Referenced in Formula": objectNamed },
+  "Line Item Subsets.csv": { Modules: rowNamed(MODULES_FILE), "Line Items": objectNamed, "Referenced in Applies To": objectNamed, "Referenced By": objectNamed },
   [PROCESSES_FILE]: { Actions: actionNamed },
   [IMPORTS_FILE]: { "Used in Processes": rowNamed(PROCESSES_FILE), "Target Object": targetObject },
   "Exports.csv": { "Used in Processes": rowNamed(PROCESSES_FILE) },
