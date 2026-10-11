@@ -29,6 +29,7 @@ import {
 } from "./markup.js";
 import type { PageId } from "./page-ids.js";
 import { LINE_ITEMS_FILE, MODULE_NAME } from "./line-items-view.js";
+import { subsetOfRow } from "./line-item-subsets-view.js";
 import { ACCESS_FILE, analysedOf, cardParts, detailsOf, detailValue, diagnosticLog, fileView, IMPORTS_FILE, listedTables, MODEL_CALENDAR_FILE, MODULES_FILE, overviewOf,
   SOURCE_MODELS_FILE, tableFullLabel, tableLabel, type FileView, type Overview } from "./result-view.js";
 import { browserZone, fileRow, hasTimes, inTimeMode, momentRange, momentsOf, readText, storedTimeMode, storeTimeMode, timesOf, zoneWords, type TimeMode } from "./times.js";
@@ -1202,15 +1203,24 @@ function openRowDrawer(entry: Shown, row: Row, opener: Element, trackHistory = t
   // A process's row lists the actions it runs: each opens its own row, where its table has one row of its name.
   const process = processOfRow(result, entry.table, row);
   drawerSteps = process ? process.steps.map(stepRow) : [];
-  const items = rowItems(entry.lists, row);
+  const subset = subsetOfRow(result, entry.table, row, entry.exported?.get(row));
+  const items = new Map(rowItems(entry.lists, row));
+  if (subset) items.set(subset.namesColumn, subset.members);
   // The rows its items name are counted first: a source model's objects and imports are kept after them.
   const opens = itemOpens(entry, row, items);
+  const subsetModules = subset?.groups.map(group => {
+    const to = rowOfName(MODULES_FILE, group.module);
+    if (!to) return undefined;
+    drawerItems.push(to);
+    return drawerItems.length - 1;
+  });
   const source = sourceModelOfRow(result, entry.table, row);
   if (!source) noteNoSources(entry.table, row);
   const columns = entry.columns.map(column => ({ ...column, hidden: entry.hidden.has(column.index) }));
   openDrawer(name, rowDrawerSubHtml(tableLabel(entry.table)),
     rowDrawerHtml(columns, row, entry.links, entry.exported?.get(row), items, entry.readUnder, mappingOfRow(result, entry.table, row),
-      process && { view: process, opens: drawerSteps.map(Boolean) }, { mode: timeMode, zone: ownZone }, opens, source && sourceOpens(source)), opener);
+      process && { view: process, opens: drawerSteps.map(Boolean) }, { mode: timeMode, zone: ownZone }, opens, source && sourceOpens(source),
+      subset && { view: subset, modules: subsetModules!, members: opens.get(subset.namesColumn) ?? [] }), opener);
 }
 /** What a source model's details link to: each of its objects, its own row of Import Data Sources, by its place there,
  * which the page's table keeps; each import, the one row of Imports of its name. Each is kept in `drawerItems` after

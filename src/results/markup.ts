@@ -1,12 +1,13 @@
 import { MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE } from "../page-files.js";
 import type { Items } from "./cell-lists.js";
 import { headerWidth, ROW_BUTTON, WIDEST } from "./column-widths.js";
-import { APP_FILES, rowColumns, type Column } from "./columns.js";
+import { APP_FILES, countText, rowColumns, type Column } from "./columns.js";
 import { REFRESH_AND_RUN, type RunState } from "./connection.js";
 import type { MappingView } from "./import-mapping-view.js";
 import type { ProcessView } from "./process-actions-view.js";
 import type { SourceModelView } from "./source-model-view.js";
 import { LINE_ITEMS_FILE } from "./line-items-view.js";
+import { LINE_ITEM_NAMES, SUBSET_NOT_READ, type SubsetView } from "./line-item-subsets-view.js";
 import type { RangeState } from "./range-filter.js";
 import { pixelGridHtml } from "./pixel-loader.js";
 import { ACCESS_FILE, MODEL_CALENDAR_FILE, MODULES_FILE, type Analysed, type CardSection, type Overview, type OverviewTile, type SectionCell } from "./result-view.js";
@@ -120,8 +121,10 @@ export function cellHtml(column: Column, row: Row, links: Links, whole = false):
       return cardLinked(links, row) ? `<button type="button" class="link" data-act="card" title="Open card details">${shown}</button>` : plain(text);
     case "colours":
       return whole ? `<span class="cell-t">${coloursHtml(text)}</span>` : `<span class="cell-t" title="${esc(text)}">${coloursHtml(text)}</span>`;
-    case "count":
-      return whole ? `<span class="cell-t">${esc(groupedCount(text))}</span>` : plain(groupedCount(text));
+    case "count": {
+      const count = countText(column, text);
+      return whole ? `<span class="cell-t">${esc(count)}</span>` : plain(count);
+    }
     default:
       return plain(text);
   }
@@ -1011,6 +1014,15 @@ export function sourceModelHtml(model: SourceModelView, sources: readonly (numbe
   return objects + reads;
 }
 
+/** A subset's selected line items under their module headings. Link numbers refer to the page's own rows. */
+export function subsetMembershipHtml(view: SubsetView, modules: readonly (number | undefined)[], members: readonly (number | undefined)[]): string {
+  const name = (text: string, open: number | undefined): string => open === undefined ? esc(text)
+    : `<button type="button" class="link" data-act="item" data-item="${open}">${esc(text)}</button>`;
+  return `<div class="d-sec" id="drawerSubsetItems"><h3>Line items${view.count === undefined ? "" : ` · ${view.count}`}</h3>`
+    + (view.count === undefined ? drawerLine(SUBSET_NOT_READ) : view.groups.map((group, index) =>
+      `<div class="d-sec"><h4>${name(group.module, modules[index])}</h4>${itemsHtml(group.items.map(item => item.name), false, group.items.map(item => members[item.index]))}</div>`).join("")) + "</div>";
+}
+
 /** One row in full: every column, hidden ones included, with nothing cut short, for each cell that is said in words the
  * text that was read (`exported`), named by the file's column it was read from where that is another (`readUnder`), and
  * for each cell that lists several items those items, one to a line, with how many there are beside the column's name
@@ -1021,12 +1033,14 @@ export function sourceModelHtml(model: SourceModelView, sources: readonly (numbe
 export function rowDrawerHtml(columns: readonly Column[], row: Row, links: Links, exported?: ReadonlyMap<number, unknown>, items?: ReadonlyMap<number, Items>,
   readUnder?: ReadonlyMap<number, string>, mapping?: MappingView, process?: { view: ProcessView; opens: readonly boolean[] }, times?: DrawerTimes,
   itemOpens?: ReadonlyMap<number, readonly (number | undefined)[]>,
-  source?: { view: SourceModelView; sources: readonly (number | undefined)[]; imports: readonly (number | undefined)[] }): string {
+  source?: { view: SourceModelView; sources: readonly (number | undefined)[]; imports: readonly (number | undefined)[] },
+  subset?: { view: SubsetView; modules: readonly (number | undefined)[]; members: readonly (number | undefined)[] }): string {
   const omitted = new Set<string>();
   if (process) omitted.add("Actions");
   if (source?.view.sources.length) omitted.add("Sources");
   if (source?.view.imports.length) omitted.add("Imports");
-  return `${mapping ? importMappingHtml(mapping) : ""}${process ? processActionsHtml(process.view, process.opens) : ""}${source ? sourceModelHtml(source.view, source.sources, source.imports) : ""}<div class="d-sec"><h3>All columns</h3>
+  if (subset) ["Line Items", LINE_ITEM_NAMES, "Membership read"].forEach(label => omitted.add(label));
+  return `${subset ? subsetMembershipHtml(subset.view, subset.modules, subset.members) : ""}${mapping ? importMappingHtml(mapping) : ""}${process ? processActionsHtml(process.view, process.opens) : ""}${source ? sourceModelHtml(source.view, source.sources, source.imports) : ""}<div class="d-sec"><h3>All columns</h3>
     ${allColumns(columns, row, links, exported, items, times, itemOpens, omitted)}</div>${asReadHtml(columns, exported, readUnder, times)}`;
 }
 
