@@ -2,6 +2,16 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version is in the menu of Cardigan's icon in Chrome's toolbar and on its About page, and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## 0.19.1 (10 October 2026)
+
+About this export says what was read, and nothing more.
+
+- **A model's About this export.** On the Overview it says, in this order, **Workspace**, **Workspace ID**, **Model**, **Model ID** and **Apps**: the workspace's name and its ID, then the model's name and its ID, then the apps whose pages use the model. The model's name and its apps still open them in Anaplan. (#PR)
+- **An app's About this export.** It says **App**, **App ID** and **Models**, the models the app's pages are built on. An app's result names no workspace of its own, so its About has none. (#PR)
+- **What is no longer said there.** The Anaplan host, **Exported on**, **Exported with**, the Model Calendar's **Captured on**, and an app's **Categories**, **Pages**, **Pages analysed** and **Cards**. Cardigan still reads them and keeps them with the result; the Overview no longer shows them. The first line of the diagnostic log says the version and the Anaplan host, and the menu of Cardigan's icon says the version. (#PR)
+- **Model Calendar's line.** The line under the table's name says that the template's rows about the model are not listed, and that the Overview names the workspace and the model, under **About this export**. (#PR)
+- **What stays the same.** What is read, the tables, the map, the times in the tables and the Timezone pill. (#PR)
+
 ## 0.19.0 (10 October 2026)
 
 A cleaner header, one Timezone pill, and the version and an About page in the menu of Cardigan's icon.

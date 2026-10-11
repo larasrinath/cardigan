@@ -143,7 +143,8 @@ export function rowCellHtml(column: Column, row: Row, links: Links): string {
 /* ---------- header, navigation ---------- */
 
 /** What the header says of the result: its name alone, the model's or the app's, cut with an ellipsis where the header
- * has no room for it and whole in its title. Where it was read and when are the overview's to say, in About this export. */
+ * has no room for it and whole in its title. What was read is the overview's to say, in About this export, and the
+ * Anaplan host it was read on the diagnostic log's first line. */
 export function headerMetaHtml(analysed: Pick<Analysed, "name">): string {
   return `<div class="meta-app" title="${esc(analysed.name)}">${esc(analysed.name)}</div>`;
 }
