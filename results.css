@@ -217,13 +217,16 @@ main{flex:1;min-width:0}
 
 /* ---------- toolbar ---------- */
 /* What the head's row has beside the name: the switch of ways and a jump's chip where the table has them, the search box,
-   Reset, and at the right end the count with the pager. Where the toolbar's own line runs out of room, that last group
-   goes under the search box, whole, at the right: the count, the page buttons and the rows per page are never parted. */
-.toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex:1 1 auto;min-width:0}
-/* The search box grows from 300px to 420px with the room its line has, and gives way to 220px before anything moves. */
+   Reset, and at the right end the count with the pager. The toolbar is never narrower than all it holds on one line while
+   its line has room for that (min-width:fit-content): beside a name that leaves it less, it takes the next line rather
+   than wrap within itself. Where even a line of its own is too short, the last group goes under the search box, whole,
+   at the right: the count, the page buttons and the rows per page are never parted. */
+.toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex:1 1 auto;min-width:fit-content}
+/* The search box grows from 260px to 420px with the room its line has, and gives way to 220px before anything moves. Its
+   width says the 260px as well: the toolbar is measured by it when the head decides whether the toolbar fits beside the name. */
 .search-wrap{
   display:flex;align-items:center;gap:7px;background:var(--panel);border:1px solid var(--border-strong);
-  border-radius:999px;padding:0 3px 0 12px;height:32px;flex:1 1 300px;min-width:220px;max-width:420px;color:var(--text-3);
+  border-radius:999px;padding:0 3px 0 12px;height:32px;flex:1 1 260px;width:260px;min-width:220px;max-width:420px;color:var(--text-3);
 }
 .search-wrap:focus-within{border-color:var(--ring);box-shadow:0 0 0 2px color-mix(in srgb,var(--ring) 30%,transparent)}
 .search-wrap input{border:0;background:none;flex:1;min-width:80px;color:var(--text);font-size:12.5px}
