@@ -129,7 +129,7 @@ One path stays in the bar: **Model / Group by / Group / Module**. Click the mode
 | Functional area | The module's Functional Area, with unassigned modules last |
 | Headings | Each module is under a module whose name starts with `--`, `==`, `**`, `<<` or `>>` |
 | Name prefix | Shared codes at the start of module names |
-| Role in the data flow | Data, Input, System, Calculation or Output, inferred from imports, dimensions and formula links |
+| DISCO | Data, Input, System, Calculation or Output, inferred from imports, dimensions and formula links |
 | App | The app whose pages use the module, Several apps, or Not on any page |
 | Main dimension | The first list the module applies to, Time only, or No dimensions |
 
