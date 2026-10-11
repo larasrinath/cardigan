@@ -36,7 +36,7 @@ describe("What the details say of a section", () => {
     const { model, volumes } = sample();
     const graph = sectionsGraph(model, false);
     const inspection = inspect(model, graph, graph.nodes[0], false);
-    expect(inspection).toMatchObject({ kind: "GROUP", layer: "s0", name: "01: Inputs", rows: [["Modules", "1"], ["Line items", "3"]], action: { label: "Show its 1 module", section: 0 }, texts: [] });
+    expect(inspection).toMatchObject({ kind: "Group", layer: "s0", name: "01: Inputs", rows: [["Modules", "1"], ["Line items", "3"]], action: { label: "Show its 1 module", section: 0 }, texts: [] });
     expect(inspection.lists).toEqual([
       { key: "used", title: "It feeds directly · 1", open: true, links: [{ node: "section1", name: "02: Calculations", layer: "s1" }] },
       { key: "modules", title: "Its modules · 1", open: true, links: [{ raw: volumes, name: "INP01 - Volumes", layer: "s0" }] },
@@ -53,7 +53,7 @@ describe("What the details say of a module", () => {
     const { model, volumes, revenue, units, canEdit, owner } = sample();
     const graph = modulesGraph(model, undefined, false);
     const inspection = inspect(model, graph, byName(graph, "INP01 - Volumes"), false);
-    expect(inspection.kind).toBe("MODULE");
+    expect(inspection.kind).toBe("Module");
     expect(inspection.rows).toEqual([["Group", "01: Inputs"], ["Line items", "3"], ["Applies To", "Products, Regions"], ["Cell Count", "48,000"], ["Time Scale", "Month"], ["Time Range", "Model Calendar"], ["Versions", "All"]]);
     expect(inspection.action).toEqual({ label: "Show its 3 line items", module: volumes });
     expect(inspection.lists.map(list => [list.key, list.title, list.open])).toEqual([["used", "It feeds directly · 1", true], ["items", "All its line items · 3", false]]);
@@ -92,7 +92,7 @@ describe("What the details say of a module", () => {
     const { model, revenue, units } = sample();
     const graph = moduleGraph(model, revenue, false, false);
     const inspection = inspect(model, graph, byName(graph, "INP01 - Volumes"), false);
-    expect(inspection.kind).toBe("MODULE");
+    expect(inspection.kind).toBe("Module");
     expect(inspection.layer).toBe(LAYER.external);
     expect(inspection.lists.map(list => [list.key, list.title, list.open])).toEqual([["referenced", "Its line items linked here · 1", true], ["used", "It feeds directly · 1", true], ["items", "All its line items · 3", false]]);
     expect(inspection.lists[0].links.map(link => link.raw)).toEqual([units]);
@@ -106,7 +106,7 @@ describe("What the details say of a line item", () => {
     const { model, revenue } = sample();
     const graph = moduleGraph(model, revenue, false, false);
     const inspection = inspect(model, graph, byName(graph, "Gross"), false);
-    expect(inspection).toMatchObject({ kind: "LINE ITEM", layer: LAYER.lineItem, name: "Gross", formula: "Units * 2", notes: "Before discounts." });
+    expect(inspection).toMatchObject({ kind: "Line item", layer: LAYER.lineItem, name: "Gross", formula: "Units * 2", notes: "Before discounts." });
     expect(inspection.rows).toEqual([["Module", "CAL01 - Revenue"], ["Format", "NUMBER"], ["Applies To", "None"]]);
     expect(inspection.remark).toBeUndefined();
     // It is among its module's line items already: there is nowhere to open.
@@ -198,6 +198,15 @@ describe("A line item's Format and Summary, in the words of the page's Line Item
   const NUMBER = '{"minimumSignificantDigits":4,"decimalPlaces":2,"dataType":"NUMBER"}';
   const SUM = '{"summaryMethod":"SUM","timeSummaryMethod":"SUM","timeSummarySameAsMainSummary":true}';
 
+  it("keeps the original structured cells for the folded As read section", () => {
+    const make = new GraphMaker();
+    const plan = make.module("Invented plan", "Plans");
+    make.item(plan, "Value", { formatCell: NUMBER, summaryCell: SUM });
+    const model = indexModel(make.graph());
+    const graph = moduleGraph(model, plan, false, false);
+    expect(inspect(model, graph, byName(graph, "Value"), false).asRead).toEqual([["Format", NUMBER], ["Summary", SUM]]);
+  });
+
   function said(extra: (regions: number) => Parameters<GraphMaker["item"]>[2]): (label: string) => string | undefined {
     const make = new GraphMaker();
     const regions = make.list("Regions");
@@ -250,14 +259,14 @@ describe("What the details say of a list, a subset and a property", () => {
     const { model, revenue, gross, net } = sample();
     const graph = moduleGraph(model, revenue, false, false);
     const subset = inspect(model, graph, byName(graph, "Active Products"), false);
-    expect(subset).toMatchObject({ kind: "LIST SUBSET", layer: LAYER.list, rows: [["List", "Products"]] });
+    expect(subset).toMatchObject({ kind: "List subset", layer: LAYER.list, rows: [["List", "Products"]] });
     // The details name no file and no row: the page has no file for the user to look a row up in.
     expect(subset).not.toHaveProperty("source");
     expect(subset.lists).toEqual([{ key: "used", title: "It feeds directly · 1", open: true, links: [{ raw: gross, name: "Gross", layer: LAYER.lineItem, sub: "CAL01 - Revenue" }] }]);
     expect(subset.action).toBeUndefined();
     expect(subset.remark).toBeUndefined();
     const property = inspect(model, graph, byName(graph, "Code"), false);
-    expect(property).toMatchObject({ kind: "LIST PROPERTY", layer: LAYER.property, rows: [["List", "Products"], ["Format", "TEXT"]] });
+    expect(property).toMatchObject({ kind: "List property", layer: LAYER.property, rows: [["List", "Products"], ["Format", "TEXT"]] });
     expect(property.lists[0].links.map(link => link.raw)).toEqual([net]);
   });
 
@@ -270,7 +279,7 @@ describe("What the details say of a list, a subset and a property", () => {
     const model = indexModel(make.graph());
     const graph = moduleGraph(model, module, false, false);
     const inspection = inspect(model, graph, byName(graph, "Sites"), false);
-    expect(inspection.kind).toBe("LIST");
+    expect(inspection.kind).toBe("List");
     expect(inspection.rows).toEqual([["Parent Hierarchy", "All Sites"], ["Item Count", "1,200"], ["Top Level", "Total Sites"], ["Numbered", "Yes"], ["Display Name Property", "Label"]]);
   });
 });

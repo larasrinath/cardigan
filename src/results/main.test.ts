@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AreaCheck, ModelMapOptions, PageFilterCheck } from "../map/graph-types.js";
+import type { AreaCheck, GraphNode, ModelMapOptions, PageFilterCheck } from "../map/graph-types.js";
 import { PAGE_ACTIONS_HEADERS, PAGE_FILTERS_HEADERS } from "../model-pages.js";
 import { MISSING_LINE_ITEMS_MODULE, MODULE_USAGE_FILE, MODULE_USAGE_HEADERS, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE } from "../page-files.js";
 import { CALENDAR_HEADERS, CALENDAR_PROPERTIES, calendarRows } from "../model/calendar.js";
@@ -4302,7 +4302,7 @@ describe("A model's map on the results page", () => {
     expect([mapMounts.length, mapMounts[0].graph === mapBuilds[0].graph, mapMounts[0].host === host(), mapMounts[0].found]).toEqual([1, true, true, [false, 0, "Model map"]]);
     // The model's name is the result's, and its workspace's is the Details file's. With them the map is given the way to
     // tell the page that it has stopped.
-    expect(mapMounts[0].options).toEqual({ modelName: "Model one", workspaceName: "Planning", onFailure: expect.any(Function), onGrouping: expect.any(Function), onView: expect.any(Function) });
+    expect(mapMounts[0].options).toEqual({ modelName: "Model one", workspaceName: "Planning", onFailure: expect.any(Function), onGrouping: expect.any(Function), onView: expect.any(Function), opens: expect.any(Function) });
     // What the map made is in its place, and nowhere else on the page.
     expect([host().children.length, host().contains(mapMounts[0].button), page.all("button").filter(button => button === mapMounts[0].button).length]).toEqual([1, true, 1]);
 
@@ -4313,7 +4313,7 @@ describe("A model's map on the results page", () => {
       sendResult(ports[0], result);
       toMap();
       const { options } = mapMounts[mapMounts.length - 1];
-      expect([options, "workspaceName" in (options as object)], what).toEqual([{ modelName: "Model one", onFailure: expect.any(Function), onGrouping: expect.any(Function), onView: expect.any(Function) }, false]);
+      expect([options, "workspaceName" in (options as object)], what).toEqual([{ modelName: "Model one", onFailure: expect.any(Function), onGrouping: expect.any(Function), onView: expect.any(Function), opens: expect.any(Function) }, false]);
     }
   });
 
@@ -4530,7 +4530,7 @@ describe("A model's map on the results page", () => {
     toMap();
     // Its map is built from the tables that came back, which are the result's, with the names the Details file gives.
     expect([mapAsked, mapBuilds[0].tables, mapMounts[0].options, mapMounts[0].host === host(), mapMounts[0].found, host().hidden])
-      .toEqual([["build", "mount 1", "show 1"], model.tables, { modelName: "Model one", workspaceName: "Planning", onFailure: expect.any(Function), onGrouping: expect.any(Function), onView: expect.any(Function) }, true, [false, 0, "Model map"], false]);
+      .toEqual([["build", "mount 1", "show 1"], model.tables, { modelName: "Model one", workspaceName: "Planning", onFailure: expect.any(Function), onGrouping: expect.any(Function), onView: expect.any(Function), opens: expect.any(Function) }, true, [false, 0, "Model map"], false]);
     // It is shown and hidden as any other, under the same line, and the tab has still been asked nothing.
     toOverview();
     toMap();
@@ -4956,13 +4956,13 @@ describe("The ways from a count or a row to where it leads", () => {
     expect([page.id("drawerTitle").textContent, page.id("drawerOpens").hidden, mapButton()?.title, mapButton()?.querySelectorAll("svg").length])
       .toEqual(["Revenue", false, "Show Revenue on the Model map", 1]);
     mapButton()!.press();
-    // The details close, the map is shown, and the line item is selected on it.
-    expect([drawerOpen(), shows(), mapAsked]).toEqual([false, ["Model map", "Model map"], ["build", "mount 1", "show 1", "reveal 1 3"]]);
+    // The details stay open, the map is shown, and the line item is selected on it.
+    expect([drawerOpen(), shows(), mapAsked]).toEqual([true, ["Model map", "Model map"], ["build", "mount 1", "show 1", "reveal 1 3"]]);
     // A module's row: the module, among its section's.
     goTo(2);
     openRow("COST01 Costs");
     mapButton()!.press();
-    expect([drawerOpen(), shows()[0], mapAsked.slice(4)]).toEqual([false, "Model map", ["hide 1", "show 1", "reveal 1 5"]]);
+    expect([drawerOpen(), shows()[0], mapAsked.slice(4)]).toEqual([true, "Model map", ["hide 1", "show 1", "reveal 1 5"]]);
     // The graph is built once, for the button and the map both.
     expect(mapBuilds).toHaveLength(1);
   });
@@ -4974,7 +4974,7 @@ describe("The ways from a count or a row to where it leads", () => {
     openRow("COST01 Costs");
     expect([page.id("drawerTitle").textContent, mapButton()?.title]).toEqual(["COST01 Costs", "Show COST01 Costs on the Model map"]);
     mapButton()!.press();
-    expect([drawerOpen(), shows()[0], mapAsked]).toEqual([false, "Model map", ["build", "mount 1", "show 1", "reveal 1 5"]]);
+    expect([drawerOpen(), shows()[0], mapAsked]).toEqual([true, "Model map", ["build", "mount 1", "show 1", "reveal 1 5"]]);
     // A heading's own row there, which the map draws as no module, has none.
     goTo(1);
     openRow("--- Archive ---");
@@ -5015,7 +5015,7 @@ describe("The ways from a count or a row to where it leads", () => {
     page.key("Escape");
     openRow("COST01 Costs");
     mapButton()!.press();
-    expect([drawerOpen(), shows()[0], mapAsked.at(-1)]).toEqual([false, "Model map", "reveal 1 5"]);
+    expect([drawerOpen(), shows()[0], mapAsked.at(-1)]).toEqual([true, "Model map", "reveal 1 5"]);
   });
 
   it("has no such button for a heading of Modules, nor for a line item the map does not draw", async () => {
@@ -5158,6 +5158,49 @@ describe("The buttons at the top right of a row's details that open it in Anapla
   const why = () => (page.id("drawerWhy").hidden ? undefined : page.id("drawerWhy").textContent);
   const drawerOpen = () => page.id("drawer").classList.contains("show");
   const toastSays = () => page.id("toast").textContent;
+
+  it("supplies the map's Model action through the same opens as the row, using the run's module IDs", async () => {
+    const module: GraphNode = { id: 0, kind: "module", name: "REV01 Revenue", file: "Line Items", row: 2 };
+    const item: GraphNode = { id: 1, kind: "lineItem", name: "Revenue", module: 0, file: "Line Items", row: 5 };
+    mapNodes = [module, item];
+    inPage = "opened";
+    await openModel();
+    goTo(1);
+    openRow("Revenue");
+    const title = opens().find(([label]) => label === "Model")![1];
+    await press("Model");
+    page.find('#navList [data-nav="map"]').press();
+    const options = mapMounts[0].options as ModelMapOptions;
+    for (const node of [module, item]) {
+      const actions = options.opens!(node);
+      expect(actions.map(action => action.label)).toEqual(["Table", "Model"]);
+      expect(actions[1].title).toBe(title);
+      actions[1].open();
+      await settle();
+    }
+    expect(asks()).toEqual(Array.from({ length: 3 }, () => ({ type: "open", nonce: expect.any(String), model: OPENS.id, object: "102000000001" })));
+    expect(tabUpdates).toEqual(Array.from({ length: 3 }, () => [7, { active: true }]));
+    expect(ports[0].posted.filter(message => (message as { type: string }).type === "run")).toHaveLength(1);
+  });
+
+  it("omits a map action with no matching row or no module ID", async () => {
+    const module: GraphNode = { id: 0, kind: "module", name: "REV01 Revenue", file: "Line Items", row: 2 };
+    mapNodes = [module];
+    await openModel({ ...OPENS, moduleIds: [] });
+    page.find('#navList [data-nav="map"]').press();
+    const options = mapMounts[0].options as ModelMapOptions;
+    expect(options.opens!(module).map(action => action.label)).toEqual(["Table"]);
+    expect(options.opens!({ ...module, name: "No matching module" })).toEqual([]);
+  });
+
+  it("can open a module in Model Building when Modules was not read but Line Items has its row", async () => {
+    const module: GraphNode = { id: 0, kind: "module", name: "REV01 Revenue", file: "Line Items", row: 2 };
+    mapNodes = [module];
+    await openModel({ ...OPENS, tables: OPENS.tables.filter(table => table.file !== "Modules.csv") });
+    page.find('#navList [data-nav="map"]').press();
+    const options = mapMounts[0].options as ModelMapOptions;
+    expect(options.opens!(module).map(action => action.label)).toEqual(["Model"]);
+  });
 
   it("gives a tab whose model's frame still holds an earlier reader this build's, and then opens the module inside the page after all; where Chrome refuses, it loads the address", async () => {
     await openModel();

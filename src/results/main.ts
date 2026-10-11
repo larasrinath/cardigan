@@ -1,5 +1,5 @@
 import { areaCheckLine, buildModelGraph, pageFilterCheckLine } from "../map/build-graph.js";
-import type { MapView, ModelGraph, ModelMap, ModelMapOptions } from "../map/graph-types.js";
+import type { GraphNode, MapOpen, MapView, ModelGraph, ModelMap, ModelMapOptions } from "../map/graph-types.js";
 import { mountModelMap } from "../map/map-view.js";
 import { MISSING_LINE_ITEMS_MODULE, missingIn, MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, PAGE_ROUTES, type MissingKind } from "../page-files.js";
 import { CONTENT_SCRIPT_ORIGIN, PORT_NAME } from "../protocol.js";
@@ -1807,6 +1807,52 @@ const mapStopped = (reason: unknown): string => {
 /** Where the page keeps how the viewer last chose to group the map's modules (map/map-groups.ts). */
 const MAP_GROUPING = "cardigan-map-grouping";
 
+/** Match a box to the page's own rows: Line Items has a different row count from the source grid. */
+function mapRow(node: GraphNode): { entry: Shown; row: Row } | undefined {
+  if (node.kind === "module") return rowOfName(MODULES_FILE, node.name);
+  if (node.kind === "list") return rowOfName(LISTS_FILE, node.name);
+  if (node.kind === "subset" || node.kind === "property") {
+    const parent = modelGraph?.nodes.find(each => each.id === node.parent && each.kind === "list");
+    return parent ? rowOfName(LISTS_FILE, parent.name) : undefined;
+  }
+  if (node.kind !== "lineItem") return undefined;
+  const entry = shownOf(LINE_ITEMS_FILE);
+  const module = modelGraph?.nodes.find(each => each.id === node.module);
+  const at = entry && columnIndex(entry.table, MODULE_NAME);
+  if (!entry || !module || at === undefined) return undefined;
+  const rows = entry.table.rows.filter(row => !entry.headings?.has(row) && cellText(row[0]).trim() === node.name.trim()
+    && cellText(row[at]).trim() === module.name.trim());
+  return rows.length === 1 ? { entry, row: rows[0] } : undefined;
+}
+
+/** The map uses the same row details and Model opening as the tables. No address is built by the map. */
+function mapOpens(node: GraphNode): MapOpen[] {
+  const to = mapRow(node);
+  const opens: MapOpen[] = [];
+  if (to) opens.push({ label: "Table", title: `Show ${node.name} in ${tableLabel(to.entry.table)}`, open: () => {
+    const { entry, row } = to;
+    // Keep the table's sort and columns. Clear search and filters only if they hide the row.
+    state.context = undefined;
+    let rows: readonly Row[] = select(entry.table.rows, query(entry));
+    if (!rows.includes(row)) {
+      entry.search = "";
+      entry.filters.clear();
+      entry.ranges.clear();
+      rows = select(entry.table.rows, query(entry));
+    }
+    entry.page = Math.floor(rows.indexOf(row) / state.pageSize);
+    navTo(entry.index);
+    openRowDrawer(entry, row, el("view"));
+    drawerRowOpener(drawerLooks)?.scrollIntoView({ block: "nearest" });
+  } });
+  // A module can still open in Model Building if its Modules table was not read but Line Items has its own row.
+  const source = to ?? (node.kind === "module" ? rowOfName(LINE_ITEMS_FILE, node.name) : undefined);
+  const model = source && opensOf(source.entry, source.row).opens.find(open => open.kind === "module");
+  if (model?.kind === "module") opens.push({ label: "Model", title: model.title,
+    open: () => { void openInModel(model.url, model.what, model.object); } });
+  return opens;
+}
+
 /** What the page tells the map about the model: its name, which is the result's, and its workspace's, which the Details
  * file has under Model (model/export.ts). A dash there says that the export found none, so a workspace that is called
  * by the dash alone is taken for none as well. With them goes the way for the map to tell the page that it has stopped
@@ -1818,6 +1864,7 @@ function mapOptions(model: AnalysisResult, onFailure: (reason: string) => void):
   try { grouping = localStorage.getItem(MAP_GROUPING); } catch { /* no storage: the map picks */ }
   return {
     modelName: cellText(model.name), ...(workspace === "" || workspace === NONE ? {} : { workspaceName: workspace }), onFailure, ...(grouping ? { grouping } : {}),
+    opens: node => result === model ? mapOpens(node) : [],
     // The map's own pick is kept as no choice: the next map picks for itself again.
     onGrouping: kind => {
       try { localStorage.setItem(MAP_GROUPING, kind ?? ""); } catch { /* not remembered */ }
@@ -2057,7 +2104,7 @@ document.addEventListener("click", event => {
         if (from) openCard(cardsOfRow(from.entry, from.row), act);
         return;
       // A way the row in the details leads elsewhere, by its place among the buttons (`opensOf`). The row's box on the
-      // map: the details close, the map is shown, and the box is selected there as the map's own search selects one, with
+      // map: the details are kept, the map is shown, and the box is selected there as the map's own search selects one, with
       // its details beside it. A module or a list: the model's tab opens it, inside its Model Building page where it can
       // (`openInModel`). An app or a page: the tab of apps and pages goes there (`openInAppTab`). Either tab comes to the
       // front, and the details stay open behind it.
@@ -2066,7 +2113,6 @@ document.addEventListener("click", event => {
         if (!open) return;
         if (open.kind === "module") return void openInModel(open.url, open.what, open.object);
         if (open.kind !== "map") return void openInAppTab(open.url, open.what);
-        closeDrawer();
         navTo("map");
         if (modelMap && modelMap !== "failed" && !modelMap.reveal(open.node)) toast("Not found on the map");
         return;

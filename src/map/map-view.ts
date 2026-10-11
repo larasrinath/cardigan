@@ -1,6 +1,6 @@
-import type { GraphNode, MapView, ModelGraph, ModelMap, ModelMapOptions } from "./graph-types.js";
+import type { GraphNode, MapOpen, MapView, ModelGraph, ModelMap, ModelMapOptions } from "./graph-types.js";
 import {
-  boxAround, bringIntoView, centreOn, countInView, defaultInsets, easeCamera, fitCameraIn, hitNode, insetsOf, reveal as revealIn, roomsBeside, stepFrom, toScreen, toWorld, zoomAt,
+  boxAround, bringIntoView, centreOn, countInView, defaultInsets, easeCamera, fitCameraIn, hitNode, insetsOf, roomsBeside, stepFrom, toScreen, toWorld, zoomAt,
   type Area, type Camera, type Direction, type Insets, type MinimapTransform,
 } from "./map-camera.js";
 import { createFonts, drawMinimap, drawScene, legibleFrom, type Fonts, type Pen } from "./map-canvas.js";
@@ -10,7 +10,7 @@ import { boundsOf, fullFrom, layoutGraph, sizeNodes } from "./map-layout.js";
 import { automaticGrouping, groupingsOf, type Grouping } from "./map-groups.js";
 import {
   brokenHtml, emptyHtml, filtersNote as filtersSay, FULL_SAYS, fullIconHtml, groupingOptionsHtml, groupOptionsHtml, inspectorHtml, legendHtml, listHtml, notesHtml, pathRootHtml,
-  pickerOptionsHtml, resultsHtml, shellHtml, SHOW_GROUPS, SHOW_MODULES, tooltipHtml, tracebarHtml, type Tip,
+  pickerOptionsHtml, resultsHtml, shellHtml, SHOW_GROUPS, SHOW_MODULES, tooltipHtml, traceHtml, type Tip,
 } from "./map-markup.js";
 import { indexModel, isAccess, isFilter, withGrouping, type MapModel } from "./map-model.js";
 import { FALLBACK, readPalette, type MapPalette } from "./map-palette.js";
@@ -94,9 +94,6 @@ const DOUBLE_PRESS = { within: 450, near: 8 } as const;
 /** How far a pointer may go while it is pressed, in CSS pixels, and still be a press and no drag: a hand that shakes a
  * little as it clicks moves neither the box nor the picture. A finger or a pen moves further than a mouse does. */
 const PRESS_SLOP: Readonly<Record<string, number>> = { mouse: 5, pen: 8, touch: 10 };
-/** The room kept around a box the camera moves to uncover, in the graph's units: as much as is kept around a box the
- * search or the details go to. */
-const UNCOVER_MARGIN = 8;
 /** Below this zoom a box picked from the search or the details is too small to be told from its neighbours: the camera
  * then goes to it. */
 const TELLING_ZOOM = 0.62;
@@ -179,7 +176,6 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   const corner = part(".map-corner");
   const inspector = part(".map-inspector");
   const selectionPanel = part(".map-selection");
-  const tracebar = part(".map-tracebar");
   const free = part(".map-free");
   const empty = part(".map-empty");
   const tooltip = part(".map-tooltip");
@@ -229,6 +225,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   let trace: Trace | undefined;
   let traced: TraceWords | undefined;
   let inspection: Inspection | undefined;
+  let pageOpens: readonly MapOpen[] = [];
   /** Whether the view keeps to the trace: only the node selected and what it reads and feeds are shown. */
   let onlyTrace = false;
   const hiddenLayers = new Set<string>();
@@ -615,33 +612,6 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     } else renderStatus();
   }
 
-  /** Where the picture is seen from after the user pressed a box: from where it is, while the box is whole in view and
-   * clear of the details and the other panels. Where one of them covers it, or it stands partly outside the canvas,
-   * the camera moves by the least it must for the box to be whole beside them, with a little room around it, and at the
-   * zoom it has: a press never takes the picture nearer or further away, and never fits it again. The boxes the box
-   * has links with stay where they are: the line at the foot says how much of the graph is in view. */
-  function uncover(node: ViewNode): void {
-    if (width <= 0 || height <= 0) return renderStatus();
-    const from = heading ?? camera;
-    // The line at the foot first, as it stands beside the details just opened: where it has more to say it takes more
-    // of the foot, and may cover the box.
-    renderStatus();
-    const [left, top] = toScreen(from, node.x, node.y);
-    const right = left + node.w * from.k;
-    const bottom = top + node.h * from.k;
-    if (openRooms().some(room => left >= room.l && top >= room.t && right <= width - room.r && bottom <= height - room.b)) return;
-    // The room is measured with the line at the foot as it may stand once part of the picture is out of view.
-    footFor(false);
-    const cost = (to: Camera): number => Math.abs(to.ox - from.ox) + Math.abs(to.oy - from.oy);
-    let best: Camera | undefined;
-    for (const room of rooms()) {
-      const to = revealIn(from, node, width, height, room, UNCOVER_MARGIN * from.k);
-      if (!best || cost(to) < cost(best)) best = to;
-    }
-    if (!best || best === from) renderStatus();
-    else go(best, true);
-  }
-
   function zoom(factor: number, x = width / 2, y = height / 2): void {
     camera = zoomAt(camera, factor, x, y);
     heading = undefined;
@@ -762,22 +732,21 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
       traced = undefined;
       inspector.hidden = true;
       inspector.innerHTML = "";
-      tracebar.hidden = true;
-      tracebar.innerHTML = "";
+      pageOpens = [];
       return;
     }
     inspection = inspect(model, onScreen, selected, access);
     traced = traceWords(inspection, trace.up.size, trace.down.size);
-    inspector.innerHTML = inspectorHtml(inspection, traced);
+    pageOpens = selected.raw ? options.opens?.(selected.raw) ?? [] : [];
+    inspector.innerHTML = inspectorHtml(inspection, traced, pageOpens, onlyTrace);
     inspector.hidden = false;
     inspector.scrollTop = 0;
-    renderTracebar();
   }
 
-  function renderTracebar(): void {
+  function renderTrace(): void {
     if (!selected || !traced) return;
-    tracebar.innerHTML = tracebarHtml(selected.fullName, traced, onlyTrace);
-    tracebar.hidden = false;
+    const summary = inspector.querySelector<HTMLElement>(".map-insp-trace");
+    if (summary) summary.innerHTML = traceHtml(traced, onlyTrace);
   }
 
   function renderEmpty(): void {
@@ -1144,10 +1113,8 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     if (node && traced) announce(traced.sentence);
     else if (had) announce("Selection cleared.");
     invalidate();
-    // A box gone to is brought beside the details. A box pressed moves only where the details or another panel would
-    // cover it, by no more than that. A selection cleared moves nothing.
+    // Search, links and the table explicitly go to a box. Opening or closing details by a canvas click moves nothing.
     if (node && deliberate) reframe(true);
-    else if (node) uncover(node);
     else renderStatus();
     tellView();
   }
@@ -1237,7 +1204,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     if (!onScreen || !selected || !trace) return;
     onlyTrace = on;
     refreshShown();
-    renderTracebar();
+    renderTrace();
     announce(on ? `Showing only what feeds it and what it feeds: ${plural(shownCount, "box", "boxes")}.` : "Showing all boxes.");
     const from = heading ?? camera;
     // The boxes that are left, all in view at once where every one of them then holds its name.
@@ -1350,13 +1317,13 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
       case "fullscreen": setFull(!(fullWindow || onScreenWhole())); break;
       case "focus":
         setOnlyTrace(!onlyTrace);
-        focusOn(tracebar.querySelector<HTMLElement>('[data-map-act="focus"]'));
+        focusOn(inspector.querySelector<HTMLElement>('[data-map-act="focus"]'));
         break;
       case "fit": case "whole":
         if (onlyTrace) {
           onlyTrace = false;
           refreshShown();
-          renderTracebar();
+          renderTrace();
         }
         fit(true);
         break;
@@ -1375,7 +1342,8 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
         invalidate();
         break;
       }
-      case "close": case "clear": select(undefined); break;
+      case "close": select(undefined); focusOn(canvas); break;
+      case "page-open": pageOpens[Number(data.mapOpen)]?.open(); break;
       case "raw": { const raw = model.node(Number(data.mapRaw)); if (raw) navigate(raw); break; }
       case "node": pick(data.mapNode ?? ""); break;
       case "open":
@@ -1698,7 +1666,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     // whole graph stays as it was, for the next time its room changes.
     if (held.home) wantsWhole = held.home.wantsWhole;
     // A second press at the same place soon after the first goes into the node the first one was on, whatever is under
-    // the pointer by now: the first press may have uncovered its box from under the details.
+    // the pointer by now: the first press may have opened the details over its box.
     const now = env.now();
     const first = lastPress;
     lastPress = undefined;

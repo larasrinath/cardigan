@@ -31,7 +31,7 @@ export interface InspectText { key: string; title: string; lines: string[] }
 export interface InspectAction { label: string; section?: number; module?: number; select?: number }
 
 export interface Inspection {
-  /** What the node is, in capitals: MODULE, LINE ITEM, SECTION... */
+  /** What the node is: Module, Line item, Group... */
   kind: string;
   layer: string;
   name: string;
@@ -43,6 +43,8 @@ export interface Inspection {
   lists: InspectList[];
   texts: InspectText[];
   notes?: string;
+  /** Structured cells as read, folded after the readable details. */
+  asRead?: [label: string, value: string][];
 }
 
 /** As many of a line item's page filters as its details list: the rest are counted. */
@@ -151,7 +153,7 @@ function filteredBy(model: MapModel, module: GraphNode): InspectList[] {
   return [{ key: "filteredBy", title: `Filtered on pages by · ${formatCount(filters.length)}`, open: true, links: filters.map(({ item, uses }) => objectLink(model, item, whereCaption(uses))) }];
 }
 
-const KIND_NAMES: Record<GraphNode["kind"], string> = { list: "LIST", subset: "LIST SUBSET", property: "LIST PROPERTY", module: "MODULE", lineItem: "LINE ITEM", process: "PROCESS", action: "ACTION" };
+const KIND_NAMES: Record<GraphNode["kind"], string> = { list: "List", subset: "List subset", property: "List property", module: "Module", lineItem: "Line item", process: "Process", action: "Action" };
 
 /** A line item with the format No Data: a model's builders use one as a heading among a module's line items. */
 export const isHeading = (node: GraphNode): boolean => node.kind === "lineItem" && node.format?.toUpperCase() === "NONE";
@@ -230,9 +232,9 @@ function inspectSection(model: MapModel, graph: ViewGraph, node: ViewNode): Insp
   const members = (node.members ?? []).map(id => model.node(id)).filter((member): member is GraphNode => member !== undefined);
   const lineItems = members.reduce((count, member) => count + model.itemsOf(member.id).length, 0);
   return {
-    kind: "GROUP", layer: node.layer, name: node.fullName,
+    kind: "Group", layer: node.layer, name: node.fullName,
     rows: [["Modules", formatCount(members.length)], ["Line items", formatCount(lineItems)]],
-    action: { label: `Show its ${plural(members.length, "module")}`, section: node.section },
+    ...(members.length ? { action: { label: `Show its ${plural(members.length, "module")}`, section: node.section } } : {}),
     lists: [
       ...linkLists(graph.in[node.index].map(index => nodeLink(graph.nodes[index])), graph.out[node.index].map(index => nodeLink(graph.nodes[index]))),
       { key: "modules", title: `Its modules · ${formatCount(members.length)}`, open: true, links: members.map(member => objectLink(model, member)) },
@@ -317,6 +319,10 @@ export function inspect(model: MapModel, graph: ViewGraph, node: ViewNode, acces
   const unresolved = model.unresolvedOf(raw.id);
   if (unresolved.length) inspection.texts.push({ key: "unresolved", title: `Names not matched to one object · ${formatCount(unresolved.length)}`, lines: unresolved.map(entry => `${entry.field}: ${entry.reference}`) });
   if (raw.notes !== undefined && raw.notes !== "") inspection.notes = raw.notes;
+  const asRead: [string, string][] = [];
+  row(asRead, "Format", raw.formatCell);
+  row(asRead, "Summary", raw.summaryCell);
+  if (asRead.length) inspection.asRead = asRead;
   return inspection;
 }
 

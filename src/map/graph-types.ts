@@ -184,10 +184,19 @@ export interface AreaCheck {
   modulesNotInFile: string[];
 }
 
+/** A way the host page can open an object's row or its place in the model. */
+export interface MapOpen {
+  label: "Table" | "Model";
+  title: string;
+  open(): void;
+}
+
 /** What the page tells the map about the model it draws. */
 export interface ModelMapOptions {
   modelName: string;
   workspaceName?: string;
+  /** Only actions the page can carry out. Groups have no source object and no page actions. */
+  opens?: (node: GraphNode) => readonly MapOpen[];
   /** Called once, with the reason as text, when a map that was drawn stops because it can no longer be drawn. The map
    * says so in its own place; this is for the page's diagnostic log. (A map that cannot draw its first picture throws
    * from `show` or from the mounting itself, and the page says so in its own words.) */
