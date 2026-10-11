@@ -41,10 +41,10 @@ const untouchable = () => new Proxy({}, {
 
 /** Compare the existing Classic export and progress separately from the new engine diagnostics. */
 const classicMessages = (port: FakePort) => port.received.filter(message => !("text" in message && typeof message.text === "string"
-  && /Engine detection:|Classic reader:|Checking the model's engine/.test(message.text)));
+  && /Engine:|Engine cross-check:|Classic reader:/.test(message.text)));
 const classicResult = (port: FakePort) => {
   const result = assemble(port.received);
-  if (result) for (const table of result.tables) if (table.details) table.rows = table.rows.filter(row => !(row[0] === "Diagnostics" && String(row[2]).startsWith("Engine detection:")));
+  if (result) for (const table of result.tables) if (table.details) table.rows = table.rows.filter(row => !(row[0] === "Diagnostics" && String(row[2]).startsWith("Engine:")));
   return result;
 };
 
@@ -93,8 +93,8 @@ describe("The content scripts on an Anaplan page", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it.each(["app", "model"])("passes an Anaplan HTTP 503 through the %s reader as maintenance", async kind => {
-    at(kind === "app" ? `/a/apps/app/${APP}` : `/a/modeling/customers/${WS}/workspaces/${WS}/models/${MODEL}`);
+  it("passes an Anaplan HTTP 503 through the app reader as maintenance", async () => {
+    at(`/a/apps/app/${APP}`);
     vi.stubGlobal("fetch", vi.fn(async () => new Response("unavailable", { status: 503 })));
     await import("./content.js");
     const port = open();
@@ -105,12 +105,10 @@ describe("The content scripts on an Anaplan page", () => {
     expect(posted).toEqual([]);
   });
 
-  it.each(["calculation_engine", undefined])("reads Classic when the frame answers after the old twenty-second wait, for engine %s", async engine => {
+  it.each(["HYPERBLOCK", "CALCULATION_ENGINE", undefined])("decides from the check-in before any reads, even when the frame arrives late: %s", async dataEngineType => {
     at(`/a/modeling/customers/${WS}/workspaces/${WS}/models/${MODEL}`);
     const service = goldenApp();
-    service.answer = path => path.includes("springboard-platform-gateway-service")
-      ? new Response(JSON.stringify(path.endsWith("/workspaces") ? [] : { engine, label: "Practice plan" }))
-      : path.endsWith("/pages") ? new Response("[]") : undefined;
+    service.answer = path => path.endsWith("/pages") ? new Response("[]") : undefined;
     vi.stubGlobal("fetch", vi.fn(service.fetch));
     vi.stubGlobal("WebSocket", service.WebSocket);
     await import("./content.js");
@@ -120,10 +118,15 @@ describe("The content scripts on an Anaplan page", () => {
     await vi.advanceTimersByTimeAsync(110_000);
     expect(port.types()).not.toContain("done");
     expect(port.types()).not.toContain("error");
-    expect(service.reads.every(path => path.includes("springboard-platform-gateway-service"))).toBe(true);
-    hear({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD }, CORE, frame);
+    expect(service.reads).toEqual([]);
+    expect(service.sockets).toEqual([]);
+    hear({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD, dataEngineType }, CORE, frame);
     await vi.advanceTimersByTimeAsync(1000);
     expect(frame.asked.map(message => message.type)).toEqual(["ack", "run"]);
+    const decision = dataEngineType === "CALCULATION_ENGINE" ? "Engine: Polaris (dataEngineType CALCULATION_ENGINE)"
+      : dataEngineType === "HYPERBLOCK" ? "Engine: Classic (dataEngineType HYPERBLOCK)" : "Engine: unknown (dataEngineType missing or unrecognized)";
+    expect(port.received.filter(message => message.type === "log" && message.text.includes("Engine:")))
+      .toEqual([{ type: "log", text: expect.stringContaining(decision) }]);
     hear({ ...RUN, type: "done", nonce: frame.asked[1].nonce, result: exportedModel() }, CORE, frame);
     await vi.advanceTimersByTimeAsync(1000);
     expect(port.received.at(-1)?.type).toBe("done");
@@ -132,15 +135,20 @@ describe("The content scripts on an Anaplan page", () => {
     expect(result.engine).toBeUndefined();
     expect(result.summary.join("\n")).not.toContain("Classic client didn't answer");
     expect(service.reads.some(path => path.includes("llm-data-service"))).toBe(false);
-    expect(port.received).toContainEqual({ type: "log", text: expect.stringContaining(`Engine detection: ${engine ? "Polaris" : "unknown"}; trying the Classic reader first`) });
+    expect(port.received.filter(message => message.type === "log" && message.text.includes("Engine:"))).toHaveLength(1);
+    expect(result.tables[0].rows.filter(row => row[0] === "Diagnostics" && String(row[2]).startsWith("Engine:"))).toEqual([["Diagnostics", "02:01:00", decision]]);
+    const note = "Polaris model, read in full through Model Building.";
+    expect(overviewOf(result).notes.filter(line => line === note)).toEqual(dataEngineType === "CALCULATION_ENGINE" ? [note] : []);
+    expect(overviewOf(result).about).toEqual([...overviewOf(exportedModel()).about, ["Apps", "No app's pages use this model"]]);
+    expect(service.reads.some(path => path.includes("springboard-platform-gateway-service"))).toBe(false);
     expect(port.received).toContainEqual({ type: "log", text: expect.stringContaining("Classic reader: answered; starting model settings") });
   });
 
-  it.each(["calculation_engine", undefined, "hyperblock"])("falls back after the full wait without a frame for engine %s, with an Overview note", async engine => {
+  it("keeps the partial read after the full wait without a client, with an unknown engine and the existing Overview note", async () => {
     at(`/a/modeling/customers/${WS}/workspaces/${WS}/models/${MODEL}`);
     const service = goldenApp();
     service.answer = path => path.includes("springboard-platform-gateway-service")
-      ? new Response(JSON.stringify(path.endsWith("/workspaces") ? [] : { engine, label: "Practice plan", workspaceName: "Practice workspace" }))
+      ? new Response(JSON.stringify({ label: "Practice plan", workspaceName: "Practice workspace", dataEngineType: "CALCULATION_ENGINE" }))
       : path.endsWith("/pages") ? new Response("[]") : undefined;
     vi.stubGlobal("fetch", vi.fn(service.fetch));
     vi.stubGlobal("WebSocket", service.WebSocket);
@@ -150,7 +158,8 @@ describe("The content scripts on an Anaplan page", () => {
     await vi.advanceTimersByTimeAsync(119_000);
     expect(port.types()).not.toContain("done");
     expect(port.types()).not.toContain("error");
-    expect(service.reads.every(path => path.includes("springboard-platform-gateway-service"))).toBe(true);
+    expect(service.reads).toEqual([]);
+    expect(service.sockets).toEqual([]);
     await vi.advanceTimersByTimeAsync(2000);
     expect(port.received.at(-1)?.type).toBe("done");
     const result = assemble(port.received)!;
@@ -161,11 +170,59 @@ describe("The content scripts on an Anaplan page", () => {
     expect(result.summary[0]).toBe(note);
     expect(overviewOf(result).notes.filter(line => line === note)).toEqual([note]);
     expect(result.tables[0].rows).toContainEqual(["Notes", "Classic client", note]);
-    expect(result.tables[0].rows).toContainEqual(["Diagnostics", "01:59:09", `Engine detection: model details fields: ${engine ? "engine, " : ""}label, workspaceName`]);
+    expect(result.tables[0].rows).toContainEqual(["Diagnostics", "02:01:09", "Engine: unknown (dataEngineType missing or unrecognized)"]);
     expect(result.tables[0].rows).toContainEqual(["Diagnostics", "02:01:09", "Classic reader: no frame answered within the wait; reading a partial result without it"]);
-    expect(service.reads[0]).toContain("springboard-platform-gateway-service");
+    expect(service.reads.filter(path => path.includes("springboard-platform-gateway-service"))).toEqual([
+      `/a/springboard-platform-gateway-service/customers/${WS}/workspaces/${WS}/models/${MODEL}`,
+    ]);
+    expect(result.name).toBe("Practice plan");
+    expect(overviewOf(result).about).toContainEqual(["Workspace", "Practice workspace"]);
+    expect(overviewOf(result).notes).not.toContain("Polaris model, read in full through Model Building.");
     expect(port.types()).not.toContain("error");
     expect(posted).toEqual([]);
+  });
+
+  it("reports one column disagreement while keeping the up-front decision and full reader", async () => {
+    at(`/a/modeling/workspaces/${WS}/models/${MODEL}`);
+    await import("./content.js");
+    const frame = { asked: [] as { type: string; nonce?: string }[], postMessage(message: { type: string; nonce?: string }) { this.asked.push(message); } };
+    hear({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD, dataEngineType: "HYPERBLOCK" }, CORE, frame);
+    const port = open();
+    port.say({ type: "run" });
+    await vi.advanceTimersByTimeAsync(0);
+    // A later check-in cannot replace the decision of the running read.
+    hear({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD, dataEngineType: "CALCULATION_ENGINE" }, CORE, frame);
+    const sent = exportedModel();
+    sent.tables.push({ file: "Line Items.csv", label: "Line Items", headers: ["", "Populated Cell Count", "Calculation Complexity"], rows: [["Units", "1", "1"]], guard: false });
+    hear({ ...RUN, type: "done", nonce: frame.asked[1].nonce, result: sent }, CORE, frame);
+    await vi.advanceTimersByTimeAsync(0);
+    const result = assemble(port.received)!;
+    const crossCheck = "Engine cross-check: Polaris-only Line Items columns disagree with dataEngineType HYPERBLOCK (Classic).";
+    expect(port.received.filter(message => message.type === "log" && message.text.includes("Engine cross-check:")))
+      .toEqual([{ type: "log", text: expect.stringContaining(crossCheck) }]);
+    expect(result.tables[0].rows.filter(row => row[0] === "Diagnostics" && String(row[2]).startsWith("Engine:")))
+      .toEqual([["Diagnostics", "01:59:09", "Engine: Classic (dataEngineType HYPERBLOCK)"]]);
+    expect(result.tables[0].rows).toContainEqual(["Diagnostics", "01:59:09", crossCheck]);
+    expect(overviewOf(result).notes).not.toContain("Polaris model, read in full through Model Building.");
+    expect(result.engine).toBeUndefined();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(WebSocket).not.toHaveBeenCalled();
+  });
+
+  it.each(["HYPERBLOCK", "CALCULATION_ENGINE"])("does not try the partial reader after an answering client fails: %s", async dataEngineType => {
+    at(`/a/modeling/workspaces/${WS}/models/${MODEL}`);
+    await import("./content.js");
+    const frame = { asked: [] as { type: string; nonce?: string }[], postMessage(message: { type: string; nonce?: string }) { this.asked.push(message); } };
+    hear({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD, dataEngineType }, CORE, frame);
+    const port = open();
+    port.say({ type: "run" });
+    await vi.advanceTimersByTimeAsync(0);
+    hear({ ...RUN, type: "error", nonce: frame.asked[1].nonce, message: "The model rejected the read." }, CORE, frame);
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(port.received.at(-1)).toMatchObject({ type: "error", message: "The model rejected the read." });
+    expect(frame.asked.map(message => message.type)).toEqual(["ack", "run"]);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(WebSocket).not.toHaveBeenCalled();
   });
 
   it("keeps the not-a-model-page failure without trying either reader", async () => {
@@ -410,7 +467,7 @@ describe("The content scripts on an Anaplan page", () => {
     hear({ ...RUN, type: "status", nonce, text: "Reading Versions…" }, CORE, frame);
     await vi.advanceTimersByTimeAsync(0);
     // The frame is still exporting, and the list of the pages built on the model has been asked for already.
-    expect(vi.mocked(globalThis.fetch).mock.calls.map(([url]) => url)).toEqual([`${SHELL}/a/springboard-platform-gateway-service/customers/${WS}/workspaces/${WS}/models/${MODEL}`, `${SHELL}/a/springboard-platform-gateway-service/customers/${WS}/workspaces`, `${SHELL}/a/springboard-definition-service/customer/${WS}/model/${MODEL}/pages`]);
+    expect(vi.mocked(globalThis.fetch).mock.calls.map(([url]) => url)).toEqual([`${SHELL}/a/springboard-definition-service/customer/${WS}/model/${MODEL}/pages`]);
     // The export's status is the one shown: nothing of the pages is said until the export has come.
     expect(classicMessages(port).filter(message => message.type === "status")).toEqual([{ type: "status", text: "Reading Versions…" }]);
     hear({ ...RUN, type: "done", nonce, result: { ...exportedModel(), lineItemIds: [["102000000001", ""]] } }, CORE, frame);
@@ -420,7 +477,7 @@ describe("The content scripts on an Anaplan page", () => {
     expect(classicMessages(port).map(message => message.type)).toEqual(["log", "status", "log", "status", "log", "log", "result", "rows", "rows", "done"]);
     expect(classicResult(port)).toEqual({ ...withoutPages("you're signed out of Anaplan", ["Reading the pages built on this model…", "pages built on the model: SIGNED_OUT (HTTP 401)"]),
       site: { origin: SHELL, customer: WS } });
-    expect(vi.mocked(globalThis.fetch).mock.calls).toHaveLength(3);
+    expect(vi.mocked(globalThis.fetch).mock.calls).toHaveLength(1);
   });
 
   it("gives up the pages it was reading beside an export that fails", async () => {
@@ -428,21 +485,21 @@ describe("The content scripts on an Anaplan page", () => {
     await import("./content.js");
     // The list of the pages answers only when the test says.
     let answer: (response: Response) => void = () => undefined;
-    vi.stubGlobal("fetch", vi.fn((url: string) => url.includes("springboard-platform-gateway-service") ? Promise.resolve(new Response(JSON.stringify({ engine: "hyperblock" }))) : new Promise<Response>(resolve => { answer = resolve; })));
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(resolve => { answer = resolve; })));
     const frame = { asked: [] as { type: string; nonce?: string }[], postMessage(message: { type: string; nonce?: string }) { this.asked.push(message); } };
     hear({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD }, CORE, frame);
     const port = open();
     port.take();
     port.say({ type: "run" });
     await vi.advanceTimersByTimeAsync(0);
-    expect(vi.mocked(globalThis.fetch)).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(globalThis.fetch)).toHaveBeenCalledTimes(1);
     hear({ ...RUN, type: "error", nonce: frame.asked[1].nonce, message: "The Line Items grid did not load." }, CORE, frame);
     await vi.advanceTimersByTimeAsync(0);
     expect(port.received.filter(message => message.type === "error")).toEqual([expect.objectContaining({ type: "error" })]);
     // The list comes after the export failed: no page is asked for, and no socket opened.
     answer(new Response(JSON.stringify({ items: [{ guid: "00000000-0000-4000-8000-000000001000", name: "Demand board" }] }), { status: 200, headers: { "content-type": "application/json" } }));
     await vi.advanceTimersByTimeAsync(1000);
-    expect([vi.mocked(globalThis.fetch).mock.calls.length, vi.mocked(globalThis.WebSocket).mock.calls]).toEqual([2, []]);
+    expect([vi.mocked(globalThis.fetch).mock.calls.length, vi.mocked(globalThis.WebSocket).mock.calls]).toEqual([1, []]);
   });
 
   it("asks the reader of this build where a frame holds two, and refuses one of another build after a few seconds, saying whether the results page can reach its frame", async () => {
@@ -627,6 +684,22 @@ describe("The content scripts on an Anaplan page", () => {
     vi.advanceTimersByTime(1000);
     expect(top.posted).toContainEqual({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD });
     expect(connect).toBeUndefined();
+  });
+
+  it.each(["HYPERBLOCK", "CALCULATION_ENGINE", undefined, "throw"])("checks in with the page's engine before any export: %s", async raw => {
+    at("/core-webapp/anaplan/framework.jsp", "eu2a.app.anaplan.com");
+    const top = { postMessage: vi.fn() };
+    const getWorkspaceInfo = vi.fn(() => { if (raw === "throw") throw new Error("Not ready"); return { dataEngineType: raw }; });
+    const require = vi.fn((id: string) => { expect(id).toBe("anaplan/data/ModelContentCache"); return { getWorkspaceInfo }; });
+    Object.assign(page, { top, require, modelId: MODEL, workspaceId: WS });
+    await import("./model-content.js");
+    vi.advanceTimersByTime(1000);
+    expect(top.postMessage).toHaveBeenCalledWith({ protocol: PROTOCOL, type: "core-ready", modelId: MODEL, build: BUILD,
+      ...(raw === "HYPERBLOCK" || raw === "CALCULATION_ENGINE" ? { dataEngineType: raw } : {}) }, "*");
+    expect(require).toHaveBeenCalledExactlyOnceWith("anaplan/data/ModelContentCache");
+    expect(getWorkspaceInfo).toHaveBeenCalledOnce();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(WebSocket).not.toHaveBeenCalled();
   });
 
   it("announces the model of a classic model page opened on its own to its own window, once the model is there", async () => {

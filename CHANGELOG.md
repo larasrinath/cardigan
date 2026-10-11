@@ -8,6 +8,11 @@ Every merged change that alters the extension has a version of its own: a new fe
 - **Details float over the table.** A row's details slide over its right edge, below the header, with no dimming or empty gap. The table keeps its full width, position and scroll, and the open row stays highlighted. Other rows and the header remain usable; **Back**, **Esc** and the close button work as before.
 - **A width that stays.** Drag the panel's left edge, or focus it and use the Left and Right arrow keys, to resize from 360 pixels to 70% of the window. The viewer's width is kept for next time. Below 900 pixels the panel fills the width. Refresh and **Run again** still reopen the same row where it exists.
 
+## 0.29.7 (11 October 2026)
+
+- **The engine from the page, before reading.** The model frame reads the loaded client's workspace engine and sends it with its check-in: HYPERBLOCK means Classic, CALCULATION_ENGINE means Polaris, and anything else stays unknown. Diagnostics gives one engine decision before settings or pages are read. The gateway engine probe is gone; its GETs are used only for names when no Classic client answers. (#87)
+- **Both engines read in full.** Classic and Polaris use Model Building's Classic client for the settings, import mappings and process steps. A Polaris Overview says **Polaris model, read in full through Model Building.** About stays as before. Polaris-only Line Items columns cross-check the page's engine and log any disagreement without changing the reader. The partial reader still runs only when no Classic client answers within the wait. (#87)
+
 ## 0.29.6 (11 October 2026)
 
 - **More room for the map.** One slim bottom bar holds the counts, Legend, About this map, zoom and Fit at every level and in full screen. Long counts end with an ellipsis and show their full text on hover. Legend, About and the minimap open above the bar without moving the boxes or camera. The minimap starts hidden and opens from its drawn button. (#86)
