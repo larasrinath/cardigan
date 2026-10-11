@@ -6,21 +6,15 @@ Cardigan only reads, with your own signed-in session; nothing leaves your browse
 
 ## Contents
 
-- [What you get](#what-you-get)
-  - [For a model](#for-a-model)
-  - [Model map](#model-map)
-  - [For an app](#for-an-app)
-- [Install](#install)
-- [Use](#use)
-  - [Run](#run)
-  - [Refresh the Anaplan tab and run](#refresh-the-anaplan-tab-and-run)
-  - [Working with tables](#working-with-tables)
-  - [If it does not start](#if-it-does-not-start)
-- [Privacy and permissions](#privacy-and-permissions)
-- [Limits](#limits)
-- [For developers](#for-developers)
-  - [Release](#release)
-- [Licence](#licence)
+| Section | Jump to |
+| --- | --- |
+| **[What you get](#what-you-get)** | [For a model](#for-a-model) · [Model map](#model-map) · [For an app](#for-an-app) |
+| **[Install](#install)** | |
+| **[Use](#use)** | [Run](#run) · [Refresh the Anaplan tab and run](#refresh-the-anaplan-tab-and-run) · [Working with tables](#working-with-tables) · [If it does not start](#if-it-does-not-start) |
+| **[Privacy and permissions](#privacy-and-permissions)** | |
+| **[Limits](#limits)** | |
+| **[For developers](#for-developers)** | [Release](#release) |
+| **[Licence](#licence)** | |
 
 ## What you get
 
