@@ -190,21 +190,20 @@
 .map-sign{flex:none}
 
 /* ---------- what stands over the canvas itself ---------- */
-/* Only the two clusters cover the canvas. The transparent space between them passes clicks through. The invisible
-   longest counts share the text's grid cell, shrinking before the buttons on narrow maps. Panning moves no control. */
+/* The controls sit at the left, followed by counts that shrink before any button. Only the row and open panels cover
+   the canvas; the transparent space around them passes clicks through. Panning moves no button. */
 .map-foot{position:absolute;inset:0;z-index:2;pointer-events:none}
 .map-over{position:absolute;inset:0 auto 44px 0;display:flex;align-items:flex-end;gap:10px;width:min(650px,100%);min-height:0}
-.map-clusters{position:absolute;inset:auto 0 0;display:flex;align-items:center;justify-content:space-between;gap:10px;pointer-events:none}
-.map-summary{display:flex;align-items:center;flex:none;gap:6px}
-.map-clusters .map-btn{flex:none;pointer-events:auto}
-.map-clusters .map-btn svg{flex:none}
-.map-status{display:grid;align-items:center;flex:0 1 auto;min-width:0;height:28px;font-size:12px;color:var(--text-2);font-variant-numeric:tabular-nums;pointer-events:none}
-.map-stats,.map-stats-size{grid-area:1 / 1;min-width:0;max-width:100%;box-sizing:border-box;overflow:hidden;white-space:nowrap;padding:0 11px;line-height:26px;border:1px solid transparent;border-radius:999px}
-.map-stats{justify-self:end;text-overflow:ellipsis;border-color:var(--border-strong);background:var(--panel);pointer-events:auto}
-.map-stats-size{visibility:hidden}
-.map-navigation{display:flex;align-items:center;justify-content:flex-end;flex:0 1 auto;min-width:0;gap:6px}
-.map-minimap-wrap{position:absolute;right:0;bottom:44px;padding:6px;line-height:0}
+.map-navigation{position:absolute;left:0;bottom:0;display:flex;align-items:center;gap:6px;max-width:100%;pointer-events:none}
+.map-navigation .map-btn{flex:none;pointer-events:auto}
+.map-navigation .map-btn svg{flex:none}
+.map-status{flex:0 1 auto;min-width:0;height:28px;font-size:12px;color:var(--text-2);font-variant-numeric:tabular-nums;pointer-events:none}
+.map-stats{display:block;max-width:100%;box-sizing:border-box;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;padding:0 11px;line-height:26px;border:1px solid var(--border-strong);border-radius:999px;background:var(--panel);pointer-events:auto}
+.map-minimap-wrap{position:absolute;right:0;bottom:0;padding:6px;line-height:0}
 .map-minimap{display:block;width:196px;height:128px;border-radius:var(--r-xs);background:var(--map-canvas-bg);cursor:crosshair}
+/* Keep the row and both left panels clear of the 210px minimap, including long counts and About text. */
+.map-foot:has(.map-minimap-wrap:not([hidden])) .map-navigation{max-width:calc(100% - 220px)}
+.map-foot:has(.map-minimap-wrap:not([hidden])) .map-over{width:min(650px,calc(100% - 220px))}
 
 .map-legend,.map-about{max-height:100%;overflow-y:auto;overscroll-behavior:contain}
 .map-legend{flex:none;width:226px;max-width:100%;padding:8px}
@@ -316,16 +315,20 @@
   .map-chrome{grid-template-columns:minmax(0,1fr) minmax(0,280px)}
 }
 /* Up to 760px wide the details lie over the drawing, above the fixed foot, taking at most two fifths of the height.
-   Each part of the top bar has its own line. The corner clusters stay in one row. */
+   Each part of the top bar has its own line. The bottom controls stay in one row. */
 @container map (max-width:760px){
-  .map-chrome{padding:8px;grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(96px,1fr) auto;grid-template-areas:"bar" "free" "details"}
+  .map-chrome{padding:8px;grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(96px,1fr);grid-template-areas:"bar" "free"}
   .map-selection{grid-area:auto;position:absolute;right:8px;bottom:52px;width:min(380px,calc(100% - 16px));max-height:40cqh;margin-bottom:0}
   .map-zone-path,.map-zone-tools{flex:1 1 100%;margin-left:0}
   .map-zone-tools .map-searchwrap{flex:1 1 auto}
   .map-picker-input{width:180px}
 }
 @container map (max-width:500px){
-  .map-stats,.map-stats-size{padding-inline:7px}
+  .map-stats{padding-inline:7px}
+  /* There is no room beside the six buttons for a minimap. Stack it above the row, with the left panel above it. */
+  .map-minimap-wrap{bottom:44px}
+  .map-foot:has(.map-minimap-wrap:not([hidden])) .map-navigation{max-width:100%}
+  .map-foot:has(.map-minimap-wrap:not([hidden])) .map-over{width:100%;bottom:196px}
 }
 @media (prefers-reduced-motion:reduce){
   .map-root *,.map-root *::before,.map-root *::after{transition:none !important;animation:none !important}
