@@ -838,19 +838,22 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
 
   function pickerMatches(): GraphNode[] {
     const typed = searchText(pickerQuery);
-    return orderedModules.filter(module => !typed || module.name.includes(typed)).map(module => module.node);
+    const group = view === "drill" ? homeOf(moduleId) : section;
+    return orderedModules.filter(module => (group === undefined || model!.sectionOf(module.node) === group)
+      && (!typed || module.name.includes(typed))).map(module => module.node);
   }
 
   /** Render once on opening or filtering. Arrow keys update just two classes and the active descendant. */
   function renderPicker(): void {
     if (!model) return;
     pickerModules = pickerMatches();
+    const group = view === "drill" ? homeOf(moduleId) : section;
     const all = searchText(pickerQuery) === "";
     pickerActive = Math.min(Math.max(pickerActive, all ? -1 : 0), pickerModules.length - 1);
     pickerList.innerHTML = pickerOptionsHtml(pickerId, pickerModules.map(module => ({ name: module.name, group: model!.sectionOf(module), current: view === "drill" && module.id === moduleId })), pickerActive,
-      all ? { current: view === "modules" && section === undefined && !grouped } : undefined);
+      all ? { current: view === "modules" && (group !== undefined || !grouped) } : undefined, group);
     pickerNote.hidden = pickerModules.length > 0;
-    pickerNote.textContent = "No module's name holds that.";
+    pickerNote.textContent = group === undefined ? "No module's name holds that." : `No module in ${group} has that in its name.`;
     markPicker();
   }
 
@@ -939,8 +942,9 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
   /** Shows the line items of a module the picker lists, and gives the map the focus, for its keys. */
   function pickModule(index: number): void {
     if (index === -1 && searchText(pickerQuery) === "") {
+      const group = view === "drill" ? homeOf(moduleId) : section;
       closePicker();
-      chooseGroup(SHOW_MODULES);
+      chooseGroup(group === undefined ? SHOW_MODULES : String(model!.sectionIndex(group)));
       focusOn(canvas);
       return;
     }

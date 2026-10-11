@@ -394,14 +394,15 @@ export function groupOptionsHtml(groups: readonly string[], counts: readonly num
     .map(group => `<button type="button" class="map-picker-opt" role="option" aria-selected="false" tabindex="-1" data-map-act="group" data-map-group="${esc(group.value)}">${esc(group.name)}</button>`).join("");
 }
 
-/** Modules arrive in group order. A group heading is written once, with its options beneath it. Keyboard focus and the
- * current module have separate marks: moving through the list does not change which module the map shows. */
-export function pickerOptionsHtml(listId: string, modules: readonly { name: string; group?: string; current?: boolean }[], active: number, all?: { current: boolean }): string {
+/** Modules arrive in map order. Within a group, its first entry names it and no heading repeats it; otherwise each group
+ * has a heading. Keyboard focus and the current module have separate marks: moving through the list does not change
+ * which module the map shows. */
+export function pickerOptionsHtml(listId: string, modules: readonly { name: string; group?: string; current?: boolean }[], active: number, all?: { current: boolean }, group?: string): string {
   let previous: string | undefined;
-  const first = all ? `<div class="map-picker-opt${active === -1 ? " map-active" : ""}" role="option" id="${esc(listId)}-all" aria-selected="${all.current}" data-map-pick="-1">All modules</div>` : "";
+  const first = all ? `<div class="map-picker-opt${active === -1 ? " map-active" : ""}" role="option" id="${esc(listId)}-all" aria-selected="${all.current}" data-map-pick="-1">All modules${group === undefined ? "" : ` in ${esc(group)}`}</div>` : "";
   return first + modules.map((module, index) => {
-    const heading = index === 0 || module.group !== previous;
-    const end = index === modules.length - 1 || module.group !== modules[index + 1].group;
+    const heading = group === undefined && (index === 0 || module.group !== previous);
+    const end = group === undefined && (index === modules.length - 1 || module.group !== modules[index + 1].group);
     previous = module.group;
     return `${heading ? `<div role="group" aria-label="${esc(module.group ?? "Modules")}"><div class="map-picker-heading" aria-hidden="true">${esc(module.group ?? "Modules")}</div>` : ""}<div class="map-picker-opt${index === active ? " map-active" : ""}" role="option" id="${esc(listId)}-${index}" aria-selected="${module.current ? "true" : "false"}" data-map-pick="${index}"><span class="map-picker-name">${esc(module.name)}</span>${module.current ? '<small>Current module</small>' : ""}</div>${end ? "</div>" : ""}`;
   }).join("");
