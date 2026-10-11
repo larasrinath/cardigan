@@ -1,7 +1,7 @@
 import { areaCheckLine, buildModelGraph, pageFilterCheckLine } from "../map/build-graph.js";
 import type { MapView, ModelGraph, ModelMap, ModelMapOptions } from "../map/graph-types.js";
 import { mountModelMap } from "../map/map-view.js";
-import { MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, PAGE_ROUTES } from "../page-files.js";
+import { MISSING_LINE_ITEMS_MODULE, missingIn, MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, PAGE_ROUTES, type MissingKind } from "../page-files.js";
 import { CONTENT_SCRIPT_ORIGIN, PORT_NAME } from "../protocol.js";
 import { plainResult, textOf } from "../result-plain.js";
 import type { AnalysisResult, ResultTable } from "../result-types.js";
@@ -1362,6 +1362,13 @@ function objectAddress(kind: "module" | "list", name: string): { url?: string; i
   return typeof id === "string" && /^\d{1,19}$/.test(id) ? { url: `${tabs}${id}`, id } : {};
 }
 
+/** Why a row of the tables of the pages built on a model has no Model button for what it names that the model doesn't have
+ * (page-files.ts `missingText`): one line, which names each kind of such thing once. None where the row names none. */
+function missingWhy(kinds: ReadonlySet<MissingKind>): string | undefined {
+  const named = (["module", "line item", "import", "export", "process"] as const).filter(kind => kinds.has(kind)).map(kind => `this ${kind}`);
+  return named.length ? `The model doesn't have ${named.join(" or ")}: deleted since the page was built, or hidden from you. Open the page to fix the card.` : undefined;
+}
+
 /** The list a filter's dimension is, by the dimension's name: a list the export found an ID for, or, for a subset that
  * General Lists names, the list it is a subset of, as the model's graph has it. None for anything else, such as Time. */
 function listOfDimension(name: string): string | undefined {
@@ -1391,7 +1398,10 @@ function listOfDimension(name: string): string | undefined {
  * - Dynamic Cell Access: the driver's module and the controlled module, one Model button where they are one.
  * - Model Calendar, Time Ranges, Versions, Line Item Subsets, the action tables and Source Models: the Model Building page
  *   the table is on (`SETTINGS_PAGES`), opened inside the page where the tab can, as a module is.
- * Only a button whose box or address is known is there. An app's result has none. */
+ * Only a button whose box or address is known is there. An app's result has none. What a row of the tables of the pages
+ * names Missing, a module or a model's action that the model doesn't have, or the module of a missing line item, has no
+ * Model button: the line under the header says why (`missingWhy`), where no reason that keeps every row from opening does.
+ * The app and the page still open, to fix the card. */
 function opensOf(entry: Shown, row: Row): { opens: Open[]; why: string | undefined } {
   const opens: Open[] = [];
   let why: string | undefined;
@@ -1404,10 +1414,18 @@ function opensOf(entry: Shown, row: Row): { opens: Open[]; why: string | undefin
   };
   const node = mapNodeOf(entry, row);
   if (node !== undefined) opens.push({ kind: "map", node, label: "Model map", title: `Show ${cellText(row[0]).trim()} on the Model map` });
+  /** The kinds of what the row names Missing where a Model button would open it. */
+  const gone = new Set<MissingKind>();
+  /** Whether a name is of something the model doesn't have, which is then noted in `gone`. */
+  const missing = (name: string): boolean => {
+    const kinds = name === MISSING_LINE_ITEMS_MODULE ? (["line item"] as const) : missingIn(name).map(each => each.kind);
+    for (const kind of kinds) gone.add(kind);
+    return kinds.length > 0;
+  };
   /** A module or a list in Model Building, by its name, under these words; `quiet` where its kind may be missing for the row
    * alone, and says nothing of the result. */
   const inModel = (kind: "module" | "list", name: string, label: string, quiet = false): void => {
-    if (name === "" || name === NONE) return;
+    if (name === "" || name === NONE || missing(name)) return;
     const found = objectAddress(kind, name);
     if (found.url !== undefined && found.id !== undefined) {
       opens.push({ kind: "module", url: found.url, object: found.id, what: `the ${kind} ${name}`, label, title: `Open ${name} in Model Building` });
@@ -1434,7 +1452,8 @@ function opensOf(entry: Shown, row: Row): { opens: Open[]; why: string | undefin
       inModel("module", controlled, "Controlled module");
     }
   }
-  const settings = SETTINGS_PAGES.get(file) ?? (file === PAGE_ACTIONS_FILE && cell("Model action name") !== "" && cell("Model action name") !== NONE ? ACTIONS_PAGE : undefined);
+  const action = file === PAGE_ACTIONS_FILE ? cell("Model action name") : "";
+  const settings = SETTINGS_PAGES.get(file) ?? (action !== "" && action !== NONE && !missing(action) ? ACTIONS_PAGE : undefined);
   if (settings) {
     const { tabs, why: none } = modelBuilding();
     if (tabs !== undefined) {
@@ -1456,7 +1475,7 @@ function opensOf(entry: Shown, row: Row): { opens: Open[]; why: string | undefin
       }
     }
   }
-  return { opens, why };
+  return { opens, why: why ?? missingWhy(gone) };
 }
 
 /** What a name under About this export opens in Anaplan: the model, in Model Building in the model's tab (`openInModel`),
