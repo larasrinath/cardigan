@@ -136,7 +136,15 @@ describe("The map's stylesheet", () => {
     expect(rules(".map-cluster")).toContain("border-radius:999px");
     expect(rules(".map-btn")).toContain("height:28px");
     expect(rules(".map-cluster .map-btn")).toContain("flex:none");
+    expect(rules(".map-navigation")).toContain("gap:6px");
+    expect(rules(".map-navigation")).not.toMatch(/background:|border:|padding:/);
+    expect(rules(".map-navigation .map-btn")).toContain("pointer-events:auto");
+    expect(rules(".map-navigation .map-btn")).not.toMatch(/border|radius|background|padding|width|height/);
+    expect(STYLES).not.toMatch(/map-cluster-divider|\.map-navigation \.map-btn(?: \+|:)/);
+    const selected = rules('.map-btn[aria-expanded="true"],.map-btn[aria-pressed="true"]');
+    for (const property of ["background:var(--accent-soft)", "color:var(--accent-ink)"]) expect(selected).toContain(property);
     expect(rules(".map-summary")).toContain("flex:0 1 390px");
+    expect(rules(".map-summary")).toContain("gap:6px");
     expect(rules(".map-status")).toContain("min-width:0");
     for (const property of ["overflow:hidden", "text-overflow:ellipsis", "white-space:nowrap"]) expect(rules(".map-stats")).toContain(property);
     for (const selector of [".map-over", ".map-minimap-wrap"]) expect(rules(selector)).toContain("position:absolute");

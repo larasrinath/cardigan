@@ -2787,7 +2787,7 @@ describe("The room the map's picture has", () => {
     const first = boxes().get("Line Item 0")!;
     expect([first.x, first.y]).toEqual([32, 82]);
     // One press shows the whole picture, and the line says no more than what it holds.
-    expect([wholeInView(), act("fit").textContent]).toEqual([false, "Fit"]);
+    expect([wholeInView(), act("fit").getAttribute("aria-label")]).toEqual([false, "Fit to screen"]);
     act("fit").press();
     env.settle();
     expect([status(), wholeInView()]).toEqual(["600 line items · 0 links", true]);
@@ -3508,6 +3508,8 @@ describe("Where the viewer left the map, which the page keeps for a refresh", ()
 
   it("starts with the minimap hidden, toggles it without moving, and carries its choice through map views", () => {
     openAt();
+    const icon = act("minimap").innerHTML;
+    expect([act("minimap").getAttribute("aria-label"), act("minimap").title]).toEqual(["Minimap", "Show minimap"]);
     expect([part(".map-minimap-wrap").hidden, act("minimap").getAttribute("aria-pressed"), env.mini.calls.length])
       .toEqual([true, "false", 0]);
     const before = boxes();
@@ -3516,6 +3518,7 @@ describe("Where the viewer left the map, which the page keeps for a refresh", ()
     expect([part(".map-minimap-wrap").hidden, act("minimap").getAttribute("aria-pressed"), heard.at(-1)])
       .toEqual([false, "true", { view: "modules", minimap: true }]);
     expect(env.mini.calls.length).toBeGreaterThan(0);
+    expect([act("minimap").getAttribute("aria-label"), act("minimap").title, act("minimap").innerHTML]).toEqual(["Minimap", "Hide minimap", icon]);
     expect(boxes()).toEqual(before);
     for (const move of [() => groupChoice("1"), () => pickModule("CAL01 - Revenue")]) {
       move();
@@ -3527,6 +3530,7 @@ describe("Where the viewer left the map, which the page keeps for a refresh", ()
     map.destroy();
     openAt(kept);
     expect([here(), part(".map-minimap-wrap").hidden]).toEqual(["CAL01 - Revenue", false]);
+    expect([act("minimap").getAttribute("aria-pressed"), act("minimap").title]).toEqual(["true", "Hide minimap"]);
     act("minimap").press();
     env.settle();
     const calls = env.mini.calls.length;
@@ -3534,6 +3538,7 @@ describe("Where the viewer left the map, which the page keeps for a refresh", ()
     env.settle();
     expect(env.mini.calls).toHaveLength(calls);
     expect([act("minimap").getAttribute("aria-pressed"), heard.at(-1)?.minimap]).toEqual(["false", undefined]);
+    expect([act("minimap").getAttribute("aria-label"), act("minimap").title, act("minimap").innerHTML]).toEqual(["Minimap", "Show minimap", icon]);
     map.destroy();
     openAt();
     expect(part(".map-minimap-wrap").hidden).toBe(true);

@@ -22,10 +22,11 @@ const openIcon = (label: MapOpen["label"]): string => `<svg width="13" height="1
   ? '<path d="M8 1.6 14 4.9v6.2L8 14.4 2 11.1V4.9Z"/><path d="M2 4.9 8 8.2l6-3.3M8 8.2v6.2"/>'
   : '<rect x="2" y="2" width="12" height="12" rx="1"/><path d="M2 6h12M2 10h12M6 2v12"/>'}</svg>`;
 const SEARCH_ICON = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="7" cy="7" r="4.6"/><path d="M10.6 10.6 14 14"/></svg>';
-const MINIMAP_ICON = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" aria-hidden="true"><rect x="1.5" y="2" width="13" height="12" rx="1.5"/><path d="M4 5h3v2H4zM9 9h3v2H9zM7 6h4v3"/><rect x="3" y="8.5" width="5" height="4" rx=".5"/></svg>';
+const MINIMAP_ICON = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="2" width="12" height="12" rx="1.5"/><rect x="8" y="8" width="4" height="4" rx=".6" fill="currentColor" fill-opacity=".7" stroke="none"/></svg>';
+const FIT_ICON = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 2l1.5 1.5M14 2l-1.5 1.5M14 14l-1.5-1.5M2 14l1.5-1.5"/><rect x="5.5" y="5.5" width="5" height="5" rx=".7"/></svg>';
 const LEGEND_ICON = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true"><rect x="2" y="2" width="3" height="3" rx=".7"/><rect x="2" y="10" width="3" height="3" rx=".7"/><path d="M8 3.5h6M8 11.5h6"/></svg>';
 const INFO_ICON = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6.2"/><path d="M8 7v5M8 4v.2"/></svg>';
-const zoomIcon = (plus: boolean): string => `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M3 8h10${plus ? 'M8 3v10' : ''}"/></svg>`;
+const zoomIcon = (plus: boolean): string => `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8h10${plus ? 'M8 3v10' : ''}"/></svg>`;
 const dot = (layer: string): string => `<span class="map-dot ${layerClass(layer)}" aria-hidden="true"></span>`;
 /** The sign a box of a trace carries, beside the words that say which side it is on: the same mark the canvas draws on
  * the box's edge (map-canvas.ts), so that the two sides are told apart by more than their colours. */
@@ -217,15 +218,14 @@ export function shellHtml(ids: ShellIds, modelName: string): string {
     <div class="map-clusters">
     <div class="map-panel map-cluster map-summary">
       <div class="map-status"><span class="map-stats"></span></div>
-      <span class="map-cluster-divider" aria-hidden="true"></span>
       <button type="button" class="map-btn" data-map-act="legend" aria-label="Legend" title="Legend" aria-expanded="false" aria-controls="${esc(ids.legend)}">${LEGEND_ICON}<span class="map-control-label">Legend</span></button>
       <button type="button" class="map-btn" data-map-act="about" aria-label="About this map" title="About this map" aria-expanded="false" aria-controls="${esc(ids.about)}">${INFO_ICON}<span class="map-control-label">About</span></button>
     </div>
-      <div class="map-panel map-cluster map-navigation" role="group" aria-label="Map navigation">
+      <div class="map-navigation" role="group" aria-label="Map navigation">
           <button type="button" class="map-btn map-icon" data-map-act="zoom-out" aria-label="Zoom out" title="Zoom out (-)">${zoomIcon(false)}</button>
           <button type="button" class="map-btn map-icon" data-map-act="zoom-in" aria-label="Zoom in" title="Zoom in (+)">${zoomIcon(true)}</button>
-          <button type="button" class="map-btn" data-map-act="fit" title="Fit the whole map (F)">Fit</button>
-        <button type="button" class="map-btn map-icon" data-map-act="minimap" aria-label="Minimap" title="Minimap" aria-pressed="false" aria-controls="${esc(ids.legend)}-minimap">${MINIMAP_ICON}</button>
+          <button type="button" class="map-btn map-icon" data-map-act="fit" aria-label="Fit to screen" title="Fit to screen">${FIT_ICON}</button>
+        <button type="button" class="map-btn map-icon" data-map-act="minimap" aria-label="Minimap" title="Show minimap" aria-pressed="false" aria-controls="${esc(ids.legend)}-minimap">${MINIMAP_ICON}</button>
       </div>
     </div>
     <div class="map-over">
