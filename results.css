@@ -187,8 +187,7 @@ input,select{font:inherit;color:inherit}
 .nav-measure{position:absolute;left:0;top:0;display:flex;flex-direction:column;align-items:flex-start;visibility:hidden;white-space:pre;pointer-events:none}
 /* The items of the line itself stand closer than the menus' entries: 6px at each side of one, a group's chevron as well,
    4px between an icon and its words, a smaller chevron, 1px into its gap, and at least 1px between items (above). A
-   model's line with every file the export writes stands on one line in a window about 1,280px wide, scrollbar and all,
-   and its gaps are all equal from about 1,480px. The menus, and the one menu of a narrow window, keep the spacing of the
+   model's shorter line fits from 1,000px wide, scrollbar and all. The menus, and the one menu of a narrow window, keep the spacing of the
    rules above. */
 .nav-list>.nav-item,.nav-list>.nav-group>.nav-group-btn{padding-left:6px;padding-right:6px;gap:4px}
 .nav-list>.nav-group>.nav-group-btn .nav-chevron{width:9px;height:9px;margin-left:-1px}
@@ -212,6 +211,8 @@ input,select{font:inherit;color:inherit}
 .nav-section{display:flex;flex-direction:column;gap:2px}
 .nav-heading{margin:0;padding:8px 10px 2px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--text-3)}
 .nav-section .nav-item{padding-left:24px}
+.nav-section .nav-section>.nav-heading{padding-left:24px}
+.nav-section .nav-section .nav-item{padding-left:38px}
 .nav-compact .nav-group-btn svg{color:inherit}
 
 /* ---------- shell ---------- */
@@ -698,7 +699,7 @@ body:has(#mapHost:not([hidden])) .drawer{display:none}
 /* An app's line, its seven tables each an entry of its own, needs about 795px of the column; a model's needs more, and
    wraps where it has less (above). Under 1000px wide the one menu stands in the line's place, whatever the result's
    kind. */
-@media (max-width:1000px){
+@media (max-width:999px){
   .nav-list{display:none}
   .nav-compact{display:flex}
 }

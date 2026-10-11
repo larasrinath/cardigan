@@ -336,9 +336,9 @@ describe("The results page's files", () => {
     expect(["background:var(--panel)", "border:1px solid var(--border-strong)", "border-radius:var(--r-md)", "box-shadow:var(--shadow)"].map(part => [part, menu.includes(part), popover.includes(part)]))
       .toEqual(["background:var(--panel)", "border:1px solid var(--border-strong)", "border-radius:var(--r-md)", "box-shadow:var(--shadow)"].map(part => [part, true, true]));
     expect([menu.includes("position:absolute;"), menu.includes("overflow-y:auto;"), /z-index:(\d+)/.exec(menu)?.[1]]).toEqual([true, true, "50"]);
-    // Under 1000px wide the one menu stands in the line's place, whatever the result's kind: the line needs about 860px.
+    // Under 1000px wide the one menu stands in the line's place, whatever the result's kind: the shorter line fits at 1000px.
     // It is the narrow layout's only rule about the navigation, and nothing slides in over the content.
-    expect(mediaRules("(max-width:1000px)")).toEqual([[".nav-list", "display:none"], [".nav-compact", "display:flex"]]);
+    expect(mediaRules("(max-width:999px)")).toEqual([[".nav-list", "display:none"], [".nav-compact", "display:flex"]]);
     expect(mediaRules("(max-width:1120px)").filter(([selector]) => /nav/.test(selector))).toEqual([]);
     // An entry has no count: the overview's tiles say how many rows each table has.
     expect(rules(".cnt")).toEqual([]);

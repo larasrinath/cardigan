@@ -2,6 +2,10 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version is in the menu of Cardigan's icon in Chrome's toolbar and on its About page, and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## Unreleased
+
+- **A shorter menu bar.** A model's bar has seven tabs: Overview, **Dimensions**, Modules, Actions, Source Models, **App Usage** and Model map. Dimensions holds Model Calendar and Time Ranges under a Time heading, Versions, and General Lists and Line Item Subsets under a Lists heading; App Usage holds Module Usage, Page Filters and Page Actions. A heading shows only where two or more of its tables are in the result, a group of one table is that table's own tab, and the arrow keys move through a menu's tables. The bar fits on one line from 1,000 pixels wide. An app's bar, the tables and the Overview are unchanged.
+
 ## 0.32.0 (11 October 2026)
 
 - **Anaplan words while reading.** The run card rotates phrases suited to each step, with the real progress underneath and the grid and timer held in place; reduced motion keeps one phrase per step, and screen readers hear only the progress. (#105)

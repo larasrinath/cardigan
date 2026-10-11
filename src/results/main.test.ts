@@ -736,7 +736,7 @@ describe("The results page's script, on the page", () => {
       if (kind === "model") {
         const subset = page.find('#navList [data-nav="1"]');
         const menu = subset.closest(".nav-menu")!;
-        expect(page.find(`#navList [aria-controls="${menu.id}"]`).textContent.trim()).toBe("Lists");
+        expect(page.find(`#navList [aria-controls="${menu.id}"]`).textContent.trim()).toBe("Dimensions");
       }
       for (const index of indexes) {
         const tile = page.find(`#view .stat[data-nav="${index}"]`);
@@ -4318,6 +4318,67 @@ describe("The navigation bar of the results page", () => {
   /** The menus of the navigation that are open, by their IDs. */
   const openMenus = () => page.all('#topnav [aria-expanded="true"]').map(button => button.getAttribute("aria-controls"));
 
+  it.each(["navGroupDimensions", "navGroupAppUsage", "navMenu"])("moves through only table buttons in %s, skipping every heading", async id => {
+    await openWith(withFiles(...EXPORTED, "Line Item Subsets", "Module Usage", "Page Filters", "Page Actions"));
+    const button = page.find(`#topnav [aria-controls="${id}"]`);
+    button.focus();
+    expect(page.key("ArrowDown").defaultPrevented).toBe(true);
+    expect(openMenus()).toEqual([id]);
+    const entries = page.all(`#${id} .nav-item`);
+    expect(page.document.activeElement).toBe(entries[0]);
+    for (const entry of [...entries.slice(1), entries[0]]) {
+      page.key("ArrowDown");
+      expect(page.document.activeElement).toBe(entry);
+    }
+    for (const entry of [...entries].reverse()) {
+      page.key("ArrowUp");
+      expect(page.document.activeElement).toBe(entry);
+    }
+    page.key("End");
+    expect(page.document.activeElement).toBe(entries.at(-1));
+    page.key("Home");
+    expect(page.document.activeElement).toBe(entries[0]);
+    // Native Tab can reach the buttons only; it is not intercepted by the page.
+    expect(page.key("Tab").defaultPrevented).toBe(false);
+    expect(page.all(`#${id} .nav-heading`).every(heading => !heading.focusable)).toBe(true);
+    expect(entries.every(entry => entry.focusable)).toBe(true);
+    page.key("Escape");
+    expect([openMenus(), page.document.activeElement === button]).toEqual([[], true]);
+    page.key("ArrowUp");
+    expect(page.document.activeElement).toBe(entries.at(-1));
+    const label = entryLabel(entries.at(-1)!);
+    page.document.activeElement.press();
+    expect([page.texts("#view h1"), openMenus()]).toEqual([[label], []]);
+  });
+
+  it.each(["Model Calendar", "Time Ranges", "Versions", "General Lists", "Line Item Subsets", "Module Usage", "Page Filters", "Page Actions"])
+    ("restores %s and its search with the new menu label, tolerating old group IDs", async label => {
+      const model = withFiles(...EXPORTED, "Line Item Subsets", "Module Usage", "Page Filters", "Page Actions");
+      await openWith(model);
+      goTo(model.tables.findIndex(table => table.label === label));
+      page.id("tblSearch").type(`${label} 1`);
+      await letKeep();
+      vi.advanceTimersByTime(1000);
+      const hash = location.hash;
+      const keptView = JSON.parse(session.held.get(VIEW_KEY)!);
+      // Old or unknown navigation fields must not interfere with table settings or the address's table ID.
+      session.held.set(VIEW_KEY, JSON.stringify({ ...keptView, navGroup: "navGroupTime", navGroupLists: true }));
+      await open(`?tab=42${hash}`);
+      await eventually(() => page.texts("#view h1")[0] === label, "the selected table to return");
+      expect(page.id("tblSearch").value).toBe(`${label} 1`);
+      const groupId = ["Module Usage", "Page Filters", "Page Actions"].includes(label) ? "navGroupAppUsage" : "navGroupDimensions";
+      expect(entryLabel(page.find(`#navList [aria-controls="${groupId}"]`))).toBe(label);
+      expect(page.has("#navGroupTime, #navGroupLists")).toBe(false);
+    });
+
+  it.each(["navGroupTime", "navGroupLists"])("ignores an obsolete %s address without losing the result", async id => {
+    await openWith(withFiles(...EXPORTED));
+    await letKeep();
+    await open(`?tab=42#${id}`);
+    await eventually(() => page.has("#navGroupDimensions"), "the result to return");
+    expect(marked()[0]).toBe("Overview (shown)");
+  });
+
   it("stands under the header as a bar of its own once there is a result, with nothing to put it away and nothing that lies over the page", async () => {
     // Before a result there is nothing to navigate: the bar is there, hidden and without an entry.
     await open(clicked(42));
@@ -4368,18 +4429,18 @@ describe("The navigation bar of the results page", () => {
 
   it("gathers a model's tables in groups on one line, in the order of Model settings, each group with the tables the result has; a group of one table, and a file no group names, stand on their own", async () => {
     await openWith(withFiles(...EXPORTED));
-    // Every file the export writes: Time, Versions, the one list file, Modules, Actions, Source Models, and the map.
-    expect(line()).toEqual(["Overview (shown)", "Time: Model Calendar, Time Ranges", "Versions", "Lists: General Lists", "Modules: Modules, Line Items, DCA",
+    // The model settings are gathered under Dimensions, Modules and Actions, followed by Source Models and the map.
+    expect(line()).toEqual(["Overview (shown)", "Dimensions: Model Calendar, Time Ranges, Versions, General Lists", "Modules: Modules, Line Items, DCA",
       "Actions: Processes, Imports, Data Sources, Exports, Other Actions", "Source Models", "Model map"]);
     // Each group's button has the group's own icon, its name and a chevron, and holds no view's name of its own.
     const buttons = page.all("#navList .nav-group-btn");
     expect(buttons.map(button => [button.querySelector("svg")?.outerHTML, button.querySelectorAll(".nav-chevron").length, button.hasAttribute("data-nav")]))
-      .toEqual(drawnIcons(NAV_ICONS.time, NAV_ICONS.lists, NAV_ICONS.modules, NAV_ICONS.actions).map(icon => [icon, 1, false]));
-    // Line Item Subsets makes the lists two, and a group of their own. A group the result has no table of is not there,
+      .toEqual(drawnIcons(NAV_ICONS.dimensions, NAV_ICONS.modules, NAV_ICONS.actions).map(icon => [icon, 1, false]));
+    // Line Item Subsets joins General Lists under Dimensions. A group the result has no table of is not there,
     // a group of one table is that table's entry, and a file no group names stands after the groups, before the map.
     page.id("runAgain").press();
     sendResult(ports[0], withFiles("Line Item Subsets", "Imports", "Dashboards", "General Lists", "Versions"));
-    expect(line()).toEqual(["Overview (shown)", "Versions", "Lists: General Lists, Line Item Subsets", "Imports", "Dashboards", "Model map"]);
+    expect(line()).toEqual(["Overview (shown)", "Dimensions: Versions, General Lists, Line Item Subsets", "Imports", "Dashboards", "Model map"]);
     // Nothing is left out: the navigation's entries are the result's files, each once.
     expect(marked()).toEqual(["Overview (shown)", "Versions", "General Lists", "Line Item Subsets", "Imports", "Dashboards", "Model map"]);
   });
@@ -4397,19 +4458,19 @@ describe("The navigation bar of the results page", () => {
     await openWith(withFiles("Model Calendar", "Time Ranges", "Modules", "Line Items", "Processes", "Imports"));
     const button = (id: string) => page.find(`#navList [aria-controls="${id}"]`);
     // A click on the button opens its menu, under it, and a second closes it.
-    button("navGroupTime").press();
-    expect([openMenus(), page.id("navGroupTime").hidden, button("navGroupTime").getAttribute("aria-expanded")]).toEqual([["navGroupTime"], false, "true"]);
-    button("navGroupTime").press();
-    expect([openMenus(), page.id("navGroupTime").hidden]).toEqual([[], true]);
+    button("navGroupDimensions").press();
+    expect([openMenus(), page.id("navGroupDimensions").hidden, button("navGroupDimensions").getAttribute("aria-expanded")]).toEqual([["navGroupDimensions"], false, "true"]);
+    button("navGroupDimensions").press();
+    expect([openMenus(), page.id("navGroupDimensions").hidden]).toEqual([[], true]);
     // Enter on the focused button opens it, and the focus stays on the button, the Tab key going on into the menu. Escape
     // pressed in the menu closes it, and gives the focus back to the button.
-    button("navGroupTime").focus();
+    button("navGroupDimensions").focus();
     page.document.activeElement.press();
-    page.find('#navGroupTime [data-nav="2"]').focus();
+    page.find('#navGroupDimensions [data-nav="2"]').focus();
     page.key("Escape");
-    expect([openMenus(), page.id("navGroupTime").hidden, page.document.activeElement === button("navGroupTime")]).toEqual([[], true, true]);
+    expect([openMenus(), page.id("navGroupDimensions").hidden, page.document.activeElement === button("navGroupDimensions")]).toEqual([[], true, true]);
     // Another group's button opens its menu and closes the first.
-    button("navGroupTime").press();
+    button("navGroupDimensions").press();
     button("navGroupModules").press();
     expect(openMenus()).toEqual(["navGroupModules"]);
     // A click outside it closes it, and does what it does: here on the view.
@@ -4426,8 +4487,8 @@ describe("The navigation bar of the results page", () => {
     expect([openMenus(), page.texts("#view h1")]).toEqual([[], ["Modules"]]);
     // A menu that opens closes a popover of the table, as a click outside a popover does, and the reverse holds too.
     page.id("colBtn").press();
-    button("navGroupTime").press();
-    expect([page.id("popover").hidden, openMenus()]).toEqual([true, ["navGroupTime"]]);
+    button("navGroupDimensions").press();
+    expect([page.id("popover").hidden, openMenus()]).toEqual([true, ["navGroupDimensions"]]);
     page.id("colBtn").press();
     expect([page.id("popover").hidden, openMenus()]).toEqual([false, []]);
     page.key("Escape");
@@ -4451,11 +4512,11 @@ describe("The navigation bar of the results page", () => {
     expect([button().textContent.trim(), button().querySelector("svg")?.outerHTML, button().getAttribute("aria-expanded"), page.id("navMenu").hidden])
       .toEqual(["DCA", drawnIcons(NAV_ICONS.menu)[0], "false", true]);
     button().press();
-    expect([openMenus(), listed()]).toEqual([["navMenu"], ["Overview", "Time: Model Calendar, Time Ranges", "Versions", "Lists: General Lists", "Modules: Modules, Line Items, DCA (shown)",
+    expect([openMenus(), listed()]).toEqual([["navMenu"], ["Overview", "Dimensions: Model Calendar, Time Ranges, Versions, General Lists", "Modules: Modules, Line Items, DCA (shown)",
       "Actions: Processes, Imports, Data Sources, Exports, Other Actions", "Source Models", "Model map"]]);
     // A group's name heads its entries, a heading that a screen reader is told as the name of the group.
     expect(page.all("#navMenu .nav-section").map(section => [section.getAttribute("role"), section.querySelector(".nav-heading")?.textContent, section.querySelector(".nav-heading")?.getAttribute("aria-hidden")]))
-      .toEqual([["group", "Time", "true"], ["group", "Lists", "true"], ["group", "Modules", "true"], ["group", "Actions", "true"]]);
+      .toEqual([["group", "Dimensions", "true"], ["group", "Time", "true"], ["group", "Modules", "true"], ["group", "Actions", "true"]]);
     // Choosing from it shows that view; the menu is drawn again, closed, and its button names the new view.
     page.find('#navMenu [data-nav="11"]').press();
     expect([page.texts("#view h1"), button().textContent.trim(), page.id("navMenu").hidden]).toEqual([["Versions"], "Versions", true]);

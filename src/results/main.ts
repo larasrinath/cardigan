@@ -2399,6 +2399,24 @@ document.addEventListener("change", event => {
 document.addEventListener("keydown", event => {
   // While the focus is inside the map, a key is the map's: the page's own shortcuts leave it alone.
   if (el("mapHost").contains(document.activeElement) && !el("drawer").classList.contains("show")) return;
+  // Arrow keys move through table buttons only, including those under subheadings. Tab keeps the native order.
+  const group = document.activeElement?.closest("#topnav .nav-group");
+  if (group && ["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key) && !event.altKey && !event.ctrlKey && !event.metaKey) {
+    const button = group.querySelector<HTMLElement>(".nav-group-btn");
+    const entries = [...group.querySelectorAll<HTMLElement>(".nav-item")];
+    if (button && entries.length) {
+      event.preventDefault();
+      closeNavMenus(group);
+      closePopover();
+      setNavMenu(button, true);
+      const at = entries.findIndex(entry => entry === document.activeElement);
+      const next = event.key === "Home" ? 0 : event.key === "End" ? entries.length - 1
+        : at < 0 ? (event.key === "ArrowUp" ? entries.length - 1 : 0)
+          : (at + (event.key === "ArrowUp" ? -1 : 1) + entries.length) % entries.length;
+      entries[next].focus();
+      return;
+    }
+  }
   if (event.key === "Escape") {
     if (closeNavMenus(null, true)) return;
     if (!el("popover").hidden) closePopover(true);

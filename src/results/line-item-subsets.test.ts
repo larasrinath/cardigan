@@ -110,15 +110,16 @@ describe("Line Item Subsets in results", () => {
     expect(details[0] + details[2]).not.toContain("not read");
   });
 
-  it("places subsets under Lists, counts its tile, and hides only the tile when subsets are empty", () => {
+  it("places subsets under Dimensions, counts its tile, and hides only the tile when subsets are empty", () => {
     expect(listedTables(result).map(({ table }) => table.label)).toEqual(["General Lists", "Line Item Subsets", "Modules", "Line Items"]);
     expect(overviewOf(result).tiles.find(tile => tile.label === "Line Item Subsets")).toMatchObject({ count: 2 });
     for (const tables of [[lists, { ...subsets, rows: [] }], [lists]]) {
       const empty = { ...result, tables };
       expect(overviewOf(empty).tiles.map(tile => tile.label)).toEqual(["General Lists"]);
       const entries = listedTables(empty).map(({ table, index }) => ({ id: String(index), label: table.label, file: table.file }));
-      expect(navItems(entries, true)).toMatchObject([{ group: { label: "Lists" },
-        entries: tables.length === 2 ? [{ label: "General Lists" }, { label: "Line Item Subsets" }] : [{ label: "General Lists" }] }]);
+      expect(navItems(entries, true)).toMatchObject(tables.length === 2
+        ? [{ group: { label: "Dimensions" }, entries: [{ label: "General Lists" }, { label: "Line Item Subsets" }] }]
+        : [{ label: "General Lists" }]);
     }
   });
 

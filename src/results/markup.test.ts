@@ -880,17 +880,16 @@ describe("A result whose every text is hostile, through every view of the page",
   it("gathers a model's files in groups that keep the order of Model settings: each file the order names stands in one group or on its own, once, where the order has it", () => {
     const entries = MODEL_FILE_ORDER.map((file, index) => ({ id: String(index + 1), label: file.replace(/\.csv$/, ""), file }));
     const items = navItems(entries, true);
-    // The line: Time, Versions, Lists, Modules, Actions, Source Models, and the three tables of the pages built on the model.
-    expect(items.map(item => ("entries" in item ? `${item.group.label}: ${item.entries.length}` : item.label))).toEqual(["Time: 2", "Versions", "Lists: 2", "Modules: 3", "Actions: 5", "Source Models",
-      "Module Usage", "Page Filters", "Page Actions"]);
+    // Dimensions gathers Time, Versions and Lists; App Usage gathers the tables of the pages built on the model.
+    expect(items.map(item => ("entries" in item ? `${item.group.label}: ${item.entries.length}` : item.label))).toEqual(["Dimensions: 5", "Modules: 3", "Actions: 5", "Source Models", "App Usage: 3"]);
     // Nothing is left out, and nothing moves: the items, opened up, are the order itself.
     expect(items.flatMap(item => ("entries" in item ? item.entries : [item])).map(entry => entry.file)).toEqual([...MODEL_FILE_ORDER]);
     // Every file of a group is one the order names, and none is in two groups. Each group's ID is its menu's, of letters
     // only; its name and its drawing are the page's own, a drawing of its own.
     const files = NAV_GROUPS.flatMap(group => group.files);
     expect([files.filter(file => !MODEL_FILE_ORDER.includes(file)), new Set(files).size === files.length]).toEqual([[], true]);
-    expect(NAV_GROUPS.map(group => [group.id, group.label, group.icon])).toEqual([["navGroupTime", "Time", NAV_ICONS.time], ["navGroupLists", "Lists", NAV_ICONS.lists],
-      ["navGroupModules", "Modules", NAV_ICONS.modules], ["navGroupActions", "Actions", NAV_ICONS.actions]]);
+    expect(NAV_GROUPS.map(group => [group.id, group.label, group.icon])).toEqual([["navGroupDimensions", "Dimensions", NAV_ICONS.dimensions],
+      ["navGroupModules", "Modules", NAV_ICONS.modules], ["navGroupActions", "Actions", NAV_ICONS.actions], ["navGroupAppUsage", "App Usage", NAV_ICONS.appUsage]]);
   });
 
   it("keys the navigation's icons by the names the analysis writes its files under, each file a drawing of its own, with drawings of their own for the overview, the map and any other table", () => {
