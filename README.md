@@ -91,11 +91,7 @@ The **Actions** column follows the process name. Its filter picks processes by t
 
 ### Polaris models
 
-<<<<<<< HEAD
-Polaris models are read in full through Model Building's Classic client, including the settings, import mappings and process steps described above. The engine comes from the export's Line Items columns: **Populated Cell Count** or **Calculation Complexity** means Polaris; otherwise Classic. Diagnostics says `Engine: Polaris (from the Line Items columns)`. The Overview's notes include **Polaris model, read in full through Model Building.** Its About rows stay the same.
-=======
-Polaris models are read in full through Model Building's Classic client, including Line Item Subsets and their readable membership, the other settings, import mappings and process steps described above. The engine is read from the model's own page before the run reads settings or pages. Diagnostics says `Engine: Polaris (dataEngineType CALCULATION_ENGINE)`. The Overview's notes include **Polaris model, read in full through Model Building.** Its About rows stay the same. Polaris-only Line Items columns, **Populated Cell Count** and **Calculation Complexity**, remain a cross-check: a disagreement with the page's engine gets one diagnostic line, without changing the decision or the reader. Missing columns alone do not establish Classic.
->>>>>>> origin/main
+Polaris models are read in full through Model Building's Classic client, including Line Item Subsets and their readable membership, the other settings, import mappings and process steps described above. The engine comes from the export's Line Items columns: **Populated Cell Count** or **Calculation Complexity** means Polaris; otherwise Classic. Diagnostics says `Engine: Polaris (from the Line Items columns)`. The Overview's notes include **Polaris model, read in full through Model Building.** Its About rows stay the same.
 
 Only when no Classic frame answers within the wait does Cardigan use the partial Polaris reader. Without a client the engine stays unknown. Only this partial reader asks the platform gateway for model and workspace names; it does not inspect engine fields. The Overview says **The model's Classic client didn't answer, so Cardigan read what it could without it.** It names what was read and what is missing; only tables with data get tiles and tabs. **About this export** keeps Workspace, Workspace ID, Model, Model ID and Apps. The following limits apply to this partial read:
 
