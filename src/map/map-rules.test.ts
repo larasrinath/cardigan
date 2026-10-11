@@ -125,6 +125,25 @@ describe("The map's sources", () => {
 });
 
 describe("The map's stylesheet", () => {
+  it("mutes round icons at rest, shows text ink on hover and keyboard focus, and keeps selection ink last", () => {
+    const rules = (selector: string): string => [...STYLES.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .filter(([, selectors]) => selectors.trim() === selector).map(([, , body]) => body).join(";");
+    const rest = ".map-btn.map-icon";
+    const engaged = ".map-btn.map-icon:where(:hover,:focus-visible)";
+    const selected = '.map-btn[aria-expanded="true"],.map-btn[aria-pressed="true"]';
+    const selectedRound = '.map-btn.map-icon:is([aria-expanded="true"],[aria-pressed="true"])';
+    expect(rules(rest)).toContain("color:var(--text-3)");
+    expect(rules(engaged)).toContain("color:var(--text)");
+    expect(rules(selected)).toContain("color:var(--accent-ink)");
+    expect(rules(selected)).toContain("background:var(--accent-soft)");
+    // The round toggle's highlight also outranks the plain button hover background.
+    expect(rules(selectedRound)).toContain("background:var(--accent-soft)");
+    expect(STYLES.indexOf(selectedRound)).toBeGreaterThan(STYLES.indexOf(".map-btn:hover:not(:disabled)"));
+    // Equal specificity lets the later selection rule keep accent ink while hovered or focused.
+    expect(STYLES.indexOf(selected)).toBeGreaterThan(STYLES.indexOf(engaged));
+    expect(STYLES.indexOf(engaged)).toBeGreaterThan(STYLES.indexOf(rest));
+  });
+
   it("floats matching corner clusters over a full-height canvas, with shrinking counts and panels above", () => {
     const rules = (selector: string): string => [...STYLES.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
       .filter(([, selectors]) => selectors.trim() === selector).map(([, , body]) => body).join(";");

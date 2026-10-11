@@ -6,6 +6,10 @@ Every merged change that alters the extension has a version of its own: a new fe
 
 - **A shorter menu bar.** A model's bar has seven tabs: Overview, **Dimensions**, Modules, Actions, Source Models, **App Usage** and Model map. Dimensions holds Model Calendar and Time Ranges under a Time heading, Versions, and General Lists and Line Item Subsets under a Lists heading; App Usage holds Module Usage, Page Filters and Page Actions. A heading shows only where two or more of its tables are in the result, a group of one table is that table's own tab, and the arrow keys move through a menu's tables. The bar fits on one line from 1,000 pixels wide. An app's bar, the tables and the Overview are unchanged.
 
+## 0.32.1 (11 October 2026)
+
+- **Lighter map icons.** Round buttons draw larger icons with the menu bar's thinner strokes and muted colour, text colour on hover or keyboard focus, and accent ink while open or pressed. (#106)
+
 ## 0.32.0 (11 October 2026)
 
 - **Anaplan words while reading.** The run card rotates phrases suited to each step, with the real progress underneath and the grid and timer held in place; reduced motion keeps one phrase per step, and screen readers hear only the progress. (#105)
