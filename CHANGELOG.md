@@ -6,6 +6,14 @@ Every merged change that alters the extension has a version of its own: a new fe
 
 - **Clearer map connections.** A selected box's details say what feeds it and what it feeds, including when nothing does; **Hide the other boxes** and **Show all boxes** name what the button does.
 
+## 0.34.8 (11 October 2026)
+
+- **DISCO grouping.** The map calls its module roles DISCO in Group by, explanations, details and search; kept choices still load. (#124)
+
+## 0.34.7 (11 October 2026)
+
+- **Fiscal year first.** The Model Calendar tile shows the current fiscal year in large type, with the calendar type and its grouping underneath. (#123)
+
 ## 0.34.6 (11 October 2026)
 
 - **Blank cells for lone dashes.** Model and app tables treat lone dashes as blank in cells, details, search, sort and filters, including kept filters; Line Items keeps its inheritance dashes, and stored results stay unchanged. (#118)

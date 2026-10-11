@@ -641,11 +641,11 @@ describe("The map's panels", () => {
       .toEqual(Array(2).fill(["option", "false", "-1"]));
     expect(options(groupOptionsHtml(["01: Inputs", "02: Calculations"], [2, 0]))).toEqual([["groups", "All groups"], ["0", "01: Inputs · 2 modules"], ["1", "02: Calculations · 0 modules"]]);
     // Group by names each grouping as the switch's label has it, and the one the map picks says so.
-    expect(options(groupingOptionsHtml([{ kind: "headings", label: "Headings" }, { kind: "role", label: "Role in the data flow" }], "role")))
-      .toEqual([["headings", "Headings"], ["role", "Role in the data flow Best fit"]]);
-    const choices = parseMarkup(`<div>${groupingOptionsHtml([{ kind: "headings", label: "Headings" }, { kind: "role", label: "Role in the data flow" }], "headings")}</div>`);
+    expect(options(groupingOptionsHtml([{ kind: "headings", label: "Headings" }, { kind: "role", label: "DISCO" }], "role")))
+      .toEqual([["headings", "Headings"], ["role", "DISCO Best fit"]]);
+    const choices = parseMarkup(`<div>${groupingOptionsHtml([{ kind: "headings", label: "Headings" }, { kind: "role", label: "DISCO" }], "headings")}</div>`);
     expect(choices.querySelectorAll("[role=option]").map(option => [option.dataset.mapGrouping, option.textContent, option.querySelector(".map-best-fit")?.textContent]))
-      .toEqual([["headings", "Headings Best fit", "Best fit"], ["role", "Role in the data flow", undefined]]);
+      .toEqual([["headings", "Headings Best fit", "Best fit"], ["role", "DISCO", undefined]]);
     expect(choices.querySelectorAll("select")).toEqual([]);
   });
 

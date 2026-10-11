@@ -3202,6 +3202,8 @@ describe("The bar's tools and the module picker", () => {
   it("uses the kept grouping for a kept module's list", () => {
     mount(sample().graph, { modelName: "Demand Plan", grouping: "role", view: { view: "drill", module: "REP01 - Board" } });
     map.show(); env.resize(1200, 800); env.settle();
+    expect(text(".map-grouping-name")).toBe("DISCO");
+    expect(act("groupings").getAttribute("aria-label")).toBe("Group by: DISCO");
     openPicker();
     expect([text(".map-group-name"), picked(), text('[data-map-pick="-1"]')]).toEqual(["Output", ["REP01 - Board"], "All modules in Output"]);
     expect(text('.map-picker-list [aria-selected="true"] .map-picker-name')).toBe("REP01 - Board");
@@ -3272,7 +3274,7 @@ describe("The bar's tools and the module picker", () => {
     expect([here(), page.document.activeElement, part(".map-grouping-reason").hidden]).toEqual(["Margin Workings", act("grouping-info"), true]);
     chooseGrouping("role");
     const picked = act("grouping-info").title;
-    expect(picked).toMatch(/^How it groups\nEach module gets a role/);
+    expect(picked).toMatch(/^How it groups\nEach module gets a DISCO role/);
     expect(picked.split("\n").slice(3)).toEqual(automatic.split("\n").slice(3));
     expect([act("grouping-info").title, heard, text(".map-insp-name"), boxes()]).toEqual([picked, ["role"], "Margin %", before]);
     act("grouping-info").press();
@@ -3540,7 +3542,7 @@ describe("How the map groups modules", () => {
 
   it("opens on the grouping it picks itself, which the switch says, and names each module's section with where it comes from", () => {
     openGrouped(coded());
-    expect(choices()).toEqual([["prefix", "Name prefix Best fit"], ["role", "Role in the data flow"]]);
+    expect(choices()).toEqual([["prefix", "Name prefix Best fit"], ["role", "DISCO"]]);
     expect([part(".map-grouping-field").hidden, text(".map-grouping-name"), groupingValue()]).toEqual([false, "Name prefix", "prefix"]);
     expect(sectionNames()).toEqual(["INP", "CAL", "REP", "Other"]);
     expect(parts("[data-map-group]").map(option => option.textContent)).toEqual(["All groups", "INP · 3 modules", "CAL · 3 modules", "REP · 3 modules", "Other · 1 module"]);
@@ -3562,14 +3564,16 @@ describe("How the map groups modules", () => {
     env.settle();
     // The whole model, in the new sections, with nothing selected.
     expect([sectionNames(), part(".map-inspector").hidden, groupingValue()]).toEqual([["Data", "Input", "Calculation", "Output"], true, "role"]);
-    expect(text(".map-live")).toMatch(/^Modules grouped by role in the data flow\. Groups of Demand Plan: 4 groups/);
+    expect(text(".map-live")).toMatch(/^Modules grouped by DISCO\. Groups of Demand Plan: 4 groups/);
     // The details say why a module is where the map put it.
     clickNode("Calculation");
     act("open").press();
     env.settle();
     clickNode("REP01 Board");
     expect(parts(".map-dl dt").map(term => term.textContent).slice(0, 2)).toEqual(["Group", "Why"]);
-    expect(parts(".map-dl dd").map(value => value.textContent).slice(0, 2)).toEqual(["Calculation · from the data flow", "Calculation: 1 of its 1 line item has a formula, and another module reads it."]);
+    expect(parts(".map-dl dd").map(value => value.textContent).slice(0, 2)).toEqual(["Calculation · DISCO role", "Calculation: 1 of its 1 line item has a formula, and another module reads it."]);
+    part(".map-search").type("REP01 Board");
+    expect(parts(".map-result").map(result => result.querySelector("small")?.textContent)[0]).toBe("Module · Calculation · DISCO role");
     chooseGrouping("prefix");
     env.settle();
     expect([sectionNames(), heard]).toEqual([["INP", "CAL", "REP", "Other"], ["role", undefined]]);
@@ -3581,6 +3585,10 @@ describe("How the map groups modules", () => {
   it("opens on the grouping the viewer chose last where the model has it, and on its own pick where it has not", () => {
     openGrouped(coded(), "role");
     expect([groupingValue(), sectionNames()]).toEqual(["role", ["Data", "Input", "Calculation", "Output"]]);
+    expect(text(".map-grouping-name")).toBe("DISCO");
+    expect(act("groupings").getAttribute("aria-label")).toBe("Group by: DISCO");
+    expect(act("grouping-info").title).toMatch(/^How it groups\nEach module gets a DISCO role/);
+    expect(heard).toEqual([]);
     map.destroy();
     openGrouped(coded(), "functionalArea");
     expect([groupingValue(), sectionNames()]).toEqual(["prefix", ["INP", "CAL", "REP", "Other"]]);
@@ -3672,7 +3680,11 @@ describe("How the map groups modules", () => {
     for (const name of ["Volumes", "Prices", "Rates"]) make.item(make.module(name), "Value");
     openGrouped(make.graph());
     // Even a model with only one grouping offers it just once, tagged Best fit.
-    expect([choices(), part(".map-grouping-field").hidden, part(".map-grouping-picker").hidden, part(".map-group-picker").hidden, sectionNames()]).toEqual([[["role", "Role in the data flow Best fit"]], false, false, false, ["Modules"]]);
+    expect([choices(), part(".map-grouping-field").hidden, part(".map-grouping-picker").hidden, part(".map-group-picker").hidden, sectionNames()]).toEqual([[["role", "DISCO Best fit"]], false, false, false, ["Modules"]]);
+    expect(text(".map-grouping-name")).toBe("DISCO");
+    expect(act("grouping-info").title).toContain("\nBest fit for this model: DISCO\nNo other grouping fits this model well enough.");
+    act("grouping-info").press();
+    expect(part(".map-grouping-reason").textContent).toBe(act("grouping-info").title);
   });
 
   it("opens by itself on 22 functional areas its builders set, in the order of their names, and every part of the map follows a switch of grouping", () => {

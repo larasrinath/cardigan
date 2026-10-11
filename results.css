@@ -473,7 +473,7 @@ main:has(> #mapHost:not([hidden])){align-self:stretch;display:flex;flex-directio
 .stat .s-num.s-n7{font-size:min(44px,23cqi)}
 .stat .s-num.s-n8{font-size:min(44px,20cqi)}
 .stat .s-num.s-word{font-size:min(40px,24cqi)}
-/* A Model Calendar's current year, under its kind and at its right, small: one line, cut with an ellipsis. Every row of
+/* A Model Calendar's kind, under its current year and at its right, small: one line, cut with an ellipsis. Every row of
    tiles is as high as the highest, so the others keep the same size. */
 .stat .s-detail{font-size:12px;line-height:16px;margin-top:4px;color:var(--text-2);text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* A tile opens its table: a button with the tile's look, a little lifted under the pointer. */

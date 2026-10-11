@@ -1,6 +1,7 @@
 import { MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE } from "../page-files.js";
+import type { CalendarTile } from "./calendar-tile.js";
 import type { Items } from "./cell-lists.js";
-import { headerWidth, ROW_BUTTON, WIDEST } from "./column-widths.js";
+import { headerWidth, ROW_BUTTON, textWidth, WIDEST } from "./column-widths.js";
 import { APP_FILES, countText, rowColumns, type Column } from "./columns.js";
 import { REFRESH_AND_RUN, type RunState } from "./connection.js";
 import type { MappingView } from "./import-mapping-view.js";
@@ -466,16 +467,19 @@ export function overviewHtml(overview: Overview, copy: KeptCopy = "none", links:
   return `
     <h1 class="view-title">Overview</h1>
     ${overview.tiles.length ? `<div class="ov-grid">
-      ${overview.tiles.map(tile => {
+      ${overview.tiles.map((tile: OverviewTile & Partial<CalendarTile>) => {
         // The table's icon, the one its entry of the navigation has, then its name, and under that the number of rows the
         // table lists, without a word: only a screen reader is told that they are rows. A name too long for the tile ends
         // in an ellipsis, and its title holds it whole. A file with no icon of its own has none here, and no stand-in.
-        // A Model Calendar says what its calendar is in the number's place, and its current year under that: its title
+        // A Model Calendar says its current year in the number's place, and its kind under that: its title
         // holds it all, and a screen reader is told the same.
         const icon = FILE_ICONS.get(tile.file) ?? "";
         // A short name is said in full to a screen reader, and as the name's title.
         const name = tile.full ? `<span aria-hidden="true">${esc(tile.label)}</span><span class="sr-only">${esc(tile.full)}</span>` : esc(tile.label);
-        const parts = `<span class="s-lab" title="${esc(tile.full ?? tile.label)}">${icon}${name}</span><span class="s-num${numberSize(tile)}">${esc(tile.value ?? tile.count)}</span>`
+        // Longer year labels keep shrinking with the tile's width, even beyond the count's eight-figure size. The
+        // shared text estimate allows for wide letters; only the calculated number goes into the style.
+        const fit = tile.valueIsYear && tile.value && tile.value.length > 4 ? ` style="font-size:min(44px,${160 / textWidth(tile.value)}cqi)"` : "";
+        const parts = `<span class="s-lab" title="${esc(tile.full ?? tile.label)}">${icon}${name}</span><span class="s-num${numberSize(tile)}"${fit}>${esc(tile.value ?? tile.count)}</span>`
           + (tile.value === undefined ? `<span class="sr-only">${tile.count === 1 ? "row" : "rows"}</span>` : "")
           + (tile.detail === undefined ? "" : `<span class="s-detail">${esc(tile.detail)}</span>`);
         const named = tile.title === undefined ? "" : ` title="${esc(tile.title)}"`;
@@ -487,10 +491,10 @@ export function overviewHtml(overview: Overview, copy: KeptCopy = "none", links:
 
 /** The class that sizes a tile's number (results.css `.s-num`): none for a count of up to four figures, which is drawn at
  * full size in any tile; one by its length for a longer count, which a narrow tile draws smaller, so that it is never cut;
- * and one for the Model Calendar's word in the number's place. */
-function numberSize(tile: OverviewTile): string {
-  if (tile.value !== undefined) return " s-word";
-  const figures = String(tile.count).length;
+ * a fiscal year's label follows the same sizes, while a calendar type without a year keeps its word size. */
+function numberSize(tile: OverviewTile & Partial<CalendarTile>): string {
+  if (tile.value !== undefined && !tile.valueIsYear) return " s-word";
+  const figures = String(tile.value ?? tile.count).length;
   return figures <= 4 ? "" : figures >= 8 ? " s-n8" : ` s-n${figures}`;
 }
 
