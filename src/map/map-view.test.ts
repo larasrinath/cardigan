@@ -10,7 +10,7 @@ import { accessMarkedModel, twinBoxesModel } from "./map-fakes.test-support.js";
 import { ACCESS_MARK_SAYS, ACCESS_NONE, ACCESS_UNREAD } from "./map-markup.js";
 import { mountModelMap, mountModelMapIn, type MapEnvironment } from "./map-view.js";
 import { FakePen, filteredModel, GraphMaker, HOSTILE, lineFilteredModel, ownFilteredModel, type PenCall } from "./map-fakes.test-support.js";
-import { ACCESS_LINK_SAYS, ACCESS_SAYS, FILTER_LINK_SAYS, FILTER_MARK_SAYS, FILTERS_BOTH_SAY, FILTERS_NONE, FILTERS_OWN_SAY, FILTERS_SAY, FORMULAS_SAY, FULL_SAYS, LINK_SAYS, NO_LINKS_SAYS } from "./map-markup.js";
+import { ACCESS_LINK_SAYS, ACCESS_SAYS, FILTER_LINK_SAYS, FILTER_MARK_SAYS, FILTERS_BOTH_SAY, FILTERS_NONE, FILTERS_OWN_SAY, FILTERS_SAY, FORMULAS_SAY, FULL_SAYS, LINK_SAYS, MODULES_ONLY_SAYS, NO_LINKS_SAYS } from "./map-markup.js";
 
 /** A page with a control outside the map, and the place the map is put into. */
 const SHELL = '<!DOCTYPE html><html lang="en" data-theme="light"><head><title>Page</title></head><body><button type="button" id="outside">Outside</button><main id="main"><div id="host"></div></main></body></html>';
@@ -3367,7 +3367,7 @@ describe("The bar's tools and the module picker", () => {
     map.show(); env.resize(1200, 800); env.settle();
     goTo("margin %"); env.settle();
     const before = boxes();
-    const automatic = "How it groups\nEach module is under the model heading above it, a module whose name starts with --, ==, **, << or >>. Modules with no heading above them are under Ungrouped.\n\nBest fit for this model: Headings\nHeadings sort 100% of modules into 3 groups. This model has no functional areas.";
+    const automatic = 'How it groups\nEach module is under the heading above it in Line Items: an empty module whose name is set off by symbols, like "-- Inputs --" or "## Data ##". A module in the same style can also be a heading when it holds a note. Modules with no heading above them are under Ungrouped.\n\nBest fit for this model: Headings\nHeadings sort 100% of modules into 3 groups. This model has no functional areas.';
     expect(text(".map-grouping-name")).toBe("Headings");
     expect(act("grouping-info").title).toBe(automatic);
     expect(act("grouping-info").getAttribute("aria-label")).toBe("How this grouping works");
@@ -4131,5 +4131,64 @@ describe("The links of the pages' filters on the map", () => {
     const heard: MapView[] = [];
     openWith(sample().graph, heard, { view: "modules", filters: true });
     expect([part(".map-filters").checked, heard[0]]).toEqual([false, { view: "modules" }]);
+  });
+});
+
+describe("A module from Modules alone on the map", () => {
+  /** Two groups: Inputs, with a module from Modules alone beside an ordinary one, and Reporting, which Inputs feeds. */
+  function reserved(): ModelGraph {
+    const make = new GraphMaker();
+    const units = make.item(make.module("INP01 - Volumes", "01: Inputs"), "Units");
+    make.module("INP09 - Reserve", "01: Inputs", { modulesOnly: true, file: "Modules" });
+    make.link(units, make.item(make.module("REP01 - Board", "02: Reporting"), "Total"));
+    return make.graph();
+  }
+  /** The legend's lines that stand beside the dotted mark. */
+  const dottedLines = (): string[] => parts(".map-legend-note").filter(note => note.querySelector(".map-c-modules-only")).map(note => note.textContent);
+
+  it("is said in the legend while the picture has its dotted box, whichever layers are hidden, and in no other picture", () => {
+    open(reserved());
+    // The groups are boxes of groups: none is dotted.
+    expect([here(), dottedLines()]).toEqual(["Demand Plan", []]);
+    groupChoice("0");
+    expect([here(), dottedLines()]).toEqual(["01: Inputs", [MODULES_ONLY_SAYS]]);
+    // Its layer hidden, the line stays where it is: the legend does not jump.
+    parts(".map-legend-item")[0].press();
+    expect([parts(".map-legend-item")[0].getAttribute("aria-pressed"), dottedLines()]).toEqual(["false", [MODULES_ONLY_SAYS]]);
+    groupChoice("1");
+    expect([here(), dottedLines()]).toEqual(["02: Reporting", []]);
+    // A model with no such module never says it.
+    map.destroy();
+    open();
+    for (const go of [() => undefined, () => groupChoice("0"), firstModule]) {
+      go();
+      expect(dottedLines()).toEqual([]);
+    }
+  });
+
+  it("says so in its own details, and in no other box's", () => {
+    open(reserved());
+    groupChoice("0");
+    clickNode("INP09 - Reserve");
+    expect([text(".map-insp-name"), parts(".map-insp-body .map-insp-note").map(note => note.textContent)]).toEqual(["INP09 - Reserve", [MODULES_ONLY_SAYS]]);
+    clickNode("INP01 - Volumes");
+    expect([text(".map-insp-name"), text(".map-inspector").includes(MODULES_ONLY_SAYS)]).toEqual(["INP01 - Volumes", false]);
+    clickNode("REP01 - Board");
+    expect([text(".map-insp-name"), text(".map-inspector").includes(MODULES_ONLY_SAYS)]).toEqual(["REP01 - Board", false]);
+  });
+
+  it("is counted among the model's modules in the notes about the map, and said apart", () => {
+    open(reserved());
+    act("about").press();
+    expect(parts(".map-notes .map-about-line").map(line => line.textContent)).toEqual([
+      "Demand Plan, in the workspace Sandbox: 3 modules · 2 line items",
+      "2 heading rows stand among the modules. The map counts them as no module, and the page's Modules table counts each as a row: that table has more rows than the map has modules.",
+      "1 module comes from Modules alone; Line Items has no row for it.",
+    ]);
+    map.destroy();
+    // Without one, the notes have no such line.
+    open();
+    act("about").press();
+    expect(parts(".map-notes .map-about-line").filter(line => line.textContent.includes("Modules alone"))).toEqual([]);
   });
 });

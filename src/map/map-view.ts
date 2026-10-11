@@ -704,10 +704,11 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     if (!onScreen) return;
     // A model that has no sections to show has none in its legend either: its modules are one entry, as what they are.
     // Of links it says only the kinds drawn: a link that is neither a filter's nor formulas' alone has an access driver.
+    // What a dotted box means is said while the picture has one, whichever of its layers are hidden.
     legend.innerHTML = legendHtml(onScreen.kind === "drill" || single ? "On this map" : "Groups", onScreen.layers, hiddenLayers,
       onScreen.edges.some(edge => edge.filter) ? onScreen.kind : undefined, onScreen.nodes.some(node => node.filterMark) ? onScreen.kind : undefined,
       { formulas, access: onScreen.edges.some(edge => !edge.filter && !edge.formulaOnly), none: linksDrawn() === "none" },
-      onScreen.nodes.some(node => node.accessMark) ? onScreen.kind : undefined);
+      onScreen.nodes.some(node => node.accessMark) ? onScreen.kind : undefined, onScreen.nodes.some(node => node.raw?.modulesOnly === true));
     legendButton.disabled = onScreen.layers.length === 0;
   }
 
@@ -780,7 +781,7 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     inspection = inspect(model, onScreen, selected, access);
     traced = traceWords(inspection, trace.up.size, trace.down.size);
     pageOpens = selected.raw ? options.opens?.(selected.raw) ?? [] : [];
-    inspector.innerHTML = inspectorHtml(inspection, traced, pageOpens, onlyTrace);
+    inspector.innerHTML = inspectorHtml(inspection, traced, pageOpens, onlyTrace, selected.raw?.modulesOnly === true);
     inspector.hidden = false;
     part(".map-insp-body").scrollTop = 0;
     placeMinimap();
@@ -1915,8 +1916,11 @@ export function mountModelMapIn(host: HTMLElement, graph: ModelGraph, options: M
     pickedGrouping = keptGrouping !== undefined;
     applyGrouping(keptGrouping ?? automatic);
     // A heading row is a section of the map: the name the graph files modules under where they have none is no heading.
+    // The modules from Modules alone are among the modules counted, and are said apart as well.
     const headings = base.sections.filter(name => name !== NO_HEADING).length;
-    notes.innerHTML = notesHtml({ name: options.modelName, workspace: options.workspaceName, modules: base.modules.length, lineItems: base.lineItems.length, headings }, graph.limitations, graph.unresolved.length);
+    const modulesOnly = base.modules.filter(module => module.modulesOnly === true).length;
+    notes.innerHTML = notesHtml({ name: options.modelName, workspace: options.workspaceName, modules: base.modules.length, lineItems: base.lineItems.length, headings, modulesOnly },
+      graph.limitations, graph.unresolved.length);
     takeView(options.view);
     build(false, options.view?.selected);
   }

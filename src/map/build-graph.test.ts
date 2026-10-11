@@ -252,6 +252,130 @@ describe("The names in a cell of a model export", () => {
 });
 
 describe("The model map's graph, from the tables of a model export", () => {
+  it.each([["<~~~~", "~~~~>"], ["[", "]"]])("learns nine dividers in the invented style %s X %s", (open, close) => {
+    const names = Array.from({ length: 9 }, (_, at) => `Orchard ${at + 1}`);
+    const dividers = names.map(name => `${open} ${name} ${close}`);
+    const modules = names.map((_, at) => `GRO${at + 1} Harvest`);
+    const graph = buildModelGraph([
+      file("Modules", ["", "Functional Area"], [...dividers, ...modules].map(name => [name, ""])),
+      lineItems(...modules.flatMap((name, at) => [heading(dividers[at]), moduleRow(name), item(name, "Value")])),
+    ]);
+    expect(graph.nodes.filter(node => node.kind === "module").map(node => node.name)).toEqual(modules);
+    const groups = groupingsOf(indexModel(graph));
+    expect(groups.find(group => group.kind === "headings")?.groups).toEqual(names);
+    expect(groups.find(group => group.kind === "prefix")?.groups).toEqual(["GRO"]);
+    expect(graph.areaCheck?.rowsNotOnMap).toEqual([]);
+    expect(graph.limitations.some(line => dividers.some(name => line.includes(name)))).toBe(false);
+  });
+
+  it("keeps a decorated working module, and learns a heading holding a note from a later empty divider", () => {
+    const graph = buildModelGraph([
+      modulesFile("~~ Orchard ~~", "~ ~ Meadow ~", "## Harvest ##", "Planning"),
+      lineItems(heading("~~ Orchard ~~"), item("~~ Orchard ~~", "Note", { Format: NO_DATA }),
+        moduleRow("## Harvest ##"), item("## Harvest ##", "Value"), heading("~ ~ Meadow ~"), moduleRow("Planning")),
+    ]);
+    expect(graph.nodes.map(node => [node.kind, node.name, node.group])).toEqual([
+      ["module", "## Harvest ##", "Orchard"], ["lineItem", "Value", "Orchard"], ["module", "Planning", "Meadow"],
+    ]);
+    expect(counted(graph)).toEqual(["1 line item names a heading row as its module and is left out: a heading is no module on the map."]);
+  });
+
+  it("keeps the words' own brackets in the heading group name", () => {
+    const graph = buildModelGraph([lineItems(heading("-- Inputs (FY) --"), moduleRow("Planning"))]);
+    expect(graph.sections).toEqual(["Inputs (FY)"]);
+  });
+
+  // The owner's own divider styles, each an empty module above the modules it heads. "-- Group", "---- Group", the
+  // "<<<<<<<" one and "----" alone start with today's marks; the other four are headings because they are empty.
+  it.each([
+    ["-- Group", "Group"], ["---- Group", "Group"], ["<-groupname->", "groupname"], ["<<<<<<< group name>>>>>>>", "group name"],
+    ["-Group-", "Group"], ["[Group]", "Group"], ["<Group>", "Group"], ["----", "Ungrouped"],
+  ])("heads the modules under the empty divider %j with the group name %j", (divider, group) => {
+    const graph = buildModelGraph([
+      file("Modules", ["", "Functional Area"], [[divider, ""], ["GRO01 Orchard", ""], ["GRO02 Meadow", ""]]),
+      lineItems(heading(divider), moduleRow("GRO01 Orchard"), item("GRO01 Orchard", "Units"), moduleRow("GRO02 Meadow"), item("GRO02 Meadow", "Value")),
+    ]);
+    // The divider is no module of the map, and neither a row Modules has that the map lacks nor a module from Modules alone.
+    expect(graph.nodes.map(each => [each.kind, each.name, each.group])).toEqual([
+      ["module", "GRO01 Orchard", group], ["lineItem", "Units", group], ["module", "GRO02 Meadow", group], ["lineItem", "Value", group]]);
+    expect([graph.sections, graph.areaCheck?.rowsNotOnMap, graph.nodes.filter(each => each.modulesOnly).length, counted(graph)]).toEqual([[group], [], 0, []]);
+    // The group name is the one the Headings grouping shows. Under "----" alone there is no heading to group by: the
+    // modules are under Ungrouped, and the map has no Headings grouping.
+    const headings = groupingsOf(indexModel(graph)).find(each => each.kind === "headings");
+    if (group === "Ungrouped") expect(headings).toBeUndefined();
+    else expect([headings?.groups, headings?.groupOf.get(node(graph, "GRO02 Meadow").id)]).toEqual([[group], group]);
+  });
+
+  it("keeps a module with line items whose name only looks like a divider, where no empty divider has its style", () => {
+    const graph = buildModelGraph([
+      file("Modules", ["", "Functional Area"], [["[Group]", ""], ["(Old) Revenue (v2)", ""]]),
+      lineItems(moduleRow("[Group]"), item("[Group]", "Units"), moduleRow("(Old) Revenue (v2)"), item("(Old) Revenue (v2)", "Value")),
+    ]);
+    expect(graph.nodes.map(each => [each.kind, each.name, each.group])).toEqual([
+      ["module", "[Group]", "Ungrouped"], ["lineItem", "Units", "Ungrouped"], ["module", "(Old) Revenue (v2)", "Ungrouped"], ["lineItem", "Value", "Ungrouped"]]);
+    expect([graph.sections, graph.areaCheck?.rowsNotOnMap, counted(graph)]).toEqual([["Ungrouped"], [], []]);
+  });
+
+  it("takes a divider's style without the brackets of its words: one holding a note heads its modules where an empty one has the style", () => {
+    const graph = buildModelGraph([
+      modulesFile("~~ Data ~~", "GRO01 Orchard", "~~ Inputs (FY) ~~", "GRO02 Meadow"),
+      lineItems(heading("~~ Data ~~"), moduleRow("GRO01 Orchard"), heading("~~ Inputs (FY) ~~"), item("~~ Inputs (FY) ~~", "Note", { Format: NO_DATA }),
+        moduleRow("GRO02 Meadow"), item("GRO02 Meadow", "Value")),
+    ]);
+    expect(graph.nodes.map(each => [each.kind, each.name, each.group])).toEqual([
+      ["module", "GRO01 Orchard", "Data"], ["module", "GRO02 Meadow", "Inputs (FY)"], ["lineItem", "Value", "Inputs (FY)"]]);
+    expect(counted(graph)).toEqual(["1 line item names a heading row as its module and is left out: a heading is no module on the map."]);
+  });
+
+  it("learns list headings from Item Count only when the column exists", () => {
+    const table = generalLists(list("~~ Orchard ~~", { "Item Count": 0 }), list("Products", { "Item Count": 7 }),
+      list("## Harvest ##", { "Item Count": 5 }), list("~ ~ Meadow ~", { "Item Count": 1 }), list("Regions", { "Item Count": 3 }));
+    const graph = buildModelGraph([table]);
+    expect(graph.nodes.map(node => [node.name, node.group])).toEqual([["Products", "Orchard"], ["## Harvest ##", "Orchard"], ["Regions", "Meadow"]]);
+    expect(buildModelGraph([without(table, "Item Count")]).nodes.map(node => node.name)).toEqual(table.rows.map(row => row[0]));
+  });
+
+  it("adds Modules-only rows with their settings and puts them in the existing groups", () => {
+    const graph = buildModelGraph([
+      generalLists(list("Products")),
+      lineItems(heading("~~ Orchard ~~"), ...["GRO1 Harvest", "GRO2 Harvest", "GRO3 Harvest"].map(name => moduleRow(name))),
+      file("Modules", ["", "Functional Area", "Applies To", "Time Scale", "Time Range", "Versions", "Cell Count", "Notes"], [
+        ["~~ Orchard ~~"], ["GRO1 Harvest"], ["GRO2 Harvest"], ["GRO3 Harvest"],
+        ["GRO4 Reserve", "Nursery", "Products", "Month", "Plan years", "All", 0, "Ready for next season"], ["Reserve"],
+        ["GRO4 Reserve", "Nursery"], // A duplicate Modules row adds no second box.
+      ]),
+      file("Module Usage", ["Module", "App"], [["GRO4 Reserve", "Orchard planner"]]),
+    ]);
+    const reserve = node(graph, "GRO4 Reserve");
+    expect(reserve).toMatchObject({ kind: "module", group: "Ungrouped", functionalArea: "Nursery", notes: "Ready for next season",
+      timeScale: "Month", timeRange: "Plan years", versions: "All", cells: 0, dimensions: [node(graph, "Products").id], apps: ["Orchard planner"], modulesOnly: true });
+    // Those two are marked as from Modules alone, and nothing else is: not the modules Line Items has, nor the list.
+    expect(graph.nodes.filter(each => each.modulesOnly).map(each => each.name)).toEqual(["GRO4 Reserve", "Reserve"]);
+    expect(graph.nodes.filter(each => !each.modulesOnly).every(each => !Object.hasOwn(each, "modulesOnly"))).toBe(true);
+    const model = indexModel(graph);
+    expect(model.modules).toHaveLength(5);
+    expect(model.lineItems).toHaveLength(0);
+    const known = { functionalArea: "Nursery", headings: "Ungrouped", prefix: "GRO", role: "No line items", app: "Orchard planner", dimension: "Products" };
+    const unknown = { functionalArea: "No functional area", headings: "Ungrouped", prefix: "Other", role: "No line items", app: "Not on any page", dimension: "No dimensions" };
+    const groups = groupingsOf(model);
+    expect(groups).toHaveLength(6);
+    for (const group of groups) {
+      expect(group.groupOf.get(reserve.id)).toBe(known[group.kind]);
+      expect(group.groupOf.get(node(graph, "Reserve").id)).toBe(unknown[group.kind]);
+    }
+    expect(graph.areaCheck).toMatchObject({ modules: 5, rowsNotOnMap: [], modulesNotInFile: [] });
+  });
+
+  it("can add Modules-only rows without Line Items or optional Modules columns", () => {
+    const graph = buildModelGraph([file("Modules", [""], [["~~ Orchard ~~"], ["Reserve"]])]);
+    expect(graph.nodes).toHaveLength(1);
+    expect(graph.nodes[0]).toMatchObject({ kind: "module", name: "Reserve", group: "Ungrouped" });
+    expect(graph.nodes[0].timeScale).toBeUndefined();
+    expect(graph.nodes[0].notes).toBeUndefined();
+    expect(graph.limitations).toContain("Line Items was not exported: the map has no line items.");
+    expect(graph.limitations).not.toContain(NOT_EXPORTED.lineItems);
+  });
+
   it.each([
     [" -- Admin ", "Admin"], [" == INPUTS == ", "INPUTS"], [" << Inputs >> ", "Inputs"], [" >> Outputs", "Outputs"], [" >> Outputs << ", "Outputs"], [" ** Calc ** ", "Calc"],
     ["-- P&L -- 2025", "P&L -- 2025"], ["== P&L == ** << >> 2025 ==", "P&L == ** << >> 2025"],
@@ -266,15 +390,16 @@ describe("The model map's graph, from the tables of a model export", () => {
     expect(graph.nodes.map(({ kind, name, group }) => [kind, name, group])).toEqual([
       ["list", "Products", group], ["subset", "Active Products", group], ["property", "Code", group],
       ["module", "Planning", group], ["lineItem", "Value", group], ["lineItem", "** Checks **", group],
+      ["module", "=Only in Modules", "Ungrouped"],
     ]);
-    expect(graph.sections).toEqual([group]);
-    expect(graph.areaCheck).toMatchObject({ modules: 1, rowsNotOnMap: ["=Only in Modules"], modulesNotInFile: [] });
+    expect(graph.sections).toEqual([...new Set([group, "Ungrouped"])]);
+    expect(graph.areaCheck).toMatchObject({ modules: 2, rowsNotOnMap: [], modulesNotInFile: [] });
     expect(counted(graph)).toEqual(name ? ["1 line item names a heading row as its module and is left out: a heading is no module on the map."] : []);
     const model = indexModel(graph);
     const headings = groupingsOf(model).find(each => each.kind === "headings");
     if (group === "Ungrouped") expect(headings).toBeUndefined();
     else {
-      expect(headings?.groups).toEqual([group]);
+      expect(headings?.groups).toEqual([group, "Ungrouped"]);
       expect(headings?.groupOf.get(node(graph, "Planning").id)).toBe(group);
     }
   });
@@ -291,7 +416,7 @@ describe("The model map's graph, from the tables of a model export", () => {
   });
 
   it("keeps names starting with single marks as modules and lists", () => {
-    const objects = ["*Archive", "=Total", "<Draft>", "- Revenue"];
+    const objects = ["*Archive", "=Total", "<Draft", "- Revenue"];
     const graph = buildModelGraph([modulesFile(...objects), lineItems(...objects.map(name => moduleRow(name))), generalLists(...objects.map(name => list(name)))]);
     expect(graph.nodes.filter(node => node.kind === "module").map(node => node.name)).toEqual(objects);
     expect(graph.nodes.filter(node => node.kind === "list").map(node => node.name)).toEqual(objects);
@@ -640,7 +765,7 @@ describe("The model map's graph, from the tables of a model export", () => {
     const facts = (graph: ModelGraph): unknown[] => graph.nodes.filter(node => node.kind === "module").map(node => [node.name, node.functionalArea, node.apps]);
     const graph = buildModelGraph([...tables, modules, usage]);
     // A name is found as written, or without the spaces at its ends; a cell with nothing or a dash says nothing.
-    expect([facts(graph), graph.moduleFacts]).toEqual([[["REV01 Revenue", "Sales", ["Planning", "Pricing"]], ["REV02 Margin", undefined, undefined], ["SYS01 Time", "Admin", ["Admin app"]]],
+    expect([facts(graph), graph.moduleFacts]).toEqual([[["REV01 Revenue", "Sales", ["Planning", "Pricing"]], ["REV02 Margin", undefined, undefined], ["SYS01 Time", "Admin", ["Admin app"]], ["Gone", "Sales", ["Planning"]]],
       { functionalAreas: true, moduleUsage: true }]);
     // Modules without the column, and no Module Usage: nothing of either. Nothing else of the graph changes with them.
     const plain = buildModelGraph([...tables, modulesFile("REV01 Revenue", "REV02 Margin", "SYS01 Time")]);
@@ -670,9 +795,9 @@ describe("The model map's graph, from the tables of a model export", () => {
     // Each module has the area its own row of Modules gives it, found by its name with or without the spaces at its ends;
     // a row with nothing or a dash gives none, and a module with no row has none.
     const areas = graph.nodes.filter(node => node.kind === "module").map(node => [node.name.trim(), node.functionalArea]);
-    expect(areas).toEqual([...names.map((name, index) => [name.trim(), areaOf(index)]), ["002: Parameters", "002: Parameters"], ["Loose", undefined], ["Dashed", undefined], ["Missing", undefined]]);
-    expect(graph.areaCheck).toEqual({ areas: 22, modules: 26, withArea: 23, rowsNotOnMap: ["Gone"], modulesNotInFile: ["Missing"] });
-    expect(areaCheckLine(graph.areaCheck!)).toBe("Functional areas: 22 areas; 23 of the map's 26 modules have one; 1 row of Modules is no module of the map: Gone; "
+    expect(areas).toEqual([...names.map((name, index) => [name.trim(), areaOf(index)]), ["002: Parameters", "002: Parameters"], ["Loose", undefined], ["Dashed", undefined], ["Missing", undefined], ["Gone", "009: Area 9"]]);
+    expect(graph.areaCheck).toEqual({ areas: 22, modules: 27, withArea: 24, rowsNotOnMap: [], modulesNotInFile: ["Missing"] });
+    expect(areaCheckLine(graph.areaCheck!)).toBe("Functional areas: 22 areas; 24 of the map's 27 modules have one; 0 rows of Modules are no module of the map; "
       + "1 module of the map has no row in Modules: Missing.");
 
     // The map opens on the areas, 22 of them, in the order of their names, the modules with none last.
@@ -687,7 +812,7 @@ describe("The model map's graph, from the tables of a model export", () => {
     expect([areaBoxes.get("000: Area 0"), areaBoxes.get("002: Parameters"), areaBoxes.get("020: Area 20"), areaBoxes.get("No functional area"), areaBoxes.size])
       .toEqual(["1 module · 1 line item", "1 module · 1 line item", "2 modules · 4 line items", "3 modules · 3 line items", 23]);
     const headings = groupingsOf(model).find(grouping => grouping.kind === "headings")!;
-    expect(boxes(headings)).toEqual([["000: Global System", "11 modules · 21 line items"], ["002: Parameters", "15 modules · 26 line items"]]);
+    expect(boxes(headings)).toEqual([["000: Global System", "11 modules · 21 line items"], ["002: Parameters", "15 modules · 26 line items"], ["Ungrouped", "1 module · 0 line items"]]);
     // Without the Functional Area column, Modules says nothing of areas, and the log has no line for them.
     expect(buildModelGraph([lineItems(...rows), modulesFile(...names, "Loose")]).areaCheck).toBeUndefined();
   });
@@ -1179,7 +1304,7 @@ describe("The model map's graph, from the tables of a model export", () => {
 
   it("links an import to the module or the list its Target Object names, of the kind its Target Type says by the word it holds", () => {
     const graph = buildModelGraph([
-      lineItems(moduleRow("Prices"), moduleRow("Plan"), moduleRow("Versions"), moduleRow("'Quoted'"), moduleRow("Quoted"), moduleRow("Prices, net")),
+      lineItems(moduleRow("Prices"), moduleRow("Plan"), moduleRow("Versions"), moduleRow("'Quoted'"), item("'Quoted'", "Value"), moduleRow("Quoted"), moduleRow("Prices, net")),
       generalLists(list("Regions"), list("Plan"), list("It's new")),
       importsFile(
         action("Load prices", { "Target Object": "Prices", "Target Type": "MODULE" }),
@@ -1498,8 +1623,8 @@ describe("The model map's graph, from the tables of a model export", () => {
     const odd = [null, { file: "Line Items.csv", label: "Line Items", headers: null, rows: [null, ["REV01 Revenue"], 5, [null], [{ name: "x" }], [Object.create(null)]] },
       { file: "General Lists.csv", label: "General Lists", headers: ["", "Subsets"], rows: "none" }, { file: "Processes.csv" }, "Imports.csv"] as unknown as ResultTable[];
     expect(() => buildModelGraph(odd)).not.toThrow();
-    expect([buildModelGraph(odd).nodes.map(each => each.name), counted(buildModelGraph(odd))]).toEqual([["REV01 Revenue", "[object Object]"],
-      ["1 row of Line Items repeats the name of a module above it and is left out."]]);
+    // The fallback text [object Object] is now an empty wrapped divider.
+    expect([buildModelGraph(odd).nodes.map(each => each.name), counted(buildModelGraph(odd))]).toEqual([["REV01 Revenue"], []]);
     // A hole among the rows is a row with nothing in it, as the CSV writes it.
     const holed = lineItems(moduleRow("REV01 Revenue"), item("REV01 Revenue", "Units"), item("REV01 Revenue", "Price"));
     delete holed.rows[1];

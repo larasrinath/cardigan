@@ -1,7 +1,9 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { DOTTED, dotsRound } from "./map-canvas.js";
 import type { InspectLink } from "./map-inspect.js";
 import { ONLY_SAYS, brokenHtml, emptyHtml, fullIconHtml, groupingOptionsHtml, inspectorHtml, legendHtml, LIST_CAP, notesHtml, pathRootHtml, pickerOptionsHtml, resultsHtml, shellHtml, tooltipHtml, traceHtml } from "./map-markup.js";
+import { COLOUR_TOKENS } from "./map-palette.js";
 
 /** What the map may not do, checked in its own files: the stylesheet and the sources that are bundled. These are the
  * rules the map was built to; a change that breaks one fails here rather than on the page. */
@@ -206,6 +208,22 @@ describe("The map's stylesheet", () => {
     expect(narrow).toContain(".map-over{width:100%;bottom:196px}");
   });
 
+  it("draws the legend's mark for a module from Modules alone as the canvas draws its box: the same dots, colour and fill", () => {
+    const legend = legendHtml("Groups", [], new Set(), undefined, undefined, undefined, undefined, true);
+    const mark = /<svg class="map-c-modules-only" width="22" height="14" viewBox="0 0 22 14" aria-hidden="true"><rect x="1" y="1" width="(\d+)" height="(\d+)" rx="(\d+)"\/><\/svg>/.exec(legend);
+    expect(mark).not.toBeNull();
+    const [width, height, radius] = mark!.slice(1).map(Number);
+    // The mark writes no style of its own: its fill, colour and dots are the stylesheet's, in the tokens the canvas reads.
+    const rule = /\.map-c-modules-only rect\{([^}]*)\}/.exec(STYLES)?.[1] ?? "";
+    const said = Object.fromEntries(rule.split(";").filter(part => part.trim() !== "").map(part => part.split(":").map(each => each.trim())));
+    expect(said).toEqual({ fill: `var(${COLOUR_TOKENS.nodeFill})`, stroke: `var(${COLOUR_TOKENS.nodeTextMuted})`, "stroke-width": `${DOTTED.size}px`, "stroke-linecap": "round",
+      "stroke-dasharray": expect.any(String) });
+    // Dots of no length, as far apart as the canvas spaces them round a box of the mark's size.
+    const [on, off] = String(said["stroke-dasharray"]).split(/\s+/).map(Number);
+    expect([on, off]).toEqual([0, Number(dotsRound(width, height, radius)[1].toFixed(3))]);
+    expect(STYLES).toContain(".map-c-modules-only{flex:none;overflow:visible}");
+  });
+
   it("keeps the trace button as wide as its wider label in both states", () => {
     // The stylesheet holds the wider label as unseen content, so the button's own text stays the label shown.
     expect(STYLES).toContain(`.map-trace-focus::before{content:"${ONLY_SAYS}";visibility:hidden}`);
@@ -278,7 +296,7 @@ describe("The map's stylesheet", () => {
       pathRootHtml("Model", "Workspace", true), pathRootHtml("Model", "Workspace", false), fullIconHtml(true),
       pickerOptionsHtml("map-picker-1", [{ name: "Module", group: "Group" }, { name: "Other" }], 0),
       groupingOptionsHtml([{ kind: "role", label: "DISCO" }], "role"),
-      legendHtml("Groups", layers.map(key => ({ key, label: key, count: 1 })), new Set(["external"]), "modules", "modules", undefined, "modules"), traceHtml(words, false), traceHtml(words, true),
+      legendHtml("Groups", layers.map(key => ({ key, label: key, count: 1 })), new Set(["external"]), "modules", "modules", undefined, "modules", true), traceHtml(words, false), traceHtml(words, true),
       tooltipHtml({ layer: "s0", kind: "kind", name: "Node", lines: ["a line"], formula: "A + B" }),
       resultsHtml({ hits: [{ kind: "module", name: "Module", context: "Group" }], total: 2 }), resultsHtml({ hits: [], total: 0 }),
       inspectorHtml({ kind: "LINE ITEM", layer: "lineitem", name: "Node", rows: [["Module", "Module"]], action: { label: "Open", module: 1 }, formula: "A + B", lists: [{ key: "depends", title: "Feeds it directly", open: true, links }],

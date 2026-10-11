@@ -1,8 +1,11 @@
+import { textOf } from "../result-plain.js";
+import type { ResultTable } from "../result-types.js";
+
 /** How a model export writes names, and how the model map reads them (build-graph.ts). A cell of the export that names
  * other objects is text: one name, or several with a comma between them, each in single quotes where it needs them, a
  * line item behind its module and a dot. The rules for headings, quotes and lists of names are those of the owner's
  * prototype builder (build_model_data.py). The names in a cell that writes them without quotes are read otherwise than
- * the prototype read them: see `knownSequence`. Text in, text out: nothing here knows a table or a node. White space is
+ * the prototype read them: see `knownSequence`. Heading styles are learnt from the result's own tables. White space is
  * what JavaScript's `trim` takes off. */
 
 /** Heading prefixes and their closing marks. A closing mark is optional. */
@@ -15,6 +18,105 @@ export const HEADING_CHARS = Object.entries(HEADING_MARKS).flat().join("");
  * lists or actions with such rows. */
 export const separator = (name: string): boolean =>
   Object.keys(HEADING_MARKS).some(mark => name.trimStart().startsWith(mark)) || stripChars(name, ` .${HEADING_CHARS}`) === "";
+
+const LETTER_OR_NUMBER = /[\p{L}\p{N}]/u;
+const DECORATION = /[^\p{L}\p{N}\s]/u;
+const BRACKET_PAIRS: Readonly<Record<string, string>> = { "(": ")", "[": "]", "{": "}", "<": ">" };
+
+/** Matched brackets, including nested pairs. An opening bracket wraps the name only if its own close is at the end. */
+function bracketPairs(name: string): [number, number][] {
+  const stack: [string, number][] = [];
+  const pairs: [number, number][] = [];
+  for (let at = 0; at < name.length; at++) {
+    const character = name[at];
+    if (BRACKET_PAIRS[character]) stack.push([character, at]);
+    else if (Object.values(BRACKET_PAIRS).includes(character)) {
+      const open = stack.pop();
+      if (open && BRACKET_PAIRS[open[0]] === character) pairs.push([open[1], at]);
+    }
+  }
+  return pairs;
+}
+
+/** Symbols at both ends or two at the start, regardless of which symbols a model uses. */
+export function decorated(name: string): boolean {
+  const trimmed = name.trim();
+  if (!LETTER_OR_NUMBER.test(trimmed)) return true;
+  const characters = [...trimmed];
+  const first = characters[0];
+  if (!DECORATION.test(first)) return false;
+  if (/^[^\p{L}\p{N}\s]\s*[^\p{L}\p{N}\s]/u.test(trimmed)) return true;
+  if (BRACKET_PAIRS[first]) return bracketPairs(trimmed).some(([start, end]) => start === 0 && end === trimmed.length - 1);
+  return first === characters[characters.length - 1];
+}
+
+/** Where a heading's words start and end: past the decoration at its two ends, with the brackets that belong to the
+ * words, such as the two of "Inputs (FY)", kept on their side. A bracket pair counts as the words' only where it reaches
+ * into them: a pair wholly inside the decoration, such as the "<>" of "<> Data <>", stays decoration. Nothing for a name
+ * with no letter or digit: it is all decoration. `headingName` keeps what is between the two, and `headingStyle` is
+ * made of what is outside them, so that the two always agree on what the decoration is. */
+function wordsOf(name: string): [start: number, end: number] | undefined {
+  if (!LETTER_OR_NUMBER.test(name)) return undefined;
+  let start = name.match(/^[^\p{L}\p{N}]*/u)![0].length;
+  let end = name.length - name.match(/[^\p{L}\p{N}]*$/u)![0].length;
+  // Pairs come as they close, so an inner pair moves its edge before the pair round it does.
+  for (const [open, close] of bracketPairs(name)) {
+    if (open < start && close >= start && close < end) start = open;
+    if (open >= start && open < end && close >= end) end = close + 1;
+  }
+  return [start, end];
+}
+
+/** The decoration at a heading's two ends, as its style: the runs keep their order but not their spacing, nor the
+ * length of a repeated mark. It is what `headingName` strips, so brackets that belong to the words never change the
+ * style: "-- Inputs (FY) --" and "-- Data --" share one. */
+export function headingStyle(name: string): string {
+  const collapse = (text: string): string => [...text.replace(/\s/g, "")].filter((character, at, all) => at === 0 || character !== all[at - 1]).join("");
+  const words = wordsOf(name);
+  const [before, after] = words ? [name.slice(0, words[0]), name.slice(words[1])] : [name, name];
+  return JSON.stringify([collapse(before), collapse(after)]);
+}
+
+/** One set for a table: the old separators, empty decorated names, and decorated names in those empty rows' styles. */
+export function headingNames(rows: readonly { name: string; empty: boolean }[]): Set<string> {
+  const styles = new Set(rows.filter(row => row.empty && decorated(row.name)).map(row => headingStyle(row.name)));
+  return new Set(rows.filter(row => separator(row.name) || (decorated(row.name) && (row.empty || styles.has(headingStyle(row.name))))).map(row => row.name));
+}
+
+/** The same untrimmed cell text that readLineItems compares. Whitespace in a Module Name is part of its name. */
+const cellText = (value: unknown): string => value === null || value === undefined ? "" : textOf(value);
+
+/** Work out module headings once before reading rows, using only tables already in the result. Consumers share this
+ * decision: the map's Line Items and Modules passes, and Module Usage's list of exported modules. */
+export function moduleHeadings(tables: readonly ResultTable[]): Set<string> {
+  const modules = tables.find(table => table?.file === "Modules.csv");
+  const items = tables.find(table => table?.file === "Line Items.csv");
+  const rowsOf = (table: ResultTable | undefined): readonly unknown[][] => Array.isArray(table?.rows) ? Array.from(table.rows, row => Array.isArray(row) ? row : []) : [];
+  const moduleRows = rowsOf(modules);
+  const itemRows = rowsOf(items);
+  const headers = Array.isArray(items?.headers) ? items.headers : [];
+  const moduleAt = headers.indexOf("Module Name", 1);
+  const counts = new Map<string, number>();
+  for (const row of itemRows) {
+    const name = cellText(row[moduleAt]);
+    if (name.trim() !== "") counts.set(name, (counts.get(name) ?? 0) + 1);
+  }
+  const names = new Set(moduleRows.map(row => cellText(row[0])));
+  const known = moduleRows.length ? new Set([...names, ...counts.keys()]) : undefined;
+  const itemColumns = ["Format", "Formula", "Summary"].map(column => headers.indexOf(column, 1));
+  for (const row of itemRows) {
+    const name = cellText(row[0]);
+    if (cellText(row[moduleAt]).trim() === "" && !itemColumns.some(at => cellText(row[at]).trim() !== "") && (!known || known.has(name))) names.add(name);
+  }
+  return headingNames([...names].map(name => ({ name, empty: !counts.has(name) })));
+}
+
+/** Strip a heading's decoration, retaining brackets that belong to its words, such as Inputs (FY) (`wordsOf`). A name
+ * that is nothing but decoration gives Ungrouped. */
+export function headingName(name: string): string {
+  const words = wordsOf(name);
+  return words ? name.slice(words[0], words[1]).trim() : "Ungrouped";
+}
 
 /** `text` without the characters of `chars` at its two ends. */
 export function stripChars(text: string, chars: string): string {

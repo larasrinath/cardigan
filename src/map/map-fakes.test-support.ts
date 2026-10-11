@@ -76,6 +76,8 @@ export interface PenCall {
   /** Where the dashes start: what moves them along a line. */
   dashOffset: number;
   lineWidth: number;
+  /** The ends of a line and of each of its dashes: "round" makes a dash of no length a dot. */
+  lineCap: string;
 }
 
 /** A stand-in for a canvas's drawing context: it draws nothing and writes down everything it is asked to draw. Like a
@@ -88,6 +90,7 @@ export class FakePen {
   globalAlpha = 1;
   lineWidth = 1;
   lineDashOffset = 0;
+  lineCap = "butt";
   font = "10px sans-serif";
   textAlign = "start";
   textBaseline = "alphabetic";
@@ -101,7 +104,7 @@ export class FakePen {
   set strokeStyle(value: string) { if (isColour(value)) this.strokeColour = value; }
 
   private note(name: string, args: unknown[]): void {
-    this.calls.push({ name, args, fillStyle: this.fillColour, strokeStyle: this.strokeColour, globalAlpha: this.globalAlpha, font: this.font, dash: [...this.dash], dashOffset: this.lineDashOffset, lineWidth: this.lineWidth });
+    this.calls.push({ name, args, fillStyle: this.fillColour, strokeStyle: this.strokeColour, globalAlpha: this.globalAlpha, font: this.font, dash: [...this.dash], dashOffset: this.lineDashOffset, lineWidth: this.lineWidth, lineCap: this.lineCap });
   }
   setTransform(...args: number[]): void { this.note("setTransform", args); }
   clearRect(...args: number[]): void { this.note("clearRect", args); }

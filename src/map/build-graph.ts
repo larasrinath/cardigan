@@ -3,7 +3,7 @@ import { MODULE_USAGE_FILE, PAGE_FILTERS_FILE } from "../page-files.js";
 import { textOf as plainText } from "../result-plain.js";
 import type { Cell, ResultTable } from "../result-types.js";
 import { message } from "../util.js";
-import { definitionOf, HEADING_CHARS, idOf, integer, knownNames, knownSequence, nothing, separator, splitOutside, stripChars, unquote, type KnownNames } from "./graph-names.js";
+import { definitionOf, headingName, headingNames, idOf, integer, knownNames, knownSequence, moduleHeadings, nothing, separator, splitOutside, stripChars, unquote, type KnownNames } from "./graph-names.js";
 import type { AreaCheck, EdgeKind, GraphEdge, GraphNode, ModelGraph, PageFilterCheck, Unresolved } from "./graph-types.js";
 
 /** The model map's graph, made from the tables of a model export and from nothing else. It started as the owner's
@@ -45,7 +45,7 @@ const IMPORTS_FILE = "Imports.csv";
 const EXPORTS_FILE = "Exports.csv";
 const OTHER_ACTIONS_FILE = "Other Actions.csv";
 
-/** The group of an object with no heading above it, and of one under a heading that is nothing but heading marks. */
+/** The group of an object with no heading above it, and of one under a heading that is nothing but symbols. */
 const UNGROUPED = "Ungrouped";
 
 /** What the map reads of one file: what its sentences call the file's objects, and each column read, with what the map
@@ -107,7 +107,8 @@ const PAGE_FILTERS = {
 /** The Modules file read for what it says of each module beyond Line Items: its Functional Area, Anaplan's own grouping
  * of a model's modules. The map can group modules by it (map-groups.ts); without it the map does without that grouping,
  * and says nothing of it. */
-const MODULES = { file: MODULES_FILE, objects: "modules", columns: [["Functional Area", null]] } as const satisfies Reads<string>;
+const MODULES = { file: MODULES_FILE, objects: "modules", columns: [["Functional Area", null], ["Applies To", null], ["Time Scale", null],
+  ["Time Range", null], ["Versions", null], ["Notes", null], ["Cell Count", null]] } as const satisfies Reads<string>;
 
 /** The pages built on the model that use each module (model-pages.ts): a row for each module and page, by the module's
  * name, with the page's app. A module that no page uses has a row with no app. Each column is read by its name. */
@@ -293,8 +294,9 @@ function fieldOf(definition: Record<string, unknown> | undefined, name: string, 
   return typeof value === "string" ? value : value === null ? "" : otherwise;
 }
 
-/** A heading's name as its group's: without the spaces and heading marks at its two ends. */
-const groupOf = (heading: string): string => stripChars(heading, ` ${HEADING_CHARS}`) || UNGROUPED;
+/** A heading's name as its group's: without the decoration at its two ends, the words' own brackets kept (graph-names.ts
+ * `headingName`). */
+const groupOf = headingName;
 
 /** The one object among those a name could be. A name that is no one's is none, and so is a name that two of them
  * have: nothing in the export tells which of the two is meant, and the map does not choose. */
@@ -402,9 +404,10 @@ function readLists(draft: Draft, tables: readonly ResultTable[]): Read<ListColum
   const says = [...table.lacks];
   let group = UNGROUPED;
   let repeated = 0;
+  const headings = headingNames(table.rows.map(row => ({ name: textOf(row[0]), empty: table.has("Item Count") && integer(table.cell(row, "Item Count")) === 0 })));
   table.rows.forEach((row, index) => {
     const name = textOf(row[0]);
-    if (separator(name)) {
+    if (headings.has(name)) {
       group = groupOf(name);
       return;
     }
@@ -462,7 +465,7 @@ function moduleNamesOf(tables: readonly ResultTable[]): { names: Set<string> | u
 type LineItemsRead = Read<LineItemColumn> & { formatIds: Map<number, string>; moduleless: Set<number> };
 
 /** Line Items: each module's own row under its heading, then the module's line items. */
-function readLineItems(draft: Draft, tables: readonly ResultTable[]): LineItemsRead {
+function readLineItems(draft: Draft, tables: readonly ResultTable[], headings: ReadonlySet<string>): LineItemsRead {
   const table = tableOf(tables, LINE_ITEMS);
   const rows = new Map<number, Row>();
   const formatIds = new Map<number, string>();
@@ -483,7 +486,6 @@ function readLineItems(draft: Draft, tables: readonly ResultTable[]): LineItemsR
   }
 
   let group = UNGROUPED;
-  const headings = new Set<string>();
   const left = { modules: 0, unknown: 0, headed: 0, orphans: 0, items: 0 };
   table.rows.forEach((row, index) => {
     const name = textOf(row[0]);
@@ -493,9 +495,8 @@ function readLineItems(draft: Draft, tables: readonly ResultTable[]): LineItemsR
       if (LINE_ITEM_HAS.some(column => table.cell(row, column).trim() !== "") || (moduleNames && !moduleNames.has(name))) {
         left.unknown++;
         moduleless.add(rowNumber(index));
-      } else if (separator(name)) {
+      } else if (headings.has(name)) {
         group = groupOf(name);
-        headings.add(name);
       } else if (draft.modules.has(name)) left.modules++;
       else {
         const id = draft.add({ kind: "module", name, file: table.label, row: rowNumber(index) }, { group, notes: table.cell(row, "Notes"), cells: integer(table.cell(row, "Cell Count")),
@@ -545,6 +546,34 @@ function readLineItems(draft: Draft, tables: readonly ResultTable[]): LineItemsR
     says.push(`${count(left.items, "line item has the name of a line item above it in the same module and is", "line items have the name of a line item above them in the same module and are")} left out.`);
   }
   return { table, rows, formatIds, moduleless, says };
+}
+
+/** Modules without their own Line Items row still belong on the map. They have no position among its headings and
+ * no line items; use only the settings their Modules row supplies. Add them before resolving any graph links. Each is
+ * marked `modulesOnly`, which no other node is: the canvas draws its box with a dotted edge. */
+function readMissingModules(draft: Draft, tables: readonly ResultTable[], headings: ReadonlySet<string>): void {
+  const table = tableOf(tables, MODULES);
+  if (!table) return;
+  const moduleNamed = moduleNamer(draft);
+  table.rows.forEach((row, index) => {
+    const name = textOf(row[0]);
+    if (headings.has(name) || draft.modules.has(name) || moduleNamed(name) !== undefined) return;
+    const details: Details = { group: UNGROUPED, modulesOnly: true };
+    for (const [column, key] of [["Time Scale", "timeScale"], ["Time Range", "timeRange"], ["Versions", "versions"], ["Notes", "notes"]] as const) {
+      if (table.has(column)) details[key] = table.cell(row, column);
+    }
+    if (table.has("Cell Count")) details.cells = integer(table.cell(row, "Cell Count"));
+    const id = draft.add({ kind: "module", name, file: table.label, row: rowNumber(index) }, details);
+    draft.modules.set(name, id);
+    for (const reference of splitOutside(table.cell(row, "Applies To"))) {
+      const target = draft.dimension(unquote(reference));
+      if (target === undefined) draft.missing(id, "Applies To", reference);
+      else {
+        (draft.nodes[id].dimensions ??= []).push(target);
+        draft.link(target, id, "applies");
+      }
+    }
+  });
 }
 
 /** A list for a key, among the lists found for it so far. */
@@ -991,17 +1020,18 @@ export function pageFilterCheckLine(check: PageFilterCheck): string {
  * made one, where one module alone has it (`moduleNamer`): its Functional Area, and the apps whose pages use it. A row of a module the map does not have says nothing, nor does a
  * cell that holds nothing or a dash. Gives back which of the two the result has, and, where Modules has the Functional
  * Area column, how its rows met the map's modules (`AreaCheck`). */
-function readModuleFacts(draft: Draft, tables: readonly ResultTable[]): NonNullable<ModelGraph["moduleFacts"]> & { areaCheck?: AreaCheck } {
+function readModuleFacts(draft: Draft, tables: readonly ResultTable[], headings: ReadonlySet<string>): NonNullable<ModelGraph["moduleFacts"]> & { areaCheck?: AreaCheck } {
   const moduleNamed = moduleNamer(draft);
   const modules = tableOf(tables, MODULES);
   const inFile = new Set<number>();
   const rowsNotOnMap: string[] = [];
   for (const row of modules?.rows ?? []) {
     const name = textOf(row[0]);
+    if (headings.has(name)) continue;
     const id = moduleNamed(name);
     if (id === undefined) {
       // A heading row of Modules stands for no module of the map: it is no row the map lacks.
-      if (!separator(name) && name.trim() !== "") rowsNotOnMap.push(name.trim());
+      if (name.trim() !== "") rowsNotOnMap.push(name.trim());
       continue;
     }
     inFile.add(id);
@@ -1047,7 +1077,10 @@ function build(tables: readonly ResultTable[]): { graph: ModelGraph; draft: Draf
   const draft = new Draft();
   // In the prototype's order. A column that names objects is read once every object it can name is there.
   const lists = readLists(draft, tables);
-  const lineItems = readLineItems(draft, tables);
+  const headings = moduleHeadings(tables);
+  const lineItems = readLineItems(draft, tables, headings);
+  readMissingModules(draft, tables, headings);
+  if (!lineItems.table && draft.modules.size) lineItems.says[0] = "Line Items was not exported: the map has no line items.";
   const formats = linkLists(draft, lists, lineItems.formatIds);
   const ids = listIds(draft, lineItems, formats.referencedAs);
   const unnamedLists = linkLineItems(draft, lineItems, formats.formatOf, ids.listOfId);
@@ -1061,7 +1094,7 @@ function build(tables: readonly ResultTable[]): { graph: ModelGraph; draft: Draf
   const otherActions = readActions(draft, tables, OTHER_ACTIONS, processes.known, { target: targetInAction(ids.listOfId) });
   const actions = [imports, exportActions, otherActions];
   const pageFilterCheck = readPageFilters(draft, tables);
-  const { areaCheck, ...moduleFacts } = readModuleFacts(draft, tables);
+  const { areaCheck, ...moduleFacts } = readModuleFacts(draft, tables, headings);
   const shared = draft.sharedWithProperty.size;
   const graph: ModelGraph = {
     nodes: draft.nodes,

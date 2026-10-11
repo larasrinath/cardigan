@@ -37,7 +37,8 @@ export interface Grouping {
 }
 
 export const NO_FUNCTIONAL_AREA = "No functional area";
-/** The group of a module with no heading row above it, or under one that is nothing but heading marks. */
+/** The group of a module with no heading row above it, or under one that is nothing but symbols, and of a module from
+ * Modules alone, which Line Items gives no place under a heading. */
 export const UNGROUPED = "Ungrouped";
 export const OTHER = "Other";
 export const ROLES = { data: "Data", input: "Input", system: "System", calculation: "Calculation", output: "Output" } as const;
@@ -114,6 +115,7 @@ const CODE_END = /[\s_\-.:()[\]{}]/;
  * digits alone (the 1 of "1.2 Revenue"). Nothing for a name that starts with one of those. */
 export function leadingCode(name: string): string {
   const [first = ""] = name.trim().split(CODE_END);
+  if (!/[\p{L}\p{N}]/u.test(first)) return "";
   const letters = first.replace(/\d+$/, "");
   return letters === "" ? first : letters;
 }
@@ -338,7 +340,7 @@ export function howGroupingWorks(grouping: Grouping | undefined, model: MapModel
     case "functionalArea":
       return "Each module is in the Functional Area set for it in the model. Modules without one are under No functional area.";
     case "headings":
-      return "Each module is under the model heading above it, a module whose name starts with --, ==, **, << or >>. Modules with no heading above them are under Ungrouped.";
+      return 'Each module is under the heading above it in Line Items: an empty module whose name is set off by symbols, like "-- Inputs --" or "## Data ##". A module in the same style can also be a heading when it holds a note. Modules with no heading above them are under Ungrouped.';
     case "prefix": {
       const examples = grouping.groups.filter(group => group !== grouping.rest).slice(0, 3).join(", ");
       return `Modules whose names start with the same code, like ${examples}, form a group when ${prefixThreshold(model)} or more share it. The rest are under Other.`;

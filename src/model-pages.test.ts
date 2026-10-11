@@ -147,11 +147,25 @@ function waiting() {
 describe("The pages built on a model", () => {
   it("leaves every heading style out of Module Usage and keeps modules starting with single marks", async () => {
     const result = exported();
-    const objects = ["*Archive", "=Total", "<Draft>", "- Revenue"];
+    const objects = ["*Archive", "=Total", "- Revenue"];
     result.tables.find(table => table.file === "Modules.csv")!.rows.push(
-      ...[" -- Admin -- ", " == Inputs == ", " ** Calc ** ", " << Outputs >> ", "<<>>", "*****", " .-=*<>. ", "", ...objects].map(name => [name, ""]));
+      ...[" -- Admin -- ", " == Inputs == ", " ** Calc ** ", " << Outputs >> ", "<<>>", "*****", " .-=*<>. ", "", "<Draft>", ...objects].map(name => [name, ""]));
     const pages = await run(result, CUSTOMER, fake([], {}));
     expect(rowsOf(pages, MODULE_USAGE_FILE)?.map(row => row[0])).toEqual(["Demand", "Factors", "Unused", ...objects]);
+  });
+
+  it("uses the model's empty divider styles for Module Usage while keeping decorated working modules", async () => {
+    const result = exported();
+    const headings = ["~~ Orchard ~~", "~ ~ Meadow ~", "[ Nursery ]"];
+    const working = "## Harvest ##";
+    result.tables.find(table => table.file === "Modules.csv")!.rows.push(...[...headings, working, "Spare"].map(name => [name, ""]));
+    const items = result.tables.find(table => table.file === "Line Items.csv")!;
+    for (const name of [...headings, working]) items.rows.push(items.headers.map((_, index) => index === 0 ? name : ""));
+    for (const [module, name] of [[headings[1], "Note"], [working, "Value"]]) {
+      items.rows.push(items.headers.map((header, index) => index === 0 ? name : header === "Module Name" ? module : header === "Format" ? '{"dataType":"TEXT"}' : ""));
+    }
+    const pages = await run(result, CUSTOMER, fake([], {}));
+    expect(rowsOf(pages, MODULE_USAGE_FILE)?.map(row => row[0])).toEqual(["Demand", "Factors", "Unused", working, "Spare"]);
   });
 
   it("makes Polaris Module Usage, Page Filters and Page Actions from the published pages without a settings export", async () => {

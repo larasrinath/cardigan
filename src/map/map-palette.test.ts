@@ -179,6 +179,19 @@ describe("The map's colours in the stylesheet", () => {
     }
   });
 
+  it("dots the edge of a box from Modules alone in a colour seen on the canvas and on a node, selected or not, in both themes", () => {
+    for (const theme of themes) {
+      const palette = paletteOf(theme);
+      // A dot stands half on the box and half on the canvas: it stands out from both, 3 to 1.
+      for (const surface of [palette.canvas, palette.nodeFill, palette.nodeFillSelected]) {
+        expect(on(palette.nodeTextMuted, surface), `${theme}: the dots on ${surface}`).toBeGreaterThanOrEqual(3);
+        expect(on(palette.select, surface), `${theme}: the dots of the box selected on ${surface}`).toBeGreaterThanOrEqual(3);
+      }
+      // Not the colour of the dashes of what stands beside the graph either.
+      expect(palette.nodeTextMuted, theme).not.toBe(palette.external);
+    }
+  });
+
   it("draws a link in a colour that stands out from the canvas (3 to 1), in both themes, and lets nothing through it", () => {
     for (const theme of themes) {
       const palette = paletteOf(theme);
