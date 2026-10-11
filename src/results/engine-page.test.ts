@@ -15,7 +15,6 @@ import { fileWords, watchForFiles, type FileWatch } from "./no-file.test-support
 import { FakeTab } from "./port-pair.test-support.js";
 import { overviewOf } from "./result-view.js";
 import { fixTimeZone } from "./time-zone.test-support.js";
-import { bothTimes } from "./times.js";
 import { VIEW_KEY } from "./view-keep.js";
 
 // The results page itself against the engine: the page's script on results.html at one end of the port, the content
@@ -171,12 +170,10 @@ describe("The results page itself against the engine in the Anaplan tab", () => 
     return { tiles: page.all("#view .stat").map(tile => tile.children.map(child => child.textContent)), about: pairs("#ovAbout"), files: pairs("#ovFiles"), notes: page.texts("#view .warn-list li"),
       howToRead: pairs("#ovHowTo"), log: page.id("diagLog").textContent.split("\n") };
   };
-  /** The same of a result, as the page reads it out of the result's Details file and counts its tables. A time it says,
-   * the export's, it says in both zones, the viewer's first (times.ts). */
+  /** The same of a result, as the page reads it out of the result's Details file and counts its tables. */
   const overviewFor = (result: AnalysisResult) => {
     const { tiles, about, files: named, notes, howToRead, log } = overviewOf(result);
-    return { tiles: tiles.map(tile => [tile.label, String(tile.count), tile.count === 1 ? "row" : "rows"]),
-      about: about.map(([detail, value]) => [detail, bothTimes(value, "local", "UTC") ?? value]), files: named, notes, howToRead, log };
+    return { tiles: tiles.map(tile => [tile.label, String(tile.count), tile.count === 1 ? "row" : "rows"]), about, files: named, notes, howToRead, log };
   };
 
   it("runs by itself for the page the icon has just opened, and shows what the engine found, cell for cell", async () => {
@@ -205,12 +202,16 @@ describe("The results page itself against the engine in the Anaplan tab", () => 
     expect([...tables.keys()]).toEqual(["Pages", "Cards", "Grid Sections", "Filters", "Conditional Formatting", "Action Buttons", "Model Objects"]);
     const said = overviewSays();
     expect(said).toEqual(overviewFor(result));
-    expect([said.about.length, said.howToRead.length > 0, said.log.length > 3, said.files]).toEqual([10, true, true, []]);
-    // About this export has each of the app's categories and models on a line of its own: this app has one of each, and
-    // each is one line. A page was left unpublished, so the pages analysed take two lines, and no line has a semicolon.
+    expect([said.about.length, said.howToRead.length > 0, said.log.length > 3, said.files]).toEqual([3, true, true, []]);
+    // About this export says the app, its ID and the models it is built on, each model on a line of its own: this app is
+    // built on one, which is one line. The app's categories and its pages are deliberately not said there, nor the
+    // export's host, time and tool: the result's Details file keeps them, where a page left unpublished makes the pages
+    // analysed two lines, and no line has a semicolon.
     const about = new Map(said.about.map(([detail, value]): [string, string[]] => [detail, value.split("\n")]));
-    expect(["Categories", "Models", "Pages analysed"].map(detail => about.get(detail))).toEqual([["Demand"], ["Model one (Workspace one)"],
-      ["1 of 1 (published versions)", "1 unpublished, not analysed"]]);
+    expect([[...about.keys()], about.get("Models")]).toEqual([["App", "App ID", "Models"], ["Model one (Workspace one)"]]);
+    const kept = new Map((result.tables.find(table => table.file === DETAILS_FILE)?.rows ?? []).map(row => [String(row[1]), String(row[2]).split("\n")]));
+    expect(["Categories", "Pages analysed", "Exported on"].map(detail => [about.has(detail), kept.get(detail)?.length])).toEqual([[false, 1], [false, 2], [false, 1]]);
+    expect(kept.get("Pages analysed")).toEqual(["1 of 1 (published versions)", "1 unpublished, not analysed"]);
     // No word of it names a file, a CSV or a zip, or a download: the page is where a result is read. That is every cell
     // of every table, which `shownTables` has put on the page with every column, and in each view all the page says
     // and all it names or describes an element by, with a row's details and a card's where the view opens them. (A

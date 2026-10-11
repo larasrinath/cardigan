@@ -321,10 +321,10 @@ describe("What the results page's markup shows", () => {
     expect(parseMarkup(tableHtml(viewOf(CARDS, LINKS))).querySelectorAll(".empty")).toEqual([]);
     // A table whose file has rows, none of which it lists, does not say that nothing was found: it says that none of
     // the rows is its own, in the words it is given, as text. The line under its name says how many rows there are.
-    const left = { all: 0, note: "5 rows about the model are not listed here: 3 hold a value, which the Overview has under About this export.", none: "Every row is <b>about</b> the model." };
+    const left = { all: 0, note: "5 rows about the model are not listed here: the Overview names the workspace and the model, under About this export.", none: "Every row is <b>about</b> the model." };
     expect(empty(left)).toEqual(["Cards has no rows of its own", "Every row is <b>about</b> the model.", [], 0, ""]);
     const view = parseMarkup(tableHtml(viewOf(CARDS, LINKS, { rows: [], total: 0, from: 0, to: 0, ...left })));
-    expect([view.querySelectorAll(".view-note").map(text), view.querySelectorAll(".empty b").length, view.textContent.includes("Nothing was found")]).toEqual([["5 rows about the model are not listed here: 3 hold a value, which the Overview has under About this export."], 0, false]);
+    expect([view.querySelectorAll(".view-note").map(text), view.querySelectorAll(".empty b").length, view.textContent.includes("Nothing was found")]).toEqual([["5 rows about the model are not listed here: the Overview names the workspace and the model, under About this export."], 0, false]);
     // Those words are for a table without rows only: one that a search leaves empty says so as ever.
     expect(empty({ search: "x", none: left.none }).slice(0, 2)).toEqual(["No results", "Nothing in Cards matches the current search."]);
     // A table whose file has no rows may have a sentence of its own for that, said as text in the place of the usual one.
