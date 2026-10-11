@@ -327,3 +327,36 @@ export function automaticGrouping(groupings: readonly Grouping[]): Grouping | un
   }
   return of("role") ?? groupings[0];
 }
+
+/** The explanation uses the same candidates and thresholds as the automatic choice, including why earlier choices
+ * did not qualify. Missing groupings cover no modules. Counts accompany percentages so small groups stay clear. */
+export function automaticGroupingReason(groupings: readonly Grouping[]): string {
+  const chosen = automaticGrouping(groupings);
+  if (!chosen) return "There are no modules to group.";
+  const percent = (share: number): string => `${Number((share * 100).toFixed(2))}%`;
+  const numbers = (kind: GroupingKind) => {
+    const grouping = groupings.find(each => each.kind === kind);
+    const sizes = new Map<string, number>();
+    for (const group of grouping?.groupOf.values() ?? []) sizes.set(group, (sizes.get(group) ?? 0) + 1);
+    const total = grouping?.groupOf.size ?? 0;
+    const rest = grouping?.rest === undefined ? 0 : sizes.get(grouping.rest) ?? 0;
+    return {
+      coverage: total ? (total - rest) / total : 0,
+      named: [...sizes.keys()].filter(group => group !== grouping?.rest).length,
+      groups: sizes.size, largest: total ? Math.max(...sizes.values()) / total : 0, rest: total ? rest / total : 0,
+    };
+  };
+  const builders = BUILDERS.map(kind => {
+    const n = numbers(kind);
+    return `${kind === "functionalArea" ? "Functional areas" : "Heading rows"} cover ${percent(n.coverage)} of modules in ${n.named} ${n.named === 1 ? "group" : "groups"}`;
+  }).join("; ");
+  const builtRule = `The first with at least ${percent(BUILT.share)} in ${BUILT.least} or more groups wins.`;
+  let reason = `${builders}. ${builtRule}`;
+  if (!BUILDERS.includes(chosen.kind)) {
+    const n = numbers("prefix");
+    reason += n.groups ? ` Name prefixes make ${n.groups} ${n.groups === 1 ? "group" : "groups"}; the largest holds ${percent(n.largest)} of modules and Other holds ${percent(n.rest)}.` : " No shared name prefixes qualify.";
+    reason += ` Name prefixes need ${GOOD.least} to ${GOOD.most} groups, at most ${percent(GOOD.largest)} in one and at most ${percent(GOOD.rest)} in Other.`;
+    if (chosen.kind === "role") reason += " Neither builder grouping nor name prefixes qualify, so the map uses roles in the data flow.";
+  }
+  return `Chosen automatically: ${chosen.label}. ${reason} Pick another grouping to change it.`;
+}
