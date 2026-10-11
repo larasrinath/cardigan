@@ -16,6 +16,20 @@ describe("Page analyzer REST reads", () => {
 
   const calls = () => vi.mocked(globalThis.fetch).mock.calls as unknown as [string, RequestInit][];
 
+  it("allows only the platform engine detail GET routes, with the page's session headers", async () => {
+    const base = `/a/springboard-platform-gateway-service/customers/${"A".repeat(32)}/workspaces`;
+    const model = `${base}/${"B".repeat(32)}/models/${"C".repeat(32)}`;
+    await getJson(model);
+    await getJson(base);
+    for (const [, init] of calls()) expect(init).toMatchObject({ method: "GET", credentials: "include", mode: "same-origin",
+      headers: { "x-api-version": "1", "X-TracePath": "springboard-ui", "X-XSRF-TOKEN": "xsrf-value" } });
+    vi.mocked(globalThis.fetch).mockClear();
+    for (const path of [`${model}/url`, `${model}/export`, `${model}/polaris/cancel`, `${base}?all=true`]) {
+      await expect(getJson(path)).rejects.toMatchObject({ code: "INVALID_PATH" });
+    }
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("reads only the two services the analyser needs, by paths of plain segments, and refuses any other path before anything is sent", async () => {
     const [GUID, WS, MODEL] = ["01234567-89ab-cdef-0123-456789abcdef", "0123456789abcdef0123456789abcdef", "FEDCBA9876543210FEDCBA9876543210"];
     // Every shape of path the analysis asks for (analyse.ts): the app, a page on each of its routes, and a model's actions;

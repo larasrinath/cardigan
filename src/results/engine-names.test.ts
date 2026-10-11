@@ -43,9 +43,10 @@ describe("The names the results page and the engine know each other by", () => {
     // that still holds an earlier reader tell the user to choose, by the name it reads.
     const overview = overviewHtml({ tiles: [], notes: [], about: [], files: [], howToRead: [], log: ["a line"] });
     const buttons = (html: string) => parseMarkup(html).querySelectorAll("button").map(button => button.textContent.trim());
-    for (const html of [runHtml(), runBannerHtml()]) expect(buttons(html)).toEqual([REFRESH_AND_RUN, "Copy diagnostic log"]);
+    expect(buttons(runHtml())).toEqual([REFRESH_AND_RUN, "Run again", "Copy diagnostic log"]);
+    expect(buttons(runBannerHtml())).toEqual([REFRESH_AND_RUN, "Copy diagnostic log"]);
     for (const html of [noteBannerHtml(), overview]) expect(buttons(html)).toEqual(["Copy diagnostic log"]);
-    for (const otherHost of [true, false]) expect(describeState({ phase: "old-reader", otherHost }, true).hint).toMatch(new RegExp(`^Choose ${REFRESH_AND_RUN}:`));
+    for (const otherHost of [true, false]) expect(describeState({ phase: "old-reader", otherHost }, true).hint).toBe("");
     // The page's own two failures say what to do in the engine's words.
     expect(UNREADABLE).toBe(`Cardigan received a result it could not read. ${REFRESH}`);
     expect(NO_REASON).toBe(`The analysis stopped without saying why. Choose ${again}. ${SEND_LOG}`);

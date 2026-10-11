@@ -40,7 +40,7 @@ export type RunState =
   /** The address names no tab: there is nothing to connect to. */
   | { phase: "no-tab" }
   /** The port is open and the tab has not said yet what it shows. */
-  | { phase: "connecting" }
+  | { phase: "connecting"; loading?: boolean }
   /** The port closed before the tab answered, and kept doing so: its content script is not there, and could not be put
    * there. That is an Anaplan tab that is still loading, or one open since before the extension was installed, updated or
    * reloaded on a page that did not open with the icon. */
@@ -61,7 +61,8 @@ export type RunState =
    * refresh, which the page does only when asked (`refreshAndRun`). `otherHost`: the frame is on another Anaplan host than
    * the page around it, where Chrome lets the page put nothing; otherwise the page tried, and no reader of this build
    * answered. */
-  | { phase: "old-reader"; otherHost: boolean }
+  | { phase: "old-reader" | "missing-reader"; otherHost: boolean }
+  | { phase: "model-opening" }
   /** The port closed during a run: the tab was closed or went to another page. */
   | { phase: "interrupted" }
   /** `received` is when the result was complete: the time the page says a result was analysed at, once a refresh has
@@ -88,6 +89,8 @@ export interface ClientOptions {
   /** True when the tab no longer exists: asked when the tab first does not answer, so that a closed tab is said to be
    * closed at once. */
   tabGone?: () => Promise<boolean>;
+  /** Chrome's loading state, used before a content script can answer. */
+  tabLoading?: () => Promise<boolean>;
   /** Waits that long: setTimeout's, unless a test passes its own. */
   wait?: (ms: number) => Promise<void>;
   onState(state: RunState): void;
@@ -268,14 +271,14 @@ export class ResultsClient {
     if (!usable || !this.run()) this.open();
   }
 
-  /** The button of the "old-reader" state: refreshes the Anaplan tab, which loads this build's reader with its page, then
-   * connects to it again and analyses what it shows, waiting longer than a run does for a model's frame to open again
+  /** The button of the missing or old reader state: refreshes the Anaplan tab, which loads this build's reader with its page,
+   * then connects to it again and analyses what it shows, allowing time for the model's frame to open again
    * (protocol.ts "run" `afterRefresh`). The log of the run before goes on. The page refreshes the tab here alone, and only
    * in that state: a refresh closes what is open in the page, Model Building's modules and lists among it. */
   async refreshAndRun(): Promise<void> {
     const reload = this.options.reload;
     const state = this.state;
-    if (!reload || state.phase !== "old-reader") return;
+    if (!reload || (state.phase !== "old-reader" && state.phase !== "missing-reader")) return;
     this.asked = true;
     // A refreshed tab has this build's reader: none needs putting there.
     this.renewed = true;
@@ -433,11 +436,15 @@ export class ResultsClient {
   /** A run found the reader of an earlier build in the model's frame. Where the frame is within reach, and nothing has been
    * put there since the run was asked for, this build's reader is put there, and the model is read again at once, on the
    * same port, the log going on. Otherwise the page says that the tab needs a refresh, which it does only when asked. */
-  private async oldReader(renewable: boolean): Promise<void> {
+  private async oldReader(renewable: boolean, missing = false): Promise<void> {
     const renew = this.options.renew;
+    const failed = () => {
+      this.append(stampLine(`case=${missing ? "NO_READER" : "OLD_READER"}; refresh the Anaplan tab and run`));
+      this.set({ phase: missing ? "missing-reader" : "old-reader", otherHost: !renewable });
+    };
     if (!renewable || !renew || this.renewed) {
       if (!renewable) this.append(stampLine("The model's frame is on another Anaplan host than the tab's page: Chrome lets Cardigan put its reader there only with a refresh."));
-      return this.set({ phase: "old-reader", otherHost: !renewable });
+      return failed();
     }
     this.renewed = true;
     const connection = this.connection;
@@ -447,7 +454,7 @@ export class ResultsClient {
     if (connection !== this.connection || this.state.phase !== "running" || this.state.status !== RENEWING) return;
     if (!renewal.put) {
       this.append(stampLine(`Cardigan could not put its model reader into the tab: ${renewal.why}`));
-      return this.set({ phase: "old-reader", otherHost: false });
+      return failed();
     }
     this.append(stampLine(`Cardigan put its model reader into the tab (${renewal.frames} ${renewal.frames === 1 ? "frame" : "frames"}) in place of a refresh, and reads the model again.`));
     if (!this.run(true)) this.closed(undefined);
@@ -469,6 +476,7 @@ export class ResultsClient {
         if (!this.run()) this.closed(undefined);
       } else {
         this.subject = { kind: "none" };
+        this.append(stampLine("case=NOT_MODEL_PAGE; the tab shows neither an app nor a model"));
         this.set({ phase: "no-subject" });
       }
       return;
@@ -504,6 +512,9 @@ export class ResultsClient {
       case "error": {
         this.pending = undefined;
         if (message.code === "OLD_READER") return void this.oldReader(message.renewable === true);
+        if (message.code === "NO_READER") return void this.oldReader(true, true);
+        if (message.code === "MODEL_OPENING") return this.renewed ? void this.oldReader(true, true) : this.set({ phase: "model-opening" });
+        if (message.code === "NOT_MODEL_PAGE") { this.subject = { kind: "none" }; return this.set({ phase: "no-subject" }); }
         const failure = text(message.message) && message.message ? message.message : NO_REASON;
         // The tab writes why a run stopped into its log before it says so. An error with no line before it (the tab had
         // nothing to analyse, or is busy with an earlier run) gets one here: a failed run always has a log to copy.
@@ -549,6 +560,19 @@ export class ResultsClient {
       if (current()) this.set({ phase: "tab-closed" });
       return;
     }
+    const loading = this.options.tabLoading ? await this.options.tabLoading().catch(() => false) : false;
+    if (!current()) return;
+    if (loading) {
+      if (this.attempts >= 120) {
+        this.append(stampLine("case=MODEL_OPENING; the tab was still loading after 120 s"));
+        return this.set({ phase: "model-opening" });
+      }
+      this.attempts++;
+      this.set({ phase: "connecting", loading: true });
+      await (this.options.wait ?? pause)(1000);
+      if (current()) this.open(true);
+      return;
+    }
     if (repair && !this.repaired) {
       this.repaired = true;
       const repaired = await repair().catch((): Repair => ({ put: false }));
@@ -568,7 +592,8 @@ export class ResultsClient {
     if (!current()) return;
     // The log has the first try's line: the tries after it are counted, not each written down.
     if (this.attempts) this.append(stampLine(`No answer after ${this.attempts} more ${this.attempts === 1 ? "try" : "tries"}.`));
-    this.set({ phase: "unreachable" });
+    this.append(stampLine("case=NO_READER; the tab's content script could not be reached"));
+    this.set({ phase: "missing-reader", otherHost: false });
   }
 
   /** True on the first try of this connection: the one whose failure the log has a line for. */
@@ -590,7 +615,7 @@ export function describeState(state: RunState, asked: boolean): StateText {
       return { title: "No Anaplan tab", message: "This page was opened without an Anaplan tab to read.",
         hint: "Open an app or a model in Anaplan, then click the Cardigan icon on that tab." };
     case "connecting":
-      return { title: "Connecting", message: "Connecting to the Anaplan tab…", hint: "" };
+      return { title: "Connecting", message: state.loading ? "Waiting for the model to open…" : "Connecting to the Anaplan tab…", hint: "" };
     case "unreachable":
       return { title: "Not connected", message: "Cardigan cannot reach that tab.",
         hint: `If it is an Anaplan app or model that is still loading, wait for it, then choose ${run}. Otherwise refresh it, then click the Cardigan icon on it.` };
@@ -601,8 +626,11 @@ export function describeState(state: RunState, asked: boolean): StateText {
       return { title: "Tab closed", message: "The Anaplan tab this page was opened for has been closed.",
         hint: "Open the app or model in Anaplan again, then click the Cardigan icon on that tab." };
     case "no-subject":
-      return { title: "Nothing to analyse", message: "That Anaplan page is not an app or a model.",
-        hint: `Open an app, or a model in Model Building, in that tab; if it is still loading, give it a moment. Then choose ${run}.` };
+      return { title: "No model open", message: "This tab isn't showing a model. Open one in Model Building, then choose Run again.", hint: "" };
+    case "model-opening":
+      return { title: "Model still opening", message: "The model is still opening; wait until it shows in Anaplan, then choose Run again.", hint: "" };
+    case "missing-reader":
+      return { title: "Refresh the Anaplan tab", message: "Refresh the tab to load Cardigan's model reader; this closes the modules and lists you have open.", hint: "" };
     case "ready":
       return { title: "Ready to analyse", message: `That Anaplan tab shows ${state.kind === "app" ? "an app" : "a model"}.`,
         hint: `Choose ${run} to analyse it. This page starts by itself only when the Cardigan icon has just opened it.` };
@@ -613,11 +641,7 @@ export function describeState(state: RunState, asked: boolean): StateText {
       return { title: "The analysis stopped", message: state.message, hint: "" };
     // The button beside it, which the hint names, refreshes the tab: nothing else here does.
     case "old-reader":
-      return { title: "The Anaplan tab needs a refresh",
-        message: `This Anaplan tab was open before Cardigan was updated or reloaded, and still holds the earlier Cardigan's model reader. ${state.otherHost
-          ? "The model is served from another Anaplan host than the page around it, where Chrome lets Cardigan put its new reader only when the tab is refreshed."
-          : "Cardigan could not put its new reader into the open page."}`,
-        hint: `Choose ${REFRESH_AND_RUN}: the tab reloads, and Cardigan reads the model as soon as it shows. The refresh closes the modules and lists you have open in Model Building.` };
+      return { title: "Refresh the Anaplan tab", message: "Refresh the tab to load Cardigan's updated reader; this closes the modules and lists you have open.", hint: "" };
     case "interrupted":
       return { title: "The analysis stopped", message: "The Anaplan tab was closed or left the page before the analysis finished.",
         hint: `Open the app or model again, then click the Cardigan icon or choose ${run}.` };

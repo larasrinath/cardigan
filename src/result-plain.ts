@@ -174,6 +174,7 @@ function readResult(value: unknown): AnalysisResult | undefined {
   const site = data.kind === "model" ? readSite(data.site) : undefined;
   const lineItemIds = data.kind === "model" ? readLineItemIds(data.lineItemIds) : undefined;
   return { kind: data.kind, name: data.name, id: data.id, zipName: data.zipName, tables, summary: Array.from(data.summary, textOf), ...(moduleIds ? { moduleIds } : {}), ...(listIds ? { listIds } : {}),
+    ...(data.kind === "model" && data.engine === "polaris" ? { engine: "polaris" } : {}),
     ...(importMappings ? { importMappings } : {}), ...(processActions ? { processActions } : {}), ...(site ? { site } : {}), ...(lineItemIds ? { lineItemIds } : {}) };
 }
 

@@ -497,6 +497,49 @@ const pagerButtons = () => page.all("#pager .pg-btn").map(button => {
 });
 
 describe("The results page's script, on the page", () => {
+  it("shows a Polaris overview with only populated tables, the usual About rows, and no map even from a kept address", async () => {
+    const { polarisResult, POLARIS_NOTE } = await import("../polaris.js");
+    const { emptyCatalog, addModuleViews, addLists } = await import("../catalog.js");
+    const catalog = emptyCatalog();
+    addModuleViews(catalog, { data: [{ id: "102000000001", name: "Practice demand" }] });
+    addLists(catalog, { data: [{ id: "101000000001", name: "Products" }] });
+    const partial = polarisResult({ customerId: "A".repeat(32), workspaceId: "B".repeat(32), modelId: "C".repeat(32) },
+      { engine: "polaris", modelName: "Practice plan", workspaceName: "Practice workspace" }, catalog);
+    partial.tables[0].rows.push(["Model", "Apps", "Practice app"]);
+    partial.tables.push({ file: "Page Filters.csv", label: "Page Filters", headers: [], rows: [], guard: true });
+    await open(clicked(42));
+    ports[0].send({ type: "subject", subject: { kind: "model", id: partial.id } });
+    sendResult(ports[0], partial);
+    expect(page.id("view").textContent).toContain(POLARIS_NOTE);
+    expect(page.all('#navList [data-nav="map"]')).toHaveLength(0);
+    expect(page.all("#navList [data-nav]").map(each => each.textContent.trim())).toEqual(["Overview", "General Lists", "Modules"]);
+    expect(page.all("#ovAbout dt").map(each => each.textContent)).toEqual(["Workspace", "Workspace ID", "Model", "Model ID", "Apps"]);
+    await letKeep();
+    await open("?tab=42#map");
+    await eventually(() => page.document.title === "Cardigan - Practice plan", "the kept Polaris result");
+    expect(page.id("view").textContent).toContain(POLARIS_NOTE);
+    expect(page.all('#navList [data-nav="map"]')).toHaveLength(0);
+    expect(location.hash).toBe("");
+  });
+
+  it("shows a compact missing-reader card whose two buttons refresh and copy the log", async () => {
+    await open(clicked(42));
+    ports[0].send({ type: "subject", subject: { kind: "model", id: "C".repeat(32) } });
+    ports[0].send({ type: "error", code: "NO_READER", message: "No reader" });
+    await settle();
+    expect(page.id("runCard").classList.contains("run-card")).toBe(true);
+    expect(page.id("runRefresh").hidden).toBe(false);
+    expect(page.id("runRetry").hidden).toBe(true);
+    expect(page.id("runCopy").hidden).toBe(false);
+    expect(page.id("runLog").hasAttribute("open")).toBe(false);
+    page.id("runCopy").press();
+    await settle();
+    expect(copied[0]).toContain("case=NO_READER");
+    expect(tabReloads).toEqual([]);
+    page.id("runRefresh").press();
+    await settle();
+    expect(tabReloads).toEqual([42]);
+  });
   it("connects to the tab its address names, lets the analysis run by itself, shows the progress and then the result", async () => {
     await open(clicked(42));
     // The header says no version: the toolbar icon's menu and the About page do.
@@ -669,7 +712,7 @@ describe("The results page's script, on the page", () => {
     // It asks again for a while, as for a tab that is still loading, and then says so.
     expect(banner().slice(0, 2)).toEqual(["note", "Connecting"]);
     await neverAnswers();
-    expect(banner()).toEqual(["warn", "Not connected", "Cardigan cannot reach that tab.", "If it is an Anaplan app or model that is still loading, wait for it, then choose Run again. Otherwise refresh it, then click the Cardigan icon on it."]);
+    expect(banner()).toEqual(["warn", "Refresh the Anaplan tab", "Refresh the tab to load Cardigan's model reader; this closes the modules and lists you have open."]);
     // The result is where it was; Run again can be tried again.
     expect([page.document.title, page.texts("#view h1"), firstCells().length, page.id("topnav").hidden]).toEqual(["Cardigan - Demo <img src=x onerror=alert(1)> app", ["Cards"], 2, false]);
     expect(disabled("runAgain")).toEqual([false]);
@@ -677,7 +720,7 @@ describe("The results page's script, on the page", () => {
     expect(page.id("bannerCopy").hidden).toBe(false);
     page.id("bannerCopy").press();
     await settle();
-    expect(copied).toEqual(["14:02:05 The tab did not answer: Could not establish connection. Receiving end does not exist.\n14:02:10 No answer after 10 more tries."]);
+    expect(copied).toEqual(["14:02:05 The tab did not answer: Could not establish connection. Receiving end does not exist.\n14:02:10 No answer after 10 more tries.\n14:02:10 case=NO_READER; the tab's content script could not be reached"]);
     expect(page.id("toast").textContent).toBe("Copied the diagnostic log");
   });
 
@@ -1401,9 +1444,9 @@ describe("The results page's script, on the page", () => {
     ports[0].drop();
     lastError = undefined;
     await neverAnswers();
-    expect([page.id("runStatus").textContent, page.id("runHint").textContent]).toEqual(["Cardigan cannot reach that tab.", "If it is an Anaplan app or model that is still loading, wait for it, then choose Run again. Otherwise refresh it, then click the Cardigan icon on it."]);
+    expect([page.id("runStatus").textContent, page.id("runHint").textContent]).toEqual(["Refresh the tab to load Cardigan's model reader; this closes the modules and lists you have open.", ""]);
     // The first try's reason, and a count of the tries after it.
-    expect(page.id("diagLog").textContent).toBe("14:02:05 The tab did not answer: Could not establish connection. Receiving end does not exist.\n14:02:10 No answer after 10 more tries.");
+    expect(page.id("diagLog").textContent).toBe("14:02:05 The tab did not answer: Could not establish connection. Receiving end does not exist.\n14:02:10 No answer after 10 more tries.\n14:02:10 case=NO_READER; the tab's content script could not be reached");
     expect(page.id("runAgain").disabled).toBe(false);
     expect(connects).toHaveLength(11);
     page.id("runAgain").press();
@@ -1454,7 +1497,7 @@ describe("The results page's script, on the page", () => {
   it("shows the tab's error as text, and keeps Run again usable on an Anaplan page that is not an app or a model", async () => {
     await open(clicked(42));
     ports[0].send({ type: "subject", subject: { kind: "none" } });
-    expect(page.id("runStatus").textContent).toBe("That Anaplan page is not an app or a model.");
+    expect(page.id("runStatus").textContent).toBe("This tab isn't showing a model. Open one in Model Building, then choose Run again.");
     expect(page.id("runAgain").disabled).toBe(false);
     page.id("runAgain").press();
     expect(connects).toHaveLength(2);
@@ -1486,11 +1529,11 @@ describe("A model tab that still holds the reader of an earlier Cardigan", () =>
     expect(injected).toEqual([READER]);
     const button = page.id("runRefresh");
     expect([page.id("runTitle").textContent, page.id("runStatus").textContent, page.id("runHint").textContent, button.hidden, button.textContent.trim()]).toEqual([
-      "The Anaplan tab needs a refresh", `${STALE} Cardigan could not put its new reader into the open page.`,
-      "Choose Refresh the Anaplan tab and run: the tab reloads, and Cardigan reads the model as soon as it shows. The refresh closes the modules and lists you have open in Model Building.",
+      "Refresh the Anaplan tab", "Refresh the tab to load Cardigan's updated reader; this closes the modules and lists you have open.",
+      "",
       false, "Refresh the Anaplan tab and run"]);
     expect(page.id("diagLog").textContent.split("\n").at(-1)).toBe(
-      "14:02:05 Cardigan could not put its model reader into the tab: Cannot access contents of the page. Extension manifest must request permission to access the respective host.");
+      "14:02:05 case=OLD_READER; refresh the Anaplan tab and run");
     // Nothing refreshes the tab by itself, however long the page waits, and Run again tries the reader once more.
     await vi.advanceTimersByTimeAsync(60_000);
     expect(tabReloads).toEqual([]);
@@ -1498,7 +1541,7 @@ describe("A model tab that still holds the reader of an earlier Cardigan", () =>
     stale(ports[0], false);
     await settle();
     expect([injected.length, page.id("runStatus").textContent]).toEqual([1,
-      `${STALE} The model is served from another Anaplan host than the page around it, where Chrome lets Cardigan put its new reader only when the tab is refreshed.`]);
+      "Refresh the tab to load Cardigan's updated reader; this closes the modules and lists you have open."]);
 
     // The click: the tab is refreshed, and once it has loaded the page connects again and reads the model, waiting for its
     // frame as long as a model takes to open again.
@@ -1519,9 +1562,8 @@ describe("A model tab that still holds the reader of an earlier Cardigan", () =>
     page.id("runAgain").press();
     stale(ports[0], false);
     await settle();
-    expect([banner(), page.id("bannerRefresh").hidden]).toEqual([["warn", "The Anaplan tab needs a refresh",
-      `${STALE} The model is served from another Anaplan host than the page around it, where Chrome lets Cardigan put its new reader only when the tab is refreshed.`,
-      "Choose Refresh the Anaplan tab and run: the tab reloads, and Cardigan reads the model as soon as it shows. The refresh closes the modules and lists you have open in Model Building."], false]);
+    expect([banner(), page.id("bannerRefresh").hidden]).toEqual([["warn", "Refresh the Anaplan tab",
+      "Refresh the tab to load Cardigan's updated reader; this closes the modules and lists you have open."], false]);
     expect(injected).toEqual([]);
     page.id("runAgain").press();
     expect(page.id("bannerRefresh").hidden).toBe(true);
@@ -4430,7 +4472,7 @@ describe("A model's map on the results page", () => {
     ports[1].drop();
     lastError = undefined;
     await neverAnswers();
-    expect([banner().slice(0, 2), mapAsked, host().hidden, shows()[0]]).toEqual([["warn", "Not connected"], ["build", "mount 1", "show 1"], false, "Model map"]);
+    expect([banner().slice(0, 2), mapAsked, host().hidden, shows()[0]]).toEqual([["warn", "Refresh the Anaplan tab"], ["build", "mount 1", "show 1"], false, "Model map"]);
     // Run again once more, and this time the tab answers. Until it has said what it shows there is no run: the map is
     // still there, and the focus goes into it meanwhile.
     page.id("runAgain").press();

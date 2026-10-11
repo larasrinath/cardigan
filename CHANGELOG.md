@@ -2,6 +2,15 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version is in the menu of Cardigan's icon in Chrome's toolbar and on its About page, and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## 0.23.0 (10 October 2026)
+
+Cardigan checks the model's engine first, and reads what it can from Polaris.
+
+- **Polaris, partly read.** Modules and their available dimensions, General Lists, and the published pages' Module Usage, Page Filters and Page Actions. The Overview says why Line Items, Actions and the Model map are absent; only tables with data get tiles and tabs. About this export keeps Workspace, Workspace ID, Model, Model ID and Apps. (#72)
+- **The engine first.** Read-only platform requests check the model's engine, then the workspace's. A Classic frame answering is the next fallback, and an unknown engine uses the Classic reader. The raw engine values and the chosen path are in the diagnostic log, including the copy kept with a result. (#72)
+- **A model still opening.** Cardigan waits for about two minutes, saying Waiting for the model to open, and reads as soon as the Classic frame answers. A missing reader gets one attempt to put it into the open tab; where that cannot work, Refresh the Anaplan tab and run is offered. (#72)
+- **A smaller failure card.** A short title, the reason, a main button to recover and a small Copy diagnostic log button. The log's last line tells a model still opening from a missing or old reader and a tab with no model open. (#72)
+
 ## 0.22.0 (10 October 2026)
 
 A model's tables follow a reading order, with fewer columns shown at first.

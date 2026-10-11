@@ -483,17 +483,20 @@ function numberSize(tile: OverviewTile): string {
  * what to do, and the diagnostic log. It holds no text of its own: the page sets each part as plain text. */
 export function runHtml(): string {
   return `
-    <h1 class="view-title" id="runTitle"></h1>
-    <div class="panel" style="margin-bottom:12px"><div class="empty">
-      <div class="e-title" id="runStatus"></div>
-      <div class="e-sub" id="runHint"></div>
-      ${refreshButton("runRefresh")}
-    </div></div>
-    <details class="diag" id="runLog" open hidden>
+    <section class="panel run-card" id="runCard" aria-labelledby="runTitle">
+      <h1 class="view-title" id="runTitle"></h1>
+      <p id="runStatus"></p>
+      <p class="run-hint" id="runHint"></p>
+      <div class="run-actions">
+        ${refreshButton("runRefresh")}
+        <button type="button" class="btn primary" data-act="retry-run" id="runRetry" hidden>Run again</button>
+        ${copyLogButton("copy-run-log", ' id="runCopy" hidden')}
+      </div>
+    </section>
+    <details class="diag run-log" id="runLog" hidden>
       ${DIAGNOSTICS_SUMMARY}
       <div class="diag-body">
         <pre id="diagLog" tabindex="0" role="region" aria-label="Diagnostic log"></pre>
-        ${copyLogButton("copy-run-log")}
       </div>
     </details>`;
 }

@@ -1,6 +1,6 @@
 # Cardigan
 
-Cardigan is a Chrome extension for Anaplan. Open an app or a model, click the Cardigan icon, and it reads what the app's pages or the model's settings hold. The result opens on a page of its own, where you can search, sort and filter each table. For a model, the page also draws a map of what feeds what.
+Cardigan is a Chrome extension for Anaplan. Open an app or a model, click the Cardigan icon, and it reads what the app's pages or the model's settings hold. The result opens on a page of its own, where you can search, sort and filter each table. For a Classic model, the page also draws a map of what feeds what. Polaris models get a partial result for now.
 
 Cardigan makes no file and offers no download: the results page is the only place to see a result. The last result is kept for its tab in the browser's session storage, so that a refresh brings it back, as you left it.
 
@@ -32,7 +32,11 @@ Cardigan reads every published page of the app. The **Overview** counts each tab
 
 ### For a model
 
-Open the model in Model Building; the classic model page opened on its own works too. Cardigan reads the Model settings into twelve tables, in Anaplan's order, and makes a thirteenth, DCA (Dynamic Cell Access), from Line Items: Model Calendar, Time Ranges, Versions, General Lists, Modules, Line Items, DCA, Processes, Imports, Data Sources, Exports, Other Actions and Source Models. The page calls two of them by shorter names than Anaplan's: **Data Sources** is Anaplan's Import Data Sources, and **DCA** is Dynamic Cell Access, which its tab and its tile say in full when hovered and to a screen reader.
+Open the model in Model Building; the classic model page opened on its own works too. Cardigan checks the model's engine first, with GET requests using the signed-in session. It reads the model's `engine` from the platform gateway (`hyperblock` means Classic; `calculation_engine` means Polaris), then tries the selected workspace's `dataEngineType` if needed. A Classic frame answering is the next fallback; an unknown engine continues with the Classic reader. The diagnostic log records the raw values and the chosen path.
+
+**Polaris, for now:** **Modules** by name, with the dimensions the model data service supplies; **General Lists** by name and ID; and **Module Usage**, **Page Filters** and **Page Actions** from the published pages built on the model. Cardigan does not wait for a Classic frame. These are partial tables, not a Polaris settings read: dimensions that were not supplied stay empty, and list settings are not read. Only tiles and tabs with data are shown. The Overview says why **Line Items**, **Actions** and the **Model map** are absent. About this export keeps its usual rows: Workspace, Workspace ID, Model, Model ID and Apps.
+
+**Classic:** Cardigan reads the Model settings into twelve tables, in Anaplan's order, and makes a thirteenth, DCA (Dynamic Cell Access), from Line Items: Model Calendar, Time Ranges, Versions, General Lists, Modules, Line Items, DCA, Processes, Imports, Data Sources, Exports, Other Actions and Source Models. The page calls two of them by shorter names than Anaplan's: **Data Sources** is Anaplan's Import Data Sources, and **DCA** is Dynamic Cell Access, which its tab and its tile say in full when hovered and to a screen reader.
 
 It also reads the pages built on the model, in every app you can open, and makes three more tables: **Module Usage**, **Page Filters** and **Page Actions**. They come last, before the map. The pages are read while the Model settings are, since neither needs the other, and so are the names of the model's modules and lists; the rest of the names wait for the settings. The pages' cards are named with the line items Cardigan reads from Line Items, so a large model's pages are named without reading its modules again. The diagnostic log ends with a line that says how long the settings, the pages and the names took, and the run in all.
 
@@ -173,11 +177,11 @@ Closing the results page stops the reading.
 
 ### If it does not start
 
-- **The Anaplan tab needs a refresh**: the model's page still holds the part of Cardigan that reads a model from an earlier version, and Cardigan could not put the new one there: the model is served from another Anaplan host than the page, or the new one did not answer. Choose **Refresh the Anaplan tab and run**.
-- **Not connected**: the Anaplan tab did not answer. A tab that was open before Cardigan was installed, updated or reloaded needs nothing: clicking the icon on it puts Cardigan's script back there. A tab that is still loading is asked again for a few seconds; if it still does not answer, wait for it and choose **Run again**, or refresh it and click the icon on it.
+- **Waiting for the model to open…**: the tab is loading, or Model Building is there and the Classic frame has not answered yet. Cardigan waits for up to about two minutes and starts when it answers. If it still has not opened, the card says **Model still opening**; wait until it shows in Anaplan, then choose **Run again**.
+- **Refresh the Anaplan tab**: Cardigan's reader is missing or belongs to an earlier version. Cardigan first tries putting its reader into the open tab. Where Chrome refuses, or the reader cannot reach the model, choose **Refresh the Anaplan tab and run**. This closes the modules and lists open in Model Building; nothing refreshes the tab unless you choose it.
 - **Not an Anaplan tab** or **Tab closed**: the page says what the tab shows, or that it was closed. Open the app or model in Anaplan, then click the icon on that tab.
-- **Nothing to analyse**: the tab shows an Anaplan page that is neither an app nor a model. Open one there, let it load, then choose **Run again**.
-- When a reading stops, the page says what happened and what to do. **Copy diagnostic log** copies the log, to send with a report. It holds request paths, statuses, counts and how long each step took, and the names of a few modules and line items the map could not match, and no cookies, tokens or cell values.
+- **No model open**: the tab shows an Anaplan page that is neither an app nor a model. Open a model in Model Building, then choose **Run again**.
+- When a reading stops, a compact card gives the reason and a main button to try again or refresh, with **Copy diagnostic log** beside it. The log's last line identifies a connection case as `MODEL_OPENING`, `NO_READER`, `OLD_READER` or `NOT_MODEL_PAGE`. It also holds request paths, statuses, counts and how long each step took, and the names of a few modules and line items the map could not match, and no cookies, tokens or cell values.
 - If the model map cannot be drawn, the page says so in the map's place. The tables are not affected, and **Copy diagnostic log** beside the message copies the reason.
 
 ## Privacy and permissions

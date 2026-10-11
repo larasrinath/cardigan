@@ -1,5 +1,5 @@
 import { stampLine } from "./details.js";
-import { Failure, failureOf, OldReader, REFRESH, SEND_LOG, UNEXPECTED, type Progress, type Stop } from "./progress.js";
+import { Failure, failureOf, ModelUnavailable, OldReader, REFRESH, SEND_LOG, UNEXPECTED, type Progress, type Stop } from "./progress.js";
 import { plainResult, textOf } from "./result-plain.js";
 import type { AnalysisResult } from "./result-types.js";
 import { SCOPE_ID, sleep } from "./util.js";
@@ -26,12 +26,12 @@ export const PROTOCOL = "cardigan-model-export";
  * "done", "error" and "opened" back. Every message on it says its build (version.ts `BUILD`). */
 export const RUN_PROTOCOL = "cardigan-model-reader";
 export const ANAPLAN_ORIGIN = /^https:\/\/[a-z0-9.-]+\.anaplan\.com$/i;
-const WAIT_FOR_CORE_MS = 20_000;
+const WAIT_FOR_CORE_MS = 120_000;
 /** Why an export that was asked to stop ends. */
 const STOPPED = "The export was stopped.";
 /** What the user is told when the page cannot get the model exported (progress.ts `Failure`). */
-export const NO_MODEL = "Cardigan could not reach the model inside this page. If the model is still opening, wait until it shows and choose Run again; "
-  + `otherwise refresh the Anaplan tab, then click the Cardigan icon again. ${SEND_LOG}`;
+export const NO_MODEL = "The model is still opening; wait until it shows in Anaplan, then choose Run again.";
+export const NO_READER = "Refresh the Anaplan tab to load Cardigan's model reader and run again.";
 export const QUIET = "The model stopped answering while Cardigan was reading it. Check that it is still open in the Anaplan tab, then choose Run again.";
 export const UNREADABLE = `Cardigan could not read what the model's page sent back. ${REFRESH} ${SEND_LOG}`;
 /** What the user is told when the model's reader in the tab is of another build than the content script: Chrome puts the
@@ -149,15 +149,19 @@ function originOf(self: Window): string | undefined {
 export async function exportInCore(self: Window, core: () => CoreHandle | undefined, probes: () => Iterable<FrameProbe>, model: string, progress: Progress,
   signal?: AbortSignal, waitMs = WAIT_FOR_CORE_MS): Promise<AnalysisResult> {
   const deadline = Date.now() + waitMs;
+  const began = Date.now();
   /** When a reader of another build was first heard, while none of this build has been. */
   let otherSince: number | undefined;
   for (;;) {
     const found = core();
     if (found?.build === BUILD) break;
     if (found) otherSince ??= Date.now();
+    // No MAIN-world script anywhere after a greeting: typical of a tab open before installation. Ask the results
+    // page to inject it once. During document loading, let Chrome finish putting the scripts into the frames first.
+    if (!found && Date.now() - began >= OWN_READER_WAIT_MS && ![...probes()].length && self.document?.readyState !== "loading") break;
     if (Date.now() >= deadline || (otherSince !== undefined && Date.now() - otherSince >= OWN_READER_WAIT_MS)) break;
     signal?.throwIfAborted();
-    progress.status("Waiting for the model's frame…");
+    progress.status("Waiting for the model to open…");
     greetFrames(self);
     await sleep(1000);
   }
@@ -165,14 +169,17 @@ export async function exportInCore(self: Window, core: () => CoreHandle | undefi
   const seen = [...probes()];
   for (const probe of seen) progress.log(describeProbe(probe));
   const found = core();
-  if (!found) throw new Failure(NO_MODEL, seen.length ? `the model's frame did not answer; ${seen.length} frame(s) reported in` : "no frame reported in");
+  if (!found) throw seen.length || self.document?.readyState === "loading"
+    ? new ModelUnavailable(NO_MODEL, `case=MODEL_OPENING; the Classic frame did not answer after ${Math.round((Date.now() - began) / 1000)} s; ${seen.length} frame(s) reported in`, "MODEL_OPENING")
+    : new ModelUnavailable(NO_READER, "case=NO_READER; no reader in the frames answered", "NO_READER");
   if (found.build !== BUILD) {
     const page = originOf(self);
     const renewable = page !== undefined && found.origin === page;
-    throw new OldReader(OLD_READER, `the model's reader is ${found.build === undefined ? "of a build that names none" : `build ${found.build}`}; this script is build ${BUILD}; `
+    throw new OldReader(OLD_READER, `case=OLD_READER; the model's reader is ${found.build === undefined ? "of a build that names none" : `build ${found.build}`}; this script is build ${BUILD}; `
       + `its frame is ${renewable ? "on the page's own origin" : `on ${found.origin}, the page on ${page ?? "an origin it does not say"}`}`, renewable);
   }
   if (found.modelId.toUpperCase() !== model.toUpperCase()) progress.log("the model frame reports a different model than this page's address");
+  progress.log("Classic reader: answered; starting model settings");
   return runInCore(self, found, progress, undefined, signal);
 }
 
@@ -234,6 +241,10 @@ export const describeProbe = (probe: FrameProbe) =>
 /** Main-world side, in every frame: report what this frame sees to the top window for a while. */
 export function reportFrame(top: Endpoint, everyMs = 3000, forMs = 60_000): void {
   const send = () => top.postMessage({ protocol: PROTOCOL, type: "probe", probe: probeFrame() }, "*");
+  // An already-open page can be greeted long after the periodic diagnostics have stopped.
+  window.addEventListener?.("message", event => {
+    if (ours(event)?.type === "hello" && event.source === (top as unknown)) send();
+  });
   send();
   const timer = setInterval(send, everyMs);
   setTimeout(() => clearInterval(timer), forMs);

@@ -621,7 +621,7 @@ export const MODEL_FILE_ORDER: readonly string[] = [
  * file, each with its place in the result's tables. An app's are in the result's order; a model's in `MODEL_FILE_ORDER`.
  * Only this list is ordered: the result keeps its own order. */
 export function listedTables(result: AnalysisResult): { index: number; table: ResultTable }[] {
-  const tables = result.tables.map((table, index) => ({ index, table })).filter(({ table }) => table.details !== true);
+  const tables = result.tables.map((table, index) => ({ index, table })).filter(({ table }) => table.details !== true && (result.engine !== "polaris" || table.rows.length > 0));
   if (result.kind !== "model") return tables;
   const rank = (table: ResultTable): number => {
     const place = MODEL_FILE_ORDER.indexOf(table.file);

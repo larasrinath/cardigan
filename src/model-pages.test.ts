@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { loadCatalog } from "./analyse.js";
 import { addActions, addLineItems, addLists, addModuleViews, emptyCatalog } from "./catalog.js";
 import { NOT_PLACED } from "./filtered-line-items.js";
-import { addModelPages, AT_A_TIME, exportedLineItems, NO_APPS, NO_CUSTOMER, PAGE_ACTIONS_HEADERS, PAGE_FILTERS_HEADERS, startModelPages, type PageReads } from "./model-pages.js";
+import { addModelPages, AT_A_TIME, exportedLineItems, NO_APPS, NO_CUSTOMER, PAGE_ACTIONS_HEADERS, PAGE_FILTERS_HEADERS, readPolarisModel, startModelPages, type PageReads } from "./model-pages.js";
 import { MODULE_USAGE_FILE, MODULE_USAGE_HEADERS, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE, PAGE_PLACE_HEADERS, PAGE_ROUTES } from "./page-files.js";
 import { HEADERS, PAGE_TYPE } from "./report.js";
 import type { AnalysisResult } from "./result-types.js";
@@ -145,6 +145,17 @@ function waiting() {
 }
 
 describe("The pages built on a model", () => {
+  it("makes Polaris Module Usage, Page Filters and Page Actions from the published pages without a settings export", async () => {
+    const use = fake(BOTH, { [PAGE_A]: demandBoard(), [PAGE_B]: supplyBoard });
+    const result = await readPolarisModel({ customerId: CUSTOMER, workspaceId: WS, modelId: MODEL },
+      { engine: "polaris", modelName: "Model one", workspaceName: "Workspace one" }, { status: text => use.status.push(text), log: line => use.log.push(line) }, undefined, use.reads);
+    expect(result.engine).toBe("polaris");
+    for (const file of [MODULE_USAGE_FILE, PAGE_FILTERS_FILE, PAGE_ACTIONS_FILE]) expect(rowsOf(result, file)?.length).toBeGreaterThan(0);
+    expect(cellsOf(result, PAGE_ACTIONS_FILE, "Model action name").flat()).toEqual(["Import demand", "Nightly process"]);
+    expect(cellsOf(result, PAGE_FILTERS_FILE, "Condition line item").flat()).toEqual(["Territory demand", "Territory demand"]);
+    expect(result.tables.some(table => ["Line Items.csv", "Processes.csv", "Imports.csv"].includes(table.file))).toBe(false);
+    expect(detailsOf(result)).toContainEqual(["Model", "Apps", "Another app\nPlanning app"]);
+  });
   it("reads Model Building's list, each page, the apps and then the names, and makes the three tables of the cards that work on the model", async () => {
     const use = fake(BOTH, { [PAGE_A]: demandBoard(), [PAGE_B]: supplyBoard });
     const given = exported();

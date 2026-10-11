@@ -462,7 +462,7 @@ function navEntries(): NavEntry[] {
       return { id: String(entry.index), label: tableLabel(entry.table), file: entry.table.file, ...(full ? { full } : {}) };
     }),
     // A model's map, after its files. An app has none.
-    ...(result?.kind === "model" ? [{ id: "map", label: MAP_LABEL }] : []),
+    ...(result?.kind === "model" && result.engine !== "polaris" ? [{ id: "map", label: MAP_LABEL }] : []),
   ];
 }
 
@@ -801,7 +801,7 @@ function showKept(kept: unknown, at: Date): boolean {
 }
 
 /** The states in which a run did not start or did not finish. */
-const STOPPED: ReadonlySet<RunState["phase"]> = new Set(["unreachable", "not-anaplan", "tab-closed", "no-subject", "failed", "interrupted", "old-reader"]);
+const STOPPED: ReadonlySet<RunState["phase"]> = new Set(["unreachable", "not-anaplan", "tab-closed", "no-subject", "failed", "interrupted", "old-reader", "missing-reader", "model-opening"]);
 
 /** Connecting, running, or why there is no new result. Before the first result this is the whole view. Once a result is on
  * the page it stays there until a new one is complete, and the same words stand in the banner area above it: a run that
@@ -837,7 +837,11 @@ function showRun(runState: RunState): void {
     set("#runHint", text.hint);
   }
   // The one control that refreshes the Anaplan tab, there only while the tab still holds the reader of an earlier build.
-  for (const button of document.querySelectorAll("#runRefresh, #bannerRefresh")) (button as HTMLElement).hidden = runState.phase !== "old-reader";
+  const refresh = runState.phase === "old-reader" || runState.phase === "missing-reader";
+  for (const button of document.querySelectorAll("#runRefresh, #bannerRefresh")) (button as HTMLElement).hidden = !refresh;
+  const retry = find("#runRetry");
+  if (retry) retry.hidden = refresh || !STOPPED.has(runState.phase);
+  find("#runCard")?.classList.toggle("stopped", STOPPED.has(runState.phase));
   showLog(client.log);
   updateActions();
   announce(text.message);
@@ -846,8 +850,7 @@ function showRun(runState: RunState): void {
 /** The run's diagnostic log. Before the first result its latest lines are under the message, kept in view. Beside an
  * earlier result there is only the banner's button to copy it, which is there once the log has a line. */
 function showLog(lines: readonly string[]): void {
-  const copy = find("#bannerCopy");
-  if (copy) copy.hidden = lines.length === 0;
+  for (const copy of document.querySelectorAll("#bannerCopy, #runCopy")) (copy as HTMLElement).hidden = lines.length === 0;
   const block = find("#runLog");
   const log = find("#diagLog");
   if (result || !block || !log) return;
@@ -1718,7 +1721,7 @@ function graphFor(model: AnalysisResult): ModelGraph {
  * where the map cannot be drawn. */
 function mapNodeOf(entry: Shown, row: Row): number | undefined {
   const file = entry.table.file;
-  if (result?.kind !== "model" || modelMap === "failed" || (file !== LINE_ITEMS_FILE && file !== MODULES_FILE && file !== MODULE_USAGE_FILE && file !== LISTS_FILE)) {
+  if (result?.kind !== "model" || result.engine === "polaris" || modelMap === "failed" || (file !== LINE_ITEMS_FILE && file !== MODULES_FILE && file !== MODULE_USAGE_FILE && file !== LISTS_FILE)) {
     return undefined;
   }
   let graph: ModelGraph;
@@ -1904,13 +1907,14 @@ function markedView(): "map" | number | undefined {
  * has, or a model's map. A mark that names no view of this result leaves the overview. The focus stays where it is. */
 function showMarked(view: "map" | number | undefined): void {
   if (!result || view === undefined || view === state.view) return;
-  if (view === "map" ? result.kind !== "model" : !shown.has(view)) return;
+  if (view === "map" ? result.kind !== "model" || result.engine === "polaris" : !shown.has(view)) return;
   state.view = view;
   renderAll();
 }
 
 /* ================= view switching ================= */
 function navTo(view: View, context?: string): void {
+  if (view === "map" && result?.engine === "polaris") return;
   closePopover();
   // The search and the jump end with the view. The table that is left had its page counted among the rows they kept,
   // so it is shown from its first page when the user comes back to it.
@@ -2111,6 +2115,9 @@ document.addEventListener("click", event => {
       // refreshed, and the model read once it shows. Only this button refreshes the tab.
       case "refresh-run":
         void client.refreshAndRun();
+        return;
+      case "retry-run":
+        client.runAgain();
         return;
       // The copy the tab keeps for a refresh goes: the result stays on the page, with its tables. A model's map that
       // was built from it goes with the copy, and its entry builds it afresh when it is next chosen.
@@ -2325,6 +2332,7 @@ const client = new ResultsClient({
   reload: tabId === undefined ? undefined : () => reloadTab(chrome.tabs, tabId),
   retries: { count: 10, pauseMs: 500 },
   tabGone: tabId === undefined ? undefined : () => chrome.tabs.get(tabId).then(() => false, () => true),
+  tabLoading: tabId === undefined ? undefined : () => chrome.tabs.get(tabId).then(tab => tab.status === "loading", () => false),
   onState: next => {
     // Only a run that starts ends the map: one that goes on says "running" again with each step.
     if (next.phase === "running" && !running) endMapForRun();

@@ -27,6 +27,11 @@ export class OldReader extends Failure {
   constructor(message: string, detail: string, readonly renewable: boolean) { super(message, detail); }
 }
 
+/** A Classic reader that is absent, or a model still opening after the bounded wait. */
+export class ModelUnavailable extends Failure {
+  constructor(message: string, detail: string, readonly code: "NO_READER" | "MODEL_OPENING") { super(message, detail); }
+}
+
 /** What to do next, in the words every message uses for it. The second names the button beside the log on the results page. */
 export const REFRESH = "Refresh the Anaplan tab, then click the Cardigan icon again.";
 export const SEND_LOG = "If it keeps happening, choose Copy diagnostic log and send the log.";

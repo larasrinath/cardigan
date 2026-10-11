@@ -4,6 +4,10 @@ import { list, text, type Obj } from "./util.js";
 /** Names for one model, gathered the way Page Builder gets them: modules, saved views, dimension labels, lists and line
  * items from the widget data socket, and import/export/process names from the actions service. */
 export interface ModelCatalog {
+  /** Only lists actually returned by the lists read; dimensions also contain Time, Versions and other labels. */
+  lists: Map<string, string>;
+  /** Membership supplied directly by moduleViews, kept apart from the dimensions endpoint used to name page cards. */
+  moduleViewDimensions: Map<string, { id: string; name: string }[]>;
   modules: Map<string, string>;
   views: Map<string, { name: string; moduleId: string }>;
   dimensions: Map<string, string>;
@@ -44,7 +48,7 @@ export interface LineItemFormat {
 export interface ItemSource { moduleId: string; dimensionId: string }
 
 export function emptyCatalog(): ModelCatalog {
-  return { modules: new Map(), views: new Map(), dimensions: new Map(), lineItems: new Map(), lineItemFormats: new Map(), actions: new Map(), pages: new Map(),
+  return { lists: new Map(), moduleViewDimensions: new Map(), modules: new Map(), views: new Map(), dimensions: new Map(), lineItems: new Map(), lineItemFormats: new Map(), actions: new Map(), pages: new Map(),
     lineItemModules: new Set(), unreadableModules: new Set(), moduleListLoaded: false, moduleDimensions: new Map(), listItems: new Map(), itemSources: new Map(),
     viewLayouts: new Map() };
 }
@@ -83,6 +87,18 @@ export function addModuleViews(catalog: ModelCatalog, json: unknown): void {
       if (label && !catalog.dimensions.has(id)) catalog.dimensions.set(id, label);
     }
   }
+  // Keep only membership the module itself supplies. The root's dimension dictionary alone does not say which
+  // dimensions any one module uses. Missing membership stays unknown, rather than implying no dimensions.
+  for (const module of list(root.data)) {
+    const id = idText(module.id);
+    if (!id || !Array.isArray(module.dimensions)) continue;
+    catalog.moduleViewDimensions.set(id, module.dimensions.flatMap((value: unknown) => {
+      const entry = value && typeof value === "object" ? value as Obj : undefined;
+      const dimension = idText(entry?.id ?? value);
+      const label = text(entry?.label) ?? text(entry?.name) ?? (dimension ? catalog.dimensions.get(dimension) : undefined);
+      return dimension ? [{ id: dimension, name: label ?? dimension }] : [];
+    }));
+  }
 }
 
 /** `core://{ws}:{model}/lists`: `data[] = {id, name}`. */
@@ -90,7 +106,10 @@ export function addLists(catalog: ModelCatalog, json: unknown): void {
   for (const item of list((json as Obj | undefined)?.data)) {
     const id = idText(item.id);
     const listName = text(item.name) ?? text(item.label);
-    if (id && listName) catalog.dimensions.set(id, listName);
+    if (id && listName) {
+      catalog.dimensions.set(id, listName);
+      catalog.lists.set(id, listName);
+    }
   }
 }
 

@@ -198,14 +198,14 @@ describe("The results page against the engine in the Anaplan tab", () => {
     // The page's log is the content script's: the line that names the build, the model and the host of the page the user
     // sees, what the frame said it holds, and then each step and line of the export as the frame reported it.
     expect(page.client.log).toEqual([firstLine("model", MODEL, SHELL_HOST), ...runs[0].said].map(stamped));
-    expect(runs[0].said.slice(0, 2)).toEqual([`frame ${MODEL_HOST}/core-webapp/anaplan/framework.jsp: loader=function model=id workspace=id`, "Loading the model page's client…"]);
+    expect(runs[0].said.slice(0, 3)).toEqual([`frame ${MODEL_HOST}/core-webapp/anaplan/framework.jsp: loader=function model=id workspace=id`, "Classic reader: answered; starting model settings", "Loading the model page's client…"]);
     // Every grid was read through the frame's client, a first row and then the rest.
     expect(settings.reads.slice(0, 2)).toEqual(["LINE ITEMS 0+1333", "MODULES 0+1333"]);
     const { result } = page.held();
     expect(detailsOf(result)?.file).toBe("Model Details.csv");
     // The log the result carries is the frame's own, which begins with the export: inside Model Building it has neither
     // of the two lines the content script wrote before it asked the frame. From there on the two logs are the same.
-    expect(diagnosticLog(detailsOf(result))).toEqual(page.client.log.slice(2));
+    expect(diagnosticLog(detailsOf(result))).toEqual(page.client.log.slice(3));
     // Written as a zip, what the page holds is, file for file, the zip 0.6.1 wrote for this model, but for the columns of Line
     // Items.csv and Other Actions.csv and the rows of Model Details.csv that are deliberately written otherwise since
     // (MODEL_COLUMN_ADDED, MODEL_ACTIONS_COLUMN_ADDED, MODEL_ROW_REWORDED, MODEL_ACTIONS_ROW_REWORDED, MODEL_ROWS_FOR_THE_PAGE,
@@ -519,8 +519,8 @@ describe("The results page against the engine in the Anaplan tab", () => {
     await until(done(first), "the first page's result");
     expectEngineResult(first, runs[0]);
     first.client.runAgain();
-    await until(() => first.client.state.phase === "failed", "the first page to be told");
-    expect([first.client.state, first.client.log]).toEqual([{ phase: "failed", message: NOTHING_TO_ANALYSE }, [stamped(`stopped: ${NOTHING_TO_ANALYSE}`)]]);
+    await until(() => first.client.state.phase === "no-subject", "the first page to be told");
+    expect([first.client.state, first.client.log]).toEqual([{ phase: "no-subject" }, [stamped("case=NOT_MODEL_PAGE; the tab shows neither an app nor a model")]]);
     expect(runs).toHaveLength(1);
   });
 
@@ -591,8 +591,8 @@ describe("The results page against the engine in the Anaplan tab", () => {
     expect(files(resultZip(result, ZIPPED_AT), "Model Details.csv")).toEqual(files(MODEL_ZIP_AS_NAMED, "Model Details.csv"));
     // The next page's log begins where it took over, after the two lines the content script writes for every run. The log
     // the result carries is the export's from its beginning: between them the two pages were told each line of it once.
-    expect(next.client.log.slice(0, 3)).toEqual([firstLine("model", MODEL, SHELL_HOST), runs[1].said[0], "Modules: 2 rows × 2 columns; columns: Applies To | Cell Count"].map(stamped));
-    expect(diagnosticLog(detailsOf(result))).toEqual([...page.client.log.slice(2), ...next.client.log.slice(2)]);
+    expect(next.client.log.slice(0, 4)).toEqual([firstLine("model", MODEL, SHELL_HOST), runs[1].said[0], "Classic reader: answered; starting model settings", "Modules: 2 rows × 2 columns; columns: Applies To | Cell Count"].map(stamped));
+    expect(diagnosticLog(detailsOf(result))).toEqual([...page.client.log.slice(3), ...next.client.log.slice(3)]);
   });
 
   it("says that the Anaplan tab was closed or left the page when its port closes in the middle of a run, and connects anew on Run again", async () => {
@@ -617,9 +617,9 @@ describe("The results page against the engine in the Anaplan tab", () => {
 
     // While the tab is still loading nobody answers there: Run again says so, with Chrome's reason in the log.
     page.client.runAgain();
-    await until(() => page.client.state.phase === "unreachable", "the page to find nobody");
-    expect(page.says().message).toBe("Cardigan cannot reach that tab.");
-    expect(page.client.log).toEqual([stamped(`The tab did not answer: ${NOBODY}`)]);
+    await until(() => page.client.state.phase === "missing-reader", "the page to find nobody");
+    expect(page.says().message).toBe("Refresh the tab to load Cardigan's model reader; this closes the modules and lists you have open.");
+    expect(page.client.log).toEqual([stamped(`The tab did not answer: ${NOBODY}`), stamped("case=NO_READER; the tab's content script could not be reached")]);
     // Once the content script is back, Run again connects, hears what the tab shows and runs: the page asked for it.
     showApp();
     page.client.runAgain();

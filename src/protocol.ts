@@ -41,7 +41,7 @@ export type Subject = { kind: "app" | "model"; id: string; origin?: string; cust
 export type PageMessage =
   /** Analyse what the tab shows; progress and then the result follow. A "run" while one is in progress is ignored.
    * `afterRefresh`: the page has just refreshed the tab for this run (results/connection.ts `refreshAndRun`), so a
-   * model's frame may take a while yet to open again: the tab waits for it longer. */
+   * model's frame may take a while yet to open again. Ordinary and refreshed runs both allow about two minutes. */
   | { type: "run"; afterRefresh?: boolean }
   /** Open a module, a list or a settings page of `model` inside the Model Building page the tab shows, beside the tabs
    * open there, as Model Building's own Modules list, General Lists and sidebar open one. `object` is the module's, the
@@ -67,7 +67,7 @@ export type TabMessage =
    * `OLD_READER`): `renewable` then says whether that frame is on the page's own origin, where the results page may put
    * this build's reader itself (results/connection.ts `renewReader`). An "error" can also arrive after "result" and "rows",
    * in place of "done", when a piece of the result could not be sent: the result is then incomplete and must not be shown. */
-  | { type: "error"; message: string; code?: "SIGNED_OUT" | "OLD_READER"; renewable?: boolean }
+  | { type: "error"; message: string; code?: "SIGNED_OUT" | "OLD_READER" | "NO_READER" | "MODEL_OPENING" | "NOT_MODEL_PAGE"; renewable?: boolean }
   /** The answer to an "open": whether the page took the module or the list, and in a few words how, or why not, for the
    * log. It belongs to no run. `oldReader`: it did not, because the model's frame holds a reader of another build; the
    * results page may put this build's there and ask again. */
