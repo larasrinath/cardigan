@@ -16,6 +16,14 @@ describe("Page analyzer REST reads", () => {
 
   const calls = () => vi.mocked(globalThis.fetch).mock.calls as unknown as [string, RequestInit][];
 
+  it.each([[503, "unavailable", "MAINTENANCE"], [200, "<html><title>Anaplan Maintenance</title></html>", "MAINTENANCE"],
+    [500, "<h1>Down for maintenance</h1>", "MAINTENANCE"], [500, "Internal error", "HTTP_ERROR"],
+    [502, "Service unavailable", "HTTP_ERROR"], [200, "<title>Sign in</title><p>Maintenance tonight</p>", "INVALID_RESPONSE"]])(
+    "classifies HTTP %s with %s as %s", async (status, body, code) => {
+      vi.stubGlobal("fetch", vi.fn(async () => new Response(String(body), { status: Number(status) })));
+      await expect(getJson(PATH)).rejects.toMatchObject({ code, status });
+    });
+
   it("allows only the platform engine detail GET routes, with the page's session headers", async () => {
     const base = `/a/springboard-platform-gateway-service/customers/${"A".repeat(32)}/workspaces`;
     const model = `${base}/${"B".repeat(32)}/models/${"C".repeat(32)}`;

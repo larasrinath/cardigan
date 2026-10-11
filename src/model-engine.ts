@@ -1,5 +1,5 @@
 import type { Progress } from "./progress.js";
-import { getJson } from "./rest.js";
+import { getJson, RestError } from "./rest.js";
 import { message, SCOPE_ID } from "./util.js";
 
 export type ModelEngine = "classic" | "polaris" | "unknown";
@@ -36,6 +36,7 @@ export async function detectModelEngine(scope: EngineScope, classicFrame: () => 
       result.modelName = name(model.label) ?? name(model.name);
       result.workspaceName = name(model.workspaceName);
     } catch (error) {
+      if (error instanceof RestError && error.code === "MAINTENANCE") throw error;
       progress.log(`Engine detection: model details unavailable (${message(error)})`);
     }
     signal?.throwIfAborted();
@@ -48,6 +49,7 @@ export async function detectModelEngine(scope: EngineScope, classicFrame: () => 
         result.engine = parseEngine(workspace?.dataEngineType);
         result.workspaceName ??= name(workspace?.Name) ?? name(workspace?.label) ?? name(workspace?.name);
       } catch (error) {
+        if (error instanceof RestError && error.code === "MAINTENANCE") throw error;
         progress.log(`Engine detection: workspace details unavailable (${message(error)})`);
       }
     }

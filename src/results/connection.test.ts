@@ -86,6 +86,23 @@ const full = (): AnalysisResult => ({
 const empty = (): AnalysisResult => ({ ...full(), tables: full().tables.map(table => ({ ...table, rows: [] })) });
 
 describe("The results page's address", () => {
+  it("uses only an explicit maintenance code or subject, and lets Run again reconnect", () => {
+    const { client, ports } = page();
+    client.start();
+    ports[0].send({ type: "subject", subject: MODEL });
+    ports[0].send({ type: "error", code: "MAINTENANCE", message: "unavailable" });
+    expect(describeState(client.state, true)).toEqual({ title: "Anaplan is down for maintenance", message: "Try again when it's back. Nothing was read.", hint: "" });
+    expect(client.log.at(-1)).toContain("case=MAINTENANCE");
+    client.runAgain();
+    ports[0].send({ type: "error", message: "Maintenance planning could not be read (HTTP 500)." });
+    expect(client.state.phase).toBe("failed");
+    const other = page();
+    other.client.start();
+    other.ports[0].send({ type: "subject", subject: { kind: "none", maintenance: true } });
+    expect(other.client.state.phase).toBe("maintenance");
+    other.client.runAgain();
+    expect(other.ports).toHaveLength(2);
+  });
   it("names the Anaplan tab to read, and nothing else counts as a tab", () => {
     expect([tabIdFrom("?tab=123"), tabIdFrom("?other=1&tab=7"), tabIdFrom("?tab=0")]).toEqual([123, 7, 0]);
     expect(["", "?", "?tab=", "?tab=abc", "?tab=12a", "?tab=-1", "?tab=1.5", "?tab= 1", "?tab=12345678901", "?table=1"].map(tabIdFrom).filter(id => id !== undefined)).toEqual([]);
@@ -212,7 +229,7 @@ describe("The results page's connection to the Anaplan tab", () => {
       ports[0].send({ type: "subject", subject });
       expect(client.state).toEqual({ phase: "ready", kind: subject.kind });
       expect(describeState(client.state, client.asked)).toEqual({ title: "Ready to analyse", message,
-        hint: "Choose Run to analyse it. This page starts by itself only when the Cardigan icon has just opened it." });
+        hint: "Choose Run to analyse it, or click the Cardigan icon on the Anaplan tab." });
       // Nothing the tab sends afterwards starts a run either.
       ports[0].send({ type: "subject", subject: APP });
       ports[0].send({ type: "status", text: "late" });

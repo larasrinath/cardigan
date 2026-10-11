@@ -2,6 +2,15 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version is in the menu of Cardigan's icon in Chrome's toolbar and on its About page, and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
+## Unreleased
+
+Coming back to Cardigan keeps the place you were reading.
+
+- **The icon reuses the result.** Click it on the same Anaplan tab to bring its results tab and window forward and run again there. The table or map and the open row stay, where they still exist. A run already in progress comes forward and carries on. With no answering results page after about 300 milliseconds, a new tab opens. No new permission.
+- **A folded log.** Diagnostics starts closed during a run and on the Overview. A failed run opens it; Copy diagnostic log still works.
+- **Maintenance, named.** Anaplan's HTTP 503 or a page title or heading announcing maintenance shows **Anaplan is down for maintenance**, with **Run again**. Ordinary errors keep their own messages. The diagnostic log names the maintenance case.
+- **Fewer remarks.** The Overview keeps **Forget this result** without the sentence about the kept copy. An import's Mapping keeps its own notes; How to read explains saved headers and why columns after the last mapped one are not known.
+
 ## 0.25.0 (11 October 2026)
 
 One details panel, in the same order wherever a row opens.
