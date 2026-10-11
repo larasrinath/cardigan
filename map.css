@@ -228,6 +228,11 @@
 /* What a page filter's link means, beside a piece of its line: the same colour and dashes the canvas draws it in. */
 .map-legend-filter{display:flex;align-items:center;gap:8px;margin-top:0;border-top:0;padding-top:2px}
 .map-line-filter{flex:none;width:22px;height:0;border-top:2px dashed var(--map-filter)}
+/* What a filter mark means, beside one: the pill the canvas draws on a box a module's own line items filter
+   (map-canvas.ts drawFilterMark), its funnel in the canvas's colour on the page filters' own. */
+.map-legend-mark{display:flex;align-items:center;gap:8px;margin-top:0;border-top:0;padding-top:2px}
+.map-mark-filter{flex:none;display:inline-flex;align-items:center;justify-content:center;width:22px;height:14px;border-radius:7px;background:var(--map-filter);color:var(--map-canvas-bg)}
+.map-mark-funnel{fill:currentColor}
 .map-about-title{margin:12px 0 4px}
 .map-about-title:first-child{margin-top:0}
 .map-about-line,.map-hints{font-size:12px;line-height:1.6;color:var(--text-2)}
