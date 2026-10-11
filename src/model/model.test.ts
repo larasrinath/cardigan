@@ -583,7 +583,7 @@ describe("Model export: Model settings grids to tables", () => {
     expect(await waiting).toEqual(["The model has not finished opening in the Anaplan tab. Wait until it shows, then choose Run again.", "the model page's client did not load in 30 s"]);
   });
 
-  it.each([[], ["Populated Cell Count"], ["Calculation Complexity"], ["Populated Cell Count", "Calculation Complexity"]])("keeps Polaris-only columns %j for the page's cross-check without deciding the engine again", async (...columns: string[]) => {
+  it.each([[], ["Populated Cell Count"], ["Calculation Complexity"], ["Populated Cell Count", "Calculation Complexity"]])("keeps Polaris-only columns %j for the page's engine decision", async (...columns: string[]) => {
     const key = "LINE ITEMS × LINE ITEM PROPERTIES";
     const grid = GOLDEN_GRIDS[key];
     const said: string[] = [];
@@ -1294,7 +1294,7 @@ async function exportGoldenModel(grids: Record<string, FakeGrid> = GOLDEN_GRIDS,
       dataPages: [{ startRow, rows: slice.map(entry => entry.cells) }] }] } }));
     return true;
   } };
-  const cache = { getModelName: () => "Demand: plan", getWorkspaceInfo: () => ({ name: "Workspace one" }), getAllCurrenciesLabelPage: () => undefined,
+  const cache = { getModelName: () => "Demand: plan", getAllCurrenciesLabelPage: () => undefined,
     getActionInfo: (id: number) => (Math.floor(id / 1e9) === 31 ? null : { id }), getTimescaleInfo: () => ({ calendarTypeEntityIndex: 3 }),
     getApplicationPropertyEnabledOrNotSet: () => true };
   const helper = { getAxesForViewDefinition: (rowAxes: string[], columnAxes: string[]) => ({ rowAxis: rowAxes[0], columnAxis: columnAxes[0] }) };
@@ -1305,7 +1305,7 @@ async function exportGoldenModel(grids: Record<string, FakeGrid> = GOLDEN_GRIDS,
   class RequestGenerator { getRequest(params: unknown) { return client.request?.(params) ?? { requestType: "VIEW_REQUEST_SET", submissions: [], systemActions: [], params }; } }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   class DataPage extends FakePage { constructor({ page }: any) { super(page); } }
-  vi.stubGlobal("window", { workspaceId: "0123456789abcdef0123456789abcdef", modelId: "FEDCBA9876543210FEDCBA9876543210",
+  vi.stubGlobal("window", { workspaceId: "0123456789abcdef0123456789abcdef", workspaceName: "Workspace one", modelId: "FEDCBA9876543210FEDCBA9876543210",
     require: (_modules: string[], loaded: (...modules: unknown[]) => void) =>
       loaded(cache, aggregator, helper, { getEntityTypeIndex: (id: number) => Math.floor(id / 1e9) }, constants, RequestGenerator, DataPage, axisHelper) });
   vi.stubGlobal("location", { host: "eu2a.app.anaplan.com", pathname: "/core-webapp/anaplan/framework.jsp" });

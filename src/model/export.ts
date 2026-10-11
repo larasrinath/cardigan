@@ -106,8 +106,7 @@ export async function exportModel(progress: Progress, diagnostics: () => string,
   progress.status("Loading the model page's client…");
   const native = await loadNative();
   const model = text(native.cache.getModelName?.(native.modelId)) ?? native.modelId;
-  const workspaceInfo: Any = native.cache.getWorkspaceInfo?.() ?? {};
-  const workspace = text(workspaceInfo.name) ?? text(workspaceInfo.workspaceName) ?? text((window as Any).workspaceName) ?? "";
+  const workspace = text((window as Any).workspaceName) ?? "";
   log(`model ${model}${workspace ? ` in ${workspace}` : ""}; page ${location.pathname}`);
 
   const tables: ResultTable[] = [];

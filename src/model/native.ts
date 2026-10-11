@@ -1,7 +1,6 @@
 import { Failure, REFRESH, SEND_LOG, type Log, type Stop } from "../progress.js";
 import { SCOPE_ID, seconds, sleep } from "../util.js";
 import { labelEntries, windowRows, type Grid } from "./grid.js";
-import { knownDataEngineType, type DataEngineType } from "../model-engine.js";
 
 /** Reads Model settings grids through the classic model building client, the way its own settings tabs do: a
  * MODEL_DEFINITION view of a row axis against a property-column axis (evidence: anaplan/settings/*.js).
@@ -39,23 +38,6 @@ export function modelOnPage(): string | undefined {
   const w = window as Any;
   return typeof w.require === "function" && typeof w.modelId === "string" && SCOPE_ID.test(w.modelId)
     && typeof w.workspaceId === "string" && SCOPE_ID.test(w.workspaceId) ? w.modelId : undefined;
-}
-
-/** Read only after loadNative has delivered the client's cache through asynchronous AMD require.
- * The bridge asks for this after check-in, when a run needs it, and waits before passing the engine to the full reader.
- * On the cache itself only the workspace getter is called; missing, unfamiliar or throwing fields stay unknown. */
-export async function dataEngineTypeOnPage(): Promise<DataEngineType | undefined> {
-  try {
-    const engineCache: unknown = (await loadNative()).cache;
-    if (!engineCache || typeof engineCache !== "object" || Array.isArray(engineCache)) return;
-    const cache = engineCache as { getWorkspaceInfo?: unknown };
-    if (typeof cache.getWorkspaceInfo !== "function") return;
-    const info: unknown = cache.getWorkspaceInfo();
-    if (!info || typeof info !== "object" || Array.isArray(info)) return;
-    return knownDataEngineType((info as { dataEngineType?: unknown }).dataEngineType);
-  } catch {
-    return undefined;
-  }
 }
 
 export function loadNative(timeoutMs = 30_000): Promise<Native> {

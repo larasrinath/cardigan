@@ -4,7 +4,6 @@ import { plainResult, textOf } from "./result-plain.js";
 import type { AnalysisResult } from "./result-types.js";
 import { SCOPE_ID, sleep } from "./util.js";
 import { BUILD } from "./version.js";
-import { knownDataEngineType, type DataEngineType } from "./model-engine.js";
 
 /** The Model Building page (`/a/modeling/…/models/{id}`) is a shell; the classic model client runs in a core frame inside it,
  * often on another data centre's host. The export must read there,
@@ -49,7 +48,7 @@ export interface MessageTarget {
 }
 /** A model's reader as it announced itself: its window, its origin, the model it holds, and its build (version.ts `BUILD`),
  * which a reader made before builds were marked does not say. */
-export interface CoreHandle { source: Endpoint; origin: string; modelId: string; build?: string; dataEngineType?: DataEngineType; engineAfterLoad?: boolean }
+export interface CoreHandle { source: Endpoint; origin: string; modelId: string; build?: string }
 /** A build's mark as a reader says it: a few letters and digits, which the log may quote. */
 const BUILD_MARK = /^[\w.-]{1,40}$/;
 
@@ -75,9 +74,7 @@ export function watchCore(self: MessageTarget, onCore: (core: CoreHandle) => voi
     if (data?.type !== "core-ready" || typeof data.modelId !== "string" || !SCOPE_ID.test(data.modelId) || !event.source) return;
     const source = event.source as unknown as Endpoint;
     source.postMessage({ protocol: PROTOCOL, type: "ack" }, event.origin);
-    const dataEngineType = knownDataEngineType(data.dataEngineType);
-    onCore({ source, origin: event.origin, modelId: data.modelId, ...(typeof data.build === "string" && BUILD_MARK.test(data.build) ? { build: data.build } : {}),
-      ...(dataEngineType ? { dataEngineType } : {}), ...(data.engineAfterLoad === true ? { engineAfterLoad: true } : {}) });
+    onCore({ source, origin: event.origin, modelId: data.modelId, ...(typeof data.build === "string" && BUILD_MARK.test(data.build) ? { build: data.build } : {}) });
   });
 }
 
@@ -187,36 +184,7 @@ export async function waitForCore(self: Window, core: () => CoreHandle | undefin
       + `its frame is ${renewable ? "on the page's own origin" : `on ${found.origin}, the page on ${page ?? "an origin it does not say"}`}`, renewable);
   }
   if (found.modelId.toUpperCase() !== model.toUpperCase()) progress.log("the model frame reports a different model than this page's address");
-  if (!found.engineAfterLoad) return found;
-  progress.status("Loading the model page's client…");
-  return { ...found, dataEngineType: await engineInCore(self, found, signal) };
-}
-
-/** Ask the answering frame to load its client before inspecting workspace metadata. Bound the wait independently of
- * the full read: an unavailable engine stays unknown. A stopped run removes its listener and never starts the export. */
-function engineInCore(self: MessageTarget, core: CoreHandle, signal?: AbortSignal): Promise<DataEngineType | undefined> {
-  return new Promise((resolve, reject) => {
-    const nonce = crypto.randomUUID();
-    const finish = (value?: DataEngineType, error?: unknown) => {
-      clearTimeout(timer);
-      self.removeEventListener("message", listener);
-      signal?.removeEventListener("abort", stop);
-      if (error !== undefined) reject(error); else resolve(value);
-    };
-    const stop = () => finish(undefined, signal?.reason ?? new Error(STOPPED));
-    const listener = (event: MessageEvent) => {
-      const data = ofThisBuild(event);
-      if (data?.type === "engine" && data.nonce === nonce && event.source === (core.source as unknown) && event.origin === core.origin) {
-        finish(knownDataEngineType(data.dataEngineType));
-      }
-    };
-    // loadNative gives its asynchronous loader 30 seconds; leave time for that answer to cross the bridge.
-    const timer = setTimeout(() => finish(), 31_000);
-    if (signal?.aborted) { stop(); return; }
-    self.addEventListener("message", listener);
-    signal?.addEventListener("abort", stop, { once: true });
-    core.source.postMessage(onRun({ type: "engine", nonce, modelId: core.modelId }), core.origin);
-  });
+  return found;
 }
 
 /** How long the page waits for the model's frame to say whether it opened a module, a list or a settings page (`openInCore`). The frame
@@ -315,12 +283,12 @@ export function greetFrames(root: Window, depth = 0): void {
  * neither announces itself nor takes a run. */
 export function serveCore(self: MessageTarget, top: Endpoint, modelId: () => string | undefined,
   exporter: (progress: Progress, diagnostics: () => string, stop: Stop) => Promise<AnalysisResult>, announceMs = 2000, announceForMs = 10 * 60_000,
-  current: () => boolean = () => true, engine?: () => unknown): () => void {
+  current: () => boolean = () => true): () => void {
   let running: { nonce: string; origin: string; stopped: boolean } | undefined;
   const announce = () => {
     const id = current() ? modelId() : undefined;
     if (!id) return;
-    top.postMessage({ protocol: PROTOCOL, type: "core-ready", modelId: id, build: BUILD, ...(engine ? { engineAfterLoad: true } : {}) }, "*");
+    top.postMessage({ protocol: PROTOCOL, type: "core-ready", modelId: id, build: BUILD }, "*");
   };
   const timer = setInterval(announce, announceMs);
   const stopAnnouncing = setTimeout(() => clearInterval(timer), announceForMs);
@@ -332,16 +300,6 @@ export function serveCore(self: MessageTarget, top: Endpoint, modelId: () => str
     if (common?.type === "hello") { announce(); return; }
     const data = ofThisBuild(event);
     if (!data || !current()) return;
-    if (data.type === "engine") {
-      if (typeof data.nonce !== "string" || data.modelId !== modelId()) return;
-      const reply = (value?: unknown) => {
-        if (!current() || data.modelId !== modelId()) return;
-        const dataEngineType = knownDataEngineType(value);
-        top.postMessage(onRun({ type: "engine", nonce: data.nonce, ...(dataEngineType ? { dataEngineType } : {}) }), event.origin);
-      };
-      Promise.resolve().then(() => engine?.()).then(reply, () => reply());
-      return;
-    }
     if (data.type === "stop") { if (running && data.nonce === running.nonce) running.stopped = true; return; }
     if (data.type !== "run" || typeof data.nonce !== "string") return;
     if (running) {

@@ -1,7 +1,7 @@
 import { analyseApp } from "./analyse.js";
 import { greetFrames, openInCore, runInCore, waitForCore, watchCore, watchProbes, type CoreHandle, type FrameProbe } from "./bridge.js";
 import { readPolarisModel, startModelPages } from "./model-pages.js";
-import { engineCrossCheck, engineLine, parseEngine, POLARIS_FULL_NOTE } from "./model-engine.js";
+import { engineFromColumns, engineLine, POLARIS_FULL_NOTE } from "./model-engine.js";
 import { readModelNames } from "./model-names.js";
 import { diagnosticRows, stampLine } from "./details.js";
 import { firstLine, ModelUnavailable, type Progress } from "./progress.js";
@@ -110,7 +110,7 @@ if (window.top === window) {
     } catch (error) {
       if (!(error instanceof ModelUnavailable)) throw error;
       signal.throwIfAborted();
-      logEngine(engineLine(undefined));
+      logEngine(engineLine("unknown"));
       const fallback = "Classic reader: no frame answered within the wait; reading a partial result without it";
       progress.log(fallback);
       engineLog.push(stampLine(fallback));
@@ -122,8 +122,6 @@ if (window.top === window) {
       result.tables.find(table => table.details)?.rows.push(["Notes", "Classic client", note]);
       return { ...keepEngineLog(withVersion(result)), ...(site ? { site } : {}) };
     }
-    const engine = parseEngine(found.dataEngineType);
-    logEngine(engineLine(found.dataEngineType));
     progress.log("Classic reader: answered; starting model settings");
     const pages = startModelPages({ ...ids, frameHost }, progress, signal);
     let exported: AnalysisResult;
@@ -134,11 +132,8 @@ if (window.top === window) {
       throw error;
     }
     const { lineItemIds, ...result } = exported;
-    const crossCheck = engineCrossCheck(engine, result.tables.find(table => table.file === "Line Items.csv")?.headers ?? []);
-    if (crossCheck) {
-      progress.log(crossCheck);
-      result.tables.find(table => table.details)?.rows.push(...diagnosticRows(stampLine(crossCheck)));
-    }
+    const engine = engineFromColumns(result.tables.find(table => table.file === "Line Items.csv")?.headers ?? []);
+    logEngine(engineLine(engine));
     if (engine === "polaris") {
       result.summary.push(POLARIS_FULL_NOTE);
       result.tables.find(table => table.details)?.rows.push(["Notes", "Engine", POLARIS_FULL_NOTE]);
