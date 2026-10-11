@@ -270,7 +270,8 @@ export const NAV_GROUPS: readonly { id: string; label: string; icon: string; fil
   subgroups?: readonly { label: string; files: readonly string[] }[] }[] = [
   { id: "navGroupDimensions", label: "Dimensions", icon: NAV_ICONS.dimensions,
     files: [MODEL_CALENDAR_FILE, "Time Ranges.csv", "Versions.csv", "General Lists.csv", "Line Item Subsets.csv"],
-    subgroups: [{ label: "Time", files: [MODEL_CALENDAR_FILE, "Time Ranges.csv"] }, { label: "Lists", files: ["General Lists.csv", "Line Item Subsets.csv"] }] },
+    subgroups: [{ label: "Time", files: [MODEL_CALENDAR_FILE, "Time Ranges.csv"] }, { label: "Versions", files: ["Versions.csv"] },
+      { label: "Lists", files: ["General Lists.csv", "Line Item Subsets.csv"] }] },
   { id: "navGroupModules", label: "Modules", icon: NAV_ICONS.modules, files: [MODULES_FILE, LINE_ITEMS_FILE, ACCESS_FILE] },
   { id: "navGroupActions", label: "Actions", icon: NAV_ICONS.actions, files: ["Processes.csv", "Imports.csv", "Import Data Sources.csv", "Exports.csv", "Other Actions.csv"] },
   { id: "navGroupAppUsage", label: "App Usage", icon: NAV_ICONS.appUsage, files: [MODULE_USAGE_FILE, PAGE_FILTERS_FILE, PAGE_ACTIONS_FILE] },
@@ -323,12 +324,14 @@ const entryHtml = (entry: NavEntry, current: string, inMenu = true): string =>
 const navSectionHtml = (label: string, entries: string): string =>
   `<div class="nav-section" role="group" aria-label="${esc(label)}"><p class="nav-heading" aria-hidden="true">${esc(label)}</p>${entries}</div>`;
 
-/** Both navigation layouts share the same subgroups. A lone table needs no heading. */
+/** Both navigation layouts show subgroup headings when tables from at least two subgroups are present. */
 function navGroupHtml(item: NavGroup, current: string): string {
+  const subgroups = item.group.subgroups?.filter(subgroup => item.entries.some(entry => subgroup.files.includes(entry.file ?? ""))) ?? [];
+  if (subgroups.length < 2) return item.entries.map(entry => entryHtml(entry, current)).join("");
   return item.entries.map(entry => {
-    const subgroup = item.group.subgroups?.find(each => each.files.includes(entry.file ?? ""));
+    const subgroup = subgroups.find(each => each.files.includes(entry.file ?? ""));
     const members = subgroup && item.entries.filter(each => subgroup.files.includes(each.file ?? ""));
-    if (!subgroup || !members || members.length < 2) return entryHtml(entry, current);
+    if (!subgroup || !members) return entryHtml(entry, current);
     return entry === members[0] ? navSectionHtml(subgroup.label, members.map(each => entryHtml(each, current)).join("")) : "";
   }).join("");
 }
@@ -824,8 +827,6 @@ export function tableHtml(view: TableView): string {
 /** A column filter's values: each text the column holds, or each item its cells list, with its number of rows. */
 export type FilterValues = readonly (readonly [value: string, count: number])[];
 
-/** A filter has a box to find its values once it has more than this many: a longer list is read by searching it. */
-export const FILTER_FIND_FROM = 15;
 /** A filter lists at most this many of its values at once, and says how many more there are: the box finds the others.
  * The page stays quick to open a filter whatever a column holds, a model's line items' many modules included. */
 export const FILTER_LISTED_MAX = 300;
@@ -855,7 +856,7 @@ export function filterOptionsHtml(column: Column, values: FilterValues, matches:
   }).join("");
 }
 
-/** What a filter with a box says of its list, for a screen reader as well: how many values it has, how many the box finds,
+/** What a filter announces to a screen reader: how many values it has, how many the box finds,
  * and that only the first are listed when there are more than the list holds. */
 export function filterStatusText(values: FilterValues, matches: readonly number[], find: string): string {
   const found = find.trim() !== "";
@@ -863,29 +864,30 @@ export function filterStatusText(values: FilterValues, matches: readonly number[
   return matches.length > FILTER_LISTED_MAX ? `${said}. The first ${FILTER_LISTED_MAX} are listed: type to narrow the list.` : `${said}.`;
 }
 
-/** The words of the two buttons that tick or untick every value the box finds: all of them while nothing is typed. */
+/** The checkbox's possible actions: tick or untick every value the box finds, all of them while nothing is typed. */
 export const filterTickWords = (find: string): [tick: string, untick: string] => (find.trim() === "" ? ["Tick all", "Untick all"] : ["Tick matches", "Untick matches"]);
 
 /** A column's filter: each text the column holds with its number of rows, ticked when shown. The numbers count the rows
- * of the whole table, whatever the search, the other filters or a jump leave on screen, and a line above them says so. A
+ * of the whole table, whatever the search, the other filters or a jump leave on screen. A
  * count's column lists each count as its cells show it, with its thousands apart. A column whose cells list items (`list`)
- * lists each item, and says that a row shows when any of its items is ticked. A filter of many values has a box to find
- * them, which has the focus when the filter opens, two buttons that tick or untick what it finds, and a line that says how
- * many it finds: only the first `FILTER_LISTED_MAX` are listed at once. */
+ * lists each item, and says that a row shows when any of its items is ticked. Every filter has a box to find values,
+ * focused on opening, with a checkbox at its right end to tick or untick what it finds. The count is announced in a
+ * hidden live region; a visible note says when only the first `FILTER_LISTED_MAX` matches are listed. */
 export function colFilterHtml(column: Column, values: FilterValues, selected: ReadonlySet<string> | undefined, list = false): string {
-  const finding = values.length > FILTER_FIND_FROM;
   const all = values.map((_, index) => index);
-  const [tick, untick] = filterTickWords("");
+  const checked = values.length > 0 && values.every(([value]) => !selected || selected.has(value));
+  const mixed = !checked && values.some(([value]) => !selected || selected.has(value));
+  const action = filterTickWords("")[checked ? 1 : 0];
   return `
     <div class="pop-hd"><span>Filter: ${esc(column.label)}</span><button type="button" data-popact="all">Show all</button></div>
-    ${finding ? `<div class="pop-find"><input type="search" data-ffind data-first autocomplete="off" spellcheck="false" placeholder="Find a value" aria-label="Find a value of ${esc(column.label)}"></div>
-    <div class="pop-acts"><button type="button" data-popact="tick">${tick}</button><button type="button" data-popact="untick">${untick}</button></div>` : ""}
+    <div class="pop-find"><input type="search" data-ffind data-first autocomplete="off" spellcheck="false" placeholder="Find a value" aria-label="Find a value of ${esc(column.label)}">
+      <label class="pop-toggle" title="${action}"><input type="checkbox" data-ftoggle aria-label="${action}" title="${action}" aria-checked="${mixed ? "mixed" : checked}" ${checked ? "checked" : ""} ${values.length ? "" : "disabled"}></label></div>
     ${list ? '<div class="pop-note">Each item is listed on its own: a row shows when any of its items is ticked.</div>' : ""}
-    ${values.length ? '<div class="pop-hd" aria-hidden="true"><span>Value</span><span>Rows in the whole table</span></div>' : ""}
     <div class="pop-bd">
       ${filterOptionsHtml(column, values, all, selected)}
     </div>
-    ${finding ? `<div class="pop-note" role="status" data-fstatus>${esc(filterStatusText(values, all, ""))}</div>` : ""}`;
+    <div class="sr-only" role="status" data-fstatus>${esc(filterStatusText(values, all, ""))}</div>
+    <div class="pop-note" data-flimit ${values.length > FILTER_LISTED_MAX ? "" : "hidden"}>The first ${FILTER_LISTED_MAX} are listed: type to narrow the list.</div>`;
 }
 
 /** The filter of a column of numbers or of dates (columns.ts `range`): a range, from one value to another, in two boxes

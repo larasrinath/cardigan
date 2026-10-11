@@ -22,7 +22,7 @@ import { analysedLine, notKeptNote } from "./keep-notes.js";
 import { ResultKeeper } from "./keep-result.js";
 import { ElapsedTimer, pixelGridHtml, SpinnerWords } from "./pixel-loader.js";
 import {
-  cardDrawerHtml, cardDrawerSubHtml, colChooserHtml, colFilterHtml, filterMatches, filterOptionsHtml, filterStatusText, filterTickWords, headerMetaHtml, keptCopyHtml, MAP_FAILED,
+  cardDrawerHtml, cardDrawerSubHtml, colChooserHtml, colFilterHtml, FILTER_LISTED_MAX, filterMatches, filterOptionsHtml, filterStatusText, filterTickWords, headerMetaHtml, keptCopyHtml, MAP_FAILED,
   MAP_LABEL, mapHtml, MOON_ICON, navHtml, navItems, navMenuHtml,
   noteBannerHtml, NOT_REMOVED_LINE, objectDrawerHtml, objectDrawerSubHtml, opensHtml, overviewHtml, rangeFilterHtml, rowDrawerHtml, rowDrawerSubHtml, runBannerHtml, runHtml, runIconHtml,
   SUN_ICON, tableHtml, tableParts, type AboutLink, type KeptCopy, type Links, type NavEntry, type OpenButton, type TableView,
@@ -884,14 +884,18 @@ function showRun(runState: RunState): void {
     }
     set("#runTitle", text.title);
     set("#runStatus", text.message);
+    const reading = runState.phase === "running" || runState.phase === "connecting";
+    find("#runStatus")?.classList.toggle("sr-only", reading);
+    const wordRow = find(".run-word-row");
+    if (wordRow) wordRow.title = text.message;
     set("#runHint", text.hint);
     const icon = find("#runIcon");
     if (icon && icon.dataset.phase !== runState.phase) {
       icon.innerHTML = runIconHtml(runState.phase);
-      icon.hidden = runState.phase === "running" || runState.phase === "connecting";
+      icon.hidden = reading;
       icon.dataset.phase = runState.phase;
     }
-    find("#runCard")?.classList.toggle("reading", runState.phase === "running" || runState.phase === "connecting");
+    find("#runCard")?.classList.toggle("reading", reading);
   }
   // The one control that refreshes the Anaplan tab, there only while the tab still holds the reader of an earlier build.
   const refresh = runState.phase === "old-reader" || runState.phase === "missing-reader";
@@ -972,8 +976,8 @@ function openPopover(owner: string, anchor: Element, name: string, html: string)
   });
 }
 /** Opens a column's filter. Its values are read from the table's rows now, when it opens, and not before: each text of the
- * column, or each item of a column whose cells list items. A filter of many values has a box that finds them: the list
- * shows what it finds, and its two buttons tick or untick all of that, listed or not. */
+ * column, or each item of a column whose cells list items. Every value-list filter has a box that finds them: the list
+ * shows what it finds, and the checkbox inside the box ticks or unticks all of that, listed or not. */
 function openColFilter(entry: Shown, column: Column, owner: string, anchor: Element): void {
   if (column.range) return openRangeFilter(entry, column, owner, anchor);
   const items = entry.lists.get(column.index);
@@ -1000,31 +1004,49 @@ function openColFilter(entry: Shown, column: Column, owner: string, anchor: Elem
     entry.page = 0;
     updateTable(entry);
   };
-  /** Lists what the box finds, ticked as the filter has it now, and says how many it finds and what the buttons do. */
+  const toggle = popover.querySelector<HTMLInputElement>("[data-ftoggle]")!;
+  /** Refreshes the native checkbox and its spoken state without replacing the focused control. */
+  const syncToggle = () => {
+    const selected = entry.filters.get(column.index);
+    const checked = matches.length > 0 && matches.every(index => !selected || selected.has(values[index][0]));
+    const mixed = !checked && matches.some(index => !selected || selected.has(values[index][0]));
+    const action = filterTickWords(find)[checked ? 1 : 0];
+    toggle.checked = checked;
+    toggle.indeterminate = mixed;
+    toggle.disabled = matches.length === 0;
+    toggle.setAttribute("aria-checked", mixed ? "mixed" : String(checked));
+    toggle.setAttribute("aria-label", action);
+    toggle.title = action;
+    if (toggle.parentElement) toggle.parentElement.title = action;
+  };
+  syncToggle();
+  /** Lists what the box finds, announces the count and shows a note only when the list is cut short. */
   const relist = () => {
     const list = popover.querySelector(".pop-bd");
     if (list) list.innerHTML = filterOptionsHtml(column, values, matches, entry.filters.get(column.index));
     const status = popover.querySelector("[data-fstatus]");
     if (status) status.textContent = filterStatusText(values, matches, find);
-    const words = filterTickWords(find);
-    popover.querySelectorAll<HTMLElement>('[data-popact="tick"], [data-popact="untick"]').forEach((button, at) => { button.textContent = words[at]; });
+    const limit = popover.querySelector<HTMLElement>("[data-flimit]");
+    if (limit) limit.hidden = matches.length <= FILTER_LISTED_MAX;
+    syncToggle();
   };
   // The list's boxes are written again as the box finds other values: the list itself hears each box that changes.
   popover.querySelector(".pop-bd")?.addEventListener("change", event => {
     const input = event.target;
-    if (input instanceof HTMLInputElement && input.dataset.fval !== undefined) choose([Number(input.dataset.fval)], input.checked);
+    if (input instanceof HTMLInputElement && input.dataset.fval !== undefined) {
+      choose([Number(input.dataset.fval)], input.checked);
+      syncToggle();
+    }
   });
   popover.querySelector<HTMLInputElement>("[data-ffind]")?.addEventListener("input", event => {
     find = (event.target as HTMLInputElement).value;
     matches = filterMatches(column, values, find);
     relist();
   });
-  for (const ticked of [true, false]) {
-    popover.querySelector(`[data-popact="${ticked ? "tick" : "untick"}"]`)?.addEventListener("click", () => {
-      choose(matches, ticked);
-      relist();
-    });
-  }
+  toggle.addEventListener("change", () => {
+    choose(matches, toggle.checked);
+    relist();
+  });
   popover.querySelector('[data-popact="all"]')?.addEventListener("click", () => {
     entry.filters.delete(column.index);
     entry.page = 0;

@@ -21,7 +21,7 @@ describe("Why the automatic grouping was chosen", () => {
     const model = indexModel({ ...make.graph(), moduleFacts: { functionalAreas: true, moduleUsage: true } });
     const words = new Map(groupingsOf(model).map(grouping => [grouping.kind, howGroupingWorks(grouping, model)]));
     expect(words.get("functionalArea")).toBe("Each module is in the Functional Area set for it in the model. Modules without one are under No functional area.");
-    expect(words.get("headings")).toBe("Each module is under the model heading above it, a module whose name starts with --. Modules with no heading above them are under Ungrouped.");
+    expect(words.get("headings")).toBe("Each module is under the model heading above it, a module whose name starts with --, ==, **, << or >>. Modules with no heading above them are under Ungrouped.");
     expect(words.get("prefix")).toBe("Modules whose names start with the same code, like SYS, PRM, DAT, form a group when 3 or more share it. The rest are under Other.");
     expect(words.get("role")).toBe("Each module gets a role from how the model uses it, never from its name: Data (an import loads it), Input (people type into it), System (settings other modules read), Calculation (formulas other modules read) or Output (results, or an export takes it). Select a module to see why it has its role.");
     expect(words.get("app")).toBe("Each module is in the app whose pages use it, from Module Usage. Modules on pages of several apps are under Several apps, and those on none under Not on any page.");
