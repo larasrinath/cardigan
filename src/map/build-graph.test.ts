@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PAGE_FILTERS_HEADERS } from "../model-pages.js";
+import { MISSING_LINE_ITEMS_MODULE, missingText } from "../page-files.js";
 import { HEADERS } from "../report.js";
 import type { Cell, ResultTable } from "../result-types.js";
 import { areaCheckLine, buildModelGraph, pageFilterCheckLine } from "./build-graph.js";
@@ -489,6 +490,33 @@ describe("The model map's graph, from the tables of a model export", () => {
     expect(pageFilterCheckLine({ rows: 7, found: 0, own: 0, other: 0, nowhere: 0, unnamed: 0, notFound: 7, missing }))
       .toBe("Page filters: 7 rows; 0 with the condition line item on the map; 7 with a line item the map does not have: Module 1 · Line 1; Module 2 · Line 2; Module 3 · Line 3; "
         + "Module 4 · Line 4; Module 5 · Line 5; and 2 more.");
+  });
+
+  it("leaves out of the map what a page points at and the model doesn't have: no box, no link, no app, and the log names it once", () => {
+    const tables = [lineItems(moduleRow("REV01 Revenue"), item("REV01 Revenue", "Revenue"), item("REV01 Revenue", "Show?"))];
+    // The rows a run writes for such things (model-pages.ts): a filter by a line item the model doesn't have, of a module
+    // it doesn't have; a filter by a line item of the map on such a module; and one on the line item's own module.
+    const [GONE, GONE_ITEM] = [missingText("module", "102000000556"), missingText("line item", "1916000000014")];
+    const row = (card: number, cells: Record<string, Cell>): Cell[] => PAGE_FILTERS_HEADERS.map(header =>
+      ({ App: "Data Hub", Page: "Admin", "Card #": card, ...cells } as Record<string, Cell>)[header] ?? "-");
+    const filters = file("Page Filters", [...PAGE_FILTERS_HEADERS], [
+      row(1, { "Condition line item's module": MISSING_LINE_ITEMS_MODULE, "Condition line item": GONE_ITEM, "Filtered module": GONE, "Filtered dimension": "Products" }),
+      row(2, { "Condition line item's module": "REV01 Revenue", "Condition line item": "Show?", "Filtered module": GONE }),
+      row(3, { "Condition line item's module": "REV01 Revenue", "Condition line item": "Show?", "Filtered module": "REV01 Revenue" })]);
+    const usage = file("Module Usage", ["Module", "App", "Page", "Page type", "App ID", "Page ID"], [["REV01 Revenue", "Data Hub", "Admin", "Board", "a", "p"],
+      [GONE, "Data Hub", "Admin", "Board", "a", "p"]]);
+    const graph = buildModelGraph([...tables, filters, usage]);
+    const plain = buildModelGraph(tables);
+    const nodeId = (name: string): number => graph.nodes.find(node => node.name === name)!.id;
+    const [rev, show] = [nodeId("REV01 Revenue"), nodeId("Show?")];
+    // No box for what the model doesn't have, and no link to one: the filter on a missing module filters no module of the map.
+    expect([graph.nodes.map(node => node.name), graph.edges.filter(([, , kind]) => kind === "page_filter")]).toEqual([plain.nodes.map(node => node.name), []]);
+    expect(graph.nodes[show].pageFilters).toEqual([{ app: "Data Hub", page: "Admin", card: "2" }, { app: "Data Hub", page: "Admin", card: "3", modules: [rev] }]);
+    // The line item the model doesn't have is one the map does not have, named once in the run's log.
+    expect(graph.pageFilterCheck).toEqual({ rows: 3, found: 2, own: 1, other: 0, nowhere: 1, unnamed: 0, notFound: 1, missing: [`${MISSING_LINE_ITEMS_MODULE} · ${GONE_ITEM}`] });
+    expect(indexModel(graph).ownFiltersOf(rev)).toBe(1);
+    // Module Usage gives the model's module its app, and the module the model doesn't have nothing.
+    expect(graph.nodes.filter(node => node.kind === "module").map(node => [node.name, node.apps])).toEqual([["REV01 Revenue", ["Data Hub"]]]);
   });
 
   it("gives each module its Functional Area from Modules and its apps from Module Usage, and says which of the two the result has", () => {
