@@ -137,7 +137,7 @@ describe("The results page's escaping", () => {
       navHtml([{ id: "overview", label: "Overview" }, { id: "1", label: QUOTED, file: QUOTED }], "1"),
       overviewHtml({ tiles: [{ label: QUOTED, count: 1 }], notes: [QUOTED], about: [[QUOTED, QUOTED]], files: [[QUOTED, QUOTED]], howToRead: [[QUOTED, QUOTED]], log: [QUOTED] }),
       tableHtml(viewOf({ file: "Pages.csv", label: QUOTED, headers: ["Page", QUOTED], rows: [[QUOTED, QUOTED]], guard: true }, LINKS, { search: QUOTED, context: QUOTED })),
-      rowDrawerSubHtml(41, QUOTED),
+      rowDrawerSubHtml(QUOTED),
       cardDrawerSubHtml(QUOTED, QUOTED, QUOTED),
     ];
     for (const html of pieces) {
@@ -393,16 +393,16 @@ describe("The results page's escaping", () => {
     const row: Cell[] = [text, text, text, text, text, "", "-"];
     for (const html of [rowDrawerHtml(columns, row, LINKS), rowDrawerHtml(columns, row, NO_LINKS), cardDrawerHtml(columns, row, LINKS, [])]) {
       const values = parseMarkup(html).querySelectorAll(".d-dl dd");
-      expect(parseMarkup(html).querySelectorAll(".d-dl dt").map(name => name.textContent)).toEqual(["Formula", "Type", "Page", "Card title", "Card ID", "Empty", "None"]);
+      expect(parseMarkup(html).querySelectorAll(".d-dl dt").map(name => name.textContent)).toEqual(["Formula", "Type", "Page", "Card title", "Empty", "None", "Card ID"]);
       // Every cell's own text, to the character, whatever its column's kind; an empty cell stays empty.
-      expect(values.map(value => value.textContent)).toEqual([text, text, text, text, text, "", "-"]);
+      expect(values.map(value => value.textContent)).toEqual([text, text, text, text, "", "-", text]);
       // The text of a value stands in a cell-t or, for an ID, in its pill, and in nothing else: the dd holds no other text.
-      for (const value of values.slice(0, 5)) {
+      for (const value of [...values.slice(0, 4), values[6]]) {
         const holders = value.querySelectorAll(".cell-t, .id-pill");
         expect(holders.map(holder => holder.textContent)).toEqual([text]);
         expect(value.childNodes.filter(node => node.nodeType === 3)).toEqual([]);
       }
-      expect(values[4].querySelectorAll(".id-pill").map(pill => pill.dataset.copy)).toEqual([text]);
+      expect(values[6].querySelectorAll(".id-pill").map(pill => pill.dataset.copy)).toEqual([text]);
     }
     // A tag stays a tag and a link a link, in the drawer as in the table; only the table leaves the cell-t out of them.
     const kinds = (html: string) => parseMarkup(html).querySelectorAll(".tag, .link").map(element => [element.classList.contains("tag") ? "tag" : element.dataset.act, element.querySelectorAll(".cell-t").length]);
@@ -506,11 +506,11 @@ describe("The results page's escaping", () => {
     }
     // The line under a row's name says which row of which table, and is nothing but text whatever the table's name holds.
     for (const [index, name] of HOSTILE.entries()) {
-      expectInert(text => rowDrawerSubHtml(41, text(index)), 0);
-      expect(readMarkup(rowDrawerSubHtml(41, name)).tags).toEqual([]);
-      expect(shownValues(rowDrawerSubHtml(41, name))).toEqual([`Row 41 of ${name}`]);
+      expectInert(text => rowDrawerSubHtml(text(index)), 0);
+      expect(readMarkup(rowDrawerSubHtml(name)).tags).toEqual([]);
+      expect(shownValues(rowDrawerSubHtml(name))).toEqual([`${name}`]);
     }
-    expect(rowDrawerSubHtml(3, "Line Items")).toBe("Row 3 of Line Items");
+    expect(rowDrawerSubHtml("Line Items")).toBe("Line Items");
     expectInert(text => cardDrawerSubHtml(text(0), text(1), text(2)), 3);
     // The line about a card whose parts are left out names the card's page: it is text as well, with each of the texts in turn.
     expectInertInTurn(text => cardDrawerSubHtml(text(0), text(1), text(2), `2 cards on pages named "${text(3)}" have this number and this ID.`), 4);
@@ -782,7 +782,7 @@ describe("A result whose every text is hostile, through every view of the page",
       for (const entry of columns.filter(candidate => candidate.filter)) {
         pieces.push(entry.range ? rangeFilterHtml(entry, rangeColumn(table.rows, entry.index, entry.range, entry.none), undefined) : colFilterHtml(entry, valueCounts(table.rows, entry.index), undefined));
       }
-      pieces.push(rowDrawerSubHtml(1, table.label));
+      pieces.push(rowDrawerSubHtml(table.label));
       // As the page opens a row: each cell that lists several items listed one to a line (cell-lists.ts).
       const lists = cellLists(result, table);
       for (const row of table.rows) pieces.push(rowDrawerHtml(columns, row, links, undefined, rowItems(lists, row)));

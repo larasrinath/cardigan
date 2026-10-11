@@ -334,20 +334,19 @@ function takeBackLooks(): void {
 
 /** Opens the kept details: a row by its identity, a card, or an object of Where Used by object. Where that identity is
  * no longer there, or belongs to more than one row, nothing opens. */
-function reopenDrawer(drawer: KeptDrawer): void {
-  const opener = el("view");
+function reopenDrawer(drawer: KeptDrawer, opener: Element = el("view"), trackHistory = true): void {
   const tables = everyTable();
   if (drawer.kind === "object") {
     const view = tables.find(entry => entry.objects)?.objects;
     const found = view?.objects.filter(object => objectKey(object) === drawer.key) ?? [];
-    if (view && found.length === 1) openObjectDrawer(view, found[0], opener);
+    if (view && found.length === 1) openObjectDrawer(view, found[0], opener, trackHistory);
     return;
   }
   const entry = tables.find(candidate => !candidate.objects && candidate.table.file === drawer.file);
   const row = entry && findShownRow(entry, drawer.key);
   if (!entry || !row) return;
-  if (drawer.kind === "card") openCardDrawer(row, opener);
-  else openRowDrawer(entry, row, opener);
+  if (drawer.kind === "card") openCardDrawer(row, opener, trackHistory);
+  else openRowDrawer(entry, row, opener, trackHistory);
 }
 
 /* ================= header / theme ================= */
@@ -393,8 +392,7 @@ function setTimeMode(mode: TimeMode): void {
 /** Says every time on the page again in the zone chosen: each table with a column of times, from the file's own table,
  * and the overview's time. What the user chose of each table stays as it was: its filters, ranges,
  * hidden columns, order and page, each by the column's place, which a zone does not move. A range of days keeps the rows
- * it kept, in the zone its days were set in. A filter's popover closes; the details cannot be open, as the switch is
- * behind them. */
+ * it kept, in the zone its days were set in. The open details follow the chosen zone too. */
 function retime(): void {
   if (!result) return;
   closePopover();
@@ -412,6 +410,11 @@ function retime(): void {
     entry.widths = undefined;
   }
   renderAll();
+  if (drawerLooks) {
+    const focused = document.activeElement;
+    reopenDrawer(drawerLooks, el("drawerBack"), false);
+    if (focused instanceof HTMLElement && document.contains(focused)) focused.focus();
+  }
 }
 /** What a range's filter says of the zone of its column's times, for a column of times, where its days were set in the
  * other zone also that: they keep the same rows in either. Nothing for any other column. */
@@ -450,7 +453,7 @@ function showRunLabel(button: HTMLElement): void {
 /** The run control follows what there is to act on. */
 function updateActions(): void {
   const phase = client.state.phase;
-  for (const id of ["runAgain", "drawerRun"] as const) {
+  for (const id of ["runAgain"] as const) {
     const button = el<HTMLButtonElement>(id);
     button.disabled = phase === "running" || phase === "no-tab";
     showRunLabel(button);
@@ -1053,11 +1056,26 @@ function openColChooser(entry: Shown, anchor: Element): void {
 /* ================= drawer ================= */
 /** Hides the drawer once it has slid out. Opening it again first calls this off, so a drawer is never hidden while open. */
 let drawerTimer: ReturnType<typeof setTimeout> | undefined;
-/** What lies behind the open drawer: the link that skips to the results, the header, the navigation, the banner area and
- * the shell. The drawer says it is modal, so while it is open these are inert: the Tab key stays in the drawer, and a
- * screen reader does not read on into the page behind it. */
-function setBehindDrawer(inert: boolean): void {
-  for (const part of [find(".skip"), find(".hd"), el("topnav"), el("banners"), find(".shell")]) if (part) part.inert = inert;
+/** Only links within the panel build history. Choosing a row in the table starts again. */
+const drawerHistory: KeptDrawer[] = [];
+let drawerOrigin: KeptDrawer | undefined;
+/** The opening row may have been redrawn by sorting, filtering or changing time zones. */
+function drawerRowOpener(kept: KeptDrawer | undefined): HTMLElement | undefined {
+  const entry = currentEntry();
+  if (!entry || !kept || kept.kind === "object" || kept.file !== entry.table.file) return undefined;
+  const row = findShownRow(entry, kept.key);
+  const index = row ? currentSlice.indexOf(row) : -1;
+  return index < 0 ? undefined : document.querySelectorAll<HTMLElement>('#tableWrap tbody [data-act="row"]')[index];
+}
+function visitDrawer(opener: Element, trackHistory: boolean): void {
+  if (!trackHistory) return;
+  if (el("drawer").contains(opener) && drawerLooks) drawerHistory.push(drawerLooks);
+  else drawerHistory.length = 0;
+}
+/** The panel always starts below the whole header, including navigation when it wraps. */
+function placeDrawer(): void {
+  const top = find(".top");
+  if (top) el("drawer").style.top = `${top.getBoundingClientRect().bottom}px`;
 }
 /** Shows the drawer. The title is a text and is set as one; the line under it and the body are markup.ts' markup. What
  * the focus goes back to afterwards is what opened the drawer from the page: a link inside the drawer that opens another
@@ -1065,10 +1083,14 @@ function setBehindDrawer(inert: boolean): void {
 function openDrawer(title: string, subHtml: string, bodyHtml: string, opener?: Element | null): void {
   clearTimeout(drawerTimer);
   const from = opener ?? document.activeElement;
-  if (!el("drawer").contains(from)) state.lastFocus = from;
+  if (!el("drawer").contains(from)) {
+    drawerOrigin = drawerLooks;
+    state.lastFocus = from === el("view") ? drawerRowOpener(drawerLooks) ?? from : from;
+  }
   el("drawerTitle").textContent = title;
   el("drawerSub").innerHTML = subHtml;
   el("drawerBody").innerHTML = bodyHtml;
+  el("drawerBack").hidden = drawerHistory.length === 0;
   // Where the row leads, in one row under its name: its box on the map, its module, its app and its page, as far as each
   // is known; and under the header, why a way to open it that the result keeps from every row is not there.
   const { opens, why } = drawerRow ? opensOf(drawerRow.entry, drawerRow.row) : { opens: [], why: undefined };
@@ -1078,13 +1100,11 @@ function openDrawer(title: string, subHtml: string, bodyHtml: string, opener?: E
   el("drawerWhy").textContent = why ?? "";
   el("drawerWhy").hidden = why === undefined;
   const drawer = el("drawer");
-  const scrim = el("scrim");
   drawer.hidden = false;
-  scrim.hidden = false;
-  setBehindDrawer(true);
+  placeDrawer();
+  document.body.classList.add("details-open");
   requestAnimationFrame(() => {
     drawer.classList.add("show");
-    scrim.classList.add("show");
   });
   el("drawerClose").focus();
   el("drawerBody").scrollTop = 0;
@@ -1092,18 +1112,17 @@ function openDrawer(title: string, subHtml: string, bodyHtml: string, opener?: E
 }
 function closeDrawer(): void {
   const drawer = el("drawer");
-  const scrim = el("scrim");
   drawer.classList.remove("show");
-  scrim.classList.remove("show");
+  document.body.classList.remove("details-open");
   clearTimeout(drawerTimer);
   drawerTimer = setTimeout(() => {
     drawer.hidden = true;
-    scrim.hidden = true;
   }, 210);
-  // The page behind takes part again before the focus goes back into it.
-  setBehindDrawer(false);
   if (state.lastFocus instanceof HTMLElement && document.contains(state.lastFocus)) state.lastFocus.focus();
+  else if (drawerLooks) (drawerRowOpener(drawerOrigin) ?? el("view")).focus();
   state.lastFocus = null;
+  drawerOrigin = undefined;
+  drawerHistory.length = 0;
   if (drawerLooks) {
     drawerLooks = undefined;
     rememberLooks();
@@ -1113,12 +1132,13 @@ function closeDrawer(): void {
  * rows open from, where the file's rule names one, and else columns.ts `ROW_NAME_COLUMNS`), or, where the page knows no
  * such column or the cell says nothing, the first cell that does. A cell says nothing when it is empty, and in one of the
  * app's files when it is the dash the analysis writes for nothing to say (columns.ts `writesNone`): in a model's file
- * that dash is Anaplan's text, which names a row like any other. The line under the heading says which row of which
- * table it is, by its place among the rows the table lists, which a search, a filter or a sort does not change. A row of
- * a model's Imports for an import from a file ends with the import's mapping (import-mapping-view.ts). */
-function openRowDrawer(entry: Shown, row: Row, opener: Element): void {
+ * that dash is Anaplan's text, which names a row like any other. The line under the heading names the
+ * table it belongs to. An import's Mapping, a process's Actions, or a source model's Sources and Imports stand before
+ * All columns, with raw values folded afterwards. */
+function openRowDrawer(entry: Shown, row: Row, opener: Element, trackHistory = true): void {
   const object = entry.objects && objectOf(entry.objects, row);
-  if (entry.objects && object) return openObjectDrawer(entry.objects, object, opener);
+  if (entry.objects && object) return openObjectDrawer(entry.objects, object, opener, trackHistory);
+  visitDrawer(opener, trackHistory);
   drawerObject = undefined;
   drawerRow = { entry, row };
   // Its identity ignores edited values and the zone its times are shown in.
@@ -1135,8 +1155,9 @@ function openRowDrawer(entry: Shown, row: Row, opener: Element): void {
   const opens = itemOpens(entry, row, items);
   const source = sourceModelOfRow(result, entry.table, row);
   if (!source) noteNoSources(entry.table, row);
-  openDrawer(name, rowDrawerSubHtml(position, tableLabel(entry.table)),
-    rowDrawerHtml(entry.columns, row, entry.links, entry.exported?.get(row), items, entry.readUnder, mappingOfRow(result, entry.table, row),
+  const columns = entry.columns.map(column => ({ ...column, hidden: entry.hidden.has(column.index) }));
+  openDrawer(name, rowDrawerSubHtml(tableLabel(entry.table)),
+    rowDrawerHtml(columns, row, entry.links, entry.exported?.get(row), items, entry.readUnder, mappingOfRow(result, entry.table, row),
       process && { view: process, opens: drawerSteps.map(Boolean) }, { mode: timeMode, zone: ownZone }, opens, source && sourceOpens(source)), opener);
 }
 /** What a source model's details link to: each of its objects, its own row of Import Data Sources, by its place there,
@@ -1198,12 +1219,12 @@ document.addEventListener("beforematch", event => {
   const control = rest?.parentElement?.querySelector(".cell-more");
   if (control) showRest(control, true);
 }, true);
-/** The rows the listed items of a row name (item-links.ts), each kept in `drawerItems` and named in its link by its place
+/** The rows the single values and listed items of a row name (item-links.ts), each kept in `drawerItems` and named in its link by its place
  * there: by the column's place, and in it the item's. A model's tables only: an app's items name no row. */
 function itemOpens(entry: Shown, row: Row, items: ReadonlyMap<number, readonly string[]>): ReadonlyMap<number, readonly (number | undefined)[]> {
   drawerItems = [];
   const opens = new Map<number, (number | undefined)[]>();
-  if (result?.kind !== "model" || !items.size) return opens;
+  if (result?.kind !== "model") return opens;
   const byFile = new Map<string, Shown>();
   const tables = new Map<string, NamedRows>();
   for (const candidate of shown.values()) {
@@ -1212,7 +1233,8 @@ function itemOpens(entry: Shown, row: Row, items: ReadonlyMap<number, readonly s
     const module = columnIndex(candidate.table, MODULE_NAME);
     tables.set(candidate.table.file, { table: candidate.table, name: candidate.opensFrom ?? rowNameIndex(candidate.table) ?? 0, ...(module === undefined ? {} : { module }) });
   }
-  for (const [index, list] of items) {
+  for (const { index } of entry.columns) {
+    const list = items.get(index) ?? [cellText(row[index])];
     opens.set(index, itemRows(entry.table, cellText(entry.table.headers[index]), list, row, tables).map(found => {
       const to = found && byFile.get(found.file);
       if (!found || !to) return undefined;
@@ -1237,7 +1259,8 @@ const useLinks = (): Links => ({ page: cards !== undefined, card: cards !== unde
 /** An object of Where Used by object: headed by its name, with what it is and where it is used under it, then its roles
  * and its uses. A page among its uses jumps to that page's cards, and a card's number opens the card. The object comes
  * from the app's Where Used file, so the dash the analysis writes for nothing to say is no name for it. */
-function openObjectDrawer(view: WhereUsedView, object: WhereUsedObject, opener: Element): void {
+function openObjectDrawer(view: WhereUsedView, object: WhereUsedObject, opener: Element, trackHistory = true): void {
+  visitDrawer(opener, trackHistory);
   drawerRow = undefined;
   drawerObject = { view, object, all: false };
   drawerLooks = { kind: "object", key: objectKey(object) };
@@ -1262,7 +1285,7 @@ function openCard(found: readonly Row[], opener: Element): void {
 }
 /** A card, by its row of the Cards file: that row, and the card's parts from the other files (result-view.ts
  * `cardParts`). Under the card's page, a line says so where its parts cannot be told from another card's. */
-function openCardDrawer(row: Row, opener: Element): void {
+function openCardDrawer(row: Row, opener: Element, trackHistory = true): void {
   const found = cards;
   const entry = found && shown.get(found.index);
   if (!result || !found || !entry) return;
@@ -1272,6 +1295,7 @@ function openCardDrawer(row: Row, opener: Element): void {
   };
   const title = cell("Card title");
   const { sections, note } = cardParts(result, found, row);
+  visitDrawer(opener, trackHistory);
   drawerObject = undefined;
   drawerRow = { entry, row };
   drawerLooks = { kind: "card", file: entry.table.file, key: rowKey(row, entry.table, identityName(entry)) };
@@ -1425,7 +1449,8 @@ function opensOf(entry: Shown, row: Row): { opens: Open[]; why: string | undefin
     return at === undefined ? "" : cellText(row[at]).trim();
   };
   const node = mapNodeOf(entry, row);
-  if (node !== undefined) opens.push({ kind: "map", node, label: "Model map", title: `Show ${cellText(row[0]).trim()} on the Model map` });
+  if (node !== undefined) opens.push({ kind: "map", node, label: "Model map",
+    title: `Show ${modelGraph?.nodes.find(each => each.id === node)?.name ?? cellText(row[0]).trim()} on the Model map` });
   /** The kinds of what the row names Missing where a Model button would open it. */
   const gone = new Set<MissingKind>();
   /** Whether a name is of something the model doesn't have, which is then noted in `gone`. */
@@ -1724,13 +1749,14 @@ function graphFor(model: AnalysisResult): ModelGraph {
   return modelGraph;
 }
 
-/** The map's box for a row of a model's Line Items, Modules, Module Usage or General Lists: the line item in its module, the
+/** The map's box for a row of a model's Line Items, Modules, Module Usage, General Lists, DCA or Page Filters: the line item in its module, the
  * module or the list, by their names. A module's own row of Line Items is its module's. None for any other row, for a row
  * the map does not draw (a heading, a line item that names no module, a module or a list the model does not have), and
  * where the map cannot be drawn. */
 function mapNodeOf(entry: Shown, row: Row): number | undefined {
   const file = entry.table.file;
-  if (result?.kind !== "model" || result.engine === "polaris" || modelMap === "failed" || (file !== LINE_ITEMS_FILE && file !== MODULES_FILE && file !== MODULE_USAGE_FILE && file !== LISTS_FILE)) {
+  if (result?.kind !== "model" || result.engine === "polaris" || modelMap === "failed"
+    || ![LINE_ITEMS_FILE, MODULES_FILE, MODULE_USAGE_FILE, LISTS_FILE, "Dynamic Cell Access.csv", PAGE_FILTERS_FILE].includes(file)) {
     return undefined;
   }
   let graph: ModelGraph;
@@ -1740,12 +1766,21 @@ function mapNodeOf(entry: Shown, row: Row): number | undefined {
     return undefined;
   }
   const name = cellText(row[0]).trim();
+  const lineItem = (module: string, name: string): number | undefined => graph.nodes.find(node => node.kind === "lineItem" && node.name.trim() === name
+    && node.module !== undefined && graph.nodes[node.module]?.name.trim() === module)?.id;
+  if (file === "Dynamic Cell Access.csv" || file === PAGE_FILTERS_FILE) {
+    const cell = (header: string): string => {
+      const at = columnIndex(entry.table, header);
+      return at === undefined ? "" : cellText(row[at]).trim();
+    };
+    return file === PAGE_FILTERS_FILE ? lineItem(cell("Condition line item's module"), cell("Condition line item"))
+      : lineItem(cell("Driver Module"), cell("Driver Line Item")) ?? lineItem(cell("Controlled Module"), cell("Controlled Line Item"));
+  }
   if (file === LISTS_FILE) return graph.nodes.find(node => node.kind === "list" && node.name.trim() === name)?.id;
   if (file !== LINE_ITEMS_FILE || entry.headings?.has(row)) return graph.nodes.find(node => node.kind === "module" && node.name.trim() === name)?.id;
   const at = columnIndex(entry.table, MODULE_NAME);
   const module = at === undefined ? "" : cellText(row[at]).trim();
-  return graph.nodes.find(node => node.kind === "lineItem" && node.name.trim() === name && node.module !== undefined
-    && graph.nodes[node.module]?.name.trim() === module)?.id;
+  return lineItem(module, name);
 }
 
 /** A line for the run's log about a call into the map that threw: which call, and the error's own words. */
@@ -2223,7 +2258,7 @@ document.addEventListener("change", event => {
 });
 document.addEventListener("keydown", event => {
   // While the focus is inside the map, a key is the map's: the page's own shortcuts leave it alone.
-  if (el("mapHost").contains(document.activeElement)) return;
+  if (el("mapHost").contains(document.activeElement) && !el("drawer").classList.contains("show")) return;
   if (event.key === "Escape") {
     if (closeNavMenus(null, true)) return;
     if (!el("popover").hidden) closePopover(true);
@@ -2240,15 +2275,20 @@ document.addEventListener("focusin", event => {
   if (event.target instanceof Element) closeNavMenus(event.target.closest("#topnav .nav-group"));
 });
 el("drawerClose").addEventListener("click", closeDrawer);
-// A click beside the drawer, on the scrim, closes it: the scrim is the drawer's alone.
-el("scrim").addEventListener("click", closeDrawer);
+el("drawerBack").addEventListener("click", () => {
+  const previous = drawerHistory.pop();
+  if (previous) reopenDrawer(previous, el("drawerBack"), false);
+});
 el("themeToggle").addEventListener("click", toggleTheme);
 el("timeZone").addEventListener("click", () => setTimeMode(timeMode === "local" ? "utc" : "local"));
 el("runAgain").addEventListener("click", () => client.runAgain());
-el("drawerRun").addEventListener("click", () => client.runAgain());
 // The navigation's line is told again how wide its items are whenever it changes size, as when a window that was too narrow
 // for it widens: it is measured only where it is laid out (nav-spread.ts).
 if (typeof ResizeObserver === "function") new ResizeObserver(() => spreadLine(el("navList"))).observe(el("navList"));
+if (typeof ResizeObserver === "function") {
+  const top = find(".top");
+  if (top) new ResizeObserver(placeDrawer).observe(top);
+}
 window.matchMedia?.("(prefers-color-scheme: dark)").addEventListener("change", event => {
   let stored: string | null = null;
   try { stored = localStorage.getItem("cardigan-theme"); } catch { /* no storage: follow the system */ }

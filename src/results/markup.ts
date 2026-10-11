@@ -910,15 +910,13 @@ const itemsHtml = (items: Items, colours = false, opens?: readonly (number | und
 
 /** A row whole: every one of its cells, also those beyond the table's headers, each with its value in full. Nothing but
  * the value stands in a `dd`, so no space of the markup's own is kept with it. `exported` has, for each cell the table
- * says in words, the text that was read in its place, by the column's place: that text follows the words, under the
- * column's name and "as read", so that it is clear which of the two is which. Where the column is no column of the file,
- * `readUnder` has the name of the file's column the text was read from, by the column's place, and the text is named by
- * that name instead (result-view.ts `FileView`). `items` has, for each cell that lists several items (cell-lists.ts), those
+ * says in words, the text that was read in its place, by the column's place, for times shown in both zones.
+ * `items` has, for each cell that lists several items (cell-lists.ts), those
  * items, by the column's place: the cell is listed one item to a line. Only a column of plain text or of colour stops is
  * listed so, the colour stops each with its square: an ID, a tag and a link stay what they are. */
 const allColumns = (columns: readonly Column[], row: Row, links: Links, exported?: ReadonlyMap<number, unknown>, items?: ReadonlyMap<number, Items>,
-  readUnder?: ReadonlyMap<number, string>, times?: DrawerTimes, opens?: ReadonlyMap<number, readonly (number | undefined)[]>): string =>
-  `<dl class="d-dl">${rowColumns(columns, row).map(column => {
+  times?: DrawerTimes, opens?: ReadonlyMap<number, readonly (number | undefined)[]>, omitted: ReadonlySet<string> = new Set()): string =>
+  `<dl class="d-dl">${rowColumns(columns, row).filter(column => !omitted.has(column.label)).sort((a, b) => Number(a.hidden) - Number(b.hidden)).map(column => {
     // A time is said in both zones, the one the page shows first: the UTC text that was read stands in it.
     const kind = times && timesOf(column.label, times.zone);
     const read = kind === "local" ? cellText(exported?.get(column.index) ?? row[column.index]) : kind === "utc" ? cellText(row[column.index]) : undefined;
@@ -926,12 +924,21 @@ const allColumns = (columns: readonly Column[], row: Row, links: Links, exported
     if (both !== undefined) return `<dt>${esc(column.label)}</dt><dd><span class="cell-t">${esc(both)}</span></dd>`;
     const listed = column.kind === "text" || column.kind === "colours" ? items?.get(column.index) : undefined;
     // A value that lists several items says how many beside its name, and lists them one to a line.
-    const shown = listed && listed.length > 1
+    const open = opens?.get(column.index)?.[0];
+    const single = open === undefined ? cellHtml(column, row, links, true)
+      : `<span class="cell-t"><button type="button" class="link" data-act="item" data-item="${open}">${esc(cellText(row[column.index]))}</button></span>`;
+    return listed && listed.length > 1
       ? `<dt>${esc(column.label)} <span class="d-count">(${listed.length})</span></dt><dd>${itemsHtml(listed, column.kind === "colours", opens?.get(column.index))}</dd>`
-      : `<dt>${esc(column.label)}</dt><dd>${cellHtml(column, row, links, true)}</dd>`;
-    return exported?.has(column.index)
-      ? `${shown}<dt>${esc(readUnder?.get(column.index) ?? column.label)} as read</dt><dd><span class="cell-t">${esc(exported.get(column.index))}</span></dd>` : shown;
+      : `<dt>${esc(column.label)}</dt><dd>${single}</dd>`;
   }).join("")}</dl>`;
+
+/** Raw values have one place after the readable columns, folded until requested. Times already show both zones. */
+function asReadHtml(columns: readonly Column[], exported?: ReadonlyMap<number, unknown>, readUnder?: ReadonlyMap<number, string>, times?: DrawerTimes): string {
+  const raw = columns.filter(column => exported?.has(column.index) && !(times && timesOf(column.label, times.zone)));
+  if (!raw.length) return "";
+  return `<details class="d-sec d-raw"><summary>As read</summary><dl class="d-dl">${raw.map(column =>
+    `<dt>${esc(readUnder?.get(column.index) ?? column.label)} as read</dt><dd><span class="cell-t">${esc(exported!.get(column.index))}</span></dd>`).join("")}</dl></details>`;
+}
 
 /** A line under a drawer's table, in the small, quiet type of the card drawer's own line for a part it has none of. */
 const drawerLine = (text: string): string => `<p style="font-size:12px;color:var(--text-3);margin:4px 0 0">${esc(text)}</p>`;
@@ -987,15 +994,18 @@ export function sourceModelHtml(model: SourceModelView, sources: readonly (numbe
  * for each cell that lists several items those items, one to a line, with how many there are beside the column's name
  * (`items`); an item that names a row the page can open is a link to that row's details (`itemOpens`, by the column's
  * place and the item's, item-links.ts). A cell of a column of times says its time
- * in both zones, the one the page shows first (`times`). A row of an import from a file has its mapping after the columns
- * (`mapping`), and a row of a process the actions it runs (`process`). A row of Source Models has what its source model
- * gives before the columns (`source`). */
+ * in both zones, the one the page shows first (`times`). Mapping, Actions, or Sources and Imports come first,
+ * followed by All columns without those repeated, then the folded raw values. */
 export function rowDrawerHtml(columns: readonly Column[], row: Row, links: Links, exported?: ReadonlyMap<number, unknown>, items?: ReadonlyMap<number, Items>,
   readUnder?: ReadonlyMap<number, string>, mapping?: MappingView, process?: { view: ProcessView; opens: readonly boolean[] }, times?: DrawerTimes,
   itemOpens?: ReadonlyMap<number, readonly (number | undefined)[]>,
   source?: { view: SourceModelView; sources: readonly (number | undefined)[]; imports: readonly (number | undefined)[] }): string {
-  return `${source ? sourceModelHtml(source.view, source.sources, source.imports) : ""}<div class="d-sec"><h3>All columns</h3>
-    ${allColumns(columns, row, links, exported, items, readUnder, times, itemOpens)}</div>${mapping ? importMappingHtml(mapping) : ""}${process ? processActionsHtml(process.view, process.opens) : ""}`;
+  const omitted = new Set<string>();
+  if (process) omitted.add("Actions");
+  if (source?.view.sources.length) omitted.add("Sources");
+  if (source?.view.imports.length) omitted.add("Imports");
+  return `${mapping ? importMappingHtml(mapping) : ""}${process ? processActionsHtml(process.view, process.opens) : ""}${source ? sourceModelHtml(source.view, source.sources, source.imports) : ""}<div class="d-sec"><h3>All columns</h3>
+    ${allColumns(columns, row, links, exported, items, times, itemOpens, omitted)}</div>${asReadHtml(columns, exported, readUnder, times)}`;
 }
 
 /** Which zone the page shows times in, and the viewer's own: a row's details say each time in both (times.ts). */
@@ -1025,9 +1035,9 @@ export function opensHtml(opens: readonly OpenButton[]): string {
     `<button type="button" class="btn primary sm" data-act="open" data-open="${index}" title="${esc(open.title)}">${OPEN_ICONS[open.kind]}<span>${esc(open.label)}</span></button>`).join("");
 }
 
-/** Under a row's name in the drawer: which row of which table it is. `position` is the row's place in the file, from 1. */
-export function rowDrawerSubHtml(position: number, label: string): string {
-  return `Row ${esc(position)} of ${esc(label)}`;
+/** The table's name under the row's own name. */
+export function rowDrawerSubHtml(label: string): string {
+  return esc(label);
 }
 
 /** Under a card's name in the drawer: its page (a jump to that page's cards), its type and its ID. `note` follows on a

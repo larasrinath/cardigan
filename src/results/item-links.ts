@@ -1,6 +1,8 @@
 import { splitOutside, unquote } from "../map/graph-names.js";
+import { missingIn, MISSING_LINE_ITEMS_MODULE, MODULE_USAGE_FILE, PAGE_ACTIONS_FILE, PAGE_FILTERS_FILE } from "../page-files.js";
 import type { ResultTable } from "../result-types.js";
 import type { Items } from "./cell-lists.js";
+import { columnIndex } from "./columns.js";
 import { LINE_ITEMS_FILE } from "./line-items-view.js";
 import { cellText, type Row } from "./table-engine.js";
 
@@ -80,22 +82,52 @@ const objectNamed: Resolver = (item, row, table, tables) => {
 /** A module's own line item, by its name alone: the row's module is the module the details are of. */
 const ownLineItem: Resolver = (item, row, _table, tables) => oneRow(tables, LINE_ITEMS_FILE, item, cellText(row[0]));
 
+const cell = (table: ResultTable, row: Row, header: string): string => {
+  const at = columnIndex(table, header);
+  return at === undefined ? "" : cellText(row[at]).trim();
+};
+/** These columns give the module separately; never resolve the same line item name in another module. */
+const lineItemIn = (header: string): Resolver => (item, row, table, tables) => {
+  const module = cell(table, row, header);
+  return module === "" ? undefined : oneRow(tables, LINE_ITEMS_FILE, item, module);
+};
+const targetObject: Resolver = (item, row, table, tables) => {
+  const type = cell(table, row, "Target Type").toLowerCase();
+  const files = type === "module" ? [MODULES_FILE] : type === "list" ? [LISTS_FILE] : [MODULES_FILE, LISTS_FILE];
+  const found = files.flatMap(file => rowsNamed(tables, file, unquote(item)));
+  return found.length === 1 ? found[0] : undefined;
+};
+/** Page buttons may run a process too. Their declared type disambiguates an import and an export of one name. */
+const pageAction: Resolver = (item, row, table, tables) => {
+  const type = cell(table, row, "Action type").toLowerCase();
+  const file = new Map([["import", IMPORTS_FILE], ["export", "Exports.csv"], ["process", PROCESSES_FILE]]).get(type);
+  const found = (file ? [file] : [...ACTION_FILES, PROCESSES_FILE]).flatMap(file => rowsNamed(tables, file, item));
+  return found.length === 1 ? found[0] : undefined;
+};
+
 /** File name -> header -> how its items name rows. A column that names nothing the page has rows of is not here: a list's
  * subsets and properties, the calendar's allowed values, and every column of an app's tables. */
 const RESOLVERS: ReadonlyMap<string, ReadonlyMap<string, Resolver>> = new Map(Object.entries({
   [MODULES_FILE]: { "Applies To": rowNamed(LISTS_FILE), "Referenced By": objectNamed, "Line Items": ownLineItem },
-  [LINE_ITEMS_FILE]: { "Applies To": rowNamed(LISTS_FILE), "Referenced By": objectNamed },
-  [LISTS_FILE]: { "Referenced in Applies To": objectNamed, "Referenced as Format": objectNamed, "Referenced in Formula": objectNamed },
+  [LINE_ITEMS_FILE]: { "Module Name": rowNamed(MODULES_FILE), "Applies To": rowNamed(LISTS_FILE), "Referenced By": objectNamed,
+    "Read Access Driver": objectNamed, "Write Access Driver": objectNamed, "Ratio Numerator": objectNamed, "Ratio Denominator": objectNamed, "Format List": rowNamed(LISTS_FILE) },
+  [LISTS_FILE]: { "Parent Hierarchy": rowNamed(LISTS_FILE), "Referenced in Applies To": objectNamed, "Referenced as Format": objectNamed, "Referenced in Formula": objectNamed },
   [PROCESSES_FILE]: { Actions: actionNamed },
-  [IMPORTS_FILE]: { "Used in Processes": rowNamed(PROCESSES_FILE) },
+  [IMPORTS_FILE]: { "Used in Processes": rowNamed(PROCESSES_FILE), "Target Object": targetObject },
   "Exports.csv": { "Used in Processes": rowNamed(PROCESSES_FILE) },
-  "Other Actions.csv": { "Used in Processes": rowNamed(PROCESSES_FILE) },
-  "Import Data Sources.csv": { "Used in Imports": rowNamed(IMPORTS_FILE), Imports: rowNamed(IMPORTS_FILE) },
+  "Other Actions.csv": { "Used in Processes": rowNamed(PROCESSES_FILE), "Action List": rowNamed(LISTS_FILE) },
+  "Import Data Sources.csv": { "Used in Imports": rowNamed(IMPORTS_FILE), Imports: rowNamed(IMPORTS_FILE), "Source Model": rowNamed("Source Models.csv") },
+  "Dynamic Cell Access.csv": { "Driver Module": rowNamed(MODULES_FILE), "Driver Line Item": lineItemIn("Driver Module"),
+    "Controlled Module": rowNamed(MODULES_FILE), "Controlled Line Item": lineItemIn("Controlled Module") },
+  [MODULE_USAGE_FILE]: { Module: rowNamed(MODULES_FILE) },
+  [PAGE_FILTERS_FILE]: { "Condition line item's module": rowNamed(MODULES_FILE), "Condition line item": lineItemIn("Condition line item's module"),
+    "Filtered module": rowNamed(MODULES_FILE), "Filtered dimension": rowNamed(LISTS_FILE) },
+  [PAGE_ACTIONS_FILE]: { "Model action name": pageAction },
 }).map(([file, columns]) => [file, new Map(Object.entries(columns))]));
 
 /** For each item of a cell of `row`, in the cell's order, the row it names, or nothing for an item that is no row the
  * page can open. `header` is the cell's column, and `table` the page's table the row is of. */
 export function itemRows(table: ResultTable, header: string, items: Items, row: Row, tables: ReadonlyMap<string, NamedRows>): (ItemRow | undefined)[] {
   const resolve = RESOLVERS.get(table.file)?.get(header);
-  return items.map(item => (resolve ? resolve(item, row, table, tables) : undefined));
+  return items.map(item => (resolve && item !== MISSING_LINE_ITEMS_MODULE && !missingIn(item).length ? resolve(item, row, table, tables) : undefined));
 }
