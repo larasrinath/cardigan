@@ -2396,6 +2396,9 @@ describe("The map's search", () => {
 });
 
 describe("The room the map's picture has", () => {
+  // Frames and camera time come from FakeSurroundings; the details' click-through timer is controlled here too.
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => map.destroy());
   const NOWHERE = { left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 };
   type Place = [left: number, top: number, right: number, bottom: number];
   /** Gives parts of the map the boxes a browser would lay them out at: a part that is hidden, or in something hidden, has none. */
@@ -2410,8 +2413,9 @@ describe("The room the map's picture has", () => {
     }
   }
   const LEGEND: Place = [10, 520, 236, 750];
-  const DOCK: Place = [10, 760, 330, 790];
-  const CORNER: Place = [982, 622, 1190, 790];
+  const DOCK: Place = [10, 754, 400, 790];
+  const NAVIGATION: Place = [1044, 754, 1190, 790];
+  const CORNER: Place = [982, 604, 1190, 746];
   /** A map of 1200 by 800 laid out as its stylesheet lays it out: the bar across the top, the graph's room under it, the
    * details in a column at the right, the legend over the foot's line at the left, the small picture at the right. */
   function openLaidOut(graph?: ModelGraph, legend: Place = LEGEND): void {
@@ -2419,7 +2423,7 @@ describe("The room the map's picture has", () => {
     layOut({
       ".map-canvas": [0, 0, 1200, 800],
       ".map-free": () => (root().classList.contains("map-has-inspector") ? [10, 56, 864, 790] : [10, 56, 1190, 790]),
-      ".map-legend": legend, ".map-dock": DOCK, ".map-minimap-wrap": CORNER,
+      ".map-legend": legend, ".map-summary": DOCK, ".map-navigation": NAVIGATION, ".map-minimap-wrap": CORNER,
     });
     map.show();
     env.resize(1200, 800);
@@ -2534,8 +2538,8 @@ describe("The room the map's picture has", () => {
       ".map-free": () => (root().classList.contains("map-has-inspector") ? [10, 56, 864, 790] : [10, 56, 1190, 790]),
       ".map-legend": [10, 700, 60, 750],
       // Selection adds nothing to the foot.
-      ".map-dock": [10, 760, 864, 790],
-      ".map-minimap-wrap": CORNER,
+      ".map-summary": [10, 760, 864, 790],
+      ".map-navigation": NAVIGATION, ".map-minimap-wrap": CORNER,
     });
     map.show();
     env.resize(1200, 800);
@@ -2552,16 +2556,16 @@ describe("The room the map's picture has", () => {
     for (const box of after) expect([box.x + box.w <= 864, box.y + box.h <= 760]).toEqual([true, true]);
   });
 
-  /** Even a long status uses the same slim bar. */
-  const SLIM_FOOT: Place = [10, 758, 1190, 790];
+  /** Even a long status uses the same corner cluster. */
+  const SLIM_FOOT: Place = [10, 754, 400, 790];
   function openWithNarrowFoot(graph: ModelGraph): void {
     mount(graph, { modelName: "Demand Plan", view: { view: "modules", minimap: true } });
     layOut({
       ".map-canvas": [0, 0, 1200, 800],
       ".map-free": () => (root().classList.contains("map-has-inspector") ? [10, 56, 864, 790] : [10, 56, 1190, 790]),
       ".map-legend": [10, 700, 70, 750],
-      ".map-dock": SLIM_FOOT,
-      ".map-minimap-wrap": CORNER,
+      ".map-summary": SLIM_FOOT,
+      ".map-navigation": NAVIGATION, ".map-minimap-wrap": CORNER,
     });
     map.show();
     env.resize(1200, 800);
@@ -2577,6 +2581,8 @@ describe("The room the map's picture has", () => {
     const low = [...opened].filter(([, box]) => box.y > 450 && box.y < 700 && box.x > 100 && box.x + box.w < 800)[0];
     click(low[1].x + low[1].w / 2, low[1].y + low[1].h / 2);
     env.settle();
+    vi.runOnlyPendingTimers();
+    expect(env.waiting).toBe(0);
     const selected = boxes().get(low[0])!;
     expect([part(".map-status").hidden, wholeInView(), /\d+ of 354 boxes in view\.$/.test(status()), selected.w]).toEqual([false, false, true, low[1].w]);
     expect(boxes()).toEqual(opened);
@@ -2645,7 +2651,7 @@ describe("The room the map's picture has", () => {
     expect([overlaps(found, SLIM_FOOT), found.y + found.h <= 758, found.x + found.w <= 864]).toEqual([false, true, true]);
   });
 
-  it("counts boxes covered by the minimap without changing the bar or camera", () => {
+  it("counts boxes covered by the minimap without changing the clusters or camera", () => {
     openLaidOut(sectionsOf(60));
     act("zoom-in").press();
     env.settle();
@@ -2654,11 +2660,37 @@ describe("The room the map's picture has", () => {
     act("minimap").press();
     env.settle();
     expect(boxes()).toEqual(before);
-    expect(part(".map-dock").getBoundingClientRect().height).toBe(30);
+    expect(part(".map-summary").getBoundingClientRect().height).toBe(36);
     act("minimap").press();
     env.settle();
     expect(boxes()).toEqual(before);
     expect(status()).toBe(withMinimap);
+  });
+
+  it.each([".map-summary", ".map-navigation", ".map-minimap-wrap"])("counts a selected box covered by %s, and reveals it only when asked", selector => {
+    openLaidOut(sectionsOf(6));
+    const name = "6: Section 6";
+    click(...at(name));
+    env.settle();
+    vi.runOnlyPendingTimers();
+    const before = boxes();
+    const box = before.get(name)!;
+    const cover: Place = [box.x - 2, box.y - 2, box.x + box.w + 2, box.y + box.h + 2];
+    // The same box is covered by each overlay in turn. Opening About refreshes the measured counts, without a fit.
+    layOut({ [selector]: cover, ".map-about": [0, 0, 0, 0] });
+    act("about").press();
+    env.settle();
+    expect(boxes()).toEqual(before);
+    const visible = [...before.values()].filter(box => box.x >= 10 && box.x + box.w <= 864 && box.y >= 56 && box.y + box.h <= 790
+      && ![cover, ...(selector === ".map-summary" ? [] : [DOCK]), ...(selector === ".map-navigation" ? [] : [NAVIGATION]),
+        ...(selector === ".map-minimap-wrap" ? [] : [CORNER]), ...(part(".map-legend").hidden ? [] : [LEGEND])].some(area => overlaps(box, area))).length;
+    expect(status()).toBe(`6 groups · 0 links. ${visible} of 6 boxes in view.`);
+    expect(part(".map-stats").title).toBe(status());
+    expect(overlaps(box, cover)).toBe(true);
+    goTo(name);
+    env.settle();
+    expect(text(".map-insp-name")).toBe(name);
+    expect(overlaps(boxes().get(name)!, cover)).toBe(false);
   });
 
   it("lets the panel that opens close the other where the two would leave the picture no room at all", () => {
@@ -2674,7 +2706,7 @@ describe("The room the map's picture has", () => {
   it("keeps the focus in the map when the legend closes under it as the map's place shrinks", () => {
     let legendBox: Place = LEGEND;
     mount(sectionsOf(24));
-    layOut({ ".map-canvas": [0, 0, 1200, 800], ".map-free": [10, 56, 1190, 790], ".map-legend": () => legendBox, ".map-dock": DOCK, ".map-minimap-wrap": CORNER });
+    layOut({ ".map-canvas": [0, 0, 1200, 800], ".map-free": [10, 56, 1190, 790], ".map-legend": () => legendBox, ".map-summary": DOCK, ".map-navigation": NAVIGATION, ".map-minimap-wrap": CORNER });
     map.show();
     env.resize(1200, 800);
     env.settle();
