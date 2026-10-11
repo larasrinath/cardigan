@@ -2,15 +2,23 @@
 
 Every merged change that alters the extension has a version of its own: a new feature raises the middle number (0.14.0), and a fix or a speed-up the last one (0.13.1). A change to the docs alone keeps the version. The version stands next to Cardigan's name at the top of the results page and in the first line of the diagnostic log, so a build can be matched to its section here; each change ends with the number of the pull request that made it.
 
-## 0.18.4 (10 October 2026)
+## 0.18.5 (10 October 2026)
 
 The model map shows the filters a module's own line items put on it, and its **Page filters** box says truly what it draws.
 
 - **Marks for a module's own filters.** Most filters on a model's pages have their condition in the module they filter, such as a module's Incomplete Records filtering that module's rows. No arrow joins a module to itself, so the map drew nothing for them, and a model whose filters were all of that kind had **Page filters** greyed out, with a note that said, wrongly, that none of its filters had a line item of the model as its condition. Ticked, the box now marks each such module: a plum mark on the box's top edge, with a funnel and how many of its own line items filter it. A group's mark says how many of its modules are filtered so, and in the Line items view each line item that filters its own module has the mark, without a number. Zoomed out, where a box is too small for it, the mark is a plum dot at the box's top right. The legend says what it means on the picture shown. A filter on another module keeps its dashed arrow. (#NN)
 - **A note that tells the truth.** The note under the box says what ticking it draws: arrows, marks or both. Where there is nothing to draw, the box is off and the note says why: the result has no **Page Filters** table; the pages have no filters; none of the filters has a line item of the map as its condition, with how many filters there are; or none of them filters a module of the map. (#NN)
-- **Names found whatever their spaces.** A filter's line item is found by its module's name and its own. Line Items and **Page Filters** may write a name with a space at its end, or two spaces in a row, where the other has none or one; such a name was not found before, and is now, where one module or line item alone fits. The rows of **Modules** and **Module Usage** find their modules the same way. The map's line items have no ID in the export, so the names are what a filter is matched by. (#NN)
+- **Names found whatever their spaces.** A filter's line item is found by its module's name and its own. Where Line Items wrote either with a space at its end that **Page Filters** did not have, or the two wrote a run of spaces differently, the line item was not found, and its filter was left off the map and its details; it is found now, where one module or line item alone fits. A filtered module, and a row of **Modules** or **Module Usage**, is found despite a run of spaces written differently too; spaces at the ends were already allowed for there. The map's line items have no ID in the result, so their names are what a filter is matched by. (#NN)
 - **One line in the log.** When the map is first built, the diagnostic log says how the Page Filters table met the map, such as "Page filters: 32 rows; 32 with the condition line item on the map (30 on its own module, 2 on another module); 0 with a line item the map does not have.", and names the first five line items it could not find, each once. (#NN)
 - **What stays the same.** A module's details list its own line items under **Filtered on pages by**, as they did. A mark is followed by no trace, a filter's arrow only while it is drawn, and neither changes a module's role in the data flow. The tick is kept for the tab, as it was. (#NN)
+
+## 0.18.4 (10 October 2026)
+
+The Overview says no more than it needs to of how a model's imports were matched.
+
+- **Nothing where every import was matched.** The export checks that each import in Anaplan's Imports tab is the same import as a row of its Actions list, which gives the import its last run, its notes and the processes that use it. Where every one was, the Overview showed "Imports: 372 rows (372 matched in the Actions list)" under **Tables**, which says no more than the tile's count. It is no longer shown, and with nothing else to list, neither is **Tables**. (#56)
+- **A note where some were not.** Where some could not be matched, a note says how many and what that means: "Imports: 2 of the 372 rows could not be matched between the Imports tab and the Actions list, so some of their columns are empty." It stands with the Overview's other notes, and the row is not said under **Tables** as well. (#56)
+- **What stays the same.** What is read, the Imports table, and the diagnostic log. A table that was not exported, and a count with another remark, such as imports read from the Imports tab alone when the Actions list could not be read, are still listed under **Tables**. (#56)
 
 ## 0.18.3 (10 October 2026)
 

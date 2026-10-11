@@ -61,6 +61,24 @@ const NOT_EXPORTED = "Not exported: ";
  * how the export labels a table (model/export.ts). No user is shown a file's name. */
 const withoutExtension = (file: string): string => file.replace(/\.csv$/, "");
 
+/** How the export says beside the Imports file's count how many of its rows it matched between the Imports tab and the
+ * Actions list (model/export.ts, actions.ts `mergeImports`): "372 rows (372 matched in the Actions list)". A row that is
+ * in only one of the two has the other's columns empty. */
+const MATCHED = /^(\d+) rows \((\d+) matched in the Actions list\)$/;
+
+/** What the overview makes of a Files row that says how many of a table's rows were matched in the Actions list: nothing
+ * of its own where every row was (`counted`: the table's tile says the number), and a note where some were not, said by
+ * the name the page has for the table. Nothing for any other row, and for a count that is not the table's own number of
+ * rows, which stays under Tables as it is. */
+export function matchedRemark(table: string, value: string, rows: number | undefined): { counted: true } | { note: string } | undefined {
+  const found = MATCHED.exec(value);
+  if (!found || Number(found[1]) !== rows) return undefined;
+  const missed = rows - Number(found[2]);
+  if (missed <= 0) return { counted: true };
+  const its = missed === 1 ? "its" : "their";
+  return { note: `${table}: ${missed} of the ${rows} rows could not be matched between the Imports tab and the Actions list, so some of ${its} columns are empty.` };
+}
+
 /** The summary lines that say what a Files row of the Details file says. A model's summary lists every file, and the
  * export writes each file's line and its Files row from the same words (model/export.ts): "Imports: 3 rows (2 matched in
  * the Actions list)" beside the row "Imports.csv", "3 rows (2 matched in the Actions list)"; and for a file that was not
@@ -83,7 +101,8 @@ function saidWithFiles(details: ResultTable | undefined): Set<string> {
  * - A line that says only how many rows a file has ("Line Items: 120 rows", as a model's summary lists every file): the
  *   file's tile says that number, also where its table lists fewer rows than the file has (`Overview.tiles`).
  * - A line that says what a Files row of the Details file says (`saidWithFiles`): that row is on the overview, under
- *   Tables or as the file's tile. */
+ *   Tables or as the file's tile, or, for imports not all matched in the Actions list, as a note of its own
+ *   (`matchedRemark`). */
 export function resultNotes(result: AnalysisResult): string[] {
   const rowCounts = new Set(result.tables.flatMap(table => ["rows", "row"].map(word => `${cellText(table.label)}: ${table.rows.length} ${word}`)));
   const withFiles = saidWithFiles(detailsOf(result));
@@ -617,7 +636,8 @@ export interface Overview {
    * A tile says that one number: where a table leaves rows of its file out, as a Model Calendar's does, the line under the
    * table's name says how many and why. */
   tiles: { label: string; count: number }[];
-  /** The result's notes (`resultNotes`). */
+  /** The result's notes (`resultNotes`), then a note for each table some of whose rows the export could not match in the
+   * Actions list (`matchedRemark`). */
   notes: string[];
   /** About this export: the Details file's rows of every section but its files, its notes, how to read them and the log,
    * in the file's order, but for an app's models, which follow its ID; then what a model's Model Calendar file says about
@@ -629,7 +649,8 @@ export interface Overview {
    * and a count that comes with a remark. Each is named as the page names the table: by the table's own label where the
    * result has the file, and otherwise by the file's name without its extension. A row that says only how many rows a
    * file of the result has is left out: the file's tile says how many rows its table lists, and where that is fewer,
-   * the line under the table's name says how many are left out and why. */
+   * the line under the table's name says how many are left out and why. So is the Imports row that says how many rows
+   * were matched in the Actions list: where all were, the tile says the count; where some were not, a note says it. */
   files: [table: string, value: string][];
   /** How to read these tables: the Details file's rows of that section. */
   howToRead: [detail: string, value: string][];
@@ -668,7 +689,16 @@ export function overviewOf(result: AnalysisResult): Overview {
   const onlyCounted = new Map(result.tables.map(table => [table.file, `${table.rows.length} rows`]));
   // A row names its file, extension and all, which no user is to see: it is said under the name the page has for the table.
   const labels = new Map(result.tables.map(table => [table.file, cellText(table.label)]));
-  const files = rowsOf(FILES).filter(([file, value]) => onlyCounted.get(file) !== value)
-    .map(([file, value]): [string, string] => [labels.get(file) ?? withoutExtension(file), value]);
-  return { tiles, notes: resultNotes(result), about, files, howToRead: rowsOf(HOW_TO_READ), log: diagnosticLog(detailsOf(result)) };
+  const named = (file: string): string => labels.get(file) ?? withoutExtension(file);
+  // The export's own check that every import was matched in the Actions list says nothing where every one was: the tile
+  // says the count. Where some were not, a note says how many and what that means, and the row is not said twice.
+  const rowCount = new Map(result.tables.map(table => [table.file, table.rows.length]));
+  const unmatched: string[] = [];
+  const files = rowsOf(FILES).filter(([file, value]) => {
+    if (onlyCounted.get(file) === value) return false;
+    const remark = matchedRemark(named(file), value, rowCount.get(file));
+    if (remark && "note" in remark) unmatched.push(remark.note);
+    return remark === undefined;
+  }).map(([file, value]): [string, string] => [named(file), value]);
+  return { tiles, notes: [...resultNotes(result), ...unmatched], about, files, howToRead: rowsOf(HOW_TO_READ), log: diagnosticLog(detailsOf(result)) };
 }

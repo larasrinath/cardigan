@@ -2599,6 +2599,13 @@ describe("What a click, a key and typing do on the results page", () => {
         // A count of the file's own rows is its tile's number, but for a Model Calendar's: its table leaves rows out, and the
         // line under the table's name says how many.
         if (section === "Files" && /^\d+ rows$/.test(value)) return !tiles().includes(`${detail}: ${value}`) && detail !== "Model Calendar.csv";
+        // The export's check of the imports matched in the Actions list: the tile's count where every one was, and a note
+        // that says how many were not where some were not.
+        const matched = /^(\d+) rows \((\d+) matched in the Actions list\)$/.exec(value);
+        if (section === "Files" && matched) {
+          const missed = Number(matched[1]) - Number(matched[2]);
+          return missed === 0 ? !tiles().includes(`${detail}: ${matched[1]} rows`) : !shown.some(text => text.startsWith(`${detail.replace(/\.csv$/, "")}: ${missed} of the ${matched[1]} rows`));
+        }
         // Any other Files row is said under the name the page has for the table: the file's own name is shown nowhere.
         if (section === "Files") return !(shown.includes(detail.replace(/\.csv$/, "")) && shown.includes(value));
         return !(shown.includes(detail) && shown.includes(value));
@@ -2633,6 +2640,24 @@ describe("What a click, a key and typing do on the results page", () => {
     expect([page.texts("#view .warn-list li"), page.texts("#ovFiles dt"), page.texts("#ovFiles dd")]).toEqual([["Actions: the Actions list came without Notes."],
       ["Modules", "Source Models"], ["2 rows (as listed)", "Not exported: This model page has no REMOTE_MODEL axis."]]);
     expect(["2 rows (as listed)", "REMOTE_MODEL"].map(said => page.id("view").textContent.split(said).length - 1)).toEqual([1, 1]);
+
+    // A model whose imports the export matched in the Actions list. Where every one was, the tile says the count, and
+    // there is no Tables section and no note. Where some were not, a note says how many, and Tables has nothing of it.
+    const imports: ResultTable = { file: "Imports.csv", label: "Imports", headers: ["", "Source Label"], rows: [["Load", "a.csv"], ["Prices", "b.csv"], ["Units", "c.csv"]], guard: false };
+    const importsMatched = (value: string): AnalysisResult => {
+      const matched = withFiles({ ...MODEL, tables: [...MODEL.tables, imports] });
+      matched.tables[0].rows[matched.tables[0].rows.length - 1] = ["Files", "Imports.csv", value];
+      return matched;
+    };
+    const allMatched = importsMatched("3 rows (3 matched in the Actions list)");
+    page.id("runAgain").press();
+    sendResult(ports[0], allMatched);
+    expect([unsaid(allMatched), page.has("#ovFiles"), page.has("#view .warn-list"), page.id("view").textContent.includes("matched in the Actions list")]).toEqual([[], false, false, false]);
+    const someMatched = importsMatched("3 rows (1 matched in the Actions list)");
+    page.id("runAgain").press();
+    sendResult(ports[0], someMatched);
+    expect([unsaid(someMatched), page.has("#ovFiles"), page.texts("#view .warn-list li")]).toEqual([[], false,
+      ["Imports: 2 of the 3 rows could not be matched between the Imports tab and the Actions list, so some of their columns are empty."]]);
 
     // A model one of whose tables lists fewer rows than its file has: the calendar, with its rows about the model. The
     // Details file counts all of each file's rows, 8 and 31.
